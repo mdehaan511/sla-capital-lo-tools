@@ -12,12 +12,6 @@
 
 # ── API routes ──────────────────────────────────────────────
 [[redirects]]
-  from = "/api/send-email"
-  to = "/.netlify/functions/send-email"
-  status = 200
-  force = true
-
-[[redirects]]
   from = "/api/config"
   to = "/.netlify/functions/config"
   status = 200
@@ -68,6 +62,24 @@
 [[redirects]]
   from = "/api/users"
   to = "/.netlify/functions/users-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users-invite"
+  to = "/.netlify/functions/users-invite"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users-update"
+  to = "/.netlify/functions/users-update"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users-delete"
+  to = "/.netlify/functions/users-delete"
   status = 200
   force = true
 

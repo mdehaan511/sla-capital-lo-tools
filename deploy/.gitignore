@@ -1,0 +1,19 @@
+# Dependencies — installed by Netlify at build time, not committed
+node_modules/
+
+# Lockfile is optional; if you commit it, remove this line
+package-lock.json
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Netlify CLI local cache
+.netlify/
+
+# Build artifacts
+dist/
+build/
