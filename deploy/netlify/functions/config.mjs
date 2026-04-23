@@ -1,34 +1,30 @@
 /**
- * config.js — GET /api/config
- *
- * Serves public runtime configuration (currently just the Google Maps
- * browser API key). This replaces the build-time placeholder injection
- * in inject-env.js, so deploys can be done via drag-and-drop without
- * running a build command.
- *
- * The Maps key is a browser-side key restricted to your domain(s) in
- * Google Cloud Console — it is safe to serve publicly.
+ * config.mjs — GET /api/config
+ * Self-contained, no shared imports. Returns the public Maps API key
+ * for runtime injection into HTML.
  */
-import { handleOptions, corsHeaders } from './_shared/auth.mjs';
-
 export default async (req, context) => {
-  const pre = handleOptions(req); if (pre) return pre;
-  if (req.method !== 'GET') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+  if (req.method === 'OPTIONS') {
+    return new Response('', {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
     });
   }
-  const body = {
+
+  const body = JSON.stringify({
     googleMapsKey: process.env.GOOGLE_MAPS_API_KEY || '',
-  };
-  return new Response(JSON.stringify(body), {
+  });
+  return new Response(body, {
     status: 200,
     headers: {
-      ...corsHeaders(),
       'Content-Type': 'application/json',
-      // Cache for 10 minutes on the edge so we don't hammer this endpoint
+      'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'public, max-age=600',
     },
   });
 };
+
