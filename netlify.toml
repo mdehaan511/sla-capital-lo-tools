@@ -1,0 +1,80 @@
+[build]
+  publish = "."
+  command = "node inject-env.js"
+
+[functions]
+  directory = "netlify/functions"
+  included_files = ["netlify/functions/_shared/**"]
+
+[build.environment]
+  NODE_VERSION = "20"
+  AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
+
+# ── API routes ──────────────────────────────────────────────
+[[redirects]]
+  from = "/api/send-email"
+  to = "/.netlify/functions/send-email"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/config"
+  to = "/.netlify/functions/config"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/clients"
+  to = "/.netlify/functions/clients-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/clients-save"
+  to = "/.netlify/functions/clients-save"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/clients-delete"
+  to = "/.netlify/functions/clients-delete"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/prospects"
+  to = "/.netlify/functions/prospects-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/prospects-save"
+  to = "/.netlify/functions/prospects-save"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/prospects-delete"
+  to = "/.netlify/functions/prospects-delete"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/settings"
+  to = "/.netlify/functions/settings"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users"
+  to = "/.netlify/functions/users-list"
+  status = 200
+  force = true
+
+# ── Security headers ───────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
