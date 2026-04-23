@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Saved Quotes — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="quotes.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --r: 12px; --r-xs: 8px;
+      --approved-bg: rgba(37,105,64,0.08);  --approved: #256940; --approved-border: rgba(37,105,64,0.2);
+      --hold-bg: rgba(122,82,24,0.08);      --hold: #7a5218;    --hold-border: rgba(122,82,24,0.2);
+      --denied-bg: rgba(124,31,31,0.08);    --denied: #7c1f1f;  --denied-border: rgba(124,31,31,0.2);
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate p { color: rgba(255,255,255,0.4); font-size: 14px; }
+    .nav { max-width: 1320px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 44px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 10px; }
+    .back-link { font-size: 12px; color: var(--muted); text-decoration: none; }
+    .back-link:hover { color: var(--gold); }
+    .user-pill { font-size: 12px; color: var(--muted); background: var(--gold-light); border: 1px solid var(--gold-border); padding: 4px 12px; border-radius: 20px; font-family: 'DM Mono', monospace; }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; -webkit-appearance: none; appearance: none; }
+    .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .page { max-width: 1320px; margin: 0 auto; padding-top: 2.25rem; }
+    .page-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 16px; }
+    .page-header h1 { font-size: 22px; font-weight: 600; }
+    .page-header p  { font-size: 13px; color: var(--muted); margin-top: 3px; }
+    /* View tabs */
+    .view-tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 30px; padding: 3px; gap: 2px; margin-bottom: 1.5rem; width: fit-content; }
+    .view-tab { padding: 6px 18px; border-radius: 26px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background: none; font-family: 'DM Sans', sans-serif; color: var(--muted); transition: all 0.15s; white-space: nowrap; }
+    .view-tab.active { background: var(--dark); color: #fff; }
+    .view-tab:not(.active):hover { color: var(--gold); }
+    /* Summary */
+    .summary-bar { display: flex; gap: 12px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .summary-pill { font-size: 12px; padding: 5px 14px; border-radius: 20px; font-weight: 500; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+    .summary-pill strong { color: var(--text); }
+    /* Toolbar */
+    .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .search-wrap { position: relative; flex: 1; min-width: 200px; max-width: 320px; }
+    .search-wrap input { width: 100%; height: 38px; padding: 0 12px 0 36px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); background: var(--surface); outline: none; transition: border-color 0.15s; }
+    .search-wrap input:focus { border-color: var(--gold); }
+    .search-wrap svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+    .filter-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .filter-btn { height: 38px; padding: 0 14px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .filter-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .filter-btn.active-filter { background: var(--gold-light); border-color: var(--gold); color: var(--gold); }
+    .filter-btn.f-approved.active-filter { background: var(--approved-bg); border-color: var(--approved-border); color: var(--approved); }
+    .filter-btn.f-hold.active-filter     { background: var(--hold-bg);     border-color: var(--hold-border);     color: var(--hold); }
+    .filter-btn.f-denied.active-filter   { background: var(--denied-bg);   border-color: var(--denied-border);   color: var(--denied); }
+    .filter-count { font-size: 11px; font-family: 'DM Mono', monospace; opacity: 0.7; }
+    .tool-tabs { display: flex; gap: 6px; margin-left: auto; }
+    .tool-tab { height: 38px; padding: 0 14px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+    .tool-tab:hover { border-color: var(--gold); color: var(--gold); }
+    .tool-tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
+    /* Table */
+    .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 16px; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 700px; }
+    thead th { padding: 10px 10px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: #faf8f5; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    thead th:first-child { padding-left: 14px; }
+    thead th:last-child  { padding-right: 14px; }
+    tbody tr { border-bottom: 1px solid #f0ece6; cursor: pointer; transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #faf8f5; }
+    tbody td { padding: 11px 10px; font-size: 13px; color: var(--text); vertical-align: middle; }
+    tbody td:first-child { padding-left: 14px; }
+    tbody td:last-child  { padding-right: 14px; }
+    .td-addr { font-weight: 500; max-width: 240px; }
+    .td-addr-main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .td-addr-sub  { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; }
+    .td-mono { font-family: 'DM Mono', monospace; font-size: 12.5px; }
+    .td-date { font-size: 11.5px; color: var(--muted); font-family: 'DM Mono', monospace; white-space: nowrap; }
+    .tool-badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; }
+    .tool-badge.dscr { background: rgba(38,26,54,0.08); color: var(--dark); }
+    .tool-badge.rtl  { background: rgba(200,129,58,0.12); color: var(--gold-mid); }
+    .status-select {
+      appearance: none; -webkit-appearance: none;
+      border: 1.5px solid transparent; border-radius: 20px;
+      padding: 4px 24px 4px 10px; font-size: 11px; font-weight: 600;
+      cursor: pointer; font-family: 'DM Sans', sans-serif;
+      background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%237a7488' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 8px center;
+      outline: none; transition: all 0.15s;
+    }
+    .status-select.active   { background-color: var(--gold-light);   border-color: var(--gold-border);    color: var(--gold-mid); }
+    .status-select.on_hold  { background-color: var(--hold-bg);      border-color: var(--hold-border);    color: var(--hold); }
+    .status-select.approved { background-color: var(--approved-bg);  border-color: var(--approved-border);color: var(--approved); }
+    .status-select.denied    { background-color: var(--denied-bg);    border-color: var(--denied-border);  color: var(--denied); }
+    .status-select.submitted { background-color: rgba(38,26,54,0.08); border-color: rgba(38,26,54,0.25);   color: var(--dark); }
+    .status-select:hover    { filter: brightness(0.95); }
+    .status-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; border: 1px solid transparent; }
+    .status-badge.active   { background: var(--gold-light);  color: var(--gold-mid);  border-color: var(--gold-border); }
+    .status-badge.approved { background: var(--approved-bg); color: var(--approved);  border-color: var(--approved-border); }
+    .status-badge.on_hold  { background: var(--hold-bg);     color: var(--hold);      border-color: var(--hold-border); }
+    .status-badge.denied    { background: var(--denied-bg);   color: var(--denied);    border-color: var(--denied-border); }
+    .status-badge.submitted { background: rgba(38,26,54,0.08); color: var(--dark);     border-color: rgba(38,26,54,0.25); }
+    .submitted-addr-link { text-decoration: none; color: inherit; display: block; }
+    .submitted-addr-link .td-addr-main { color: var(--gold); text-decoration: underline; text-underline-offset: 2px; }
+    .submitted-addr-link:hover .td-addr-main { color: var(--gold-mid); }
+    .status-badge.denied    { background: var(--denied-bg);    color: var(--denied);    border-color: var(--denied-border); }
+    .status-badge.approved  { background: var(--approved-bg);  color: var(--approved);  border-color: var(--approved-border); }
+    .status-badge-locked { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600;
+      padding: 3px 10px; border-radius: 20px; white-space: nowrap; border: 1px solid transparent;
+      cursor: default; user-select: none; }
+    .action-cell { display: flex; align-items: center; gap: 4px; }
+    .status-btn { font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 20px; border: 1px solid; cursor: pointer; font-family: 'DM Sans', sans-serif; white-space: nowrap; transition: all 0.15s; background: transparent; }
+    .status-btn.approve { color: var(--approved); border-color: var(--approved-border); }
+    .status-btn.approve:hover { background: var(--approved-bg); }
+    .status-btn.hold    { color: var(--hold);     border-color: var(--hold-border); }
+    .status-btn.hold:hover { background: var(--hold-bg); }
+    .status-btn.deny    { color: var(--denied);   border-color: var(--denied-border); }
+    .status-btn.deny:hover { background: var(--denied-bg); }
+    .status-btn.reset   { color: var(--muted); border-color: var(--border); }
+    .status-btn.reset:hover { border-color: var(--gold); color: var(--gold); }
+    .del-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
+    .del-btn:hover { border-color: var(--denied); color: var(--denied); background: var(--denied-bg); }
+    /* Admin user sections */
+    .admin-section { margin-bottom: 16px; }
+    .user-section-hdr {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 14px 20px;
+      cursor: pointer; user-select: none; transition: background 0.1s;
+    }
+    .user-section-hdr:hover { background: #faf8f5; }
+    .user-section-hdr.is-open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+    .user-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--dark); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; letter-spacing: 0.02em; }
+    .user-info { flex: 1; min-width: 0; }
+    .user-email { font-size: 14px; font-weight: 600; color: var(--text); }
+    .user-meta  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .user-badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .ubadge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+    .ubadge.total    { background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); }
+    .ubadge.approved { background: var(--approved-bg); color: var(--approved); border: 1px solid var(--approved-border); }
+    .ubadge.hold     { background: var(--hold-bg);     color: var(--hold);     border: 1px solid var(--hold-border); }
+    .ubadge.denied   { background: var(--denied-bg);   color: var(--denied);   border: 1px solid var(--denied-border); }
+    .chevron-icon { flex-shrink: 0; color: var(--muted); transition: transform 0.2s; }
+    .chevron-icon.open { transform: rotate(180deg); }
+    .user-section-body { border: 1px solid var(--border); border-top: none; border-bottom-left-radius: var(--r); border-bottom-right-radius: var(--r); overflow: hidden; display: none; }
+    .user-section-body.open { display: block; }
+    /* no-click rows in admin table */
+    .admin-tbody tr { cursor: default; }
+    .admin-tbody tr:hover { background: #faf8f5; }
+    .no-quotes-row { padding: 20px 24px; font-size: 13px; color: var(--muted); text-align: center; background: var(--surface); }
+    /* Spinner */
+    .spinner-wrap { text-align: center; padding: 3rem; color: var(--muted); font-size: 13px; }
+    .spinner { display: block; margin: 0 auto 14px; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* Empty */
+    .empty-state { padding: 4rem 2rem; text-align: center; }
+    .empty-state h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; color: var(--muted); }
+    .empty-state p  { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .empty-state a  { color: var(--gold); text-decoration: none; }
+    /* Toast */
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .nav-tool-link.current { background:var(--dark); border-color:var(--dark); color:#fff; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 9999; white-space: nowrap; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    @media (max-width: 700px) { .tool-tabs,.view-tabs { width: 100%; } .tool-tab,.view-tab { flex: 1; text-align: center; } }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><p>Checking authentication…</p></div>
+<div class="toast" id="toast"></div>
+
+<!-- ── SUBMIT MODAL ─────────────────────────────────────── -->
+<div id="submitOverlay" style="display:none;position:fixed;inset:0;background:rgba(38,26,54,0.55);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;width:min(680px,95vw);max-height:88vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.2)">
+    <div style="padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:16px">
+      <div>
+        <div style="font-size:16px;font-weight:600" id="submitModalTitle">Submit Loan Application</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px" id="submitModalAddr"></div>
+      </div>
+      <button onclick="closeSubmitModal()" style="background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;padding:4px 8px;line-height:1">&#215;</button>
+    </div>
+    <div style="padding:20px 24px">
+      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:10px">Loan Details</div>
+      <div id="submitTermSheet" style="background:var(--bg);border-radius:var(--r-xs);padding:14px 16px;font-size:12px;font-family:'DM Mono',monospace;line-height:1.8;margin-bottom:16px;white-space:pre-wrap;max-height:260px;overflow-y:auto"></div>
+      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:8px">Notes</div>
+      <textarea id="submitNotes" placeholder="Add any notes about this loan application…" style="width:100%;height:100px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical;outline:none;transition:border-color 0.15s" onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+      <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+        <button onclick="closeSubmitModal()" style="padding:10px 20px;border:1px solid var(--border);background:none;border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer">Cancel</button>
+        <button id="submitSendBtn" onclick="sendSubmitEmail()" style="padding:10px 24px;background:var(--dark);color:#fff;border:none;border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--gold)'" onmouseout="this.style.background='var(--dark)'">Send Application &#8594;</button>
+      </div>
+      <div id="submitStatus" style="margin-top:10px;font-size:12px;text-align:center;display:none"></div>
+    </div>
+  </div>
+</div>
+
+<nav class="nav">
+  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+  <div class="nav-right">
+    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+    <a class="nav-tool-link current" href="saved-quotes.html">Saved Quotes</a>
+    <a class="nav-tool-link" href="prospects.html">Prospects</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+    <span class="user-pill" id="navEmail"></span>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Saved Quotes</h1>
+      <p id="pageSubtitle">All saved loan quotes across DSCR and RTL tools.</p>
+    </div>
+  </div>
+
+  <!-- View switcher — admins only -->
+  <div class="view-tabs" id="viewTabs" style="display:none">
+    <button class="view-tab active" data-view="my"        onclick="setView('my')">My Quotes</button>
+    <button class="view-tab"        data-view="submitted" onclick="setView('submitted')">
+      Submitted Loans <span id="submittedCount" style="font-size:11px;font-family:'DM Mono',monospace;margin-left:4px;opacity:0.55"></span>
+    </button>
+    <button class="view-tab"        data-view="decisions" onclick="setView('decisions')">
+      Approved / Denied <span id="decisionsCount" style="font-size:11px;font-family:'DM Mono',monospace;margin-left:4px;opacity:0.55"></span>
+    </button>
+    <button class="view-tab"        data-view="admin"     onclick="setView('admin')">
+      All Users <span id="adminUserCount" style="font-size:11px;font-family:'DM Mono',monospace;margin-left:4px;opacity:0.55"></span>
+    </button>
+  </div>
+
+  <!-- ── MY QUOTES ─────────────────────────────────────── -->
+  <div id="myView">
+    <div class="summary-bar" id="summaryBar"></div>
+    <div id="commissionBar" style="margin-bottom:1rem;display:none"><div style="background:var(--gold-light);border:1px solid var(--gold-border);border-radius:var(--r-xs);padding:10px 18px;display:inline-flex;align-items:center;gap:10px"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="var(--gold)" stroke-width="1.4"/><path d="M7 4v6M5 8l2 2 2-2M5 6l2-2 2 2" stroke="var(--gold)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font-size:13px;font-weight:600;color:var(--gold-mid)">Pending Commission: <span id="commissionTotal" style="font-family:'DM Mono',monospace">$0</span></span><span style="font-size:11px;color:var(--muted)">(50 bps on active quotes)</span></div></div>
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input type="text" id="searchInput" placeholder="Search address or borrower…" oninput="renderMyTable()" />
+      </div>
+      <div class="filter-btns">
+        <button class="filter-btn active-filter" data-sf="all"      onclick="setSF('all')">All</button>
+        <button class="filter-btn"               data-sf="active"   onclick="setSF('active')">● Active <span class="filter-count" id="cnt-active">0</span></button>
+        <button class="filter-btn f-approved"    data-sf="approved" onclick="setSF('approved')">✓ Approved <span class="filter-count" id="cnt-approved">0</span></button>
+        <button class="filter-btn f-hold"        data-sf="on_hold"  onclick="setSF('on_hold')">⏸ On Hold <span class="filter-count" id="cnt-on_hold">0</span></button>
+        <button class="filter-btn f-denied"      data-sf="denied"   onclick="setSF('denied')">✕ Denied <span class="filter-count" id="cnt-denied">0</span></button>
+      </div>
+      <div class="tool-tabs">
+        <button class="tool-tab active" data-tf="all"  onclick="setTF('all')">All Tools</button>
+        <button class="tool-tab"        data-tf="dscr" onclick="setTF('dscr')">DSCR</button>
+        <button class="tool-tab"        data-tf="rtl"  onclick="setTF('rtl')">RTL</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th>Address / Borrower</th><th>Tool</th><th>Commission</th><th>Loan Type</th>
+            <th>Loan Amount</th><th>Rate</th><th>Points</th>
+            <th>Status</th><th>Modified</th><th></th>
+          </tr></thead>
+          <tbody id="myTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUBMITTED LOANS VIEW (admin only) ─────────────── -->
+  <div id="submittedView" style="display:none">
+    <div class="toolbar" style="margin-bottom:1.25rem">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input type="text" id="submittedSearch" placeholder="Search submissions…" oninput="renderSubmittedTable()" />
+      </div>
+      <button class="tool-tab" style="margin-left:auto" onclick="loadAdminData(true);loadSubmittedLoans(true)">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;margin-right:4px"><path d="M10 6A4 4 0 1 1 6 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 2v4h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Refresh
+      </button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th>Address / Borrower</th><th>Tool</th><th>User</th>
+            <th>Loan Type</th><th>Loan Amount</th><th>Rate</th><th>Points</th>
+            <th>Status</th><th>Date Submitted</th><th></th>
+          </tr></thead>
+          <tbody id="submittedTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── APPROVED / DENIED VIEW (admin only) ──────────── -->
+  <div id="decisionsView" style="display:none">
+    <div class="toolbar" style="margin-bottom:1.25rem">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input type="text" id="decisionsSearch" placeholder="Search approved / denied loans…" oninput="renderDecisionsTable()" />
+      </div>
+      <div class="filter-btns" style="margin-left:8px">
+        <button class="filter-btn active-filter" data-df="all"      onclick="setDF('all')">All</button>
+        <button class="filter-btn"               data-df="approved" onclick="setDF('approved')">✓ Approved</button>
+        <button class="filter-btn"               data-df="denied"   onclick="setDF('denied')">✕ Denied</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th>Address / Borrower</th><th>Tool</th><th>User</th>
+            <th>Loan Type</th><th>Loan Amount</th><th>Rate</th><th>Points</th>
+            <th>Status</th><th>Date Decided</th>
+          </tr></thead>
+          <tbody id="decisionsTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ADMIN VIEW ─────────────────────────────────────── -->
+  <div id="adminView" style="display:none">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input type="text" id="adminSearch" placeholder="Search across all users…" oninput="renderAdminSections()" />
+      </div>
+      <div class="filter-btns">
+        <button class="filter-btn active-filter" data-af="all"      onclick="setAF('all')">All</button>
+        <button class="filter-btn f-approved"    data-af="approved" onclick="setAF('approved')">✓ Approved</button>
+        <button class="filter-btn f-hold"        data-af="on_hold"  onclick="setAF('on_hold')">⏸ On Hold</button>
+        <button class="filter-btn f-denied"      data-af="denied"   onclick="setAF('denied')">✕ Denied</button>
+      </div>
+      <button class="tool-tab" style="margin-left:auto" onclick="loadAdminData(true)">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 6A4 4 0 1 1 6 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 2v4h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Refresh
+      </button>
+    </div>
+    <div id="adminSections"></div>
+  </div>
+</div>
+
+<script>
+var _user = null, _isAdmin = false;
+var _myQuotes = [];
+var _sf = 'all', _tf = 'all', _af = 'all';
+var _view = 'my';
+var _adminUsers = null;
+var STATUS_LABELS = { active:'', approved:'✓ Approved', on_hold:'⏸ On Hold', denied:'✕ Denied' };
+
+// ── Auth ──────────────────────────────────────────────────────
+function checkAdmin(user) {
+  if (!user) return false;
+  var roles = [];
+  if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+  else if (user.app_metadata && typeof user.app_metadata.roles === 'string') roles = [user.app_metadata.roles];
+  if (!roles.length && user.user_metadata && user.user_metadata.roles)
+    roles = Array.isArray(user.user_metadata.roles) ? user.user_metadata.roles : [user.user_metadata.roles];
+  return roles.some(function(r){ return r === 'admin' || r === 'super_admin'; });
+}
+
+
+  // Register user in local registry when they log in
+  function registerUserLocally(user) {
+    if (!user) return;
+    try {
+      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
+      var existing = registry.find(function(u){ return u.id === user.id; });
+      var roles = [];
+      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
+      var entry = {
+        id: user.id,
+        email: user.email,
+        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
+        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
+        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
+        confirmed_at: user.confirmed_at || new Date().toISOString()
+      };
+      if (existing) {
+        Object.assign(existing, entry);
+      } else {
+        registry.push(entry);
+      }
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    } catch(e) {}
+  }
+netlifyIdentity.on('init', function(user) {
+    registerUserLocally(user);
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = checkAdmin(user);
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('navEmail').textContent = user.email;
+  if (_isAdmin) document.getElementById('viewTabs').style.display = 'flex';
+  var navAdmin = document.getElementById('navAdminLink');
+  if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block';
+  loadMyQuotes();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+// ── My Quotes ─────────────────────────────────────────────────
+function loadMyQuotes() {
+  _myQuotes = QuoteStore.loadAllTools(_user.email);
+  updateCounts();
+  updateSummary();
+  renderMyTable();
+}
+
+function updateCounts() {
+  ['active','approved','on_hold','denied'].forEach(function(s) {
+    var el = document.getElementById('cnt-'+s);
+    var count = s==='active'
+      ? _myQuotes.filter(function(q){ return (q.status||'active')==='active'; }).length
+      : _myQuotes.filter(function(q){ return q.status===s; }).length;
+    if (el) el.textContent = count;
+  });
+}
+
+function updateSummary() {
+  var total=_myQuotes.length,
+      approved=_myQuotes.filter(function(q){return q.status==='approved';}).length,
+      hold=_myQuotes.filter(function(q){return q.status==='on_hold';}).length,
+      denied=_myQuotes.filter(function(q){return q.status==='denied';}).length,
+      active=total-approved-hold-denied;
+  document.getElementById('summaryBar').innerHTML =
+    pill(total+' total') + pill(active+' active') +
+    pill(approved+' approved','color:var(--approved)') +
+    pill(hold+' on hold','color:var(--hold)') +
+    pill(denied+' denied','color:var(--denied)');
+  // Commission total — active quotes only
+  var activeQuotes=_myQuotes.filter(function(q){return (q.status||'active')==='active';});
+  var totalComm=activeQuotes.reduce(function(s,q){return s+calcCommissionNum(q);},0);
+  var commBar=document.getElementById('commissionBar');
+  var commEl=document.getElementById('commissionTotal');
+  if(commEl) commEl.textContent='$'+Math.round(totalComm).toLocaleString();
+  if(commBar) commBar.style.display=totalComm>0?'block':'none';
+}
+function pill(txt,style) {
+  return '<div class="summary-pill"'+(style?' style="'+style+'"':'')+'>'+txt+'</div>';
+}
+
+function setSF(s){ _sf=s; document.querySelectorAll('[data-sf]').forEach(function(b){b.classList.toggle('active-filter',b.dataset.sf===s);}); renderMyTable(); }
+function setTF(t){ _tf=t; document.querySelectorAll('[data-tf]').forEach(function(b){b.classList.toggle('active',b.dataset.tf===t);}); renderMyTable(); }
+function setAF(s){ _af=s; document.querySelectorAll('[data-af]').forEach(function(b){b.classList.toggle('active-filter',b.dataset.af===s);}); renderAdminSections(); }
+
+function renderMyTable() {
+  var search=(document.getElementById('searchInput').value||'').toLowerCase().trim();
+  var filtered=_myQuotes.filter(function(q){
+    var qs=q.status||'active';
+    if(_sf==='all'&&(qs==='denied'||qs==='submitted'))return false;  // 'All' hides denied and submitted
+    if(_sf==='active'&&qs!=='active')return false;
+    if(_sf!=='all'&&_sf!=='active'&&qs!==_sf)return false;
+    if(_tf!=='all'&&q.toolType!==_tf)return false;
+    if(search){var h=((q.address||'')+' '+(q.borrower||'')+' '+((q.formData&&q.formData.loanType)||'')).toLowerCase();if(h.indexOf(search)<0)return false;}
+    return true;
+  });
+  var tbody=document.getElementById('myTbody');
+  tbody.innerHTML='';
+  if(!filtered.length){
+    tbody.innerHTML='<tr><td colspan="10"><div class="empty-state">'+
+      (_myQuotes.length===0?'<h3>No quotes yet</h3><p>Price a loan in the <a href="dscr-sizer.html">DSCR</a> or <a href="rtl-sizer.html">RTL</a> tool and click Save Quote.</p>':
+      '<h3>No results</h3><p>No quotes match your filters.</p>')+'</div></td></tr>';
+    return;
+  }
+  filtered.forEach(function(q){ tbody.appendChild(buildRow(q)); });
+  tbody.querySelectorAll('[data-action]').forEach(function(btn){
+    btn.addEventListener('click',function(e){e.stopPropagation();handleAction(btn.dataset.action,btn.dataset.tool,btn.dataset.addr);});
+  });
+}
+
+function buildStatusCell(toolType, address, status) {
+  var LOCKED_LABELS = { submitted: '⬆ Submitted', approved: '✓ Approved', denied: '✕ Denied' };
+  if (LOCKED_LABELS[status]) {
+    return '<td onclick="event.stopPropagation()"><span class="status-badge status-badge-locked '+status+'">'+LOCKED_LABELS[status]+'</span></td>';
+  }
+  var a = escAttr(address);
+  return '<td><select class="status-select '+status+'" data-action="setstatus" data-tool="'+toolType+'" data-addr="'+a+'" onchange="handleStatusChange(this)" onclick="event.stopPropagation()">'+
+    '<option value="active"' +(status==='active' ?' selected':'')+'>● Active</option>'+
+    '<option value="on_hold"'+(status==='on_hold'?' selected':'')+'>⏸ On Hold</option>'+
+    '</select></td>';
+}
+
+function buildRow(q) {
+  var fd=q.formData||{}, status=q.status||'active', isDscr=q.toolType==='dscr';
+  var loanAmt=isDscr?fmtM(fd.loanAmt):fmtM(fd.purchasePrice);
+  var rate=isDscr?(fd._finalRate?fd._finalRate+'%':'—'):(fd._finalRate||'—');
+  var points=fd._points||(isDscr?'1.00 pts':'—');
+  var tr=document.createElement('tr');
+  tr.innerHTML=
+    '<td class="td-addr"><div class="td-addr-main">'+escH(q.address||'—')+'</div>'+(( q.borrower||(q.formData&&q.formData.borrowerName) )?'<div class="td-addr-sub">'+escH(q.borrower||(q.formData&&q.formData.borrowerName)||'')+'</div>':'')+
+    '</td><td><span class="tool-badge '+q.toolType+'">'+q.toolType.toUpperCase()+'</span></td>'+
+    '<td class="td-mono" style="color:var(--success);font-weight:600">'+fmtCommission(q)+'</td>'+
+    '<td class="td-mono">'+escH(fd.loanType||'—')+'</td>'+
+    '<td class="td-mono">'+escH(loanAmt)+'</td>'+
+    '<td class="td-mono">'+escH(rate)+'</td>'+
+    '<td class="td-mono">'+escH(points)+'</td>'+
+    buildStatusCell(q.toolType, q.address, status)+
+    '<td class="td-date">'+QuoteStore.formatDateShort(q.updatedAt)+'</td>'+
+    '<td class="action-cell" onclick="event.stopPropagation()">'+buildActionBtns(q)+'</td>';
+  tr.addEventListener('click',function(){
+    window.location.href=(q.toolType==='rtl'?'rtl-sizer.html':'dscr-sizer.html')+'?loadQuote='+encodeURIComponent(q.address);
+  });
+  return tr;
+}
+
+function buildActionBtns(q) {
+  var a=escAttr(q.address), t=q.toolType, s=q.status||'active', b='';
+  var LOCKED = ['submitted','approved','denied'];
+  // Submit button only visible for active/on_hold loans
+  if (LOCKED.indexOf(s) < 0) {
+    b+='<button class="status-btn approve" data-action="submit" data-tool="'+t+'" data-addr="'+a+'" title="Submit loan application">&#8594; Submit</button>';
+  }
+  // Delete button hidden for locked loans
+  if (LOCKED.indexOf(s) < 0) {
+    b+='<button class="del-btn" data-action="delete" data-tool="'+t+'" data-addr="'+a+'" title="Delete">✕</button>';
+  }
+  return b;
+}
+
+// ── ClientBook sync helpers ─────────────────────────────────────────
+// Keep ClientBook and QuoteStore in sync whenever status changes or loans are deleted
+
+function syncStatusToClientBook(userEmail, address, status) {
+  if (!userEmail || !address) return;
+  var key = 'sla_clients_' + userEmail;
+  try {
+    var clients = JSON.parse(localStorage.getItem(key) || '[]');
+    var normAddr = address.trim().toLowerCase();
+    var changed = false;
+    clients.forEach(function(c) {
+      (c.loans||[]).forEach(function(l) {
+        if ((l.address||'').trim().toLowerCase() === normAddr) {
+          l.status = status;
+          l.updatedAt = new Date().toISOString();
+          changed = true;
+        }
+      });
+    });
+    if (changed) localStorage.setItem(key, JSON.stringify(clients));
+  } catch(e) {}
+}
+
+function deleteFromClientBook(userEmail, address) {
+  if (!userEmail || !address) return;
+  var key = 'sla_clients_' + userEmail;
+  try {
+    var clients = JSON.parse(localStorage.getItem(key) || '[]');
+    var normAddr = address.trim().toLowerCase();
+    var changed = false;
+    clients.forEach(function(c) {
+      var before = (c.loans||[]).length;
+      c.loans = (c.loans||[]).filter(function(l) {
+        return (l.address||'').trim().toLowerCase() !== normAddr;
+      });
+      if (c.loans.length !== before) changed = true;
+    });
+    if (changed) localStorage.setItem(key, JSON.stringify(clients));
+  } catch(e) {}
+}
+
+function handleStatusChange(sel) {
+  var newStatus = sel.value;
+  // Guard: only active and on_hold are user-settable
+  if (['submitted','approved','denied'].indexOf(newStatus) >= 0) return;
+  var toolType  = sel.dataset.tool;
+  var addr      = sel.dataset.addr;
+  // Update select class immediately for visual feedback
+  sel.className = 'status-select '+newStatus;
+  QuoteStore.updateStatus(_user.email, toolType, addr, newStatus);
+  syncStatusToClientBook(_user.email, addr, newStatus);
+  var labels = {active:'Active',approved:'Approved',on_hold:'On Hold',denied:'Denied',submitted:'Submitted'};
+  showToast('Status: '+(labels[newStatus]||newStatus)+' — '+addr);
+  loadMyQuotes();
+}
+
+function handleAction(action,toolType,addr) {
+  if(action==='delete'){
+    if(!confirm('Delete saved quote for:\n'+addr+'?')) return;
+    QuoteStore.deleteQuote(_user.email,toolType,addr);
+    deleteFromClientBook(_user.email,addr);
+    showToast('Quote deleted');
+    loadMyQuotes();
+  } else if(action==='submit'){
+    openSubmitModal(toolType,addr);
+  }
+}
+
+// ── View switcher ─────────────────────────────────────────────
+function setView(v) {
+  _view=v;
+  document.querySelectorAll('[data-view]').forEach(function(b){b.classList.toggle('active',b.dataset.view===v);});
+  document.getElementById('myView').style.display        = v==='my'        ? 'block' : 'none';
+  document.getElementById('submittedView').style.display = v==='submitted'  ? 'block' : 'none';
+  document.getElementById('decisionsView').style.display = v==='decisions'  ? 'block' : 'none';
+  document.getElementById('adminView').style.display     = v==='admin'      ? 'block' : 'none';
+  if(v==='submitted' && !_submittedLoaded) loadSubmittedLoans(false);
+  if(v==='decisions')                      renderDecisionsTable();
+  if(v==='admin'     && !_adminUsers)      loadAdminData(false);
+  document.getElementById('pageSubtitle').textContent =
+    v==='my'        ? 'All saved loan quotes across DSCR and RTL tools.' :
+    v==='submitted' ? 'Loans submitted for review — admin only.' :
+    v==='decisions' ? 'Approved and denied loans across all users — admin only.' :
+                     'All users\' saved quotes — admin view.';
+  if(v==='admin' && !_adminUsers) loadAdminData(false);
+}
+
+// ── Admin view ────────────────────────────────────────────────
+function loadAdminData(forceRefresh) {
+  if(!forceRefresh && _adminUsers) { renderAdminSections(); return; }
+  var wrap = document.getElementById('adminSections');
+  wrap.innerHTML = '<div class="spinner-wrap"><svg class="spinner" width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="var(--border)" stroke-width="2"/><path d="M12 2a10 10 0 0 1 10 10" stroke="var(--gold)" stroke-width="2" stroke-linecap="round"/></svg>Loading user data…</div>';
+
+  if(!_user){ wrap.innerHTML='<div class="empty-state"><h3>Not logged in</h3></div>'; return; }
+
+  // Force-refresh JWT before admin API call — avoids 401 from stale tokens
+  _user.jwt(true).then(function(freshToken) {
+  return fetch('/.netlify/identity/admin/users?per_page=200', {
+    headers: { 'Authorization': 'Bearer '+freshToken }
+  });
+  })
+  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+  .then(function(data) {
+    var users = (data.users||[]);
+    _adminUsers = users
+      .map(function(u) {
+        var meta   = u.user_metadata || {};
+        var quotes = Array.isArray(meta.quotes) ? meta.quotes : [];
+        return {
+          id:        u.id,
+          email:     u.email || '(no email)',
+          confirmed: !!u.confirmed_at,
+          quotes:    quotes,
+        };
+      })
+      .filter(function(u){ return u.quotes.length > 0; })
+      .sort(function(a,b){ return a.email.localeCompare(b.email); });
+
+    document.getElementById('adminUserCount').textContent = '('+_adminUsers.length+')';
+    renderAdminSections();
+  })
+  .catch(function(err){
+    var hint = err.message.indexOf('401') >= 0
+      ? '<p style="margin-top:8px;font-size:11px;color:var(--muted)">401 = token expired or missing admin role. Sign out and back in. If that fails, check Netlify → Identity → Users → your account → App metadata must contain: <code>{"roles":["admin"]}</code></p>'
+      : '';
+    wrap.innerHTML='<div class="empty-state"><h3>Failed to load</h3><p>'+escH(err.message)+'</p>'+hint+'</div>';
+  });
+}
+
+function renderAdminSections() {
+  if(!_adminUsers) return;
+  var wrap   = document.getElementById('adminSections');
+  var search = (document.getElementById('adminSearch').value||'').toLowerCase().trim();
+  wrap.innerHTML = '';
+
+  var usersToShow = _adminUsers.filter(function(u){
+    // Filter quotes per user
+    var qs = filterAdminQuotes(u.quotes, search);
+    return qs.length > 0;
+  });
+
+  if(!usersToShow.length){
+    wrap.innerHTML='<div class="empty-state"><h3>No results</h3><p>'+
+      (_adminUsers.length===0
+        ? 'No users have saved quotes yet. Quotes sync when users save from the pricing tools.'
+        : 'No quotes match your current filters.')+
+    '</p></div>';
+    return;
+  }
+
+  usersToShow.forEach(function(u){
+    var allQ    = u.quotes;
+    var filtQ   = filterAdminQuotes(allQ, search);
+    var total   = allQ.length;
+    var approved= allQ.filter(function(q){return q.status==='approved';}).length;
+    var hold    = allQ.filter(function(q){return q.status==='on_hold';}).length;
+    var denied  = allQ.filter(function(q){return q.status==='denied';}).length;
+    var initials= u.email.substring(0,2).toUpperCase();
+    var bodyId  = 'body-'+u.id;
+    var headId  = 'head-'+u.id;
+
+    var sec = document.createElement('div');
+    sec.className = 'admin-section';
+    sec.innerHTML =
+      '<div class="user-section-hdr" id="'+headId+'" onclick="toggleSection(\''+bodyId+'\',\''+headId+'\')">' +
+        '<div class="user-avatar">'+escH(initials)+'</div>'+
+        '<div class="user-info">'+
+          '<div class="user-email">'+escH(u.email)+'</div>'+
+          '<div class="user-meta">'+total+' quote'+(total!==1?'s':'')+
+            (!u.confirmed?' · <span style="color:var(--warn);font-size:11px">Invite pending</span>':'')+
+          '</div>'+
+        '</div>'+
+        '<div class="user-badges">'+
+          '<span class="ubadge total">'+total+' total</span>'+
+          (approved?'<span class="ubadge approved">✓ '+approved+'</span>':'')+
+          (hold    ?'<span class="ubadge hold">⏸ '+hold+'</span>':'')+
+          (denied  ?'<span class="ubadge denied">✕ '+denied+'</span>':'')+
+        '</div>'+
+        '<svg class="chevron-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">'+
+          '<path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'+
+        '</svg>'+
+      '</div>'+
+      '<div class="user-section-body" id="'+bodyId+'">'+buildAdminTable(filtQ)+'</div>';
+
+    wrap.appendChild(sec);
+  });
+}
+
+function filterAdminQuotes(quotes, search) {
+  return quotes.filter(function(q){
+    if(_af!=='all' && (q.status||'active')!==_af) return false;
+    if(search){
+      var h=((q.address||'')+' '+(q.borrower||'')+' '+(q.loanType||'')).toLowerCase();
+      if(h.indexOf(search)<0) return false;
+    }
+    return true;
+  });
+}
+
+function buildAdminTable(quotes) {
+  if(!quotes.length) return '<div class="no-quotes-row">No quotes match the current filters.</div>';
+  var html='<div class="table-scroll"><table>'+
+    '<thead><tr>'+
+    '<th>Address / Borrower</th><th>Tool</th><th>Commission</th><th>Loan Type</th>'+
+    '<th>Loan Amount</th><th>Rate</th><th>Points</th>'+
+    '<th>Status</th><th>Modified</th>'+
+    '</tr></thead><tbody class="admin-tbody">';
+
+  quotes.forEach(function(q){
+    var status=q.status||'active';
+    var rate  =q.rate   ?(q.rate+(q.rate.indexOf('%')<0?'%':''))  :'—';
+    var points=q.points ||'—';
+    html+=
+      '<tr>'+
+      '<td class="td-addr"><div class="td-addr-main">'+escH(q.address||'—')+'</div>'+
+        (q.borrower?'<div class="td-addr-sub">'+escH(q.borrower)+'</div>':'')+
+      '</td>'+
+      '<td><span class="tool-badge '+(q.toolType||'dscr')+'">'+(q.toolType||'DSCR').toUpperCase()+'</span></td>'+
+      '<td class="td-mono">'+escH(q.loanType||'—')+'</td>'+
+      '<td class="td-mono">'+escH(fmtM(q.loanAmt))+'</td>'+
+      '<td class="td-mono">'+escH(rate)+'</td>'+
+      '<td class="td-mono">'+escH(points)+'</td>'+
+  buildStatusCell(q.toolType, q.address, status)+
+      '<td class="td-date">'+QuoteStore.formatDateShort(q.updatedAt)+'</td>'+
+      '</tr>';
+  });
+  html+='</tbody></table></div>';
+  return html;
+}
+
+function toggleSection(bodyId, headId) {
+  var body=document.getElementById(bodyId);
+  var head=document.getElementById(headId);
+  if(!body)return;
+  var open=body.classList.contains('open');
+  body.classList.toggle('open',!open);
+  if(head){
+    head.classList.toggle('is-open',!open);
+    var chev=head.querySelector('.chevron-icon');
+    if(chev)chev.classList.toggle('open',!open);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function fmtCommission(q) {
+  var fd=q.formData||{};
+  var isDscr=q.toolType==='dscr';
+  var loanAmt=parseFloat(isDscr?fd.loanAmt:fd.purchasePrice)||0;
+  // For RTL use max loan from _maxLoan if available
+  if(!isDscr && fd._maxLoan) loanAmt=parseFloat(String(fd._maxLoan).replace(/[$,]/g,''))||loanAmt;
+  if(!loanAmt) return '—';
+  var commission=loanAmt*0.005;
+  return '$'+Math.round(commission).toLocaleString();
+}
+function calcCommissionNum(q) {
+  var fd=q.formData||{};
+  var isDscr=q.toolType==='dscr';
+  var loanAmt=parseFloat(isDscr?fd.loanAmt:fd.purchasePrice)||0;
+  if(!isDscr && fd._maxLoan) loanAmt=parseFloat(String(fd._maxLoan).replace(/[$,]/g,''))||loanAmt;
+  return loanAmt*0.005;
+}
+function fmtM(v){ var n=parseFloat(v); if(!v||isNaN(n))return '—'; return '$'+Math.round(n).toLocaleString(); }
+function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// ── Submit modal ─────────────────────────────────────────────
+var _submitQuote=null;
+
+function openSubmitModal(toolType,addr) {
+  var q=QuoteStore.getQuote(_user.email,toolType,addr);
+  if(!q){showToast('Quote not found');return;}
+  _submitQuote=q;
+  document.getElementById('submitModalTitle').textContent='Submit — '+(q.borrower||q.address);
+  document.getElementById('submitModalAddr').textContent=q.address;
+  document.getElementById('submitNotes').value='';
+  document.getElementById('submitStatus').style.display='none';
+  document.getElementById('submitTermSheet').textContent=buildTermSheetText(q);
+  var overlay=document.getElementById('submitOverlay');
+  overlay.style.display='flex';
+  setTimeout(function(){overlay.style.opacity='1';},10);
+}
+
+function closeSubmitModal(){
+  document.getElementById('submitOverlay').style.display='none';
+  _submitQuote=null;
+}
+
+function buildTermSheetText(q){
+  var fd=q.formData||{};
+  var isDscr=q.toolType==='dscr';
+  var lines=[];
+  lines.push('LOAN APPLICATION — SLA CAPITAL');
+  lines.push('================================');
+  lines.push('Submitted by:  '+(_user.email||''));
+  lines.push('Date:          '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}));
+  lines.push('');
+  lines.push('PROPERTY');
+  lines.push('Address:       '+(q.address||'—'));
+  lines.push('Borrower:      '+(q.borrower||'—'));
+  lines.push('');
+  lines.push('LOAN DETAILS');
+  lines.push('Tool:          '+(isDscr?'DSCR':'RTL / Fix & Flip'));
+  lines.push('Loan Type:     '+(fd.loanType||'—'));
+  if(isDscr){
+    lines.push('Loan Amount:   '+(fd.loanAmt?'$'+Number(fd.loanAmt).toLocaleString():'—'));
+    lines.push('Property Value: '+(fd.propValue?'$'+Number(fd.propValue).toLocaleString():'—'));
+    lines.push('FICO:          '+(fd.fico||'—'));
+    lines.push('Note Rate:     '+(fd._finalRate?fd._finalRate+'%':'—'));
+    lines.push('Points:        '+(fd._points||'1.00 pts'));
+    lines.push('DSCR:          '+(fd._dscr||'—'));
+    lines.push('Monthly Rent:  '+(fd.rent?'$'+Number(fd.rent).toLocaleString():'—'));
+    lines.push('Monthly Taxes: '+(fd.taxes?'$'+Number(fd.taxes).toLocaleString():'—'));
+    lines.push('Insurance:     '+(fd.insurance?'$'+Number(fd.insurance).toLocaleString():'—'));
+    lines.push('HOA:           '+(fd.hoa?'$'+Number(fd.hoa).toLocaleString():'0'));
+  } else {
+    lines.push('Purchase Price: '+(fd.purchasePrice?'$'+Number(fd.purchasePrice).toLocaleString():'—'));
+    lines.push('Rehab Budget:  '+(fd.rehabBudget?'$'+Number(fd.rehabBudget).toLocaleString():'—'));
+    lines.push('ARV:           '+(fd.arv?'$'+Number(fd.arv).toLocaleString():'—'));
+    lines.push('FICO:          '+(fd.fico||'—'));
+    lines.push('Interest Rate: '+(fd._finalRate||'—'));
+    lines.push('Points:        '+(fd._points||'—'));
+    lines.push('Max Loan:      '+(fd._maxLoan||'—'));
+  }
+  lines.push('');
+  lines.push('Commission (50 bps): $'+Math.round(calcCommissionNum(q)).toLocaleString());
+  return lines.join('\n');
+}
+
+function sendSubmitEmail(){
+  if(!_submitQuote) return;
+
+  var notes    = document.getElementById('submitNotes').value.trim();
+  var termText = buildTermSheetText(_submitQuote);
+  if(notes) termText += '\n\nLOAN OFFICER NOTES\n==================\n'+notes;
+
+  var btn    = document.getElementById('submitSendBtn');
+  var status = document.getElementById('submitStatus');
+  btn.disabled    = true;
+  btn.textContent = 'Sending\u2026';
+  status.style.display = 'none';
+
+  var loName  = window._loName  || (_user&&_user.user_metadata&&_user.user_metadata.full_name) || '';
+  var loEmail = window._loEmail || (_user&&_user.email) || '';
+  var loPhone = window._loPhone || (_user&&_user.user_metadata&&_user.user_metadata.phone) || '';
+  var q       = _submitQuote;
+  var fd      = q.formData || {};
+  var isDscr  = q.toolType === 'dscr';
+
+  var loanAmt  = isDscr
+    ? (fd.loanAmt       ? '$'+Number(fd.loanAmt).toLocaleString()       : '-')
+    : (fd._maxLoan      ? fd._maxLoan
+      : fd.purchasePrice? '$'+Number(fd.purchasePrice).toLocaleString() : '-');
+  var rate     = fd._finalRate ? fd._finalRate+'%' : '-';
+  var points   = fd._points    || '-';
+  var loanType = fd.loanType   || (isDscr ? 'DSCR' : 'RTL');
+  var loLine   = [loName, loPhone, loEmail].filter(Boolean).join(' | ');
+  var dateStr  = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+
+  function markSubmitted() {
+    QuoteStore.updateStatus(_user.email, q.toolType, q.address, 'submitted');
+    syncStatusToClientBook(_user.email, q.address, 'submitted');
+    closeSubmitModal();
+    loadMyQuotes();
+  }
+
+  var webhookUrl = localStorage.getItem('sla_slack_webhook') || '';
+  if (!webhookUrl) {
+    markSubmitted();
+    showToast('\u2713 Loan submitted (add Slack webhook in Admin to enable notifications)');
+    return;
+  }
+
+  var blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: ':house: New Loan Submitted - SLA Capital', emoji: true }
+    },
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: '*Address*\n'+(q.address||'-') },
+        { type: 'mrkdwn', text: '*Borrower*\n'+(q.borrower||'-') },
+        { type: 'mrkdwn', text: '*Tool*\n'+(isDscr?'DSCR':'RTL / Fix & Flip') },
+        { type: 'mrkdwn', text: '*Loan Type*\n'+loanType },
+        { type: 'mrkdwn', text: '*Loan Amount*\n'+loanAmt },
+        { type: 'mrkdwn', text: '*Rate / Points*\n'+rate+' / '+points }
+      ]
+    },
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: '*Loan Officer*\n'+(loLine||'-') },
+        { type: 'mrkdwn', text: '*Submitted*\n'+dateStr }
+      ]
+    }
+  ];
+  if (notes) blocks.push({ type:'section', text:{ type:'mrkdwn', text:'*LO Notes*\n'+notes }});
+  blocks.push({ type: 'divider' });
+  blocks.push({ type:'context', elements:[{ type:'mrkdwn', text:'View in SLA Capital -> Saved Quotes -> Submitted Loans' }] });
+
+  // Slack webhooks block CORS — use no-cors so it fires without waiting for response
+  // markSubmitted() runs immediately; Slack delivers in the background
+  try {
+    fetch(webhookUrl, {
+      method:  'POST',
+      mode:    'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ blocks: blocks }),
+    });
+  } catch(e) { /* fire and forget */ }
+  markSubmitted();
+  showToast('\u2713 Loan submitted - Slack notification sent');
+}
+
+// Close modal on overlay click
+// Close modal when clicking outside — guarded in case DOM order shifts
+(function(){
+  var ov = document.getElementById('submitOverlay');
+  if(ov) ov.addEventListener('click',function(e){ if(e.target===this)closeSubmitModal(); });
+  else   window.addEventListener('DOMContentLoaded',function(){
+    var ov2 = document.getElementById('submitOverlay');
+    if(ov2) ov2.addEventListener('click',function(e){ if(e.target===this)closeSubmitModal(); });
+  });
+})();
+
+// ── Submitted Loans (admin view) ─────────────────────────────
+var _submittedLoaded = false;
+var _submittedLoans  = [];  // [{userEmail, userId, quote}, ...]
+
+function loadSubmittedLoans(forceRefresh) {
+  if (!forceRefresh && _submittedLoaded) { renderSubmittedTable(); return; }
+  _deriveSubmittedLoans();
+}
+
+function _deriveSubmittedLoans() {
+  _submittedLoans = [];
+  if (!_user) return;
+
+  // Read submitted loans directly from localStorage — no admin API needed
+  // Scans all users' quote keys in localStorage
+  var allKeys = Object.keys(localStorage).filter(function(k) {
+    return k.startsWith('sla_quotes_');
+  });
+
+  allKeys.forEach(function(key) {
+    // key format: sla_quotes_{email}_{toolType}
+    var parts = key.replace('sla_quotes_', '').split('_');
+    var toolType = parts.pop(); // last segment is toolType
+    var userEmail = parts.join('_'); // rest is email
+    try {
+      var quotes = JSON.parse(localStorage.getItem(key) || '[]');
+      quotes.forEach(function(q) {
+        if ((q.status || 'active') === 'submitted') {
+          _submittedLoans.push({
+            userEmail: userEmail,
+            userId:    null, // not needed for localStorage approach
+            quote:     Object.assign({}, q, { toolType: toolType })
+          });
+        }
+      });
+    } catch(e) {}
+  });
+
+  _submittedLoans.sort(function(a,b) {
+    return new Date(b.quote.updatedAt) - new Date(a.quote.updatedAt);
+  });
+  _submittedLoaded = true;
+  document.getElementById('submittedCount').textContent = '(' + _submittedLoans.length + ')';
+  renderSubmittedTable();
+}
+
+function renderSubmittedTable() {
+  var tbody = document.getElementById('submittedTbody');
+  if (!tbody) return;
+  var search = (document.getElementById('submittedSearch').value || '').toLowerCase().trim();
+
+  var filtered = _submittedLoans.filter(function(item) {
+    if (!search) return true;
+    var q = item.quote;
+    var hay = [(q.address||''), (q.borrower||''), (q.loanType||''), item.userEmail].join(' ').toLowerCase();
+    return hay.indexOf(search) >= 0;
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">'
+      + '<h3>No submitted loans</h3>'
+      + '<p>' + (_submittedLoans.length === 0
+        ? 'No loans have been submitted for review yet.'
+        : 'No submissions match your search.') + '</p>'
+      + '</div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  filtered.forEach(function(item) {
+    var q      = item.quote;
+    var fd     = q.formData || {};
+    var isDscr = q.toolType === 'dscr';
+    var amt    = isDscr
+      ? (fd.loanAmt      ? '$'+Number(fd.loanAmt).toLocaleString()      : '—')
+      : (fd._maxLoan     ? fd._maxLoan
+        : fd.purchasePrice ? '$'+Number(fd.purchasePrice).toLocaleString() : '—');
+    var rate   = fd._finalRate ? fd._finalRate+'%' : '—';
+    var points = fd._points    || '—';
+    var loanType = fd.loanType || (isDscr ? 'DSCR' : 'RTL');
+    var date   = q.updatedAt ? new Date(q.updatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+    var ua     = escAttr(item.userEmail);
+    var uid    = escAttr(item.userId);
+    var tt     = escAttr(q.toolType);
+    var addr   = escAttr(q.address||'');
+
+    // Resolve LO display name from their Identity metadata
+    var loName = item.userEmail; // default to email
+    try {
+      if (_user && _user.email === item.userEmail) {
+        loName = (_user.user_metadata && _user.user_metadata.full_name) || item.userEmail;
+      }
+    } catch(e) {}
+
+    // Find matching loan in ClientBook to get loan ID for Details link
+    var loanDetailsUrl = null;
+    try {
+      var cbClients = JSON.parse(localStorage.getItem('sla_clients_' + item.userEmail) || '[]');
+      var normAddr = (q.address||'').trim().toLowerCase();
+      outer: for (var ci = 0; ci < cbClients.length; ci++) {
+        var loans = cbClients[ci].loans || [];
+        for (var li = 0; li < loans.length; li++) {
+          if ((loans[li].address||'').trim().toLowerCase() === normAddr) {
+            loanDetailsUrl = 'loan-details.html?clientId=' + encodeURIComponent(cbClients[ci].id)
+              + '&loanId=' + encodeURIComponent(loans[li].id);
+            break outer;
+          }
+        }
+      }
+    } catch(e) {}
+
+    var tr = document.createElement('tr');
+    tr.style.cursor = 'default';
+    tr.innerHTML =
+      '<td class="td-addr">'
+        + (loanDetailsUrl
+            ? '<a href="' + loanDetailsUrl + '" class="submitted-addr-link" onclick="event.stopPropagation()">'
+              + '<div class="td-addr-main">' + escH(q.address||'—') + '</div>'
+              + (q.borrower ? '<div class="td-addr-sub">' + escH(q.borrower) + '</div>' : '')
+              + '</a>'
+            : '<div class="td-addr-main">' + escH(q.address||'—') + '</div>'
+              + (q.borrower ? '<div class="td-addr-sub">' + escH(q.borrower) + '</div>' : ''))
+        + '</td>'
+      + '<td><span class="tool-badge ' + (q.toolType||'dscr') + '">' + (q.toolType||'dscr').toUpperCase() + '</span></td>'
+      + '<td class="td-mono" style="font-size:11px;color:var(--muted)">' + escH(loName) + '</td>'
+      + '<td class="td-mono">' + escH(loanType) + '</td>'
+      + '<td class="td-mono">' + escH(amt) + '</td>'
+      + '<td class="td-mono">' + escH(rate) + '</td>'
+      + '<td class="td-mono">' + escH(points) + '</td>'
+      + '<td><span class="status-badge submitted">⬆ Submitted</span></td>'
+      + '<td class="td-date">' + date + '</td>'
+      + '<td class="action-cell">'
+        + '<button class="status-btn approve" onclick="event.stopPropagation();adminDecision(\'' + ua + '\',\'' + uid + '\',\'' + tt + '\',\'' + addr + '\',\'approved\')"'
+          + '>&#10003; Approve</button>'
+        + '<button class="status-btn deny" onclick="event.stopPropagation();adminDecision(\'' + ua + '\',\'' + uid + '\',\'' + tt + '\',\'' + addr + '\',\'denied\')"'
+          + '>&#10005; Deny</button>'
+      + '</td>';
+    tbody.appendChild(tr);
+  });
+}
+
+// Admin approve/deny a submitted loan — writes decision back to user's Identity metadata
+function adminDecision(userEmail, userId, toolType, address, decision) {
+  var label = decision === 'approved' ? 'Approved' : 'Denied';
+  if (!confirm(label + ' loan for:\n' + address + '\nSubmitted by: ' + userEmail + '?')) return;
+
+  // Update directly in localStorage — no admin API required
+  var key  = 'sla_quotes_' + userEmail + '_' + toolType;
+  var norm = address.trim().toLowerCase().replace(/\s+/g,' ');
+  try {
+    var quotes = JSON.parse(localStorage.getItem(key) || '[]');
+    var updated = false;
+    quotes = quotes.map(function(q) {
+      if ((q.address||'').trim().toLowerCase().replace(/\s+/g,' ') === norm) {
+        updated = true;
+        return Object.assign({}, q, { status: decision, updatedAt: new Date().toISOString() });
+      }
+      return q;
+    });
+    if (!updated) { showToast('Quote not found for ' + address); return; }
+    localStorage.setItem(key, JSON.stringify(quotes));
+    QuoteStore.updateStatus(userEmail, toolType, address, decision);
+    syncStatusToClientBook(userEmail, address, decision);
+    showToast(label + ' — ' + address);
+    _submittedLoaded = false;
+    _deriveSubmittedLoans();
+    if (userEmail === _user.email) loadMyQuotes();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+// ── Approved / Denied table (admin view) ─────────────────────
+var _df = 'all'; // decisions filter
+
+function setDF(f) {
+  _df = f;
+  document.querySelectorAll('[data-df]').forEach(function(b) {
+    b.classList.toggle('active-filter', b.dataset.df === f);
+  });
+  renderDecisionsTable();
+}
+
+function renderDecisionsTable() {
+  var tbody = document.getElementById('decisionsTbody');
+  if (!tbody) return;
+
+  var search = (document.getElementById('decisionsSearch').value || '').toLowerCase().trim();
+
+  // Collect all approved/denied loans from localStorage
+  var decisions = [];
+  Object.keys(localStorage).filter(function(k) {
+    return k.startsWith('sla_quotes_');
+  }).forEach(function(key) {
+    var parts    = key.replace('sla_quotes_', '').split('_');
+    var toolType = parts.pop();
+    var userEmail = parts.join('_');
+    try {
+      var quotes = JSON.parse(localStorage.getItem(key) || '[]');
+      quotes.forEach(function(q) {
+        var s = q.status || 'active';
+        if (s === 'approved' || s === 'denied') {
+          decisions.push({ userEmail: userEmail, quote: Object.assign({}, q, { toolType: toolType }) });
+        }
+      });
+    } catch(e) {}
+  });
+
+  // Sort newest first
+  decisions.sort(function(a,b) {
+    return new Date(b.quote.updatedAt) - new Date(a.quote.updatedAt);
+  });
+
+  // Update count badge
+  var countEl = document.getElementById('decisionsCount');
+  if (countEl) countEl.textContent = '(' + decisions.length + ')';
+
+  // Apply filter
+  var filtered = decisions.filter(function(item) {
+    var s = item.quote.status;
+    if (_df !== 'all' && s !== _df) return false;
+    if (search) {
+      var q = item.quote;
+      var hay = [(q.address||''), (q.borrower||''), item.userEmail].join(' ').toLowerCase();
+      if (hay.indexOf(search) < 0) return false;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">'
+      + '<h3>No ' + (_df==='all' ? 'approved or denied' : _df) + ' loans</h3>'
+      + '<p>' + (decisions.length === 0
+        ? 'No loans have been approved or denied yet.'
+        : 'No loans match your search.') + '</p>'
+      + '</div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  filtered.forEach(function(item) {
+    var q      = item.quote;
+    var fd     = q.formData || {};
+    var isDscr = q.toolType === 'dscr';
+    var amt    = isDscr
+      ? (fd.loanAmt      ? '$'+Number(fd.loanAmt).toLocaleString()      : '—')
+      : (fd._maxLoan     ? fd._maxLoan
+        : fd.purchasePrice ? '$'+Number(fd.purchasePrice).toLocaleString() : '—');
+    var rate     = fd._finalRate ? fd._finalRate+'%' : '—';
+    var points   = fd._points    || '—';
+    var loanType = fd.loanType   || (isDscr ? 'DSCR' : 'RTL');
+    var date     = q.updatedAt ? new Date(q.updatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+    var statusLabel = q.status === 'approved' ? '✓ Approved' : '✕ Denied';
+
+    var tr = document.createElement('tr');
+    tr.style.cursor = 'default';
+    tr.innerHTML =
+      '<td class="td-addr"><div class="td-addr-main">'+escH(q.address||'—')+'</div>'
+        +(( q.borrower||(q.formData&&q.formData.borrowerName) )?'<div class="td-addr-sub">'+escH(q.borrower||(q.formData&&q.formData.borrowerName)||'')+'</div>':'')+'</td>'
+      +'<td><span class="tool-badge '+(q.toolType||'dscr')+'">'+(q.toolType||'dscr').toUpperCase()+'</span></td>'
+      +'<td class="td-mono" style="font-size:11px;color:var(--muted)">'+escH(item.userEmail)+'</td>'
+      +'<td class="td-mono">'+escH(loanType)+'</td>'
+      +'<td class="td-mono">'+escH(amt)+'</td>'
+      +'<td class="td-mono">'+escH(rate)+'</td>'
+      +'<td class="td-mono">'+escH(points)+'</td>'
+      +'<td><span class="status-badge status-badge-locked '+q.status+'">'+statusLabel+'</span></td>'
+      +'<td class="td-date">'+date+'</td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function showToast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(function(){t.classList.remove('show');},3000); }
+</script>
+
+
+</body>
+</html>

@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --danger-light: rgba(124,31,31,0.08);
+      --success: #256940; --success-light: rgba(37,105,64,0.08);
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    /* ── Auth gate overlay ───────────────────────────── */
+    #auth-gate {
+      position: fixed; inset: 0; background: var(--dark);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999;
+    }
+    #auth-gate .gate-msg {
+      color: rgba(255,255,255,0.5); font-size: 14px; text-align: center;
+    }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    /* ── Nav ─────────────────────────────────────────── */
+    .nav { max-width: 860px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 44px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 10px; }
+    .back-link { font-size: 12px; color: var(--muted); text-decoration: none; }
+    .back-link:hover { color: var(--gold); }
+    .user-pill { font-size: 12px; color: var(--muted); background: var(--gold-light); border: 1px solid var(--gold-border); padding: 4px 12px; border-radius: 20px; font-family: 'DM Mono', monospace; }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; -webkit-appearance: none; appearance: none; }
+    .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    /* ── Page ────────────────────────────────────────── */
+    .page { max-width: 860px; margin: 0 auto; padding-top: 2.5rem; }
+    .page-header { margin-bottom: 2rem; }
+    .page-header h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+
+    /* ── Cards ───────────────────────────────────────── */
+    .card { background: var(--surface); border-radius: var(--r); border: 1px solid var(--border); overflow: hidden; margin-bottom: 20px; }
+    .card-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .card-header h2 { font-size: 14px; font-weight: 600; }
+    .card-header p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .card-body  { padding: 1.5rem; }
+
+    /* ── Invite form ─────────────────────────────────── */
+    .invite-row { display: flex; gap: 10px; align-items: flex-end; }
+    .field { flex: 1; }
+    .field label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+    .field input, .field select {
+      width: 100%; height: 42px; padding: 0 12px;
+      border: 1px solid var(--border); border-radius: var(--r-xs);
+      font-family: 'DM Sans', sans-serif; font-size: 13.5px; color: var(--text);
+      background: var(--surface); outline: none; transition: border-color 0.15s;
+    }
+    .field input:focus, .field select:focus { border-color: var(--gold); }
+    .invite-btn {
+      height: 42px; padding: 0 20px; background: var(--dark); color: #fff;
+      border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif;
+      font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+      transition: background 0.15s; flex-shrink: 0;
+    }
+    .invite-btn:hover { background: var(--gold); }
+    .invite-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .nav-tool-link.current { background:var(--dark); border-color:var(--dark); color:#fff; }
+    .status-msg { margin-top: 12px; font-size: 13px; padding: 10px 14px; border-radius: var(--r-xs); display: none; }
+    .status-msg.success { background: var(--success-light); color: var(--success); border: 1px solid rgba(37,105,64,0.15); }
+    .status-msg.error   { background: var(--danger-light);  color: var(--danger);  border: 1px solid rgba(124,31,31,0.15); }
+
+    /* ── User list ───────────────────────────────────── */
+    .user-list { display: flex; flex-direction: column; gap: 0; }
+    .user-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 0; border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .user-row:last-child { border-bottom: none; }
+    .user-info { flex: 1; min-width: 0; }
+    .user-email { font-size: 13.5px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-meta  { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; }
+    .role-badge {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 3px 9px; border-radius: 20px; white-space: nowrap; flex-shrink: 0;
+    }
+    .role-badge.admin { background: rgba(38,26,54,0.1); color: var(--dark); }
+    .role-badge.user        { background: var(--gold-light); color: var(--gold-mid); }
+    .role-badge.super_admin { background: rgba(38,26,54,0.12); color: var(--dark); border: 1px solid rgba(38,26,54,0.28); }
+    .user-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .action-btn {
+      font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px;
+      cursor: pointer; border: 1px solid var(--border); background: none;
+      font-family: 'DM Sans', sans-serif; transition: all 0.15s; color: var(--muted);
+    }
+    .action-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .action-btn.danger { color: var(--danger); border-color: rgba(124,31,31,0.2); }
+    .action-btn.danger:hover { background: var(--danger-light); border-color: var(--danger); }
+    .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .empty-state { text-align: center; padding: 2.5rem; color: var(--muted); font-size: 13px; }
+    .loading { text-align: center; padding: 2rem; color: var(--muted); font-size: 13px; }
+
+    /* ── Info box ────────────────────────────────────── */
+    .info-box { background: var(--gold-light); border: 1px solid var(--gold-border); border-radius: var(--r-xs); padding: 14px 16px; font-size: 13px; color: var(--gold-mid); line-height: 1.6; }
+    .info-box strong { color: var(--dark); }
+
+    @media (max-width: 600px) {
+      .invite-row { flex-direction: column; }
+      .invite-btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Auth gate — hidden once verified -->
+  <div id="auth-gate">
+    <div class="gate-msg">
+      <strong>SLA Capital Admin</strong>
+      Checking permissions…
+    </div>
+  </div>
+
+  <nav class="nav">
+    <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+    <div class="nav-right">
+      <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+      <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+      <a class="nav-tool-link" href="prospects.html">Prospects</a>
+      <a class="nav-tool-link" href="clients.html">Clients</a>
+      <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+      <span class="user-pill" id="navEmail"></span>
+      <button class="logout-btn" id="logoutBtn">Sign out</button>
+    </div>
+  </nav>
+
+  <div class="page">
+    <div class="page-header">
+      <h1>Admin Panel</h1>
+      <p>Manage users, settings, and SLA Capital internal tools.</p>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap" id="roleInfoBar">
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(38,26,54,0.1);color:var(--dark);border:1px solid rgba(38,26,54,0.25);font-weight:600">Super Admin — full access + settings</span>
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(200,129,58,0.1);color:var(--gold-mid);border:1px solid var(--gold-border);font-weight:600">Admin — users + loans from all LOs</span>
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--pill-bg);color:var(--muted);border:1px solid var(--border);font-weight:600">User — own quotes + clients only</span>
+      </div>
+    </div>
+
+    <!-- Settings — Super Admin only -->
+    <div id="settingsSection">
+
+    <!-- Notification Banner -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div><h2>Notification Banner</h2>
+          <p>Display a pinned message at the top of the home page for all users.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="bannerLiveTag" style="display:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:3px 8px;border-radius:20px;background:rgba(37,105,64,0.1);color:var(--success);border:1px solid rgba(37,105,64,0.25)">● Live</span>
+          <span id="bannerOffTag" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:3px 8px;border-radius:20px;background:var(--pill-bg);color:var(--muted);border:1px solid var(--border)">Off</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;flex-direction:column;gap:12px;max-width:640px">
+          <div class="field">
+            <label for="bannerText">Message</label>
+            <input type="text" id="bannerText" placeholder="e.g. New rate sheet effective today — updated pricing in Guidelines." />
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="max-width:150px">
+              <label for="bannerType">Style</label>
+              <select id="bannerType">
+                <option value="info">ℹ️ Info</option>
+                <option value="success">✅ Success</option>
+                <option value="warn">⚠️ Warning</option>
+                <option value="alert">🚨 Alert</option>
+              </select>
+            </div>
+            <button class="invite-btn" id="publishBannerBtn">Publish Banner</button>
+            <button class="action-btn danger" id="clearBannerBtn">Clear Banner</button>
+          </div>
+        </div>
+        <div class="status-msg" id="bannerStatus"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div><h2>Loan Application Email</h2>
+          <p>Applications submitted from Saved Quotes are sent to this address.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="invite-row" style="max-width:520px">
+          <div class="field">
+            <label for="submitEmailInput">Submission Email Address</label>
+            <input type="email" id="submitEmailInput" placeholder="mike@slacapital.com" />
+          </div>
+          <button class="invite-btn" id="saveSubmitEmailBtn">Save</button>
+        </div>
+        <div class="status-msg" id="submitEmailStatus"></div>
+      </div>
+    </div>
+
+    <!-- Slack webhook setting -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div><h2>Slack Notifications</h2>
+          <p>Incoming Webhook URL for the channel where loan submissions should be posted.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="invite-row" style="max-width:620px">
+          <div class="field">
+            <label for="slackWebhookInput">Slack Incoming Webhook URL</label>
+            <input type="url" id="slackWebhookInput" placeholder="https://hooks.slack.com/services/..." style="font-family:'DM Mono',monospace;font-size:12px" />
+          </div>
+          <button class="invite-btn" id="saveSlackWebhookBtn">Save</button>
+        </div>
+        <div class="status-msg" id="slackWebhookStatus"></div>
+        <p style="font-size:12px;color:var(--muted);margin-top:10px">
+          To create a webhook: In Slack, go to <strong>Apps &rarr; Incoming WebHooks &rarr; Add to Slack</strong>, choose a channel, and copy the Webhook URL here.
+        </p>
+      </div>
+    </div>
+
+    <!-- Invite new user -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Invite a User</h2>
+          <p>Add new team members via the Netlify Identity dashboard.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="background:var(--pill-bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:1.25rem;margin-bottom:1rem">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:36px;height:36px;border-radius:8px;background:var(--gold-light);border:1px solid var(--gold-border);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1a7 7 0 100 14A7 7 0 008 1z" stroke="var(--gold)" stroke-width="1.4"/><path d="M8 7v4M8 5h.01" stroke="var(--gold)" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px">User invites are managed through Netlify</div>
+              <div style="font-size:12.5px;color:var(--muted);line-height:1.7">
+                Registration is set to <strong>Invite Only</strong>. To add a new team member:<br>
+                1. Click the button below to open the Netlify Identity dashboard<br>
+                2. Click <strong>"Invite users"</strong> and enter their email<br>
+                3. They'll receive an email to set their password and access the app
+              </div>
+            </div>
+          </div>
+        </div>
+        <a href="https://app.netlify.com/projects/silver-narwhal-0d9f84/configuration/identity" target="_blank"
+           style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 20px;background:var(--dark);color:#fff;border-radius:var(--r-xs);font-size:13px;font-weight:600;text-decoration:none;transition:background 0.15s;font-family:'DM Sans',sans-serif"
+           onmouseover="this.style.background='var(--gold)'" onmouseout="this.style.background='var(--dark)'">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M7 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Open Netlify Identity Dashboard
+        </a>
+        <div style="margin-top:12px;font-size:11.5px;color:var(--muted)">
+          To make a user an admin: in the Netlify dashboard, click the user → Edit → add <code style="background:var(--pill-bg);padding:1px 5px;border-radius:3px;font-family:'DM Mono',monospace">admin</code> to their roles field.
+        </div>
+      </div>
+    </div>
+
+    <!-- User list -->
+    </div><!-- /settingsSection -->
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Current users</h2>
+          <p>All active and pending team members. <span id="rolesNote" style="font-size:11px;color:var(--muted)">Role changes require Super Admin access.</span></p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:8px">
+          <button class="action-btn" id="addUserToggle" onclick="toggleAddUserForm()" style="display:none">+ Add User</button>
+          <button class="action-btn" id="refreshBtn" onclick="loadUsers()">↻ Refresh</button>
+        </div><button class="action-btn" onclick="toggleAddUserForm()" style="border-color:var(--gold-border);color:var(--gold-mid)">+ Add User</button></div>
+      </div>
+      <div class="card-body" style="padding: 0 1.5rem">
+        <div id="addUserForm" style="display:none;padding:1rem 1.5rem;background:var(--pill-bg);border-bottom:1px solid var(--border)"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;max-width:600px"><div class="field" style="flex:2;min-width:180px"><label for="addUserEmail" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);display:block;margin-bottom:5px">Email</label><input type="email" id="addUserEmail" placeholder="user@example.com" style="width:100%;height:38px;padding:0 10px;border:1.5px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface)" /></div><div class="field" style="max-width:130px"><label for="addUserRole" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);display:block;margin-bottom:5px">Role</label><select id="addUserRole" style="width:100%;height:38px;padding:0 10px;border:1.5px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface)"><option value="user">User</option><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select></div><button onclick="addUserManually()" style="height:38px;padding:0 16px;background:var(--dark);color:#fff;border:none;border-radius:var(--r-xs);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Add</button></div><div id="addUserStatus" style="margin-top:8px"></div></div><div id="userList" class="user-list">
+          <div class="loading">Loading users…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Help -->
+    <div class="info-box">
+      <strong>How roles work:</strong> Users can access all tools. Admins can additionally access this User Management page and see the Admin link on the dashboard. To promote or demote a user, use the role button next to their name. Removing a user immediately revokes their access — they won't be able to log in.
+    </div>
+  </div>
+
+  <script>
+  var currentUser = null;
+  var netlifyUrl  = '';   // will be set after init
+
+  // ── Auth ─────────────────────────────────────────────────────
+  function getRoles(user) {
+    if (!user) return [];
+    // Registry format: roles array directly on object
+    if (Array.isArray(user.roles) && user.roles.length) return user.roles;
+    // Netlify Identity format
+    var roles = [];
+    if (user.app_metadata && Array.isArray(user.app_metadata.roles))
+      roles = user.app_metadata.roles;
+    else if (user.app_metadata && typeof user.app_metadata.roles === 'string')
+      roles = [user.app_metadata.roles];
+    if (!roles.length && user.user_metadata && user.user_metadata.roles)
+      roles = Array.isArray(user.user_metadata.roles) ? user.user_metadata.roles : [user.user_metadata.roles];
+    return roles;
+  }
+  function isSuperAdmin(user) {
+    return getRoles(user).some(function(r){ return r === 'super_admin'; });
+  }
+  function isAdmin(user) {
+    // Both admin and super_admin count as admin-level
+    var roles = getRoles(user);
+    return roles.some(function(r){ return r === 'admin' || r === 'super_admin'; });
+  }
+
+  
+  // Register user in local registry when they log in
+  function registerUserLocally(user) {
+    if (!user) return;
+    try {
+      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
+      var existing = registry.find(function(u){ return u.id === user.id; });
+      var roles = [];
+      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
+      var entry = {
+        id: user.id,
+        email: user.email,
+        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
+        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
+        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
+        confirmed_at: user.confirmed_at || new Date().toISOString()
+      };
+      if (existing) {
+        Object.assign(existing, entry);
+      } else {
+        registry.push(entry);
+      }
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    } catch(e) {}
+  }
+netlifyIdentity.on('init', function(user) {
+    if (!user) {
+      document.getElementById('auth-gate').innerHTML =
+        '<div class="gate-msg"><strong>Access Denied</strong>You must be logged in to view this page.<br><br>' +
+        '<a href="index.html" style="color:#C8813A">← Go to login</a></div>';
+      return;
+    }
+    if (!isAdmin(user)) {
+      // Token may be stale — try refreshing it once before giving up
+      user.jwt(true).then(function() {
+        // Re-fetch the current user after token refresh
+        var refreshed = netlifyIdentity.currentUser();
+        if (!refreshed || !isAdmin(refreshed)) {
+          document.getElementById('auth-gate').innerHTML =
+            '<div class="gate-msg"><strong>Access Denied</strong>Admin access required. If you were just granted admin access, try signing out and back in.<br><br>' +
+            '<a href="index.html" style="color:#C8813A">← Back to tools</a></div>';
+        } else {
+          grantAccess(refreshed);
+        }
+      }).catch(function() {
+        document.getElementById('auth-gate').innerHTML =
+          '<div class="gate-msg"><strong>Access Denied</strong>Admin access required.<br><br>' +
+          '<a href="index.html" style="color:#C8813A">← Back to tools</a></div>';
+      });
+      return;
+    }
+    grantAccess(user);
+  });
+
+  function grantAccess(user) {
+    currentUser = user;
+    netlifyUrl  = window.location.origin;
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('navEmail').textContent = user.email;
+    loadUsers();
+  }
+
+  netlifyIdentity.on('logout', function() {
+    window.location.href = '/';
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', function() {
+    netlifyIdentity.logout();
+  });
+
+  // ── Netlify Identity Admin API ───────────────────────────────
+  // These calls go to /.netlify/identity/ endpoints
+  function getToken() {
+    return currentUser && currentUser.token && currentUser.token.access_token;
+  }
+
+  // apiCall refreshes JWT first to prevent 401 from stale tokens
+  function apiCall(method, path, body) {
+    if (!currentUser) return Promise.reject(new Error('Not logged in'));
+    return currentUser.jwt(true).then(function(freshToken) {
+      var opts = {
+        method: method,
+        headers: {
+          'Authorization': 'Bearer ' + freshToken,
+          'Content-Type': 'application/json',
+        },
+      };
+      if (body) opts.body = JSON.stringify(body);
+      return fetch('/.netlify/identity' + path, opts).then(function(r) {
+        if (!r.ok) return r.json().then(function(e) { throw new Error(e.msg || e.error || 'Request failed'); });
+        return r.json();
+      });
+    });
+  }
+
+  // ── Load users ───────────────────────────────────────────────
+  function addUserToRegistry() {
+    var email = document.getElementById('addEmail').value.trim().toLowerCase();
+    var name  = document.getElementById('addFullName').value.trim();
+    var role  = document.getElementById('addRole').value;
+    var stat  = document.getElementById('addUserStatus');
+    if (!email || !email.includes('@')) { showStatus(stat, 'error', 'Enter a valid email.'); return; }
+    var registry = [];
+    try { registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]'); } catch(e) {}
+    if (registry.find(function(u){ return u.email === email; })) {
+      showStatus(stat, 'error', 'That email is already in the list.'); return;
+    }
+    var id = 'pending_' + email.replace(/[^a-z0-9]/g,'_') + '_' + Date.now();
+    registry.push({ id: id, email: email, full_name: name, phone: '', roles: [role], confirmed_at: null, pending: true });
+    localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    document.getElementById('addEmail').value = '';
+    document.getElementById('addFullName').value = '';
+    showStatus(stat, 'success', 'Added ' + email + ' — will activate when they first log in.');
+    loadUsers();
+  }
+
+  function loadUsers() {
+    var list = document.getElementById('userList');
+    list.innerHTML = '<div class="loading">Loading users…</div>';
+
+    // Load Slack webhook setting
+  var storedWebhook = localStorage.getItem('sla_slack_webhook') || '';
+  document.getElementById('slackWebhookInput').value = storedWebhook;
+  document.getElementById('saveSlackWebhookBtn').addEventListener('click', function() {
+    var val = document.getElementById('slackWebhookInput').value.trim();
+    var wStatus = document.getElementById('slackWebhookStatus');
+    if (val && !val.startsWith('https://hooks.slack.com/')) {
+      showStatus(wStatus, 'error', 'That does not look like a Slack webhook URL.');
+      return;
+    }
+    localStorage.setItem('sla_slack_webhook', val);
+    showStatus(wStatus, 'success', val ? 'Saved - Slack notifications enabled.' : 'Cleared - Slack notifications disabled.');
+  });
+
+  // Show/hide settings based on super_admin role
+  var settingsDiv = document.getElementById('settingsSection');
+  if (settingsDiv) settingsDiv.style.display = isSuperAdmin(currentUser) ? 'block' : 'none';
+  var addBtn = document.getElementById('addUserToggle');
+  if (addBtn) addBtn.style.display = isSuperAdmin(currentUser) ? 'inline-block' : 'none';
+
+  // Load banner state
+  (function() {
+    var banner = JSON.parse(localStorage.getItem('sla_notification_banner') || 'null');
+    var liveTag = document.getElementById('bannerLiveTag');
+    var offTag  = document.getElementById('bannerOffTag');
+    if (banner && banner.text) {
+      document.getElementById('bannerText').value = banner.text;
+      document.getElementById('bannerType').value = banner.type || 'info';
+      if (liveTag) liveTag.style.display = 'inline-block';
+      if (offTag)  offTag.style.display  = 'none';
+    } else {
+      if (liveTag) liveTag.style.display = 'none';
+      if (offTag)  offTag.style.display  = 'inline-block';
+    }
+    var pubBtn = document.getElementById('publishBannerBtn');
+    var clrBtn = document.getElementById('clearBannerBtn');
+    if (pubBtn) pubBtn.onclick = function() {
+      var text = document.getElementById('bannerText').value.trim();
+      var type = document.getElementById('bannerType').value;
+      var stat = document.getElementById('bannerStatus');
+      if (!text) { showStatus(stat, 'error', 'Enter a message first.'); return; }
+      localStorage.setItem('sla_notification_banner', JSON.stringify({ text: text, type: type, ts: Date.now() }));
+      if (liveTag) liveTag.style.display = 'inline-block';
+      if (offTag)  offTag.style.display  = 'none';
+      showStatus(stat, 'success', 'Banner published — visible to all users on the home page.');
+    };
+    if (clrBtn) clrBtn.onclick = function() {
+      localStorage.removeItem('sla_notification_banner');
+      document.getElementById('bannerText').value = '';
+      var stat = document.getElementById('bannerStatus');
+      if (liveTag) liveTag.style.display = 'none';
+      if (offTag)  offTag.style.display  = 'inline-block';
+      showStatus(stat, 'success', 'Banner cleared.');
+    };
+  })();
+
+  // Load submission email setting
+  var storedEmail = localStorage.getItem('sla_submit_email') || 'mike@slacapital.com';
+  document.getElementById('submitEmailInput').value = storedEmail;
+  document.getElementById('saveSubmitEmailBtn').addEventListener('click', function() {
+    var val = document.getElementById('submitEmailInput').value.trim();
+    var status = document.getElementById('submitEmailStatus');
+    if (!val || !val.includes('@')) {
+      showStatus(status, 'error', 'Please enter a valid email address.');
+      return;
+    }
+    localStorage.setItem('sla_submit_email', val);
+    showStatus(status, 'success', 'Saved — applications will be sent to ' + val);
+  });
+
+  // Load users from localStorage registry
+  // Users are added when they first log in, or can be added manually below
+  var registry = [];
+  try { registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]'); } catch(e) {}
+
+  // Always ensure current user is in registry
+  if (currentUser) {
+    var existing = registry.find(function(u){ return u.id === currentUser.id; });
+    if (!existing) {
+      registry.unshift({
+        id: currentUser.id, email: currentUser.email,
+        full_name: (currentUser.user_metadata||{}).full_name || '',
+        phone: (currentUser.user_metadata||{}).phone || '',
+        roles: getRoles(currentUser),
+        confirmed_at: currentUser.confirmed_at || new Date().toISOString()
+      });
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    } else {
+      existing.roles = getRoles(currentUser);
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    }
+  }
+
+  var roleOrder = { 'super_admin': 0, 'admin': 1, 'user': 2 };
+  registry.sort(function(a, b) {
+    var aRole = (a.roles||[])[0] || 'user', bRole = (b.roles||[])[0] || 'user';
+    var aOrd = roleOrder[aRole] !== undefined ? roleOrder[aRole] : 2;
+    var bOrd = roleOrder[bRole] !== undefined ? roleOrder[bRole] : 2;
+    if (aOrd !== bOrd) return aOrd - bOrd;
+    return (a.email||'').localeCompare(b.email||'');
+  });
+
+  list.innerHTML = '';
+  if (registry.length) {
+    registry.forEach(function(u) { list.appendChild(buildUserRow(u)); });
+  } else {
+    list.innerHTML = '<div class="empty-state">No users yet. Use the Add User button above, or users will appear automatically when they first log in.</div>';
+  }
+  }
+
+  function buildUserRow(u) {
+    var isSelf     = currentUser && u.id === currentUser.id;
+    var roles      = getRoles(u);
+    var curRole    = roles[0] || 'user';
+    var isSA       = curRole === 'super_admin';
+    var isAd       = curRole === 'admin';
+    var roleLbl    = isSA ? 'Super Admin' : isAd ? 'Admin' : 'User';
+    var roleCls    = isSA ? 'super_admin' : isAd ? 'admin' : 'user';
+    var confirmed  = u.confirmed_at ? 'Active' : (u.pending ? 'Added — pending login' : 'Invited — pending login');
+    var joined     = u.confirmed_at
+      ? new Date(u.confirmed_at).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+      : 'Not yet logged in';
+    // Only super_admin can change roles
+    var canEdit    = isSuperAdmin(currentUser) && !isSelf;
+    var uid        = escHtml(u.id);
+    var roleMenu   = canEdit
+      ? '<div class="role-menu" id="rm-' + uid + '">' +
+          (curRole !== 'super_admin' ? '<button class="role-opt" onclick="setRole(\'' + uid + '\',\'super_admin\')">→ Super Admin</button>' : '') +
+          (curRole !== 'admin'       ? '<button class="role-opt" onclick="setRole(\'' + uid + '\',\'admin\')">→ Admin</button>' : '') +
+          (curRole !== 'user'        ? '<button class="role-opt" onclick="setRole(\'' + uid + '\',\'user\')">→ User</button>' : '') +
+        '</div>'
+      : '';
+
+    var row = document.createElement('div');
+    row.className = 'user-row';
+    row.id = 'row-' + u.id;
+    row.innerHTML =
+      '<div class="user-info">' +
+        '<div class="user-email">' + escHtml(u.email) + (isSelf ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : '') + '</div>' +
+        '<div class="user-meta">' +
+          ((u.full_name || (u.user_metadata && u.user_metadata.full_name)) ? escHtml(u.full_name || u.user_metadata.full_name) + ' &middot; ' : '') +
+          ((u.phone || (u.user_metadata && u.user_metadata.phone)) ? escHtml(u.phone || u.user_metadata.phone) + ' &middot; ' : '') +
+          confirmed + ' &middot; ' + joined +
+        '</div>' +
+      '</div>' +
+      '<span class="role-badge ' + roleCls + '">' + roleLbl + '</span>' +
+      '<div class="user-actions">' +
+        roleMenu +
+        (canEdit
+          ? '<button class="action-btn danger" onclick="removeUser(\'' + uid + '\', \'' + escHtml(u.email) + '\')" id="del-' + u.id + '">Remove</button>'
+          : '') +
+      '</div>';
+    return row;
+  }
+;
+
+
+  // ── Toggle role ──────────────────────────────────────────────
+  function toggleAddUserForm() {
+    var f = document.getElementById('addUserForm');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function addUserManually() {
+    var email = (document.getElementById('addUserEmail').value || '').trim().toLowerCase();
+    var role  = document.getElementById('addUserRole').value || 'user';
+    var stat  = document.getElementById('addUserStatus');
+    if (!email || !email.includes('@')) {
+      stat.style.display='block'; stat.style.color='var(--danger)'; stat.textContent='Enter a valid email.'; return;
+    }
+    var registry = [];
+    try { registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]'); } catch(e) {}
+    if (registry.find(function(u){ return u.email === email; })) {
+      stat.style.display='block'; stat.style.color='var(--danger)'; stat.textContent=email+' is already in the list.'; return;
+    }
+    registry.push({ id: 'pending_'+Date.now(), email: email, full_name: '', phone: '', roles: [role], confirmed_at: null, pending: true });
+    localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    document.getElementById('addUserEmail').value = '';
+    stat.style.display='block'; stat.style.color='var(--success)'; stat.textContent=email+' added. They will activate when they first log in.';
+    loadUsers();
+  }
+
+function setRole(userId, newRole) {
+    var registry = [];
+    try { registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]'); } catch(e) {}
+    var u = registry.find(function(u){ return u.id === userId; });
+    if (u) {
+      u.roles = [newRole];
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    }
+    apiCall('PUT', '/admin/users/' + userId, { app_metadata: { roles: [newRole] } }).catch(function(){});
+    loadUsers();
+  }
+  function toggleRole(userId) {
+    // Legacy — cycles user→admin
+    apiCall('GET', '/admin/users/' + userId).then(function(u) {
+      var roles = getRoles(u);
+      var cur = roles[0] || 'user';
+      var next = cur === 'super_admin' ? 'super_admin' : (cur === 'admin' ? 'user' : 'admin');
+      return setRole(userId, next);
+    });
+  }
+
+  // ── Remove user ──────────────────────────────────────────────
+  function removeUser(userId, email) {
+    if (!confirm('Remove ' + email + ' from the registry? To fully revoke Netlify access, also remove them in the Netlify dashboard.')) return;
+    var registry = [];
+    try { registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]'); } catch(e) {}
+    registry = registry.filter(function(u){ return u.id !== userId; });
+    localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    loadUsers();
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────
+  function showStatus(el, type, msg) {
+    el.className = 'status-msg ' + type;
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(function() { el.style.display = 'none'; }, 6000);
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  </script>
+
+</body>
+</html>

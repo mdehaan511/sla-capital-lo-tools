@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Prospects — SLA Capital</title>
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --gold:#C8813A;--gold-mid:#b5712d;--gold-light:rgba(200,129,58,0.10);
+  --gold-border:rgba(200,129,58,0.28);--dark:#261a36;--bg:#f0ece5;
+  --surface:#fff;--text:#1a1520;--muted:#7a7488;--border:#ddd8d0;
+  --r:12px;--r-xs:8px;
+  --success:#256940;--danger:#7c1f1f;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:0 1rem 4rem}
+#auth-gate{position:fixed;inset:0;background:var(--dark);display:flex;align-items:center;justify-content:center;z-index:9999}
+#auth-gate p{color:rgba(255,255,255,0.4);font-size:14px}
+.nav{max-width:1200px;margin:0 auto;padding:1.5rem 0 0;display:flex;align-items:center;justify-content:space-between}
+.nav img{height:44px;width:auto}
+.nav-right{display:flex;align-items:center;gap:10px}
+.back-link{font-size:12px;color:var(--muted);text-decoration:none}
+.back-link:hover{color:var(--gold)}
+.user-pill{font-size:12px;color:var(--muted);background:var(--gold-light);border:1px solid var(--gold-border);padding:4px 12px;border-radius:20px;font-family:'DM Mono',monospace}
+.logout-btn{font-size:12px;font-weight:600;color:var(--muted);background:transparent;-webkit-appearance:none;appearance:none;border:1px solid var(--border);padding:5px 12px;border-radius:20px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s}
+.logout-btn:hover{border-color:var(--gold);color:var(--gold)}
+.page{max-width:1200px;margin:0 auto;padding-top:2.25rem}
+.page-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:16px}
+.page-header h1{font-size:22px;font-weight:600}
+.page-header p{font-size:13px;color:var(--muted);margin-top:3px}
+
+/* Application link box */
+.app-link-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:1.5rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.app-link-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.app-link-url{flex:1;font-family:'DM Mono',monospace;font-size:12px;color:var(--gold-mid);background:var(--gold-light);border:1px solid var(--gold-border);border-radius:20px;padding:6px 14px;word-break:break-all;min-width:200px}
+.copy-btn{font-size:12px;font-weight:600;padding:7px 14px;border-radius:20px;border:1px solid var(--gold-border);background:transparent;color:var(--gold-mid);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap}
+.copy-btn:hover{background:var(--gold-light)}
+.copy-btn.copied{background:var(--gold-light);color:var(--gold)}
+
+/* Toolbar */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:1.25rem}
+.search-wrap{position:relative;flex:1;min-width:200px;max-width:320px}
+.search-wrap input{width:100%;height:38px;padding:0 12px 0 36px;border:1px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface);outline:none;transition:border-color .15s}
+.search-wrap input:focus{border-color:var(--gold)}
+.search-wrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none}
+.filter-btn{height:38px;padding:0 14px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s}
+.filter-btn:hover,.filter-btn.active{background:var(--dark);border-color:var(--dark);color:#fff}
+
+/* Table */
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.table-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:600px}
+thead th{padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:#faf8f5;border-bottom:1px solid var(--border);white-space:nowrap}
+tbody tr{border-bottom:1px solid #f0ece6;cursor:pointer;transition:background .1s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:#faf8f5}
+tbody td{padding:13px 14px;font-size:13px;color:var(--text);vertical-align:middle}
+.td-name{font-weight:500}
+.td-sub{font-size:11px;color:var(--muted);margin-top:2px;font-family:'DM Mono',monospace}
+.td-mono{font-family:'DM Mono',monospace;font-size:12.5px}
+.badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:20px}
+.badge.dscr{background:rgba(38,26,54,.08);color:var(--dark)}
+.badge.fix_flip{background:rgba(200,129,58,.12);color:var(--gold-mid)}
+.del-btn{width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.del-btn:hover{border-color:var(--danger);color:var(--danger);background:rgba(124,31,31,.06)}
+.action-cell{display:flex;align-items:center;gap:6px}
+.open-btn{font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap}
+.open-btn:hover{background:var(--gold);color:#fff;border-color:var(--gold)}
+.empty-state{padding:4rem 2rem;text-align:center}
+.empty-state h3{font-size:16px;font-weight:600;margin-bottom:8px;color:var(--muted)}
+.empty-state p{font-size:13px;color:var(--muted);line-height:1.6}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--dark);color:#fff;font-size:13px;font-weight:500;padding:10px 20px;border-radius:30px;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .nav-tool-link.current { background:var(--dark); border-color:var(--dark); color:#fff; }
+  </style>
+</head>
+<body>
+<div id="auth-gate"><p>Checking authentication…</p></div>
+<div class="toast" id="toast"></div>
+
+<nav class="nav">
+  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+  <div class="nav-right">
+    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+    <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+    <a class="nav-tool-link current" href="prospects.html">Prospects</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+    <span class="user-pill" id="navEmail"></span>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>New Prospects</h1>
+      <p>These Prospects Are Awaiting A Loan Quote — new leads that need your attention.</p>
+    </div>
+  </div>
+
+  <!-- Application link -->
+  <div class="app-link-box">
+    <span class="app-link-label">Your Application Link</span>
+    <span class="app-link-url" id="appLinkUrl">Loading…</span>
+    <button class="copy-btn" id="copyBtn" onclick="copyLink()">Copy Link</button>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <input type="text" id="searchInput" placeholder="Search name, email, address…" oninput="render()" />
+    </div>
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All</button>
+    <button class="filter-btn" data-filter="dscr" onclick="setFilter('dscr')">DSCR</button>
+    <button class="filter-btn" data-filter="fix_flip" onclick="setFilter('fix_flip')">Fix &amp; Flip</button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Borrower</th><th>Loan Type</th><th>Property</th>
+          <th>Amount</th><th>Submitted</th><th></th>
+        </tr></thead>
+        <tbody id="prospectsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+var _user = null, _loSlug = '', _prospects = [], _filter = 'all';
+
+
+  // Register user in local registry when they log in
+  function registerUserLocally(user) {
+    if (!user) return;
+    try {
+      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
+      var existing = registry.find(function(u){ return u.id === user.id; });
+      var roles = [];
+      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
+      var entry = {
+        id: user.id,
+        email: user.email,
+        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
+        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
+        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
+        confirmed_at: user.confirmed_at || new Date().toISOString()
+      };
+      if (existing) {
+        Object.assign(existing, entry);
+      } else {
+        registry.push(entry);
+      }
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    } catch(e) {}
+  }
+netlifyIdentity.on('init', function(user) {
+    registerUserLocally(user);
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('navEmail').textContent = user.email;
+  var navAdmin = document.getElementById('navAdminLink');
+  if (navAdmin) {
+    var roles = (user.app_metadata && user.app_metadata.roles) || [];
+    if (typeof roles === 'string') roles = [roles];
+    if (roles.some(function(r){return r==='admin'||r==='super_admin';})) navAdmin.style.display = 'inline-block';
+  }
+
+  // Build LO slug from user metadata or email
+  var name = (user.user_metadata && user.user_metadata.full_name) || '';
+  if (name) {
+    _loSlug = name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+  } else {
+    _loSlug = user.email.split('@')[0].replace(/[^a-z0-9]/g, '_');
+  }
+
+  var appUrl = window.location.origin + '/apply.html?lo=' + _loSlug;
+  document.getElementById('appLinkUrl').textContent = appUrl;
+
+  loadProspects();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function loadProspects() {
+  var key = 'sla_prospects_' + _loSlug;
+  try { _prospects = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { _prospects = []; }
+  render();
+}
+
+function setFilter(f) {
+  _filter = f;
+  document.querySelectorAll('[data-filter]').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.filter === f);
+  });
+  render();
+}
+
+function render() {
+  var search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+  var filtered = _prospects.filter(function(p) {
+    if (_filter !== 'all' && p.loanProduct !== _filter) return false;
+    if (search) {
+      var hay = [p.firstName, p.lastName, p.email, p.propAddress, p.phone].join(' ').toLowerCase();
+      if (hay.indexOf(search) < 0) return false;
+    }
+    return true;
+  });
+
+  var tbody = document.getElementById('prospectsBody');
+  tbody.innerHTML = '';
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">' +
+      (search || _filter !== 'all'
+        ? '<h3>No results</h3><p>No prospects match your filters.</p>'
+        : '<h3>No prospects yet</h3><p>Share your application link with prospective borrowers.<br>When they submit, they\'ll appear here.</p>') +
+      '</div></td></tr>';
+    return;
+  }
+
+  filtered.forEach(function(p) {
+    var tr = document.createElement('tr');
+    var loanLabel = p.loanProduct === 'dscr' ? 'DSCR' : 'Fix & Flip';
+    var amt = p.purchasePrice ? '$' + Number(p.purchasePrice).toLocaleString() : '—';
+    var date = p.submittedAt ? new Date(p.submittedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+
+    tr.innerHTML =
+      '<td class="td-name">' + escH(p.firstName + ' ' + p.lastName) +
+        '<div class="td-sub">' + escH(p.email) + ' · ' + escH(p.phone||'') + '</div></td>' +
+      '<td><span class="badge ' + p.loanProduct + '">' + loanLabel + '</span></td>' +
+      '<td class="td-mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escH(p.propAddress||'—') + '</td>' +
+      '<td class="td-mono">' + escH(amt) + '</td>' +
+      '<td class="td-mono">' + date + '</td>' +
+      '<td class="action-cell" onclick="event.stopPropagation()">' +
+        '<button class="open-btn" onclick="openInSizer(' + JSON.stringify(JSON.stringify(p)) + ')">Open in Sizer →</button>' +
+        '<button class="del-btn" onclick="deleteProspect(\'' + escAttr(p.id) + '\')" title="Delete">✕</button>' +
+      '</td>';
+
+    tr.addEventListener('click', function() { openInSizer(JSON.stringify(p)); });
+    tbody.appendChild(tr);
+  });
+}
+
+function openInSizer(prospectJson) {
+  var p = typeof prospectJson === 'string' ? JSON.parse(prospectJson) : prospectJson;
+  // Store prospect data for the sizer to pick up
+  localStorage.setItem('sla_prefill_prospect', JSON.stringify(p));
+  var dest = p.loanProduct === 'fix_flip' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  window.location.href = dest + '?fromProspect=1';
+}
+
+function deleteProspect(id) {
+  if (!confirm('Delete this prospect? This cannot be undone.')) return;
+  var key = 'sla_prospects_' + _loSlug;
+  _prospects = _prospects.filter(function(p) { return p.id !== id; });
+  localStorage.setItem(key, JSON.stringify(_prospects));
+  render();
+  showToast('Prospect deleted');
+}
+
+function copyLink() {
+  var url = document.getElementById('appLinkUrl').textContent;
+  navigator.clipboard.writeText(url).then(function() {
+    var btn = document.getElementById('copyBtn');
+    btn.textContent = '✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(function() { btn.textContent = 'Copy Link'; btn.classList.remove('copied'); }, 2500);
+  }).catch(function() {
+    // Fallback
+    var ta = document.createElement('textarea');
+    ta.value = url;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('Link copied!');
+  });
+}
+
+function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._t); t._t = setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+</script>
+</body>
+</html>

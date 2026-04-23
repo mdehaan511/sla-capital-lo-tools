@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTL Sizer — SLA Capital</title>
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="quotes.js"></script>
+<script>
+window.ClientBook = {
+
+  _key: function(loEmail) { return 'sla_clients_' + loEmail; },
+
+  // Main entry point — called from sizers and apply.html on every save
+  // borrowerEmail is the unique client identifier
+  upsert: function(loEmail, borrowerEmail, firstName, lastName, phone, loanData) {
+    if (!borrowerEmail) return; // require email to link
+    var key = this._key(loEmail);
+    var clients = [];
+    try { clients = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+
+    var normEmail = borrowerEmail.toLowerCase().trim();
+    var idx = -1;
+    for (var i = 0; i < clients.length; i++) {
+      if ((clients[i].email || '').toLowerCase() === normEmail) { idx = i; break; }
+    }
+    // Fallback: if no email match, try matching by full name
+    if (idx < 0 && firstName && lastName) {
+      var normName = (firstName + ' ' + lastName).toLowerCase().trim();
+      for (var i = 0; i < clients.length; i++) {
+        var cName = ((clients[i].firstName||'') + ' ' + (clients[i].lastName||'')).toLowerCase().trim();
+        if (cName === normName) { idx = i; break; }
+      }
+    }
+
+    if (idx < 0) {
+      // New client
+      clients.unshift({
+        id:        'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+        email:     normEmail,
+        firstName: firstName || '',
+        lastName:  lastName  || '',
+        phone:     phone     || '',
+        createdAt: new Date().toISOString(),
+        createdBy: loEmail,
+        loans:     loanData ? [loanData] : []
+      });
+    } else {
+      // Existing client — update name/phone if provided and currently blank
+      if (firstName && !clients[idx].firstName) clients[idx].firstName = firstName;
+      if (lastName  && !clients[idx].lastName)  clients[idx].lastName  = lastName;
+      if (phone     && !clients[idx].phone)      clients[idx].phone     = phone;
+
+      if (loanData) {
+        if (!clients[idx].loans) clients[idx].loans = [];
+        // Match loan by address (case-insensitive)
+        var normAddr = (loanData.address || '').toLowerCase().trim();
+        var lIdx = -1;
+        for (var j = 0; j < clients[idx].loans.length; j++) {
+          if ((clients[idx].loans[j].address || '').toLowerCase().trim() === normAddr) {
+            lIdx = j; break;
+          }
+        }
+        // Handle address rename — find by original address if provided
+        if (lIdx < 0 && loanData._originalAddress) {
+          var normOrig = loanData._originalAddress.toLowerCase().trim();
+          for (var k = 0; k < clients[idx].loans.length; k++) {
+            if ((clients[idx].loans[k].address||'').toLowerCase().trim() === normOrig) {
+              lIdx = k; break;
+            }
+          }
+        }
+        if (lIdx >= 0) {
+          // Preserve editable app fields AND existing ID when updating from sizer
+          var existing = clients[idx].loans[lIdx];
+          clients[idx].loans[lIdx] = Object.assign({}, loanData, {
+            id:          existing.id,          // CRITICAL: keep stable ID so loan-details URL stays valid
+            bedrooms:    loanData.bedrooms    || existing.bedrooms    || '',
+            bathrooms:   loanData.bathrooms   || existing.bathrooms   || '',
+            sqft:        loanData.sqft        || existing.sqft        || '',
+            usCitizen:   loanData.usCitizen   || existing.usCitizen   || '',
+            loanPurpose: loanData.loanPurpose || existing.loanPurpose || '',
+            rentalType:  loanData.rentalType  || existing.rentalType  || '',
+            fundingDate: loanData.fundingDate || existing.fundingDate || '',
+            notes:       loanData.notes       || existing.notes       || '',
+          });
+        } else {
+          clients[idx].loans.unshift(loanData);
+        }
+      }
+    }
+
+    localStorage.setItem(key, JSON.stringify(clients));
+    return clients;
+  },
+
+  // Build a loan record from sizer formData + empty app fields
+  buildLoanFromSizer: function(toolType, address, formData, quoteStatus) {
+    return {
+      id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+      toolType:    toolType,
+      address:     address || formData.address || '',
+      savedAt:     new Date().toISOString(),
+      updatedAt:   new Date().toISOString(),
+      status:      quoteStatus || 'active',
+      // Sizer financials (read-only on Loan Details)
+      loanAmt:     formData.loanAmt     || formData.purchasePrice || '',
+      loanType:    formData.loanType    || '',
+      fico:        formData.fico        || '',
+      rate:        formData._finalRate  || '',
+      points:      formData._points     || '',
+      propValue:   formData.propValue   || formData.arv || '',
+      rent:        formData.rent        || formData.monthlyRent || '',
+      taxes:       formData.taxes       || '',
+      insurance:   formData.insurance   || '',
+      hoa:         formData.hoa         || '',
+      isIO:        formData.isIO        || '',
+      prepay:      formData.prepay      || '',
+      buydown:     formData.buydown     || '',
+      dscr:        formData._dscr       || '',
+      // RTL-specific
+      purchasePrice: formData.purchasePrice || '',
+      rehabBudget:   formData.rehabBudget   || '',
+      arv:           formData.arv           || '',
+      experience:    formData.experience    || '',
+      // Application fields (editable on Loan Details page)
+      bedrooms:    formData.bedrooms    || '',
+      bathrooms:   formData.bathrooms   || '',
+      sqft:        formData.sqft        || '',
+      propType:    formData.propType    || '',
+      usCitizen:   formData.usCitizen   || '',
+      loanPurpose: formData.loanPurpose || '',
+      rentalType:  formData.rentalType  || '',
+      fundingDate: formData.fundingDate || '',
+      notes:       formData.notes       || '',
+    };
+  },
+
+  // Get a specific client by ID
+  getClientById: function(loEmail, clientId) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        if (clients[i].id === clientId) return clients[i];
+      }
+    } catch(e) {}
+    return null;
+  },
+
+  // Get a specific loan by ID across all clients
+  getLoanById: function(loEmail, loanId) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        var loans = clients[i].loans || [];
+        for (var j = 0; j < loans.length; j++) {
+          if (loans[j].id === loanId) {
+            return { client: clients[i], loan: loans[j], clientIdx: i, loanIdx: j };
+          }
+        }
+      }
+    } catch(e) {}
+    return null;
+  },
+
+  // Update app fields on a loan
+  updateLoanAppFields: function(loEmail, clientId, loanId, appFields) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        if (clients[i].id !== clientId) continue;
+        var loans = clients[i].loans || [];
+        for (var j = 0; j < loans.length; j++) {
+          if (loans[j].id !== loanId) continue;
+          clients[i].loans[j] = Object.assign({}, loans[j], appFields, {
+            updatedAt: new Date().toISOString()
+          });
+          localStorage.setItem(key, JSON.stringify(clients));
+          return true;
+        }
+      }
+    } catch(e) {}
+    return false;
+  },
+
+  // Update client profile fields
+  updateClientProfile: function(loEmail, clientId, fields) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        if (clients[i].id !== clientId) continue;
+        clients[i] = Object.assign({}, clients[i], fields);
+        localStorage.setItem(key, JSON.stringify(clients));
+        return true;
+      }
+    } catch(e) {}
+    return false;
+  },
+
+  // Legacy shim — keep existing prospect flow working
+  addOrUpdateClient: function(userEmail, prospectData, quote) {
+    var borrowerEmail = (prospectData.email || '').toLowerCase().trim();
+    if (!borrowerEmail) return;
+    var loanData = this.buildLoanFromSizer(
+      (quote && quote.toolType) || 'dscr',
+      quote && quote.address,
+      (quote && quote.formData) || {},
+      (quote && quote.status) || 'active'
+    );
+    // Merge prospect application fields into loan
+    if (prospectData.bedrooms)    loanData.bedrooms    = prospectData.bedrooms;
+    if (prospectData.bathrooms)   loanData.bathrooms   = prospectData.bathrooms;
+    if (prospectData.sqft)        loanData.sqft        = prospectData.sqft;
+    if (prospectData.usCitizen)   loanData.usCitizen   = prospectData.usCitizen;
+    if (prospectData.loanPurpose) loanData.loanPurpose = prospectData.loanPurpose;
+    if (prospectData.rentalType)  loanData.rentalType  = prospectData.rentalType;
+    if (prospectData.fundingDate) loanData.fundingDate = prospectData.fundingDate;
+    this.upsert(userEmail, borrowerEmail, prospectData.firstName, prospectData.lastName, prospectData.phone, loanData);
+  }
+};</script>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+  --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+  --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+  --border-focus: #C8813A; --pill-bg: #f7f5f1;
+  --success: #256940; --warn: #7a5218; --danger: #7c1f1f;
+  --r: 12px; --r-sm: 8px; --r-xs: 6px;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 5rem; }
+
+/* ── Nav ──────────────────────────────────────────────────── */
+.nav { max-width: 1120px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+.nav img { height: 48px; width: auto; }
+.nav-right { display: flex; align-items: center; gap: 12px; }
+.back-link { font-size: 12px; color: var(--muted); text-decoration: none; }
+.back-link:hover { color: var(--gold); }
+.date-pill { font-family: 'DM Mono', monospace; font-size: 11px; background: var(--gold-light); color: var(--gold); border: 1px solid var(--gold-border); padding: 3px 10px; border-radius: 20px; }
+.signout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; -webkit-appearance: none; appearance: none; }
+.signout-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+/* ── Layout ───────────────────────────────────────────────── */
+.page { max-width: 1120px; margin: 0 auto; padding-top: 2.25rem; display: grid; grid-template-columns: 60% 1fr; gap: 24px; align-items: start; }
+@media (max-width: 860px) { .page { grid-template-columns: 1fr; } }
+
+/* ── Input card ───────────────────────────────────────────── */
+.input-card { background: var(--surface); border-radius: var(--r); border: 1px solid var(--border); overflow: hidden; }
+.card-top { padding: 1.75rem 1.75rem 0; }
+.card-top h1 { font-family: 'Lora', serif; font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.card-top p { font-size: 13px; color: var(--muted); margin-bottom: 1.375rem; }
+.product-btn { margin: 0 1.75rem 1.5rem; display: block; width: calc(100% - 3.5rem); padding: 10px 16px; background: transparent; border: 1.5px solid var(--gold-border); border-radius: var(--r-sm); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dark); text-align: center; cursor: default; }
+
+/* ── Form ─────────────────────────────────────────────────── */
+.form-body { padding: 0 1.75rem 1.75rem; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+.form-body .span2 { grid-column: 1 / -1; }
+.form-body .span3 { grid-column: 1 / -1; }
+.field { display: flex; flex-direction: column; }
+.field .wrap { position: relative; border: 1px solid var(--border); border-radius: var(--r-xs); background: var(--surface); transition: border-color 0.15s; height: 52px; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; }
+.field .wrap:focus-within { border-color: var(--border-focus); }
+.field .wrap.has-err { border-color: var(--danger); }
+.field .wrap label { font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1; margin-bottom: 3px; pointer-events: none; }
+.field .wrap label .req { color: var(--gold); margin-left: 1px; }
+.field .wrap input,
+.field .wrap select { border: none; outline: none; background: transparent; font-family: 'DM Sans', sans-serif; font-size: 13.5px; font-weight: 500; color: var(--text); width: 100%; padding: 0; appearance: none; -webkit-appearance: none; line-height: 1.2; }
+.field .wrap select { background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%237a7488' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0 center; padding-right: 18px; cursor: pointer; }
+.field .wrap input[type="number"] { font-family: 'DM Mono', monospace; font-size: 13px; }
+.err-msg { font-size: 11px; color: var(--danger); margin-top: 4px; display: none; padding: 0 2px; }
+.err-msg.show { display: block; }
+
+/* Address row: street full width, city/state/zip in 3 cols */
+.addr-grid { grid-column: 1/-1; display: grid; grid-template-columns: 1fr 80px 100px; gap: 14px 16px; }
+
+/* 3-col and 4-col rows */
+.col3 { grid-column: 1/-1; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px 16px; }
+.col4 { grid-column: 1/-1; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px 16px; }
+
+.form-divider { grid-column: 1/-1; height: 1px; background: var(--border); margin: 2px 0; }
+.section-label { grid-column: 1/-1; font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+
+/* Region tag */
+.region-tag { grid-column: 1/-1; display: none; font-size: 12px; color: var(--muted); background: var(--pill-bg); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 7px 12px; gap: 6px; align-items: center; }
+.region-tag.show { display: flex; }
+.region-adj { font-weight: 600; color: var(--gold); margin-left: 4px; }
+
+/* Adv toggle */
+.adv-toggle { grid-column: 1/-1; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; padding: 6px 0 2px; user-select: none; }
+.adv-toggle:hover { color: var(--gold); }
+.adv-arrow { font-size: 10px; transition: transform 0.2s; display: inline-block; }
+.adv-toggle.open .adv-arrow { transform: rotate(90deg); }
+.adv-body { grid-column: 1/-1; display: none; }
+
+.submit-btn { display: block; width: calc(100% - 3.5rem); margin: 0 1.75rem 0.75rem; height: 46px; background: var(--dark); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.submit-btn:hover { background: var(--gold); }
+
+/* ── Results column ───────────────────────────────────────── */
+.results-col { display: flex; flex-direction: column; gap: 16px; }
+
+/* Rate / summary card */
+.rate-card { background: var(--surface); border-radius: var(--r); border: 1px solid var(--border); overflow: hidden; }
+.rate-header { background: var(--dark); padding: 1.25rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+.rate-header-left .lender { font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 2px; }
+.rate-header-left .prog   { font-size: 15px; font-weight: 600; color: #fff; }
+.rate-big { text-align: right; }
+.rate-big .rl { font-size: 11px; color: rgba(255,255,255,0.45); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+.rate-big .rv { font-family: 'DM Mono', monospace; font-size: 32px; font-weight: 500; color: var(--gold); line-height: 1; }
+.rate-body { padding: 1.25rem 1.5rem; }
+
+/* Metrics grid inside results */
+.metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.metric-card { background: var(--pill-bg); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 14px 16px; }
+.metric-card.good { background: rgba(37,105,64,0.06); border-color: rgba(37,105,64,0.2); }
+.metric-card.bad  { background: #fdf0f0; border-color: rgba(124,31,31,0.15); }
+.metric-card.full { grid-column: 1/-1; }
+.metric-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+.metric-value { font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 500; color: var(--text); line-height: 1.1; }
+.metric-value.xl { font-size: 28px; }
+.metric-value.green { color: var(--success); }
+.metric-value.na  { font-size: 15px; color: var(--danger); }
+.metric-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.metric-sub.err { color: var(--danger); }
+.floor-note { font-size: 11px; color: var(--warn); margin-top: 6px; display: none; }
+.floor-note.show { display: block; }
+
+/* Adjustments table */
+.breakdown { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.breakdown tr { border-bottom: 1px solid #f0ece6; }
+.breakdown tr:last-child td { border-bottom: none; }
+.breakdown td { padding: 9px 0; border-bottom: 1px solid #f0ece6; }
+.breakdown tr:last-child td { border-bottom: none; }
+.breakdown td:first-child { color: var(--muted); }
+.breakdown td.bv { font-family: 'DM Mono', monospace; text-align: right; }
+.breakdown td.bv.pos  { color: #c0392b; }
+.breakdown td.bv.neg  { color: var(--success); }
+.breakdown td.bv.zero { color: var(--muted); }
+.breakdown td.bv.none { color: var(--muted); font-style: italic; }
+
+.total-row { display: flex; justify-content: space-between; align-items: baseline; padding-top: 14px; padding-bottom: 4px; border-top: 2px solid var(--border); margin-top: 8px; }
+.total-row .tl { font-size: 13px; font-weight: 600; }
+.total-row .tv { font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 500; }
+
+.inelig { background: #fdf0f0; border: 1px solid rgba(124,31,31,0.15); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; padding: 10px 14px; }
+.flag-box { font-size: 12px; color: var(--warn); background: rgba(122,82,24,0.07); border: 1px solid rgba(122,82,24,0.2); border-radius: var(--r-xs); padding: 10px 14px; line-height: 1.7; display: none; }
+.flag-box.show { display: block; }
+
+.save-btn { display: block; width: 100%; height: 42px; background: transparent; color: var(--gold); border: 1.5px solid var(--gold-border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; margin-bottom: 10px; }
+.save-btn:hover { background: var(--gold-light); border-color: var(--gold); }
+.save-btn.saved { background: var(--gold-light); border-color: var(--gold); }
+.dl-btn { display: block; width: 100%; height: 46px; background: var(--gold); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; letter-spacing: 0.01em; margin-top: 8px; }
+.dl-btn:hover { background: var(--gold-mid); }
+
+.dl-btn { display: block; width: 100%; height: 46px; background: var(--gold); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; letter-spacing: 0.01em; }
+.dl-btn:hover { background: var(--gold-mid); }
+
+.disclaimer { font-size: 11px; color: var(--muted); line-height: 1.7; margin-top: 4px; }
+
+/* Placeholder */
+.placeholder { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 3.5rem 2rem; text-align: center; }
+.placeholder .ph-icon { width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 50%; background: var(--gold-light); display: flex; align-items: center; justify-content: center; }
+.placeholder p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+/* Quotes panel (inherits DSCR styles via quotes.js) */
+.quotes-panel-wrap { margin-bottom: 0; }
+
+/* Toast */
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .nav-tool-link.current { background:var(--dark); border-color:var(--dark); color:#fff; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 9999; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+
+<nav class="nav">
+  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+  <div class="nav-right">
+    <span class="date-pill" id="datePill"></span>
+    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+    <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+    <a class="nav-tool-link" href="prospects.html">Prospects</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div id="quotesPanelWrap" style="max-width:1120px;margin:1.25rem auto 0;padding:0 1rem"></div>
+
+<div class="page">
+
+  <!-- ── INPUT CARD ─────────────────────────────────────── -->
+  <div class="input-card">
+    <div class="card-top">
+      <h1>RTL Loan Sizer</h1>
+      <p>Hard money · Fix &amp; Flip · Bridge</p>
+    </div>
+    <div class="product-btn">RTL — Fix &amp; Flip · Bridge</div>
+
+    <div class="form-body">
+
+      <!-- Property address -->
+      <div class="section-label">Property</div>
+      <div class="field span2">
+        <div class="wrap" id="wrap-propStreet">
+          <label>Street Address <span class="req">*</span></label>
+          <input type="text" id="propStreet" oninput="clearErr('propStreet');autoCalc()" />
+        </div>
+        <div class="err-msg" id="err-propStreet">Street address is required</div>
+      </div>
+      <div class="addr-grid">
+        <div class="field">
+          <div class="wrap" id="wrap-propCity">
+            <label>City <span class="req">*</span></label>
+            <input type="text" id="propCity" oninput="clearErr('propCity');updateRegion();autoCalc()" />
+          </div>
+          <div class="err-msg" id="err-propCity">Required</div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-propState">
+            <label>State <span class="req">*</span></label>
+            <select id="propState" onchange="clearErr('propState');updateRegion();autoCalc()">
+              <option value="">—</option>
+              <option>AL</option><option>AK</option><option>AZ</option><option>AR</option>
+              <option>CA</option><option>CO</option><option>CT</option><option>DE</option>
+              <option>FL</option><option>GA</option><option>HI</option><option>ID</option>
+              <option>IL</option><option>IN</option><option>IA</option><option>KS</option>
+              <option>KY</option><option>LA</option><option>ME</option><option>MD</option>
+              <option>MA</option><option>MI</option><option>MN</option><option>MS</option>
+              <option>MO</option><option>MT</option><option>NE</option><option>NV</option>
+              <option>NH</option><option>NJ</option><option>NM</option><option>NY</option>
+              <option>NC</option><option>ND</option><option>OH</option><option>OK</option>
+              <option>OR</option><option>PA</option><option>RI</option><option>SC</option>
+              <option>SD</option><option>TN</option><option>TX</option><option>UT</option>
+              <option>VT</option><option>VA</option><option>WA</option><option>WV</option>
+              <option>WI</option><option>WY</option>
+            </select>
+          </div>
+          <div class="err-msg" id="err-propState">Required</div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-propZip">
+            <label>ZIP <span class="req">*</span></label>
+            <input type="text" id="propZip" maxlength="5" oninput="clearErr('propZip');updateRegion();autoCalc()" />
+          </div>
+          <div class="err-msg" id="err-propZip">5-digit ZIP required</div>
+        </div>
+      </div>
+
+      <!-- Region tag -->
+      <div class="region-tag span2" id="region-tag">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="4.5" r="2" stroke="var(--gold)" stroke-width="1.3"/><path d="M6 1C3.8 1 2 2.8 2 4.5C2 7 6 11 6 11C6 11 10 7 10 4.5C10 2.8 8.2 1 6 1Z" stroke="var(--gold)" stroke-width="1.3"/></svg>
+        <span id="region-text"></span><span class="region-adj" id="region-adj"></span>
+      </div>
+
+      <div class="form-divider"></div>
+      <div class="section-label">Financials</div>
+
+      <div class="field">
+        <div class="wrap" id="wrap-purchasePrice">
+          <label>Purchase Price <span class="req">*</span></label>
+          <input type="number" id="purchasePrice" step="5000" oninput="clearErr('purchasePrice');autoCalc()" />
+        </div>
+        <div class="err-msg" id="err-purchasePrice">Required</div>
+      </div>
+      <div class="field" id="row-rehab">
+        <div class="wrap" id="wrap-rehabBudget">
+          <label>Rehab Budget <span class="req">*</span></label>
+          <input type="number" id="rehabBudget" step="5000" oninput="clearErr('rehabBudget');autoCalc()" />
+        </div>
+        <div class="err-msg" id="err-rehabBudget">Required for this loan type</div>
+      </div>
+      <div class="field span2">
+        <div class="wrap" id="wrap-arv">
+          <label>After-Repair Value (ARV) <span class="req">*</span></label>
+          <input type="number" id="arv" step="5000" oninput="clearErr('arv');autoCalc()" />
+        </div>
+        <div class="err-msg" id="err-arv">Required</div>
+      </div>
+
+      <div class="form-divider"></div>
+      <div class="section-label">Loan &amp; Borrower</div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Name</label>
+          <input type="text" id="borrowerName" placeholder="John Smith" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Email</label>
+          <input type="email" id="borrowerEmail" placeholder="borrower@email.com" />
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Loan Type <span class="req">*</span></label>
+          <select id="loanType" onchange="toggleRehab();autoCalc()">
+            <option value="light" selected>Light Rehab (&lt;50% of Loan)</option>
+            <option value="heavy">Heavy Rehab (&gt;50% of Loan)</option>
+            <option value="bridge">Bridge (No Rehab)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>FICO Score <span class="req">*</span></label>
+          <select id="fico" onchange="autoCalc()">
+            <option value="740">740+</option>
+            <option value="720">720 – 739</option>
+            <option value="700">700 – 719</option>
+            <option value="680">680 – 699</option>
+            <option value="650">650 – 679</option>
+            <option value="620">620 – 649</option>
+            <option value="550">550 – 619</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Investor Experience <span class="req">*</span></label>
+          <select id="experience" onchange="autoCalc()">
+            <option value="8">8+ projects (Tier 1)</option>
+            <option value="5">4 – 7 projects (Tier 2)</option>
+            <option value="1" selected>0 – 3 projects (Tier 3)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Property Type <span class="req">*</span></label>
+          <select id="propType" onchange="autoCalc()">
+            <option value="sfr">SFR / 1–4 Units</option>
+            <option value="mfr">Multi-Family 5–10 Units</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Loan Term <span class="req">*</span></label>
+          <select id="loanTerm" onchange="autoCalc()">
+            <option value="12">12 months</option>
+            <option value="13">13 – 18 months</option>
+            <option value="19">19 – 24 months</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Loan Purpose <span class="req">*</span></label>
+          <select id="loanPurpose" onchange="autoCalc()">
+            <option value="purchase">Purchase</option>
+            <option value="cashout">Cash-Out Refinance</option>
+            <option value="rateterm">Rate/Term Refinance</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Advanced -->
+      <div class="adv-toggle span2" id="advToggle" onclick="toggleAdv()">
+        <span class="adv-arrow">▶</span>
+        <span>Advanced — ZHVI Override</span>
+      </div>
+      <div class="adv-body span2" id="advBody">
+        <div class="field">
+          <div class="wrap">
+            <label>Property Value vs ZIP ZHVI</label>
+            <select id="zhvi">
+              <option value="normal">Under 200% ZHVI (standard)</option>
+              <option value="200">200–300% ZHVI (−5% leverage)</option>
+              <option value="300">Over 300% ZHVI (−10% leverage)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /form-body -->
+
+    <button class="submit-btn" onclick="calculate()">Calculate Pricing →</button>
+  </div><!-- /input-card -->
+
+  <!-- ── RESULTS COLUMN ──────────────────────────────────── -->
+  <div class="results-col">
+    <div id="quotesPanelInner"></div>
+    <div id="results">
+      <div class="placeholder">
+        <div class="ph-icon">
+          <svg viewBox="0 0 22 22" fill="none" width="22" height="22"><path d="M11 2L13.5 8H20L14.5 12L16.5 18.5L11 14.5L5.5 18.5L7.5 12L2 8H8.5L11 2Z" stroke="#C8813A" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        </div>
+        <p>Fill in the loan details on the left<br>and click <strong>Calculate Pricing</strong> to see your pricing.</p>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+// ── Pricing data (unchanged from original) ──────────────────
+var FLOOR = 0.10;
+var LABELS = { bridge:'Bridge', light:'Light Rehab', heavy:'Heavy Rehab' };
+var SPREAD = { 740:.0175, 720:.02, 700:.0225, 680:.025 };
+var LTV_COLS = [.65,.70,.75,.80,.85,.90,.95];
+var PRICING = {
+  bridge:{ sfr:{ 740:[.08,.08,.08,null,null,null,null], 720:[.08,.08,.08,null,null,null,null], 700:[.08,.08,.08125,null,null,null,null], 680:[.0825,.0825,null,null,null,null,null] }, mfr:{ 740:[.08,.08,.08,null,null,null,null], 720:[.08,.08,.08,null,null,null,null], 700:[.08,.08,.08125,null,null,null,null], 680:[.0825,.0825,null,null,null,null,null] } },
+  light:{ sfr:{ 740:[.08,.08,.08,.08,.08125,.0825,.085], 720:[.08,.08,.08,.08125,.0825,.08375,.08625], 700:[.08,.08,.08125,.0825,.08375,.085,.0875], 680:[.0825,.0825,.08375,.085,.08625,.0875,null] }, mfr:{ 740:[.08,.08,.08,.08,.08125,.0825,.085], 720:[.08,.08,.08,.08125,.0825,.08375,.08625], 700:[.08,.08,.08125,.0825,.08375,.085,.0875], 680:[.0825,.0825,.08375,.085,.08625,.0875,null] } },
+  heavy:{ sfr:{ 740:[.08625,.08625,.08625,.0875,.08875,null,null], 720:[.08625,.08625,.0875,.08875,.09,null,null], 700:[.0875,.0875,.08875,.09,.09125,null,null], 680:[.09,.09,.09125,.0925,.09375,null,null] }, mfr:{ 740:[.08625,.08625,.08625,.0875,.08875,null,null], 720:[.08625,.08625,.0875,.08875,.09,null,null], 700:[.0875,.0875,.08875,.09,.09125,null,null], 680:[.09,.09,.09125,.0925,.09375,null,null] } },
+  construction:{ sfr:{ 740:[.08625,.08625,.08625,.0875,.08875,null,null], 720:[.08625,.08625,.0875,.08875,.09,null,null], 700:[.0875,.0875,.08875,.09,.09125,null,null], 680:[.09,.09,.09125,.0925,.09375,null,null] }, mfr:{ 740:[.08625,.08625,.08625,.0875,.08875,null,null], 720:[.08625,.08625,.0875,.08875,.09,null,null], 700:[.0875,.0875,.08875,.09,.09125,null,null], 680:[.09,.09,.09125,.0925,.09375,null,null] } }
+};
+var MAX_LTP = {
+  bridge:{ sfr:{ 740:[.75,.75,.75], 720:[.75,.75,.75], 700:[.75,.75,.75], 680:[.70,.70,.65], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] }, mfr:{ 740:[.70,.70,.65], 720:[.70,.70,.65], 700:[.70,.70,.65], 680:[.65,0,0], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] } },
+  light:{ sfr:{ 740:[.90,.90,.90], 720:[.90,.90,.90], 700:[.90,.875,.875], 680:[.875,.85,.85], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] }, mfr:{ 740:[.80,.80,.80], 720:[.80,.80,.80], 700:[.80,.80,.80], 680:[.75,.75,0], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] } },
+  heavy:{ sfr:{ 740:[.80,.80,0], 720:[.80,.80,0], 700:[.80,.80,0], 680:[.75,.75,0], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] }, mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] } },
+  construction:{ sfr:{ 740:[.60,.60,0], 720:[.60,.60,0], 700:[.60,.60,0], 680:[.60,.60,0], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] }, mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[.85,.85,.85], 620:[.65,.65,.65], 550:[.60,.60,.60] } }
+};
+var MAX_LTC = {
+  light:{ sfr:{ 740:[.925,.925,.90], 720:[.925,.925,.90], 700:[.925,.925,.90], 680:[.90,.875,.85], 650:[.85,.85,.85], 620:[.80,.80,.80], 550:[.80,.80,.80] }, mfr:{ 740:[.85,.85,.65], 720:[.85,.80,.65], 700:[.80,.80,.65], 680:[.80,.80,.60], 650:[.85,.85,.85], 620:[.80,.80,.80], 550:[.80,.80,.80] } },
+  heavy:{ sfr:{ 740:[.85,.85,0], 720:[.85,.85,0], 700:[.825,.80,0], 680:[.825,.80,0], 650:[.85,.85,.85], 620:[.80,.80,.80], 550:[.80,.80,.80] }, mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[.85,.85,.85], 620:[.80,.80,.80], 550:[.80,.80,.80] } },
+  construction:{ sfr:{ 740:[.90,.85,0], 720:[.90,.85,0], 700:[.90,.85,0], 680:[.85,.825,0], 650:[.85,.85,.85], 620:[.80,.80,.80], 550:[.80,.80,.80] }, mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[.85,.85,.85], 620:[.80,.80,.80], 550:[.80,.80,.80] } }
+};
+var MAX_LTARV = {
+  light:{ sfr:{ 740:[.75,.75,.75], 720:[.75,.75,.75], 700:[.75,.75,.75], 680:[.75,.75,.70], 650:[.65,.65,.65], 620:[.60,.60,.60], 550:[.55,.55,.55] }, mfr:{ 740:[.65,.65,.65], 720:[.65,.65,.65], 700:[.65,.65,.65], 680:[.60,0,0], 650:[.65,.65,.65], 620:[.60,.60,.60], 550:[.55,.55,.55] } },
+  heavy:{ sfr:{ 740:[.70,.70,0], 720:[.70,.70,0], 700:[.70,.65,0], 680:[.65,.65,0], 650:[.65,.65,.65], 620:[.60,.60,.60], 550:[.55,.55,.55] }, mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[.65,.65,.65], 620:[.60,.60,.60], 550:[.55,.55,.55] } },
+  construction:{ sfr:{ 740:[.70,.70,0], 720:[.70,.70,0], 700:[.70,.70,0], 680:[.70,.65,0], 650:[.65,.65,.65], 620:[.60,.60,.60], 550:[.55,.55,.55] }, mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[.65,.65,.65], 620:[.60,.60,.60], 550:[.55,.55,.55] } }
+};
+
+function fk(f){ if(f>=740)return 740; if(f>=720)return 720; if(f>=700)return 700; if(f>=680)return 680; if(f>=650)return 650; if(f>=620)return 620; return 550; }
+function ei(e){ if(e>=8)return 0; if(e>=4)return 1; return 2; }
+function fmt(n){ return '$'+Math.round(n).toLocaleString(); }
+function fmtP(n){ return (n*100).toFixed(1)+'%'; }
+function fmtR(n){ return (n*100).toFixed(3)+'%'; }
+function pts(f){ if(f>=720)return 1.5; if(f>=640)return 2.0; return 2.5; }
+function colchisRate(lt,pt,fk,ltv){
+  var g=PRICING[lt]&&PRICING[lt][pt]&&PRICING[lt][pt][fk]; if(!g)return null;
+  var b=null;
+  for(var i=0;i<LTV_COLS.length;i++){ if(LTV_COLS[i]<=ltv+.005&&g[i]!==null)b=g[i]; }
+  return b;
+}
+
+var detectedState='other';
+var geoWarning='';
+
+function updateRegion(){
+  var st=document.getElementById('propState').value;
+  var city=document.getElementById('propCity').value.trim().toUpperCase();
+  var zip=document.getElementById('propZip').value.trim();
+  var tag=document.getElementById('region-tag');
+  geoWarning=''; detectedState='other';
+  if(!st){ tag.classList.remove('show'); return; }
+  var rl='';
+  if(['NY','NJ','CT'].includes(st)){ detectedState='nynj'; rl='NY/NJ/CT (+0.250%)'; }
+  else if(st==='CA'){ detectedState='ca'; rl='California (−0.125%)'; }
+  if(st==='IL') geoWarning='⚠ Illinois is excluded from this program.';
+  if(st==='NJ'&&city.includes('NEWARK')) geoWarning='⚠ Newark, NJ is excluded from this program.';
+  var parts=[];
+  var cd=document.getElementById('propCity').value.trim();
+  if(cd)parts.push(cd); if(st)parts.push(st); if(zip)parts.push(zip);
+  document.getElementById('region-text').textContent=parts.join(', ');
+  document.getElementById('region-adj').textContent=rl?'· '+rl:'';
+  tag.classList.add('show');
+}
+
+function toggleAdv(){
+  var t=document.getElementById('advToggle');
+  var b=document.getElementById('advBody');
+  t.classList.toggle('open');
+  b.style.display=t.classList.contains('open')?'block':'none';
+}
+
+function toggleRehab(){
+  var t=document.getElementById('loanType').value;
+  var show=['light','heavy'].includes(t);
+  var el=document.getElementById('row-rehab');
+  el.style.visibility=show?'visible':'hidden';
+  el.style.opacity=show?'1':'0';
+}
+
+function clearErr(id){
+  var el=document.getElementById('wrap-'+id);
+  var er=document.getElementById('err-'+id);
+  if(el)el.classList.remove('has-err');
+  if(er)er.classList.remove('show');
+}
+function showErr(id,msg){
+  var el=document.getElementById('wrap-'+id);
+  var er=document.getElementById('err-'+id);
+  if(el)el.classList.add('has-err');
+  if(er){ if(msg)er.textContent=msg; er.classList.add('show'); }
+}
+
+function validate(){
+  var ok=true;
+  ['propStreet','propCity','propZip'].forEach(function(id){
+    if(!document.getElementById(id).value.trim()){ showErr(id); ok=false; }
+  });
+  if(!document.getElementById('propState').value){ showErr('propState'); ok=false; }
+  var zip=document.getElementById('propZip').value.trim();
+  if(zip&&!/^\d{5}$/.test(zip)){ showErr('propZip','Must be 5 digits'); ok=false; }
+  ['purchasePrice','arv'].forEach(function(id){
+    if(!(parseFloat(document.getElementById(id).value)>0)){ showErr(id); ok=false; }
+  });
+  var t=document.getElementById('loanType').value;
+  if(['light','heavy'].includes(t)&&!(parseFloat(document.getElementById('rehabBudget').value)>0)){
+    showErr('rehabBudget'); ok=false;
+  }
+  return ok;
+}
+
+var _resultsShown = false;
+
+function autoCalc() {
+  if (_resultsShown) calculate();
+}
+
+function calculate(){
+  _resultsShown = true;
+  if(!validate()) return;
+
+  var street=document.getElementById('propStreet').value.trim();
+  var city=document.getElementById('propCity').value.trim();
+  var state=document.getElementById('propState').value;
+  var zip=document.getElementById('propZip').value.trim();
+  var lt=document.getElementById('loanType').value;
+  var fr=parseInt(document.getElementById('fico').value);
+  var exp=parseInt(document.getElementById('experience').value);
+  var pt=document.getElementById('propType').value;
+  var pp=parseFloat(document.getElementById('purchasePrice').value)||0;
+  var arv=parseFloat(document.getElementById('arv').value)||0;
+  var rb=['light','heavy'].includes(lt)?(parseFloat(document.getElementById('rehabBudget').value)||0):0;
+  var term=parseInt(document.getElementById('loanTerm').value);
+  var purp=document.getElementById('loanPurpose').value;
+  var zhvi=document.getElementById('zhvi').value;
+  var sa=detectedState;
+  var isR=lt!=='bridge';
+
+  var fkey=fk(fr); var eidx=ei(exp);
+  var adjs=[]; var flags=[];
+  if(geoWarning) flags.push(geoWarning);
+
+  var ltpT=MAX_LTP[lt]&&MAX_LTP[lt][pt]&&MAX_LTP[lt][pt][fkey];
+  var ltcT=isR?(MAX_LTC[lt]&&MAX_LTC[lt][pt]&&MAX_LTC[lt][pt][fkey]):null;
+  var larvT=isR?(MAX_LTARV[lt]&&MAX_LTARV[lt][pt]&&MAX_LTARV[lt][pt][fkey]):null;
+
+  var mLtp=ltpT?ltpT[eidx]:0;
+  var mLtc=ltcT?ltcT[eidx]:0;
+  var mLarv=larvT?larvT[eidx]:0;
+
+  if(zhvi==='200'){ mLtp=Math.max(0,mLtp-.05); mLtc=Math.max(0,mLtc-.05); mLarv=Math.max(0,mLarv-.05); flags.push('ZHVI override: 200–300% of ZIP median — leverage reduced 5%.'); }
+  else if(zhvi==='300'){ mLtp=Math.max(0,mLtp-.10); mLtc=Math.max(0,mLtc-.10); mLarv=Math.max(0,mLarv-.10); flags.push('ZHVI override: >300% of ZIP median — leverage reduced 10%.'); }
+  
+
+  var defMax=mLtp>0?(isR?Math.round(pp*mLtp)+rb:Math.round(pp*mLtp)):null;
+  var mByLtc=ltcT&&mLtc>0?Math.round((pp+rb)*mLtc):null;
+  var mByLarv=larvT&&mLarv>0?Math.round(arv*mLarv):null;
+
+  var bMax=defMax; var bLabel='LTP/LTV';
+  if(bMax&&mByLtc&&mByLtc<bMax){ bMax=mByLtc; bLabel='LTC'; }
+  if(bMax&&mByLarv&&mByLarv<bMax){ bMax=mByLarv; bLabel='LTARV'; }
+  if(bMax&&bMax>3500000){ bMax=3500000; bLabel='Program max $3.5M'; }
+
+  var dp=null;
+  if(bMax!==null&&pp>0){ var ltpPart=isR?bMax-rb:bMax; dp=Math.max(0,pp-ltpPart); }
+
+  var rate=null; var rErr=null; var floor=false;
+  var progLabel=(LABELS[lt]||lt)+' · '+state;
+
+  if(fr<550){
+    rErr='FICO below 550 is outside all program guidelines.';
+  } else if(fr<620){ rate=.14; }
+  else if(fr<650){ rate=.13; }
+  else if(fr<680){ rate=.12; }
+  else {
+    if(!bMax){ rErr='No eligible loan amount for this combination.'; }
+    else {
+      var ltpF=isR?Math.round(pp*mLtp):bMax;
+      var ltvF=ltpF/pp;
+      var sz=bMax>3000000?'3m':bMax>2000000?'2m':'normal';
+      var cb=colchisRate(lt,pt,fkey,ltvF);
+      if(cb===null){ rErr='No pricing available for this FICO/LTV combination.'; }
+      else {
+        var adj=0;
+        if(exp>=8){ adj-=.0025; adjs.push({l:'Experience: Tier 1 (8+ projects)',v:-.0025,c:'neg'}); }
+        else if(exp<=3){ adj+=.0025; adjs.push({l:'Experience: Tier 3 (0–3 projects)',v:.0025,c:'pos'}); }
+        cb=Math.max(0.08375,cb+adj); adj=0;
+        if(pt==='mfr'&&(lt==='bridge'||lt==='light')){ adj+=.00375; adjs.push({l:'Multi-family property',v:.00375,c:'pos'}); }
+        if(sa==='nynj'){ adj+=.0025; adjs.push({l:'NY/NJ/CT region',v:.0025,c:'pos'}); }
+        else if(sa==='ca'){ adj-=.00125; adjs.push({l:'California',v:-.00125,c:'neg'}); }
+        if(zhvi==='200'){ adj+=.00125; adjs.push({l:'Property value 200–300% ZHVI',v:.00125,c:'pos'}); }
+        else if(zhvi==='300'){ adj+=.00375; adjs.push({l:'Property value >300% ZHVI',v:.00375,c:'pos'}); }
+        if(purp==='cashout'){ adj+=.0025; adjs.push({l:'Cash-out refinance',v:.0025,c:'pos'}); }
+        if(term===19){ adj+=.00125; adjs.push({l:'Loan term 19–24 months',v:.00125,c:'pos'}); }
+        if(sz==='3m'){ adj+=.0025; adjs.push({l:'Loan amount >$3M',v:.0025,c:'pos'}); }
+        var cr=cb+adj+SPREAD[fkey];
+        if(cr<FLOOR){ rate=FLOOR; floor=true; } else rate=cr;
+      }
+    }
+  }
+
+  var p=pts(fr);
+  var pDol=bMax?bMax*p/100:null;
+  var mo=rate&&bMax?(bMax*rate/12):null;
+  var addrFull=street+', '+city+', '+state+' '+zip;
+
+  // ── Render results ─────────────────────────────────────────
+  var html='';
+
+  // Rate card header
+  html += '<div class="rate-card">';
+  html += '<div class="rate-header">';
+  html += '<div class="rate-header-left"><div class="lender">SLA Capital · '+addrFull+'</div><div class="prog">'+progLabel+'</div></div>';
+  if(rate&&!rErr){
+    html += '<div class="rate-big"><div class="rl">Interest Rate</div><div class="rv">'+fmtR(rate)+'</div></div>';
+  } else {
+    html += '<div class="rate-big"><div class="rl">Interest Rate</div><div class="rv" style="font-size:18px;color:rgba(200,129,58,0.5)">N/A</div></div>';
+  }
+  html += '</div>';
+
+  // Body
+  html += '<div class="rate-body">';
+
+  if(rErr){
+    html += '<div class="inelig" style="margin-bottom:16px">&#9888; '+rErr+'</div>';
+  }
+  if(floor){
+    html += '<div class="flag-box show" style="margin-bottom:12px">&#9873; Floor rate applied — minimum 10.000%</div>';
+  }
+
+  // Metrics grid
+  html += '<div class="metrics-grid">';
+
+  // Rate card
+  if(rate){
+    html += '<div class="metric-card">';
+    html += '<div class="metric-label">Interest Rate</div>';
+    html += '<div class="metric-value xl">'+fmtR(rate)+'</div>';
+    html += '<div class="metric-sub">'+(LABELS[lt]||lt)+' program</div>';
+    html += '</div>';
+  }
+
+  // Points
+  html += '<div class="metric-card">';
+  html += '<div class="metric-label">Origination Points</div>';
+  html += '<div class="metric-value xl">'+p.toFixed(1)+' pts</div>';
+  html += '<div class="metric-sub">'+(pDol?fmt(pDol)+' on max loan':'—')+'</div>';
+  html += '</div>';
+
+  // Max loan
+  if(bMax){
+    html += '<div class="metric-card">';
+    html += '<div class="metric-label">Maximum Loan Amount</div>';
+    html += '<div class="metric-value xl">'+fmt(bMax)+'</div>';
+    html += '<div class="metric-sub">'+bLabel+' binding</div>';
+    html += '</div>';
+  } else {
+    html += '<div class="metric-card bad">';
+    html += '<div class="metric-label">Maximum Loan Amount</div>';
+    html += '<div class="metric-value na">Not eligible</div>';
+    html += '</div>';
+  }
+
+  // Down payment
+  if(dp!==null&&bMax){
+    html += '<div class="metric-card good">';
+    html += '<div class="metric-label">Required Down Payment</div>';
+    html += '<div class="metric-value xl green">'+fmt(dp)+'</div>';
+    html += '<div class="metric-sub">'+(pp>0?((dp/pp)*100).toFixed(1)+'% of purchase price':'')+'</div>';
+    html += '</div>';
+  } else {
+    html += '<div class="metric-card bad">';
+    html += '<div class="metric-label">Required Down Payment</div>';
+    html += '<div class="metric-value na">N/A</div>';
+    html += '</div>';
+  }
+
+  // Monthly
+  html += '<div class="metric-card">';
+  html += '<div class="metric-label">Monthly Interest (I/O)</div>';
+  html += '<div class="metric-value">'+(mo?fmt(mo)+'/mo':'<span class=\'na\'>N/A</span>')+'</div>';
+  html += '</div>';
+
+  // LTP/LTV
+  if(mLtp>0){
+    var la=isR?Math.round(pp*mLtp)+rb:Math.round(pp*mLtp);
+    html += '<div class="metric-card">';
+    html += '<div class="metric-label">LTP/LTV Limit</div>';
+    html += '<div class="metric-value">'+fmt(la)+' <span style="font-size:14px;color:var(--muted)">('+fmtP(mLtp)+')</span></div>';
+    html += '</div>';
+  } else {
+    html += '<div class="metric-card bad"><div class="metric-label">LTP/LTV</div><div class="metric-value na">Not eligible</div></div>';
+  }
+
+  // LTC
+  if(isR){
+    if(mByLtc){
+      html += '<div class="metric-card">';
+      html += '<div class="metric-label">LTC Limit</div>';
+      html += '<div class="metric-value">'+fmt(mByLtc)+' <span style="font-size:14px;color:var(--muted)">('+fmtP(mLtc)+')</span></div>';
+      html += '</div>';
+    } else {
+      html += '<div class="metric-card bad"><div class="metric-label">LTC</div><div class="metric-value na">Not available</div></div>';
+    }
+    if(mByLarv){
+      html += '<div class="metric-card">';
+      html += '<div class="metric-label">LTARV Limit</div>';
+      html += '<div class="metric-value">'+fmt(mByLarv)+' <span style="font-size:14px;color:var(--muted)">('+fmtP(mLarv)+')</span></div>';
+      html += '</div>';
+    } else {
+      html += '<div class="metric-card bad"><div class="metric-label">LTARV</div><div class="metric-value na">Not available</div></div>';
+    }
+  }
+
+  html += '</div>';// /metrics-grid
+
+  // Rate adjustments table
+  html += '<div class="total-row"><span class="tl">Rate Adjustments</span></div>';
+  html += '<table class="breakdown"><tbody>';
+  if(adjs.length===0){
+    html += '<tr><td>No adjustments — base pricing applies</td><td class="bv none">—</td></tr>';
+  } else {
+    adjs.forEach(function(a){
+      var s=a.v>0?'+':'';
+      html += '<tr><td>'+a.l+'</td><td class="bv '+a.c+'">'+s+fmtR(a.v)+'</td></tr>';
+    });
+  }
+  html += '</tbody></table>';
+
+  // Flags
+  if(flags.length){
+    html += '<div class="flag-box show" style="margin-top:12px">'+flags.join('<br>')+'</div>';
+  }
+
+  html += '</div>';// /rate-body
+  html += '</div>';// /rate-card
+
+  // Save + disclaimer
+  html += '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>';
+  html += '<button class="dl-btn" onclick="downloadRTLPDF()">&#8681; Download Term Sheet PDF</button>';
+  html += '<div class="disclaimer">Pricing is indicative only. Subject to full underwriting, appraisal, and investor approval. Min loan $100K · Max $3.5M · Geographic exclusions apply.</div>';
+
+  document.getElementById('results').innerHTML = html;
+  document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ── Quotes ───────────────────────────────────────────────────
+var _quoteUser   = null;
+var _quotesPanel = null;
+
+function initQuotes(userEmail) {
+  _quoteUser = userEmail || 'guest';
+  if (!window.QuoteStore) return;
+  var wrap = document.getElementById('quotesPanelInner');
+  if (!wrap) return;
+  _quotesPanel = QuoteStore.buildPanel(
+    _quoteUser, 'rtl',
+    function onLoad(quote) { loadRTLQuote(quote.formData); },
+    function onDelete() {}
+  );
+  wrap.appendChild(_quotesPanel);
+  // Re-render after appending so quoteCount element is in the DOM
+  if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
+}
+
+function prefillRTLFromProspect(p) {
+  if (!p) return;
+  function gEl(id){return document.getElementById(id);}
+  if (p.propAddress) {
+    var parts = p.propAddress.split(',');
+    if (parts[0]) { var s=gEl('propStreet'); if(s) s.value=parts[0].trim(); }
+    if (parts[1]) { var c=gEl('propCity');   if(c) c.value=parts[1].trim(); }
+    if (parts[2]) {
+      var stzip = parts[2].trim().split(' ');
+      if (stzip[0]) { var sel=gEl('propState'); if(sel){for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===stzip[0]){sel.selectedIndex=i;break;}}} }
+      if (stzip[1]) { var z=gEl('propZip'); if(z) z.value=stzip[1]; }
+    }
+  }
+  if (p.purchasePrice) { var pp=gEl('purchasePrice'); if(pp) pp.value=p.purchasePrice; }
+  if (p.rehabCost)     { var rb=gEl('rehabBudget');   if(rb) rb.value=p.rehabCost; }
+  var arvVal = p.estimatedARV||p.propertyValue||'';
+  if (arvVal) { var av=gEl('arv'); if(av) av.value=arvVal; }
+  if (typeof toggleRehab==='function') toggleRehab();
+  if (typeof updateRegion==='function') updateRegion();
+  // Pre-fill borrower fields from prospect
+  var bnEl = document.getElementById('borrowerName');
+  if (bnEl && p.firstName) bnEl.value = (p.firstName + ' ' + (p.lastName||'')).trim();
+  var beEl = document.getElementById('borrowerEmail');
+  if (beEl && p.email) beEl.value = p.email;
+  var _beElR = document.getElementById('borrowerEmail');
+  if (_beElR && p.email) _beElR.value = p.email;
+  var _bnElR = document.getElementById('borrowerName');
+  if (_bnElR && p.firstName) _bnElR.value = (p.firstName+' '+(p.lastName||'')).trim();
+  window._currentProspect = p;
+  showToast('Form pre-filled from prospect application');
+}
+
+function saveCurrentQuote() {
+  var fields = ['propStreet','propCity','propState','propZip',
+    'purchasePrice','rehabBudget','arv','loanType','fico',
+    'experience','propType','loanTerm','loanPurpose','zhvi',
+    'borrowerName','borrowerEmail'];
+  var formData = {};
+  fields.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) formData[id] = el.value;
+  });
+
+  var addrFull = [formData.propStreet, formData.propCity, formData.propState].filter(Boolean).join(', ');
+  if (!addrFull.trim()) { showToast('Add a property address before saving'); return; }
+
+  formData.address  = addrFull;
+  formData.borrower = (formData.borrowerName || '').trim();
+
+  var rateEl = document.getElementById('results') && document.querySelector('#results .rv');
+  var maxEl  = document.querySelector('.metric-value.xl');
+  if (rateEl) formData._finalRate = rateEl.textContent;
+  formData.loanAmt = '';
+  // Capture points from DOM
+  var ptsEl = document.querySelectorAll('.metric-value.xl');
+  if (ptsEl.length >= 2) formData._points = ptsEl[1].textContent;
+
+  if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
+  QuoteStore.saveQuote(_quoteUser, 'rtl', formData);
+  if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
+  // Always upsert into ClientBook when email is provided
+  if (window.ClientBook && formData.borrowerEmail) {
+    var loanRec = ClientBook.buildLoanFromSizer('rtl', formData.address, formData, 'active');
+    var rNameParts = (formData.borrowerName || '').trim().split(' ');
+    if (window._originalAddress && window._originalAddress !== formData.address) {
+      loanRec._originalAddress = window._originalAddress;
+    }
+    ClientBook.upsert(_quoteUser, formData.borrowerEmail,
+      rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',
+      rNameParts.length > 1 ? rNameParts[rNameParts.length-1] : '',
+      '', loanRec);
+    window._originalAddress = formData.address;
+  }
+
+  if (window._currentProspect && window.ClientBook) {
+    var savedQ = QuoteStore.getQuote(_quoteUser, 'rtl', formData.address);
+    if (savedQ) {
+      ClientBook.addOrUpdateClient(_quoteUser, window._currentProspect, savedQ);
+      var loSlug = window._currentProspect.loSlug||'';
+      if (loSlug) {
+        try {
+          var ps = JSON.parse(localStorage.getItem('sla_prospects_'+loSlug)||'[]');
+          ps = ps.filter(function(p){ return p.id!==window._currentProspect.id; });
+          localStorage.setItem('sla_prospects_'+loSlug, JSON.stringify(ps));
+        } catch(e){}
+      }
+      window._currentProspect = null;
+      localStorage.removeItem('sla_prefill_prospect');
+    }
+  }
+
+  var btn = document.getElementById('saveQuoteBtn');
+  if (btn) {
+    btn.textContent = '✓ Saved';
+    btn.classList.add('saved');
+    setTimeout(function() { btn.textContent = '★ Save Quote'; btn.classList.remove('saved'); }, 2500);
+  }
+  showToast('Quote saved — ' + addrFull);
+}
+
+function loadRTLQuote(formData) {
+  if (!formData) return;
+  var fields = ['propStreet','propCity','propState','propZip',
+    'purchasePrice','rehabBudget','arv','loanType','fico',
+    'experience','propType','loanTerm','loanPurpose','zhvi',
+    'borrowerName','borrowerEmail'];
+  fields.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && formData[id] !== undefined) el.value = formData[id];
+  });
+  if (typeof toggleRehab === 'function') toggleRehab();
+  if (typeof updateRegion === 'function') updateRegion();
+  calculate();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  var addrFull = [formData.propStreet, formData.propCity, formData.propState].filter(Boolean).join(', ');
+  showToast('Quote loaded — ' + (addrFull || 'unnamed'));
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+
+// ── Auth guard ───────────────────────────────────────────────
+
+  // Register user in local registry when they log in
+  function registerUserLocally(user) {
+    if (!user) return;
+    try {
+      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
+      var existing = registry.find(function(u){ return u.id === user.id; });
+      var roles = [];
+      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
+      var entry = {
+        id: user.id,
+        email: user.email,
+        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
+        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
+        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
+        confirmed_at: user.confirmed_at || new Date().toISOString()
+      };
+      if (existing) {
+        Object.assign(existing, entry);
+      } else {
+        registry.push(entry);
+      }
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    } catch(e) {}
+  }
+netlifyIdentity.on('init', function(user) {
+    registerUserLocally(user);
+  if (!user) { window.location.replace('/'); }
+  else {
+    window._loName  = (user.user_metadata && user.user_metadata.full_name) || '';
+    window._loPhone = (user.user_metadata && user.user_metadata.phone) || '';
+    window._loEmail = user.email || '';
+    initQuotes(user.email);
+    var navAdmin = document.getElementById('navAdminLink');
+    if (navAdmin) {
+      var roles = (user.app_metadata && user.app_metadata.roles) || [];
+      if (typeof roles === 'string') roles = [roles];
+      if (roles.some(function(r){return r==='admin'||r==='super_admin';})) navAdmin.style.display = 'inline-block';
+    }
+    var urlParams = new URLSearchParams(window.location.search);
+    var loadAddr  = urlParams.get('loadQuote');
+    if (loadAddr && window.QuoteStore) {
+      var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr));
+      if (q && q.formData) {
+        window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
+        window._originalBorrowerEmail = q.formData.borrowerEmail || '';
+        setTimeout(function() { loadRTLQuote(q.formData); }, 150);
+      }
+    }
+    if (urlParams.get('fromProspect')) {
+      try {
+        var pd = JSON.parse(localStorage.getItem('sla_prefill_prospect') || 'null');
+        if (pd) { setTimeout(function(){ prefillRTLFromProspect(pd); }, 250); }
+      } catch(e){}
+    }
+  }
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+// ── Init ─────────────────────────────────────────────────────
+document.getElementById('datePill').textContent = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+toggleRehab();
+
+// ── RTL Term Sheet PDF ────────────────────────────────────────
+function downloadRTLPDF() {
+  // Re-run calculate to get fresh values
+  if (!document.getElementById('results').innerHTML || 
+      document.getElementById('results').querySelector('.placeholder')) {
+    alert('Please calculate pricing first.'); return;
+  }
+
+  var { jsPDF } = window.jspdf;
+  var doc = new jsPDF({ orientation:'portrait', unit:'pt', format:'letter' });
+
+  var W=612, H=792, lm=44, cw=W-lm*2, y=0;
+  var ROW_H=22;
+
+  function checkPage(needed) {
+    if (y+needed > H-48) { doc.addPage(); y=36; }
+  }
+
+  var DARK=[38,26,54], GOLD=[200,129,58], WHITE=[255,255,255];
+  var BORD=[221,216,208], MUTED=[100,94,110], TEXT=[26,21,32];
+  var LGREY=[240,236,229], SUCCESS=[37,105,64], WARN=[122,82,24], DANGER=[124,31,31];
+
+  function rr(x,yy,w,h,rad,style){ doc.roundedRect(x,yy,w,h,rad,rad,style); }
+
+  function trow(label,value,yy,opts){
+    opts=opts||{};
+    var lc=opts.labelColor||MUTED, vc=opts.valueColor||TEXT;
+    var lb=opts.labelBold||false, vb=opts.valueBold!==false;
+    var fs=opts.fontSize||9.5, vfs=opts.valueFontSize||fs;
+    var baseline=yy+ROW_H*0.68;
+    doc.setFont('helvetica',lb?'bold':'normal');
+    doc.setFontSize(fs); doc.setTextColor(lc[0],lc[1],lc[2]);
+    doc.text(label, lm+10, baseline);
+    doc.setFont('helvetica',vb?'bold':'normal');
+    doc.setFontSize(vfs); doc.setTextColor(vc[0],vc[1],vc[2]);
+    doc.text(value, lm+cw-10, baseline, {align:'right'});
+    if (!opts.noLine){
+      doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.4);
+      doc.line(lm+8,yy+ROW_H,lm+cw-8,yy+ROW_H);
+    }
+    return yy+ROW_H;
+  }
+
+  // ── Read form values ─────────────────────────────────────────
+  function gv(id){ var el=document.getElementById(id); return el?el.value:''; }
+  var street=gv('propStreet').trim(), city=gv('propCity').trim();
+  var state=gv('propState'), zip=gv('propZip').trim();
+  var lt=gv('loanType'), fr=parseInt(gv('fico')||'740');
+  var exp=parseInt(gv('experience')||'1');
+  var pt=gv('propType'), term=parseInt(gv('loanTerm')||'12');
+  var purp=gv('loanPurpose');
+  var pp=parseFloat(gv('purchasePrice'))||0;
+  var rb=parseFloat(gv('rehabBudget'))||0;
+  var arv=parseFloat(gv('arv'))||0;
+  var addrFull=street+', '+city+', '+state+' '+zip;
+  var isR=lt!=='bridge';
+
+  // Read computed results from DOM metrics
+  function metricText(id){ var el=document.getElementById(id); return el?el.textContent.trim():'—'; }
+  var rateEl=document.querySelector('.metric-value.xl');
+  var allMetrics=document.querySelectorAll('.metric-value');
+
+  // Parse displayed rate, points, max loan from rendered metrics
+  var displayedRate=rateEl?rateEl.textContent.trim():'—';
+  var p=pts(fr);  // recalculate points from fico
+  var ptsLabel=p.toFixed(1)+' pts';
+
+  // Get max loan + down payment from metric cards
+  var metricCards=document.querySelectorAll('.metric-card');
+  var bMaxDisp='—', dpDisp='—', moDisp='—';
+  metricCards.forEach(function(card){
+    var lbl=card.querySelector('.metric-label');
+    var val=card.querySelector('.metric-value');
+    if(!lbl||!val)return;
+    var t=lbl.textContent.trim();
+    if(t==='Maximum Loan Amount') bMaxDisp=val.textContent.trim();
+    if(t==='Required Down Payment') dpDisp=val.textContent.trim();
+    if(t==='Monthly Interest (I/O)') moDisp=val.textContent.trim();
+  });
+
+  // Parse bMax number for fee calculation
+  var bMaxNum=parseFloat((bMaxDisp||'').replace(/[$,]/g,''))||0;
+  var origFee=bMaxNum*p/100;
+
+  var LABELS={bridge:'Bridge',light:'Light Rehab',heavy:'Heavy Rehab' };
+  var progLabel=(LABELS[lt]||lt);
+  var expLabel=exp>=8?'Tier 1 (8+ projects)':exp>=4?'Tier 2 (4–7 projects)':'Tier 3 (0–3 projects)';
+  var ptLabel={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–10 Units'};
+  var termLabel={12:'12 months',13:'13–18 months',19:'19–24 months'};
+  var purpLabel={purchase:'Purchase',cashout:'Cash-Out Refinance',rateterm:'Rate/Term Refinance'};
+
+  function fmtD(n){ if(!n||isNaN(n))return '—'; return '$'+Math.round(n).toLocaleString(); }
+
+  // ── PAGE 1 ───────────────────────────────────────────────────
+
+  // Logo
+  y=36;
+  try {
+    var canvas=document.createElement('canvas');
+    var ctx=canvas.getContext('2d');
+    var logoEl=document.querySelector('nav img');
+    if(logoEl&&logoEl.complete&&logoEl.naturalWidth>0){
+      canvas.width=logoEl.naturalWidth; canvas.height=logoEl.naturalHeight;
+      ctx.drawImage(logoEl,0,0);
+      var imgData=canvas.toDataURL('image/png');
+      var logoW=90, logoH=(logoEl.naturalHeight/logoEl.naturalWidth)*logoW;
+      doc.addImage(imgData,'PNG',W/2-logoW/2,y,logoW,logoH);
+      y+=logoH+10;
+    } else throw 'no logo';
+  } catch(e){
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.setTextColor(DARK[0],DARK[1],DARK[2]);
+    doc.text('SLA Capital',W/2,y+14,{align:'center'}); y+=26;
+  }
+
+  // Subtitle line
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text('RTL Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
+  y+=14;
+
+  // LO contact
+  var loName=window._loName||'', loPhone=window._loPhone||'', loEmail=window._loEmail||'';
+  if(loName||loPhone||loEmail){
+    var loParts=[];
+    if(loName)loParts.push(loName);
+    if(loEmail)loParts.push(loEmail);
+    if(loPhone)loParts.push(loPhone);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text(loParts.join('  \u00B7  '),W/2,y+10,{align:'center'});
+    y+=18;
+  } else { y+=6; }
+
+  // Dark header
+  doc.setFillColor(DARK[0],DARK[1],DARK[2]);
+  rr(lm,y,cw,44,6,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
+  doc.text('RTL \u2014 '+progLabel+' \u2014 '+state, lm+12, y+16);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(180,170,195);
+  doc.text('SLA Capital  \u00B7  Hard Money Program', lm+12, y+30);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  doc.setTextColor(180,160,130);
+  doc.text('INTEREST RATE', lm+cw-12, y+13, {align:'right'});
+  doc.setFont('helvetica','bold'); doc.setFontSize(20);
+  doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
+  doc.text(displayedRate, lm+cw-12, y+32, {align:'right'});
+  y+=44+10;
+
+  // Loan details grid
+  var ptLabelMap={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–10 Units'};
+  var details=[
+    ['Property Address',    addrFull||'\u2014'],
+    ['Loan Type',           progLabel],
+    ['Purchase Price',      fmtD(pp)],
+    ['Rehab Budget',        isR?fmtD(rb):'\u2014'],
+    ['After-Repair Value',  fmtD(arv)],
+    ['Property Type',       ptLabelMap[pt]||pt],
+    ['Loan Purpose',        purpLabel[purp]||purp],
+    ['Loan Term',           termLabel[term]||term+' months'],
+    ['FICO Score',          fr+''],
+    ['Investor Experience', expLabel],
+    ['Origination Points',  ptsLabel],
+    ['Interest Only',       'Yes'],
+  ];
+
+  var half=Math.ceil(details.length/2);
+  var colW=(cw-4)/2;
+  var detailBlockH=half*ROW_H+12;
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,detailBlockH,4,'FD');
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+colW+2,y+4,lm+colW+2,y+detailBlockH-4);
+
+  var leftY=y+6, rightY=y+6;
+  details.forEach(function(d,i){
+    var isLeft=i<half, ox=isLeft?0:colW+4;
+    var oy=isLeft?leftY:rightY;
+    var baseline=oy+ROW_H*0.65;
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text(d[0],lm+ox+8,baseline);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    var val=doc.splitTextToSize(String(d[1]),colW-16)[0];
+    doc.text(val,lm+ox+colW-8,baseline,{align:'right'});
+    var colEnd=isLeft?half-1:details.length-1;
+    if(i<colEnd){
+      doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.3);
+      doc.line(lm+ox+4,oy+ROW_H,lm+ox+colW-2,oy+ROW_H);
+    }
+    if(isLeft)leftY+=ROW_H; else rightY+=ROW_H;
+  });
+  y+=detailBlockH+10;
+
+  // Loan sizing results
+  checkPage(160);
+  var sizeData=[
+    ['Maximum Loan Amount', bMaxDisp,  TEXT],
+    ['Required Down Payment',dpDisp,   SUCCESS],
+    ['Monthly Interest (I/O)',moDisp,  TEXT],
+    ['Origination Points Cost', fmtD(origFee), TEXT],
+  ];
+  var sizeBlockH=22+sizeData.length*ROW_H+10;
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,sizeBlockH,4,'FD');
+  var sy=y+6;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+  doc.text('Loan Sizing Summary',lm+10,sy+ROW_H*0.65);
+  sy+=ROW_H;
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+8,sy,lm+cw-8,sy);
+  sizeData.forEach(function(row,i){
+    sy=trow(row[0],row[1],sy,{labelColor:MUTED,valueColor:row[2],noLine:i===sizeData.length-1});
+  });
+  y+=sizeBlockH+10;
+
+  // Rate adjustments
+  checkPage(120);
+  var adjRows=[];
+  document.querySelectorAll('.breakdown tr').forEach(function(tr){
+    var tds=tr.querySelectorAll('td');
+    if(tds.length>=2) adjRows.push([tds[0].textContent.trim(),tds[1].textContent.trim()]);
+  });
+  if(adjRows.length){
+    var adjBlockH=22+adjRows.length*ROW_H+10;
+    doc.setFillColor(255,255,255);
+    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+    rr(lm,y,cw,adjBlockH,4,'FD');
+    var ay=y+6;
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text('Rate Adjustments Applied',lm+10,ay+ROW_H*0.65);
+    ay+=ROW_H;
+    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+    doc.line(lm+8,ay,lm+cw-8,ay);
+    adjRows.forEach(function(row,i){
+      var isPos=row[1].startsWith('+'), isNeg=row[1].startsWith('-')&&!row[1].includes('No adj');
+      var vc=isPos?DANGER:isNeg?SUCCESS:MUTED;
+      ay=trow(row[0],row[1],ay,{labelColor:MUTED,valueColor:vc,noLine:i===adjRows.length-1});
+    });
+    y+=adjBlockH+10;
+  }
+
+  // ── PAGE 2 ───────────────────────────────────────────────────
+  doc.addPage(); y=36;
+
+  // Leverage limits — read from rendered metric cards
+  checkPage(180);
+  function readMetric(cardSelector) {
+    var card = document.querySelector(cardSelector);
+    if (!card) return '—';
+    if (card.classList.contains('bad') || card.classList.contains('ineligible')) return 'Not eligible';
+    // Get just the metric-value text, clean up extra whitespace from nested spans
+    var valEl = card.querySelector('.metric-value');
+    if (!valEl) return '—';
+    // Combine text nodes cleanly: dollar amount + (pct)
+    var text = valEl.textContent.replace(/\s+/g,' ').trim();
+    return text || '—';
+  }
+  var lvgRows=[['LTP/LTV (Purchase to Price)',readMetric('#card-ltv')]];
+  if(isR){
+    var ltcVal  = readMetric('#ltc-card');
+    var larvVal = readMetric('#ltarv-card');
+    // Only show if the card is visible
+    var ltcCard  = document.getElementById('ltc-card');
+    var larvCard = document.getElementById('ltarv-card');
+    if(ltcCard  && ltcCard.style.display  !== 'none') lvgRows.push(['LTC (Loan-to-Cost)',    ltcVal]);
+    if(larvCard && larvCard.style.display !== 'none') lvgRows.push(['LTARV (Loan-to-ARV)',   larvVal]);
+  }
+
+  var lvgBlockH=22+lvgRows.length*ROW_H+10;
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,lvgBlockH,4,'FD');
+  var lvy=y+6;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+  doc.text('Leverage Limits',lm+10,lvy+ROW_H*0.65);
+  lvy+=ROW_H;
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+8,lvy,lm+cw-8,lvy);
+  lvgRows.forEach(function(row,i){
+    lvy=trow(row[0],row[1],lvy,{labelColor:MUTED,valueColor:TEXT,noLine:i===lvgRows.length-1});
+  });
+  y+=lvgBlockH+10;
+
+  // Estimated closing costs
+  checkPage(160);
+  var feeRows=[
+    ['Origination ('+ptsLabel+')', fmtD(origFee)],
+    ['Underwriting Fee',           '$995'],
+    ['Doc Prep Fee',               '$700'],
+    ['Legal / Document Review',    '$500'],
+    ['Desktop Analysis',           '$120'],
+  ];
+  var totalFees=origFee+995+700+500+120;
+  var feeBlockH=22+feeRows.length*ROW_H+ROW_H+14;
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,feeBlockH,4,'FD');
+  var fy=y+6;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+  doc.text('Estimated Closing Costs',lm+10,fy+ROW_H*0.65);
+  fy+=ROW_H;
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+8,fy,lm+cw-8,fy);
+  feeRows.forEach(function(row,i){
+    fy=trow(row[0],row[1],fy,{labelColor:MUTED,valueColor:TEXT,noLine:i===feeRows.length-1});
+  });
+  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+  doc.line(lm+8,fy,lm+cw-8,fy); fy+=4;
+  trow('Total Estimated Closing Costs',fmtD(totalFees),fy,{labelColor:TEXT,labelBold:true,valueColor:TEXT,valueBold:true,valueFontSize:13,noLine:true});
+  y+=feeBlockH+10;
+
+  // Legal footer
+  checkPage(80);
+  var legal='IMPORTANT NOTICE \u2014 This document is a preliminary rate estimate only and does not constitute a commitment to lend. All rates, terms, and conditions are subject to change following full underwriting review. Hard money loans are short-term bridge products. Borrower qualifications, property condition, and market conditions may affect final approval. SLA Capital reserves the right to modify or withdraw this estimate at any time prior to issuing a formal commitment letter.';
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  var legalLines=doc.splitTextToSize(legal,cw-16);
+  var legalH=legalLines.length*10+14;
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,legalH,4,'FD');
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text(legalLines,lm+8,y+10,{lineHeightFactor:1.35});
+
+  // Save
+  var addrSlug=(addrFull||'RTL_Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  doc.save(addrSlug+'_RTL_Quote.pdf');
+}
+
+
+</script>
+
+<script>
+function initAutocomplete() {
+  if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+  var input = document.getElementById('propStreet');
+  var ac = new google.maps.places.Autocomplete(input, {
+    types: ['address'],
+    componentRestrictions: { country: 'us' },
+    fields: ['address_components'],
+  });
+  ac.addListener('place_changed', function() {
+    var place = ac.getPlace();
+    if (!place.address_components) return;
+    var num='', route='', city='', state='', zip='';
+    place.address_components.forEach(function(c) {
+      var t = c.types[0];
+      if (t==='street_number') num = c.long_name;
+      else if (t==='route') route = c.long_name;
+      else if (t==='locality') city = c.long_name;
+      else if (t==='administrative_area_level_1') state = c.short_name;
+      else if (t==='postal_code') zip = c.long_name;
+    });
+    document.getElementById('propStreet').value = (num+' '+route).trim();
+    document.getElementById('propCity').value   = city;
+    document.getElementById('propZip').value    = zip;
+    var sel = document.getElementById('propState');
+    for (var i=0; i<sel.options.length; i++) {
+      if (sel.options[i].value === state) { sel.selectedIndex = i; break; }
+    }
+    ['propStreet','propCity','propState','propZip'].forEach(clearErr);
+    updateRegion();
+  });
+  // Style dropdown
+  var style = document.createElement('style');
+  style.textContent = '.pac-container{font-family:"DM Sans",sans-serif;border:1px solid #ddd8d0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.08);margin-top:2px;}.pac-item{padding:7px 12px;font-size:13px;cursor:pointer;}.pac-item:hover{background:#f7f5f1;}.pac-item-query{font-weight:500;color:#1a1520;}.pac-matched{color:#C8813A;}';
+  document.head.appendChild(style);
+}
+</script>
+
+<!-- ══ GOOGLE PLACES AUTOCOMPLETE ══════════════════════════════
+     Maps API key served at runtime from /api/config (GOOGLE_MAPS_API_KEY env var).
+════════════════════════════════════════════════════════════ -->
+<script>
+// Load Google Maps at runtime — key fetched from /api/config
+(function() {
+  fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
+    if (!cfg.googleMapsKey) return;
+    var s = document.createElement('script');
+    s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.googleMapsKey) +
+            '&libraries=places&callback=initAutocomplete';
+    s.async = true; s.defer = true;
+    document.head.appendChild(s);
+  }).catch(function(){});
+})();
+</script>
+</body>
+</html>
