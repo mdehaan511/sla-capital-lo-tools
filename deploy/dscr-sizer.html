@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DSCR Sizer — SLA Capital</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="quotes.js"></script>
+  <script>
+  // Minimal ClientBook for sizer pages
+  window.ClientBook = {
+
+  _key: function(loEmail) { return 'sla_clients_' + loEmail; },
+
+  // Main entry point — called from sizers and apply.html on every save
+  // borrowerEmail is the unique client identifier
+  upsert: function(loEmail, borrowerEmail, firstName, lastName, phone, loanData) {
+    if (!borrowerEmail) return; // require email to link
+    var key = this._key(loEmail);
+    var clients = [];
+    try { clients = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+
+    var normEmail = borrowerEmail.toLowerCase().trim();
+    var idx = -1;
+    for (var i = 0; i < clients.length; i++) {
+      if ((clients[i].email || '').toLowerCase() === normEmail) { idx = i; break; }
+    }
+    // Fallback: if no email match, try matching by full name
+    if (idx < 0 && firstName && lastName) {
+      var normName = (firstName + ' ' + lastName).toLowerCase().trim();
+      for (var i = 0; i < clients.length; i++) {
+        var cName = ((clients[i].firstName||'') + ' ' + (clients[i].lastName||'')).toLowerCase().trim();
+        if (cName === normName) { idx = i; break; }
+      }
+    }
+
+    if (idx < 0) {
+      // New client
+      clients.unshift({
+        id:        'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+        email:     normEmail,
+        firstName: firstName || '',
+        lastName:  lastName  || '',
+        phone:     phone     || '',
+        createdAt: new Date().toISOString(),
+        createdBy: loEmail,
+        loans:     loanData ? [loanData] : []
+      });
+    } else {
+      // Existing client — update name/phone if provided and currently blank
+      if (firstName && !clients[idx].firstName) clients[idx].firstName = firstName;
+      if (lastName  && !clients[idx].lastName)  clients[idx].lastName  = lastName;
+      if (phone     && !clients[idx].phone)      clients[idx].phone     = phone;
+
+      if (loanData) {
+        if (!clients[idx].loans) clients[idx].loans = [];
+        // Match loan by address (case-insensitive)
+        var normAddr = (loanData.address || '').toLowerCase().trim();
+        var lIdx = -1;
+        for (var j = 0; j < clients[idx].loans.length; j++) {
+          if ((clients[idx].loans[j].address || '').toLowerCase().trim() === normAddr) {
+            lIdx = j; break;
+          }
+        }
+        // Handle address rename — find by original address if provided
+        if (lIdx < 0 && loanData._originalAddress) {
+          var normOrig = loanData._originalAddress.toLowerCase().trim();
+          for (var k = 0; k < clients[idx].loans.length; k++) {
+            if ((clients[idx].loans[k].address||'').toLowerCase().trim() === normOrig) {
+              lIdx = k; break;
+            }
+          }
+        }
+        if (lIdx >= 0) {
+          // Preserve editable app fields AND existing ID when updating from sizer
+          var existing = clients[idx].loans[lIdx];
+          clients[idx].loans[lIdx] = Object.assign({}, loanData, {
+            id:          existing.id,          // CRITICAL: keep stable ID so loan-details URL stays valid
+            bedrooms:    loanData.bedrooms    || existing.bedrooms    || '',
+            bathrooms:   loanData.bathrooms   || existing.bathrooms   || '',
+            sqft:        loanData.sqft        || existing.sqft        || '',
+            usCitizen:   loanData.usCitizen   || existing.usCitizen   || '',
+            loanPurpose: loanData.loanPurpose || existing.loanPurpose || '',
+            rentalType:  loanData.rentalType  || existing.rentalType  || '',
+            fundingDate: loanData.fundingDate || existing.fundingDate || '',
+            notes:       loanData.notes       || existing.notes       || '',
+          });
+        } else {
+          clients[idx].loans.unshift(loanData);
+        }
+      }
+    }
+
+    localStorage.setItem(key, JSON.stringify(clients));
+    return clients;
+  },
+
+  // Build a loan record from sizer formData + empty app fields
+  buildLoanFromSizer: function(toolType, address, formData, quoteStatus) {
+    return {
+      id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+      toolType:    toolType,
+      address:     address || formData.address || '',
+      savedAt:     new Date().toISOString(),
+      updatedAt:   new Date().toISOString(),
+      status:      quoteStatus || 'active',
+      // Sizer financials (read-only on Loan Details)
+      loanAmt:     formData.loanAmt     || formData.purchasePrice || '',
+      loanType:    formData.loanType    || '',
+      fico:        formData.fico        || '',
+      rate:        formData._finalRate  || '',
+      points:      formData._points     || '',
+      propValue:   formData.propValue   || formData.arv || '',
+      rent:        formData.rent        || formData.monthlyRent || '',
+      taxes:       formData.taxes       || '',
+      insurance:   formData.insurance   || '',
+      hoa:         formData.hoa         || '',
+      isIO:        formData.isIO        || '',
+      prepay:      formData.prepay      || '',
+      buydown:     formData.buydown     || '',
+      dscr:        formData._dscr       || '',
+      // RTL-specific
+      purchasePrice: formData.purchasePrice || '',
+      rehabBudget:   formData.rehabBudget   || '',
+      arv:           formData.arv           || '',
+      experience:    formData.experience    || '',
+      // Application fields (editable on Loan Details page)
+      bedrooms:    formData.bedrooms    || '',
+      bathrooms:   formData.bathrooms   || '',
+      sqft:        formData.sqft        || '',
+      propType:    formData.propType    || '',
+      usCitizen:   formData.usCitizen   || '',
+      loanPurpose: formData.loanPurpose || '',
+      rentalType:  formData.rentalType  || '',
+      fundingDate: formData.fundingDate || '',
+      notes:       formData.notes       || '',
+    };
+  },
+
+  // Get a specific client by ID
+  getClientById: function(loEmail, clientId) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        if (clients[i].id === clientId) return clients[i];
+      }
+    } catch(e) {}
+    return null;
+  },
+
+  // Get a specific loan by ID across all clients
+  getLoanById: function(loEmail, loanId) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        var loans = clients[i].loans || [];
+        for (var j = 0; j < loans.length; j++) {
+          if (loans[j].id === loanId) {
+            return { client: clients[i], loan: loans[j], clientIdx: i, loanIdx: j };
+          }
+        }
+      }
+    } catch(e) {}
+    return null;
+  },
+
+  // Update app fields on a loan
+  updateLoanAppFields: function(loEmail, clientId, loanId, appFields) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        if (clients[i].id !== clientId) continue;
+        var loans = clients[i].loans || [];
+        for (var j = 0; j < loans.length; j++) {
+          if (loans[j].id !== loanId) continue;
+          clients[i].loans[j] = Object.assign({}, loans[j], appFields, {
+            updatedAt: new Date().toISOString()
+          });
+          localStorage.setItem(key, JSON.stringify(clients));
+          return true;
+        }
+      }
+    } catch(e) {}
+    return false;
+  },
+
+  // Update client profile fields
+  updateClientProfile: function(loEmail, clientId, fields) {
+    var key = this._key(loEmail);
+    try {
+      var clients = JSON.parse(localStorage.getItem(key) || '[]');
+      for (var i = 0; i < clients.length; i++) {
+        if (clients[i].id !== clientId) continue;
+        clients[i] = Object.assign({}, clients[i], fields);
+        localStorage.setItem(key, JSON.stringify(clients));
+        return true;
+      }
+    } catch(e) {}
+    return false;
+  },
+
+  // Legacy shim — keep existing prospect flow working
+  addOrUpdateClient: function(userEmail, prospectData, quote) {
+    var borrowerEmail = (prospectData.email || '').toLowerCase().trim();
+    if (!borrowerEmail) return;
+    var loanData = this.buildLoanFromSizer(
+      (quote && quote.toolType) || 'dscr',
+      quote && quote.address,
+      (quote && quote.formData) || {},
+      (quote && quote.status) || 'active'
+    );
+    // Merge prospect application fields into loan
+    if (prospectData.bedrooms)    loanData.bedrooms    = prospectData.bedrooms;
+    if (prospectData.bathrooms)   loanData.bathrooms   = prospectData.bathrooms;
+    if (prospectData.sqft)        loanData.sqft        = prospectData.sqft;
+    if (prospectData.usCitizen)   loanData.usCitizen   = prospectData.usCitizen;
+    if (prospectData.loanPurpose) loanData.loanPurpose = prospectData.loanPurpose;
+    if (prospectData.rentalType)  loanData.rentalType  = prospectData.rentalType;
+    if (prospectData.fundingDate) loanData.fundingDate = prospectData.fundingDate;
+    this.upsert(userEmail, borrowerEmail, prospectData.firstName, prospectData.lastName, prospectData.phone, loanData);
+  }
+};</script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --border-focus: #C8813A; --pill-bg: #f7f5f1;
+      --success: #256940; --warn: #7a5218; --danger: #7c1f1f;
+      --r: 12px; --r-sm: 8px; --r-xs: 6px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 5rem; }
+
+    .nav { max-width: 1120px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .back-link { font-size: 12px; color: var(--muted); text-decoration: none; }
+    .back-link:hover { color: var(--gold); }
+    .date-pill { font-family: 'DM Mono', monospace; font-size: 11px; background: var(--gold-light); color: var(--gold); border: 1px solid var(--gold-border); padding: 3px 10px; border-radius: 20px; }
+
+    .page { max-width: 1120px; margin: 0 auto; padding-top: 2.25rem; display: grid; grid-template-columns: 60% 1fr; gap: 24px; align-items: start; }
+
+    .input-card { background: var(--surface); border-radius: var(--r); border: 1px solid var(--border); overflow: hidden; }
+    .card-top { padding: 1.75rem 1.75rem 0; }
+    .card-top h1 { font-family: 'Lora', serif; font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .card-top p { font-size: 13px; color: var(--muted); margin-bottom: 1.375rem; }
+    .product-btn { margin: 0 1.75rem 1.5rem; display: block; width: calc(100% - 3.5rem); padding: 10px 16px; background: transparent; border: 1.5px solid var(--gold-border); border-radius: var(--r-sm); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dark); text-align: center; cursor: default; }
+
+    .form-body { padding: 0 1.75rem 1.75rem; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+    .form-body .span2 { grid-column: 1 / -1; }
+    .field { display: flex; flex-direction: column; }
+    .field .wrap { position: relative; border: 1px solid var(--border); border-radius: var(--r-xs); background: var(--surface); transition: border-color 0.15s; height: 52px; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; }
+    .field .wrap:focus-within { border-color: var(--border-focus); }
+    .field .wrap label { font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1; margin-bottom: 3px; pointer-events: none; }
+    .field .wrap label .req { color: var(--gold); margin-left: 1px; }
+    .field .wrap input, .field .wrap select { border: none; outline: none; background: transparent; font-family: 'DM Sans', sans-serif; font-size: 13.5px; font-weight: 500; color: var(--text); width: 100%; padding: 0; appearance: none; -webkit-appearance: none; line-height: 1.2; }
+    .field .wrap select { background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%237a7488' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0 center; padding-right: 18px; cursor: pointer; }
+    .field .wrap input[type="number"] { font-family: 'DM Mono', monospace; font-size: 13px; }
+
+    .computed-wrap { position: relative; border: 1px solid var(--border); border-radius: var(--r-xs); background: var(--pill-bg); height: 52px; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; }
+    .computed-wrap label { font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1; margin-bottom: 3px; }
+    .computed-val { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500; color: var(--muted); }
+    .computed-val.good { color: var(--success); }
+    .computed-val.warn { color: var(--warn); }
+    .computed-val.bad  { color: var(--danger); }
+
+    .form-divider { grid-column: 1/-1; height: 1px; background: var(--border); margin: 2px 0; }
+    .section-label { grid-column: 1/-1; font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+
+    .submit-btn { display: block; width: calc(100% - 3.5rem); margin: 0 1.75rem 0.75rem; height: 46px; background: var(--dark); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+    .submit-btn:hover { background: var(--gold); }
+
+    .results-col { display: flex; flex-direction: column; gap: 16px; }
+    .rate-card { background: var(--surface); border-radius: var(--r); border: 1px solid var(--border); overflow: hidden; }
+    .rate-header { background: var(--dark); padding: 1.25rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+    .rate-header-left .lender { font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 2px; }
+    .rate-header-left .prog { font-size: 15px; font-weight: 600; color: #fff; }
+    .rate-big { text-align: right; }
+    .rate-big .rl { font-size: 11px; color: rgba(255,255,255,0.45); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .rate-big .rv { font-family: 'DM Mono', monospace; font-size: 32px; font-weight: 500; color: var(--gold); line-height: 1; }
+    .rate-body { padding: 1.25rem 1.5rem; }
+
+    .breakdown { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .breakdown { border-collapse: separate; border-spacing: 0; }
+    .breakdown tr { border-bottom: 1px solid #f0ece6; }
+    .breakdown tr:last-child td { border-bottom: none; }
+    .breakdown td { padding: 9px 0 9px 0; border-bottom: 1px solid #f0ece6; }
+    .breakdown tr:last-child td { border-bottom: none; }
+    .breakdown td:first-child { color: var(--muted); padding-left: 2px; }
+    .breakdown td.bv { font-family: 'DM Mono', monospace; text-align: right; padding-right: 2px; }
+    .breakdown td.bv.base { color: var(--text); font-weight: 500; }
+    .breakdown td.bv.pos { color: #c0392b; }
+    .breakdown td.bv.neg { color: var(--success); }
+    .breakdown td.bv.zero { color: var(--muted); }
+
+    .total-row { display: flex; justify-content: space-between; align-items: baseline; padding-top: 14px; padding-bottom: 4px; border-top: 2px solid var(--border); margin-top: 8px; }
+    .total-row .tl { font-size: 13px; font-weight: 600; }
+    .total-row .tv { font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 500; }
+
+    .inelig { background: #fdf0f0; border: 1px solid rgba(124,31,31,0.15); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; padding: 10px 14px; margin-bottom: 12px; }
+
+    .dl-btn { display: block; width: 100%; height: 46px; background: var(--gold); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; letter-spacing: 0.01em; }
+    .dl-btn:hover { background: var(--gold-mid); }
+    .gl-error { background: #fdf0f0; border: 1px solid rgba(124,31,31,0.18); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; padding: 10px 14px; margin-bottom: 10px; line-height: 1.5; }
+    .gl-warn  { background: #fffbf0; border: 1px solid rgba(122,82,24,0.20); border-radius: var(--r-xs); color: var(--warn); font-size: 13px; padding: 10px 14px; margin-bottom: 10px; line-height: 1.5; }
+
+    .placeholder { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 3.5rem 2rem; text-align: center; }
+    .placeholder .ph-icon { width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 50%; background: var(--gold-light); display: flex; align-items: center; justify-content: center; }
+    .placeholder p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    .config-tip { max-width: 1120px; margin: 1.75rem auto 0; background: #1a1520; color: rgba(255,255,255,0.45); font-family: 'DM Mono', monospace; font-size: 11px; padding: 8px 14px; border-radius: var(--r-xs); line-height: 1.7; }
+    .config-tip strong { color: var(--gold); }
+
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .nav-tool-link.current { background:var(--dark); border-color:var(--dark); color:#fff; }
+    .logout-btn { font-size:12px; font-weight:600; color:var(--muted); background:transparent; border:1px solid var(--border); padding:5px 12px; border-radius:20px; cursor:pointer; font-family:'DM Sans',sans-serif; transition:all 0.15s; -webkit-appearance:none; appearance:none; }
+    .logout-btn:hover { border-color:var(--gold); color:var(--gold); }
+    @media (max-width: 860px) { .page { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════
+  PRICING CONFIG — DIYA CAPITAL
+  Source: Diya_Rate_Sheet_Effective_4_9_26.xlsx  |  Updated: 2026-04-09
+
+  BUY-DOWN LOGIC:
+  - HIDDEN_TPO (1.00% = 0.260 rate adj) is always added, never shown to borrower
+  - User selects buy-down points (0 to 1.00% in 0.25% steps)
+  - Each 0.25% buy-down reduces the HIDDEN_TPO by 0.25%, lowering the rate
+  - Net: borrower pays points upfront, gets a lower rate
+  - Example: 0.50% buy-down -> hidden TPO becomes 0.50% (0.130 adj) instead of 1.00% (0.260 adj)
+    Rate drops by 0.130, borrower pays 0.50% of loan amount as additional points
+
+  TO UPDATE RATES: find "const DIYA = {" below, edit, save, redeploy.
+════════════════════════════════════════════════════════ -->
+<script>
+const DIYA = {
+  effectiveDate: "April 9, 2026",
+  baseRate: { "30Y Fixed": 6.375, "10/6 ARM": 6.375, "7/6 ARM": 6.275, "5/6 ARM": 6.275 },
+  ltvCols: [50, 55, 60, 65, 70, 75, 80],
+  fico: {
+    "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050, 0.250],
+    "760-779": [-0.100,-0.100,-0.100,-0.025, 0.025, 0.100, 0.300],
+    "740-759": [-0.075,-0.075,-0.050, 0.000, 0.050, 0.150, 0.350],
+    "720-739": [-0.025, 0.000, 0.075, 0.100, 0.150, 0.300, 0.600],
+    "700-719": [ 0.000, 0.100, 0.175, 0.200, 0.300, 0.600,  null],
+    "680-699": [ 0.100, 0.200, 0.250, 0.300,  null,  null,  null],
+    "660-679": [ 0.625, 0.750, 0.900, 1.100,  null,  null,  null],
+  },
+  io:        [0.100, 0.150, 0.200, 0.250, 0.300, 0.350,  null],
+  cashOut:   [0.050, 0.050, 0.050, 0.050, 0.050, 0.050,  null],
+  nwCondo:   [0.150, 0.150, 0.150, 0.150, 0.150, 0.150, 0.150],
+  multiUnit: [0.000, 0.025, 0.050, 0.075, 0.100, 0.100, 0.100],
+  portfolio: [0.250, 0.250, 0.250, 0.250, 0.250, 0.250, 0.250],
+  upb: [
+    { min:  75000, max:  99999, adj:[0.600,0.600,0.600,0.650,0.650,0.650,0.650] },
+    { min: 100000, max: 149999, adj:[0.550,0.550,0.550,0.575,0.575,0.575,0.575] },
+    { min: 150000, max: 199999, adj:[0.200,0.200,0.200,0.225,0.225,0.225,0.225] },
+    { min: 600000, max:1499999, adj:[-0.050,-0.050,-0.050,-0.050,-0.050,-0.050,-0.050] },
+  ],
+  dscr: {
+    "1.00-1.19": [0,0,0,0,0,0,0],
+    "1.20+":     [-0.050,-0.050,-0.050,-0.050,-0.075,-0.100,-0.125],
+  },
+  ppp: { "54321":-0.100, "321":0.150, "320":0.200, "300":0.300 },
+
+  // TPO rate adjustments by premium percentage
+  tpo: {
+    "0":0, "0.25":0.065, "0.50":0.130, "0.75":0.195,
+    "1.00":0.260, "1.25":0.325, "1.50":0.390, "1.75":0.470,
+    "2.00":0.550, "2.25":0.630, "2.50":0.710,
+  },
+
+  // Hidden 1% TPO always applied (rate adj = 0.260)
+  // Buy-down reduces this: each 0.25% buy-down reduces hidden TPO by 0.25%
+  HIDDEN_TPO_PCT: 1.00,   // percentage (1.00 = 1%)
+  HIDDEN_TPO_ADJ: 0.260,  // rate adjustment for 1.00% TPO
+};
+
+// Fixed fees (always shown on term sheet)
+const FEES = {
+  origination_pct: 1,        // 1% of loan amount
+  underwriting: 995,
+  doc_prep: 700,
+  legal_doc: 500,
+  desktop_analysis: 120,
+};
+
+// ══════════════════════════════════════════════════════════════════
+// DIYA GUIDELINE VALIDATION  (Source: Diya_Guideline_Matrix_2026_01_29)
+// ══════════════════════════════════════════════════════════════════
+const GUIDELINES = {
+  // Eligible states (AZ, CA, ID, ND, NV, SD, UT, VT are NOT eligible)
+  eligibleStates: ['AK','AL','AR','CO','CT','DC','DE','FL','GA','HI',
+    'IA','IL','IN','KS','KY','LA','MA','MD','ME','MI','MN','MO','MS','MT',
+    'NC','NE','NH','NJ','NM','NY','OH','OK','OR','PA','RI','SC',
+    'TN','TX','VA','WA','WI','WV','WY'],
+
+  // ALL US state abbreviations for detecting non-US addresses
+  allUSStates: ['AK','AL','AR','AZ','CA','CO','CT','DC','DE','FL','GA','HI',
+    'IA','ID','IL','IN','KS','KY','LA','MA','MD','ME','MI','MN','MO','MS','MT',
+    'NC','ND','NE','NH','NJ','NM','NV','NY','OH','OK','OR','PA','RI','SC','SD',
+    'TN','TX','UT','VA','VT','WA','WI','WV','WY'],
+
+  // Property value limits (1-4 Unit SFR)
+  minPropertyValue: 125000,   // $125,000 single property
+  maxPropertyValue_1unit: 3000000,   // $3,000,000 for 1-unit
+  maxPropertyValue_24unit: 5000000,  // $5,000,000 for 2-4 unit
+
+  // Loan amount limits (1-4 Unit SFR)
+  minLoanAmount: 100000,       // $100,000 single property
+  maxLoanAmount_1unit: 1500000,  // $1,500,000 single-unit SFR/condo
+  maxLoanAmount_24unit: 2500000, // $2,500,000 for 2-4 unit
+
+  // FICO minimums
+  minFICO: 660,               // 660 min (< 680 requires pre-approval)
+  preApprovalFICO: 680,       // 660-679 allowed but requires pre-approval
+
+  // Max LTV by FICO and purpose (SFR 1-4 Unit, 1-10 properties, standard market)
+  // Format: { ficoMin: { purchase: max, rateTerm: max, cashOut: max } }
+  // Using the more conservative (Small/Very Small) values where there's a split
+  maxLTV: {
+    740: { purchase: 0.80, rateTerm: 0.75, cashOut: 0.75 },
+    720: { purchase: 0.80, rateTerm: 0.75, cashOut: 0.75 },
+    700: { purchase: 0.75, rateTerm: 0.75, cashOut: 0.75 },
+    680: { purchase: 0.70, rateTerm: 0.65, cashOut: 0.65 },
+    660: { purchase: 0.65, rateTerm: 0.65, cashOut: 0.65 },
+  }
+};
+
+// Extract 2-letter state abbreviation from a US address string
+function extractStateFromAddress(address) {
+  if (!address) return null;
+  // Match ", ST " or ", ST, " or ends with ", ST XXXXX" or ", ST"
+  var m = address.match(/,\s*([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?\s*(?:,|$)/i);
+  if (m) return m[1].toUpperCase();
+  // Try just last 2-letter word that's a state abbrev
+  var parts = address.toUpperCase().split(/[\s,]+/);
+  for (var i = parts.length-1; i >= 0; i--) {
+    if (/^[A-Z]{2}$/.test(parts[i]) && GUIDELINES.allUSStates.indexOf(parts[i]) >= 0) {
+      return parts[i];
+    }
+  }
+  return null;
+}
+
+// Validate inputs against Diya guidelines — returns array of {level, msg} objects
+// level: 'error' (cannot proceed) or 'warn' (pre-approval needed)
+function validateGuidelines(params) {
+  var msgs = [];
+  var loan     = params.loan     || 0;
+  var propVal  = params.propVal  || 0;
+  var ltv      = params.ltv      || 0;
+  var fico     = params.fico     || '';  // e.g. "740-759"
+  var address  = params.address  || '';
+  var purpose  = params.purpose  || 'purchase';
+  var propType = params.propType || 'sfr';
+
+  // 1. Property value
+  if (propVal > 0) {
+    if (propVal < GUIDELINES.minPropertyValue) {
+      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' is below the $125,000 minimum.'});
+    }
+    var maxPV = propType === '2-4' ? GUIDELINES.maxPropertyValue_24unit : GUIDELINES.maxPropertyValue_1unit;
+    if (propVal > maxPV) {
+      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' exceeds the '+(propType==='2-4'?'$5,000,000':'$3,000,000')+' maximum for this property type.'});
+    }
+  }
+
+  // 2. Loan amount
+  if (loan > 0) {
+    if (loan < GUIDELINES.minLoanAmount) {
+      msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' is below the $100,000 minimum.'});
+    }
+    var maxLoan = propType === '2-4' ? GUIDELINES.maxLoanAmount_24unit : GUIDELINES.maxLoanAmount_1unit;
+    if (loan > maxLoan) {
+      msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' exceeds the '+(propType==='2-4'?'$2,500,000':'$1,500,000')+' maximum. Exceeding these limits requires pre-approval.'});
+    }
+  }
+
+  // 3. LTV check
+  if (ltv > 0 && fico) {
+    var ficoMin = getFICOMin(fico);
+    var purposeKey = purpose === 'refi_co' ? 'cashOut' : purpose === 'refi_rt' ? 'rateTerm' : 'purchase';
+    var maxLTVrow = null;
+    // Find applicable row (highest ficoMin <= ficoMin)
+    var tiers = [740, 720, 700, 680, 660];
+    for (var t = 0; t < tiers.length; t++) {
+      if (ficoMin >= tiers[t]) { maxLTVrow = GUIDELINES.maxLTV[tiers[t]]; break; }
+    }
+    if (maxLTVrow) {
+      var maxAllowed = maxLTVrow[purposeKey] * 100;
+      if (ltv > maxAllowed + 0.01) {
+        var maxLoanAtLTV = propVal > 0 ? Math.floor(propVal * maxLTVrow[purposeKey]) : null;
+        var maxLoanMsg = maxLoanAtLTV ? ' Maximum loan at this LTV is $'+maxLoanAtLTV.toLocaleString()+'.' : '';
+        msgs.push({level:'error', msg:'LTV '+ltv.toFixed(1)+'% exceeds the '+maxAllowed+'% maximum for '+fico+' FICO and '+(purposeKey==='cashOut'?'cash-out refi':purposeKey==='rateTerm'?'rate/term refi':'purchase')+'.'+maxLoanMsg});
+      }
+    }
+  }
+
+  // 4. FICO eligibility
+  if (fico) {
+    var ficoMin = getFICOMin(fico);
+    if (ficoMin < GUIDELINES.minFICO) {
+      msgs.push({level:'error', msg:'FICO below 660 is not eligible.'});
+    } else if (ficoMin < GUIDELINES.preApprovalFICO) {
+      msgs.push({level:'warn', msg:'FICO 660-679 is eligible but requires pre-approval, 1.10x minimum DSCR, and additional liquidity reserves.'});
+    }
+  }
+
+  // 5. State eligibility (from address)
+  if (address) {
+    var st = extractStateFromAddress(address);
+    if (st && GUIDELINES.eligibleStates.indexOf(st) < 0) {
+      msgs.push({level:'error', msg:'State "'+st+'" is not an eligible lending state.'});
+    }
+  }
+
+  return msgs;
+}
+
+function getFICOMin(ficoStr) {
+  // "780+" -> 780, "740-759" -> 740, "660-679" -> 660
+  if (ficoStr.indexOf('+') >= 0) return parseInt(ficoStr);
+  var parts = ficoStr.split('-');
+  return parseInt(parts[0]);
+}
+</script>
+
+<nav class="nav">
+  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+  <div class="nav-right">
+    <span class="date-pill" id="datePill"></span>
+    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+    <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+    <a class="nav-tool-link" href="prospects.html">Prospects</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="input-card">
+    <div class="card-top">
+      <h1>DSCR Loan Sizer</h1>
+      <p>Rental property · 1–4 units · Long-term financing</p>
+    </div>
+    <div class="product-btn">DSCR — 1&#8211;4 Unit Rental Loans</div>
+
+    <div class="form-body">
+
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Name <span class="req">*</span></label>
+          <input type="text" id="borrowerName" placeholder="John Smith" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Email</label>
+          <input type="email" id="borrowerEmail" placeholder="borrower@email.com" />
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Property Address <span class="req">*</span></label>
+          <input type="text" id="propAddress" placeholder="123 Main St, City, ST" />
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Loan Amount <span class="req">*</span></label>
+          <input type="number" id="loanAmt" placeholder="" min="0" step="1000" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Est. Value / Purchase Price <span class="req">*</span></label>
+          <input type="number" id="propValue" placeholder="" min="0" step="1000" />
+        </div>
+      </div>
+
+      <div class="computed-wrap">
+        <label>LTV</label>
+        <span class="computed-val" id="ltvVal">&#8212;</span>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Loan Type</label>
+          <select id="loanType">
+            <option value="30Y Fixed">30-Year Fixed</option>
+            <option value="10/6 ARM">10/6 ARM</option>
+            <option value="7/6 ARM">7/6 ARM</option>
+            <option value="5/6 ARM">5/6 ARM</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Interest Only <span class="req">*</span></label>
+          <select id="isIO">
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Loan Purpose <span class="req">*</span></label>
+          <select id="loanPurpose">
+            <option value="purchase">Purchase</option>
+            <option value="refi_rt">Rate/Term Refi</option>
+            <option value="refi_co">Cash-Out Refi</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Property Type <span class="req">*</span></label>
+          <select id="propType">
+            <option value="sfr">SFR (1 Unit)</option>
+            <option value="2-4">2&#8211;4 Unit</option>
+            <option value="nw_condo">Non-Warrantable Condo</option>
+            <option value="portfolio">Portfolio</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Stated FICO Score <span class="req">*</span></label>
+          <select id="fico">
+            <option value="780+">780+</option>
+            <option value="760-779">760&#8211;779</option>
+            <option value="740-759" selected>740&#8211;759</option>
+            <option value="720-739">720&#8211;739</option>
+            <option value="700-719">700&#8211;719</option>
+            <option value="680-699">680&#8211;699</option>
+            <option value="660-679">660&#8211;679</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-divider"></div>
+      <div class="section-label">Income &amp; Monthly Expenses</div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Monthly Gross Rent <span class="req">*</span></label>
+          <input type="number" id="rent" placeholder="" min="0" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Monthly Taxes</label>
+          <input type="number" id="taxes" placeholder="" min="0" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Monthly Insurance</label>
+          <input type="number" id="insurance" placeholder="" min="0" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Monthly HOA</label>
+          <input type="number" id="hoa" placeholder="" min="0" />
+        </div>
+      </div>
+
+      <div class="computed-wrap span2">
+        <label>DSCR &nbsp;<span style="font-weight:400;font-size:10px;color:var(--muted)">Rent &#247; (PI + Taxes + Insurance + HOA)</span></label>
+        <span class="computed-val" id="dscrVal">&#8212;</span>
+      </div>
+
+      <div class="form-divider"></div>
+      <div class="section-label">Terms</div>
+
+      <div class="field">
+        <div class="wrap">
+          <label>Prepayment Penalty <span class="req">*</span></label>
+          <select id="prepay">
+            <option value="54321" selected>5-Year (54321)</option>
+            <option value="321">3-Year (321)</option>
+            <option value="320">2-Year (320)</option>
+            <option value="300">1-Year (300)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <!-- Buy-down reduces hidden TPO: 0.25% buy-down = 0.25% less hidden TPO = lower rate -->
+          <label>Buy-Down Points <span class="req">*</span></label>
+          <select id="buydown">
+            <option value="0" selected>No buy-down (1 pt total)</option>
+            <option value="0.25">+0.25 pts &#8594; 1.25 pts total, rate &#8595; 0.065</option>
+            <option value="0.50">+0.50 pts &#8594; 1.50 pts total, rate &#8595; 0.130</option>
+            <option value="0.75">+0.75 pts &#8594; 1.75 pts total, rate &#8595; 0.195</option>
+            <option value="1.00">+1.00 pt &#8594; 2.00 pts total, rate &#8595; 0.260</option>
+          </select>
+        </div>
+      </div>
+
+    </div>
+
+    <button class="submit-btn" id="calcBtn">Get Rate</button>
+  </div>
+
+  <div class="results-col">
+    <div id="quotesPanelWrap"></div>
+    <div id="results" style="display:flex;flex-direction:column;gap:16px">
+    <div class="placeholder">
+      <div class="ph-icon">
+        <svg viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" width="22" height="22">
+          <path d="M11 2L13.5 8H20L14.5 12L16.5 18.5L11 14.5L5.5 18.5L7.5 12L2 8H8.5L11 2Z" stroke="#C8813A" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <p>Fill in the loan details on the left<br>and click <strong>Get Rate</strong> to see your pricing.</p>
+    </div>
+    </div>
+  </div>
+</div>
+
+<div class="config-tip" style="display:none">
+  <strong>Updating rates:</strong> find <strong>const DIYA = {</strong> &rarr; edit values &rarr; update effectiveDate &rarr; save &rarr; redeploy. &nbsp;|&nbsp;
+  <strong>Hidden TPO:</strong> <strong>HIDDEN_TPO_ADJ: 0.260</strong> (= 1.00%). &nbsp;|&nbsp;
+  <strong>Buy-down</strong> reduces hidden TPO proportionally, lowering the rate.
+</div>
+
+<script>
+var $ = function(id) { return document.getElementById(id); };
+
+function ltvCol(ltv) {
+  var c = DIYA.ltvCols;
+  for (var i = 0; i < c.length; i++) if (ltv <= c[i]) return i;
+  return null;
+}
+
+function calcPI(loan, annualRate, isIO) {
+  if (!loan || !annualRate) return 0;
+  var r = annualRate / 12;
+  if (isIO) return loan * r;
+  return loan * r * Math.pow(1+r,360) / (Math.pow(1+r,360) - 1);
+}
+
+function ac(v) {
+  if (v===null||v===undefined||isNaN(v)) return 'zero';
+  return v>0?'pos':v<0?'neg':'zero';
+}
+function fa(v) {
+  if (v===null||v===undefined||isNaN(v)) return 'N/A';
+  if (v===0) return '&mdash;';
+  return (v>0?'+':'')+v.toFixed(3)+'%';
+}
+function fmtD(n) {
+  if (n==null) return '&mdash;';
+  return '$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function fmtX(n) { return n!=null?n.toFixed(2)+'x':'&mdash;'; }
+
+function calculate() {
+  var loan      = parseFloat($('loanAmt').value)    || 0;
+  var propVal   = parseFloat($('propValue').value)  || 0;
+  var ltv       = propVal>0?(loan/propVal)*100:0;
+  var loanType  = $('loanType').value;
+  var isIO      = $('isIO').value==='yes';
+  var purpose   = $('loanPurpose').value;
+  var propType  = $('propType').value;
+  var fico      = $('fico').value;
+  var prepay    = $('prepay').value;
+  var buydown   = parseFloat($('buydown').value) || 0;
+  var rent      = parseFloat($('rent').value)       || 0;
+  var taxes     = parseFloat($('taxes').value)      || 0;
+  var ins       = parseFloat($('insurance').value)  || 0;
+  var hoa       = parseFloat($('hoa').value)        || 0;
+  var borrower  = $('borrowerName').value.trim();
+  var address   = $('propAddress').value.trim();
+
+  if (loan<=0) return {error:'Enter a loan amount'};
+  if (ltv<=0||ltv>80) return {error: ltv>80?'LTV '+ltv.toFixed(1)+'% exceeds maximum 80%':'Enter property value'};
+
+  var ci = ltvCol(ltv);
+  if (ci===null) return {error:'LTV '+ltv.toFixed(1)+'% exceeds max 80%'};
+
+  var baseRate = DIYA.baseRate[loanType]||DIYA.baseRate['30Y Fixed'];
+  var adjs = [];
+
+  // FICO
+  var fRow = DIYA.fico[fico];
+  if (!fRow) return {error:'FICO not supported'};
+  var fAdj = fRow[ci];
+  if (fAdj===null||fAdj===undefined) return {error:'FICO '+fico+' not available at '+ltv.toFixed(1)+'% LTV'};
+  adjs.push({label:'FICO adjustment', value:fAdj});
+
+  // IO
+  if (isIO) {
+    var ioA = DIYA.io[ci];
+    if (ioA===null) return {error:'Interest Only not available at this LTV'};
+    adjs.push({label:'Interest Only', value:ioA});
+  }
+
+  // Cash-out
+  if (purpose==='refi_co') {
+    var coA = DIYA.cashOut[ci];
+    if (coA===null) return {error:'Cash-Out not available at this LTV'};
+    adjs.push({label:'Cash-Out Refi', value:coA});
+  }
+
+  // Property
+  if (propType==='nw_condo') adjs.push({label:'Non-Warrantable Condo', value:DIYA.nwCondo[ci]});
+  else if (propType==='2-4') adjs.push({label:'2&ndash;4 Unit', value:DIYA.multiUnit[ci]});
+  else if (propType==='portfolio') adjs.push({label:'Portfolio', value:DIYA.portfolio[ci]});
+
+  // UPB
+  var uRow = DIYA.upb.find(function(u){return loan>=u.min&&loan<=u.max;});
+  if (uRow) adjs.push({label:'Loan amount (UPB)', value:uRow.adj[ci]});
+
+  // PPP
+  var pppA = DIYA.ppp[prepay]!==undefined?DIYA.ppp[prepay]:0;
+  adjs.push({label:'Prepay penalty ('+prepay+')', value:pppA});
+
+  // Hidden TPO reduced by buy-down
+  // netHiddenTpoPct: always 1% minus buy-down
+  // netHiddenTpoAdj: the corresponding rate adjustment
+  var netHiddenTpoPct = DIYA.HIDDEN_TPO_PCT - buydown;  // e.g. 1.00 - 0.50 = 0.50
+  var netHiddenTpoAdj = DIYA.tpo[netHiddenTpoPct.toFixed(2)] || 0;
+  // Hidden — not in adjs, applied silently
+  var baseAdj = adjs.reduce(function(s,a){return s+(a.value||0);},0);
+  var ratePass1 = baseRate + baseAdj + netHiddenTpoAdj;
+
+  // PI at pass-1 rate
+  var pi1 = calcPI(loan, ratePass1/100, isIO);
+  var pmt1 = pi1+taxes+ins+hoa;
+  var dscr1 = pmt1>0&&rent>0?rent/pmt1:null;
+
+  if (dscr1!==null&&dscr1<1.0) return {error:'DSCR '+dscr1.toFixed(2)+'x is below minimum 1.00x'};
+
+  // DSCR adj
+  var dscrAdj = 0;
+  if (dscr1!==null) {
+    var dk = dscr1>=1.20?'1.20+':'1.00-1.19';
+    dscrAdj = DIYA.dscr[dk][ci];
+    adjs.push({label:'DSCR ('+dk+')', value:dscrAdj});
+  }
+
+  var finalRate = ratePass1 + dscrAdj;
+  var piFinal = calcPI(loan, finalRate/100, isIO);
+  var pmtFinal = piFinal+taxes+ins+hoa;
+  var dscrFinal = pmtFinal>0&&rent>0?rent/pmtFinal:null;
+
+  // Fees
+  var origFee = loan * FEES.origination_pct / 100;
+  var buydownFee = loan * buydown / 100;
+  var totalFees = origFee + FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis + buydownFee;
+
+  // Guideline validation
+  var guidelineWarnings = validateGuidelines({
+    loan: loan, propVal: propVal, ltv: ltv, fico: fico,
+    address: address, purpose: purpose, propType: propType
+  });
+
+  return {
+    loanType, ltv, dscr:dscrFinal, fico, baseRate, adjs,
+    finalRate, pi:piFinal, taxes, ins, hoa,
+    totalPayment:pmtFinal, rent,
+    borrower, address, loan, propVal, prepay, buydown, isIO, purpose, propType,
+    origFee, buydownFee, totalFees,
+    netHiddenTpoPct, guidelineWarnings,
+  };
+}
+
+function renderResult(r) {
+  if (r.error) {
+    return '<div class="rate-card"><div class="rate-header"><div class="rate-header-left"><div class="lender">SLA Capital</div><div class="prog">DSCR &mdash; 1&ndash;4 Unit</div></div></div><div class="rate-body"><div class="inelig">&#9888; '+r.error+'</div></div></div>';
+  }
+
+  // Guideline validation banners
+  var glBanners = '';
+  if (r.guidelineWarnings && r.guidelineWarnings.length) {
+    r.guidelineWarnings.forEach(function(w) {
+      if (w.level === 'error') {
+        glBanners += '<div class="gl-error">&#9888; '+w.msg+'</div>';
+      } else {
+        glBanners += '<div class="gl-warn">&#9432; '+w.msg+'</div>';
+      }
+    });
+  }
+
+  var adjRows = r.adjs.map(function(a){
+    return '<tr><td>'+a.label+'</td><td class="bv '+ac(a.value)+'">'+fa(a.value)+'</td></tr>';
+  }).join('');
+
+  var dscrCls = r.dscr>=1.20?'good':r.dscr>=1.00?'warn':'bad';
+
+  var totalPts   = 1 + (r.buydown || 0);
+  var totalPtsFee = r.loan * totalPts / 100;
+  var buydownNote = r.buydown>0
+    ? '<div style="margin-top:8px;padding:8px 10px;background:var(--gold-light);border-radius:var(--r-xs);font-size:12px;color:var(--gold-mid)">&#8599; '+r.buydown.toFixed(2)+' buy-down pts added &mdash; '+totalPts.toFixed(2)+' pts total ('+fmtD(totalPtsFee)+') &mdash; rate reduced by '+DIYA.tpo[(r.buydown).toFixed(2)].toFixed(3)+'%</div>'
+    : '';
+
+  return glBanners+'<div class="rate-card">'+
+    '<div class="rate-header">'+
+      '<div class="rate-header-left"><div class="lender">SLA Capital &middot; Eff. '+DIYA.effectiveDate+'</div><div class="prog">DSCR &mdash; '+r.loanType+' &mdash; LTV '+r.ltv.toFixed(1)+'%</div></div>'+
+      '<div class="rate-big"><div class="rl">Note Rate</div><div class="rv">'+r.finalRate.toFixed(3)+'%</div></div>'+
+    '</div>'+
+    '<div class="rate-body">'+
+      '<table class="breakdown"><tbody>'+
+        '<tr><td>Base rate ('+r.loanType+')</td><td class="bv base">'+r.baseRate.toFixed(3)+'%</td></tr>'+
+        adjRows+
+      '</tbody></table>'+
+      '<div class="total-row"><span class="tl">Final note rate</span><span class="tv">'+r.finalRate.toFixed(3)+'%</span></div>'+
+      buydownNote+
+    '</div>'+
+  '</div>'+
+
+  '<div class="rate-card">'+
+    '<div class="rate-body" style="padding-top:1.25rem">'+
+      '<table class="breakdown"><tbody>'+
+        '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Monthly Payment Breakdown</td><td></td></tr>'+
+        '<tr><td>Principal &amp; Interest</td><td class="bv base">'+fmtD(r.pi)+'</td></tr>'+
+        '<tr><td>Monthly Taxes</td><td class="bv base">'+fmtD(r.taxes)+'</td></tr>'+
+        '<tr><td>Monthly Insurance</td><td class="bv base">'+fmtD(r.ins)+'</td></tr>'+
+        '<tr><td>Monthly HOA</td><td class="bv base">'+fmtD(r.hoa)+'</td></tr>'+
+      '</tbody></table>'+
+      '<div class="total-row"><span class="tl">Total Monthly Payment</span><span class="tv">'+fmtD(r.totalPayment)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'+
+        '<span style="font-size:13px;color:var(--muted)">Monthly Gross Rent</span>'+
+        '<span style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:500">'+fmtD(r.rent)+'</span>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;padding-top:8px;border-top:2px solid var(--border)">'+
+        '<span style="font-size:14px;font-weight:600">DSCR</span>'+
+        '<span style="font-family:\'DM Mono\',monospace;font-size:22px;font-weight:500;color:var(--'+dscrCls+')">'+fmtX(r.dscr)+'</span>'+
+      '</div>'+
+    '</div>'+
+  '</div>'+
+
+  '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>'+
+  '<button class="dl-btn" onclick="downloadPDF()">&#8681; Download Term Sheet PDF</button>';
+}
+
+function updatePills() {
+  var loan = parseFloat($('loanAmt').value)||0;
+  var pv   = parseFloat($('propValue').value)||0;
+  var ltv  = pv>0?(loan/pv)*100:0;
+  var lv = $('ltvVal');
+  if (ltv>0) { lv.textContent=ltv.toFixed(1)+'%'; lv.className='computed-val '+(ltv<=65?'good':ltv<=75?'warn':'bad'); }
+  else { lv.innerHTML='&mdash;'; lv.className='computed-val'; }
+
+  var dv = $('dscrVal');
+  var rent=parseFloat($('rent').value)||0;
+  var taxes=parseFloat($('taxes').value)||0;
+  var ins=parseFloat($('insurance').value)||0;
+  var hoa=parseFloat($('hoa').value)||0;
+  var isIO=$('isIO').value==='yes';
+  var loanType=$('loanType').value;
+  var fico=$('fico').value;
+  var buydown=parseFloat($('buydown').value)||0;
+  var prepay=$('prepay').value;
+  if (loan>0&&rent>0) {
+    var br=DIYA.baseRate[loanType]||DIYA.baseRate['30Y Fixed'];
+    var ci=ltvCol(ltv);
+    var adj=0;
+    if (ci!==null){var fr=DIYA.fico[fico];if(fr&&fr[ci]!=null)adj+=fr[ci];}
+    adj+=(DIYA.ppp[prepay]||0);
+    var netTpoPct=DIYA.HIDDEN_TPO_PCT-buydown;
+    adj+=DIYA.tpo[netTpoPct.toFixed(2)]||0;
+    var pi=calcPI(loan,(br+adj)/100,isIO);
+    var pmt=pi+taxes+ins+hoa;
+    if (pmt>0){var d=rent/pmt;dv.textContent=d.toFixed(2)+'x';dv.className='computed-val '+(d>=1.20?'good':d>=1.0?'warn':'bad');}
+    else{dv.innerHTML='&mdash;';dv.className='computed-val';}
+  } else {dv.innerHTML='&mdash;';dv.className='computed-val';}
+}
+
+function run() { updatePills(); var r=calculate(); $('results').innerHTML=renderResult(r); }
+
+// ── PDF Generation ─────────────────────────────────────────────
+function fmtDplain(n) {
+  if (n==null) return '--';
+  return '$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function downloadPDF() {
+  var r = calculate();
+  if (r.error) { alert('Please fix errors first: '+r.error); return; }
+
+  var { jsPDF } = window.jspdf;
+  var doc = new jsPDF({ orientation:'portrait', unit:'pt', format:'letter' });
+
+  var W = 612;
+  var H = 792;           // letter height in pt
+  var lm = 44, cw = W - lm*2;
+  var y = 0;
+
+  // Add a new page and reset y if the next block won't fit
+  function checkPage(needed) {
+    if (y + needed > H - 48) {
+      doc.addPage();
+      y = 36;
+    }
+  }
+
+  var DARK   = [38, 26, 54];
+  var GOLD   = [200,129,58];
+  var WHITE  = [255,255,255];
+  var BORD   = [221,216,208];
+  var MUTED  = [100,94,110];
+  var TEXT   = [26, 21, 32];
+  var LGREY  = [240,236,229];
+  var SUCCESS= [37,105,64];
+  var WARN   = [122,82,24];
+  var DANGER = [124,31,31];
+  var ROW_H  = 22;   // row height with comfortable padding
+
+  function rr(x,yy,w,h,rad,style) { doc.roundedRect(x,yy,w,h,rad,rad,style); }
+
+  // Draw a single table row: label left, value right, optional bottom border
+  function trow(label, value, yy, opts) {
+    opts = opts||{};
+    var labelColor = opts.labelColor || MUTED;
+    var valueColor = opts.valueColor || TEXT;
+    var labelBold  = opts.labelBold  || false;
+    var valueBold  = opts.valueBold  !== false;
+    var fontSize   = opts.fontSize   || 9.5;
+    var valueFontSize = opts.valueFontSize || fontSize;
+    var baseline   = yy + ROW_H*0.68;   // text sits comfortably above bottom line
+
+    doc.setFont('helvetica', labelBold?'bold':'normal');
+    doc.setFontSize(fontSize);
+    doc.setTextColor(labelColor[0],labelColor[1],labelColor[2]);
+    doc.text(label, lm+10, baseline);
+
+    doc.setFont('helvetica', valueBold?'bold':'normal');
+    doc.setFontSize(valueFontSize);
+    doc.setTextColor(valueColor[0],valueColor[1],valueColor[2]);
+    doc.text(value, lm+cw-10, baseline, {align:'right'});
+
+    if (!opts.noLine) {
+      doc.setDrawColor(BORD[0],BORD[1],BORD[2]);
+      doc.setLineWidth(0.4);
+      doc.line(lm+8, yy+ROW_H, lm+cw-8, yy+ROW_H);
+    }
+    return yy + ROW_H;
+  }
+
+  // ── LOGO ───────────────────────────────────────────────────
+  y = 36;
+  try {
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    var logoEl = document.querySelector('nav img');
+    if (logoEl && logoEl.complete && logoEl.naturalWidth>0) {
+      canvas.width = logoEl.naturalWidth;
+      canvas.height = logoEl.naturalHeight;
+      ctx.drawImage(logoEl,0,0);
+      var imgData = canvas.toDataURL('image/png');
+      var logoW = 90, logoH = (logoEl.naturalHeight/logoEl.naturalWidth)*logoW;
+      doc.addImage(imgData,'PNG', W/2-logoW/2, y, logoW, logoH);
+      y += logoH + 10;
+    } else { throw 'no logo'; }
+  } catch(e) {
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.setTextColor(DARK[0],DARK[1],DARK[2]);
+    doc.text('SLA Capital', W/2, y+14, {align:'center'});
+    y += 26;
+  }
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text('DSCR Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
+  y += 14;
+
+  // ── LO CONTACT LINE ────────────────────────────────────────────
+  var loName  = window._loName  || '';
+  var loPhone = window._loPhone || '';
+  var loEmail = window._loEmail || '';
+  if (loName || loPhone || loEmail) {
+    var loParts = [];
+    if (loName)  loParts.push(loName);
+    if (loEmail) loParts.push(loEmail);
+    if (loPhone) loParts.push(loPhone);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text(loParts.join('  \u00B7  '), W/2, y+10, {align:'center'});
+    y += 18;
+  } else {
+    y += 6;
+  }
+
+  // ── DARK HEADER ────────────────────────────────────────────
+  doc.setFillColor(DARK[0],DARK[1],DARK[2]);
+  rr(lm, y, cw, 44, 6, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
+  doc.text('DSCR \u2014 '+r.loanType+' \u2014 LTV '+r.ltv.toFixed(1)+'%', lm+12, y+16);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(180,170,195);
+  doc.text('SLA Capital  \u00B7  Eff. '+DIYA.effectiveDate, lm+12, y+30);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  doc.setTextColor(180,160,130);
+  doc.text('NOTE RATE', lm+cw-12, y+13, {align:'right'});
+  doc.setFont('helvetica','bold'); doc.setFontSize(20);
+  doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
+  doc.text(r.finalRate.toFixed(3)+'%', lm+cw-12, y+32, {align:'right'});
+  y += 44 + 10;
+
+  // ── LOAN DETAILS — two-column table ────────────────────────
+  var ptLabel = {sfr:'Single Family','2-4':'2-4 Unit',nw_condo:'Non-Warrantable Condo',portfolio:'Portfolio'};
+  var purposeLabel = {purchase:'Purchase',refi_rt:'Rate/Term Refi',refi_co:'Cash-Out Refi'};
+  var ppLabel = {'54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)'};
+
+  var details = [
+    ['Borrower Name',       r.borrower||'\u2014'],
+    ['Property Address',    r.address||'\u2014'],
+    ['Loan Amount',         fmtDplain(r.loan)],
+    ['Estimated Value',     fmtDplain(r.propVal)],
+    ['LTV',                 r.ltv.toFixed(1)+'%'],
+    ['Loan Type',           r.loanType==='30Y Fixed'?'30-Year Fixed':r.loanType],
+    ['Interest Only',       r.isIO?'Yes':'No'],
+    ['Loan Purpose',        purposeLabel[r.purpose]||r.purpose],
+    ['Property Type',       ptLabel[r.propType]||r.propType],
+    ['Stated FICO',         r.fico],
+    ['Prepayment Penalty',  ppLabel[r.prepay]||r.prepay],
+    ['Origination Points',   (1 + (r.buydown||0)).toFixed(2)+' pts (1.00 base'+(r.buydown>0?' + '+r.buydown.toFixed(2)+' buy-down':'')+')'],
+  ];
+
+  var half = Math.ceil(details.length/2);
+  var colW = (cw-4)/2;
+
+  // Background for details block
+  var detailBlockH = half * ROW_H + 12;
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm, y, cw, detailBlockH, 4, 'FD');
+
+  // Vertical divider between columns
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+colW+2, y+4, lm+colW+2, y+detailBlockH-4);
+
+  var leftY  = y + 6;
+  var rightY = y + 6;
+
+  details.forEach(function(d, i) {
+    var isLeft = i < half;
+    var ox = isLeft ? 0 : colW+4;
+    var oy = isLeft ? leftY : rightY;
+    var baseline = oy + ROW_H*0.65;
+
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+    doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text(d[0], lm+ox+8, baseline);
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    var valW = colW - 16;
+    var val = doc.splitTextToSize(String(d[1]), valW)[0];
+    doc.text(val, lm+ox+colW-6, baseline, {align:'right'});
+
+    // row divider (not last row per column)
+    var colEnd = isLeft ? half-1 : details.length-1;
+    if (i < colEnd) {
+      doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.3);
+      var lineX1 = lm+ox+4, lineX2 = lm+ox+colW-2;
+      doc.line(lineX1, oy+ROW_H, lineX2, oy+ROW_H);
+    }
+
+    if (isLeft) leftY += ROW_H;
+    else rightY += ROW_H;
+  });
+
+  y += detailBlockH + 10;
+
+  // ── RATE BREAKDOWN TABLE ────────────────────────────────────
+  var rateRows = [[r.loanType+' base rate', r.baseRate.toFixed(3)+'%', TEXT, false]];
+  r.adjs.forEach(function(a) {
+    var lbl = a.label.replace(/&ndash;/g,'-').replace(/&mdash;/g,'-').replace(/&#8211;/g,'-').replace(/&amp;/g,'&');
+    var sign = a.value>0?'+':'';
+    var vc = a.value>0?[192,57,43]:a.value<0?SUCCESS:MUTED;
+    var disp = a.value===0?'\u2014':(sign+a.value.toFixed(3)+'%');
+    rateRows.push([lbl, disp, vc, true]);
+  });
+
+  var ROW_C = 18;  // compact row height for comparison table (defined early for rateBlockH)
+  var rateBlockH = rateRows.length*ROW_H + ROW_H + 12 + 14 + ROW_C + 5*ROW_C + 8;
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm, y, cw, rateBlockH, 4, 'FD');
+
+  var ry = y + 6;
+  rateRows.forEach(function(row, idx) {
+    var isLast = idx === rateRows.length-1;
+    ry = trow(row[0], row[1], ry, {
+      labelColor: MUTED,
+      valueColor: row[2],
+      valueBold: row[3],
+      noLine: isLast
+    });
+  });
+
+  // Final rate total row — heavier line above, larger text
+  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+  doc.line(lm+8, ry, lm+cw-8, ry);
+  ry += 4;
+  var totalPtsLabel = (1 + (r.buydown||0)).toFixed(2)+' pts origination';
+  ry = trow('Final Note Rate ('+totalPtsLabel+')', r.finalRate.toFixed(3)+'%', ry, {
+    labelColor: TEXT, labelBold: true,
+    valueColor: TEXT, valueBold: true,
+    valueFontSize: 13, noLine: true
+  });
+
+  // ── RATE COMPARISON TABLE (all buy-down options) ────────────
+  // Shows every buy-down tier so LOs don't need multiple printouts.
+  // Selected tier is highlighted in gold.
+  var bdOptions = [
+    { bd: 0,    pts: 1.00 },
+    { bd: 0.25, pts: 1.25 },
+    { bd: 0.50, pts: 1.50 },
+    { bd: 0.75, pts: 1.75 },
+    { bd: 1.00, pts: 2.00 },
+  ];
+
+  // Calculate the adjusted final rate for each option:
+  // finalRate already baked in the selected buydown, so we derive
+  // each alternative by adding/subtracting the TPO difference.
+  var selectedBdAdj = DIYA.tpo[(r.buydown).toFixed(2)] || 0;  // rate reduction already applied
+  var rateWithoutBd = r.finalRate + selectedBdAdj;              // base rate before any buydown
+
+  var numOpts = bdOptions.length;
+  var compH = 16 + ROW_C + numOpts * ROW_C;  // title + header + rows
+
+  ry += 8;
+
+  // Section label
+  doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text('RATE OPTIONS BY ORIGINATION POINTS', lm+8, ry+8);
+  ry += 14;
+
+  // Outer border
+  doc.setFillColor(250,248,245);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.4);
+  rr(lm+4, ry, cw-8, ROW_C + numOpts*ROW_C, 3, 'FD');
+
+  // Column widths: pts | rate | pts fee | rate reduction
+  var cCW = cw - 8;
+  var c1 = cCW * 0.28;  // Origination
+  var c2 = cCW * 0.22;  // Note Rate
+  var c3 = cCW * 0.26;  // Points Cost
+  var c4 = cCW * 0.24;  // Rate Reduction
+  var cx = lm + 8;
+
+  // Header row
+  var hb = ry + ROW_C * 0.72;
+  doc.setFont('helvetica','bold'); doc.setFontSize(7);
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text('Origination', cx, hb);
+  doc.text('Note Rate', cx+c1, hb);
+  doc.text('Points Cost', cx+c1+c2, hb);
+  doc.text('Rate Reduction', cx+c1+c2+c3, hb);
+  // Header bottom line
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.3);
+  doc.line(lm+6, ry+ROW_C, lm+cw-6, ry+ROW_C);
+  ry += ROW_C;
+
+  bdOptions.forEach(function(opt, i) {
+    var isSelected = Math.abs(opt.bd - (r.buydown||0)) < 0.001;
+    var bdAdj  = DIYA.tpo[opt.bd.toFixed(2)] || 0;
+    var optRate = rateWithoutBd - bdAdj;
+    var ptsCost = r.loan * opt.pts / 100;
+    var rowB = ry + ROW_C * 0.72;
+
+    // Highlight selected row
+    if (isSelected) {
+      doc.setFillColor(255, 248, 236);
+      doc.setDrawColor(GOLD[0],GOLD[1],GOLD[2]); doc.setLineWidth(0.5);
+      rr(lm+4, ry, cw-8, ROW_C, 0, 'FD');
+    }
+
+    var textColor = isSelected ? [130, 75, 15] : TEXT;
+    var fontStyle = isSelected ? 'bold' : 'normal';
+
+    doc.setFont('helvetica', fontStyle); doc.setFontSize(8);
+    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+    doc.text(opt.pts.toFixed(2)+' pts', cx, rowB);
+    doc.text(optRate.toFixed(3)+'%', cx+c1, rowB);
+    doc.text('$'+Math.round(ptsCost).toLocaleString('en-US'), cx+c1+c2, rowB);
+    doc.text(opt.bd > 0 ? '-'+bdAdj.toFixed(3)+'%' : '—', cx+c1+c2+c3, rowB);
+
+    // Selected indicator star
+    if (isSelected) {
+      doc.setFont('helvetica','bold'); doc.setFontSize(7);
+      doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
+      doc.text('\u2190 selected', cx+c1+c2+c3+c4-2, rowB, {align:'right'});
+    }
+
+    // Row divider (not last)
+    if (i < bdOptions.length - 1) {
+      doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.2);
+      doc.line(lm+8, ry+ROW_C, lm+cw-8, ry+ROW_C);
+    }
+    ry += ROW_C;
+  });
+
+  // Update rateBlockH to account for comparison table
+  rateBlockH += 14 + ROW_C + numOpts * ROW_C + 8;
+
+  y += rateBlockH + 10;
+
+  // ── PAYMENT BREAKDOWN always starts on page 2 ───────────────
+  doc.addPage();
+  y = 36;
+
+  // ── PAYMENT BREAKDOWN TABLE ─────────────────────────────────
+  var dscrColor = r.dscr>=1.20?SUCCESS:r.dscr>=1.00?WARN:DANGER;
+  var pmtData = [
+    ['Principal & Interest', '$'+r.pi.toFixed(2),       TEXT],
+    ['Monthly Taxes',        '$'+r.taxes.toFixed(2),    TEXT],
+    ['Monthly Insurance',    '$'+r.ins.toFixed(2),      TEXT],
+    ['Monthly HOA',          '$'+r.hoa.toFixed(2),      TEXT],
+  ];
+
+  var pmtBlockH = 22 + pmtData.length*ROW_H + ROW_H + ROW_H + ROW_H + 14;
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm, y, cw, pmtBlockH, 4, 'FD');
+
+  var py = y + 6;
+
+  // Section title
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+  doc.text('Monthly Payment Breakdown', lm+10, py + ROW_H*0.65);
+  py += ROW_H;
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+8, py, lm+cw-8, py);
+
+  pmtData.forEach(function(row, idx) {
+    var isLast = idx === pmtData.length-1;
+    py = trow(row[0], row[1], py, {labelColor:MUTED, valueColor:row[2], noLine:isLast});
+  });
+
+  // Total payment
+  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+  doc.line(lm+8, py, lm+cw-8, py);
+  py += 4;
+  py = trow('Total Monthly Payment', '$'+r.totalPayment.toFixed(2), py, {
+    labelColor:TEXT, labelBold:true, valueColor:TEXT, valueBold:true, valueFontSize:13, noLine:true
+  });
+
+  // Rent
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+8, py, lm+cw-8, py);
+  py = trow('Monthly Gross Rent', '$'+r.rent.toFixed(2), py, {
+    labelColor:MUTED, valueColor:TEXT, valueBold:true, valueFontSize:11, noLine:true
+  });
+
+  // DSCR
+  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+  doc.line(lm+8, py, lm+cw-8, py);
+  py += 4;
+  py = trow('DSCR', r.dscr.toFixed(2)+'x', py, {
+    labelColor:TEXT, labelBold:true, valueFontSize:16, valueColor:dscrColor, noLine:true
+  });
+
+  y += pmtBlockH + 10;
+
+  checkPage(200);
+
+  // ── ESTIMATED CLOSING COSTS TABLE ────────────────────────────
+  var totalPtsAmt = r.loan * (1 + (r.buydown||0)) / 100;
+  var feeRows = [
+    ['Origination Points (' + (1 + (r.buydown||0)).toFixed(2) + ' pts)', totalPtsAmt],
+    ['Underwriting Fee',                                                   995],
+    ['Doc Prep Fee',                                                       700],
+    ['Legal / Document Review',                                            500],
+    ['Desktop Analysis',                                                   120],
+  ];
+  if (r.buydown > 0) {
+    // Break out the buydown separately under origination
+    feeRows = [
+      ['Origination — 1.00 pt (base)',       r.loan * 1 / 100],
+      ['Origination — '+r.buydown.toFixed(2)+' pts (buy-down)', r.loan * r.buydown / 100],
+      ['Underwriting Fee',                    995],
+      ['Doc Prep Fee',                        700],
+      ['Legal / Document Review',             500],
+      ['Desktop Analysis',                    120],
+    ];
+  }
+  var totalFeeAmt = feeRows.reduce(function(s,row){ return s + row[1]; }, 0);
+
+  var feeBlockH = 22 + feeRows.length * ROW_H + ROW_H + 14;
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm, y, cw, feeBlockH, 4, 'FD');
+
+  var fy = y + 6;
+
+  // Section title
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+  doc.text('Estimated Closing Costs', lm+10, fy + ROW_H*0.65);
+  fy += ROW_H;
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+8, fy, lm+cw-8, fy);
+
+  feeRows.forEach(function(row, idx) {
+    var isLast = idx === feeRows.length - 1;
+    fy = trow(row[0], fmtDplain(row[1]), fy, {
+      labelColor: MUTED,
+      valueColor: TEXT,
+      noLine: isLast
+    });
+  });
+
+  // Total line
+  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+  doc.line(lm+8, fy, lm+cw-8, fy);
+  fy += 4;
+  trow('Total Estimated Closing Costs', fmtDplain(totalFeeAmt), fy, {
+    labelColor: TEXT, labelBold: true,
+    valueColor: TEXT, valueBold: true,
+    valueFontSize: 13, noLine: true
+  });
+
+  y += feeBlockH + 10;
+
+  checkPage(80);
+
+  // ── LEGAL FOOTER — full width ───────────────────────────────
+  var legal = 'IMPORTANT NOTICE \u2014 This document is a preliminary rate estimate only and does not constitute a commitment to lend, a loan approval, or a guarantee of final pricing. All rates, terms, and conditions are subject to change and will be formally determined following full underwriting review, verification of borrower and property information, and final approval by SLA Capital. This estimate is valid for 24 hours from the time of issuance only. SLA Capital reserves the right to modify or withdraw this estimate at any time prior to issuing a formal commitment letter.';
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  var legalLines = doc.splitTextToSize(legal, cw-16);
+  var legalH = legalLines.length * 10 + 14;
+
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm, y, cw, legalH, 4, 'FD');
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text(legalLines, lm+8, y+10, {lineHeightFactor:1.35});
+
+  // ── SAVE ───────────────────────────────────────────────────
+  var addrSlug = (r.address||'Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  doc.save(addrSlug+'_SLA_Quote.pdf');
+}
+
+// ── Google Places Autocomplete ──────────────────────────────────
+function initAutocomplete() {
+  if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+  var input = $('propAddress');
+  var ac = new google.maps.places.Autocomplete(input, {
+    types: ['address'],
+    componentRestrictions: { country: 'us' },
+    fields: ['formatted_address'],
+  });
+  ac.addListener('place_changed', function() {
+    var place = ac.getPlace();
+    if (place && place.formatted_address) {
+      input.value = place.formatted_address;
+    }
+    run();
+  });
+  // Style the autocomplete dropdown to match the tool
+  var style = document.createElement('style');
+  style.textContent = '.pac-container{font-family:"DM Sans",sans-serif;border:1px solid #ddd8d0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.08);margin-top:2px;}.pac-item{padding:7px 12px;font-size:13px;cursor:pointer;}.pac-item:hover{background:#f7f5f1;}.pac-item-query{font-weight:500;color:#1a1520;}.pac-matched{color:#C8813A;}';
+  document.head.appendChild(style);
+}
+
+// ── Quotes ──────────────────────────────────────────────────────
+var _quoteUser   = null;   // set once Netlify Identity resolves
+var _quotesPanel = null;   // reference to panel element
+
+function initQuotes(userEmail) {
+  _quoteUser = userEmail || 'guest';
+  var wrap = document.getElementById('quotesPanelWrap');
+  if (!wrap || !window.QuoteStore) return;
+  _quotesPanel = QuoteStore.buildPanel(
+    _quoteUser, 'dscr',
+    function onLoad(quote) { loadQuoteIntoForm(quote.formData); },
+    function onDelete() {}
+  );
+  wrap.appendChild(_quotesPanel);
+  if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
+}
+
+function prefillFromProspect(p) {
+  if (!p) return;
+  // Map prospect fields to DSCR form
+  var map = {
+    borrowerName: (p.firstName||'')+' '+(p.lastName||''),
+    propAddress:  p.propAddress||'',
+    rent:         p.monthlyRent||'',
+    taxes:        p.monthlyTaxes||'',
+    insurance:    p.monthlyInsurance||'',
+    hoa:          p.monthlyHOA||'',
+    loanAmt:      p.purchasePrice||'',
+    propValue:    p.propertyValue||'',
+  };
+  if (p.loanPurpose==='refinance') { var lp = $('loanPurpose'); if(lp) lp.value='refi_co'; }
+  Object.keys(map).forEach(function(id) {
+    var el = $(id); if (el && map[id]) el.value = map[id];
+  });
+  // Pre-fill borrower email from prospect
+  var emailEl = document.getElementById('borrowerEmail');
+  if (emailEl && p.email) emailEl.value = p.email;
+  // Pre-fill borrower email from prospect data
+  var _beEl = document.getElementById('borrowerEmail');
+  if (_beEl && p.email) _beEl.value = p.email;
+  // Store prospect reference for client promotion on save
+  window._currentProspect = p;
+  showToast('Form pre-filled from prospect application');
+}
+
+function saveCurrentQuote() {
+  var r = calculate();
+  if (r.error) { showToast('Fix errors before saving'); return; }
+  if (!r.address && !r.borrower) { showToast('Add an address or borrower name first'); return; }
+  if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
+
+  // Build formData snapshot — all field values
+  var formData = {
+    borrower:      $('borrowerName').value,
+    borrowerEmail: ($('borrowerEmail') ? $('borrowerEmail').value.trim().toLowerCase() : ''),
+    address:    $('propAddress').value,
+    loanAmt:    $('loanAmt').value,
+    propValue:  $('propValue').value,
+    loanType:   $('loanType').value,
+    isIO:       $('isIO').value,
+    loanPurpose:$('loanPurpose').value,
+    propType:   $('propType').value,
+    fico:       $('fico').value,
+    rent:       $('rent').value,
+    taxes:      $('taxes').value,
+    insurance:  $('insurance').value,
+    hoa:        $('hoa').value,
+    prepay:     $('prepay').value,
+    buydown:    $('buydown').value,
+    // Computed results (read-only, for reference)
+    _finalRate:    r.finalRate ? r.finalRate.toFixed(3) : '',
+    _dscr:         r.dscr ? r.dscr.toFixed(2) : '',
+    _totalPayment: r.totalPayment ? r.totalPayment.toFixed(2) : '',
+    _points:       (1 + (parseFloat(r.buydown) || 0)).toFixed(2) + ' pts',
+  };
+
+  QuoteStore.saveQuote(_quoteUser, 'dscr', formData);
+  if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
+  // Always upsert into ClientBook when email is provided
+  if (window.ClientBook && formData.borrowerEmail) {
+    var loanRecord = ClientBook.buildLoanFromSizer('dscr', formData.address, formData, 'active');
+    var nameParts = (formData.borrower || '').trim().split(' ');
+    // If address changed from loaded quote, rename the loan in ClientBook
+    if (window._originalAddress && window._originalAddress !== formData.address) {
+      loanRecord._originalAddress = window._originalAddress;
+    }
+    ClientBook.upsert(_quoteUser, formData.borrowerEmail,
+      nameParts.slice(0,-1).join(' ') || nameParts[0] || '',
+      nameParts.length > 1 ? nameParts[nameParts.length-1] : '',
+      '', loanRecord);
+    window._originalAddress = formData.address; // update for subsequent saves
+  }
+
+  // Promote prospect to Book of Clients if this came from a prospect form
+  if (window._currentProspect && window.ClientBook) {
+    var savedQ = QuoteStore.getQuote(_quoteUser, 'dscr', formData.address);
+    if (savedQ) {
+      ClientBook.addOrUpdateClient(_quoteUser, window._currentProspect, savedQ);
+      // Remove from prospects list
+      var loSlug = (window._currentProspect.loSlug || '');
+      if (loSlug) {
+        var pKey = 'sla_prospects_' + loSlug;
+        try {
+          var prospects = JSON.parse(localStorage.getItem(pKey)||'[]');
+          prospects = prospects.filter(function(p){ return p.id !== window._currentProspect.id; });
+          localStorage.setItem(pKey, JSON.stringify(prospects));
+        } catch(e){}
+      }
+      window._currentProspect = null;
+      localStorage.removeItem('sla_prefill_prospect');
+    }
+  }
+
+  // Visual feedback on button
+  var btn = document.getElementById('saveQuoteBtn');
+  if (btn) {
+    btn.textContent = '✓ Saved';
+    btn.classList.add('saved');
+    setTimeout(function() {
+      btn.textContent = '★ Save Quote';
+      btn.classList.remove('saved');
+    }, 2500);
+  }
+
+  showToast('Quote saved — ' + (formData.address || formData.borrower));
+}
+
+function loadQuoteIntoForm(formData) {
+  if (!formData) return;
+  var fields = {
+    borrowerName: formData.borrower   || '',
+    propAddress:  formData.address    || '',
+    loanAmt:      formData.loanAmt    || '',
+    propValue:    formData.propValue  || '',
+    loanType:     formData.loanType   || '30Y Fixed',
+    isIO:         formData.isIO       || 'no',
+    loanPurpose:  formData.loanPurpose|| 'purchase',
+    propType:     formData.propType   || 'sfr',
+    fico:         formData.fico       || '740-759',
+    rent:         formData.rent       || '',
+    taxes:        formData.taxes      || '',
+    insurance:    formData.insurance  || '',
+    hoa:          formData.hoa        || '',
+    prepay:       formData.prepay     || '54321',
+    buydown:      formData.buydown    || '0',
+  };
+  Object.keys(fields).forEach(function(id) {
+    var el = $(id);
+    if (el) el.value = fields[id];
+  });
+  run();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  showToast('Quote loaded — ' + (formData.address || formData.borrower || 'unnamed'));
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+
+// ── Init ────────────────────────────────────────────────────────
+$('datePill').textContent = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+$('calcBtn').addEventListener('click', run);
+document.querySelectorAll('input, select').forEach(function(el){el.addEventListener('input',run);});
+run();
+</script>
+<!-- ══ AUTH GUARD ════════════════════════════════════════════
+     Redirect to login if not authenticated.
+     Must come after netlify-identity-widget.js is loaded above.
+════════════════════════════════════════════════════════════ -->
+<script>
+  
+  // Register user in local registry when they log in
+  function registerUserLocally(user) {
+    if (!user) return;
+    try {
+      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
+      var existing = registry.find(function(u){ return u.id === user.id; });
+      var roles = [];
+      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
+      var entry = {
+        id: user.id,
+        email: user.email,
+        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
+        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
+        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
+        confirmed_at: user.confirmed_at || new Date().toISOString()
+      };
+      if (existing) {
+        Object.assign(existing, entry);
+      } else {
+        registry.push(entry);
+      }
+      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+    } catch(e) {}
+  }
+netlifyIdentity.on('init', function(user) {
+    registerUserLocally(user);
+    if (!user) {
+      window.location.replace('/');
+    } else {
+      // Store LO contact info for PDF
+      window._loName  = (user.user_metadata && user.user_metadata.full_name)  || '';
+      window._loPhone = (user.user_metadata && user.user_metadata.phone)       || '';
+      window._loEmail = user.email || '';
+      initQuotes(user.email);
+      // Show admin nav link if admin
+      var navAdmin = document.getElementById('navAdminLink');
+      if (navAdmin) {
+        var roles = (user.app_metadata && user.app_metadata.roles) || [];
+        if (typeof roles === 'string') roles = [roles];
+        if (roles.some(function(r){return r==='admin'||r==='super_admin';})) navAdmin.style.display = 'inline-block';
+      }
+      // Auto-load quote from URL param (coming from saved-quotes page)
+      var urlParams = new URLSearchParams(window.location.search);
+      var loadAddr  = urlParams.get('loadQuote');
+      if (loadAddr && window.QuoteStore) {
+        var q = QuoteStore.getQuote(user.email, 'dscr', decodeURIComponent(loadAddr));
+        if (q && q.formData) {
+          window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
+          window._originalBorrowerEmail = q.formData.borrowerEmail || '';
+          setTimeout(function() { loadQuoteIntoForm(q.formData); }, 100);
+        }
+      }
+      // Check for prospect prefill
+      if (urlParams.get('fromProspect')) {
+        try {
+          var pd = JSON.parse(localStorage.getItem('sla_prefill_prospect') || 'null');
+          if (pd) { setTimeout(function(){ prefillFromProspect(pd); }, 200); }
+        } catch(e){}
+      }
+    }
+  });
+  netlifyIdentity.on('logout', function() {
+    window.location.replace('/');
+  });
+</script>
+
+<!-- ══ GOOGLE PLACES AUTOCOMPLETE ══════════════════════════════
+     The Maps API key is served at runtime from /api/config (backed by
+     the GOOGLE_MAPS_API_KEY env var in Netlify). Restrict that key to
+     your Netlify domain(s) in Google Cloud Console.
+═══════════════════════════════════════════════════════════════ -->
+<script>
+// Load Google Maps at runtime — key fetched from /api/config
+(function() {
+  fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
+    if (!cfg.googleMapsKey) return;
+    var s = document.createElement('script');
+    s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.googleMapsKey) +
+            '&libraries=places&callback=initAutocomplete';
+    s.async = true; s.defer = true;
+    document.head.appendChild(s);
+  }).catch(function(){});
+})();
+</script>
+</body>
+</html>

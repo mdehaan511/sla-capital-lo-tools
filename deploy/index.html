@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLA Capital — Internal Tools</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── LOGIN SCREEN ─────────────────────────────────────────── */
+    #login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+      background: var(--dark);
+    }
+    .login-card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 2.5rem 2.75rem;
+      width: 100%;
+      max-width: 380px;
+      text-align: center;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.25);
+    }
+    .login-logo { height: 52px; width: auto; margin-bottom: 1.5rem; }
+    .login-card h1 {
+      font-size: 18px; font-weight: 600; color: var(--text);
+      margin-bottom: 6px;
+    }
+    .login-card p {
+      font-size: 13px; color: var(--muted); margin-bottom: 2rem; line-height: 1.5;
+    }
+    .login-btn {
+      display: block; width: 100%; height: 46px;
+      background: var(--dark); color: #fff;
+      border: none; border-radius: 8px;
+      font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .login-btn:hover { background: var(--gold); }
+    .login-footer {
+      margin-top: 1.5rem; font-size: 11px; color: var(--muted);
+    }
+
+    /* ── APP SCREEN ───────────────────────────────────────────── */
+    #app-screen { display: none; padding: 0 1rem; }
+
+    .page { max-width: 860px; margin: 0 auto; padding: 3rem 0 4rem; }
+
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--gold-border);
+      margin-bottom: 2.5rem;
+    }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .header img { height: 52px; width: auto; }
+    .divider-accent { width: 3px; height: 38px; background: var(--gold); border-radius: 2px; flex-shrink: 0; }
+    .header-text p:first-child { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .header-text p:last-child { font-size: 12px; color: var(--muted); }
+
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .user-pill {
+      font-size: 12px; color: var(--muted);
+      background: var(--gold-light); border: 1px solid var(--gold-border);
+      padding: 4px 12px; border-radius: 20px;
+      font-family: 'DM Mono', monospace;
+    }
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .logout-btn {
+      font-size: 12px; font-weight: 600; color: var(--muted);
+      background: transparent; -webkit-appearance: none; appearance: none; border: 1px solid var(--border);
+      padding: 5px 12px; border-radius: 20px; cursor: pointer;
+      font-family: 'DM Sans', sans-serif; transition: all 0.15s;
+    }
+    .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .admin-link {
+      font-size: 12px; font-weight: 600; color: var(--muted);
+      text-decoration: none; padding: 5px 12px; border-radius: 20px;
+      border: 1px solid var(--border); transition: all 0.15s;
+    }
+    .admin-link:hover { border-color: var(--gold); color: var(--gold); }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 16px;
+      margin-bottom: 2.5rem;
+    }
+    .tool-card {
+      background: var(--surface);
+      border: 1px solid var(--gold-border);
+      border-radius: 14px; padding: 1.5rem;
+      text-decoration: none; display: block;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+    }
+    .tool-card:hover {
+      border-color: var(--gold);
+      box-shadow: 0 4px 16px rgba(200,129,58,0.12);
+      transform: translateY(-1px);
+    }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 600;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 3px 9px; border-radius: 20px;
+      background: var(--gold-light); color: #9a5f20; margin-bottom: 1rem;
+    }
+    .tool-icon {
+      width: 42px; height: 42px; border-radius: 10px;
+      background: var(--gold-light);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 1rem;
+    }
+    .tool-name { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .tool-desc { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 1.25rem; }
+    .tool-arrow { font-size: 13px; font-weight: 600; color: var(--gold); }
+
+    .footer {
+      font-size: 12px; color: #aaa;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--gold-border);
+    }
+    /* ── Notification banner ── */
+    #notifBanner { display: none; }
+    .notif-banner { padding: 10px 24px; font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .notif-banner.info    { background: #dbeafe; color: #1e40af; border-bottom: 1px solid #bfdbfe; }
+    .notif-banner.success { background: #dcfce7; color: #166534; border-bottom: 1px solid #bbf7d0; }
+    .notif-banner.warn    { background: #fef9c3; color: #854d0e; border-bottom: 1px solid #fef08a; }
+    .notif-banner.alert   { background: #fee2e2; color: #991b1b; border-bottom: 1px solid #fecaca; }
+  </style>
+</head>
+<body>
+
+  <!-- ── LOGIN SCREEN ──────────────────────────────────────── -->
+  <div id="login-screen">
+    <div class="login-card">
+      <img class="login-logo" src="SLA_Capital_Logo_2_1.png" alt="SLA Capital"
+           onerror="this.style.display='none';document.getElementById('login-title').style.marginTop='0'" />
+      <h1 id="login-title">SLA Capital</h1>
+      <p>Internal tools portal.<br>Sign in with your team account to continue.</p>
+      <button class="login-btn" id="loginBtn">Sign In</button>
+      <p class="login-footer">SLA Capital &middot; Sir Lends A Lot LLC &middot; Internal use only</p>
+    </div>
+  </div>
+
+  <!-- ── APP SCREEN (shown after login) ───────────────────── -->
+  <div id="app-screen">
+    <div id="notifBanner" style="display:none;margin:0 -1rem"></div>
+
+    <div class="page">
+
+      <div class="header">
+        <div class="header-left">
+          <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+          <div class="divider-accent"></div>
+          <div class="header-text">
+            <p>Internal tools</p>
+            <p>Team resources &middot; not for external distribution</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <span class="user-pill" id="userEmail"></span>
+          <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+          <a class="nav-tool-link" href="prospects.html">Prospects</a>
+          <a class="nav-tool-link" href="clients.html">Clients</a>
+                    <a class="nav-tool-link" href="admin.html" id="adminLink" style="display:none">Admin</a>
+          <button class="logout-btn" id="logoutBtn">Sign out</button>
+        </div>
+      </div>
+
+      <div class="tools-grid">
+
+        <a class="tool-card" href="dscr-sizer.html">
+          <div class="badge">Loan sizing</div>
+          <div class="tool-icon">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="5" width="16" height="10" rx="2" stroke="#C8813A" stroke-width="1.5"/>
+              <path d="M6 10h8M10 7v6" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <p class="tool-name">DSCR Sizer</p>
+          <p class="tool-desc">Instantly price DSCR loans with live rate adjustments and guideline validation.</p>
+          <span class="tool-arrow">Open tool →</span>
+        </a>
+
+        <a class="tool-card" href="rtl-sizer.html">
+          <div class="badge">Loan sizing</div>
+          <div class="tool-icon">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 10h14M10 3l7 7-7 7" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <p class="tool-name">RTL Sizer</p>
+          <p class="tool-desc">Size rental transition loans based on property and borrower details.</p>
+          <span class="tool-arrow">Open tool →</span>
+        </a>
+
+        <a class="tool-card" href="guidelines-hub.html">
+          <div class="badge">Reference</div>
+          <div class="tool-icon">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 2h7l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="#C8813A" stroke-width="1.5"/>
+              <path d="M12 2v4h4M7 9h6M7 12h4" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <p class="tool-name">Guidelines</p>
+          <p class="tool-desc">Loan program guidelines and underwriting requirements by product type.</p>
+          <span class="tool-arrow">Open tool →</span>
+        </a>
+
+      </div>
+
+      <p class="footer">SLA Capital &middot; Sir Lends A Lot LLC &middot; Internal use only</p>
+    </div>
+  </div>
+
+  <script>
+    var loginScreen = document.getElementById('login-screen');
+    var appScreen   = document.getElementById('app-screen');
+    var userEmail   = document.getElementById('userEmail');
+    var adminLink   = document.getElementById('adminLink');
+
+    // ── Role check: show Admin link only for admin users ──────
+    function getRoles(user) {
+      if (!user) return [];
+      var roles = [];
+      if (user.app_metadata && Array.isArray(user.app_metadata.roles))
+        roles = user.app_metadata.roles;
+      else if (user.app_metadata && typeof user.app_metadata.roles === 'string')
+        roles = [user.app_metadata.roles];
+      if (!roles.length && user.user_metadata && user.user_metadata.roles)
+        roles = Array.isArray(user.user_metadata.roles) ? user.user_metadata.roles : [user.user_metadata.roles];
+      return roles;
+    }
+    function isSuperAdmin(user) {
+      return getRoles(user).some(function(r){ return r === 'super_admin'; });
+    }
+    function isAdmin(user) {
+      return getRoles(user).some(function(r){ return r === 'admin' || r === 'super_admin'; });
+    }
+
+    function showApp(user) {
+      registerUserLocally(user);
+      loginScreen.style.display = 'none';
+      appScreen.style.display   = 'block';
+      if (user && user.email) userEmail.textContent = user.email;
+      if (isAdmin(user)) adminLink.style.display = 'inline-block';
+      // Show notification banner if active
+      try {
+        var banner = JSON.parse(localStorage.getItem('sla_notification_banner') || 'null');
+        var bannerEl = document.getElementById('notifBanner');
+        if (banner && banner.text && bannerEl) {
+          bannerEl.className = 'notif-banner ' + (banner.type || 'info');
+          bannerEl.innerHTML = '<span>' + banner.text.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+          bannerEl.style.display = 'flex';
+        }
+      } catch(e) {}
+    }
+
+    function showLogin() {
+      loginScreen.style.display = 'flex';
+      appScreen.style.display   = 'none';
+    }
+
+    // ── Netlify Identity events ───────────────────────────────
+    
+    // Register user in local registry when they log in
+    function registerUserLocally(user) {
+      if (!user) return;
+      try {
+        var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
+        var existing = registry.find(function(u){ return u.id === user.id; });
+        var roles = [];
+        if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+        else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
+        var entry = {
+          id: user.id,
+          email: user.email,
+          full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
+          phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
+          roles: roles.length ? roles : (existing && existing.roles) || ['user'],
+          confirmed_at: user.confirmed_at || new Date().toISOString()
+        };
+        if (existing) { Object.assign(existing, entry); } else { registry.push(entry); }
+        localStorage.setItem('sla_user_registry', JSON.stringify(registry));
+      } catch(e) {}
+    }
+netlifyIdentity.on('init', function(user) {
+      if (user) { showApp(user); } else { showLogin(); }
+    });
+
+    netlifyIdentity.on('login', function(user) {
+      netlifyIdentity.close();
+      showApp(user);
+    });
+
+    netlifyIdentity.on('logout', function() {
+      showLogin();
+    });
+
+    document.getElementById('loginBtn').addEventListener('click', function() {
+      netlifyIdentity.open('login');
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', function() {
+      netlifyIdentity.logout();
+    });
+  </script>
+
+</body>
+</html>
