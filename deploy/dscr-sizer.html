@@ -1708,12 +1708,15 @@ netlifyIdentity.on('init', function(user) {
       var urlParams = new URLSearchParams(window.location.search);
       var loadAddr  = urlParams.get('loadQuote');
       if (loadAddr && window.QuoteStore) {
-        var q = QuoteStore.getQuote(user.email, 'dscr', decodeURIComponent(loadAddr));
-        if (q && q.formData) {
-          window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
-          window._originalBorrowerEmail = q.formData.borrowerEmail || '';
-          setTimeout(function() { loadQuoteIntoForm(q.formData); }, 100);
-        }
+        // Wait for QuoteStore's backend load before looking up
+        QuoteStore.init().then(function() {
+          var q = QuoteStore.getQuote(user.email, 'dscr', decodeURIComponent(loadAddr));
+          if (q && q.formData) {
+            window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
+            window._originalBorrowerEmail = q.formData.borrowerEmail || '';
+            loadQuoteIntoForm(q.formData);
+          }
+        });
       }
       // Check for prospect prefill
       if (urlParams.get('fromProspect')) {

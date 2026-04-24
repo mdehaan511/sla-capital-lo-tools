@@ -178,34 +178,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 var _user = null, _isAdmin = false, _clients = [], _tf = 'all', _view = 'my';
 var _adminData = null;
 
-function clientsKey(email) { return 'sla_clients_' + (email||''); }
+// _clients is an in-memory cache of the current user's clients, loaded once
+// from the backend. Mutations go through the backend and update the cache.
 
-function loadClients(userEmail) {
-  var clients = [];
-  try { clients = JSON.parse(localStorage.getItem(clientsKey(userEmail)) || '[]'); } catch(e) {}
-  // Merge clients created from apply link (stored under LO slug key)
-  var user = window._user;
-  var fullName = user && user.user_metadata && user.user_metadata.full_name;
-  if (fullName) {
-    var slug = fullName.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
-    var applyKey = 'sla_clients_apply_' + slug;
-    try {
-      var applyClients = JSON.parse(localStorage.getItem(applyKey) || '[]');
-      if (applyClients.length) {
-        applyClients.forEach(function(ac) {
-          var normEmail = (ac.email || '').toLowerCase();
-          var exists = clients.some(function(c){ return (c.email||'').toLowerCase() === normEmail; });
-          if (!exists) clients.push(ac);
-        });
-        localStorage.setItem(clientsKey(userEmail), JSON.stringify(clients));
-        localStorage.removeItem(applyKey);
-      }
-    } catch(e) {}
-  }
-  return clients;
-}
-function saveClients(userEmail, clients) {
-  localStorage.setItem(clientsKey(userEmail), JSON.stringify(clients));
+function refreshClientsFromBackend() {
+  return SLA.Clients.list().then(function(r) {
+    _clients = (r && r.clients) || [];
+    return _clients;
+  }).catch(function(err) {
+    console.warn('Clients load failed:', err);
+    _clients = [];
+    return _clients;
+  });
 }
 
 // ── Auth ────────────────────────────────────────────────────────
@@ -219,34 +203,7 @@ function checkAdmin(user) {
   return roles.some(function(r){ return r === 'admin' || r === 'super_admin'; });
 }
 
-
-  // Register user in local registry when they log in
-  function registerUserLocally(user) {
-    if (!user) return;
-    try {
-      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
-      var existing = registry.find(function(u){ return u.id === user.id; });
-      var roles = [];
-      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
-      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
-      var entry = {
-        id: user.id,
-        email: user.email,
-        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
-        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
-        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
-        confirmed_at: user.confirmed_at || new Date().toISOString()
-      };
-      if (existing) {
-        Object.assign(existing, entry);
-      } else {
-        registry.push(entry);
-      }
-      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
-    } catch(e) {}
-  }
 netlifyIdentity.on('init', function(user) {
-    registerUserLocally(user);
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = checkAdmin(user);
@@ -255,28 +212,30 @@ netlifyIdentity.on('init', function(user) {
   if (_isAdmin) document.getElementById('viewTabs').style.display = 'flex';
   var navAdmin = document.getElementById('navAdminLink');
   if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block';
-  _clients = loadClients(user.email);
-  renderSummary();
-  renderClients();
+  refreshClientsFromBackend().then(function() {
+    renderSummary();
+    renderClients();
+  });
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
 // ── Public API: add/update a client (called from sizers) ────────
+// Note: for consistency with older code, this returns the cache synchronously
+// and kicks off a backend save in the background.
 window.ClientBook = {
   addOrUpdateClient: function(userEmail, prospectData, quote) {
-    var clients = loadClients(userEmail);
     var borrowerEmail = (prospectData.email || '').toLowerCase().trim();
-    var idx = clients.findIndex(function(c) {
+    var idx = _clients.findIndex(function(c) {
       return (c.email || '').toLowerCase() === borrowerEmail;
     });
+    var record;
     if (idx >= 0) {
-      // Existing client — just add the loan
-      if (!clients[idx].loans) clients[idx].loans = [];
-      clients[idx].loans.unshift(quote);
+      record = _clients[idx];
+      if (!record.loans) record.loans = [];
+      record.loans.unshift(quote);
     } else {
-      // New client
-      clients.unshift({
-        id:          Date.now().toString(),
+      record = {
+        id:          'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
         email:       borrowerEmail,
         firstName:   prospectData.firstName || '',
         lastName:    prospectData.lastName  || '',
@@ -285,10 +244,13 @@ window.ClientBook = {
         addedAt:     new Date().toISOString(),
         prospectData: prospectData,
         loans:       [quote],
-      });
+      };
+      _clients.unshift(record);
     }
-    saveClients(userEmail, clients);
-    return clients;
+    SLA.Clients.save(record).catch(function(err) {
+      console.warn('ClientBook save failed:', err);
+    });
+    return _clients;
   }
 };
 
@@ -439,44 +401,56 @@ function toggleCard(loansId, headerId) {
 function deleteClient(id, userEmail) {
   if (!confirm('Delete this client and all their loans? This cannot be undone.')) return;
   var loEmail = userEmail || _user.email;
-  var clients = loadClients(loEmail);
   // Find client before removing so we can clean up QuoteStore
-  var clientToDelete = clients.find(function(c){ return c.id===id; });
-  clients = clients.filter(function(c){ return c.id!==id; });
-  saveClients(loEmail, clients);
-  // Remove all their loans from QuoteStore
-  if (clientToDelete && window.QuoteStore) {
-    (clientToDelete.loans||[]).forEach(function(l) {
-      if (l.address && l.toolType) QuoteStore.deleteQuote(loEmail, l.toolType, l.address);
-    });
-  }
-  _clients = clients;
-  renderSummary();
-  renderClients();
-  showToast('Client deleted');
+  var clientToDelete = _clients.find(function(c){ return c.id===id; });
+
+  var opts = {};
+  if (userEmail && userEmail !== _user.email) opts._owner = userEmail;
+
+  SLA.Clients.delete(id, opts).then(function() {
+    _clients = _clients.filter(function(c){ return c.id!==id; });
+    // Remove all their loans from QuoteStore too
+    if (clientToDelete && window.QuoteStore) {
+      (clientToDelete.loans||[]).forEach(function(l) {
+        if (l.address && l.toolType) QuoteStore.deleteQuote(loEmail, l.toolType, l.address);
+      });
+    }
+    renderSummary();
+    renderClients();
+    showToast('Client deleted');
+  }).catch(function(err) {
+    showToast('Delete failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 function deleteLoan(clientId, loanId, userEmail) {
   if (!confirm('Delete this loan? The client will remain in the book.')) return;
   var loEmail = userEmail || _user.email;
-  var clients = loadClients(loEmail);
-  var c = clients.find(function(c){ return c.id===clientId; });
-  // Find the loan record before deleting so we can remove from QuoteStore too
+  var c = _clients.find(function(c){ return c.id===clientId; });
   var loanToDelete = null;
   if (c && c.loans) {
     loanToDelete = c.loans.find(function(l){ return l.id===loanId || (l.address||l.id||'')===loanId; });
-    c.loans = c.loans.filter(function(l){ return l.id!==loanId && (l.address||l.id||'')!==loanId; });
   }
-  saveClients(loEmail, clients);
-  // Also remove from QuoteStore (Saved Quotes)
-  if (loanToDelete && loanToDelete.address && window.QuoteStore) {
-    var toolType = loanToDelete.toolType || 'dscr';
-    QuoteStore.deleteQuote(loEmail, toolType, loanToDelete.address);
-  }
-  _clients = clients;
-  renderSummary();
-  renderClients();
-  showToast('Loan removed');
+
+  var opts = { loanId: loanId };
+  if (userEmail && userEmail !== _user.email) opts._owner = userEmail;
+
+  SLA.Clients.delete(clientId, opts).then(function(r) {
+    if (c && r && r.client) {
+      // Backend returns the updated client record
+      var i = _clients.indexOf(c);
+      if (i >= 0) _clients[i] = r.client;
+    }
+    // Also remove from QuoteStore
+    if (loanToDelete && loanToDelete.address && window.QuoteStore) {
+      var toolType = loanToDelete.toolType || 'dscr';
+      QuoteStore.deleteQuote(loEmail, toolType, loanToDelete.address);
+    }
+    renderSummary();
+    renderClients();
+  }).catch(function(err) {
+    showToast('Delete failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 // ── Admin view ──────────────────────────────────────────────────
@@ -485,33 +459,19 @@ function loadAdminClients(forceRefresh) {
   var wrap = document.getElementById('adminClientsList');
   wrap.innerHTML = '<div style="padding:3rem;text-align:center;color:var(--muted);font-size:13px">Loading…</div>';
   if (!_user) return;
-  // Force-refresh JWT to avoid 401 from stale token
-  _user.jwt(true).then(function(freshToken) {
-  return fetch('/.netlify/identity/admin/users?per_page=200', {
-    headers: { 'Authorization': 'Bearer '+freshToken }
-  });
-  }).then(function(r){ if(!r.ok)throw new Error('HTTP '+r.status+' — make sure your account has the admin role in Netlify Identity.'); return r.json(); })
-  .then(function(data) {
-    _adminData = (data.users||[]).map(function(u) {
-      var clients = [];
-      // Read clients from user_metadata if synced, otherwise just show placeholder
-      var meta = u.user_metadata || {};
-      if (meta.clients) {
-        try {
-          var raw = typeof meta.clients === 'string' ? JSON.parse(meta.clients) : meta.clients;
-          if (Array.isArray(raw)) clients = raw;
-        } catch(e){}
-      }
-      // Fallback: also read directly from localStorage if this is the current user
-      return { id:u.id, email:u.email, clients:clients, confirmed: !!u.confirmed_at };
-    });
+  SLA.Clients.list({ all: true }).then(function(resp) {
+    var byOwner = (resp && resp.byOwner) || {};
+    _adminData = Object.keys(byOwner).map(function(owner) {
+      return {
+        id: owner,          // storage-key "id" (email-based)
+        email: owner,
+        clients: byOwner[owner] || [],
+        confirmed: true,
+      };
+    }).sort(function(a,b){ return a.email.localeCompare(b.email); });
     renderAdminClients();
-  })
-  .catch(function(err) {
-    var hint = err.message.indexOf('401') >= 0
-      ? '<p style="margin-top:8px;font-size:11px;color:var(--muted)">401 = token expired or missing admin role. Sign out and back in. If the problem persists, check Netlify → Identity → Users → your account → App metadata must contain: <code>{"roles":["admin"]}</code></p>'
-      : '';
-    wrap.innerHTML = '<div class="empty-state"><h3>Failed to load</h3><p>'+escH(err.message)+'</p>'+hint+'</div>';
+  }).catch(function(err) {
+    wrap.innerHTML = '<div class="empty-state"><h3>Failed to load</h3><p>'+escH(err.message || 'unknown error')+'</p></div>';
   });
 }
 
@@ -524,15 +484,19 @@ function renderAdminClients() {
   _adminData.forEach(function(userData) {
     var sec = document.createElement('div');
     sec.className = 'admin-section';
-    var initials = (userData.email||'?').substring(0,2).toUpperCase();
+    var displayName = humanizeEmail(userData.email);
+    var initials = displayName.split(' ').map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase() || '?';
     var bodyId = 'abody-'+userData.id;
     var headId = 'ahead-'+userData.id;
 
     sec.innerHTML =
       '<div class="user-section-hdr" id="'+headId+'" onclick="toggleAdminSection(\''+bodyId+'\',\''+headId+'\')">' +
         '<div class="user-avatar">'+escH(initials)+'</div>' +
-        '<span style="font-size:14px;font-weight:600;flex:1">'+escH(userData.email)+'</span>' +
-        '<span style="font-size:12px;color:var(--muted)">'+userData.clients.length+' client'+(userData.clients.length!==1?'s':'')+' synced</span>' +
+        '<div style="flex:1">'+
+          '<div style="font-size:14px;font-weight:600">'+escH(displayName)+'</div>' +
+          '<div style="font-size:11px;color:var(--muted)">'+escH(userData.email)+'</div>' +
+        '</div>' +
+        '<span style="font-size:12px;color:var(--muted)">'+userData.clients.length+' client'+(userData.clients.length!==1?'s':'')+'</span>' +
         '<svg class="chevron" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
       '</div>' +
       '<div class="user-section-body" id="'+bodyId+'">'+
@@ -588,6 +552,15 @@ function buildAdminClientList(clientList) {
 }
 
 function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function humanizeEmail(email) {
+  if (!email) return '';
+  var s = String(email);
+  var at = s.indexOf('@');
+  var local = at >= 0 ? s.slice(0, at) : s;
+  var parts = local.split(/[._\-]+/).filter(Boolean);
+  if (!parts.length) return s;
+  return parts.map(function(p){ return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }).join(' ') || s;
+}
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function showToast(msg){
   var t=document.getElementById('toast');

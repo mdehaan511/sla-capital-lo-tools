@@ -722,7 +722,12 @@ function validate(){
 var _resultsShown = false;
 
 function autoCalc() {
-  if (_resultsShown) calculate();
+  if (!_resultsShown) return;
+  try {
+    calculate();
+  } catch (e) {
+    console.error('RTL calculate() threw:', e);
+  }
 }
 
 function calculate(){
@@ -1146,12 +1151,14 @@ netlifyIdentity.on('init', function(user) {
     var urlParams = new URLSearchParams(window.location.search);
     var loadAddr  = urlParams.get('loadQuote');
     if (loadAddr && window.QuoteStore) {
-      var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr));
-      if (q && q.formData) {
-        window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
-        window._originalBorrowerEmail = q.formData.borrowerEmail || '';
-        setTimeout(function() { loadRTLQuote(q.formData); }, 150);
-      }
+      QuoteStore.init().then(function() {
+        var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr));
+        if (q && q.formData) {
+          window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
+          window._originalBorrowerEmail = q.formData.borrowerEmail || '';
+          loadRTLQuote(q.formData);
+        }
+      });
     }
     if (urlParams.get('fromProspect')) {
       try {

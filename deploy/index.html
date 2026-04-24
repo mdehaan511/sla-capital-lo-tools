@@ -264,16 +264,17 @@
       appScreen.style.display   = 'block';
       if (user && user.email) userEmail.textContent = user.email;
       if (isAdmin(user)) adminLink.style.display = 'inline-block';
-      // Show notification banner if active
-      try {
-        var banner = JSON.parse(localStorage.getItem('sla_notification_banner') || 'null');
+      // Show notification banner if active (from backend Settings)
+      SLA.Settings.getBanner().then(function(banner) {
         var bannerEl = document.getElementById('notifBanner');
         if (banner && banner.text && bannerEl) {
           bannerEl.className = 'notif-banner ' + (banner.type || 'info');
           bannerEl.innerHTML = '<span>' + banner.text.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
           bannerEl.style.display = 'flex';
+        } else if (bannerEl) {
+          bannerEl.style.display = 'none';
         }
-      } catch(e) {}
+      }).catch(function() { /* silent — banner is non-critical */ });
     }
 
     function showLogin() {

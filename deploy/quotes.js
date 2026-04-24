@@ -113,7 +113,7 @@ var QuoteStore = (function () {
       _cache[idx] = quote;
     } else {
       quote = {
-        id:        'q_' + toolType + '_' + (addrKey || Date.now()).replace(/[^a-z0-9]+/g, '_'),
+        id:        'q_' + toolType + '_' + String(addrKey || Date.now()).replace(/[^a-z0-9]+/g, '_'),
         address:   formData.address || '',
         borrower:  formData.borrower || '',
         savedAt:   now,

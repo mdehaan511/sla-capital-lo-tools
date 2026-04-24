@@ -248,6 +248,7 @@
       <div class="filter-btns">
         <button class="filter-btn active-filter" data-sf="all"      onclick="setSF('all')">All</button>
         <button class="filter-btn"               data-sf="active"   onclick="setSF('active')">● Active <span class="filter-count" id="cnt-active">0</span></button>
+        <button class="filter-btn"               data-sf="submitted" onclick="setSF('submitted')">↑ Submitted <span class="filter-count" id="cnt-submitted">0</span></button>
         <button class="filter-btn f-approved"    data-sf="approved" onclick="setSF('approved')">✓ Approved <span class="filter-count" id="cnt-approved">0</span></button>
         <button class="filter-btn f-hold"        data-sf="on_hold"  onclick="setSF('on_hold')">⏸ On Hold <span class="filter-count" id="cnt-on_hold">0</span></button>
         <button class="filter-btn f-denied"      data-sf="denied"   onclick="setSF('denied')">✕ Denied <span class="filter-count" id="cnt-denied">0</span></button>
@@ -353,7 +354,7 @@ var _myQuotes = [];
 var _sf = 'all', _tf = 'all', _af = 'all';
 var _view = 'my';
 var _adminUsers = null;
-var STATUS_LABELS = { active:'', approved:'✓ Approved', on_hold:'⏸ On Hold', denied:'✕ Denied' };
+var STATUS_LABELS = { active:'', submitted:'↑ Submitted', approved:'✓ Approved', on_hold:'⏸ On Hold', denied:'✕ Denied' };
 
 // ── Auth ──────────────────────────────────────────────────────
 function checkAdmin(user) {
@@ -415,7 +416,7 @@ function loadMyQuotes() {
 }
 
 function updateCounts() {
-  ['active','approved','on_hold','denied'].forEach(function(s) {
+  ['active','submitted','approved','on_hold','denied'].forEach(function(s) {
     var el = document.getElementById('cnt-'+s);
     var count = s==='active'
       ? _myQuotes.filter(function(q){ return (q.status||'active')==='active'; }).length
@@ -455,7 +456,7 @@ function renderMyTable() {
   var search=(document.getElementById('searchInput').value||'').toLowerCase().trim();
   var filtered=_myQuotes.filter(function(q){
     var qs=q.status||'active';
-    if(_sf==='all'&&(qs==='denied'||qs==='submitted'))return false;  // 'All' hides denied and submitted
+    // 'All' shows everything (including submitted, approved, denied)
     if(_sf==='active'&&qs!=='active')return false;
     if(_sf!=='all'&&_sf!=='active'&&qs!==_sf)return false;
     if(_tf!=='all'&&q.toolType!==_tf)return false;
@@ -686,7 +687,8 @@ function renderAdminSections() {
     var approved= allQ.filter(function(q){return q.status==='approved';}).length;
     var hold    = allQ.filter(function(q){return q.status==='on_hold';}).length;
     var denied  = allQ.filter(function(q){return q.status==='denied';}).length;
-    var initials= u.email.substring(0,2).toUpperCase();
+    var displayName = humanizeEmail(u.email);
+    var initials = displayName.split(' ').map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase() || u.email.substring(0,2).toUpperCase();
     var bodyId  = 'body-'+u.id;
     var headId  = 'head-'+u.id;
 
@@ -696,8 +698,8 @@ function renderAdminSections() {
       '<div class="user-section-hdr" id="'+headId+'" onclick="toggleSection(\''+bodyId+'\',\''+headId+'\')">' +
         '<div class="user-avatar">'+escH(initials)+'</div>'+
         '<div class="user-info">'+
-          '<div class="user-email">'+escH(u.email)+'</div>'+
-          '<div class="user-meta">'+total+' quote'+(total!==1?'s':'')+
+          '<div class="user-email">'+escH(displayName)+'</div>'+
+          '<div class="user-meta">'+escH(u.email)+' · '+total+' quote'+(total!==1?'s':'')+
             (!u.confirmed?' · <span style="color:var(--warn);font-size:11px">Invite pending</span>':'')+
           '</div>'+
         '</div>'+
@@ -793,6 +795,15 @@ function calcCommissionNum(q) {
 function fmtM(v){ var n=parseFloat(v); if(!v||isNaN(n))return '—'; return '$'+Math.round(n).toLocaleString(); }
 function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function humanizeEmail(email) {
+  if (!email) return '';
+  var s = String(email);
+  var at = s.indexOf('@');
+  var local = at >= 0 ? s.slice(0, at) : s;
+  var parts = local.split(/[._\-]+/).filter(Boolean);
+  if (!parts.length) return s;
+  return parts.map(function(p){ return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }).join(' ') || s;
+}
 // ── Submit modal ─────────────────────────────────────────────
 var _submitQuote=null;
 
@@ -893,13 +904,22 @@ function sendSubmitEmail(){
     loadMyQuotes();
   }
 
-  var webhookUrl = localStorage.getItem('sla_slack_webhook') || '';
-  if (!webhookUrl) {
+  SLA.Settings.getAll().then(function(s) {
+    var webhookUrl = (s.slack_webhook && s.slack_webhook.value) || '';
+    if (!webhookUrl) {
+      markSubmitted();
+      showToast('\u2713 Loan submitted (add Slack webhook in Admin to enable notifications)');
+      return;
+    }
+    postSlackAndMark(webhookUrl);
+  }).catch(function() {
+    // If settings fetch fails, still mark as submitted
     markSubmitted();
-    showToast('\u2713 Loan submitted (add Slack webhook in Admin to enable notifications)');
-    return;
-  }
+    showToast('\u2713 Loan submitted');
+  });
+  return;
 
+  function postSlackAndMark(webhookUrl) {
   var blocks = [
     {
       type: 'header',
@@ -940,6 +960,7 @@ function sendSubmitEmail(){
   } catch(e) { /* fire and forget */ }
   markSubmitted();
   showToast('\u2713 Loan submitted - Slack notification sent');
+  }
 }
 
 // Close modal on overlay click
@@ -1032,11 +1053,11 @@ function renderSubmittedTable() {
     var tt     = escAttr(q.toolType);
     var addr   = escAttr(q.address||'');
 
-    // Resolve LO display name from their Identity metadata
-    var loName = item.userEmail; // default to email
+    // Resolve LO display name
+    var loName = humanizeEmail(item.userEmail);
     try {
       if (_user && _user.email === item.userEmail) {
-        loName = (_user.user_metadata && _user.user_metadata.full_name) || item.userEmail;
+        loName = (_user.user_metadata && _user.user_metadata.full_name) || loName;
       }
     } catch(e) {}
 
@@ -1142,23 +1163,23 @@ function renderDecisionsTable() {
 
   var search = (document.getElementById('decisionsSearch').value || '').toLowerCase().trim();
 
-  // Collect all approved/denied loans from localStorage
+  // Admin cache is populated by QuoteStore.loadAllUsers() which loadAdminData() calls.
+  // If it's not loaded yet, kick it off and return — the view switch (setV) re-renders after load.
+  var cache = QuoteStore.getAdminCache();
+  if (!cache) {
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--muted)">Loading…</td></tr>';
+    QuoteStore.loadAllUsers().then(function() { renderDecisionsTable(); }).catch(function(){});
+    return;
+  }
+
   var decisions = [];
-  Object.keys(localStorage).filter(function(k) {
-    return k.startsWith('sla_quotes_');
-  }).forEach(function(key) {
-    var parts    = key.replace('sla_quotes_', '').split('_');
-    var toolType = parts.pop();
-    var userEmail = parts.join('_');
-    try {
-      var quotes = JSON.parse(localStorage.getItem(key) || '[]');
-      quotes.forEach(function(q) {
-        var s = q.status || 'active';
-        if (s === 'approved' || s === 'denied') {
-          decisions.push({ userEmail: userEmail, quote: Object.assign({}, q, { toolType: toolType }) });
-        }
-      });
-    } catch(e) {}
+  Object.keys(cache).forEach(function(owner) {
+    (cache[owner] || []).forEach(function(q) {
+      var s = q.status || 'active';
+      if (s === 'approved' || s === 'denied') {
+        decisions.push({ userEmail: owner, quote: q });
+      }
+    });
   });
 
   // Sort newest first
@@ -1213,7 +1234,7 @@ function renderDecisionsTable() {
       '<td class="td-addr"><div class="td-addr-main">'+escH(q.address||'—')+'</div>'
         +(( q.borrower||(q.formData&&q.formData.borrowerName) )?'<div class="td-addr-sub">'+escH(q.borrower||(q.formData&&q.formData.borrowerName)||'')+'</div>':'')+'</td>'
       +'<td><span class="tool-badge '+(q.toolType||'dscr')+'">'+(q.toolType||'dscr').toUpperCase()+'</span></td>'
-      +'<td class="td-mono" style="font-size:11px;color:var(--muted)">'+escH(item.userEmail)+'</td>'
+      +'<td class="td-mono" style="font-size:11px;color:var(--muted)">'+escH(humanizeEmail(item.userEmail))+'</td>'
       +'<td class="td-mono">'+escH(loanType)+'</td>'
       +'<td class="td-mono">'+escH(amt)+'</td>'
       +'<td class="td-mono">'+escH(rate)+'</td>'
