@@ -235,20 +235,6 @@
     },
   };
 
-  // ── Users (admin-only) ──────────────────────────────────────────
-  var Users = {
-    list: function () { return api('GET', '/api/users'); },
-    invite: function (email, role) {
-      return api('POST', '/api/users-invite', { email: email, role: role || 'user' });
-    },
-    setRole: function (userId, role) {
-      return api('POST', '/api/users-update', { userId: userId, role: role });
-    },
-    delete: function (userId) {
-      return api('POST', '/api/users-delete', { userId: userId });
-    },
-  };
-
   // ── Shared role helpers (mirror of function-side logic) ─────────
   function getRoles(user) {
     if (!user) return [];
@@ -270,7 +256,6 @@
     Clients: Clients,
     Prospects: Prospects,
     Settings: Settings,
-    Users: Users,
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,

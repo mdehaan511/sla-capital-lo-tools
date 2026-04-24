@@ -277,24 +277,28 @@
     <div class="card">
       <div class="card-header">
         <div>
-          <h2>Current users</h2>
-          <p>All active and pending team members. <span id="rolesNote" style="font-size:11px;color:var(--muted)">Role changes require Super Admin access.</span></p>
+          <h2>User management</h2>
+          <p>Invite users, change roles, or revoke access in the Netlify dashboard.</p>
         </div>
-        <div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:8px">
-          <button class="action-btn" id="addUserToggle" onclick="toggleAddUserForm()" style="display:none">+ Add User</button>
-          <button class="action-btn" id="refreshBtn" onclick="loadUsers()">↻ Refresh</button>
-        </div><button class="action-btn" onclick="toggleAddUserForm()" style="border-color:var(--gold-border);color:var(--gold-mid)">+ Add User</button></div>
+        <div>
+          <a id="netlifyIdentityLink" class="action-btn" href="#" target="_blank" rel="noopener"
+             style="border-color:var(--gold-border);color:var(--gold-mid);text-decoration:none;display:inline-block">
+            Open Netlify Identity &nbsp;↗
+          </a>
+        </div>
       </div>
-      <div class="card-body" style="padding: 0 1.5rem">
-        <div id="addUserForm" style="display:none;padding:1rem 1.5rem;background:var(--pill-bg);border-bottom:1px solid var(--border)"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;max-width:600px"><div class="field" style="flex:2;min-width:180px"><label for="addUserEmail" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);display:block;margin-bottom:5px">Email</label><input type="email" id="addUserEmail" placeholder="user@example.com" style="width:100%;height:38px;padding:0 10px;border:1.5px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface)" /></div><div class="field" style="max-width:130px"><label for="addUserRole" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);display:block;margin-bottom:5px">Role</label><select id="addUserRole" style="width:100%;height:38px;padding:0 10px;border:1.5px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface)"><option value="user">User</option><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select></div><button onclick="addUserManually()" style="height:38px;padding:0 16px;background:var(--dark);color:#fff;border:none;border-radius:var(--r-xs);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Add</button></div><div id="addUserStatus" style="margin-top:8px"></div></div><div id="userList" class="user-list">
-          <div class="loading">Loading users…</div>
+      <div class="card-body">
+        <div style="padding:1.25rem 1.5rem;font-size:13px;color:var(--text);line-height:1.6">
+          <p style="margin:0 0 12px"><strong>To invite a new user:</strong> Click the button above, then <em>Invite users</em> in the Netlify Identity page. They'll receive an email to set their own password.</p>
+          <p style="margin:0 0 12px"><strong>To change a role:</strong> In the Netlify Identity page, click a user, then edit their <code>app_metadata</code> to set <code>{"roles": ["admin"]}</code> or <code>{"roles": ["super_admin"]}</code> or <code>{"roles": ["user"]}</code>. Changes take effect the next time the user logs in.</p>
+          <p style="margin:0"><strong>To remove a user:</strong> Click the user in the Netlify Identity page and choose Delete. Access is revoked immediately.</p>
         </div>
       </div>
     </div>
 
     <!-- Help -->
     <div class="info-box">
-      <strong>How roles work:</strong> Users can access all tools. Admins can additionally access this User Management page and see the Admin link on the dashboard. To promote or demote a user, use the role button next to their name. Removing a user immediately revokes their access — they won't be able to log in.
+      <strong>How roles work:</strong> <code>user</code> can access all loan tools. <code>admin</code> can also see this Admin page. <code>super_admin</code> can additionally manage site settings (banner, Slack webhook, submission email).
     </div>
   </div>
 
@@ -361,7 +365,7 @@ netlifyIdentity.on('init', function(user) {
     netlifyUrl  = window.location.origin;
     document.getElementById('auth-gate').style.display = 'none';
     document.getElementById('navEmail').textContent = user.email;
-    loadUsers();
+    initAdminPage();
   }
 
   netlifyIdentity.on('logout', function() {
@@ -372,47 +376,31 @@ netlifyIdentity.on('init', function(user) {
     netlifyIdentity.logout();
   });
 
-  // ── Backend-backed user/settings management ─────────────────
-  // Calls go through SLA.* (sla-api.js) which routes to /api/* functions.
+  // ── Settings + Netlify Identity link ────────────────────────
+  // User management (invite/role/delete) happens in the Netlify dashboard.
+  // This page handles the Settings section (banner, Slack webhook, submit
+  // email) and exposes a link to Netlify's built-in Identity admin UI.
   var _settingsLoaded = false;
 
-  function loadUsers() {
-    var list = document.getElementById('userList');
-    list.innerHTML = '<div class="loading">Loading users…</div>';
-
-    // Show/hide super-admin-only sections based on current user
+  function initAdminPage() {
+    // Gate the Settings section to super_admin
     var settingsDiv = document.getElementById('settingsSection');
     if (settingsDiv) settingsDiv.style.display = SLA.isSuperAdmin(currentUser) ? 'block' : 'none';
-    var addBtn = document.getElementById('addUserToggle');
-    if (addBtn) addBtn.style.display = SLA.isSuperAdmin(currentUser) ? 'inline-block' : 'none';
 
-    // First time only: wire up settings handlers and fetch current values
+    // Wire the Netlify Identity link. We build it from the current
+    // hostname — Netlify's dashboard URL for Identity is:
+    //   https://app.netlify.com/sites/{siteName}/identity
+    var siteName = (location.hostname.split('.')[0] || '').toLowerCase();
+    var link = document.getElementById('netlifyIdentityLink');
+    if (link && siteName) {
+      link.href = 'https://app.netlify.com/sites/' + encodeURIComponent(siteName) + '/identity';
+    }
+
+    // One-time settings wiring
     if (!_settingsLoaded) {
       _settingsLoaded = true;
       wireSettings();
     }
-
-    // Fetch users from Netlify Identity (server-side)
-    SLA.Users.list().then(function(resp) {
-      var users = (resp && resp.users) || [];
-      var roleOrder = { 'super_admin': 0, 'admin': 1, 'user': 2 };
-      users.sort(function(a, b) {
-        var aRole = (a.roles||[])[0] || 'user', bRole = (b.roles||[])[0] || 'user';
-        var aOrd = roleOrder[aRole] !== undefined ? roleOrder[aRole] : 2;
-        var bOrd = roleOrder[bRole] !== undefined ? roleOrder[bRole] : 2;
-        if (aOrd !== bOrd) return aOrd - bOrd;
-        return (a.email||'').localeCompare(b.email||'');
-      });
-
-      list.innerHTML = '';
-      if (users.length) {
-        users.forEach(function(u) { list.appendChild(buildUserRow(u)); });
-      } else {
-        list.innerHTML = '<div class="empty-state">No users yet. Use the Add User button above to invite your first user.</div>';
-      }
-    }).catch(function(err) {
-      list.innerHTML = '<div class="empty-state" style="color:var(--danger)">Failed to load users: ' + escHtml(err.message || 'unknown error') + '</div>';
-    });
   }
 
   // ── Settings (banner, slack webhook, submit email) ──────────
@@ -502,103 +490,6 @@ netlifyIdentity.on('init', function(user) {
       }).catch(function(err) {
         showStatus(status, 'error', 'Clear failed: ' + (err.message || 'unknown error'));
       });
-    });
-  }
-
-  // Stub kept for back-compat with any inline onclick handlers in old markup.
-  // The real "add user" flow now goes through addUserManually() below, which
-  // calls SLA.Users.invite() to send a real Identity invitation email.
-  function addUserToRegistry() {
-    addUserManually();
-  }
-
-  function buildUserRow(u) {
-    var isSelf     = currentUser && u.id === currentUser.id;
-    var roles      = getRoles(u);
-    var curRole    = roles[0] || 'user';
-    var isSA       = curRole === 'super_admin';
-    var isAd       = curRole === 'admin';
-    var roleLbl    = isSA ? 'Super Admin' : isAd ? 'Admin' : 'User';
-    var roleCls    = isSA ? 'super_admin' : isAd ? 'admin' : 'user';
-    var confirmed  = u.confirmed_at ? 'Active' : (u.pending ? 'Added — pending login' : 'Invited — pending login');
-    var joined     = u.confirmed_at
-      ? new Date(u.confirmed_at).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
-      : 'Not yet logged in';
-    // Only super_admin can change roles
-    var canEdit    = isSuperAdmin(currentUser) && !isSelf;
-    var uid        = escHtml(u.id);
-    var roleMenu   = canEdit
-      ? '<div class="role-menu" id="rm-' + uid + '">' +
-          (curRole !== 'super_admin' ? '<button class="role-opt" onclick="setRole(\'' + uid + '\',\'super_admin\')">→ Super Admin</button>' : '') +
-          (curRole !== 'admin'       ? '<button class="role-opt" onclick="setRole(\'' + uid + '\',\'admin\')">→ Admin</button>' : '') +
-          (curRole !== 'user'        ? '<button class="role-opt" onclick="setRole(\'' + uid + '\',\'user\')">→ User</button>' : '') +
-        '</div>'
-      : '';
-
-    var row = document.createElement('div');
-    row.className = 'user-row';
-    row.id = 'row-' + u.id;
-    row.innerHTML =
-      '<div class="user-info">' +
-        '<div class="user-email">' + escHtml(u.email) + (isSelf ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : '') + '</div>' +
-        '<div class="user-meta">' +
-          ((u.full_name || (u.user_metadata && u.user_metadata.full_name)) ? escHtml(u.full_name || u.user_metadata.full_name) + ' &middot; ' : '') +
-          ((u.phone || (u.user_metadata && u.user_metadata.phone)) ? escHtml(u.phone || u.user_metadata.phone) + ' &middot; ' : '') +
-          confirmed + ' &middot; ' + joined +
-        '</div>' +
-      '</div>' +
-      '<span class="role-badge ' + roleCls + '">' + roleLbl + '</span>' +
-      '<div class="user-actions">' +
-        roleMenu +
-        (canEdit
-          ? '<button class="action-btn danger" onclick="removeUser(\'' + uid + '\', \'' + escHtml(u.email) + '\')" id="del-' + u.id + '">Remove</button>'
-          : '') +
-      '</div>';
-    return row;
-  }
-;
-
-
-  // ── Toggle role ──────────────────────────────────────────────
-  function toggleAddUserForm() {
-    var f = document.getElementById('addUserForm');
-    f.style.display = f.style.display === 'none' ? 'block' : 'none';
-  }
-
-  function addUserManually() {
-    var email = (document.getElementById('addUserEmail').value || '').trim().toLowerCase();
-    var role  = document.getElementById('addUserRole').value || 'user';
-    var stat  = document.getElementById('addUserStatus');
-    if (!email || !email.includes('@')) {
-      stat.style.display='block'; stat.style.color='var(--danger)'; stat.textContent='Enter a valid email.'; return;
-    }
-    stat.style.display='block'; stat.style.color='var(--muted)'; stat.textContent='Sending invitation…';
-    SLA.Users.invite(email, role).then(function() {
-      document.getElementById('addUserEmail').value = '';
-      stat.style.color='var(--success)';
-      stat.textContent = 'Invitation sent to ' + email + ' — they will receive an email to set their password.';
-      loadUsers();
-    }).catch(function(err) {
-      stat.style.color='var(--danger)';
-      stat.textContent = 'Failed: ' + (err.message || 'unknown error');
-    });
-  }
-
-function setRole(userId, newRole) {
-    SLA.Users.setRole(userId, newRole).then(function() {
-      loadUsers();
-    }).catch(function(err) {
-      alert('Failed to update role: ' + (err.message || 'unknown error'));
-    });
-  }
-
-  // ── Remove user ──────────────────────────────────────────────
-  function removeUser(userId, email) {
-    if (!confirm('Permanently remove ' + email + '?\n\nThis deletes their Netlify Identity account and revokes all access.')) return;
-    SLA.Users.delete(userId).then(function() {
-      loadUsers();
-    }).catch(function(err) {
-      alert('Failed to remove user: ' + (err.message || 'unknown error'));
     });
   }
 
