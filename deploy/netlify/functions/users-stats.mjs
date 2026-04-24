@@ -99,10 +99,30 @@ export default async (req, context) => {
     const roles = (u.app_metadata && (Array.isArray(u.app_metadata.roles)
       ? u.app_metadata.roles
       : (u.app_metadata.roles ? [u.app_metadata.roles] : ['user']))) || ['user'];
+
+    // Name can live in a few places depending on how the user was created:
+    //   - user_metadata.full_name   (widget-set display name)
+    //   - user_metadata.name        (some flows use this key)
+    //   - raw_user_meta_data        (GoTrue internal field on older accounts)
+    //   - firstName/lastName pair   (if client code ever set it)
+    const meta = u.user_metadata || {};
+    const raw  = u.raw_user_meta_data || {};
+    let fullName =
+      meta.full_name ||
+      meta.fullName ||
+      meta.name     ||
+      raw.full_name ||
+      raw.name      ||
+      '';
+    if (!fullName && (meta.firstName || meta.lastName)) {
+      fullName = ((meta.firstName || '') + ' ' + (meta.lastName || '')).trim();
+    }
+
     return {
       id: u.id,
       email: u.email,
-      fullName: (u.user_metadata && u.user_metadata.full_name) || '',
+      fullName,
+      userMetadata: meta, // raw — so admin UI can inspect if name extraction missed something
       confirmed_at: u.confirmed_at || null,
       last_sign_in_at: u.last_sign_in_at || null,
       roles,

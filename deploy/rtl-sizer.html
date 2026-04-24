@@ -13,87 +13,15 @@ window.ClientBook = {
 
   _key: function(loEmail) { return 'sla_clients_' + loEmail; },
 
-  // Main entry point — called from sizers and apply.html on every save
-  // borrowerEmail is the unique client identifier
+  // Main entry point — called from sizers and apply.html on every save.
+  // Delegates to SLA.Clients.upsert (backend-backed) so saved clients show
+  // up in Clients page, admin views, and on other devices.
   upsert: function(loEmail, borrowerEmail, firstName, lastName, phone, loanData) {
-    if (!borrowerEmail) return; // require email to link
-    var key = this._key(loEmail);
-    var clients = [];
-    try { clients = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
-
-    var normEmail = borrowerEmail.toLowerCase().trim();
-    var idx = -1;
-    for (var i = 0; i < clients.length; i++) {
-      if ((clients[i].email || '').toLowerCase() === normEmail) { idx = i; break; }
+    if (!borrowerEmail) return;
+    if (window.SLA && SLA.Clients && SLA.Clients.upsert) {
+      SLA.Clients.upsert(loEmail, borrowerEmail, firstName, lastName, phone, loanData)
+        .catch(function(err) { console.warn('ClientBook.upsert backend failed:', err); });
     }
-    // Fallback: if no email match, try matching by full name
-    if (idx < 0 && firstName && lastName) {
-      var normName = (firstName + ' ' + lastName).toLowerCase().trim();
-      for (var i = 0; i < clients.length; i++) {
-        var cName = ((clients[i].firstName||'') + ' ' + (clients[i].lastName||'')).toLowerCase().trim();
-        if (cName === normName) { idx = i; break; }
-      }
-    }
-
-    if (idx < 0) {
-      // New client
-      clients.unshift({
-        id:        'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
-        email:     normEmail,
-        firstName: firstName || '',
-        lastName:  lastName  || '',
-        phone:     phone     || '',
-        createdAt: new Date().toISOString(),
-        createdBy: loEmail,
-        loans:     loanData ? [loanData] : []
-      });
-    } else {
-      // Existing client — update name/phone if provided and currently blank
-      if (firstName && !clients[idx].firstName) clients[idx].firstName = firstName;
-      if (lastName  && !clients[idx].lastName)  clients[idx].lastName  = lastName;
-      if (phone     && !clients[idx].phone)      clients[idx].phone     = phone;
-
-      if (loanData) {
-        if (!clients[idx].loans) clients[idx].loans = [];
-        // Match loan by address (case-insensitive)
-        var normAddr = (loanData.address || '').toLowerCase().trim();
-        var lIdx = -1;
-        for (var j = 0; j < clients[idx].loans.length; j++) {
-          if ((clients[idx].loans[j].address || '').toLowerCase().trim() === normAddr) {
-            lIdx = j; break;
-          }
-        }
-        // Handle address rename — find by original address if provided
-        if (lIdx < 0 && loanData._originalAddress) {
-          var normOrig = loanData._originalAddress.toLowerCase().trim();
-          for (var k = 0; k < clients[idx].loans.length; k++) {
-            if ((clients[idx].loans[k].address||'').toLowerCase().trim() === normOrig) {
-              lIdx = k; break;
-            }
-          }
-        }
-        if (lIdx >= 0) {
-          // Preserve editable app fields AND existing ID when updating from sizer
-          var existing = clients[idx].loans[lIdx];
-          clients[idx].loans[lIdx] = Object.assign({}, loanData, {
-            id:          existing.id,          // CRITICAL: keep stable ID so loan-details URL stays valid
-            bedrooms:    loanData.bedrooms    || existing.bedrooms    || '',
-            bathrooms:   loanData.bathrooms   || existing.bathrooms   || '',
-            sqft:        loanData.sqft        || existing.sqft        || '',
-            usCitizen:   loanData.usCitizen   || existing.usCitizen   || '',
-            loanPurpose: loanData.loanPurpose || existing.loanPurpose || '',
-            rentalType:  loanData.rentalType  || existing.rentalType  || '',
-            fundingDate: loanData.fundingDate || existing.fundingDate || '',
-            notes:       loanData.notes       || existing.notes       || '',
-          });
-        } else {
-          clients[idx].loans.unshift(loanData);
-        }
-      }
-    }
-
-    localStorage.setItem(key, JSON.stringify(clients));
-    return clients;
   },
 
   // Build a loan record from sizer formData + empty app fields
@@ -411,6 +339,23 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
     <div class="form-body">
 
+      <!-- Borrower -->
+      <div class="section-label">Borrower</div>
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Name</label>
+          <input type="text" id="borrowerName" placeholder="John Smith" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Email</label>
+          <input type="email" id="borrowerEmail" placeholder="borrower@email.com" />
+        </div>
+      </div>
+
+      <div class="form-divider"></div>
+
       <!-- Property address -->
       <div class="section-label">Property</div>
       <div class="field span2">
@@ -491,20 +436,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       </div>
 
       <div class="form-divider"></div>
-      <div class="section-label">Loan &amp; Borrower</div>
-
-      <div class="field">
-        <div class="wrap">
-          <label>Borrower Name</label>
-          <input type="text" id="borrowerName" placeholder="John Smith" />
-        </div>
-      </div>
-      <div class="field">
-        <div class="wrap">
-          <label>Borrower Email</label>
-          <input type="email" id="borrowerEmail" placeholder="borrower@email.com" />
-        </div>
-      </div>
+      <div class="section-label">Loan</div>
 
       <div class="field">
         <div class="wrap">
