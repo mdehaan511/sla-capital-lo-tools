@@ -295,7 +295,6 @@ var QuoteStore = (function () {
     loadAll:         loadAll,
     loadAllTools:    loadAllTools,
     updateStatus:    updateStatus,
-    syncToIdentity:  syncToIdentity,
     buildPanel:      buildPanel,
     formatDate:      formatDate,
     formatDateShort: formatDateShort,
