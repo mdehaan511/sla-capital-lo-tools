@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Saved Quotes — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
   <script src="quotes.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -24,6 +25,7 @@
     .nav { max-width: 1320px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
     .nav img { height: 44px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 10px; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
     .back-link { font-size: 12px; color: var(--muted); text-decoration: none; }
     .back-link:hover { color: var(--gold); }
     .user-pill { font-size: 12px; color: var(--muted); background: var(--gold-light); border: 1px solid var(--gold-border); padding: 4px 12px; border-radius: 20px; font-family: 'DM Mono', monospace; }
@@ -198,10 +200,12 @@
 </div>
 
 <nav class="nav">
-  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
-  <div class="nav-right">
+  
+  <div class="nav-left">
+    <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
     <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
-    <a class="nav-tool-link current" href="saved-quotes.html">Saved Quotes</a>
+  </div>
+  <div class="nav-right"><a class="nav-tool-link current" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link" href="prospects.html">Prospects</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
@@ -398,7 +402,7 @@ netlifyIdentity.on('init', function(user) {
   if (_isAdmin) document.getElementById('viewTabs').style.display = 'flex';
   var navAdmin = document.getElementById('navAdminLink');
   if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block';
-  loadMyQuotes();
+  QuoteStore.init().then(loadMyQuotes);
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
@@ -616,24 +620,31 @@ function loadAdminData(forceRefresh) {
 
   if(!_user){ wrap.innerHTML='<div class="empty-state"><h3>Not logged in</h3></div>'; return; }
 
-  // Force-refresh JWT before admin API call — avoids 401 from stale tokens
-  _user.jwt(true).then(function(freshToken) {
-  return fetch('/.netlify/identity/admin/users?per_page=200', {
-    headers: { 'Authorization': 'Bearer '+freshToken }
-  });
-  })
-  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-  .then(function(data) {
-    var users = (data.users||[]);
-    _adminUsers = users
-      .map(function(u) {
-        var meta   = u.user_metadata || {};
-        var quotes = Array.isArray(meta.quotes) ? meta.quotes : [];
+  QuoteStore.loadAllUsers().then(function(byOwner) {
+    var owners = Object.keys(byOwner);
+    _adminUsers = owners
+      .map(function(owner) {
         return {
-          id:        u.id,
-          email:     u.email || '(no email)',
-          confirmed: !!u.confirmed_at,
-          quotes:    quotes,
+          id:        owner, // storage key, not Identity id
+          email:     owner, // display the email-shaped storage key
+          confirmed: true,
+          quotes:    (byOwner[owner] || []).map(function(q) {
+            // adapt to the shape the rendering code expects
+            var fd = q.formData || {};
+            return {
+              id:        q.id,
+              address:   q.address,
+              borrower:  q.borrower || '',
+              toolType:  q.toolType,
+              status:    q.status || 'active',
+              savedAt:   q.savedAt,
+              updatedAt: q.updatedAt,
+              loanType:  fd.loanType || q.loanType || '',
+              loanAmt:   fd.loanAmt || fd.purchasePrice || q.loanAmt || '',
+              rate:      fd._finalRate || '',
+              points:    fd._points || fd.buydown || '',
+            };
+          }),
         };
       })
       .filter(function(u){ return u.quotes.length > 0; })
@@ -643,10 +654,7 @@ function loadAdminData(forceRefresh) {
     renderAdminSections();
   })
   .catch(function(err){
-    var hint = err.message.indexOf('401') >= 0
-      ? '<p style="margin-top:8px;font-size:11px;color:var(--muted)">401 = token expired or missing admin role. Sign out and back in. If that fails, check Netlify → Identity → Users → your account → App metadata must contain: <code>{"roles":["admin"]}</code></p>'
-      : '';
-    wrap.innerHTML='<div class="empty-state"><h3>Failed to load</h3><p>'+escH(err.message)+'</p>'+hint+'</div>';
+    wrap.innerHTML='<div class="empty-state"><h3>Failed to load</h3><p>'+escH(err.message || 'unknown error')+'</p></div>';
   });
 }
 
@@ -958,37 +966,30 @@ function _deriveSubmittedLoans() {
   _submittedLoans = [];
   if (!_user) return;
 
-  // Read submitted loans directly from localStorage — no admin API needed
-  // Scans all users' quote keys in localStorage
-  var allKeys = Object.keys(localStorage).filter(function(k) {
-    return k.startsWith('sla_quotes_');
-  });
-
-  allKeys.forEach(function(key) {
-    // key format: sla_quotes_{email}_{toolType}
-    var parts = key.replace('sla_quotes_', '').split('_');
-    var toolType = parts.pop(); // last segment is toolType
-    var userEmail = parts.join('_'); // rest is email
-    try {
-      var quotes = JSON.parse(localStorage.getItem(key) || '[]');
-      quotes.forEach(function(q) {
+  // Pull everyone's quotes from the backend (admin-only endpoint)
+  QuoteStore.loadAllUsers().then(function(byOwner) {
+    Object.keys(byOwner || {}).forEach(function(owner) {
+      (byOwner[owner] || []).forEach(function(q) {
         if ((q.status || 'active') === 'submitted') {
           _submittedLoans.push({
-            userEmail: userEmail,
-            userId:    null, // not needed for localStorage approach
-            quote:     Object.assign({}, q, { toolType: toolType })
+            userEmail: owner,
+            userId:    null,
+            quote:     q,
           });
         }
       });
-    } catch(e) {}
+    });
+    _submittedLoans.sort(function(a,b) {
+      return new Date(b.quote.updatedAt) - new Date(a.quote.updatedAt);
+    });
+    _submittedLoaded = true;
+    document.getElementById('submittedCount').textContent = '(' + _submittedLoans.length + ')';
+    renderSubmittedTable();
+  }).catch(function(err) {
+    console.warn('Submitted loans load failed:', err);
+    _submittedLoaded = true;
+    renderSubmittedTable();
   });
-
-  _submittedLoans.sort(function(a,b) {
-    return new Date(b.quote.updatedAt) - new Date(a.quote.updatedAt);
-  });
-  _submittedLoaded = true;
-  document.getElementById('submittedCount').textContent = '(' + _submittedLoans.length + ')';
-  renderSubmittedTable();
 }
 
 function renderSubmittedTable() {
@@ -1086,33 +1087,42 @@ function renderSubmittedTable() {
   });
 }
 
-// Admin approve/deny a submitted loan — writes decision back to user's Identity metadata
+// Admin approve/deny a submitted loan — persists to the backend `quotes` store
 function adminDecision(userEmail, userId, toolType, address, decision) {
   var label = decision === 'approved' ? 'Approved' : 'Denied';
   if (!confirm(label + ' loan for:\n' + address + '\nSubmitted by: ' + userEmail + '?')) return;
 
-  // Update directly in localStorage — no admin API required
-  var key  = 'sla_quotes_' + userEmail + '_' + toolType;
+  // Look up the target quote from the admin cache
+  var byOwner = QuoteStore.getAdminCache() || {};
+  var quotes  = byOwner[userEmail] || [];
   var norm = address.trim().toLowerCase().replace(/\s+/g,' ');
-  try {
-    var quotes = JSON.parse(localStorage.getItem(key) || '[]');
-    var updated = false;
-    quotes = quotes.map(function(q) {
-      if ((q.address||'').trim().toLowerCase().replace(/\s+/g,' ') === norm) {
-        updated = true;
-        return Object.assign({}, q, { status: decision, updatedAt: new Date().toISOString() });
-      }
-      return q;
-    });
-    if (!updated) { showToast('Quote not found for ' + address); return; }
-    localStorage.setItem(key, JSON.stringify(quotes));
-    QuoteStore.updateStatus(userEmail, toolType, address, decision);
+  var target = quotes.find(function(q) {
+    return q.toolType === toolType && (q.address||'').trim().toLowerCase().replace(/\s+/g,' ') === norm;
+  });
+  if (!target) { showToast('Quote not found for ' + address); return; }
+
+  var updated = Object.assign({}, target, {
+    status:    decision,
+    updatedAt: new Date().toISOString(),
+    _owner:    userEmail, // admin save-on-behalf
+  });
+
+  SLA.Quotes.save(updated).then(function() {
+    // Update local admin cache in-place so the table refreshes
+    var idx = quotes.indexOf(target);
+    if (idx >= 0) quotes[idx] = updated;
     syncStatusToClientBook(userEmail, address, decision);
     showToast(label + ' — ' + address);
     _submittedLoaded = false;
     _deriveSubmittedLoans();
-    if (userEmail === _user.email) loadMyQuotes();
-  } catch(e) { showToast('Error: ' + e.message); }
+    if (userEmail === _user.email) {
+      // Also update the user's own cache
+      QuoteStore.updateStatus(_user.email, toolType, address, decision);
+      loadMyQuotes();
+    }
+  }).catch(function(err) {
+    showToast('Error: ' + (err.message || 'unknown error'));
+  });
 }
 
 // ── Approved / Denied table (admin view) ─────────────────────

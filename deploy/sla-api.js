@@ -235,6 +235,38 @@
     },
   };
 
+  // ── Quotes ──────────────────────────────────────────────────────
+  var Quotes = {
+    list: function (opts) {
+      opts = opts || {};
+      var q = opts.all ? '?all=1' : '';
+      return api('GET', '/api/quotes' + q).then(function (r) {
+        if (!opts.all) cache.set('quotes', r.quotes || []);
+        return r;
+      });
+    },
+    listCached: function () { return cache.get('quotes'); },
+    save: function (quote) {
+      return api('POST', '/api/quotes-save', quote).then(function (r) {
+        cache.clear('quotes');
+        return r;
+      });
+    },
+    delete: function (quoteId, opts) {
+      var body = { quoteId: quoteId };
+      if (opts && opts._owner) body._owner = opts._owner;
+      return api('POST', '/api/quotes-delete', body).then(function (r) {
+        cache.clear('quotes');
+        return r;
+      });
+    },
+  };
+
+  // ── Admin ───────────────────────────────────────────────────────
+  var Admin = {
+    userStats: function () { return api('GET', '/api/users-stats'); },
+  };
+
   // ── Shared role helpers (mirror of function-side logic) ─────────
   function getRoles(user) {
     if (!user) return [];
@@ -255,9 +287,24 @@
     cache: cache,
     Clients: Clients,
     Prospects: Prospects,
+    Quotes: Quotes,
     Settings: Settings,
+    Admin: Admin,
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
   };
+
+  // ── Auto-init QuoteStore when identity is ready ─────────────────
+  // If the page also loads quotes.js, we pre-fetch the user's quotes as
+  // soon as login is confirmed, so synchronous reads have fresh data.
+  function maybeInitQuoteStore() {
+    if (typeof window.QuoteStore !== 'undefined' && typeof window.QuoteStore.init === 'function') {
+      try { window.QuoteStore.init(); } catch (e) { /* swallow */ }
+    }
+  }
+  if (window.netlifyIdentity) {
+    window.netlifyIdentity.on('init', function (user) { if (user) maybeInitQuoteStore(); });
+    window.netlifyIdentity.on('login', function () { maybeInitQuoteStore(); });
+  }
 })();

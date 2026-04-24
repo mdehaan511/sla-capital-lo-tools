@@ -7,6 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="sla-api.js"></script>
   <script src="quotes.js"></script>
   <script>
   // Minimal ClientBook for sizer pages
@@ -240,6 +241,7 @@
     .nav { max-width: 1120px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
     .nav img { height: 48px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
     .back-link { font-size: 12px; color: var(--muted); text-decoration: none; }
     .back-link:hover { color: var(--gold); }
     .date-pill { font-family: 'DM Mono', monospace; font-size: 11px; background: var(--gold-light); color: var(--gold); border: 1px solid var(--gold-border); padding: 3px 10px; border-radius: 20px; }
@@ -536,11 +538,13 @@ function getFICOMin(ficoStr) {
 </script>
 
 <nav class="nav">
-  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
-  <div class="nav-right">
-    <span class="date-pill" id="datePill"></span>
+  
+  <div class="nav-left">
+    <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
     <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
-    <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+  </div>
+  <div class="nav-right">
+    <span class="date-pill" id="datePill"></span><a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link" href="prospects.html">Prospects</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
@@ -1493,6 +1497,10 @@ function initQuotes(userEmail) {
   );
   wrap.appendChild(_quotesPanel);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
+  // Re-render once the backend returns this user's real quotes
+  QuoteStore.init().then(function() {
+    if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
+  });
 }
 
 function prefillFromProspect(p) {

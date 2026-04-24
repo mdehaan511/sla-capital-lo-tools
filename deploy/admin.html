@@ -34,6 +34,7 @@
     .nav { max-width: 860px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
     .nav img { height: 44px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 10px; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
     .back-link { font-size: 12px; color: var(--muted); text-decoration: none; }
     .back-link:hover { color: var(--gold); }
     .user-pill { font-size: 12px; color: var(--muted); background: var(--gold-light); border: 1px solid var(--gold-border); padding: 4px 12px; border-radius: 20px; font-family: 'DM Mono', monospace; }
@@ -133,10 +134,12 @@
   </div>
 
   <nav class="nav">
+    
+  <div class="nav-left">
     <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
-    <div class="nav-right">
-      <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
-      <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+  </div>
+    <div class="nav-right"><a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
       <a class="nav-tool-link" href="prospects.html">Prospects</a>
       <a class="nav-tool-link" href="clients.html">Clients</a>
       <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
@@ -277,6 +280,23 @@
     <div class="card">
       <div class="card-header">
         <div>
+          <h2>User activity</h2>
+          <p>Clients, quotes, and pipeline volume per user.</p>
+        </div>
+        <div>
+          <button class="action-btn" id="refreshStatsBtn" type="button">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div id="userStatsContainer" style="padding:1.5rem">
+          <div class="loading">Loading user activity…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>
           <h2>User management</h2>
           <p>Invite users, change roles, or revoke access in the Netlify dashboard.</p>
         </div>
@@ -401,6 +421,111 @@ netlifyIdentity.on('init', function(user) {
       _settingsLoaded = true;
       wireSettings();
     }
+
+    // Load user-activity stats
+    loadUserStats();
+    var refreshBtn = document.getElementById('refreshStatsBtn');
+    if (refreshBtn) refreshBtn.addEventListener('click', function() { loadUserStats(); });
+  }
+
+  // ── User activity stats ────────────────────────────────────
+  function loadUserStats() {
+    var container = document.getElementById('userStatsContainer');
+    if (!container) return;
+    container.innerHTML = '<div class="loading">Loading user activity…</div>';
+    SLA.Admin.userStats().then(function(resp) {
+      renderUserStats(resp);
+    }).catch(function(err) {
+      container.innerHTML = '<div class="empty-state" style="color:var(--danger)">Failed to load stats: ' + escHtml(err.message || 'unknown error') + '</div>';
+    });
+  }
+
+  function renderUserStats(resp) {
+    var container = document.getElementById('userStatsContainer');
+    var users   = (resp && resp.users)   || [];
+    var orphans = (resp && resp.orphans) || [];
+
+    if (!users.length) {
+      container.innerHTML = '<div class="empty-state">No users found.</div>';
+      return;
+    }
+
+    // Aggregate totals across all users
+    var totalClients = 0, totalQuotes = 0, totalLoan = 0;
+    users.forEach(function(u) {
+      totalClients += u.clientCount || 0;
+      totalQuotes  += u.quoteCount  || 0;
+      totalLoan    += u.totalLoanAmount || 0;
+    });
+
+    // Summary strip
+    var summary = '<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border)">' +
+      statPill(users.length, 'Users')          +
+      statPill(totalClients, 'Clients')        +
+      statPill(totalQuotes,  'Quotes')         +
+      statPill(fmtMoney(totalLoan), 'Total Loan Volume', true) +
+    '</div>';
+
+    var rows = users.map(function(u) {
+      var role = (u.roles[0] || 'user');
+      var roleLabel = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
+      var roleClass = role;
+      var name = u.fullName || u.email.split('@')[0];
+      var status = u.confirmed_at
+        ? '<span style="color:var(--muted);font-size:11px">Active</span>'
+        : '<span style="color:#9a5f20;font-size:11px">Pending invite</span>';
+      return (
+        '<tr>' +
+          '<td style="padding:10px 12px"><div style="font-weight:600;color:var(--text)">' + escHtml(name) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + escHtml(u.email) + '</div></td>' +
+          '<td style="padding:10px 12px"><span class="role-badge ' + roleClass + '" style="font-size:10px">' + roleLabel + '</span></td>' +
+          '<td style="padding:10px 12px">' + status + '</td>' +
+          '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + (u.clientCount || 0) + '</td>' +
+          '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + (u.quoteCount  || 0) + '</td>' +
+          '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + fmtMoney(u.totalLoanAmount || 0) + '</td>' +
+        '</tr>'
+      );
+    }).join('');
+
+    var table =
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+        '<thead><tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--border)">' +
+          '<th style="padding:10px 12px;font-weight:600">User</th>' +
+          '<th style="padding:10px 12px;font-weight:600">Role</th>' +
+          '<th style="padding:10px 12px;font-weight:600">Status</th>' +
+          '<th style="padding:10px 12px;font-weight:600;text-align:right">Clients</th>' +
+          '<th style="padding:10px 12px;font-weight:600;text-align:right">Quotes</th>' +
+          '<th style="padding:10px 12px;font-weight:600;text-align:right">Loan Volume</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table></div>';
+
+    // Orphan data (data belonging to deleted users) — only show if any
+    var orphanHtml = '';
+    if (orphans.length) {
+      orphanHtml =
+        '<div style="margin-top:16px;padding:12px 14px;background:#fff7e6;border:1px solid #f4d47a;border-radius:var(--r-xs);font-size:12px;color:#7a5218">' +
+          '<strong>Orphaned data:</strong> Found ' + orphans.length + ' storage prefix(es) that don\'t match a current user. This usually means a user was deleted but their clients/quotes remain. Keys: ' +
+          orphans.map(function(o){return '<code>' + escHtml(o.ownerKey) + '</code> (' + o.clientCount + ' clients, ' + o.quoteCount + ' quotes)';}).join(', ') +
+        '</div>';
+    }
+
+    container.innerHTML = summary + table + orphanHtml;
+  }
+
+  function statPill(value, label, isWide) {
+    return '<div style="flex:' + (isWide ? '2' : '1') + ';min-width:' + (isWide ? '200px' : '120px') + '">' +
+      '<div style="font-size:22px;font-weight:700;color:var(--text);font-family:\'Lora\',serif">' + value + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-top:2px">' + label + '</div>' +
+    '</div>';
+  }
+
+  function fmtMoney(n) {
+    if (!n || isNaN(n)) return '$0';
+    if (n >= 1e9) return '$' + (n/1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
+    return '$' + Number(n).toLocaleString();
   }
 
   // ── Settings (banner, slack webhook, submit email) ──────────

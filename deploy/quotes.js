@@ -1,26 +1,37 @@
 /**
  * quotes.js — Saved Quotes Storage Module
- * Shared by dscr-sizer.html, rtl-sizer.html, and saved-quotes.html
+ * Shared by dscr-sizer.html, rtl-sizer.html, and saved-quotes.html.
  *
- * Storage strategy:
- *   - Primary:  localStorage (fast, offline, per-user-per-browser)
- *   - Sync:     Netlify Identity user_metadata (enables admin cross-user view)
+ * Backend storage:
+ *   - Persisted in the `quotes` Netlify Blobs store, via the SLA.Quotes API
+ *     (see sla-api.js → /api/quotes*).
+ *   - In-memory cache on the page; reads are synchronous (for back-compat
+ *     with all existing callers) and served from that cache.
+ *   - Writes update the cache immediately AND fire-and-forget to the backend.
  *
- * When a quote is saved/updated/deleted, call QuoteStore.syncToIdentity(userEmail)
- * to push the current quotes into the logged-in user's user_metadata.
- * Admins can then read all users' metadata via the Identity admin API.
- *
- * Quote statuses: 'active' | 'approved' | 'on_hold' | 'denied'
+ * Usage:
+ *   1. Page must include sla-api.js before quotes.js.
+ *   2. After login, call QuoteStore.init() once — this returns a Promise
+ *      that resolves when the backend load finishes. Render after it resolves
+ *      to avoid flashing empty state.
+ *   3. All existing synchronous calls (loadAll, saveQuote, deleteQuote, etc.)
+ *      continue to work and now hit the backend under the hood.
  */
 
 var QuoteStore = (function () {
   'use strict';
 
-  // ── Helpers ─────────────────────────────────────────────────────
-  function storageKey(userEmail, toolType) {
-    return 'sla_quotes_' + (userEmail || 'guest') + '_' + (toolType || 'dscr');
-  }
+  // ── Internal state ──────────────────────────────────────────────
+  // All quotes the current user owns, as a single array. Each quote
+  // has toolType ('dscr' or 'rtl'), address, formData, etc.
+  var _cache = [];
+  var _loaded = false;
+  var _loadPromise = null;
 
+  // Flat cache of *all* users' quotes (admin-only, populated by loadAllUsers()).
+  var _adminCache = null;
+
+  // ── Helpers ─────────────────────────────────────────────────────
   function normalizeAddress(addr) {
     return (addr || '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
@@ -38,143 +49,164 @@ var QuoteStore = (function () {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  // ── Local Storage ────────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ── Init: load quotes for the current user from backend ─────────
+  function init() {
+    if (_loadPromise) return _loadPromise;
+    _loadPromise = SLA.Quotes.list().then(function (r) {
+      _cache = (r && r.quotes) || [];
+      _loaded = true;
+      return _cache;
+    }).catch(function (err) {
+      console.warn('QuoteStore.init failed:', err);
+      _cache = [];
+      _loaded = true;
+      return _cache;
+    });
+    return _loadPromise;
+  }
+
+  // ── Synchronous reads (served from cache) ───────────────────────
   function loadAll(userEmail, toolType) {
-    try {
-      var raw = localStorage.getItem(storageKey(userEmail, toolType));
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) { return []; }
+    // userEmail is ignored — the backend already scopes to the current user.
+    if (!_loaded && !_loadPromise) init(); // lazy init
+    return _cache.filter(function (q) { return q.toolType === toolType; });
   }
 
-  function saveAll(userEmail, toolType, quotes) {
-    try {
-      localStorage.setItem(storageKey(userEmail, toolType), JSON.stringify(quotes));
-      return true;
-    } catch (e) { return false; }
-  }
-
-  /** Load ALL quotes across both tools for a user */
   function loadAllTools(userEmail) {
-    var dscr = loadAll(userEmail, 'dscr').map(function(q) { q.toolType = 'dscr'; return q; });
-    var rtl  = loadAll(userEmail, 'rtl').map(function(q)  { q.toolType = 'rtl';  return q; });
-    return dscr.concat(rtl).sort(function(a, b) {
+    if (!_loaded && !_loadPromise) init();
+    // Return a fresh copy so callers can sort/mutate without affecting cache.
+    return _cache.slice().sort(function (a, b) {
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
   }
 
-  /**
-   * Save or update a quote.
-   * Preserves status when updating an existing quote.
-   */
-  function saveQuote(userEmail, toolType, formData) {
-    var quotes = loadAll(userEmail, toolType);
-    var addrKey = normalizeAddress(formData.address);
-    var now = new Date().toISOString();
-
-    var idx = quotes.findIndex(function (q) {
-      return normalizeAddress(q.address) === addrKey;
-    });
-
-    var quote = {
-      id:        addrKey || ('quote_' + Date.now()),
-      address:   formData.address || '',
-      borrower:  formData.borrower || '',
-      savedAt:   now,
-      updatedAt: now,
-      toolType:  toolType,
-      status:    'active',
-      formData:  formData,
-    };
-
-    if (idx >= 0) {
-      quote.savedAt = quotes[idx].savedAt;
-      quote.status  = quotes[idx].status || 'active';
-      quotes[idx] = quote;
-    } else {
-      quotes.unshift(quote);
-    }
-
-    saveAll(userEmail, toolType, quotes);
-    syncToIdentity(userEmail);
-    return quote;
-  }
-
-  function deleteQuote(userEmail, toolType, addrKey) {
-    var quotes = loadAll(userEmail, toolType);
-    quotes = quotes.filter(function (q) {
-      return normalizeAddress(q.address) !== normalizeAddress(addrKey);
-    });
-    saveAll(userEmail, toolType, quotes);
-    syncToIdentity(userEmail);
-  }
-
   function getQuote(userEmail, toolType, addrKey) {
-    var quotes = loadAll(userEmail, toolType);
-    return quotes.find(function (q) {
-      return normalizeAddress(q.address) === normalizeAddress(addrKey);
+    var norm = normalizeAddress(addrKey);
+    return _cache.find(function (q) {
+      return q.toolType === toolType && normalizeAddress(q.address) === norm;
     }) || null;
   }
 
-  function updateStatus(userEmail, toolType, addrKey, status) {
-    var quotes = loadAll(userEmail, toolType);
-    var idx = quotes.findIndex(function(q) {
-      return normalizeAddress(q.address) === normalizeAddress(addrKey);
+  // ── Mutations (update cache + fire-and-forget to backend) ────────
+  function saveQuote(userEmail, toolType, formData) {
+    var addrKey = normalizeAddress(formData.address);
+    var now = new Date().toISOString();
+
+    var idx = _cache.findIndex(function (q) {
+      return q.toolType === toolType && normalizeAddress(q.address) === addrKey;
     });
+
+    var quote;
     if (idx >= 0) {
-      quotes[idx].status = status;
-      quotes[idx].updatedAt = new Date().toISOString();
-      saveAll(userEmail, toolType, quotes);
-      syncToIdentity(userEmail);
-      return true;
-    }
-    return false;
-  }
-
-  // ── Identity Sync ────────────────────────────────────────────────
-  /**
-   * Push current quotes into Netlify Identity user_metadata.
-   * This lets admins read all users' quotes via the admin API.
-   * Runs silently in the background — no UI feedback needed.
-   */
-  function syncToIdentity(userEmail) {
-    try {
-      var identity = window.netlifyIdentity;
-      if (!identity || !identity.currentUser()) return;
-      var user = identity.currentUser();
-
-      // Build a compact snapshot (omit large/unused fields)
-      var allQuotes = loadAllTools(userEmail).map(function(q) {
-        var fd = q.formData || {};
-        return {
-          id:        q.id,
-          address:   q.address,
-          borrower:  q.borrower || '',
-          toolType:  q.toolType,
-          status:    q.status || 'active',
-          savedAt:   q.savedAt,
-          updatedAt: q.updatedAt,
-          loanType:  fd.loanType || '',
-          loanAmt:   fd.loanAmt || fd.purchasePrice || '',
-          rate:      fd._finalRate || '',
-          points:    fd._points || fd.buydown || '',
-        };
+      quote = Object.assign({}, _cache[idx], {
+        address:   formData.address || '',
+        borrower:  formData.borrower || '',
+        updatedAt: now,
+        toolType:  toolType,
+        formData:  formData,
+        // preserve status and savedAt
       });
+      _cache[idx] = quote;
+    } else {
+      quote = {
+        id:        'q_' + toolType + '_' + (addrKey || Date.now()).replace(/[^a-z0-9]+/g, '_'),
+        address:   formData.address || '',
+        borrower:  formData.borrower || '',
+        savedAt:   now,
+        updatedAt: now,
+        toolType:  toolType,
+        status:    'active',
+        formData:  formData,
+      };
+      _cache.unshift(quote);
+    }
 
-      user.update({ data: { quotes: allQuotes, quotesUpdatedAt: new Date().toISOString() } })
-        .catch(function() { /* silent fail */ });
-    } catch(e) { /* silent fail */ }
+    // Denormalize a few top-level numeric fields so users-stats (and any
+    // server-side reporting) can sum without parsing formData.
+    var fd = formData || {};
+    quote.loanAmt  = fd.loanAmt || fd.purchasePrice || '';
+    quote.loanType = fd.loanType || quote.loanType || '';
+
+    // Persist (fire-and-forget; log failures)
+    SLA.Quotes.save(quote).catch(function (err) {
+      console.warn('QuoteStore.saveQuote persist failed:', err);
+    });
+    return quote;
   }
+
+  function deleteQuote(userEmail, toolType, addrOrKey) {
+    var norm = normalizeAddress(addrOrKey);
+    var removed = null;
+    _cache = _cache.filter(function (q) {
+      if (q.toolType === toolType && normalizeAddress(q.address) === norm) {
+        removed = q; return false;
+      }
+      return true;
+    });
+    if (removed && removed.id) {
+      SLA.Quotes.delete(removed.id).catch(function (err) {
+        console.warn('QuoteStore.deleteQuote persist failed:', err);
+      });
+    }
+  }
+
+  function updateStatus(userEmail, toolType, addrKey, status) {
+    var norm = normalizeAddress(addrKey);
+    var idx = _cache.findIndex(function (q) {
+      return q.toolType === toolType && normalizeAddress(q.address) === norm;
+    });
+    if (idx < 0) return false;
+    _cache[idx].status = status;
+    _cache[idx].updatedAt = new Date().toISOString();
+    SLA.Quotes.save(_cache[idx]).catch(function (err) {
+      console.warn('QuoteStore.updateStatus persist failed:', err);
+    });
+    return true;
+  }
+
+  // ── Admin: load all users' quotes ───────────────────────────────
+  function loadAllUsers() {
+    return SLA.Quotes.list({ all: true }).then(function (r) {
+      _adminCache = (r && r.byOwner) || {};
+      return _adminCache;
+    });
+  }
+
+  /**
+   * Flat list of all quotes across all users, for admin views.
+   * Each item is annotated with `userEmail` (the storage owner key).
+   * Call loadAllUsers() first and then this.
+   */
+  function getAllUsersFlat() {
+    if (!_adminCache) return [];
+    var flat = [];
+    Object.keys(_adminCache).forEach(function (owner) {
+      (_adminCache[owner] || []).forEach(function (q) {
+        flat.push(Object.assign({}, q, { userEmail: owner }));
+      });
+    });
+    flat.sort(function (a, b) { return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0); });
+    return flat;
+  }
+
+  function getAdminCache() { return _adminCache; }
 
   // ── Inline Panel (used inside sizer pages) ─────────────────────
+  var STATUS_COLORS = {
+    active:   { bg: 'rgba(200,129,58,0.1)',  color: '#9a5f20',  label: '' },
+    approved: { bg: 'rgba(37,105,64,0.1)',   color: '#256940',  label: '✓ Approved' },
+    on_hold:  { bg: 'rgba(122,82,24,0.12)',  color: '#7a5218',  label: '⏸ On Hold' },
+    denied:   { bg: 'rgba(124,31,31,0.1)',   color: '#7c1f1f',  label: '✕ Denied' },
+  };
+
   function buildPanel(userEmail, toolType, onLoad, onDelete) {
     var panel = document.createElement('div');
     panel.id = 'quotesPanel';
-    panel.style.cssText = [
-      'background:#fff',
-      'border:1px solid var(--border)',
-      'border-radius:var(--r)',
-      'overflow:hidden',
-    ].join(';');
+    panel.style.cssText = 'background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden';
 
     var header = document.createElement('div');
     header.style.cssText = 'padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none';
@@ -198,13 +230,6 @@ var QuoteStore = (function () {
       document.getElementById('quotesChevron').style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
     });
 
-    var STATUS_COLORS = {
-      active:   { bg: 'rgba(200,129,58,0.1)',  color: '#9a5f20',  label: '' },
-      approved: { bg: 'rgba(37,105,64,0.1)',   color: '#256940',  label: '✓ Approved' },
-      on_hold:  { bg: 'rgba(122,82,24,0.12)',  color: '#7a5218',  label: '⏸ On Hold' },
-      denied:   { bg: 'rgba(124,31,31,0.1)',   color: '#7c1f1f',  label: '✕ Denied' },
-    };
-
     function renderBody() {
       var qs = loadAll(userEmail, toolType);
       var countEl = document.getElementById('quoteCount');
@@ -216,7 +241,7 @@ var QuoteStore = (function () {
       }
 
       body.innerHTML = '';
-      qs.slice(0, 3).forEach(function (q, i) {  // Show 3 most recent
+      qs.slice(0, 3).forEach(function (q, i) {
         var s = STATUS_COLORS[q.status] || STATUS_COLORS.active;
         var row = document.createElement('div');
         row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:11px 18px;' +
@@ -243,19 +268,6 @@ var QuoteStore = (function () {
           e.stopPropagation();
           if (confirm('Delete saved quote for:\n' + q.address + '?')) {
             deleteQuote(userEmail, toolType, q.address);
-            // Sync deletion to ClientBook
-            try {
-              var _ck = 'sla_clients_' + userEmail;
-              var _cc = JSON.parse(localStorage.getItem(_ck)||'[]');
-              var _na = (q.address||'').trim().toLowerCase();
-              var _chg = false;
-              _cc.forEach(function(c) {
-                var b = (c.loans||[]).length;
-                c.loans = (c.loans||[]).filter(function(l){ return (l.address||'').trim().toLowerCase() !== _na; });
-                if (c.loans.length !== b) _chg = true;
-              });
-              if (_chg) localStorage.setItem(_ck, JSON.stringify(_cc));
-            } catch(e) {}
             renderBody();
             if (onDelete) onDelete(q);
           }
@@ -271,12 +283,12 @@ var QuoteStore = (function () {
     return panel;
   }
 
-  function escHtml(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
   // ── Public API ──────────────────────────────────────────────────
   return {
+    init:            init,
+    loadAllUsers:    loadAllUsers,
+    getAllUsersFlat: getAllUsersFlat,
+    getAdminCache:   getAdminCache,
     saveQuote:       saveQuote,
     deleteQuote:     deleteQuote,
     getQuote:        getQuote,

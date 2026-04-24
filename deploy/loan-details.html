@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
   <script src="quotes.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,6 +25,7 @@
     .nav { max-width: 960px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
     .nav img { height: 44px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 10px; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
     .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; }
     .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
     .back-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 7px 14px; border: 1.5px solid var(--border); border-radius: 20px; transition: all 0.15s; }
@@ -104,7 +106,11 @@
 <body>
 
 <nav class="nav">
-  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+  
+  <div class="nav-left">
+    <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+  </div>
   <div class="nav-right">
     <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>

@@ -23,6 +23,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 0; display: flex; align-items: center; justify-content: space-between; }
 .nav img { height: 44px; width: auto; }
 .nav-right { display: flex; align-items: center; gap: 10px; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
 .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
 .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
 
@@ -146,11 +147,13 @@ mark { background: rgba(200,129,58,0.25); color: var(--dark); border-radius: 2px
 <body>
 
 <nav class="nav">
-  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+  
+  <div class="nav-left">
+    <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
+  </div>
   <div class="nav-right">
-    <a class="nav-tool-link" href="guidelines-hub.html">← Guidelines</a>
-    <a class="nav-tool-link" href="index.html">Dashboard</a>
-    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+    <a class="nav-tool-link" href="guidelines-hub.html">← Guidelines</a><button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
 </nav>
 

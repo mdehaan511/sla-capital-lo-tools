@@ -54,6 +54,30 @@
   force = true
 
 [[redirects]]
+  from = "/api/quotes"
+  to = "/.netlify/functions/quotes-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/quotes-save"
+  to = "/.netlify/functions/quotes-save"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/quotes-delete"
+  to = "/.netlify/functions/quotes-delete"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users-stats"
+  to = "/.netlify/functions/users-stats"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/settings"
   to = "/.netlify/functions/settings"
   status = 200
