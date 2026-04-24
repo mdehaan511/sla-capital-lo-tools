@@ -36,8 +36,10 @@ export default async (req, context) => {
   }
 
   try {
-    // Send invite — Identity will email them with a confirmation link
-    const inviteResp = await fetch(`${identity.url}/admin/users`, {
+    // The /invite endpoint sends an email with a confirmation link.
+    // /admin/users creates the user but does NOT send an email — that's why
+    // earlier attempts succeeded silently with no email arriving.
+    const inviteResp = await fetch(`${identity.url}/invite`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${identity.token}`,
@@ -45,13 +47,13 @@ export default async (req, context) => {
       },
       body: JSON.stringify({
         email: email,
-        app_metadata: { roles: [role] },
+        // Note: app_metadata isn't accepted on /invite, so we update the
+        // role in a follow-up PUT to /admin/users/:id once the user exists.
       }),
     });
 
     if (!inviteResp.ok) {
       const txt = await inviteResp.text().catch(() => '');
-      // Helpful error if the user already exists
       if (inviteResp.status === 422) {
         return json(409, { error: 'User with this email already exists' });
       }
@@ -59,6 +61,23 @@ export default async (req, context) => {
     }
 
     const created = await inviteResp.json().catch(() => ({}));
+
+    // Set the role if non-default. Best-effort; don't fail the invite if this fails.
+    if (role && role !== 'user' && created.id) {
+      try {
+        await fetch(`${identity.url}/admin/users/${encodeURIComponent(created.id)}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${identity.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ app_metadata: { roles: [role] } }),
+        });
+      } catch (e) {
+        console.warn('users-invite: invite sent but role update failed:', e);
+      }
+    }
+
     return json(200, { ok: true, user: { id: created.id, email: created.email } });
   } catch (e) {
     console.error('users-invite error:', e);
