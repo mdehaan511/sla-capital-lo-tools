@@ -22,36 +22,35 @@ export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
 
-  const user = requireAuth(context);
+  const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isAdmin(user)) return json(403, { error: 'Admin required' });
 
-  // 1) Fetch user roster from Identity Admin API
+  // 1) Fetch user roster from Identity Admin API (if available)
   const identity = context && context.clientContext && context.clientContext.identity;
-  if (!identity || !identity.url || !identity.token) {
-    return json(500, { error: 'Identity context unavailable' });
-  }
-
   let identityUsers = [];
-  try {
-    let page = 1;
-    for (;;) {
-      const url = `${identity.url}/admin/users?per_page=50&page=${page}`;
-      const resp = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` } });
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => '');
-        return json(resp.status, { error: `Identity API ${resp.status}: ${txt.slice(0, 200)}` });
+  if (identity && identity.url && identity.token) {
+    try {
+      let page = 1;
+      for (;;) {
+        const url = `${identity.url}/admin/users?per_page=50&page=${page}`;
+        const resp = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` } });
+        if (!resp.ok) {
+          console.warn(`users-stats identity API ${resp.status}`);
+          break;
+        }
+        const data = await resp.json();
+        const users = Array.isArray(data.users) ? data.users : [];
+        identityUsers.push(...users);
+        if (users.length < 50) break;
+        page += 1;
+        if (page > 20) break;
       }
-      const data = await resp.json();
-      const users = Array.isArray(data.users) ? data.users : [];
-      identityUsers.push(...users);
-      if (users.length < 50) break;
-      page += 1;
-      if (page > 20) break;
+    } catch (e) {
+      console.warn('users-stats identity error:', e);
     }
-  } catch (e) {
-    console.error('users-stats identity error:', e);
-    return json(500, { error: 'Failed to list users' });
+  } else {
+    console.warn('users-stats: identity context unavailable — roster will be reconstructed from storage only');
   }
 
   // 2) Walk the clients store and count per-owner-key
@@ -113,6 +112,42 @@ export default async (req, context) => {
     };
   });
 
+  // 5) Any "orphan" storage prefixes that don't match a current user?
+  //    When Identity is unreachable, identityUsers is empty and *all* prefixes
+  //    become orphans. Treat them as real rows (with ownerKey as email) so
+  //    the admin still sees stats.
+  const knownKeys = new Set(annotated.map((u) => keySafe(normalizeEmail(u.email || ''))));
+  const orphanKeys = new Set();
+  Object.keys(clientCounts).forEach((k) => { if (!knownKeys.has(k)) orphanKeys.add(k); });
+  Object.keys(quoteCounts).forEach((k) => { if (!knownKeys.has(k)) orphanKeys.add(k); });
+
+  const identityUnavailable = identityUsers.length === 0;
+  const orphans = [];
+  for (const k of orphanKeys) {
+    const entry = {
+      ownerKey: k,
+      clientCount: clientCounts[k] || 0,
+      quoteCount:  quoteCounts[k]  || 0,
+      totalLoanAmount: quoteLoanSums[k] || 0,
+    };
+    if (identityUnavailable) {
+      // Promote to a pseudo-user row so the admin sees their activity
+      annotated.push({
+        id: null,
+        email: k.replace(/_/g, '.') || k, // best-effort pretty email from key
+        fullName: '',
+        confirmed_at: null,
+        last_sign_in_at: null,
+        roles: ['user'],
+        clientCount: entry.clientCount,
+        quoteCount:  entry.quoteCount,
+        totalLoanAmount: entry.totalLoanAmount,
+      });
+    } else {
+      orphans.push(entry);
+    }
+  }
+
   // Sort: super_admin first, then admin, then user; within a role, alpha by email
   const roleOrder = { super_admin: 0, admin: 1, user: 2 };
   annotated.sort((a, b) => {
@@ -123,21 +158,7 @@ export default async (req, context) => {
     return (a.email || '').localeCompare(b.email || '');
   });
 
-  // 5) Any "orphan" storage prefixes that don't match a current user?
-  //    (e.g. clients that were saved under an email for a user who was later
-  //    deleted.) Report them so data isn't silently hidden.
-  const knownKeys = new Set(annotated.map((u) => keySafe(normalizeEmail(u.email || ''))));
-  const orphanKeys = new Set();
-  Object.keys(clientCounts).forEach((k) => { if (!knownKeys.has(k)) orphanKeys.add(k); });
-  Object.keys(quoteCounts).forEach((k) => { if (!knownKeys.has(k)) orphanKeys.add(k); });
-  const orphans = Array.from(orphanKeys).map((k) => ({
-    ownerKey: k,
-    clientCount: clientCounts[k] || 0,
-    quoteCount:  quoteCounts[k]  || 0,
-    totalLoanAmount: quoteLoanSums[k] || 0,
-  }));
-
-  return json(200, { users: annotated, orphans });
+  return json(200, { users: annotated, orphans, identityUnavailable });
 };
 
 // Parse "1,250,000" / "$1250000" / 1250000 → number, or 0 on failure.

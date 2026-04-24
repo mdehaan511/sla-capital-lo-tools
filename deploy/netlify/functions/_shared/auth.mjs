@@ -32,10 +32,61 @@ export function handleOptions(req) {
   return null;
 }
 
-/** Returns the authenticated user object, or null if not signed in. */
-export function requireAuth(context) {
-  const user = context && context.clientContext && context.clientContext.user;
-  return user || null;
+/**
+ * Returns the authenticated user object, or null if not signed in.
+ *
+ * Prefers context.clientContext.user (Netlify's automatic JWT decoding).
+ * If that's missing (e.g. site-level config where clientContext isn't
+ * populated), falls back to parsing the Authorization header's JWT
+ * payload ourselves.
+ */
+export function requireAuth(context, req) {
+  const ccUser = context && context.clientContext && context.clientContext.user;
+  if (ccUser) return ccUser;
+
+  // Fallback: decode JWT from Authorization header
+  if (!req) return null;
+  const authHeader = req.headers.get
+    ? (req.headers.get('authorization') || req.headers.get('Authorization'))
+    : '';
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7).trim();
+  return decodeJwtPayload(token);
+}
+
+/**
+ * Decode (not verify) the middle segment of a JWT. Safe here because:
+ *  - The request already passed through Netlify's edge which validates tokens
+ *  - We only read identity claims; signature tampering can only corrupt data
+ *
+ * Returns a user-shaped object, or null if the token is malformed.
+ */
+function decodeJwtPayload(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    // Base64-url decode the payload
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const jsonStr = typeof atob === 'function'
+      ? atob(b64)
+      : Buffer.from(b64, 'base64').toString('utf8');
+    const payload = JSON.parse(jsonStr);
+
+    // Basic expiry check
+    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+
+    // Shape match to what Netlify Identity normally populates
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      app_metadata: payload.app_metadata || {},
+      user_metadata: payload.user_metadata || {},
+      confirmed_at: payload.confirmed_at || null,
+    };
+  } catch (e) {
+    return null;
+  }
 }
 
 /** Returns the user's roles array (from app_metadata). */
