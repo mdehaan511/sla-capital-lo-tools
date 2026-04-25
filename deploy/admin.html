@@ -99,6 +99,12 @@
     .role-badge.admin { background: rgba(38,26,54,0.1); color: var(--dark); }
     .role-badge.user        { background: var(--gold-light); color: var(--gold-mid); }
     .role-badge.super_admin { background: rgba(38,26,54,0.12); color: var(--dark); border: 1px solid rgba(38,26,54,0.28); }
+    .apply-copy-btn {
+      font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 16px;
+      cursor: pointer; border: 1px solid var(--gold-border); background: var(--gold-light);
+      color: var(--gold-mid); font-family: 'DM Sans', sans-serif; transition: all 0.15s;
+    }
+    .apply-copy-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
     .user-actions { display: flex; gap: 8px; flex-shrink: 0; }
     .action-btn {
       font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px;
@@ -427,18 +433,24 @@ netlifyIdentity.on('init', function(user) {
       statPill(fmtMoney(totalLoan), 'Total Loan Volume', true) +
     '</div>';
 
+    var origin = location.origin;
     var rows = users.map(function(u) {
       var role = (u.roles[0] || 'user');
       var roleLabel = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
       var roleClass = role;
       var name = u.fullName || humanizeEmail(u.email);
       var lastActive = formatLastActive(u.last_seen_at);
+      var applyUrl = u.email ? (origin + '/apply.html?lo=' + encodeURIComponent(u.email)) : '';
+      var applyCell = applyUrl
+        ? '<button type="button" class="apply-copy-btn" data-url="' + escHtml(applyUrl) + '" onclick="copyApplyLink(this)" title="Copy ' + escHtml(applyUrl) + '">Copy link</button>'
+        : '<span style="color:var(--muted);font-size:11px">—</span>';
       return (
         '<tr>' +
           '<td style="padding:10px 12px"><div style="font-weight:600;color:var(--text)">' + escHtml(name) + '</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + escHtml(u.email) + '</div></td>' +
           '<td style="padding:10px 12px"><span class="role-badge ' + roleClass + '" style="font-size:10px">' + roleLabel + '</span></td>' +
           '<td style="padding:10px 12px;color:var(--muted);font-size:12px">' + lastActive + '</td>' +
+          '<td style="padding:10px 12px">' + applyCell + '</td>' +
           '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + (u.clientCount || 0) + '</td>' +
           '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + (u.quoteCount  || 0) + '</td>' +
           '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + fmtMoney(u.totalLoanAmount || 0) + '</td>' +
@@ -452,6 +464,7 @@ netlifyIdentity.on('init', function(user) {
           '<th style="padding:10px 12px;font-weight:600">User</th>' +
           '<th style="padding:10px 12px;font-weight:600">Role</th>' +
           '<th style="padding:10px 12px;font-weight:600">Last Active</th>' +
+          '<th style="padding:10px 12px;font-weight:600">Apply Link</th>' +
           '<th style="padding:10px 12px;font-weight:600;text-align:right">Clients</th>' +
           '<th style="padding:10px 12px;font-weight:600;text-align:right">Quotes</th>' +
           '<th style="padding:10px 12px;font-weight:600;text-align:right">Loan Volume</th>' +
@@ -486,6 +499,30 @@ netlifyIdentity.on('init', function(user) {
     if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
     return '$' + Number(n).toLocaleString();
   }
+
+  // Copy the LO's apply-link to clipboard. Click handler for the User Activity table.
+  window.copyApplyLink = function(btn) {
+    var url = btn.getAttribute('data-url');
+    if (!url) return;
+    function flash() {
+      var orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function(){ btn.textContent = orig; }, 1500);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(flash, function(){
+        prompt('Copy this link:', url);
+      });
+    } else {
+      // Fallback for older browsers
+      var ta = document.createElement('textarea');
+      ta.value = url; document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); flash(); }
+      catch(e) { prompt('Copy this link:', url); }
+      document.body.removeChild(ta);
+    }
+  };
 
   // Returns a human-readable "last active" string. "—" when never seen.
   function formatLastActive(iso) {

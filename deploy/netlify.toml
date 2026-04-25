@@ -54,6 +54,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/prospects-backfill-clients"
+  to = "/.netlify/functions/prospects-backfill-clients"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/quotes"
   to = "/.netlify/functions/quotes-list"
   status = 200

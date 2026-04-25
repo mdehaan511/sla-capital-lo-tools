@@ -77,36 +77,12 @@ export default async (req, context) => {
     status: 'new',
   };
 
-  // Resolve the loSlug to an actual LO email by searching the profiles store.
-  // The slug is treated as case-insensitive: a profile is a match if either
-  //   - keySafe(email-localpart-lowercased) === loSlug, OR
-  //   - keySafe(profile.user_metadata.slug-lowercased) === loSlug
-  // Profiles are populated by identity-login / identity-signup / profile-ping.
-  // If we can't resolve, we fall back to using the slug itself as the storage key
-  // so submissions are never silently dropped.
-  const profilesStore = getStore({ name: 'profiles', consistency: 'strong' });
-  let ownerKey = loSlug; // fallback
-  let resolvedEmail = '';
-  try {
-    const { blobs } = await profilesStore.list();
-    for (const { key } of blobs) {
-      const p = await profilesStore.get(key, { type: 'json' });
-      if (!p || !p.email) continue;
-      const localPart = p.email.split('@')[0].toLowerCase();
-      const localKey  = keySafe(localPart);
-      const metaSlug  = (p.user_metadata && p.user_metadata.slug) || '';
-      const metaSlugKey = metaSlug ? keySafe(String(metaSlug).toLowerCase()) : '';
-      if (localKey === loSlug || (metaSlugKey && metaSlugKey === loSlug)) {
-        ownerKey = keySafe(p.email.toLowerCase());
-        resolvedEmail = p.email;
-        break;
-      }
-    }
-  } catch (e) {
-    console.warn('prospects-save: profile lookup failed:', e);
-  }
+  // The loSlug is the LO's email address (URL-encoded). The storage key
+  // is keySafe(email-lowercased), which matches what prospects-list reads.
+  const loEmail = String(body.loSlug || '').toLowerCase().trim();
+  const ownerKey = loEmail && loEmail.includes('@') ? keySafe(loEmail) : keySafe(loSlug);
 
-  prospect.loEmail = resolvedEmail || '';
+  prospect.loEmail = loEmail.includes('@') ? loEmail : '';
 
   const store = getStore({ name: 'prospects', consistency: 'strong' });
   const key = `${ownerKey}/${keySafe(id)}`;
@@ -119,10 +95,10 @@ export default async (req, context) => {
   }
 
   // Auto-create a Client record under the LO so they see this in Clients.
-  // Only when we successfully resolved the slug to an LO email.
-  if (resolvedEmail) {
+  // Only when we have a valid LO email.
+  if (loEmail && loEmail.includes('@')) {
     try {
-      await upsertClientFromProspect(prospect, resolvedEmail);
+      await upsertClientFromProspect(prospect, loEmail);
     } catch (e) {
       console.warn('prospects-save: client upsert failed:', e);
     }
@@ -130,7 +106,7 @@ export default async (req, context) => {
 
   // Notify the LO by email — best-effort, don't fail the submission if email fails
   try {
-    await notifyLO(prospect, loSlug);
+    await notifyLO(prospect);
   } catch (e) {
     console.error('prospects-save notify error:', e);
   }
@@ -224,21 +200,19 @@ async function upsertClientFromProspect(prospect, loEmail) {
 }
 
 // ── LO notification via Resend ───────────────────────────────────────
-async function notifyLO(prospect, loSlug) {
+async function notifyLO(prospect) {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     console.warn('RESEND_API_KEY not set — skipping LO notification');
     return;
   }
 
-  // Resolve the LO's email from settings, or fall back to a global "submit" email.
-  const settings = getStore({ name: 'settings', consistency: 'strong' });
-  let toEmail = '';
-  try {
-    const routing = await settings.get(`lo_email/${loSlug}`, { type: 'json' });
-    if (routing && routing.email) toEmail = routing.email;
-  } catch (_) { /* ignore */ }
+  // Send directly to the LO whose email is on the prospect (resolved from
+  // the URL slug). Fall back to settings.submit_email or env default if
+  // for some reason loEmail isn't set.
+  let toEmail = prospect.loEmail || '';
   if (!toEmail) {
+    const settings = getStore({ name: 'settings', consistency: 'strong' });
     try {
       const fallback = await settings.get('submit_email', { type: 'json' });
       if (fallback && fallback.value) toEmail = fallback.value;
@@ -246,7 +220,7 @@ async function notifyLO(prospect, loSlug) {
   }
   if (!toEmail) toEmail = process.env.DEFAULT_SUBMIT_EMAIL || '';
   if (!toEmail) {
-    console.warn('No LO email configured for slug', loSlug);
+    console.warn('No LO email available for prospect notification');
     return;
   }
 

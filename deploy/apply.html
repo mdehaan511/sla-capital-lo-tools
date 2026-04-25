@@ -368,13 +368,14 @@ var _loDisplay = '';
 
 (function(){
   var params = new URLSearchParams(window.location.search);
-  _loSlug = params.get('lo') || '';
+  _loSlug = (params.get('lo') || '').toLowerCase().trim();
   if (_loSlug) {
-    // Convert firstname_lastname → "Firstname Lastname" for display
-    _loDisplay = _loSlug.split('_').map(function(w){
+    // Humanize the email localpart for display: "mike.dehaan@x.com" → "Mike Dehaan"
+    var local = _loSlug.indexOf('@') >= 0 ? _loSlug.split('@')[0] : _loSlug;
+    _loDisplay = local.split(/[._\-]+/).filter(Boolean).map(function(w){
       return w.charAt(0).toUpperCase() + w.slice(1);
     }).join(' ');
-    document.getElementById('loName').textContent = _loDisplay;
+    document.getElementById('loName').textContent = _loDisplay || _loSlug;
     document.getElementById('loBadge').style.display = 'inline-flex';
   }
 })();

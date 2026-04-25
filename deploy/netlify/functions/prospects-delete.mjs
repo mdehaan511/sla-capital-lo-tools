@@ -35,8 +35,15 @@ export default async (req, context) => {
 
   const slug = keySafe(String(body.slug).toLowerCase());
   if (!isAdmin(user)) {
-    const ok = slug === ownerKeyForUser(user) || slug === legacySlugForUser(user);
-    if (!ok) return json(403, { error: 'Not authorized' });
+    const okKeys = new Set();
+    okKeys.add(ownerKeyForUser(user));
+    if (user.email) okKeys.add(keySafe(user.email.split('@')[0].toLowerCase()));
+    const fullName = (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.fullName)) || '';
+    if (fullName) okKeys.add(keySafe(String(fullName).toLowerCase()));
+    if (user.user_metadata && user.user_metadata.slug) {
+      okKeys.add(keySafe(String(user.user_metadata.slug).toLowerCase()));
+    }
+    if (!okKeys.has(slug)) return json(403, { error: 'Not authorized' });
   }
 
   const store = getStore({ name: 'prospects', consistency: 'strong' });

@@ -292,6 +292,13 @@
   function isAdmin(user) { return getRoles(user).some(function (r) { return r === 'admin' || r === 'super_admin'; }); }
   function isSuperAdmin(user) { return getRoles(user).some(function (r) { return r === 'super_admin'; }); }
 
+  // The LO's apply-link slug is simply their email address.
+  // URLs are like apply.html?lo=mike@slacapital.com (URL-encoded).
+  function slugFromUser(user) {
+    if (!user || !user.email) return '';
+    return user.email.toLowerCase();
+  }
+
   // ── Public namespace ────────────────────────────────────────────
   window.SLA = {
     api: api,
@@ -305,6 +312,7 @@
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
+    slugFromUser: slugFromUser,
   };
 
   // ── Auto-init on identity ready ─────────────────────────────────

@@ -57,9 +57,15 @@ export default async (req, context) => {
       return json(200, { bySlug: byOwner });
     }
 
-    // Pull from BOTH the new email-keyed prefix AND the legacy slug prefix
-    const ownerKey  = ownerKeyForUser(user);
-    const legacyKey = legacySlugForUser(user);
+    // Primary: prospects keyed by the LO's own email.
+    // Backwards-compat: also pull from any old slug-based prefixes the
+    // user previously used (full_name, email-localpart) so historical
+    // submissions still appear in the list.
+    const ownerKey = ownerKeyForUser(user); // keySafe(user.email)
+    const slugCandidates = new Set([ownerKey]);
+    if (user.email) slugCandidates.add(keySafe(user.email.split('@')[0].toLowerCase()));
+    const fullName = (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.fullName)) || '';
+    if (fullName) slugCandidates.add(keySafe(String(fullName).toLowerCase()));
 
     const collected = {};
     async function pull(prefix) {
@@ -70,8 +76,7 @@ export default async (req, context) => {
         if (p && p.id) collected[p.id] = p;
       }));
     }
-    await pull(ownerKey);
-    if (legacyKey && legacyKey !== ownerKey) await pull(legacyKey);
+    for (const s of slugCandidates) await pull(s);
 
     const prospects = Object.values(collected);
     prospects.sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
