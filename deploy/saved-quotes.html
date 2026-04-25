@@ -621,16 +621,37 @@ function loadAdminData(forceRefresh) {
 
   if(!_user){ wrap.innerHTML='<div class="empty-state"><h3>Not logged in</h3></div>'; return; }
 
-  QuoteStore.loadAllUsers().then(function(byOwner) {
+  // Fetch user profiles (for real names/emails) AND quotes in parallel
+  Promise.all([
+    SLA.Admin.userStats().catch(function(){ return { users: [] }; }),
+    QuoteStore.loadAllUsers(),
+  ]).then(function(results) {
+    var statsResp = results[0] || { users: [] };
+    var byOwner   = results[1] || {};
+
+    // Build a lookup from storage-key (email with non-alphanum replaced by _)
+    // back to the real email + name.
+    var profileByKey = {};
+    (statsResp.users || []).forEach(function(p) {
+      var key = (p.email || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      profileByKey[key] = {
+        email: p.email,
+        fullName: p.fullName || '',
+      };
+      // Also key by raw email since some pages may normalize differently
+      profileByKey[(p.email || '').toLowerCase()] = profileByKey[key];
+    });
+
     var owners = Object.keys(byOwner);
     _adminUsers = owners
       .map(function(owner) {
+        var profile = profileByKey[owner] || profileByKey[owner.toLowerCase()] || null;
         return {
-          id:        owner, // storage key, not Identity id
-          email:     owner, // display the email-shaped storage key
+          id:        owner,
+          email:     profile ? profile.email : owner,
+          fullName:  profile ? profile.fullName : '',
           confirmed: true,
           quotes:    (byOwner[owner] || []).map(function(q) {
-            // adapt to the shape the rendering code expects
             var fd = q.formData || {};
             return {
               id:        q.id,
@@ -649,7 +670,11 @@ function loadAdminData(forceRefresh) {
         };
       })
       .filter(function(u){ return u.quotes.length > 0; })
-      .sort(function(a,b){ return a.email.localeCompare(b.email); });
+      .sort(function(a,b){
+        var an = (a.fullName || a.email).toLowerCase();
+        var bn = (b.fullName || b.email).toLowerCase();
+        return an.localeCompare(bn);
+      });
 
     document.getElementById('adminUserCount').textContent = '('+_adminUsers.length+')';
     renderAdminSections();
@@ -687,7 +712,7 @@ function renderAdminSections() {
     var approved= allQ.filter(function(q){return q.status==='approved';}).length;
     var hold    = allQ.filter(function(q){return q.status==='on_hold';}).length;
     var denied  = allQ.filter(function(q){return q.status==='denied';}).length;
-    var displayName = humanizeEmail(u.email);
+    var displayName = u.fullName || humanizeEmail(u.email);
     var initials = displayName.split(' ').map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase() || u.email.substring(0,2).toUpperCase();
     var bodyId  = 'body-'+u.id;
     var headId  = 'head-'+u.id;
@@ -977,6 +1002,7 @@ function sendSubmitEmail(){
 // ── Submitted Loans (admin view) ─────────────────────────────
 var _submittedLoaded = false;
 var _submittedLoans  = [];  // [{userEmail, userId, quote}, ...]
+var _profileMap      = {};  // storage-key → {email, fullName}
 
 function loadSubmittedLoans(forceRefresh) {
   if (!forceRefresh && _submittedLoaded) { renderSubmittedTable(); return; }
@@ -987,9 +1013,23 @@ function _deriveSubmittedLoans() {
   _submittedLoans = [];
   if (!_user) return;
 
-  // Pull everyone's quotes from the backend (admin-only endpoint)
-  QuoteStore.loadAllUsers().then(function(byOwner) {
-    Object.keys(byOwner || {}).forEach(function(owner) {
+  Promise.all([
+    SLA.Admin.userStats().catch(function(){ return { users: [] }; }),
+    QuoteStore.loadAllUsers(),
+  ]).then(function(results) {
+    var statsResp = results[0] || { users: [] };
+    var byOwner   = results[1] || {};
+
+    // Build/update the profile map (used by renderSubmittedTable)
+    _profileMap = {};
+    (statsResp.users || []).forEach(function(p) {
+      var key = (p.email || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      var entry = { email: p.email, fullName: p.fullName || '' };
+      _profileMap[key] = entry;
+      _profileMap[(p.email || '').toLowerCase()] = entry;
+    });
+
+    Object.keys(byOwner).forEach(function(owner) {
       (byOwner[owner] || []).forEach(function(q) {
         if ((q.status || 'active') === 'submitted') {
           _submittedLoans.push({
@@ -1053,13 +1093,9 @@ function renderSubmittedTable() {
     var tt     = escAttr(q.toolType);
     var addr   = escAttr(q.address||'');
 
-    // Resolve LO display name
-    var loName = humanizeEmail(item.userEmail);
-    try {
-      if (_user && _user.email === item.userEmail) {
-        loName = (_user.user_metadata && _user.user_metadata.full_name) || loName;
-      }
-    } catch(e) {}
+    // Resolve LO display name from profiles map (populated when this view loads)
+    var profile = _profileMap[item.userEmail] || _profileMap[(item.userEmail||'').toLowerCase()];
+    var loName = profile ? (profile.fullName || humanizeEmail(profile.email)) : humanizeEmail(item.userEmail);
 
     // Find matching loan in ClientBook to get loan ID for Details link
     var loanDetailsUrl = null;

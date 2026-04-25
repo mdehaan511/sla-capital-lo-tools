@@ -142,24 +142,6 @@ function showToast(msg) {
 }
 
 function clientsKey(email) { return 'sla_clients_' + (email||''); }
-function loadClients(userEmail) {
-  try { return JSON.parse(localStorage.getItem(clientsKey(userEmail)) || '[]'); } catch(e) { return []; }
-}
-function saveClients(userEmail, clients) {
-  localStorage.setItem(clientsKey(userEmail), JSON.stringify(clients));
-}
-
-function findLoan(clientId, loanId, userEmail) {
-  var clients = loadClients(userEmail);
-  for (var i = 0; i < clients.length; i++) {
-    if (clients[i].id !== clientId) continue;
-    var loans = clients[i].loans || [];
-    for (var j = 0; j < loans.length; j++) {
-      if (loans[j].id === loanId) return { client: clients[i], loan: loans[j] };
-    }
-  }
-  return null;
-}
 
 function init() {
   var params = new URLSearchParams(window.location.search);
@@ -167,50 +149,61 @@ function init() {
   _loanId   = params.get('loanId');
   if (!_clientId || !_loanId) { window.location.href = 'clients.html'; return; }
 
-  
-  // Register user in local registry when they log in
-  function registerUserLocally(user) {
-    if (!user) return;
-    try {
-      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
-      var existing = registry.find(function(u){ return u.id === user.id; });
-      var roles = [];
-      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
-      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
-      var entry = {
-        id: user.id,
-        email: user.email,
-        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
-        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
-        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
-        confirmed_at: user.confirmed_at || new Date().toISOString()
-      };
-      if (existing) {
-        Object.assign(existing, entry);
-      } else {
-        registry.push(entry);
-      }
-      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
-    } catch(e) {}
-  }
-netlifyIdentity.on('init', function(user) {
-    registerUserLocally(user);
+  netlifyIdentity.on('init', function(user) {
     if (!user) { netlifyIdentity.open(); return; }
-    _user = user;
-    _loEmail = user.email;
-    var result = findLoan(_clientId, _loanId, _loEmail);
-    if (!result) {
+    onUser(user);
+  });
+  netlifyIdentity.on('login', function(user) { onUser(user); });
+}
+
+function onUser(user) {
+  _user = user;
+  _loEmail = user.email;
+  fetchLoan().then(function(found) {
+    if (!found) {
       document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Loan not found</h3><p><a href="clients.html">← Back to Clients</a></p></div>';
       return;
     }
-    _client = result.client;
-    _loan   = result.loan;
+    _client = found.client;
+    _loan   = found.loan;
     render();
+  }).catch(function(err) {
+    document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Failed to load</h3><p>'+(err.message||'')+'</p><p><a href="clients.html">← Back to Clients</a></p></div>';
   });
-  netlifyIdentity.on('login', function(user) { registerUserLocally(user);
-    _user = user; _loEmail = user.email;
-    var result = findLoan(_clientId, _loanId, _loEmail);
-    if (result) { _client = result.client; _loan = result.loan; render(); }
+}
+
+// Find the {client, loan} in the backend. Admins may pass ?owner= to view another LO's loan.
+function fetchLoan() {
+  var params = new URLSearchParams(window.location.search);
+  var ownerParam = params.get('owner');
+  var listOpts = ownerParam ? { all: true } : {};
+  return SLA.Clients.list(listOpts).then(function(r) {
+    if (r && r.byOwner) {
+      var keys = Object.keys(r.byOwner);
+      for (var i = 0; i < keys.length; i++) {
+        var ownerClients = r.byOwner[keys[i]] || [];
+        for (var j = 0; j < ownerClients.length; j++) {
+          if (ownerClients[j].id !== _clientId) continue;
+          var loans = ownerClients[j].loans || [];
+          for (var k = 0; k < loans.length; k++) {
+            if (loans[k].id === _loanId) {
+              _loEmail = keys[i];
+              return { client: ownerClients[j], loan: loans[k] };
+            }
+          }
+        }
+      }
+      return null;
+    }
+    var list = (r && r.clients) || [];
+    for (var ci = 0; ci < list.length; ci++) {
+      if (list[ci].id !== _clientId) continue;
+      var ll = list[ci].loans || [];
+      for (var li = 0; li < ll.length; li++) {
+        if (ll[li].id === _loanId) return { client: list[ci], loan: ll[li] };
+      }
+    }
+    return null;
   });
 }
 
@@ -382,12 +375,7 @@ function render() {
 }
 
 function saveAppFields() {
-  var clients = loadClients(_loEmail);
-  var clientIdx = clients.findIndex(function(c){ return c.id === _clientId; });
-  if (clientIdx < 0) return;
-  var loanIdx = (clients[clientIdx].loans||[]).findIndex(function(l){ return l.id === _loanId; });
-  if (loanIdx < 0) return;
-
+  if (!_loan || !_client) return;
   var appFields = {
     bedrooms:    document.getElementById('af-bedrooms').value.trim(),
     bathrooms:   document.getElementById('af-bathrooms').value.trim(),
@@ -400,14 +388,26 @@ function saveAppFields() {
     updatedAt:   new Date().toISOString(),
   };
 
-  clients[clientIdx].loans[loanIdx] = Object.assign({}, clients[clientIdx].loans[loanIdx], appFields);
-  saveClients(_loEmail, clients);
-  _loan = clients[clientIdx].loans[loanIdx];
+  // Update the loan inside the client and save the whole client back
+  var loans = _client.loans || [];
+  var idx = loans.findIndex(function(l){ return l.id === _loanId; });
+  if (idx < 0) return;
+  loans[idx] = Object.assign({}, loans[idx], appFields);
+  _loan = loans[idx];
+  _client.loans = loans;
 
-  var s = document.getElementById('appStatus');
-  s.style.display = 'inline';
-  setTimeout(function(){ s.style.display = 'none'; }, 2500);
-  showToast('Changes saved');
+  var saveOpts = _client;
+  if (_loEmail && _user && _loEmail !== _user.email) {
+    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
+  }
+  SLA.Clients.save(saveOpts).then(function() {
+    var s = document.getElementById('appStatus');
+    s.style.display = 'inline';
+    setTimeout(function(){ s.style.display = 'none'; }, 2500);
+    showToast('Changes saved');
+  }).catch(function(err) {
+    showToast('Save failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 function submitLoan() {
@@ -418,73 +418,84 @@ function submitLoan() {
   }
   var notes = (document.getElementById('ld-submitNotes') || {}).value || '';
 
-  // Update ClientBook loan status to submitted
-  var clients = loadClients(_loEmail);
-  var clientIdx = clients.findIndex(function(c){ return c.id === _clientId; });
-  if (clientIdx < 0) { alert('Client not found.'); return; }
-  var loanIdx = (clients[clientIdx].loans||[]).findIndex(function(l){ return l.id === _loanId; });
-  if (loanIdx < 0) { alert('Loan not found.'); return; }
+  // Update the loan status in the client record
+  var loans = _client.loans || [];
+  var idx = loans.findIndex(function(l){ return l.id === _loanId; });
+  if (idx < 0) { alert('Loan not found.'); return; }
+  loans[idx].status    = 'submitted';
+  loans[idx].updatedAt = new Date().toISOString();
+  _loan = loans[idx];
+  _client.loans = loans;
 
-  clients[clientIdx].loans[loanIdx].status    = 'submitted';
-  clients[clientIdx].loans[loanIdx].updatedAt = new Date().toISOString();
-  saveClients(_loEmail, clients);
-  _loan = clients[clientIdx].loans[loanIdx];
-
-  // Also update in QuoteStore (Saved Quotes)
-  try {
-    if (window.QuoteStore) {
-      var toolType = _loan.toolType || 'dscr';
-      QuoteStore.updateStatus(_loEmail, toolType, _loan.address, 'submitted');
-    }
-  } catch(e) {}
-
-  // Fire Slack notification
-  var webhookUrl = localStorage.getItem('sla_slack_webhook') || '';
-  if (webhookUrl) {
-    var user = _user;
-    var loName  = user && user.user_metadata && user.user_metadata.full_name || '';
-    var loEmail = user && user.email || '';
-    var loPhone = user && user.user_metadata && user.user_metadata.phone || '';
-    var c = clients[clientIdx];
-    var l = _loan;
-    var isDscr = (l.toolType||'') !== 'rtl';
-    var loanAmt = l.loanAmt || l.purchasePrice || '';
-    var amtFmt  = loanAmt ? '$'+Number(loanAmt).toLocaleString() : '-';
-    var rate    = l.rate   ? l.rate+'%' : '-';
-    var points  = l.points || '-';
-    var dateStr = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
-    var loLine  = [loName, loPhone, loEmail].filter(Boolean).join(' | ');
-    var blocks = [
-      { type:'header', text:{ type:'plain_text', text:':house: New Loan Submitted - SLA Capital', emoji:true } },
-      { type:'section', fields:[
-        { type:'mrkdwn', text:'*Address*\n'+(l.address||'-') },
-        { type:'mrkdwn', text:'*Borrower*\n'+((c.firstName||'')+' '+(c.lastName||'')).trim() },
-        { type:'mrkdwn', text:'*Tool*\n'+(isDscr?'DSCR':'RTL / Fix & Flip') },
-        { type:'mrkdwn', text:'*Loan Amount*\n'+amtFmt },
-        { type:'mrkdwn', text:'*Rate / Points*\n'+rate+' / '+points },
-        { type:'mrkdwn', text:'*Loan Officer*\n'+(loLine||'-') }
-      ]},
-      { type:'section', fields:[
-        { type:'mrkdwn', text:'*Submitted*\n'+dateStr }
-      ]}
-    ];
-    if (notes) blocks.push({ type:'section', text:{ type:'mrkdwn', text:'*Notes*\n'+notes }});
-    blocks.push({ type:'divider' });
-    blocks.push({ type:'context', elements:[{ type:'mrkdwn', text:'View in SLA Capital -> Clients -> Loan Details' }] });
-    try {
-      fetch(webhookUrl, {
-        method:'POST', mode:'no-cors',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ blocks: blocks })
-      });
-    } catch(e) {}
+  var saveOpts = _client;
+  if (_loEmail && _user && _loEmail !== _user.email) {
+    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
   }
 
-  showToast(webhookUrl
-    ? '\u2713 Loan submitted - Slack notification sent'
-    : '\u2713 Loan submitted (configure Slack webhook in Admin)');
-  // Re-render to show locked status
-  render();
+  SLA.Clients.save(saveOpts).then(function() {
+    // Also reflect status in QuoteStore (Saved Quotes)
+    try {
+      if (window.QuoteStore) {
+        var toolType = _loan.toolType || 'dscr';
+        QuoteStore.updateStatus(_loEmail, toolType, _loan.address, 'submitted');
+      }
+    } catch(e) {}
+
+    // Fire Slack notification (webhook from Settings backend)
+    SLA.Settings.getAll().then(function(s) {
+      var webhookUrl = (s && s.slack_webhook && s.slack_webhook.value) || '';
+      if (webhookUrl) postSlackNotification(webhookUrl, notes);
+      showToast(webhookUrl
+        ? '\u2713 Loan submitted - Slack notification sent'
+        : '\u2713 Loan submitted (configure Slack webhook in Admin)');
+      render();
+    }).catch(function() {
+      showToast('\u2713 Loan submitted');
+      render();
+    });
+  }).catch(function(err) {
+    showToast('Submit failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+function postSlackNotification(webhookUrl, notes) {
+  var user = _user;
+  var loName  = user && user.user_metadata && user.user_metadata.full_name || '';
+  var loEmail = user && user.email || '';
+  var loPhone = user && user.user_metadata && user.user_metadata.phone || '';
+  var c = _client;
+  var l = _loan;
+  var isDscr = (l.toolType||'') !== 'rtl';
+  var loanAmt = l.loanAmt || l.purchasePrice || '';
+  var amtFmt  = loanAmt ? '$'+Number(loanAmt).toLocaleString() : '-';
+  var rate    = l.rate   ? l.rate+'%' : '-';
+  var points  = l.points || '-';
+  var dateStr = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  var loLine  = [loName, loPhone, loEmail].filter(Boolean).join(' | ');
+  var blocks = [
+    { type:'header', text:{ type:'plain_text', text:':house: New Loan Submitted - SLA Capital', emoji:true } },
+    { type:'section', fields:[
+      { type:'mrkdwn', text:'*Address*\n'+(l.address||'-') },
+      { type:'mrkdwn', text:'*Borrower*\n'+((c.firstName||'')+' '+(c.lastName||'')).trim() },
+      { type:'mrkdwn', text:'*Tool*\n'+(isDscr?'DSCR':'RTL / Fix & Flip') },
+      { type:'mrkdwn', text:'*Loan Amount*\n'+amtFmt },
+      { type:'mrkdwn', text:'*Rate / Points*\n'+rate+' / '+points },
+      { type:'mrkdwn', text:'*Loan Officer*\n'+(loLine||'-') }
+    ]},
+    { type:'section', fields:[
+      { type:'mrkdwn', text:'*Submitted*\n'+dateStr }
+    ]}
+  ];
+  if (notes) blocks.push({ type:'section', text:{ type:'mrkdwn', text:'*Notes*\n'+notes }});
+  blocks.push({ type:'divider' });
+  blocks.push({ type:'context', elements:[{ type:'mrkdwn', text:'View in SLA Capital -> Clients -> Loan Details' }] });
+  try {
+    fetch(webhookUrl, {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ blocks: blocks })
+    });
+  } catch(e) {}
 }
 
 init();

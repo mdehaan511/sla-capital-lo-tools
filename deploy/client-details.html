@@ -129,68 +129,59 @@ function showToast(msg) {
   setTimeout(function(){ t.classList.remove('show'); }, 2800);
 }
 
-function clientsKey(email) { return 'sla_clients_' + (email||''); }
-
-function loadClients(userEmail) {
-  try { return JSON.parse(localStorage.getItem(clientsKey(userEmail)) || '[]'); } catch(e) { return []; }
-}
-
-function saveClients(userEmail, clients) {
-  localStorage.setItem(clientsKey(userEmail), JSON.stringify(clients));
-}
-
-function getClient(clientId, userEmail) {
-  var clients = loadClients(userEmail);
-  return clients.find(function(c){ return c.id === clientId; }) || null;
-}
-
 function init() {
   var params = new URLSearchParams(window.location.search);
   _clientId = params.get('clientId');
   if (!_clientId) { window.location.href = 'clients.html'; return; }
 
-  
-  // Register user in local registry when they log in
-  function registerUserLocally(user) {
-    if (!user) return;
-    try {
-      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
-      var existing = registry.find(function(u){ return u.id === user.id; });
-      var roles = [];
-      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
-      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
-      var entry = {
-        id: user.id,
-        email: user.email,
-        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
-        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
-        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
-        confirmed_at: user.confirmed_at || new Date().toISOString()
-      };
-      if (existing) {
-        Object.assign(existing, entry);
-      } else {
-        registry.push(entry);
-      }
-      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
-    } catch(e) {}
-  }
-netlifyIdentity.on('init', function(user) {
-    registerUserLocally(user);
+  netlifyIdentity.on('init', function(user) {
     if (!user) { netlifyIdentity.open(); return; }
-    _user = user;
-    _loEmail = user.email;
-    _client = getClient(_clientId, _loEmail);
+    onUser(user);
+  });
+  netlifyIdentity.on('login', function(user) {
+    onUser(user);
+  });
+}
+
+function onUser(user) {
+  _user = user;
+  _loEmail = user.email;
+  fetchClient().then(function(c) {
+    _client = c;
     if (!_client) {
       document.getElementById('pageContent').innerHTML = '<div class="empty-state"><h3>Client not found</h3><p><a href="clients.html">← Back to Clients</a></p></div>';
       return;
     }
     render();
+  }).catch(function(err) {
+    document.getElementById('pageContent').innerHTML = '<div class="empty-state"><h3>Failed to load</h3><p>'+escH(err.message || 'unknown error')+'</p><p><a href="clients.html">← Back to Clients</a></p></div>';
   });
-  netlifyIdentity.on('login', function(user) { registerUserLocally(user);
-    _user = user; _loEmail = user.email;
-    _client = getClient(_clientId, _loEmail);
-    if (_client) render();
+}
+
+// Fetch the client by id from the backend.
+// Admins may load any owner's client by passing ?owner= in the URL.
+function fetchClient() {
+  var params = new URLSearchParams(window.location.search);
+  var ownerParam = params.get('owner');
+  var listOpts = ownerParam ? { all: true } : {};
+  return SLA.Clients.list(listOpts).then(function(r) {
+    if (r && r.byOwner) {
+      // admin "all" response shape
+      var ownerKey = (ownerParam || '').toLowerCase();
+      var keys = Object.keys(r.byOwner);
+      for (var i = 0; i < keys.length; i++) {
+        var ownerClients = r.byOwner[keys[i]] || [];
+        for (var j = 0; j < ownerClients.length; j++) {
+          if (ownerClients[j].id === _clientId) {
+            _loEmail = keys[i];
+            return ownerClients[j];
+          }
+        }
+      }
+      return null;
+    }
+    var list = (r && r.clients) || [];
+    return list.find(function(c){ return c.id === _clientId; }) || null;
   });
 }
 
@@ -298,49 +289,64 @@ function render() {
 }
 
 function saveProfile() {
-  var clients = loadClients(_loEmail);
-  var idx = clients.findIndex(function(c){ return c.id === _clientId; });
-  if (idx < 0) return;
-  clients[idx].firstName = document.getElementById('pf-firstName').value.trim();
-  clients[idx].lastName  = document.getElementById('pf-lastName').value.trim();
-  clients[idx].email     = document.getElementById('pf-email').value.trim().toLowerCase();
-  clients[idx].phone     = document.getElementById('pf-phone').value.trim();
-  clients[idx].usCitizen = document.getElementById('pf-usCitizen').value;
-  saveClients(_loEmail, clients);
-  _client = clients[idx];
-  var s = document.getElementById('profileStatus');
-  s.style.display = 'inline';
-  setTimeout(function(){ s.style.display = 'none'; }, 2500);
-  showToast('Profile saved');
-  // Update page title
-  document.querySelector('.page-title').textContent = (clients[idx].firstName+' '+clients[idx].lastName).trim();
-  document.querySelector('.page-subtitle').textContent = clients[idx].email + (clients[idx].phone ? ' · '+clients[idx].phone : '');
+  if (!_client) return;
+  _client.firstName = document.getElementById('pf-firstName').value.trim();
+  _client.lastName  = document.getElementById('pf-lastName').value.trim();
+  _client.email     = document.getElementById('pf-email').value.trim().toLowerCase();
+  _client.phone     = document.getElementById('pf-phone').value.trim();
+  _client.usCitizen = document.getElementById('pf-usCitizen').value;
+
+  var saveOpts = _client;
+  // If admin viewing another LO's client, route the save back to them
+  if (_loEmail && _user && _loEmail !== _user.email) {
+    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
+  }
+
+  SLA.Clients.save(saveOpts).then(function() {
+    var s = document.getElementById('profileStatus');
+    s.style.display = 'inline';
+    setTimeout(function(){ s.style.display = 'none'; }, 2500);
+    showToast('Profile saved');
+    document.querySelector('.page-title').textContent = (_client.firstName+' '+_client.lastName).trim();
+    document.querySelector('.page-subtitle').textContent = _client.email + (_client.phone ? ' · '+_client.phone : '');
+  }).catch(function(err) {
+    showToast('Save failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 function deleteLoan(loanId) {
   if (!confirm('Delete this loan? This cannot be undone.')) return;
-  var clients = loadClients(_loEmail);
-  var idx = clients.findIndex(function(c){ return c.id === _clientId; });
-  if (idx < 0) return;
-  // Find loan before deleting so we can remove from QuoteStore
-  var loanToDelete = (clients[idx].loans||[]).find(function(l){ return l.id === loanId; });
-  clients[idx].loans = (clients[idx].loans||[]).filter(function(l){ return l.id !== loanId; });
-  saveClients(_loEmail, clients);
-  // Also remove from QuoteStore (Saved Quotes)
-  if (loanToDelete && loanToDelete.address && window.QuoteStore) {
-    QuoteStore.deleteQuote(_loEmail, loanToDelete.toolType || 'dscr', loanToDelete.address);
-  }
-  _client = clients[idx];
-  showToast('Loan deleted');
-  render();
+  if (!_client) return;
+  var loanToDelete = (_client.loans||[]).find(function(l){ return l.id === loanId; });
+
+  var opts = { loanId: loanId };
+  if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
+
+  SLA.Clients.delete(_clientId, opts).then(function(r) {
+    if (r && r.client) _client = r.client;
+    else _client.loans = (_client.loans || []).filter(function(l){ return l.id !== loanId; });
+    if (loanToDelete && loanToDelete.address && window.QuoteStore) {
+      QuoteStore.deleteQuote(_loEmail, loanToDelete.toolType || 'dscr', loanToDelete.address);
+    }
+    showToast('Loan deleted');
+    render();
+  }).catch(function(err) {
+    showToast('Delete failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 function deleteClient() {
+  if (!_client) return;
   if (!confirm('Delete '+(_client.firstName||'this client')+' and all their loans? This cannot be undone.')) return;
-  var clients = loadClients(_loEmail);
-  clients = clients.filter(function(c){ return c.id !== _clientId; });
-  saveClients(_loEmail, clients);
-  window.location.href = 'clients.html';
+
+  var opts = {};
+  if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
+
+  SLA.Clients.delete(_clientId, opts).then(function() {
+    window.location.href = 'clients.html';
+  }).catch(function(err) {
+    showToast('Delete failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 init();

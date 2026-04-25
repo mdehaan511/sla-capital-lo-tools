@@ -68,6 +68,7 @@ export default async (req, context) => {
     propertyValue: String(body.propertyValue || ''),
     rehabCost: String(body.rehabCost || ''),
     estimatedARV: String(body.estimatedARV || ''),
+    flipsCompleted: String(body.flipsCompleted || ''),
     monthlyRent: String(body.monthlyRent || ''),
     monthlyTaxes: String(body.monthlyTaxes || ''),
     monthlyInsurance: String(body.monthlyInsurance || ''),

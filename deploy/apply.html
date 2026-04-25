@@ -124,7 +124,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           </div>
           <div class="err-msg" id="err-phone">Required</div>
         </div>
-        <div class="field span2">
+        <div class="field">
           <div class="wrap" id="wrap-usCitizen">
             <label>Are you a US Citizen? <span class="req">*</span></label>
             <select id="usCitizen" onchange="clearE('usCitizen')">
@@ -246,7 +246,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     <!-- Step 4: Financials -->
     <div class="card">
-      <div class="card-head"><div class="step">4</div>Financial Details</div>
+      <div class="card-head"><div class="step">4</div>Deal Details</div>
       <div class="card-body">
 
         <!-- Purchase Price or Loan Amount -->
@@ -319,7 +319,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         </div>
 
         <div class="divider" style="grid-column:1/-1"></div>
-        <div class="field span2">
+        <!-- Fix & Flip only: # of flips completed -->
+        <div class="cond" id="cond-fixflip-flips">
+          <div class="field">
+            <div class="wrap">
+              <label># Flips Completed in past 36 months <span class="req">*</span></label>
+              <select id="flipsCompleted" onchange="clearE('flipsCompleted')">
+                <option value="">— Select —</option>
+                <option value="8">8+ projects (Tier 1)</option>
+                <option value="5">4 – 7 projects (Tier 2)</option>
+                <option value="1">0 – 3 projects (Tier 3)</option>
+              </select>
+            </div>
+            <div class="err-msg" id="err-flipsCompleted">Required</div>
+          </div>
+        </div>
+        <div class="field span2" id="field-fundingDate">
           <div class="wrap" id="wrap-fundingDate">
             <label>Required Funding Date <span class="req">*</span></label>
             <input type="date" id="fundingDate" oninput="clearE('fundingDate')" />
@@ -376,6 +391,18 @@ function onLoanProductChange() {
   setShow('cond-dscr',      isDscr);
   setShow('cond-dscr-fin',  isDscr);
   setShow('cond-fixflip-fin', isFF);
+  setShow('cond-fixflip-flips', isFF);
+
+  // Funding date is half-width when paired with flipsCompleted (FF mode),
+  // full-width otherwise so it doesn't look orphaned
+  var fundingField = document.getElementById('field-fundingDate');
+  if (fundingField) {
+    if (isFF) {
+      fundingField.classList.remove('span2');
+    } else {
+      fundingField.classList.add('span2');
+    }
+  }
 
   // Update label text
   document.getElementById('lbl-purchasePrice').innerHTML =
@@ -436,8 +463,9 @@ function validate() {
     if (!gv('monthlyRent')) { showE('monthlyRent'); ok=false; }
   }
   if (lp === 'fix_flip') {
-    if (!gv('rehabCost'))    { showE('rehabCost');    ok=false; }
-    if (!gv('estimatedARV')) { showE('estimatedARV'); ok=false; }
+    if (!gv('rehabCost'))      { showE('rehabCost');      ok=false; }
+    if (!gv('estimatedARV'))   { showE('estimatedARV');   ok=false; }
+    if (!gv('flipsCompleted')) { showE('flipsCompleted'); ok=false; }
   }
 
   return ok;
@@ -476,6 +504,7 @@ function submitApp() {
     propertyValue:   gv('propertyValue'),
     rehabCost:       gv('rehabCost'),
     estimatedARV:    gv('estimatedARV'),
+    flipsCompleted:  gv('flipsCompleted'),
     monthlyRent:     gv('monthlyRent'),
     monthlyTaxes:    gv('monthlyTaxes'),
     monthlyInsurance:gv('monthlyInsurance'),
