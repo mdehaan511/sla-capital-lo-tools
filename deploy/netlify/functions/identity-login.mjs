@@ -28,8 +28,12 @@ export default async (req) => {
     }
   }
 
-  // Always return 200 — never block a login for our internal bookkeeping
-  return new Response('OK', { status: 200 });
+  // Always return 200 with valid JSON — Netlify parses this as the
+  // authoritative user metadata. Empty object means "no changes".
+  return new Response('{}', {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 };
 
 async function writeProfile(u) {
