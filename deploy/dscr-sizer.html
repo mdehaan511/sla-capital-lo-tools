@@ -1632,21 +1632,84 @@ netlifyIdentity.on('init', function(user) {
       }
       // Auto-load quote from URL param (coming from saved-quotes page)
       var urlParams = new URLSearchParams(window.location.search);
-      var loadAddr  = urlParams.get('loadQuote');
+      var loadAddr     = urlParams.get('loadQuote');
+      var clientIdP    = urlParams.get('clientId');
+      var loanIdP      = urlParams.get('loanId');
+      var ownerParam   = urlParams.get('owner');
       var autoDownload = urlParams.get('download') === '1';
-      if (loadAddr && window.QuoteStore) {
-        // Wait for QuoteStore's backend load before looking up
-        QuoteStore.init().then(function() {
+
+      function tryAutoDownload() {
+        if (!autoDownload) return;
+        setTimeout(function() {
+          try { downloadPDF(); } catch(e) { console.warn('Auto-download failed:', e); }
+        }, 500);
+      }
+
+      function loadFromQuote() {
+        return QuoteStore.init().then(function() {
           var q = QuoteStore.getQuote(user.email, 'dscr', decodeURIComponent(loadAddr));
           if (q && q.formData) {
             window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = q.formData.borrowerEmail || '';
             loadQuoteIntoForm(q.formData);
-            if (autoDownload) {
-              setTimeout(function() {
-                try { downloadPDF(); } catch(e) { console.warn('Auto-download failed:', e); }
-              }, 500);
+            tryAutoDownload();
+            return true;
+          }
+          return false;
+        });
+      }
+
+      function loadFromClientLoan() {
+        if (!window.SLA || !SLA.Clients) return Promise.resolve(false);
+        var listOpts = ownerParam ? { all: true } : {};
+        return SLA.Clients.list(listOpts).then(function(r) {
+          var found = null;
+          var clientRec = null;
+          var iterate = function(list) {
+            for (var i = 0; i < list.length; i++) {
+              if (list[i].id !== clientIdP) continue;
+              clientRec = list[i];
+              var ll = list[i].loans || [];
+              for (var j = 0; j < ll.length; j++) {
+                if (ll[j].id === loanIdP) { found = ll[j]; return; }
+              }
             }
+          };
+          if (r && r.byOwner) {
+            Object.keys(r.byOwner).forEach(function(k){ if (!found) iterate(r.byOwner[k] || []); });
+          } else {
+            iterate((r && r.clients) || []);
+          }
+          if (!found) return false;
+          // Build a formData object the sizer can prefill from. Loan fields
+          // are stored flat on the loan record (not under formData) when the
+          // loan was created from an application.
+          var fd = found.formData || found;
+          // Make sure address and borrower fields are present so sizer
+          // populates the borrower row at top
+          if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
+          if (!fd.borrowerName && clientRec) {
+            fd = Object.assign({}, fd, {
+              borrowerName: ((clientRec.firstName||'') + ' ' + (clientRec.lastName||'')).trim(),
+              borrowerEmail: clientRec.email || '',
+            });
+          }
+          window._originalAddress = found.address || '';
+          window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
+          loadQuoteIntoForm(fd);
+          tryAutoDownload();
+          return true;
+        }).catch(function(){ return false; });
+      }
+
+      if ((loadAddr || clientIdP) && window.QuoteStore) {
+        // Try the QuoteStore lookup first if we have an address;
+        // fall back to the client/loan lookup (handles application-sourced
+        // loans that have no quote yet).
+        var loader = loadAddr ? loadFromQuote() : Promise.resolve(false);
+        loader.then(function(loaded) {
+          if (!loaded && clientIdP && loanIdP) {
+            return loadFromClientLoan();
           }
         });
       }

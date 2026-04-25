@@ -217,9 +217,14 @@ function render() {
   var status = l.status || 'active';
   var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
 
-  // Sizer URL for "Open in Sizer"
+  // Sizer URL for "Open in Sizer" — passes clientId+loanId so the sizer
+  // can pull the loan from the client record (works even when there's no
+  // QuoteStore entry yet, e.g. for application-sourced loans).
   var sizerPage = isDscr ? 'dscr-sizer.html' : 'rtl-sizer.html';
-  var sizerUrl  = sizerPage + '?loadQuote=' + encodeURIComponent(l.address || '');
+  var sizerParams = 'clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
+  if (l.address) sizerParams += '&loadQuote=' + encodeURIComponent(l.address);
+  if (_loEmail && _user && _loEmail !== _user.email) sizerParams += '&owner=' + encodeURIComponent(_loEmail);
+  var sizerUrl  = sizerPage + '?' + sizerParams;
   var backUrl   = 'client-details.html?clientId=' + encodeURIComponent(c.id);
 
   // Financial values — support flat or nested formData
@@ -236,6 +241,7 @@ function render() {
   var points    = pointsNum.toFixed(2) + ' pts';
   var fico      = l.fico       || fd.fico       || '';
   var dscr      = l.dscr       || fd._dscr      || '';
+  var loanPurpose = l.loanPurpose || fd.loanPurpose || '';
   var rent      = l.rent       || fd.rent       || '';
   var taxes     = l.taxes      || fd.taxes      || '';
   var insurance = l.insurance  || fd.insurance  || '';
@@ -275,16 +281,23 @@ function render() {
     '<div class="section-body">';
 
   if (isDscr) {
+    // Format loan purpose for display (e.g., "purchase" -> "Purchase")
+    var purposeLabel = loanPurpose
+      ? loanPurpose.charAt(0).toUpperCase() + loanPurpose.slice(1).replace(/_/g,' ')
+      : '';
     html += '<div class="fin-grid">' +
       '<div class="fin-cell"><div class="fin-label">Note Rate</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Amount</div><div class="fin-val">'+fmtM(loanAmt)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(loanType||'<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(fico||'<span class="empty">—</span>')+'</div></div>' +
-      (dscr ? '<div class="fin-cell"><div class="fin-label">DSCR</div><div class="fin-val green">'+dscr+'x</div></div>' : '') +
-      (rent ? '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+fmtM(rent)+'</div></div>' : '') +
-      (taxes||insurance||hoa ? '<div class="fin-cell span2"><div class="fin-label">Monthly Expenses</div><div class="fin-val" style="font-size:13px">Taxes '+fmtM(taxes)+' · Insurance '+fmtM(insurance)+' · HOA '+fmtM(hoa)+'</div></div>' : '') +
+      '<div class="fin-cell"><div class="fin-label">DSCR</div><div class="fin-val'+(dscr?' green':'')+'">'+(dscr ? dscr+'x' : '<span class="empty">Not yet quoted</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly Insurance</div><div class="fin-val">'+(insurance ? fmtM(insurance) : '<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly HOA</div><div class="fin-val">'+(hoa ? fmtM(hoa) : '<span class="empty">—</span>')+'</div></div>' +
       (isIO==='yes' ? '<div class="fin-cell"><div class="fin-label">Interest Only</div><div class="fin-val">Yes</div></div>' : '') +
       (prepay ? '<div class="fin-cell"><div class="fin-label">Prepay Penalty</div><div class="fin-val">'+(prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay)+'</div></div>' : '') +
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
