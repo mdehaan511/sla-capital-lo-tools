@@ -221,11 +221,11 @@ function render() {
         '<div class="field"><label>Last Name</label><input type="text" id="pf-lastName" value="'+escAttr(c.lastName||'')+'" /></div>' +
         '<div class="field"><label>Email</label><input type="email" id="pf-email" value="'+escAttr(c.email||'')+'" /></div>' +
         '<div class="field"><label>Phone</label><input type="tel" id="pf-phone" value="'+escAttr(c.phone||'')+'" placeholder="(509) 555-0100" /></div>' +
-        '<div class="field"><label>US Citizen / Permanent Resident</label>' +
+        '<div class="field"><label>Are you a US Citizen?</label>' +
           '<select id="pf-usCitizen">' +
-            '<option value="">Select…</option>' +
+            '<option value="">— Select —</option>' +
             '<option value="yes"'+(c.usCitizen==='yes'?' selected':'')+'>Yes</option>' +
-            '<option value="no"'+(c.usCitizen==='no'?' selected':'')+'>No — Foreign National</option>' +
+            '<option value="no"'+(c.usCitizen==='no'?' selected':'')+'>No — Permanent Resident / Other</option>' +
           '</select>' +
         '</div>' +
       '</div>' +

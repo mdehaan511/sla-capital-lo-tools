@@ -67,15 +67,19 @@
 
     .header {
       display: flex; align-items: center; justify-content: space-between;
-      padding-bottom: 2rem;
-      border-bottom: 1px solid var(--gold-border);
-      margin-bottom: 2.5rem;
+      padding-bottom: 0.75rem;
     }
     .header-left { display: flex; align-items: center; gap: 16px; }
     .header img { height: 52px; width: auto; }
-    .divider-accent { width: 3px; height: 38px; background: var(--gold); border-radius: 2px; flex-shrink: 0; }
-    .header-text p:first-child { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
-    .header-text p:last-child { font-size: 12px; color: var(--muted); }
+    .header-tagline {
+      font-family: 'Lora', serif;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--gold-border);
+      margin-bottom: 2.5rem;
+    }
 
     .header-right { display: flex; align-items: center; gap: 10px; }
     .user-pill {
@@ -171,21 +175,16 @@
       <div class="header">
         <div class="header-left">
           <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
-          <div class="divider-accent"></div>
-          <div class="header-text">
-            <p>Internal tools</p>
-            <p>Team resources &middot; not for external distribution</p>
-          </div>
         </div>
         <div class="header-right">
-          <span class="user-pill" id="userEmail"></span>
           <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
           <a class="nav-tool-link" href="prospects.html">Prospects</a>
           <a class="nav-tool-link" href="clients.html">Clients</a>
-                    <a class="nav-tool-link" href="admin.html" id="adminLink" style="display:none">Admin</a>
+          <a class="nav-tool-link" href="admin.html" id="adminLink" style="display:none">Admin</a>
           <button class="logout-btn" id="logoutBtn">Sign out</button>
         </div>
       </div>
+      <div class="header-tagline">Internal tools &middot; Team resources &middot; not for external distribution</div>
 
       <div class="tools-grid">
 
@@ -236,7 +235,6 @@
   <script>
     var loginScreen = document.getElementById('login-screen');
     var appScreen   = document.getElementById('app-screen');
-    var userEmail   = document.getElementById('userEmail');
     var adminLink   = document.getElementById('adminLink');
 
     // ── Role check: show Admin link only for admin users ──────
@@ -259,10 +257,8 @@
     }
 
     function showApp(user) {
-      registerUserLocally(user);
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
-      if (user && user.email) userEmail.textContent = user.email;
       if (isAdmin(user)) adminLink.style.display = 'inline-block';
       // Show notification banner if active (from backend Settings)
       SLA.Settings.getBanner().then(function(banner) {
@@ -284,27 +280,6 @@
 
     // ── Netlify Identity events ───────────────────────────────
     
-    // Register user in local registry when they log in
-    function registerUserLocally(user) {
-      if (!user) return;
-      try {
-        var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
-        var existing = registry.find(function(u){ return u.id === user.id; });
-        var roles = [];
-        if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
-        else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
-        var entry = {
-          id: user.id,
-          email: user.email,
-          full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
-          phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
-          roles: roles.length ? roles : (existing && existing.roles) || ['user'],
-          confirmed_at: user.confirmed_at || new Date().toISOString()
-        };
-        if (existing) { Object.assign(existing, entry); } else { registry.push(entry); }
-        localStorage.setItem('sla_user_registry', JSON.stringify(registry));
-      } catch(e) {}
-    }
 netlifyIdentity.on('init', function(user) {
       if (user) { showApp(user); } else { showLogin(); }
     });

@@ -150,6 +150,7 @@ async function notifyLO(prospect, loSlug) {
     `Value:    ${fmtMoney(prospect.propertyValue)}`,
     `Rehab:    ${fmtMoney(prospect.rehabCost)}`,
     `ARV:      ${fmtMoney(prospect.estimatedARV)}`,
+    `Flips Completed (36mo): ${fmtText(prospect.flipsCompleted)}`,
     `Rent:     ${fmtMoney(prospect.monthlyRent)}`,
     `Funding:  ${fmtText(prospect.fundingDate)}`,
   ].join('\n');
@@ -175,6 +176,7 @@ async function notifyLO(prospect, loSlug) {
     row('Property Value', fmtMoney(prospect.propertyValue)) +
     row('Rehab Cost', fmtMoney(prospect.rehabCost)) +
     row('ARV', fmtMoney(prospect.estimatedARV)) +
+    row('Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
     row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
     row('Funding Date', esc(prospect.fundingDate)) +
     '</table>' +
