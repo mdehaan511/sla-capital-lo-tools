@@ -939,6 +939,11 @@ function prefillRTLFromProspect(p) {
   var _bnElR = document.getElementById('borrowerName');
   if (_bnElR && p.firstName) _bnElR.value = (p.firstName+' '+(p.lastName||'')).trim();
   window._currentProspect = p;
+  // Force calculation since the form is now ready to price
+  try {
+    _resultsShown = true;
+    if (typeof calculate === 'function') calculate();
+  } catch(e) { /* ignore */ }
   showToast('Form pre-filled from prospect application');
 }
 

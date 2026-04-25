@@ -102,7 +102,9 @@
     <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a></div>
   <div class="nav-right">
     <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+    <a class="nav-tool-link" href="prospects.html">Prospects</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
     <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
 </nav>
@@ -144,6 +146,11 @@ function init() {
 function onUser(user) {
   _user = user;
   _loEmail = user.email;
+  // Show Admin nav link if user is admin/super_admin
+  var navAdmin = document.getElementById('navAdminLink');
+  if (navAdmin && window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
+    navAdmin.style.display = 'inline-block';
+  }
   fetchClient().then(function(c) {
     _client = c;
     if (!_client) {

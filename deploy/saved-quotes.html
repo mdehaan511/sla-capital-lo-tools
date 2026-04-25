@@ -235,7 +235,7 @@
   <!-- ── MY QUOTES ─────────────────────────────────────── -->
   <div id="myView">
     <div class="summary-bar" id="summaryBar"></div>
-    <div id="commissionBar" style="margin-bottom:1rem;display:none"><div style="background:var(--gold-light);border:1px solid var(--gold-border);border-radius:var(--r-xs);padding:10px 18px;display:inline-flex;align-items:center;gap:10px"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="var(--gold)" stroke-width="1.4"/><path d="M7 4v6M5 8l2 2 2-2M5 6l2-2 2 2" stroke="var(--gold)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font-size:13px;font-weight:600;color:var(--gold-mid)">Pending Commission: <span id="commissionTotal" style="font-family:'DM Mono',monospace">$0</span></span><span style="font-size:11px;color:var(--muted)">(50 bps on active quotes)</span></div></div>
+    <div id="commissionBar" style="margin-bottom:1rem;display:none"><div style="background:var(--gold-light);border:1px solid var(--gold-border);border-radius:var(--r-xs);padding:10px 18px;display:inline-flex;align-items:center;gap:10px"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="var(--gold)" stroke-width="1.4"/><path d="M7 4v6M5 8l2 2 2-2M5 6l2-2 2 2" stroke="var(--gold)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font-size:13px;font-weight:600;color:var(--gold-mid)">Pending Commission: <span id="commissionTotal" style="font-family:'DM Mono',monospace">$0</span></span><span style="font-size:11px;color:var(--muted)">(50 bps on active + submitted)</span></div></div>
     <div class="toolbar">
       <div class="search-wrap">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -432,9 +432,12 @@ function updateSummary() {
     pill(approved+' approved','color:var(--approved)') +
     pill(hold+' on hold','color:var(--hold)') +
     pill(denied+' denied','color:var(--denied)');
-  // Commission total — active quotes only
-  var activeQuotes=_myQuotes.filter(function(q){return (q.status||'active')==='active';});
-  var totalComm=activeQuotes.reduce(function(s,q){return s+calcCommissionNum(q);},0);
+  // Commission total — active + submitted quotes (work-in-progress pipeline)
+  var pendingQuotes = _myQuotes.filter(function(q){
+    var s = q.status || 'active';
+    return s === 'active' || s === 'submitted';
+  });
+  var totalComm = pendingQuotes.reduce(function(s,q){return s+calcCommissionNum(q);},0);
   var commBar=document.getElementById('commissionBar');
   var commEl=document.getElementById('commissionTotal');
   if(commEl) commEl.textContent='$'+Math.round(totalComm).toLocaleString();

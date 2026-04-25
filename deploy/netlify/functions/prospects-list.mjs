@@ -78,7 +78,26 @@ export default async (req, context) => {
     }
     for (const s of slugCandidates) await pull(s);
 
-    const prospects = Object.values(collected);
+    let prospects = Object.values(collected);
+
+    // Hide prospects that have already been worked. Definition of "worked":
+    // there's a saved quote with the same address (case-insensitive,
+    // whitespace-collapsed) under this LO's quotes prefix.
+    try {
+      const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+      const { blobs: qBlobs } = await quotesStore.list({ prefix: ownerKey + '/' });
+      const workedAddrs = new Set();
+      await Promise.all(qBlobs.map(async ({ key }) => {
+        const q = await quotesStore.get(key, { type: 'json' });
+        if (q && q.address) workedAddrs.add(normAddr(q.address));
+      }));
+      if (workedAddrs.size) {
+        prospects = prospects.filter((p) => !workedAddrs.has(normAddr(p.propAddress || '')));
+      }
+    } catch (e) {
+      console.warn('prospects-list quote dedupe failed:', e);
+    }
+
     prospects.sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
     return json(200, { prospects, slug: ownerKey });
   } catch (e) {
@@ -86,3 +105,7 @@ export default async (req, context) => {
     return json(500, { error: 'Failed to load prospects' });
   }
 };
+
+function normAddr(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}

@@ -1449,11 +1449,10 @@ function prefillFromProspect(p) {
   // Pre-fill borrower email from prospect
   var emailEl = document.getElementById('borrowerEmail');
   if (emailEl && p.email) emailEl.value = p.email;
-  // Pre-fill borrower email from prospect data
-  var _beEl = document.getElementById('borrowerEmail');
-  if (_beEl && p.email) _beEl.value = p.email;
   // Store prospect reference for client promotion on save
   window._currentProspect = p;
+  // Recalculate and re-render now that all fields are populated
+  try { run(); } catch(e) { /* ignore */ }
   showToast('Form pre-filled from prospect application');
 }
 
