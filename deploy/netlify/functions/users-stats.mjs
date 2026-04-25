@@ -26,15 +26,33 @@ export default async (req, context) => {
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isAdmin(user)) return json(403, { error: 'Admin required' });
 
-  // 1) Fetch user roster from Identity Admin API (if available)
-  const identity = context && context.clientContext && context.clientContext.identity;
+  // 1) Fetch user roster from Identity Admin API.
+  //
+  // Strategy 1 (preferred): use context.clientContext.identity if present —
+  //   that's a per-request scoped token Netlify provides for free.
+  //   In modern .mjs functions, this is often NOT populated.
+  //
+  // Strategy 2 (fallback): use a long-lived NETLIFY_AUTH_TOKEN env var
+  //   (a Personal Access Token from User Settings → Applications) plus
+  //   the auto-injected SITE_ID env var to build the Identity URL.
+  let identityUrl = '';
+  let identityToken = '';
+  const cc = context && context.clientContext;
+  if (cc && cc.identity && cc.identity.url && cc.identity.token) {
+    identityUrl = cc.identity.url;
+    identityToken = cc.identity.token;
+  } else if (process.env.NETLIFY_AUTH_TOKEN && process.env.SITE_ID) {
+    identityUrl = `https://api.netlify.com/api/v1/sites/${process.env.SITE_ID}/identity`;
+    identityToken = process.env.NETLIFY_AUTH_TOKEN;
+  }
+
   let identityUsers = [];
-  if (identity && identity.url && identity.token) {
+  if (identityUrl && identityToken) {
     try {
       let page = 1;
       for (;;) {
-        const url = `${identity.url}/admin/users?per_page=50&page=${page}`;
-        const resp = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` } });
+        const url = `${identityUrl}/admin/users?per_page=50&page=${page}`;
+        const resp = await fetch(url, { headers: { Authorization: `Bearer ${identityToken}` } });
         if (!resp.ok) {
           console.warn(`users-stats identity API ${resp.status}`);
           break;
@@ -50,7 +68,7 @@ export default async (req, context) => {
       console.warn('users-stats identity error:', e);
     }
   } else {
-    console.warn('users-stats: identity context unavailable — roster will be reconstructed from storage only');
+    console.warn('users-stats: no Identity admin token available — set NETLIFY_AUTH_TOKEN env var');
   }
 
   // 2) Walk the clients store and count per-owner-key
