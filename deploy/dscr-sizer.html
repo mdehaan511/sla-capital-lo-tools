@@ -1633,6 +1633,7 @@ netlifyIdentity.on('init', function(user) {
       // Auto-load quote from URL param (coming from saved-quotes page)
       var urlParams = new URLSearchParams(window.location.search);
       var loadAddr  = urlParams.get('loadQuote');
+      var autoDownload = urlParams.get('download') === '1';
       if (loadAddr && window.QuoteStore) {
         // Wait for QuoteStore's backend load before looking up
         QuoteStore.init().then(function() {
@@ -1641,6 +1642,11 @@ netlifyIdentity.on('init', function(user) {
             window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = q.formData.borrowerEmail || '';
             loadQuoteIntoForm(q.formData);
+            if (autoDownload) {
+              setTimeout(function() {
+                try { downloadPDF(); } catch(e) { console.warn('Auto-download failed:', e); }
+              }, 500);
+            }
           }
         });
       }

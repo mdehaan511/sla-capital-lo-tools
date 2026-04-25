@@ -1080,6 +1080,7 @@ netlifyIdentity.on('init', function(user) {
     }
     var urlParams = new URLSearchParams(window.location.search);
     var loadAddr  = urlParams.get('loadQuote');
+    var autoDownload = urlParams.get('download') === '1';
     if (loadAddr && window.QuoteStore) {
       QuoteStore.init().then(function() {
         var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr));
@@ -1087,6 +1088,11 @@ netlifyIdentity.on('init', function(user) {
           window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
           window._originalBorrowerEmail = q.formData.borrowerEmail || '';
           loadRTLQuote(q.formData);
+          if (autoDownload) {
+            setTimeout(function() {
+              try { downloadRTLPDF(); } catch(e) { console.warn('Auto-download failed:', e); }
+            }, 500);
+          }
         }
       });
     }

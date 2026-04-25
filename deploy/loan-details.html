@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="sla-api.js"></script>
   <script src="quotes.js"></script>
   <style>
@@ -309,10 +308,10 @@ function render() {
     'Open in '+(isDscr?'DSCR':'RTL')+' Sizer to Modify Financials' +
   '</a>';
 
-  html += '<button type="button" class="open-sizer-btn term-sheet-btn" onclick="downloadTermSheet()">' +
+  html += '<a href="'+escAttr(sizerUrl + '&download=1')+'" class="open-sizer-btn term-sheet-btn">' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2v8M3.5 7l4 4 4-4M2 13h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
     'Download Term Sheet' +
-  '</button>';
+  '</a>';
 
   html += '</div></div>'; // close section-body, section
 
@@ -506,170 +505,6 @@ function postSlackNotification(webhookUrl, notes) {
 
 init();
 
-// ── Term Sheet PDF ───────────────────────────────────────────
-function downloadTermSheet() {
-  if (!_loan || !_client) return;
-  if (!window.jspdf || !window.jspdf.jsPDF) {
-    showToast('PDF library not loaded — refresh the page and try again.');
-    return;
-  }
-  var doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'letter' });
-  var l = _loan;
-  var c = _client;
-  var isDscr = (l.toolType || '') !== 'rtl';
-  var W = 612, M = 54, RIGHT = W - M;
-  var y = 0;
-
-  // ── Header strip ───────────────────────
-  doc.setFillColor(38, 26, 54); // SLA dark purple
-  doc.rect(0, 0, W, 80, 'F');
-  doc.setTextColor(200, 129, 58); // gold
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text('SLA CAPITAL', M, 36);
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.text('LOAN TERM SHEET — INDICATIVE', M, 54);
-  doc.setFontSize(8);
-  doc.setTextColor(180, 170, 150);
-  doc.text('Generated ' + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), RIGHT, 54, { align: 'right' });
-
-  y = 110;
-
-  // ── Borrower / property summary ───────
-  doc.setTextColor(26, 21, 32);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  var borrowerName = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Borrower';
-  doc.text(borrowerName, M, y);
-  y += 16;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(102, 102, 102);
-  if (l.address) { doc.text(l.address, M, y); y += 13; }
-  if (c.email)   { doc.text(c.email + (c.phone ? '  ·  ' + c.phone : ''), M, y); y += 13; }
-  y += 10;
-
-  // ── Section: Loan Terms ───────────────
-  y = drawSection(doc, M, RIGHT, y, 'Indicative Loan Terms');
-  var loanTerms = [];
-  var loanAmt = parseMoney(l.loanAmt || l.purchasePrice);
-  if (loanAmt) loanTerms.push(['Loan Amount', '$' + loanAmt.toLocaleString()]);
-  if (l.loanType) loanTerms.push(['Loan Type', String(l.loanType)]);
-  if (l.rate)   loanTerms.push(['Indicative Rate', l.rate + '%']);
-  if (l.points || l.buydown) loanTerms.push(['Origination Points', String(l.points || l.buydown)]);
-  if (l.loanTerm) loanTerms.push(['Term', l.loanTerm + ' months']);
-  if (l.isIO)   loanTerms.push(['Interest-Only', l.isIO === 'yes' ? 'Yes' : 'No']);
-  if (l.prepay) loanTerms.push(['Prepay', String(l.prepay)]);
-  y = drawTable(doc, M, RIGHT, y, loanTerms);
-
-  // ── Section: Property ─────────────────
-  y = drawSection(doc, M, RIGHT, y + 10, 'Property');
-  var propRows = [];
-  if (l.propValue || l.arv) {
-    var pv = parseMoney(l.propValue || l.arv);
-    propRows.push([isDscr ? 'Property Value' : 'After-Repair Value', '$' + pv.toLocaleString()]);
-  }
-  if (!isDscr) {
-    var pp = parseMoney(l.purchasePrice);
-    var rb = parseMoney(l.rehabBudget);
-    if (pp) propRows.push(['Purchase Price', '$' + pp.toLocaleString()]);
-    if (rb) propRows.push(['Rehab Budget', '$' + rb.toLocaleString()]);
-  }
-  if (l.bedrooms || l.bathrooms) propRows.push(['Beds / Baths', (l.bedrooms || '—') + ' / ' + (l.bathrooms || '—')]);
-  if (l.sqft) propRows.push(['Square Footage', String(l.sqft)]);
-  if (l.propType) propRows.push(['Property Type', String(l.propType)]);
-  y = drawTable(doc, M, RIGHT, y, propRows);
-
-  // ── Section: DSCR ─────────────────────
-  if (isDscr) {
-    var dscrRows = [];
-    var rent = parseMoney(l.rent);
-    var taxes = parseMoney(l.taxes);
-    var ins = parseMoney(l.insurance);
-    var hoa = parseMoney(l.hoa);
-    if (rent)  dscrRows.push(['Monthly Rent', '$' + rent.toLocaleString()]);
-    if (taxes) dscrRows.push(['Monthly Taxes', '$' + taxes.toLocaleString()]);
-    if (ins)   dscrRows.push(['Monthly Insurance', '$' + ins.toLocaleString()]);
-    if (hoa)   dscrRows.push(['Monthly HOA', '$' + hoa.toLocaleString()]);
-    if (l.dscr) dscrRows.push(['DSCR', String(l.dscr)]);
-    if (dscrRows.length) {
-      y = drawSection(doc, M, RIGHT, y + 10, 'Rental Income & Expenses');
-      y = drawTable(doc, M, RIGHT, y, dscrRows);
-    }
-  }
-
-  // ── Section: Borrower ─────────────────
-  var bRows = [];
-  if (l.fico) bRows.push(['FICO', String(l.fico)]);
-  if (l.usCitizen) bRows.push(['US Citizen', l.usCitizen === 'yes' ? 'Yes' : 'No']);
-  if (l.experience) bRows.push(['Investor Experience', String(l.experience)]);
-  if (l.fundingDate) bRows.push(['Required Funding Date', String(l.fundingDate)]);
-  if (bRows.length) {
-    y = drawSection(doc, M, RIGHT, y + 10, 'Borrower & Timing');
-    y = drawTable(doc, M, RIGHT, y, bRows);
-  }
-
-  // ── Disclosure footer ─────────────────
-  var footerY = 760;
-  doc.setDrawColor(220, 215, 205);
-  doc.line(M, footerY, RIGHT, footerY);
-  doc.setFontSize(7.5);
-  doc.setTextColor(120, 115, 105);
-  doc.setFont('helvetica', 'normal');
-  var disclosure = 'This term sheet is indicative only and does not constitute a loan commitment. Final terms ' +
-    'are subject to underwriting review, appraisal, title, insurance, and lender approval. Rates and points ' +
-    'shown reflect quoted pricing and may change. Issued by SLA Capital.';
-  var lines = doc.splitTextToSize(disclosure, RIGHT - M);
-  doc.text(lines, M, footerY + 14);
-
-  // ── Save ──────────────────────────────
-  var safeAddr = (l.address || borrowerName).replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40);
-  doc.save('SLA_Term_Sheet_' + safeAddr + '.pdf');
-}
-
-function drawSection(doc, x, right, y, title) {
-  doc.setFillColor(245, 240, 230);
-  doc.rect(x, y, right - x, 22, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(200, 129, 58);
-  doc.text(title.toUpperCase(), x + 10, y + 15);
-  return y + 28;
-}
-
-function drawTable(doc, x, right, y, rows) {
-  if (!rows.length) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(150, 145, 135);
-    doc.text('No data', x + 10, y + 10);
-    return y + 20;
-  }
-  doc.setDrawColor(230, 226, 218);
-  rows.forEach(function(row, i) {
-    var rowY = y + i * 18;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(120, 115, 105);
-    doc.text(row[0], x + 10, rowY + 12);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(26, 21, 32);
-    doc.text(String(row[1] || '—'), right - 10, rowY + 12, { align: 'right' });
-    if (i < rows.length - 1) {
-      doc.line(x, rowY + 18, right, rowY + 18);
-    }
-  });
-  return y + rows.length * 18 + 4;
-}
-
-function parseMoney(v) {
-  if (v === null || v === undefined || v === '') return 0;
-  if (typeof v === 'number') return v;
-  var n = parseFloat(String(v).replace(/[$,\s]/g, ''));
-  return isFinite(n) ? n : 0;
-}
 </script>
 </body>
 </html>
