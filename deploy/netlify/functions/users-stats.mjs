@@ -29,20 +29,21 @@ export default async (req, context) => {
   // 1) Fetch user roster from Identity Admin API.
   //
   // Strategy 1 (preferred): use context.clientContext.identity if present —
-  //   that's a per-request scoped token Netlify provides for free.
+  //   that's a per-request scoped admin token Netlify provides for free.
   //   In modern .mjs functions, this is often NOT populated.
   //
-  // Strategy 2 (fallback): use a long-lived NETLIFY_AUTH_TOKEN env var
-  //   (a Personal Access Token from User Settings → Applications) plus
-  //   the auto-injected SITE_ID env var to build the Identity URL.
+  // Strategy 2 (fallback): use a Personal Access Token (NETLIFY_AUTH_TOKEN env)
+  //   and the site URL (auto-injected as URL env var) to hit the GoTrue
+  //   admin endpoint at https://yoursite.netlify.app/.netlify/identity/admin/users
   let identityUrl = '';
   let identityToken = '';
   const cc = context && context.clientContext;
   if (cc && cc.identity && cc.identity.url && cc.identity.token) {
     identityUrl = cc.identity.url;
     identityToken = cc.identity.token;
-  } else if (process.env.NETLIFY_AUTH_TOKEN && process.env.SITE_ID) {
-    identityUrl = `https://api.netlify.com/api/v1/sites/${process.env.SITE_ID}/identity`;
+  } else if (process.env.NETLIFY_AUTH_TOKEN && process.env.URL) {
+    // Build from the site URL Netlify auto-sets in functions
+    identityUrl = process.env.URL.replace(/\/$/, '') + '/.netlify/identity';
     identityToken = process.env.NETLIFY_AUTH_TOKEN;
   }
 
