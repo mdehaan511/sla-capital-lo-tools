@@ -267,6 +267,17 @@
     userStats: function () { return api('GET', '/api/users-stats'); },
   };
 
+  // ── Profile (silent) ────────────────────────────────────────────
+  // Each logged-in user pings this endpoint on page load to refresh their
+  // profile (name, roles) in the backend. Lets admin views show real names
+  // without depending on Netlify's Identity admin API.
+  var Profile = {
+    ping: function () {
+      return api('POST', '/api/profile-ping', {})
+        .catch(function () { /* silent — non-critical */ });
+    },
+  };
+
   // ── Shared role helpers (mirror of function-side logic) ─────────
   function getRoles(user) {
     if (!user) return [];
@@ -290,21 +301,25 @@
     Quotes: Quotes,
     Settings: Settings,
     Admin: Admin,
+    Profile: Profile,
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
   };
 
-  // ── Auto-init QuoteStore when identity is ready ─────────────────
-  // If the page also loads quotes.js, we pre-fetch the user's quotes as
-  // soon as login is confirmed, so synchronous reads have fresh data.
+  // ── Auto-init on identity ready ─────────────────────────────────
   function maybeInitQuoteStore() {
     if (typeof window.QuoteStore !== 'undefined' && typeof window.QuoteStore.init === 'function') {
       try { window.QuoteStore.init(); } catch (e) { /* swallow */ }
     }
   }
+  function onUserReady() {
+    maybeInitQuoteStore();
+    // Best-effort: refresh user's profile in backend so admin views see names
+    Profile.ping();
+  }
   if (window.netlifyIdentity) {
-    window.netlifyIdentity.on('init', function (user) { if (user) maybeInitQuoteStore(); });
-    window.netlifyIdentity.on('login', function () { maybeInitQuoteStore(); });
+    window.netlifyIdentity.on('init', function (user) { if (user) onUserReady(); });
+    window.netlifyIdentity.on('login', function () { onUserReady(); });
   }
 })();

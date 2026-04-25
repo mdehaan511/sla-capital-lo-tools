@@ -78,6 +78,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/profile-ping"
+  to = "/.netlify/functions/profile-ping"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/debug-context"
   to = "/.netlify/functions/debug-context"
   status = 200

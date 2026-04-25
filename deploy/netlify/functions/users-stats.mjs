@@ -1,17 +1,19 @@
 /**
  * users-stats.mjs — GET /api/users-stats
  *
- * Admin-only. Returns an array of users, each annotated with:
- *   - clientCount: number of client records owned by this user
- *   - quoteCount:  number of saved quotes owned by this user
- *   - totalLoanAmount: sum of loanAmt from the user's quotes (best-effort)
+ * Admin-only. Returns a per-user roster annotated with:
+ *   - clientCount: number of client records owned by the user
+ *   - quoteCount:  number of saved quotes owned by the user
+ *   - totalLoanAmount: sum of loanAmt from the user's quotes
  *
- * Sources:
- *   - User roster from Netlify Identity admin API (via context.identity)
- *   - Client and quote counts from the Blobs stores (by key prefix)
+ * Sources (no Identity admin API needed):
+ *   - User roster: the `profiles` Blobs store, populated by
+ *     identity-login / identity-signup event handlers and by
+ *     profile-ping (called from the frontend on page load).
+ *   - Counts: walk the `clients` and `quotes` Blobs stores by prefix.
  *
- * Storage keys use the user's *email* as the prefix (see clients-save /
- * quotes-save). We match to Identity users by normalized email.
+ * Users who haven't logged in since profile-tracking was added will
+ * appear as "orphan" entries (we know they have data, but no profile).
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -26,75 +28,39 @@ export default async (req, context) => {
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isAdmin(user)) return json(403, { error: 'Admin required' });
 
-  // 1) Fetch user roster from Identity Admin API.
-  //
-  // Strategy 1 (preferred): use context.clientContext.identity if present —
-  //   that's a per-request scoped admin token Netlify provides for free.
-  //   In modern .mjs functions, this is often NOT populated.
-  //
-  // Strategy 2 (fallback): use a Personal Access Token (NETLIFY_AUTH_TOKEN env)
-  //   and the site URL (auto-injected as URL env var) to hit the GoTrue
-  //   admin endpoint at https://yoursite.netlify.app/.netlify/identity/admin/users
-  let identityUrl = '';
-  let identityToken = '';
-  const cc = context && context.clientContext;
-  if (cc && cc.identity && cc.identity.url && cc.identity.token) {
-    identityUrl = cc.identity.url;
-    identityToken = cc.identity.token;
-  } else if (process.env.NETLIFY_AUTH_TOKEN && process.env.URL) {
-    // Build from the site URL Netlify auto-sets in functions
-    identityUrl = process.env.URL.replace(/\/$/, '') + '/.netlify/identity';
-    identityToken = process.env.NETLIFY_AUTH_TOKEN;
+  // 1) Load all profiles from the `profiles` blobs store
+  const profilesStore = getStore({ name: 'profiles', consistency: 'strong' });
+  const profiles = [];
+  try {
+    const { blobs } = await profilesStore.list();
+    await Promise.all(blobs.map(async ({ key }) => {
+      const p = await profilesStore.get(key, { type: 'json' });
+      if (p) profiles.push(p);
+    }));
+  } catch (e) {
+    console.warn('users-stats profiles list failed:', e);
   }
 
-  let identityUsers = [];
-  if (identityUrl && identityToken) {
-    try {
-      let page = 1;
-      for (;;) {
-        const url = `${identityUrl}/admin/users?per_page=50&page=${page}`;
-        const resp = await fetch(url, { headers: { Authorization: `Bearer ${identityToken}` } });
-        if (!resp.ok) {
-          console.warn(`users-stats identity API ${resp.status}`);
-          break;
-        }
-        const data = await resp.json();
-        const users = Array.isArray(data.users) ? data.users : [];
-        identityUsers.push(...users);
-        if (users.length < 50) break;
-        page += 1;
-        if (page > 20) break;
-      }
-    } catch (e) {
-      console.warn('users-stats identity error:', e);
-    }
-  } else {
-    console.warn('users-stats: no Identity admin token available — set NETLIFY_AUTH_TOKEN env var');
-  }
-
-  // 2) Walk the clients store and count per-owner-key
+  // 2) Walk clients store for counts per owner-key
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-  const clientCounts = {}; // ownerKey -> count
+  const clientCounts = {};
   try {
     const { blobs } = await clientsStore.list();
     for (const { key } of blobs) {
       const idx = key.indexOf('/');
       if (idx < 0) continue;
-      const ownerKey = key.slice(0, idx);
-      clientCounts[ownerKey] = (clientCounts[ownerKey] || 0) + 1;
+      clientCounts[key.slice(0, idx)] = (clientCounts[key.slice(0, idx)] || 0) + 1;
     }
   } catch (e) {
     console.warn('users-stats clients list failed:', e);
   }
 
-  // 3) Walk the quotes store, count and sum loan amounts
+  // 3) Walk quotes store for counts and loan-amount sums
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-  const quoteCounts = {};      // ownerKey -> count
-  const quoteLoanSums = {};    // ownerKey -> sum
+  const quoteCounts = {};
+  const quoteLoanSums = {};
   try {
     const { blobs } = await quotesStore.list();
-    // Need the quote body to sum loan amounts — fetch each one.
-    // At the scale of ~6–20 users × ~dozens of quotes each, this is cheap.
     await Promise.all(blobs.map(async ({ key }) => {
       const idx = key.indexOf('/');
       if (idx < 0) return;
@@ -106,88 +72,53 @@ export default async (req, context) => {
           const n = parseMoney(q.loanAmt);
           if (n > 0) quoteLoanSums[ownerKey] = (quoteLoanSums[ownerKey] || 0) + n;
         }
-      } catch (_) { /* ignore individual failures */ }
+      } catch (_) { /* skip */ }
     }));
   } catch (e) {
     console.warn('users-stats quotes list failed:', e);
   }
 
-  // 4) Join everything. Match on normalized-email → keySafe(email).
-  const annotated = identityUsers.map((u) => {
-    const ownerKey = keySafe(normalizeEmail(u.email || ''));
-    const roles = (u.app_metadata && (Array.isArray(u.app_metadata.roles)
-      ? u.app_metadata.roles
-      : (u.app_metadata.roles ? [u.app_metadata.roles] : ['user']))) || ['user'];
-
-    // Name can live in a few places depending on how the user was created:
-    //   - user_metadata.full_name   (widget-set display name)
-    //   - user_metadata.name        (some flows use this key)
-    //   - raw_user_meta_data        (GoTrue internal field on older accounts)
-    //   - firstName/lastName pair   (if client code ever set it)
-    const meta = u.user_metadata || {};
-    const raw  = u.raw_user_meta_data || {};
-    let fullName =
-      meta.full_name ||
-      meta.fullName ||
-      meta.name     ||
-      raw.full_name ||
-      raw.name      ||
-      '';
-    if (!fullName && (meta.firstName || meta.lastName)) {
-      fullName = ((meta.firstName || '') + ' ' + (meta.lastName || '')).trim();
-    }
-
+  // 4) Annotate each profile with stats
+  const annotated = profiles.map((p) => {
+    const ownerKey = keySafe(normalizeEmail(p.email || ''));
     return {
-      id: u.id,
-      email: u.email,
-      fullName,
-      userMetadata: meta, // raw — so admin UI can inspect if name extraction missed something
-      confirmed_at: u.confirmed_at || null,
-      last_sign_in_at: u.last_sign_in_at || null,
-      roles,
+      id: p.id || null,
+      email: p.email,
+      fullName: p.fullName || '',
+      confirmed_at: p.confirmed_at || null,
+      last_seen_at: p.last_seen_at || null,
+      roles: Array.isArray(p.roles) && p.roles.length ? p.roles : ['user'],
       clientCount: clientCounts[ownerKey] || 0,
       quoteCount:  quoteCounts[ownerKey] || 0,
       totalLoanAmount: quoteLoanSums[ownerKey] || 0,
+      userMetadata: p.user_metadata || {},
     };
   });
 
-  // 5) Any "orphan" storage prefixes that don't match a current user?
-  //    When Identity is unreachable, identityUsers is empty and *all* prefixes
-  //    become orphans. Treat them as real rows (with ownerKey as email) so
-  //    the admin still sees stats.
-  const knownKeys = new Set(annotated.map((u) => keySafe(normalizeEmail(u.email || ''))));
+  // 5) Orphan storage prefixes (users with data but no profile entry)
+  const knownKeys = new Set(annotated.map((u) => keySafe(normalizeEmail(u.email))));
   const orphanKeys = new Set();
   Object.keys(clientCounts).forEach((k) => { if (!knownKeys.has(k)) orphanKeys.add(k); });
   Object.keys(quoteCounts).forEach((k) => { if (!knownKeys.has(k)) orphanKeys.add(k); });
 
-  const identityUnavailable = identityUsers.length === 0;
-  const orphans = [];
+  // Promote orphans to entries so admin can still see their activity
   for (const k of orphanKeys) {
-    const entry = {
-      ownerKey: k,
+    annotated.push({
+      id: null,
+      email: k.replace(/_/g, '.'), // best-effort — storage key isn't reversible
+      fullName: '',
+      confirmed_at: null,
+      last_seen_at: null,
+      roles: ['user'],
       clientCount: clientCounts[k] || 0,
       quoteCount:  quoteCounts[k]  || 0,
       totalLoanAmount: quoteLoanSums[k] || 0,
-    };
-    if (identityUnavailable) {
-      // Promote to a pseudo-user row so the admin sees their activity
-      annotated.push({
-        id: null,
-        email: k.replace(/_/g, '.') || k, // best-effort pretty email from key
-        fullName: '',
-        confirmed_at: null,
-        last_sign_in_at: null,
-        roles: ['user'],
-        clientCount: entry.clientCount,
-        quoteCount:  entry.quoteCount,
-        totalLoanAmount: entry.totalLoanAmount,
-      });
-    } else {
-      orphans.push(entry);
-    }
+      userMetadata: {},
+      isOrphan: true, // UI hint: this user hasn't logged in since profile tracking started
+    });
   }
 
-  // Sort: super_admin first, then admin, then user; within a role, alpha by email
+  // Sort: super_admin first, then admin, then user; alpha by email within
   const roleOrder = { super_admin: 0, admin: 1, user: 2 };
   annotated.sort((a, b) => {
     const aR = (a.roles[0] || 'user'), bR = (b.roles[0] || 'user');
@@ -197,10 +128,15 @@ export default async (req, context) => {
     return (a.email || '').localeCompare(b.email || '');
   });
 
-  return json(200, { users: annotated, orphans, identityUnavailable });
+  return json(200, {
+    users: annotated,
+    profileCount: profiles.length,
+    note: profiles.length === 0
+      ? 'No profiles stored yet. Log in once to populate your profile, then existing users will need to log in too.'
+      : undefined,
+  });
 };
 
-// Parse "1,250,000" / "$1250000" / 1250000 → number, or 0 on failure.
 function parseMoney(v) {
   if (v === null || v === undefined) return 0;
   if (typeof v === 'number' && isFinite(v)) return v;
