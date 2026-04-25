@@ -294,32 +294,6 @@
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <h2>User management</h2>
-          <p>Invite users, change roles, or revoke access in the Netlify dashboard.</p>
-        </div>
-        <div>
-          <a id="netlifyIdentityLink" class="action-btn" href="#" target="_blank" rel="noopener"
-             style="border-color:var(--gold-border);color:var(--gold-mid);text-decoration:none;display:inline-block">
-            Open Netlify Identity &nbsp;↗
-          </a>
-        </div>
-      </div>
-      <div class="card-body">
-        <div style="padding:1.25rem 1.5rem;font-size:13px;color:var(--text);line-height:1.6">
-          <p style="margin:0 0 12px"><strong>To invite a new user:</strong> Click the button above, then <em>Invite users</em> in the Netlify Identity page. They'll receive an email to set their own password.</p>
-          <p style="margin:0 0 12px"><strong>To change a role:</strong> In the Netlify Identity page, click a user, then edit their <code>app_metadata</code> to set <code>{"roles": ["admin"]}</code> or <code>{"roles": ["super_admin"]}</code> or <code>{"roles": ["user"]}</code>. Changes take effect the next time the user logs in.</p>
-          <p style="margin:0"><strong>To remove a user:</strong> Click the user in the Netlify Identity page and choose Delete. Access is revoked immediately.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Help -->
-    <div class="info-box">
-      <strong>How roles work:</strong> <code>user</code> can access all loan tools. <code>admin</code> can also see this Admin page. <code>super_admin</code> can additionally manage site settings (banner, Slack webhook, submission email).
-    </div>
   </div>
 
   <script>
@@ -407,15 +381,6 @@ netlifyIdentity.on('init', function(user) {
     var settingsDiv = document.getElementById('settingsSection');
     if (settingsDiv) settingsDiv.style.display = SLA.isSuperAdmin(currentUser) ? 'block' : 'none';
 
-    // Wire the Netlify Identity link. We build it from the current
-    // hostname — Netlify's dashboard URL for Identity is:
-    //   https://app.netlify.com/sites/{siteName}/identity
-    var siteName = (location.hostname.split('.')[0] || '').toLowerCase();
-    var link = document.getElementById('netlifyIdentityLink');
-    if (link && siteName) {
-      link.href = 'https://app.netlify.com/sites/' + encodeURIComponent(siteName) + '/identity';
-    }
-
     // One-time settings wiring
     if (!_settingsLoaded) {
       _settingsLoaded = true;
@@ -471,15 +436,13 @@ netlifyIdentity.on('init', function(user) {
       var roleLabel = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
       var roleClass = role;
       var name = u.fullName || humanizeEmail(u.email);
-      var status = u.confirmed_at
-        ? '<span style="color:var(--muted);font-size:11px">Active</span>'
-        : '<span style="color:#9a5f20;font-size:11px">Pending invite</span>';
+      var lastActive = formatLastActive(u.last_seen_at);
       return (
         '<tr>' +
           '<td style="padding:10px 12px"><div style="font-weight:600;color:var(--text)">' + escHtml(name) + '</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + escHtml(u.email) + '</div></td>' +
           '<td style="padding:10px 12px"><span class="role-badge ' + roleClass + '" style="font-size:10px">' + roleLabel + '</span></td>' +
-          '<td style="padding:10px 12px">' + status + '</td>' +
+          '<td style="padding:10px 12px;color:var(--muted);font-size:12px">' + lastActive + '</td>' +
           '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + (u.clientCount || 0) + '</td>' +
           '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + (u.quoteCount  || 0) + '</td>' +
           '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + fmtMoney(u.totalLoanAmount || 0) + '</td>' +
@@ -492,7 +455,7 @@ netlifyIdentity.on('init', function(user) {
         '<thead><tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--border)">' +
           '<th style="padding:10px 12px;font-weight:600">User</th>' +
           '<th style="padding:10px 12px;font-weight:600">Role</th>' +
-          '<th style="padding:10px 12px;font-weight:600">Status</th>' +
+          '<th style="padding:10px 12px;font-weight:600">Last Active</th>' +
           '<th style="padding:10px 12px;font-weight:600;text-align:right">Clients</th>' +
           '<th style="padding:10px 12px;font-weight:600;text-align:right">Quotes</th>' +
           '<th style="padding:10px 12px;font-weight:600;text-align:right">Loan Volume</th>' +
@@ -526,6 +489,24 @@ netlifyIdentity.on('init', function(user) {
     if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
     if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
     return '$' + Number(n).toLocaleString();
+  }
+
+  // Returns a human-readable "last active" string. "—" when never seen.
+  function formatLastActive(iso) {
+    if (!iso) return '<span style="color:#9a5f20">Never</span>';
+    var d = new Date(iso);
+    if (isNaN(d)) return '—';
+    var diffMs = Date.now() - d.getTime();
+    var diffMin = Math.round(diffMs / 60000);
+    if (diffMin < 1)    return 'Just now';
+    if (diffMin < 60)   return diffMin + ' min ago';
+    var diffHr = Math.round(diffMin / 60);
+    if (diffHr < 24)    return diffHr + ' hour' + (diffHr === 1 ? '' : 's') + ' ago';
+    var diffDay = Math.round(diffHr / 24);
+    if (diffDay < 7)    return diffDay + ' day' + (diffDay === 1 ? '' : 's') + ' ago';
+    if (diffDay < 30)   return Math.round(diffDay / 7) + ' week' + (Math.round(diffDay / 7) === 1 ? '' : 's') + ' ago';
+    // Older than 30 days — show date
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   // "mike.dehaan@slacapital.com" → "Mike Dehaan"
