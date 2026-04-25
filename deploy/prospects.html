@@ -139,33 +139,7 @@ tbody td{padding:13px 14px;font-size:13px;color:var(--text);vertical-align:middl
 var _user = null, _loSlug = '', _prospects = [], _filter = 'all';
 
 
-  // Register user in local registry when they log in
-  function registerUserLocally(user) {
-    if (!user) return;
-    try {
-      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
-      var existing = registry.find(function(u){ return u.id === user.id; });
-      var roles = [];
-      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
-      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
-      var entry = {
-        id: user.id,
-        email: user.email,
-        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
-        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
-        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
-        confirmed_at: user.confirmed_at || new Date().toISOString()
-      };
-      if (existing) {
-        Object.assign(existing, entry);
-      } else {
-        registry.push(entry);
-      }
-      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
-    } catch(e) {}
-  }
 netlifyIdentity.on('init', function(user) {
-    registerUserLocally(user);
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   document.getElementById('auth-gate').style.display = 'none';
@@ -187,9 +161,19 @@ netlifyIdentity.on('init', function(user) {
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
 function loadProspects() {
-  var key = 'sla_prospects_' + _loSlug;
-  try { _prospects = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { _prospects = []; }
-  render();
+  var tbody = document.getElementById('prospectsBody');
+  if (tbody && !_prospects.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><p>Loading prospects…</p></div></td></tr>';
+  }
+  SLA.Prospects.list().then(function(r) {
+    _prospects = (r && r.prospects) || [];
+    render();
+  }).catch(function(err) {
+    _prospects = [];
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="color:var(--danger)"><h3>Failed to load</h3><p>' + escH(err.message || 'unknown error') + '</p></div></td></tr>';
+    }
+  });
 }
 
 function setFilter(f) {
@@ -256,11 +240,19 @@ function openInSizer(prospectJson) {
 
 function deleteProspect(id) {
   if (!confirm('Delete this prospect? This cannot be undone.')) return;
-  var key = 'sla_prospects_' + _loSlug;
-  _prospects = _prospects.filter(function(p) { return p.id !== id; });
-  localStorage.setItem(key, JSON.stringify(_prospects));
-  render();
-  showToast('Prospect deleted');
+  // Find which storage prefix this prospect lives under so we can route the delete
+  var prospect = _prospects.find(function(p) { return p.id === id; });
+  // Prospect's loSlug is what the URL sent; storage key is keySafe(loSlug).
+  // The prospects-list endpoint accepts both the email-keyed and legacy slug
+  // prefixes, so passing back whatever we have works.
+  var slug = (prospect && prospect.loSlug) || _loSlug;
+  SLA.Prospects.delete(slug, id).then(function() {
+    _prospects = _prospects.filter(function(p) { return p.id !== id; });
+    render();
+    showToast('Prospect deleted');
+  }).catch(function(err) {
+    showToast('Delete failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 function copyLink() {
