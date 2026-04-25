@@ -77,14 +77,55 @@ export default async (req, context) => {
     status: 'new',
   };
 
+  // Resolve the loSlug to an actual LO email by searching the profiles store.
+  // The slug is treated as case-insensitive: a profile is a match if either
+  //   - keySafe(email-localpart-lowercased) === loSlug, OR
+  //   - keySafe(profile.user_metadata.slug-lowercased) === loSlug
+  // Profiles are populated by identity-login / identity-signup / profile-ping.
+  // If we can't resolve, we fall back to using the slug itself as the storage key
+  // so submissions are never silently dropped.
+  const profilesStore = getStore({ name: 'profiles', consistency: 'strong' });
+  let ownerKey = loSlug; // fallback
+  let resolvedEmail = '';
+  try {
+    const { blobs } = await profilesStore.list();
+    for (const { key } of blobs) {
+      const p = await profilesStore.get(key, { type: 'json' });
+      if (!p || !p.email) continue;
+      const localPart = p.email.split('@')[0].toLowerCase();
+      const localKey  = keySafe(localPart);
+      const metaSlug  = (p.user_metadata && p.user_metadata.slug) || '';
+      const metaSlugKey = metaSlug ? keySafe(String(metaSlug).toLowerCase()) : '';
+      if (localKey === loSlug || (metaSlugKey && metaSlugKey === loSlug)) {
+        ownerKey = keySafe(p.email.toLowerCase());
+        resolvedEmail = p.email;
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn('prospects-save: profile lookup failed:', e);
+  }
+
+  prospect.loEmail = resolvedEmail || '';
+
   const store = getStore({ name: 'prospects', consistency: 'strong' });
-  const key = `${loSlug}/${keySafe(id)}`;
+  const key = `${ownerKey}/${keySafe(id)}`;
 
   try {
     await store.setJSON(key, prospect);
   } catch (e) {
     console.error('prospects-save write error:', e);
     return json(500, { error: 'Failed to save application' });
+  }
+
+  // Auto-create a Client record under the LO so they see this in Clients.
+  // Only when we successfully resolved the slug to an LO email.
+  if (resolvedEmail) {
+    try {
+      await upsertClientFromProspect(prospect, resolvedEmail);
+    } catch (e) {
+      console.warn('prospects-save: client upsert failed:', e);
+    }
   }
 
   // Notify the LO by email — best-effort, don't fail the submission if email fails
@@ -96,6 +137,91 @@ export default async (req, context) => {
 
   return json(200, { ok: true, id });
 };
+
+// Auto-create or update a Client record + initial Loan from a prospect submission
+async function upsertClientFromProspect(prospect, loEmail) {
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const ownerKey = keySafe(normalizeEmail(loEmail));
+  const borrowerEmailNorm = normalizeEmail(prospect.email);
+  if (!borrowerEmailNorm) return;
+
+  // Search this LO's clients for an existing match by borrower email
+  let existing = null;
+  let existingKey = null;
+  try {
+    const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
+    for (const { key } of blobs) {
+      const c = await clientsStore.get(key, { type: 'json' });
+      if (c && (c.email || '').toLowerCase() === borrowerEmailNorm) {
+        existing = c;
+        existingKey = key;
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn('client lookup failed:', e);
+  }
+
+  // Build a loan record from the application
+  const isFF = prospect.loanProduct === 'fix_flip' || prospect.loanProduct === 'rtl';
+  const loan = {
+    id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    toolType:    isFF ? 'rtl' : 'dscr',
+    address:     prospect.propAddress || '',
+    savedAt:     new Date().toISOString(),
+    updatedAt:   new Date().toISOString(),
+    status:      'active',
+    loanType:    prospect.loanProduct || '',
+    loanAmt:     prospect.purchasePrice || prospect.propertyValue || '',
+    propValue:   prospect.propertyValue || prospect.estimatedARV || '',
+    rent:        prospect.monthlyRent || '',
+    taxes:       prospect.monthlyTaxes || '',
+    insurance:   prospect.monthlyInsurance || '',
+    hoa:         prospect.monthlyHOA || '',
+    bedrooms:    prospect.bedrooms || '',
+    bathrooms:   prospect.bathrooms || '',
+    sqft:        prospect.sqft || '',
+    propType:    prospect.propType || '',
+    usCitizen:   prospect.usCitizen || '',
+    loanPurpose: prospect.loanPurpose || '',
+    rentalType:  prospect.rentalType || '',
+    fundingDate: prospect.fundingDate || '',
+    purchasePrice: prospect.purchasePrice || '',
+    rehabBudget: prospect.rehabCost || '',
+    arv:         prospect.estimatedARV || '',
+    experience:  prospect.flipsCompleted || '',
+    fromApplication: true,
+  };
+
+  const now = new Date().toISOString();
+  let record;
+  if (existing) {
+    record = existing;
+    if (!record.firstName && prospect.firstName) record.firstName = prospect.firstName;
+    if (!record.lastName  && prospect.lastName)  record.lastName  = prospect.lastName;
+    if (!record.phone     && prospect.phone)     record.phone     = prospect.phone;
+    if (!record.usCitizen && prospect.usCitizen) record.usCitizen = prospect.usCitizen;
+    record.loans = record.loans || [];
+    record.loans.unshift(loan);
+    record.updatedAt = now;
+  } else {
+    record = {
+      id:        'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      email:     borrowerEmailNorm,
+      firstName: prospect.firstName || '',
+      lastName:  prospect.lastName  || '',
+      phone:     prospect.phone     || '',
+      usCitizen: prospect.usCitizen || '',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: loEmail,
+      loans:     [loan],
+      fromApplication: true,
+    };
+    existingKey = ownerKey + '/' + keySafe(record.id);
+  }
+  await clientsStore.setJSON(existingKey, record);
+}
 
 // ── LO notification via Resend ───────────────────────────────────────
 async function notifyLO(prospect, loSlug) {

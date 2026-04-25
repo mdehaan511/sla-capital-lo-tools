@@ -1,18 +1,25 @@
 /**
- * prospects-list.js — GET /api/prospects
+ * prospects-list.mjs — GET /api/prospects
  *
- * Returns prospects routed to the authenticated LO's slug.
- *   - The LO's slug is pulled from user.user_metadata.slug, falling back to
- *     the email localpart.
- *   - Admins may pass ?all=1 to see every prospect, grouped by loSlug.
- *   - Admins/LOs may pass ?slug=<slug> to view a specific slug.
+ * Returns prospects belonging to the authenticated LO.
+ *
+ * New shape: prospects are stored under keySafe(loEmail)/{prospectId}.
+ * Older entries may still be under a slug; we read both prefixes for the
+ * current LO so nothing's dropped during the transition.
+ *
+ * Admins may pass ?all=1 to see every prospect grouped by ownerKey.
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isAdmin, keySafe,
+  handleOptions, json, requireAuth, isAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 
-function slugForUser(user) {
+function ownerKeyForUser(user) {
+  if (!user) return '';
+  return keySafe(normalizeEmail(user.email));
+}
+
+function legacySlugForUser(user) {
   if (!user) return '';
   const meta = user.user_metadata || {};
   if (meta.slug) return keySafe(String(meta.slug).toLowerCase());
@@ -29,44 +36,46 @@ export default async (req, context) => {
 
   const url = new URL(req.url);
   const wantAll = url.searchParams.get('all') === '1';
-  const explicitSlug = url.searchParams.get('slug');
-
   const store = getStore({ name: 'prospects', consistency: 'strong' });
 
   try {
     if (wantAll && isAdmin(user)) {
       const { blobs } = await store.list();
-      const bySlug = {};
+      const byOwner = {};
       await Promise.all(blobs.map(async ({ key }) => {
         const idx = key.indexOf('/');
         if (idx < 0) return;
-        const slug = key.slice(0, idx);
+        const owner = key.slice(0, idx);
         const record = await store.get(key, { type: 'json' });
         if (!record) return;
-        if (!bySlug[slug]) bySlug[slug] = [];
-        bySlug[slug].push(record);
+        if (!byOwner[owner]) byOwner[owner] = [];
+        byOwner[owner].push(record);
       }));
-      Object.keys(bySlug).forEach((s) => {
-        bySlug[s].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+      Object.keys(byOwner).forEach((s) => {
+        byOwner[s].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
       });
-      return json(200, { bySlug });
+      return json(200, { bySlug: byOwner });
     }
 
-    // Non-admin: only their own slug. Admin asking for a specific slug is also fine.
-    let slug = explicitSlug ? keySafe(explicitSlug.toLowerCase()) : slugForUser(user);
-    if (!isAdmin(user) && explicitSlug && keySafe(explicitSlug.toLowerCase()) !== slugForUser(user)) {
-      return json(403, { error: 'Not authorized for that slug' });
-    }
-    if (!slug) return json(200, { prospects: [] });
+    // Pull from BOTH the new email-keyed prefix AND the legacy slug prefix
+    const ownerKey  = ownerKeyForUser(user);
+    const legacyKey = legacySlugForUser(user);
 
-    const prefix = slug + '/';
-    const { blobs } = await store.list({ prefix });
-    const prospects = await Promise.all(
-      blobs.map(({ key }) => store.get(key, { type: 'json' })),
-    );
-    const filtered = prospects.filter(Boolean);
-    filtered.sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
-    return json(200, { prospects: filtered, slug });
+    const collected = {};
+    async function pull(prefix) {
+      if (!prefix) return;
+      const { blobs } = await store.list({ prefix: prefix + '/' });
+      await Promise.all(blobs.map(async ({ key }) => {
+        const p = await store.get(key, { type: 'json' });
+        if (p && p.id) collected[p.id] = p;
+      }));
+    }
+    await pull(ownerKey);
+    if (legacyKey && legacyKey !== ownerKey) await pull(legacyKey);
+
+    const prospects = Object.values(collected);
+    prospects.sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+    return json(200, { prospects, slug: ownerKey });
   } catch (e) {
     console.error('prospects-list error:', e);
     return json(500, { error: 'Failed to load prospects' });

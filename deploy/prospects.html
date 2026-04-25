@@ -87,15 +87,11 @@ tbody td{padding:13px 14px;font-size:13px;color:var(--text);vertical-align:middl
 <nav class="nav">
   
   <div class="nav-left">
-    <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
-    <a class="nav-tool-link" href="index.html">&#8592; Dashboard</a>
-  </div>
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a></div>
   <div class="nav-right"><a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link current" href="prospects.html">Prospects</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
-    <span class="user-pill" id="navEmail"></span>
-    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a><button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
 </nav>
 
@@ -173,7 +169,7 @@ netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   document.getElementById('auth-gate').style.display = 'none';
-  document.getElementById('navEmail').textContent = user.email;
+  var _ne=document.getElementById('navEmail'); if(_ne) _ne.textContent = user.email;
   var navAdmin = document.getElementById('navAdminLink');
   if (navAdmin) {
     var roles = (user.app_metadata && user.app_metadata.roles) || [];
