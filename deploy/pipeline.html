@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipeline — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="quotes.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+      --col-new:        #5a6f8a;
+      --col-new-bg:     rgba(90,111,138,0.08);
+      --col-quoted:     #C8813A;
+      --col-quoted-bg:  rgba(200,129,58,0.08);
+      --col-submitted:  #7a5218;
+      --col-submitted-bg: rgba(122,82,24,0.08);
+      --col-approved:   #256940;
+      --col-approved-bg: rgba(37,105,64,0.08);
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    .page { max-width: 100%; margin: 0 auto; padding-top: 1.25rem; }
+    .page-header { margin-bottom: 1.25rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+
+    .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
+    .search-box:focus { outline: none; border-color: var(--gold); }
+    .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
+    .scope-toggle button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .scope-toggle button.active { background: var(--dark); color: #fff; }
+
+    /* Kanban */
+    .board {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .col {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      display: flex;
+      flex-direction: column;
+      min-height: 60vh;
+      max-height: calc(100vh - 220px);
+    }
+    .col-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      z-index: 1;
+      border-radius: var(--r) var(--r) 0 0;
+    }
+    .col-head .title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    .col-head .count {
+      font-size: 11px; font-family: 'DM Mono', monospace;
+      padding: 3px 10px; border-radius: 14px;
+      background: var(--bg);
+      color: var(--muted);
+    }
+    .col[data-col="new"]       .col-head { background: var(--col-new-bg); }
+    .col[data-col="new"]       .title { color: var(--col-new); }
+    .col[data-col="quoted"]    .col-head { background: var(--col-quoted-bg); }
+    .col[data-col="quoted"]    .title { color: var(--col-quoted); }
+    .col[data-col="submitted"] .col-head { background: var(--col-submitted-bg); }
+    .col[data-col="submitted"] .title { color: var(--col-submitted); }
+    .col[data-col="approved"]  .col-head { background: var(--col-approved-bg); }
+    .col[data-col="approved"]  .title { color: var(--col-approved); }
+
+    .col-volume { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+    .col-body {
+      padding: 12px;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .col-body::-webkit-scrollbar { width: 8px; }
+    .col-body::-webkit-scrollbar-track { background: transparent; }
+    .col-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-xs);
+      padding: 12px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .card:hover { border-color: var(--gold-border); box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+    .card-title {
+      font-size: 13px; font-weight: 600; color: var(--text);
+      margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-sub {
+      font-size: 11px; color: var(--muted);
+      margin-bottom: 8px;
+      font-family: 'DM Mono', monospace;
+    }
+    .card-meta {
+      display: flex; gap: 8px; flex-wrap: wrap;
+      font-size: 11px; color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      margin-bottom: 10px;
+    }
+    .card-meta .tag {
+      padding: 2px 7px; border-radius: 10px; background: var(--bg);
+    }
+    .card-meta .tag.dscr { background: var(--gold-light); color: var(--gold-mid); }
+    .card-meta .tag.rtl  { background: rgba(38,26,54,0.08); color: var(--dark); }
+    .card-amt {
+      font-size: 14px; font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace;
+      margin-bottom: 8px;
+    }
+    .card-actions {
+      display: flex; gap: 6px; flex-wrap: wrap;
+      padding-top: 8px; border-top: 1px solid var(--border);
+    }
+    .card-btn {
+      flex: 1;
+      font-size: 11px; font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface); color: var(--muted);
+      cursor: pointer; font-family: 'DM Sans', sans-serif;
+      transition: all 0.15s;
+      white-space: nowrap;
+      text-decoration: none; text-align: center;
+    }
+    .card-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .card-btn.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .card-btn.primary:hover { background: var(--gold-mid); border-color: var(--gold-mid); }
+    .card-btn.success { background: var(--success); border-color: var(--success); color: #fff; }
+    .card-btn.success:hover { opacity: 0.9; }
+    .card-btn.muted { color: var(--muted); cursor: default; pointer-events: none; }
+
+    .lo-tag {
+      display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 10px;
+      background: rgba(200,129,58,0.08); color: var(--gold-mid);
+      font-family: 'DM Mono', monospace; margin-bottom: 6px;
+    }
+
+    .col-empty {
+      padding: 28px 14px; text-align: center; color: var(--muted); font-size: 12px;
+      border: 1px dashed var(--border); border-radius: var(--r-xs);
+    }
+    .loading { padding: 4rem 2rem; text-align: center; color: var(--muted); font-size: 13px; }
+
+    .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
+    .toast.show { opacity: 1; }
+
+    @media (max-width: 1100px) {
+      .board { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .board { grid-template-columns: 1fr; }
+      .col { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link current" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="decisions.html">Decisions</a>
+    <a class="nav-tool-link" href="closed.html">Closed</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Pipeline</h1>
+      <p id="pageSub">Your active loans across every stage</p>
+    </div>
+    <div class="ctrl-row">
+      <input type="text" id="searchBox" class="search-box" placeholder="Search address or borrower…" oninput="render()" />
+      <div class="scope-toggle" id="scopeToggle" style="display:none">
+        <button data-scope="mine" class="active" onclick="setScope('mine')">My pipeline</button>
+        <button data-scope="all" onclick="setScope('all')">All LOs</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="boardWrap">
+    <div class="loading">Loading pipeline…</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var _user = null;
+var _isAdmin = false;
+var _scope = 'mine';
+var _profileMap = {};   // ownerKey → {email, fullName}
+var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
+var _items = { newApp: [], quoted: [], submitted: [], approved: [] };
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = SLA.isAdmin(user);
+  document.getElementById('auth-gate').style.display = 'none';
+  if (_isAdmin) {
+    var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
+    var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+    document.getElementById('scopeToggle').style.display = 'flex';
+  }
+  loadAll();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function setScope(scope) {
+  _scope = scope;
+  document.querySelectorAll('#scopeToggle button').forEach(function(b){
+    b.classList.toggle('active', b.dataset.scope === scope);
+  });
+  loadAll();
+}
+
+function loadAll() {
+  document.getElementById('boardWrap').innerHTML = '<div class="loading">Loading pipeline…</div>';
+
+  var fetchProspects = (_scope === 'all' && _isAdmin)
+    ? SLA.Prospects.list({ all: true })
+    : SLA.Prospects.list();
+  var fetchQuotes = (_scope === 'all' && _isAdmin)
+    ? SLA.Quotes.list({ all: true })
+    : (QuoteStore.init().then(function(){ return { quotes: QuoteStore.loadAllTools(_user.email) }; }));
+  var fetchClients = (_scope === 'all' && _isAdmin)
+    ? SLA.Clients.list({ all: true }).catch(function(){ return { byOwner: {} }; })
+    : SLA.Clients.list().catch(function(){ return { clients: [] }; });
+  var fetchStats = SLA.Admin
+    ? SLA.Admin.userStats().catch(function(){ return { users: [] }; })
+    : Promise.resolve({ users: [] });
+
+  Promise.all([fetchProspects, fetchQuotes, fetchClients, fetchStats]).then(function(results) {
+    var prospectsResp = results[0] || {};
+    var quotesResp    = results[1] || {};
+    var clientsResp   = results[2] || {};
+    var statsResp     = results[3] || { users: [] };
+
+    // Profile lookup
+    _profileMap = {};
+    (statsResp.users || []).forEach(function(p) {
+      if (!p.email) return;
+      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '' };
+    });
+
+    // Loan lookup (so cards can link to loan-details)
+    _loanLookup = {};
+    function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+    if (clientsResp.byOwner) {
+      Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
+        (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
+          (c.loans || []).forEach(function(l) {
+            if (!l.address || !l.id) return;
+            _loanLookup[ownerKey + '|' + norm(l.address)] = {
+              clientId: c.id, loanId: l.id, ownerKey: ownerKey,
+            };
+          });
+        });
+      });
+    } else if (clientsResp.clients) {
+      var myKey = (_user.email || '').toLowerCase();
+      clientsResp.clients.forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          if (!l.address || !l.id) return;
+          _loanLookup[myKey + '|' + norm(l.address)] = {
+            clientId: c.id, loanId: l.id, ownerKey: myKey,
+          };
+        });
+      });
+    }
+
+    // Build flat lists per column
+    _items = { newApp: [], quoted: [], submitted: [], approved: [] };
+
+    // Prospects without a quote → New Application
+    var prospects = [];
+    if (prospectsResp.bySlug) {
+      Object.keys(prospectsResp.bySlug).forEach(function(k) {
+        (prospectsResp.bySlug[k] || []).forEach(function(p) {
+          prospects.push({ owner: k, prospect: p });
+        });
+      });
+    } else {
+      var myKey = (_user.email || '').toLowerCase();
+      (prospectsResp.prospects || []).forEach(function(p) {
+        prospects.push({ owner: myKey, prospect: p });
+      });
+    }
+    prospects.forEach(function(item) {
+      _items.newApp.push({
+        kind: 'prospect',
+        ownerKey: item.owner,
+        id: item.prospect.id,
+        date: item.prospect.submittedAt,
+        prospect: item.prospect,
+      });
+    });
+
+    // Quotes split by status
+    var quotes = [];
+    if (quotesResp.byOwner) {
+      Object.keys(quotesResp.byOwner).forEach(function(k) {
+        (quotesResp.byOwner[k] || []).forEach(function(q) {
+          quotes.push({ owner: k, quote: q });
+        });
+      });
+    } else {
+      var myKey2 = (_user.email || '').toLowerCase();
+      (quotesResp.quotes || []).forEach(function(q) {
+        quotes.push({ owner: myKey2, quote: q });
+      });
+    }
+    quotes.forEach(function(item) {
+      var s = item.quote.status || 'active';
+      var bucket = s === 'submitted' ? 'submitted'
+                 : s === 'approved'  ? 'approved'
+                 : (s === 'on_hold' || s === 'denied' || s === 'closed') ? null
+                 : 'quoted';
+      if (!bucket) return;
+      _items[bucket].push({
+        kind: 'quote',
+        ownerKey: item.owner,
+        id: item.quote.id,
+        date: item.quote.updatedAt || item.quote.savedAt,
+        quote: item.quote,
+      });
+    });
+
+    // Sort each column most-recent first
+    Object.keys(_items).forEach(function(k) {
+      _items[k].sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
+    });
+
+    render();
+  }).catch(function(err) {
+    document.getElementById('boardWrap').innerHTML =
+      '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err.message || 'unknown error') + '</div>';
+  });
+}
+
+function render() {
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  function filtered(items) {
+    if (!search) return items;
+    return items.filter(function(it) {
+      var hay;
+      if (it.kind === 'prospect') {
+        var p = it.prospect;
+        hay = ((p.firstName||'') + ' ' + (p.lastName||'') + ' ' + (p.email||'') + ' ' + (p.propAddress||'')).toLowerCase();
+      } else {
+        var q = it.quote;
+        hay = ((q.borrower||'') + ' ' + (q.address||'') + ' ' + ((q.formData && q.formData.loanType)||'')).toLowerCase();
+      }
+      return hay.indexOf(search) >= 0;
+    });
+  }
+
+  var cols = [
+    { key: 'newApp',    title: 'New Application',  emptyMsg: 'No new applications.' },
+    { key: 'quoted',    title: 'Quoted',           emptyMsg: 'No quotes yet — load a New Application into the sizer.' },
+    { key: 'submitted', title: 'Submitted',        emptyMsg: 'Nothing submitted for review.' },
+    { key: 'approved',  title: 'Approved',         emptyMsg: 'No approved loans yet.' },
+  ];
+
+  var html = '<div class="board">';
+  cols.forEach(function(col) {
+    var list = filtered(_items[col.key]);
+    var totalAmt = list.reduce(function(s, it) {
+      return s + (it.kind === 'prospect'
+        ? num(it.prospect.purchasePrice || it.prospect.propertyValue)
+        : num((it.quote.formData && (it.quote.formData.loanAmt || it.quote.formData.purchasePrice)) || it.quote.loanAmt));
+    }, 0);
+    html += '<div class="col" data-col="' + col.key.replace('newApp','new') + '">';
+    html += '<div class="col-head"><div>';
+    html += '<div class="title">' + col.title + '</div>';
+    if (totalAmt > 0) html += '<div class="col-volume">' + fmtMoney(totalAmt) + ' total</div>';
+    html += '</div><div class="count">' + list.length + '</div></div>';
+    html += '<div class="col-body">';
+    if (!list.length) {
+      html += '<div class="col-empty">' + col.emptyMsg + '</div>';
+    } else {
+      list.forEach(function(it) { html += buildCard(it, col.key); });
+    }
+    html += '</div></div>';
+  });
+  html += '</div>';
+  document.getElementById('boardWrap').innerHTML = html;
+}
+
+function buildCard(it, colKey) {
+  if (it.kind === 'prospect') return buildProspectCard(it);
+  return buildQuoteCard(it, colKey);
+}
+
+function buildProspectCard(it) {
+  var p = it.prospect;
+  var name = ((p.firstName || '') + ' ' + (p.lastName || '')).trim() || (p.email || 'Borrower');
+  var addr = p.propAddress || '';
+  var amt  = fmtMoney(num(p.purchasePrice || p.propertyValue));
+  var tool = (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl') ? 'rtl' : 'dscr';
+  var loName = loDisplay(it.ownerKey);
+  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+
+  var loRow = (_scope === 'all' && _isAdmin)
+    ? '<div class="lo-tag">' + escH(loName) + '</div>'
+    : '';
+
+  return (
+    '<div class="card">' +
+      loRow +
+      '<div class="card-title">' + escH(name) + '</div>' +
+      '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
+      '<div class="card-amt">' + amt + '</div>' +
+      '<div class="card-meta">' +
+        '<span class="tag ' + tool + '">' + tool.toUpperCase() + '</span>' +
+        '<span>' + escH(p.creditScore || '—') + ' FICO</span>' +
+        '<span>' + relDate(it.date) + '</span>' +
+      '</div>' +
+      '<div class="card-actions">' +
+        '<button type="button" class="card-btn primary" onclick="openInSizer(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\', \'' + tool + '\')">Open in Sizer</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function buildQuoteCard(it, colKey) {
+  var q = it.quote;
+  var fd = q.formData || {};
+  var name = q.borrower || fd.borrower || '—';
+  var addr = q.address || '';
+  var amt  = fmtMoney(num(fd.loanAmt || fd.purchasePrice || q.loanAmt));
+  var rate = fd._finalRate ? fd._finalRate + '%' : '';
+  var tool = q.toolType === 'rtl' ? 'rtl' : 'dscr';
+  var loName = loDisplay(it.ownerKey);
+  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  var sizerUrl  = sizerPage + '?loadQuote=' + encodeURIComponent(addr);
+  if (_scope === 'all' && _isAdmin && it.ownerKey !== (_user.email||'').toLowerCase()) {
+    sizerUrl += '&owner=' + encodeURIComponent(it.ownerKey);
+  }
+
+  var lookup = _loanLookup[it.ownerKey + '|' + (addr||'').trim().toLowerCase().replace(/\s+/g,' ')];
+  var detailsUrl = lookup
+    ? 'loan-details.html?clientId=' + encodeURIComponent(lookup.clientId)
+      + '&loanId=' + encodeURIComponent(lookup.loanId)
+      + '&owner=' + encodeURIComponent(lookup.ownerKey)
+    : null;
+
+  var loRow = (_scope === 'all' && _isAdmin)
+    ? '<div class="lo-tag">' + escH(loName) + '</div>'
+    : '';
+
+  var actions = '';
+  if (colKey === 'quoted') {
+    actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open</a>';
+    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Details</a>';
+    actions += '<button type="button" class="card-btn primary" onclick="goSubmit(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Submit</button>';
+  } else if (colKey === 'submitted') {
+    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Details</a>';
+    actions += '<span class="card-btn muted">Awaiting decision</span>';
+  } else if (colKey === 'approved') {
+    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Details</a>';
+    if (_isAdmin) {
+      actions += '<button type="button" class="card-btn success" onclick="closeLoan(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Mark Closed</button>';
+    } else {
+      actions += '<span class="card-btn muted">Awaiting close</span>';
+    }
+  }
+
+  return (
+    '<div class="card">' +
+      loRow +
+      '<div class="card-title">' + escH(name) + '</div>' +
+      '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
+      '<div class="card-amt">' + amt + (rate ? ' <span style="font-size:11px;color:var(--muted);font-weight:500">@ ' + rate + '</span>' : '') + '</div>' +
+      '<div class="card-meta">' +
+        '<span class="tag ' + tool + '">' + tool.toUpperCase() + '</span>' +
+        '<span>' + relDate(it.date) + '</span>' +
+      '</div>' +
+      '<div class="card-actions">' + actions + '</div>' +
+    '</div>'
+  );
+}
+
+// ── Actions ─────────────────────────────────────────────
+
+// "Open in Sizer" from a prospect card. Stash the prospect data in
+// localStorage and navigate; the sizer's prefill flow handles the rest.
+function openInSizer(prospectId, ownerKey, tool) {
+  var item = _items.newApp.find(function(it) { return it.id === prospectId && it.ownerKey === ownerKey; });
+  if (!item) return;
+  try { localStorage.setItem('sla_prefill_prospect', JSON.stringify(item.prospect)); } catch(e){}
+  var dest = (tool === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  window.location.href = dest + '?fromProspect=1';
+}
+
+// "Submit" a quote — moves it from Quoted → Submitted via QuoteStore status update.
+// Also fires the Slack notification path that lives in the loan-details page.
+// Here we use the simpler approach: just flip the status on the backend.
+function goSubmit(quoteId, ownerKey) {
+  var item = _items.quoted.find(function(it) { return it.id === quoteId && it.ownerKey === ownerKey; });
+  if (!item) return;
+  var q = item.quote;
+  if (!confirm('Submit this loan for admin review?\n\n' + (q.borrower || q.address || ''))) return;
+
+  var updated = Object.assign({}, q, {
+    status: 'submitted',
+    updatedAt: new Date().toISOString(),
+  });
+  if (ownerKey && ownerKey !== (_user.email||'').toLowerCase()) {
+    updated._owner = ownerKey;
+  }
+  SLA.Quotes.save(updated).then(function() {
+    showToast('Submitted for review');
+    // Also try Slack via Settings if configured (best-effort, fire and forget)
+    SLA.Settings.getAll().then(function(s) {
+      var hook = s && s.slack_webhook && s.slack_webhook.value;
+      if (hook) postSlackSubmission(hook, q);
+    }).catch(function(){});
+    loadAll();
+  }).catch(function(err) {
+    showToast('Submit failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+// Admin: mark an approved loan as closed
+function closeLoan(quoteId, ownerKey) {
+  var item = _items.approved.find(function(it) { return it.id === quoteId && it.ownerKey === ownerKey; });
+  if (!item) return;
+  var q = item.quote;
+  if (!confirm('Mark this loan as CLOSED?\n\n' + (q.borrower || q.address || '') + '\n\nThis will move it to the Closed Loans page.')) return;
+
+  var updated = Object.assign({}, q, {
+    status: 'closed',
+    closedAt: new Date().toISOString(),
+    closedBy: _user.email || '',
+    updatedAt: new Date().toISOString(),
+    _owner: ownerKey,
+  });
+  SLA.Quotes.save(updated).then(function() {
+    showToast('Loan closed');
+    loadAll();
+  }).catch(function(err) {
+    showToast('Failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+function postSlackSubmission(webhookUrl, q) {
+  var fd = q.formData || {};
+  var loName = (_user.user_metadata && _user.user_metadata.full_name) || _user.email;
+  var loanAmt = num(fd.loanAmt || fd.purchasePrice || q.loanAmt);
+  var amtFmt = loanAmt ? '$' + Math.round(loanAmt).toLocaleString() : '-';
+  var tool = q.toolType === 'rtl' ? 'RTL / Fix & Flip' : 'DSCR';
+  var blocks = [
+    { type:'header', text:{ type:'plain_text', text:'New Loan Submitted - SLA Capital', emoji:true } },
+    { type:'section', fields:[
+      { type:'mrkdwn', text:'*Address*\n' + (q.address || '-') },
+      { type:'mrkdwn', text:'*Borrower*\n' + (q.borrower || '-') },
+      { type:'mrkdwn', text:'*Tool*\n' + tool },
+      { type:'mrkdwn', text:'*Loan Amount*\n' + amtFmt },
+      { type:'mrkdwn', text:'*Loan Officer*\n' + loName + ' | ' + (_user.email || '') },
+    ]},
+  ];
+  try {
+    fetch(webhookUrl, {
+      method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blocks: blocks }),
+    });
+  } catch(e) {}
+}
+
+// ── Helpers ─────────────────────────────────────────────
+function loDisplay(ownerKey) {
+  if (!ownerKey) return '—';
+  var p = _profileMap[String(ownerKey).toLowerCase()];
+  if (p) return p.fullName || p.email;
+  return ownerKey;
+}
+
+function num(v) {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  var n = parseFloat(String(v).replace(/[^0-9.]/g, ''));
+  return isFinite(n) ? n : 0;
+}
+
+function fmtMoney(n) {
+  if (!n) return '—';
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + Math.round(n).toLocaleString();
+  return '$' + Math.round(n);
+}
+
+function relDate(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d)) return '—';
+  var diffMs = Date.now() - d.getTime();
+  var days = Math.floor(diffMs / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return days + 'd ago';
+  if (days < 30) return Math.round(days/7) + 'w ago';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+</script>
+
+</body>
+</html>

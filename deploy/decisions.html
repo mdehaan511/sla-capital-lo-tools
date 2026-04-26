@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Decisions — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    .page { max-width: 1200px; margin: 0 auto; padding-top: 2rem; }
+    .page-header { margin-bottom: 1.5rem; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+
+    .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .filter-btns { display: flex; gap: 6px; }
+    .filter-btn { font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .filter-btn.active { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); margin-left: auto; }
+    .scope-toggle button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .scope-toggle button.active { background: var(--dark); color: #fff; }
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 12px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--bg); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .td-mono { font-family: 'DM Mono', monospace; }
+    .td-addr { max-width: 300px; }
+    .td-addr-main { font-weight: 600; }
+    .td-addr-sub { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+    .badge.on_hold { background: rgba(122,82,24,0.10); color: var(--warn); }
+    .badge.denied  { background: rgba(124,31,31,0.10); color: var(--danger); }
+    .tool-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: var(--gold-light); color: var(--gold-mid); }
+    .tool-tag.rtl { background: rgba(38,26,54,0.08); color: var(--dark); }
+    .row-link { color: inherit; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s; }
+    .row-link:hover { border-bottom-color: var(--gold); color: var(--gold); }
+    .empty-state { padding: 4rem 2rem; text-align: center; color: var(--muted); }
+    .empty-state h3 { font-family: 'Lora', serif; color: var(--text); margin-bottom: 8px; }
+    .loading { padding: 3rem 2rem; text-align: center; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link current" href="decisions.html">Decisions</a>
+    <a class="nav-tool-link" href="closed.html">Closed</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <h1>Decisions</h1>
+    <p>Loans on hold or denied. Drag-and-drop is intentionally disabled — once a status is set, it requires admin re-review to change.</p>
+  </div>
+
+  <div class="ctrl-row">
+    <div class="filter-btns">
+      <button class="filter-btn active" data-f="all" onclick="setFilter('all')">All</button>
+      <button class="filter-btn" data-f="on_hold" onclick="setFilter('on_hold')">⏸ On Hold</button>
+      <button class="filter-btn" data-f="denied" onclick="setFilter('denied')">✕ Denied</button>
+    </div>
+    <input type="text" id="searchBox" class="search-box" placeholder="Search address or borrower…" oninput="render()" />
+    <div class="scope-toggle" id="scopeToggle" style="display:none">
+      <button data-scope="mine" class="active" onclick="setScope('mine')">Mine</button>
+      <button data-scope="all" onclick="setScope('all')">All LOs</button>
+    </div>
+  </div>
+
+  <div id="content">
+    <div class="loading">Loading…</div>
+  </div>
+</div>
+
+<script>
+var _user = null;
+var _isAdmin = false;
+var _scope = 'mine';
+var _filter = 'all';
+var _profileMap = {};
+var _loanLookup = {};
+var _items = [];
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = SLA.isAdmin(user);
+  document.getElementById('auth-gate').style.display = 'none';
+  if (_isAdmin) {
+    var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
+    var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+    document.getElementById('scopeToggle').style.display = 'flex';
+  }
+  loadAll();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function setScope(s) {
+  _scope = s;
+  document.querySelectorAll('#scopeToggle button').forEach(function(b){
+    b.classList.toggle('active', b.dataset.scope === s);
+  });
+  loadAll();
+}
+
+function setFilter(f) {
+  _filter = f;
+  document.querySelectorAll('.filter-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.f === f);
+  });
+  render();
+}
+
+function loadAll() {
+  document.getElementById('content').innerHTML = '<div class="loading">Loading…</div>';
+
+  var fetchQuotes = (_scope === 'all' && _isAdmin)
+    ? SLA.Quotes.list({ all: true })
+    : SLA.Quotes.list();
+  var fetchClients = (_scope === 'all' && _isAdmin)
+    ? SLA.Clients.list({ all: true }).catch(function(){ return { byOwner: {} }; })
+    : SLA.Clients.list().catch(function(){ return { clients: [] }; });
+  var fetchStats = SLA.Admin
+    ? SLA.Admin.userStats().catch(function(){ return { users: [] }; })
+    : Promise.resolve({ users: [] });
+
+  Promise.all([fetchQuotes, fetchClients, fetchStats]).then(function(results) {
+    var quotesResp  = results[0] || {};
+    var clientsResp = results[1] || {};
+    var statsResp   = results[2] || { users: [] };
+
+    _profileMap = {};
+    (statsResp.users || []).forEach(function(p) {
+      if (!p.email) return;
+      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '' };
+    });
+
+    _loanLookup = {};
+    function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+    if (clientsResp.byOwner) {
+      Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
+        (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
+          (c.loans || []).forEach(function(l) {
+            if (!l.address || !l.id) return;
+            _loanLookup[ownerKey + '|' + norm(l.address)] = { clientId: c.id, loanId: l.id, ownerKey: ownerKey };
+          });
+        });
+      });
+    } else if (clientsResp.clients) {
+      var myKey = (_user.email || '').toLowerCase();
+      clientsResp.clients.forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          if (!l.address || !l.id) return;
+          _loanLookup[myKey + '|' + norm(l.address)] = { clientId: c.id, loanId: l.id, ownerKey: myKey };
+        });
+      });
+    }
+
+    _items = [];
+    if (quotesResp.byOwner) {
+      Object.keys(quotesResp.byOwner).forEach(function(k) {
+        (quotesResp.byOwner[k] || []).forEach(function(q) {
+          if (q.status === 'on_hold' || q.status === 'denied') _items.push({ ownerKey: k, quote: q });
+        });
+      });
+    } else {
+      var myKey2 = (_user.email || '').toLowerCase();
+      (quotesResp.quotes || []).forEach(function(q) {
+        if (q.status === 'on_hold' || q.status === 'denied') _items.push({ ownerKey: myKey2, quote: q });
+      });
+    }
+
+    _items.sort(function(a,b) {
+      return new Date(b.quote.updatedAt || 0) - new Date(a.quote.updatedAt || 0);
+    });
+
+    render();
+  }).catch(function(err) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty-state"><h3>Failed to load</h3><p>' + escH(err.message || 'unknown error') + '</p></div>';
+  });
+}
+
+function render() {
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var rows = _items.filter(function(it) {
+    if (_filter !== 'all' && it.quote.status !== _filter) return false;
+    if (!search) return true;
+    var hay = ((it.quote.borrower||'') + ' ' + (it.quote.address||'')).toLowerCase();
+    return hay.indexOf(search) >= 0;
+  });
+
+  var content = document.getElementById('content');
+  if (!rows.length) {
+    content.innerHTML = '<div class="empty-state"><h3>Nothing on hold or denied</h3><p>Loans on hold or denied by admin will appear here.</p></div>';
+    return;
+  }
+
+  function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+
+  var html = '<div class="card"><table>' +
+    '<thead><tr>' +
+      '<th>Address / Borrower</th>' +
+      '<th>Tool</th>' +
+      '<th>Status</th>' +
+      '<th>Loan Amount</th>' +
+      (_scope === 'all' && _isAdmin ? '<th>LO</th>' : '') +
+      '<th>Updated</th>' +
+      '<th>Notes</th>' +
+    '</tr></thead><tbody>';
+
+  rows.forEach(function(it) {
+    var q = it.quote;
+    var fd = q.formData || {};
+    var amt = fmtMoney(num(fd.loanAmt || fd.purchasePrice || q.loanAmt));
+    var tool = q.toolType === 'rtl' ? 'rtl' : 'dscr';
+    var statusLabel = q.status === 'on_hold' ? '⏸ On Hold' : '✕ Denied';
+    var loanLink = _loanLookup[it.ownerKey + '|' + norm(q.address || '')];
+    var detailsUrl = loanLink
+      ? 'loan-details.html?clientId=' + encodeURIComponent(loanLink.clientId)
+        + '&loanId=' + encodeURIComponent(loanLink.loanId)
+        + '&owner=' + encodeURIComponent(loanLink.ownerKey)
+      : null;
+    var loName = _profileMap[(it.ownerKey||'').toLowerCase()];
+    var loDisplayName = loName ? (loName.fullName || loName.email) : it.ownerKey;
+    var addrCell = detailsUrl
+      ? '<a href="' + detailsUrl + '" class="row-link"><div class="td-addr-main">' + escH(q.address || '—') + '</div>'
+        + (q.borrower ? '<div class="td-addr-sub">' + escH(q.borrower) + '</div>' : '') + '</a>'
+      : '<div class="td-addr-main">' + escH(q.address || '—') + '</div>'
+        + (q.borrower ? '<div class="td-addr-sub">' + escH(q.borrower) + '</div>' : '');
+
+    html += '<tr>' +
+      '<td class="td-addr">' + addrCell + '</td>' +
+      '<td><span class="tool-tag ' + tool + '">' + tool.toUpperCase() + '</span></td>' +
+      '<td><span class="badge ' + q.status + '">' + statusLabel + '</span></td>' +
+      '<td class="td-mono">' + amt + '</td>' +
+      (_scope === 'all' && _isAdmin ? '<td class="td-mono">' + escH(loDisplayName) + '</td>' : '') +
+      '<td class="td-mono" style="font-size:12px;color:var(--muted)">' + (q.updatedAt ? new Date(q.updatedAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—') + '</td>' +
+      '<td style="font-size:12px;color:var(--muted)">' + escH(q.decisionNotes || '—') + '</td>' +
+    '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  content.innerHTML = html;
+}
+
+function num(v) { if (!v) return 0; if (typeof v === 'number') return v; var n = parseFloat(String(v).replace(/[^0-9.]/g,'')); return isFinite(n) ? n : 0; }
+function fmtMoney(n) { if (!n) return '—'; if (n>=1e6) return '$'+(n/1e6).toFixed(2)+'M'; if (n>=1e3) return '$'+Math.round(n).toLocaleString(); return '$'+Math.round(n); }
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+
+</body>
+</html>

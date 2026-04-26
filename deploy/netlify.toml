@@ -10,6 +10,19 @@
   NODE_VERSION = "20"
   AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
 
+# ── Page redirects (post pipeline migration) ──────────────
+[[redirects]]
+  from = "/prospects.html"
+  to = "/pipeline.html"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/saved-quotes.html"
+  to = "/pipeline.html"
+  status = 301
+  force = true
+
 # ── API routes ──────────────────────────────────────────────
 [[redirects]]
   from = "/api/config"
