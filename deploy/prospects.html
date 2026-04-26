@@ -91,6 +91,7 @@ tbody td{padding:13px 14px;font-size:13px;color:var(--text);vertical-align:middl
   <div class="nav-right"><a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link current" href="prospects.html">Prospects</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
     <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a><button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
 </nav>
@@ -148,7 +149,7 @@ netlifyIdentity.on('init', function(user) {
   if (navAdmin) {
     var roles = (user.app_metadata && user.app_metadata.roles) || [];
     if (typeof roles === 'string') roles = [roles];
-    if (roles.some(function(r){return r==='admin'||r==='super_admin';})) navAdmin.style.display = 'inline-block';
+    if (roles.some(function(r){return r==='admin'||r==='super_admin';})) navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
   }
 
   // The LO's apply-link slug is their email address (matches server-side rule)

@@ -180,6 +180,7 @@
           <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
           <a class="nav-tool-link" href="prospects.html">Prospects</a>
           <a class="nav-tool-link" href="clients.html">Clients</a>
+          <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
           <a class="nav-tool-link" href="admin.html" id="adminLink" style="display:none">Admin</a>
           <button class="logout-btn" id="logoutBtn">Sign out</button>
         </div>
@@ -259,7 +260,11 @@
     function showApp(user) {
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
-      if (isAdmin(user)) adminLink.style.display = 'inline-block';
+      if (isAdmin(user)) {
+        adminLink.style.display = 'inline-block';
+        var navSub = document.getElementById('navSubmissionsLink');
+        if (navSub) navSub.style.display = 'inline-block';
+      }
       // Show notification banner if active (from backend Settings)
       SLA.Settings.getBanner().then(function(banner) {
         var bannerEl = document.getElementById('notifBanner');

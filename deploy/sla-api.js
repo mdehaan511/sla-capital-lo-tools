@@ -265,6 +265,14 @@
   // ── Admin ───────────────────────────────────────────────────────
   var Admin = {
     userStats: function () { return api('GET', '/api/users-stats'); },
+    decideQuote: function (ownerKey, quoteId, status, reason) {
+      return api('POST', '/api/quotes-decide', {
+        ownerKey: ownerKey,
+        quoteId: quoteId,
+        status: status,
+        reason: reason || '',
+      });
+    },
   };
 
   // ── Profile (silent) ────────────────────────────────────────────

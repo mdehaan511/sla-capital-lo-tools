@@ -206,6 +206,7 @@
   <div class="nav-right"><a class="nav-tool-link current" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link" href="prospects.html">Prospects</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
     <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a><button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
 </nav>
@@ -371,7 +372,7 @@ netlifyIdentity.on('init', function(user) {
   var _ne=document.getElementById('navEmail'); if(_ne) _ne.textContent = user.email;
   if (_isAdmin) document.getElementById('viewTabs').style.display = 'flex';
   var navAdmin = document.getElementById('navAdminLink');
-  if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block';
+  if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
   QuoteStore.init().then(loadMyQuotes);
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
@@ -1139,7 +1140,7 @@ function adminDecision(userEmail, userId, toolType, address, decision) {
   var label = decision === 'approved' ? 'Approved' : 'Denied';
   if (!confirm(label + ' loan for:\n' + address + '\nSubmitted by: ' + userEmail + '?')) return;
 
-  // Look up the target quote from the admin cache
+  // Look up the target quote from the admin cache so we have its id
   var byOwner = QuoteStore.getAdminCache() || {};
   var quotes  = byOwner[userEmail] || [];
   var norm = address.trim().toLowerCase().replace(/\s+/g,' ');
@@ -1148,22 +1149,15 @@ function adminDecision(userEmail, userId, toolType, address, decision) {
   });
   if (!target) { showToast('Quote not found for ' + address); return; }
 
-  var updated = Object.assign({}, target, {
-    status:    decision,
-    updatedAt: new Date().toISOString(),
-    _owner:    userEmail, // admin save-on-behalf
-  });
-
-  SLA.Quotes.save(updated).then(function() {
-    // Update local admin cache in-place so the table refreshes
-    var idx = quotes.indexOf(target);
-    if (idx >= 0) quotes[idx] = updated;
-    syncStatusToClientBook(userEmail, address, decision);
-    showToast(label + ' — ' + address);
+  // Use the admin endpoint — it updates the quote, syncs to client record,
+  // AND emails the LO.
+  SLA.Admin.decideQuote(userEmail, target.id, decision, '').then(function(resp) {
+    target.status = decision;
+    target.updatedAt = new Date().toISOString();
+    showToast(label + ' — ' + (resp.emailed ? 'LO notified by email' : address));
     _submittedLoaded = false;
     _deriveSubmittedLoans();
     if (userEmail === _user.email) {
-      // Also update the user's own cache
       QuoteStore.updateStatus(_user.email, toolType, address, decision);
       loadMyQuotes();
     }

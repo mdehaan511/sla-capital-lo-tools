@@ -104,6 +104,7 @@
     <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link" href="prospects.html">Prospects</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
     <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
     <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
@@ -149,7 +150,7 @@ function onUser(user) {
   // Show Admin nav link if user is admin/super_admin
   var navAdmin = document.getElementById('navAdminLink');
   if (navAdmin && window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
-    navAdmin.style.display = 'inline-block';
+    navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
   }
   fetchClient().then(function(c) {
     _client = c;

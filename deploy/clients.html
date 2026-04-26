@@ -121,6 +121,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="nav-right"><a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
     <a class="nav-tool-link" href="prospects.html">Prospects</a>
     <a class="nav-tool-link current" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
     <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a><button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
 </nav>
@@ -211,7 +212,7 @@ netlifyIdentity.on('init', function(user) {
   var _ne=document.getElementById('navEmail'); if(_ne) _ne.textContent = user.email;
   if (_isAdmin) document.getElementById('viewTabs').style.display = 'flex';
   var navAdmin = document.getElementById('navAdminLink');
-  if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block';
+  if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
   refreshClientsFromBackend().then(function() {
     renderSummary();
     renderClients();

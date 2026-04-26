@@ -78,6 +78,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/quotes-decide"
+  to = "/.netlify/functions/quotes-decide"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/users-stats"
   to = "/.netlify/functions/users-stats"
   status = 200

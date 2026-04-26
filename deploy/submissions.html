@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submission Queue — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --danger-light: rgba(124,31,31,0.08);
+      --success: #256940; --success-light: rgba(37,105,64,0.08);
+      --warn: #7a5218; --warn-light: rgba(122,82,24,0.10);
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate {
+      position: fixed; inset: 0; background: var(--dark);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999;
+    }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 1120px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    .page { max-width: 1120px; margin: 0 auto; padding-top: 2rem; }
+    .page-header { margin-bottom: 1.5rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+    .refresh-btn { font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .refresh-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    /* Summary strip */
+    .stat-strip { display: flex; gap: 12px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 8px 16px; font-size: 13px; }
+    .stat-pill .num { font-family: 'DM Mono', monospace; font-weight: 600; color: var(--text); }
+    .stat-pill .lbl { color: var(--muted); margin-left: 6px; }
+
+    /* Submission cards */
+    .card-list { display: flex; flex-direction: column; gap: 14px; }
+    .sub-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .sub-card-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .sub-card-title { font-size: 15px; font-weight: 600; color: var(--text); }
+    .sub-card-sub { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: 'DM Mono', monospace; }
+    .tool-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 4px; background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); margin-right: 6px; }
+    .tool-tag.rtl { background: rgba(38,26,54,0.08); color: var(--dark); border-color: rgba(38,26,54,0.18); }
+    .age-pill { font-size: 11px; padding: 3px 9px; border-radius: 20px; background: var(--bg); color: var(--muted); font-family: 'DM Mono', monospace; }
+    .age-pill.warn { background: var(--warn-light); color: var(--warn); }
+
+    .sub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0; padding: 0; }
+    .sub-cell { padding: 12px 20px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .sub-cell:last-child { border-right: none; }
+    .sub-cell .lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 4px; }
+    .sub-cell .val { font-size: 13px; font-weight: 500; color: var(--text); font-family: 'DM Mono', monospace; }
+
+    .sub-card-foot { padding: 14px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--bg); }
+    .reason-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); background: var(--surface); }
+    .reason-input:focus { outline: none; border-color: var(--gold); }
+    .decide-btn { font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; border: 1px solid; white-space: nowrap; }
+    .decide-btn:disabled { opacity: 0.5; cursor: wait; }
+    .decide-btn.approve { background: var(--success); border-color: var(--success); color: #fff; }
+    .decide-btn.approve:hover:not(:disabled) { background: #1f5836; border-color: #1f5836; }
+    .decide-btn.deny { background: var(--surface); border-color: var(--danger); color: var(--danger); }
+    .decide-btn.deny:hover:not(:disabled) { background: var(--danger); color: #fff; }
+    .decide-btn.hold { background: var(--surface); border-color: var(--warn); color: var(--warn); }
+    .decide-btn.hold:hover:not(:disabled) { background: var(--warn); color: #fff; }
+    .view-link { font-size: 12px; color: var(--muted); text-decoration: none; padding: 8px 12px; }
+    .view-link:hover { color: var(--gold); }
+
+    .empty-state { text-align: center; padding: 4rem 2rem; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--r); }
+    .empty-state h3 { font-family: 'Lora', serif; font-size: 17px; color: var(--text); margin-bottom: 8px; }
+
+    .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
+    .toast.show { opacity: 1; }
+
+    .loading { text-align: center; padding: 3rem 2rem; color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 700px) {
+      .sub-grid { grid-template-columns: repeat(2, 1fr); }
+      .sub-cell { border-right: 1px solid var(--border); }
+      .sub-cell:nth-child(2n) { border-right: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
+    <a class="nav-tool-link" href="prospects.html">Prospects</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link current" href="submissions.html">Submissions</a>
+    <a class="nav-tool-link" href="admin.html">Admin</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Submission Queue</h1>
+      <p id="pageSubtitle">Loans awaiting decision — oldest first</p>
+    </div>
+    <div>
+      <button class="refresh-btn" onclick="loadSubmissions(true)">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="stat-strip" id="statStrip"></div>
+
+  <div id="content">
+    <div class="loading">Loading submissions…</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var _user = null;
+var _profileMap = {};
+var _rows = [];
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Sign in required</strong>' +
+      '<a href="index.html" style="color:#C8813A">← Go to login</a></div>';
+    return;
+  }
+  if (!SLA.isAdmin(user)) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Access Denied</strong>Admin access required.<br><br>' +
+      '<a href="index.html" style="color:#C8813A">← Back to tools</a></div>';
+    return;
+  }
+  _user = user;
+  document.getElementById('auth-gate').style.display = 'none';
+  loadSubmissions(false);
+});
+
+netlifyIdentity.on('logout', function() { window.location.href = '/'; });
+
+function loadSubmissions(force) {
+  var content = document.getElementById('content');
+  if (force) content.innerHTML = '<div class="loading">Refreshing…</div>';
+
+  Promise.all([
+    SLA.Quotes.list({ all: true }),
+    SLA.Admin.userStats(),
+    SLA.Clients.list({ all: true }).catch(function(){ return { byOwner: {} }; }),
+  ]).then(function(results) {
+    var byOwner = (results[0] && results[0].byOwner) || {};
+    var stats   = (results[1] && results[1].users)   || [];
+    var clientsResp = results[2] || { byOwner: {} };
+
+    // Build profile map for friendly LO names
+    _profileMap = {};
+    stats.forEach(function(p) {
+      if (!p.email) return;
+      var key = p.email.toLowerCase();
+      _profileMap[key] = { email: p.email, fullName: p.fullName || '' };
+    });
+
+    // Build address-to-loan map for "View loan" links
+    var loanMap = {};
+    function norm(s) { return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+    Object.keys(clientsResp.byOwner || {}).forEach(function(ownerKey) {
+      (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          if (!l.address || !l.id) return;
+          loanMap[ownerKey + '|' + norm(l.address)] = {
+            clientId: c.id, loanId: l.id, ownerKey: ownerKey,
+          };
+        });
+      });
+    });
+
+    // Flatten submitted quotes
+    _rows = [];
+    Object.keys(byOwner).forEach(function(ownerKey) {
+      (byOwner[ownerKey] || []).forEach(function(q) {
+        if ((q.status || 'active') === 'submitted') {
+          _rows.push({
+            ownerKey: ownerKey,
+            quote:    q,
+            loanLink: loanMap[ownerKey + '|' + norm(q.address || '')] || null,
+          });
+        }
+      });
+    });
+
+    // Oldest first (FIFO inbox behavior)
+    _rows.sort(function(a, b) {
+      return new Date(a.quote.updatedAt || a.quote.savedAt) - new Date(b.quote.updatedAt || b.quote.savedAt);
+    });
+
+    render();
+  }).catch(function(err) {
+    content.innerHTML = '<div class="empty-state"><h3>Failed to load</h3><p>' + escH(err.message || 'unknown error') + '</p></div>';
+  });
+}
+
+function render() {
+  var strip = document.getElementById('statStrip');
+  var content = document.getElementById('content');
+
+  if (!_rows.length) {
+    strip.innerHTML = '<div class="stat-pill"><span class="num">0</span><span class="lbl">awaiting decision</span></div>';
+    content.innerHTML = '<div class="empty-state"><h3>Inbox zero</h3><p>No loans are currently awaiting your decision.</p></div>';
+    return;
+  }
+
+  // Stats
+  var totalAmt = 0;
+  var oldestDays = 0;
+  var now = Date.now();
+  _rows.forEach(function(r) {
+    var fd = r.quote.formData || {};
+    var amt = parseFloat(String(fd.loanAmt || fd.purchasePrice || r.quote.loanAmt || '').replace(/[^0-9.]/g, '')) || 0;
+    totalAmt += amt;
+    var ageDays = Math.floor((now - new Date(r.quote.updatedAt || r.quote.savedAt).getTime()) / 86400000);
+    if (ageDays > oldestDays) oldestDays = ageDays;
+  });
+  strip.innerHTML =
+    '<div class="stat-pill"><span class="num">' + _rows.length + '</span><span class="lbl">awaiting decision</span></div>' +
+    '<div class="stat-pill"><span class="num">' + fmtMoney(totalAmt) + '</span><span class="lbl">total volume</span></div>' +
+    '<div class="stat-pill"><span class="num">' + oldestDays + 'd</span><span class="lbl">oldest in queue</span></div>';
+
+  var html = '<div class="card-list">';
+  _rows.forEach(function(r, i) { html += buildCard(r, i); });
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+function buildCard(r, idx) {
+  var q = r.quote;
+  var fd = q.formData || {};
+  var profile = _profileMap[(r.ownerKey || '').toLowerCase()];
+  var loName = profile ? (profile.fullName || profile.email) : r.ownerKey;
+  var loEmail = profile ? profile.email : r.ownerKey;
+  var isDscr = (q.toolType || 'dscr') !== 'rtl';
+
+  var ageDays = Math.floor((Date.now() - new Date(q.updatedAt || q.savedAt).getTime()) / 86400000);
+  var ageLabel = ageDays === 0 ? 'today'
+    : ageDays === 1 ? '1 day ago'
+    : ageDays + ' days ago';
+  var ageClass = ageDays >= 3 ? 'age-pill warn' : 'age-pill';
+
+  var amt    = fmtMoney(fd.loanAmt || fd.purchasePrice || q.loanAmt);
+  var rate   = fd._finalRate ? fd._finalRate + '%' : '—';
+  var points = fd._points || fd.buydown || '—';
+  var loanType = fd.loanType || (isDscr ? 'DSCR' : 'RTL');
+  var fico   = fd.fico || '—';
+  var ltv    = fd.loanAmt && fd.propValue
+    ? ((parseFloat(fd.loanAmt) / parseFloat(fd.propValue)) * 100).toFixed(1) + '%'
+    : '—';
+
+  var loanLink = r.loanLink
+    ? 'loan-details.html?clientId=' + encodeURIComponent(r.loanLink.clientId)
+      + '&loanId=' + encodeURIComponent(r.loanLink.loanId)
+      + '&owner=' + encodeURIComponent(r.loanLink.ownerKey)
+    : null;
+
+  return (
+    '<div class="sub-card" id="card-' + idx + '">' +
+      '<div class="sub-card-head">' +
+        '<div>' +
+          '<div class="sub-card-title">' +
+            '<span class="tool-tag ' + (q.toolType || 'dscr') + '">' + (q.toolType || 'dscr').toUpperCase() + '</span>' +
+            escH(q.borrower || q.address || 'Submission') +
+          '</div>' +
+          '<div class="sub-card-sub">' +
+            (q.address && q.borrower ? escH(q.address) + ' · ' : '') +
+            'LO: ' + escH(loName) +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span class="' + ageClass + '">' + ageLabel + '</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="sub-grid">' +
+        cell('Loan Amount', amt) +
+        cell('Loan Type', loanType) +
+        cell(isDscr ? 'Rate' : 'ARV', isDscr ? rate : fmtMoney(fd.arv || fd.estimatedARV)) +
+        cell(isDscr ? 'Points' : 'Rehab', isDscr ? points : fmtMoney(fd.rehabBudget || fd.rehabCost)) +
+        cell(isDscr ? 'LTV' : 'Experience', isDscr ? ltv : (fd.experience || '—')) +
+        cell('FICO', fico) +
+      '</div>' +
+
+      '<div class="sub-card-foot">' +
+        '<input type="text" class="reason-input" id="reason-' + idx + '" placeholder="Optional notes for the LO (visible in their email)…" />' +
+        (loanLink ? '<a class="view-link" href="' + loanLink + '">View loan →</a>' : '') +
+        '<button class="decide-btn hold" onclick="decide(' + idx + ', \'on_hold\')">⏸ Hold</button>' +
+        '<button class="decide-btn deny" onclick="decide(' + idx + ', \'denied\')">✕ Deny</button>' +
+        '<button class="decide-btn approve" onclick="decide(' + idx + ', \'approved\')">✓ Approve</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function decide(idx, status) {
+  var r = _rows[idx];
+  if (!r) return;
+  var verb = status === 'approved' ? 'Approve' : status === 'denied' ? 'Deny' : 'Hold';
+  if (!confirm(verb + ' loan for ' + (r.quote.borrower || r.quote.address || 'this submission') + '?')) return;
+
+  var reasonEl = document.getElementById('reason-' + idx);
+  var reason = reasonEl ? reasonEl.value.trim() : '';
+
+  // Disable buttons in this card while in flight
+  var card = document.getElementById('card-' + idx);
+  if (card) card.querySelectorAll('.decide-btn').forEach(function(b){ b.disabled = true; });
+
+  SLA.Admin.decideQuote(r.ownerKey, r.quote.id, status, reason).then(function(resp) {
+    var msg = (verb === 'Approve' ? 'Approved' : verb === 'Deny' ? 'Denied' : 'Held') + ' — ';
+    msg += resp.emailed ? 'LO notified by email' : 'LO will see status change on next refresh';
+    showToast(msg);
+    // Remove from local rows + re-render
+    _rows.splice(idx, 1);
+    render();
+  }).catch(function(err) {
+    if (card) card.querySelectorAll('.decide-btn').forEach(function(b){ b.disabled = false; });
+    showToast('Failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+function cell(lbl, val) {
+  return '<div class="sub-cell"><div class="lbl">' + escH(lbl) + '</div><div class="val">' + escH(val || '—') + '</div></div>';
+}
+
+function escH(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function fmtMoney(v) {
+  if (!v) return '—';
+  var n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^0-9.]/g, ''));
+  if (!n || isNaN(n)) return '—';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + Math.round(n).toLocaleString();
+  return '$' + Math.round(n);
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3500);
+}
+</script>
+
+</body>
+</html>

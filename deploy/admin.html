@@ -146,6 +146,7 @@
     <div class="nav-right"><a class="nav-tool-link" href="saved-quotes.html">Saved Quotes</a>
       <a class="nav-tool-link" href="prospects.html">Prospects</a>
       <a class="nav-tool-link" href="clients.html">Clients</a>
+      <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
       <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a><button class="logout-btn" id="logoutBtn">Sign out</button>
     </div>
   </nav>
@@ -361,6 +362,10 @@ netlifyIdentity.on('init', function(user) {
     netlifyUrl  = window.location.origin;
     document.getElementById('auth-gate').style.display = 'none';
     var _ne=document.getElementById('navEmail'); if(_ne) _ne.textContent = user.email;
+    var navAdmin = document.getElementById('navAdminLink');
+    if (navAdmin) navAdmin.style.display = 'inline-block';
+    var navSub = document.getElementById('navSubmissionsLink');
+    if (navSub) navSub.style.display = 'inline-block';
     initAdminPage();
   }
 
