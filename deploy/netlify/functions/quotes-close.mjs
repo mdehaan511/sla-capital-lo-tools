@@ -55,7 +55,10 @@ export default async (req, context) => {
   const commissionAmount = Math.round(finalAmt * rateBps) / 10000;
   const now = new Date().toISOString();
 
-  // Preserve a backup of the original financials the first time we close
+  // Was this the first time the loan is being closed, or an edit
+  // of an already-closed loan? We only email on the first close.
+  const isFirstClose = !quote.closedAt;
+
   if (!quote.originalLoanAmt) {
     quote.originalLoanAmt = quote.loanAmt || (quote.formData && quote.formData.loanAmt) || '';
   }
@@ -86,7 +89,17 @@ export default async (req, context) => {
     console.warn('quotes-close: client sync failed:', e);
   }
 
-  return json(200, { ok: true, quote });
+  // Email the LO on the first close. Best-effort; never fail the close.
+  let emailed = false;
+  if (isFirstClose) {
+    try {
+      emailed = await notifyLO(quote, user.email || '');
+    } catch (e) {
+      console.warn('quotes-close: email failed:', e);
+    }
+  }
+
+  return json(200, { ok: true, quote, emailed, firstClose: isFirstClose });
 };
 
 async function syncToClientLoan(ownerKey, quote) {
@@ -114,4 +127,96 @@ async function syncToClientLoan(ownerKey, quote) {
     }
     if (changed) await clientsStore.setJSON(key, c);
   }
+}
+
+// ── LO notification email ──────────────────────────────────────
+async function notifyLO(quote, closedByEmail) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn('RESEND_API_KEY not set — skipping close-loan LO notification');
+    return false;
+  }
+
+  // The LO who owns the quote — saved by quotes-save as createdBy.
+  const toEmail = quote.createdBy || '';
+  if (!toEmail) {
+    console.warn('quotes-close: no LO email on quote — cannot notify');
+    return false;
+  }
+
+  const fmtMoney = (v) => {
+    const n = Number(v);
+    if (!isFinite(n) || n === 0) return '$0';
+    return '$' + Math.round(n).toLocaleString();
+  };
+  const fd = quote.formData || {};
+  const borrower = quote.borrower || fd.borrower || '';
+  const address  = quote.address  || fd.address  || '';
+  const finalAmt = fmtMoney(quote.finalLoanAmount);
+  const rateBps  = Number(quote.commissionRate) || 0;
+  const commission = fmtMoney(quote.commissionAmount);
+
+  const subject = `Loan CLOSED: ${address || borrower || 'Submission'} — ${commission} commission`;
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const text = [
+    `Your loan has closed.`,
+    '',
+    `Borrower:        ${borrower || '—'}`,
+    `Address:         ${address || '—'}`,
+    `Final amount:    ${finalAmt}`,
+    `Commission rate: ${rateBps} bps`,
+    `Commission:      ${commission}`,
+    '',
+    `Closed by: ${closedByEmail || quote.closedBy || ''}`,
+    quote.closeNotes ? `Notes: ${quote.closeNotes}` : '',
+    '',
+    'View your full closed loans on the Closed page.',
+  ].filter(Boolean).join('\n');
+
+  const html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+    '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+    '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — Loan Closed</h1>' +
+    `<p style="color:rgba(255,255,255,.55);font-size:12px;margin:4px 0 0">${esc(new Date().toLocaleString('en-US'))}</p></div>` +
+    '<div style="padding:24px">' +
+      '<div style="display:inline-block;padding:6px 14px;border-radius:24px;background:#256940;color:#fff;font-size:12px;font-weight:700;letter-spacing:.06em;margin-bottom:18px">CLOSED</div>' +
+      `<h2 style="font-size:15px;margin:0 0 12px">${esc(borrower || address || 'Loan')}</h2>` +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+        row('Borrower', esc(borrower)) +
+        row('Address', esc(address)) +
+        row('Final Loan Amount', finalAmt) +
+        row('Commission Rate', rateBps + ' bps') +
+        row('Commission Earned', `<span style="color:#256940;font-weight:700">${commission}</span>`) +
+        row('Closed By', esc(closedByEmail || quote.closedBy || '')) +
+        (quote.closeNotes ? row('Notes', esc(quote.closeNotes)) : '') +
+      '</table>' +
+      '<p style="margin-top:20px;font-size:12px;color:#666">Track your earnings on the Closed Loans page.</p>' +
+    '</div></div></body></html>';
+
+  const payload = JSON.stringify({
+    from: 'SLA Capital <noreply@leads.slacapital.com>',
+    to: [toEmail],
+    subject,
+    text,
+    html,
+  });
+
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: payload,
+  });
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw new Error(`Resend ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  return true;
+}
+
+function row(label, value) {
+  return `<tr><td style="padding:6px 0;color:#666;width:160px">${label}</td><td style="padding:6px 0;color:#1a1520;font-weight:600">${value || '—'}</td></tr>`;
 }

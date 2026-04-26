@@ -601,8 +601,10 @@ function closeLoan(quoteId, ownerKey) {
     'Commission: $' + Math.round(commission).toLocaleString() + ' (' + bps + ' bps)'
   )) return;
 
-  SLA.Admin.closeQuote(ownerKey, q.id, finalAmt, bps, '').then(function() {
-    showToast('Loan closed — $' + Math.round(commission).toLocaleString() + ' commission');
+  SLA.Admin.closeQuote(ownerKey, q.id, finalAmt, bps, '').then(function(resp) {
+    var msg = 'Loan closed — $' + Math.round(commission).toLocaleString() + ' commission';
+    if (resp && resp.emailed) msg += ' · LO notified';
+    showToast(msg);
     loadAll();
   }).catch(function(err) {
     showToast('Failed: ' + (err.message || 'unknown error'));
