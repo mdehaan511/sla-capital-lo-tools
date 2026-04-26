@@ -115,6 +115,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/search"
+  to = "/.netlify/functions/search"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/prospects-bulk-delete"
+  to = "/.netlify/functions/prospects-bulk-delete"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/users-stats"
   to = "/.netlify/functions/users-stats"
   status = 200

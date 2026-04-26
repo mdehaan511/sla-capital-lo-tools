@@ -298,6 +298,22 @@
     },
   };
 
+  // ── Search ──────────────────────────────────────────────────────
+  var Search = {
+    query: function (q, opts) {
+      opts = opts || {};
+      var qs = '?q=' + encodeURIComponent(q || '');
+      if (opts.all) qs += '&all=1';
+      return api('GET', '/api/search' + qs);
+    },
+  };
+
+  // ── Bulk delete (added to Prospects namespace) ──────────────────
+  Prospects.bulkDelete = function (items) {
+    return api('POST', '/api/prospects-bulk-delete', { items: items })
+      .then(function (r) { cache.clear('prospects'); return r; });
+  };
+
   // ── Shared role helpers (mirror of function-side logic) ─────────
   function getRoles(user) {
     if (!user) return [];
@@ -329,6 +345,7 @@
     Settings: Settings,
     Admin: Admin,
     Profile: Profile,
+    Search: Search,
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,

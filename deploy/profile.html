@@ -6,6 +6,7 @@
   <title>Profile — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-search.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -104,6 +105,10 @@
     .summary-stat { }
     .summary-stat .lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
     .summary-stat .val { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; color: var(--text); margin-top: 2px; }
+
+    .activity-tabs { display: flex; gap: 6px; margin-bottom: 1rem; }
+    .activity-tab { font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .activity-tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
 
     .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
     .toast.show { opacity: 1; }
@@ -328,19 +333,23 @@ function loadStats() {
 
 function renderMyStats() {
   var s = _myStats || {
-    quoteCount: 0, clientCount: 0, submittedCount: 0, approvedCount: 0,
-    closedCount: 0, totalLoanAmount: 0, closedVolume: 0, totalCommission: 0
+    prospectCount: 0, quoteCount: 0, clientCount: 0, submittedCount: 0, approvedCount: 0,
+    closedCount: 0, totalLoanAmount: 0, closedVolume: 0, totalCommission: 0,
+    avgClosedLoanSize: 0, conversion: {}
   };
+  var convOverall = (s.conversion && s.conversion.prospectToClosed != null)
+    ? s.conversion.prospectToClosed + '%'
+    : '—';
   var grid = document.getElementById('statsGrid');
   grid.innerHTML =
-    statCell('Quoted',         s.quoteCount,     null) +
-    statCell('Submitted',      s.submittedCount, null) +
-    statCell('Approved',       s.approvedCount,  null) +
-    statCell('Closed',         s.closedCount,    'gold') +
-    statCell('Clients',        s.clientCount,    null) +
-    statCell('Pipeline Volume', fmtMoney(s.totalLoanAmount), null) +
-    statCell('Closed Volume',  fmtMoney(s.closedVolume), 'gold') +
-    statCell('Commission',     fmtMoney(s.totalCommission), 'success');
+    statCell('Prospects',       s.prospectCount,  null) +
+    statCell('Quoted',          s.quoteCount,     null) +
+    statCell('Submitted',       s.submittedCount, null) +
+    statCell('Approved',        s.approvedCount,  null) +
+    statCell('Closed',          s.closedCount,    'gold') +
+    statCell('Avg Closed Loan', fmtMoney(s.avgClosedLoanSize), null) +
+    statCell('Closed Volume',   fmtMoney(s.closedVolume), 'gold') +
+    statCell('Commission',      fmtMoney(s.totalCommission), 'success');
 }
 
 function statCell(lbl, val, color) {
@@ -348,30 +357,65 @@ function statCell(lbl, val, color) {
   return '<div class="stat-cell"><div class="lbl">' + escH(lbl) + '</div><div class="val' + cls + '">' + escH(val) + '</div></div>';
 }
 
+var _activityView = 'volume'; // 'volume' | 'conversion'
+
+function setActivityView(v) {
+  _activityView = v;
+  document.querySelectorAll('.activity-tab').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.view === v);
+  });
+  if (window._lastActivityUsers) renderActivityTable(window._lastActivityUsers);
+}
+
 function renderActivityTable(users) {
-  var totals = { users: users.length, quoted: 0, closed: 0, volume: 0, commission: 0 };
+  window._lastActivityUsers = users;
+
+  var totals = { users: users.length, prospects: 0, quoted: 0, submitted: 0, approved: 0, closed: 0, volume: 0, commission: 0 };
   users.forEach(function(u) {
-    totals.quoted    += u.quoteCount    || 0;
-    totals.closed    += u.closedCount   || 0;
-    totals.volume    += u.closedVolume  || 0;
+    totals.prospects += u.prospectCount  || 0;
+    totals.quoted    += u.quoteCount     || 0;
+    totals.submitted += u.submittedCount || 0;
+    totals.approved  += u.approvedCount  || 0;
+    totals.closed    += u.closedCount    || 0;
+    totals.volume    += u.closedVolume   || 0;
     totals.commission += u.totalCommission || 0;
   });
 
   var html =
     '<div class="summary-strip">' +
       summary('Users', users.length) +
-      summary('Total Quoted', totals.quoted) +
+      summary('Total Prospects', totals.prospects) +
       summary('Total Closed', totals.closed) +
       summary('Closed Volume', fmtMoney(totals.volume)) +
       summary('Commission', fmtMoney(totals.commission)) +
     '</div>';
 
-  // Sort by closed volume desc (effectively a leaderboard preview)
+  // Tabs
+  html += '<div class="activity-tabs">' +
+    '<button class="activity-tab ' + (_activityView === 'volume'     ? 'active' : '') + '" data-view="volume"     onclick="setActivityView(\'volume\')">Volume</button>' +
+    '<button class="activity-tab ' + (_activityView === 'conversion' ? 'active' : '') + '" data-view="conversion" onclick="setActivityView(\'conversion\')">Conversion Rates</button>' +
+  '</div>';
+
+  // Sort by closed volume desc (effectively a leaderboard)
   var sorted = users.slice().sort(function(a, b) {
+    if (_activityView === 'conversion') {
+      // Sort by overall prospect→closed conversion when in that view
+      return ((b.conversion && b.conversion.prospectToClosed) || 0) - ((a.conversion && a.conversion.prospectToClosed) || 0);
+    }
     return (b.closedVolume || 0) - (a.closedVolume || 0);
   });
 
-  html += '<div style="overflow-x:auto"><table>' +
+  if (_activityView === 'volume') {
+    html += renderVolumeTable(sorted);
+  } else {
+    html += renderConversionTable(sorted);
+  }
+
+  document.getElementById('activityContent').innerHTML = html;
+}
+
+function renderVolumeTable(sorted) {
+  var html = '<div style="overflow-x:auto"><table>' +
     '<thead><tr>' +
       '<th>User</th>' +
       '<th>Role</th>' +
@@ -381,6 +425,7 @@ function renderActivityTable(users) {
       '<th class="right">Approved</th>' +
       '<th class="right">Closed</th>' +
       '<th class="right">Closed Volume</th>' +
+      '<th class="right">Avg Loan</th>' +
       '<th class="right">Commission</th>' +
     '</tr></thead><tbody>';
 
@@ -401,12 +446,47 @@ function renderActivityTable(users) {
       '<td class="right">' + (u.approvedCount  || 0) + '</td>' +
       '<td class="right">' + (u.closedCount    || 0) + '</td>' +
       '<td class="right">' + fmtMoney(u.closedVolume) + '</td>' +
+      '<td class="right">' + fmtMoney(u.avgClosedLoanSize) + '</td>' +
       '<td class="right" style="color:var(--success);font-weight:600">' + fmtMoney(u.totalCommission) + '</td>' +
     '</tr>';
   });
-  html += '</tbody></table></div>';
+  return html + '</tbody></table></div>';
+}
 
-  document.getElementById('activityContent').innerHTML = html;
+function renderConversionTable(sorted) {
+  var html = '<div style="overflow-x:auto"><table>' +
+    '<thead><tr>' +
+      '<th>User</th>' +
+      '<th class="right">Prospects</th>' +
+      '<th class="right">Quoted</th>' +
+      '<th class="right">Prospect→Quoted</th>' +
+      '<th class="right">Quoted→Submitted</th>' +
+      '<th class="right">Submitted→Approved</th>' +
+      '<th class="right">Approved→Closed</th>' +
+      '<th class="right">Overall (P→C)</th>' +
+    '</tr></thead><tbody>';
+
+  sorted.forEach(function(u) {
+    var c = u.conversion || {};
+    var name = u.fullName || humanizeEmail(u.email);
+    html += '<tr>' +
+      '<td><div style="font-weight:600">' + escH(name) + '</div><div style="font-size:11px;color:var(--muted)">' + escH(u.email) + '</div></td>' +
+      '<td class="right">' + (u.prospectCount || 0) + '</td>' +
+      '<td class="right">' + (u.quoteCount    || 0) + '</td>' +
+      '<td class="right">' + pctCell(c.prospectToQuoted)    + '</td>' +
+      '<td class="right">' + pctCell(c.quotedToSubmitted)   + '</td>' +
+      '<td class="right">' + pctCell(c.submittedToApproved) + '</td>' +
+      '<td class="right">' + pctCell(c.approvedToClosed)    + '</td>' +
+      '<td class="right" style="color:var(--gold);font-weight:600">' + pctCell(c.prospectToClosed) + '</td>' +
+    '</tr>';
+  });
+  return html + '</tbody></table></div>';
+}
+
+function pctCell(p) {
+  if (p == null) return '<span style="color:var(--muted);font-size:11px">—</span>';
+  var color = p >= 50 ? 'var(--success)' : p >= 25 ? 'var(--warn)' : 'var(--muted)';
+  return '<span style="color:' + color + ';font-weight:600">' + p + '%</span>';
 }
 
 function summary(lbl, val) {

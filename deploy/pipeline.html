@@ -6,6 +6,7 @@
   <title>Pipeline — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-search.js"></script>
   <script src="quotes.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -180,6 +181,34 @@
     }
     .loading { padding: 4rem 2rem; text-align: center; color: var(--muted); font-size: 13px; }
 
+    /* Prospect select-box */
+    .prospect-card { position: relative; }
+    .select-box { position: absolute; top: 8px; right: 8px; cursor: pointer; padding: 4px; }
+    .select-box input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--gold); }
+    .prospect-card:has(input[type="checkbox"]:checked) { border-color: var(--gold); background: rgba(200,129,58,0.04); }
+
+    /* Bulk action bar */
+    .bulk-bar {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      background: var(--dark); color: #fff;
+      padding: 12px 18px; border-radius: 28px;
+      display: none; align-items: center; gap: 14px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.20);
+      z-index: 999;
+    }
+    .bulk-bar.show { display: flex; }
+    .bulk-count { font-size: 13px; font-weight: 600; }
+    .bulk-btn {
+      font-size: 12px; font-weight: 600;
+      padding: 7px 14px; border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #fff;
+      cursor: pointer; font-family: 'DM Sans', sans-serif;
+    }
+    .bulk-btn:hover { background: rgba(255,255,255,0.1); }
+    .bulk-btn.danger { background: var(--danger); border-color: var(--danger); }
+    .bulk-btn.danger:hover { background: #6a1a1a; }
+    .bulk-btn.cancel { color: rgba(255,255,255,0.7); }
+
     .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
     .toast.show { opacity: 1; }
 
@@ -232,6 +261,12 @@
   </div>
 </div>
 
+<div class="bulk-bar" id="bulkBar">
+  <span class="bulk-count" id="bulkCount">0 selected</span>
+  <button class="bulk-btn cancel" onclick="clearSelection()">Cancel</button>
+  <button class="bulk-btn danger" onclick="bulkDeleteSelected()">Delete prospects</button>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -241,6 +276,7 @@ var _scope = 'mine';
 var _profileMap = {};   // ownerKey → {email, fullName}
 var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
 var _items = { newApp: [], quoted: [], submitted: [], approved: [] };
+var _selectedProspects = new Set();
 
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
@@ -455,8 +491,14 @@ function buildProspectCard(it) {
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
     : '';
 
+  var selKey = it.ownerKey + '|' + it.id;
+  var checked = _selectedProspects.has(selKey) ? ' checked' : '';
+
   return (
-    '<div class="card">' +
+    '<div class="card prospect-card">' +
+      '<label class="select-box" title="Select for bulk delete">' +
+        '<input type="checkbox" class="prospect-cb" data-key="' + escAttr(selKey) + '" data-slug="' + escAttr(it.ownerKey) + '" data-id="' + escAttr(it.id) + '" onchange="toggleSelect(this)"' + checked + ' />' +
+      '</label>' +
       loRow +
       '<div class="card-title">' + escH(name) + '</div>' +
       '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
@@ -529,6 +571,67 @@ function buildQuoteCard(it, colKey) {
       '<div class="card-actions">' + actions + '</div>' +
     '</div>'
   );
+}
+
+// ── Bulk select / delete ────────────────────────────────
+function toggleSelect(checkbox) {
+  var key = checkbox.dataset.key;
+  if (checkbox.checked) _selectedProspects.add(key);
+  else _selectedProspects.delete(key);
+  updateBulkBar();
+  // Visual highlight: walk up to the parent card
+  var card = checkbox.closest('.prospect-card');
+  if (card) {
+    if (checkbox.checked) {
+      card.style.borderColor = 'var(--gold)';
+      card.style.background = 'rgba(200,129,58,0.04)';
+    } else {
+      card.style.borderColor = '';
+      card.style.background = '';
+    }
+  }
+}
+
+function updateBulkBar() {
+  var bar = document.getElementById('bulkBar');
+  var n = _selectedProspects.size;
+  if (n === 0) {
+    bar.classList.remove('show');
+  } else {
+    bar.classList.add('show');
+    document.getElementById('bulkCount').textContent = n + ' prospect' + (n === 1 ? '' : 's') + ' selected';
+  }
+}
+
+function clearSelection() {
+  _selectedProspects.clear();
+  document.querySelectorAll('.prospect-cb:checked').forEach(function(cb) { cb.checked = false; });
+  document.querySelectorAll('.prospect-card').forEach(function(c) {
+    c.style.borderColor = ''; c.style.background = '';
+  });
+  updateBulkBar();
+}
+
+function bulkDeleteSelected() {
+  var n = _selectedProspects.size;
+  if (n === 0) return;
+  if (!confirm('Delete ' + n + ' prospect' + (n === 1 ? '' : 's') + '? This cannot be undone.')) return;
+
+  var items = [];
+  _selectedProspects.forEach(function(key) {
+    var parts = key.split('|');
+    items.push({ slug: parts[0], prospectId: parts.slice(1).join('|') });
+  });
+
+  SLA.Prospects.bulkDelete(items).then(function(resp) {
+    showToast('Deleted ' + resp.deleted + ' prospect' + (resp.deleted === 1 ? '' : 's') +
+              (resp.errors && resp.errors.length ? ' (' + resp.errors.length + ' failed)' : ''));
+    _selectedProspects.clear();
+    updateBulkBar();
+    loadAll();
+  }).catch(function(err) {
+    showToast('Bulk delete failed: ' + (err.message || 'unknown error'));
+  });
 }
 
 // ── Actions ─────────────────────────────────────────────
