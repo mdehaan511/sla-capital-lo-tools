@@ -23,6 +23,12 @@
   status = 301
   force = true
 
+[[redirects]]
+  from = "/admin.html"
+  to = "/profile.html"
+  status = 301
+  force = true
+
 # ── API routes ──────────────────────────────────────────────
 [[redirects]]
   from = "/api/config"
@@ -93,6 +99,18 @@
 [[redirects]]
   from = "/api/quotes-decide"
   to = "/.netlify/functions/quotes-decide"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/quotes-close"
+  to = "/.netlify/functions/quotes-close"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/profile-update"
+  to = "/.netlify/functions/profile-update"
   status = 200
   force = true
 

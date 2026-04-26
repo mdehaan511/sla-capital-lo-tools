@@ -55,10 +55,15 @@ export default async (req, context) => {
     console.warn('users-stats clients list failed:', e);
   }
 
-  // 3) Walk quotes store for counts and loan-amount sums
+  // 3) Walk quotes store for counts, loan-amount sums, and per-status rollups
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-  const quoteCounts = {};
-  const quoteLoanSums = {};
+  const quoteCounts    = {};
+  const quoteLoanSums  = {};
+  const submittedCounts = {};
+  const approvedCounts  = {};
+  const closedCounts    = {};
+  const closedVolumes   = {};
+  const totalCommissions = {};
   try {
     const { blobs } = await quotesStore.list();
     await Promise.all(blobs.map(async ({ key }) => {
@@ -68,9 +73,19 @@ export default async (req, context) => {
       quoteCounts[ownerKey] = (quoteCounts[ownerKey] || 0) + 1;
       try {
         const q = await quotesStore.get(key, { type: 'json' });
-        if (q) {
-          const n = parseMoney(q.loanAmt);
-          if (n > 0) quoteLoanSums[ownerKey] = (quoteLoanSums[ownerKey] || 0) + n;
+        if (!q) return;
+        const status = q.status || 'active';
+        const fd = q.formData || {};
+        const amt = parseMoney(fd.loanAmt || fd.purchasePrice || q.loanAmt);
+        if (amt > 0) quoteLoanSums[ownerKey] = (quoteLoanSums[ownerKey] || 0) + amt;
+        if (status === 'submitted') submittedCounts[ownerKey] = (submittedCounts[ownerKey] || 0) + 1;
+        if (status === 'approved')  approvedCounts[ownerKey]  = (approvedCounts[ownerKey]  || 0) + 1;
+        if (status === 'closed') {
+          closedCounts[ownerKey] = (closedCounts[ownerKey] || 0) + 1;
+          const finalAmt = Number(q.finalLoanAmount) || amt;
+          if (finalAmt > 0) closedVolumes[ownerKey] = (closedVolumes[ownerKey] || 0) + finalAmt;
+          const commission = Number(q.commissionAmount) || 0;
+          if (commission > 0) totalCommissions[ownerKey] = (totalCommissions[ownerKey] || 0) + commission;
         }
       } catch (_) { /* skip */ }
     }));
@@ -90,7 +105,12 @@ export default async (req, context) => {
       roles: Array.isArray(p.roles) && p.roles.length ? p.roles : ['user'],
       clientCount: clientCounts[ownerKey] || 0,
       quoteCount:  quoteCounts[ownerKey] || 0,
+      submittedCount: submittedCounts[ownerKey] || 0,
+      approvedCount:  approvedCounts[ownerKey]  || 0,
+      closedCount:    closedCounts[ownerKey]    || 0,
       totalLoanAmount: quoteLoanSums[ownerKey] || 0,
+      closedVolume:    closedVolumes[ownerKey] || 0,
+      totalCommission: totalCommissions[ownerKey] || 0,
       userMetadata: p.user_metadata || {},
     };
   });
@@ -105,16 +125,21 @@ export default async (req, context) => {
   for (const k of orphanKeys) {
     annotated.push({
       id: null,
-      email: k.replace(/_/g, '.'), // best-effort — storage key isn't reversible
+      email: k.replace(/_/g, '.'),
       fullName: '',
       confirmed_at: null,
       last_seen_at: null,
       roles: ['user'],
       clientCount: clientCounts[k] || 0,
       quoteCount:  quoteCounts[k]  || 0,
+      submittedCount: submittedCounts[k] || 0,
+      approvedCount:  approvedCounts[k]  || 0,
+      closedCount:    closedCounts[k]    || 0,
       totalLoanAmount: quoteLoanSums[k] || 0,
+      closedVolume:    closedVolumes[k] || 0,
+      totalCommission: totalCommissions[k] || 0,
       userMetadata: {},
-      isOrphan: true, // UI hint: this user hasn't logged in since profile tracking started
+      isOrphan: true,
     });
   }
 

@@ -206,7 +206,7 @@
     <a class="nav-tool-link" href="closed.html">Closed</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
 
     <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
@@ -572,22 +572,37 @@ function goSubmit(quoteId, ownerKey) {
   });
 }
 
-// Admin: mark an approved loan as closed
+// Admin: mark an approved loan as closed. Opens a modal so the admin
+// can confirm/override the final loan amount and commission rate before
+// closing (so commission is computed correctly).
 function closeLoan(quoteId, ownerKey) {
   var item = _items.approved.find(function(it) { return it.id === quoteId && it.ownerKey === ownerKey; });
   if (!item) return;
   var q = item.quote;
-  if (!confirm('Mark this loan as CLOSED?\n\n' + (q.borrower || q.address || '') + '\n\nThis will move it to the Closed Loans page.')) return;
+  var fd = q.formData || {};
+  var defaultAmt = num(q.finalLoanAmount || fd.loanAmt || fd.purchasePrice || q.loanAmt);
+  var defaultBps = Number(q.commissionRate) || 50;
 
-  var updated = Object.assign({}, q, {
-    status: 'closed',
-    closedAt: new Date().toISOString(),
-    closedBy: _user.email || '',
-    updatedAt: new Date().toISOString(),
-    _owner: ownerKey,
-  });
-  SLA.Quotes.save(updated).then(function() {
-    showToast('Loan closed');
+  var amtStr = prompt('Final loan amount?\n\n' + (q.borrower || q.address || ''), String(defaultAmt));
+  if (amtStr === null) return;
+  var finalAmt = parseFloat(String(amtStr).replace(/[^0-9.]/g, ''));
+  if (!isFinite(finalAmt) || finalAmt <= 0) { showToast('Invalid amount'); return; }
+
+  var bpsStr = prompt('Commission rate (basis points)?\n\n50 = 0.50%', String(defaultBps));
+  if (bpsStr === null) return;
+  var bps = parseFloat(bpsStr);
+  if (!isFinite(bps) || bps < 0) { showToast('Invalid commission rate'); return; }
+
+  var commission = (finalAmt * bps) / 10000;
+  if (!confirm(
+    'Mark this loan CLOSED?\n\n' +
+    (q.borrower || q.address || '') + '\n' +
+    'Final amount: $' + Math.round(finalAmt).toLocaleString() + '\n' +
+    'Commission: $' + Math.round(commission).toLocaleString() + ' (' + bps + ' bps)'
+  )) return;
+
+  SLA.Admin.closeQuote(ownerKey, q.id, finalAmt, bps, '').then(function() {
+    showToast('Loan closed — $' + Math.round(commission).toLocaleString() + ' commission');
     loadAll();
   }).catch(function(err) {
     showToast('Failed: ' + (err.message || 'unknown error'));

@@ -182,7 +182,7 @@
     <a class="nav-tool-link" href="closed.html">Closed</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" href="admin.html" id="adminLink" style="display:none">Admin</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
 
           <button class="logout-btn" id="logoutBtn">Sign out</button>
         </div>
@@ -238,9 +238,8 @@
   <script>
     var loginScreen = document.getElementById('login-screen');
     var appScreen   = document.getElementById('app-screen');
-    var adminLink   = document.getElementById('adminLink');
 
-    // ── Role check: show Admin link only for admin users ──────
+    // ── Role check: show Submissions link only for admin users ──────
     function getRoles(user) {
       if (!user) return [];
       var roles = [];
@@ -263,7 +262,6 @@
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
       if (isAdmin(user)) {
-        adminLink.style.display = 'inline-block';
         var navSub = document.getElementById('navSubmissionsLink');
         if (navSub) navSub.style.display = 'inline-block';
       }

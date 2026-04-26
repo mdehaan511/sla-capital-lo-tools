@@ -273,16 +273,28 @@
         reason: reason || '',
       });
     },
+    closeQuote: function (ownerKey, quoteId, finalLoanAmount, commissionRate, notes) {
+      return api('POST', '/api/quotes-close', {
+        ownerKey: ownerKey,
+        quoteId: quoteId,
+        finalLoanAmount: finalLoanAmount,
+        commissionRate: commissionRate,
+        notes: notes || '',
+      }).then(function (r) {
+        cache.clear('quotes');
+        return r;
+      });
+    },
   };
 
-  // ── Profile (silent) ────────────────────────────────────────────
-  // Each logged-in user pings this endpoint on page load to refresh their
-  // profile (name, roles) in the backend. Lets admin views show real names
-  // without depending on Netlify's Identity admin API.
+  // ── Profile (silent + explicit update) ──────────────────────────
   var Profile = {
     ping: function () {
       return api('POST', '/api/profile-ping', {})
-        .catch(function () { /* silent — non-critical */ });
+        .catch(function () { /* silent */ });
+    },
+    update: function (fields) {
+      return api('POST', '/api/profile-update', fields || {});
     },
   };
 

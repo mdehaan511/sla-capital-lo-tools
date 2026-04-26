@@ -10,23 +10,88 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --gold: #C8813A; --dark: #261a36; --bg: #f0ece5;
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
       --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --success: #256940; --success-light: rgba(37,105,64,0.08);
+      --r: 12px; --r-xs: 8px;
     }
     body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
     #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
     #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
     #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
     .nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
     .nav img { height: 48px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .nav-left { display: flex; align-items: center; gap: 12px; }
-    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
     .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
-    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; }
-    .page { max-width: 800px; margin: 0 auto; padding-top: 4rem; text-align: center; }
-    h1 { font-family: 'Lora', serif; font-size: 26px; margin-bottom: 12px; }
-    p { color: var(--muted); font-size: 14px; line-height: 1.6; max-width: 480px; margin: 0 auto 1rem; }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+
+    .page { max-width: 1200px; margin: 0 auto; padding-top: 2rem; }
+    .page-header { margin-bottom: 1.5rem; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+
+    /* Hero */
+    .hero { background: var(--surface); border: 1px solid var(--gold-border); border-radius: var(--r); padding: 1.75rem 2rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem; }
+    .hero-stat { }
+    .hero-stat .lbl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 4px; }
+    .hero-stat .val { font-family: 'Lora', serif; font-size: 32px; font-weight: 600; color: var(--text); }
+    .hero-stat .val.gold { color: var(--gold); }
+    .hero-stat .sub { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: 'DM Mono', monospace; }
+
+    .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .filter-grp { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
+    .filter-grp button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .filter-grp button.active { background: var(--dark); color: #fff; }
+    .period-select { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer; }
+    .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); margin-left: auto; }
+    .scope-toggle button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .scope-toggle button.active { background: var(--dark); color: #fff; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 12px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--bg); white-space: nowrap; }
+    th.right { text-align: right; }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    td.right { text-align: right; font-family: 'DM Mono', monospace; }
+    tr:last-child td { border-bottom: none; }
+    .td-mono { font-family: 'DM Mono', monospace; }
+    .td-addr-main { font-weight: 600; }
+    .td-addr-sub { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; }
+    .row-link { color: inherit; text-decoration: none; border-bottom: 1px solid transparent; }
+    .row-link:hover { border-bottom-color: var(--gold); color: var(--gold); }
+    .tool-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: var(--gold-light); color: var(--gold-mid); }
+    .tool-tag.rtl { background: rgba(38,26,54,0.08); color: var(--dark); }
+    .commission { color: var(--success); font-weight: 600; }
+    .edit-btn { font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .edit-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    .empty-state { padding: 4rem 2rem; text-align: center; color: var(--muted); }
+    .empty-state h3 { font-family: 'Lora', serif; color: var(--text); margin-bottom: 8px; }
+    .loading { padding: 3rem 2rem; text-align: center; color: var(--muted); font-size: 13px; }
+
+    /* Edit modal */
+    .modal-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .modal-bg.show { display: flex; }
+    .modal { background: var(--surface); border-radius: var(--r); max-width: 480px; width: 100%; padding: 1.75rem; }
+    .modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 8px; }
+    .modal p.intro { font-size: 13px; color: var(--muted); margin-bottom: 1.25rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+    .field input, .field textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); color: var(--text); }
+    .field input:focus, .field textarea:focus { outline: none; border-color: var(--gold); }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .preview-box { background: var(--success-light); border: 1px solid rgba(37,105,64,0.2); border-radius: var(--r-xs); padding: 12px 14px; margin-top: 0.5rem; margin-bottom: 1rem; font-size: 13px; color: var(--success); display: flex; justify-content: space-between; align-items: center; }
+    .preview-box strong { font-family: 'DM Mono', monospace; font-size: 17px; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    .modal-btn { font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 22px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .modal-btn.primary { background: var(--success); border-color: var(--success); color: #fff; }
+    .modal-btn.primary:hover { background: #1f5836; }
   </style>
 </head>
 <body>
@@ -43,27 +108,381 @@
     <a class="nav-tool-link current" href="closed.html">Closed</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+
     <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
   </div>
 </nav>
 
 <div class="page">
-  <h1>Closed Loans</h1>
-  <p>This page is being built next. Loans you mark closed from the Pipeline (Approved column) are stored and will appear here, with commission totals filterable by month, quarter, and year.</p>
-  <p style="font-size:12px">In the meantime, closed loans are saved to the backend with the <code>closed</code> status and will be available retroactively.</p>
+  <div class="page-header">
+    <h1>Closed Loans</h1>
+    <p>Loans that have closed with the processing team. Commissions are calculated from the final loan amount.</p>
+  </div>
+
+  <div class="hero">
+    <div class="hero-stat">
+      <div class="lbl">Total Commissions Earned</div>
+      <div class="val gold" id="totalCommission">$0</div>
+      <div class="sub" id="totalCommissionSub">— closed loans · — total volume</div>
+    </div>
+    <div class="hero-stat" id="periodLabel" style="text-align:right">
+      <div class="lbl">Period</div>
+      <div class="val" style="font-size:18px" id="periodLabelVal">All time</div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <div class="filter-grp" id="periodFilter">
+      <button data-p="all" class="active" onclick="setPeriod('all')">All time</button>
+      <button data-p="ytd" onclick="setPeriod('ytd')">YTD</button>
+      <button data-p="qtd" onclick="setPeriod('qtd')">QTD</button>
+      <button data-p="mtd" onclick="setPeriod('mtd')">MTD</button>
+      <button data-p="custom" onclick="setPeriod('custom')">Custom…</button>
+    </div>
+    <select id="customMonth" class="period-select" style="display:none" onchange="render()"></select>
+    <select id="customYear" class="period-select" style="display:none" onchange="render()"></select>
+    <div class="scope-toggle" id="scopeToggle" style="display:none">
+      <button data-scope="mine" class="active" onclick="setScope('mine')">Mine</button>
+      <button data-scope="all" onclick="setScope('all')">All LOs</button>
+    </div>
+  </div>
+
+  <div id="content">
+    <div class="loading">Loading…</div>
+  </div>
+</div>
+
+<!-- Edit modal (admin only) -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3 id="editTitle">Edit Closed Loan</h3>
+    <p class="intro" id="editSub">Update the final loan amount or commission rate.</p>
+    <div class="field-row">
+      <div class="field">
+        <label>Final Loan Amount</label>
+        <input type="number" id="editAmt" placeholder="0" step="any" oninput="updatePreview()" />
+      </div>
+      <div class="field">
+        <label>Commission Rate (bps)</label>
+        <input type="number" id="editBps" placeholder="50" step="any" oninput="updatePreview()" />
+      </div>
+    </div>
+    <div class="preview-box">
+      <span>Commission Earned</span>
+      <strong id="editPreview">$0</strong>
+    </div>
+    <div class="field">
+      <label>Notes (optional)</label>
+      <textarea id="editNotes" rows="2"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn primary" id="editSaveBtn" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
 </div>
 
 <script>
+var _user = null;
+var _isAdmin = false;
+var _scope = 'mine';
+var _period = 'all';
+var _profileMap = {};
+var _loanLookup = {};
+var _items = [];
+var _editing = null;
+
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = SLA.isAdmin(user);
   document.getElementById('auth-gate').style.display = 'none';
-  if (SLA.isAdmin(user)) {
+  if (_isAdmin) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+    document.getElementById('scopeToggle').style.display = 'flex';
   }
+  buildCustomSelectors();
+  loadAll();
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function buildCustomSelectors() {
+  var monthSel = document.getElementById('customMonth');
+  var yearSel  = document.getElementById('customYear');
+  monthSel.innerHTML = '<option value="">— Any month —</option>';
+  ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].forEach(function(m,i) {
+    monthSel.innerHTML += '<option value="' + (i+1) + '">' + m + '</option>';
+  });
+  var yr = new Date().getFullYear();
+  yearSel.innerHTML = '<option value="">— Any year —</option>';
+  for (var y = yr; y >= yr - 5; y--) {
+    yearSel.innerHTML += '<option value="' + y + '"' + (y === yr ? ' selected' : '') + '>' + y + '</option>';
+  }
+}
+
+function setScope(s) {
+  _scope = s;
+  document.querySelectorAll('#scopeToggle button').forEach(function(b){
+    b.classList.toggle('active', b.dataset.scope === s);
+  });
+  loadAll();
+}
+
+function setPeriod(p) {
+  _period = p;
+  document.querySelectorAll('#periodFilter button').forEach(function(b){
+    b.classList.toggle('active', b.dataset.p === p);
+  });
+  document.getElementById('customMonth').style.display = (p === 'custom') ? 'inline-block' : 'none';
+  document.getElementById('customYear').style.display  = (p === 'custom') ? 'inline-block' : 'none';
+  render();
+}
+
+function loadAll() {
+  document.getElementById('content').innerHTML = '<div class="loading">Loading…</div>';
+
+  var fetchQuotes = (_scope === 'all' && _isAdmin)
+    ? SLA.Quotes.list({ all: true })
+    : SLA.Quotes.list();
+  var fetchClients = (_scope === 'all' && _isAdmin)
+    ? SLA.Clients.list({ all: true }).catch(function(){ return { byOwner: {} }; })
+    : SLA.Clients.list().catch(function(){ return { clients: [] }; });
+  var fetchStats = SLA.Admin
+    ? SLA.Admin.userStats().catch(function(){ return { users: [] }; })
+    : Promise.resolve({ users: [] });
+
+  Promise.all([fetchQuotes, fetchClients, fetchStats]).then(function(results) {
+    var quotesResp  = results[0] || {};
+    var clientsResp = results[1] || {};
+    var statsResp   = results[2] || { users: [] };
+
+    _profileMap = {};
+    (statsResp.users || []).forEach(function(p) {
+      if (!p.email) return;
+      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '' };
+    });
+
+    function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+    _loanLookup = {};
+    if (clientsResp.byOwner) {
+      Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
+        (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
+          (c.loans || []).forEach(function(l) {
+            if (!l.address || !l.id) return;
+            _loanLookup[ownerKey + '|' + norm(l.address)] = { clientId: c.id, loanId: l.id, ownerKey: ownerKey };
+          });
+        });
+      });
+    } else if (clientsResp.clients) {
+      var myKey = (_user.email || '').toLowerCase();
+      clientsResp.clients.forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          if (!l.address || !l.id) return;
+          _loanLookup[myKey + '|' + norm(l.address)] = { clientId: c.id, loanId: l.id, ownerKey: myKey };
+        });
+      });
+    }
+
+    _items = [];
+    if (quotesResp.byOwner) {
+      Object.keys(quotesResp.byOwner).forEach(function(k) {
+        (quotesResp.byOwner[k] || []).forEach(function(q) {
+          if (q.status === 'closed') _items.push({ ownerKey: k, quote: q });
+        });
+      });
+    } else {
+      var myKey2 = (_user.email || '').toLowerCase();
+      (quotesResp.quotes || []).forEach(function(q) {
+        if (q.status === 'closed') _items.push({ ownerKey: myKey2, quote: q });
+      });
+    }
+
+    _items.sort(function(a,b) {
+      return new Date(b.quote.closedAt || b.quote.updatedAt || 0) - new Date(a.quote.closedAt || a.quote.updatedAt || 0);
+    });
+
+    render();
+  }).catch(function(err) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty-state"><h3>Failed to load</h3><p>' + escH(err.message || 'unknown error') + '</p></div>';
+  });
+}
+
+function getPeriodFilter() {
+  var now = new Date();
+  if (_period === 'all') return { start: null, end: null, label: 'All time' };
+  if (_period === 'ytd') {
+    return { start: new Date(now.getFullYear(), 0, 1), end: null, label: now.getFullYear() + ' YTD' };
+  }
+  if (_period === 'qtd') {
+    var qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    var qNum = Math.floor(now.getMonth() / 3) + 1;
+    return { start: qStart, end: null, label: 'Q' + qNum + ' ' + now.getFullYear() };
+  }
+  if (_period === 'mtd') {
+    var mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    var monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()];
+    return { start: mStart, end: null, label: monthName + ' ' + now.getFullYear() };
+  }
+  if (_period === 'custom') {
+    var m = parseInt(document.getElementById('customMonth').value || '0', 10);
+    var y = parseInt(document.getElementById('customYear').value  || '0', 10);
+    if (!y) return { start: null, end: null, label: 'All time' };
+    if (!m) {
+      return { start: new Date(y, 0, 1), end: new Date(y + 1, 0, 1), label: String(y) };
+    }
+    var monthName2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1];
+    return { start: new Date(y, m - 1, 1), end: new Date(y, m, 1), label: monthName2 + ' ' + y };
+  }
+  return { start: null, end: null, label: 'All time' };
+}
+
+function render() {
+  var filter = getPeriodFilter();
+  var rows = _items.filter(function(it) {
+    var dt = new Date(it.quote.closedAt || it.quote.updatedAt || 0);
+    if (filter.start && dt < filter.start) return false;
+    if (filter.end   && dt >= filter.end)  return false;
+    return true;
+  });
+
+  document.getElementById('periodLabelVal').textContent = filter.label;
+
+  var totalCommission = 0;
+  var totalVolume = 0;
+  rows.forEach(function(it) {
+    totalCommission += Number(it.quote.commissionAmount) || 0;
+    totalVolume     += Number(it.quote.finalLoanAmount)  || 0;
+  });
+  document.getElementById('totalCommission').textContent = fmtMoney(totalCommission);
+  document.getElementById('totalCommissionSub').textContent =
+    rows.length + ' closed loan' + (rows.length === 1 ? '' : 's') +
+    ' · ' + fmtMoney(totalVolume) + ' total volume';
+
+  var content = document.getElementById('content');
+  if (!rows.length) {
+    content.innerHTML = '<div class="empty-state"><h3>No closed loans for this period</h3><p>Loans appear here once an admin marks them closed from the Pipeline.</p></div>';
+    return;
+  }
+
+  function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+
+  var html = '<div class="card"><table>' +
+    '<thead><tr>' +
+      '<th>Address / Borrower</th>' +
+      '<th>Tool</th>' +
+      '<th class="right">Final Amount</th>' +
+      '<th class="right">Rate (bps)</th>' +
+      '<th class="right">Commission</th>' +
+      (_scope === 'all' && _isAdmin ? '<th>LO</th>' : '') +
+      '<th>Closed</th>' +
+      (_isAdmin ? '<th></th>' : '') +
+    '</tr></thead><tbody>';
+
+  rows.forEach(function(it, idx) {
+    var q = it.quote;
+    var fd = q.formData || {};
+    var tool = q.toolType === 'rtl' ? 'rtl' : 'dscr';
+    var loanLink = _loanLookup[it.ownerKey + '|' + norm(q.address || '')];
+    var detailsUrl = loanLink
+      ? 'loan-details.html?clientId=' + encodeURIComponent(loanLink.clientId)
+        + '&loanId=' + encodeURIComponent(loanLink.loanId)
+        + '&owner=' + encodeURIComponent(loanLink.ownerKey)
+      : null;
+    var loName = _profileMap[(it.ownerKey||'').toLowerCase()];
+    var loDisplayName = loName ? (loName.fullName || loName.email) : it.ownerKey;
+    var addrCell = detailsUrl
+      ? '<a href="' + detailsUrl + '" class="row-link"><div class="td-addr-main">' + escH(q.address || '—') + '</div>'
+        + (q.borrower ? '<div class="td-addr-sub">' + escH(q.borrower) + '</div>' : '') + '</a>'
+      : '<div class="td-addr-main">' + escH(q.address || '—') + '</div>'
+        + (q.borrower ? '<div class="td-addr-sub">' + escH(q.borrower) + '</div>' : '');
+
+    var closedDate = q.closedAt
+      ? new Date(q.closedAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+      : '—';
+
+    html += '<tr>' +
+      '<td>' + addrCell + '</td>' +
+      '<td><span class="tool-tag ' + tool + '">' + tool.toUpperCase() + '</span></td>' +
+      '<td class="right">' + fmtMoney(q.finalLoanAmount) + '</td>' +
+      '<td class="right">' + (Number(q.commissionRate) || 0) + '</td>' +
+      '<td class="right commission">' + fmtMoney(q.commissionAmount) + '</td>' +
+      (_scope === 'all' && _isAdmin ? '<td class="td-mono" style="font-size:12px">' + escH(loDisplayName) + '</td>' : '') +
+      '<td class="td-mono" style="font-size:12px;color:var(--muted)">' + closedDate + '</td>' +
+      (_isAdmin
+        ? '<td><button class="edit-btn" onclick="openEdit(' + idx + ')">Edit</button></td>'
+        : '') +
+    '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  // Stash filtered rows for the edit handler
+  window._filteredRows = rows;
+  content.innerHTML = html;
+}
+
+// ── Edit modal ────────────────────────────────────────────
+function openEdit(filteredIdx) {
+  var item = window._filteredRows && window._filteredRows[filteredIdx];
+  if (!item) return;
+  _editing = item;
+  var q = item.quote;
+  document.getElementById('editTitle').textContent = 'Edit Closed Loan';
+  document.getElementById('editSub').textContent = q.address || q.borrower || 'Update commission details';
+  document.getElementById('editAmt').value = Number(q.finalLoanAmount) || '';
+  document.getElementById('editBps').value = Number(q.commissionRate) || 50;
+  document.getElementById('editNotes').value = q.closeNotes || '';
+  updatePreview();
+  document.getElementById('editModal').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('editModal').classList.remove('show');
+  _editing = null;
+}
+
+function updatePreview() {
+  var amt = parseFloat(document.getElementById('editAmt').value) || 0;
+  var bps = parseFloat(document.getElementById('editBps').value) || 0;
+  var commission = (amt * bps) / 10000;
+  document.getElementById('editPreview').textContent = fmtMoney(commission);
+}
+
+function saveEdit() {
+  if (!_editing) return;
+  var amt = parseFloat(document.getElementById('editAmt').value) || 0;
+  var bps = parseFloat(document.getElementById('editBps').value);
+  var notes = document.getElementById('editNotes').value || '';
+  if (amt <= 0) { alert('Final loan amount must be greater than 0'); return; }
+  if (!isFinite(bps) || bps < 0) { alert('Commission rate must be 0 or greater'); return; }
+
+  var btn = document.getElementById('editSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  SLA.Admin.closeQuote(_editing.ownerKey, _editing.quote.id, amt, bps, notes).then(function() {
+    btn.disabled = false; btn.textContent = 'Save';
+    closeModal();
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Save';
+    alert('Save failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+document.getElementById('editModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ── Helpers ────────────────────────────────────────────
+function fmtMoney(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n === 0) return '$0';
+  if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  return '$' + Math.round(n).toLocaleString();
+}
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 </script>
 
 </body>

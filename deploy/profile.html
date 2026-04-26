@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profile — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --success: #256940; --success-light: rgba(37,105,64,0.08);
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 1100px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; }
+
+    .page { max-width: 1100px; margin: 0 auto; padding-top: 2rem; }
+    .page-header { margin-bottom: 1.5rem; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 1.5rem; }
+    .card-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .card-header h2 { font-family: 'Lora', serif; font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+    .card-header p { font-size: 12px; color: var(--muted); }
+    .card-body { padding: 1.25rem 1.5rem; }
+
+    /* Profile section */
+    .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .field { display: flex; flex-direction: column; }
+    .field label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+    .field input { padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--surface); color: var(--text); }
+    .field input:focus { outline: none; border-color: var(--gold); }
+    .field input:disabled { background: var(--bg); color: var(--muted); }
+    .save-row { margin-top: 1rem; display: flex; align-items: center; gap: 1rem; }
+    .save-btn { padding: 9px 18px; background: var(--dark); color: #fff; border: none; border-radius: 22px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .save-btn:hover { background: #1c1227; }
+    .save-btn:disabled { opacity: 0.5; cursor: wait; }
+    .save-status { font-size: 12px; }
+    .save-status.ok { color: var(--success); }
+    .save-status.err { color: var(--danger); }
+
+    /* Apply link */
+    .apply-link-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 14px; background: var(--gold-light); border: 1px solid var(--gold-border); border-radius: var(--r-xs); }
+    .apply-link-url { flex: 1; font-family: 'DM Mono', monospace; font-size: 12px; color: var(--gold-mid); word-break: break-all; min-width: 200px; }
+    .copy-btn { font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 18px; border: 1px solid var(--gold-border); background: var(--surface); color: var(--gold-mid); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .copy-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+
+    /* Stats grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0; border-top: 1px solid var(--border); }
+    .stat-cell { padding: 16px 18px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .stat-cell:last-child { border-right: none; }
+    .stat-cell .lbl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+    .stat-cell .val { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; color: var(--text); }
+    .stat-cell .val.gold { color: var(--gold); }
+    .stat-cell .val.success { color: var(--success); }
+
+    /* Settings (super_admin) */
+    .setting-row { padding: 1rem 0; border-bottom: 1px solid var(--border); }
+    .setting-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .setting-row label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .setting-row .hint { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .setting-row .input-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .setting-row input, .setting-row textarea { flex: 1; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; min-width: 200px; }
+    .setting-row textarea { resize: vertical; min-height: 60px; }
+    .setting-row .small-btn { font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 18px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .setting-row .small-btn.primary { background: var(--dark); color: #fff; }
+    .setting-row .small-btn.danger { background: var(--surface); border: 1px solid var(--danger); color: var(--danger); }
+    .setting-row select { padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; }
+    .banner-tag { font-size: 11px; padding: 3px 9px; border-radius: 14px; }
+    .banner-tag.live { background: var(--success-light); color: var(--success); }
+    .banner-tag.off  { background: var(--bg); color: var(--muted); }
+
+    /* User activity table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--bg); white-space: nowrap; }
+    th.right { text-align: right; }
+    td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    td.right { text-align: right; font-family: 'DM Mono', monospace; }
+    tr:last-child td { border-bottom: none; }
+    .role-badge { font-size: 10px; font-weight: 600; padding: 3px 9px; border-radius: 14px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .role-badge.user { background: var(--bg); color: var(--muted); }
+    .role-badge.admin { background: rgba(38,26,54,0.10); color: var(--dark); }
+    .role-badge.super_admin { background: var(--gold-light); color: var(--gold-mid); }
+
+    .summary-strip { display: flex; gap: 24px; flex-wrap: wrap; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .summary-stat { }
+    .summary-stat .lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .summary-stat .val { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; color: var(--text); margin-top: 2px; }
+
+    .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
+    .toast.show { opacity: 1; }
+
+    @media (max-width: 700px) {
+      .profile-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="decisions.html">Decisions</a>
+    <a class="nav-tool-link" href="closed.html">Closed</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link current" href="profile.html">Profile</a>
+
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <h1>Profile</h1>
+    <p>Your account details, application link, and personal pipeline stats.</p>
+  </div>
+
+  <!-- Personal info -->
+  <div class="card">
+    <div class="card-header"><div><h2>Account</h2><p>Editable name and phone — used in your application emails and admin views.</p></div></div>
+    <div class="card-body">
+      <div class="profile-grid">
+        <div class="field"><label>Full Name</label><input type="text" id="fldName" /></div>
+        <div class="field"><label>Phone</label><input type="tel" id="fldPhone" placeholder="(555) 123-4567" /></div>
+        <div class="field"><label>Email (read-only)</label><input type="email" id="fldEmail" disabled /></div>
+        <div class="field"><label>Role</label><input type="text" id="fldRole" disabled /></div>
+      </div>
+      <div class="save-row">
+        <button class="save-btn" id="saveProfileBtn" onclick="saveProfile()">Save changes</button>
+        <span class="save-status" id="profileStatus"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Apply link -->
+  <div class="card">
+    <div class="card-header"><div><h2>Your Application Link</h2><p>Send this URL to borrowers — applications submitted through it route to your pipeline.</p></div></div>
+    <div class="card-body">
+      <div class="apply-link-row">
+        <span class="apply-link-url" id="applyUrl">Loading…</span>
+        <button class="copy-btn" id="copyApplyBtn" onclick="copyApply()">Copy link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card">
+    <div class="card-header"><div><h2>My Stats</h2><p>Pipeline performance summary.</p></div></div>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-cell"><div class="lbl">Loading…</div><div class="val">—</div></div>
+    </div>
+  </div>
+
+  <!-- Super-admin: site settings -->
+  <div class="card" id="settingsCard" style="display:none">
+    <div class="card-header"><div><h2>Site Settings</h2><p>Notification banner, Slack webhook, and submission email — visible to super_admin only.</p></div></div>
+    <div class="card-body">
+
+      <div class="setting-row">
+        <label>Notification banner <span class="banner-tag off" id="bannerTag">Off</span></label>
+        <div class="hint">Shown across the top of every page when published.</div>
+        <div class="input-row">
+          <textarea id="bannerText" placeholder="Banner message (visible to all users)"></textarea>
+          <select id="bannerType">
+            <option value="info">Info</option>
+            <option value="warn">Warning</option>
+            <option value="alert">Alert</option>
+          </select>
+          <button class="small-btn primary" onclick="saveBanner()">Publish</button>
+          <button class="small-btn danger" onclick="clearBanner()">Clear</button>
+        </div>
+        <div class="save-status" id="bannerStatus"></div>
+      </div>
+
+      <div class="setting-row">
+        <label>Slack webhook</label>
+        <div class="hint">Submissions post here when LOs submit a loan for review. Must start with <code>https://hooks.slack.com/</code>.</div>
+        <div class="input-row">
+          <input type="text" id="slackInput" placeholder="https://hooks.slack.com/services/..." />
+          <button class="small-btn primary" onclick="saveSlack()">Save</button>
+        </div>
+        <div class="save-status" id="slackStatus"></div>
+      </div>
+
+      <div class="setting-row">
+        <label>Submission notification email</label>
+        <div class="hint">Fallback for prospect notifications when an LO can't be matched. Per-LO email already routes automatically.</div>
+        <div class="input-row">
+          <input type="email" id="submitEmail" placeholder="admin@slacapital.com" />
+          <button class="small-btn primary" onclick="saveSubmitEmail()">Save</button>
+        </div>
+        <div class="save-status" id="submitEmailStatus"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Super-admin: user activity -->
+  <div class="card" id="activityCard" style="display:none">
+    <div class="card-header"><div><h2>User Activity</h2><p>Live performance across the entire team.</p></div>
+      <div><button class="copy-btn" onclick="loadStats()">↻ Refresh</button></div>
+    </div>
+    <div class="card-body">
+      <div id="activityContent"><div style="text-align:center;color:var(--muted);font-size:13px;padding:2rem">Loading user activity…</div></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var _user = null;
+var _isAdmin = false;
+var _isSuperAdmin = false;
+var _myStats = null;
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = SLA.isAdmin(user);
+  _isSuperAdmin = SLA.isSuperAdmin(user);
+  document.getElementById('auth-gate').style.display = 'none';
+  if (_isAdmin) {
+    var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+  }
+  initProfile();
+  if (_isSuperAdmin) {
+    document.getElementById('settingsCard').style.display = 'block';
+    document.getElementById('activityCard').style.display = 'block';
+    loadSettings();
+  }
+  loadStats();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function initProfile() {
+  var meta = _user.user_metadata || {};
+  document.getElementById('fldName').value  = meta.full_name || '';
+  document.getElementById('fldPhone').value = meta.phone || '';
+  document.getElementById('fldEmail').value = _user.email || '';
+  var roles = SLA.getRoles(_user);
+  var role = (roles[0] || 'user');
+  document.getElementById('fldRole').value =
+    role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
+
+  var url = (window.location.origin || '') + '/apply.html?lo=' + encodeURIComponent(_user.email);
+  document.getElementById('applyUrl').textContent = url;
+}
+
+function saveProfile() {
+  var name  = document.getElementById('fldName').value.trim();
+  var phone = document.getElementById('fldPhone').value.trim();
+  var status = document.getElementById('profileStatus');
+  var btn = document.getElementById('saveProfileBtn');
+  status.textContent = ''; status.className = 'save-status';
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  SLA.Profile.update({ fullName: name, phone: phone }).then(function() {
+    btn.disabled = false; btn.textContent = 'Save changes';
+    status.className = 'save-status ok';
+    status.textContent = '✓ Saved. Changes will appear in admin views the next time the page reloads.';
+    // Refresh local user object
+    if (_user.user_metadata) {
+      _user.user_metadata.full_name = name;
+      _user.user_metadata.phone = phone;
+    }
+    setTimeout(function(){ status.textContent = ''; status.className = 'save-status'; }, 5000);
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Save changes';
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+function copyApply() {
+  var url = document.getElementById('applyUrl').textContent;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function() {
+      var b = document.getElementById('copyApplyBtn');
+      var orig = b.textContent;
+      b.textContent = 'Copied!';
+      setTimeout(function(){ b.textContent = orig; }, 1500);
+    }).catch(function(){ prompt('Copy this link:', url); });
+  } else {
+    prompt('Copy this link:', url);
+  }
+}
+
+// ── Stats ────────────────────────────────────────────
+function loadStats() {
+  SLA.Admin.userStats().then(function(resp) {
+    var users = (resp && resp.users) || [];
+    // Find my own row
+    var myEmail = (_user.email || '').toLowerCase();
+    _myStats = users.find(function(u) { return (u.email || '').toLowerCase() === myEmail; }) || null;
+    renderMyStats();
+    if (_isSuperAdmin) renderActivityTable(users);
+  }).catch(function(err) {
+    document.getElementById('statsGrid').innerHTML =
+      '<div class="stat-cell" style="grid-column:1/-1"><div class="lbl">Failed to load stats</div><div class="val" style="font-size:13px;color:var(--muted)">' + escH(err.message || 'unknown') + '</div></div>';
+  });
+}
+
+function renderMyStats() {
+  var s = _myStats || {
+    quoteCount: 0, clientCount: 0, submittedCount: 0, approvedCount: 0,
+    closedCount: 0, totalLoanAmount: 0, closedVolume: 0, totalCommission: 0
+  };
+  var grid = document.getElementById('statsGrid');
+  grid.innerHTML =
+    statCell('Quoted',         s.quoteCount,     null) +
+    statCell('Submitted',      s.submittedCount, null) +
+    statCell('Approved',       s.approvedCount,  null) +
+    statCell('Closed',         s.closedCount,    'gold') +
+    statCell('Clients',        s.clientCount,    null) +
+    statCell('Pipeline Volume', fmtMoney(s.totalLoanAmount), null) +
+    statCell('Closed Volume',  fmtMoney(s.closedVolume), 'gold') +
+    statCell('Commission',     fmtMoney(s.totalCommission), 'success');
+}
+
+function statCell(lbl, val, color) {
+  var cls = color ? ' ' + color : '';
+  return '<div class="stat-cell"><div class="lbl">' + escH(lbl) + '</div><div class="val' + cls + '">' + escH(val) + '</div></div>';
+}
+
+function renderActivityTable(users) {
+  var totals = { users: users.length, quoted: 0, closed: 0, volume: 0, commission: 0 };
+  users.forEach(function(u) {
+    totals.quoted    += u.quoteCount    || 0;
+    totals.closed    += u.closedCount   || 0;
+    totals.volume    += u.closedVolume  || 0;
+    totals.commission += u.totalCommission || 0;
+  });
+
+  var html =
+    '<div class="summary-strip">' +
+      summary('Users', users.length) +
+      summary('Total Quoted', totals.quoted) +
+      summary('Total Closed', totals.closed) +
+      summary('Closed Volume', fmtMoney(totals.volume)) +
+      summary('Commission', fmtMoney(totals.commission)) +
+    '</div>';
+
+  // Sort by closed volume desc (effectively a leaderboard preview)
+  var sorted = users.slice().sort(function(a, b) {
+    return (b.closedVolume || 0) - (a.closedVolume || 0);
+  });
+
+  html += '<div style="overflow-x:auto"><table>' +
+    '<thead><tr>' +
+      '<th>User</th>' +
+      '<th>Role</th>' +
+      '<th>Apply Link</th>' +
+      '<th class="right">Quoted</th>' +
+      '<th class="right">Submitted</th>' +
+      '<th class="right">Approved</th>' +
+      '<th class="right">Closed</th>' +
+      '<th class="right">Closed Volume</th>' +
+      '<th class="right">Commission</th>' +
+    '</tr></thead><tbody>';
+
+  sorted.forEach(function(u) {
+    var role = (u.roles && u.roles[0]) || 'user';
+    var roleLabel = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
+    var name = u.fullName || humanizeEmail(u.email);
+    var applyUrl = u.email ? (window.location.origin + '/apply.html?lo=' + encodeURIComponent(u.email)) : '';
+    html += '<tr>' +
+      '<td><div style="font-weight:600">' + escH(name) + '</div><div style="font-size:11px;color:var(--muted)">' + escH(u.email) + '</div></td>' +
+      '<td><span class="role-badge ' + role + '">' + escH(roleLabel) + '</span></td>' +
+      '<td>' + (applyUrl
+        ? '<button class="copy-btn" onclick="copyUrl(this, \'' + escAttr(applyUrl) + '\')">Copy</button>'
+        : '<span style="color:var(--muted);font-size:11px">—</span>'
+      ) + '</td>' +
+      '<td class="right">' + (u.quoteCount     || 0) + '</td>' +
+      '<td class="right">' + (u.submittedCount || 0) + '</td>' +
+      '<td class="right">' + (u.approvedCount  || 0) + '</td>' +
+      '<td class="right">' + (u.closedCount    || 0) + '</td>' +
+      '<td class="right">' + fmtMoney(u.closedVolume) + '</td>' +
+      '<td class="right" style="color:var(--success);font-weight:600">' + fmtMoney(u.totalCommission) + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table></div>';
+
+  document.getElementById('activityContent').innerHTML = html;
+}
+
+function summary(lbl, val) {
+  return '<div class="summary-stat"><div class="lbl">' + escH(lbl) + '</div><div class="val">' + escH(val) + '</div></div>';
+}
+
+window.copyUrl = function(btn, url) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function(){ btn.textContent = orig; }, 1500);
+    });
+  } else {
+    prompt('Copy this link:', url);
+  }
+};
+
+// ── Settings (super_admin) ────────────────────────────────
+function loadSettings() {
+  SLA.Settings.getAll().then(function(s) {
+    var slack = (s.slack_webhook && s.slack_webhook.value) || '';
+    var email = (s.submit_email  && s.submit_email.value)  || '';
+    document.getElementById('slackInput').value = slack;
+    document.getElementById('submitEmail').value = email;
+
+    var b = s.banner;
+    if (b && b.text) {
+      document.getElementById('bannerText').value = b.text;
+      document.getElementById('bannerType').value = b.type || 'info';
+      document.getElementById('bannerTag').className = 'banner-tag live';
+      document.getElementById('bannerTag').textContent = 'Live';
+    } else {
+      document.getElementById('bannerTag').className = 'banner-tag off';
+      document.getElementById('bannerTag').textContent = 'Off';
+    }
+  }).catch(function(err) {
+    showToast('Settings load failed: ' + (err.message || 'unknown'));
+  });
+}
+
+function saveBanner() {
+  var text = document.getElementById('bannerText').value.trim();
+  var type = document.getElementById('bannerType').value;
+  var status = document.getElementById('bannerStatus');
+  if (!text) { status.className = 'save-status err'; status.textContent = 'Enter a message first.'; return; }
+  SLA.Settings.set('banner', { text: text, type: type, ts: Date.now() }).then(function() {
+    status.className = 'save-status ok';
+    status.textContent = '✓ Banner published';
+    document.getElementById('bannerTag').className = 'banner-tag live';
+    document.getElementById('bannerTag').textContent = 'Live';
+    setTimeout(function(){ status.textContent = ''; }, 4000);
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+function clearBanner() {
+  var status = document.getElementById('bannerStatus');
+  SLA.Settings.set('banner', null).then(function() {
+    document.getElementById('bannerText').value = '';
+    document.getElementById('bannerTag').className = 'banner-tag off';
+    document.getElementById('bannerTag').textContent = 'Off';
+    status.className = 'save-status ok';
+    status.textContent = '✓ Banner cleared';
+    setTimeout(function(){ status.textContent = ''; }, 4000);
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+function saveSlack() {
+  var v = document.getElementById('slackInput').value.trim();
+  var status = document.getElementById('slackStatus');
+  if (v && !v.startsWith('https://hooks.slack.com/')) {
+    status.className = 'save-status err';
+    status.textContent = 'Must be a Slack hooks URL.';
+    return;
+  }
+  SLA.Settings.set('slack_webhook', v ? { value: v } : null).then(function() {
+    status.className = 'save-status ok';
+    status.textContent = v ? '✓ Saved — Slack notifications enabled' : '✓ Cleared';
+    setTimeout(function(){ status.textContent = ''; }, 4000);
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+function saveSubmitEmail() {
+  var v = document.getElementById('submitEmail').value.trim();
+  var status = document.getElementById('submitEmailStatus');
+  if (!v || !v.includes('@')) {
+    status.className = 'save-status err';
+    status.textContent = 'Valid email required.';
+    return;
+  }
+  SLA.Settings.set('submit_email', { value: v }).then(function() {
+    status.className = 'save-status ok';
+    status.textContent = '✓ Saved';
+    setTimeout(function(){ status.textContent = ''; }, 4000);
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+// ── Helpers ────────────────────────────────────────────
+function fmtMoney(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n === 0) return '$0';
+  if (Math.abs(n) >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if (Math.abs(n) >= 1e3) return '$' + Math.round(n).toLocaleString();
+  return '$' + Math.round(n);
+}
+function humanizeEmail(email) {
+  if (!email) return '';
+  var local = String(email).indexOf('@') >= 0 ? String(email).split('@')[0] : String(email);
+  var parts = local.split(/[._\-]+/).filter(Boolean);
+  if (!parts.length) return email;
+  return parts.map(function(p){ return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }).join(' ');
+}
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+</script>
+
+</body>
+</html>
