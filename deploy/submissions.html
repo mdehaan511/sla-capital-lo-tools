@@ -33,6 +33,25 @@
     .nav img { height: 48px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 12px; }
     .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn {
+      display: inline-block;
+      padding: 6px 14px;
+      border: 1px solid var(--gold-border, rgba(200,129,58,0.28));
+      background: var(--gold-light, rgba(200,129,58,0.10));
+      color: var(--gold-mid, #b5712d);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
+      text-decoration: none;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .nav-tools-btn:hover {
+      background: var(--gold, #C8813A);
+      color: #fff;
+      border-color: var(--gold, #C8813A);
+    }
     .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
     .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
     .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
@@ -105,11 +124,10 @@
 <nav class="nav">
   <div class="nav-left">
     <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
   </div>
   <div class="nav-right">
     <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="decisions.html">Decisions</a>
-    <a class="nav-tool-link" href="closed.html">Closed</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link current" href="submissions.html">Submissions</a>
     <a class="nav-tool-link" href="profile.html">Profile</a>

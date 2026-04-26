@@ -27,6 +27,25 @@
     .nav img { height: 48px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn {
+      display: inline-block;
+      padding: 6px 14px;
+      border: 1px solid var(--gold-border, rgba(200,129,58,0.28));
+      background: var(--gold-light, rgba(200,129,58,0.10));
+      color: var(--gold-mid, #b5712d);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
+      text-decoration: none;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .nav-tools-btn:hover {
+      background: var(--gold, #C8813A);
+      color: #fff;
+      border-color: var(--gold, #C8813A);
+    }
     .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
     .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
     .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
@@ -75,11 +94,10 @@
 <nav class="nav">
   <div class="nav-left">
     <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
   </div>
   <div class="nav-right">
     <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link current" href="decisions.html">Decisions</a>
-    <a class="nav-tool-link" href="closed.html">Closed</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
     <a class="nav-tool-link" href="profile.html">Profile</a>
@@ -96,7 +114,7 @@
 
   <div class="ctrl-row">
     <div class="filter-btns">
-      <button class="filter-btn active" data-f="all" onclick="setFilter('all')">All</button>
+      <button class="filter-btn" data-f="all" onclick="setFilter('all')">All</button>
       <button class="filter-btn" data-f="on_hold" onclick="setFilter('on_hold')">⏸ On Hold</button>
       <button class="filter-btn" data-f="denied" onclick="setFilter('denied')">✕ Denied</button>
     </div>
@@ -117,6 +135,13 @@ var _user = null;
 var _isAdmin = false;
 var _scope = 'mine';
 var _filter = 'all';
+
+// Allow ?status=on_hold or ?status=denied via URL
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var s = params.get('status');
+  if (s === 'on_hold' || s === 'denied') _filter = s;
+})();
 var _profileMap = {};
 var _loanLookup = {};
 var _items = [];
@@ -131,6 +156,10 @@ netlifyIdentity.on('init', function(user) {
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     document.getElementById('scopeToggle').style.display = 'flex';
   }
+  // Reflect URL-driven _filter in the button bar
+  document.querySelectorAll('.filter-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.f === _filter);
+  });
   loadAll();
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });

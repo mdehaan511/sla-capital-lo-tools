@@ -36,6 +36,25 @@
     .nav img { height: 48px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn {
+      display: inline-block;
+      padding: 6px 14px;
+      border: 1px solid var(--gold-border, rgba(200,129,58,0.28));
+      background: var(--gold-light, rgba(200,129,58,0.10));
+      color: var(--gold-mid, #b5712d);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
+      text-decoration: none;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .nav-tools-btn:hover {
+      background: var(--gold, #C8813A);
+      color: #fff;
+      border-color: var(--gold, #C8813A);
+    }
     .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
     .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
     .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
@@ -48,6 +67,21 @@
     .page-header p { font-size: 13px; color: var(--muted); }
 
     .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .status-shortcuts { display: flex; gap: 6px; }
+    .status-btn {
+      font-size: 12px; font-weight: 600;
+      padding: 7px 14px; border-radius: 20px;
+      border: 1px solid; background: var(--surface);
+      cursor: pointer; font-family: 'DM Sans', sans-serif;
+      text-decoration: none; white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .status-btn.closed { border-color: var(--col-approved, #256940); color: var(--col-approved, #256940); }
+    .status-btn.closed:hover { background: var(--col-approved, #256940); color: #fff; }
+    .status-btn.hold   { border-color: var(--col-submitted, #7a5218); color: var(--col-submitted, #7a5218); }
+    .status-btn.hold:hover { background: var(--col-submitted, #7a5218); color: #fff; }
+    .status-btn.denied { border-color: var(--danger, #7c1f1f); color: var(--danger, #7c1f1f); }
+    .status-btn.denied:hover { background: var(--danger, #7c1f1f); color: #fff; }
     .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
     .search-box:focus { outline: none; border-color: var(--gold); }
     .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
@@ -228,11 +262,10 @@
 <nav class="nav">
   <div class="nav-left">
     <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
   </div>
   <div class="nav-right">
     <a class="nav-tool-link current" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="decisions.html">Decisions</a>
-    <a class="nav-tool-link" href="closed.html">Closed</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
     <a class="nav-tool-link" href="profile.html">Profile</a>
@@ -248,6 +281,11 @@
       <p id="pageSub">Your active loans across every stage</p>
     </div>
     <div class="ctrl-row">
+      <div class="status-shortcuts">
+        <a href="closed.html"                         class="status-btn closed">✓ Closed</a>
+        <a href="decisions.html?status=on_hold"       class="status-btn hold">⏸ On Hold</a>
+        <a href="decisions.html?status=denied"        class="status-btn denied">✕ Declined</a>
+      </div>
       <input type="text" id="searchBox" class="search-box" placeholder="Search address or borrower…" oninput="render()" />
       <div class="scope-toggle" id="scopeToggle" style="display:none">
         <button data-scope="mine" class="active" onclick="setScope('mine')">My pipeline</button>

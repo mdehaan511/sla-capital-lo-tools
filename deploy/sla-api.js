@@ -362,9 +362,110 @@
     maybeInitQuoteStore();
     // Best-effort: refresh user's profile in backend so admin views see names
     Profile.ping();
+    // First-time setup: prompt for name+phone if not set
+    maybeShowProfileSetup();
   }
   if (window.netlifyIdentity) {
     window.netlifyIdentity.on('init', function (user) { if (user) onUserReady(); });
     window.netlifyIdentity.on('login', function () { onUserReady(); });
+  }
+
+  // ── First-time profile setup modal ──────────────────────────
+  // Triggered automatically when a logged-in user has no full_name.
+  // Once they save it, we don't show again (full_name will be set).
+  // The modal also collects phone number, but only name is required.
+  function maybeShowProfileSetup() {
+    var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+    if (!u) return;
+    var meta = u.user_metadata || {};
+    var name = meta.full_name || meta.fullName || meta.name || '';
+    if (name && String(name).trim()) return; // Already has a name — skip
+    if (document.getElementById('slaProfileSetupModal')) return; // Already shown
+    showSetupModal(u);
+  }
+
+  function showSetupModal(user) {
+    injectSetupStyles();
+    var modal = document.createElement('div');
+    modal.id = 'slaProfileSetupModal';
+    modal.className = 'sla-setup-bg';
+    modal.innerHTML =
+      '<div class="sla-setup-card">' +
+        '<h2>Welcome to SLA Capital Tools</h2>' +
+        '<p>Tell us your name and phone number so they appear correctly to your team and on your application emails.</p>' +
+        '<div class="sla-setup-field">' +
+          '<label>Full Name <span style="color:#7c1f1f">*</span></label>' +
+          '<input type="text" id="slaSetupName" placeholder="Jane Smith" autofocus />' +
+        '</div>' +
+        '<div class="sla-setup-field">' +
+          '<label>Phone</label>' +
+          '<input type="tel" id="slaSetupPhone" placeholder="(555) 123-4567" />' +
+        '</div>' +
+        '<div class="sla-setup-status" id="slaSetupStatus"></div>' +
+        '<div class="sla-setup-actions">' +
+          '<button class="sla-setup-btn primary" id="slaSetupSaveBtn">Save & continue</button>' +
+        '</div>' +
+        '<p class="sla-setup-foot">You can update these any time from the Profile page.</p>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    var nameEl = document.getElementById('slaSetupName');
+    var phoneEl = document.getElementById('slaSetupPhone');
+    var status = document.getElementById('slaSetupStatus');
+    var btn = document.getElementById('slaSetupSaveBtn');
+
+    function save() {
+      var name = nameEl.value.trim();
+      var phone = phoneEl.value.trim();
+      if (!name) {
+        status.textContent = 'Name is required.';
+        status.className = 'sla-setup-status err';
+        nameEl.focus();
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      status.textContent = ''; status.className = 'sla-setup-status';
+      Profile.update({ fullName: name, phone: phone }).then(function() {
+        // Update local user object so other pages see the new name immediately
+        if (user.user_metadata) {
+          user.user_metadata.full_name = name;
+          user.user_metadata.phone = phone;
+        }
+        modal.remove();
+      }).catch(function(err) {
+        btn.disabled = false; btn.textContent = 'Save & continue';
+        status.className = 'sla-setup-status err';
+        status.textContent = 'Failed: ' + (err.message || 'unknown error');
+      });
+    }
+
+    btn.addEventListener('click', save);
+    nameEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') save(); });
+    phoneEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') save(); });
+  }
+
+  function injectSetupStyles() {
+    if (document.getElementById('slaSetupStyles')) return;
+    var s = document.createElement('style');
+    s.id = 'slaSetupStyles';
+    s.textContent =
+      '.sla-setup-bg{position:fixed;inset:0;background:rgba(38,26,54,0.7);display:flex;align-items:center;justify-content:center;z-index:99999;padding:1rem;font-family:"DM Sans",sans-serif}' +
+      '.sla-setup-card{background:#fff;border-radius:14px;max-width:440px;width:100%;padding:2rem 2rem 1.5rem;box-shadow:0 12px 40px rgba(0,0,0,0.25)}' +
+      '.sla-setup-card h2{font-family:"Lora",serif;font-size:22px;font-weight:600;margin:0 0 8px;color:#1a1520}' +
+      '.sla-setup-card p{font-size:13px;color:#7a7488;margin:0 0 1.25rem;line-height:1.5}' +
+      '.sla-setup-field{margin-bottom:1rem}' +
+      '.sla-setup-field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-bottom:6px}' +
+      '.sla-setup-field input{width:100%;padding:11px 14px;border:1px solid #ddd8d0;border-radius:8px;font-family:inherit;font-size:14px;color:#1a1520;background:#fff}' +
+      '.sla-setup-field input:focus{outline:none;border-color:#C8813A}' +
+      '.sla-setup-status{font-size:12px;min-height:18px;margin-bottom:8px}' +
+      '.sla-setup-status.err{color:#7c1f1f}' +
+      '.sla-setup-status.ok{color:#256940}' +
+      '.sla-setup-actions{display:flex;justify-content:flex-end;margin-bottom:0.75rem}' +
+      '.sla-setup-btn{padding:10px 22px;border-radius:24px;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}' +
+      '.sla-setup-btn.primary{background:#261a36;color:#fff}' +
+      '.sla-setup-btn.primary:hover:not(:disabled){background:#1c1227}' +
+      '.sla-setup-btn:disabled{opacity:0.5;cursor:wait}' +
+      '.sla-setup-foot{font-size:11px;color:#7a7488;margin:0;text-align:center}';
+    document.head.appendChild(s);
   }
 })();
