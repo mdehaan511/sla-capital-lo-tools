@@ -272,7 +272,7 @@ function loadAll() {
     : SLA.Prospects.list();
   var fetchQuotes = (_scope === 'all' && _isAdmin)
     ? SLA.Quotes.list({ all: true })
-    : (QuoteStore.init().then(function(){ return { quotes: QuoteStore.loadAllTools(_user.email) }; }));
+    : SLA.Quotes.list();
   var fetchClients = (_scope === 'all' && _isAdmin)
     ? SLA.Clients.list({ all: true }).catch(function(){ return { byOwner: {} }; })
     : SLA.Clients.list().catch(function(){ return { clients: [] }; });
