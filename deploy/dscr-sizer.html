@@ -13,7 +13,6 @@
   // Minimal ClientBook for sizer pages
   window.ClientBook = {
 
-  _key: function(loEmail) { return 'sla_clients_' + loEmail; },
 
   // Main entry point — called from sizers and apply.html on every save.
   // Delegates to SLA.Clients.upsert (backend-backed) so saved clients show
@@ -66,71 +65,6 @@
       fundingDate: formData.fundingDate || '',
       notes:       formData.notes       || '',
     };
-  },
-
-  // Get a specific client by ID
-  getClientById: function(loEmail, clientId) {
-    var key = this._key(loEmail);
-    try {
-      var clients = JSON.parse(localStorage.getItem(key) || '[]');
-      for (var i = 0; i < clients.length; i++) {
-        if (clients[i].id === clientId) return clients[i];
-      }
-    } catch(e) {}
-    return null;
-  },
-
-  // Get a specific loan by ID across all clients
-  getLoanById: function(loEmail, loanId) {
-    var key = this._key(loEmail);
-    try {
-      var clients = JSON.parse(localStorage.getItem(key) || '[]');
-      for (var i = 0; i < clients.length; i++) {
-        var loans = clients[i].loans || [];
-        for (var j = 0; j < loans.length; j++) {
-          if (loans[j].id === loanId) {
-            return { client: clients[i], loan: loans[j], clientIdx: i, loanIdx: j };
-          }
-        }
-      }
-    } catch(e) {}
-    return null;
-  },
-
-  // Update app fields on a loan
-  updateLoanAppFields: function(loEmail, clientId, loanId, appFields) {
-    var key = this._key(loEmail);
-    try {
-      var clients = JSON.parse(localStorage.getItem(key) || '[]');
-      for (var i = 0; i < clients.length; i++) {
-        if (clients[i].id !== clientId) continue;
-        var loans = clients[i].loans || [];
-        for (var j = 0; j < loans.length; j++) {
-          if (loans[j].id !== loanId) continue;
-          clients[i].loans[j] = Object.assign({}, loans[j], appFields, {
-            updatedAt: new Date().toISOString()
-          });
-          localStorage.setItem(key, JSON.stringify(clients));
-          return true;
-        }
-      }
-    } catch(e) {}
-    return false;
-  },
-
-  // Update client profile fields
-  updateClientProfile: function(loEmail, clientId, fields) {
-    var key = this._key(loEmail);
-    try {
-      var clients = JSON.parse(localStorage.getItem(key) || '[]');
-      for (var i = 0; i < clients.length; i++) {
-        if (clients[i].id !== clientId) continue;
-        clients[i] = Object.assign({}, clients[i], fields);
-        localStorage.setItem(key, JSON.stringify(clients));
-        return true;
-      }
-    } catch(e) {}
-    return false;
   },
 
   // Legacy shim — keep existing prospect flow working
@@ -1509,18 +1443,10 @@ function saveCurrentQuote() {
     var savedQ = QuoteStore.getQuote(_quoteUser, 'dscr', formData.address);
     if (savedQ) {
       ClientBook.addOrUpdateClient(_quoteUser, window._currentProspect, savedQ);
-      // Remove from prospects list
-      var loSlug = (window._currentProspect.loSlug || '');
-      if (loSlug) {
-        var pKey = 'sla_prospects_' + loSlug;
-        try {
-          var prospects = JSON.parse(localStorage.getItem(pKey)||'[]');
-          prospects = prospects.filter(function(p){ return p.id !== window._currentProspect.id; });
-          localStorage.setItem(pKey, JSON.stringify(prospects));
-        } catch(e){}
-      }
+      // Prospect is now considered "worked"; prospects-list will hide it
+      // automatically because it matches a saved-quote address.
       window._currentProspect = null;
-      localStorage.removeItem('sla_prefill_prospect');
+      try { localStorage.removeItem('sla_prefill_prospect'); } catch(e){}
     }
   }
 
@@ -1586,34 +1512,8 @@ run();
      Must come after netlify-identity-widget.js is loaded above.
 ════════════════════════════════════════════════════════════ -->
 <script>
-  
-  // Register user in local registry when they log in
-  function registerUserLocally(user) {
-    if (!user) return;
-    try {
-      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
-      var existing = registry.find(function(u){ return u.id === user.id; });
-      var roles = [];
-      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
-      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
-      var entry = {
-        id: user.id,
-        email: user.email,
-        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
-        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
-        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
-        confirmed_at: user.confirmed_at || new Date().toISOString()
-      };
-      if (existing) {
-        Object.assign(existing, entry);
-      } else {
-        registry.push(entry);
-      }
-      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
-    } catch(e) {}
-  }
 netlifyIdentity.on('init', function(user) {
-    registerUserLocally(user);
+
     if (!user) {
       window.location.replace('/');
     } else {

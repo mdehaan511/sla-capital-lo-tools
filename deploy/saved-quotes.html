@@ -362,35 +362,8 @@ function checkAdmin(user) {
     roles = Array.isArray(user.user_metadata.roles) ? user.user_metadata.roles : [user.user_metadata.roles];
   return roles.some(function(r){ return r === 'admin' || r === 'super_admin'; });
 }
-
-
-  // Register user in local registry when they log in
-  function registerUserLocally(user) {
-    if (!user) return;
-    try {
-      var registry = JSON.parse(localStorage.getItem('sla_user_registry') || '[]');
-      var existing = registry.find(function(u){ return u.id === user.id; });
-      var roles = [];
-      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
-      else if (user.app_metadata && user.app_metadata.roles) roles = [user.app_metadata.roles];
-      var entry = {
-        id: user.id,
-        email: user.email,
-        full_name: (user.user_metadata||{}).full_name || (existing && existing.full_name) || '',
-        phone: (user.user_metadata||{}).phone || (existing && existing.phone) || '',
-        roles: roles.length ? roles : (existing && existing.roles) || ['user'],
-        confirmed_at: user.confirmed_at || new Date().toISOString()
-      };
-      if (existing) {
-        Object.assign(existing, entry);
-      } else {
-        registry.push(entry);
-      }
-      localStorage.setItem('sla_user_registry', JSON.stringify(registry));
-    } catch(e) {}
-  }
 netlifyIdentity.on('init', function(user) {
-    registerUserLocally(user);
+
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = checkAdmin(user);
@@ -526,44 +499,52 @@ function buildActionBtns(q) {
 }
 
 // ── ClientBook sync helpers ─────────────────────────────────────────
-// Keep ClientBook and QuoteStore in sync whenever status changes or loans are deleted
+// Keep client records in sync whenever a quote status changes or a loan is
+// deleted. Both helpers fetch the LO's clients via the backend, find any
+// loan with a matching address, and persist the change.
 
 function syncStatusToClientBook(userEmail, address, status) {
   if (!userEmail || !address) return;
-  var key = 'sla_clients_' + userEmail;
-  try {
-    var clients = JSON.parse(localStorage.getItem(key) || '[]');
-    var normAddr = address.trim().toLowerCase();
-    var changed = false;
+  var normAddr = address.trim().toLowerCase().replace(/\s+/g, ' ');
+  var listOpts = (userEmail !== _user.email) ? { all: true } : {};
+  SLA.Clients.list(listOpts).then(function(r) {
+    var clients = r.byOwner ? (r.byOwner[userEmail] || []) : (r.clients || []);
     clients.forEach(function(c) {
+      var changed = false;
       (c.loans||[]).forEach(function(l) {
-        if ((l.address||'').trim().toLowerCase() === normAddr) {
+        if ((l.address||'').trim().toLowerCase().replace(/\s+/g, ' ') === normAddr) {
           l.status = status;
           l.updatedAt = new Date().toISOString();
           changed = true;
         }
       });
+      if (changed) {
+        var saveBody = userEmail !== _user.email
+          ? Object.assign({}, c, { _owner: userEmail })
+          : c;
+        SLA.Clients.save(saveBody).catch(function(){});
+      }
     });
-    if (changed) localStorage.setItem(key, JSON.stringify(clients));
-  } catch(e) {}
+  }).catch(function(){});
 }
 
 function deleteFromClientBook(userEmail, address) {
   if (!userEmail || !address) return;
-  var key = 'sla_clients_' + userEmail;
-  try {
-    var clients = JSON.parse(localStorage.getItem(key) || '[]');
-    var normAddr = address.trim().toLowerCase();
-    var changed = false;
+  var normAddr = address.trim().toLowerCase().replace(/\s+/g, ' ');
+  var listOpts = (userEmail !== _user.email) ? { all: true } : {};
+  SLA.Clients.list(listOpts).then(function(r) {
+    var clients = r.byOwner ? (r.byOwner[userEmail] || []) : (r.clients || []);
     clients.forEach(function(c) {
-      var before = (c.loans||[]).length;
-      c.loans = (c.loans||[]).filter(function(l) {
-        return (l.address||'').trim().toLowerCase() !== normAddr;
+      var matchedLoan = (c.loans||[]).find(function(l) {
+        return (l.address||'').trim().toLowerCase().replace(/\s+/g, ' ') === normAddr;
       });
-      if (c.loans.length !== before) changed = true;
+      if (matchedLoan && matchedLoan.id) {
+        var opts = { loanId: matchedLoan.id };
+        if (userEmail !== _user.email) opts._owner = userEmail;
+        SLA.Clients.delete(c.id, opts).catch(function(){});
+      }
     });
-    if (changed) localStorage.setItem(key, JSON.stringify(clients));
-  } catch(e) {}
+  }).catch(function(){});
 }
 
 function handleStatusChange(sel) {
@@ -1002,6 +983,7 @@ function sendSubmitEmail(){
 var _submittedLoaded = false;
 var _submittedLoans  = [];  // [{userEmail, userId, quote}, ...]
 var _profileMap      = {};  // storage-key → {email, fullName}
+var _loanLookup      = {};  // "ownerKey|normAddr" → {clientId, loanId, ownerKey}
 
 function loadSubmittedLoans(forceRefresh) {
   if (!forceRefresh && _submittedLoaded) { renderSubmittedTable(); return; }
@@ -1015,9 +997,11 @@ function _deriveSubmittedLoans() {
   Promise.all([
     SLA.Admin.userStats().catch(function(){ return { users: [] }; }),
     QuoteStore.loadAllUsers(),
+    SLA.Clients.list({ all: true }).catch(function(){ return { byOwner: {} }; }),
   ]).then(function(results) {
     var statsResp = results[0] || { users: [] };
     var byOwner   = results[1] || {};
+    var clientsResp = results[2] || {};
 
     // Build/update the profile map (used by renderSubmittedTable)
     _profileMap = {};
@@ -1026,6 +1010,20 @@ function _deriveSubmittedLoans() {
       var entry = { email: p.email, fullName: p.fullName || '' };
       _profileMap[key] = entry;
       _profileMap[(p.email || '').toLowerCase()] = entry;
+    });
+
+    // Build address-to-loan lookup so each submitted loan can link to loan-details
+    _loanLookup = {};
+    function normAddr(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g, ' '); }
+    Object.keys(clientsResp.byOwner || {}).forEach(function(ownerKey) {
+      (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          if (!l.address || !l.id) return;
+          _loanLookup[ownerKey + '|' + normAddr(l.address)] = {
+            clientId: c.id, loanId: l.id, ownerKey: ownerKey,
+          };
+        });
+      });
     });
 
     Object.keys(byOwner).forEach(function(owner) {
@@ -1096,22 +1094,15 @@ function renderSubmittedTable() {
     var profile = _profileMap[item.userEmail] || _profileMap[(item.userEmail||'').toLowerCase()];
     var loName = profile ? (profile.fullName || humanizeEmail(profile.email)) : humanizeEmail(item.userEmail);
 
-    // Find matching loan in ClientBook to get loan ID for Details link
+    // Find matching loan via the prebuilt loan lookup
     var loanDetailsUrl = null;
-    try {
-      var cbClients = JSON.parse(localStorage.getItem('sla_clients_' + item.userEmail) || '[]');
-      var normAddr = (q.address||'').trim().toLowerCase();
-      outer: for (var ci = 0; ci < cbClients.length; ci++) {
-        var loans = cbClients[ci].loans || [];
-        for (var li = 0; li < loans.length; li++) {
-          if ((loans[li].address||'').trim().toLowerCase() === normAddr) {
-            loanDetailsUrl = 'loan-details.html?clientId=' + encodeURIComponent(cbClients[ci].id)
-              + '&loanId=' + encodeURIComponent(loans[li].id);
-            break outer;
-          }
-        }
-      }
-    } catch(e) {}
+    var lookupKey = item.userEmail + '|' + (q.address||'').trim().toLowerCase().replace(/\s+/g,' ');
+    var lookup = _loanLookup[lookupKey];
+    if (lookup) {
+      loanDetailsUrl = 'loan-details.html?clientId=' + encodeURIComponent(lookup.clientId)
+        + '&loanId=' + encodeURIComponent(lookup.loanId)
+        + '&owner=' + encodeURIComponent(lookup.ownerKey);
+    }
 
     var tr = document.createElement('tr');
     tr.style.cursor = 'default';
