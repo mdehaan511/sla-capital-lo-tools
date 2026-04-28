@@ -115,6 +115,24 @@
   force = true
 
 [[redirects]]
+  from = "/api/reminders"
+  to = "/.netlify/functions/reminders-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/reminders-save"
+  to = "/.netlify/functions/reminders-save"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/reminders-delete"
+  to = "/.netlify/functions/reminders-delete"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/search"
   to = "/.netlify/functions/search"
   status = 200

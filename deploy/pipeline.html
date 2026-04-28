@@ -7,6 +7,7 @@
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
   <script src="sla-search.js"></script>
+  <script src="sla-notifications.js"></script>
   <script src="quotes.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -160,6 +161,59 @@
       font-size: 13px; font-weight: 600; color: var(--text);
       margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .contact-link { color: inherit; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s, color 0.15s; }
+    .contact-link:hover { color: var(--gold); border-bottom-color: var(--gold); }
+
+    /* Reminder bell on cards */
+    .has-bell { position: relative; }
+    .bell-btn {
+      position: absolute; top: 8px; right: 8px;
+      width: 26px; height: 26px;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--muted); cursor: pointer;
+      border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+      padding: 0;
+    }
+    .bell-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .bell-btn.future {
+      background: rgba(200,158,40,0.15); border-color: rgba(200,158,40,0.50);
+      color: rgb(140, 100, 12);
+    }
+    .bell-btn.future:hover { background: rgb(200,158,40); color: #fff; border-color: rgb(200,158,40); }
+    .bell-btn.due {
+      background: var(--danger); border-color: var(--danger); color: #fff;
+      animation: bell-pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes bell-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(124,31,31,0.55); }
+      50%      { box-shadow: 0 0 0 6px rgba(124,31,31,0); }
+    }
+    .card.due { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+
+    /* Reminder modal */
+    .rmd-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .rmd-bg.show { display: flex; }
+    .rmd-modal { background: var(--surface); border-radius: var(--r); max-width: 460px; width: 100%; padding: 1.75rem; }
+    .rmd-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 4px; color: var(--text); }
+    .rmd-modal .rmd-sub { font-size: 12px; color: var(--muted); margin-bottom: 1.25rem; font-family: 'DM Mono', monospace; }
+    .rmd-field { margin-bottom: 1rem; }
+    .rmd-field label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+    .rmd-field input, .rmd-field textarea { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); color: var(--text); }
+    .rmd-field textarea { resize: vertical; min-height: 70px; }
+    .rmd-field input:focus, .rmd-field textarea:focus { outline: none; border-color: var(--gold); }
+    .rmd-status { font-size: 12px; min-height: 18px; margin-bottom: 8px; }
+    .rmd-status.err { color: var(--danger); }
+    .rmd-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+    .rmd-actions .left { margin-right: auto; }
+    .rmd-btn { font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: 18px; cursor: pointer; font-family: 'DM Sans', sans-serif; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+    .rmd-btn:disabled { opacity: 0.5; cursor: wait; }
+    .rmd-btn.primary { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .rmd-btn.primary:hover { background: #1c1227; }
+    .rmd-btn.success { background: var(--success); border-color: var(--success); color: #fff; }
+    .rmd-btn.success:hover { background: #1f5836; }
+    .rmd-btn.danger { color: var(--danger); border-color: rgba(124,31,31,0.30); }
+    .rmd-btn.danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
     .card-sub {
       font-size: 11px; color: var(--muted);
       margin-bottom: 8px;
@@ -305,6 +359,29 @@
   <button class="bulk-btn danger" onclick="bulkDeleteSelected()">Delete prospects</button>
 </div>
 
+<!-- Reminder modal -->
+<div class="rmd-bg" id="rmdBg">
+  <div class="rmd-modal">
+    <h3 id="rmdTitle">Reminder</h3>
+    <div class="rmd-sub" id="rmdSub">—</div>
+    <div class="rmd-field">
+      <label>Note</label>
+      <textarea id="rmdNote" placeholder="What do you want to remember?"></textarea>
+    </div>
+    <div class="rmd-field">
+      <label>Due date</label>
+      <input type="date" id="rmdDate" />
+    </div>
+    <div class="rmd-status" id="rmdStatus"></div>
+    <div class="rmd-actions">
+      <button class="rmd-btn danger left" id="rmdDeleteBtn" onclick="rmdDelete()" style="display:none">Delete</button>
+      <button class="rmd-btn" onclick="closeReminderModal()">Cancel</button>
+      <button class="rmd-btn success" id="rmdCompleteBtn" onclick="rmdComplete()" style="display:none">Mark complete</button>
+      <button class="rmd-btn primary" id="rmdSaveBtn" onclick="rmdSave()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -313,8 +390,11 @@ var _isAdmin = false;
 var _scope = 'mine';
 var _profileMap = {};   // ownerKey → {email, fullName}
 var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
+var _contactLookup = {}; // ownerKey|email → {clientId}
 var _items = { newApp: [], quoted: [], submitted: [], approved: [] };
 var _selectedProspects = new Set();
+var _remindersByLoan = {}; // loanId → reminder
+var _editingReminder = null; // current reminder being viewed/edited in modal
 
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
@@ -353,12 +433,30 @@ function loadAll() {
   var fetchStats = SLA.Admin
     ? SLA.Admin.userStats().catch(function(){ return { users: [] }; })
     : Promise.resolve({ users: [] });
+  var fetchReminders = (_scope === 'all' && _isAdmin)
+    ? SLA.Reminders.list({ all: true }).catch(function(){ return { byOwner: {} }; })
+    : SLA.Reminders.list().catch(function(){ return { reminders: [] }; });
 
-  Promise.all([fetchProspects, fetchQuotes, fetchClients, fetchStats]).then(function(results) {
+  Promise.all([fetchProspects, fetchQuotes, fetchClients, fetchStats, fetchReminders]).then(function(results) {
     var prospectsResp = results[0] || {};
     var quotesResp    = results[1] || {};
     var clientsResp   = results[2] || {};
     var statsResp     = results[3] || { users: [] };
+    var remindersResp = results[4] || {};
+
+    // Build reminder index by loanId
+    _remindersByLoan = {};
+    var allReminders = [];
+    if (remindersResp.byOwner) {
+      Object.keys(remindersResp.byOwner).forEach(function(o) {
+        (remindersResp.byOwner[o] || []).forEach(function(r) { allReminders.push(r); });
+      });
+    } else {
+      allReminders = remindersResp.reminders || [];
+    }
+    allReminders.forEach(function(r) {
+      if (r && r.loanId && !r.completed) _remindersByLoan[r.loanId] = r;
+    });
 
     // Profile lookup
     _profileMap = {};
@@ -368,11 +466,15 @@ function loadAll() {
     });
 
     // Loan lookup (so cards can link to loan-details)
+    // and Contact lookup (so borrower-name click → client-details page)
     _loanLookup = {};
+    _contactLookup = {};
     function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+    function ne(s){ return String(s||'').toLowerCase().trim(); }
     if (clientsResp.byOwner) {
       Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
         (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
+          if (c.email) _contactLookup[ownerKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: ownerKey };
           (c.loans || []).forEach(function(l) {
             if (!l.address || !l.id) return;
             _loanLookup[ownerKey + '|' + norm(l.address)] = {
@@ -384,6 +486,7 @@ function loadAll() {
     } else if (clientsResp.clients) {
       var myKey = (_user.email || '').toLowerCase();
       clientsResp.clients.forEach(function(c) {
+        if (c.email) _contactLookup[myKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: myKey };
         (c.loans || []).forEach(function(l) {
           if (!l.address || !l.id) return;
           _loanLookup[myKey + '|' + norm(l.address)] = {
@@ -482,13 +585,19 @@ function render() {
   var cols = [
     { key: 'newApp',    title: 'New Application',  emptyMsg: 'No new applications.' },
     { key: 'quoted',    title: 'Quoted',           emptyMsg: 'No quotes yet — load a New Application into the sizer.' },
-    { key: 'submitted', title: 'Submitted',        emptyMsg: 'Nothing submitted for review.' },
+    { key: 'submitted', title: 'Submitted - Pending Review', emptyMsg: 'Nothing submitted for review.' },
     { key: 'approved',  title: 'Approved',         emptyMsg: 'No approved loans yet.' },
   ];
 
   var html = '<div class="board">';
   cols.forEach(function(col) {
     var list = filtered(_items[col.key]);
+    // Pin cards whose loan has a due-or-overdue reminder to the top
+    list.sort(function(a, b) {
+      var aDue = isCardReminderDue(a) ? 1 : 0;
+      var bDue = isCardReminderDue(b) ? 1 : 0;
+      return bDue - aDue;
+    });
     var totalAmt = list.reduce(function(s, it) {
       return s + (it.kind === 'prospect'
         ? num(it.prospect.purchasePrice || it.prospect.propertyValue)
@@ -531,6 +640,7 @@ function buildProspectCard(it) {
 
   var selKey = it.ownerKey + '|' + it.id;
   var checked = _selectedProspects.has(selKey) ? ' checked' : '';
+  var nameHtml = nameAsContactLink(name, p.email, it.ownerKey);
 
   return (
     '<div class="card prospect-card">' +
@@ -538,7 +648,7 @@ function buildProspectCard(it) {
         '<input type="checkbox" class="prospect-cb" data-key="' + escAttr(selKey) + '" data-slug="' + escAttr(it.ownerKey) + '" data-id="' + escAttr(it.id) + '" onchange="toggleSelect(this)"' + checked + ' />' +
       '</label>' +
       loRow +
-      '<div class="card-title">' + escH(name) + '</div>' +
+      '<div class="card-title">' + nameHtml + '</div>' +
       '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
       '<div class="card-amt">' + amt + '</div>' +
       '<div class="card-meta">' +
@@ -579,27 +689,30 @@ function buildQuoteCard(it, colKey) {
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
     : '';
 
+  var nameHtml = nameAsContactLink(name, fd.borrowerEmail || q.borrowerEmail, it.ownerKey);
+
   var actions = '';
   if (colKey === 'quoted') {
-    actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open</a>';
-    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Details</a>';
+    actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
+    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     actions += '<button type="button" class="card-btn primary" onclick="goSubmit(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Submit</button>';
   } else if (colKey === 'submitted') {
-    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Details</a>';
+    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     actions += '<span class="card-btn muted">Awaiting decision</span>';
   } else if (colKey === 'approved') {
-    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Details</a>';
+    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
+    actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
+    // Mark Closed is admin/super-admin only — regular users see no close button
     if (_isAdmin) {
       actions += '<button type="button" class="card-btn success" onclick="closeLoan(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Mark Closed</button>';
-    } else {
-      actions += '<span class="card-btn muted">Awaiting close</span>';
     }
   }
 
   return (
-    '<div class="card">' +
+    '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + '">' +
+      bellForLoan(lookup, q, addr) +
       loRow +
-      '<div class="card-title">' + escH(name) + '</div>' +
+      '<div class="card-title">' + nameHtml + '</div>' +
       '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
       '<div class="card-amt">' + amt + (rate ? ' <span style="font-size:11px;color:var(--muted);font-weight:500">@ ' + rate + '</span>' : '') + '</div>' +
       '<div class="card-meta">' +
@@ -610,6 +723,180 @@ function buildQuoteCard(it, colKey) {
     '</div>'
   );
 }
+
+// ── Reminder helpers ────────────────────────────────────
+// Today as YYYY-MM-DD in the user's local time.
+function todayStr() {
+  var d = new Date();
+  var y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+  return y + '-' + m + '-' + dd;
+}
+
+function reminderForCard(it) {
+  if (it.kind === 'prospect') return null;
+  var fd = it.quote.formData || {};
+  var addr = it.quote.address || fd.address || '';
+  var lookup = _loanLookup[it.ownerKey + '|' + (addr||'').trim().toLowerCase().replace(/\s+/g,' ')];
+  if (!lookup) return null;
+  return _remindersByLoan[lookup.loanId] || null;
+}
+
+function isCardReminderDue(it) {
+  var r = reminderForCard(it);
+  if (!r) return false;
+  return r.dueDate <= todayStr();
+}
+
+function bellForLoan(lookup, q, addr) {
+  if (!lookup) return ''; // no loan in client record yet — can't attach reminder
+  var loanId = lookup.loanId;
+  var existing = _remindersByLoan[loanId];
+  var state = 'none'; // none | future | due
+  if (existing) {
+    state = existing.dueDate <= todayStr() ? 'due' : 'future';
+  }
+  var title = !existing
+    ? 'Add reminder'
+    : 'Reminder ' + (state === 'due' ? '(due)' : 'set for ' + existing.dueDate) + ' — click to edit';
+  var payload = {
+    loanId: loanId,
+    clientId: lookup.clientId,
+    ownerKey: lookup.ownerKey,
+    address: addr || '',
+    borrower: q.borrower || (q.formData && q.formData.borrower) || '',
+  };
+  return '<button type="button" class="bell-btn ' + state + '" title="' + escAttr(title) + '" ' +
+    'onclick="openReminderModal(' + escAttr(JSON.stringify(payload)) + ')">' +
+    bellSvg(state) + '</button>';
+}
+
+function bellSvg(state) {
+  // Simple bell glyph, fill changes with state via CSS
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none">' +
+    '<path d="M8 2.5c-2.2 0-4 1.8-4 4v2.2c0 .6-.2 1.1-.6 1.5L2.5 11h11l-.9-.8c-.4-.4-.6-.9-.6-1.5V6.5c0-2.2-1.8-4-4-4z" ' +
+    'stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>' +
+    '<path d="M6.5 12.5c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+    '</svg>';
+}
+
+// ── Reminder modal ──────────────────────────────────────
+function openReminderModal(payload) {
+  // payload: { loanId, clientId, ownerKey, address, borrower }
+  var existing = _remindersByLoan[payload.loanId] || null;
+  _editingReminder = {
+    loanId: payload.loanId,
+    clientId: payload.clientId,
+    ownerKey: payload.ownerKey,
+    address: payload.address || '',
+    borrower: payload.borrower || '',
+    existing: existing,
+  };
+
+  document.getElementById('rmdTitle').textContent = existing ? 'Edit reminder' : 'New reminder';
+  document.getElementById('rmdSub').textContent = (payload.borrower || '—') + (payload.address ? ' · ' + payload.address : '');
+  document.getElementById('rmdNote').value = existing ? existing.note : '';
+  document.getElementById('rmdDate').value = existing ? existing.dueDate : todayStr();
+  document.getElementById('rmdStatus').textContent = '';
+  document.getElementById('rmdStatus').className = 'rmd-status';
+  document.getElementById('rmdDeleteBtn').style.display   = existing ? 'inline-flex' : 'none';
+  document.getElementById('rmdCompleteBtn').style.display = existing ? 'inline-flex' : 'none';
+  document.getElementById('rmdSaveBtn').textContent = existing ? 'Save changes' : 'Set reminder';
+
+  document.getElementById('rmdBg').classList.add('show');
+  setTimeout(function(){ document.getElementById('rmdNote').focus(); }, 50);
+}
+
+function closeReminderModal() {
+  document.getElementById('rmdBg').classList.remove('show');
+  _editingReminder = null;
+}
+
+function rmdSave() {
+  var r = _editingReminder;
+  if (!r) return;
+  var note = document.getElementById('rmdNote').value.trim();
+  var date = document.getElementById('rmdDate').value;
+  var status = document.getElementById('rmdStatus');
+  if (!note) { status.className = 'rmd-status err'; status.textContent = 'Add a note.'; return; }
+  if (!date) { status.className = 'rmd-status err'; status.textContent = 'Pick a due date.'; return; }
+  var btn = document.getElementById('rmdSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  var payload = {
+    loanId: r.loanId,
+    clientId: r.clientId,
+    address: r.address,
+    borrower: r.borrower,
+    note: note,
+    dueDate: date,
+  };
+  if (r.existing) {
+    payload.id = r.existing.id;
+    payload.createdAt = r.existing.createdAt;
+  }
+  // If admin viewing another LO's pipeline, route the save to that owner
+  if (r.ownerKey && r.ownerKey !== (_user.email||'').toLowerCase()) {
+    payload._owner = r.ownerKey;
+  }
+
+  SLA.Reminders.save(payload).then(function(resp) {
+    closeReminderModal();
+    showToast('Reminder ' + (r.existing ? 'updated' : 'set') + ' for ' + date);
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = r.existing ? 'Save changes' : 'Set reminder';
+    status.className = 'rmd-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+function rmdComplete() {
+  var r = _editingReminder;
+  if (!r || !r.existing) return;
+  var btn = document.getElementById('rmdCompleteBtn');
+  btn.disabled = true; btn.textContent = 'Marking…';
+  var payload = Object.assign({}, r.existing, {
+    completed: true,
+    completedAt: new Date().toISOString(),
+  });
+  if (r.ownerKey && r.ownerKey !== (_user.email||'').toLowerCase()) payload._owner = r.ownerKey;
+  SLA.Reminders.save(payload).then(function() {
+    closeReminderModal();
+    showToast('Reminder completed');
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Mark complete';
+    var s = document.getElementById('rmdStatus');
+    s.className = 'rmd-status err';
+    s.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+function rmdDelete() {
+  var r = _editingReminder;
+  if (!r || !r.existing) return;
+  if (!confirm('Delete this reminder?')) return;
+  var btn = document.getElementById('rmdDeleteBtn');
+  btn.disabled = true;
+  var opts = {};
+  if (r.ownerKey && r.ownerKey !== (_user.email||'').toLowerCase()) opts._owner = r.ownerKey;
+  SLA.Reminders.delete(r.existing.id, opts).then(function() {
+    closeReminderModal();
+    showToast('Reminder deleted');
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false;
+    var s = document.getElementById('rmdStatus');
+    s.className = 'rmd-status err';
+    s.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+// Backdrop close
+document.addEventListener('DOMContentLoaded', function() {
+  var bg = document.getElementById('rmdBg');
+  if (bg) bg.addEventListener('click', function(e){ if (e.target === bg) closeReminderModal(); });
+});
 
 // ── Bulk select / delete ────────────────────────────────
 function toggleSelect(checkbox) {
@@ -778,6 +1065,31 @@ function postSlackSubmission(webhookUrl, q) {
 }
 
 // ── Helpers ─────────────────────────────────────────────
+// Build a clickable name link to the contact (client-details) page when we
+// have a client record matching the borrower email. Falls back to plain text
+// if no contact exists yet.
+function nameAsContactLink(name, email, ownerKey) {
+  if (!email) return escH(name);
+  var ne = String(email).toLowerCase().trim();
+  // Try ownerKey as-is, then try other slug variants the contact might be under
+  var candidates = [ownerKey];
+  // Convert the new email-form ownerKey (mike@x.com) to legacy slug forms (mike, mike_x_com)
+  if (ownerKey && ownerKey.indexOf('@') >= 0) {
+    candidates.push(ownerKey.split('@')[0]);
+  }
+  for (var i = 0; i < candidates.length; i++) {
+    var hit = _contactLookup[candidates[i] + '|' + ne];
+    if (hit) {
+      var url = 'client-details.html?clientId=' + encodeURIComponent(hit.clientId)
+        + (hit.ownerKey !== (_user.email||'').toLowerCase()
+            ? '&owner=' + encodeURIComponent(hit.ownerKey)
+            : '');
+      return '<a href="' + escAttr(url) + '" class="contact-link">' + escH(name) + '</a>';
+    }
+  }
+  return escH(name);
+}
+
 function loDisplay(ownerKey) {
   if (!ownerKey) return '—';
   var p = _profileMap[String(ownerKey).toLowerCase()];

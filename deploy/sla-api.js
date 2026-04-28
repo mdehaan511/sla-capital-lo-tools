@@ -298,6 +298,34 @@
     },
   };
 
+  // ── Reminders ───────────────────────────────────────────────────
+  // One active reminder per loan. Save replaces any existing non-completed
+  // reminder for the same loanId.
+  var Reminders = {
+    list: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.all)               qs.push('all=1');
+      if (opts.includeCompleted)  qs.push('completed=1');
+      var url = '/api/reminders' + (qs.length ? '?' + qs.join('&') : '');
+      return api('GET', url);
+    },
+    save: function (reminder) {
+      return api('POST', '/api/reminders-save', reminder);
+    },
+    delete: function (reminderId, opts) {
+      var body = { reminderId: reminderId };
+      if (opts && opts._owner) body._owner = opts._owner;
+      return api('POST', '/api/reminders-delete', body);
+    },
+    complete: function (reminder) {
+      return Reminders.save(Object.assign({}, reminder, {
+        completed: true,
+        completedAt: new Date().toISOString(),
+      }));
+    },
+  };
+
   // ── Search ──────────────────────────────────────────────────────
   var Search = {
     query: function (q, opts) {
@@ -345,6 +373,7 @@
     Settings: Settings,
     Admin: Admin,
     Profile: Profile,
+    Reminders: Reminders,
     Search: Search,
     getRoles: getRoles,
     isAdmin: isAdmin,
