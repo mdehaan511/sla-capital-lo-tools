@@ -319,8 +319,8 @@ const GUIDELINES = {
   // Format: { ficoMin: { purchase: max, rateTerm: max, cashOut: max } }
   // Using the more conservative (Small/Very Small) values where there's a split
   maxLTV: {
-    740: { purchase: 0.80, rateTerm: 0.75, cashOut: 0.75 },
-    720: { purchase: 0.80, rateTerm: 0.75, cashOut: 0.75 },
+    740: { purchase: 0.80, rateTerm: 0.80, cashOut: 0.75 },
+    720: { purchase: 0.80, rateTerm: 0.80, cashOut: 0.75 },
     700: { purchase: 0.75, rateTerm: 0.75, cashOut: 0.75 },
     680: { purchase: 0.70, rateTerm: 0.65, cashOut: 0.65 },
     660: { purchase: 0.65, rateTerm: 0.65, cashOut: 0.65 },
@@ -696,10 +696,26 @@ function calculate() {
   var address   = $('propAddress').value.trim();
 
   if (loan<=0) return {error:'Enter a loan amount'};
-  if (ltv<=0||ltv>80) return {error: ltv>80?'LTV '+ltv.toFixed(1)+'% exceeds maximum 80%':'Enter property value'};
+
+  // Helper: max loan at the given LTV cap given the property value
+  function maxLoanAt(ltvPct) {
+    if (propVal <= 0) return null;
+    return Math.floor(propVal * ltvPct / 100);
+  }
+  function maxLoanMsg(ltvPct) {
+    var ml = maxLoanAt(ltvPct);
+    return ml ? ' Maximum loan at this property value is $' + ml.toLocaleString() + '.' : '';
+  }
+
+  if (ltv<=0||ltv>80) {
+    if (ltv > 80) {
+      return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80)};
+    }
+    return {error:'Enter property value'};
+  }
 
   var ci = ltvCol(ltv);
-  if (ci===null) return {error:'LTV '+ltv.toFixed(1)+'% exceeds max 80%'};
+  if (ci===null) return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80)};
 
   var baseRate = DIYA.baseRate[loanType]||DIYA.baseRate['30Y Fixed'];
   var adjs = [];
@@ -708,13 +724,29 @@ function calculate() {
   var fRow = DIYA.fico[fico];
   if (!fRow) return {error:'FICO not supported'};
   var fAdj = fRow[ci];
-  if (fAdj===null||fAdj===undefined) return {error:'FICO '+fico+' not available at '+ltv.toFixed(1)+'% LTV'};
+  if (fAdj===null||fAdj===undefined) {
+    // Find the highest LTV column that's not null for this FICO
+    var maxFicoLTV = null;
+    for (var i = fRow.length - 1; i >= 0; i--) {
+      if (fRow[i] !== null && fRow[i] !== undefined) { maxFicoLTV = DIYA.ltvCols[i]; break; }
+    }
+    var ficoMaxMsg = maxFicoLTV ? maxLoanMsg(maxFicoLTV) : '';
+    var ficoMaxStr = maxFicoLTV ? ' Maximum LTV for FICO ' + fico + ' is ' + maxFicoLTV + '%.' + ficoMaxMsg : '';
+    return {error:'FICO '+fico+' is not available at '+ltv.toFixed(1)+'% LTV.' + ficoMaxStr};
+  }
   adjs.push({label:'FICO adjustment', value:fAdj});
 
   // IO
   if (isIO) {
     var ioA = DIYA.io[ci];
-    if (ioA===null) return {error:'Interest Only not available at this LTV'};
+    if (ioA===null) {
+      var ioMaxLTV = null;
+      for (var i = DIYA.io.length - 1; i >= 0; i--) {
+        if (DIYA.io[i] !== null && DIYA.io[i] !== undefined) { ioMaxLTV = DIYA.ltvCols[i]; break; }
+      }
+      var ioMaxStr = ioMaxLTV ? ' Maximum LTV for Interest Only is ' + ioMaxLTV + '%.' + maxLoanMsg(ioMaxLTV) : '';
+      return {error:'Interest Only is not available at '+ltv.toFixed(1)+'% LTV.' + ioMaxStr};
+    }
     adjs.push({label:'Interest Only', value:ioA});
   }
 
@@ -722,10 +754,12 @@ function calculate() {
   if (purpose==='refi_co') {
     var coA = DIYA.cashOut[ci];
     if (coA===null) {
-      var coMaxAllowed = 65; // From DIYA.cashOut: null only above column 5 (65% LTV)
-      var coMaxLoan = propVal > 0 ? Math.floor(propVal * coMaxAllowed / 100) : null;
-      var coMaxMsg = coMaxLoan ? ' Maximum loan at this property value is $'+coMaxLoan.toLocaleString()+'.' : '';
-      return {error:'LTV '+ltv.toFixed(1)+'% exceeds the '+coMaxAllowed+'% maximum for cash-out refi.'+coMaxMsg};
+      var coMaxLTV = null;
+      for (var j = DIYA.cashOut.length - 1; j >= 0; j--) {
+        if (DIYA.cashOut[j] !== null && DIYA.cashOut[j] !== undefined) { coMaxLTV = DIYA.ltvCols[j]; break; }
+      }
+      var coMaxStr = coMaxLTV ? ' Maximum LTV for cash-out refi is ' + coMaxLTV + '%.' + maxLoanMsg(coMaxLTV) : '';
+      return {error:'LTV '+ltv.toFixed(1)+'% is not available for cash-out refi.' + coMaxStr};
     }
     adjs.push({label:'Cash-Out Refi', value:coA});
   }
