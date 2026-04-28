@@ -23,7 +23,9 @@ import { dirname, join } from 'node:path';
 
 import JSZip from 'jszip';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// Don't name this __dirname — Netlify's runtime injects its own __dirname
+// shim, and a top-level const collision is a SyntaxError.
+const _funcDir = dirname(fileURLToPath(import.meta.url));
 
 export default async (req, context) => {
   try {
@@ -125,8 +127,8 @@ async function handle(req, context) {
   // Netlify deploys the function from a different directory layout than local.
   // Try several candidate paths and report exactly which ones we tried.
   const candidates = [
-    join(__dirname, '_templates', tplName),
-    join(__dirname, '..', '_templates', tplName),
+    join(_funcDir, '_templates', tplName),
+    join(_funcDir, '..', '_templates', tplName),
     join(process.cwd(), 'netlify', 'functions', '_templates', tplName),
     join(process.cwd(), '_templates', tplName),
   ];
@@ -145,7 +147,9 @@ async function handle(req, context) {
       error: 'Template not found on server',
       tried: triedPaths,
       cwd: process.cwd(),
-      __dirname,
+      _funcDir,
+      // Also expose Netlify's injected __dirname for comparison
+      runtimeDirname: typeof __dirname !== 'undefined' ? __dirname : null,
     });
   }
 
