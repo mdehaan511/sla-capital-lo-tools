@@ -4,6 +4,7 @@
   "description": "SLA Capital internal loan tools",
   "private": true,
   "dependencies": {
-    "@netlify/blobs": "^10.0.0"
+    "@netlify/blobs": "^10.0.0",
+    "jszip": "^3.10.1"
   }
 }

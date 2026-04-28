@@ -4,7 +4,7 @@
 
 [functions]
   directory = "netlify/functions"
-  included_files = ["netlify/functions/_shared/**"]
+  included_files = ["netlify/functions/_shared/**", "netlify/functions/_templates/**"]
 
 [build.environment]
   NODE_VERSION = "20"
@@ -129,6 +129,12 @@
 [[redirects]]
   from = "/api/reminders-delete"
   to = "/.netlify/functions/reminders-delete"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/termsheet"
+  to = "/.netlify/functions/termsheet"
   status = 200
   force = true
 
