@@ -191,6 +191,13 @@
 
     .dl-btn { display: block; width: 100%; height: 46px; background: var(--gold); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; letter-spacing: 0.01em; }
     .dl-btn:hover { background: var(--gold-mid); }
+    .save-btn:disabled, .save-btn.save-disabled { background: rgba(120,116,136,0.18); color: var(--muted); cursor: not-allowed; border-color: var(--border); }
+    .save-btn:disabled:hover, .save-btn.save-disabled:hover { background: rgba(120,116,136,0.18); color: var(--muted); }
+    .fees-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 14px 18px; margin-top: 16px; }
+    .fees-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .fees-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; color: var(--text); font-family: 'DM Mono', monospace; }
+    .fees-row.total { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); font-weight: 700; color: var(--gold-mid); }
+    .fees-foot { margin-top: 10px; font-size: 11px; color: var(--muted); font-style: italic; }
     .gl-error { background: #fdf0f0; border: 1px solid rgba(124,31,31,0.18); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; padding: 10px 14px; margin-bottom: 10px; line-height: 1.5; }
     .gl-warn  { background: #fffbf0; border: 1px solid rgba(122,82,24,0.20); border-radius: var(--r-xs); color: var(--warn); font-size: 13px; padding: 10px 14px; margin-bottom: 10px; line-height: 1.5; }
 
@@ -459,7 +466,7 @@ function getFICOMin(ficoStr) {
         </div>
       </div>
 
-      <div class="field">
+      <div class="field span2">
         <div class="wrap">
           <label>Property Address <span class="req">*</span></label>
           <input type="text" id="propAddress" placeholder="123 Main St, City, ST" />
@@ -619,6 +626,17 @@ function getFICOMin(ficoStr) {
       <p>Fill in the loan details on the left<br>and click <strong>Get Rate</strong> to see your pricing.</p>
     </div>
     </div>
+
+    <!-- Fee schedule (informational, always visible) -->
+    <div class="fees-card">
+      <div class="fees-head">SLA Capital Fees</div>
+      <div class="fees-row"><span>Underwriting Fee</span><span>$995</span></div>
+      <div class="fees-row"><span>Doc Prep Fee</span><span>$700</span></div>
+      <div class="fees-row"><span>Legal Fee</span><span>$500</span></div>
+      <div class="fees-row"><span>Desktop Analysis</span><span>$120</span></div>
+      <div class="fees-row total"><span>Total</span><span>$2,315</span></div>
+      <div class="fees-foot">Reference only — see rate sheet for current pricing.</div>
+    </div>
   </div>
 </div>
 
@@ -703,7 +721,12 @@ function calculate() {
   // Cash-out
   if (purpose==='refi_co') {
     var coA = DIYA.cashOut[ci];
-    if (coA===null) return {error:'Cash-Out not available at this LTV'};
+    if (coA===null) {
+      var coMaxAllowed = 65; // From DIYA.cashOut: null only above column 5 (65% LTV)
+      var coMaxLoan = propVal > 0 ? Math.floor(propVal * coMaxAllowed / 100) : null;
+      var coMaxMsg = coMaxLoan ? ' Maximum loan at this property value is $'+coMaxLoan.toLocaleString()+'.' : '';
+      return {error:'LTV '+ltv.toFixed(1)+'% exceeds the '+coMaxAllowed+'% maximum for cash-out refi.'+coMaxMsg};
+    }
     adjs.push({label:'Cash-Out Refi', value:coA});
   }
 
@@ -836,7 +859,7 @@ function renderResult(r) {
   '</div>'+
 
   '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>'+
-  '<button class="dl-btn" onclick="downloadPDF()">&#8681; Download Term Sheet PDF</button>';
+  '<button class="dl-btn" onclick="downloadPDF()">&#8681; Download Rate Sheet PDF</button>';
 }
 
 function updatePills() {
@@ -872,7 +895,37 @@ function updatePills() {
   } else {dv.innerHTML='&mdash;';dv.className='computed-val';}
 }
 
-function run() { updatePills(); var r=calculate(); $('results').innerHTML=renderResult(r); }
+function run() {
+  updatePills();
+  var r = calculate();
+  $('results').innerHTML = renderResult(r);
+  // Toggle Save Quote button based on whether all required fields are filled
+  toggleSaveButton();
+}
+
+// Required fields gating Save Quote (#9). Email is recommended but not required;
+// if blank the loan is saved without ClientBook upsert. Address, name, and the
+// pricing fields are all required.
+var DSCR_REQUIRED = [
+  'borrowerName','propAddress','loanAmt','propValue','isIO','loanPurpose',
+  'propType','fico','rent','prepay'
+];
+function allRequiredFilled() {
+  for (var i = 0; i < DSCR_REQUIRED.length; i++) {
+    var el = $(DSCR_REQUIRED[i]);
+    if (!el || !String(el.value || '').trim()) return false;
+  }
+  return true;
+}
+function toggleSaveButton() {
+  var btn = $('saveQuoteBtn');
+  if (!btn) return;
+  var ok = allRequiredFilled();
+  btn.disabled = !ok;
+  btn.title = ok ? '' : 'Fill in every required field (marked *) before saving';
+  if (ok) btn.classList.remove('save-disabled');
+  else    btn.classList.add('save-disabled');
+}
 
 // ── PDF Generation ─────────────────────────────────────────────
 function fmtDplain(n) {
@@ -1491,7 +1544,8 @@ function saveCurrentQuote() {
 function loadQuoteIntoForm(formData) {
   if (!formData) return;
   var fields = {
-    borrowerName: formData.borrower   || '',
+    borrowerName: formData.borrower      || formData.borrowerName  || '',
+    borrowerEmail: formData.borrowerEmail || '',
     propAddress:  formData.address    || '',
     loanAmt:      formData.loanAmt    || '',
     propValue:    formData.propValue  || '',
@@ -1510,6 +1564,17 @@ function loadQuoteIntoForm(formData) {
   Object.keys(fields).forEach(function(id) {
     var el = $(id);
     if (el) el.value = fields[id];
+  });
+  // Lock identity fields once a quote is loaded — these define the loan record
+  // and changing them would either create a duplicate or orphan the original.
+  ['borrowerName','borrowerEmail','propAddress'].forEach(function(id) {
+    var el = $(id);
+    if (el) {
+      el.readOnly = true;
+      el.style.background = 'rgba(120,116,136,0.06)';
+      el.style.cursor = 'not-allowed';
+      el.title = 'Locked — to change borrower or address, save as a new quote';
+    }
   });
   run();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1604,18 +1669,17 @@ netlifyIdentity.on('init', function(user) {
             iterate((r && r.clients) || []);
           }
           if (!found) return false;
-          // Build a formData object the sizer can prefill from. Loan fields
-          // are stored flat on the loan record (not under formData) when the
-          // loan was created from an application.
           var fd = found.formData || found;
-          // Make sure address and borrower fields are present so sizer
-          // populates the borrower row at top
           if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
           if (!fd.borrowerName && clientRec) {
             fd = Object.assign({}, fd, {
               borrowerName: ((clientRec.firstName||'') + ' ' + (clientRec.lastName||'')).trim(),
-              borrowerEmail: clientRec.email || '',
             });
+          }
+          // Always pull borrower email from the client record if we have one
+          // (the quote's formData might have been saved without the email).
+          if (!fd.borrowerEmail && clientRec && clientRec.email) {
+            fd = Object.assign({}, fd, { borrowerEmail: clientRec.email });
           }
           window._originalAddress = found.address || '';
           window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
