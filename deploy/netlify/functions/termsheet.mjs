@@ -26,6 +26,15 @@ import JSZip from 'jszip';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default async (req, context) => {
+  try {
+    return await handle(req, context);
+  } catch (e) {
+    console.error('termsheet top-level error:', e);
+    return json(500, { error: 'Server error: ' + (e.message || 'unknown'), stack: String(e.stack || '').slice(0, 800) });
+  }
+};
+
+async function handle(req, context) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
 
@@ -111,14 +120,33 @@ export default async (req, context) => {
 
   // Determine which template to load
   const tool = (quote.toolType === 'rtl') ? 'rtl' : 'dscr';
-  const tplPath = join(__dirname, '_templates',
-    tool === 'rtl' ? 'SLA_Term_Sheet_RTL.xlsx' : 'SLA_Term_Sheet_DSCR.xlsx');
+  const tplName = (tool === 'rtl') ? 'SLA_Term_Sheet_RTL.xlsx' : 'SLA_Term_Sheet_DSCR.xlsx';
 
-  let tplBuffer;
-  try {
-    tplBuffer = readFileSync(tplPath);
-  } catch (e) {
-    return json(500, { error: 'Template not found on server' });
+  // Netlify deploys the function from a different directory layout than local.
+  // Try several candidate paths and report exactly which ones we tried.
+  const candidates = [
+    join(__dirname, '_templates', tplName),
+    join(__dirname, '..', '_templates', tplName),
+    join(process.cwd(), 'netlify', 'functions', '_templates', tplName),
+    join(process.cwd(), '_templates', tplName),
+  ];
+  let tplBuffer = null;
+  let triedPaths = [];
+  for (const p of candidates) {
+    triedPaths.push(p);
+    try {
+      tplBuffer = readFileSync(p);
+      break;
+    } catch (e) { /* try next */ }
+  }
+  if (!tplBuffer) {
+    console.error('termsheet: template not found. Tried:', triedPaths);
+    return json(500, {
+      error: 'Template not found on server',
+      tried: triedPaths,
+      cwd: process.cwd(),
+      __dirname,
+    });
   }
 
   // Build the value map from quote + client + LO profile
@@ -149,7 +177,7 @@ export default async (req, context) => {
       'Content-Disposition': `attachment; filename="${filename}"`,
     },
   });
-};
+}
 
 // ── Build context object from quote + client + LO ─────────────
 function buildContext(quote, client, loProfile) {
