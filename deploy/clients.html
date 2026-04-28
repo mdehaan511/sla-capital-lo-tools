@@ -117,6 +117,43 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--dark);color:#fff;font-size:13px;font-weight:500;padding:10px 20px;border-radius:30px;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999;white-space:nowrap}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+/* Add Contact button */
+.add-contact-btn{padding:9px 16px;background:var(--dark);color:#fff;border:none;border-radius:22px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
+.add-contact-btn:hover{background:#1c1227}
+
+/* Alphabetical jump bar */
+.alpha-jump{display:flex;flex-wrap:wrap;gap:4px;padding:10px 14px;margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);position:sticky;top:8px;z-index:10}
+.alpha-btn{flex:1;min-width:24px;padding:5px 0;border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;border-radius:6px;transition:all .12s}
+.alpha-btn:hover:not(:disabled){background:var(--gold-light);color:var(--gold-mid)}
+.alpha-btn.empty{color:var(--muted);opacity:0.35;cursor:default}
+
+/* Letter dividers */
+.letter-divider{display:flex;align-items:baseline;gap:14px;padding:12px 4px 8px;margin-top:18px;margin-bottom:6px;border-bottom:1px solid var(--gold-border);scroll-margin-top:80px}
+.letter-divider:first-of-type{margin-top:0}
+.letter-divider-letter{font-family:'Lora',serif;font-size:24px;font-weight:600;color:var(--gold)}
+.letter-divider-count{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(38,26,54,0.55);display:none;align-items:center;justify-content:center;z-index:100;padding:1rem}
+.modal-bg.show{display:flex}
+.modal{background:var(--surface);border-radius:var(--r);max-width:480px;width:100%;padding:1.75rem}
+.modal h3{font-family:'Lora',serif;font-size:19px;margin-bottom:8px}
+.modal-intro{font-size:13px;color:var(--muted);margin-bottom:1.25rem;line-height:1.5}
+.modal-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal-field{margin-bottom:1rem}
+.modal-field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:6px}
+.modal-field label .req{color:var(--danger)}
+.modal-field input{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--r-xs,8px);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text)}
+.modal-field input:focus{outline:none;border-color:var(--gold)}
+.modal-status{font-size:12px;min-height:18px;margin-bottom:8px}
+.modal-status.err{color:var(--danger)}
+.modal-status.ok{color:var(--success)}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.modal-btn{font-size:13px;font-weight:600;padding:9px 18px;border-radius:22px;cursor:pointer;font-family:'DM Sans',sans-serif;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+.modal-btn.primary{background:var(--dark);border-color:var(--dark);color:#fff}
+.modal-btn.primary:hover:not(:disabled){background:#1c1227}
+.modal-btn:disabled{opacity:0.5;cursor:wait}
+
 /* Admin sections */
 .admin-section{margin-bottom:20px}
 .user-section-hdr{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 20px;cursor:pointer;user-select:none;transition:background .1s}
@@ -133,6 +170,37 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <body>
 <div id="auth-gate"><p>Checking authentication…</p></div>
 <div class="toast" id="toast"></div>
+
+<!-- Add Contact modal -->
+<div class="modal-bg" id="addContactModal">
+  <div class="modal">
+    <h3>Add Contact</h3>
+    <p class="modal-intro">Save a contact without a loan. If they later submit an application or you save a loan with their email, both will be linked to this record automatically.</p>
+    <div class="modal-row">
+      <div class="modal-field">
+        <label>First Name <span class="req">*</span></label>
+        <input type="text" id="ac-firstName" />
+      </div>
+      <div class="modal-field">
+        <label>Last Name <span class="req">*</span></label>
+        <input type="text" id="ac-lastName" />
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Email <span class="req">*</span></label>
+      <input type="email" id="ac-email" placeholder="contact@example.com" />
+    </div>
+    <div class="modal-field">
+      <label>Phone</label>
+      <input type="tel" id="ac-phone" placeholder="(555) 123-4567" />
+    </div>
+    <div class="modal-status" id="ac-status"></div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeAddContact()">Cancel</button>
+      <button class="modal-btn primary" id="ac-saveBtn" onclick="saveAddContact()">Save Contact</button>
+    </div>
+  </div>
+</div>
 
 <nav class="nav">
   
@@ -155,6 +223,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <h1>Book of Clients</h1>
       <p id="pageSubtitle">All clients with loan history.</p>
     </div>
+    <div>
+      <button class="add-contact-btn" onclick="openAddContact()">+ Add Contact</button>
+    </div>
   </div>
 
   <!-- Admin view switcher -->
@@ -175,6 +246,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <button class="filter-btn" data-tf="dscr"  onclick="setTF('dscr')">DSCR</button>
       <button class="filter-btn" data-tf="rtl"   onclick="setTF('rtl')">Fix &amp; Flip</button>
     </div>
+    <div class="alpha-jump" id="alphaJump" style="display:none"></div>
     <div id="clientsList"></div>
   </div>
 
@@ -332,11 +404,61 @@ function renderClients() {
   });
 
   if (!filtered.length) {
-    list.innerHTML = '<div class="empty-state"><h3>No clients yet</h3><p>Clients are added automatically when you save a quote<br>for a borrower who came through your application link.</p></div>';
+    document.getElementById('alphaJump').style.display = 'none';
+    if (search) {
+      list.innerHTML = '<div class="empty-state"><h3>No matching clients</h3><p>Nothing matches "<strong>'+escH(search)+'</strong>". Try a different search.</p></div>';
+    } else {
+      list.innerHTML = '<div class="empty-state"><h3>No clients yet</h3><p>Add a contact above, or clients will appear automatically<br>when you save a quote for a borrower.</p></div>';
+    }
     return;
   }
 
-  filtered.forEach(function(c) { list.appendChild(buildClientCard(c, _user.email, false)); });
+  // Group by first letter of last name (or '#' for missing)
+  var groups = {};
+  filtered.forEach(function(c) {
+    var letter = ((c.lastName || c.firstName || '#').charAt(0) || '#').toUpperCase();
+    if (!/[A-Z]/.test(letter)) letter = '#';
+    if (!groups[letter]) groups[letter] = [];
+    groups[letter].push(c);
+  });
+  var letters = Object.keys(groups).sort(function(a, b) {
+    if (a === '#') return 1;
+    if (b === '#') return -1;
+    return a.localeCompare(b);
+  });
+
+  // Render the A-Z jump bar
+  renderAlphaJump(letters);
+
+  // Render groups
+  letters.forEach(function(L) {
+    var hdr = document.createElement('div');
+    hdr.className = 'letter-divider';
+    hdr.id = 'letter-' + L;
+    hdr.innerHTML = '<span class="letter-divider-letter">' + L + '</span>' +
+      '<span class="letter-divider-count">' + groups[L].length + ' client' + (groups[L].length === 1 ? '' : 's') + '</span>';
+    list.appendChild(hdr);
+    groups[L].forEach(function(c) { list.appendChild(buildClientCard(c, _user.email, false)); });
+  });
+}
+
+function renderAlphaJump(presentLetters) {
+  var bar = document.getElementById('alphaJump');
+  if (!bar) return;
+  bar.style.display = 'flex';
+  var ALL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('');
+  var present = new Set(presentLetters);
+  bar.innerHTML = ALL.map(function(L) {
+    var has = present.has(L);
+    return '<button class="alpha-btn' + (has ? '' : ' empty') + '"' +
+      (has ? ' onclick="jumpToLetter(\'' + L + '\')"' : ' disabled') +
+      '>' + L + '</button>';
+  }).join('');
+}
+
+function jumpToLetter(L) {
+  var el = document.getElementById('letter-' + L);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function buildClientCard(c, userEmail, readOnly) {
@@ -607,6 +729,75 @@ function humanizeEmail(email) {
   return parts.map(function(p){ return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }).join(' ') || s;
 }
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+// ── Add Contact modal ─────────────────────────────────────
+function openAddContact() {
+  ['ac-firstName','ac-lastName','ac-email','ac-phone'].forEach(function(id){
+    document.getElementById(id).value = '';
+  });
+  var s = document.getElementById('ac-status');
+  s.textContent = ''; s.className = 'modal-status';
+  document.getElementById('addContactModal').classList.add('show');
+  setTimeout(function(){ document.getElementById('ac-firstName').focus(); }, 50);
+}
+function closeAddContact() {
+  document.getElementById('addContactModal').classList.remove('show');
+}
+function saveAddContact() {
+  var firstName = document.getElementById('ac-firstName').value.trim();
+  var lastName  = document.getElementById('ac-lastName').value.trim();
+  var email     = document.getElementById('ac-email').value.trim().toLowerCase();
+  var phone     = document.getElementById('ac-phone').value.trim();
+  var status    = document.getElementById('ac-status');
+
+  if (!firstName) { status.className = 'modal-status err'; status.textContent = 'First name is required.'; return; }
+  if (!lastName)  { status.className = 'modal-status err'; status.textContent = 'Last name is required.'; return; }
+  if (!email || !email.includes('@')) {
+    status.className = 'modal-status err';
+    status.textContent = 'A valid email is required so future loans link to this contact.';
+    return;
+  }
+
+  // Check for existing client with this email — if found, just toast and close
+  var existing = _clients.find(function(c){ return (c.email||'').toLowerCase() === email; });
+  if (existing) {
+    status.className = 'modal-status err';
+    status.textContent = 'A contact with that email already exists: ' + (existing.firstName||'') + ' ' + (existing.lastName||'');
+    return;
+  }
+
+  var btn = document.getElementById('ac-saveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  var record = {
+    id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    email: email,
+    firstName: firstName,
+    lastName: lastName,
+    phone: phone,
+    createdAt: new Date().toISOString(),
+    createdBy: _user.email || '',
+    loans: [],
+    addedManually: true,
+  };
+  SLA.Clients.save(record).then(function() {
+    _clients.unshift(record);
+    closeAddContact();
+    showToast('Contact added — ' + firstName + ' ' + lastName);
+    renderSummary();
+    renderClients();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Save Contact';
+    status.className = 'modal-status err';
+    status.textContent = 'Save failed: ' + (err.message || 'unknown error');
+  });
+}
+// Close modal on backdrop click
+document.addEventListener('DOMContentLoaded', function() {
+  var bg = document.getElementById('addContactModal');
+  if (bg) bg.addEventListener('click', function(e){ if (e.target === bg) closeAddContact(); });
+});
+
 function showToast(msg){
   var t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');

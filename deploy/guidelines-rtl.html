@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RTL Investor Guidelines — SLA Capital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-api.js"></script>
+<script src="sla-search.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+  --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+  --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+  --pill-bg: #f7f5f1; --success: #256940; --warn: #7a5218; --danger: #7c1f1f;
+  --r: 12px; --r-sm: 8px;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+.nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 0; display: flex; align-items: center; justify-content: space-between; }
+.nav img { height: 44px; width: auto; }
+.nav-right { display: flex; align-items: center; gap: 10px; }
+.nav-left { display: flex; align-items: center; gap: 12px; }
+.nav-tools-btn {
+  display: inline-block; padding: 6px 14px;
+  border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid);
+  border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif;
+  text-decoration: none; transition: all 0.15s; white-space: nowrap;
+}
+.nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+.nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+.nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+.logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+
+.page { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+.header { display: flex; align-items: center; gap: 16px; margin-bottom: 1.5rem; }
+.title-block h1 { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.title-block p { font-size: 12px; color: var(--muted); }
+.lender-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; padding: 3px 8px; border-radius: 20px; background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); }
+
+.layout { display: grid; grid-template-columns: 240px 1fr; gap: 24px; }
+@media (max-width: 880px) { .layout { grid-template-columns: 1fr; } .sidebar { position: static !important; max-height: none !important; } }
+
+.sidebar { position: sticky; top: 16px; max-height: calc(100vh - 48px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 0; align-self: start; }
+.nav-section { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.nav-section:last-child { border-bottom: none; }
+.nav-section-label { padding: 8px 16px 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); opacity: 0.6; }
+.sidebar a { display: block; padding: 7px 16px; font-size: 13px; color: var(--text); text-decoration: none; border-left: 3px solid transparent; transition: background 0.1s, border-color 0.1s; }
+.sidebar a:hover { background: var(--gold-light); border-left-color: var(--gold); color: var(--gold-mid); }
+.sidebar a.active { background: var(--gold-light); border-left-color: var(--gold); color: var(--gold-mid); font-weight: 500; }
+
+.main { min-width: 0; }
+.search-bar { position: relative; margin-bottom: 16px; }
+.search-bar input { width: 100%; padding: 13px 18px 13px 46px; border: 1.5px solid var(--border); border-radius: var(--r); font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--surface); color: var(--text); transition: border-color 0.15s; }
+.search-bar input:focus { outline: none; border-color: var(--gold); }
+.search-bar input::placeholder { color: var(--muted); }
+.search-bar svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.search-results-count { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+.section-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 20px; overflow: hidden; scroll-margin-top: 24px; }
+.section-block.hidden { display: none; }
+.section-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; transition: background 0.12s; }
+.section-header:hover { background: var(--bg); }
+.section-header h2 { font-family: 'Lora', serif; font-size: 16px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 10px; }
+.section-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; padding: 3px 8px; border-radius: 20px; border: 1px solid transparent; }
+.section-tag.matrix { background: var(--gold-light); color: var(--gold-mid); border-color: var(--gold-border); }
+.section-tag.criteria { background: rgba(38,26,54,0.08); color: var(--dark); border-color: rgba(38,26,54,0.18); }
+.section-tag.alert { background: rgba(124,31,31,0.08); color: var(--danger); border-color: rgba(124,31,31,0.18); }
+.section-chevron { transition: transform 0.15s; color: var(--muted); }
+.section-block.open .section-chevron { transform: rotate(90deg); }
+
+.section-body { padding: 1.5rem; display: none; }
+.section-body.open { display: block; }
+.section-body p { font-size: 13.5px; line-height: 1.7; color: var(--text); margin-bottom: 12px; }
+.section-body p:last-child { margin-bottom: 0; }
+.section-body h3 { font-family: 'Lora', serif; font-size: 14px; font-weight: 600; color: var(--dark); margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.section-body h3:first-child { margin-top: 0; }
+.section-body h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 16px 0 6px; }
+.section-body strong { color: var(--dark); font-weight: 600; }
+.section-body em { color: var(--gold-mid); font-style: normal; font-weight: 500; }
+.section-body ul { margin: 4px 0 12px 18px; }
+.section-body li { font-size: 13.5px; line-height: 1.7; color: var(--text); margin-bottom: 4px; }
+.section-body code { font-family: 'DM Mono', monospace; font-size: 12px; background: var(--pill-bg); padding: 1px 6px; border-radius: 4px; color: var(--dark); }
+
+.matrix-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; font-family: 'DM Mono', monospace; }
+.matrix-table th, .matrix-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: center; }
+.matrix-table thead th { background: var(--pill-bg); font-weight: 700; font-size: 11px; color: var(--dark); }
+.matrix-table thead th.exp { background: var(--dark); color: #fff; font-family: 'DM Sans', sans-serif; text-transform: uppercase; letter-spacing: 0.05em; }
+.matrix-table thead .sub-row th { background: var(--gold-light); color: var(--gold-mid); font-size: 10px; }
+.matrix-table tbody td.fico { background: var(--pill-bg); font-weight: 700; text-align: left; }
+.matrix-table tbody td.empty { color: var(--muted); opacity: 0.4; }
+.matrix-table tbody td.star::after { content: '*'; color: var(--gold); font-weight: 700; }
+.matrix-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
+
+.exclusion-list { background: rgba(124,31,31,0.05); border: 1px solid rgba(124,31,31,0.18); border-radius: var(--r-sm); padding: 12px 16px; }
+.exclusion-list strong { color: var(--danger); }
+
+.fact-list { display: grid; grid-template-columns: 220px 1fr; gap: 8px 16px; font-size: 13px; }
+.fact-list dt { font-weight: 600; color: var(--dark); }
+.fact-list dd { color: var(--text); }
+
+.empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+.empty strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+
+mark { background: rgba(200,129,58,0.35); color: inherit; padding: 0 2px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="header">
+    <div class="title-block">
+      <h1>RTL Investor Guidelines</h1>
+      <p>Colchis Capital Management · Bridge, Rehab, Construction, and Refi for SFR &amp; Multi-Family</p>
+    </div>
+    <span class="lender-tag">Colchis</span>
+  </div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="nav-section">
+        <div class="nav-section-label">Loan Sizing</div>
+        <a href="#sfr-light"        class="nav-link">SFR Light Rehab</a>
+        <a href="#sfr-heavy"        class="nav-link">SFR Heavy Rehab</a>
+        <a href="#sfr-construction" class="nav-link">SFR Construction</a>
+        <a href="#sfr-bridge"       class="nav-link">SFR Bridge</a>
+        <a href="#sfr-rt-refi"      class="nav-link">SFR Rate/Term Refi</a>
+        <a href="#sfr-cashout"      class="nav-link">SFR Cash-Out Refi</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Multi-Family (5-10)</div>
+        <a href="#mfr-light"        class="nav-link">MFR Light Rehab</a>
+        <a href="#mfr-heavy"        class="nav-link">MFR Heavy Rehab</a>
+        <a href="#mfr-construction" class="nav-link">MFR Construction</a>
+        <a href="#mfr-bridge"       class="nav-link">MFR Bridge</a>
+        <a href="#mfr-rt-refi"      class="nav-link">MFR Rate/Term Refi</a>
+        <a href="#mfr-cashout"      class="nav-link">MFR Cash-Out Refi</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Loan Criteria</div>
+        <a href="#loan-basics"   class="nav-link">Loan Term &amp; Amount</a>
+        <a href="#property-type" class="nav-link">Property Type</a>
+        <a href="#exclusions"    class="nav-link">Geographic Exclusions</a>
+        <a href="#property-value" class="nav-link">Property Value Rules</a>
+        <a href="#costs"         class="nav-link">Costs &amp; LTC</a>
+        <a href="#rehab-defs"    class="nav-link">Rehab Definitions</a>
+        <a href="#experience"    class="nav-link">Experience Tiers</a>
+        <a href="#guarantor"     class="nav-link">Guarantor</a>
+        <a href="#liquidity"     class="nav-link">Guarantor Liquidity</a>
+        <a href="#underwriting"  class="nav-link">Underwriting &amp; Valuation</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="search-bar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#7a7488" stroke-width="1.5"><circle cx="8" cy="8" r="5"/><path d="M12 12l4 4" stroke-linecap="round"/></svg>
+        <input type="text" id="searchInput" placeholder="Search guidelines… (FICO, LTV, rehab, bridge, etc.)" />
+        <span class="search-results-count" id="searchCount"></span>
+      </div>
+
+      <div id="results">
+
+        <!-- ════════════════════ SFR (1-4 UNITS) ════════════════════ -->
+
+        <section class="section-block" id="sfr-light" data-search="light rehab single family sfr 1-4 unit ltp ltv ltc ltarv 740 700 680 660 fico experience 8+ 4-7 0-3">
+          <div class="section-header" onclick="toggleSection('sfr-light')">
+            <h2>SFR (1-4) — Light Rehab <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p>Maximum loan as a percent of <strong>LTP/LTV</strong> (purchase or as-is value), <strong>LTC</strong> (total cost), and <strong>LTARV</strong> (after-repair value). Tier set by completed projects in the last 3 years.</p>
+            <table class="matrix-table">
+              <thead>
+                <tr><th rowspan="2">FICO</th><th colspan="3" class="exp">8+ Projects</th><th colspan="3" class="exp">4-7 Projects</th><th colspan="3" class="exp">0-3 Projects</th></tr>
+                <tr class="sub-row"><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>90.0%</td><td>92.5%</td><td>75.0%</td> <td>90.0%</td><td>92.5%</td><td>75.0%</td> <td>90.0%</td><td>90.0%</td><td>75.0%</td></tr>
+                <tr><td class="fico">700-739</td> <td>90.0%</td><td>92.5%</td><td>75.0%</td> <td>90.0%</td><td>92.5%</td><td>75.0%</td> <td>87.5%</td><td>90.0%</td><td>75.0%</td></tr>
+                <tr><td class="fico">680-699</td> <td>87.5%</td><td>90.0%</td><td>75.0%</td> <td>85.0%</td><td>87.5%</td><td>75.0%</td> <td>85.0%</td><td>85.0%</td><td>70.0%</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+            <p class="matrix-note">Light rehab = construction budget &lt; 50% of project costs, no use conversion or addition of &gt; 10% of GLA.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="sfr-heavy" data-search="heavy rehab single family sfr 1-4 unit ltp ltv ltc ltarv">
+          <div class="section-header" onclick="toggleSection('sfr-heavy')">
+            <h2>SFR (1-4) — Heavy Rehab <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th rowspan="2">FICO</th><th colspan="3" class="exp">8+ Projects</th><th colspan="3" class="exp">4-7 Projects</th><th colspan="3" class="exp">0-3 Projects</th></tr>
+                <tr class="sub-row"><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>80.0%</td><td>85.0%</td><td>70.0%</td> <td>80.0%</td><td>85.0%</td><td>70.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">700-739</td> <td>80.0%</td><td>85.0%</td><td>70.0%</td> <td>80.0%</td><td>85.0%</td><td>70.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">680-699</td> <td>75.0%</td><td>82.5%</td><td>65.0%</td> <td>75.0%</td><td>80.0%</td><td>65.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+            <p class="matrix-note">Heavy rehab = construction budget ≥ 50% of project costs, OR use conversion, OR addition of &gt;10% of GLA, OR budget &gt; $300k (CA), &gt;$250k (outside CA), &gt;$40k/door MFR ($50k/door CA).</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="sfr-construction" data-search="construction sfr 1-4 unit ltp ltv ltc ltarv ground up">
+          <div class="section-header" onclick="toggleSection('sfr-construction')">
+            <h2>SFR (1-4) — Construction <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th rowspan="2">FICO</th><th colspan="3" class="exp">6+ Projects</th><th colspan="3" class="exp">4-5 Projects</th><th colspan="3" class="exp">0-3 Projects</th></tr>
+                <tr class="sub-row"><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>60.0%</td><td class="star">90.0%</td><td>70.0%</td> <td>60.0%</td><td>85.0%</td><td>70.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">700-739</td> <td>60.0%</td><td class="star">90.0%</td><td>70.0%</td> <td>60.0%</td><td>85.0%</td><td>70.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">680-699</td> <td>60.0%</td><td>85.0%</td><td>70.0%</td> <td>60.0%</td><td>82.5%</td><td>65.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+            <p class="matrix-note">* 90% LTC requires a construction budget below $500,000; otherwise LTC is limited to 85%.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="sfr-bridge" data-search="bridge no rehab sfr 1-4 unit ltp ltv purchase">
+          <div class="section-header" onclick="toggleSection('sfr-bridge')">
+            <h2>SFR (1-4) — Purchase Bridge (No Rehab) <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th>FICO</th><th class="exp">8+</th><th class="exp">4-7</th><th class="exp">0-3</th></tr>
+                <tr class="sub-row"><th></th><th>LTP/LTV</th><th>LTP/LTV</th><th>LTP/LTV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>75.0%</td><td>75.0%</td><td>75.0%</td></tr>
+                <tr><td class="fico">700-739</td> <td>75.0%</td><td>75.0%</td><td>70.0%</td></tr>
+                <tr><td class="fico">680-699</td> <td>70.0%</td><td>70.0%</td><td>65.0%</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-block" id="sfr-rt-refi" data-search="rate term refinance sfr 1-4 unit ltv">
+          <div class="section-header" onclick="toggleSection('sfr-rt-refi')">
+            <h2>SFR (1-4) — Rate/Term Refinance <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th>FICO</th><th class="exp">8+</th><th class="exp">4-7</th><th class="exp">0-3</th></tr>
+                <tr class="sub-row"><th></th><th>LTV</th><th>LTV</th><th>LTV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>75.0%</td><td>75.0%</td><td>75.0%</td></tr>
+                <tr><td class="fico">700-739</td> <td>75.0%</td><td>75.0%</td><td>70.0%</td></tr>
+                <tr><td class="fico">680-699</td> <td>70.0%</td><td>70.0%</td><td>65.0%</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-block" id="sfr-cashout" data-search="cash out refinance sfr 1-4 unit ltv">
+          <div class="section-header" onclick="toggleSection('sfr-cashout')">
+            <h2>SFR (1-4) — Cash-Out Refinance <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th>FICO</th><th class="exp">8+</th><th class="exp">4-7</th><th class="exp">0-3</th></tr>
+                <tr class="sub-row"><th></th><th>LTV</th><th>LTV</th><th>LTV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>70.0%</td><td>70.0%</td><td>70.0%</td></tr>
+                <tr><td class="fico">700-739</td> <td>70.0%</td><td>70.0%</td><td>65.0%</td></tr>
+                <tr><td class="fico">680-699</td> <td>65.0%</td><td>65.0%</td><td>60.0%</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ════════════════════ MULTI-FAMILY (5-10 UNITS) ════════════════════ -->
+
+        <section class="section-block" id="mfr-light" data-search="light rehab multi-family multifamily mfr 5-10 unit ltp ltv ltc ltarv">
+          <div class="section-header" onclick="toggleSection('mfr-light')">
+            <h2>Multi-Family (5-10) — Light Rehab <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th rowspan="2">FICO</th><th colspan="3" class="exp">8+ Projects</th><th colspan="3" class="exp">4-7 Projects</th><th colspan="3" class="exp">0-3 Projects</th></tr>
+                <tr class="sub-row"><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th><th>LTP/LTV</th><th>LTC</th><th>LTARV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>80.0%</td><td>85.0%</td><td>65.0%</td> <td>80.0%</td><td>85.0%</td><td>65.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">700-739</td> <td>80.0%</td><td>85.0%</td><td>65.0%</td> <td>80.0%</td><td>80.0%</td><td>65.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">680-699</td> <td>75.0%</td><td>80.0%</td><td>60.0%</td> <td>75.0%</td><td>80.0%</td><td>60.0%</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-block" id="mfr-heavy" data-search="heavy rehab multi-family multifamily mfr 5-10 unit">
+          <div class="section-header" onclick="toggleSection('mfr-heavy')">
+            <h2>Multi-Family (5-10) — Heavy Rehab <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p style="color:var(--muted);font-size:13px">Heavy Rehab on multi-family is reviewed on a case-by-case basis. Submit for individual approval with project specifics.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="mfr-construction" data-search="construction multi-family multifamily mfr 5-10 unit">
+          <div class="section-header" onclick="toggleSection('mfr-construction')">
+            <h2>Multi-Family (5-10) — Construction <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p style="color:var(--muted);font-size:13px">Multi-family ground-up construction is reviewed on a case-by-case basis. Submit for individual approval with project specifics.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="mfr-bridge" data-search="bridge no rehab multi-family multifamily mfr 5-10 unit ltp ltv">
+          <div class="section-header" onclick="toggleSection('mfr-bridge')">
+            <h2>Multi-Family (5-10) — Purchase Bridge (No Rehab) <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th>FICO</th><th class="exp">8+</th><th class="exp">4-7</th><th class="exp">0-3</th></tr>
+                <tr class="sub-row"><th></th><th>LTP/LTV</th><th>LTP/LTV</th><th>LTP/LTV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>70.0%</td><td>70.0%</td><td>65.0%</td></tr>
+                <tr><td class="fico">700-739</td> <td>70.0%</td><td>70.0%</td><td>60.0%</td></tr>
+                <tr><td class="fico">680-699</td> <td>65.0%</td><td>60.0%</td><td class="empty">—</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-block" id="mfr-rt-refi" data-search="rate term refinance multi-family multifamily mfr 5-10 unit ltv">
+          <div class="section-header" onclick="toggleSection('mfr-rt-refi')">
+            <h2>Multi-Family (5-10) — Rate/Term Refinance <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th>FICO</th><th class="exp">8+</th><th class="exp">4-7</th><th class="exp">0-3</th></tr>
+                <tr class="sub-row"><th></th><th>LTV</th><th>LTV</th><th>LTV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>70.0%</td><td>70.0%</td><td>65.0%</td></tr>
+                <tr><td class="fico">700-739</td> <td>70.0%</td><td>70.0%</td><td>60.0%</td></tr>
+                <tr><td class="fico">680-699</td> <td>65.0%</td><td>60.0%</td><td class="empty">—</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-block" id="mfr-cashout" data-search="cash out refinance multi-family multifamily mfr 5-10 unit ltv">
+          <div class="section-header" onclick="toggleSection('mfr-cashout')">
+            <h2>Multi-Family (5-10) — Cash-Out Refinance <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th>FICO</th><th class="exp">8+</th><th class="exp">4-7</th><th class="exp">0-3</th></tr>
+                <tr class="sub-row"><th></th><th>LTV</th><th>LTV</th><th>LTV</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">740+</td>    <td>65.0%</td><td>60.0%</td><td>60.0%</td></tr>
+                <tr><td class="fico">700-739</td> <td>65.0%</td><td>60.0%</td><td>55.0%</td></tr>
+                <tr><td class="fico">680-699</td> <td>55.0%</td><td>55.0%</td><td class="empty">—</td></tr>
+                <tr><td class="fico">660-679</td> <td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ════════════════════ LOAN CRITERIA ════════════════════ -->
+
+        <section class="section-block" id="loan-basics" data-search="loan term amount minimum maximum size duration months">
+          <div class="section-header" onclick="toggleSection('loan-basics')">
+            <h2>Loan Term &amp; Amount <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <dl class="fact-list">
+              <dt>Loan Term</dt><dd>6 – 24 months</dd>
+              <dt>Loan Amount</dt><dd>$100,000 – $3,500,000 <em>(max balance depends on location; higher balances accepted with additional review)</em></dd>
+            </dl>
+          </div>
+        </section>
+
+        <section class="section-block" id="property-type" data-search="property type sfr townhome condo multi-family eligible">
+          <div class="section-header" onclick="toggleSection('property-type')">
+            <h2>Eligible Property Types <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <ul>
+              <li>SFR (1-4 units)</li>
+              <li>Townhome</li>
+              <li>Condo</li>
+              <li>Small multi-family (5-20 units)</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="exclusions" data-search="geographic exclusions states cities illinois newark nj rural ruca">
+          <div class="section-header" onclick="toggleSection('exclusions')">
+            <h2>Geographic Exclusions <span class="section-tag alert">Alert</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <div class="exclusion-list">
+              <p><strong>Excluded states:</strong> IL</p>
+              <p><strong>Excluded cities:</strong> Newark (NJ)</p>
+              <p style="margin-top:8px"><strong>Rural properties prohibited:</strong> Properties identified as rural on the valuation are not eligible. Properties with a <code>RUCA</code> (Rural-Urban Commuting Area) code &gt; 2 are also prohibited.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-block" id="property-value" data-search="property value high zhvi 200 300 percent ltv reduction">
+          <div class="section-header" onclick="toggleSection('property-value')">
+            <h2>Property Value Rules (ZHVI) <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p>High-value properties are measured by comparing the <strong>AIV</strong> (bridge) or <strong>ARV</strong> (rehab/construction) to the ZIP code's <strong>ZHVI</strong>:</p>
+            <ul>
+              <li><strong>Value &gt; 200% ZHVI:</strong> -5% reduction in LTV or LTC/LTARV</li>
+              <li><strong>Value &gt; 300% ZHVI:</strong> -10% reduction in LTV or LTC/LTARV</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="costs" data-search="costs ltc purchase price construction wholesale fee credit back to back delayed acquisition">
+          <div class="section-header" onclick="toggleSection('costs')">
+            <h2>Costs &amp; LTC Rules <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <h3>What counts toward LTC</h3>
+            <p>LTC uses property purchase price + hard and soft construction costs related to the improvement of the property.</p>
+            <h3>Excluded costs</h3>
+            <ul>
+              <li>Financing/closing costs</li>
+              <li>Inspections</li>
+              <li>Insurance/taxes</li>
+              <li>Staging</li>
+              <li>Other ancillary costs not directly related to rehab/construction</li>
+            </ul>
+            <h3>Construction funding</h3>
+            <p>Loan funds <strong>100% of construction costs</strong> unless approved otherwise by Colchis.</p>
+            <h3>Wholesale fees &amp; back-to-back</h3>
+            <ul>
+              <li>Verified 3rd party wholesale fee credit up to <strong>15% of purchase price</strong>, max credit of <strong>$75K</strong></li>
+              <li>Back-to-back sales treated as wholesale fee when verified 3rd party transaction</li>
+            </ul>
+            <h3>Acquisitions &amp; delayed acquisitions</h3>
+            <ul>
+              <li>Acquisitions &gt; 2 years old use AIV subject to evaluation</li>
+              <li>Refinances of cash purchases within 120 days are considered delayed acquisitions</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="rehab-defs" data-search="rehab definitions light heavy construction budget 50 percent project costs use conversion gla square footage">
+          <div class="section-header" onclick="toggleSection('rehab-defs')">
+            <h2>Rehab Definitions: Light vs Heavy <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <h3>Light Rehab</h3>
+            <p>Construction budget &lt; 50% of project costs, AND no use conversion or addition of &gt; 10% of GLA.</p>
+            <h3>Heavy Rehab</h3>
+            <p>Triggered by ANY of the following:</p>
+            <ul>
+              <li>Construction budget ≥ 50% of project costs</li>
+              <li>Use conversion (e.g., commercial → residential)</li>
+              <li>Addition of &gt; 10% of GLA (gross living area)</li>
+              <li>Budget &gt; <strong>$300K (in CA)</strong>, or budget &gt; <strong>$250K (outside CA)</strong>, or budget &gt; <strong>$40K/door</strong> for MFR ($50K/door in CA)</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="experience" data-search="experience tiers projects completed 8 plus 4-7 0-3 last 3 years">
+          <div class="section-header" onclick="toggleSection('experience')">
+            <h2>Experience Tiers <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p>Tier is based on <strong>completed projects of similar or greater scope in the last 3 years</strong>.</p>
+            <ul>
+              <li><strong>8+ projects</strong> — best tier (Tier 1) for rehab and bridge</li>
+              <li><strong>4-7 projects</strong> — Tier 2</li>
+              <li><strong>0-3 projects</strong> — Tier 3 (least favorable)</li>
+              <li><strong>Construction</strong> tiers differ slightly: 6+, 4-5, 0-3</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="guarantor" data-search="guarantor 50 percent control entity fico 680 background check felony bankruptcy foreclosure">
+          <div class="section-header" onclick="toggleSection('guarantor')">
+            <h2>Guarantor Requirements <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <ul>
+              <li>Guarantors must control <strong>≥50% of the borrowing entity</strong></li>
+              <li><strong>Min 680 FICO</strong>, scored within 90 days</li>
+              <li>No foreclosures, short sales, liens, lis pendens, judgments, or bankruptcies in the last 3 years</li>
+              <li>No felonies</li>
+              <li>Lowest FICO among material owners (≥25% ownership of entity) and managers is considered</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="liquidity" data-search="guarantor liquidity down payment rehab budget months pitia bank statements">
+          <div class="section-header" onclick="toggleSection('liquidity')">
+            <h2>Guarantor Liquidity <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p>Minimum required:</p>
+            <ul>
+              <li><strong>Down payment</strong></li>
+              <li><strong>20% of rehab budget</strong></li>
+              <li><strong>6 months PITIA</strong></li>
+            </ul>
+            <p>Liquidity verified by 2 months of bank statements, latest statement not more than <strong>45 days old</strong>.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="underwriting" data-search="underwriting valuation appraisal bpo hybrid 120 days bridge light heavy 500k">
+          <div class="section-header" onclick="toggleSection('underwriting')">
+            <h2>Underwriting &amp; Valuation <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <h3>Underwriting</h3>
+            <p>Loan is underwritten in compliance with the originator's underwriting guidelines.</p>
+            <h3>Valuation requirements</h3>
+            <p>All valuations must have been completed within <strong>120 days</strong>.</p>
+            <ul>
+              <li><strong>Bridge or Light Rehab ≥ $500K:</strong> Full Appraisal</li>
+              <li><strong>Bridge or Light Rehab &lt; $500K:</strong> Interior BPO or Hybrid Appraisal with photos taken by 3rd party</li>
+              <li><strong>Heavy Rehab, New Construction, or MFR:</strong> Full Appraisal</li>
+            </ul>
+            <p style="margin-top:14px;font-style:italic;color:var(--muted);font-size:12px">Exceptions to criteria considered on an individual basis with compensating factors.</p>
+          </div>
+        </section>
+
+      </div>
+
+      <div class="empty" id="empty" style="display:none">
+        <strong>No matching guidelines</strong>
+        Try a different search term.
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+function toggleSection(id) {
+  var block = document.getElementById(id);
+  if (!block) return;
+  var body = block.querySelector('.section-body');
+  body.classList.toggle('open');
+  block.classList.toggle('open');
+}
+
+// Search
+var searchInput = document.getElementById('searchInput');
+var sections = document.querySelectorAll('.section-block');
+var emptyEl = document.getElementById('empty');
+var countEl = document.getElementById('searchCount');
+
+function applySearch() {
+  var q = (searchInput.value || '').trim().toLowerCase();
+  var visible = 0;
+  sections.forEach(function(s) {
+    var hay = (s.dataset.search || '') + ' ' + (s.textContent || '').toLowerCase();
+    var match = !q || hay.indexOf(q) >= 0;
+    s.classList.toggle('hidden', !match);
+    if (match) {
+      visible++;
+      if (q) {
+        s.classList.add('open');
+        s.querySelector('.section-body').classList.add('open');
+      }
+    }
+  });
+  emptyEl.style.display = visible === 0 ? 'block' : 'none';
+  countEl.textContent = q ? (visible + ' match' + (visible === 1 ? '' : 'es')) : '';
+}
+searchInput.addEventListener('input', applySearch);
+
+// Sidebar nav: highlight on scroll
+var navLinks = document.querySelectorAll('.nav-link');
+function setActive(id) {
+  navLinks.forEach(function(a) {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+  });
+}
+navLinks.forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    var id = a.getAttribute('href').slice(1);
+    var t = document.getElementById(id);
+    if (t) {
+      e.preventDefault();
+      t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActive(id);
+      // also expand the section
+      if (!t.classList.contains('open')) toggleSection(id);
+    }
+  });
+});
+
+// Auth gate
+netlifyIdentity.on('init', function(u){
+  if(!u) netlifyIdentity.open();
+  if (u && SLA && SLA.isAdmin && SLA.isAdmin(u)) {
+    var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+  }
+});
+netlifyIdentity.on('logout', function(){ netlifyIdentity.open(); });
+</script>
+
+</body>
+</html>
