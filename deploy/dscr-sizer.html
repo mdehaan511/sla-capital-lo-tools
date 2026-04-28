@@ -234,7 +234,7 @@
 ════════════════════════════════════════════════════════ -->
 <script>
 const DIYA = {
-  effectiveDate: "April 9, 2026",
+  effectiveDate: "April 27, 2026",
   baseRate: { "30Y Fixed": 6.375, "10/6 ARM": 6.375, "7/6 ARM": 6.275, "5/6 ARM": 6.275 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
@@ -252,8 +252,8 @@ const DIYA = {
   multiUnit: [0.000, 0.025, 0.050, 0.075, 0.100, 0.100, 0.100],
   portfolio: [0.250, 0.250, 0.250, 0.250, 0.250, 0.250, 0.250],
   upb: [
-    { min:  75000, max:  99999, adj:[0.600,0.600,0.600,0.650,0.650,0.650,0.650] },
-    { min: 100000, max: 149999, adj:[0.550,0.550,0.550,0.575,0.575,0.575,0.575] },
+    { min:  75000, max:  99999, adj:[0.700,0.700,0.700,0.750,0.750,0.750,0.750] },
+    { min: 100000, max: 149999, adj:[0.650,0.650,0.650,0.675,0.675,0.675,0.675] },
     { min: 150000, max: 199999, adj:[0.200,0.200,0.200,0.225,0.225,0.225,0.225] },
     { min: 600000, max:1499999, adj:[-0.050,-0.050,-0.050,-0.050,-0.050,-0.050,-0.050] },
   ],
@@ -263,17 +263,17 @@ const DIYA = {
   },
   ppp: { "54321":-0.100, "321":0.150, "320":0.200, "300":0.300 },
 
-  // TPO rate adjustments by premium percentage
+  // TPO rate adjustments by premium percentage (effective 4/27/26)
   tpo: {
-    "0":0, "0.25":0.065, "0.50":0.130, "0.75":0.195,
-    "1.00":0.260, "1.25":0.325, "1.50":0.390, "1.75":0.470,
+    "0":0, "0.25":0.070, "0.50":0.140, "0.75":0.210,
+    "1.00":0.280, "1.25":0.340, "1.50":0.410, "1.75":0.470,
     "2.00":0.550, "2.25":0.630, "2.50":0.710,
   },
 
-  // Hidden 1% TPO always applied (rate adj = 0.260)
+  // Hidden 1% TPO always applied (rate adj = 0.280 per 4/27/26 sheet)
   // Buy-down reduces this: each 0.25% buy-down reduces hidden TPO by 0.25%
   HIDDEN_TPO_PCT: 1.00,   // percentage (1.00 = 1%)
-  HIDDEN_TPO_ADJ: 0.260,  // rate adjustment for 1.00% TPO
+  HIDDEN_TPO_ADJ: 0.280,  // rate adjustment for 1.00% TPO
 };
 
 // Fixed fees (always shown on term sheet)
