@@ -154,6 +154,7 @@ var STATE = {
   prefill: {},
   propAddress: '',
   loName: '',
+  companies: [], // Item #8: borrower's saved entities for the entity selector
 };
 var SAVE_TIMER = null;
 var SAVING = false;
@@ -249,6 +250,45 @@ function applyPrefillToData() {
     if (!d.annualTaxes     && pf.loan.annualTaxes)     d.annualTaxes     = pf.loan.annualTaxes;
     if (!d.annualInsurance && pf.loan.annualInsurance) d.annualInsurance = pf.loan.annualInsurance;
     if (!d.annualHOA       && pf.loan.annualHOA)       d.annualHOA       = pf.loan.annualHOA;
+  }
+
+  // ── Item #6: Guarantor 1 prefill ────────────────────────
+  // Mirror borrower contact into G1 by default. Then layer on any saved
+  // borrower-profile fields (DOB, FICO, marital, citizenship, address)
+  // from prior loan applications stored on the client record.
+  if (pf.borrower) {
+    if (!d.g1_firstName) d.g1_firstName = pf.borrower.firstName || '';
+    if (!d.g1_lastName)  d.g1_lastName  = pf.borrower.lastName  || '';
+    if (!d.g1_email)     d.g1_email     = pf.borrower.email     || '';
+    if (!d.g1_phone)     d.g1_phone     = pf.borrower.phone     || '';
+    if (!d.g1_dob && pf.borrower.dob)             d.g1_dob       = pf.borrower.dob;
+    if (!d.g1_fico && pf.borrower.fico)           d.g1_fico      = pf.borrower.fico;
+    if (!d.g1_marital && pf.borrower.maritalStatus) d.g1_marital = pf.borrower.maritalStatus;
+    if (!d.g1_usCitizen && pf.borrower.usCitizen) d.g1_usCitizen = pf.borrower.usCitizen;
+    if (pf.borrower.homeAddress) {
+      var ha = pf.borrower.homeAddress;
+      if (!d.g1_address && ha.street) d.g1_address = ha.street;
+      if (!d.g1_city    && ha.city)   d.g1_city    = ha.city;
+      if (!d.g1_state   && ha.state)  d.g1_state   = ha.state;
+      if (!d.g1_zip     && ha.zip)    d.g1_zip     = ha.zip;
+    }
+  }
+
+  // ── Item #8: Companies — load borrower's saved entities ──
+  // Stash on STATE for the entity selector to pick from. If exactly one
+  // entity exists, auto-select it and pre-fill the LLC fields.
+  STATE.companies = (pf.companies && pf.companies.length) ? pf.companies.slice() : [];
+  if (!d.entityChoice && STATE.companies.length === 1) {
+    var only = STATE.companies[0];
+    d.entityChoice = only.id;
+    d.hasLLC = 'yes';
+    if (!d.llcName)  d.llcName  = only.name  || '';
+    if (!d.llcState) d.llcState = only.state || '';
+    if (!d.llcEIN)   d.llcEIN   = only.ein   || '';
+    if (!d.llcAddress) d.llcAddress = only.address || '';
+    if (!d.llcCity)    d.llcCity    = only.city || '';
+    if (!d.llcAddrState) d.llcAddrState = only.addrState || '';
+    if (!d.llcZip)    d.llcZip    = only.zip || '';
   }
   // Item #9: who they're working with — auto-set from LO profile and lock
   if (pf.lo && pf.lo.name && !d.workingWith) {
@@ -638,6 +678,21 @@ function renderPage4() {
     });
 
   if (hasLLC) {
+    // Item #8: Entity selector — if borrower has saved entities, show a
+    // dropdown to pick from; "+ New entity" lets them add another.
+    if (STATE.companies && STATE.companies.length > 0) {
+      var opts = [{ v: '', l: '— Select an entity —' }];
+      STATE.companies.forEach(function(c) {
+        opts.push({ v: c.id, l: c.name + (c.state ? ' (' + c.state + ')' : '') });
+      });
+      opts.push({ v: '__new', l: '+ Add new entity' });
+      html += field('entityChoice', 'Vesting entity', 'select', {
+        options: opts,
+        onchange: 'onEntityChoice()',
+        hint: 'Select an existing entity or add a new one.',
+      });
+    }
+
     html += '<div class="field-row">' +
       field('llcName',  'Name of LLC',          'text', { required: true }) +
       field('llcState', 'State LLC is registered in', 'select', { required: true, options: stateOptions() }) +
@@ -648,7 +703,7 @@ function renderPage4() {
         field('llcCity',    'City', 'text') +
       '</div>' +
       '<div class="field-row">' +
-        field('llcStateAddr', 'State', 'select', { options: stateOptions() }) +
+        field('llcAddrState', 'State', 'select', { options: stateOptions() }) +
         field('llcZip', 'Zip', 'text') +
         '</div>';
   }
@@ -884,6 +939,39 @@ function render() {
   scheduleAutoSave();
 }
 
+// Item #8: Entity selector — when user picks a saved entity, fill the LLC
+// fields. Picking "+ Add new entity" clears the fields so they can type fresh.
+function onEntityChoice() {
+  var sel = document.getElementById('f_entityChoice');
+  if (!sel) return;
+  var v = sel.value;
+  STATE.data.entityChoice = v;
+  if (v === '__new') {
+    // Clear LLC fields for the new entity, give it a fresh id
+    STATE.data.llcId = 'co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    STATE.data.llcName = '';
+    STATE.data.llcState = '';
+    STATE.data.llcEIN = '';
+    STATE.data.llcAddress = '';
+    STATE.data.llcCity = '';
+    STATE.data.llcAddrState = '';
+    STATE.data.llcZip = '';
+  } else if (v) {
+    var c = (STATE.companies || []).find(function(x) { return x.id === v; });
+    if (c) {
+      STATE.data.llcId = c.id;
+      STATE.data.llcName = c.name || '';
+      STATE.data.llcState = c.state || '';
+      STATE.data.llcEIN = c.ein || '';
+      STATE.data.llcAddress = c.address || '';
+      STATE.data.llcCity = c.city || '';
+      STATE.data.llcAddrState = c.addrState || '';
+      STATE.data.llcZip = c.zip || '';
+    }
+  }
+  render();
+}
+
 function scheduleAutoSave() {
   if (SAVE_TIMER) clearTimeout(SAVE_TIMER);
   SAVE_TIMER = setTimeout(autoSave, 1500);
@@ -934,6 +1022,30 @@ function packDataForSave() {
     if (hasAny) gs.push(g);
   });
   if (gs.length) out.guarantors = gs;
+
+  // Item #8: Build the companies array. If borrower has filled in LLC fields,
+  // emit one company entry. Merge with the prior companies list so we don't
+  // wipe out previously-saved entities.
+  if (d.hasLLC === 'yes' && (d.llcName || d.llcEIN)) {
+    var companyId = d.llcId || d.entityChoice;
+    if (!companyId || companyId === '__new') {
+      companyId = 'co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    }
+    var current = {
+      id: companyId,
+      name: d.llcName || '',
+      state: d.llcState || '',
+      ein: d.llcEIN || '',
+      address: d.llcAddress || '',
+      city: d.llcCity || '',
+      addrState: d.llcAddrState || '',
+      zip: d.llcZip || '',
+    };
+    var merged = (STATE.companies || []).filter(function(c) { return c.id !== current.id; });
+    merged.unshift(current);
+    out.companies = merged;
+  }
+
   return out;
 }
 

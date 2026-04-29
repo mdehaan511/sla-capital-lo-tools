@@ -464,6 +464,7 @@ var _clientById = {};    // ownerKey|clientId → client record
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedProspects = new Set();
 var _remindersByLoan = {}; // loanId → reminder
+var _remindersById = {};   // reminderId → reminder (for URL param navigation)
 var _editingReminder = null; // current reminder being viewed/edited in modal
 var _borrowerInfoByClient = {}; // clientId → borrower-info record
 
@@ -541,6 +542,7 @@ function loadAll() {
     }
     allReminders.forEach(function(r) {
       if (r && r.loanId && !r.completed) _remindersByLoan[r.loanId] = r;
+      if (r && r.id) _remindersById[r.id] = r;
     });
 
     // Profile lookup
@@ -648,6 +650,10 @@ function loadAll() {
     });
 
     render();
+
+    // Item #11: handle deep-link params from notification clicks. We do this
+    // AFTER render() so the DOM exists for highlighting/scrolling.
+    handleDeepLinkParams();
   }).catch(function(err) {
     document.getElementById('boardWrap').innerHTML =
       '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err.message || 'unknown error') + '</div>';
@@ -909,6 +915,82 @@ function bellSvg(state) {
 }
 
 // ── Reminder modal ──────────────────────────────────────
+// Item #11: parse URL params from notification-bell clicks.
+// ?openReminder=<id>  → open the reminder edit modal for that reminder
+// ?focusLoan=<quoteId> → scroll to and briefly highlight the matching card
+function handleDeepLinkParams() {
+  var params = new URLSearchParams(window.location.search);
+  var reminderId = params.get('openReminder');
+  var focusLoan  = params.get('focusLoan');
+
+  if (reminderId) {
+    var r = _remindersById[reminderId];
+    if (r) {
+      // openReminderModal expects {loanId, clientId, ownerKey, address, borrower}
+      openReminderModal({
+        loanId:    r.loanId,
+        clientId:  r.clientId,
+        ownerKey:  r.ownerKey,
+        address:   r.address || '',
+        borrower:  r.borrower || '',
+      });
+    }
+    // Strip the param so a refresh doesn't re-open
+    cleanUrl(['openReminder']);
+  }
+
+  if (focusLoan) {
+    // Find the matching quote card across all columns and scroll to it.
+    // Cards don't have ids today; we re-render with data attribute, then find.
+    setTimeout(function() {
+      var allCards = document.querySelectorAll('.card');
+      var found = null;
+      // Walk _items and find the index of the matching quote, then map to a card
+      // The simpler path: search by borrower/address text match.
+      var match = null;
+      ['approved','awaitingApp','submitted','quoted','newApp'].some(function(col) {
+        var hit = (_items[col] || []).find(function(it) {
+          return it.kind === 'quote' && it.id === focusLoan;
+        });
+        if (hit) { match = hit; return true; }
+        return false;
+      });
+      if (!match) return;
+      // Find card by walking title text
+      var fd = match.quote.formData || {};
+      var name = match.quote.borrower || fd.borrower || fd.borrowerName || '';
+      var addr = match.quote.address || fd.address || '';
+      allCards.forEach(function(card) {
+        var titleEl = card.querySelector('.card-title');
+        if (!titleEl) return;
+        if (titleEl.textContent.indexOf(name) >= 0 || (addr && card.textContent.indexOf(addr) >= 0)) {
+          if (!found) found = card;
+        }
+      });
+      if (found) {
+        found.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Brief highlight
+        found.style.transition = 'box-shadow 0.4s, background 0.4s';
+        found.style.boxShadow = '0 0 0 3px var(--gold)';
+        found.style.background = 'rgba(200,129,58,0.08)';
+        setTimeout(function() {
+          found.style.boxShadow = '';
+          found.style.background = '';
+        }, 2500);
+      }
+    }, 100);
+    cleanUrl(['focusLoan']);
+  }
+}
+
+function cleanUrl(paramsToRemove) {
+  try {
+    var url = new URL(window.location.href);
+    paramsToRemove.forEach(function(p) { url.searchParams.delete(p); });
+    window.history.replaceState({}, '', url.toString());
+  } catch (e) { /* ignore */ }
+}
+
 function openReminderModal(payload) {
   // payload: { loanId, clientId, ownerKey, address, borrower }
   var existing = _remindersByLoan[payload.loanId] || null;

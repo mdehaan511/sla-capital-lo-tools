@@ -182,7 +182,11 @@
   }
 
   function renderEventItem(ev) {
-    return '<a class="sla-notif-item due" href="' + esc(ev.link) + '">' +
+    // Item #11: clicking a loan-app event jumps to that loan in Pipeline
+    // (the card will be highlighted briefly via focusLoan param)
+    var quoteId = String(ev.id || '').replace(/^la_/, '');
+    var href = 'pipeline.html?focusLoan=' + encodeURIComponent(quoteId);
+    return '<a class="sla-notif-item due" href="' + esc(href) + '">' +
       '<div class="pin"></div>' +
       '<div class="body">' +
         '<div class="title">📋 Loan app received: ' + esc(ev.title) + '</div>' +
@@ -192,11 +196,11 @@
   }
 
   function renderItem(r, cls) {
-    // Each item links to /pipeline.html — opens the modal for editing requires more wiring;
-    // for now, "View" jumps to pipeline where the card is pinned (if due).
+    // Item #11: clicking a reminder opens the reminder modal on Pipeline.
     var title = r.borrower || r.address || 'Reminder';
     var meta  = (r.address && r.borrower) ? r.address + '  ·  ' + fmtDate(r.dueDate) : fmtDate(r.dueDate);
-    return '<a class="sla-notif-item ' + cls + '" href="pipeline.html">' +
+    var href = 'pipeline.html?openReminder=' + encodeURIComponent(r.id || '');
+    return '<a class="sla-notif-item ' + cls + '" href="' + esc(href) + '">' +
       '<div class="pin"></div>' +
       '<div class="body">' +
         '<div class="title">' + esc(title) + '</div>' +

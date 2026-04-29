@@ -182,6 +182,8 @@ function buildPrefill(client, loan, loInfo) {
     },
     property: {},
     loan: {},
+    // Item #8: borrower's saved companies/entities for the entity selector
+    companies: Array.isArray(client.companies) ? client.companies : [],
   };
   if (loan) {
     pf.property.address   = loan.address || '';

@@ -98,39 +98,124 @@ async function syncPropertyFieldsToLoan(record) {
   if (!record.ownerKey || !record.clientId) return;
   const data = record.data || {};
 
-  // Map the long-form field names we care about onto the loan record fields
-  // and the prefill cache so the LO sees the borrower's edits immediately.
-  // Only update if a non-empty value came in — empty strings don't overwrite.
-  const updates = {};
-  if (data.bedrooms)        updates.bedrooms       = String(data.bedrooms);
-  if (data.bathrooms)       updates.bathrooms      = String(data.bathrooms);
-  if (data.sqft)            updates.sqft           = String(data.sqft);
-  if (data.propertyType)    updates.propType       = String(data.propertyType);
-  if (data.currentLoanAmt)  updates.currentLoanAmt = String(data.currentLoanAmt);
-  if (data.purchaseOrRefi)  updates.purchaseOrRefi = String(data.purchaseOrRefi);
-  if (Object.keys(updates).length === 0) return;
+  // Property-level fields (live on the loan record)
+  const loanUpdates = {};
+  if (data.bedrooms)        loanUpdates.bedrooms       = String(data.bedrooms);
+  if (data.bathrooms)       loanUpdates.bathrooms      = String(data.bathrooms);
+  if (data.sqft)            loanUpdates.sqft           = String(data.sqft);
+  if (data.propertyType)    loanUpdates.propType       = String(data.propertyType);
+  if (data.currentLoanAmt)  loanUpdates.currentLoanAmt = String(data.currentLoanAmt);
+  if (data.currentLoanAmount) loanUpdates.currentLoanAmt = String(data.currentLoanAmount);
+  if (data.purchaseOrRefi)  loanUpdates.purchaseOrRefi = String(data.purchaseOrRefi);
+  if (data.dscrPurchaseRefi) loanUpdates.purchaseOrRefi = String(data.dscrPurchaseRefi);
+
+  // Borrower-level fields (live on the CLIENT record, reused across loans — item #6)
+  // Pulled from Guarantor 1 since that's the primary borrower / signer.
+  const clientUpdates = {};
+  if (data.borrowerFirstName) clientUpdates.firstName = String(data.borrowerFirstName);
+  if (data.borrowerLastName)  clientUpdates.lastName  = String(data.borrowerLastName);
+  if (data.borrowerEmail)     clientUpdates.email     = String(data.borrowerEmail).toLowerCase().trim();
+  if (data.borrowerPhone)     clientUpdates.phone     = String(data.borrowerPhone);
+  if (data.g1_dob)            clientUpdates.dob       = String(data.g1_dob);
+  if (data.g1_fico)           clientUpdates.fico      = String(data.g1_fico);
+  if (data.g1_marital)        clientUpdates.maritalStatus = String(data.g1_marital);
+  if (data.g1_usCitizen)      clientUpdates.usCitizen = String(data.g1_usCitizen);
+  // Home address: nested under homeAddress for cleanliness
+  if (data.g1_address || data.g1_city || data.g1_state || data.g1_zip) {
+    clientUpdates.homeAddress = {
+      street: data.g1_address || '',
+      city:   data.g1_city    || '',
+      state:  data.g1_state   || '',
+      zip:    data.g1_zip     || '',
+    };
+  }
+
+  // Companies/entities (item #8) — extract from data.companies if present.
+  // Borrower form will provide this as an array. We never overwrite the
+  // existing companies array unless new data came in.
+  let companiesUpdate = null;
+  if (Array.isArray(data.companies) && data.companies.length > 0) {
+    companiesUpdate = data.companies
+      .filter((c) => c && (c.name || c.ein))
+      .map((c) => ({
+        id:      c.id || ('co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
+        name:    String(c.name  || ''),
+        state:   String(c.state || ''),
+        ein:     String(c.ein   || ''),
+        address: String(c.address || ''),
+        city:    String(c.city    || ''),
+        addrState: String(c.addrState || ''),
+        zip:     String(c.zip || ''),
+      }));
+  }
+
+  if (Object.keys(loanUpdates).length === 0
+      && Object.keys(clientUpdates).length === 0
+      && !companiesUpdate) return;
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const clientKey = `${record.ownerKey}/${record.clientId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   let client = null;
   try { client = await clientsStore.get(clientKey, { type: 'json' }); } catch (_) {}
-  if (!client || !Array.isArray(client.loans)) return;
-
-  // Identify the target loan: prefer record.loanId, fall back to single-loan client
-  let targetLoan = null;
-  if (record.loanId) targetLoan = client.loans.find((l) => l.id === record.loanId);
-  if (!targetLoan && client.loans.length === 1) targetLoan = client.loans[0];
-  if (!targetLoan) return;
+  if (!client) return;
+  if (!Array.isArray(client.loans)) client.loans = [];
 
   let changed = false;
-  Object.keys(updates).forEach((k) => {
-    if (targetLoan[k] !== updates[k]) {
-      targetLoan[k] = updates[k];
+
+  // Apply client-level updates
+  Object.keys(clientUpdates).forEach((k) => {
+    const incoming = clientUpdates[k];
+    // For nested objects (homeAddress), check stringified equality
+    const existing = client[k];
+    const same = (typeof incoming === 'object')
+      ? (JSON.stringify(existing) === JSON.stringify(incoming))
+      : (existing === incoming);
+    if (!same) {
+      client[k] = incoming;
       changed = true;
     }
   });
+
+  // Merge companies — preserve existing entries by id, add new
+  if (companiesUpdate) {
+    const existing = Array.isArray(client.companies) ? client.companies : [];
+    const merged = [];
+    const seenIds = new Set();
+    companiesUpdate.forEach((c) => {
+      const match = existing.find((e) => e.id === c.id);
+      if (match) {
+        merged.push(Object.assign({}, match, c));
+      } else {
+        merged.push(c);
+      }
+      seenIds.add(c.id);
+    });
+    // Keep any prior companies that the borrower didn't touch this round
+    existing.forEach((e) => { if (!seenIds.has(e.id)) merged.push(e); });
+    if (JSON.stringify(client.companies) !== JSON.stringify(merged)) {
+      client.companies = merged;
+      changed = true;
+    }
+  }
+
+  // Apply loan-level updates
+  if (Object.keys(loanUpdates).length > 0) {
+    let targetLoan = null;
+    if (record.loanId) targetLoan = client.loans.find((l) => l.id === record.loanId);
+    if (!targetLoan && client.loans.length === 1) targetLoan = client.loans[0];
+    if (targetLoan) {
+      Object.keys(loanUpdates).forEach((k) => {
+        if (targetLoan[k] !== loanUpdates[k]) {
+          targetLoan[k] = loanUpdates[k];
+          changed = true;
+        }
+      });
+      if (changed) targetLoan.updatedAt = new Date().toISOString();
+    }
+  }
+
   if (changed) {
-    targetLoan.updatedAt = new Date().toISOString();
+    client.updatedAt = new Date().toISOString();
     await clientsStore.setJSON(clientKey, client);
   }
 }
