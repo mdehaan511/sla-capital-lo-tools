@@ -494,7 +494,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
     </div><!-- /form-body -->
 
-    <button class="submit-btn" onclick="calculate()">Calculate Pricing →</button>
+    <button class="submit-btn" onclick="runCalculate()">Calculate Pricing →</button>
   </div><!-- /input-card -->
 
   <!-- ── RESULTS COLUMN ──────────────────────────────────── -->
@@ -648,10 +648,23 @@ function autoCalc() {
   // Toggle save button regardless of whether results have been shown yet
   if (typeof toggleSaveButton === 'function') toggleSaveButton();
   if (!_resultsShown) return;
+  runCalculate();
+}
+
+// Wrapper for calculate() that surfaces errors visibly. Used by both the
+// "Calculate Pricing" button and autoCalc on input changes.
+function runCalculate() {
   try {
     calculate();
   } catch (e) {
     console.error('RTL calculate() threw:', e);
+    var resultsEl = document.getElementById('results');
+    if (resultsEl) {
+      resultsEl.innerHTML = '<div style="padding:18px;border:1px solid var(--danger);background:rgba(124,31,31,0.06);border-radius:8px;color:var(--danger);font-size:13px">' +
+        '<strong>Pricing error.</strong> ' + (e && e.message ? String(e.message) : 'Unknown') +
+        '<div style="font-size:11px;margin-top:6px;color:var(--muted);font-family:\'DM Mono\',monospace">Open browser console for the full stack trace.</div>' +
+        '</div>';
+    }
   }
 }
 
@@ -875,43 +888,68 @@ function calculate(){
   html += '</div>';// /rate-body
   html += '</div>';// /rate-card
 
-  // Item #8: Cashout / refi summary on screen
-  var rtlPurpose = document.getElementById('loanPurpose').value;
-  if (rtlPurpose === 'cashout' || rtlPurpose === 'rateterm') {
-    var cl = parseFloat(document.getElementById('currentLoanAmt') && document.getElementById('currentLoanAmt').value || 0) || 0;
-    var loanAmt = (typeof totalLoanAmount !== 'undefined') ? totalLoanAmount
-                 : (parseFloat(document.getElementById('purchasePrice').value) || 0);
-    var pts = parseFloat(document.getElementById('points') && document.getElementById('points').value || 0) || 0;
-    var ptsFee = loanAmt * (pts / 100);
-    var flatFees = 600 + 900 + 500 + 150; // RTL fee schedule = $2,150
-    var totalFees = ptsFee + flatFees;
-    var estCash = loanAmt - cl - totalFees;
-    var label = (rtlPurpose === 'cashout') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
-    var cashColor = estCash >= 0 ? 'var(--success, #256940)' : 'var(--danger, #7c1f1f)';
-    html += '<div class="rate-card" style="margin-top:14px"><div class="rate-body">' +
-      '<div style="font-weight:600;color:var(--text);margin-bottom:8px">Cashout Estimate</div>' +
-      '<table class="rate-tbl"><tbody>' +
-        '<tr><td>Requested Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
-        '<tr><td>− Current Loan Payoff</td><td class="bv neg">$' + Math.round(cl).toLocaleString() + '</td></tr>' +
-        '<tr><td>− Origination Points (' + pts.toFixed(2) + '%)</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
-        '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
-      '</tbody></table>' +
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
-        '<span style="font-size:14px;font-weight:600">' + label + '<sup style="font-weight:400;color:var(--muted)">*</sup></span>' +
-        '<span style="font-family:\'DM Mono\',monospace;font-size:18px;font-weight:600;color:' + cashColor + '">$' + Math.round(estCash).toLocaleString() + '</span>' +
-      '</div>' +
-      '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* This does not include typical title/escrow costs or required prepaid taxes and insurance.</div>' +
-    '</div></div>';
-  }
-
   // Save + disclaimer
   html += '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>';
   html += '<button class="dl-btn" onclick="downloadRTLPDF()">&#8681; Download Rate Sheet PDF</button>';
   html += '<div class="disclaimer">Pricing is indicative only. Subject to full underwriting, appraisal, and investor approval. Min loan $100K · Max $3.5M · Geographic exclusions apply.</div>';
 
   document.getElementById('results').innerHTML = html;
+  // Item #8: render the cashout summary AFTER the main results render.
+  // Wrapped in try/catch so any error here can never break pricing.
+  try { renderCashoutSummary(); } catch (e) { console.warn('cashout render failed:', e); }
   document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
   toggleSaveButton();
+}
+
+// Render an Estimated Cashout / Net to Borrower card after the pricing card.
+// Only shown for cashout / rateterm refis. Uses the saved loan amount we
+// just computed; reads currentLoanAmt and the rate-derived points.
+function renderCashoutSummary() {
+  var rtlPurpose = document.getElementById('loanPurpose');
+  if (!rtlPurpose) return;
+  var purpose = rtlPurpose.value;
+  if (purpose !== 'cashout' && purpose !== 'rateterm') return;
+
+  var clEl = document.getElementById('currentLoanAmt');
+  if (!clEl) return; // no field rendered yet
+  var cl = parseFloat(clEl.value || 0) || 0;
+  // Use purchase price as the requested loan amount baseline (RTL has no
+  // separate "totalLoanAmount" field exposed by id).
+  var ppEl = document.getElementById('purchasePrice');
+  var loanAmt = ppEl ? (parseFloat(ppEl.value) || 0) : 0;
+  if (loanAmt <= 0) return; // can't compute meaningful cashout
+
+  var flatFees = 600 + 900 + 500 + 150; // RTL fee schedule = $2,150
+  // We don't have a "points" input on the RTL form; assume default 1pt origination
+  var ptsFee = loanAmt * 0.01;
+  var totalFees = ptsFee + flatFees;
+  var estCash = loanAmt - cl - totalFees;
+  var label = (purpose === 'cashout') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
+  var cashColor = estCash >= 0 ? 'var(--success, #256940)' : 'var(--danger, #7c1f1f)';
+
+  var html = '<div class="rate-card" style="margin-top:14px"><div class="rate-body">' +
+    '<div style="font-weight:600;color:var(--text);margin-bottom:8px">Cashout Estimate</div>' +
+    '<table class="rate-tbl"><tbody>' +
+      '<tr><td>Requested Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
+      '<tr><td>− Current Loan Payoff</td><td class="bv neg">$' + Math.round(cl).toLocaleString() + '</td></tr>' +
+      '<tr><td>− Origination (1.00 pt)</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
+      '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
+    '</tbody></table>' +
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
+      '<span style="font-size:14px;font-weight:600">' + label + '<sup style="font-weight:400;color:var(--muted)">*</sup></span>' +
+      '<span style="font-family:\'DM Mono\',monospace;font-size:18px;font-weight:600;color:' + cashColor + '">$' + Math.round(estCash).toLocaleString() + '</span>' +
+    '</div>' +
+    '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* This does not include typical title/escrow costs or required prepaid taxes and insurance.</div>' +
+  '</div></div>';
+
+  // Insert before the Save Quote button so it sits within the results area
+  var resultsEl = document.getElementById('results');
+  var saveBtn = resultsEl.querySelector('#saveQuoteBtn');
+  if (saveBtn) {
+    saveBtn.insertAdjacentHTML('beforebegin', html);
+  } else {
+    resultsEl.insertAdjacentHTML('beforeend', html);
+  }
 }
 
 // Required fields gating Save Quote (#9). Email is recommended but not

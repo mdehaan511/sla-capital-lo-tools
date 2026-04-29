@@ -472,6 +472,9 @@ function removeCompany(btn) {
   if (!body.querySelector('.co-row')) {
     body.innerHTML = '<div class="empty-state" style="padding:18px"><p>No companies on file. Add one to use as a vesting entity.</p></div>';
   }
+  // Immediately persist the change so the user doesn't lose work if they
+  // forget to click Save Profile.
+  saveProfile();
 }
 
 // State select helpers (used for both home address + company state fields)
