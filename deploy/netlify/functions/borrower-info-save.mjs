@@ -129,6 +129,9 @@ async function syncPropertyFieldsToLoan(record) {
   if (data.purchaseOrRefi)  loanUpdates.purchaseOrRefi = String(data.purchaseOrRefi);
   if (data.dscrPurchaseRefi) loanUpdates.purchaseOrRefi = String(data.dscrPurchaseRefi);
   if (data.planDescription) loanUpdates.projectDescription = String(data.planDescription);
+  // Item #10: long-app close date → loan record fundingDate (renamed Desired Close Date everywhere)
+  if (data.dscrCloseDate) loanUpdates.fundingDate = String(data.dscrCloseDate);
+  if (data.ffCloseDate)   loanUpdates.fundingDate = String(data.ffCloseDate);
 
   // Borrower-level fields (live on the CLIENT record, reused across loans — item #6)
   // The form packs these into data.guarantors[0] (with sub-fields like

@@ -183,6 +183,22 @@
                 }
               }
             }
+            // Last-ditch: if the client has exactly one loan that's still in
+            // 'active' status AND has fromApplication=true (auto-created from
+            // the prospect submission), assume this sizer save is updating
+            // that prospect loan even if the address strings differ.
+            if (lIdx < 0) {
+              var prospectLoans = existing.loans
+                .map(function(l, i) { return { l: l, i: i }; })
+                .filter(function(x) {
+                  return x.l.fromApplication
+                    && (x.l.status || 'active') === 'active'
+                    && !x.l.rate; // unpriced — meaning sizer hasn't been saved yet
+                });
+              if (prospectLoans.length === 1) {
+                lIdx = prospectLoans[0].i;
+              }
+            }
             if (lIdx >= 0) {
               var prior = existing.loans[lIdx];
               // Item #4: when LO has manually overridden the loan amount on

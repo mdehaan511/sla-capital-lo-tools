@@ -199,6 +199,7 @@ function buildPrefill(client, loan, loInfo) {
     pf.loan.loanType        = loan.loanType || '';
     pf.loan.loanPurpose     = loan.loanPurpose || '';
     pf.loan.loanAmt         = loan.loanAmt || loan.purchasePrice || '';
+    pf.loan.loanAmtLocked   = !!loan.loanAmtLocked;
     pf.loan.maxLoan         = loan.maxLoan || '';
     pf.loan.purchasePrice   = loan.purchasePrice || '';
     pf.loan.propValue       = loan.propValue || loan.arv || '';

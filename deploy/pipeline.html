@@ -396,6 +396,13 @@
   <button class="bulk-btn danger" onclick="bulkDeleteSelected()">Delete prospects</button>
 </div>
 
+<!-- Item #7: In-Processing decline bar (admin only) -->
+<div class="bulk-bar" id="declineBulkBar">
+  <span class="bulk-count" id="declineBulkCount">0 selected</span>
+  <button class="bulk-btn cancel" onclick="clearDeclineSelection()">Cancel</button>
+  <button class="bulk-btn danger" onclick="bulkDeclineInProcessing()">Mark as Declined</button>
+</div>
+
 <!-- Reminder modal -->
 <div class="rmd-bg" id="rmdBg">
   <div class="rmd-modal">
@@ -463,6 +470,7 @@ var _contactLookup = {}; // ownerKey|email → {clientId}
 var _clientById = {};    // ownerKey|clientId → client record
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedProspects = new Set();
+var _selectedDecline = new Set(); // ownerKey|clientId|loanId of In Processing loans selected for decline
 var _remindersByLoan = {}; // loanId → reminder
 var _remindersById = {};   // reminderId → reminder (for URL param navigation)
 var _editingReminder = null; // current reminder being viewed/edited in modal
@@ -766,7 +774,18 @@ function buildQuoteCard(it, colKey) {
   var fd = q.formData || {};
   var name = q.borrower || fd.borrower || '—';
   var addr = q.address || '';
-  var amt  = fmtMoney(num(fd.loanAmt || fd.purchasePrice || q.loanAmt));
+  var lookup = _loanLookup[it.ownerKey + '|' + (addr||'').trim().toLowerCase().replace(/\s+/g,' ')];
+  // Item #3: prefer the loan record's loanAmt (which carries any LO override)
+  // over the saved formData's value. Fall back to formData/quote values if no
+  // matching loan record is found.
+  var loanRec = null;
+  if (lookup) {
+    var clientRec = _clientById[lookup.ownerKey + '|' + lookup.clientId];
+    if (clientRec && Array.isArray(clientRec.loans)) {
+      loanRec = clientRec.loans.find(function(l) { return l.id === lookup.loanId; });
+    }
+  }
+  var amt  = fmtMoney(num((loanRec && loanRec.loanAmt) || fd.loanAmt || fd.purchasePrice || q.loanAmt));
   var rate = fd._finalRate ? fd._finalRate + '%' : '';
   var tool = q.toolType === 'rtl' ? 'rtl' : 'dscr';
   var loName = loDisplay(it.ownerKey);
@@ -776,7 +795,6 @@ function buildQuoteCard(it, colKey) {
     sizerUrl += '&owner=' + encodeURIComponent(it.ownerKey);
   }
 
-  var lookup = _loanLookup[it.ownerKey + '|' + (addr||'').trim().toLowerCase().replace(/\s+/g,' ')];
   var detailsUrl = lookup
     ? 'loan-details.html?clientId=' + encodeURIComponent(lookup.clientId)
       + '&loanId=' + encodeURIComponent(lookup.loanId)
@@ -838,6 +856,18 @@ function buildQuoteCard(it, colKey) {
     }
   }
 
+  // Item #7: admin can multi-select In-Processing loans to decline.
+  // Checkbox renders only on the In Processing column for admins.
+  var declineCb = '';
+  if (_isAdmin && colKey === 'approved' && lookup) {
+    var declineKey = lookup.ownerKey + '|' + lookup.clientId + '|' + lookup.loanId;
+    var dchecked = _selectedDecline.has(declineKey) ? ' checked' : '';
+    declineCb =
+      '<label class="select-box" title="Select to decline" style="left:8px;right:auto">' +
+        '<input type="checkbox" class="decline-cb" data-key="' + escAttr(declineKey) + '" onchange="toggleDeclineSelect(this)"' + dchecked + ' />' +
+      '</label>';
+  }
+
   // Item #7: address links to Loan Details when we have a loan record
   var addrHtml = (detailsUrl && addr)
     ? '<a href="' + escAttr(detailsUrl) + '" class="contact-link">' + escH(addr) + '</a>'
@@ -845,6 +875,7 @@ function buildQuoteCard(it, colKey) {
 
   return (
     '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + '">' +
+      declineCb +
       bellForLoan(lookup, q, addr) +
       loRow +
       '<div class="card-title">' + nameHtml + '</div>' +
@@ -1146,6 +1177,79 @@ function clearSelection() {
     c.style.borderColor = ''; c.style.background = '';
   });
   updateBulkBar();
+}
+
+// ── Item #7: In-Processing decline (admin) ─────────────────
+function toggleDeclineSelect(checkbox) {
+  var key = checkbox.dataset.key;
+  if (checkbox.checked) _selectedDecline.add(key);
+  else _selectedDecline.delete(key);
+  updateDeclineBar();
+  var card = checkbox.closest('.card');
+  if (card) {
+    if (checkbox.checked) {
+      card.style.borderColor = 'var(--danger)';
+      card.style.background = 'rgba(124,31,31,0.04)';
+    } else {
+      card.style.borderColor = '';
+      card.style.background = '';
+    }
+  }
+}
+
+function updateDeclineBar() {
+  var bar = document.getElementById('declineBulkBar');
+  var n = _selectedDecline.size;
+  if (n === 0) {
+    bar.classList.remove('show');
+  } else {
+    bar.classList.add('show');
+    document.getElementById('declineBulkCount').textContent = n + ' loan' + (n === 1 ? '' : 's') + ' selected';
+  }
+}
+
+function clearDeclineSelection() {
+  _selectedDecline.clear();
+  document.querySelectorAll('.decline-cb:checked').forEach(function(cb) { cb.checked = false; });
+  // Clear visual highlight on In Processing cards
+  document.querySelectorAll('.col[data-col="approved"] .card').forEach(function(c) {
+    c.style.borderColor = ''; c.style.background = '';
+  });
+  updateDeclineBar();
+}
+
+function bulkDeclineInProcessing() {
+  var keys = Array.from(_selectedDecline);
+  if (keys.length === 0) return;
+  if (!confirm('Mark ' + keys.length + ' loan' + (keys.length === 1 ? '' : 's') +
+    ' as DECLINED? They will move to the Decisions page and be removed from In Processing.')) return;
+  // Each key = ownerKey|clientId|loanId. We need to find the matching quote
+  // and call SLA.Admin.decideQuote with status='denied'.
+  var promises = keys.map(function(k) {
+    var parts = k.split('|');
+    var ownerKey = parts[0];
+    var clientId = parts[1];
+    var loanId   = parts[2];
+    // Find the loan to get its address for matching the quote
+    var clientRec = _clientById[ownerKey + '|' + clientId];
+    if (!clientRec) return Promise.resolve();
+    var loan = (clientRec.loans || []).find(function(l) { return l.id === loanId; });
+    if (!loan) return Promise.resolve();
+    // Find the matching quote in _items.approved
+    var item = _items.approved.find(function(it) {
+      return it.ownerKey === ownerKey && (it.quote.address || '') === (loan.address || '');
+    });
+    if (!item) return Promise.resolve();
+    var opts = ownerKey !== (_user.email || '').toLowerCase() ? { _owner: ownerKey } : {};
+    return SLA.Admin.decideQuote(item.id, 'denied', 'Declined during processing.', opts);
+  });
+  Promise.all(promises).then(function() {
+    showToast(keys.length + ' loan' + (keys.length === 1 ? '' : 's') + ' moved to Declined');
+    clearDeclineSelection();
+    loadAll();
+  }).catch(function(err) {
+    showToast('Decline failed: ' + (err.message || 'unknown'));
+  });
 }
 
 function bulkDeleteSelected() {

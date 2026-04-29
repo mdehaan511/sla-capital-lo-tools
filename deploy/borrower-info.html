@@ -128,6 +128,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 </style>
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <script src="sla-api.js"></script>
+<script src="sla-forms.js"></script>
 </head>
 <body>
 
@@ -327,9 +328,15 @@ function applyPrefillToData() {
     if (!d.arv && pf.loan.arv)                     d.arv = pf.loan.arv;
     if (!d.renoCost && pf.loan.rehabBudget)        d.renoCost = pf.loan.rehabBudget;
     if (!d.requestedLoanFF && d.loanType === 'fix_flip') {
-      // Item #2: prefer the sizer-computed max loan; fall back to loanAmt
-      if (pf.loan.maxLoan) d.requestedLoanFF = pf.loan.maxLoan;
-      else if (pf.loan.loanAmt) d.requestedLoanFF = pf.loan.loanAmt;
+      // Item #2/#9: prefer the LO-set loan amount (which carries any override)
+      // over the sizer-computed max. If no override + no loanAmt, fall back to max.
+      if (pf.loan.loanAmt && pf.loan.loanAmtLocked) {
+        d.requestedLoanFF = pf.loan.loanAmt;
+      } else if (pf.loan.maxLoan) {
+        d.requestedLoanFF = pf.loan.maxLoan;
+      } else if (pf.loan.loanAmt) {
+        d.requestedLoanFF = pf.loan.loanAmt;
+      }
     }
     if (!d.requestedLoanDSCR && pf.loan.loanAmt && d.loanType === 'dscr') d.requestedLoanDSCR = pf.loan.loanAmt;
     // Item #9: project description from short app → long app
@@ -927,8 +934,29 @@ function field(name, label, type, opts) {
   } else if (type === 'textarea') {
     html += '<textarea id="f_' + escAttr(name) + '" name="' + escAttr(name) + '"' + ph + onch + oninp + lockedAttr + '>' + escH(val) + '</textarea>';
   } else {
-    var maskAttr = opts.mask ? ' data-mask="' + escAttr(opts.mask) + '"' : '';
-    var autoAttr = opts.autocomplete ? ' data-autocomplete="' + escAttr(opts.autocomplete) + '"' : '';
+    var maskAttr = opts.mask ? ' data-sla-mask="' + escAttr(opts.mask) + '"' : '';
+    // Build sla-forms.js autocomplete attrs when this field is an address
+    // street input. opts.autocomplete is one of: 'property', 'guarantor:0',
+    // 'guarantor:1', 'llc'. Each maps to a set of companion field IDs.
+    var autoAttr = '';
+    if (opts.autocomplete) {
+      var which = opts.autocomplete;
+      var cityId = '', stateId = '', zipId = '';
+      if (which === 'property') {
+        cityId = 'f_propertyCity'; stateId = 'f_propertyState'; zipId = 'f_propertyZip';
+      } else if (which.indexOf('guarantor:') === 0) {
+        var idx = which.split(':')[1];
+        cityId = 'f_g' + idx + '_city';
+        stateId = 'f_g' + idx + '_state';
+        zipId = 'f_g' + idx + '_zip';
+      } else if (which === 'llc') {
+        cityId = 'f_llcCity'; stateId = 'f_llcAddrState'; zipId = 'f_llcZip';
+      }
+      autoAttr = ' data-sla-autocomplete' +
+                 ' data-sla-ac-city="' + cityId + '"' +
+                 ' data-sla-ac-state="' + stateId + '"' +
+                 ' data-sla-ac-zip="' + zipId + '"';
+    }
     // Money fields render as text+inputmode=decimal so we can format with $ and commas
     if (opts.money) {
       var formatted = (val !== '' && val != null) ? formatMoneyDisplay(val) : '';
@@ -1038,13 +1066,9 @@ function render() {
   document.getElementById('formCard').innerHTML = renderPage();
   setSaveStatus('Edits not yet saved', '');
   scheduleAutoSave();
-  // Re-bind autocomplete (Google Places) on the freshly rendered fields.
-  // Wrapped in setTimeout so the DOM is committed before binding.
+  // Re-bind sla-forms helpers (autocomplete, masks, money) on the new DOM.
+  // sla-forms.js handles all three via data-sla-* attributes.
   setTimeout(function() {
-    if (typeof initBorrowerInfoAutocomplete === 'function') {
-      try { initBorrowerInfoAutocomplete(); } catch (e) { console.warn('autocomplete bind failed:', e); }
-    }
-    // Also re-bind sla-forms helpers (masks, money) on the new DOM
     if (window.SLAForms && SLAForms.reformatExisting) {
       try { SLAForms.reformatExisting(document.getElementById('formCard')); } catch (e) {}
     }
@@ -1366,122 +1390,8 @@ function stateOptions() {
 }
 </script>
 
-<!-- Google Places Autocomplete (item #2) — splits address into street/city/state/zip -->
-<script>
-// Re-init autocomplete after every render() since the DOM is rebuilt.
-function initBorrowerInfoAutocomplete() {
-  if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
-    console.warn('[autocomplete] Google Maps not loaded yet — will retry after script loads');
-    return;
-  }
-  var inputs = document.querySelectorAll('input[data-autocomplete]');
-  console.log('[autocomplete] Binding to', inputs.length, 'inputs:',
-    Array.from(inputs).map(function(i){ return i.getAttribute('data-autocomplete') + ' (id=' + i.id + ')'; }));
-  inputs.forEach(function(input) {
-    if (input._acBound) {
-      console.log('[autocomplete] skipping already-bound:', input.id);
-      return;
-    }
-    input._acBound = true;
-    var which = input.getAttribute('data-autocomplete');
-    var ac = new google.maps.places.Autocomplete(input, {
-      types: ['address'],
-      componentRestrictions: { country: 'us' },
-      fields: ['address_components','formatted_address'],
-    });
-    ac.addListener('place_changed', function() {
-      var place = ac.getPlace();
-      console.log('[autocomplete] place_changed for', which, '— place:', place);
-      if (!place || !place.address_components) {
-        console.warn('[autocomplete] no address_components on place — aborting');
-        return;
-      }
-      var parts = parseAddressComponents(place.address_components);
-      console.log('[autocomplete] parsed parts:', parts);
-      // Street = streetNumber + route (e.g. "1234 Main St")
-      var street = (parts.streetNumber + ' ' + parts.route).trim();
-      // Map data-autocomplete value to the right field-name prefixes
-      if (which === 'property') {
-        setFieldValue('propertyAddress', street);
-        setFieldValue('propertyCity', parts.city);
-        setFieldValue('propertyState', parts.state);
-        setFieldValue('propertyZip', parts.zip);
-      } else if (which.indexOf('guarantor:') === 0) {
-        // Form uses ZERO-indexed prefixes (g0_ = Guarantor #1, g1_ = #2).
-        // The data-autocomplete attribute already passes the zero-based idx.
-        var idx = which.split(':')[1];
-        var prefix = 'g' + parseInt(idx, 10) + '_';
-        setFieldValue(prefix + 'address', street);
-        setFieldValue(prefix + 'city', parts.city);
-        setFieldValue(prefix + 'state', parts.state);
-        setFieldValue(prefix + 'zip', parts.zip);
-      } else if (which === 'llc') {
-        setFieldValue('llcAddress', street);
-        setFieldValue('llcCity', parts.city);
-        setFieldValue('llcAddrState', parts.state);
-        setFieldValue('llcZip', parts.zip);
-      }
-      // Persist + trigger autosave
-      scheduleAutoSave();
-    });
-  });
-}
 
-function parseAddressComponents(components) {
-  var out = { streetNumber: '', route: '', city: '', state: '', zip: '' };
-  components.forEach(function(c) {
-    var t = c.types || [];
-    if (t.indexOf('street_number') >= 0) out.streetNumber = c.long_name;
-    if (t.indexOf('route') >= 0) out.route = c.long_name;
-    if (t.indexOf('locality') >= 0) out.city = c.long_name;
-    // Some places use sublocality_level_1 or postal_town if no locality
-    if (!out.city && t.indexOf('sublocality_level_1') >= 0) out.city = c.long_name;
-    if (!out.city && t.indexOf('postal_town') >= 0) out.city = c.long_name;
-    if (t.indexOf('administrative_area_level_1') >= 0) out.state = c.short_name;
-    if (t.indexOf('postal_code') >= 0) out.zip = c.long_name;
-  });
-  return out;
-}
 
-function setFieldValue(name, value) {
-  var el = document.getElementById('f_' + name);
-  if (!el) {
-    console.warn('[autocomplete] setFieldValue: input f_' + name + ' not found in DOM');
-    return;
-  }
-  el.value = value || '';
-  STATE.data[name] = value || '';
-}
-
-// Style the dropdown to match the form
-var __pacStyle = document.createElement('style');
-__pacStyle.textContent = '.pac-container{font-family:"DM Sans",sans-serif;border:1px solid #ddd8d0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.08);margin-top:2px;z-index:10000}.pac-item{padding:7px 12px;font-size:13px;cursor:pointer}.pac-item:hover{background:#f7f5f1}.pac-item-query{font-weight:500;color:#1a1520}.pac-matched{color:#C8813A}';
-document.head.appendChild(__pacStyle);
-
-// Load Google Maps, then init on every render
-(function() {
-  fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
-    if (!cfg.googleMapsKey) {
-      console.warn('[autocomplete] /api/config returned no googleMapsKey — autocomplete disabled');
-      return;
-    }
-    console.log('[autocomplete] Loading Google Maps script...');
-    // Expose the init globally so the Maps callback can find it
-    window.initBorrowerInfoAutocomplete = function() {
-      console.log('[autocomplete] Maps loaded, calling init');
-      initBorrowerInfoAutocomplete();
-    };
-    var s = document.createElement('script');
-    s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.googleMapsKey) +
-            '&libraries=places&callback=initBorrowerInfoAutocomplete';
-    s.async = true; s.defer = true;
-    s.onerror = function() { console.error('[autocomplete] Google Maps script failed to load'); };
-    document.head.appendChild(s);
-  }).catch(function(err) {
-    console.error('[autocomplete] /api/config fetch failed:', err);
-  });
-})();
-</script>
 
 </body>
 </html>

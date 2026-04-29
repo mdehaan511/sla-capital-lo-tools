@@ -101,6 +101,8 @@
     .loan-hero-val .empty { font-size: 16px; color: var(--muted); font-weight: 400; }
     .loan-hero-edit { font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 14px; background: var(--surface, #fff); border: 1px solid var(--border, #ddd); color: var(--muted, #7a7488); cursor: pointer; font-family: inherit; }
     .loan-hero-edit:hover { border-color: var(--gold); color: var(--gold-mid); }
+    .loan-hero-reset { font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 14px; background: var(--gold-light); border: 1px solid var(--gold-border); color: var(--gold-mid); cursor: pointer; font-family: inherit; }
+    .loan-hero-reset:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
     .loan-hero-lock { display: inline-block; font-size: 9px; font-weight: 700; background: var(--success, #256940); color: #fff; padding: 2px 6px; border-radius: 8px; margin-left: 6px; vertical-align: middle; }
     .loan-hero-input { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; color: var(--text); border: 1px solid var(--gold); border-radius: 6px; padding: 4px 10px; width: 200px; text-align: right; background: var(--surface); }
     .fin-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 4px; }
@@ -415,7 +417,11 @@ function render() {
     html += '<div class="loan-hero"' + lockedAttr + '>' +
       '<div class="loan-hero-label">Loan Amount' + (l.loanAmtLocked ? ' <span class="loan-hero-lock">LO override</span>' : '') + '</div>' +
       '<div class="loan-hero-val" id="loanAmtDisplay">' + (loanAmt ? fmtM(loanAmt) : '<span class="empty">—</span>') + '</div>' +
-      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">Override</button>' +
+      // Item #4: Reset to Max button when override is active
+      (l.loanAmtLocked && l.maxLoan
+        ? '<button type="button" class="loan-hero-reset" onclick="resetLoanAmtToMax()">Reset to Max ($' + Math.round(parseFloat(l.maxLoan)).toLocaleString() + ')</button>'
+        : '') +
+      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">' + (l.loanAmtLocked ? 'Edit' : 'Override') + '</button>' +
     '</div>';
     html += '<div class="fin-grid">' +
       '<div class="fin-cell"><div class="fin-label">Note Rate</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
@@ -443,7 +449,11 @@ function render() {
     html += '<div class="loan-hero"' + lockedAttr + '>' +
       '<div class="loan-hero-label">Loan Amount' + (l.loanAmtLocked ? ' <span class="loan-hero-lock">LO override</span>' : '') + '</div>' +
       '<div class="loan-hero-val" id="loanAmtDisplay">' + (loanAmt ? fmtM(loanAmt) : '<span class="empty">—</span>') + '</div>' +
-      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">Override</button>' +
+      // Item #4: Reset to Max button when override is active
+      (l.loanAmtLocked && l.maxLoan
+        ? '<button type="button" class="loan-hero-reset" onclick="resetLoanAmtToMax()">Reset to Max ($' + Math.round(parseFloat(l.maxLoan)).toLocaleString() + ')</button>'
+        : '') +
+      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">' + (l.loanAmtLocked ? 'Edit' : 'Override') + '</button>' +
     '</div>';
     html += '<div class="fin-grid">' +
       '<div class="fin-cell"><div class="fin-label">Rate</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
@@ -542,7 +552,7 @@ function render() {
           '<option value="mtr"'+(l.rentalType==='mtr'?' selected':'')+'>Mid-Term Rental</option>' +
         '</select>' +
       '</div>' +
-      '<div class="field"><label>Target Funding Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" /></div>' +
+      '<div class="field"><label>Desired Close Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" /></div>' +
       '<div class="field span2"><label>Description of Project</label><textarea id="af-projectDescription" placeholder="Briefly describe the work the borrower plans to complete (F&amp;F loans only)">'+escH(l.projectDescription||'')+'</textarea></div>' +
       '<div class="field span2"><label>Notes</label><textarea id="af-notes" placeholder="Additional notes about this loan…">'+escH(l.notes||'')+'</textarea></div>' +
     '</div>' +
@@ -569,6 +579,50 @@ function render() {
 
 // Item #4: LO can override the loan amount on Loan Details. Setting the
 // `loanAmtLocked` flag prevents future sizer re-saves from overwriting it.
+// Item #5: when LO changes loan amount, ALSO update the matching saved quote
+// so downstream consumers (term sheet, rate sheet PDF) see the override.
+function syncOverrideToQuote() {
+  if (!_loan || !_loan.address) return Promise.resolve();
+  if (!window.SLA || !SLA.Quotes) return Promise.resolve();
+  return SLA.Quotes.list().then(function(r) {
+    var quotes = (r && r.quotes) || [];
+    var targetAddr = String(_loan.address).toLowerCase().trim();
+    var match = quotes.find(function(q) {
+      return String(q.address || '').toLowerCase().trim() === targetAddr;
+    });
+    if (!match) return;
+    // Update both top-level loanAmt and formData.loanAmt
+    var updated = Object.assign({}, match);
+    if (!updated.formData) updated.formData = {};
+    updated.formData.loanAmt = _loan.loanAmt;
+    updated.formData.loanAmtLocked = !!_loan.loanAmtLocked;
+    updated.loanAmt = _loan.loanAmt;
+    updated.updatedAt = new Date().toISOString();
+    if (_loEmail && _user && _loEmail !== _user.email) updated._owner = _loEmail;
+    return SLA.Quotes.save(updated);
+  }).catch(function(err) {
+    console.warn('syncOverrideToQuote failed:', err);
+  });
+}
+
+// Item #4: revert override back to the sizer-computed max loan amount
+function resetLoanAmtToMax() {
+  if (!_loan || !_client) return;
+  if (!_loan.maxLoan) { showToast('No max loan on file'); return; }
+  if (!confirm('Reset loan amount to maximum allowable from sizer?\n\n$' + Math.round(parseFloat(_loan.maxLoan)).toLocaleString())) return;
+  _loan.loanAmt = String(_loan.maxLoan);
+  _loan.loanAmtLocked = false;
+  _loan.updatedAt = new Date().toISOString();
+  persistClient().then(function() {
+    return syncOverrideToQuote();
+  }).then(function() {
+    showToast('Loan amount reset to maximum');
+    if (typeof render === 'function') render();
+  }).catch(function(err) {
+    showToast('Reset failed: ' + (err.message || 'unknown'));
+  });
+}
+
 function overrideLoanAmt() {
   if (!_loan || !_client) return;
   var displayEl = document.getElementById('loanAmtDisplay');
@@ -587,6 +641,8 @@ function overrideLoanAmt() {
     _loan.loanAmtLocked = true;
     _loan.updatedAt = new Date().toISOString();
     persistClient().then(function() {
+      return syncOverrideToQuote();
+    }).then(function() {
       showToast('Loan amount overridden — saved');
       // Re-render the page so the hero shows the locked badge
       if (typeof render === 'function') render();
