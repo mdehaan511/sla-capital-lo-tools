@@ -179,6 +179,9 @@ function buildPrefill(client, loan, loInfo) {
       maritalStatus: client.maritalStatus || '',
       homeAddress: client.homeAddress || null,
       fico: client.fico || '',
+      // Item #5: experience metrics tracked across applications
+      flips: client.flips || '',
+      rentals: client.rentals || '',
     },
     property: {},
     loan: {},
@@ -196,6 +199,7 @@ function buildPrefill(client, loan, loInfo) {
     pf.loan.loanType        = loan.loanType || '';
     pf.loan.loanPurpose     = loan.loanPurpose || '';
     pf.loan.loanAmt         = loan.loanAmt || loan.purchasePrice || '';
+    pf.loan.maxLoan         = loan.maxLoan || '';
     pf.loan.purchasePrice   = loan.purchasePrice || '';
     pf.loan.propValue       = loan.propValue || loan.arv || '';
     pf.loan.arv             = loan.arv || loan.estimatedARV || '';

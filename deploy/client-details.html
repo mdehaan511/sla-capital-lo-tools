@@ -252,6 +252,8 @@ function render() {
         '<div class="field"><label>Phone</label><input type="tel" id="pf-phone" value="'+escAttr(c.phone||'')+'" placeholder="(509) 555-0100" data-sla-mask="phone" /></div>' +
         '<div class="field"><label>Date of Birth</label><input type="date" id="pf-dob" value="'+escAttr(c.dob||'')+'" /></div>' +
         '<div class="field"><label>Estimated Credit Score</label><input type="text" id="pf-fico" value="'+escAttr(c.fico||'')+'" placeholder="e.g. 740" /></div>' +
+        '<div class="field"><label>Number of Flips (Last 36 mo)</label><input type="number" id="pf-flips" value="'+escAttr(c.flips||'')+'" min="0" placeholder="0" /></div>' +
+        '<div class="field"><label>Rental Properties Owned</label><input type="number" id="pf-rentals" value="'+escAttr(c.rentals||'')+'" min="0" placeholder="0" /></div>' +
         '<div class="field"><label>Marital Status</label>' +
           '<select id="pf-marital">' +
             '<option value="">— Select —</option>' +
@@ -371,6 +373,8 @@ function saveProfile() {
   // New profile fields (item #1)
   _client.dob       = document.getElementById('pf-dob').value;
   _client.fico      = document.getElementById('pf-fico').value.trim();
+  _client.flips     = document.getElementById('pf-flips').value.trim();
+  _client.rentals   = document.getElementById('pf-rentals').value.trim();
   _client.maritalStatus = document.getElementById('pf-marital').value;
   _client.homeAddress = {
     street: document.getElementById('pf-homeStreet').value.trim(),

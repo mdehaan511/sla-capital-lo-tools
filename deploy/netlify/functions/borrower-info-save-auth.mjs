@@ -118,6 +118,8 @@ async function syncBorrowerFieldsToClient(record) {
       zip:    g0.zip     || '',
     };
   }
+  if (g0.flips !== undefined && g0.flips !== '')     clientUpdates.flips   = String(g0.flips);
+  if (g0.rentals !== undefined && g0.rentals !== '') clientUpdates.rentals = String(g0.rentals);
   if (g0.ssn_enc) clientUpdates.ssn_enc = g0.ssn_enc;
   if (Object.keys(clientUpdates).length === 0) return;
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });

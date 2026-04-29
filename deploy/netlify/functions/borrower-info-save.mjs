@@ -151,6 +151,9 @@ async function syncPropertyFieldsToLoan(record) {
       zip:    g0.zip     || '',
     };
   }
+  // Item #5: experience metrics — # of flips in last 36 months, # of rentals owned
+  if (g0.flips !== undefined && g0.flips !== '')      clientUpdates.flips    = String(g0.flips);
+  if (g0.rentals !== undefined && g0.rentals !== '')  clientUpdates.rentals  = String(g0.rentals);
   // SSN — keep encrypted on the client record so future loans can use it.
   // We pull from g0.ssn_enc which the merge step set from incoming SSN.
   if (g0.ssn_enc) clientUpdates.ssn_enc = g0.ssn_enc;

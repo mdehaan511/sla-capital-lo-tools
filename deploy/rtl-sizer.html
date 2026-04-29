@@ -54,6 +54,9 @@ window.ClientBook = {
       rehabBudget:   formData.rehabBudget   || '',
       arv:           formData.arv           || '',
       experience:    formData.experience    || '',
+      currentLoanAmt: formData.currentLoanAmt || '',
+      // Item #2 (loan-app prefill): the computed max loan from the sizer
+      maxLoan:       formData._maxLoan       || '',
       // Application fields (editable on Loan Details page)
       bedrooms:    formData.bedrooms    || '',
       bathrooms:   formData.bathrooms   || '',
@@ -1065,6 +1068,18 @@ function saveCurrentQuote() {
   // Capture points from DOM
   var ptsEl = document.querySelectorAll('.metric-value.xl');
   if (ptsEl.length >= 2) formData._points = ptsEl[1].textContent;
+  // Item #2 (loan-app prefill): capture the computed max loan amount so the
+  // long application can use it as the default Requested Loan Amount.
+  // We walk the metric cards looking for the "Maximum Loan Amount" label.
+  var metricCards = document.querySelectorAll('#results .metric-card');
+  metricCards.forEach(function(card) {
+    var label = card.querySelector('.metric-label');
+    var value = card.querySelector('.metric-value.xl');
+    if (label && value && /Maximum Loan Amount/i.test(label.textContent)) {
+      var raw = String(value.textContent || '').replace(/[^0-9.]/g, '');
+      if (raw) formData._maxLoan = raw;
+    }
+  });
 
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
   QuoteStore.saveQuote(_quoteUser, 'rtl', formData);

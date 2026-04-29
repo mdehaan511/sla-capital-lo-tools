@@ -326,7 +326,11 @@ function applyPrefillToData() {
     if (!d.purchasePrice && pf.loan.purchasePrice) d.purchasePrice = pf.loan.purchasePrice;
     if (!d.arv && pf.loan.arv)                     d.arv = pf.loan.arv;
     if (!d.renoCost && pf.loan.rehabBudget)        d.renoCost = pf.loan.rehabBudget;
-    if (!d.requestedLoanFF && pf.loan.loanAmt && d.loanType === 'fix_flip') d.requestedLoanFF = pf.loan.loanAmt;
+    if (!d.requestedLoanFF && d.loanType === 'fix_flip') {
+      // Item #2: prefer the sizer-computed max loan; fall back to loanAmt
+      if (pf.loan.maxLoan) d.requestedLoanFF = pf.loan.maxLoan;
+      else if (pf.loan.loanAmt) d.requestedLoanFF = pf.loan.loanAmt;
+    }
     if (!d.requestedLoanDSCR && pf.loan.loanAmt && d.loanType === 'dscr') d.requestedLoanDSCR = pf.loan.loanAmt;
     if (!d.currentValue && pf.loan.propValue) d.currentValue = pf.loan.propValue;
     if (!d.currentRent && pf.loan.rent)       d.currentRent = pf.loan.rent;
@@ -347,22 +351,26 @@ function applyPrefillToData() {
   // Mirror borrower contact into G1 by default. Then layer on any saved
   // borrower-profile fields (DOB, FICO, marital, citizenship, address)
   // from prior loan applications stored on the client record.
+  // NOTE: the form uses ZERO-indexed prefixes — Guarantor #1 = g0_, #2 = g1_.
   if (pf.borrower) {
-    if (!d.g1_firstName) d.g1_firstName = pf.borrower.firstName || '';
-    if (!d.g1_lastName)  d.g1_lastName  = pf.borrower.lastName  || '';
-    if (!d.g1_email)     d.g1_email     = pf.borrower.email     || '';
-    if (!d.g1_phone)     d.g1_phone     = pf.borrower.phone     || '';
-    if (!d.g1_dob && pf.borrower.dob)             d.g1_dob       = pf.borrower.dob;
-    if (!d.g1_fico && pf.borrower.fico)           d.g1_fico      = pf.borrower.fico;
-    if (!d.g1_marital && pf.borrower.maritalStatus) d.g1_marital = pf.borrower.maritalStatus;
-    if (!d.g1_usCitizen && pf.borrower.usCitizen) d.g1_usCitizen = pf.borrower.usCitizen;
+    if (!d.g0_firstName) d.g0_firstName = pf.borrower.firstName || '';
+    if (!d.g0_lastName)  d.g0_lastName  = pf.borrower.lastName  || '';
+    if (!d.g0_email)     d.g0_email     = pf.borrower.email     || '';
+    if (!d.g0_phone)     d.g0_phone     = pf.borrower.phone     || '';
+    if (!d.g0_dob && pf.borrower.dob)             d.g0_dob       = pf.borrower.dob;
+    if (!d.g0_fico && pf.borrower.fico)           d.g0_fico      = pf.borrower.fico;
+    if (!d.g0_marital && pf.borrower.maritalStatus) d.g0_marital = pf.borrower.maritalStatus;
+    if (!d.g0_usCitizen && pf.borrower.usCitizen) d.g0_usCitizen = pf.borrower.usCitizen;
     if (pf.borrower.homeAddress) {
       var ha = pf.borrower.homeAddress;
-      if (!d.g1_address && ha.street) d.g1_address = ha.street;
-      if (!d.g1_city    && ha.city)   d.g1_city    = ha.city;
-      if (!d.g1_state   && ha.state)  d.g1_state   = ha.state;
-      if (!d.g1_zip     && ha.zip)    d.g1_zip     = ha.zip;
+      if (!d.g0_address && ha.street) d.g0_address = ha.street;
+      if (!d.g0_city    && ha.city)   d.g0_city    = ha.city;
+      if (!d.g0_state   && ha.state)  d.g0_state   = ha.state;
+      if (!d.g0_zip     && ha.zip)    d.g0_zip     = ha.zip;
     }
+    // Item #5: experience metrics (flips, rentals) on the borrower profile
+    if (!d.g0_flips    && pf.borrower.flips)    d.g0_flips    = pf.borrower.flips;
+    if (!d.g0_rentals  && pf.borrower.rentals)  d.g0_rentals  = pf.borrower.rentals;
   }
 
   // ── Item #8: Companies — load borrower's saved entities ──
@@ -626,10 +634,7 @@ function renderPage3() {
           { v: 'cash',      l: 'Pay off in Cash' },
         ],
       }) +
-      '<div class="field-row">' +
-        field('ffCloseDate',  'Required Close Date',         'date', { required: true }) +
-        field('ffComplete',   'Estimated Project Completion Date', 'date', { required: true }) +
-      '</div>';
+      field('ffCloseDate',  'Desired Close Date', 'date', { required: true });
   }
 
   if (lt === 'dscr') {
@@ -1031,6 +1036,17 @@ function render() {
   document.getElementById('formCard').innerHTML = renderPage();
   setSaveStatus('Edits not yet saved', '');
   scheduleAutoSave();
+  // Re-bind autocomplete (Google Places) on the freshly rendered fields.
+  // Wrapped in setTimeout so the DOM is committed before binding.
+  setTimeout(function() {
+    if (typeof initBorrowerInfoAutocomplete === 'function') {
+      try { initBorrowerInfoAutocomplete(); } catch (e) { console.warn('autocomplete bind failed:', e); }
+    }
+    // Also re-bind sla-forms helpers (masks, money) on the new DOM
+    if (window.SLAForms && SLAForms.reformatExisting) {
+      try { SLAForms.reformatExisting(document.getElementById('formCard')); } catch (e) {}
+    }
+  }, 50);
 }
 
 // LO review-mode SSN cell: shows masked by default with a "Reveal" button.
@@ -1415,19 +1431,6 @@ function setFieldValue(name, value) {
 var __pacStyle = document.createElement('style');
 __pacStyle.textContent = '.pac-container{font-family:"DM Sans",sans-serif;border:1px solid #ddd8d0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.08);margin-top:2px;z-index:10000}.pac-item{padding:7px 12px;font-size:13px;cursor:pointer}.pac-item:hover{background:#f7f5f1}.pac-item-query{font-weight:500;color:#1a1520}.pac-matched{color:#C8813A}';
 document.head.appendChild(__pacStyle);
-
-// Wrap the existing render() so autocomplete rebinds after each redraw.
-(function(){
-  var origRender = window.render;
-  if (typeof origRender === 'function') {
-    window.render = function() {
-      var r = origRender.apply(this, arguments);
-      // Wait a tick for the DOM to settle, then bind
-      setTimeout(initBorrowerInfoAutocomplete, 50);
-      return r;
-    };
-  }
-})();
 
 // Load Google Maps, then init on every render
 (function() {
