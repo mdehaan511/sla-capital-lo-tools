@@ -223,7 +223,7 @@ function buildContext(quote, client, loProfile) {
 
     // DSCR-specific
     propValue:    num(fd.propValue),
-    existingLoan: num(fd.existingLoanAmt),
+    existingLoan: num(fd.currentLoanAmt || fd.existingLoanAmt || quote.currentLoanAmt),
     annualTaxes:  num(fd.taxes) !== null ? num(fd.taxes) * 12 : null,
     annualIns:    num(fd.insurance) !== null ? num(fd.insurance) * 12 : null,
     monthlyRent:  num(fd.rent),

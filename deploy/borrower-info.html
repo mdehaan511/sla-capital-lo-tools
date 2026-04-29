@@ -177,11 +177,22 @@ document.addEventListener('DOMContentLoaded', function() {
       showGate('Identity not available', 'The Netlify Identity widget did not load.');
       return;
     }
-    netlifyIdentity.on('init', function(user) {
-      if (!user) { netlifyIdentity.open(); return; }
+    // Identity may have already initialized before this listener attaches.
+    // If currentUser() returns a value now, use it directly; otherwise wait.
+    var cu = null;
+    try { cu = netlifyIdentity.currentUser(); } catch (_) {}
+    if (cu) {
       loadFromServerAuthed();
-    });
+    } else {
+      netlifyIdentity.on('init', function(user) {
+        if (!user) { netlifyIdentity.open(); return; }
+        loadFromServerAuthed();
+      });
+    }
     netlifyIdentity.on('login', function() {
+      window.location.reload();
+    });
+    netlifyIdentity.on('logout', function() {
       window.location.reload();
     });
     return;
@@ -200,28 +211,53 @@ function loadFromServerAuthed() {
   }
   var opts = REVIEW_OWNER ? { owner: REVIEW_OWNER } : {};
   SLA.BorrowerInfo.loadAuth(REVIEW_CLIENT_ID, opts).then(function(resp) {
-    STATE.status = resp.status;
-    STATE.data = resp.data || {};
-    STATE.prefill = resp.prefill || {};
-    STATE.propAddress = (resp.prefill && resp.prefill.property && resp.prefill.property.address) || '';
-    STATE.loName = (resp.prefill && resp.prefill.lo && resp.prefill.lo.name) || '';
-    STATE.reviewClientId = resp.clientId;
-    STATE.reviewOwner    = resp.ownerKey;
-    applyPrefillToData();
-    renderApp();
-    // Show the LO review banner
-    setTimeout(function() {
-      var hdr = document.querySelector('.app-header');
-      if (hdr && !document.getElementById('reviewBanner')) {
-        var b = document.createElement('div');
-        b.id = 'reviewBanner';
-        b.style.cssText = 'background:rgba(200,129,58,0.12);border:1px solid var(--gold-border);color:var(--gold-mid);padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;margin-top:12px';
-        b.innerHTML = '<strong>Loan Officer Review.</strong> You are editing this borrower\'s submitted application. Changes save automatically. <span style="font-family:\'DM Mono\',monospace;font-size:11px;opacity:0.8">Status: ' + (STATE.status || 'unknown') + '</span>';
-        hdr.appendChild(b);
-      }
-    }, 100);
+    try {
+      STATE.status = resp.status;
+      STATE.data = resp.data || {};
+      // Hydrate g0_/g1_ fields from the guarantors array so the form's
+      // STATE.data has the per-prefix fields the renderers expect.
+      hydrateGuarantorFields(STATE.data);
+      STATE.prefill = resp.prefill || {};
+      STATE.propAddress = (resp.prefill && resp.prefill.property && resp.prefill.property.address) || '';
+      STATE.loName = (resp.prefill && resp.prefill.lo && resp.prefill.lo.name) || '';
+      STATE.reviewClientId = resp.clientId;
+      STATE.reviewOwner    = resp.ownerKey;
+      STATE.companies = (resp.prefill && resp.prefill.companies) || STATE.data.companies || [];
+      applyPrefillToData();
+      renderApp();
+      // Show the LO review banner
+      setTimeout(function() {
+        var hdr = document.querySelector('.app-header');
+        if (hdr && !document.getElementById('reviewBanner')) {
+          var b = document.createElement('div');
+          b.id = 'reviewBanner';
+          b.style.cssText = 'background:rgba(200,129,58,0.12);border:1px solid var(--gold-border);color:var(--gold-mid);padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;margin-top:12px';
+          b.innerHTML = '<strong>Loan Officer Review.</strong> You are editing this borrower\'s submitted application. Changes save automatically. <span style="font-family:\'DM Mono\',monospace;font-size:11px;opacity:0.8">Status: ' + (STATE.status || 'unknown') + '</span>';
+          hdr.appendChild(b);
+        }
+      }, 100);
+    } catch (innerErr) {
+      console.error('review-mode render error:', innerErr);
+      showGate('Render error', (innerErr && innerErr.message) || 'Failed to render the form. Check the browser console.');
+    }
   }).catch(function(err) {
     showGate('Could not load', (err && err.message) || 'Unable to load this borrower record.');
+  });
+}
+
+// Convert guarantors[0..1] back into g0_/g1_ flat fields so the form
+// renderer can pre-populate inputs with prefix-based ids.
+function hydrateGuarantorFields(data) {
+  if (!data || !Array.isArray(data.guarantors)) return;
+  data.guarantors.forEach(function(g, i) {
+    if (!g) return;
+    var prefix = 'g' + i + '_';
+    Object.keys(g).forEach(function(k) {
+      // Don't overwrite a field already in data (the LO might be editing)
+      if (data[prefix + k] === undefined || data[prefix + k] === '') {
+        data[prefix + k] = g[k];
+      }
+    });
   });
 }
 
@@ -1140,10 +1176,25 @@ function packDataForSave() {
   // emit one company entry. Merge with the prior companies list so we don't
   // wipe out previously-saved entities.
   if (d.hasLLC === 'yes' && (d.llcName || d.llcEIN)) {
+    // Try to find an existing entity that matches by name+EIN (case-insensitive
+    // on name) before creating a new id. This prevents duplicates from autosave
+    // firing repeatedly while the borrower is still typing.
+    var nm = String(d.llcName || '').trim().toLowerCase();
+    var ein = String(d.llcEIN || '').replace(/\D/g,'');
+    var existingMatch = (STATE.companies || []).find(function(c) {
+      var cn = String(c.name || '').trim().toLowerCase();
+      var ce = String(c.ein || '').replace(/\D/g,'');
+      // Match if EIN matches OR name matches AND we have one of them
+      return (ein && ce && ein === ce) || (nm && cn && nm === cn);
+    });
     var companyId = d.llcId || d.entityChoice;
-    if (!companyId || companyId === '__new') {
+    if (companyId === '__new') companyId = null;
+    if (!companyId && existingMatch) companyId = existingMatch.id;
+    if (!companyId) {
       companyId = 'co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     }
+    // Save the resolved id back so subsequent autosaves reuse it
+    d.llcId = companyId;
     var current = {
       id: companyId,
       name: d.llcName || '',
@@ -1157,6 +1208,8 @@ function packDataForSave() {
     var merged = (STATE.companies || []).filter(function(c) { return c.id !== current.id; });
     merged.unshift(current);
     out.companies = merged;
+    // Update STATE.companies too so the next autosave sees the latest list
+    STATE.companies = merged;
   }
 
   return out;

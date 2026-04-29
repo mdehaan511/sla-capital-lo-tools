@@ -94,6 +94,26 @@ async function handle(req) {
   return json(200, { ok: true, status: record.status });
 }
 
+// Map long-form property-type codes to loan-record codes used elsewhere.
+// Long form may emit: sfh, sfr, 2-4, 5+, condo_w, condo_nw, townhome,
+// manufactured, rural, portfolio. Loan-record/sizer uses: sfr, 2-4, condo,
+// nw_condo, multi, portfolio.
+function normalizePropType(pt) {
+  if (!pt) return '';
+  const map = {
+    sfh: 'sfr', sfr: 'sfr',
+    '2-4': '2-4',
+    '5+': 'multi', mfr: 'multi', multi: 'multi',
+    condo: 'condo', condo_w: 'condo',
+    nw_condo: 'nw_condo', condo_nw: 'nw_condo',
+    townhome: 'sfr',     // loan-record has no townhome → bucket as sfr
+    manufactured: 'sfr',
+    rural: 'sfr',
+    portfolio: 'portfolio',
+  };
+  return map[String(pt).toLowerCase()] || String(pt);
+}
+
 async function syncPropertyFieldsToLoan(record) {
   if (!record.ownerKey || !record.clientId) return;
   const data = record.data || {};
@@ -103,32 +123,37 @@ async function syncPropertyFieldsToLoan(record) {
   if (data.bedrooms)        loanUpdates.bedrooms       = String(data.bedrooms);
   if (data.bathrooms)       loanUpdates.bathrooms      = String(data.bathrooms);
   if (data.sqft)            loanUpdates.sqft           = String(data.sqft);
-  if (data.propertyType)    loanUpdates.propType       = String(data.propertyType);
+  if (data.propertyType)    loanUpdates.propType       = normalizePropType(data.propertyType);
   if (data.currentLoanAmt)  loanUpdates.currentLoanAmt = String(data.currentLoanAmt);
   if (data.currentLoanAmount) loanUpdates.currentLoanAmt = String(data.currentLoanAmount);
   if (data.purchaseOrRefi)  loanUpdates.purchaseOrRefi = String(data.purchaseOrRefi);
   if (data.dscrPurchaseRefi) loanUpdates.purchaseOrRefi = String(data.dscrPurchaseRefi);
 
   // Borrower-level fields (live on the CLIENT record, reused across loans — item #6)
-  // Pulled from Guarantor 1 since that's the primary borrower / signer.
+  // The form packs these into data.guarantors[0] (with sub-fields like
+  // firstName, dob, fico, etc.) — NOT as top-level g1_* fields.
+  const g0 = (Array.isArray(data.guarantors) && data.guarantors[0]) || {};
   const clientUpdates = {};
   if (data.borrowerFirstName) clientUpdates.firstName = String(data.borrowerFirstName);
   if (data.borrowerLastName)  clientUpdates.lastName  = String(data.borrowerLastName);
   if (data.borrowerEmail)     clientUpdates.email     = String(data.borrowerEmail).toLowerCase().trim();
   if (data.borrowerPhone)     clientUpdates.phone     = String(data.borrowerPhone);
-  if (data.g1_dob)            clientUpdates.dob       = String(data.g1_dob);
-  if (data.g1_fico)           clientUpdates.fico      = String(data.g1_fico);
-  if (data.g1_marital)        clientUpdates.maritalStatus = String(data.g1_marital);
-  if (data.g1_usCitizen)      clientUpdates.usCitizen = String(data.g1_usCitizen);
-  // Home address: nested under homeAddress for cleanliness
-  if (data.g1_address || data.g1_city || data.g1_state || data.g1_zip) {
+  // Pull DOB/FICO/marital/citizenship/address from Guarantor 1 (primary borrower).
+  if (g0.dob)        clientUpdates.dob           = String(g0.dob);
+  if (g0.fico)       clientUpdates.fico          = String(g0.fico);
+  if (g0.marital)    clientUpdates.maritalStatus = String(g0.marital);
+  if (g0.usCitizen)  clientUpdates.usCitizen     = String(g0.usCitizen);
+  if (g0.address || g0.city || g0.state || g0.zip) {
     clientUpdates.homeAddress = {
-      street: data.g1_address || '',
-      city:   data.g1_city    || '',
-      state:  data.g1_state   || '',
-      zip:    data.g1_zip     || '',
+      street: g0.address || '',
+      city:   g0.city    || '',
+      state:  g0.state   || '',
+      zip:    g0.zip     || '',
     };
   }
+  // SSN — keep encrypted on the client record so future loans can use it.
+  // We pull from g0.ssn_enc which the merge step set from incoming SSN.
+  if (g0.ssn_enc) clientUpdates.ssn_enc = g0.ssn_enc;
 
   // Companies/entities (item #8) — extract from data.companies if present.
   // Borrower form will provide this as an array. We never overwrite the
@@ -176,22 +201,42 @@ async function syncPropertyFieldsToLoan(record) {
     }
   });
 
-  // Merge companies — preserve existing entries by id, add new
+  // Merge companies — preserve existing entries by id, add new.
+  // Safety net: also dedupe by name+EIN so repeated autosaves with different
+  // generated ids don't pile up duplicate entities.
   if (companiesUpdate) {
     const existing = Array.isArray(client.companies) ? client.companies : [];
     const merged = [];
     const seenIds = new Set();
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const ed = (s) => String(s || '').replace(/\D/g, '');
+    const matchKey = (c) => norm(c.name) + '|' + ed(c.ein);
+    const seenKeys = new Set();
+
     companiesUpdate.forEach((c) => {
-      const match = existing.find((e) => e.id === c.id);
+      const k = matchKey(c);
+      // Skip if we already merged an equivalent entity by name+EIN
+      if ((c.name || c.ein) && seenKeys.has(k)) return;
+      const match = existing.find((e) => e.id === c.id) ||
+                    existing.find((e) => matchKey(e) === k && (c.name || c.ein));
       if (match) {
-        merged.push(Object.assign({}, match, c));
+        merged.push(Object.assign({}, match, c, { id: match.id }));
+        seenIds.add(match.id);
       } else {
         merged.push(c);
+        seenIds.add(c.id);
       }
-      seenIds.add(c.id);
+      if (c.name || c.ein) seenKeys.add(k);
     });
     // Keep any prior companies that the borrower didn't touch this round
-    existing.forEach((e) => { if (!seenIds.has(e.id)) merged.push(e); });
+    existing.forEach((e) => {
+      const k = matchKey(e);
+      if (!seenIds.has(e.id) && !seenKeys.has(k)) {
+        merged.push(e);
+        seenIds.add(e.id);
+        if (e.name || e.ein) seenKeys.add(k);
+      }
+    });
     if (JSON.stringify(client.companies) !== JSON.stringify(merged)) {
       client.companies = merged;
       changed = true;

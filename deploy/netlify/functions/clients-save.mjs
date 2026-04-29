@@ -53,6 +53,11 @@ export default async (req, context) => {
     if (existing && !isAdmin(user) && (existing.createdBy && normalizeEmail(existing.createdBy) !== owner)) {
       return json(403, { error: 'Not authorized to modify this client' });
     }
+    // Preserve sensitive/server-only fields the client never sees in API
+    // responses (so they aren't accidentally wiped by a UI save).
+    if (existing && existing.ssn_enc && !record.ssn_enc) {
+      record.ssn_enc = existing.ssn_enc;
+    }
     await store.setJSON(key, record);
     return json(200, { ok: true, client: record });
   } catch (e) {

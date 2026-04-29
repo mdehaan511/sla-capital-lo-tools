@@ -100,23 +100,25 @@ function mergeData(existing, incoming) {
 async function syncBorrowerFieldsToClient(record) {
   if (!record.ownerKey || !record.clientId) return;
   const data = record.data || {};
+  const g0 = (Array.isArray(data.guarantors) && data.guarantors[0]) || {};
   const clientUpdates = {};
   if (data.borrowerFirstName) clientUpdates.firstName = String(data.borrowerFirstName);
   if (data.borrowerLastName)  clientUpdates.lastName  = String(data.borrowerLastName);
   if (data.borrowerEmail)     clientUpdates.email     = String(data.borrowerEmail).toLowerCase().trim();
   if (data.borrowerPhone)     clientUpdates.phone     = String(data.borrowerPhone);
-  if (data.g1_dob)            clientUpdates.dob       = String(data.g1_dob);
-  if (data.g1_fico)           clientUpdates.fico      = String(data.g1_fico);
-  if (data.g1_marital)        clientUpdates.maritalStatus = String(data.g1_marital);
-  if (data.g1_usCitizen)      clientUpdates.usCitizen = String(data.g1_usCitizen);
-  if (data.g1_address || data.g1_city || data.g1_state || data.g1_zip) {
+  if (g0.dob)        clientUpdates.dob           = String(g0.dob);
+  if (g0.fico)       clientUpdates.fico          = String(g0.fico);
+  if (g0.marital)    clientUpdates.maritalStatus = String(g0.marital);
+  if (g0.usCitizen)  clientUpdates.usCitizen     = String(g0.usCitizen);
+  if (g0.address || g0.city || g0.state || g0.zip) {
     clientUpdates.homeAddress = {
-      street: data.g1_address || '',
-      city:   data.g1_city    || '',
-      state:  data.g1_state   || '',
-      zip:    data.g1_zip     || '',
+      street: g0.address || '',
+      city:   g0.city    || '',
+      state:  g0.state   || '',
+      zip:    g0.zip     || '',
     };
   }
+  if (g0.ssn_enc) clientUpdates.ssn_enc = g0.ssn_enc;
   if (Object.keys(clientUpdates).length === 0) return;
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const clientKey = `${record.ownerKey}/${record.clientId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;

@@ -145,6 +145,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/client-ssn-reveal"
+  to = "/.netlify/functions/client-ssn-reveal"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/clients-dedupe-companies"
+  to = "/.netlify/functions/clients-dedupe-companies"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"
   status = 200

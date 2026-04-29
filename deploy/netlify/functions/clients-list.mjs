@@ -42,6 +42,7 @@ export default async (req, context) => {
         byOwner[o].sort((a, b) =>
           new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0),
         );
+        byOwner[o] = byOwner[o].map(sanitize);
       });
       return json(200, { byOwner });
     }
@@ -56,9 +57,22 @@ export default async (req, context) => {
     filtered.sort((a, b) =>
       new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0),
     );
-    return json(200, { clients: filtered });
+    return json(200, { clients: filtered.map(sanitize) });
   } catch (e) {
     console.error('clients-list error:', e);
     return json(500, { error: 'Failed to load clients' });
   }
 };
+
+// Strip the encrypted SSN from list responses; expose only a boolean flag.
+// Plaintext SSN is fetched via /api/client-ssn-reveal on demand.
+function sanitize(client) {
+  const out = Object.assign({}, client);
+  if (out.ssn_enc) {
+    out.hasSSN = true;
+    delete out.ssn_enc;
+  } else {
+    out.hasSSN = false;
+  }
+  return out;
+}

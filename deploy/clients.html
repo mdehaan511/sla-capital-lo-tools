@@ -6,6 +6,7 @@
 <title>Book of Clients — SLA Capital</title>
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <script src="sla-api.js"></script>
+<script src="sla-forms.js"></script>
   <script src="sla-search.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="quotes.js"></script>
@@ -193,7 +194,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
     <div class="modal-field">
       <label>Phone</label>
-      <input type="tel" id="ac-phone" placeholder="(555) 123-4567" />
+      <input type="tel" id="ac-phone" placeholder="(555) 123-4567" data-sla-mask="phone" />
     </div>
     <div class="modal-status" id="ac-status"></div>
     <div class="modal-actions">
@@ -480,7 +481,7 @@ function buildClientCard(c, userEmail, readOnly) {
         '<div class="client-avatar">'+escH(initials)+'</div>' +
         '<div class="client-info">' +
           '<div class="client-name"><a href="'+clientUrl+'" class="client-name-link" onclick="event.stopPropagation()">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</a></div>' +
-          '<div class="client-meta">'+escH(c.email)+(c.phone?' · '+escH(c.phone):'')+'</div>' +
+          '<div class="client-meta">'+escH(c.email)+(c.phone?' · '+escH(fmtPhoneDisplay(c.phone)):'')+'</div>' +
         '</div>' +
       '</div>' +
       '<div class="client-stats">' +
@@ -710,7 +711,7 @@ function buildAdminClientList(clientList) {
     html += '<tr style="border-bottom:'+(isLast?'none':'1px solid #f0ece6')+'">';
     html += '<td style="padding:11px 20px;font-weight:500">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</td>';
     html += '<td style="padding:11px 20px;font-family:DM Mono,monospace;font-size:12px">'+escH(c.email||'—')+'</td>';
-    html += '<td style="padding:11px 20px;font-family:DM Mono,monospace;font-size:12px">'+escH(c.phone||'—')+'</td>';
+    html += '<td style="padding:11px 20px;font-family:DM Mono,monospace;font-size:12px">'+escH(c.phone ? fmtPhoneDisplay(c.phone) : '—')+'</td>';
     html += '<td style="padding:11px 20px"><span style="background:var(--gold-light);color:var(--gold-mid);border:1px solid var(--gold-border);font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px">'+(c.loanCount||0)+' loan'+((c.loanCount||0)!==1?'s':'')+'</span></td>';
     html += '<td style="padding:11px 20px;font-size:12px;color:var(--muted);font-family:DM Mono,monospace">'+date+'</td>';
     html += '</tr>';
@@ -720,6 +721,13 @@ function buildAdminClientList(clientList) {
 }
 
 function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Display phone with dashes/parens; use SLAForms helper if available
+function fmtPhoneDisplay(s) {
+  if (window.SLAForms && SLAForms.formatPhone) return SLAForms.formatPhone(s);
+  var d = String(s||'').replace(/\D/g,'');
+  if (d.length !== 10) return s;
+  return '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+}
 function humanizeEmail(email) {
   if (!email) return '';
   var s = String(email);
