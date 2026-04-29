@@ -326,6 +326,20 @@
       if (opts._owner) body._owner = opts._owner;
       return api('POST', '/api/borrower-info-status', body);
     },
+    // LO-authed: fetch the full record (with decrypted SSN) for review/edit
+    loadAuth: function (clientId, opts) {
+      opts = opts || {};
+      var qs = '?clientId=' + encodeURIComponent(clientId);
+      if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
+      return api('GET', '/api/borrower-info-load-auth' + qs);
+    },
+    // LO-authed: write back edits to the borrower-info record
+    saveAuth: function (clientId, data, opts) {
+      opts = opts || {};
+      var body = { clientId: clientId, data: data };
+      if (opts.owner) body.owner = opts.owner;
+      return api('POST', '/api/borrower-info-save-auth', body);
+    },
   };
 
   // ── Reminders ───────────────────────────────────────────────────

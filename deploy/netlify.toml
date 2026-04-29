@@ -139,6 +139,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/loan-application"
+  to = "/.netlify/functions/loan-application"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"
   status = 200
@@ -165,6 +171,18 @@
 [[redirects]]
   from = "/api/borrower-info-list"
   to = "/.netlify/functions/borrower-info-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower-info-load-auth"
+  to = "/.netlify/functions/borrower-info-load-auth"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower-info-save-auth"
+  to = "/.netlify/functions/borrower-info-save-auth"
   status = 200
   force = true
 

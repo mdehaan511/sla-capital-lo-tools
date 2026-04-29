@@ -126,6 +126,8 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
 .toast.show { opacity: 1; }
 </style>
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-api.js"></script>
 </head>
 <body>
 
@@ -146,6 +148,12 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 // State
 // ─────────────────────────────────────────────────────────
 var TOKEN = new URLSearchParams(window.location.search).get('t') || '';
+var REVIEW_CLIENT_ID = new URLSearchParams(window.location.search).get('clientId') || '';
+var REVIEW_OWNER     = new URLSearchParams(window.location.search).get('owner')    || '';
+var REVIEW_MODE      = !TOKEN && !!REVIEW_CLIENT_ID;
+// In review mode the page is loaded by the LO from Loan Details. We use
+// authed endpoints, show all data including SSN (with reveal toggle),
+// and bypass the "completed → thank you screen" wall.
 var STATE = {
   page: 1,
   totalPages: 4,
@@ -163,12 +171,59 @@ var SAVING = false;
 // Boot
 // ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
+  if (REVIEW_MODE) {
+    // LO review mode: wait for Netlify Identity, then load via authed endpoint
+    if (typeof netlifyIdentity === 'undefined') {
+      showGate('Identity not available', 'The Netlify Identity widget did not load.');
+      return;
+    }
+    netlifyIdentity.on('init', function(user) {
+      if (!user) { netlifyIdentity.open(); return; }
+      loadFromServerAuthed();
+    });
+    netlifyIdentity.on('login', function() {
+      window.location.reload();
+    });
+    return;
+  }
   if (!TOKEN) {
     showGate('Invalid Link', 'This page requires a valid borrower information link from your loan officer. If you reached this page in error, please contact them for a new link.');
     return;
   }
   loadFromServer();
 });
+
+function loadFromServerAuthed() {
+  if (!window.SLA || !SLA.BorrowerInfo || !SLA.BorrowerInfo.loadAuth) {
+    showGate('SDK not loaded', 'The Loan Officer review SDK did not initialize.');
+    return;
+  }
+  var opts = REVIEW_OWNER ? { owner: REVIEW_OWNER } : {};
+  SLA.BorrowerInfo.loadAuth(REVIEW_CLIENT_ID, opts).then(function(resp) {
+    STATE.status = resp.status;
+    STATE.data = resp.data || {};
+    STATE.prefill = resp.prefill || {};
+    STATE.propAddress = (resp.prefill && resp.prefill.property && resp.prefill.property.address) || '';
+    STATE.loName = (resp.prefill && resp.prefill.lo && resp.prefill.lo.name) || '';
+    STATE.reviewClientId = resp.clientId;
+    STATE.reviewOwner    = resp.ownerKey;
+    applyPrefillToData();
+    renderApp();
+    // Show the LO review banner
+    setTimeout(function() {
+      var hdr = document.querySelector('.app-header');
+      if (hdr && !document.getElementById('reviewBanner')) {
+        var b = document.createElement('div');
+        b.id = 'reviewBanner';
+        b.style.cssText = 'background:rgba(200,129,58,0.12);border:1px solid var(--gold-border);color:var(--gold-mid);padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;margin-top:12px';
+        b.innerHTML = '<strong>Loan Officer Review.</strong> You are editing this borrower\'s submitted application. Changes save automatically. <span style="font-family:\'DM Mono\',monospace;font-size:11px;opacity:0.8">Status: ' + (STATE.status || 'unknown') + '</span>';
+        hdr.appendChild(b);
+      }
+    }, 100);
+  }).catch(function(err) {
+    showGate('Could not load', (err && err.message) || 'Unable to load this borrower record.');
+  });
+}
 
 function loadFromServer() {
   fetch('/api/borrower-info-load?t=' + encodeURIComponent(TOKEN))
@@ -359,7 +414,7 @@ function renderApp() {
         '<div>' +
           (STATE.page < STATE.totalPages
             ? '<button class="btn primary" onclick="goNext()">Next →</button>'
-            : '<button class="btn success" onclick="submitFinal()">Submit information</button>') +
+            : '<button class="btn success" onclick="submitFinal()">' + (REVIEW_MODE ? 'Save edits' : 'Submit information') + '</button>') +
         '</div>' +
       '</div>' +
     '</div>';
@@ -754,12 +809,15 @@ function renderGuarantor(idx, label) {
       field(prefix + 'dob',  'Date of Birth', 'date', { required: true }) +
       field(prefix + 'fico', 'Estimated Credit Score', 'text', { required: true, placeholder: 'e.g. 740' }) +
     '</div>' +
-    field(prefix + 'ssn', 'Social Security Number', 'text', {
-      required: true,
-      placeholder: 'XXX-XX-XXXX',
-      mask: 'ssn',
-      hint: 'Securely encrypted at rest. Used only for the loan application document.',
-    }) +
+    (REVIEW_MODE
+      ? renderSSNReviewField(prefix, idx)
+      : field(prefix + 'ssn', 'Social Security Number', 'text', {
+          required: true,
+          placeholder: 'XXX-XX-XXXX',
+          mask: 'ssn',
+          hint: 'Securely encrypted at rest. Used only for the loan application document.',
+        })
+    ) +
     field(prefix + 'address', 'Home address (street)', 'text', { required: true, autocomplete: 'guarantor:' + idx }) +
     '<div class="field-row-3">' +
       field(prefix + 'city',  'City',  'text', { required: true }) +
@@ -939,6 +997,48 @@ function render() {
   scheduleAutoSave();
 }
 
+// LO review-mode SSN cell: shows masked by default with a "Reveal" button.
+// Click → switches the input to the plaintext SSN (kept visible until refresh).
+function renderSSNReviewField(prefix, idx) {
+  var name = prefix + 'ssn';
+  var ssn = STATE.data[name] || '';
+  var masked = STATE.data[name + '_masked'] || maskSSN(ssn);
+  var displayValue = ssn ? masked : '';
+  return '<div class="field" data-name="' + escAttr(name) + '">' +
+    '<label for="f_' + escAttr(name) + '">Social Security Number <span class="req">*</span></label>' +
+    '<div style="display:flex;gap:8px;align-items:stretch">' +
+      '<input type="text" id="f_' + escAttr(name) + '" name="' + escAttr(name) + '" ' +
+             'value="' + escAttr(displayValue) + '" data-mask="ssn" data-ssn-real="' + escAttr(ssn) + '" ' +
+             'placeholder="XXX-XX-XXXX" autocomplete="off" ' +
+             'oninput="onFieldChange(this)" onchange="onFieldChange(this)" />' +
+      '<button type="button" onclick="revealSSN(\'' + escAttr(name) + '\', this)" ' +
+              'style="padding:8px 14px;font-size:12px;font-weight:600;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);border-radius:8px;cursor:pointer;font-family:inherit;white-space:nowrap">Reveal</button>' +
+    '</div>' +
+    '<div class="err" id="err_' + escAttr(name) + '"></div>' +
+    '<div class="hint">Encrypted at rest. Click Reveal to see the full number.</div>' +
+  '</div>';
+}
+
+function revealSSN(name, btn) {
+  var input = document.getElementById('f_' + name);
+  if (!input) return;
+  var real = input.getAttribute('data-ssn-real') || '';
+  if (real) {
+    input.value = real;
+    btn.textContent = 'Visible';
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.cursor = 'default';
+  }
+}
+
+function maskSSN(s) {
+  if (!s) return '';
+  var d = String(s).replace(/\D/g, '');
+  if (d.length < 4) return '';
+  return '***-**-' + d.slice(-4);
+}
+
 // Item #8: Entity selector — when user picks a saved entity, fill the LLC
 // fields. Picking "+ Add new entity" clears the fields so they can type fresh.
 function onEntityChoice() {
@@ -981,6 +1081,19 @@ function autoSave() {
   if (SAVING) return;
   SAVING = true;
   var dataToSave = packDataForSave();
+
+  if (REVIEW_MODE) {
+    var opts = STATE.reviewOwner ? { owner: STATE.reviewOwner } : {};
+    SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function() {
+      SAVING = false;
+      setSaveStatus('Saved ' + nowTime() + ' (LO edit)', 'ok');
+    }).catch(function(err) {
+      SAVING = false;
+      setSaveStatus((err && err.message) || 'Save failed', 'err');
+    });
+    return;
+  }
+
   fetch('/api/borrower-info-save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1085,6 +1198,20 @@ function submitFinal() {
   var btn = event.target;
   btn.disabled = true; btn.textContent = 'Submitting…';
   var dataToSave = packDataForSave();
+
+  if (REVIEW_MODE) {
+    // LO review: this is the final "Save & Close" — no completion event
+    var opts = STATE.reviewOwner ? { owner: STATE.reviewOwner } : {};
+    SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function() {
+      showToast('Edits saved');
+      btn.disabled = false; btn.textContent = 'Save edits';
+    }).catch(function(err) {
+      btn.disabled = false; btn.textContent = 'Save edits';
+      showToast('Save failed: ' + ((err && err.message) || 'unknown'));
+    });
+    return;
+  }
+
   fetch('/api/borrower-info-save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

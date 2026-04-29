@@ -1,0 +1,234 @@
+/**
+ * sla-forms.js — Shared form-input helpers
+ *
+ * Auto-binds behaviors to inputs based on data attributes:
+ *   data-sla-mask="phone"       → format as (XXX) XXX-XXXX
+ *   data-sla-mask="ssn"         → format as XXX-XX-XXXX
+ *   data-sla-mask="ein"         → format as XX-XXXXXXX
+ *   data-sla-money              → display $1,234,567 on blur, plain on focus
+ *   data-sla-autocomplete       → Google Places address autocomplete
+ *     companion data attributes for splitting the result:
+ *       data-sla-ac-city, data-sla-ac-state, data-sla-ac-zip = id of target field
+ *
+ * Plus exposed helpers (window.SLAForms.*):
+ *   formatMoney(value)     → "$1,234"
+ *   parseMoney(string)     → 1234 (number)
+ *   formatPhone(value)     → "(509) 555-0100"
+ *   parseDigits(string)    → digits only
+ *   reformatExisting(root) → re-apply formatting to all fields in a subtree
+ *                            (use after rendering new content dynamically)
+ *
+ * Usage:
+ *   <script src="sla-forms.js"></script>
+ *   <input type="text" data-sla-money>
+ *   <input type="text" data-sla-mask="phone">
+ *   <input type="text" data-sla-autocomplete data-sla-ac-city="cityField" ...>
+ */
+(function() {
+  'use strict';
+
+  // ── Mask functions ──────────────────────────────────────────
+  function applyMaskValue(value, kind) {
+    var d = String(value || '').replace(/\D/g, '');
+    if (kind === 'phone') {
+      d = d.slice(0, 10);
+      if (d.length <= 3) return d;
+      if (d.length <= 6) return '(' + d.slice(0,3) + ') ' + d.slice(3);
+      return '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+    }
+    if (kind === 'ssn') {
+      d = d.slice(0, 9);
+      if (d.length <= 3) return d;
+      if (d.length <= 5) return d.slice(0,3) + '-' + d.slice(3);
+      return d.slice(0,3) + '-' + d.slice(3,5) + '-' + d.slice(5);
+    }
+    if (kind === 'ein') {
+      d = d.slice(0, 9);
+      if (d.length <= 2) return d;
+      return d.slice(0,2) + '-' + d.slice(2);
+    }
+    return value;
+  }
+
+  // ── Money formatting ────────────────────────────────────────
+  function parseMoney(s) {
+    if (s === '' || s == null) return 0;
+    var n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
+    return isFinite(n) ? n : 0;
+  }
+  function formatMoney(v) {
+    if (v === '' || v == null) return '';
+    var n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+    if (!isFinite(n)) return '';
+    var hasDecimal = String(v).indexOf('.') >= 0 && String(v).split('.')[1] !== '';
+    return '$' + n.toLocaleString('en-US', {
+      minimumFractionDigits: hasDecimal ? 2 : 0,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  // ── Field event handlers ────────────────────────────────────
+  function onMaskInput(e) {
+    var el = e.target;
+    var kind = el.getAttribute('data-sla-mask');
+    if (!kind) return;
+    var caret = el.selectionStart;
+    var prevLen = (el.value || '').length;
+    var next = applyMaskValue(el.value, kind);
+    if (next !== el.value) {
+      el.value = next;
+      try {
+        var delta = next.length - prevLen;
+        if (caret != null) el.setSelectionRange(caret + delta, caret + delta);
+      } catch (_) {}
+    }
+  }
+
+  function onMoneyFocus(e) {
+    e.target.value = String(e.target.value || '').replace(/[^0-9.\-]/g, '');
+  }
+  function onMoneyBlur(e) {
+    var raw = String(e.target.value || '').replace(/[^0-9.\-]/g, '');
+    e.target.value = raw ? formatMoney(raw) : '';
+  }
+
+  // ── Bootstrap: attach handlers to all matching inputs in a root ──
+  function bindRoot(root) {
+    root = root || document;
+    // Masks
+    root.querySelectorAll('input[data-sla-mask]').forEach(function(el) {
+      if (el._slaMaskBound) return;
+      el._slaMaskBound = true;
+      el.addEventListener('input', onMaskInput);
+      // Apply mask once to existing value so loaded data displays formatted
+      if (el.value) {
+        var kind = el.getAttribute('data-sla-mask');
+        var formatted = applyMaskValue(el.value, kind);
+        if (formatted !== el.value) el.value = formatted;
+      }
+    });
+    // Money
+    root.querySelectorAll('input[data-sla-money]').forEach(function(el) {
+      if (el._slaMoneyBound) return;
+      el._slaMoneyBound = true;
+      el.addEventListener('focus', onMoneyFocus);
+      el.addEventListener('blur',  onMoneyBlur);
+      // Format existing value on first bind
+      if (el.value) el.value = formatMoney(el.value);
+    });
+    // Autocomplete (Google Places) — only binds once Maps script is loaded
+    if (window.google && window.google.maps && window.google.maps.places) {
+      root.querySelectorAll('input[data-sla-autocomplete]').forEach(function(el) {
+        if (el._slaAcBound) return;
+        bindAutocomplete(el);
+      });
+    }
+  }
+
+  function bindAutocomplete(el) {
+    el._slaAcBound = true;
+    var ac = new google.maps.places.Autocomplete(el, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+      fields: ['address_components','formatted_address'],
+    });
+    ac.addListener('place_changed', function() {
+      var place = ac.getPlace();
+      if (!place || !place.address_components) return;
+      var p = parseComponents(place.address_components);
+      var street = (p.streetNumber + ' ' + p.route).trim();
+      el.value = street;
+
+      var cityId  = el.getAttribute('data-sla-ac-city');
+      var stateId = el.getAttribute('data-sla-ac-state');
+      var zipId   = el.getAttribute('data-sla-ac-zip');
+      if (cityId)  setVal(cityId, p.city);
+      if (stateId) setVal(stateId, p.state);
+      if (zipId)   setVal(zipId, p.zip);
+      // Fire input events on the populated fields so any framework state stays in sync
+      [cityId, stateId, zipId].forEach(function(id) {
+        if (!id) return;
+        var t = document.getElementById(id);
+        if (t) {
+          t.dispatchEvent(new Event('input',  { bubbles: true }));
+          t.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+      // Same for the street field itself so any oninput handlers fire
+      el.dispatchEvent(new Event('input',  { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
+
+  function setVal(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
+
+  function parseComponents(components) {
+    var out = { streetNumber: '', route: '', city: '', state: '', zip: '' };
+    components.forEach(function(c) {
+      var t = c.types || [];
+      if (t.indexOf('street_number') >= 0) out.streetNumber = c.long_name;
+      if (t.indexOf('route') >= 0) out.route = c.long_name;
+      if (t.indexOf('locality') >= 0) out.city = c.long_name;
+      if (!out.city && t.indexOf('sublocality_level_1') >= 0) out.city = c.long_name;
+      if (!out.city && t.indexOf('postal_town') >= 0) out.city = c.long_name;
+      if (t.indexOf('administrative_area_level_1') >= 0) out.state = c.short_name;
+      if (t.indexOf('postal_code') >= 0) out.zip = c.long_name;
+    });
+    return out;
+  }
+
+  // ── PAC dropdown styling (matches SLA aesthetic) ───────────
+  function injectPacStyles() {
+    if (document.getElementById('slaFormsPacStyle')) return;
+    var s = document.createElement('style');
+    s.id = 'slaFormsPacStyle';
+    s.textContent = '.pac-container{font-family:"DM Sans",sans-serif;border:1px solid #ddd8d0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.08);margin-top:2px;z-index:10000}' +
+                    '.pac-item{padding:7px 12px;font-size:13px;cursor:pointer}' +
+                    '.pac-item:hover{background:#f7f5f1}' +
+                    '.pac-item-query{font-weight:500;color:#1a1520}' +
+                    '.pac-matched{color:#C8813A}';
+    document.head.appendChild(s);
+  }
+
+  // ── Maps loader (fetches key from /api/config and inits Places) ──
+  // Pages that already load Maps elsewhere will skip — we detect via
+  // window.google before re-loading.
+  function loadMapsIfNeeded(callback) {
+    if (window.google && window.google.maps && window.google.maps.places) {
+      callback(); return;
+    }
+    fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
+      if (!cfg.googleMapsKey) { callback(); return; }
+      var s = document.createElement('script');
+      s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.googleMapsKey) +
+              '&libraries=places&callback=__slaFormsMapsReady';
+      s.async = true; s.defer = true;
+      window.__slaFormsMapsReady = function() { callback(); };
+      document.head.appendChild(s);
+    }).catch(function() { callback(); });
+  }
+
+  // ── Boot ───────────────────────────────────────────────────
+  function init() {
+    injectPacStyles();
+    bindRoot(document);
+    loadMapsIfNeeded(function() { bindRoot(document); });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  // Expose helpers
+  window.SLAForms = {
+    formatMoney: formatMoney,
+    parseMoney: parseMoney,
+    formatPhone: function(v) { return applyMaskValue(v, 'phone'); },
+    formatSSN:   function(v) { return applyMaskValue(v, 'ssn'); },
+    formatEIN:   function(v) { return applyMaskValue(v, 'ein'); },
+    parseDigits: function(s) { return String(s||'').replace(/\D/g,''); },
+    reformatExisting: bindRoot,
+  };
+})();
