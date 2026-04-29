@@ -98,6 +98,39 @@
     .open-sizer-btn:hover { background: var(--gold-light); border-color: var(--gold); color: var(--gold); }
     .term-sheet-btn { background: var(--gold); border-color: var(--gold); color: #fff; margin-top: 8px; }
     .term-sheet-btn:hover { background: var(--gold-mid); border-color: var(--gold-mid); color: #fff; }
+    .borrower-info-btn { background: var(--surface); border-color: var(--gold-border); color: var(--gold-mid); margin-top: 8px; }
+    .borrower-info-btn:hover { background: var(--gold-light); border-color: var(--gold); color: var(--gold); }
+    .borrower-info-btn.complete { background: rgba(37,105,64,0.10); border-color: rgba(37,105,64,0.40); color: #1a5230; }
+    .borrower-info-btn.complete:hover { background: rgba(37,105,64,0.20); }
+    .borrower-info-btn.in-progress { background: rgba(200,129,58,0.10); border-color: rgba(200,129,58,0.55); color: #8a5215; }
+
+    /* Borrower-Info modal */
+    .bi-modal-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .bi-modal-bg.show { display: flex; }
+    .bi-modal { background: var(--surface, #fff); border-radius: 12px; max-width: 500px; width: 100%; padding: 1.75rem; box-shadow: 0 12px 40px rgba(0,0,0,0.18); font-family: 'DM Sans', sans-serif; }
+    .bi-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 6px; color: var(--text, #1a1520); }
+    .bi-sub { font-size: 13px; color: var(--muted, #7a7488); margin-bottom: 1.25rem; line-height: 1.5; }
+    .bi-link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 1rem; padding: 12px; background: var(--gold-light); border: 1px solid var(--gold-border); border-radius: 8px; }
+    .bi-link-row input { flex: 1; padding: 7px 10px; font-family: 'DM Mono', monospace; font-size: 11px; border: 1px solid var(--gold-border); border-radius: 6px; background: #fff; color: var(--text); }
+    .bi-link-row button { padding: 7px 14px; font-size: 12px; font-weight: 600; background: var(--gold); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .bi-link-row button:hover { background: var(--gold-mid); }
+    .bi-options { margin-bottom: 1rem; }
+    .bi-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin-bottom: 8px; }
+    .bi-checkbox input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--gold); }
+    .bi-email-row { padding-left: 24px; }
+    .bi-email-row input { width: 100%; padding: 9px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 8px; font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); margin-bottom: 4px; }
+    .bi-email-row input:focus { outline: none; border-color: var(--gold); }
+    .bi-email-hint { font-size: 11px; color: var(--muted); }
+    .bi-status { font-size: 12px; min-height: 18px; margin-bottom: 8px; }
+    .bi-status.err { color: var(--danger, #7c1f1f); }
+    .bi-status.ok { color: #256940; }
+    .bi-info-box { padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--muted); margin-bottom: 1rem; }
+    .bi-info-box strong { color: var(--text); }
+    .bi-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+    .bi-btn { font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 22px; cursor: pointer; font-family: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+    .bi-btn:disabled { opacity: 0.5; cursor: wait; }
+    .bi-btn.primary { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .bi-btn.primary:hover:not(:disabled) { background: #1c1227; }
 
     /* Editable application fields */
     .app-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
@@ -145,6 +178,41 @@
 
 <div class="page" id="pageContent">
   <div class="loading">Loading loan details…</div>
+</div>
+
+<!-- Borrower-Info Request modal -->
+<div class="bi-modal-bg" id="biModal">
+  <div class="bi-modal">
+    <h3 id="biTitle">Request Borrower Info</h3>
+    <p id="biSub" class="bi-sub">Generates a secure link the borrower can use to fill in everything we need for the loan application.</p>
+
+    <div id="biContent">
+      <div class="bi-link-row" id="biLinkRow" style="display:none">
+        <input type="text" id="biLinkInput" readonly />
+        <button type="button" id="biCopyBtn" onclick="biCopyLink()">Copy</button>
+      </div>
+
+      <div class="bi-options" id="biOptions">
+        <label class="bi-checkbox">
+          <input type="checkbox" id="biSendEmailCb" checked />
+          <span>Email this link to the borrower</span>
+        </label>
+        <div class="bi-email-row" id="biEmailRow">
+          <input type="email" id="biEmailInput" placeholder="borrower@example.com" />
+          <span class="bi-email-hint">We'll send a secure link to this address.</span>
+        </div>
+      </div>
+
+      <div class="bi-status" id="biStatusMsg"></div>
+
+      <div class="bi-info-box" id="biExistingInfo" style="display:none"></div>
+    </div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeBorrowerInfoModal()">Close</button>
+      <button class="bi-btn primary" id="biSendBtn" onclick="biSendOrCopy()">Generate Link</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -359,6 +427,12 @@ function render() {
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 8h5M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
     'Generate Term Sheet' +
   '</button>';
+
+  html += '<button type="button" class="open-sizer-btn borrower-info-btn" id="borrowerInfoBtn" onclick="openBorrowerInfoModal()">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="5" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 13c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+    '<span id="borrowerInfoBtnLabel">Request Borrower Info</span>' +
+  '</button>';
+  html += '<div id="borrowerInfoStatus" style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center"></div>';
 
   html += '</div></div>'; // close section-body, section
 
@@ -589,6 +663,164 @@ function downloadTermSheet() {
   }).catch(function(err) {
     showToast('Failed: ' + (err.message || 'unknown error'));
   });
+}
+
+// ── Borrower Info Request modal ─────────────────────────
+// State for the modal: holds the latest response from the request endpoint
+// so the user can re-copy the link after sending.
+var _biLatestUrl = '';
+
+function openBorrowerInfoModal() {
+  if (!_client) { showToast('Client not loaded'); return; }
+  // Reset modal state
+  _biLatestUrl = '';
+  var modal = document.getElementById('biModal');
+  document.getElementById('biLinkRow').style.display = 'none';
+  document.getElementById('biLinkInput').value = '';
+  document.getElementById('biStatusMsg').textContent = '';
+  document.getElementById('biStatusMsg').className = 'bi-status';
+  document.getElementById('biSendEmailCb').checked = true;
+  document.getElementById('biEmailInput').value = (_client.email || '').toLowerCase();
+  document.getElementById('biEmailRow').style.display = 'block';
+  document.getElementById('biSendBtn').textContent = 'Generate Link';
+  document.getElementById('biSendBtn').disabled = false;
+  document.getElementById('biTitle').textContent = 'Request Borrower Info — ' + ((_client.firstName||'') + ' ' + (_client.lastName||'')).trim();
+
+  // Show existing-info notice if borrower already started/completed
+  var info = document.getElementById('biExistingInfo');
+  info.style.display = 'none';
+  info.innerHTML = '';
+  if (window.SLA && SLA.BorrowerInfo && SLA.BorrowerInfo.status) {
+    SLA.BorrowerInfo.status(_client.id).then(function(r) {
+      if (!r) return;
+      var s = r.status;
+      var msg = '';
+      if (s === 'in_progress') msg = '<strong>In progress.</strong> Borrower has started but not finished. Generating a new link will replace the old one.';
+      else if (s === 'complete') msg = '<strong>Already complete.</strong> Generating a new link will reset their data and require them to fill it in again.';
+      else if (s === 'pending') msg = '<strong>Link already sent.</strong> Generating a new link will invalidate the previous one.';
+      if (msg) {
+        info.innerHTML = msg;
+        info.style.display = 'block';
+        document.getElementById('biSendBtn').textContent = 'Replace Link';
+      }
+    }).catch(function(){});
+  }
+
+  // Toggle the email field visibility on checkbox change
+  document.getElementById('biSendEmailCb').onchange = function() {
+    document.getElementById('biEmailRow').style.display = this.checked ? 'block' : 'none';
+  };
+
+  modal.classList.add('show');
+}
+
+function closeBorrowerInfoModal() {
+  document.getElementById('biModal').classList.remove('show');
+}
+
+function biSendOrCopy() {
+  if (!_client) return;
+  var sendEmail = document.getElementById('biSendEmailCb').checked;
+  var email = document.getElementById('biEmailInput').value.trim();
+  if (sendEmail && (!email || !email.includes('@'))) {
+    var s = document.getElementById('biStatusMsg');
+    s.className = 'bi-status err';
+    s.textContent = 'Enter a valid email address, or uncheck the email option.';
+    return;
+  }
+
+  var btn = document.getElementById('biSendBtn');
+  btn.disabled = true;
+  btn.textContent = sendEmail ? 'Sending…' : 'Generating…';
+  var status = document.getElementById('biStatusMsg');
+  status.textContent = '';
+  status.className = 'bi-status';
+
+  var opts = { sendEmail: sendEmail };
+  if (sendEmail) opts.email = email;
+  if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
+
+  SLA.BorrowerInfo.request(_client.id, opts).then(function(resp) {
+    btn.disabled = false; btn.textContent = 'Replace Link';
+    _biLatestUrl = resp.url || '';
+    document.getElementById('biLinkInput').value = _biLatestUrl;
+    document.getElementById('biLinkRow').style.display = 'flex';
+    status.className = 'bi-status ok';
+    status.textContent = sendEmail
+      ? (resp.emailed ? '✓ Link sent to ' + email : 'Link generated. (Email send failed; copy the link instead.)')
+      : '✓ Link generated.';
+    refreshBorrowerInfoStatus();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Generate Link';
+    status.className = 'bi-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+function biCopyLink() {
+  var url = document.getElementById('biLinkInput').value;
+  if (!url) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function(){
+      var b = document.getElementById('biCopyBtn');
+      var orig = b.textContent;
+      b.textContent = 'Copied!';
+      setTimeout(function(){ b.textContent = orig; }, 1500);
+    }).catch(function(){ prompt('Copy this link:', url); });
+  } else {
+    prompt('Copy this link:', url);
+  }
+}
+
+// Backdrop close
+document.addEventListener('click', function(e) {
+  var bg = document.getElementById('biModal');
+  if (e.target === bg) closeBorrowerInfoModal();
+});
+
+// ── Status refresh: shows current borrower-info state on the button ──
+function refreshBorrowerInfoStatus() {
+  if (!_client) return;
+  if (!window.SLA || !SLA.BorrowerInfo || !SLA.BorrowerInfo.status) return;
+  var btn   = document.getElementById('borrowerInfoBtn');
+  var label = document.getElementById('borrowerInfoBtnLabel');
+  var note  = document.getElementById('borrowerInfoStatus');
+  if (!btn || !label || !note) return;
+
+  var opts = (_loEmail && _user && _loEmail !== _user.email) ? { _owner: _loEmail } : {};
+
+  SLA.BorrowerInfo.status(_client.id, opts).then(function(r) {
+    if (!r) return;
+    btn.classList.remove('complete','in-progress');
+    var s = r.status;
+    if (s === 'complete') {
+      btn.classList.add('complete');
+      label.textContent = 'Borrower Info Complete — View / Edit';
+      note.textContent = 'Submitted ' + (r.completedAt ? new Date(r.completedAt).toLocaleDateString() : '');
+    } else if (s === 'in_progress') {
+      btn.classList.add('in-progress');
+      label.textContent = 'Borrower Info — In Progress';
+      note.textContent = 'Last activity: ' + (r.lastSavedAt ? new Date(r.lastSavedAt).toLocaleString() : 'unknown');
+    } else if (s === 'pending') {
+      btn.classList.add('in-progress');
+      label.textContent = 'Borrower Info — Link Sent';
+      note.textContent = 'Sent ' + (r.sentAt ? new Date(r.sentAt).toLocaleDateString() : 'recently') + '. Awaiting borrower.';
+    } else {
+      label.textContent = 'Request Borrower Info';
+      note.textContent = '';
+    }
+  }).catch(function(){});
+}
+
+// Hook the status refresh into the existing render() call.
+// We monkey-patch by wrapping the original render so we don't need to find it.
+var _origRender = (typeof render === 'function') ? render : null;
+if (_origRender) {
+  window.render = function() {
+    var r = _origRender.apply(this, arguments);
+    setTimeout(refreshBorrowerInfoStatus, 100); // give DOM time to mount the button
+    return r;
+  };
 }
 
 init();

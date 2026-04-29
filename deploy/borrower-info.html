@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Complete Borrower Information — SLA Capital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.08);
+  --gold-border: rgba(200,129,58,0.28);
+  --dark: #261a36; --bg: #f0ece5;
+  --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+  --danger: #7c1f1f; --success: #256940;
+  --r: 12px; --r-xs: 8px;
+}
+html, body { height: auto; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* ── Top header ─────────────────────────────────────────── */
+.brand-bar { background: var(--dark); padding: 14px 0; }
+.brand-bar-inner { max-width: 920px; margin: 0 auto; padding: 0 1.5rem; display: flex; align-items: center; gap: 14px; }
+.brand-bar h1 { color: var(--gold); font-family: 'Lora', serif; font-size: 16px; font-weight: 600; }
+.brand-bar .sub { color: rgba(255,255,255,0.55); font-size: 11px; margin-left: auto; }
+
+/* ── Main container ──────────────────────────────────── */
+.page { max-width: 920px; margin: 0 auto; padding: 1.5rem; }
+.intro-card { background: var(--surface); border: 1px solid var(--gold-border); border-radius: var(--r); padding: 1.5rem 1.75rem; margin-bottom: 1.25rem; }
+.intro-card h2 { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.intro-card p { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+.intro-card p strong { color: var(--text); }
+.intro-prop { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--gold-mid); margin-top: 8px; padding: 8px 12px; background: var(--gold-light); border-radius: var(--r-xs); display: inline-block; }
+
+/* ── Progress bar ───────────────────────────────────── */
+.progress { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 18px; margin-bottom: 1rem; }
+.progress-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.progress-step { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.progress-step.current { color: var(--gold); }
+.progress-bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: var(--gold); transition: width 0.3s; }
+
+/* ── Form card ──────────────────────────────────────── */
+.form-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1.5rem 1.75rem; }
+.form-card h3 { font-family: 'Lora', serif; font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.form-card h4 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--gold); margin: 22px 0 12px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.form-card h4:first-of-type { padding-top: 0; border-top: none; margin-top: 0; }
+
+.field { margin-bottom: 1rem; }
+.field.hidden { display: none !important; }
+.field label { display: block; font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+.field label .req { color: var(--danger); margin-left: 4px; }
+.field .hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+.field .err { font-size: 11px; color: var(--danger); margin-top: 4px; min-height: 14px; }
+.field input[type=text], .field input[type=email], .field input[type=tel],
+.field input[type=number], .field input[type=date], .field select, .field textarea {
+  width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--r-xs);
+  font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--surface); color: var(--text);
+}
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--gold); }
+.field input[readonly] { background: rgba(120,116,136,0.06); cursor: not-allowed; }
+.field textarea { resize: vertical; min-height: 80px; }
+
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+@media (max-width: 600px) { .field-row, .field-row-3 { grid-template-columns: 1fr; } }
+
+.radio-group, .checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
+.radio-group label, .checkbox-group label {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border: 1px solid var(--border); border-radius: 20px;
+  font-size: 13px; cursor: pointer; transition: all 0.12s;
+  background: var(--surface); color: var(--text); margin-bottom: 0;
+}
+.radio-group label:hover, .checkbox-group label:hover { border-color: var(--gold); }
+.radio-group input[type=radio]:checked + span,
+.checkbox-group input[type=checkbox]:checked + span { color: var(--gold); font-weight: 600; }
+.radio-group label:has(input:checked),
+.checkbox-group label:has(input:checked) { background: var(--gold-light); border-color: var(--gold); }
+
+.divider-h { height: 1px; background: var(--border); margin: 18px 0; }
+
+/* ── Footer / actions ───────────────────────────────── */
+.actions {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 1.5rem; gap: 14px; flex-wrap: wrap;
+}
+.btn {
+  padding: 11px 22px; border-radius: 26px; border: 1px solid var(--border);
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: all 0.12s; background: var(--surface); color: var(--muted);
+}
+.btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+.btn.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--gold-mid); border-color: var(--gold-mid); }
+.btn.success { background: var(--success); border-color: var(--success); color: #fff; }
+.btn.success:hover:not(:disabled) { background: #1f5836; }
+.btn:disabled { opacity: 0.5; cursor: wait; }
+
+.save-status { font-size: 12px; color: var(--muted); }
+.save-status.ok { color: var(--success); }
+.save-status.err { color: var(--danger); }
+
+.gate, .complete-msg {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
+  padding: 3rem 2rem; text-align: center; max-width: 540px; margin: 3rem auto;
+}
+.gate h2, .complete-msg h2 { font-family: 'Lora', serif; font-size: 22px; margin-bottom: 12px; color: var(--text); }
+.gate p, .complete-msg p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+.complete-msg .check {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(37,105,64,0.12); color: var(--success);
+  margin-bottom: 18px;
+}
+
+.toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="brand-bar">
+  <div class="brand-bar-inner">
+    <h1>SLA Capital</h1>
+    <span class="sub">Secure borrower information form</span>
+  </div>
+</div>
+
+<!-- Loading / gate / complete states are swapped in/out by JS -->
+<div id="root"></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────
+var TOKEN = new URLSearchParams(window.location.search).get('t') || '';
+var STATE = {
+  page: 1,
+  totalPages: 4,
+  status: 'pending',
+  data: {},
+  prefill: {},
+  propAddress: '',
+  loName: '',
+};
+var SAVE_TIMER = null;
+var SAVING = false;
+
+// ─────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  if (!TOKEN) {
+    showGate('Invalid Link', 'This page requires a valid borrower information link from your loan officer. If you reached this page in error, please contact them for a new link.');
+    return;
+  }
+  loadFromServer();
+});
+
+function loadFromServer() {
+  fetch('/api/borrower-info-load?t=' + encodeURIComponent(TOKEN))
+    .then(function(r) { return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(resp) {
+      if (!resp.ok) {
+        showGate('Link expired or invalid',
+          (resp.data && resp.data.error) || 'This link is no longer valid. Please contact your loan officer for a new link.');
+        return;
+      }
+      STATE.status = resp.data.status;
+      STATE.data = resp.data.data || {};
+      STATE.prefill = resp.data.prefill || {};
+      STATE.propAddress = resp.data.propertyAddress || '';
+      STATE.loName = resp.data.loName || '';
+      if (STATE.status === 'complete') {
+        showComplete();
+        return;
+      }
+      // Apply prefill into data if data is empty for those keys
+      applyPrefillToData();
+      renderApp();
+    })
+    .catch(function(e) {
+      showGate('Failed to load', 'Could not reach the server. Please check your internet connection and try again.');
+    });
+}
+
+function applyPrefillToData() {
+  var d = STATE.data;
+  var pf = STATE.prefill;
+  // Borrower contact
+  if (pf.borrower) {
+    if (!d.borrowerFirstName) d.borrowerFirstName = pf.borrower.firstName || '';
+    if (!d.borrowerLastName)  d.borrowerLastName  = pf.borrower.lastName || '';
+    if (!d.borrowerEmail)     d.borrowerEmail     = pf.borrower.email || '';
+    if (!d.borrowerPhone)     d.borrowerPhone     = pf.borrower.phone || '';
+  }
+  // Loan type from existing loan record
+  if (pf.loan && !d.loanType) {
+    var lt = pf.loan.toolType || '';
+    if (lt === 'rtl') d.loanType = 'fix_flip';
+    else if (lt === 'dscr') d.loanType = 'dscr';
+  }
+  // Property
+  if (pf.property) {
+    if (!d.propertyAddress) d.propertyAddress = pf.property.address || '';
+    if (!d.propertyType)    d.propertyType    = mapPropType(pf.property.propType);
+    if (!d.bedrooms)        d.bedrooms        = pf.property.bedrooms || '';
+    if (!d.bathrooms)       d.bathrooms       = pf.property.bathrooms || '';
+    if (!d.sqft)            d.sqft            = pf.property.sqft || '';
+  }
+  // Loan-specific
+  if (pf.loan) {
+    if (!d.purchasePrice && pf.loan.purchasePrice) d.purchasePrice = pf.loan.purchasePrice;
+    if (!d.arv && pf.loan.arv)                     d.arv = pf.loan.arv;
+    if (!d.renoCost && pf.loan.rehabBudget)        d.renoCost = pf.loan.rehabBudget;
+    if (!d.requestedLoanFF && pf.loan.loanAmt && d.loanType === 'fix_flip') d.requestedLoanFF = pf.loan.loanAmt;
+    if (!d.requestedLoanDSCR && pf.loan.loanAmt && d.loanType === 'dscr') d.requestedLoanDSCR = pf.loan.loanAmt;
+    if (!d.currentValue && pf.loan.propValue) d.currentValue = pf.loan.propValue;
+    if (!d.currentRent && pf.loan.rent)       d.currentRent = pf.loan.rent;
+    if (!d.dscrCloseDate && pf.loan.fundingDate) d.dscrCloseDate = pf.loan.fundingDate;
+    if (!d.ffCloseDate && pf.loan.fundingDate)   d.ffCloseDate = pf.loan.fundingDate;
+  }
+}
+
+function mapPropType(pt) {
+  // Map sizer types to form values
+  var m = {
+    'sfr': 'sfr', 'sfh': 'sfr', '2-4': '2-4', 'condo': 'condo_w',
+    'nw_condo': 'condo_nw', 'townhome': 'townhome', 'portfolio': 'portfolio',
+    'mfr': 'mfr', '5+': 'mfr',
+  };
+  return m[pt] || '';
+}
+
+function showGate(title, message) {
+  document.getElementById('root').innerHTML =
+    '<div class="gate"><h2>' + escH(title) + '</h2><p>' + escH(message) + '</p></div>';
+}
+
+function showComplete() {
+  document.getElementById('root').innerHTML =
+    '<div class="complete-msg">' +
+      '<div class="check"><svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M8 16l6 6 12-12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+      '<h2>Information submitted</h2>' +
+      '<p>Thank you. Your loan officer has been notified and will be in touch shortly. You can close this page.</p>' +
+    '</div>';
+}
+
+// ─────────────────────────────────────────────────────────
+// Render
+// ─────────────────────────────────────────────────────────
+function renderApp() {
+  var pct = Math.round((STATE.page / STATE.totalPages) * 100);
+  var html =
+    '<div class="page">' +
+      '<div class="intro-card">' +
+        '<h2>Complete your borrower information</h2>' +
+        '<p>Your loan officer ' + (STATE.loName ? '<strong>' + escH(humanize(STATE.loName)) + '</strong> ' : '') +
+        'has requested the additional information below to finalize your loan application. ' +
+        '<strong>Your progress saves automatically</strong> — you can close this page and come back any time within 14 days.</p>' +
+        (STATE.propAddress ? '<div class="intro-prop">📍 ' + escH(STATE.propAddress) + '</div>' : '') +
+      '</div>' +
+      '<div class="progress">' +
+        '<div class="progress-row">' +
+          pageTitleHtml() +
+          '<span class="progress-step current">Step ' + STATE.page + ' of ' + STATE.totalPages + '</span>' +
+        '</div>' +
+        '<div class="progress-bar"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>' +
+      '</div>' +
+      '<div class="form-card" id="formCard">' + renderPage() + '</div>' +
+      '<div class="actions">' +
+        '<div>' +
+          (STATE.page > 1 ? '<button class="btn" onclick="goPrev()">← Back</button>' : '') +
+        '</div>' +
+        '<div class="save-status" id="saveStatus">' +
+          (STATE.data && Object.keys(STATE.data).length ? 'Last saved: just now' : '') +
+        '</div>' +
+        '<div>' +
+          (STATE.page < STATE.totalPages
+            ? '<button class="btn primary" onclick="goNext()">Next →</button>'
+            : '<button class="btn success" onclick="submitFinal()">Submit information</button>') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('root').innerHTML = html;
+  bindAutoSave();
+}
+
+function pageTitleHtml() {
+  var titles = {
+    1: 'Loan & Contact',
+    2: 'Property',
+    3: 'Loan Details',
+    4: 'Vesting & Guarantors',
+  };
+  return '<span class="progress-step">' + escH(titles[STATE.page] || '') + '</span>';
+}
+
+function renderPage() {
+  if (STATE.page === 1) return renderPage1();
+  if (STATE.page === 2) return renderPage2();
+  if (STATE.page === 3) return renderPage3();
+  if (STATE.page === 4) return renderPage4();
+  return '';
+}
+
+// ─────────────────────────────────────────────────────────
+// PAGE 1 — Loan type, broker question, contact
+// ─────────────────────────────────────────────────────────
+function renderPage1() {
+  var d = STATE.data;
+  var isBroker = d.applicantType === 'broker';
+  var isSelf   = d.applicantType === 'self' || !d.applicantType;
+
+  return '<h3>About you</h3>' +
+    field('applicantType', 'Are you a loan broker or applying for yourself?', 'radio', {
+      required: true,
+      options: [
+        { v: 'broker', l: 'I am a loan broker' },
+        { v: 'self',   l: 'I am applying for myself' },
+      ],
+      onchange: 'render()',
+    }) +
+    (isBroker
+      ? '<h4>Your contact (broker)</h4>' +
+        rowFields(
+          field('brokerFirstName', 'First Name', 'text', { required: true }),
+          field('brokerLastName',  'Last Name',  'text', { required: true }),
+        ) +
+        rowFields(
+          field('brokerEmail', 'Email', 'email', { required: true }),
+          field('brokerPhone', 'Phone', 'tel',   { required: true }),
+        )
+      : '') +
+
+    '<h4>Borrower contact</h4>' +
+    rowFields(
+      field('borrowerFirstName', 'First Name', 'text', { required: true }),
+      field('borrowerLastName',  'Last Name',  'text', { required: true }),
+    ) +
+    rowFields(
+      field('borrowerEmail', 'Email', 'email', { required: true }),
+      field('borrowerPhone', 'Phone', 'tel',   { required: true }),
+    ) +
+
+    '<h4>Loan & relationship</h4>' +
+    field('workingWith', 'Who on our team have you been working with?', 'select', {
+      options: [
+        { v: '',              l: '— Select —' },
+        { v: 'chance',        l: 'Chance Luce' },
+        { v: 'mike',          l: 'Mike DeHaan' },
+        { v: 'dan',           l: 'Dan Austin' },
+        { v: 'jeremy',        l: 'Jeremy Knipp' },
+        { v: 'none',          l: "I haven't been working with anyone" },
+      ],
+    }) +
+    field('loanType', 'What kind of loan do you need?', 'radio', {
+      required: true,
+      options: [
+        { v: 'fix_flip',     l: 'Fix and Flip Loan' },
+        { v: 'dscr',         l: 'DSCR (Rental Purchase or Refi)' },
+        { v: 'construction', l: 'New Construction' },
+        { v: 'dscr_2nd',     l: 'DSCR 2nd Position' },
+      ],
+      onchange: 'render()',
+    });
+}
+
+// ─────────────────────────────────────────────────────────
+// PAGE 2 — Property address + flood zone
+// ─────────────────────────────────────────────────────────
+function renderPage2() {
+  return '<h3>Property</h3>' +
+
+    '<h4>Property address</h4>' +
+    field('propertyAddress', 'Street address', 'text', { required: true, placeholder: '1234 Main St' }) +
+    rowFields(
+      field('propertyAddress2', 'Address line 2 (optional)', 'text'),
+    ) +
+    '<div class="field-row-3">' +
+      field('propertyCity',  'City', 'text', { required: true }) +
+      field('propertyState', 'State', 'select', { required: true, options: stateOptions() }) +
+      field('propertyZip',   'Zip', 'text', { required: true }) +
+    '</div>' +
+
+    field('floodZone', 'Is the property in a Flood Zone?', 'radio', {
+      options: [
+        { v: 'yes', l: 'Yes' },
+        { v: 'no',  l: 'No' },
+        { v: 'unsure', l: "I'm not sure" },
+      ],
+    });
+}
+
+// ─────────────────────────────────────────────────────────
+// PAGE 3 — Property details + loan-type-specific fields
+// ─────────────────────────────────────────────────────────
+function renderPage3() {
+  var d = STATE.data;
+  var lt = d.loanType || '';
+  var pt = d.propertyType || '';
+  var isMulti = pt === '2-4' || pt === 'mfr';
+  var isPurchase = d.dscrPurchaseRefi === 'purchase';
+  var isRefi = d.dscrPurchaseRefi === 'refinance';
+  var ownsLand = d.ownsLand === 'yes';
+
+  var html = '<h3>Property & loan details</h3>' +
+
+    '<h4>Property characteristics</h4>' +
+    field('propertyType', 'Property Type', 'select', {
+      required: true,
+      onchange: 'render()',
+      options: [
+        { v: '',          l: '— Select —' },
+        { v: 'sfr',       l: 'Single Family Home' },
+        { v: '2-4',       l: '2-4 Unit Residential' },
+        { v: 'mfr',       l: '5+ Unit Multifamily' },
+        { v: 'condo_w',   l: 'Condo - Warrantable' },
+        { v: 'condo_nw',  l: 'Condo - Non Warrantable' },
+        { v: 'portfolio', l: 'Portfolio (Multiple Properties)' },
+        { v: 'townhome',  l: 'Townhome' },
+        { v: 'manuf',     l: 'Manufactured Home' },
+        { v: 'rural',     l: 'Rural (5+ Acres)' },
+      ],
+    });
+
+  if (isMulti) html += field('numUnits', 'Number of Units', 'number', { required: true });
+
+  if (lt !== 'construction') {
+    html += '<div class="field-row">' +
+      field('bedrooms',  'Number of Bedrooms',  'number', { required: true }) +
+      field('bathrooms', 'Number of Bathrooms', 'number', { required: true, step: '0.5' }) +
+      '</div>';
+  }
+
+  html += '<div class="field-row">' +
+    field('sqft',    'Property Square Footage', 'number', { required: true }) +
+    field('lotSize', 'Estimated Lot Size (if more than 1 acre)', 'number') +
+    '</div>';
+
+  // ── Loan-type-specific blocks ────────────────────────
+  if (lt === 'fix_flip') {
+    html += '<h4>Fix & flip details</h4>' +
+      '<div class="field-row">' +
+        field('purchasePrice',   'Purchase Price',     'number', { required: true, money: true }) +
+        field('arv',             'After Repair Value', 'number', { required: true, money: true }) +
+      '</div>' +
+      '<div class="field-row">' +
+        field('renoCost',        'Estimated Reno Costs',          'number', { required: true, money: true }) +
+        field('requestedLoanFF', 'Requested Loan Amount',         'number', { required: true, money: true }) +
+      '</div>' +
+      field('planDescription', 'Description of plan for the project', 'textarea', { required: true }) +
+      field('exitStrategy', 'Planned Exit Strategy', 'radio', {
+        required: true,
+        options: [
+          { v: 'sell',      l: 'Sell' },
+          { v: 'refi',      l: 'Refinance' },
+          { v: 'cash',      l: 'Pay off in Cash' },
+        ],
+      }) +
+      '<div class="field-row">' +
+        field('ffCloseDate',  'Required Close Date',         'date', { required: true }) +
+        field('ffComplete',   'Estimated Project Completion Date', 'date', { required: true }) +
+      '</div>';
+  }
+
+  if (lt === 'dscr') {
+    html += '<h4>DSCR loan</h4>' +
+      field('dscrPurchaseRefi', 'Is this a Purchase or Refinance?', 'radio', {
+        required: true,
+        onchange: 'render()',
+        options: [
+          { v: 'purchase',   l: 'Purchase' },
+          { v: 'refinance',  l: 'Refinance' },
+        ],
+      });
+
+    if (isPurchase) {
+      html += '<div class="field-row">' +
+        field('purchasePrice', 'Purchase Price', 'number', { required: true, money: true }) +
+        field('requestedLoanDSCR', 'Requested Loan Amount', 'number', { required: true, money: true }) +
+        '</div>' +
+        field('dscrCloseDate', 'Desired Close Date', 'date', { required: true });
+    }
+    if (isRefi) {
+      html += '<div class="field-row">' +
+        field('currentValue',     'Current Value of the Property', 'number', { required: true, money: true }) +
+        field('currentLoanAmount','Current Loan Amount',           'number', { required: true, money: true }) +
+        '</div>' +
+        '<div class="field-row">' +
+          field('requestedLoanDSCR','Desired New Loan Amount', 'number', { required: true, money: true }) +
+          field('originalPurchasePrice','Original Purchase Price','number', { money: true }) +
+        '</div>' +
+        '<div class="field-row">' +
+          field('originalPurchaseDate','Original Purchase Date', 'date') +
+          field('dscrCloseDate', 'Desired Close Date', 'date', { required: true }) +
+        '</div>';
+    }
+    if (isPurchase || isRefi) {
+      // Income & expenses
+      html += '<h4>Rental income & expenses</h4>' +
+        field('currentRent', 'Current Rent (or Market Rent if not rented)', 'number', { required: true, money: true }) +
+        field('rentalKind', 'What kind of rental is this?', 'select', {
+          required: true,
+          options: [
+            { v: '',     l: '— Select —' },
+            { v: 'ltr',  l: 'Long Term Rental (6+ Month leases)' },
+            { v: 'str',  l: 'Short Term Rental (AirBNB or Leases under 6 months)' },
+            { v: 'other',l: 'Other' },
+          ],
+        }) +
+        field('allRented', 'Are all units rented?', 'radio', {
+          required: true,
+          onchange: 'render()',
+          options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+        });
+      if (d.allRented === 'no') {
+        html += field('emptyUnits', 'How many units are currently empty?', 'number', { required: true });
+      }
+      html += '<div class="field-row-3">' +
+        field('annualTaxes',     'Annual Taxes',       'number', { required: true, money: true }) +
+        field('annualInsurance', 'Annual Insurance',   'number', { required: true, money: true }) +
+        field('annualHOA',       'Annual HOA / other', 'number', { money: true }) +
+        '</div>' +
+        field('hasPropMgr', 'Do you use a property management company?', 'radio', {
+          required: true,
+          options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+        });
+    }
+  }
+
+  if (lt === 'dscr_2nd') {
+    html += '<h4>2nd position details</h4>' +
+      '<div class="field-row">' +
+        field('currentValue',          'Current Value of the Property', 'number', { required: true, money: true }) +
+        field('currentLoanAmount',     'Current 1st Position Loan Amount', 'number', { required: true, money: true }) +
+      '</div>' +
+      '<div class="field-row">' +
+        field('current1stRate',        'Current 1st Position Interest Rate', 'text', { required: true, placeholder: 'e.g. 6.5%' }) +
+        field('current1stPayment',     'Current 1st Position Monthly Payment', 'text', { required: true }) +
+      '</div>' +
+      field('paymentIncludesTI', 'Does this payment include monthly Taxes & Insurance?', 'radio', {
+        required: true,
+        options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+      }) +
+      field('requested2nd', 'Desired 2nd Position Loan Amount', 'number', { required: true, money: true,
+        hint: 'Up to 80% on Single Family and 75% on 2-4 units. Property must have positive DSCR to qualify.' });
+  }
+
+  if (lt === 'construction') {
+    html += '<h4>New construction</h4>' +
+      field('ownsLand', 'Do you already own the land?', 'radio', {
+        required: true,
+        onchange: 'render()',
+        options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+      }) +
+      (ownsLand
+        ? field('landDebt', 'Existing debt on the land', 'number', { required: true, money: true })
+        : field('landPurchasePrice', 'Land Purchase Price', 'number', { required: true, money: true })
+      ) +
+      '<div class="field-row">' +
+        field('buildBudget',     'Budgeted Build Cost',       'number', { required: true, money: true }) +
+        field('estCompleteValue','Estimated Completion Value','number', { required: true, money: true }) +
+      '</div>' +
+      '<div class="field-row">' +
+        field('requestedLoanNC', 'Requested Loan Amount', 'number', { required: true, money: true }) +
+        field('ncCloseDate',     'Desired Close Date',     'date',   { required: true }) +
+      '</div>' +
+      '<div class="field-row">' +
+        field('numNewBuilds36',  '# of New Builds completed in last 36 months', 'number', { required: true }) +
+        field('cashLiquidity',   'Current Cash Liquidity', 'number', { required: true, money: true }) +
+        '</div>' +
+      field('hasPermits', 'Do you have approved entitlements, plans, and permits?', 'radio', {
+        required: true,
+        options: [
+          { v: 'yes',  l: 'Yes' },
+          { v: 'no',   l: 'No' },
+          { v: 'some', l: 'Have some but not all' },
+        ],
+      });
+  }
+
+  return html;
+}
+
+// ─────────────────────────────────────────────────────────
+// PAGE 4 — Vesting & Guarantors
+// ─────────────────────────────────────────────────────────
+function renderPage4() {
+  var d = STATE.data;
+  var hasLLC = d.hasLLC === 'yes';
+  var numGuarantors = d.numGuarantors || '1';
+
+  var html = '<h3>Vesting & guarantors</h3>' +
+
+    '<h4>Vesting entity</h4>' +
+    field('hasLLC', 'Are you buying under (or is the property vested in) an LLC?', 'radio', {
+      required: true,
+      onchange: 'render()',
+      options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+    });
+
+  if (hasLLC) {
+    html += '<div class="field-row">' +
+      field('llcName',  'Name of LLC',          'text', { required: true }) +
+      field('llcState', 'State LLC is registered in', 'select', { required: true, options: stateOptions() }) +
+      '</div>' +
+      field('llcEIN', 'Vesting Entity EIN', 'text', { placeholder: 'XX-XXXXXXX' }) +
+      '<div class="field-row">' +
+        field('llcAddress', 'Entity registered address', 'text') +
+        field('llcCity',    'City', 'text') +
+      '</div>' +
+      '<div class="field-row">' +
+        field('llcStateAddr', 'State', 'select', { options: stateOptions() }) +
+        field('llcZip', 'Zip', 'text') +
+        '</div>';
+  }
+
+  html +=
+    '<h4>Guarantors</h4>' +
+    field('numGuarantors', 'How many guarantors are there?', 'radio', {
+      required: true,
+      onchange: 'render()',
+      options: [{ v: '1', l: '1' }, { v: '2', l: '2' }],
+      hint: 'Note: all individuals with more than 20% ownership of an LLC must be a guarantor.',
+    });
+
+  // Guarantor 1
+  html += renderGuarantor(0, 'Guarantor #1');
+
+  // Guarantor 2
+  if (numGuarantors === '2') {
+    html += renderGuarantor(1, 'Guarantor #2');
+  }
+
+  return html;
+}
+
+function renderGuarantor(idx, label) {
+  var d = STATE.data;
+  var prefix = 'g' + idx + '_';
+  var g = (d.guarantors && d.guarantors[idx]) || {};
+  // Mirror nested g[idx] values to flat data keys for the form to read
+  Object.keys(g).forEach(function(k) {
+    if (d[prefix + k] === undefined) d[prefix + k] = g[k];
+  });
+
+  var lt = d.loanType || '';
+  var showFlips   = lt === 'fix_flip' || lt === 'construction';
+  var showRentals = lt === 'dscr' || lt === 'dscr_2nd';
+
+  var html = '<h4>' + escH(label) + '</h4>' +
+    '<div class="field-row">' +
+      field(prefix + 'firstName', 'First Name', 'text', { required: true }) +
+      field(prefix + 'lastName',  'Last Name',  'text', { required: true }) +
+    '</div>' +
+    '<div class="field-row">' +
+      field(prefix + 'email', 'Email', 'email', { required: true }) +
+      field(prefix + 'phone', 'Phone', 'tel',   { required: idx === 0 }) +
+    '</div>' +
+    '<div class="field-row">' +
+      field(prefix + 'dob',  'Date of Birth', 'date', { required: true }) +
+      field(prefix + 'fico', 'Estimated Credit Score', 'text', { required: true, placeholder: 'e.g. 740' }) +
+    '</div>' +
+    field(prefix + 'ssn', 'Social Security Number', 'text', {
+      required: true,
+      placeholder: 'XXX-XX-XXXX',
+      hint: 'Securely encrypted at rest. Used only for the loan application document.',
+    }) +
+    field(prefix + 'address', 'Home address (street)', 'text', { required: true }) +
+    '<div class="field-row-3">' +
+      field(prefix + 'city',  'City',  'text', { required: true }) +
+      field(prefix + 'state', 'State', 'select', { required: true, options: stateOptions() }) +
+      field(prefix + 'zip',   'Zip',   'text', { required: true }) +
+      '</div>' +
+    '<div class="field-row">' +
+      field(prefix + 'marital', 'Marital Status', 'radio', {
+        required: true,
+        options: [{ v: 'married', l: 'Married' }, { v: 'single', l: 'Not Married' }],
+      }) +
+      field(prefix + 'usCitizen', 'Is this guarantor a US Citizen?', 'radio', {
+        required: true,
+        options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+      }) +
+      '</div>';
+
+  if (showFlips) {
+    html += field(prefix + 'flips', '# of flips completed in last 36 months', 'number', { required: true });
+  }
+  if (showRentals) {
+    html += field(prefix + 'rentals', '# of rental properties currently owned', 'number', { required: true });
+  }
+  return html;
+}
+
+// ─────────────────────────────────────────────────────────
+// Field render helper
+// ─────────────────────────────────────────────────────────
+function field(name, label, type, opts) {
+  opts = opts || {};
+  var val = STATE.data[name];
+  if (val === undefined || val === null) val = '';
+  var req = opts.required ? ' <span class="req">*</span>' : '';
+  var hint = opts.hint ? '<div class="hint">' + opts.hint + '</div>' : '';
+  var onch = opts.onchange ? ' onchange="onFieldChange(this); ' + opts.onchange + '"' : ' onchange="onFieldChange(this)"';
+  var oninp = ' oninput="onFieldChange(this)"';
+  var ph = opts.placeholder ? ' placeholder="' + escAttr(opts.placeholder) + '"' : '';
+  var step = opts.step ? ' step="' + opts.step + '"' : '';
+  var html = '<div class="field" data-name="' + escAttr(name) + '">' +
+    '<label for="f_' + escAttr(name) + '">' + escH(label) + req + '</label>';
+
+  if (type === 'radio') {
+    html += '<div class="radio-group">';
+    (opts.options || []).forEach(function(o) {
+      var checked = (String(val) === String(o.v)) ? ' checked' : '';
+      html += '<label><input type="radio" name="' + escAttr(name) + '" value="' + escAttr(o.v) + '"' + checked + onch + '><span>' + escH(o.l) + '</span></label>';
+    });
+    html += '</div>';
+  } else if (type === 'select') {
+    html += '<select id="f_' + escAttr(name) + '" name="' + escAttr(name) + '"' + onch + '>';
+    (opts.options || []).forEach(function(o) {
+      var sel = (String(val) === String(o.v)) ? ' selected' : '';
+      html += '<option value="' + escAttr(o.v) + '"' + sel + '>' + escH(o.l) + '</option>';
+    });
+    html += '</select>';
+  } else if (type === 'textarea') {
+    html += '<textarea id="f_' + escAttr(name) + '" name="' + escAttr(name) + '"' + ph + onch + oninp + '>' + escH(val) + '</textarea>';
+  } else {
+    html += '<input type="' + type + '" id="f_' + escAttr(name) + '" name="' + escAttr(name) + '" value="' + escAttr(val) + '"' + ph + step + onch + oninp + ' />';
+  }
+
+  html += '<div class="err" id="err_' + escAttr(name) + '"></div>';
+  html += hint + '</div>';
+  return html;
+}
+
+function rowFields() {
+  var args = Array.prototype.slice.call(arguments);
+  return '<div class="field-row">' + args.join('') + '</div>';
+}
+
+// ─────────────────────────────────────────────────────────
+// Field change → state + auto-save (debounced)
+// ─────────────────────────────────────────────────────────
+function onFieldChange(el) {
+  var name = el.name;
+  if (!name) return;
+  var val = '';
+  if (el.type === 'radio') val = el.value;
+  else if (el.type === 'checkbox') val = el.checked;
+  else val = el.value;
+  STATE.data[name] = val;
+  scheduleAutoSave();
+}
+
+function render() {
+  // Re-render the form card without losing focus position
+  document.getElementById('formCard').innerHTML = renderPage();
+  setSaveStatus('Edits not yet saved', '');
+  scheduleAutoSave();
+}
+
+function scheduleAutoSave() {
+  if (SAVE_TIMER) clearTimeout(SAVE_TIMER);
+  SAVE_TIMER = setTimeout(autoSave, 1500);
+}
+
+function autoSave() {
+  if (SAVING) return;
+  SAVING = true;
+  var dataToSave = packDataForSave();
+  fetch('/api/borrower-info-save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ t: TOKEN, data: dataToSave }),
+  })
+    .then(function(r) { return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(resp) {
+      SAVING = false;
+      if (resp.ok) setSaveStatus('Saved ' + nowTime(), 'ok');
+      else setSaveStatus(resp.data.error || 'Save failed', 'err');
+    })
+    .catch(function() {
+      SAVING = false;
+      setSaveStatus('Save failed — check connection', 'err');
+    });
+}
+
+// Convert the flat-keyed STATE.data into the nested structure the server stores
+function packDataForSave() {
+  var d = STATE.data;
+  var out = {};
+  // Copy all top-level fields
+  Object.keys(d).forEach(function(k) {
+    if (!k.startsWith('g0_') && !k.startsWith('g1_')) out[k] = d[k];
+  });
+  // Build guarantors array from g0_/g1_ prefixed fields
+  var gs = [];
+  ['0', '1'].forEach(function(i) {
+    var p = 'g' + i + '_';
+    var g = {};
+    var hasAny = false;
+    Object.keys(d).forEach(function(k) {
+      if (k.indexOf(p) === 0) {
+        var key = k.slice(p.length);
+        g[key] = d[k];
+        if (d[k]) hasAny = true;
+      }
+    });
+    if (hasAny) gs.push(g);
+  });
+  if (gs.length) out.guarantors = gs;
+  return out;
+}
+
+function setSaveStatus(text, cls) {
+  var el = document.getElementById('saveStatus');
+  if (!el) return;
+  el.className = 'save-status ' + (cls || '');
+  el.textContent = text;
+}
+
+function bindAutoSave() {
+  // Initial save status reflects whatever state we loaded with
+  setSaveStatus(STATE.status === 'in_progress' ? 'Resumed where you left off' : '', '');
+}
+
+// ─────────────────────────────────────────────────────────
+// Navigation
+// ─────────────────────────────────────────────────────────
+function goNext() {
+  if (!validateCurrentPage()) return;
+  // Force a flush save before navigating
+  if (SAVE_TIMER) { clearTimeout(SAVE_TIMER); SAVE_TIMER = null; }
+  autoSave();
+  STATE.page++;
+  renderApp();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goPrev() {
+  STATE.page--;
+  renderApp();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function submitFinal() {
+  if (!validateCurrentPage()) return;
+  var btn = event.target;
+  btn.disabled = true; btn.textContent = 'Submitting…';
+  var dataToSave = packDataForSave();
+  fetch('/api/borrower-info-save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ t: TOKEN, data: dataToSave, complete: true }),
+  })
+    .then(function(r) { return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(resp) {
+      if (resp.ok) {
+        showComplete();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        btn.disabled = false; btn.textContent = 'Submit information';
+        showToast('Submit failed: ' + (resp.data.error || 'unknown'));
+      }
+    })
+    .catch(function() {
+      btn.disabled = false; btn.textContent = 'Submit information';
+      showToast('Submit failed — check connection');
+    });
+}
+
+function validateCurrentPage() {
+  var ok = true;
+  // Walk every visible field, check required
+  document.querySelectorAll('.field').forEach(function(f) {
+    var name = f.dataset.name;
+    if (!name) return;
+    var label = f.querySelector('label');
+    if (!label || !label.querySelector('.req')) return; // not required
+    var val = STATE.data[name];
+    var errEl = f.querySelector('.err');
+    if (!val || String(val).trim() === '') {
+      if (errEl) errEl.textContent = 'Required';
+      ok = false;
+    } else {
+      if (errEl) errEl.textContent = '';
+    }
+  });
+  if (!ok) {
+    showToast('Please fill in all required fields');
+    // Scroll to first error
+    var firstErr = document.querySelector('.err:not(:empty)');
+    if (firstErr) firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return ok;
+}
+
+// ─────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────
+function nowTime() {
+  var d = new Date();
+  var h = d.getHours(), m = String(d.getMinutes()).padStart(2,'0');
+  var ampm = h >= 12 ? 'pm' : 'am';
+  return ((h % 12) || 12) + ':' + m + ampm;
+}
+
+function humanize(s) {
+  // If it looks like an email, take the localpart and humanize
+  s = String(s || '');
+  if (s.indexOf('@') > 0) s = s.split('@')[0];
+  return s.split(/[._\-]+/).filter(Boolean).map(function(w){
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }).join(' ');
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3500);
+}
+
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function stateOptions() {
+  var states = ['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+  var opts = [{ v: '', l: '— Select —' }];
+  states.forEach(function(s){ opts.push({ v: s, l: s }); });
+  return opts;
+}
+</script>
+
+</body>
+</html>

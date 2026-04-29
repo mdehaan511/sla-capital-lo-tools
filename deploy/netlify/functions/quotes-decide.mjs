@@ -46,8 +46,15 @@ export default async (req, context) => {
   }
   if (!quote) return json(404, { error: 'Quote not found' });
 
-  // Update the quote
-  quote.status = status;
+  // The admin clicks "Approve" but the persisted status is `awaiting_app`
+  // (loan moves to the "Awaiting Application" pipeline column). When the
+  // borrower completes the loan-application form, borrower-info-save bumps
+  // it to `approved` (which the UI displays as "In Processing").
+  //
+  // Denied and on_hold pass through unchanged.
+  const persistedStatus = (status === 'approved') ? 'awaiting_app' : status;
+
+  quote.status = persistedStatus;
   quote.updatedAt = new Date().toISOString();
   quote.decidedAt = quote.updatedAt;
   quote.decidedBy = user.email || '';
@@ -63,7 +70,7 @@ export default async (req, context) => {
 
   // Mirror the status into the client record's matching loan (best-effort)
   try {
-    await syncToClientLoan(cleanOwner, quote, status);
+    await syncToClientLoan(cleanOwner, quote, persistedStatus);
   } catch (e) {
     console.warn('quotes-decide: client sync failed:', e);
   }

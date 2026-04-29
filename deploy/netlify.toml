@@ -139,6 +139,36 @@
   force = true
 
 [[redirects]]
+  from = "/api/borrower-info-request"
+  to = "/.netlify/functions/borrower-info-request"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower-info-load"
+  to = "/.netlify/functions/borrower-info-load"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower-info-save"
+  to = "/.netlify/functions/borrower-info-save"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower-info-status"
+  to = "/.netlify/functions/borrower-info-status"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower-info-list"
+  to = "/.netlify/functions/borrower-info-list"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/search"
   to = "/.netlify/functions/search"
   status = 200

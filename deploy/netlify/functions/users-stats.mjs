@@ -105,8 +105,8 @@ export default async (req, context) => {
         //                     ↘ denied
         // A closed loan was once approved, was once submitted, was once active.
         // An on_hold or denied loan was once submitted (admin reviewed it).
-        const reachedSubmitted = ['submitted','approved','closed','on_hold','denied'].includes(status);
-        const reachedApproved  = ['approved','closed'].includes(status);
+        const reachedSubmitted = ['submitted','awaiting_app','approved','closed','on_hold','denied'].includes(status);
+        const reachedApproved  = ['awaiting_app','approved','closed'].includes(status);
         const reachedClosed    = status === 'closed';
 
         if (reachedSubmitted) submittedCounts[ownerKey] = (submittedCounts[ownerKey] || 0) + 1;

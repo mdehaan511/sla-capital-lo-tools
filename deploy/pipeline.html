@@ -23,6 +23,8 @@
       --col-quoted-bg:  rgba(200,129,58,0.08);
       --col-submitted:  #7a5218;
       --col-submitted-bg: rgba(122,82,24,0.08);
+      --col-awaiting:   #2c6075;
+      --col-awaiting-bg: rgba(44,96,117,0.08);
       --col-approved:   #256940;
       --col-approved-bg: rgba(37,105,64,0.08);
       --r: 12px; --r-xs: 8px;
@@ -92,7 +94,7 @@
     /* Kanban */
     .board {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 14px;
       align-items: start;
     }
@@ -131,6 +133,8 @@
     .col[data-col="quoted"]    .title { color: var(--col-quoted); }
     .col[data-col="submitted"] .col-head { background: var(--col-submitted-bg); }
     .col[data-col="submitted"] .title { color: var(--col-submitted); }
+    .col[data-col="awaiting"]  .col-head { background: var(--col-awaiting-bg); }
+    .col[data-col="awaiting"]  .title { color: var(--col-awaiting); }
     .col[data-col="approved"]  .col-head { background: var(--col-approved-bg); }
     .col[data-col="approved"]  .title { color: var(--col-approved); }
 
@@ -214,6 +218,34 @@
     .rmd-btn.success:hover { background: #1f5836; }
     .rmd-btn.danger { color: var(--danger); border-color: rgba(124,31,31,0.30); }
     .rmd-btn.danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+    /* Send Loan App modal (mirrors loan-details bi-modal styling) */
+    .bi-modal-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .bi-modal-bg.show { display: flex; }
+    .bi-modal { background: var(--surface); border-radius: 12px; max-width: 500px; width: 100%; padding: 1.75rem; box-shadow: 0 12px 40px rgba(0,0,0,0.18); font-family: 'DM Sans', sans-serif; }
+    .bi-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 6px; color: var(--text); }
+    .bi-sub { font-size: 13px; color: var(--muted); margin-bottom: 1.25rem; line-height: 1.5; }
+    .bi-link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 1rem; padding: 12px; background: var(--gold-light); border: 1px solid var(--gold-border); border-radius: 8px; }
+    .bi-link-row input { flex: 1; padding: 7px 10px; font-family: 'DM Mono', monospace; font-size: 11px; border: 1px solid var(--gold-border); border-radius: 6px; background: #fff; color: var(--text); }
+    .bi-link-row button { padding: 7px 14px; font-size: 12px; font-weight: 600; background: var(--gold); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .bi-link-row button:hover { background: var(--gold-mid); }
+    .bi-options { margin-bottom: 1rem; }
+    .bi-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin-bottom: 8px; }
+    .bi-checkbox input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--gold); }
+    .bi-email-row { padding-left: 24px; }
+    .bi-email-row input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); margin-bottom: 4px; }
+    .bi-email-row input:focus { outline: none; border-color: var(--gold); }
+    .bi-email-hint { font-size: 11px; color: var(--muted); }
+    .bi-status { font-size: 12px; min-height: 18px; margin-bottom: 8px; }
+    .bi-status.err { color: var(--danger); }
+    .bi-status.ok { color: var(--success); }
+    .bi-info-box { padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--muted); margin-bottom: 1rem; }
+    .bi-info-box strong { color: var(--text); }
+    .bi-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+    .bi-btn { font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 22px; cursor: pointer; font-family: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+    .bi-btn:disabled { opacity: 0.5; cursor: wait; }
+    .bi-btn.primary { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .bi-btn.primary:hover:not(:disabled) { background: #1c1227; }
     .card-sub {
       font-size: 11px; color: var(--muted);
       margin-bottom: 8px;
@@ -255,6 +287,8 @@
     .card-btn.primary:hover { background: var(--gold-mid); border-color: var(--gold-mid); }
     .card-btn.success { background: var(--success); border-color: var(--success); color: #fff; }
     .card-btn.success:hover { opacity: 0.9; }
+    .card-btn.warn { background: rgba(122,82,24,0.10); border-color: rgba(122,82,24,0.40); color: var(--warn, #7a5218); }
+    .card-btn.warn:hover { background: rgba(122,82,24,0.20); }
     .card-btn.muted { color: var(--muted); cursor: default; pointer-events: none; }
 
     .lo-tag {
@@ -300,7 +334,10 @@
     .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
     .toast.show { opacity: 1; }
 
-    @media (max-width: 1100px) {
+    @media (max-width: 1400px) {
+      .board { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 980px) {
       .board { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 640px) {
@@ -384,6 +421,38 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Send Loan App modal (Awaiting Application column) -->
+<div class="bi-modal-bg" id="sendBiModal">
+  <div class="bi-modal">
+    <h3 id="sendBiTitle">Send Loan App</h3>
+    <p class="bi-sub" id="sendBiSub">Generate a secure link the borrower can use to fill out the loan application.</p>
+
+    <div class="bi-link-row" id="sendBiLinkRow" style="display:none">
+      <input type="text" id="sendBiLinkInput" readonly />
+      <button type="button" id="sendBiCopyBtn" onclick="sendBiCopy()">Copy</button>
+    </div>
+
+    <div class="bi-options">
+      <label class="bi-checkbox">
+        <input type="checkbox" id="sendBiEmailCb" checked />
+        <span>Email this link to the borrower</span>
+      </label>
+      <div class="bi-email-row" id="sendBiEmailRow">
+        <input type="email" id="sendBiEmailInput" placeholder="borrower@example.com" />
+        <span class="bi-email-hint">We'll send a secure link to this address.</span>
+      </div>
+    </div>
+
+    <div class="bi-status" id="sendBiStatusMsg"></div>
+    <div class="bi-info-box" id="sendBiInfoBox" style="display:none"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeSendLoanAppModal()">Close</button>
+      <button class="bi-btn primary" id="sendBiBtn" onclick="sendBiSubmit()">Generate Link</button>
+    </div>
+  </div>
+</div>
+
 <script>
 var _user = null;
 var _isAdmin = false;
@@ -391,10 +460,11 @@ var _scope = 'mine';
 var _profileMap = {};   // ownerKey → {email, fullName}
 var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
 var _contactLookup = {}; // ownerKey|email → {clientId}
-var _items = { newApp: [], quoted: [], submitted: [], approved: [] };
+var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedProspects = new Set();
 var _remindersByLoan = {}; // loanId → reminder
 var _editingReminder = null; // current reminder being viewed/edited in modal
+var _borrowerInfoByClient = {}; // clientId → borrower-info record
 
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
@@ -436,13 +506,27 @@ function loadAll() {
   var fetchReminders = (_scope === 'all' && _isAdmin)
     ? SLA.Reminders.list({ all: true }).catch(function(){ return { byOwner: {} }; })
     : SLA.Reminders.list().catch(function(){ return { reminders: [] }; });
+  var fetchBorrowerInfo = SLA.BorrowerInfo
+    ? SLA.BorrowerInfo.list({ all: _scope === 'all' && _isAdmin }).catch(function(){ return { records: [] }; })
+    : Promise.resolve({ records: [] });
 
-  Promise.all([fetchProspects, fetchQuotes, fetchClients, fetchStats, fetchReminders]).then(function(results) {
+  Promise.all([fetchProspects, fetchQuotes, fetchClients, fetchStats, fetchReminders, fetchBorrowerInfo]).then(function(results) {
     var prospectsResp = results[0] || {};
     var quotesResp    = results[1] || {};
     var clientsResp   = results[2] || {};
     var statsResp     = results[3] || { users: [] };
     var remindersResp = results[4] || {};
+    var biResp        = results[5] || { records: [] };
+
+    // Build borrower-info lookup by clientId (and ownerKey|clientId for admin scope)
+    _borrowerInfoByClient = {};
+    (biResp.records || []).forEach(function(r) {
+      if (r && r.clientId) {
+        _borrowerInfoByClient[r.ownerKey + '|' + r.clientId] = r;
+        // Also index by clientId alone for the common single-LO case
+        if (!_borrowerInfoByClient[r.clientId]) _borrowerInfoByClient[r.clientId] = r;
+      }
+    });
 
     // Build reminder index by loanId
     _remindersByLoan = {};
@@ -497,7 +581,7 @@ function loadAll() {
     }
 
     // Build flat lists per column
-    _items = { newApp: [], quoted: [], submitted: [], approved: [] };
+    _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 
     // Prospects without a quote → New Application
     var prospects = [];
@@ -539,8 +623,9 @@ function loadAll() {
     }
     quotes.forEach(function(item) {
       var s = item.quote.status || 'active';
-      var bucket = s === 'submitted' ? 'submitted'
-                 : s === 'approved'  ? 'approved'
+      var bucket = s === 'submitted'    ? 'submitted'
+                 : s === 'awaiting_app' ? 'awaitingApp'
+                 : s === 'approved'     ? 'approved'
                  : (s === 'on_hold' || s === 'denied' || s === 'closed') ? null
                  : 'quoted';
       if (!bucket) return;
@@ -583,10 +668,11 @@ function render() {
   }
 
   var cols = [
-    { key: 'newApp',    title: 'New Application',  emptyMsg: 'No new applications.' },
-    { key: 'quoted',    title: 'Quoted',           emptyMsg: 'No quotes yet — load a New Application into the sizer.' },
-    { key: 'submitted', title: 'Submitted - Pending Review', emptyMsg: 'Nothing submitted for review.' },
-    { key: 'approved',  title: 'Approved',         emptyMsg: 'No approved loans yet.' },
+    { key: 'newApp',      title: 'New Application',           emptyMsg: 'No new applications.' },
+    { key: 'quoted',      title: 'Quoted',                    emptyMsg: 'No quotes yet — load a New Application into the sizer.' },
+    { key: 'submitted',   title: 'Submitted - Pending Review', emptyMsg: 'Nothing submitted for review.' },
+    { key: 'awaitingApp', title: 'Awaiting Application',       emptyMsg: 'No loans awaiting borrower application.' },
+    { key: 'approved',    title: 'In Processing',              emptyMsg: 'No loans currently in processing.' },
   ];
 
   var html = '<div class="board">';
@@ -603,7 +689,9 @@ function render() {
         ? num(it.prospect.purchasePrice || it.prospect.propertyValue)
         : num((it.quote.formData && (it.quote.formData.loanAmt || it.quote.formData.purchasePrice)) || it.quote.loanAmt));
     }, 0);
-    html += '<div class="col" data-col="' + col.key.replace('newApp','new') + '">';
+    var dataColMap = { newApp: 'new', awaitingApp: 'awaiting' };
+    var dataCol = dataColMap[col.key] || col.key;
+    html += '<div class="col" data-col="' + dataCol + '">';
     html += '<div class="col-head"><div>';
     html += '<div class="title">' + col.title + '</div>';
     if (totalAmt > 0) html += '<div class="col-volume">' + fmtMoney(totalAmt) + ' total</div>';
@@ -699,10 +787,31 @@ function buildQuoteCard(it, colKey) {
   } else if (colKey === 'submitted') {
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     actions += '<span class="card-btn muted">Awaiting decision</span>';
+  } else if (colKey === 'awaitingApp') {
+    if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
+    // Determine label from borrower-info status if a record exists for this client
+    var bi = lookup ? (_borrowerInfoByClient[lookup.ownerKey + '|' + lookup.clientId] || _borrowerInfoByClient[lookup.clientId]) : null;
+    var biStatus = bi && bi.status;
+    var btnLabel, btnClass;
+    if (biStatus === 'in_progress') {
+      btnLabel = 'Loan App In Progress';
+      btnClass = 'card-btn warn';
+    } else if (biStatus === 'pending') {
+      btnLabel = 'Loan App Pending';
+      btnClass = 'card-btn warn';
+    } else {
+      btnLabel = 'Send Loan App';
+      btnClass = 'card-btn primary';
+    }
+    if (lookup) {
+      actions += '<button type="button" class="' + btnClass + '" onclick="openSendLoanAppModal(\'' + escAttr(lookup.clientId) + '\', \'' + escAttr(lookup.loanId) + '\', \'' + escAttr(lookup.ownerKey) + '\')">' + btnLabel + '</button>';
+    } else {
+      actions += '<span class="card-btn muted">' + btnLabel + '</span>';
+    }
   } else if (colKey === 'approved') {
+    // "In Processing" column
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
-    // Mark Closed is admin/super-admin only — regular users see no close button
     if (_isAdmin) {
       actions += '<button type="button" class="card-btn success" onclick="closeLoan(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Mark Closed</button>';
     }
@@ -1089,6 +1198,124 @@ function nameAsContactLink(name, email, ownerKey) {
   }
   return escH(name);
 }
+
+// ── Send Loan App modal (Awaiting Application column) ─────
+var _sendBiCtx = null; // {clientId, loanId, ownerKey}
+
+function openSendLoanAppModal(clientId, loanId, ownerKey) {
+  _sendBiCtx = { clientId: clientId, loanId: loanId, ownerKey: ownerKey };
+
+  // Find the borrower email from the client record (via loanLookup → clients)
+  // Default fallback: blank, user has to type it in
+  var borrowerEmail = '';
+  // Walk the items to find a client lookup match — we don't have the client
+  // record itself in pipeline state, but we have a borrower-info record if
+  // one exists for this client (with the borrower email)
+  var bi = _borrowerInfoByClient[ownerKey + '|' + clientId] || _borrowerInfoByClient[clientId];
+  if (bi && bi.borrowerEmail) borrowerEmail = bi.borrowerEmail;
+
+  // Reset modal state
+  document.getElementById('sendBiLinkRow').style.display = 'none';
+  document.getElementById('sendBiLinkInput').value = '';
+  document.getElementById('sendBiStatusMsg').textContent = '';
+  document.getElementById('sendBiStatusMsg').className = 'bi-status';
+  document.getElementById('sendBiEmailCb').checked = true;
+  document.getElementById('sendBiEmailInput').value = borrowerEmail;
+  document.getElementById('sendBiEmailRow').style.display = 'block';
+  document.getElementById('sendBiBtn').textContent = 'Generate Link';
+  document.getElementById('sendBiBtn').disabled = false;
+
+  // Notice if a record already exists for this client
+  var info = document.getElementById('sendBiInfoBox');
+  info.style.display = 'none';
+  info.innerHTML = '';
+  if (bi) {
+    var msg = '';
+    if (bi.status === 'in_progress') msg = '<strong>Application in progress.</strong> Borrower has started but not finished. Generating a new link will replace the old one (their progress is preserved).';
+    else if (bi.status === 'complete') msg = '<strong>Application already complete.</strong> Generating a new link will allow them to edit.';
+    else if (bi.status === 'pending') msg = '<strong>Link already sent.</strong> Generating a new link will invalidate the previous one.';
+    if (msg) {
+      info.innerHTML = msg;
+      info.style.display = 'block';
+      document.getElementById('sendBiBtn').textContent = 'Replace Link';
+    }
+  }
+
+  // Show/hide email field on toggle
+  document.getElementById('sendBiEmailCb').onchange = function() {
+    document.getElementById('sendBiEmailRow').style.display = this.checked ? 'block' : 'none';
+  };
+
+  document.getElementById('sendBiModal').classList.add('show');
+}
+
+function closeSendLoanAppModal() {
+  document.getElementById('sendBiModal').classList.remove('show');
+  _sendBiCtx = null;
+}
+
+function sendBiSubmit() {
+  if (!_sendBiCtx) return;
+  var sendEmail = document.getElementById('sendBiEmailCb').checked;
+  var email = document.getElementById('sendBiEmailInput').value.trim();
+  var status = document.getElementById('sendBiStatusMsg');
+  if (sendEmail && (!email || !email.includes('@'))) {
+    status.className = 'bi-status err';
+    status.textContent = 'Enter a valid email or uncheck the email option.';
+    return;
+  }
+
+  var btn = document.getElementById('sendBiBtn');
+  btn.disabled = true; btn.textContent = sendEmail ? 'Sending…' : 'Generating…';
+  status.textContent = ''; status.className = 'bi-status';
+
+  var opts = {
+    loanId: _sendBiCtx.loanId,
+    sendEmail: sendEmail,
+  };
+  if (sendEmail) opts.email = email;
+  if (_sendBiCtx.ownerKey && _sendBiCtx.ownerKey !== (_user.email||'').toLowerCase()) {
+    opts._owner = _sendBiCtx.ownerKey;
+  }
+
+  SLA.BorrowerInfo.request(_sendBiCtx.clientId, opts).then(function(resp) {
+    btn.disabled = false; btn.textContent = 'Replace Link';
+    var url = resp.url || resp.link || '';
+    document.getElementById('sendBiLinkInput').value = url;
+    document.getElementById('sendBiLinkRow').style.display = 'flex';
+    status.className = 'bi-status ok';
+    status.textContent = sendEmail
+      ? (resp.emailed ? '✓ Link sent to ' + email : 'Link generated. (Email send failed; copy the link instead.)')
+      : '✓ Link generated.';
+    // Refresh pipeline so the card button updates to "Loan App Pending"
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Generate Link';
+    status.className = 'bi-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+function sendBiCopy() {
+  var url = document.getElementById('sendBiLinkInput').value;
+  if (!url) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function(){
+      var b = document.getElementById('sendBiCopyBtn');
+      var orig = b.textContent;
+      b.textContent = 'Copied!';
+      setTimeout(function(){ b.textContent = orig; }, 1500);
+    }).catch(function(){ prompt('Copy this link:', url); });
+  } else {
+    prompt('Copy this link:', url);
+  }
+}
+
+// Backdrop close for the new modal
+document.addEventListener('click', function(e) {
+  var bg = document.getElementById('sendBiModal');
+  if (e.target === bg) closeSendLoanAppModal();
+});
 
 function loDisplay(ownerKey) {
   if (!ownerKey) return '—';

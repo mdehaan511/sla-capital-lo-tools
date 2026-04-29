@@ -101,12 +101,38 @@
 
   function refresh() {
     if (!window.SLA || !SLA.Reminders) return Promise.resolve();
-    return SLA.Reminders.list().then(function(resp) {
-      render((resp && resp.reminders) || []);
+    var fetchReminders = SLA.Reminders.list().catch(function(){ return { reminders: [] }; });
+    var fetchQuotes = SLA.Quotes ? SLA.Quotes.list().catch(function(){ return { quotes: [] }; }) : Promise.resolve({ quotes: [] });
+    return Promise.all([fetchReminders, fetchQuotes]).then(function(results) {
+      var reminders = (results[0] && results[0].reminders) || [];
+      var quotes    = (results[1] && results[1].quotes)    || [];
+      // Loan-app-received notifications: quotes that transitioned to
+      // 'approved' in the last 7 days AND have a borrowerInfoCompletedAt
+      // timestamp (= the borrower submitted the application).
+      var sevenDaysAgo = Date.now() - 7 * 86400000;
+      var loanAppEvents = quotes.filter(function(q) {
+        if (!q.borrowerInfoCompletedAt) return false;
+        if (q.status !== 'approved') return false;
+        var t = new Date(q.borrowerInfoCompletedAt).getTime();
+        return isFinite(t) && t >= sevenDaysAgo;
+      }).map(function(q) {
+        return {
+          kind: 'loan_app_received',
+          id: 'la_' + q.id,
+          title: q.borrower || q.address || 'Loan',
+          subtitle: q.address || '',
+          dateIso: q.borrowerInfoCompletedAt,
+          // Items render as Pipeline links; the receiver lands there and
+          // sees the loan in the new "In Processing" column.
+          link: 'pipeline.html',
+        };
+      });
+      render(reminders, loanAppEvents);
     }).catch(function() { /* silent */ });
   }
 
-  function render(reminders) {
+  function render(reminders, loanAppEvents) {
+    loanAppEvents = loanAppEvents || [];
     var today = todayStr();
     var due = [];
     var future = [];
@@ -117,33 +143,52 @@
     });
     due.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
     future.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
+    loanAppEvents.sort(function(a, b){ return new Date(b.dateIso || 0) - new Date(a.dateIso || 0); });
+
+    // The bell glows red if there's anything due OR a fresh loan-app event
+    var hasAlert = due.length > 0 || loanAppEvents.length > 0;
+    var alertCount = due.length + loanAppEvents.length;
 
     var btn = document.getElementById('slaNotifBtn');
     var dot = document.getElementById('slaNotifDot');
-    if (due.length) {
+    if (hasAlert) {
       btn.classList.add('has-due');
       dot.style.display = 'flex';
-      dot.textContent = due.length > 9 ? '9+' : String(due.length);
+      dot.textContent = alertCount > 9 ? '9+' : String(alertCount);
     } else {
       btn.classList.remove('has-due');
       dot.style.display = 'none';
     }
 
     var html = '';
+    if (loanAppEvents.length) {
+      html += '<div class="sla-notif-hdr"><span>Loan Apps Received</span><span class="count">' + loanAppEvents.length + '</span></div>';
+      loanAppEvents.forEach(function(ev){ html += renderEventItem(ev); });
+    }
     if (due.length) {
-      html += '<div class="sla-notif-hdr"><span>Due</span><span class="count">' + due.length + '</span></div>';
+      html += '<div class="sla-notif-hdr"><span>Reminders Due</span><span class="count">' + due.length + '</span></div>';
       due.forEach(function(r){ html += renderItem(r, 'due'); });
     }
     if (future.length) {
       html += '<div class="sla-notif-hdr"><span>Upcoming</span><span>' + future.length + '</span></div>';
       future.forEach(function(r){ html += renderItem(r, 'future'); });
     }
-    if (!due.length && !future.length) {
-      html = '<div class="sla-notif-empty">No reminders.<br><span style="font-size:11px">Add one from any loan card on the Pipeline.</span></div>';
+    if (!due.length && !future.length && !loanAppEvents.length) {
+      html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Reminders and loan-app completions will appear here.</span></div>';
     }
 
     var drop = document.getElementById('slaNotifDrop');
     drop.innerHTML = html;
+  }
+
+  function renderEventItem(ev) {
+    return '<a class="sla-notif-item due" href="' + esc(ev.link) + '">' +
+      '<div class="pin"></div>' +
+      '<div class="body">' +
+        '<div class="title">📋 Loan app received: ' + esc(ev.title) + '</div>' +
+        '<div class="meta">' + esc(ev.subtitle) + '  ·  ' + fmtDate(ev.dateIso) + '</div>' +
+      '</div>' +
+    '</a>';
   }
 
   function renderItem(r, cls) {

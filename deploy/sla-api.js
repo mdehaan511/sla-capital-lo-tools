@@ -298,6 +298,36 @@
     },
   };
 
+  // ── Borrower Info (LO triggers, borrower fills via token link) ──
+  var BorrowerInfo = {
+    request: function (clientId, opts) {
+      opts = opts || {};
+      var body = { clientId: clientId };
+      if (opts.loanId)    body.loanId = opts.loanId;
+      if (opts.sendEmail) body.sendEmail = true;
+      if (opts.email)     body.email = opts.email;
+      if (opts._owner)    body._owner = opts._owner;
+      return api('POST', '/api/borrower-info-request', body);
+    },
+    list: function (opts) {
+      opts = opts || {};
+      var qs = opts.all ? '?all=1' : '';
+      return api('GET', '/api/borrower-info-list' + qs);
+    },
+    status: function (clientId, opts) {
+      opts = opts || {};
+      var qs = '?clientId=' + encodeURIComponent(clientId);
+      if (opts._owner) qs += '&owner=' + encodeURIComponent(opts._owner);
+      return api('GET', '/api/borrower-info-status' + qs);
+    },
+    save: function (clientId, data, opts) {
+      opts = opts || {};
+      var body = { clientId: clientId, data: data };
+      if (opts._owner) body._owner = opts._owner;
+      return api('POST', '/api/borrower-info-status', body);
+    },
+  };
+
   // ── Reminders ───────────────────────────────────────────────────
   // One active reminder per loan. Save replaces any existing non-completed
   // reminder for the same loanId.
@@ -373,6 +403,7 @@
     Settings: Settings,
     Admin: Admin,
     Profile: Profile,
+    BorrowerInfo: BorrowerInfo,
     Reminders: Reminders,
     Search: Search,
     getRoles: getRoles,
