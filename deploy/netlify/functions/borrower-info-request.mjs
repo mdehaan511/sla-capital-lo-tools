@@ -84,7 +84,7 @@ async function handle(req, context) {
   const token = generateToken();
 
   // Pre-fill from what we already know about the client + loan
-  const prefill = buildPrefill(client, loan);
+  const prefill = buildPrefill(client, loan, { loName, loEmail: owner });
 
   const record = {
     clientId: body.clientId,
@@ -148,36 +148,62 @@ async function handle(req, context) {
 
 // Pull what we already know about the borrower + property into a prefill
 // object the borrower form will use to skip redundant questions.
-function buildPrefill(client, loan) {
+function buildPrefill(client, loan, loInfo) {
+  loInfo = loInfo || {};
+  const num = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+    return isFinite(n) ? n : null;
+  };
+  const annualize = (m) => { const n = num(m); return n != null ? Math.round(n * 12) : ''; };
+
   const pf = {
+    // Item #9: who this borrower is working with (auto-selected + locked on form)
+    lo: {
+      name: loInfo.loName || '',
+      email: loInfo.loEmail || '',
+    },
     borrower: {
       firstName: client.firstName || '',
       lastName: client.lastName || '',
       email: client.email || '',
       phone: client.phone || '',
       usCitizen: client.usCitizen || '',
+      // Profile-level fields the LO may have entered on the contact page or
+      // that came from a previous application. Future-proof for #6.
+      dob: client.dob || '',
+      maritalStatus: client.maritalStatus || '',
+      homeAddress: client.homeAddress || null,
+      fico: client.fico || '',
     },
     property: {},
     loan: {},
   };
   if (loan) {
-    pf.property.address = loan.address || '';
-    pf.property.propType = loan.propType || '';
-    pf.property.bedrooms = loan.bedrooms || '';
+    pf.property.address   = loan.address || '';
+    pf.property.propType  = loan.propType || '';
+    pf.property.bedrooms  = loan.bedrooms || '';
     pf.property.bathrooms = loan.bathrooms || '';
-    pf.property.sqft = loan.sqft || '';
-    pf.loan.toolType = loan.toolType || '';
-    pf.loan.loanType = loan.loanType || '';
-    pf.loan.loanAmt = loan.loanAmt || loan.purchasePrice || '';
-    pf.loan.purchasePrice = loan.purchasePrice || '';
-    pf.loan.propValue = loan.propValue || loan.arv || '';
-    pf.loan.arv = loan.arv || loan.estimatedARV || '';
-    pf.loan.rehabBudget = loan.rehabBudget || '';
-    pf.loan.rent = loan.rent || '';
-    pf.loan.fundingDate = loan.fundingDate || '';
-    pf.loan.experience = loan.experience || '';
-    pf.loan.fico = loan.fico || '';
-    pf.loan.loanPurpose = loan.loanPurpose || '';
+    pf.property.sqft      = loan.sqft || '';
+
+    pf.loan.toolType        = loan.toolType || '';
+    pf.loan.loanType        = loan.loanType || '';
+    pf.loan.loanPurpose     = loan.loanPurpose || '';
+    pf.loan.loanAmt         = loan.loanAmt || loan.purchasePrice || '';
+    pf.loan.purchasePrice   = loan.purchasePrice || '';
+    pf.loan.propValue       = loan.propValue || loan.arv || '';
+    pf.loan.arv             = loan.arv || loan.estimatedARV || '';
+    pf.loan.rehabBudget     = loan.rehabBudget || '';
+    // Existing/current loan amount for refinances (item #4)
+    pf.loan.currentLoanAmt  = loan.currentLoanAmt || loan.existingLoanAmt || '';
+    pf.loan.rent            = loan.rent || '';
+    pf.loan.fundingDate     = loan.fundingDate || '';
+    pf.loan.experience      = loan.experience || '';
+    pf.loan.fico            = loan.fico || pf.borrower.fico || '';
+    // Item #5: annualize monthly expenses for the long-app fields
+    pf.loan.annualTaxes     = annualize(loan.taxes);
+    pf.loan.annualInsurance = annualize(loan.insurance);
+    pf.loan.annualHOA       = annualize(loan.hoa);
   }
   return pf;
 }

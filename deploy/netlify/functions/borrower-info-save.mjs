@@ -60,12 +60,27 @@ async function handle(req) {
 
   await store.setJSON(recordKey, record);
 
-  // Notify LO on completion (best-effort)
+  // Item #3: write property field edits (beds/baths/sqft, plus loan-purpose
+  // and current loan amount for refis) back to the matching client loan record
+  // so the LO sees the latest values everywhere. Best-effort, runs on every
+  // save (not just complete).
+  try {
+    await syncPropertyFieldsToLoan(record);
+  } catch (e) {
+    console.warn('borrower-info-save: property-field sync failed:', e);
+  }
+
+  // Notify LO + borrower on completion (best-effort)
   if (body.complete) {
     try {
       await notifyLO(record);
     } catch (e) {
       console.warn('borrower-info-save: LO notify failed:', e);
+    }
+    try {
+      await notifyBorrower(record);
+    } catch (e) {
+      console.warn('borrower-info-save: borrower notify failed:', e);
     }
     // Bump the matching quote from `awaiting_app` → `approved` so the loan
     // jumps to the "In Processing" pipeline column.
@@ -77,6 +92,47 @@ async function handle(req) {
   }
 
   return json(200, { ok: true, status: record.status });
+}
+
+async function syncPropertyFieldsToLoan(record) {
+  if (!record.ownerKey || !record.clientId) return;
+  const data = record.data || {};
+
+  // Map the long-form field names we care about onto the loan record fields
+  // and the prefill cache so the LO sees the borrower's edits immediately.
+  // Only update if a non-empty value came in — empty strings don't overwrite.
+  const updates = {};
+  if (data.bedrooms)        updates.bedrooms       = String(data.bedrooms);
+  if (data.bathrooms)       updates.bathrooms      = String(data.bathrooms);
+  if (data.sqft)            updates.sqft           = String(data.sqft);
+  if (data.propertyType)    updates.propType       = String(data.propertyType);
+  if (data.currentLoanAmt)  updates.currentLoanAmt = String(data.currentLoanAmt);
+  if (data.purchaseOrRefi)  updates.purchaseOrRefi = String(data.purchaseOrRefi);
+  if (Object.keys(updates).length === 0) return;
+
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const clientKey = `${record.ownerKey}/${record.clientId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  let client = null;
+  try { client = await clientsStore.get(clientKey, { type: 'json' }); } catch (_) {}
+  if (!client || !Array.isArray(client.loans)) return;
+
+  // Identify the target loan: prefer record.loanId, fall back to single-loan client
+  let targetLoan = null;
+  if (record.loanId) targetLoan = client.loans.find((l) => l.id === record.loanId);
+  if (!targetLoan && client.loans.length === 1) targetLoan = client.loans[0];
+  if (!targetLoan) return;
+
+  let changed = false;
+  Object.keys(updates).forEach((k) => {
+    if (targetLoan[k] !== updates[k]) {
+      targetLoan[k] = updates[k];
+      changed = true;
+    }
+  });
+  if (changed) {
+    targetLoan.updatedAt = new Date().toISOString();
+    await clientsStore.setJSON(clientKey, client);
+  }
 }
 
 async function advanceQuoteToInProcessing(record) {
@@ -146,6 +202,57 @@ function mergeData(existing, incoming) {
     });
   }
   return out;
+}
+
+async function notifyBorrower(record) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return false;
+  const toEmail = record.borrowerEmail;
+  if (!toEmail) return false;
+
+  const propAddr = (record.prefill && record.prefill.property && record.prefill.property.address) || '';
+  const borrowerName = (record.prefill && record.prefill.borrower)
+    ? ((record.prefill.borrower.firstName || '') + ' ' + (record.prefill.borrower.lastName || '')).trim()
+    : '';
+  const loName = (record.prefill && record.prefill.lo && record.prefill.lo.name) || 'Your loan officer';
+  const subject = propAddr
+    ? `Application received: ${propAddr}`
+    : 'Application received — SLA Capital';
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const text = [
+    `Hi ${borrowerName || 'there'},`,
+    '',
+    `Thank you for completing your loan application${propAddr ? ' for ' + propAddr : ''}.`,
+    '',
+    `${loName} has been notified and will be in touch shortly with next steps.`,
+    '',
+    'If you have questions, just reply to this email.',
+    '',
+    '— SLA Capital',
+  ].filter(Boolean).join('\n');
+  const html =
+    '<!DOCTYPE html><html><body style="font-family:Georgia,serif">' +
+    '<div style="max-width:560px;margin:0 auto">' +
+      '<div style="background:#261a36;padding:18px"><h2 style="color:#C8813A;margin:0;font-size:16px">SLA Capital — Application Received</h2></div>' +
+      '<div style="padding:18px">' +
+        '<div style="display:inline-block;padding:5px 12px;border-radius:18px;background:#256940;color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;margin-bottom:14px">RECEIVED</div>' +
+        `<p style="font-size:14px;color:#1a1520;line-height:1.55">Hi ${esc(borrowerName) || 'there'},</p>` +
+        `<p style="font-size:14px;color:#1a1520;line-height:1.55">Thank you for completing your loan application${propAddr ? ' for <strong>' + esc(propAddr) + '</strong>' : ''}.</p>` +
+        `<p style="font-size:14px;color:#1a1520;line-height:1.55"><strong>${esc(loName)}</strong> has been notified and will be in touch shortly with next steps.</p>` +
+        '<p style="font-size:13px;color:#7a7488;margin-top:18px">If you have questions, just reply to this email.</p>' +
+      '</div>' +
+    '</div></body></html>';
+
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'SLA Capital <noreply@leads.slacapital.com>',
+      to: [toEmail],
+      subject, text, html,
+    }),
+  });
+  return true;
 }
 
 async function notifyLO(record) {

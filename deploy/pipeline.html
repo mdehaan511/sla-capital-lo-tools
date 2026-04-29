@@ -460,6 +460,7 @@ var _scope = 'mine';
 var _profileMap = {};   // ownerKey → {email, fullName}
 var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
 var _contactLookup = {}; // ownerKey|email → {clientId}
+var _clientById = {};    // ownerKey|clientId → client record
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedProspects = new Set();
 var _remindersByLoan = {}; // loanId → reminder
@@ -553,11 +554,13 @@ function loadAll() {
     // and Contact lookup (so borrower-name click → client-details page)
     _loanLookup = {};
     _contactLookup = {};
+    _clientById = {}; // ownerKey|clientId → full client record (for modal prefill)
     function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
     function ne(s){ return String(s||'').toLowerCase().trim(); }
     if (clientsResp.byOwner) {
       Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
         (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
+          _clientById[ownerKey + '|' + c.id] = c;
           if (c.email) _contactLookup[ownerKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: ownerKey };
           (c.loans || []).forEach(function(l) {
             if (!l.address || !l.id) return;
@@ -570,6 +573,7 @@ function loadAll() {
     } else if (clientsResp.clients) {
       var myKey = (_user.email || '').toLowerCase();
       clientsResp.clients.forEach(function(c) {
+        _clientById[myKey + '|' + c.id] = c;
         if (c.email) _contactLookup[myKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: myKey };
         (c.loans || []).forEach(function(l) {
           if (!l.address || !l.id) return;
@@ -777,7 +781,18 @@ function buildQuoteCard(it, colKey) {
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
     : '';
 
-  var nameHtml = nameAsContactLink(name, fd.borrowerEmail || q.borrowerEmail, it.ownerKey);
+  // Borrower name → contact page. Prefer the direct clientId from the loan
+  // lookup; fall back to email-based lookup if no loan record yet.
+  var nameHtml;
+  if (lookup) {
+    var contactUrl = 'client-details.html?clientId=' + encodeURIComponent(lookup.clientId)
+      + (lookup.ownerKey !== (_user.email||'').toLowerCase()
+          ? '&owner=' + encodeURIComponent(lookup.ownerKey)
+          : '');
+    nameHtml = '<a href="' + escAttr(contactUrl) + '" class="contact-link">' + escH(name) + '</a>';
+  } else {
+    nameHtml = nameAsContactLink(name, fd.borrowerEmail || q.borrowerEmail, it.ownerKey);
+  }
 
   var actions = '';
   if (colKey === 'quoted') {
@@ -1205,14 +1220,15 @@ var _sendBiCtx = null; // {clientId, loanId, ownerKey}
 function openSendLoanAppModal(clientId, loanId, ownerKey) {
   _sendBiCtx = { clientId: clientId, loanId: loanId, ownerKey: ownerKey };
 
-  // Find the borrower email from the client record (via loanLookup → clients)
-  // Default fallback: blank, user has to type it in
+  // Find the borrower email — try borrower-info record first, then the client record
   var borrowerEmail = '';
-  // Walk the items to find a client lookup match — we don't have the client
-  // record itself in pipeline state, but we have a borrower-info record if
-  // one exists for this client (with the borrower email)
   var bi = _borrowerInfoByClient[ownerKey + '|' + clientId] || _borrowerInfoByClient[clientId];
-  if (bi && bi.borrowerEmail) borrowerEmail = bi.borrowerEmail;
+  if (bi && bi.borrowerEmail) {
+    borrowerEmail = bi.borrowerEmail;
+  } else {
+    var clientRec = _clientById[ownerKey + '|' + clientId];
+    if (clientRec && clientRec.email) borrowerEmail = clientRec.email;
+  }
 
   // Reset modal state
   document.getElementById('sendBiLinkRow').style.display = 'none';

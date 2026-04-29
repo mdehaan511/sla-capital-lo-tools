@@ -63,6 +63,7 @@ export default async (req, context) => {
     sqft: String(body.sqft || ''),
     loanProduct: String(body.loanProduct || ''),
     loanPurpose: String(body.loanPurpose || ''),
+    currentLoanAmt: String(body.currentLoanAmt || ''),
     rentalType: String(body.rentalType || ''),
     purchasePrice: String(body.purchasePrice || ''),
     propertyValue: String(body.propertyValue || ''),
@@ -166,6 +167,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
     rehabBudget: prospect.rehabCost || '',
     arv:         prospect.estimatedARV || '',
     experience:  prospect.flipsCompleted || '',
+    currentLoanAmt: prospect.currentLoanAmt || '',
     fromApplication: true,
   };
 
@@ -248,6 +250,7 @@ async function notifyLO(prospect) {
     `Purpose:  ${fmtText(prospect.loanPurpose)}`,
     `Purchase: ${fmtMoney(prospect.purchasePrice)}`,
     `Value:    ${fmtMoney(prospect.propertyValue)}`,
+    prospect.currentLoanAmt ? `Current Loan: ${fmtMoney(prospect.currentLoanAmt)}` : '',
     `Rehab:    ${fmtMoney(prospect.rehabCost)}`,
     `ARV:      ${fmtMoney(prospect.estimatedARV)}`,
     `Flips Completed (36mo): ${fmtText(prospect.flipsCompleted)}`,

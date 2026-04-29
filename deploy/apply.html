@@ -220,13 +220,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field span2" style="grid-column:1/-1">
             <div class="wrap" id="wrap-loanPurpose">
               <label>Loan Purpose <span class="req">*</span></label>
-              <select id="loanPurpose" onchange="clearE('loanPurpose')">
+              <select id="loanPurpose" onchange="onLoanPurposeChange()">
                 <option value="">— Select —</option>
                 <option value="purchase">Purchase</option>
                 <option value="refinance">Refinance</option>
               </select>
             </div>
             <div class="err-msg" id="err-loanPurpose">Required</div>
+          </div>
+          <!-- Refinance only: current loan amount -->
+          <div class="cond" id="cond-refi">
+            <div class="field span2" style="grid-column:1/-1">
+              <div class="wrap" id="wrap-currentLoanAmt">
+                <label>Current Loan Amount <span class="req">*</span></label>
+                <input type="number" id="currentLoanAmt" min="0" step="1000" oninput="clearE('currentLoanAmt')" />
+              </div>
+              <div class="err-msg" id="err-currentLoanAmt">Required</div>
+            </div>
           </div>
           <div class="field span2" style="grid-column:1/-1">
             <div class="wrap" id="wrap-rentalType">
@@ -393,6 +403,8 @@ function onLoanProductChange() {
   setShow('cond-dscr-fin',  isDscr);
   setShow('cond-fixflip-fin', isFF);
   setShow('cond-fixflip-flips', isFF);
+  // Refi field belongs to DSCR; clear if leaving DSCR
+  if (!isDscr) setShow('cond-refi', false);
 
   // Funding date is half-width when paired with flipsCompleted (FF mode),
   // full-width otherwise so it doesn't look orphaned
@@ -420,6 +432,13 @@ function onLoanProductChange() {
 function setShow(id, show) {
   var el = document.getElementById(id);
   if (el) { if (show) el.classList.add('show'); else el.classList.remove('show'); }
+}
+
+// Show "Current Loan Amount" only for DSCR refinances
+function onLoanPurposeChange() {
+  clearE('loanPurpose');
+  var v = document.getElementById('loanPurpose').value;
+  setShow('cond-refi', v === 'refinance');
 }
 
 // ── Validation ────────────────────────────────────────────────
@@ -462,6 +481,10 @@ function validate() {
     if (!gv('loanPurpose')) { showE('loanPurpose'); ok=false; }
     if (!gv('rentalType'))  { showE('rentalType');  ok=false; }
     if (!gv('monthlyRent')) { showE('monthlyRent'); ok=false; }
+    if (gv('loanPurpose') === 'refinance' && !gv('currentLoanAmt')) {
+      showE('currentLoanAmt');
+      ok = false;
+    }
   }
   if (lp === 'fix_flip') {
     if (!gv('rehabCost'))      { showE('rehabCost');      ok=false; }
@@ -500,6 +523,7 @@ function submitApp() {
     // Loan
     loanProduct:     lp,
     loanPurpose:     gv('loanPurpose'),
+    currentLoanAmt:  gv('currentLoanAmt'),
     rentalType:      gv('rentalType'),
     purchasePrice:   gv('purchasePrice'),
     propertyValue:   gv('propertyValue'),
