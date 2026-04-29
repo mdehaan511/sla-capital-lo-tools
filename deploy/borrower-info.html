@@ -212,12 +212,14 @@ function applyPrefillToData() {
     if (lt === 'rtl') d.loanType = 'fix_flip';
     else if (lt === 'dscr') d.loanType = 'dscr';
   }
-  // Loan purpose: derive purchase-vs-refi for DSCR (item #4)
-  if (pf.loan && pf.loan.loanPurpose && !d.purchaseOrRefi) {
+  // Loan purpose: derive purchase-vs-refi for DSCR (item #4 + #14)
+  if (pf.loan && pf.loan.loanPurpose && !d.dscrPurchaseRefi) {
     var lp = pf.loan.loanPurpose;
-    if (lp === 'refi_co') d.purchaseOrRefi = 'Refinance';
-    else if (lp === 'refi_rt') d.purchaseOrRefi = 'Refinance';
-    else if (lp === 'purchase') d.purchaseOrRefi = 'Purchase';
+    if (lp === 'refi_co')        d.dscrPurchaseRefi = 'refinance';
+    else if (lp === 'refi_rt')   d.dscrPurchaseRefi = 'refinance';
+    else if (lp === 'refinance') d.dscrPurchaseRefi = 'refinance';
+    else if (lp === 'cashout')   d.dscrPurchaseRefi = 'refinance';
+    else if (lp === 'purchase')  d.dscrPurchaseRefi = 'purchase';
   }
   // Property
   if (pf.property) {
@@ -238,8 +240,11 @@ function applyPrefillToData() {
     if (!d.currentRent && pf.loan.rent)       d.currentRent = pf.loan.rent;
     if (!d.dscrCloseDate && pf.loan.fundingDate) d.dscrCloseDate = pf.loan.fundingDate;
     if (!d.ffCloseDate && pf.loan.fundingDate)   d.ffCloseDate = pf.loan.fundingDate;
-    // Item #4: current loan amount for refinances
-    if (!d.currentLoanAmt && pf.loan.currentLoanAmt) d.currentLoanAmt = pf.loan.currentLoanAmt;
+    // Item #4: current loan amount for refinances (matches field name `currentLoanAmount`)
+    if (!d.currentLoanAmount && pf.loan.currentLoanAmt) d.currentLoanAmount = pf.loan.currentLoanAmt;
+    // Item #15: rental type — short app uses 'rentalType' (ltr/str/other),
+    // long app uses 'rentalKind' with same values
+    if (!d.rentalKind && pf.loan.rentalType) d.rentalKind = pf.loan.rentalType;
     // Item #5: annualized expenses derived from monthly values on the loan
     if (!d.annualTaxes     && pf.loan.annualTaxes)     d.annualTaxes     = pf.loan.annualTaxes;
     if (!d.annualInsurance && pf.loan.annualInsurance) d.annualInsurance = pf.loan.annualInsurance;
@@ -345,30 +350,11 @@ function renderPage() {
 // ─────────────────────────────────────────────────────────
 function renderPage1() {
   var d = STATE.data;
-  var isBroker = d.applicantType === 'broker';
-  var isSelf   = d.applicantType === 'self' || !d.applicantType;
+  // Item #12: removed the broker question entirely. Set the default for
+  // any downstream code that may still reference applicantType.
+  if (!d.applicantType) d.applicantType = 'self';
 
   return '<h3>About you</h3>' +
-    field('applicantType', 'Are you a loan broker or applying for yourself?', 'radio', {
-      required: true,
-      options: [
-        { v: 'broker', l: 'I am a loan broker' },
-        { v: 'self',   l: 'I am applying for myself' },
-      ],
-      onchange: 'render()',
-    }) +
-    (isBroker
-      ? '<h4>Your contact (broker)</h4>' +
-        rowFields(
-          field('brokerFirstName', 'First Name', 'text', { required: true }),
-          field('brokerLastName',  'Last Name',  'text', { required: true }),
-        ) +
-        rowFields(
-          field('brokerEmail', 'Email', 'email', { required: true }),
-          field('brokerPhone', 'Phone', 'tel',   { required: true }),
-        )
-      : '') +
-
     '<h4>Borrower contact</h4>' +
     rowFields(
       field('borrowerFirstName', 'First Name', 'text', { required: true }),
@@ -787,7 +773,16 @@ function field(name, label, type, opts) {
   } else {
     var maskAttr = opts.mask ? ' data-mask="' + escAttr(opts.mask) + '"' : '';
     var autoAttr = opts.autocomplete ? ' data-autocomplete="' + escAttr(opts.autocomplete) + '"' : '';
-    html += '<input type="' + type + '" id="f_' + escAttr(name) + '" name="' + escAttr(name) + '" value="' + escAttr(val) + '"' + ph + step + onch + oninp + lockedAttr + maskAttr + autoAttr + ' />';
+    // Money fields render as text+inputmode=decimal so we can format with $ and commas
+    if (opts.money) {
+      var formatted = (val !== '' && val != null) ? formatMoneyDisplay(val) : '';
+      html += '<input type="text" inputmode="decimal" id="f_' + escAttr(name) + '" name="' + escAttr(name) + '"' +
+              ' value="' + escAttr(formatted) + '" data-money="1" placeholder="' + (opts.placeholder ? escAttr(opts.placeholder) : '$0') + '"' +
+              ' onfocus="moneyFocus(this)" onblur="moneyBlur(this)" oninput="onFieldChange(this)"' +
+              lockedAttr + ' />';
+    } else {
+      html += '<input type="' + type + '" id="f_' + escAttr(name) + '" name="' + escAttr(name) + '" value="' + escAttr(val) + '"' + ph + step + onch + oninp + lockedAttr + maskAttr + autoAttr + ' />';
+    }
   }
 
   html += '<div class="err" id="err_' + escAttr(name) + '"></div>';
@@ -810,6 +805,11 @@ function onFieldChange(el) {
   if (el.type === 'radio') val = el.value;
   else if (el.type === 'checkbox') val = el.checked;
   else val = el.value;
+  // Money fields: store the unformatted numeric value (strip $ and commas).
+  // The visible formatted version is restored on blur via moneyBlur.
+  if (el.getAttribute && el.getAttribute('data-money') === '1') {
+    val = String(val || '').replace(/[^0-9.]/g, '');
+  }
   // Apply input mask if requested (#7) — formats SSN, EIN, phone with dashes
   // as user types. We update both the visible input and the saved value.
   var mask = el.getAttribute && el.getAttribute('data-mask');
@@ -819,7 +819,6 @@ function onFieldChange(el) {
     var newVal = applyMask(val, mask);
     if (newVal !== val) {
       el.value = newVal;
-      // Restore caret roughly — push by length delta so it stays at end of typed chars
       try {
         var delta = newVal.length - prevLen;
         if (caret != null) el.setSelectionRange(caret + delta, caret + delta);
@@ -829,6 +828,29 @@ function onFieldChange(el) {
   }
   STATE.data[name] = val;
   scheduleAutoSave();
+}
+
+// ── Money display helpers (#2) ────────────────────────────
+function formatMoneyDisplay(v) {
+  if (v === '' || v == null) return '';
+  var n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+  if (!isFinite(n)) return '';
+  var hasDecimal = String(v).indexOf('.') >= 0 && String(v).split('.')[1] !== '';
+  return '$' + n.toLocaleString('en-US', {
+    minimumFractionDigits: hasDecimal ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
+}
+function moneyFocus(el) {
+  // Show plain number for editing
+  el.value = String(el.value || '').replace(/[^0-9.]/g, '');
+}
+function moneyBlur(el) {
+  var raw = String(el.value || '').replace(/[^0-9.]/g, '');
+  if (!raw) { el.value = ''; return; }
+  el.value = formatMoneyDisplay(raw);
+  // Sync back to STATE in case the user typed and immediately blurred
+  if (el.name) STATE.data[el.name] = raw;
 }
 
 // Format strings for the three masks we support. Strips non-digits, then

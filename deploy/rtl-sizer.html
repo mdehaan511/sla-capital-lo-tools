@@ -458,11 +458,19 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="field">
         <div class="wrap">
           <label>Loan Purpose <span class="req">*</span></label>
-          <select id="loanPurpose" onchange="autoCalc()">
+          <select id="loanPurpose" onchange="onRtlPurposeChange()">
             <option value="purchase">Purchase</option>
             <option value="cashout">Cash-Out Refinance</option>
             <option value="rateterm">Rate/Term Refinance</option>
           </select>
+        </div>
+      </div>
+
+      <!-- Item #8: Current Loan Amount, RTL refis only -->
+      <div class="field" id="field-currentLoanAmtRtl" style="display:none">
+        <div class="wrap">
+          <label>Current Loan Amount <span class="req">*</span></label>
+          <input type="number" id="currentLoanAmt" min="0" step="1000" oninput="autoCalc()" />
         </div>
       </div>
 
@@ -627,6 +635,14 @@ function validate(){
 }
 
 var _resultsShown = false;
+
+// Show Current Loan Amount input only for RTL refis (#8)
+function onRtlPurposeChange() {
+  var v = document.getElementById('loanPurpose').value;
+  var f = document.getElementById('field-currentLoanAmtRtl');
+  if (f) f.style.display = (v === 'cashout' || v === 'rateterm') ? '' : 'none';
+  autoCalc();
+}
 
 function autoCalc() {
   // Toggle save button regardless of whether results have been shown yet
@@ -858,6 +874,35 @@ function calculate(){
 
   html += '</div>';// /rate-body
   html += '</div>';// /rate-card
+
+  // Item #8: Cashout / refi summary on screen
+  var rtlPurpose = document.getElementById('loanPurpose').value;
+  if (rtlPurpose === 'cashout' || rtlPurpose === 'rateterm') {
+    var cl = parseFloat(document.getElementById('currentLoanAmt') && document.getElementById('currentLoanAmt').value || 0) || 0;
+    var loanAmt = (typeof totalLoanAmount !== 'undefined') ? totalLoanAmount
+                 : (parseFloat(document.getElementById('purchasePrice').value) || 0);
+    var pts = parseFloat(document.getElementById('points') && document.getElementById('points').value || 0) || 0;
+    var ptsFee = loanAmt * (pts / 100);
+    var flatFees = 600 + 900 + 500 + 150; // RTL fee schedule = $2,150
+    var totalFees = ptsFee + flatFees;
+    var estCash = loanAmt - cl - totalFees;
+    var label = (rtlPurpose === 'cashout') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
+    var cashColor = estCash >= 0 ? 'var(--success, #256940)' : 'var(--danger, #7c1f1f)';
+    html += '<div class="rate-card" style="margin-top:14px"><div class="rate-body">' +
+      '<div style="font-weight:600;color:var(--text);margin-bottom:8px">Cashout Estimate</div>' +
+      '<table class="rate-tbl"><tbody>' +
+        '<tr><td>Requested Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
+        '<tr><td>− Current Loan Payoff</td><td class="bv neg">$' + Math.round(cl).toLocaleString() + '</td></tr>' +
+        '<tr><td>− Origination Points (' + pts.toFixed(2) + '%)</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
+        '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
+      '</tbody></table>' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
+        '<span style="font-size:14px;font-weight:600">' + label + '<sup style="font-weight:400;color:var(--muted)">*</sup></span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:18px;font-weight:600;color:' + cashColor + '">$' + Math.round(estCash).toLocaleString() + '</span>' +
+      '</div>' +
+      '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* This does not include typical title/escrow costs or required prepaid taxes and insurance.</div>' +
+    '</div></div>';
+  }
 
   // Save + disclaimer
   html += '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>';

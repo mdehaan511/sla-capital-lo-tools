@@ -832,12 +832,17 @@ function buildQuoteCard(it, colKey) {
     }
   }
 
+  // Item #7: address links to Loan Details when we have a loan record
+  var addrHtml = (detailsUrl && addr)
+    ? '<a href="' + escAttr(detailsUrl) + '" class="contact-link">' + escH(addr) + '</a>'
+    : escH(addr || '— no address —');
+
   return (
     '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + '">' +
       bellForLoan(lookup, q, addr) +
       loRow +
       '<div class="card-title">' + nameHtml + '</div>' +
-      '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
+      '<div class="card-sub">' + addrHtml + '</div>' +
       '<div class="card-amt">' + amt + (rate ? ' <span style="font-size:11px;color:var(--muted);font-weight:500">@ ' + rate + '</span>' : '') + '</div>' +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + tool.toUpperCase() + '</span>' +

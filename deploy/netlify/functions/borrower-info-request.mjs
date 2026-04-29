@@ -150,6 +150,10 @@ async function handle(req, context) {
 // object the borrower form will use to skip redundant questions.
 function buildPrefill(client, loan, loInfo) {
   loInfo = loInfo || {};
+  // Fallback: when no specific loan was passed, use the client's first loan
+  if (!loan && client && Array.isArray(client.loans) && client.loans.length > 0) {
+    loan = client.loans[0];
+  }
   const num = (v) => {
     if (v === null || v === undefined || v === '') return null;
     const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
@@ -197,6 +201,7 @@ function buildPrefill(client, loan, loInfo) {
     // Existing/current loan amount for refinances (item #4)
     pf.loan.currentLoanAmt  = loan.currentLoanAmt || loan.existingLoanAmt || '';
     pf.loan.rent            = loan.rent || '';
+    pf.loan.rentalType      = loan.rentalType || '';
     pf.loan.fundingDate     = loan.fundingDate || '';
     pf.loan.experience      = loan.experience || '';
     pf.loan.fico            = loan.fico || pf.borrower.fico || '';

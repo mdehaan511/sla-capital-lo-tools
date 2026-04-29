@@ -103,6 +103,8 @@
     .borrower-info-btn.complete { background: rgba(37,105,64,0.10); border-color: rgba(37,105,64,0.40); color: #1a5230; }
     .borrower-info-btn.complete:hover { background: rgba(37,105,64,0.20); }
     .borrower-info-btn.in-progress { background: rgba(200,129,58,0.10); border-color: rgba(200,129,58,0.55); color: #8a5215; }
+    .borrower-info-btn.send-app-disabled,
+    .borrower-info-btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 
     /* Borrower-Info modal */
     .bi-modal-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
@@ -183,7 +185,7 @@
 <!-- Borrower-Info Request modal -->
 <div class="bi-modal-bg" id="biModal">
   <div class="bi-modal">
-    <h3 id="biTitle">Request Borrower Info</h3>
+    <h3 id="biTitle">Send Full Loan Application</h3>
     <p id="biSub" class="bi-sub">Generates a secure link the borrower can use to fill in everything we need for the loan application.</p>
 
     <div id="biContent">
@@ -339,6 +341,7 @@ function render() {
   var fico      = l.fico       || fd.fico       || '';
   var dscr      = l.dscr       || fd._dscr      || '';
   var loanPurpose = l.loanPurpose || fd.loanPurpose || '';
+  var currentLoanAmt = l.currentLoanAmt || l.existingLoanAmt || fd.currentLoanAmt || fd.existingLoanAmt || '';
   var rent      = l.rent       || fd.rent       || '';
   var taxes     = l.taxes      || fd.taxes      || '';
   var insurance = l.insurance  || fd.insurance  || '';
@@ -387,6 +390,10 @@ function render() {
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Amount</div><div class="fin-val">'+fmtM(loanAmt)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
+      // Item #10: existing loan amount, shown when refi
+      ((loanPurpose === 'refi_co' || loanPurpose === 'refi_rt') && currentLoanAmt
+        ? '<div class="fin-cell"><div class="fin-label">Existing Loan Amount</div><div class="fin-val">'+fmtM(currentLoanAmt)+'</div></div>'
+        : '') +
       '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(loanType||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(fico||'<span class="empty">—</span>')+'</div></div>' +
@@ -428,11 +435,21 @@ function render() {
     'Generate Term Sheet' +
   '</button>';
 
-  html += '<button type="button" class="open-sizer-btn borrower-info-btn" id="borrowerInfoBtn" onclick="openBorrowerInfoModal()">' +
+  // Item #11: Gate the "Send Full Loan Application" button.
+  // Enabled only after the loan has been submitted for review (status
+  // submitted, awaiting_app, approved, or closed).
+  var loanStatus = (_loan && _loan.status) || 'active';
+  var canSendApp = ['submitted','awaiting_app','approved','closed'].indexOf(loanStatus) >= 0;
+  var sendAppDisabled = canSendApp ? '' : ' disabled title="Available after the loan is submitted for review"';
+  var sendAppExtraClass = canSendApp ? '' : ' send-app-disabled';
+
+  html += '<button type="button" class="open-sizer-btn borrower-info-btn' + sendAppExtraClass + '" id="borrowerInfoBtn" onclick="openBorrowerInfoModal()"' + sendAppDisabled + '>' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="5" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 13c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    '<span id="borrowerInfoBtnLabel">Request Borrower Info</span>' +
+    '<span id="borrowerInfoBtnLabel">Send Full Loan Application</span>' +
   '</button>';
-  html += '<div id="borrowerInfoStatus" style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center"></div>';
+  html += '<div id="borrowerInfoStatus" style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center">' +
+    (canSendApp ? '' : 'Submit the loan for review first to unlock.') +
+  '</div>';
 
   html += '</div></div>'; // close section-body, section
 
@@ -684,7 +701,7 @@ function openBorrowerInfoModal() {
   document.getElementById('biEmailRow').style.display = 'block';
   document.getElementById('biSendBtn').textContent = 'Generate Link';
   document.getElementById('biSendBtn').disabled = false;
-  document.getElementById('biTitle').textContent = 'Request Borrower Info — ' + ((_client.firstName||'') + ' ' + (_client.lastName||'')).trim();
+  document.getElementById('biTitle').textContent = 'Send Full Loan Application — ' + ((_client.firstName||'') + ' ' + (_client.lastName||'')).trim();
 
   // Show existing-info notice if borrower already started/completed
   var info = document.getElementById('biExistingInfo');
@@ -793,21 +810,25 @@ function refreshBorrowerInfoStatus() {
     if (!r) return;
     btn.classList.remove('complete','in-progress');
     var s = r.status;
+    // Don't override the gated default state when nothing's happened yet
     if (s === 'complete') {
       btn.classList.add('complete');
-      label.textContent = 'Borrower Info Complete — View / Edit';
+      label.textContent = 'Loan App Complete — View / Edit';
       note.textContent = 'Submitted ' + (r.completedAt ? new Date(r.completedAt).toLocaleDateString() : '');
     } else if (s === 'in_progress') {
       btn.classList.add('in-progress');
-      label.textContent = 'Borrower Info — In Progress';
+      label.textContent = 'Loan App — In Progress';
       note.textContent = 'Last activity: ' + (r.lastSavedAt ? new Date(r.lastSavedAt).toLocaleString() : 'unknown');
     } else if (s === 'pending') {
       btn.classList.add('in-progress');
-      label.textContent = 'Borrower Info — Link Sent';
+      label.textContent = 'Loan App — Link Sent';
       note.textContent = 'Sent ' + (r.sentAt ? new Date(r.sentAt).toLocaleDateString() : 'recently') + '. Awaiting borrower.';
     } else {
-      label.textContent = 'Request Borrower Info';
-      note.textContent = '';
+      // Only reset when no record exists yet
+      if (!btn.disabled) {
+        label.textContent = 'Send Full Loan Application';
+        note.textContent = '';
+      }
     }
   }).catch(function(){});
 }

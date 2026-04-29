@@ -120,7 +120,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="field">
           <div class="wrap" id="wrap-phone">
             <label>Phone Number <span class="req">*</span></label>
-            <input type="tel" id="phone" oninput="clearE('phone')" />
+            <input type="tel" id="phone" placeholder="(555) 123-4567" oninput="clearE('phone'); applyPhoneMask(this)" />
           </div>
           <div class="err-msg" id="err-phone">Required</div>
         </div>
@@ -233,7 +233,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             <div class="field span2" style="grid-column:1/-1">
               <div class="wrap" id="wrap-currentLoanAmt">
                 <label>Current Loan Amount <span class="req">*</span></label>
-                <input type="number" id="currentLoanAmt" min="0" step="1000" oninput="clearE('currentLoanAmt')" />
+                <input type="text" inputmode="decimal" id="currentLoanAmt" placeholder="$0" oninput="clearE('currentLoanAmt'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
               </div>
               <div class="err-msg" id="err-currentLoanAmt">Required</div>
             </div>
@@ -263,7 +263,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="field" id="field-purchaseLabel">
           <div class="wrap" id="wrap-purchasePrice">
             <label id="lbl-purchasePrice">Purchase Price / Loan Amount <span class="req">*</span></label>
-            <input type="number" id="purchasePrice" step="1000" oninput="clearE('purchasePrice')" />
+            <input type="text" inputmode="decimal" id="purchasePrice" placeholder="$0" oninput="clearE('purchasePrice'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
           </div>
           <div class="err-msg" id="err-purchasePrice">Required</div>
         </div>
@@ -272,7 +272,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="field">
           <div class="wrap" id="wrap-propertyValue">
             <label id="lbl-propertyValue">Property Value / ARV <span class="req">*</span></label>
-            <input type="number" id="propertyValue" step="1000" oninput="clearE('propertyValue')" />
+            <input type="text" inputmode="decimal" id="propertyValue" placeholder="$0" oninput="clearE('propertyValue'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
           </div>
           <div class="err-msg" id="err-propertyValue">Required</div>
         </div>
@@ -284,14 +284,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-rehabCost">
               <label>Estimated Renovation Cost <span class="req">*</span></label>
-              <input type="number" id="rehabCost" step="1000" oninput="clearE('rehabCost')" />
+              <input type="text" inputmode="decimal" id="rehabCost" placeholder="$0" oninput="clearE('rehabCost'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-rehabCost">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-estimatedARV">
               <label>Estimated After-Repair Value <span class="req">*</span></label>
-              <input type="number" id="estimatedARV" step="1000" oninput="clearE('estimatedARV')" />
+              <input type="text" inputmode="decimal" id="estimatedARV" placeholder="$0" oninput="clearE('estimatedARV'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-estimatedARV">Required</div>
           </div>
@@ -304,26 +304,26 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1">
             <div class="wrap" id="wrap-monthlyRent">
               <label>Monthly Rent <span class="req">*</span></label>
-              <input type="number" id="monthlyRent" step="50" oninput="clearE('monthlyRent')" />
+              <input type="text" inputmode="decimal" id="monthlyRent" placeholder="$0" oninput="clearE('monthlyRent'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
             <div class="err-msg" id="err-monthlyRent">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap">
               <label>Monthly Taxes</label>
-              <input type="number" id="monthlyTaxes" step="25" />
+              <input type="text" inputmode="decimal" id="monthlyTaxes" placeholder="$0" oninput="clearE('monthlyTaxes'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap">
               <label>Monthly Insurance</label>
-              <input type="number" id="monthlyInsurance" step="25" />
+              <input type="text" inputmode="decimal" id="monthlyInsurance" placeholder="$0" oninput="clearE('monthlyInsurance'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap">
               <label>Monthly HOA (if applicable)</label>
-              <input type="number" id="monthlyHOA" step="25" />
+              <input type="text" inputmode="decimal" id="monthlyHOA" placeholder="$0" oninput="clearE('monthlyHOA'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
           </div>
         </div>
@@ -346,7 +346,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         </div>
         <div class="field span2" id="field-fundingDate">
           <div class="wrap" id="wrap-fundingDate">
-            <label>Required Funding Date <span class="req">*</span></label>
+            <label>Desired Funding Date <span class="req">*</span></label>
             <input type="date" id="fundingDate" oninput="clearE('fundingDate')" />
           </div>
           <div class="err-msg" id="err-fundingDate">Required</div>
@@ -417,16 +417,36 @@ function onLoanProductChange() {
     }
   }
 
-  // Update label text
-  document.getElementById('lbl-purchasePrice').innerHTML =
-    (isDscr ? 'Purchase Price / Requested Loan Amount' :
-     isFF   ? 'Purchase Price' : 'Purchase Price / Loan Amount') +
-    ' <span class="req">*</span>';
+  updatePriceLabels();
+}
 
-  document.getElementById('lbl-propertyValue').innerHTML =
-    (isDscr ? 'Current Property Value' :
-     isFF   ? 'Current Value' : 'Property Value / ARV') +
-    ' <span class="req">*</span>';
+// Refreshes the labels on the two main amount fields based on loan
+// product + purpose. Called from both onLoanProductChange and
+// onLoanPurposeChange so labels are always correct.
+function updatePriceLabels() {
+  var lp = document.getElementById('loanProduct').value;
+  var lpur = document.getElementById('loanPurpose').value;
+  var isDscr = lp === 'dscr';
+  var isFF   = lp === 'fix_flip';
+  var isRefi = isDscr && lpur === 'refinance';
+
+  // #3: Refinance → just "Requested Loan Amount"
+  // #4: DSCR Purchase → "Purchase Price"
+  // #5: Fix and Flip → "Requested Loan Amount" (was "Current Value")
+  var purchaseLabel;
+  if (isRefi)        purchaseLabel = 'Requested Loan Amount';
+  else if (isDscr)   purchaseLabel = 'Purchase Price';
+  else if (isFF)     purchaseLabel = 'Purchase Price';
+  else               purchaseLabel = 'Purchase Price / Loan Amount';
+
+  var valueLabel;
+  if (isRefi)        valueLabel = 'Current Property Value';
+  else if (isDscr)   valueLabel = 'Current Property Value';
+  else if (isFF)     valueLabel = 'Requested Loan Amount';
+  else               valueLabel = 'Property Value / ARV';
+
+  document.getElementById('lbl-purchasePrice').innerHTML = purchaseLabel + ' <span class="req">*</span>';
+  document.getElementById('lbl-propertyValue').innerHTML = valueLabel    + ' <span class="req">*</span>';
 }
 
 function setShow(id, show) {
@@ -439,6 +459,7 @@ function onLoanPurposeChange() {
   clearE('loanPurpose');
   var v = document.getElementById('loanPurpose').value;
   setShow('cond-refi', v === 'refinance');
+  updatePriceLabels();
 }
 
 // ── Validation ────────────────────────────────────────────────
@@ -454,7 +475,50 @@ function showE(id, msg) {
   if (wrap) wrap.classList.add('has-err');
   if (err)  { if (msg) err.textContent = msg; err.classList.add('show'); }
 }
-function gv(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+function gv(id) {
+  var el = document.getElementById(id);
+  if (!el) return '';
+  // For money fields (text+inputmode=decimal), strip formatting before submit
+  if (el.type === 'text' && el.getAttribute('inputmode') === 'decimal') {
+    return String(el.value || '').replace(/[^0-9.]/g, '').trim();
+  }
+  return el.value.trim();
+}
+
+// ── Money formatting helpers (#2) ──────────────────────────
+// Strategy: keep raw numeric in mind; show "$1,234" on blur; "1234" on focus.
+function applyMoneyMask(el) {
+  // While typing, keep just digits + one decimal point; allow user to type freely
+  var raw = String(el.value || '').replace(/[^0-9.]/g, '');
+  // Limit to one decimal point
+  var firstDot = raw.indexOf('.');
+  if (firstDot >= 0) raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+  el.value = raw;
+}
+function moneyFocus(el) {
+  // Strip $, commas — show plain number for editing
+  el.value = String(el.value || '').replace(/[^0-9.]/g, '');
+}
+function moneyBlur(el) {
+  var raw = String(el.value || '').replace(/[^0-9.]/g, '');
+  if (!raw) { el.value = ''; return; }
+  var n = parseFloat(raw);
+  if (!isFinite(n)) { el.value = ''; return; }
+  // Format with commas, leading $, no decimals if whole
+  var hasDecimal = raw.indexOf('.') >= 0 && raw.split('.')[1] !== '';
+  el.value = '$' + n.toLocaleString('en-US', {
+    minimumFractionDigits: hasDecimal ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+// ── Phone mask (#1) ────────────────────────────────────────
+function applyPhoneMask(el) {
+  var digits = String(el.value || '').replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) el.value = digits;
+  else if (digits.length <= 6) el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+  else el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+}
 
 function validate() {
   var ok = true;

@@ -63,6 +63,7 @@
       propType:    formData.propType    || '',
       usCitizen:   formData.usCitizen   || '',
       loanPurpose: formData.loanPurpose || '',
+      currentLoanAmt: formData.currentLoanAmt || '',
       rentalType:  formData.rentalType  || '',
       fundingDate: formData.fundingDate || '',
       notes:       formData.notes       || '',
@@ -515,11 +516,19 @@ function getFICOMin(ficoStr) {
       <div class="field">
         <div class="wrap">
           <label>Loan Purpose <span class="req">*</span></label>
-          <select id="loanPurpose">
+          <select id="loanPurpose" onchange="onPurposeChange()">
             <option value="purchase">Purchase</option>
             <option value="refi_rt">Rate/Term Refi</option>
             <option value="refi_co">Cash-Out Refi</option>
           </select>
+        </div>
+      </div>
+
+      <!-- Item #8: Current Loan Amount, shown only for refis -->
+      <div class="field" id="field-currentLoanAmt" style="display:none">
+        <div class="wrap">
+          <label>Current Loan Amount <span class="req">*</span></label>
+          <input type="number" id="currentLoanAmt" placeholder="" min="0" step="1000" oninput="run()" />
         </div>
       </div>
 
@@ -893,6 +902,35 @@ function renderResult(r) {
     '</div>'+
   '</div>'+
 
+  // Item #8: Cashout / Refi summary
+  (function() {
+    var purpose = $('loanPurpose') && $('loanPurpose').value;
+    var isRefi = (purpose === 'refi_co' || purpose === 'refi_rt');
+    if (!isRefi) return '';
+    var currentLoan = parseFloat($('currentLoanAmt') && $('currentLoanAmt').value || 0) || 0;
+    var pts = (1 + (r.buydown || 0)) / 100; // origination + any buy-down
+    var ptsFee = r.loan * pts;
+    var flatFees = 995 + 700 + 500 + 120; // DSCR fee schedule = $2,315
+    var totalFees = ptsFee + flatFees;
+    var estCashout = r.loan - currentLoan - totalFees;
+    var label = (purpose === 'refi_co') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
+    var cls = estCashout >= 0 ? 'good' : 'bad';
+    return '<div class="rate-card">'+
+      '<div class="rate-body" style="padding-top:1.25rem">'+
+        '<table class="breakdown"><tbody>'+
+          '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cashout Estimate</td><td></td></tr>'+
+          '<tr><td>Requested Loan Amount</td><td class="bv base">'+fmtD(r.loan)+'</td></tr>'+
+          '<tr><td>− Current Loan Payoff</td><td class="bv neg">'+fmtD(currentLoan)+'</td></tr>'+
+          '<tr><td>− Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv neg">'+fmtD(ptsFee)+'</td></tr>'+
+          '<tr><td>− Flat Fees</td><td class="bv neg">$2,315</td></tr>'+
+        '</tbody></table>'+
+        '<div class="total-row"><span class="tl">'+label+'<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
+          '<span class="tv" style="color:var(--'+cls+')">'+fmtD(estCashout)+'</span></div>'+
+        '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* This does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
+      '</div>'+
+    '</div>';
+  })()+
+
   '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>'+
   '<button class="dl-btn" onclick="downloadPDF()">&#8681; Download Rate Sheet PDF</button>';
 }
@@ -930,6 +968,14 @@ function updatePills() {
   } else {dv.innerHTML='&mdash;';dv.className='computed-val';}
 }
 
+// Show Current Loan Amount input only for refis (#8); rerun pricing
+function onPurposeChange() {
+  var v = $('loanPurpose').value;
+  var f = document.getElementById('field-currentLoanAmt');
+  if (f) f.style.display = (v === 'refi_co' || v === 'refi_rt') ? '' : 'none';
+  run();
+}
+
 function run() {
   updatePills();
   var r = calculate();
@@ -949,6 +995,12 @@ function allRequiredFilled() {
   for (var i = 0; i < DSCR_REQUIRED.length; i++) {
     var el = $(DSCR_REQUIRED[i]);
     if (!el || !String(el.value || '').trim()) return false;
+  }
+  // Conditional: currentLoanAmt required for refis
+  var purpose = $('loanPurpose') && $('loanPurpose').value;
+  if (purpose === 'refi_co' || purpose === 'refi_rt') {
+    var cl = $('currentLoanAmt');
+    if (!cl || !String(cl.value || '').trim()) return false;
   }
   return true;
 }
@@ -1412,6 +1464,56 @@ function downloadPDF() {
 
   y += feeBlockH + 10;
 
+  // ── REFI CASHOUT / NET BLOCK (#8) ────────────────────────────
+  var purpose = $('loanPurpose').value;
+  var isRefi = (purpose === 'refi_co' || purpose === 'refi_rt');
+  if (isRefi) {
+    var currentLoan = parseFloat($('currentLoanAmt').value || 0) || 0;
+    var estCashout = r.loan - currentLoan - totalFeeAmt;
+    var cashLabel = (purpose === 'refi_co') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
+
+    checkPage(120);
+    var rfRows = [
+      ['Requested Loan Amount',   r.loan],
+      ['Current Loan Payoff',     -currentLoan],
+      ['Total Closing Costs',     -totalFeeAmt],
+    ];
+    var rfBlockH = 22 + rfRows.length * ROW_H + ROW_H + 24;
+    doc.setFillColor(255,255,255);
+    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+    rr(lm, y, cw, rfBlockH, 4, 'FD');
+    var ry = y + 6;
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text(cashLabel, lm+10, ry + ROW_H*0.65);
+    ry += ROW_H;
+    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+    doc.line(lm+8, ry, lm+cw-8, ry);
+
+    rfRows.forEach(function(row) {
+      ry = trow(row[0], (row[1] < 0 ? '−' : '') + fmtDplain(Math.abs(row[1])), ry, {
+        labelColor: MUTED, valueColor: row[1] < 0 ? DANGER : TEXT,
+      });
+    });
+    doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+    doc.line(lm+8, ry, lm+cw-8, ry);
+    ry += 4;
+    var cashColor = estCashout >= 0 ? SUCCESS : DANGER;
+    trow(cashLabel, fmtDplain(estCashout), ry, {
+      labelColor: TEXT, labelBold: true,
+      valueColor: cashColor, valueBold: true,
+      valueFontSize: 13, noLine: true,
+    });
+    ry += ROW_H + 4;
+
+    // Asterisk note
+    doc.setFont('helvetica','italic'); doc.setFontSize(7.5);
+    doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text('* This does not include typical title/escrow costs or required prepaid taxes and insurance.', lm+10, ry);
+
+    y += rfBlockH + 10;
+  }
+
   checkPage(80);
 
   // ── LEGAL FOOTER — full width ───────────────────────────────
@@ -1526,6 +1628,7 @@ function saveCurrentQuote() {
     hoa:        $('hoa').value,
     prepay:     $('prepay').value,
     buydown:    $('buydown').value,
+    currentLoanAmt: ($('currentLoanAmt') ? $('currentLoanAmt').value : ''),
     // Computed results (read-only, for reference)
     _finalRate:    r.finalRate ? r.finalRate.toFixed(3) : '',
     _dscr:         r.dscr ? r.dscr.toFixed(2) : '',
@@ -1595,11 +1698,14 @@ function loadQuoteIntoForm(formData) {
     hoa:          formData.hoa        || '',
     prepay:       formData.prepay     || '54321',
     buydown:      formData.buydown    || '0',
+    currentLoanAmt: formData.currentLoanAmt || '',
   };
   Object.keys(fields).forEach(function(id) {
     var el = $(id);
     if (el) el.value = fields[id];
   });
+  // Show/hide the refi field based on loaded loanPurpose
+  if (typeof onPurposeChange === 'function') onPurposeChange();
   // Lock identity fields once a quote is loaded — these define the loan record
   // and changing them would either create a duplicate or orphan the original.
   ['borrowerName','borrowerEmail','propAddress'].forEach(function(id) {
