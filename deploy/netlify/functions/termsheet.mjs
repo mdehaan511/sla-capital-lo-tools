@@ -337,7 +337,11 @@ async function populateDSCR(tplBuffer, ctx) {
   sheetXml = setNumberCell(sheetXml, 'D23', ctx.loanAmt);
   sheetXml = setNumberCell(sheetXml, 'D24', ctx.existingLoan); // null → blank
   sheetXml = setNumberCell(sheetXml, 'G10', ctx.loanAmt);
-  sheetXml = setNumberCell(sheetXml, 'G11', ctx.rate !== null ? ctx.rate / 100 : null);
+  // Item #13: write rate as fraction (0.075) and apply the percent style
+  // (s="22" maps to numFmt 166 = "0.000%" in the template's styles.xml).
+  // This makes Excel display "7.500%" while still letting formulas compute
+  // properly on the underlying decimal value.
+  sheetXml = setNumberCell(sheetXml, 'G11', ctx.rate !== null ? ctx.rate / 100 : null, '22');
   sheetXml = setNumberCell(sheetXml, 'G13', ctx.annualTaxes);
   sheetXml = setNumberCell(sheetXml, 'G14', ctx.annualIns);
   sheetXml = setNumberCell(sheetXml, 'H17', ctx.monthlyRent);
@@ -382,7 +386,8 @@ async function populateRTL(tplBuffer, ctx) {
   // sheet XML. Use the helper to locate them.
   sheetXml = setNumberCellByPlaceholder(sheetXml, ssXml,
     '[Deal Loan Interest % (deal custom)]%',
-    ctx.rate !== null ? ctx.rate / 100 : null);
+    ctx.rate !== null ? ctx.rate / 100 : null,
+    '15'); // s="15" maps to numFmt 166 = "0.0%" in RTL template's styles.xml
   sheetXml = setNumberCellByPlaceholder(sheetXml, ssXml,
     '[Deal Loan Points (deal custom)]', ctx.points);
   sheetXml = setNumberCellByPlaceholder(sheetXml, ssXml,
@@ -422,13 +427,21 @@ function swapSharedStringExact(xml, find, replace) {
 //
 // Matches and rewrites <c r="XX" ...>...</c> for the given address. The
 // resulting cell becomes a plain numeric cell: <c r="XX" s="STYLE"><v>NUM</v></c>
-function setNumberCell(xml, addr, value) {
+function setNumberCell(xml, addr, value, styleOverride) {
   if (value === null || value === undefined) return xml;
   // Match the <c> element for this address (with or without trailing slash close)
   const re = new RegExp('<c\\s+r="' + addr + '"([^/>]*)(?:/>|>[\\s\\S]*?</c>)', 'i');
   return xml.replace(re, function(match, attrs) {
     // Strip any t="..." attribute and rebuild
-    const cleanAttrs = attrs.replace(/\s+t="[^"]*"/g, '');
+    let cleanAttrs = attrs.replace(/\s+t="[^"]*"/g, '');
+    // Optionally override style attribute (e.g., apply percent format)
+    if (styleOverride) {
+      if (/\ss="[^"]*"/.test(cleanAttrs)) {
+        cleanAttrs = cleanAttrs.replace(/\ss="[^"]*"/, ' s="' + styleOverride + '"');
+      } else {
+        cleanAttrs += ' s="' + styleOverride + '"';
+      }
+    }
     return `<c r="${addr}"${cleanAttrs}><v>${value}</v></c>`;
   });
 }
@@ -436,7 +449,7 @@ function setNumberCell(xml, addr, value) {
 // Helper: find which cell address holds a given placeholder string and rewrite it.
 // We look up the index of the string in sharedStrings, then find the cell that
 // has <v>idx</v> with t="s".
-function setNumberCellByPlaceholder(sheetXml, ssXml, placeholder, value) {
+function setNumberCellByPlaceholder(sheetXml, ssXml, placeholder, value, styleOverride) {
   if (value === null || value === undefined) return sheetXml;
   // Find the index of this string in sharedStrings
   // Build a quick parse: count <si> entries until we hit the matching <t>
@@ -457,7 +470,15 @@ function setNumberCellByPlaceholder(sheetXml, ssXml, placeholder, value) {
   // Find the cell that has t="s"><v>idx</v>
   const cellRe = new RegExp('<c\\s+r="([A-Z]+\\d+)"([^/>]*)t="s"([^/>]*)><v>' + idx + '</v></c>', 'i');
   return sheetXml.replace(cellRe, function(match, addr, before, after) {
-    return `<c r="${addr}"${before}${after}><v>${value}</v></c>`;
+    let attrs = (before + after);
+    if (styleOverride) {
+      if (/\ss="[^"]*"/.test(attrs)) {
+        attrs = attrs.replace(/\ss="[^"]*"/, ' s="' + styleOverride + '"');
+      } else {
+        attrs += ' s="' + styleOverride + '"';
+      }
+    }
+    return `<c r="${addr}"${attrs}><v>${value}</v></c>`;
   });
 }
 

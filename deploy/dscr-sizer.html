@@ -40,6 +40,9 @@
       loanAmt:     formData.loanAmt     || formData.purchasePrice || '',
       loanType:    formData.loanType    || '',
       fico:        formData.fico        || '',
+      ficoLabel:   formData.ficoLabel   || '',
+      propTypeLabel: formData.propTypeLabel || '',
+      experienceLabel: formData.experienceLabel || '',
       rate:        formData._finalRate  || '',
       points:      formData._points     || '',
       propValue:   formData.propValue   || formData.arv || '',
@@ -1629,6 +1632,9 @@ function saveCurrentQuote() {
     prepay:     $('prepay').value,
     buydown:    $('buydown').value,
     currentLoanAmt: ($('currentLoanAmt') ? $('currentLoanAmt').value : ''),
+    // Item #5/#6: human-readable labels for display in Loan Details + Submission
+    ficoLabel:     ($('fico').options[$('fico').selectedIndex] ? $('fico').options[$('fico').selectedIndex].text : ''),
+    propTypeLabel: ($('propType').options[$('propType').selectedIndex] ? $('propType').options[$('propType').selectedIndex].text : ''),
     // Computed results (read-only, for reference)
     _finalRate:    r.finalRate ? r.finalRate.toFixed(3) : '',
     _dscr:         r.dscr ? r.dscr.toFixed(2) : '',

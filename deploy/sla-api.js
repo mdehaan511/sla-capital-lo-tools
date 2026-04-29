@@ -155,23 +155,55 @@
           if (phone && !existing.phone) existing.phone = phone;
           if (loanData) {
             existing.loans = existing.loans || [];
-            var normAddr = (loanData.address || '').toLowerCase().trim();
+            // Normalize an address by stripping commas, lowercasing, and
+            // collapsing whitespace. Then take the first 25 chars (street part)
+            // so we match even if the rest of the address (city/state/zip)
+            // changed format between saves. This prevents duplicate loans
+            // when address formatting changes (e.g. zip added in a later release).
+            var normAddrFull = (loanData.address || '').toLowerCase().trim();
+            var normAddrStreet = normAddrFull.split(',')[0].trim().replace(/\s+/g, ' ');
             var lIdx = -1;
             for (var k = 0; k < existing.loans.length; k++) {
-              if ((existing.loans[k].address || '').toLowerCase().trim() === normAddr) { lIdx = k; break; }
+              var existAddrFull = (existing.loans[k].address || '').toLowerCase().trim();
+              var existAddrStreet = existAddrFull.split(',')[0].trim().replace(/\s+/g, ' ');
+              // Match if full address matches OR street parts match
+              if (existAddrFull === normAddrFull
+                  || (normAddrStreet && existAddrStreet && existAddrStreet === normAddrStreet)) {
+                lIdx = k; break;
+              }
             }
             if (lIdx < 0 && loanData._originalAddress) {
               var normOrig = loanData._originalAddress.toLowerCase().trim();
+              var normOrigStreet = normOrig.split(',')[0].trim().replace(/\s+/g, ' ');
               for (var m = 0; m < existing.loans.length; m++) {
-                if ((existing.loans[m].address || '').toLowerCase().trim() === normOrig) { lIdx = m; break; }
+                var ea = (existing.loans[m].address || '').toLowerCase().trim();
+                var eas = ea.split(',')[0].trim().replace(/\s+/g, ' ');
+                if (ea === normOrig || (normOrigStreet && eas === normOrigStreet)) {
+                  lIdx = m; break;
+                }
               }
             }
             if (lIdx >= 0) {
               var prior = existing.loans[lIdx];
+              // Item #4: when LO has manually overridden the loan amount on
+              // Loan Details, preserve that override. The flag `loanAmtLocked`
+              // is set on the loan record by Loan Details when the LO edits
+              // the loan amount manually.
+              var preservedLoanAmt = prior.loanAmtLocked ? prior.loanAmt : loanData.loanAmt;
+              var preservedFlag    = prior.loanAmtLocked || false;
               existing.loans[lIdx] = Object.assign({}, loanData, {
                 id: prior.id,
                 status: prior.status || loanData.status || 'active',
                 createdAt: prior.createdAt || loanData.createdAt || new Date().toISOString(),
+                loanAmt: preservedLoanAmt,
+                loanAmtLocked: preservedFlag,
+                // Also preserve LO-edited app-section fields so a sizer re-save
+                // doesn't wipe them
+                bedrooms:    prior.bedrooms    || loanData.bedrooms,
+                bathrooms:   prior.bathrooms   || loanData.bathrooms,
+                sqft:        prior.sqft        || loanData.sqft,
+                projectDescription: prior.projectDescription || loanData.projectDescription || '',
+                notes:       prior.notes       || loanData.notes || '',
               });
             } else {
               existing.loans.unshift(loanData);

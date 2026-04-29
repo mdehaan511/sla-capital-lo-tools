@@ -292,7 +292,15 @@ function buildCard(r, idx) {
   var rate   = fd._finalRate ? fd._finalRate + '%' : '—';
   var points = fd._points || fd.buydown || '—';
   var loanType = fd.loanType || (isDscr ? 'DSCR' : 'RTL');
-  var fico   = fd.fico || '—';
+  var fico   = fd.ficoLabel || fd.fico || '—';
+  // Map experience number to range label (matches RTL sizer options)
+  var experienceLabel = fd.experienceLabel || (function() {
+    var e = parseInt(fd.experience, 10);
+    if (!isFinite(e)) return fd.experience || '—';
+    if (e >= 8) return '8+ projects (Tier 1)';
+    if (e >= 4) return '4 – 7 projects (Tier 2)';
+    return '0 – 3 projects (Tier 3)';
+  })();
   var ltv    = fd.loanAmt && fd.propValue
     ? ((parseFloat(fd.loanAmt) / parseFloat(fd.propValue)) * 100).toFixed(1) + '%'
     : '—';
@@ -326,7 +334,7 @@ function buildCard(r, idx) {
         cell('Loan Type', loanType) +
         cell(isDscr ? 'Rate' : 'ARV', isDscr ? rate : fmtMoney(fd.arv || fd.estimatedARV)) +
         cell(isDscr ? 'Points' : 'Rehab', isDscr ? points : fmtMoney(fd.rehabBudget || fd.rehabCost)) +
-        cell(isDscr ? 'LTV' : 'Experience', isDscr ? ltv : (fd.experience || '—')) +
+        cell(isDscr ? 'LTV' : 'Experience', isDscr ? ltv : experienceLabel) +
         cell('FICO', fico) +
       '</div>' +
 

@@ -210,6 +210,7 @@ function buildPrefill(client, loan, loInfo) {
     pf.loan.rentalType      = loan.rentalType || '';
     pf.loan.fundingDate     = loan.fundingDate || '';
     pf.loan.experience      = loan.experience || '';
+    pf.loan.projectDescription = loan.projectDescription || '';
     pf.loan.fico            = loan.fico || pf.borrower.fico || '';
     // Item #5: annualize monthly expenses for the long-app fields
     pf.loan.annualTaxes     = annualize(loan.taxes);

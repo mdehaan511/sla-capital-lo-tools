@@ -128,6 +128,7 @@ async function syncPropertyFieldsToLoan(record) {
   if (data.currentLoanAmount) loanUpdates.currentLoanAmt = String(data.currentLoanAmount);
   if (data.purchaseOrRefi)  loanUpdates.purchaseOrRefi = String(data.purchaseOrRefi);
   if (data.dscrPurchaseRefi) loanUpdates.purchaseOrRefi = String(data.dscrPurchaseRefi);
+  if (data.planDescription) loanUpdates.projectDescription = String(data.planDescription);
 
   // Borrower-level fields (live on the CLIENT record, reused across loans — item #6)
   // The form packs these into data.guarantors[0] (with sub-fields like

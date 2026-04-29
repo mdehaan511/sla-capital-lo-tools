@@ -332,6 +332,8 @@ function applyPrefillToData() {
       else if (pf.loan.loanAmt) d.requestedLoanFF = pf.loan.loanAmt;
     }
     if (!d.requestedLoanDSCR && pf.loan.loanAmt && d.loanType === 'dscr') d.requestedLoanDSCR = pf.loan.loanAmt;
+    // Item #9: project description from short app → long app
+    if (!d.planDescription && pf.loan.projectDescription) d.planDescription = pf.loan.projectDescription;
     if (!d.currentValue && pf.loan.propValue) d.currentValue = pf.loan.propValue;
     if (!d.currentRent && pf.loan.rent)       d.currentRent = pf.loan.rent;
     if (!d.dscrCloseDate && pf.loan.fundingDate) d.dscrCloseDate = pf.loan.fundingDate;
@@ -795,7 +797,7 @@ function renderPage4() {
       '</div>' +
       field('llcEIN', 'Vesting Entity EIN', 'text', { placeholder: 'XX-XXXXXXX', mask: 'ein' }) +
       '<div class="field-row">' +
-        field('llcAddress', 'Entity registered address', 'text') +
+        field('llcAddress', 'Entity registered address', 'text', { autocomplete: 'llc' }) +
         field('llcCity',    'City', 'text') +
       '</div>' +
       '<div class="field-row">' +
@@ -1368,9 +1370,18 @@ function stateOptions() {
 <script>
 // Re-init autocomplete after every render() since the DOM is rebuilt.
 function initBorrowerInfoAutocomplete() {
-  if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
-  document.querySelectorAll('input[data-autocomplete]').forEach(function(input) {
-    if (input._acBound) return; // don't double-bind
+  if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+    console.warn('[autocomplete] Google Maps not loaded yet — will retry after script loads');
+    return;
+  }
+  var inputs = document.querySelectorAll('input[data-autocomplete]');
+  console.log('[autocomplete] Binding to', inputs.length, 'inputs:',
+    Array.from(inputs).map(function(i){ return i.getAttribute('data-autocomplete') + ' (id=' + i.id + ')'; }));
+  inputs.forEach(function(input) {
+    if (input._acBound) {
+      console.log('[autocomplete] skipping already-bound:', input.id);
+      return;
+    }
     input._acBound = true;
     var which = input.getAttribute('data-autocomplete');
     var ac = new google.maps.places.Autocomplete(input, {
@@ -1380,8 +1391,13 @@ function initBorrowerInfoAutocomplete() {
     });
     ac.addListener('place_changed', function() {
       var place = ac.getPlace();
-      if (!place || !place.address_components) return;
+      console.log('[autocomplete] place_changed for', which, '— place:', place);
+      if (!place || !place.address_components) {
+        console.warn('[autocomplete] no address_components on place — aborting');
+        return;
+      }
       var parts = parseAddressComponents(place.address_components);
+      console.log('[autocomplete] parsed parts:', parts);
       // Street = streetNumber + route (e.g. "1234 Main St")
       var street = (parts.streetNumber + ' ' + parts.route).trim();
       // Map data-autocomplete value to the right field-name prefixes
@@ -1391,12 +1407,19 @@ function initBorrowerInfoAutocomplete() {
         setFieldValue('propertyState', parts.state);
         setFieldValue('propertyZip', parts.zip);
       } else if (which.indexOf('guarantor:') === 0) {
+        // Form uses ZERO-indexed prefixes (g0_ = Guarantor #1, g1_ = #2).
+        // The data-autocomplete attribute already passes the zero-based idx.
         var idx = which.split(':')[1];
-        var prefix = 'g' + (parseInt(idx, 10) + 1) + '_';
+        var prefix = 'g' + parseInt(idx, 10) + '_';
         setFieldValue(prefix + 'address', street);
         setFieldValue(prefix + 'city', parts.city);
         setFieldValue(prefix + 'state', parts.state);
         setFieldValue(prefix + 'zip', parts.zip);
+      } else if (which === 'llc') {
+        setFieldValue('llcAddress', street);
+        setFieldValue('llcCity', parts.city);
+        setFieldValue('llcAddrState', parts.state);
+        setFieldValue('llcZip', parts.zip);
       }
       // Persist + trigger autosave
       scheduleAutoSave();
@@ -1422,7 +1445,10 @@ function parseAddressComponents(components) {
 
 function setFieldValue(name, value) {
   var el = document.getElementById('f_' + name);
-  if (!el) return;
+  if (!el) {
+    console.warn('[autocomplete] setFieldValue: input f_' + name + ' not found in DOM');
+    return;
+  }
   el.value = value || '';
   STATE.data[name] = value || '';
 }
@@ -1435,15 +1461,25 @@ document.head.appendChild(__pacStyle);
 // Load Google Maps, then init on every render
 (function() {
   fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
-    if (!cfg.googleMapsKey) return;
+    if (!cfg.googleMapsKey) {
+      console.warn('[autocomplete] /api/config returned no googleMapsKey — autocomplete disabled');
+      return;
+    }
+    console.log('[autocomplete] Loading Google Maps script...');
     // Expose the init globally so the Maps callback can find it
-    window.initBorrowerInfoAutocomplete = initBorrowerInfoAutocomplete;
+    window.initBorrowerInfoAutocomplete = function() {
+      console.log('[autocomplete] Maps loaded, calling init');
+      initBorrowerInfoAutocomplete();
+    };
     var s = document.createElement('script');
     s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.googleMapsKey) +
             '&libraries=places&callback=initBorrowerInfoAutocomplete';
     s.async = true; s.defer = true;
+    s.onerror = function() { console.error('[autocomplete] Google Maps script failed to load'); };
     document.head.appendChild(s);
-  }).catch(function(){ /* silently disabled */ });
+  }).catch(function(err) {
+    console.error('[autocomplete] /api/config fetch failed:', err);
+  });
 })();
 </script>
 

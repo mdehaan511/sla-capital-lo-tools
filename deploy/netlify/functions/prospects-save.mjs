@@ -64,6 +64,7 @@ export default async (req, context) => {
     loanProduct: String(body.loanProduct || ''),
     loanPurpose: String(body.loanPurpose || ''),
     currentLoanAmt: String(body.currentLoanAmt || ''),
+    projectDescription: String(body.projectDescription || ''),
     rentalType: String(body.rentalType || ''),
     purchasePrice: String(body.purchasePrice || ''),
     propertyValue: String(body.propertyValue || ''),
@@ -110,6 +111,13 @@ export default async (req, context) => {
     await notifyLO(prospect);
   } catch (e) {
     console.error('prospects-save notify error:', e);
+  }
+  // Item #1: also send a borrower confirmation showing all the fields they
+  // submitted, so they can double-check for mistakes.
+  try {
+    await notifyBorrowerOfSubmission(prospect);
+  } catch (e) {
+    console.error('prospects-save borrower notify error:', e);
   }
 
   return json(200, { ok: true, id });
@@ -168,6 +176,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
     arv:         prospect.estimatedARV || '',
     experience:  prospect.flipsCompleted || '',
     currentLoanAmt: prospect.currentLoanAmt || '',
+    projectDescription: prospect.projectDescription || '',
     fromApplication: true,
   };
 
@@ -311,4 +320,118 @@ async function notifyLO(prospect) {
 
 function row(label, value) {
   return `<tr><td style="padding:6px 0;color:#666;width:160px">${label}</td><td style="padding:6px 0;color:#1a1520">${value || '—'}</td></tr>`;
+}
+
+// Item #1: confirmation email back to the borrower with everything they
+// submitted, so they can double-check for mistakes before pricing.
+async function notifyBorrowerOfSubmission(prospect) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  const toEmail = prospect.email;
+  if (!toEmail || !String(toEmail).includes('@')) return;
+
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '—';
+  const fmtText = (v) => v || '—';
+  const name = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || prospect.email;
+
+  const subject = `Application received — ${prospect.propAddress || 'SLA Capital'}`;
+
+  const text = [
+    `Hi ${prospect.firstName || 'there'},`,
+    '',
+    `Thanks for submitting your application with SLA Capital. Here's a copy of what you submitted — please review and let your loan officer know if anything is incorrect.`,
+    '',
+    `--- YOUR INFO ---`,
+    `Name:     ${name}`,
+    `Email:    ${prospect.email}`,
+    `Phone:    ${fmtText(prospect.phone)}`,
+    `Credit:   ${fmtText(prospect.creditScore)}`,
+    `US Citizen: ${fmtText(prospect.usCitizen)}`,
+    '',
+    `--- PROPERTY ---`,
+    `Address:  ${fmtText(prospect.propAddress)}`,
+    `Type:     ${fmtText(prospect.propType)}`,
+    `Beds/Baths/SqFt: ${fmtText(prospect.bedrooms)}/${fmtText(prospect.bathrooms)}/${fmtText(prospect.sqft)}`,
+    '',
+    `--- LOAN ---`,
+    `Product:  ${fmtText(prospect.loanProduct)}`,
+    `Purpose:  ${fmtText(prospect.loanPurpose)}`,
+    `Purchase: ${fmtMoney(prospect.purchasePrice)}`,
+    `Value:    ${fmtMoney(prospect.propertyValue)}`,
+    prospect.currentLoanAmt ? `Current Loan: ${fmtMoney(prospect.currentLoanAmt)}` : '',
+    `Rehab:    ${fmtMoney(prospect.rehabCost)}`,
+    `ARV:      ${fmtMoney(prospect.estimatedARV)}`,
+    `Flips Completed (36mo): ${fmtText(prospect.flipsCompleted)}`,
+    `Rent:     ${fmtMoney(prospect.monthlyRent)}`,
+    `Funding:  ${fmtText(prospect.fundingDate)}`,
+    prospect.projectDescription ? `Project Description: ${fmtText(prospect.projectDescription)}` : '',
+    '',
+    `If anything looks wrong, just reply to this email or contact your loan officer.`,
+    '',
+    `— SLA Capital`,
+  ].filter(Boolean).join('\n');
+
+  const html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+    '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+    '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — Application Received</h1>' +
+    `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(new Date(prospect.submittedAt).toLocaleString('en-US'))}</p></div>` +
+    '<div style="padding:24px">' +
+    '<div style="display:inline-block;padding:5px 12px;border-radius:18px;background:#256940;color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;margin-bottom:14px">RECEIVED</div>' +
+    `<p style="font-size:14px;color:#1a1520;line-height:1.6">Hi ${esc(prospect.firstName || 'there')},</p>` +
+    '<p style="font-size:14px;color:#1a1520;line-height:1.6">Thanks for submitting your application. Below is a copy of everything you submitted — please review and let your loan officer know if anything is incorrect.</p>' +
+    '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Your Info</h3>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    row('Name', esc(name)) +
+    row('Email', esc(prospect.email)) +
+    row('Phone', esc(prospect.phone)) +
+    row('Credit Score', esc(prospect.creditScore)) +
+    row('US Citizen', esc(prospect.usCitizen)) +
+    '</table>' +
+    '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Property</h3>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    row('Address', esc(prospect.propAddress)) +
+    row('Property Type', esc(prospect.propType)) +
+    row('Beds / Baths / SqFt', `${esc(prospect.bedrooms)} / ${esc(prospect.bathrooms)} / ${esc(prospect.sqft)}`) +
+    '</table>' +
+    '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Loan</h3>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    row('Product', esc(prospect.loanProduct)) +
+    row('Purpose', esc(prospect.loanPurpose)) +
+    row('Purchase Price', fmtMoney(prospect.purchasePrice)) +
+    row('Property Value', fmtMoney(prospect.propertyValue)) +
+    (prospect.currentLoanAmt ? row('Current Loan', fmtMoney(prospect.currentLoanAmt)) : '') +
+    row('Rehab Cost', fmtMoney(prospect.rehabCost)) +
+    row('ARV', fmtMoney(prospect.estimatedARV)) +
+    row('Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
+    row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
+    row('Funding Date', esc(prospect.fundingDate)) +
+    (prospect.projectDescription ? row('Project Description', esc(prospect.projectDescription)) : '') +
+    '</table>' +
+    '<p style="margin-top:24px;font-size:13px;color:#666">If anything looks wrong, just reply to this email or contact your loan officer directly.</p>' +
+    '<p style="margin-top:8px;font-size:13px;color:#666">— SLA Capital</p>' +
+    '</div></div></body></html>';
+
+  const payload = JSON.stringify({
+    from: 'SLA Capital <noreply@leads.slacapital.com>',
+    to: [toEmail],
+    subject,
+    text,
+    html,
+    reply_to: prospect.loEmail || undefined,
+  });
+
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + key,
+      'Content-Type': 'application/json',
+    },
+    body: payload,
+  });
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    console.warn(`Borrower confirmation email failed (Resend ${resp.status}): ${txt.slice(0, 200)}`);
+  }
 }

@@ -88,6 +88,21 @@
     .fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-radius: var(--r-xs); overflow: hidden; }
     .fin-cell { background: var(--surface); padding: 12px 16px; }
     .fin-cell.span2 { grid-column: 1/-1; }
+    .loan-hero {
+      background: linear-gradient(135deg, var(--gold-light, rgba(200,129,58,0.10)) 0%, var(--surface, #fff) 100%);
+      border: 1px solid var(--gold-border, rgba(200,129,58,0.28));
+      border-radius: 10px; padding: 18px 22px; margin-bottom: 14px;
+      display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    }
+    .loan-hero[data-locked="1"] { border-color: var(--success, #256940); background: linear-gradient(135deg, rgba(37,105,64,0.08), var(--surface, #fff)); }
+    .loan-hero-label { font-size: 12px; font-weight: 600; color: var(--gold-mid, #b5712d); text-transform: uppercase; letter-spacing: 0.08em; }
+    .loan-hero[data-locked="1"] .loan-hero-label { color: var(--success, #256940); }
+    .loan-hero-val { font-family: 'Lora', serif; font-size: 30px; font-weight: 600; color: var(--text); letter-spacing: -0.01em; flex: 1; text-align: right; }
+    .loan-hero-val .empty { font-size: 16px; color: var(--muted); font-weight: 400; }
+    .loan-hero-edit { font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 14px; background: var(--surface, #fff); border: 1px solid var(--border, #ddd); color: var(--muted, #7a7488); cursor: pointer; font-family: inherit; }
+    .loan-hero-edit:hover { border-color: var(--gold); color: var(--gold-mid); }
+    .loan-hero-lock { display: inline-block; font-size: 9px; font-weight: 700; background: var(--success, #256940); color: #fff; padding: 2px 6px; border-radius: 8px; margin-left: 6px; vertical-align: middle; }
+    .loan-hero-input { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; color: var(--text); border: 1px solid var(--gold); border-radius: 6px; padding: 4px 10px; width: 200px; text-align: right; background: var(--surface); }
     .fin-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 4px; }
     .fin-val { font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 500; color: var(--text); }
     .fin-val.big { font-size: 22px; color: var(--gold); }
@@ -344,6 +359,7 @@ function render() {
   if (isNaN(pointsNum)) pointsNum = 1 + buydown;
   var points    = pointsNum.toFixed(2) + ' pts';
   var fico      = l.fico       || fd.fico       || '';
+  var ficoDisplay = l.ficoLabel || fd.ficoLabel || fico || '';
   var dscr      = l.dscr       || fd._dscr      || '';
   var loanPurpose = l.loanPurpose || fd.loanPurpose || '';
   var currentLoanAmt = l.currentLoanAmt || l.existingLoanAmt || fd.currentLoanAmt || fd.existingLoanAmt || '';
@@ -358,6 +374,8 @@ function render() {
   var rehabBudget   = l.rehabBudget   || fd.rehabBudget   || '';
   var arv           = l.arv           || fd.arv           || '';
   var experience    = l.experience    || fd.experience    || '';
+  var experienceDisplay = l.experienceLabel || fd.experienceLabel || experience || '';
+  var propTypeDisplay = l.propTypeLabel || fd.propTypeLabel || l.propType || fd.propType || '';
   var loanTerm      = l.loanTerm      || fd.loanTerm      || '';
 
   var html = '<div class="page-header">' +
@@ -390,10 +408,18 @@ function render() {
     var purposeLabel = loanPurpose
       ? loanPurpose.charAt(0).toUpperCase() + loanPurpose.slice(1).replace(/_/g,' ')
       : '';
+    // Item #12 + #4: prominent loan amount with override button.
+    // When LO clicks Override, the field becomes editable and saving sets
+    // loanAmtLocked=true so subsequent sizer re-saves don't blow it away.
+    var lockedAttr = l.loanAmtLocked ? ' data-locked="1"' : '';
+    html += '<div class="loan-hero"' + lockedAttr + '>' +
+      '<div class="loan-hero-label">Loan Amount' + (l.loanAmtLocked ? ' <span class="loan-hero-lock">LO override</span>' : '') + '</div>' +
+      '<div class="loan-hero-val" id="loanAmtDisplay">' + (loanAmt ? fmtM(loanAmt) : '<span class="empty">—</span>') + '</div>' +
+      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">Override</button>' +
+    '</div>';
     html += '<div class="fin-grid">' +
       '<div class="fin-cell"><div class="fin-label">Note Rate</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Loan Amount</div><div class="fin-val">'+fmtM(loanAmt)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
       // Item #10: existing loan amount, shown when refi
       ((loanPurpose === 'refi_co' || loanPurpose === 'refi_rt') && currentLoanAmt
@@ -401,7 +427,7 @@ function render() {
         : '') +
       '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(loanType||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(fico||'<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">DSCR</div><div class="fin-val'+(dscr?' green':'')+'">'+(dscr ? dscr+'x' : '<span class="empty">Not yet quoted</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">—</span>')+'</div></div>' +
@@ -412,16 +438,23 @@ function render() {
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
     '</div>';
   } else {
+    // Item #4 + #12: hero loan amount with override
+    var lockedAttr = l.loanAmtLocked ? ' data-locked="1"' : '';
+    html += '<div class="loan-hero"' + lockedAttr + '>' +
+      '<div class="loan-hero-label">Loan Amount' + (l.loanAmtLocked ? ' <span class="loan-hero-lock">LO override</span>' : '') + '</div>' +
+      '<div class="loan-hero-val" id="loanAmtDisplay">' + (loanAmt ? fmtM(loanAmt) : '<span class="empty">—</span>') + '</div>' +
+      '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">Override</button>' +
+    '</div>';
     html += '<div class="fin-grid">' +
       '<div class="fin-cell"><div class="fin-label">Rate</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Purchase Price</div><div class="fin-val">'+fmtM(purchasePrice||loanAmt)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Rehab Budget</div><div class="fin-val">'+fmtM(rehabBudget)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">ARV</div><div class="fin-val">'+fmtM(arv)+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(fico||'<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
       (loanType ? '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+escH(loanType)+'</div></div>' : '') +
       (loanTerm ? '<div class="fin-cell"><div class="fin-label">Loan Term</div><div class="fin-val">'+escH(loanTerm)+' mo</div></div>' : '') +
-      (experience ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experience)+'</div></div>' : '') +
+      (experienceDisplay ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experienceDisplay)+'</div></div>' : '') +
     '</div>';
   }
 
@@ -510,6 +543,7 @@ function render() {
         '</select>' +
       '</div>' +
       '<div class="field"><label>Target Funding Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" /></div>' +
+      '<div class="field span2"><label>Description of Project</label><textarea id="af-projectDescription" placeholder="Briefly describe the work the borrower plans to complete (F&amp;F loans only)">'+escH(l.projectDescription||'')+'</textarea></div>' +
       '<div class="field span2"><label>Notes</label><textarea id="af-notes" placeholder="Additional notes about this loan…">'+escH(l.notes||'')+'</textarea></div>' +
     '</div>' +
     '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
@@ -533,6 +567,50 @@ function render() {
   document.getElementById('pageContent').innerHTML = html;
 }
 
+// Item #4: LO can override the loan amount on Loan Details. Setting the
+// `loanAmtLocked` flag prevents future sizer re-saves from overwriting it.
+function overrideLoanAmt() {
+  if (!_loan || !_client) return;
+  var displayEl = document.getElementById('loanAmtDisplay');
+  var heroEl    = displayEl ? displayEl.closest('.loan-hero') : null;
+  if (!displayEl) return;
+  var btn = heroEl.querySelector('.loan-hero-edit');
+  // Replace display with input, swap button to Save
+  var current = (_loan.loanAmt || '').toString().replace(/[^0-9.]/g, '');
+  displayEl.outerHTML = '<input type="number" min="0" step="1000" id="loanAmtInput" class="loan-hero-input" value="' + current + '" />';
+  btn.textContent = 'Save';
+  btn.onclick = function() {
+    var input = document.getElementById('loanAmtInput');
+    var newAmt = (input.value || '').toString();
+    if (!newAmt) { showToast('Enter a loan amount'); return; }
+    _loan.loanAmt = newAmt;
+    _loan.loanAmtLocked = true;
+    _loan.updatedAt = new Date().toISOString();
+    persistClient().then(function() {
+      showToast('Loan amount overridden — saved');
+      // Re-render the page so the hero shows the locked badge
+      if (typeof render === 'function') render();
+    }).catch(function(err) {
+      showToast('Save failed: ' + (err.message || 'unknown'));
+    });
+  };
+}
+
+// Save the current _client back via SLA.Clients.save, ensuring _loan changes
+// are persisted to the parent client record.
+function persistClient() {
+  // Find the matching loan in client.loans and replace it
+  if (!_client.loans) _client.loans = [];
+  var idx = _client.loans.findIndex(function(l){ return l.id === _loan.id; });
+  if (idx >= 0) _client.loans[idx] = _loan;
+  else _client.loans.unshift(_loan);
+  var saveOpts = _client;
+  if (_loEmail && _user && _loEmail !== _user.email) {
+    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
+  }
+  return SLA.Clients.save(saveOpts);
+}
+
 function saveAppFields() {
   if (!_loan || !_client) return;
   var appFields = {
@@ -544,6 +622,7 @@ function saveAppFields() {
     rentalType:  document.getElementById('af-rentalType').value,
     fundingDate: document.getElementById('af-fundingDate').value,
     notes:       document.getElementById('af-notes').value.trim(),
+    projectDescription: (document.getElementById('af-projectDescription') || { value: '' }).value.trim(),
     updatedAt:   new Date().toISOString(),
   };
 

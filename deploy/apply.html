@@ -295,6 +295,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             </div>
             <div class="err-msg" id="err-estimatedARV">Required</div>
           </div>
+          <div class="field" style="grid-column:1/-1">
+            <div class="wrap" id="wrap-projectDescription">
+              <label>Description of Project</label>
+              <textarea id="projectDescription" rows="3" placeholder="Briefly describe the work you plan to complete (e.g., full kitchen + bath renovation, roof replacement, etc.)" oninput="clearE('projectDescription')"></textarea>
+            </div>
+          </div>
         </div>
 
         <!-- DSCR only — rental income -->
@@ -593,6 +599,7 @@ function submitApp() {
     propertyValue:   gv('propertyValue'),
     rehabCost:       gv('rehabCost'),
     estimatedARV:    gv('estimatedARV'),
+    projectDescription: gv('projectDescription'),
     flipsCompleted:  gv('flipsCompleted'),
     monthlyRent:     gv('monthlyRent'),
     monthlyTaxes:    gv('monthlyTaxes'),

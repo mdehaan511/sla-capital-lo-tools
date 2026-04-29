@@ -35,7 +35,9 @@ window.ClientBook = {
       updatedAt:   new Date().toISOString(),
       status:      quoteStatus || 'active',
       // Sizer financials (read-only on Loan Details)
-      loanAmt:     formData.loanAmt     || formData.purchasePrice || '',
+      // Item #4: when sizer computes a max-allowable loan, that becomes the
+      // saved loanAmt. LO can override on Loan Details (loanAmtLocked flag).
+      loanAmt:     formData._maxLoan || formData.loanAmt || formData.purchasePrice || '',
       loanType:    formData.loanType    || '',
       fico:        formData.fico        || '',
       rate:        formData._finalRate  || '',
@@ -54,6 +56,9 @@ window.ClientBook = {
       rehabBudget:   formData.rehabBudget   || '',
       arv:           formData.arv           || '',
       experience:    formData.experience    || '',
+      experienceLabel: formData.experienceLabel || '',
+      ficoLabel:     formData.ficoLabel     || '',
+      propTypeLabel: formData.propTypeLabel || '',
       currentLoanAmt: formData.currentLoanAmt || '',
       // Item #2 (loan-app prefill): the computed max loan from the sizer
       maxLoan:       formData._maxLoan       || '',
@@ -1024,6 +1029,18 @@ function prefillRTLFromProspect(p) {
   if (p.rehabCost)     { var rb=gEl('rehabBudget');   if(rb) rb.value=p.rehabCost; }
   var arvVal = p.estimatedARV||p.propertyValue||'';
   if (arvVal) { var av=gEl('arv'); if(av) av.value=arvVal; }
+  // Item #2: map flipsCompleted (number) to the experience-tier select.
+  // Sizer tiers: 8+ projects → "8" (Tier 1), 4-7 → "5" (Tier 2), 0-3 → "1" (Tier 3).
+  var flips = parseInt(p.flipsCompleted, 10);
+  if (isFinite(flips)) {
+    var tier = flips >= 8 ? '8' : flips >= 4 ? '5' : '1';
+    var expEl = gEl('experience');
+    if (expEl) {
+      for (var ti = 0; ti < expEl.options.length; ti++) {
+        if (expEl.options[ti].value === tier) { expEl.selectedIndex = ti; break; }
+      }
+    }
+  }
   if (typeof toggleRehab==='function') toggleRehab();
   if (typeof updateRegion==='function') updateRegion();
   // Pre-fill borrower fields from prospect
@@ -1054,8 +1071,22 @@ function saveCurrentQuote() {
     var el = document.getElementById(id);
     if (el) formData[id] = el.value;
   });
+  // Item #5/#6: also capture the human-readable label for fico + experience
+  // so Loan Details and Submission page can show "740+" instead of "740".
+  var ficoEl = document.getElementById('fico');
+  var expEl  = document.getElementById('experience');
+  var ptEl   = document.getElementById('propType');
+  if (ficoEl && ficoEl.options[ficoEl.selectedIndex]) {
+    formData.ficoLabel = ficoEl.options[ficoEl.selectedIndex].text;
+  }
+  if (expEl && expEl.options[expEl.selectedIndex]) {
+    formData.experienceLabel = expEl.options[expEl.selectedIndex].text;
+  }
+  if (ptEl && ptEl.options[ptEl.selectedIndex]) {
+    formData.propTypeLabel = ptEl.options[ptEl.selectedIndex].text;
+  }
 
-  var addrFull = [formData.propStreet, formData.propCity, formData.propState].filter(Boolean).join(', ');
+  var addrFull = [formData.propStreet, formData.propCity, formData.propState, formData.propZip].filter(Boolean).join(', ');
   if (!addrFull.trim()) { showToast('Add a property address before saving'); return; }
 
   formData.address  = addrFull;
@@ -1140,7 +1171,7 @@ function loadRTLQuote(formData) {
   if (typeof updateRegion === 'function') updateRegion();
   calculate();
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  var addrFull = [formData.propStreet, formData.propCity, formData.propState].filter(Boolean).join(', ');
+  var addrFull = [formData.propStreet, formData.propCity, formData.propState, formData.propZip].filter(Boolean).join(', ');
   showToast('Quote loaded — ' + (addrFull || 'unnamed'));
 }
 
@@ -1612,23 +1643,34 @@ function downloadRTLPDF() {
     ['Desktop Analysis',           '$120'],
   ];
   var totalFees=origFee+995+700+500+120;
-  var feeBlockH=22+feeRows.length*ROW_H+ROW_H+14;
+  // Item #3: parse down payment for inclusion in cash-to-close
+  var dpNum = parseFloat((dpDisp||'').replace(/[$,]/g,''))||0;
+  var cashToClose = totalFees + dpNum;
+  // Build the rows including down payment and total
+  var feeBlockH=22+feeRows.length*ROW_H+ROW_H*2+24;
   doc.setFillColor(255,255,255);
   doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
   rr(lm,y,cw,feeBlockH,4,'FD');
   var fy=y+6;
   doc.setFont('helvetica','bold'); doc.setFontSize(10);
   doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
-  doc.text('Estimated Closing Costs',lm+10,fy+ROW_H*0.65);
+  doc.text('Estimated Cash to Close',lm+10,fy+ROW_H*0.65);
   fy+=ROW_H;
   doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
   doc.line(lm+8,fy,lm+cw-8,fy);
   feeRows.forEach(function(row,i){
-    fy=trow(row[0],row[1],fy,{labelColor:MUTED,valueColor:TEXT,noLine:i===feeRows.length-1});
+    fy=trow(row[0],row[1],fy,{labelColor:MUTED,valueColor:TEXT,noLine:false});
   });
+  // Add down payment row
+  fy=trow('Required Down Payment',fmtD(dpNum),fy,{labelColor:MUTED,valueColor:TEXT,noLine:true});
   doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
   doc.line(lm+8,fy,lm+cw-8,fy); fy+=4;
-  trow('Total Estimated Closing Costs',fmtD(totalFees),fy,{labelColor:TEXT,labelBold:true,valueColor:TEXT,valueBold:true,valueFontSize:13,noLine:true});
+  trow('Total Estimated Cash to Close',fmtD(cashToClose) + '*',fy,{labelColor:TEXT,labelBold:true,valueColor:TEXT,valueBold:true,valueFontSize:13,noLine:true});
+  fy += ROW_H + 4;
+  // Asterisk note
+  doc.setFont('helvetica','italic'); doc.setFontSize(7.5);
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text('* Does not include standard title and escrow fees or required prepaid taxes and insurance.', lm+10, fy);
   y+=feeBlockH+10;
 
   // Legal footer
