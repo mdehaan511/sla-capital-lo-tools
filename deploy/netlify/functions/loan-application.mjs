@@ -17,6 +17,7 @@
  *   [Person Date of Birth (person custom)]      → guarantor[0] dob
  *   [Person Estimated Credit Score ...]         → guarantor[0] fico
  *   [Person Marital Status (person custom)]     → guarantor[0] marital
+ *   [Person Social Security Number (...)]       → guarantor[0] ssn (decrypted in-memory)
  *   [Person Home Address (person custom)]       → guarantor[0] address+city+state+zip
  *   [Person Mailing Address (person custom)]    → same as home (no separate mailing field today)
  *   [Deal 2nd Borrower XXX]                     → guarantor[1] equivalents
@@ -245,6 +246,7 @@ function buildContext(data, record, client) {
     'Person Date of Birth (person custom)':           g0.dob || '',
     'Person Estimated Credit Score (person custom)':  g0.fico || '',
     'Person Marital Status (person custom)':          maritalLabel(g0.marital),
+    'Person Social Security Number (person custom)':  g0.ssn || '',
     'Person Home Address (person custom)':            composeAddr(g0.address, g0.city, g0.state, g0.zip),
     'Person Mailing Address (person custom)':         composeAddr(g0.address, g0.city, g0.state, g0.zip),
 
@@ -292,6 +294,7 @@ function buildContext(data, record, client) {
     'Deal 2nd Borrower DOB (deal custom)':            g1.dob || '',
     'Deal 2nd Borrower Credit Score (deal custom)':   g1.fico || '',
     'Deal 2nd Borrower Marital Status (deal custom)': maritalLabel(g1.marital),
+    'Deal 2nd Borrower SSN (deal custom)':            g1.ssn || '',
     'Deal 2nd Borrower Home Address (deal custom)':   composeAddr(g1.address, g1.city, g1.state, g1.zip),
   };
 }

@@ -1124,6 +1124,7 @@ function rmdComplete() {
     closeReminderModal();
     showToast('Reminder completed');
     loadAll();
+    if (typeof window.__slaNotifRefresh === 'function') window.__slaNotifRefresh();
   }).catch(function(err) {
     btn.disabled = false; btn.textContent = 'Mark complete';
     var s = document.getElementById('rmdStatus');
@@ -1144,6 +1145,7 @@ function rmdDelete() {
     closeReminderModal();
     showToast('Reminder deleted');
     loadAll();
+    if (typeof window.__slaNotifRefresh === 'function') window.__slaNotifRefresh();
   }).catch(function(err) {
     btn.disabled = false;
     var s = document.getElementById('rmdStatus');

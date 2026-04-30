@@ -56,9 +56,16 @@
       '.sla-notif-hdr{padding:12px 14px 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;border-bottom:1px solid #f0ece5;display:flex;justify-content:space-between;align-items:baseline}' +
       '.sla-notif-hdr .count{color:#7c1f1f}' +
       '.sla-notif-empty{padding:22px 14px;font-size:13px;color:#7a7488;text-align:center}' +
-      '.sla-notif-item{padding:10px 14px;border-bottom:1px solid #f0ece5;cursor:pointer;display:flex;gap:10px;transition:background .1s;text-decoration:none;color:inherit}' +
+      '.sla-notif-item{padding:10px 14px;border-bottom:1px solid #f0ece5;display:flex;gap:10px;align-items:center;transition:background .1s}' +
       '.sla-notif-item:last-child{border-bottom:none}' +
       '.sla-notif-item:hover{background:rgba(200,129,58,0.06)}' +
+      '.sla-notif-link{flex:1;display:flex;gap:10px;text-decoration:none;color:inherit;min-width:0}' +
+      '.sla-notif-done{flex-shrink:0;width:24px;height:24px;border-radius:50%;border:1px solid #ddd8d0;background:#fff;color:#7a7488;cursor:pointer;font-size:13px;font-family:inherit;display:flex;align-items:center;justify-content:center;line-height:1;transition:all .15s}' +
+      '.sla-notif-done:hover{background:#256940;color:#fff;border-color:#256940}' +
+      '.sla-notif-done:disabled{opacity:0.5;cursor:wait}' +
+      '.sla-notif-footer{padding:10px 14px;border-top:1px solid #f0ece5;text-align:center}' +
+      '.sla-notif-clear-all{font-size:11px;font-weight:600;font-family:inherit;background:none;border:none;color:#7a7488;cursor:pointer;text-transform:uppercase;letter-spacing:.06em}' +
+      '.sla-notif-clear-all:hover{color:#7c1f1f;text-decoration:underline}' +
       '.sla-notif-item .pin{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:6px}' +
       '.sla-notif-item.due .pin{background:#7c1f1f}' +
       '.sla-notif-item.future .pin{background:#C8813A}' +
@@ -126,9 +133,47 @@
           // sees the loan in the new "In Processing" column.
           link: 'pipeline.html',
         };
+      }).filter(function(ev) {
+        // Hide events the user has already dismissed (persisted in localStorage)
+        return !isDismissed(ev.id);
       });
       render(reminders, loanAppEvents);
     }).catch(function() { /* silent */ });
+  }
+
+  // ── Dismissal persistence (loan-app events) ─────────────
+  // Reminders complete server-side via SLA.Reminders.complete. Loan-app
+  // events have nothing to "complete" server-side — they're derived from
+  // the quote's status. We track dismissals in localStorage so dismissed
+  // events don't reappear.
+  function loadDismissed() {
+    try {
+      var raw = localStorage.getItem('sla_notif_dismissed') || '{}';
+      var obj = JSON.parse(raw);
+      // Garbage-collect entries older than 30 days
+      var cutoff = Date.now() - 30 * 86400000;
+      Object.keys(obj).forEach(function(k) {
+        if (obj[k] < cutoff) delete obj[k];
+      });
+      return obj;
+    } catch(_) { return {}; }
+  }
+  function saveDismissed(obj) {
+    try { localStorage.setItem('sla_notif_dismissed', JSON.stringify(obj)); } catch(_) {}
+  }
+  function isDismissed(id) {
+    var d = loadDismissed();
+    return !!d[id];
+  }
+  function dismiss(id) {
+    var d = loadDismissed();
+    d[id] = Date.now();
+    saveDismissed(d);
+  }
+  function dismissAllVisible(loanAppIds) {
+    var d = loadDismissed();
+    loanAppIds.forEach(function(id) { d[id] = Date.now(); });
+    saveDismissed(d);
   }
 
   function render(reminders, loanAppEvents) {
@@ -176,6 +221,12 @@
     if (!due.length && !future.length && !loanAppEvents.length) {
       html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Reminders and loan-app completions will appear here.</span></div>';
     }
+    // Footer: Clear All button (only if there's anything actionable)
+    if (due.length || loanAppEvents.length) {
+      html += '<div class="sla-notif-footer">' +
+        '<button class="sla-notif-clear-all" onclick="window.__slaNotifClearAll()">Clear all notifications</button>' +
+      '</div>';
+    }
 
     var drop = document.getElementById('slaNotifDrop');
     drop.innerHTML = html;
@@ -186,13 +237,16 @@
     // (the card will be highlighted briefly via focusLoan param)
     var quoteId = String(ev.id || '').replace(/^la_/, '');
     var href = 'pipeline.html?focusLoan=' + encodeURIComponent(quoteId);
-    return '<a class="sla-notif-item due" href="' + esc(href) + '">' +
-      '<div class="pin"></div>' +
-      '<div class="body">' +
-        '<div class="title">📋 Loan app received: ' + esc(ev.title) + '</div>' +
-        '<div class="meta">' + esc(ev.subtitle) + '  ·  ' + fmtDate(ev.dateIso) + '</div>' +
-      '</div>' +
-    '</a>';
+    return '<div class="sla-notif-item due">' +
+      '<a href="' + esc(href) + '" class="sla-notif-link">' +
+        '<div class="pin"></div>' +
+        '<div class="body">' +
+          '<div class="title">📋 Loan app received: ' + esc(ev.title) + '</div>' +
+          '<div class="meta">' + esc(ev.subtitle) + '  ·  ' + fmtDate(ev.dateIso) + '</div>' +
+        '</div>' +
+      '</a>' +
+      '<button class="sla-notif-done" data-loanapp-id="' + esc(ev.id) + '" title="Dismiss" onclick="window.__slaNotifDismissLoanApp(this)">✓</button>' +
+    '</div>';
   }
 
   function renderItem(r, cls) {
@@ -200,14 +254,19 @@
     var title = r.borrower || r.address || 'Reminder';
     var meta  = (r.address && r.borrower) ? r.address + '  ·  ' + fmtDate(r.dueDate) : fmtDate(r.dueDate);
     var href = 'pipeline.html?openReminder=' + encodeURIComponent(r.id || '');
-    return '<a class="sla-notif-item ' + cls + '" href="' + esc(href) + '">' +
-      '<div class="pin"></div>' +
-      '<div class="body">' +
-        '<div class="title">' + esc(title) + '</div>' +
-        '<div class="meta">' + esc(meta) + '</div>' +
-        '<div class="note">' + esc(r.note || '') + '</div>' +
-      '</div>' +
-    '</a>';
+    var rid = esc(r.id || '');
+    var ownerKey = esc(r.ownerKey || '');
+    return '<div class="sla-notif-item ' + cls + '">' +
+      '<a href="' + esc(href) + '" class="sla-notif-link">' +
+        '<div class="pin"></div>' +
+        '<div class="body">' +
+          '<div class="title">' + esc(title) + '</div>' +
+          '<div class="meta">' + esc(meta) + '</div>' +
+          '<div class="note">' + esc(r.note || '') + '</div>' +
+        '</div>' +
+      '</a>' +
+      '<button class="sla-notif-done" data-reminder-id="' + rid + '" data-owner-key="' + ownerKey + '" title="Mark complete" onclick="window.__slaNotifCompleteReminder(this)">✓</button>' +
+    '</div>';
   }
 
   function fmtDate(s) {
@@ -230,6 +289,71 @@
   }
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // ── Action handlers exposed for inline onclick ────────
+  // Mark a single reminder complete via the API, then refresh the bell.
+  window.__slaNotifCompleteReminder = function(btn) {
+    if (!window.SLA || !SLA.Reminders) return;
+    var id = btn.getAttribute('data-reminder-id');
+    var ownerKey = btn.getAttribute('data-owner-key') || '';
+    if (!id) return;
+    // Find the reminder we have in current dropdown to pass as the body
+    btn.disabled = true; btn.textContent = '…';
+    var payload = { id: id, completed: true, completedAt: new Date().toISOString() };
+    if (ownerKey && ownerKey !== (window.netlifyIdentity && netlifyIdentity.currentUser() && netlifyIdentity.currentUser().email || '').toLowerCase()) {
+      payload._owner = ownerKey;
+    }
+    SLA.Reminders.save(payload).then(function() {
+      // Remove the row immediately (visual feedback) then refresh
+      var row = btn.closest('.sla-notif-item');
+      if (row) row.remove();
+      refresh();
+    }).catch(function(err) {
+      btn.disabled = false; btn.textContent = '✓';
+      console.warn('Reminder complete failed:', err);
+    });
+  };
+
+  // Dismiss a single loan-app event (localStorage only — events are derived
+  // from quote status, no server delete needed).
+  window.__slaNotifDismissLoanApp = function(btn) {
+    var id = btn.getAttribute('data-loanapp-id');
+    if (!id) return;
+    dismiss(id);
+    var row = btn.closest('.sla-notif-item');
+    if (row) row.remove();
+    refresh();
+  };
+
+  // Clear all visible notifications: complete every due reminder + dismiss
+  // every loan-app event in the dropdown.
+  window.__slaNotifClearAll = function() {
+    if (!confirm('Clear all visible notifications? Due reminders will be marked complete.')) return;
+    var drop = document.getElementById('slaNotifDrop');
+    if (!drop) return;
+    // Collect IDs from the current dropdown
+    var reminderBtns = drop.querySelectorAll('button[data-reminder-id]');
+    var loanAppBtns  = drop.querySelectorAll('button[data-loanapp-id]');
+    // Dismiss loan-app events first (synchronous)
+    var loanAppIds = Array.from(loanAppBtns).map(function(b) { return b.getAttribute('data-loanapp-id'); });
+    if (loanAppIds.length) dismissAllVisible(loanAppIds);
+    // Complete each reminder via API (parallel)
+    var promises = Array.from(reminderBtns).map(function(b) {
+      var id = b.getAttribute('data-reminder-id');
+      var ownerKey = b.getAttribute('data-owner-key') || '';
+      if (!id || !window.SLA || !SLA.Reminders) return Promise.resolve();
+      var payload = { id: id, completed: true, completedAt: new Date().toISOString() };
+      if (ownerKey && ownerKey !== (netlifyIdentity.currentUser() && netlifyIdentity.currentUser().email || '').toLowerCase()) {
+        payload._owner = ownerKey;
+      }
+      return SLA.Reminders.save(payload).catch(function(){});
+    });
+    Promise.all(promises).then(function() { refresh(); });
+  };
+
+  // Public refresh hook — Pipeline can call this after a reminder is
+  // completed/deleted via its modal so the bell updates immediately.
+  window.__slaNotifRefresh = refresh;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', inject);
