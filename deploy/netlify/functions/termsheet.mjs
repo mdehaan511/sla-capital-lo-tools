@@ -192,6 +192,23 @@ function buildContext(quote, client, loProfile) {
     return isFinite(n) ? n : null;
   };
 
+  // Find the matching loan in the client record so we can prefer LO-overridden
+  // loan amounts (where loanAmtLocked=true) over the original sizer formData.
+  let matchingLoan = null;
+  if (client && Array.isArray(client.loans)) {
+    const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const targetFull   = norm(quote.address);
+    const targetStreet = targetFull.split(',')[0].trim().replace(/\s+/g, ' ');
+    matchingLoan = client.loans.find((l) => norm(l.address) === targetFull);
+    if (!matchingLoan) {
+      matchingLoan = client.loans.find((l) => {
+        const ls = norm(l.address).split(',')[0].trim().replace(/\s+/g, ' ');
+        return ls && targetStreet && ls === targetStreet;
+      });
+    }
+  }
+  const loanRecAmt = matchingLoan && matchingLoan.loanAmt ? matchingLoan.loanAmt : null;
+
   // Borrower display name
   let borrower = '';
   if (client) {
@@ -215,8 +232,8 @@ function buildContext(quote, client, loProfile) {
     entity: '', // not captured today, leave blank
     loName, loEmail, loPhone, today,
 
-    // Loan basics
-    loanAmt:   num(fd.loanAmt || fd.purchasePrice || quote.loanAmt),
+    // Loan basics — prefer the loan-record loanAmt (carries any LO override).
+    loanAmt:   num(loanRecAmt || fd.loanAmt || fd.purchasePrice || quote.loanAmt),
     rate:      num(fd._finalRate || fd.rate),
     points:    num(fd._points || fd.points || fd.buydown),
     fico:      fd.fico || '',

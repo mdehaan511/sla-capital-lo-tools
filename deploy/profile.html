@@ -240,6 +240,16 @@
         <div class="save-status" id="submitEmailStatus"></div>
       </div>
 
+      <div class="setting-row">
+        <label>Maintenance — duplicate cleanup</label>
+        <div class="hint">Scans every client and merges loans that share the same street address. Runs in dry-run mode first; click the second button to actually apply.</div>
+        <div class="input-row">
+          <button class="small-btn" onclick="runDedupeLoans(true)">Scan (Dry Run)</button>
+          <button class="small-btn danger" onclick="runDedupeLoans(false)">Apply Cleanup</button>
+        </div>
+        <div class="save-status" id="dedupeStatus"></div>
+      </div>
+
     </div>
   </div>
 
@@ -609,6 +619,40 @@ function saveSubmitEmail() {
     status.className = 'save-status ok';
     status.textContent = '✓ Saved';
     setTimeout(function(){ status.textContent = ''; }, 4000);
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+// ── Maintenance: dedupe duplicate loans ───────────────────
+function runDedupeLoans(dryRun) {
+  var status = document.getElementById('dedupeStatus');
+  status.className = 'save-status';
+  status.textContent = dryRun ? 'Scanning…' : 'Applying cleanup…';
+  if (!dryRun && !confirm('Apply cleanup? This will merge duplicate loans on every client. Cannot be undone.')) {
+    status.textContent = '';
+    return;
+  }
+  netlifyIdentity.currentUser().jwt().then(function(token) {
+    return fetch('/api/clients-dedupe-loans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ dryRun: !!dryRun }),
+    });
+  }).then(function(r) {
+    return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+  }).then(function(resp) {
+    if (!resp.ok) {
+      status.className = 'save-status err';
+      status.textContent = 'Failed: ' + (resp.data.error || 'unknown');
+      return;
+    }
+    var d = resp.data;
+    status.className = 'save-status ok';
+    status.textContent = (d.dryRun ? '[Dry Run] ' : '✓ ') +
+      'Touched ' + d.clientsTouched + ' client(s), removed ' + d.loansRemoved + ' duplicate loan(s).' +
+      (d.samples && d.samples.length ? ' Samples: ' + d.samples.map(function(s){ return s.client + ' (' + s.before + '→' + s.after + ')'; }).join(', ') : '');
   }).catch(function(err) {
     status.className = 'save-status err';
     status.textContent = 'Failed: ' + (err.message || 'unknown');

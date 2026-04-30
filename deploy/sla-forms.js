@@ -136,25 +136,35 @@
       var place = ac.getPlace();
       if (!place || !place.address_components) return;
       var p = parseComponents(place.address_components);
-      var street = (p.streetNumber + ' ' + p.route).trim();
-      el.value = street;
-
       var cityId  = el.getAttribute('data-sla-ac-city');
       var stateId = el.getAttribute('data-sla-ac-state');
       var zipId   = el.getAttribute('data-sla-ac-zip');
-      if (cityId)  setVal(cityId, p.city);
-      if (stateId) setVal(stateId, p.state);
-      if (zipId)   setVal(zipId, p.zip);
-      // Fire input events on the populated fields so any framework state stays in sync
-      [cityId, stateId, zipId].forEach(function(id) {
-        if (!id) return;
-        var t = document.getElementById(id);
-        if (t) {
-          t.dispatchEvent(new Event('input',  { bubbles: true }));
-          t.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      });
-      // Same for the street field itself so any oninput handlers fire
+      // If companion field IDs are provided AND those fields exist, split
+      // the address into street + city + state + zip. Otherwise fall back to
+      // the full one-line formatted_address (e.g., "1804 W Westover Ln,
+      // Spokane, WA 99224, USA").
+      var hasCompanions = (cityId && document.getElementById(cityId))
+                       || (stateId && document.getElementById(stateId))
+                       || (zipId && document.getElementById(zipId));
+      if (hasCompanions) {
+        var street = (p.streetNumber + ' ' + p.route).trim();
+        el.value = street;
+        if (cityId  && document.getElementById(cityId))  setVal(cityId, p.city);
+        if (stateId && document.getElementById(stateId)) setVal(stateId, p.state);
+        if (zipId   && document.getElementById(zipId))   setVal(zipId, p.zip);
+        [cityId, stateId, zipId].forEach(function(id) {
+          if (!id) return;
+          var t = document.getElementById(id);
+          if (t) {
+            t.dispatchEvent(new Event('input',  { bubbles: true }));
+            t.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+      } else {
+        // Single-field mode: keep the full formatted address (strip ", USA" suffix)
+        var full = String(place.formatted_address || '').replace(/,\s*USA$/i, '');
+        el.value = full;
+      }
       el.dispatchEvent(new Event('input',  { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     });

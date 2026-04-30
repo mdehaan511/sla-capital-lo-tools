@@ -558,15 +558,12 @@ function renderPage2() {
   return '<h3>Property</h3>' +
 
     '<h4>Property address</h4>' +
-    field('propertyAddress', 'Street address', 'text', { required: true, placeholder: '1234 Main St', autocomplete: 'property' }) +
-    rowFields(
-      field('propertyAddress2', 'Address line 2 (optional)', 'text'),
-    ) +
-    '<div class="field-row-3">' +
-      field('propertyCity',  'City', 'text', { required: true }) +
-      field('propertyState', 'State', 'select', { required: true, options: stateOptions() }) +
-      field('propertyZip',   'Zip', 'text', { required: true }) +
-    '</div>' +
+    field('propertyAddress', 'Property address', 'text', {
+      required: true,
+      placeholder: '1234 Main St, Spokane, WA 99224',
+      autocomplete: 'property',
+      hint: 'Start typing and select a suggestion. The full address will be saved as one line.',
+    }) +
 
     field('floodZone', 'Is the property in a Flood Zone?', 'radio', {
       options: [
@@ -803,14 +800,11 @@ function renderPage4() {
       field('llcState', 'State LLC is registered in', 'select', { required: true, options: stateOptions() }) +
       '</div>' +
       field('llcEIN', 'Vesting Entity EIN', 'text', { placeholder: 'XX-XXXXXXX', mask: 'ein' }) +
-      '<div class="field-row">' +
-        field('llcAddress', 'Entity registered address', 'text', { autocomplete: 'llc' }) +
-        field('llcCity',    'City', 'text') +
-      '</div>' +
-      '<div class="field-row">' +
-        field('llcAddrState', 'State', 'select', { options: stateOptions() }) +
-        field('llcZip', 'Zip', 'text') +
-        '</div>';
+      field('llcAddress', 'Entity registered address', 'text', {
+        autocomplete: 'llc',
+        placeholder: '500 Main St, Spokane, WA 99201',
+        hint: 'Start typing and select a suggestion.',
+      });
   }
 
   html +=
@@ -868,12 +862,12 @@ function renderGuarantor(idx, label) {
           hint: 'Securely encrypted at rest. Used only for the loan application document.',
         })
     ) +
-    field(prefix + 'address', 'Home address (street)', 'text', { required: true, autocomplete: 'guarantor:' + idx }) +
-    '<div class="field-row-3">' +
-      field(prefix + 'city',  'City',  'text', { required: true }) +
-      field(prefix + 'state', 'State', 'select', { required: true, options: stateOptions() }) +
-      field(prefix + 'zip',   'Zip',   'text', { required: true }) +
-      '</div>' +
+    field(prefix + 'address', 'Home address', 'text', {
+      required: true,
+      placeholder: '123 Main St, Spokane, WA 99224',
+      autocomplete: 'guarantor:' + idx,
+      hint: 'Start typing and select a suggestion.',
+    }) +
     '<div class="field-row">' +
       field(prefix + 'marital', 'Marital Status', 'radio', {
         required: true,
@@ -940,22 +934,10 @@ function field(name, label, type, opts) {
     // 'guarantor:1', 'llc'. Each maps to a set of companion field IDs.
     var autoAttr = '';
     if (opts.autocomplete) {
-      var which = opts.autocomplete;
-      var cityId = '', stateId = '', zipId = '';
-      if (which === 'property') {
-        cityId = 'f_propertyCity'; stateId = 'f_propertyState'; zipId = 'f_propertyZip';
-      } else if (which.indexOf('guarantor:') === 0) {
-        var idx = which.split(':')[1];
-        cityId = 'f_g' + idx + '_city';
-        stateId = 'f_g' + idx + '_state';
-        zipId = 'f_g' + idx + '_zip';
-      } else if (which === 'llc') {
-        cityId = 'f_llcCity'; stateId = 'f_llcAddrState'; zipId = 'f_llcZip';
-      }
-      autoAttr = ' data-sla-autocomplete' +
-                 ' data-sla-ac-city="' + cityId + '"' +
-                 ' data-sla-ac-state="' + stateId + '"' +
-                 ' data-sla-ac-zip="' + zipId + '"';
+      // Single-line address mode: just emit the autocomplete attribute and
+      // let sla-forms.js fall back to formatted_address (no city/state/zip
+      // companion fields exist on the long form anymore).
+      autoAttr = ' data-sla-autocomplete';
     }
     // Money fields render as text+inputmode=decimal so we can format with $ and commas
     if (opts.money) {

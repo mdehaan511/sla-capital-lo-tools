@@ -584,13 +584,31 @@ function render() {
 function syncOverrideToQuote() {
   if (!_loan || !_loan.address) return Promise.resolve();
   if (!window.SLA || !SLA.Quotes) return Promise.resolve();
-  return SLA.Quotes.list().then(function(r) {
-    var quotes = (r && r.quotes) || [];
-    var targetAddr = String(_loan.address).toLowerCase().trim();
+  // Admin viewing another LO's loan: list the OWNER's quotes, not the current
+  // user's. Otherwise we'd find no match.
+  var listOpts = {};
+  if (_loEmail && _user && _loEmail !== _user.email && SLA.isAdmin && SLA.isAdmin(_user)) {
+    listOpts.all = true;
+  }
+  return SLA.Quotes.list(listOpts).then(function(r) {
+    var quotes = (r && r.quotes) || (r && r.byOwner ? Object.values(r.byOwner).flat() : []);
+    var targetFull = String(_loan.address).toLowerCase().trim();
+    var targetStreet = targetFull.split(',')[0].trim().replace(/\s+/g, ' ');
+    // Match by full address first, then fall back to street-segment
     var match = quotes.find(function(q) {
-      return String(q.address || '').toLowerCase().trim() === targetAddr;
+      return String(q.address || '').toLowerCase().trim() === targetFull;
     });
-    if (!match) return;
+    if (!match) {
+      match = quotes.find(function(q) {
+        var qFull = String(q.address || '').toLowerCase().trim();
+        var qStreet = qFull.split(',')[0].trim().replace(/\s+/g, ' ');
+        return qStreet && targetStreet && qStreet === targetStreet;
+      });
+    }
+    if (!match) {
+      console.warn('syncOverrideToQuote: no matching quote for', _loan.address);
+      return;
+    }
     // Update both top-level loanAmt and formData.loanAmt
     var updated = Object.assign({}, match);
     if (!updated.formData) updated.formData = {};

@@ -157,6 +157,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/clients-dedupe-loans"
+  to = "/.netlify/functions/clients-dedupe-loans"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"
   status = 200

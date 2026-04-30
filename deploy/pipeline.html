@@ -305,9 +305,14 @@
 
     /* Prospect select-box */
     .prospect-card { position: relative; }
-    .select-box { position: absolute; top: 8px; right: 8px; cursor: pointer; padding: 4px; }
+    .card { position: relative; }
+    .select-box { position: absolute; top: 8px; right: 8px; cursor: pointer; padding: 4px; z-index: 2; }
     .select-box input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--gold); }
     .prospect-card:has(input[type="checkbox"]:checked) { border-color: var(--gold); background: rgba(200,129,58,0.04); }
+    /* Decline checkbox lives top-left so it doesn't collide with the bell. */
+    .decline-box { position: absolute; top: 6px; left: 6px; cursor: pointer; padding: 4px; z-index: 2; background: var(--surface); border-radius: 4px; border: 1px solid var(--border); }
+    .decline-box input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--danger); display: block; }
+    .card.has-decline .card-title { padding-left: 32px; }
 
     /* Bulk action bar */
     .bulk-bar {
@@ -859,13 +864,15 @@ function buildQuoteCard(it, colKey) {
   // Item #7: admin can multi-select In-Processing loans to decline.
   // Checkbox renders only on the In Processing column for admins.
   var declineCb = '';
+  var declineClass = '';
   if (_isAdmin && colKey === 'approved' && lookup) {
     var declineKey = lookup.ownerKey + '|' + lookup.clientId + '|' + lookup.loanId;
     var dchecked = _selectedDecline.has(declineKey) ? ' checked' : '';
     declineCb =
-      '<label class="select-box" title="Select to decline" style="left:8px;right:auto">' +
+      '<label class="decline-box" title="Select to decline">' +
         '<input type="checkbox" class="decline-cb" data-key="' + escAttr(declineKey) + '" onchange="toggleDeclineSelect(this)"' + dchecked + ' />' +
       '</label>';
+    declineClass = ' has-decline';
   }
 
   // Item #7: address links to Loan Details when we have a loan record
@@ -874,7 +881,7 @@ function buildQuoteCard(it, colKey) {
     : escH(addr || '— no address —');
 
   return (
-    '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + '">' +
+    '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + declineClass + '">' +
       declineCb +
       bellForLoan(lookup, q, addr) +
       loRow +
@@ -1241,7 +1248,7 @@ function bulkDeclineInProcessing() {
     });
     if (!item) return Promise.resolve();
     var opts = ownerKey !== (_user.email || '').toLowerCase() ? { _owner: ownerKey } : {};
-    return SLA.Admin.decideQuote(item.id, 'denied', 'Declined during processing.', opts);
+    return SLA.Admin.decideQuote(ownerKey, item.id, 'denied', 'Declined during processing.');
   });
   Promise.all(promises).then(function() {
     showToast(keys.length + ' loan' + (keys.length === 1 ? '' : 's') + ' moved to Declined');
