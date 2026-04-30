@@ -327,18 +327,23 @@ function applyPrefillToData() {
     if (!d.purchasePrice && pf.loan.purchasePrice) d.purchasePrice = pf.loan.purchasePrice;
     if (!d.arv && pf.loan.arv)                     d.arv = pf.loan.arv;
     if (!d.renoCost && pf.loan.rehabBudget)        d.renoCost = pf.loan.rehabBudget;
-    if (!d.requestedLoanFF && d.loanType === 'fix_flip') {
-      // Item #2/#9: prefer the LO-set loan amount (which carries any override)
-      // over the sizer-computed max. If no override + no loanAmt, fall back to max.
-      if (pf.loan.loanAmt && pf.loan.loanAmtLocked) {
-        d.requestedLoanFF = pf.loan.loanAmt;
-      } else if (pf.loan.maxLoan) {
-        d.requestedLoanFF = pf.loan.maxLoan;
-      } else if (pf.loan.loanAmt) {
-        d.requestedLoanFF = pf.loan.loanAmt;
+    // Item #4: when LO has overridden the loan amount on Loan Details
+    // (loanAmtLocked=true), FORCE the requested loan field to that value
+    // even if the borrower previously typed something. The override is
+    // authoritative once set.
+    if (pf.loan.loanAmtLocked && pf.loan.loanAmt) {
+      if (d.loanType === 'fix_flip')   d.requestedLoanFF   = pf.loan.loanAmt;
+      if (d.loanType === 'dscr')       d.requestedLoanDSCR = pf.loan.loanAmt;
+    } else {
+      // No override: only fill if empty
+      if (!d.requestedLoanFF && d.loanType === 'fix_flip') {
+        if (pf.loan.maxLoan)        d.requestedLoanFF = pf.loan.maxLoan;
+        else if (pf.loan.loanAmt)   d.requestedLoanFF = pf.loan.loanAmt;
+      }
+      if (!d.requestedLoanDSCR && pf.loan.loanAmt && d.loanType === 'dscr') {
+        d.requestedLoanDSCR = pf.loan.loanAmt;
       }
     }
-    if (!d.requestedLoanDSCR && pf.loan.loanAmt && d.loanType === 'dscr') d.requestedLoanDSCR = pf.loan.loanAmt;
     // Item #9: project description from short app → long app
     if (!d.planDescription && pf.loan.projectDescription) d.planDescription = pf.loan.projectDescription;
     if (!d.currentValue && pf.loan.propValue) d.currentValue = pf.loan.propValue;

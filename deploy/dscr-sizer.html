@@ -70,6 +70,8 @@
       rentalType:  formData.rentalType  || '',
       fundingDate: formData.fundingDate || '',
       notes:       formData.notes       || '',
+      // Full server-side pricing snapshot for rate sheet generation
+      pricingSnapshot: formData._pricingSnapshot || null,
     };
   },
 
@@ -1640,6 +1642,34 @@ function saveCurrentQuote() {
     _dscr:         r.dscr ? r.dscr.toFixed(2) : '',
     _totalPayment: r.totalPayment ? r.totalPayment.toFixed(2) : '',
     _points:       (1 + (parseFloat(r.buydown) || 0)).toFixed(2) + ' pts',
+    // ── Full pricing snapshot for server-side rate sheet generation ──
+    _pricingSnapshot: {
+      tool: 'dscr',
+      finalRate: r.finalRate,
+      baseRate: r.baseRate,
+      points: 1 + (parseFloat(r.buydown) || 0),
+      pi: r.pi,
+      monthlyTaxes: r.taxes,
+      monthlyInsurance: r.ins,
+      monthlyHoa: r.hoa,
+      totalPayment: r.totalPayment,
+      dscr: r.dscr,
+      ltv: r.ltv,
+      loanAmt: r.loan,
+      propValue: r.propVal,
+      origFee: r.origFee,
+      buydownFee: r.buydownFee,
+      totalFees: r.totalFees,
+      adjs: r.adjs || [],
+      isIO: r.isIO,
+      loanType: r.loanType,
+      propType: r.propType,
+      purpose: r.purpose,
+      prepay: r.prepay,
+      buydown: r.buydown,
+      fico: r.fico,
+      computedAt: new Date().toISOString(),
+    },
   };
 
   QuoteStore.saveQuote(_quoteUser, 'dscr', formData);
@@ -1786,12 +1816,43 @@ netlifyIdentity.on('init', function(user) {
           if (q && q.formData) {
             window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = q.formData.borrowerEmail || '';
-            loadQuoteIntoForm(q.formData);
-            tryAutoDownload();
-            return true;
+            // Item #2: apply LO override from loan record if present
+            return applyLockedOverrideIfAnyDSCR(q.formData).then(function(fd) {
+              loadQuoteIntoForm(fd);
+              tryAutoDownload();
+              return true;
+            });
           }
           return false;
         });
+      }
+
+      function applyLockedOverrideIfAnyDSCR(fd) {
+        if (!window.SLA || !SLA.Clients || !fd.address) return Promise.resolve(fd);
+        var listOpts = ownerParam ? { all: true } : {};
+        return SLA.Clients.list(listOpts).then(function(r) {
+          var clients = (r && r.clients)
+            || (r && r.byOwner ? Object.keys(r.byOwner).reduce(function(a,k){ return a.concat(r.byOwner[k]||[]); }, []) : []);
+          var norm = function(s) { return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); };
+          var targetFull   = norm(fd.address);
+          var targetStreet = targetFull.split(',')[0].trim().replace(/\s+/g, ' ');
+          var found = null;
+          clients.some(function(c) {
+            (c.loans || []).some(function(l) {
+              if (!l.address) return false;
+              var ls = norm(l.address);
+              var lstreet = ls.split(',')[0].trim().replace(/\s+/g, ' ');
+              if (ls === targetFull || (lstreet && lstreet === targetStreet)) { found = l; return true; }
+              return false;
+            });
+            return !!found;
+          });
+          if (found && found.loanAmtLocked && found.loanAmt) {
+            console.log('[sizer] Applying LO override: loanAmt = ' + found.loanAmt + ' (locked)');
+            fd = Object.assign({}, fd, { loanAmt: found.loanAmt, _loanAmtLocked: true });
+          }
+          return fd;
+        }).catch(function(){ return fd; });
       }
 
       function loadFromClientLoan() {

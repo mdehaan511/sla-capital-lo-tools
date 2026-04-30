@@ -117,11 +117,15 @@
       if (el.value) el.value = formatMoney(el.value);
     });
     // Autocomplete (Google Places) — only binds once Maps script is loaded
+    var acInputs = root.querySelectorAll('input[data-sla-autocomplete]');
     if (window.google && window.google.maps && window.google.maps.places) {
-      root.querySelectorAll('input[data-sla-autocomplete]').forEach(function(el) {
+      console.log('[sla-forms] Maps loaded, binding autocomplete to', acInputs.length, 'inputs');
+      acInputs.forEach(function(el) {
         if (el._slaAcBound) return;
         bindAutocomplete(el);
       });
+    } else if (acInputs.length > 0) {
+      console.log('[sla-forms] Found', acInputs.length, 'autocomplete inputs but Maps not loaded yet');
     }
   }
 
@@ -134,7 +138,11 @@
     });
     ac.addListener('place_changed', function() {
       var place = ac.getPlace();
-      if (!place || !place.address_components) return;
+      console.log('[sla-forms] place_changed for', el.id || '(no id)', '— place:', place);
+      if (!place || !place.address_components) {
+        console.warn('[sla-forms] no address_components on place — aborting');
+        return;
+      }
       var p = parseComponents(place.address_components);
       var cityId  = el.getAttribute('data-sla-ac-city');
       var stateId = el.getAttribute('data-sla-ac-state');
@@ -205,17 +213,30 @@
   // window.google before re-loading.
   function loadMapsIfNeeded(callback) {
     if (window.google && window.google.maps && window.google.maps.places) {
+      console.log('[sla-forms] Maps already loaded');
       callback(); return;
     }
+    console.log('[sla-forms] Fetching /api/config for Maps key...');
     fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
-      if (!cfg.googleMapsKey) { callback(); return; }
+      if (!cfg.googleMapsKey) {
+        console.warn('[sla-forms] /api/config returned no googleMapsKey — autocomplete disabled');
+        callback(); return;
+      }
+      console.log('[sla-forms] Loading Google Maps script...');
       var s = document.createElement('script');
       s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.googleMapsKey) +
               '&libraries=places&callback=__slaFormsMapsReady';
       s.async = true; s.defer = true;
-      window.__slaFormsMapsReady = function() { callback(); };
+      s.onerror = function() { console.error('[sla-forms] Maps script failed to load'); };
+      window.__slaFormsMapsReady = function() {
+        console.log('[sla-forms] Maps callback fired, ready to bind');
+        callback();
+      };
       document.head.appendChild(s);
-    }).catch(function() { callback(); });
+    }).catch(function(err) {
+      console.error('[sla-forms] /api/config fetch failed:', err);
+      callback();
+    });
   }
 
   // ── Boot ───────────────────────────────────────────────────

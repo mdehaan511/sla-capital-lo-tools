@@ -72,6 +72,7 @@ window.ClientBook = {
       rentalType:  formData.rentalType  || '',
       fundingDate: formData.fundingDate || '',
       notes:       formData.notes       || '',
+      pricingSnapshot: formData._pricingSnapshot || null,
     };
   },
 
@@ -1218,6 +1219,45 @@ function saveCurrentQuote() {
     }
   });
 
+  // Item: Full pricing snapshot for server-side rate sheet generation.
+  // Walk the metric cards + breakdown table on the rendered result and
+  // capture rate, points, max loan, down payment, monthly PI, and
+  // adjustments breakdown.
+  var snapshot = {
+    tool: 'rtl',
+    finalRate: null, points: null, maxLoan: null, downPayment: null, monthlyPI: null,
+    adjs: [], purchasePrice: parseFloat(formData.purchasePrice || 0) || 0,
+    rehabBudget: parseFloat(formData.rehabBudget || 0) || 0,
+    arv: parseFloat(formData.arv || 0) || 0,
+    loanType: formData.loanType || '', propType: formData.propType || '',
+    fico: formData.fico || '', purpose: formData.loanPurpose || '',
+    experience: formData.experience || '',
+    currentLoanAmt: parseFloat(formData.currentLoanAmt || 0) || 0,
+    computedAt: new Date().toISOString(),
+  };
+  if (rateEl) snapshot.finalRate = parseFloat(String(rateEl.textContent).replace(/[^0-9.]/g, '')) / 100 || null;
+  metricCards.forEach(function(card) {
+    var label = card.querySelector('.metric-label');
+    var value = card.querySelector('.metric-value.xl');
+    if (!label || !value) return;
+    var lbl = (label.textContent || '').trim();
+    var raw = parseFloat(String(value.textContent || '').replace(/[^0-9.]/g, '')) || 0;
+    if (/Maximum Loan Amount/i.test(lbl)) snapshot.maxLoan = raw;
+    else if (/Down Payment/i.test(lbl))   snapshot.downPayment = raw;
+    else if (/Monthly Payment|Monthly PI/i.test(lbl)) snapshot.monthlyPI = raw;
+    else if (/Origination/i.test(lbl))    snapshot.points = raw;
+  });
+  // Capture adjustment breakdown from the rate-tbl
+  document.querySelectorAll('#results .rate-tbl tr').forEach(function(tr) {
+    var cells = tr.querySelectorAll('td');
+    if (cells.length < 2) return;
+    var lbl = (cells[0].textContent || '').trim();
+    var v   = (cells[1].textContent || '').trim();
+    if (!lbl || /^total|^final/i.test(lbl)) return;
+    snapshot.adjs.push({ l: lbl, v: v });
+  });
+  formData._pricingSnapshot = snapshot;
+
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
   QuoteStore.saveQuote(_quoteUser, 'rtl', formData);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
@@ -1325,12 +1365,49 @@ netlifyIdentity.on('init', function(user) {
         if (q && q.formData) {
           window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
           window._originalBorrowerEmail = q.formData.borrowerEmail || '';
-          loadRTLQuote(q.formData);
-          tryAutoDownload();
-          return true;
+          // Item #2: if the loan record has an LO override (loanAmtLocked),
+          // use that locked amount instead of the original quote amount so
+          // the rate sheet / term sheet reflect the override.
+          return applyLockedOverrideIfAny(q.formData).then(function(fd) {
+            loadRTLQuote(fd);
+            tryAutoDownload();
+            return true;
+          });
         }
         return false;
       });
+    }
+
+    // Look up the matching loan in clients store to see if LO has overridden
+    // the loan amount on Loan Details. If so, use that.
+    function applyLockedOverrideIfAny(fd) {
+      if (!window.SLA || !SLA.Clients || !fd.address) return Promise.resolve(fd);
+      var listOpts = ownerParam ? { all: true } : {};
+      return SLA.Clients.list(listOpts).then(function(r) {
+        var clients = (r && r.clients)
+          || (r && r.byOwner ? Object.keys(r.byOwner).reduce(function(a,k){ return a.concat(r.byOwner[k]||[]); }, []) : []);
+        var norm = function(s) { return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); };
+        var targetFull   = norm(fd.address);
+        var targetStreet = targetFull.split(',')[0].trim().replace(/\s+/g, ' ');
+        var found = null;
+        clients.some(function(c) {
+          (c.loans || []).some(function(l) {
+            if (!l.address) return false;
+            var ls = norm(l.address);
+            var lstreet = ls.split(',')[0].trim().replace(/\s+/g, ' ');
+            if (ls === targetFull || (lstreet && lstreet === targetStreet)) {
+              found = l; return true;
+            }
+            return false;
+          });
+          return !!found;
+        });
+        if (found && found.loanAmtLocked && found.loanAmt) {
+          console.log('[sizer] Applying LO override: loanAmt = ' + found.loanAmt + ' (locked)');
+          fd = Object.assign({}, fd, { loanAmt: found.loanAmt, _loanAmtLocked: true });
+        }
+        return fd;
+      }).catch(function(){ return fd; });
     }
 
     function loadFromClientLoan() {

@@ -572,6 +572,7 @@ function loadAll() {
     _clientById = {}; // ownerKey|clientId → full client record (for modal prefill)
     function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
     function ne(s){ return String(s||'').toLowerCase().trim(); }
+    function streetOf(s) { return norm(s).split(',')[0].trim().replace(/\s+/g,' '); }
     if (clientsResp.byOwner) {
       Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
         (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
@@ -579,9 +580,12 @@ function loadAll() {
           if (c.email) _contactLookup[ownerKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: ownerKey };
           (c.loans || []).forEach(function(l) {
             if (!l.address || !l.id) return;
-            _loanLookup[ownerKey + '|' + norm(l.address)] = {
-              clientId: c.id, loanId: l.id, ownerKey: ownerKey,
-            };
+            var rec = { clientId: c.id, loanId: l.id, ownerKey: ownerKey };
+            _loanLookup[ownerKey + '|' + norm(l.address)] = rec;
+            // Also index by street-prefix so cards with slightly different
+            // address formatting still find the matching loan.
+            var st = streetOf(l.address);
+            if (st) _loanLookup[ownerKey + '|street|' + st] = rec;
           });
         });
       });
@@ -592,9 +596,10 @@ function loadAll() {
         if (c.email) _contactLookup[myKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: myKey };
         (c.loans || []).forEach(function(l) {
           if (!l.address || !l.id) return;
-          _loanLookup[myKey + '|' + norm(l.address)] = {
-            clientId: c.id, loanId: l.id, ownerKey: myKey,
-          };
+          var rec2 = { clientId: c.id, loanId: l.id, ownerKey: myKey };
+          _loanLookup[myKey + '|' + norm(l.address)] = rec2;
+          var st2 = streetOf(l.address);
+          if (st2) _loanLookup[myKey + '|street|' + st2] = rec2;
         });
       });
     }
@@ -779,7 +784,10 @@ function buildQuoteCard(it, colKey) {
   var fd = q.formData || {};
   var name = q.borrower || fd.borrower || '—';
   var addr = q.address || '';
-  var lookup = _loanLookup[it.ownerKey + '|' + (addr||'').trim().toLowerCase().replace(/\s+/g,' ')];
+  var addrNorm = (addr||'').trim().toLowerCase().replace(/\s+/g,' ');
+  var addrStreet = addrNorm.split(',')[0].trim().replace(/\s+/g,' ');
+  var lookup = _loanLookup[it.ownerKey + '|' + addrNorm]
+            || _loanLookup[it.ownerKey + '|street|' + addrStreet];
   // Item #3: prefer the loan record's loanAmt (which carries any LO override)
   // over the saved formData's value. Fall back to formData/quote values if no
   // matching loan record is found.
@@ -909,7 +917,10 @@ function reminderForCard(it) {
   if (it.kind === 'prospect') return null;
   var fd = it.quote.formData || {};
   var addr = it.quote.address || fd.address || '';
-  var lookup = _loanLookup[it.ownerKey + '|' + (addr||'').trim().toLowerCase().replace(/\s+/g,' ')];
+  var addrNorm = (addr||'').trim().toLowerCase().replace(/\s+/g,' ');
+  var addrStreet = addrNorm.split(',')[0].trim().replace(/\s+/g,' ');
+  var lookup = _loanLookup[it.ownerKey + '|' + addrNorm]
+            || _loanLookup[it.ownerKey + '|street|' + addrStreet];
   if (!lookup) return null;
   return _remindersByLoan[lookup.loanId] || null;
 }
