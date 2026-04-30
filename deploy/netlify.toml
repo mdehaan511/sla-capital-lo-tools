@@ -145,12 +145,6 @@
   force = true
 
 [[redirects]]
-  from = "/api/rate-sheet"
-  to = "/.netlify/functions/rate-sheet"
-  status = 200
-  force = true
-
-[[redirects]]
   from = "/api/client-ssn-reveal"
   to = "/.netlify/functions/client-ssn-reveal"
   status = 200

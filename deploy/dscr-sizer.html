@@ -890,7 +890,7 @@ function renderResult(r) {
     '<div class="rate-body" style="padding-top:1.25rem">'+
       '<table class="breakdown"><tbody>'+
         '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Monthly Payment Breakdown</td><td></td></tr>'+
-        '<tr><td>Principal &amp; Interest</td><td class="bv base">'+fmtD(r.pi)+'</td></tr>'+
+        '<tr><td>'+(r.isIO?'Interest Only Payment':'Principal &amp; Interest')+'</td><td class="bv base">'+fmtD(r.pi)+'</td></tr>'+
         '<tr><td>Monthly Taxes</td><td class="bv base">'+fmtD(r.taxes)+'</td></tr>'+
         '<tr><td>Monthly Insurance</td><td class="bv base">'+fmtD(r.ins)+'</td></tr>'+
         '<tr><td>Monthly HOA</td><td class="bv base">'+fmtD(r.hoa)+'</td></tr>'+
@@ -1357,8 +1357,12 @@ function downloadPDF() {
 
   // ── PAYMENT BREAKDOWN TABLE ─────────────────────────────────
   var dscrColor = r.dscr>=1.20?SUCCESS:r.dscr>=1.00?WARN:DANGER;
+  // Item: when IO is selected, calcPI returns the interest-only payment, so
+  // the label should say "Interest Only" not "Principal & Interest" to avoid
+  // confusion.
+  var piLabel = r.isIO ? 'Interest Only Payment' : 'Principal & Interest';
   var pmtData = [
-    ['Principal & Interest', '$'+r.pi.toFixed(2),       TEXT],
+    [piLabel,                '$'+r.pi.toFixed(2),       TEXT],
     ['Monthly Taxes',        '$'+r.taxes.toFixed(2),    TEXT],
     ['Monthly Insurance',    '$'+r.ins.toFixed(2),      TEXT],
     ['Monthly HOA',          '$'+r.hoa.toFixed(2),      TEXT],
