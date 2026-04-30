@@ -532,13 +532,13 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 </div><!-- /page -->
 
 <script>
-// ── Pricing data — Colchis RTL Pricing Sheet (Jan 27, 2026) ──
+// ── Pricing data — Colchis RTL Pricing Sheet (Mar 24, 2026) ──
 // PRICING values are Colchis's WHOLESALE base rate. Final borrower note
 // rate = PRICING + SPREAD[fico] + adjustments. Tier 1 (8+) gets -0.25%
 // reduction, Tier 2 baseline, Tier 3 +0.25%. MFR adjustment is per-LTV.
 // Sub-680 borrowers don't qualify under Colchis — they get a hardcoded
 // final rate from SUB680_RATE (SLA funds these through a separate channel).
-var FLOOR = 0.0775; // Bridge / Light minimum 7.750%
+var FLOOR = 0.08; // Bridge / Light minimum 8.000%
 var LABELS = { bridge:'Bridge', light:'Light Rehab', heavy:'Heavy Rehab', construction:'Construction' };
 var SPREAD = { 740:.0175, 720:.02, 700:.0225, 680:.025 };
 // LTV columns: <=70, <=75, <=80, <=85, <=90, <=95
@@ -550,38 +550,38 @@ var SUB680_RATE = { 650: .12, 620: .13, 550: .14 };
 var PRICING = {
   bridge: {
     sfr: {
-      740: [.0775, .0775, null,  null,  null,  null ],
-      720: [.0775, .0775, null,  null,  null,  null ],
-      700: [.0775, .0775, null,  null,  null,  null ],
-      680: [.07875,null,  null,  null,  null,  null ],
+      740: [.08,   .08,   null,  null,  null,  null ],
+      720: [.08,   .08,   null,  null,  null,  null ],
+      700: [.08,   .08,   null,  null,  null,  null ],
+      680: [.08125,null,  null,  null,  null,  null ],
     },
     mfr: {
-      740: [.0775, .0775, null,  null,  null,  null ],
-      720: [.0775, .0775, null,  null,  null,  null ],
-      700: [.0775, .0775, null,  null,  null,  null ],
-      680: [.07875,null,  null,  null,  null,  null ],
+      740: [.08,   .08,   null,  null,  null,  null ],
+      720: [.08,   .08,   null,  null,  null,  null ],
+      700: [.08,   .08,   null,  null,  null,  null ],
+      680: [.08125,null,  null,  null,  null,  null ],
     },
   },
   light: {
     sfr: {
-      740: [.0775, .0775, .0775, .07875,.08,   .0825 ],
-      720: [.0775, .0775, .07875,.08,   .08125,.08375],
-      700: [.0775, .0775, .07875,.08,   .08125,.08375],
-      680: [.07875,.08,   .08125,.0825, .08375,null  ],
+      740: [.08,   .08,   .08,   .08125,.0825, .08625],
+      720: [.08,   .08,   .08125,.0825, .08375,.0875 ],
+      700: [.08,   .08,   .08125,.0825, .08375,.0875 ],
+      680: [.08125,.0825, .08375,.085,  .08625,null  ],
     },
     mfr: {
-      740: [.0775, .0775, .0775, .07875,.08,   .0825 ],
-      720: [.0775, .0775, .07875,.08,   .08125,.08375],
-      700: [.0775, .0775, .07875,.08,   .08125,.08375],
-      680: [.07875,.08,   .08125,.0825, .08375,null  ],
+      740: [.08,   .08,   .08,   .08125,.0825, .08625],
+      720: [.08,   .08,   .08125,.0825, .08375,.0875 ],
+      700: [.08,   .08,   .08125,.0825, .08375,.0875 ],
+      680: [.08125,.0825, .08375,.085,  .08625,null  ],
     },
   },
   heavy: {
     sfr: {
-      740: [.08375,.08375,.085,  .08625,null,  null ],
-      720: [.08375,.085,  .08625,.0875, null,  null ],
-      700: [.08375,.085,  .08625,.0875, null,  null ],
-      680: [.08625,.0875, .08875,.09,   null,  null ],
+      740: [.08625,.0875, .08875,.09,   null,  null ],
+      720: [.0875, .08875,.09,   .09125,null,  null ],
+      700: [.0875, .08875,.09,   .09125,null,  null ],
+      680: [.09,   .09125,.0925, .09375,null,  null ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -592,10 +592,10 @@ var PRICING = {
   },
   construction: {
     sfr: {
-      740: [.08375,.08375,.085,  .08625,.08875,null ],
-      720: [.08375,.085,  .08625,.0875, .09,   null ],
-      700: [.08375,.085,  .08625,.0875, .09,   null ],
-      680: [.08625,.0875, .08875,.09,   null,  null ],
+      740: [.08625,.0875, .08875,.09,   .09375,null ],
+      720: [.0875, .08875,.09,   .09125,.095,  null ],
+      700: [.0875, .08875,.09,   .09125,.095,  null ],
+      680: [.09,   .09125,.0925, .09375,null,  null ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -607,12 +607,12 @@ var PRICING = {
 };
 
 // MFR per-LTV-column adjustments (added to base when property is multi-family).
-// Bridge: +0.375% at <=70%. Light: +0.375%/+0.500%/+0.500%/+0.500% at <=70/75/80/85.
+// Bridge: +0.500% at <=70%. Light: +0.500% at <=70/75/80/85.
 var MFR_ADJ = {
-  bridge: [.00375, 0,     0,     0,     0,     0    ],
-  light:  [.00375, .005,  .005,  .005,  0,     0    ],
-  heavy:  [0,      0,     0,     0,     0,     0    ],
-  construction: [0, 0,    0,     0,     0,     0    ],
+  bridge: [.005,  0,     0,     0,     0,     0    ],
+  light:  [.005,  .005,  .005,  .005,  0,     0    ],
+  heavy:  [0,     0,     0,     0,     0,     0    ],
+  construction: [0,0,    0,     0,     0,     0    ],
 };
 
 var MAX_LTP = {
@@ -825,30 +825,42 @@ function calculate(){
         else {
           var cb = cbResult.rate;
           var ltvIdx = cbResult.ltvIdx;
+          // Compute the TIER-1 baseline (most experienced borrower) first, then
+          // apply floor, then Tier 2/3 adjustments stack on top. This keeps the
+          // tier separation visible even when the floor activates on top-credit
+          // deals: Tier 1 = floor, Tier 2 = floor + 0.25%, Tier 3 = floor + 0.50%.
           var adj=0;
-          // Experience tier adjustments (per Colchis 1/27/26 PDF):
-          // Tier 1 (8+) -0.25%, Tier 2 (4-7) baseline, Tier 3 (0-3) +0.25%.
-          if(exp>=8){ adj-=.0025; adjs.push({l:'Experience: Tier 1 (8+ projects)',v:-.0025,c:'neg'}); }
-          else if(exp>=4){ /* Tier 2 — baseline */ }
-          else { adj+=.0025; adjs.push({l:'Experience: Tier 3 (0–3 projects)',v:.0025,c:'pos'}); }
-          // MFR adjustment is per-LTV-column from the PDF (Bridge +0.375% at <=70%,
-          // Light +0.375% at <=70%, +0.500% at <=75/80/85)
+          // MFR adjustment is per-LTV-column from the PDF
           if(pt==='mfr' && MFR_ADJ[lt] && ltvIdx >= 0) {
             var mfrA = MFR_ADJ[lt][ltvIdx] || 0;
             if(mfrA > 0) { adj += mfrA; adjs.push({l:'Multi-family property',v:mfrA,c:'pos'}); }
           }
           if(sa==='nynj'){ adj+=.0025; adjs.push({l:'NY/NJ/CT region',v:.0025,c:'pos'}); }
           else if(sa==='ca'){ adj-=.00125; adjs.push({l:'California',v:-.00125,c:'neg'}); }
-          if(zhvi==='200'){ adj+=.00125; adjs.push({l:'Property value >200% ZHVI',v:.00125,c:'pos'}); }
+          if(zhvi==='200'){ adj+=.0025; adjs.push({l:'Property value >200% ZHVI',v:.0025,c:'pos'}); }
           else if(zhvi==='300'){ adj+=.00375; adjs.push({l:'Property value >300% ZHVI',v:.00375,c:'pos'}); }
           if(purp==='cashout'){ adj+=.0025; adjs.push({l:'Cash-out refinance',v:.0025,c:'pos'}); }
           if(term===19){ adj+=.00125; adjs.push({l:'Loan term 19–24 months',v:.00125,c:'pos'}); }
-          // Loan amount >$3M = +0.125%; >$2M = 0% (no adjustment)
-          if(sz==='3m'){ adj+=.00125; adjs.push({l:'Loan amount >$3M',v:.00125,c:'pos'}); }
-          var cr=cb+adj+SPREAD[fkey];
-          // Apply program-minimum floors per the PDF.
-          var progMin = (lt === 'bridge' || lt === 'light') ? 0.0775 : 0.08375;
-          if(cr<progMin){ rate=progMin; floor=true; } else rate=cr;
+          if(sz==='3m'){ adj+=.0025; adjs.push({l:'Loan amount >$3M',v:.0025,c:'pos'}); }
+          // Tier-1 baseline = wholesale + adjustments + spread − 0.25% (Tier 1 reduction)
+          var tier1Base = cb + adj + SPREAD[fkey] - .0025;
+          // Apply program-minimum floors per the PDF (Bridge/Light 8.000%, Heavy/Construction 8.625%)
+          var progMin = (lt === 'bridge' || lt === 'light') ? 0.08 : 0.08625;
+          if(tier1Base < progMin){ tier1Base = progMin; floor = true; }
+          // SLA policy floor: Tier 1 baseline never below 10.000%.
+          // (Tier 2 will be at least 10.250%; Tier 3 at least 10.500%.)
+          if (tier1Base < 0.10) { tier1Base = 0.10; floor = true; }
+          // Now apply the experience tier — Tier 1 baseline is the minimum;
+          // Tier 2 and Tier 3 each add 0.25% on top.
+          if(exp>=8){
+            rate = tier1Base;
+            adjs.push({l:'Experience: Tier 1 (8+ projects)',v:-.0025,c:'neg'});
+          } else if(exp>=4){
+            rate = tier1Base + .0025;
+          } else {
+            rate = tier1Base + .005;
+            adjs.push({l:'Experience: Tier 3 (0–3 projects)',v:.0025,c:'pos'});
+          }
         }
       }
     }
