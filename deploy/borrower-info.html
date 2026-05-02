@@ -60,6 +60,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
   font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--surface); color: var(--text);
 }
 .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--gold); }
+/* Make sure iOS Safari treats date inputs as tappable — guard against
+   any stylesheet that would strip native appearance. */
+.field input[type=date] { -webkit-appearance: auto; appearance: auto; min-height: 42px; cursor: pointer; }
 .field input[readonly] { background: rgba(120,116,136,0.06); cursor: not-allowed; }
 .field select:disabled, .field input:disabled, .field textarea:disabled {
   background: rgba(120,116,136,0.08);
