@@ -795,19 +795,25 @@ function runCalculate() {
 
 function calculate(){
   _resultsShown = true;
-  if(!validate()) return;
 
-  var street=document.getElementById('propStreet').value.trim();
-  var city=document.getElementById('propCity').value.trim();
-  var state=document.getElementById('propState').value;
-  var zip=document.getElementById('propZip').value.trim();
-  var lt=document.getElementById('loanType').value;
+  // Read loan type first so we can short-circuit the transactional path
+  // BEFORE the standard validate (which requires purchasePrice + arv,
+  // both irrelevant for 1-day transactional funding).
+  var lt = document.getElementById('loanType').value;
+  var street = document.getElementById('propStreet').value.trim();
+  var city   = document.getElementById('propCity').value.trim();
+  var state  = document.getElementById('propState').value;
+  var zip    = document.getElementById('propZip').value.trim();
 
-  // Transactional Funding: short-circuit. 12% rate, 1pt, 1-day term.
-  // Loan amount entered directly via the transactionalAmt field.
   if (lt === 'transactional') {
+    // Lighter validation: just need address; loan amount can be 0
+    // (renderTransactional handles the empty-amount case)
+    if (!street || !city || !state) return;
+    if (zip && !/^\d{5}$/.test(zip)) return;
     return renderTransactional(street, city, state, zip);
   }
+
+  if(!validate()) return;
 
   var fr=parseInt(document.getElementById('fico').value);
   var exp=parseInt(document.getElementById('experience').value);
