@@ -250,6 +250,19 @@
         <div class="save-status" id="dedupeStatus"></div>
       </div>
 
+      <div class="setting-row">
+        <label>Reassign a user's data</label>
+        <div class="hint">When a user is removed from the platform, run this to move all their clients, quotes, prospects, reminders, and loan applications to mike@slacapital.com (or another super-admin). Always click "Scan" first to see what would be moved.</div>
+        <div class="input-row" style="margin-bottom:6px">
+          <input type="email" id="reassignFromEmail" placeholder="user@slacapital.com (data owner)" style="flex:1" />
+        </div>
+        <div class="input-row">
+          <button class="small-btn" onclick="runReassign(true)">Scan (Dry Run)</button>
+          <button class="small-btn danger" onclick="runReassign(false)">Reassign to Super Admin</button>
+        </div>
+        <div class="save-status" id="reassignStatus"></div>
+      </div>
+
     </div>
   </div>
 
@@ -653,6 +666,50 @@ function runDedupeLoans(dryRun) {
     status.textContent = (d.dryRun ? '[Dry Run] ' : '✓ ') +
       'Touched ' + d.clientsTouched + ' client(s), removed ' + d.loansRemoved + ' duplicate loan(s).' +
       (d.samples && d.samples.length ? ' Samples: ' + d.samples.map(function(s){ return s.client + ' (' + s.before + '→' + s.after + ')'; }).join(', ') : '');
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+// ── Maintenance: reassign user data to super admin ──────
+function runReassign(dryRun) {
+  var status = document.getElementById('reassignStatus');
+  var fromEmail = document.getElementById('reassignFromEmail').value.trim();
+  status.className = 'save-status';
+  if (!fromEmail || !fromEmail.includes('@')) {
+    status.className = 'save-status err';
+    status.textContent = 'Enter a valid email to reassign FROM';
+    return;
+  }
+  if (!dryRun && !confirm('Reassign all data owned by ' + fromEmail + ' to super admin? Cannot be undone.')) {
+    return;
+  }
+  status.textContent = dryRun ? 'Scanning…' : 'Reassigning…';
+  netlifyIdentity.currentUser().jwt().then(function(token) {
+    return fetch('/api/users-reassign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ fromEmail: fromEmail, dryRun: !!dryRun }),
+    });
+  }).then(function(r) {
+    return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+  }).then(function(resp) {
+    if (!resp.ok) {
+      status.className = 'save-status err';
+      status.textContent = 'Failed: ' + (resp.data.error || 'unknown');
+      return;
+    }
+    var d = resp.data;
+    status.className = 'save-status ok';
+    var lines = Object.keys(d.stores || {}).map(function(s) {
+      var info = d.stores[s];
+      if (info.error) return s + ': ERROR ' + info.error;
+      return s + ': ' + info.moved + ' moved, ' + info.skipped + ' skipped';
+    });
+    status.innerHTML = (d.dryRun ? '[Dry Run] ' : '✓ ') +
+      'From <strong>' + escAttr(d.fromEmail) + '</strong> → <strong>' + escAttr(d.toEmail) + '</strong><br>' +
+      lines.join('<br>');
   }).catch(function(err) {
     status.className = 'save-status err';
     status.textContent = 'Failed: ' + (err.message || 'unknown');

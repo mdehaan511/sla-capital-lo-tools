@@ -163,6 +163,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/users-reassign"
+  to = "/.netlify/functions/users-reassign"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"
   status = 200

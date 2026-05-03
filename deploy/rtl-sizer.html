@@ -414,11 +414,20 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="field">
         <div class="wrap">
           <label>Loan Type <span class="req">*</span></label>
-          <select id="loanType" onchange="toggleRehab();autoCalc()">
+          <select id="loanType" onchange="onLoanTypeChange()">
             <option value="light" selected>Light Rehab (&lt;50% of Loan)</option>
             <option value="heavy">Heavy Rehab (&gt;50% of Loan)</option>
             <option value="bridge">Bridge (No Rehab)</option>
+            <option value="transactional">Transactional Funding (1-day)</option>
           </select>
+        </div>
+      </div>
+      <!-- Transactional Funding: direct loan amount input.
+           Only visible when loanType === 'transactional'. -->
+      <div class="field" id="field-transactionalAmt" style="display:none">
+        <div class="wrap">
+          <label>Loan Amount <span class="req">*</span></label>
+          <input type="number" id="transactionalAmt" min="0" step="1000" placeholder="e.g. 250000" oninput="autoCalc()" />
         </div>
       </div>
       <div class="field">
@@ -687,6 +696,38 @@ function toggleRehab(){
   el.style.opacity=show?'1':'0';
 }
 
+// Transactional Funding (1-day loans): bypass the entire pricing matrix.
+// Hardcoded 12% rate + 1pt origination. Other LOAN-section dropdowns are
+// disabled. Loan amount is entered directly.
+function onLoanTypeChange() {
+  var t = document.getElementById('loanType').value;
+  var isTransactional = (t === 'transactional');
+
+  toggleRehab();
+
+  // Show/hide the direct loan amount field
+  var amtField = document.getElementById('field-transactionalAmt');
+  if (amtField) amtField.style.display = isTransactional ? '' : 'none';
+
+  // Grey out the LOAN-section selects + amount fields when transactional
+  var disabledIds = ['fico','experience','propType','loanTerm','loanPurpose',
+    'purchasePrice','rehabBudget','arv','currentLoanAmt'];
+  disabledIds.forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) {
+      el.disabled = isTransactional;
+      // Visual: dim the wrap so the LO sees it's not editable
+      var wrap = el.closest('.field');
+      if (wrap) {
+        wrap.style.opacity = isTransactional ? '0.4' : '';
+        wrap.style.pointerEvents = isTransactional ? 'none' : '';
+      }
+    }
+  });
+
+  autoCalc();
+}
+
 function clearErr(id){
   var el=document.getElementById('wrap-'+id);
   var er=document.getElementById('err-'+id);
@@ -761,6 +802,13 @@ function calculate(){
   var state=document.getElementById('propState').value;
   var zip=document.getElementById('propZip').value.trim();
   var lt=document.getElementById('loanType').value;
+
+  // Transactional Funding: short-circuit. 12% rate, 1pt, 1-day term.
+  // Loan amount entered directly via the transactionalAmt field.
+  if (lt === 'transactional') {
+    return renderTransactional(street, city, state, zip);
+  }
+
   var fr=parseInt(document.getElementById('fico').value);
   var exp=parseInt(document.getElementById('experience').value);
   var pt=document.getElementById('propType').value;
@@ -1016,6 +1064,76 @@ function calculate(){
   toggleSaveButton();
 }
 
+// ── Transactional Funding renderer ────────────────────────
+// 1-day loans: hardcoded 12% rate, 1pt origination, no matrix lookup.
+// LO enters the loan amount directly via #transactionalAmt.
+function renderTransactional(street, city, state, zip) {
+  var amt = parseFloat(document.getElementById('transactionalAmt').value) || 0;
+  var addrFull = (street + ', ' + city + ', ' + state + (zip ? ' ' + zip : '')).replace(/^,\s*|,\s*$/g, '');
+
+  // Hardcoded values for transactional funding
+  var rate = 0.12;     // 12.000%
+  var pts  = 1.0;      // 1.0 points
+  var ptsFee = amt * (pts / 100);
+
+  // Standard RTL fee schedule still applies
+  var flatFees = 600 + 900 + 500 + 150; // = $2,150
+  var totalFees = ptsFee + flatFees;
+
+  // Monthly interest (1-day loans accrue interest only)
+  var monthlyInterest = amt * rate / 12;
+  // Daily interest is more relevant for transactional
+  var dailyInterest = amt * rate / 365;
+
+  var safeAddr = String(addrFull || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var html = '<div class="rate-card">';
+  html += '<div class="rate-header">';
+  html += '<div class="rate-header-left"><div class="lender">SLA Capital · ' + safeAddr + '</div><div class="prog">Transactional Funding · 1-day</div></div>';
+  if (amt > 0) {
+    html += '<div class="rate-big"><div class="rl">Interest Rate</div><div class="rv">' + (rate * 100).toFixed(3) + '%</div></div>';
+  } else {
+    html += '<div class="rate-big"><div class="rl">Interest Rate</div><div class="rv" style="font-size:18px;color:rgba(200,129,58,0.5)">N/A</div></div>';
+  }
+  html += '</div>'; // end header
+  html += '<div class="rate-body">';
+
+  if (amt <= 0) {
+    html += '<div class="flag-box show">Enter a loan amount above to see pricing.</div>';
+  } else {
+    // Metrics row
+    html += '<div class="metric-grid">';
+    html += '<div class="metric-card"><div class="metric-label">Loan Amount</div><div class="metric-value xl">$' + Math.round(amt).toLocaleString() + '</div><div class="metric-sub">Direct entry · 1-day term</div></div>';
+    html += '<div class="metric-card"><div class="metric-label">Origination Points</div><div class="metric-value xl">' + pts.toFixed(1) + ' pts</div><div class="metric-sub">$' + Math.round(ptsFee).toLocaleString() + ' on loan</div></div>';
+    html += '<div class="metric-card"><div class="metric-label">Daily Interest</div><div class="metric-value xl">$' + Math.round(dailyInterest).toLocaleString() + '</div><div class="metric-sub">at 12.000% APR</div></div>';
+    html += '</div>';
+
+    // Closing cost breakdown
+    html += '<table class="rate-tbl" style="margin-top:14px"><tbody>' +
+      '<tr><td>Origination (1.00 pt)</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
+      '<tr><td>Underwriting Fee</td><td class="bv neg">$600</td></tr>' +
+      '<tr><td>Doc Prep Fee</td><td class="bv neg">$900</td></tr>' +
+      '<tr><td>Servicing Fee</td><td class="bv neg">$500</td></tr>' +
+      '<tr><td>Credit Fee</td><td class="bv neg">$150</td></tr>' +
+      '</tbody></table>' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
+        '<span style="font-size:14px;font-weight:600">Total Estimated Closing Costs</span>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:18px;font-weight:600;color:var(--text)">$' + Math.round(totalFees).toLocaleString() + '</span>' +
+      '</div>' +
+      '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">Transactional funding requires same-day repayment. Daily interest applies if held longer.</div>';
+  }
+
+  html += '</div></div>'; // /rate-body /rate-card
+
+  // Save + disclaimer
+  html += '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">★ Save Quote</button>';
+  html += '<button class="dl-btn" onclick="downloadRTLPDF()">⇩ Download Rate Sheet PDF</button>';
+  html += '<div class="disclaimer">Transactional funding is for same-day-close, same-day-repay loans only. Subject to underwriting approval.</div>';
+
+  document.getElementById('results').innerHTML = html;
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  toggleSaveButton();
+}
+
 // Render an Estimated Cashout / Net to Borrower card after the pricing card.
 // Only shown for cashout / rateterm refis. Uses the saved loan amount we
 // just computed; reads currentLoanAmt and the rate-derived points.
@@ -1076,6 +1194,16 @@ var RTL_REQUIRED = [
   'loanType','fico','experience','propType','loanTerm','loanPurpose'
 ];
 function rtlAllRequiredFilled() {
+  var ltEl = document.getElementById('loanType');
+  // Transactional Funding requires only borrower name + property address + loan amount
+  if (ltEl && ltEl.value === 'transactional') {
+    var requiredTx = ['borrowerName','propStreet','propCity','propState','propZip','transactionalAmt'];
+    for (var j = 0; j < requiredTx.length; j++) {
+      var elj = document.getElementById(requiredTx[j]);
+      if (!elj || !String(elj.value || '').trim()) return false;
+    }
+    return true;
+  }
   for (var i = 0; i < RTL_REQUIRED.length; i++) {
     var el = document.getElementById(RTL_REQUIRED[i]);
     if (!el) continue; // skip fields that don't exist on this variant
@@ -1172,7 +1300,7 @@ function saveCurrentQuote() {
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
-    'borrowerName','borrowerEmail'];
+    'borrowerName','borrowerEmail','transactionalAmt','currentLoanAmt'];
   var formData = {};
   fields.forEach(function(id) {
     var el = document.getElementById(id);
@@ -1191,6 +1319,11 @@ function saveCurrentQuote() {
   }
   if (ptEl && ptEl.options[ptEl.selectedIndex]) {
     formData.propTypeLabel = ptEl.options[ptEl.selectedIndex].text;
+  }
+  // Capture loan-type label too (e.g. "Light Rehab" or "Transactional Funding")
+  var ltEl2 = document.getElementById('loanType');
+  if (ltEl2 && ltEl2.options[ltEl2.selectedIndex]) {
+    formData.loanTypeLabel = ltEl2.options[ltEl2.selectedIndex].text;
   }
 
   var addrFull = [formData.propStreet, formData.propCity, formData.propState, formData.propZip].filter(Boolean).join(', ');
@@ -1258,6 +1391,25 @@ function saveCurrentQuote() {
   });
   formData._pricingSnapshot = snapshot;
 
+  // Transactional Funding override: snapshot reflects the hardcoded 12% rate,
+  // 1pt origination, and the directly-entered loan amount. Most other fields
+  // are intentionally left blank so reports/long-app prefill don't pull
+  // misleading data (FICO, experience, purchase price are all N/A).
+  if (formData.loanType === 'transactional') {
+    var txAmt = parseFloat(formData.transactionalAmt || 0) || 0;
+    formData._finalRate = '12.000';
+    formData._points    = '1.0 pts';
+    formData._maxLoan   = String(txAmt);
+    formData.loanAmt    = String(txAmt);
+    snapshot.finalRate  = 0.12;
+    snapshot.points     = 1.0;
+    snapshot.maxLoan    = txAmt;
+    snapshot.loanAmt    = txAmt;
+    snapshot.purpose    = 'transactional';
+    snapshot.loanType   = 'transactional';
+    formData.loanTypeLabel = 'Transactional Funding (1-day)';
+  }
+
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
   QuoteStore.saveQuote(_quoteUser, 'rtl', formData);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
@@ -1298,7 +1450,7 @@ function loadRTLQuote(formData) {
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
-    'borrowerName','borrowerEmail'];
+    'borrowerName','borrowerEmail','transactionalAmt','currentLoanAmt'];
   fields.forEach(function(id) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
@@ -1314,6 +1466,8 @@ function loadRTLQuote(formData) {
     }
   });
   if (typeof toggleRehab === 'function') toggleRehab();
+  // Trigger transactional UI grey-out if applicable
+  if (typeof onLoanTypeChange === 'function') onLoanTypeChange();
   if (typeof updateRegion === 'function') updateRegion();
   calculate();
   window.scrollTo({ top: 0, behavior: 'smooth' });
