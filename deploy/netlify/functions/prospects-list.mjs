@@ -51,6 +51,37 @@ export default async (req, context) => {
         if (!byOwner[owner]) byOwner[owner] = [];
         byOwner[owner].push(record);
       }));
+
+      // Hide prospects that already have a saved quote at the same address
+      // for the same owner. Mirrors the per-LO dedupe further down.
+      try {
+        const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+        const { blobs: qBlobs } = await quotesStore.list();
+        const workedByOwner = {}; // ownerKey -> Set<normAddr>
+        await Promise.all(qBlobs.map(async ({ key }) => {
+          const idx = key.indexOf('/');
+          if (idx < 0) return;
+          const owner = key.slice(0, idx);
+          const q = await quotesStore.get(key, { type: 'json' });
+          if (!q || !q.address) return;
+          if (!workedByOwner[owner]) workedByOwner[owner] = new Set();
+          workedByOwner[owner].add(normAddr(q.address));
+        }));
+        Object.keys(byOwner).forEach((owner) => {
+          const worked = workedByOwner[owner];
+          if (!worked || !worked.size) return;
+          byOwner[owner] = byOwner[owner].filter(
+            (p) => !worked.has(normAddr(p.propAddress || ''))
+          );
+        });
+        // Drop any owners whose list is now empty
+        Object.keys(byOwner).forEach((owner) => {
+          if (!byOwner[owner].length) delete byOwner[owner];
+        });
+      } catch (e) {
+        console.warn('prospects-list (admin) quote dedupe failed:', e);
+      }
+
       Object.keys(byOwner).forEach((s) => {
         byOwner[s].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
       });

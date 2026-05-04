@@ -608,6 +608,33 @@ function loadAll() {
     // Build flat lists per column
     _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 
+    // First pass: collect quotes so we can filter out prospects that have
+    // already been worked (server-side prospects-list dedupes too, but this
+    // is a belt-and-suspenders guard against any stale prospect records).
+    var quotes = [];
+    if (quotesResp.byOwner) {
+      Object.keys(quotesResp.byOwner).forEach(function(k) {
+        (quotesResp.byOwner[k] || []).forEach(function(q) {
+          quotes.push({ owner: k, quote: q });
+        });
+      });
+    } else {
+      var myKeyQ = (_user.email || '').toLowerCase();
+      (quotesResp.quotes || []).forEach(function(q) {
+        quotes.push({ owner: myKeyQ, quote: q });
+      });
+    }
+    function _normAddr(s) {
+      return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+    var _workedByOwner = {}; // ownerKey -> Set of normalized addresses
+    quotes.forEach(function(item) {
+      var addr = _normAddr(item.quote.address);
+      if (!addr) return;
+      if (!_workedByOwner[item.owner]) _workedByOwner[item.owner] = {};
+      _workedByOwner[item.owner][addr] = true;
+    });
+
     // Prospects without a quote → New Application
     var prospects = [];
     if (prospectsResp.bySlug) {
@@ -623,6 +650,9 @@ function loadAll() {
       });
     }
     prospects.forEach(function(item) {
+      // Skip if a quote already exists for this owner+address combination
+      var addr = _normAddr(item.prospect.propAddress);
+      if (addr && _workedByOwner[item.owner] && _workedByOwner[item.owner][addr]) return;
       _items.newApp.push({
         kind: 'prospect',
         ownerKey: item.owner,
@@ -632,20 +662,7 @@ function loadAll() {
       });
     });
 
-    // Quotes split by status
-    var quotes = [];
-    if (quotesResp.byOwner) {
-      Object.keys(quotesResp.byOwner).forEach(function(k) {
-        (quotesResp.byOwner[k] || []).forEach(function(q) {
-          quotes.push({ owner: k, quote: q });
-        });
-      });
-    } else {
-      var myKey2 = (_user.email || '').toLowerCase();
-      (quotesResp.quotes || []).forEach(function(q) {
-        quotes.push({ owner: myKey2, quote: q });
-      });
-    }
+    // Quotes split by status (quotes already collected above)
     quotes.forEach(function(item) {
       var s = item.quote.status || 'active';
       var bucket = s === 'submitted'    ? 'submitted'
