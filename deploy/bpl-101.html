@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BPL 101 — SLA Capital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-api.js"></script>
+<script src="sla-search.js"></script>
+<script src="sla-notifications.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+  --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+  --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+  --pill-bg: #f7f5f1; --success: #256940; --warn: #7a5218; --danger: #7c1f1f;
+  --r: 12px; --r-sm: 8px;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.55; }
+
+.nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 0; display: flex; align-items: center; justify-content: space-between; }
+.nav img { height: 44px; width: auto; }
+.nav-right { display: flex; align-items: center; gap: 10px; }
+.nav-left { display: flex; align-items: center; gap: 12px; }
+.nav-tools-btn {
+  display: inline-block; padding: 6px 14px;
+  border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid);
+  border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif;
+  text-decoration: none; transition: all 0.15s; white-space: nowrap;
+}
+.nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+.nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+.nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+.logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+
+.page { max-width: 920px; margin: 0 auto; padding: 1.5rem; }
+.header { display: flex; align-items: center; gap: 16px; margin-bottom: 1.5rem; }
+.title-block h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.title-block p { font-size: 13px; color: var(--muted); }
+.tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; padding: 3px 8px; border-radius: 20px; background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); }
+.back-link { display: inline-block; font-size: 13px; color: var(--muted); text-decoration: none; margin-bottom: 12px; }
+.back-link:hover { color: var(--gold); }
+
+.toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 18px 22px; margin-bottom: 24px; }
+.toc h3 { font-family: 'Lora', serif; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+.toc ol { list-style: none; counter-reset: tocitem; }
+.toc li { counter-increment: tocitem; padding: 4px 0; font-size: 13.5px; }
+.toc li::before { content: counter(tocitem) '. '; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 11px; margin-right: 4px; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover { color: var(--gold); }
+
+.section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 22px 28px; margin-bottom: 18px; scroll-margin-top: 24px; }
+.section h2 { font-family: 'Lora', serif; font-size: 19px; font-weight: 600; color: var(--text); margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.section h3 { font-family: 'Lora', serif; font-size: 15px; font-weight: 600; color: var(--dark); margin: 22px 0 8px; }
+.section h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 16px 0 6px; }
+.section p { font-size: 14px; line-height: 1.7; color: var(--text); margin-bottom: 12px; }
+.section p:last-child { margin-bottom: 0; }
+.section ul, .section ol { margin: 8px 0 14px 24px; }
+.section li { font-size: 14px; line-height: 1.7; color: var(--text); margin-bottom: 6px; }
+.section li strong { color: var(--dark); font-weight: 600; }
+.section strong { color: var(--dark); font-weight: 600; }
+.section em { font-style: italic; color: var(--gold-mid); }
+.section code { font-family: 'DM Mono', monospace; font-size: 12.5px; background: var(--pill-bg); padding: 1px 6px; border-radius: 4px; color: var(--dark); }
+.section a { color: var(--gold-mid); }
+
+.callout { background: var(--gold-light); border-left: 3px solid var(--gold); padding: 14px 18px; border-radius: 0 var(--r-sm) var(--r-sm) 0; margin: 16px 0; }
+.callout p { font-size: 13.5px; margin: 0; color: var(--dark); }
+.callout strong { color: var(--gold-mid); }
+
+.term-grid { display: grid; grid-template-columns: 200px 1fr; gap: 14px 22px; margin: 12px 0; padding: 14px 0; border-top: 1px solid var(--border); }
+.term-grid dt { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 600; color: var(--gold-mid); }
+.term-grid dd { font-size: 13.5px; line-height: 1.65; color: var(--text); }
+
+.step-list { counter-reset: step; list-style: none; margin: 16px 0; padding: 0; }
+.step-list li {
+  counter-increment: step;
+  position: relative;
+  padding: 12px 16px 12px 56px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: 8px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.step-list li::before {
+  content: counter(step);
+  position: absolute;
+  left: 14px; top: 12px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #fff;
+  font-family: 'Lora', serif;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.step-list li strong { color: var(--dark); }
+
+.compare-table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+.compare-table th { background: var(--bg); padding: 10px 14px; text-align: left; font-weight: 600; color: var(--dark); border-bottom: 2px solid var(--gold); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.compare-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.55; }
+.compare-table td:first-child { font-weight: 600; color: var(--dark); white-space: nowrap; }
+.compare-table tr:last-child td { border-bottom: none; }
+
+.doc-block { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0; }
+@media (max-width: 720px) { .doc-block { grid-template-columns: 1fr; } }
+.doc-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 14px 16px; }
+.doc-card h4 { color: var(--dark); margin: 0 0 8px; font-size: 11px; }
+.doc-card .doc-line { font-size: 13px; padding: 4px 0; border-bottom: 1px dotted var(--border); }
+.doc-card .doc-line:last-child { border-bottom: none; }
+.doc-card .doc-line strong { display: block; color: var(--dark); margin-bottom: 1px; font-size: 12.5px; }
+.doc-card .doc-line span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <a href="guidelines-hub.html" class="back-link">← Back to Guidelines</a>
+  <div class="header">
+    <div class="title-block">
+      <h1>BPL 101 — Loan Officer Overview</h1>
+      <p>How business-purpose lending works, the loan process from prequal to closing, and the why behind every document we collect.</p>
+    </div>
+    <span class="tag">Onboarding</span>
+  </div>
+
+  <div class="toc">
+    <h3>In this guide</h3>
+    <ol>
+      <li><a href="#what-is-bpl">What is BPL?</a></li>
+      <li><a href="#dscr-vs-rtl">DSCR vs. RTL — when to use each</a></li>
+      <li><a href="#process">The loan process, end to end</a></li>
+      <li><a href="#docs">Document checklists — and why we ask for each one</a></li>
+      <li><a href="#metrics">The metrics that actually matter</a></li>
+      <li><a href="#glossary">Glossary</a></li>
+    </ol>
+    <h3 style="margin-top:14px">SLA Capital — operational specifics</h3>
+    <ol start="7">
+      <li><a href="#sla-team">Our team and who does what</a></li>
+      <li><a href="#sla-timelines">Timelines, turn times, and what to quote</a></li>
+      <li><a href="#sla-thirdparty">Appraisals, BPOs, CDAs, and lock policy</a></li>
+      <li><a href="#sla-criteria">Eligibility — loan size, geography, borrowers</a></li>
+      <li><a href="#sla-reserves">Reserves and source-of-funds</a></li>
+      <li><a href="#sla-vesting">Vesting and personal guaranty rules</a></li>
+      <li><a href="#sla-baseline">Baseline LOS and the LO's role in the file</a></li>
+      <li><a href="#sla-comp">Commission structure and progression</a></li>
+      <li><a href="#sla-exceptions">When to ask for exception approval</a></li>
+    </ol>
+  </div>
+
+  <div class="section" id="what-is-bpl">
+    <h2>1. What is BPL?</h2>
+
+    <p><strong>BPL</strong> stands for <strong>Business-Purpose Lending</strong>. We make loans only to real-estate investors who borrow against investment property — never owner-occupied homes, never consumer-purpose. Every loan we originate is "for the business of real estate investment," and that distinction is what shapes everything else about the product.</p>
+
+    <h3>Why "business purpose" changes the rules</h3>
+    <p>Consumer mortgages (the kind ordinary homebuyers get) are governed by a tall stack of federal consumer-protection laws — TRID, RESPA, the Ability-to-Repay rule, the QM rule. BPL loans operate outside those frameworks because the borrower is a business, not a consumer. That changes three big things:</p>
+    <ul>
+      <li><strong>We underwrite the deal, not the income.</strong> No W-2s, no tax returns, no DTI calculation. We qualify the loan based on the property's economics or the project's math.</li>
+      <li><strong>We lend to entities, not individuals.</strong> Borrowers must vest title in an LLC, corporation, or other business entity. The individual signs a personal guaranty so they're still on the hook, but the loan is to the entity.</li>
+      <li><strong>We can close fast.</strong> No 30–45 day waterfalls. RTL loans regularly close in two weeks; transactional funding closes the same day.</li>
+    </ul>
+
+    <div class="callout">
+      <p><strong>What this means for your borrower:</strong> if they already own their flips/rentals in a personal name, they need to set up an LLC <em>before</em> closing. We don't care which state the LLC is registered in (most pick a low-fee state like Wyoming or Delaware), but it has to exist with an EIN by the time we draw docs.</p>
+    </div>
+
+    <h3>The two product lines we offer</h3>
+    <p>SLA Capital originates two loan types, and that's it:</p>
+    <ul>
+      <li><strong>DSCR loans</strong> — long-term (30-year amortizing) rental loans for properties the investor will hold. Qualified on the property's rent versus its full housing cost.</li>
+      <li><strong>RTL loans</strong> ("Residential Transition Loans," sometimes called bridge or fix-and-flip loans) — short-term loans for properties the investor will rehab and either sell or refinance. Subdivides into Bridge, Light Rehab, Heavy Rehab, Construction, and Transactional Funding.</li>
+    </ul>
+    <p>Every conversation with a borrower starts with figuring out which of these two buckets their deal belongs in.</p>
+  </div>
+
+  <div class="section" id="dscr-vs-rtl">
+    <h2>2. DSCR vs. RTL — when to use each</h2>
+
+    <p>The simplest way to decide: <strong>what is the borrower planning to do with the property in the next 6 months?</strong></p>
+
+    <ul>
+      <li>Hold and rent it out long-term → <strong>DSCR</strong></li>
+      <li>Renovate it and sell or refinance → <strong>RTL</strong> (Light or Heavy Rehab)</li>
+      <li>Buy it as-is and either flip or hold while deciding → <strong>RTL Bridge</strong></li>
+      <li>Build it from the ground up → <strong>RTL Construction</strong></li>
+      <li>Same-day in-and-out (often double-close transactions) → <strong>Transactional Funding</strong></li>
+    </ul>
+
+    <table class="compare-table">
+      <thead>
+        <tr><th></th><th>DSCR</th><th>RTL</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Term</td><td>30 years (amortizing or interest-only)</td><td>12–24 months (interest-only)</td></tr>
+        <tr><td>Qualified on</td><td>Rent vs. PITIA (DSCR ratio)</td><td>LTV / LTC / LTARV matrices + experience tier</td></tr>
+        <tr><td>Property condition</td><td>Rent-ready or already leased</td><td>Distressed, mid-rehab, or to-be-built is fine</td></tr>
+        <tr><td>Prepayment</td><td>Step-down structures (3-2-1, 5-4-3-2-1, etc.) or no prepay</td><td>None — borrower can pay off any day</td></tr>
+        <tr><td>Typical close</td><td>21–35 days</td><td>10–21 days; transactional same-day</td></tr>
+        <tr><td>Funding source</td><td>Multiple capital partners</td><td>Colchis Capital (primary)</td></tr>
+        <tr><td>Borrower's exit</td><td>Long-term cash flow</td><td>Sale or refinance to DSCR</td></tr>
+      </tbody>
+    </table>
+
+    <h3>How DSCR pricing works (in one paragraph)</h3>
+    <p>You take the property's <strong>monthly rent</strong> and divide by the full <strong>monthly housing cost</strong> (Principal + Interest + Taxes + Insurance + HOA, abbreviated PITIA). That ratio is the <strong>DSCR</strong>. If the rent equals exactly the housing cost, DSCR is 1.00x — the property "breaks even." Most lenders require a DSCR of at least 1.0–1.25x; the higher the DSCR, the better the rate. Below that floor, the property doesn't qualify for DSCR — borrower may need to put more money down to get the LTV (and therefore the housing cost) low enough.</p>
+
+    <h3>How RTL pricing works (in one paragraph)</h3>
+    <p>RTL is qualified on three leverage caps: <strong>LTV</strong> (loan vs. as-is value, also called LTP or "loan-to-purchase"), <strong>LTC</strong> (loan vs. total cost = purchase + rehab), and <strong>LTARV</strong> (loan vs. after-repair value). The most restrictive of the three is the binding cap. Then the rate is determined by FICO band and the borrower's <strong>experience tier</strong> (Tier 1 = 8+ flips in last 36 months, Tier 2 = 4–7, Tier 3 = 0–3) plus property/program adjustments. The sizer does all this math automatically — your job is to enter accurate inputs.</p>
+
+    <div class="callout">
+      <p><strong>A common mix-up to avoid:</strong> a borrower who says "I want to fix and rent it" wants <em>two</em> loans, not one. They use an RTL to buy + rehab, then refinance into a DSCR once the property is stabilized and rented. Quote them both, and let them know up front so they're not surprised by closing twice.</p>
+    </div>
+  </div>
+
+  <div class="section" id="process">
+    <h2>3. The loan process, end to end</h2>
+
+    <p>Every BPL loan follows the same arc, regardless of product. The platform tracks each loan through these stages — your Pipeline view is the visual representation of this flow.</p>
+
+    <ol class="step-list">
+      <li><strong>Pre-qualification.</strong> Borrower submits the short application (the apply.html link you send them). Or you collect the same info on a phone call and enter it manually. Either way, you end up with: borrower name + email + phone, property address, intended product, FICO band, experience, and the few financial numbers the sizer needs (purchase price, ARV/property value, rehab budget if applicable). At this stage, no docs are required.</li>
+
+      <li><strong>Sizing the loan.</strong> Open the appropriate sizer (DSCR or RTL), enter the inputs, get a rate. Save the quote — this creates a saved quote in your pipeline. The sizer's output is <em>indicative pricing</em>: it's what the loan would price at if everything in underwriting matches what was entered. The number isn't a commitment — make that clear to the borrower.</li>
+
+      <li><strong>Term sheet.</strong> Once the borrower likes the indicative pricing, generate the term sheet (the Excel button on the Loan Details page). This is a more formal document than the rate sheet — it includes loan terms, fees, conditions, and the sign-off signature block. The borrower signs and returns it to confirm they want to proceed. Term sheets are typically valid for 30 days.</li>
+
+      <li><strong>Loan application.</strong> Send the borrower the long-form application via the "Send Full Loan Application" button on Loan Details. This is the formal app where they fill in all guarantor info, SSN, vesting entity details, and confirm property and project details. The platform encrypts SSN at rest and notifies you when they submit.</li>
+
+      <li><strong>Document collection.</strong> Send the appropriate document checklist (DSCR or RTL — see section 4 below). Borrower uploads to a shared drive or email; you forward to the processing team. A loan moves to "In Processing" in the pipeline once docs are flowing.</li>
+
+      <li><strong>Third-party orders.</strong> Processing orders the appraisal (DSCR) or BPO + property inspection (RTL), title work, and insurance binder. Each of these requires a contact (insurance agent, title company, scheduling contact) — that's why those three lines sit at the top of the doc checklist.</li>
+
+      <li><strong>Underwriting.</strong> The underwriter reviews everything: borrower docs, property docs, appraisal, title, and the deal math. They issue conditions ("provide a updated bank statement," "explain the deposit on May 12," "we need the EIN letter"). You and processing track these conditions to clearance.</li>
+
+      <li><strong>Clear to close.</strong> Once all conditions are cleared, the loan is "CTC." Closing docs go out, the borrower (or their attorney/title rep) signs at closing, funds wire, and the loan is officially closed.</li>
+
+      <li><strong>Close out.</strong> Mark the loan Closed in the pipeline. Commission posts. Loan moves to the Closed view. Servicing takes over from there — you're not involved in monthly payment collection (Colchis or our DSCR servicer handles that).</li>
+    </ol>
+
+    <h3>Where loans go off the rails</h3>
+    <p>The most common failure points, in roughly the order you'll encounter them:</p>
+    <ul>
+      <li><strong>Borrower doesn't have an entity yet.</strong> Easy fix — they spin one up — but it takes a week if they're starting from scratch. Catch this on the prequal call.</li>
+      <li><strong>Insurance binder takes too long.</strong> Many investor-rental policies are slow to bind. Get the insurance contact at the doc-checklist stage, not the day before closing.</li>
+      <li><strong>Title issues.</strong> Liens, unpaid taxes, an unsigned-off prior loan, a clouded chain. These surface late and can blow timelines. Title work should kick off immediately once a deal is in processing.</li>
+      <li><strong>Appraisal comes in low</strong> (DSCR) or BPO disagrees with the borrower's ARV (RTL). When this happens, the deal has to be re-sized at the new value. Sometimes the LTV cap kills it; sometimes the borrower puts more cash in.</li>
+      <li><strong>Borrower's bank statements show the down payment money came in three days ago.</strong> "Unseasoned funds" — most lenders want to see the funds sitting in the account for 60+ days, otherwise underwriting will ask for source-of-funds documentation. Set this expectation early so the borrower doesn't move money around in a way that breaks their deal.</li>
+    </ul>
+  </div>
+
+  <div class="section" id="docs">
+    <h2>4. Document checklists</h2>
+
+    <p>Below are the standard docs we collect, and the reason we collect each one. Understanding the why makes you better at handling borrower pushback ("why do you need <em>another</em> bank statement?").</p>
+
+    <h3>Borrower-side docs (both DSCR and RTL)</h3>
+
+    <div class="doc-block">
+      <div class="doc-card">
+        <h4>Entity Documents</h4>
+        <div class="doc-line"><strong>Articles of Organization</strong><span>Proves the LLC actually exists and was filed with the state.</span></div>
+        <div class="doc-line"><strong>Certificate of Good Standing</strong><span>Proves the LLC is current on its annual filings — i.e., not administratively dissolved. Some states call this a "Certificate of Existence."</span></div>
+        <div class="doc-line"><strong>Operating Agreement</strong><span>Identifies who the members and managers are. Underwriting needs to know who's authorized to sign on behalf of the entity. (For a corporation, By-Laws play the same role.)</span></div>
+        <div class="doc-line"><strong>EIN Letter or W-9</strong><span>Proves the entity has a federal tax ID. Required for the closing wire and for 1099 reporting at year-end.</span></div>
+      </div>
+
+      <div class="doc-card">
+        <h4>Borrower Financial Capacity</h4>
+        <div class="doc-line"><strong>Voided Check</strong><span>For the ACH account that monthly payments will draw from. The account should be in the entity's name (or the guarantor's, if our servicing setup allows).</span></div>
+        <div class="doc-line"><strong>2 Months Bank Statements</strong><span>Confirms the borrower has the liquidity for down payment + reserves. We're looking for: enough cash to close, enough left over for reserves (typically 6 months of payments), and no concerning patterns (unexplained large deposits, NSFs, gambling deposits).</span></div>
+        <div class="doc-line"><strong>Guarantor ID</strong><span>Driver's license or passport for every personal guarantor. Required for KYC/AML compliance and for the closing notary.</span></div>
+      </div>
+    </div>
+
+    <h3>Property docs — RTL</h3>
+    <div class="doc-card">
+      <div class="doc-line"><strong>Purchase and Sale Agreement</strong><span>The signed contract between buyer and seller. Tells underwriting the actual purchase price (which has to match the sizer), the closing date, and any contingencies.</span></div>
+      <div class="doc-line"><strong>Assignment Contract (if applicable)</strong><span>If the borrower is acquiring the property via an assigned contract (common in wholesaling), we need to see the assignment to confirm the chain of title and the actual cost basis.</span></div>
+      <div class="doc-line"><strong>Statement of Work or Construction Budget</strong><span>Line-item breakdown of what the borrower plans to do to the property. Must be detailed enough that the BPO appraiser can confirm the post-rehab value is achievable. Vague "kitchen and bath remodel — $50K" budgets get sent back for detail.</span></div>
+    </div>
+
+    <h3>Property docs — DSCR</h3>
+    <div class="doc-card">
+      <div class="doc-line"><strong>Purchase and Sale Agreement (purchases only)</strong><span>Same as above. Skip for refinances.</span></div>
+      <div class="doc-line"><strong>Lease Agreements</strong><span>Critical — the lease is what justifies the rent number we plug into the DSCR calculation. If the property is in-place leased, we need the executed lease. If it's vacant or pending, we use market rent from the appraiser's 1007 form.</span></div>
+      <div class="doc-line"><strong>Property Management Agreement</strong><span>If managed by a third party. If self-managed, the borrower fills out a PM Questionnaire instead. Used to confirm the management costs match what's in the DSCR calculation.</span></div>
+      <div class="doc-line"><strong>Most Recent Mortgage Statement (refinances only)</strong><span>Tells us the existing loan's payoff amount, escrow balance, and any reserves on hand. Drives the cashout calculation and the title payoff letter.</span></div>
+    </div>
+
+    <h3>Guarantor extras — DSCR only</h3>
+    <p>DSCR underwriting goes deeper on the personal side because the loan is long-term and the lender is taking 30 years of credit risk on the entity. Two extras beyond the universal docs:</p>
+    <div class="doc-card">
+      <div class="doc-line"><strong>Personal Financial Statement</strong><span>The guarantor's full assets and debts as a snapshot. Used to confirm liquid net worth and identify any contingent liabilities.</span></div>
+      <div class="doc-line"><strong>Verification of Housing Costs</strong><span>Mortgage statement (if the guarantor owns their home) or landlord contact (if they rent). Used to confirm the guarantor isn't living somewhere they can't afford — a red flag for default risk on the investment loan.</span></div>
+      <div class="doc-line"><strong>Real Estate Owned (REO) schedule</strong><span>List of every investment property the borrower currently owns, with addresses, market values, current loan balances, and rents. Used to evaluate portfolio leverage and confirm the borrower's stated experience.</span></div>
+    </div>
+
+    <h3>Third-party contacts (collected at the start, not the end)</h3>
+    <p>Three contacts need to be on file before processing can move:</p>
+    <ul>
+      <li><strong>Insurance Agent.</strong> Processing will reach out to bind a property insurance policy with our lender mortgagee clause and the right loss-payee setup. Without this contact, no insurance binder, no closing.</li>
+      <li><strong>Title Company.</strong> Sometimes the borrower has a preferred title company; sometimes we suggest one. Title runs preliminary title work, prepares the title commitment, and handles closing escrow.</li>
+      <li><strong>BPO/Appraisal Scheduling Contact.</strong> Whoever is at the property to let the inspector in. For RTL it's usually the borrower's contractor or the listing agent; for DSCR it's the property manager or current tenant. The valuation pro doesn't proceed without site access.</li>
+    </ul>
+  </div>
+
+  <div class="section" id="metrics">
+    <h2>5. The metrics that actually matter</h2>
+
+    <p>You'll hear a lot of acronyms thrown around. Here are the ones that come up daily and what they mean in practice.</p>
+
+    <h3>Leverage caps</h3>
+    <dl class="term-grid">
+      <dt>LTV</dt>
+      <dd><strong>Loan-to-Value.</strong> Loan amount divided by appraised value (DSCR) or as-is purchase price (RTL, where it's also called LTP). Most loans cap LTV at 70–80%.</dd>
+
+      <dt>LTC</dt>
+      <dd><strong>Loan-to-Cost.</strong> Loan amount divided by total project cost (purchase + rehab budget). RTL only. Caps typically 80–90% depending on experience tier.</dd>
+
+      <dt>LTARV</dt>
+      <dd><strong>Loan-to-After-Repair-Value.</strong> Loan amount divided by the projected post-rehab value. RTL only. Caps typically 70–75%. This is the cap that protects the lender if the rehab doesn't go to plan.</dd>
+
+      <dt>LTP</dt>
+      <dd><strong>Loan-to-Purchase.</strong> Same idea as LTV but specifically about the purchase-price column. Used interchangeably with LTV in RTL contexts.</dd>
+    </dl>
+
+    <h3>Pricing inputs</h3>
+    <dl class="term-grid">
+      <dt>FICO</dt>
+      <dd>Credit score, used in bands (740+, 700–739, etc.). Affects rate and maximum LTV.</dd>
+
+      <dt>DSCR</dt>
+      <dd>Rent ÷ PITIA. The number that tells you whether the property pays for itself. 1.0x = breaks even.</dd>
+
+      <dt>PITIA</dt>
+      <dd>Principal + Interest + Taxes + Insurance + HOA = the total monthly cost of owning the property.</dd>
+
+      <dt>Experience Tier</dt>
+      <dd>Number of investment properties the borrower has flipped or refinanced in the last 36 months. 8+ = Tier 1 (best pricing). 4–7 = Tier 2. 0–3 = Tier 3.</dd>
+
+      <dt>ZHVI</dt>
+      <dd>Zillow Home Value Index — the median home value for a ZIP code. Used as a sanity-check: properties valued at &gt;200% of the local ZHVI get a leverage haircut and a rate adjustment because the market is "hot" (i.e., values may be inflated and could correct).</dd>
+    </dl>
+
+    <h3>Rate components</h3>
+    <dl class="term-grid">
+      <dt>Base Rate</dt>
+      <dd>The wholesale rate from the capital partner's pricing matrix, before any adjustments.</dd>
+
+      <dt>Spread</dt>
+      <dd>What SLA adds on top of the wholesale rate to compensate for origination, processing, and ongoing servicing. Built into the pricing the borrower sees.</dd>
+
+      <dt>Adjustments</dt>
+      <dd>Plus-or-minus modifications based on deal characteristics: cash-out refi, high-leverage tier, MFR property type, NY/NJ/CT geography, etc. The sizer shows the breakdown so you can explain it to a borrower.</dd>
+
+      <dt>Origination Points</dt>
+      <dd>One-time fee charged at closing, expressed as a percentage of the loan. "1 point" = 1% of the loan amount. RTL is typically 1.5–3 pts depending on FICO; DSCR is typically 1 pt.</dd>
+    </dl>
+
+    <h3>Loan structure</h3>
+    <dl class="term-grid">
+      <dt>Interest Only (IO)</dt>
+      <dd>Borrower pays only interest each month, no principal reduction. Required on RTL. Optional on DSCR (changes the qualifying ratio because IO payment is lower).</dd>
+
+      <dt>Prepayment Penalty</dt>
+      <dd>Fee if the borrower pays off the loan early. DSCR loans typically have a step-down (e.g., 5% in year 1, 4% year 2, …). RTL never has a prepay penalty.</dd>
+
+      <dt>Personal Guaranty</dt>
+      <dd>The individual investor signs personally guaranteeing the entity's loan. If the entity defaults, the lender can come after the personal guarantor's assets. This is universal in BPL — there's no such thing as a non-recourse BPL loan from us.</dd>
+    </dl>
+  </div>
+
+  <div class="section" id="glossary">
+    <h2>6. Glossary — quick reference</h2>
+
+    <dl class="term-grid">
+      <dt>Articles of Organization</dt><dd>The state filing that creates an LLC. (For corporations, "Articles of Incorporation.")</dd>
+
+      <dt>BPO</dt><dd>Broker Price Opinion. A quick property valuation done by a real-estate broker rather than a full licensed appraiser. Faster and cheaper than an appraisal; commonly used on RTL deals.</dd>
+
+      <dt>Bridge Loan</dt><dd>A short-term RTL loan against a property the borrower is acquiring, with no significant rehab planned. Bridges to a longer-term financing or a sale.</dd>
+
+      <dt>Cash-Out Refinance</dt><dd>Refinance where the new loan is larger than the existing payoff, putting cash in the borrower's pocket. Always priced at a higher rate than purchase or rate-term refi.</dd>
+
+      <dt>CTC</dt><dd>Clear to Close — the underwriter has approved the loan and all conditions have been satisfied. The loan can now go to closing.</dd>
+
+      <dt>DSCR</dt><dd>Debt Service Coverage Ratio. Property rent divided by total housing cost. Also the name of the long-term rental loan product.</dd>
+
+      <dt>EIN</dt><dd>Employer Identification Number. The IRS-issued tax ID for an entity, equivalent to an SSN for a business.</dd>
+
+      <dt>Heavy Rehab</dt><dd>An RTL deal where rehab budget exceeds 50% of the loan amount.</dd>
+
+      <dt>Light Rehab</dt><dd>An RTL deal where rehab budget is less than 50% of the loan amount.</dd>
+
+      <dt>MFR</dt><dd>Multi-Family Residential. Used to refer to 5+ unit properties (1–4 unit residential is treated like SFR for sizing purposes).</dd>
+
+      <dt>Personal Guaranty (PG)</dt><dd>Personal liability for the entity's loan. Required on every BPL loan we make.</dd>
+
+      <dt>PITIA</dt><dd>Principal, Interest, Taxes, Insurance, HOA. The total monthly housing cost.</dd>
+
+      <dt>Rate-Term Refinance</dt><dd>Refinance where the new loan is roughly the same size as the existing payoff (no cash to the borrower). Cheaper than cash-out.</dd>
+
+      <dt>RTL</dt><dd>Residential Transition Loan. Short-term, interest-only loan for properties being acquired, rehabbed, or built. Encompasses Bridge, Light Rehab, Heavy Rehab, Construction, and Transactional.</dd>
+
+      <dt>SFR</dt><dd>Single-Family Residential. Includes 1–4 unit residential for our pricing purposes.</dd>
+
+      <dt>Title Commitment</dt><dd>The title company's preliminary report listing what's on title (existing liens, easements, taxes owed) and what needs to be cleared before closing.</dd>
+
+      <dt>Transactional Funding</dt><dd>One-day RTL loans, typically used for double-close transactions where the investor buys and sells the same property within 24 hours. Hardcoded 12% / 1pt at SLA.</dd>
+
+      <dt>Vesting</dt><dd>Whose name title goes into. For BPL, this must be a business entity, not an individual.</dd>
+
+      <dt>Wholesaler</dt><dd>An investor who finds and contracts deals, then assigns the contract to another investor for a fee. Common source of acquisition opportunities; their deals often need an Assignment Contract in the file.</dd>
+    </dl>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TIER 2 — SLA-SPECIFIC OPERATIONAL CONTENT
+       Sections 7–15. These cover SLA's specific staffing, timelines,
+       internal policies, and vendor relationships. Update these
+       whenever the underlying SLA process changes.
+       ═══════════════════════════════════════════════════════════ -->
+
+  <div class="section" id="sla-team">
+    <h2>7. Our team and who does what</h2>
+    <p>SLA's processing operation is fully internal. Every loan in the pipeline has a person at each station, and you should know who to escalate to at each step.</p>
+    <ul>
+      <li><strong>Loan Officer (you).</strong> Owns the borrower relationship from prequal through application. Quotes pricing, generates term sheets, sends the loan application, collects initial docs, and stays the borrower's primary contact through the entire deal.</li>
+      <li><strong>Loan Processor.</strong> Each loan file is assigned its own processor. They order third-party reports, chase down conditions, communicate with title and insurance, and own the file from "received" to "submitted to underwriting." If something is missing or stalling, this is the first person to ask.</li>
+      <li><strong>Underwriter.</strong> Internal underwriter reviews the full file, approves or counters, and issues conditions. The underwriter is the one whose name goes on exception requests.</li>
+      <li><strong>Loan Closer.</strong> Coordinates with title, preps closing docs, schedules the closing, and sends out wire instructions. Owns the file from CTC through funding.</li>
+      <li><strong>Post-Closing Specialist.</strong> Handles any post-funding conditions (recorded mortgage, final title policy, recorded assignments, missing trailing docs). If the borrower or title company has questions after the deal funds, route them here.</li>
+    </ul>
+    <div class="callout">
+      <p><strong>Routing rule of thumb:</strong> file-status questions go to the Processor. Pricing or structure questions stay with you, the LO. Underwriting decisions go through the Underwriter. After-closing issues go to the Post-Closing Specialist. Don't bounce borrowers around — figure out who owns the question first, then loop them in.</p>
+    </div>
+  </div>
+
+  <div class="section" id="sla-timelines">
+    <h2>8. Timelines, turn times, and what to quote</h2>
+
+    <h3>Close timelines you can quote</h3>
+    <ul>
+      <li><strong>RTL:</strong> 10–21 days from a complete file. Bridge and Light Rehab on the faster end; Heavy Rehab and Construction on the slower end (more BPO scope, more docs to underwrite).</li>
+      <li><strong>DSCR:</strong> 21–40 days standard. We've closed in as quick as <strong>15 days</strong> when the borrower is responsive and there are no title surprises — but don't promise that as a default.</li>
+      <li><strong>Transactional Funding:</strong> Same day. The whole point of the product.</li>
+    </ul>
+
+    <h3>Internal turn times the file moves at</h3>
+    <p>These are the SLAs the processing team operates against. If something is past these timelines, follow up:</p>
+    <ul>
+      <li><strong>Credit pulled:</strong> same day the file is received.</li>
+      <li><strong>Appraisal/BPO ordered:</strong> within 24 hours of file submission.</li>
+      <li><strong>Appraisal/BPO returned:</strong> approximately one week from order.</li>
+      <li><strong>Conditions issued:</strong> within 72 hours of receiving appraisal AND all underwriting docs being in.</li>
+    </ul>
+
+    <div class="callout">
+      <p><strong>The bottleneck is almost always the borrower.</strong> If a deal is taking too long, walk back through what's outstanding from their side — appraisal payment not received, missing bank statement, insurance binder still pending. Our internal turn times are tight; what stretches deals is the borrower side of the file.</p>
+    </div>
+  </div>
+
+  <div class="section" id="sla-thirdparty">
+    <h2>9. Appraisals, BPOs, CDAs, and lock policy</h2>
+
+    <h3>Who orders what, who pays</h3>
+    <table class="compare-table">
+      <thead>
+        <tr><th>Report</th><th>Used for</th><th>Ordered by</th><th>Paid by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Full Appraisal</td><td>DSCR — required</td><td>Processing team</td><td>Borrower at time of order</td></tr>
+        <tr><td>CDA (Collateral Desktop Analysis)</td><td>DSCR — secondary check on appraisal</td><td>Processing team</td><td>SLA pays</td></tr>
+        <tr><td>BPO</td><td>RTL — required</td><td>Processing team</td><td>SLA pays</td></tr>
+      </tbody>
+    </table>
+
+    <h3>What this means in practice</h3>
+    <ul>
+      <li><strong>Appraisal payment is the gating item on DSCR.</strong> The processing team won't order until the borrower pays. The DSCR rate <strong>cannot be locked until the appraisal comes back</strong>, so any delay between term sheet acceptance and appraisal payment is rate exposure for the borrower. Push them to pay promptly.</li>
+      <li><strong>Every DSCR is subject to acceptable appraisal AND CDA.</strong> Both have to clear. If the CDA disagrees materially with the appraisal (typically &gt;10%), underwriting will require additional review or a new value.</li>
+      <li><strong>Every RTL is subject to BPO.</strong> If the BPO comes back lower than the borrower's stated ARV, the deal has to be re-sized. Sometimes the LTARV cap kills it; sometimes the borrower puts more cash in.</li>
+      <li><strong>Interior access is required on every deal.</strong> If interior access genuinely isn't possible (tenant won't cooperate, property is boarded up), at minimum we need <em>interior photos</em> from the borrower or their agent. These can be accepted with underwriter approval — but it's an exception, not the default. Set the expectation up front that the property will be visited.</li>
+    </ul>
+  </div>
+
+  <div class="section" id="sla-criteria">
+    <h2>10. Eligibility — loan size, geography, borrowers</h2>
+
+    <h3>Loan size</h3>
+    <ul>
+      <li><strong>$100,000 minimum loan</strong> without exception approval. Below that, an exception request goes through the underwriter.</li>
+      <li><strong>$200,000+ gets best DSCR pricing.</strong> Under $200K on DSCR, expect a small-loan adjustment that the borrower will see in the rate.</li>
+    </ul>
+
+    <h3>Geography — where we cannot lend</h3>
+    <p>Quote the borrower confidently in any state <em>not</em> on this list. The states where we cannot originate:</p>
+    <ul>
+      <li><strong>Cannot lend:</strong> California, Minnesota, Nevada, Arizona, North Dakota, South Dakota, Vermont, Utah, Alaska</li>
+    </ul>
+    <div class="callout">
+      <p><strong>If a borrower brings you a deal in a no-lend state,</strong> tell them up front before doing any quoting work — most of these state restrictions are licensing-driven and there's no path through them. Don't try to size a deal you can't fund.</p>
+    </div>
+
+    <h3>Borrower citizenship</h3>
+    <ul>
+      <li><strong>US citizens:</strong> standard pricing tiers apply based on FICO, experience, and deal characteristics.</li>
+      <li><strong>Permanent residents and other non-citizens:</strong> priced at the <strong>lowest credit-rating LTV and pricing tier</strong>, regardless of actual FICO. So a 780-FICO permanent resident still prices like a sub-680 borrower.</li>
+      <li><strong>Foreign nationals:</strong> allowed, same treatment — lowest credit LTV and pricing tier. Make sure they understand this up front so the rate isn't a shock.</li>
+    </ul>
+  </div>
+
+  <div class="section" id="sla-reserves">
+    <h2>11. Reserves and source-of-funds</h2>
+
+    <h3>Reserves required at closing</h3>
+    <p>Cash that must remain in the borrower's accounts <em>after</em> closing — they don't bring it to the table, but underwriting needs to see it sitting there.</p>
+    <ul>
+      <li><strong>RTL standard:</strong> 6 months of PITIA + Down Payment + 20% of construction budget. There's flex on this for high-credit borrowers or low-LTARV deals — the underwriter will sometimes waive part of it. Don't promise the waiver up front.</li>
+      <li><strong>DSCR purchases:</strong> 3 months of PITIA reserves required.</li>
+      <li><strong>DSCR cashout refis:</strong> No reserves required (the cashout itself can satisfy the position).</li>
+    </ul>
+
+    <h3>Source of funds</h3>
+    <p><strong>No seasoning requirement.</strong> Funds just need to show on the bank statement at the time we run them. Borrower can move money around freely — that's a real differentiator versus other lenders that require 60+ days of seasoning.</p>
+    <p>This makes us competitive for borrowers who consolidate funds for closing. But still set the expectation that <em>large deposits</em> may need a brief letter of explanation if they don't have an obvious source — underwriting just wants to know the money isn't borrowed.</p>
+  </div>
+
+  <div class="section" id="sla-vesting">
+    <h2>12. Vesting and personal guaranty rules</h2>
+
+    <h3>Vesting (whose name title goes into)</h3>
+    <ul>
+      <li><strong>Required:</strong> A business entity — LLC, corporation, or LP. Title vests in the entity at closing.</li>
+      <li><strong>Not allowed:</strong> Trusts, complex multi-layered vesting, and any structure where the ownership chain isn't clear and easily verifiable. If a borrower wants exotic vesting, the answer is "not at closing." They can transfer post-closing if they want, subject to their own counsel.</li>
+    </ul>
+
+    <h3>Personal guaranty</h3>
+    <ul>
+      <li><strong>A personal guaranty is required on every loan.</strong> No non-recourse exceptions.</li>
+      <li><strong>Single owner:</strong> they personally guarantee.</li>
+      <li><strong>Two owners with unequal percentages:</strong> the highest-% owner is the required PG. Other owners can co-sign but aren't required.</li>
+      <li><strong>Two owners at 50/50:</strong> only one PG required. This is genuinely useful — if one owner has adverse credit (recent BK, foreclosure, judgment), structure the deal so the credit-clean owner is the PG and you avoid the credit hit.</li>
+    </ul>
+    <div class="callout">
+      <p><strong>The 50/50 trick is a real lever.</strong> If a borrower is on the bubble because of one owner's credit issues, suggest restructuring the LLC to 50/50 and naming the better-credit owner as the sole PG. Run this past the borrower's attorney — they may need to amend the operating agreement before closing.</p>
+    </div>
+  </div>
+
+  <div class="section" id="sla-baseline">
+    <h2>13. Baseline LOS and the LO's role in the file</h2>
+
+    <h3>Where docs live</h3>
+    <p>All borrower docs are uploaded to <strong>Baseline</strong>, our Loan Origination System. Baseline is a secure, encrypted platform — direct the borrower to upload there rather than emailing sensitive documents (SSN, bank statements, ID) directly to you.</p>
+
+    <h3>What the LO does in the file (vs. what processing does)</h3>
+    <p>Even though processing owns the file once it's submitted, the LO has specific things they're directly responsible for:</p>
+    <ul>
+      <li><strong>LO issues the term sheet directly.</strong> Generate from this platform's Loan Details page, send to the borrower, get it back signed. Don't hand this off to processing.</li>
+      <li><strong>LO is responsible for getting the loan application completed and signed.</strong> Send the long-form application via the "Send Full Loan Application" button. Follow up with the borrower until it's submitted and signed. Processing won't start a file without a signed app.</li>
+      <li><strong>LO is the relationship.</strong> Even when processing is doing the work, the borrower will call you with questions. Stay involved — silence breeds anxiety, and anxious borrowers go shop the deal somewhere else.</li>
+    </ul>
+  </div>
+
+  <div class="section" id="sla-comp">
+    <h2>14. Commission structure and progression</h2>
+
+    <h3>Cavalry LOs (entry tier)</h3>
+    <ul>
+      <li>Flat <strong>50 bps commission</strong> on every closed loan.</li>
+      <li>50 bps = 0.50% of the loan amount. A $300K loan pays $1,500.</li>
+      <li>Standard product set: DSCR, RTL (Bridge / Light / Heavy / Construction / Transactional).</li>
+    </ul>
+
+    <h3>Senior LOs (after progression)</h3>
+    <ul>
+      <li><strong>50 bps</strong> on the first $3M in monthly origination volume.</li>
+      <li><strong>75 bps</strong> on every dollar funded above $3M in the same calendar month.</li>
+      <li>Volume resets at the start of each month.</li>
+      <li>Senior LOs also get access to a larger product suite (additional capital partners, niche programs, larger loan sizes).</li>
+    </ul>
+    <div class="callout">
+      <p><strong>The math at the Senior tier:</strong> If you fund $3.5M in a month, you earn 50 bps × $3M = $15,000 plus 75 bps × $500K = $3,750, for a total of $18,750. The 75 bps tier is what makes hitting volume targets meaningful — push past $3M and the next dollar pays 50% more than the previous one.</p>
+    </div>
+  </div>
+
+  <div class="section" id="sla-exceptions">
+    <h2>15. When to ask for exception approval</h2>
+
+    <p>Most of our box is non-negotiable. But these scenarios always require explicit underwriter approval before you commit to the borrower:</p>
+    <ul>
+      <li><strong>Loan amount under $100,000.</strong> Sub-floor loans need underwriter sign-off. Don't quote them confidently — say "I'll need to confirm that one with our underwriter."</li>
+      <li><strong>Property is anything other than 1–4 unit residential.</strong> 5+ unit MFR, mixed-use, commercial, land — all require approval. Some we can do, some we can't, but never assume.</li>
+      <li><strong>Borrower is outside standard guidelines.</strong> This is a catch-all — recent BK, recent foreclosure, unusual income source the underwriter would want to look at, sub-660 FICO, anything that pings your gut. Surface it before you quote.</li>
+      <li><strong>No interior access for appraisal or BPO.</strong> Acceptable with photos + underwriter sign-off, not without.</li>
+      <li><strong>Reserves below the standard requirement.</strong> Sometimes negotiable for high-credit / low-leverage deals; never assume.</li>
+    </ul>
+
+    <div class="callout">
+      <p><strong>Better to ask first than retract later.</strong> If you quote a borrower at standard terms and then have to come back saying "actually we need an extra $20K in reserves and the rate is 0.50% higher," you've damaged trust and probably lost the deal. When in doubt, get the exception confirmed before issuing the term sheet.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+netlifyIdentity.on('init', function(u){
+  if(!u){ netlifyIdentity.open(); return; }
+  // Show submissions link for admins (matches pattern from other pages)
+  if (window.SLA && SLA.isAdmin && SLA.isAdmin(u)) {
+    var s = document.getElementById('navSubmissionsLink');
+    if (s) s.style.display = '';
+  }
+});
+netlifyIdentity.on('logout', function(){ window.location.replace('/'); });
+</script>
+</body>
+</html>
