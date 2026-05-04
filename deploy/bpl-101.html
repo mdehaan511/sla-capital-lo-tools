@@ -11,6 +11,7 @@
 <script src="sla-api.js"></script>
 <script src="sla-search.js"></script>
 <script src="sla-notifications.js"></script>
+<script src="sla-chat.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -261,6 +262,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
     <p>The most common failure points, in roughly the order you'll encounter them:</p>
     <ul>
       <li><strong>Borrower doesn't have an entity yet.</strong> Easy fix — they spin one up — but it takes a week if they're starting from scratch. Catch this on the prequal call.</li>
+      <li><strong>Borrower doesn't actually have enough money to be lendable.</strong> This is one of the most common issues as investors regularly get over-leveraged. Have this conversation early — confirm down payment funds, reserves, and rehab budget exist <em>and</em> are accessible before you spend hours sizing the deal.</li>
       <li><strong>Insurance binder takes too long.</strong> Many investor-rental policies are slow to bind. Get the insurance contact at the doc-checklist stage, not the day before closing.</li>
       <li><strong>Title issues.</strong> Liens, unpaid taxes, an unsigned-off prior loan, a clouded chain. These surface late and can blow timelines. Title work should kick off immediately once a deal is in processing.</li>
       <li><strong>Appraisal comes in low</strong> (DSCR) or BPO disagrees with the borrower's ARV (RTL). When this happens, the deal has to be re-sized at the new value. Sometimes the LTV cap kills it; sometimes the borrower puts more cash in.</li>
@@ -489,9 +491,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
         <tr><th>Report</th><th>Used for</th><th>Ordered by</th><th>Paid by</th></tr>
       </thead>
       <tbody>
-        <tr><td>Full Appraisal</td><td>DSCR — required</td><td>Processing team</td><td>Borrower at time of order</td></tr>
+        <tr><td>Full Appraisal</td><td>DSCR — required.<br>RTL — required for Heavy Rehab or for Bridge/Light Rehab where loan amount &gt; $500K.</td><td>Processing team</td><td>Borrower at time of order</td></tr>
         <tr><td>CDA (Collateral Desktop Analysis)</td><td>DSCR — secondary check on appraisal</td><td>Processing team</td><td>SLA pays</td></tr>
-        <tr><td>BPO</td><td>RTL — required</td><td>Processing team</td><td>SLA pays</td></tr>
+        <tr><td>BPO</td><td>RTL — required when full appraisal is not</td><td>Processing team</td><td>SLA pays</td></tr>
       </tbody>
     </table>
 
@@ -499,7 +501,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
     <ul>
       <li><strong>Appraisal payment is the gating item on DSCR.</strong> The processing team won't order until the borrower pays. The DSCR rate <strong>cannot be locked until the appraisal comes back</strong>, so any delay between term sheet acceptance and appraisal payment is rate exposure for the borrower. Push them to pay promptly.</li>
       <li><strong>Every DSCR is subject to acceptable appraisal AND CDA.</strong> Both have to clear. If the CDA disagrees materially with the appraisal (typically &gt;10%), underwriting will require additional review or a new value.</li>
-      <li><strong>Every RTL is subject to BPO.</strong> If the BPO comes back lower than the borrower's stated ARV, the deal has to be re-sized. Sometimes the LTARV cap kills it; sometimes the borrower puts more cash in.</li>
+      <li><strong>Every RTL is subject to a property valuation</strong> — full appraisal for Heavy Rehab or any Bridge/Light Rehab over $500K, BPO for everything else. If the valuation comes back lower than the borrower's stated ARV, the deal has to be re-sized. Sometimes the LTARV cap kills it; sometimes the borrower puts more cash in.</li>
       <li><strong>Interior access is required on every deal.</strong> If interior access genuinely isn't possible (tenant won't cooperate, property is boarded up), at minimum we need <em>interior photos</em> from the borrower or their agent. These can be accepted with underwriter approval — but it's an exception, not the default. Set the expectation up front that the property will be visited.</li>
     </ul>
   </div>

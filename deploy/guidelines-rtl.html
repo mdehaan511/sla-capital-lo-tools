@@ -11,6 +11,7 @@
 <script src="sla-api.js"></script>
 <script src="sla-search.js"></script>
   <script src="sla-notifications.js"></script>
+<script src="sla-chat.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -652,10 +653,36 @@ navLinks.forEach(function(a) {
       e.preventDefault();
       t.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setActive(id);
-      // also expand the section
-      if (!t.classList.contains('open')) toggleSection(id);
+      // Make sure the section is open (don't toggle — that closes already-open ones)
+      var body = t.querySelector('.section-body');
+      if (body && !body.classList.contains('open')) {
+        body.classList.add('open');
+        t.classList.add('open');
+      }
+      // Persist hash for bookmark / refresh
+      try {
+        if (history && history.replaceState) history.replaceState(null, '', '#' + id);
+        else window.location.hash = id;
+      } catch (_) {}
     }
   });
+});
+
+// Honor URL hash on page load
+window.addEventListener('load', function() {
+  var hash = (window.location.hash || '').replace(/^#/, '');
+  if (!hash) return;
+  var t = document.getElementById(hash);
+  if (!t) return;
+  setTimeout(function() {
+    var body = t.querySelector('.section-body');
+    if (body && !body.classList.contains('open')) {
+      body.classList.add('open');
+      t.classList.add('open');
+    }
+    t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActive(hash);
+  }, 100);
 });
 
 // Auth gate

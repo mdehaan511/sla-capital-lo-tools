@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-chat.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -54,6 +55,8 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
 /* ── Guidelines grid ── */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 36px; }
+/* Pinned cards always render in the top-left position regardless of source order */
+.guide-card.pinned { order: -1; }
 
 /* ── Active guideline card ── */
 .guide-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--r); padding: 1.5rem; text-decoration: none; color: var(--text); display: flex; flex-direction: column; gap: 10px; transition: all 0.18s; position: relative; overflow: hidden; }
@@ -100,6 +103,21 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
   <div class="section-label">Active Guidelines</div>
   <div class="grid">
 
+    <!-- BPL 101 — Onboarding primer. PINNED to first/top-left position
+         via .pinned (order:-1) so any future cards sit after it. -->
+    <a class="guide-card pinned" href="bpl-101.html">
+      <div class="guide-card-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9" stroke="var(--gold)" stroke-width="1.5"/><path d="M11 6v6l4 2" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <span class="card-badge">Onboarding · Industry Primer</span>
+      <div class="card-name">BPL 101 — Loan Officer Overview</div>
+      <div class="card-desc">How business-purpose lending works, DSCR vs RTL fundamentals, the loan process from prequal to closing, document checklists with the why behind each one, and a glossary of industry terms.</div>
+      <div class="card-meta">
+        <span class="card-version">For new LOs</span>
+        <span class="card-arrow">Open →</span>
+      </div>
+    </a>
+
     <!-- DSCR Term Loans -->
     <a class="guide-card" href="guidelines.html">
       <div class="guide-card-icon">
@@ -124,20 +142,6 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="card-desc">LTV/LTC/LTARV matrices for SFR and multi-family, light vs heavy rehab definitions, geographic exclusions, experience tiers, and guarantor requirements.</div>
       <div class="card-meta">
         <span class="card-version">Effective 2026</span>
-        <span class="card-arrow">Open →</span>
-      </div>
-    </a>
-
-    <!-- BPL 101 — overview for new LOs -->
-    <a class="guide-card" href="bpl-101.html">
-      <div class="guide-card-icon">
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9" stroke="var(--gold)" stroke-width="1.5"/><path d="M11 6v6l4 2" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round"/></svg>
-      </div>
-      <span class="card-badge">Onboarding · Industry Primer</span>
-      <div class="card-name">BPL 101 — Loan Officer Overview</div>
-      <div class="card-desc">How business-purpose lending works, DSCR vs RTL fundamentals, the loan process from prequal to closing, document checklists with the why behind each one, and a glossary of industry terms.</div>
-      <div class="card-meta">
-        <span class="card-version">For new LOs</span>
         <span class="card-arrow">Open →</span>
       </div>
     </a>

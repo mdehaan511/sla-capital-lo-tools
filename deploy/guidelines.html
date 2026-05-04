@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-chat.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -200,51 +201,51 @@ mark { background: rgba(200,129,58,0.25); color: var(--dark); border-radius: 2px
     <nav class="sidebar-nav">
       <div class="nav-section">
         <div class="nav-section-label">Quick Reference</div>
-        <button class="nav-item" onclick="scrollTo('loan-sizing')">Loan Sizing Matrix</button>
-        <button class="nav-item" onclick="scrollTo('ltv-matrix')">Max LTV Matrix</button>
-        <button class="nav-item" onclick="scrollTo('ltc-matrix')">Max LTC Matrix</button>
-        <button class="nav-item" onclick="scrollTo('liquidity-matrix')">Liquidity Reserves</button>
-        <button class="nav-item" onclick="scrollTo('occupancy-matrix')">Occupancy Requirements</button>
-        <button class="nav-item" onclick="scrollTo('dscr-calc')">DSCR Calculations</button>
+        <button class="nav-item" onclick="scrollToSection('loan-sizing')">Loan Sizing Matrix</button>
+        <button class="nav-item" onclick="scrollToSection('ltv-matrix')">Max LTV Matrix</button>
+        <button class="nav-item" onclick="scrollToSection('ltc-matrix')">Max LTC Matrix</button>
+        <button class="nav-item" onclick="scrollToSection('liquidity-matrix')">Liquidity Reserves</button>
+        <button class="nav-item" onclick="scrollToSection('occupancy-matrix')">Occupancy Requirements</button>
+        <button class="nav-item" onclick="scrollToSection('dscr-calc')">DSCR Calculations</button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Loan Products</div>
-        <button class="nav-item" onclick="scrollTo('loan-types')">Loan Types &amp; Terms</button>
-        <button class="nav-item" onclick="scrollTo('loan-purpose')">Loan Purpose</button>
-        <button class="nav-item" onclick="scrollTo('arm-details')">ARM Details</button>
-        <button class="nav-item" onclick="scrollTo('prepayment')">Prepayment Penalties</button>
+        <button class="nav-item" onclick="scrollToSection('loan-types')">Loan Types &amp; Terms</button>
+        <button class="nav-item" onclick="scrollToSection('loan-purpose')">Loan Purpose</button>
+        <button class="nav-item" onclick="scrollToSection('arm-details')">ARM Details</button>
+        <button class="nav-item" onclick="scrollToSection('prepayment')">Prepayment Penalties</button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Property</div>
-        <button class="nav-item" onclick="scrollTo('eligible-props')">Eligible Property Types</button>
-        <button class="nav-item" onclick="scrollTo('ineligible-props')">Ineligible Property Types</button>
-        <button class="nav-item" onclick="scrollTo('min-prop-req')">Minimum Property Requirements</button>
-        <button class="nav-item" onclick="scrollTo('eligible-states')">Eligible States</button>
-        <button class="nav-item" onclick="scrollTo('leases')">Leases</button>
-        <button class="nav-item" onclick="scrollTo('insurance')">Insurance Requirements</button>
-        <button class="nav-item" onclick="scrollTo('title')">Title Insurance</button>
-        <button class="nav-item" onclick="scrollTo('flood')">Flood Insurance</button>
-        <button class="nav-item" onclick="scrollTo('prop-mgmt')">Property Management</button>
+        <button class="nav-item" onclick="scrollToSection('eligible-props')">Eligible Property Types</button>
+        <button class="nav-item" onclick="scrollToSection('ineligible-props')">Ineligible Property Types</button>
+        <button class="nav-item" onclick="scrollToSection('min-prop-req')">Minimum Property Requirements</button>
+        <button class="nav-item" onclick="scrollToSection('eligible-states')">Eligible States</button>
+        <button class="nav-item" onclick="scrollToSection('leases')">Leases</button>
+        <button class="nav-item" onclick="scrollToSection('insurance')">Insurance Requirements</button>
+        <button class="nav-item" onclick="scrollToSection('title')">Title Insurance</button>
+        <button class="nav-item" onclick="scrollToSection('flood')">Flood Insurance</button>
+        <button class="nav-item" onclick="scrollToSection('prop-mgmt')">Property Management</button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Borrower &amp; Guarantor</div>
-        <button class="nav-item" onclick="scrollTo('entity')">Entity Structure</button>
-        <button class="nav-item" onclick="scrollTo('guaranty')">Guaranty Requirements</button>
-        <button class="nav-item" onclick="scrollTo('credit')">Credit Requirements</button>
-        <button class="nav-item" onclick="scrollTo('liquidity-req')">Liquidity Requirements</button>
-        <button class="nav-item" onclick="scrollTo('citizenship')">Citizenship / Visa Status</button>
-        <button class="nav-item" onclick="scrollTo('entity-chains')">Entity Chains</button>
+        <button class="nav-item" onclick="scrollToSection('entity')">Entity Structure</button>
+        <button class="nav-item" onclick="scrollToSection('guaranty')">Guaranty Requirements</button>
+        <button class="nav-item" onclick="scrollToSection('credit')">Credit Requirements</button>
+        <button class="nav-item" onclick="scrollToSection('liquidity-req')">Liquidity Requirements</button>
+        <button class="nav-item" onclick="scrollToSection('citizenship')">Citizenship / Visa Status</button>
+        <button class="nav-item" onclick="scrollToSection('entity-chains')">Entity Chains</button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Appraisal &amp; Docs</div>
-        <button class="nav-item" onclick="scrollTo('appraisal')">Appraisal Requirements</button>
-        <button class="nav-item" onclick="scrollTo('approved-amcs')">Approved AMCs</button>
-        <button class="nav-item" onclick="scrollTo('loan-docs')">Loan Documentation</button>
-        <button class="nav-item" onclick="scrollTo('exceptions')">Exception Management</button>
+        <button class="nav-item" onclick="scrollToSection('appraisal')">Appraisal Requirements</button>
+        <button class="nav-item" onclick="scrollToSection('approved-amcs')">Approved AMCs</button>
+        <button class="nav-item" onclick="scrollToSection('loan-docs')">Loan Documentation</button>
+        <button class="nav-item" onclick="scrollToSection('exceptions')">Exception Management</button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Condo</div>
-        <button class="nav-item" onclick="scrollTo('nw-condo')">Non-Warrantable Condo Rules</button>
+        <button class="nav-item" onclick="scrollToSection('nw-condo')">Non-Warrantable Condo Rules</button>
       </div>
     </nav>
   </aside>
@@ -1104,7 +1105,7 @@ mark { background: rgba(200,129,58,0.25); color: var(--dark); border-radius: 2px
       <svg class="chevron-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
     <div class="section-body">
-      <p>See <a href="#liquidity-matrix" onclick="scrollTo('liquidity-matrix');return false;" style="color:var(--gold)">Liquidity Reserves Matrix</a> for post-closing reserve requirements.</p>
+      <p>See <a href="#liquidity-matrix" onclick="scrollToSection('liquidity-matrix');return false;" style="color:var(--gold)">Liquidity Reserves Matrix</a> for post-closing reserve requirements.</p>
       <h3>Documentation Requirements</h3>
       <ul>
         <li>Most recent 2 consecutive months of bank/investment statements covering minimum 60 days</li>
@@ -1359,22 +1360,40 @@ function toggle(header) {
 }
 
 // ── Scroll to section ─────────────────────────────────────────────
-function scrollTo(id) {
+function scrollToSection(id) {
   var el = document.getElementById(id);
   if (!el) return;
-  // Open it if closed
+  // Open the section if it's collapsed
   var body = el.querySelector('.section-body');
   var chevron = el.querySelector('.chevron-icon');
   if (body && !body.classList.contains('open')) {
     body.classList.add('open');
     if (chevron) chevron.classList.add('open');
   }
+  // Update the URL hash so the user can bookmark / refresh and land here
+  // (use replaceState so we don't pollute back-button history)
+  try {
+    if (history && history.replaceState) {
+      history.replaceState(null, '', '#' + id);
+    } else {
+      window.location.hash = id;
+    }
+  } catch (_) {}
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Update active nav item
   document.querySelectorAll('.nav-item').forEach(function(b){ b.classList.remove('active'); });
   var navBtn = document.querySelector('.nav-item[onclick*="' + id + '"]');
   if (navBtn) navBtn.classList.add('active');
 }
+
+// Honor URL hash on page load — if user lands at /guidelines.html#ltv-matrix,
+// open that section and scroll to it.
+window.addEventListener('load', function() {
+  var hash = (window.location.hash || '').replace(/^#/, '');
+  if (hash && document.getElementById(hash)) {
+    setTimeout(function() { scrollToSection(hash); }, 100);
+  }
+});
 
 // ── Search ────────────────────────────────────────────────────────
 function doSearch() {
