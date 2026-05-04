@@ -462,6 +462,7 @@ function renderVolumeTable(sorted) {
     '<thead><tr>' +
       '<th>User</th>' +
       '<th>Role</th>' +
+      '<th>Last Active</th>' +
       '<th>Apply Link</th>' +
       '<th class="right">Quoted</th>' +
       '<th class="right">Submitted</th>' +
@@ -480,6 +481,7 @@ function renderVolumeTable(sorted) {
     html += '<tr>' +
       '<td><div style="font-weight:600">' + escH(name) + '</div><div style="font-size:11px;color:var(--muted)">' + escH(u.email) + '</div></td>' +
       '<td><span class="role-badge ' + role + '">' + escH(roleLabel) + '</span></td>' +
+      '<td>' + fmtRelative(u.last_seen_at) + '</td>' +
       '<td>' + (applyUrl
         ? '<button class="copy-btn" onclick="copyUrl(this, \'' + escAttr(applyUrl) + '\')">Copy</button>'
         : '<span style="color:var(--muted);font-size:11px">—</span>'
@@ -500,6 +502,7 @@ function renderConversionTable(sorted) {
   var html = '<div style="overflow-x:auto"><table>' +
     '<thead><tr>' +
       '<th>User</th>' +
+      '<th>Last Active</th>' +
       '<th class="right">Prospects</th>' +
       '<th class="right">Quoted</th>' +
       '<th class="right">Prospect→Quoted</th>' +
@@ -514,6 +517,7 @@ function renderConversionTable(sorted) {
     var name = u.fullName || humanizeEmail(u.email);
     html += '<tr>' +
       '<td><div style="font-weight:600">' + escH(name) + '</div><div style="font-size:11px;color:var(--muted)">' + escH(u.email) + '</div></td>' +
+      '<td>' + fmtRelative(u.last_seen_at) + '</td>' +
       '<td class="right">' + (u.prospectCount || 0) + '</td>' +
       '<td class="right">' + (u.quoteCount    || 0) + '</td>' +
       '<td class="right">' + pctCell(c.prospectToQuoted)    + '</td>' +
@@ -731,6 +735,28 @@ function humanizeEmail(email) {
   var parts = local.split(/[._\-]+/).filter(Boolean);
   if (!parts.length) return email;
   return parts.map(function(p){ return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }).join(' ');
+}
+
+// Format an ISO timestamp as a relative human-readable string ("3h ago",
+// "2 days ago", "—" if missing). Returns the absolute date as a tooltip.
+function fmtRelative(iso) {
+  if (!iso) return '<span style="color:var(--muted)">—</span>';
+  var then = new Date(iso).getTime();
+  if (!isFinite(then)) return '<span style="color:var(--muted)">—</span>';
+  var diff = Date.now() - then;
+  var abs = Math.abs(diff);
+  var min = 60 * 1000, hr = 60 * min, day = 24 * hr, week = 7 * day, month = 30 * day;
+  var label;
+  if (abs < min)        label = 'just now';
+  else if (abs < hr)    label = Math.floor(abs / min) + 'm ago';
+  else if (abs < day)   label = Math.floor(abs / hr) + 'h ago';
+  else if (abs < week)  label = Math.floor(abs / day) + 'd ago';
+  else if (abs < month) label = Math.floor(abs / week) + 'w ago';
+  else                  label = Math.floor(abs / month) + 'mo ago';
+  // Color recency: green within 24h, gold within a week, muted otherwise
+  var color = abs < day ? 'var(--success)' : abs < week ? 'var(--gold-mid)' : 'var(--muted)';
+  var title = new Date(iso).toLocaleString('en-US');
+  return '<span style="color:' + color + ';font-family:\'DM Mono\',monospace;font-size:11.5px" title="' + escAttr(title) + '">' + label + '</span>';
 }
 function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
