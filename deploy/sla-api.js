@@ -366,6 +366,9 @@
     syncAll: function () {
       return api('POST', '/api/brevo-sync-manual', { all: true });
     },
+    testSync: function () {
+      return api('POST', '/api/brevo-sync-manual', { test: true });
+    },
   };
 
   // ── Profile (silent + explicit update) ──────────────────────────

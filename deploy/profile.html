@@ -274,9 +274,10 @@
 
       <div class="setting-row">
         <label>Email marketing sync (Brevo) <span class="banner-tag off" id="brevoModeTag">Loading…</span></label>
-        <div class="hint">Every client created or updated is synced to Brevo as a marketing contact. Configure <code>BREVO_API_KEY</code> in Netlify env vars. Add <code>BREVO_DRY_RUN=true</code> to log payloads without making real API calls — recommended for the first deploy. Optional <code>BREVO_LIST_ID</code> assigns contacts to a specific Brevo list.</div>
+        <div class="hint">Every client created or updated is synced to Brevo as a marketing contact. Configure <code>BREVO_API_KEY</code> in Netlify env vars. Leave <code>BREVO_DRY_RUN</code> unset (or set to <code>true</code>) for safe dry-run testing — only the literal value <code>false</code> enables live syncing. Optional <code>BREVO_LIST_ID</code> assigns contacts to a specific Brevo list.</div>
         <div class="input-row">
           <a class="small-btn" href="brevo-log.html">View Sync Log →</a>
+          <button class="small-btn" id="brevoTestBtn" onclick="runBrevoTest()">Send test contact</button>
           <button class="small-btn" id="brevoSyncAllBtn" onclick="runBrevoSyncAll()">Backfill all clients</button>
         </div>
         <div class="save-status" id="brevoStatus"></div>
@@ -751,12 +752,39 @@ function loadBrevoMode() {
       mode === 'dry-run' ? 'Dry Run' :
                            'Disabled';
     tag.className = 'banner-tag ' + (mode === 'live' ? 'live' : 'off');
-    // Disable the backfill button if Brevo isn't configured
-    var btn = document.getElementById('brevoSyncAllBtn');
-    if (btn) btn.disabled = !resp.enabled;
+    // Disable buttons if Brevo isn't configured
+    var allBtn  = document.getElementById('brevoSyncAllBtn');
+    var testBtn = document.getElementById('brevoTestBtn');
+    if (allBtn)  allBtn.disabled  = !resp.enabled;
+    if (testBtn) testBtn.disabled = !resp.enabled;
   }).catch(function(){
     tag.textContent = 'Unknown';
     tag.className = 'banner-tag off';
+  });
+}
+
+function runBrevoTest() {
+  var status = document.getElementById('brevoStatus');
+  status.className = 'save-status';
+  status.textContent = 'Sending test contact…';
+  SLA.Brevo.testSync().then(function(resp) {
+    if (!resp || resp.error || !resp.ok) {
+      status.className = 'save-status err';
+      var errMsg = (resp && resp.result && resp.result.error)
+        || (resp && resp.error)
+        || 'unknown';
+      status.textContent = 'Failed: ' + errMsg;
+      return;
+    }
+    status.className = 'save-status ok';
+    var prefix = resp.mode === 'dry-run' ? '✓ [Dry Run] ' : '✓ ';
+    status.innerHTML = prefix + 'Test contact sent for <strong>' + escAttr(resp.testEmail || '') + '</strong>. ' +
+      (resp.mode === 'live'
+        ? 'Check Brevo to confirm it landed (last name: SLA-Brevo-Test).'
+        : 'Open Sync Log to inspect the payload.');
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
   });
 }
 

@@ -29,8 +29,18 @@ function isEnabled() {
   return !!process.env.BREVO_API_KEY;
 }
 
+/**
+ * Defaults to dry-run unless BREVO_DRY_RUN is *explicitly* set to "false".
+ *
+ * This is intentionally fail-safe: if someone deletes the wrong env var,
+ * mistypes "False" as "FALSE!", or otherwise leaves the value ambiguous,
+ * we stay in dry-run instead of silently going live. The only way to push
+ * real contacts to Brevo is to set BREVO_DRY_RUN=false (lowercase, exact).
+ */
 function isDryRun() {
-  return String(process.env.BREVO_DRY_RUN || '').toLowerCase() === 'true';
+  const raw = process.env.BREVO_DRY_RUN;
+  if (raw === undefined || raw === null || raw === '') return true; // default safe
+  return String(raw).toLowerCase() !== 'false';
 }
 
 /**

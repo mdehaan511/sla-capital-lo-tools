@@ -64,6 +64,36 @@ export default async (req, context) => {
     return n;
   }
 
+  // Test mode — push one synthetic contact so the admin can verify live
+  // wiring (API key, list ID, custom attribute names) before pushing any
+  // real client. Uses the requester's own email so the test lands somewhere
+  // they actually have access to in Brevo. Always tagged with TEST=true so
+  // it's easy to find and delete in Brevo afterward.
+  if (body.test) {
+    if (!isSuperAdmin(user)) return json(403, { error: 'Super-admin only for test sync' });
+    const requesterEmail = String(user.email || '').toLowerCase();
+    if (!requesterEmail) return json(400, { error: 'Could not determine requester email' });
+    const meta = user.user_metadata || {};
+    const requesterName = meta.full_name || meta.fullName || '';
+    const fakeClient = {
+      id: 'sla-brevo-test',
+      email: requesterEmail,
+      firstName: requesterName.split(' ')[0] || 'Test',
+      lastName: 'SLA-Brevo-Test',
+      phone: '',
+      createdAt: new Date().toISOString(),
+      loans: [{
+        id: 'test-loan',
+        address: '123 Test Street, Spokane, WA',
+        createdAt: new Date().toISOString(),
+      }],
+    };
+    const result = await syncClient(fakeClient, requesterEmail, requesterName);
+    return json(200, {
+      ok: result.ok !== false, mode: status.mode, result, testEmail: requesterEmail,
+    });
+  }
+
   if (body.all) {
     if (!isSuperAdmin(user)) return json(403, { error: 'Super-admin only for bulk sync' });
     let synced = 0, failed = 0, skipped = 0;
