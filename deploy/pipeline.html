@@ -477,7 +477,9 @@
 var _user = null;
 var _isAdmin = false;
 var _loFilterValue = ''; // ownerKey (lowercase email) or '' for all
-try { _loFilterValue = localStorage.getItem('sla_pipeline_lo_filter') || ''; } catch(e){}
+                         // intentionally NOT persisted — scope defaults to
+                         // "My pipeline" on reload so the filter would be
+                         // hidden anyway, leading to confusing "stuck" state
 var _scope = 'mine';
 var _profileMap = {};   // ownerKey → {email, fullName}
 var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
@@ -1648,12 +1650,11 @@ function populateLoFilter() {
     return loDisplay(a).localeCompare(loDisplay(b));
   });
 
-  // If the persisted value isn't in the known user set, clear it
+  // If the value isn't in the known user set, clear it
   var ownersSet = {};
   owners.forEach(function(o) { ownersSet[o] = true; });
   if (_loFilterValue && !ownersSet[_loFilterValue]) {
     _loFilterValue = '';
-    try { localStorage.removeItem('sla_pipeline_lo_filter'); } catch(e){}
   }
 
   var html = '<option value="">All LOs</option>';
@@ -1670,10 +1671,6 @@ function onLoFilterChange() {
   if (!sel) return;
   _loFilterValue = (sel.value || '').toLowerCase();
   sel.classList.toggle('has-value', !!_loFilterValue);
-  try {
-    if (_loFilterValue) localStorage.setItem('sla_pipeline_lo_filter', _loFilterValue);
-    else localStorage.removeItem('sla_pipeline_lo_filter');
-  } catch(e){}
   render();
 }
 

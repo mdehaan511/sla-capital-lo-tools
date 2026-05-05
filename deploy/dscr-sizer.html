@@ -149,6 +149,8 @@
     .field { display: flex; flex-direction: column; }
     .field .wrap { position: relative; border: 1px solid var(--border); border-radius: var(--r-xs); background: var(--surface); transition: border-color 0.15s; height: 52px; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; }
     .field .wrap:focus-within { border-color: var(--border-focus); }
+    .field .wrap.has-err { border-color: var(--danger); }
+    .email-err { color: var(--danger); font-size: 11px; line-height: 1.3; margin-top: 4px; padding-left: 2px; }
     .field .wrap label { font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1; margin-bottom: 3px; pointer-events: none; }
     .field .wrap label .req { color: var(--gold); margin-left: 1px; }
     .field .wrap input, .field .wrap select { border: none; outline: none; background: transparent; font-family: 'DM Sans', sans-serif; font-size: 13.5px; font-weight: 500; color: var(--text); width: 100%; padding: 0; appearance: none; -webkit-appearance: none; line-height: 1.2; }
@@ -468,10 +470,11 @@ function getFICOMin(ficoStr) {
         </div>
       </div>
       <div class="field">
-        <div class="wrap">
+        <div class="wrap" id="borrowerEmailWrap">
           <label>Borrower Email</label>
-          <input type="email" id="borrowerEmail" placeholder="borrower@email.com" />
+          <input type="email" id="borrowerEmail" placeholder="borrower@email.com" oninput="_clearEmailError()" />
         </div>
+        <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
       </div>
 
       <div class="field span2">
@@ -1623,6 +1626,21 @@ function _isValidEmail(s) {
   return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(t);
 }
 
+// Show a small red error below the borrower email field. Highlights the
+// input itself with a danger border so the error is hard to miss.
+function _showEmailError(msg) {
+  var err = document.getElementById('borrowerEmailErr');
+  var wrap = document.getElementById('borrowerEmailWrap');
+  if (err) { err.textContent = msg || 'Please enter a valid email address.'; err.style.display = 'block'; }
+  if (wrap) wrap.classList.add('has-err');
+}
+function _clearEmailError() {
+  var err = document.getElementById('borrowerEmailErr');
+  var wrap = document.getElementById('borrowerEmailWrap');
+  if (err) err.style.display = 'none';
+  if (wrap) wrap.classList.remove('has-err');
+}
+
 function saveCurrentQuote() {
   var r = calculate();
   if (r.error) { showToast('Fix errors before saving'); return; }
@@ -1635,10 +1653,11 @@ function saveCurrentQuote() {
   // record that breaks future lookups + Brevo sync.
   var emailEl = $('borrowerEmail');
   if (emailEl && emailEl.value.trim() && !_isValidEmail(emailEl.value.trim())) {
-    showToast('Please enter a valid email address');
+    _showEmailError('Please enter a valid email address.');
     emailEl.focus();
     return;
   }
+  _clearEmailError();
 
   // Build formData snapshot — all field values
   var formData = {
@@ -1838,6 +1857,37 @@ netlifyIdentity.on('init', function(user) {
       }
 
       function loadFromQuote() {
+        // When admin opens another LO's quote, the personal QuoteStore won't
+        // have it. Fall through to a server query scoped to all LOs and find
+        // the quote by address there.
+        if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
+          return SLA.Quotes.list({ all: true }).then(function(r) {
+            var byOwner = (r && r.byOwner) || {};
+            var targetOwner = String(ownerParam).toLowerCase();
+            var targetAddr = decodeURIComponent(loadAddr).toLowerCase().trim();
+            var hit = null;
+            Object.keys(byOwner).some(function(k) {
+              if (k.toLowerCase() !== targetOwner) return false;
+              return (byOwner[k] || []).some(function(q) {
+                if ((q.toolType || 'dscr') !== 'dscr') return false;
+                if ((q.address || '').toLowerCase().trim() !== targetAddr) return false;
+                hit = q;
+                return true;
+              });
+            });
+            if (!hit || !hit.formData) return false;
+            window._originalAddress = hit.formData.address || decodeURIComponent(loadAddr);
+            window._originalBorrowerEmail = hit.formData.borrowerEmail || '';
+            return applyLockedOverrideIfAnyDSCR(hit.formData).then(function(fd) {
+              loadQuoteIntoForm(fd);
+              tryAutoDownload();
+              return true;
+            });
+          }).catch(function(err) {
+            console.warn('cross-owner quote load failed:', err);
+            return false;
+          });
+        }
         return QuoteStore.init().then(function() {
           var q = QuoteStore.getQuote(user.email, 'dscr', decodeURIComponent(loadAddr));
           if (q && q.formData) {
@@ -1967,5 +2017,12 @@ netlifyIdentity.on('init', function(user) {
   }).catch(function(){});
 })();
 </script>
+
+<!-- Toast for showToast() — kept at end of body so it sits above all content. -->
+<div class="toast" id="toast"></div>
+<style>
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 9999; white-space: nowrap; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
 </body>
 </html>

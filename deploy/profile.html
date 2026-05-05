@@ -265,6 +265,22 @@
       </div>
 
       <div class="setting-row">
+        <label>Remove a user from the roster</label>
+        <div class="hint">Removes a user's profile blob so they stop appearing in dropdowns, the LO filter, and the activity table. Use this to clean up typo-emails (an LO created with the wrong address). The user must have NO owned data — run "Reassign" first if they do, or check "Force" to skip the safety check. <strong>This does NOT delete the Netlify Identity account itself</strong> — that must be done in the Netlify dashboard separately.</div>
+        <div class="input-row" style="margin-bottom:6px">
+          <input type="email" id="purgeUserEmail" placeholder="typo@slacapital.com" style="flex:1" />
+        </div>
+        <div class="input-row">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">
+            <input type="checkbox" id="purgeForce" />
+            Force (skip "owns data" safety check)
+          </label>
+          <button class="small-btn danger" onclick="runUserPurge()" style="margin-left:auto">Remove from roster</button>
+        </div>
+        <div class="save-status" id="purgeStatus"></div>
+      </div>
+
+      <div class="setting-row">
         <label>Assistant chat log</label>
         <div class="hint">Review every question asked to the in-app LO Assistant chatbot, who asked it, and the bot's full response. Useful for spotting bad answers or training gaps.</div>
         <div class="input-row">
@@ -735,6 +751,68 @@ function runReassign(dryRun) {
     status.innerHTML = (d.dryRun ? '[Dry Run] ' : '✓ ') +
       'From <strong>' + escAttr(d.fromEmail) + '</strong> → <strong>' + escAttr(d.toEmail) + '</strong><br>' +
       lines.join('<br>');
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+function runUserPurge() {
+  var status = document.getElementById('purgeStatus');
+  var emailEl = document.getElementById('purgeUserEmail');
+  var forceEl = document.getElementById('purgeForce');
+  var email = emailEl.value.trim();
+  status.className = 'save-status';
+  if (!email || !email.includes('@')) {
+    status.className = 'save-status err';
+    status.textContent = 'Enter a valid email to remove from the roster.';
+    return;
+  }
+  var force = !!(forceEl && forceEl.checked);
+  var promptText = 'Remove ' + email + ' from the user roster?\n\n' +
+    'This deletes their profile blob (so they stop appearing in dropdowns and lists). ' +
+    'It does NOT delete the Netlify Identity account.';
+  if (force) promptText += '\n\nForce mode is ON — any owned data will be orphaned.';
+  if (!confirm(promptText)) return;
+
+  status.textContent = 'Removing…';
+  netlifyIdentity.currentUser().jwt().then(function(token) {
+    return fetch('/api/users-purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ email: email, force: force }),
+    });
+  }).then(function(r) {
+    return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; });
+  }).then(function(resp) {
+    if (!resp.ok) {
+      status.className = 'save-status err';
+      var msg = resp.data && resp.data.error ? resp.data.error : ('HTTP ' + resp.status);
+      // Special-case the "still owns data" error so the user knows what to do
+      if (resp.data && resp.data.totalOwned) {
+        var counts = resp.data.dataCounts || {};
+        var detail = Object.keys(counts).map(function(k){
+          return k + ': ' + counts[k];
+        }).filter(function(s){ return !/: 0$/.test(s); }).join(', ');
+        status.innerHTML = 'Cannot remove — user still owns data: ' +
+          (detail || resp.data.totalOwned + ' records') +
+          '. Reassign first, or check Force.';
+      } else {
+        status.textContent = 'Failed: ' + msg;
+      }
+      return;
+    }
+    var d = resp.data;
+    status.className = 'save-status ok';
+    if (d.profilePurged) {
+      status.innerHTML = '✓ Profile removed for <strong>' + escAttr(d.email) + '</strong>. ' +
+        'Refresh other tabs to see the dropdown update. ' +
+        '<br><small style="color:var(--muted)">Reminder: also delete the Netlify Identity account in the Netlify dashboard if needed.</small>';
+    } else {
+      status.innerHTML = 'No profile existed for <strong>' + escAttr(d.email) + '</strong> — nothing to remove.';
+    }
+    // Refresh the activity table so it updates immediately
+    if (typeof loadStats === 'function') loadStats();
   }).catch(function(err) {
     status.className = 'save-status err';
     status.textContent = 'Failed: ' + (err.message || 'unknown');

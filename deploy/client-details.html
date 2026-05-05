@@ -75,6 +75,8 @@
     .field label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
     .field input { border: 1.5px solid var(--border); border-radius: var(--r-xs); padding: 10px 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text); background: var(--surface); transition: border-color 0.15s; }
     .field input:focus { outline: none; border-color: var(--gold); }
+    .field input.has-err { border-color: var(--danger); }
+    .email-err { color: var(--danger); font-size: 11.5px; line-height: 1.3; margin-top: 4px; padding-left: 2px; }
     .field .read-val { font-size: 14px; color: var(--text); padding: 10px 0; font-family: 'DM Mono', monospace; }
 
     .save-profile-btn { height: 40px; padding: 0 20px; background: var(--dark); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
@@ -249,7 +251,7 @@ function render() {
       '<div class="profile-grid">' +
         '<div class="field"><label>First Name</label><input type="text" id="pf-firstName" value="'+escAttr(c.firstName||'')+'" /></div>' +
         '<div class="field"><label>Last Name</label><input type="text" id="pf-lastName" value="'+escAttr(c.lastName||'')+'" /></div>' +
-        '<div class="field"><label>Email</label><input type="email" id="pf-email" value="'+escAttr(c.email||'')+'" /></div>' +
+        '<div class="field"><label>Email</label><input type="email" id="pf-email" value="'+escAttr(c.email||'')+'" oninput="_clearEmailError()" /><div class="email-err" id="pf-emailErr" style="display:none">Please enter a valid email address.</div></div>' +
         '<div class="field"><label>Phone</label><input type="tel" id="pf-phone" value="'+escAttr(c.phone||'')+'" placeholder="(509) 555-0100" data-sla-mask="phone" /></div>' +
         '<div class="field"><label>Date of Birth</label><input type="date" id="pf-dob" value="'+escAttr(c.dob||'')+'" /></div>' +
         '<div class="field"><label>Estimated Credit Score</label><input type="text" id="pf-fico" value="'+escAttr(c.fico||'')+'" placeholder="e.g. 740" /></div>' +
@@ -337,7 +339,13 @@ function render() {
       var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
       var statusLabel = STATUS_LABELS[status] || status;
       var statusStyle = status==='approved'?'color:var(--success);font-weight:600':status==='denied'?'color:var(--danger);font-weight:600':status==='submitted'?'color:var(--dark);font-weight:600':'color:var(--muted)';
+      // Thread owner through to loan-details when admin is viewing another
+      // LO's client. Without this, loan-details runs a non-admin list call
+      // that won't find the loan and shows "Loan not found".
       var detailsUrl = l.id ? 'loan-details.html?clientId='+encodeURIComponent(c.id)+'&loanId='+encodeURIComponent(l.id) : '#';
+      if (l.id && _loEmail && _user && _loEmail !== _user.email) {
+        detailsUrl += '&owner=' + encodeURIComponent(_loEmail);
+      }
 
       html += '<tr>' +
         '<td class="td-mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escH(l.address||'—')+'</td>' +
@@ -371,6 +379,19 @@ function _isValidClientEmail(s) {
   return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(t);
 }
 
+function _showEmailError(msg) {
+  var err = document.getElementById('pf-emailErr');
+  var input = document.getElementById('pf-email');
+  if (err) { err.textContent = msg || 'Please enter a valid email address.'; err.style.display = 'block'; }
+  if (input) input.classList.add('has-err');
+}
+function _clearEmailError() {
+  var err = document.getElementById('pf-emailErr');
+  var input = document.getElementById('pf-email');
+  if (err) err.style.display = 'none';
+  if (input) input.classList.remove('has-err');
+}
+
 function saveProfile() {
   if (!_client) return;
 
@@ -378,11 +399,11 @@ function saveProfile() {
   // be tracked) but garbage strings break Brevo sync and future lookups.
   var emailVal = document.getElementById('pf-email').value.trim();
   if (emailVal && !_isValidClientEmail(emailVal)) {
-    alert('Please enter a valid email address.');
+    _showEmailError('Please enter a valid email address.');
     document.getElementById('pf-email').focus();
     return;
   }
-
+  _clearEmailError();
   _client.firstName = document.getElementById('pf-firstName').value.trim();
   _client.lastName  = document.getElementById('pf-lastName').value.trim();
   _client.email     = emailVal.toLowerCase();

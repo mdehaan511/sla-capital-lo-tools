@@ -169,6 +169,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/users-purge"
+  to = "/.netlify/functions/users-purge"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/chat"
   to = "/.netlify/functions/chat"
   status = 200
