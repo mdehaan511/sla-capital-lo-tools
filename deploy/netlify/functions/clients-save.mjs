@@ -13,6 +13,20 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { syncClient as brevoSyncClient } from './_shared/brevo.mjs';
+
+/**
+ * Look up a profile by email and return a best-effort full name. Never throws.
+ */
+async function getOwnerName(ownerEmail) {
+  try {
+    const store = getStore({ name: 'profiles', consistency: 'eventual' });
+    const profile = await store.get(keySafe(ownerEmail), { type: 'json' });
+    if (!profile) return '';
+    const meta = profile.user_metadata || {};
+    return meta.full_name || meta.fullName || profile.full_name || profile.fullName || '';
+  } catch (_) { return ''; }
+}
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -59,6 +73,19 @@ export default async (req, context) => {
       record.ssn_enc = existing.ssn_enc;
     }
     await store.setJSON(key, record);
+
+    // Fire-and-forget Brevo sync. Failures never block the save response.
+    // We do await name resolution because it's a quick local blob read,
+    // but the actual Brevo call is dispatched without awaiting completion.
+    (async () => {
+      try {
+        const ownerName = await getOwnerName(owner);
+        await brevoSyncClient(record, owner, ownerName);
+      } catch (e) {
+        console.warn('brevo sync (clients-save) failed silently:', e && e.message);
+      }
+    })();
+
     return json(200, { ok: true, client: record });
   } catch (e) {
     console.error('clients-save error:', e);

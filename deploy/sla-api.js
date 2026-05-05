@@ -348,6 +348,26 @@
     },
   };
 
+  // ── Brevo (super_admin / admin) ─────────────────────────────────
+  var Brevo = {
+    log: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.limit) qs.push('limit=' + encodeURIComponent(opts.limit));
+      var path = '/api/brevo-sync-log' + (qs.length ? '?' + qs.join('&') : '');
+      return api('GET', path);
+    },
+    syncOne: function (ownerKey, clientId) {
+      return api('POST', '/api/brevo-sync-manual', {
+        ownerKey: ownerKey,
+        clientId: clientId,
+      });
+    },
+    syncAll: function () {
+      return api('POST', '/api/brevo-sync-manual', { all: true });
+    },
+  };
+
   // ── Profile (silent + explicit update) ──────────────────────────
   var Profile = {
     ping: function () {
@@ -478,6 +498,7 @@
     Settings: Settings,
     Admin: Admin,
     ChatLog: ChatLog,
+    Brevo: Brevo,
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     Reminders: Reminders,

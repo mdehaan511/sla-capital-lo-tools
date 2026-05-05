@@ -181,6 +181,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/brevo-sync-log"
+  to = "/.netlify/functions/brevo-sync-log-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/brevo-sync-manual"
+  to = "/.netlify/functions/brevo-sync-manual"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"
   status = 200

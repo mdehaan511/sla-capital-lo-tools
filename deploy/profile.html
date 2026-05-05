@@ -272,6 +272,16 @@
         </div>
       </div>
 
+      <div class="setting-row">
+        <label>Email marketing sync (Brevo) <span class="banner-tag off" id="brevoModeTag">Loading…</span></label>
+        <div class="hint">Every client created or updated is synced to Brevo as a marketing contact. Configure <code>BREVO_API_KEY</code> in Netlify env vars. Add <code>BREVO_DRY_RUN=true</code> to log payloads without making real API calls — recommended for the first deploy. Optional <code>BREVO_LIST_ID</code> assigns contacts to a specific Brevo list.</div>
+        <div class="input-row">
+          <a class="small-btn" href="brevo-log.html">View Sync Log →</a>
+          <button class="small-btn" id="brevoSyncAllBtn" onclick="runBrevoSyncAll()">Backfill all clients</button>
+        </div>
+        <div class="save-status" id="brevoStatus"></div>
+      </div>
+
     </div>
   </div>
 
@@ -309,6 +319,7 @@ netlifyIdentity.on('init', function(user) {
     document.getElementById('settingsCard').style.display = 'block';
     document.getElementById('activityCard').style.display = 'block';
     loadSettings();
+    loadBrevoMode();
   }
   loadStats();
 });
@@ -723,6 +734,50 @@ function runReassign(dryRun) {
     status.innerHTML = (d.dryRun ? '[Dry Run] ' : '✓ ') +
       'From <strong>' + escAttr(d.fromEmail) + '</strong> → <strong>' + escAttr(d.toEmail) + '</strong><br>' +
       lines.join('<br>');
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+// ── Brevo (super_admin) ─────────────────────────────────
+function loadBrevoMode() {
+  var tag = document.getElementById('brevoModeTag');
+  if (!tag) return;
+  SLA.Brevo.log({ limit: 1 }).then(function(resp) {
+    var mode = resp.mode || 'disabled';
+    tag.textContent =
+      mode === 'live'    ? 'Live'    :
+      mode === 'dry-run' ? 'Dry Run' :
+                           'Disabled';
+    tag.className = 'banner-tag ' + (mode === 'live' ? 'live' : 'off');
+    // Disable the backfill button if Brevo isn't configured
+    var btn = document.getElementById('brevoSyncAllBtn');
+    if (btn) btn.disabled = !resp.enabled;
+  }).catch(function(){
+    tag.textContent = 'Unknown';
+    tag.className = 'banner-tag off';
+  });
+}
+
+function runBrevoSyncAll() {
+  var status = document.getElementById('brevoStatus');
+  status.className = 'save-status';
+  if (!confirm('Sync ALL clients to Brevo? This will iterate every client in the system.')) return;
+  status.textContent = 'Syncing… this may take a moment.';
+  SLA.Brevo.syncAll().then(function(resp) {
+    if (!resp || resp.error) {
+      status.className = 'save-status err';
+      status.textContent = 'Failed: ' + ((resp && resp.error) || 'unknown');
+      return;
+    }
+    var s = resp.summary || {};
+    status.className = 'save-status ok';
+    status.innerHTML = '✓ ' + (resp.mode === 'dry-run' ? '[Dry Run] ' : '') +
+      'Synced: <strong>' + (s.synced || 0) + '</strong>, ' +
+      'failed: <strong>' + (s.failed || 0) + '</strong>, ' +
+      'skipped: <strong>' + (s.skipped || 0) + '</strong> ' +
+      '(of ' + (s.total || 0) + ' total)';
   }).catch(function(err) {
     status.className = 'save-status err';
     status.textContent = 'Failed: ' + (err.message || 'unknown');
