@@ -88,6 +88,9 @@
     .status-btn.denied:hover { background: var(--danger, #7c1f1f); color: #fff; }
     .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
     .search-box:focus { outline: none; border-color: var(--gold); }
+    .lo-filter { padding: 7px 28px 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; }
+    .lo-filter:focus { outline: none; border-color: var(--gold); }
+    .lo-filter.has-value { border-color: var(--gold); background-color: rgba(200,129,58,0.06); color: var(--gold); font-weight: 600; }
     .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
     .scope-toggle button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
     .scope-toggle button.active { background: var(--dark); color: #fff; }
@@ -384,6 +387,9 @@
         <a href="decisions.html?status=denied"        class="status-btn denied">✕ Declined</a>
       </div>
       <input type="text" id="searchBox" class="search-box" placeholder="Search address or borrower…" oninput="render()" />
+      <select id="loFilter" class="lo-filter" style="display:none" onchange="onLoFilterChange()">
+        <option value="">All LOs</option>
+      </select>
       <div class="scope-toggle" id="scopeToggle" style="display:none">
         <button data-scope="mine" class="active" onclick="setScope('mine')">My pipeline</button>
         <button data-scope="all" onclick="setScope('all')">All LOs</button>
@@ -469,6 +475,8 @@
 <script>
 var _user = null;
 var _isAdmin = false;
+var _loFilterValue = ''; // ownerKey (lowercase email) or '' for all
+try { _loFilterValue = localStorage.getItem('sla_pipeline_lo_filter') || ''; } catch(e){}
 var _scope = 'mine';
 var _profileMap = {};   // ownerKey → {email, fullName}
 var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
@@ -501,6 +509,12 @@ function setScope(scope) {
   document.querySelectorAll('#scopeToggle button').forEach(function(b){
     b.classList.toggle('active', b.dataset.scope === scope);
   });
+  // Hide LO filter immediately when leaving "all" scope; loadAll() will
+  // repopulate (and re-show) it after data returns if appropriate.
+  if (scope !== 'all') {
+    var sel = document.getElementById('loFilter');
+    if (sel) sel.style.display = 'none';
+  }
   loadAll();
 }
 
@@ -565,6 +579,9 @@ function loadAll() {
       if (!p.email) return;
       _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '' };
     });
+
+    // Populate LO filter dropdown (admins only, when viewing All LOs)
+    populateLoFilter();
 
     // Loan lookup (so cards can link to loan-details)
     // and Contact lookup (so borrower-name click → client-details page)
@@ -698,9 +715,15 @@ function loadAll() {
 
 function render() {
   var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var loFilter = (_loFilterValue || '').toLowerCase();
   function filtered(items) {
-    if (!search) return items;
-    return items.filter(function(it) {
+    var arr = items;
+    // LO ownership filter (admin-only, when "All LOs" scope)
+    if (loFilter) {
+      arr = arr.filter(function(it) { return (it.ownerKey || '').toLowerCase() === loFilter; });
+    }
+    if (!search) return arr;
+    return arr.filter(function(it) {
       var hay;
       if (it.kind === 'prospect') {
         var p = it.prospect;
@@ -1567,6 +1590,53 @@ function loDisplay(ownerKey) {
   var p = _profileMap[String(ownerKey).toLowerCase()];
   if (p) return p.fullName || p.email;
   return ownerKey;
+}
+
+function populateLoFilter() {
+  var sel = document.getElementById('loFilter');
+  if (!sel) return;
+  // Only show in admin "All LOs" mode; in personal scope it's pointless
+  var visible = _isAdmin && _scope === 'all';
+  sel.style.display = visible ? '' : 'none';
+  if (!visible) return;
+
+  // Build the option list from owners actually present in the data, so the
+  // dropdown can't be cluttered with LOs who have nothing in the pipeline.
+  var ownersSeen = {};
+  ['newApp','quoted','submitted','awaitingApp','approved'].forEach(function(col) {
+    (_items[col] || []).forEach(function(it) {
+      if (it.ownerKey) ownersSeen[String(it.ownerKey).toLowerCase()] = true;
+    });
+  });
+  var owners = Object.keys(ownersSeen).sort(function(a,b) {
+    return loDisplay(a).localeCompare(loDisplay(b));
+  });
+
+  // If the persisted value isn't in the current owner set, clear it
+  if (_loFilterValue && !ownersSeen[_loFilterValue]) {
+    _loFilterValue = '';
+    try { localStorage.removeItem('sla_pipeline_lo_filter'); } catch(e){}
+  }
+
+  var html = '<option value="">All LOs</option>';
+  owners.forEach(function(o) {
+    var sel2 = (o === _loFilterValue) ? ' selected' : '';
+    html += '<option value="' + escAttr(o) + '"' + sel2 + '>' + escH(loDisplay(o)) + '</option>';
+  });
+  sel.innerHTML = html;
+  sel.classList.toggle('has-value', !!_loFilterValue);
+}
+
+function onLoFilterChange() {
+  var sel = document.getElementById('loFilter');
+  if (!sel) return;
+  _loFilterValue = (sel.value || '').toLowerCase();
+  sel.classList.toggle('has-value', !!_loFilterValue);
+  try {
+    if (_loFilterValue) localStorage.setItem('sla_pipeline_lo_filter', _loFilterValue);
+    else localStorage.removeItem('sla_pipeline_lo_filter');
+  } catch(e){}
+  render();
 }
 
 function num(v) {

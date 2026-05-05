@@ -175,6 +175,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/chat-logs"
+  to = "/.netlify/functions/chat-logs-list"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"
   status = 200

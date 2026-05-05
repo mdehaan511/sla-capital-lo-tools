@@ -14,12 +14,46 @@
  *
  * Requires env var ANTHROPIC_API_KEY. If missing, returns 503 with a clear
  * error so the chatbot UI can show "Chat not configured."
+ *
+ * Logging: After the response stream closes successfully, we persist a
+ * full Q+A record to the `chat-logs` blob store for admin review. Logging
+ * never fails the user's request — errors are swallowed and warned.
  */
-import { handleOptions, requireAuth, readJsonBody } from './_shared/auth.mjs';
+import { getStore } from '@netlify/blobs';
+import { handleOptions, requireAuth, readJsonBody, normalizeEmail, keySafe } from './_shared/auth.mjs';
 import { buildSystemPrompt } from './_chat_prompt.mjs';
 
 const MODEL    = 'claude-sonnet-4-6';
 const MAX_TOK  = 1024;
+
+async function logChatTurn(user, question, answer, pageContext) {
+  try {
+    if (!question || !answer) return; // nothing useful to log
+    const ts = new Date().toISOString();
+    const id = ts + '-' + Math.random().toString(36).slice(2, 9);
+    const ownerEmail = normalizeEmail(user.email);
+    const ownerKey = keySafe(ownerEmail);
+    const meta = user.user_metadata || {};
+    const ownerName = meta.full_name || meta.fullName || '';
+    const record = {
+      id,
+      ts,
+      ownerKey,
+      ownerEmail,
+      ownerName,
+      question: String(question).slice(0, 8000),
+      answer:   String(answer).slice(0, 16000),
+      pageUrl:  (pageContext && pageContext.url) || '',
+    };
+    // Key under {ownerKey}/{ts}-{rand} so admin listing can filter per LO,
+    // and so timestamps sort lexically (ISO format).
+    const key = `${ownerKey}/${id}`;
+    const store = getStore({ name: 'chat-logs', consistency: 'eventual' });
+    await store.setJSON(key, record);
+  } catch (e) {
+    console.warn('chat log write failed:', e && e.message);
+  }
+}
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -60,7 +94,14 @@ export default async (req, context) => {
     });
   }
 
-  const systemPrompt = buildSystemPrompt(body.pageContext || {});
+  const pageContext = body.pageContext || {};
+  const systemPrompt = buildSystemPrompt(pageContext);
+
+  // The current user question is the last user-role message in the array
+  let lastUserQ = '';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') { lastUserQ = messages[i].content; break; }
+  }
 
   // Call Anthropic with streaming enabled
   let upstream;
@@ -95,13 +136,15 @@ export default async (req, context) => {
   }
 
   // Re-stream as SSE to the client. Anthropic sends SSE; we parse and emit
-  // simplified `data: { delta: '...' }` events.
+  // simplified `data: { delta: '...' }` events. We also accumulate the full
+  // assistant text so we can log Q+A after the stream completes.
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
       const reader  = upstream.body.getReader();
       let buffer = '';
+      let assistantText = '';
       try {
         while (true) {
           const { value, done } = await reader.read();
@@ -118,6 +161,7 @@ export default async (req, context) => {
             try { evt = JSON.parse(dataStr); } catch (_) { continue; }
             // We only care about content_block_delta events with text
             if (evt.type === 'content_block_delta' && evt.delta && evt.delta.type === 'text_delta') {
+              assistantText += evt.delta.text;
               const out = JSON.stringify({ delta: evt.delta.text });
               controller.enqueue(encoder.encode('data: ' + out + '\n\n'));
             } else if (evt.type === 'message_stop') {
@@ -132,6 +176,11 @@ export default async (req, context) => {
         controller.enqueue(encoder.encode('data: ' + JSON.stringify({ error: e.message || 'Stream error' }) + '\n\n'));
       } finally {
         controller.close();
+        // Fire-and-forget log write. We only log when we got meaningful
+        // assistant output; partial errors with no text are skipped.
+        if (assistantText.trim()) {
+          logChatTurn(user, lastUserQ, assistantText, pageContext);
+        }
       }
     },
   });

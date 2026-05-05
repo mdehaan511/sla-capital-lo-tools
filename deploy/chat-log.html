@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat Log — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; transition: all .15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500; padding: 6px 8px; border-radius: 6px; transition: color .12s; }
+    .nav-tool-link:hover { color: var(--gold); }
+    .logout-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; border-radius: 16px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .logout-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+    .page { max-width: 1200px; margin: 24px auto 0; }
+    .page-header { margin-bottom: 18px; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .page-header p { color: var(--muted); font-size: 13.5px; line-height: 1.5; max-width: 720px; }
+    .back-link { display: inline-block; color: var(--muted); text-decoration: none; font-size: 12px; margin-bottom: 8px; }
+    .back-link:hover { color: var(--gold); }
+
+    .ctrl-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+    .search-box, .lo-filter { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: inherit; font-size: 13px; background: var(--surface); }
+    .search-box { min-width: 280px; }
+    .search-box:focus, .lo-filter:focus { outline: none; border-color: var(--gold); }
+    .lo-filter { padding: 7px 28px 7px 14px; appearance: none; -webkit-appearance: none; cursor: pointer; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; }
+    .refresh-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 16px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .refresh-btn:hover { color: var(--gold); border-color: var(--gold); }
+    .stats { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+    .loading, .empty { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 48px 24px; text-align: center; color: var(--muted); font-size: 14px; }
+    .empty strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+
+    .log-list { display: flex; flex-direction: column; gap: 8px; }
+    .log-row { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); transition: border-color .12s; }
+    .log-row:hover { border-color: var(--gold-border); }
+    .log-head { display: grid; grid-template-columns: 160px 200px 1fr 90px; gap: 14px; padding: 12px 16px; cursor: pointer; align-items: center; font-size: 13px; }
+    .log-time { color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; }
+    .log-user { font-weight: 600; color: var(--dark); }
+    .log-user-email { color: var(--muted); font-weight: 400; font-size: 11.5px; display: block; margin-top: 2px; }
+    .log-q-preview { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-toggle { color: var(--gold); font-size: 11px; font-weight: 600; text-align: right; user-select: none; }
+    .log-body { display: none; padding: 0 16px 14px; border-top: 1px solid var(--border); }
+    .log-row.open .log-body { display: block; }
+    .log-row.open .log-toggle::before { content: '▾ '; }
+    .log-row:not(.open) .log-toggle::before { content: '▸ '; }
+    .log-section { margin-top: 12px; }
+    .log-section-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+    .log-section-text { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 10px 12px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+    .log-section-text.q { background: rgba(200,129,58,0.04); border-color: var(--gold-border); }
+    .log-meta { font-size: 11.5px; color: var(--muted); margin-top: 8px; word-break: break-all; }
+
+    @media (max-width: 720px) {
+      .log-head { grid-template-columns: 1fr 60px; gap: 6px; padding: 10px 12px; }
+      .log-time, .log-user { grid-column: 1 / -1; }
+      .log-q-preview { grid-column: 1; }
+      .log-toggle { grid-column: 2; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <a href="profile.html" class="back-link">← Back to Profile</a>
+  <div class="page-header">
+    <h1>Assistant Chat Log</h1>
+    <p>Every question asked to the in-app LO Assistant chatbot, with the bot's full response. Click a row to expand.</p>
+  </div>
+
+  <div class="ctrl-row">
+    <input type="text" id="searchBox" class="search-box" placeholder="Search question, answer, or user…" oninput="render()" />
+    <select id="loFilter" class="lo-filter" onchange="render()">
+      <option value="">All users</option>
+    </select>
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div id="content">
+    <div class="loading">Loading chat logs…</div>
+  </div>
+</div>
+
+<script>
+var _user = null;
+var _logs = [];
+var _profileMap = {};
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!SLA.isSuperAdmin(user)) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Access denied</strong>This page is for super-admins only.</div>';
+    return;
+  }
+  _user = user;
+  document.getElementById('auth-gate').style.display = 'none';
+  loadAll();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function loadAll() {
+  document.getElementById('content').innerHTML = '<div class="loading">Loading chat logs…</div>';
+  var pStats = SLA.Admin.userStats().catch(function(){ return { users: [] }; });
+  var pLogs  = SLA.ChatLog.list({ limit: 500 }).catch(function(e){
+    return { _error: (e && e.message) || 'Failed to load logs' };
+  });
+  Promise.all([pStats, pLogs]).then(function(results) {
+    var stats = results[0] || { users: [] };
+    var resp  = results[1] || {};
+    if (resp._error) {
+      document.getElementById('content').innerHTML =
+        '<div class="empty"><strong>Couldn\'t load chat logs.</strong>' + escH(resp._error) + '</div>';
+      return;
+    }
+    _profileMap = {};
+    (stats.users || []).forEach(function(u) {
+      if (u.email) _profileMap[u.email.toLowerCase()] = { email: u.email, fullName: u.fullName || '' };
+    });
+    _logs = resp.logs || [];
+    populateLoFilter();
+    render();
+  });
+}
+
+function populateLoFilter() {
+  var sel = document.getElementById('loFilter');
+  var seen = {};
+  _logs.forEach(function(l) {
+    if (l.ownerKey) seen[l.ownerKey] = true;
+  });
+  var keys = Object.keys(seen).sort(function(a, b) {
+    return loDisplay(a).localeCompare(loDisplay(b));
+  });
+  var html = '<option value="">All users</option>';
+  keys.forEach(function(k) {
+    html += '<option value="' + escA(k) + '">' + escH(loDisplay(k)) + '</option>';
+  });
+  sel.innerHTML = html;
+}
+
+function loDisplay(ownerKey) {
+  if (!ownerKey) return '—';
+  // Try email-keyed profile map first
+  var p = _profileMap[String(ownerKey).toLowerCase()];
+  if (p) return p.fullName || p.email;
+  // ownerKey is keySafe-ed (e.g. dots replaced) — try to find a matching profile email
+  var k = String(ownerKey).toLowerCase();
+  for (var email in _profileMap) {
+    if (k === email.replace(/[^a-z0-9]/g, '_')) return _profileMap[email].fullName || email;
+  }
+  return ownerKey;
+}
+
+function emailFromOwner(ownerKey) {
+  // Best effort: scan profile map for an email whose keySafe matches
+  var k = String(ownerKey || '').toLowerCase();
+  for (var email in _profileMap) {
+    if (k === email || k === email.replace(/[^a-z0-9]/g, '_')) return email;
+  }
+  return ownerKey || '';
+}
+
+function render() {
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var loFilter = (document.getElementById('loFilter').value || '').toLowerCase();
+  var list = _logs.slice();
+  if (loFilter) list = list.filter(function(l){ return (l.ownerKey || '').toLowerCase() === loFilter; });
+  if (search) {
+    list = list.filter(function(l) {
+      var hay = (l.question + ' ' + l.answer + ' ' + (l.ownerName || '') + ' ' + (l.ownerEmail || '')).toLowerCase();
+      return hay.indexOf(search) >= 0;
+    });
+  }
+
+  document.getElementById('stats').textContent =
+    list.length + ' of ' + _logs.length + ' entries';
+
+  if (!list.length) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty"><strong>No chat logs match.</strong>' +
+      (_logs.length ? 'Try clearing the filter or search.' : 'No questions have been asked yet.') +
+      '</div>';
+    return;
+  }
+
+  var html = '<div class="log-list">';
+  list.forEach(function(l) {
+    var displayName = l.ownerName || loDisplay(l.ownerKey);
+    var displayEmail = l.ownerEmail || emailFromOwner(l.ownerKey);
+    var preview = (l.question || '').slice(0, 200);
+    html += '<div class="log-row" onclick="toggleRow(this)">' +
+      '<div class="log-head">' +
+        '<div class="log-time">' + escH(fmtTime(l.ts)) + '</div>' +
+        '<div><div class="log-user">' + escH(displayName) + '</div>' +
+          (displayEmail && displayEmail !== displayName ? '<span class="log-user-email">' + escH(displayEmail) + '</span>' : '') +
+        '</div>' +
+        '<div class="log-q-preview">' + escH(preview) + '</div>' +
+        '<div class="log-toggle">Details</div>' +
+      '</div>' +
+      '<div class="log-body">' +
+        '<div class="log-section">' +
+          '<div class="log-section-label">Question</div>' +
+          '<div class="log-section-text q">' + escH(l.question || '') + '</div>' +
+        '</div>' +
+        '<div class="log-section">' +
+          '<div class="log-section-label">Assistant response</div>' +
+          '<div class="log-section-text">' + escH(l.answer || '') + '</div>' +
+        '</div>' +
+        (l.pageUrl ? '<div class="log-meta">Asked from: ' + escH(l.pageUrl) + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
+}
+
+function toggleRow(row) {
+  // Don't toggle if user is selecting text
+  var sel = window.getSelection && window.getSelection();
+  if (sel && sel.toString().length > 0) return;
+  row.classList.toggle('open');
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  var now = new Date();
+  var diffMs = now - d;
+  var diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return diffMin + 'm ago';
+  var diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return diffHr + 'h ago';
+  var diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return diffDay + 'd ago';
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+}
+
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escA(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+</script>
+</body>
+</html>

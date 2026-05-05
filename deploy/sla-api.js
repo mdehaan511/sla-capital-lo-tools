@@ -335,6 +335,19 @@
     },
   };
 
+  // ── Chat Log (super_admin only) ─────────────────────────────────
+  var ChatLog = {
+    list: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.owner) qs.push('owner=' + encodeURIComponent(opts.owner));
+      if (opts.limit) qs.push('limit=' + encodeURIComponent(opts.limit));
+      if (opts.since) qs.push('since=' + encodeURIComponent(opts.since));
+      var path = '/api/chat-logs' + (qs.length ? '?' + qs.join('&') : '');
+      return api('GET', path);
+    },
+  };
+
   // ── Profile (silent + explicit update) ──────────────────────────
   var Profile = {
     ping: function () {
@@ -464,6 +477,7 @@
     Quotes: Quotes,
     Settings: Settings,
     Admin: Admin,
+    ChatLog: ChatLog,
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     Reminders: Reminders,
