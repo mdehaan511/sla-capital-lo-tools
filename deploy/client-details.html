@@ -364,11 +364,28 @@ function render() {
   }
 }
 
+function _isValidClientEmail(s) {
+  if (!s) return false;
+  var t = String(s).trim();
+  if (t.length > 254) return false;
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(t);
+}
+
 function saveProfile() {
   if (!_client) return;
+
+  // Validate email format if provided. Empty is allowed (the loan can still
+  // be tracked) but garbage strings break Brevo sync and future lookups.
+  var emailVal = document.getElementById('pf-email').value.trim();
+  if (emailVal && !_isValidClientEmail(emailVal)) {
+    alert('Please enter a valid email address.');
+    document.getElementById('pf-email').focus();
+    return;
+  }
+
   _client.firstName = document.getElementById('pf-firstName').value.trim();
   _client.lastName  = document.getElementById('pf-lastName').value.trim();
-  _client.email     = document.getElementById('pf-email').value.trim().toLowerCase();
+  _client.email     = emailVal.toLowerCase();
   _client.phone     = document.getElementById('pf-phone').value.trim();
   _client.usCitizen = document.getElementById('pf-usCitizen').value;
   // New profile fields (item #1)

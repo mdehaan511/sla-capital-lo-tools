@@ -261,5 +261,19 @@
     formatEIN:   function(v) { return applyMaskValue(v, 'ein'); },
     parseDigits: function(s) { return String(s||'').replace(/\D/g,''); },
     reformatExisting: bindRoot,
+    // Reasonable email validator: not RFC-perfect but rejects garbage like
+    // "asdf", "asdf@", "@x.com", "no-tld@example", and "bob smith@x.com".
+    // Accepts most real-world emails including '+' addressing and IDN-ish.
+    isValidEmail: function(s) {
+      if (!s) return false;
+      var t = String(s).trim();
+      if (t.length > 254) return false;
+      // Single @, non-empty local + domain, domain has a dot, TLD ≥ 2 chars
+      return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(t);
+    },
   };
+
+  // Also expose the email validator as a top-level helper so plain inline
+  // sizer code can call `isValidEmail(x)` without the SLAForms prefix.
+  window.isValidEmail = window.SLAForms.isValidEmail;
 })();

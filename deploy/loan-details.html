@@ -114,6 +114,8 @@
 
     .open-sizer-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 16px; background: transparent; border: 1.5px solid var(--gold-border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; color: var(--gold-mid); cursor: pointer; transition: all 0.15s; text-decoration: none; justify-content: center; margin-top: 14px; }
     .open-sizer-btn:hover { background: var(--gold-light); border-color: var(--gold); color: var(--gold); }
+    .delete-loan-btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 9px 14px; background: transparent; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+    .delete-loan-btn:hover { color: var(--danger); border-color: var(--danger); background: rgba(124,31,31,0.04); }
     .term-sheet-btn { background: var(--gold); border-color: var(--gold); color: #fff; margin-top: 8px; }
     .term-sheet-btn:hover { background: var(--gold-mid); border-color: var(--gold-mid); color: #fff; }
     .borrower-info-btn { background: var(--surface); border-color: var(--gold-border); color: var(--gold-mid); margin-top: 8px; }
@@ -348,6 +350,7 @@ function render() {
   if (_loEmail && _user && _loEmail !== _user.email) sizerParams += '&owner=' + encodeURIComponent(_loEmail);
   var sizerUrl  = sizerPage + '?' + sizerParams;
   var backUrl   = 'client-details.html?clientId=' + encodeURIComponent(c.id);
+  if (_loEmail && _user && _loEmail !== _user.email) backUrl += '&owner=' + encodeURIComponent(_loEmail);
 
   // Financial values — support flat or nested formData
   var loanAmt   = l.loanAmt    || fd.loanAmt    || '';
@@ -509,6 +512,14 @@ function render() {
   html += '<button type="button" class="open-sizer-btn term-sheet-btn generate-app-btn" id="generateAppBtn" onclick="generateLoanApp()" disabled style="margin-top:8px">' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3" stroke="currentColor" stroke-width="1.5"/></svg>' +
     'Generate Loan Application (DOCX)' +
+  '</button>';
+
+  // Delete loan — destructive, kept visually subtle so it's hard to hit by
+  // accident. Always confirms before firing. Closed loans can still be
+  // deleted; that's an admin housekeeping decision.
+  html += '<button type="button" class="delete-loan-btn" onclick="deleteThisLoan()" style="margin-top:18px">' +
+    '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 4h9M6 4V3a1 1 0 011-1h1a1 1 0 011 1v1M5 4l.5 8a1 1 0 001 1h3a1 1 0 001-1L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    'Delete this loan' +
   '</button>';
 
   html += '</div></div>'; // close section-body, section
@@ -720,6 +731,35 @@ function saveAppFields() {
     showToast('Changes saved');
   }).catch(function(err) {
     showToast('Save failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+function deleteThisLoan() {
+  if (!_client || !_loan) return;
+  var addr = _loan.address || 'this loan';
+  if (!confirm('Delete ' + addr + '?\n\nThis cannot be undone. The loan will be removed from the client record and any saved quote will be deleted.')) return;
+
+  var opts = { loanId: _loanId };
+  // If admin is acting on another LO's data, thread the owner through
+  if (_loEmail && _user && _loEmail !== _user.email) opts._owner = _loEmail;
+
+  SLA.Clients.delete(_clientId, opts).then(function(r) {
+    // Also clear from QuoteStore so it doesn't haunt the saved-quotes panel
+    try {
+      if (_loan.address && window.QuoteStore) {
+        QuoteStore.deleteQuote(_loEmail, _loan.toolType || 'dscr', _loan.address);
+      }
+    } catch (e) {}
+
+    showToast('Loan deleted');
+    // Bounce back to the client page (with owner param if applicable)
+    var dest = 'client-details.html?clientId=' + encodeURIComponent(_clientId);
+    if (_loEmail && _user && _loEmail !== _user.email) {
+      dest += '&owner=' + encodeURIComponent(_loEmail);
+    }
+    setTimeout(function(){ window.location.href = dest; }, 600);
+  }).catch(function(err) {
+    alert('Delete failed: ' + (err.message || 'unknown error'));
   });
 }
 

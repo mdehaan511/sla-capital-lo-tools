@@ -91,6 +91,9 @@
     .lo-filter { padding: 7px 28px 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; }
     .lo-filter:focus { outline: none; border-color: var(--gold); }
     .lo-filter.has-value { border-color: var(--gold); background-color: rgba(200,129,58,0.06); color: var(--gold); font-weight: 600; }
+    .select-mode-btn { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .select-mode-btn:hover { color: var(--gold); border-color: var(--gold); }
+    .select-mode-btn.active { background: var(--gold); color: #fff; border-color: var(--gold); }
     .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
     .scope-toggle button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
     .scope-toggle button.active { background: var(--dark); color: #fff; }
@@ -313,6 +316,7 @@
     .select-box { position: absolute; top: 8px; right: 8px; cursor: pointer; padding: 4px; z-index: 2; }
     .select-box input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--gold); }
     .prospect-card:has(input[type="checkbox"]:checked) { border-color: var(--gold); background: rgba(200,129,58,0.04); }
+    .card.is-selected { border-color: var(--gold) !important; background: rgba(200,129,58,0.06) !important; }
     /* Decline checkbox lives top-left so it doesn't collide with the bell. */
     .decline-box { position: absolute; top: 6px; left: 6px; cursor: pointer; padding: 4px; z-index: 2; background: var(--surface); border-radius: 4px; border: 1px solid var(--border); }
     .decline-box input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--danger); display: block; }
@@ -390,6 +394,9 @@
       <select id="loFilter" class="lo-filter" style="display:none" onchange="onLoFilterChange()">
         <option value="">All LOs</option>
       </select>
+      <button id="selectModeBtn" class="select-mode-btn" style="display:none" onclick="toggleSelectMode()" type="button">
+        Select Multiple
+      </button>
       <div class="scope-toggle" id="scopeToggle" style="display:none">
         <button data-scope="mine" class="active" onclick="setScope('mine')">My pipeline</button>
         <button data-scope="all" onclick="setScope('all')">All LOs</button>
@@ -405,14 +412,8 @@
 <div class="bulk-bar" id="bulkBar">
   <span class="bulk-count" id="bulkCount">0 selected</span>
   <button class="bulk-btn cancel" onclick="clearSelection()">Cancel</button>
-  <button class="bulk-btn danger" onclick="bulkDeleteSelected()">Delete prospects</button>
-</div>
-
-<!-- Item #7: In-Processing decline bar (admin only) -->
-<div class="bulk-bar" id="declineBulkBar">
-  <span class="bulk-count" id="declineBulkCount">0 selected</span>
-  <button class="bulk-btn cancel" onclick="clearDeclineSelection()">Cancel</button>
-  <button class="bulk-btn danger" onclick="bulkDeclineInProcessing()">Mark as Declined</button>
+  <button class="bulk-btn" onclick="bulkOnHold()">Put On Hold</button>
+  <button class="bulk-btn danger" onclick="bulkDecline()">Decline</button>
 </div>
 
 <!-- Reminder modal -->
@@ -483,8 +484,11 @@ var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
 var _contactLookup = {}; // ownerKey|email → {clientId}
 var _clientById = {};    // ownerKey|clientId → client record
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
-var _selectedProspects = new Set();
-var _selectedDecline = new Set(); // ownerKey|clientId|loanId of In Processing loans selected for decline
+var _selectedItems = new Set();   // unified bulk-select set
+                                  // keys: "prospect|<ownerKey>|<prospectId>"
+                                  //       "quote|<ownerKey>|<quoteId>|<colKey>"
+var _selectMode = false;          // when true, every card shows a checkbox
+var _selectedDecline = new Set(); // legacy alias; kept so older handler refs don't crash
 var _remindersByLoan = {}; // loanId → reminder
 var _remindersById = {};   // reminderId → reminder (for URL param navigation)
 var _editingReminder = null; // current reminder being viewed/edited in modal
@@ -499,6 +503,8 @@ netlifyIdentity.on('init', function(user) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     document.getElementById('scopeToggle').style.display = 'flex';
+    var smBtn = document.getElementById('selectModeBtn');
+    if (smBtn) smBtn.style.display = 'inline-block';
   }
   loadAll();
 });
@@ -795,15 +801,18 @@ function buildProspectCard(it) {
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
     : '';
 
-  var selKey = it.ownerKey + '|' + it.id;
-  var checked = _selectedProspects.has(selKey) ? ' checked' : '';
+  var selKey = 'prospect|' + it.ownerKey + '|' + it.id;
+  var checked = _selectedItems.has(selKey) ? ' checked' : '';
   var nameHtml = nameAsContactLink(name, p.email, it.ownerKey);
+  var checkboxHtml = _selectMode
+    ? ('<label class="select-box" title="Select">' +
+         '<input type="checkbox" class="bulk-cb" data-key="' + escAttr(selKey) + '" data-kind="prospect" data-owner="' + escAttr(it.ownerKey) + '" data-id="' + escAttr(it.id) + '" onchange="toggleSelect(this)"' + checked + ' />' +
+       '</label>')
+    : '';
 
   return (
-    '<div class="card prospect-card">' +
-      '<label class="select-box" title="Select for bulk delete">' +
-        '<input type="checkbox" class="prospect-cb" data-key="' + escAttr(selKey) + '" data-slug="' + escAttr(it.ownerKey) + '" data-id="' + escAttr(it.id) + '" onchange="toggleSelect(this)"' + checked + ' />' +
-      '</label>' +
+    '<div class="card prospect-card' + (_selectMode && _selectedItems.has(selKey) ? ' is-selected' : '') + '">' +
+      checkboxHtml +
       loRow +
       '<div class="card-title">' + nameHtml + '</div>' +
       '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
@@ -910,18 +919,18 @@ function buildQuoteCard(it, colKey) {
     }
   }
 
-  // Item #7: admin can multi-select In-Processing loans to decline.
-  // Checkbox renders only on the In Processing column for admins.
-  var declineCb = '';
-  var declineClass = '';
-  if (_isAdmin && colKey === 'approved' && lookup) {
-    var declineKey = lookup.ownerKey + '|' + lookup.clientId + '|' + lookup.loanId;
-    var dchecked = _selectedDecline.has(declineKey) ? ' checked' : '';
-    declineCb =
-      '<label class="decline-box" title="Select to decline">' +
-        '<input type="checkbox" class="decline-cb" data-key="' + escAttr(declineKey) + '" onchange="toggleDeclineSelect(this)"' + dchecked + ' />' +
+  // Bulk-select checkbox: rendered for ALL quote columns when select mode
+  // is on. Only admins see this (gated when toggling the mode).
+  var bulkCb = '';
+  var bulkClass = '';
+  if (_selectMode) {
+    var bulkKey = 'quote|' + it.ownerKey + '|' + it.id + '|' + colKey;
+    var bchecked = _selectedItems.has(bulkKey) ? ' checked' : '';
+    bulkCb =
+      '<label class="decline-box" title="Select">' +
+        '<input type="checkbox" class="bulk-cb" data-key="' + escAttr(bulkKey) + '" data-kind="quote" data-owner="' + escAttr(it.ownerKey) + '" data-id="' + escAttr(it.id) + '" data-col="' + escAttr(colKey) + '" onchange="toggleSelect(this)"' + bchecked + ' />' +
       '</label>';
-    declineClass = ' has-decline';
+    bulkClass = ' has-decline' + (_selectedItems.has(bulkKey) ? ' is-selected' : '');
   }
 
   // Item #7: address links to Loan Details when we have a loan record
@@ -930,8 +939,8 @@ function buildQuoteCard(it, colKey) {
     : escH(addr || '— no address —');
 
   return (
-    '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + declineClass + '">' +
-      declineCb +
+    '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + bulkClass + '">' +
+      bulkCb +
       bellForLoan(lookup, q, addr) +
       loRow +
       '<div class="card-title">' + nameHtml + '</div>' +
@@ -1201,137 +1210,168 @@ document.addEventListener('DOMContentLoaded', function() {
   if (bg) bg.addEventListener('click', function(e){ if (e.target === bg) closeReminderModal(); });
 });
 
-// ── Bulk select / delete ────────────────────────────────
+// ── Bulk select / actions ────────────────────────────────
+// Single unified selection set keyed by either:
+//   "prospect|<ownerKey>|<prospectId>"
+//   "quote|<ownerKey>|<quoteId>|<colKey>"
+// Mode is gated by the "Select Multiple" toggle. Only admins can enter
+// select mode (decline/hold both require admin perms server-side).
+
+function toggleSelectMode() {
+  if (!_isAdmin) return; // shouldn't even be reachable but defense in depth
+  _selectMode = !_selectMode;
+  var btn = document.getElementById('selectModeBtn');
+  if (btn) {
+    btn.classList.toggle('active', _selectMode);
+    btn.textContent = _selectMode ? 'Done Selecting' : 'Select Multiple';
+  }
+  if (!_selectMode) {
+    _selectedItems.clear();
+    updateBulkBar();
+  }
+  // Re-render so checkboxes appear or disappear in cards
+  render();
+}
+
 function toggleSelect(checkbox) {
   var key = checkbox.dataset.key;
-  if (checkbox.checked) _selectedProspects.add(key);
-  else _selectedProspects.delete(key);
+  if (checkbox.checked) _selectedItems.add(key);
+  else _selectedItems.delete(key);
+  // Toggle card highlight without a full re-render
+  var card = checkbox.closest('.card');
+  if (card) card.classList.toggle('is-selected', checkbox.checked);
   updateBulkBar();
-  // Visual highlight: walk up to the parent card
-  var card = checkbox.closest('.prospect-card');
-  if (card) {
-    if (checkbox.checked) {
-      card.style.borderColor = 'var(--gold)';
-      card.style.background = 'rgba(200,129,58,0.04)';
-    } else {
-      card.style.borderColor = '';
-      card.style.background = '';
-    }
-  }
 }
 
 function updateBulkBar() {
   var bar = document.getElementById('bulkBar');
-  var n = _selectedProspects.size;
+  var n = _selectedItems.size;
   if (n === 0) {
     bar.classList.remove('show');
   } else {
     bar.classList.add('show');
-    document.getElementById('bulkCount').textContent = n + ' prospect' + (n === 1 ? '' : 's') + ' selected';
+    document.getElementById('bulkCount').textContent =
+      n + ' selected';
   }
 }
 
 function clearSelection() {
-  _selectedProspects.clear();
-  document.querySelectorAll('.prospect-cb:checked').forEach(function(cb) { cb.checked = false; });
-  document.querySelectorAll('.prospect-card').forEach(function(c) {
-    c.style.borderColor = ''; c.style.background = '';
+  _selectedItems.clear();
+  document.querySelectorAll('.bulk-cb:checked').forEach(function(cb) { cb.checked = false; });
+  document.querySelectorAll('.card.is-selected').forEach(function(c) {
+    c.classList.remove('is-selected');
   });
   updateBulkBar();
 }
 
-// ── Item #7: In-Processing decline (admin) ─────────────────
-function toggleDeclineSelect(checkbox) {
-  var key = checkbox.dataset.key;
-  if (checkbox.checked) _selectedDecline.add(key);
-  else _selectedDecline.delete(key);
-  updateDeclineBar();
-  var card = checkbox.closest('.card');
-  if (card) {
-    if (checkbox.checked) {
-      card.style.borderColor = 'var(--danger)';
-      card.style.background = 'rgba(124,31,31,0.04)';
-    } else {
-      card.style.borderColor = '';
-      card.style.background = '';
-    }
+// Parse a unified selection key into its parts.
+function parseSelKey(key) {
+  var parts = key.split('|');
+  if (parts[0] === 'prospect') {
+    return { kind: 'prospect', ownerKey: parts[1], id: parts.slice(2).join('|') };
   }
+  if (parts[0] === 'quote') {
+    return { kind: 'quote', ownerKey: parts[1], id: parts[2], colKey: parts[3] || '' };
+  }
+  return { kind: '', ownerKey: '', id: '' };
 }
 
-function updateDeclineBar() {
-  var bar = document.getElementById('declineBulkBar');
-  var n = _selectedDecline.size;
-  if (n === 0) {
-    bar.classList.remove('show');
-  } else {
-    bar.classList.add('show');
-    document.getElementById('declineBulkCount').textContent = n + ' loan' + (n === 1 ? '' : 's') + ' selected';
-  }
-}
-
-function clearDeclineSelection() {
-  _selectedDecline.clear();
-  document.querySelectorAll('.decline-cb:checked').forEach(function(cb) { cb.checked = false; });
-  // Clear visual highlight on In Processing cards
-  document.querySelectorAll('.col[data-col="approved"] .card').forEach(function(c) {
-    c.style.borderColor = ''; c.style.background = '';
+// Group selected items by kind so we can apply the right backend call to each.
+function groupSelection() {
+  var prospects = [], quotes = [];
+  _selectedItems.forEach(function(k) {
+    var p = parseSelKey(k);
+    if (p.kind === 'prospect') prospects.push(p);
+    else if (p.kind === 'quote') quotes.push(p);
   });
-  updateDeclineBar();
+  return { prospects: prospects, quotes: quotes };
 }
 
-function bulkDeclineInProcessing() {
-  var keys = Array.from(_selectedDecline);
-  if (keys.length === 0) return;
-  if (!confirm('Mark ' + keys.length + ' loan' + (keys.length === 1 ? '' : 's') +
-    ' as DECLINED? They will move to the Decisions page and be removed from In Processing.')) return;
-  // Each key = ownerKey|clientId|loanId. We need to find the matching quote
-  // and call SLA.Admin.decideQuote with status='denied'.
-  var promises = keys.map(function(k) {
-    var parts = k.split('|');
-    var ownerKey = parts[0];
-    var clientId = parts[1];
-    var loanId   = parts[2];
-    // Find the loan to get its address for matching the quote
-    var clientRec = _clientById[ownerKey + '|' + clientId];
-    if (!clientRec) return Promise.resolve();
-    var loan = (clientRec.loans || []).find(function(l) { return l.id === loanId; });
-    if (!loan) return Promise.resolve();
-    // Find the matching quote in _items.approved
-    var item = _items.approved.find(function(it) {
-      return it.ownerKey === ownerKey && (it.quote.address || '') === (loan.address || '');
+// Bulk decline. Quotes → decideQuote('denied'). Prospects → bulk-delete
+// (which is the equivalent of "decline" for a never-quoted lead), but only
+// after a separate explicit confirm.
+function bulkDecline() {
+  var groups = groupSelection();
+  if (!groups.prospects.length && !groups.quotes.length) return;
+
+  // First confirm: decline the quotes (and warn if prospects are mixed in).
+  var qN = groups.quotes.length;
+  var pN = groups.prospects.length;
+  var msg = 'Decline ' + qN + ' quote' + (qN === 1 ? '' : 's') + '?\n\n' +
+    'This marks them as Declined and moves them to the Decisions page.';
+  if (qN === 0) msg = 'No quotes selected — only prospects.';
+  if (qN > 0 && !confirm(msg)) return;
+
+  // Second confirm if prospects are involved (per spec).
+  if (pN > 0) {
+    var pMsg = pN + ' prospect' + (pN === 1 ? '' : 's') + ' (in New Application) ' +
+      ' will be permanently DELETED. Prospects have no quote yet, so "decline" = drop the lead.\n\n' +
+      'Continue?';
+    if (!confirm(pMsg)) return;
+  }
+
+  var promises = [];
+
+  // Decline quotes via decideQuote
+  groups.quotes.forEach(function(q) {
+    var item = (_items[q.colKey] || []).find(function(it) {
+      return it.id === q.id && it.ownerKey === q.ownerKey;
     });
-    if (!item) return Promise.resolve();
-    var opts = ownerKey !== (_user.email || '').toLowerCase() ? { _owner: ownerKey } : {};
-    return SLA.Admin.decideQuote(ownerKey, item.id, 'denied', 'Declined during processing.');
+    if (!item) return;
+    promises.push(
+      SLA.Admin.decideQuote(q.ownerKey, q.id, 'denied', 'Declined via bulk action.')
+        .catch(function(err) { console.warn('decideQuote failed for', q.id, err); })
+    );
   });
+
+  // Delete prospects via bulkDelete
+  if (groups.prospects.length) {
+    var items = groups.prospects.map(function(p) {
+      return { slug: p.ownerKey, prospectId: p.id };
+    });
+    promises.push(
+      SLA.Prospects.bulkDelete(items)
+        .catch(function(err) { console.warn('bulkDelete failed', err); })
+    );
+  }
+
   Promise.all(promises).then(function() {
-    showToast(keys.length + ' loan' + (keys.length === 1 ? '' : 's') + ' moved to Declined');
-    clearDeclineSelection();
+    showToast('Bulk decline complete');
+    _selectedItems.clear();
+    _selectMode = false;
+    var btn = document.getElementById('selectModeBtn');
+    if (btn) { btn.classList.remove('active'); btn.textContent = 'Select Multiple'; }
     loadAll();
-  }).catch(function(err) {
-    showToast('Decline failed: ' + (err.message || 'unknown'));
   });
 }
 
-function bulkDeleteSelected() {
-  var n = _selectedProspects.size;
-  if (n === 0) return;
-  if (!confirm('Delete ' + n + ' prospect' + (n === 1 ? '' : 's') + '? This cannot be undone.')) return;
+// Bulk on hold. Quotes → decideQuote('on_hold'). Prospects: skipped (no
+// concept of "on hold" for a never-quoted lead).
+function bulkOnHold() {
+  var groups = groupSelection();
+  if (!groups.quotes.length && !groups.prospects.length) return;
 
-  var items = [];
-  _selectedProspects.forEach(function(key) {
-    var parts = key.split('|');
-    items.push({ slug: parts[0], prospectId: parts.slice(1).join('|') });
+  var qN = groups.quotes.length;
+  var pN = groups.prospects.length;
+  var skipNote = pN > 0 ? '\n\n(' + pN + ' prospect' + (pN === 1 ? '' : 's') + ' will be skipped — prospects can\'t be put on hold; quote them or decline them.)' : '';
+  if (qN === 0) {
+    alert('No quotes selected. Only prospects, which can\'t be put on hold.');
+    return;
+  }
+  if (!confirm('Put ' + qN + ' quote' + (qN === 1 ? '' : 's') + ' on hold?' + skipNote)) return;
+
+  var promises = groups.quotes.map(function(q) {
+    return SLA.Admin.decideQuote(q.ownerKey, q.id, 'on_hold', 'Placed on hold via bulk action.')
+      .catch(function(err) { console.warn('on_hold failed for', q.id, err); });
   });
 
-  SLA.Prospects.bulkDelete(items).then(function(resp) {
-    showToast('Deleted ' + resp.deleted + ' prospect' + (resp.deleted === 1 ? '' : 's') +
-              (resp.errors && resp.errors.length ? ' (' + resp.errors.length + ' failed)' : ''));
-    _selectedProspects.clear();
-    updateBulkBar();
+  Promise.all(promises).then(function() {
+    showToast(qN + ' quote' + (qN === 1 ? '' : 's') + ' put on hold');
+    _selectedItems.clear();
+    _selectMode = false;
+    var btn = document.getElementById('selectModeBtn');
+    if (btn) { btn.classList.remove('active'); btn.textContent = 'Select Multiple'; }
     loadAll();
-  }).catch(function(err) {
-    showToast('Bulk delete failed: ' + (err.message || 'unknown error'));
   });
 }
 
@@ -1600,20 +1640,18 @@ function populateLoFilter() {
   sel.style.display = visible ? '' : 'none';
   if (!visible) return;
 
-  // Build the option list from owners actually present in the data, so the
-  // dropdown can't be cluttered with LOs who have nothing in the pipeline.
-  var ownersSeen = {};
-  ['newApp','quoted','submitted','awaitingApp','approved'].forEach(function(col) {
-    (_items[col] || []).forEach(function(it) {
-      if (it.ownerKey) ownersSeen[String(it.ownerKey).toLowerCase()] = true;
-    });
-  });
-  var owners = Object.keys(ownersSeen).sort(function(a,b) {
+  // Build the option list from EVERY known user (profile map), not just
+  // owners who happen to have pipeline items right now. An LO with an empty
+  // pipeline still needs to be selectable so an admin can confirm "yep,
+  // this person has nothing in flight."
+  var owners = Object.keys(_profileMap).sort(function(a, b) {
     return loDisplay(a).localeCompare(loDisplay(b));
   });
 
-  // If the persisted value isn't in the current owner set, clear it
-  if (_loFilterValue && !ownersSeen[_loFilterValue]) {
+  // If the persisted value isn't in the known user set, clear it
+  var ownersSet = {};
+  owners.forEach(function(o) { ownersSet[o] = true; });
+  if (_loFilterValue && !ownersSet[_loFilterValue]) {
     _loFilterValue = '';
     try { localStorage.removeItem('sla_pipeline_lo_filter'); } catch(e){}
   }

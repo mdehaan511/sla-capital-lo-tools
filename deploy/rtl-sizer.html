@@ -1303,7 +1303,23 @@ function prefillRTLFromProspect(p) {
   showToast('Form pre-filled from prospect application');
 }
 
+// Reasonable email validator: not RFC-perfect but rejects garbage like
+// "asdf", "asdf@", "@x.com", "no-tld@example", and "bob smith@x.com".
+function _isValidEmail(s) {
+  if (!s) return false;
+  var t = String(s).trim();
+  if (t.length > 254) return false;
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(t);
+}
+
 function saveCurrentQuote() {
+  // Validate borrower email format if provided.
+  var emailEl = document.getElementById('borrowerEmail');
+  if (emailEl && emailEl.value.trim() && !_isValidEmail(emailEl.value.trim())) {
+    showToast('Please enter a valid email address');
+    emailEl.focus();
+    return;
+  }
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
@@ -1462,14 +1478,17 @@ function loadRTLQuote(formData) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
   });
-  // Lock identity fields once a quote is loaded
-  ['borrowerName','borrowerEmail','propStreet','propCity','propState','propZip'].forEach(function(id) {
+  // Lock borrower name once a quote is loaded — changing it would orphan
+  // the original loan record. Address and email remain editable: address
+  // edits flow through ClientBook.upsert which renames the loan in place
+  // (via _originalAddress matching), and email edits are validated on save.
+  ['borrowerName'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {
       el.readOnly = true;
       el.style.background = 'rgba(120,116,136,0.06)';
       el.style.cursor = 'not-allowed';
-      el.title = 'Locked — to change borrower or address, save as a new quote';
+      el.title = 'Locked — to change borrower, save as a new quote';
     }
   });
   if (typeof toggleRehab === 'function') toggleRehab();

@@ -74,6 +74,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .search-wrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none}
 .filter-btn{height:38px;padding:0 14px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s}
 .filter-btn:hover,.filter-btn.active{background:var(--dark);border-color:var(--dark);color:#fff}
+.admin-lo-filter{height:38px;padding:0 32px 0 14px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;margin-left:auto;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>");background-repeat:no-repeat;background-position:right 14px center}
+.admin-lo-filter:focus{outline:none;border-color:var(--gold)}
+.admin-lo-filter.has-value{border-color:var(--gold);background-color:rgba(200,129,58,0.06);color:var(--gold-mid)}
 
 /* Client card */
 .client-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:14px}
@@ -88,6 +91,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .loan-addr-link{color:inherit;text-decoration:none;border-bottom:1px solid transparent;transition:border-color 0.15s,color 0.15s}
 .loan-addr-link:hover{color:var(--gold);border-bottom-color:var(--gold)}
 .client-meta{font-size:12px;color:var(--muted);margin-top:2px;font-family:'DM Mono',monospace}
+.lo-tag-row{margin-top:4px}
+.lo-tag-badge{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--gold-light);color:var(--gold-mid);border:1px solid var(--gold-border)}
+.lo-tag-badge::before{content:"●";font-size:8px;line-height:1}
 .client-stats{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .stat-badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:var(--gold-light);color:var(--gold-mid);border:1px solid var(--gold-border)}
 .chevron{color:var(--muted);transition:transform .2s;flex-shrink:0}
@@ -260,7 +266,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
         <input type="text" id="adminSearch" placeholder="Search across all users…" oninput="renderAdminClients()" />
       </div>
-      <button class="filter-btn" style="margin-left:auto" onclick="loadAdminClients(true)">
+      <select id="adminLoFilter" class="admin-lo-filter" onchange="renderAdminClients()">
+        <option value="">All LOs</option>
+      </select>
+      <button class="filter-btn" onclick="loadAdminClients(true)">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;margin-right:4px"><path d="M10 6A4 4 0 1 1 6 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 2v4h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Refresh
       </button>
@@ -641,51 +650,82 @@ function loadAdminClients(forceRefresh) {
 function renderAdminClients() {
   if (!_adminData) return;
   var search = (document.getElementById('adminSearch').value||'').toLowerCase().trim();
+  var loFilterEl = document.getElementById('adminLoFilter');
+  var loFilter = (loFilterEl && loFilterEl.value || '').toLowerCase();
+  if (loFilterEl) loFilterEl.classList.toggle('has-value', !!loFilter);
   var wrap = document.getElementById('adminClientsList');
   wrap.innerHTML = '';
 
+  // Populate LO filter dropdown lazily — every render rebuilds it from
+  // _adminData so it always reflects the freshest set of LOs we know about.
+  // Kept stable (alphabetical) so the order doesn't jitter as data refreshes.
+  if (loFilterEl) {
+    var currentVal = loFilterEl.value;
+    var sortedLos = _adminData.slice().sort(function(a, b) {
+      return humanizeEmail(a.email).localeCompare(humanizeEmail(b.email));
+    });
+    var html = '<option value="">All LOs</option>';
+    sortedLos.forEach(function(u) {
+      var sel = (u.email.toLowerCase() === currentVal.toLowerCase()) ? ' selected' : '';
+      html += '<option value="'+escAttr(u.email)+'"'+sel+'>'+escH(humanizeEmail(u.email))+'</option>';
+    });
+    loFilterEl.innerHTML = html;
+  }
+
+  // Flatten every (owner, client) pair into a single list, then sort
+  // alphabetically by last name (matching the My Clients view's behavior).
+  var flat = [];
   _adminData.forEach(function(userData) {
-    var sec = document.createElement('div');
-    sec.className = 'admin-section';
-    var displayName = humanizeEmail(userData.email);
-    var initials = displayName.split(' ').map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase() || '?';
-    var bodyId = 'abody-'+userData.id;
-    var headId = 'ahead-'+userData.id;
-
-    sec.innerHTML =
-      '<div class="user-section-hdr" id="'+headId+'" onclick="toggleAdminSection(\''+bodyId+'\',\''+headId+'\')">' +
-        '<div class="user-avatar">'+escH(initials)+'</div>' +
-        '<div style="flex:1">'+
-          '<div style="font-size:14px;font-weight:600">'+escH(displayName)+'</div>' +
-          '<div style="font-size:11px;color:var(--muted)">'+escH(userData.email)+'</div>' +
-        '</div>' +
-        '<span style="font-size:12px;color:var(--muted)">'+userData.clients.length+' client'+(userData.clients.length!==1?'s':'')+'</span>' +
-        '<svg class="chevron" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-      '</div>' +
-      '<div class="user-section-body" id="'+bodyId+'">'+
-        buildAdminClientList(userData.clients) +
-      '</div>';
-
-    wrap.appendChild(sec);
+    (userData.clients || []).forEach(function(c) {
+      // Owner-filter applies before search so the search count is accurate
+      if (loFilter && userData.email.toLowerCase() !== loFilter) return;
+      // Search across name, email, phone, and the owning LO's email so admins
+      // can quickly find "everything Bob owns" by typing his email
+      if (search) {
+        var hay = ((c.firstName||'')+' '+(c.lastName||'')+' '+(c.email||'')+' '+(c.phone||'')+' '+userData.email).toLowerCase();
+        if (hay.indexOf(search) < 0) return;
+      }
+      flat.push({ owner: userData.email, client: c });
+    });
   });
 
-  if (!wrap.children.length) {
-    wrap.innerHTML = '<div class="empty-state"><h3>No data</h3><p>No users found or no client data synced yet.</p></div>';
+  flat.sort(function(a, b) {
+    var aLast = (a.client.lastName||'').toLowerCase();
+    var bLast = (b.client.lastName||'').toLowerCase();
+    if (aLast !== bLast) return aLast.localeCompare(bLast);
+    return (a.client.firstName||'').toLowerCase().localeCompare((b.client.firstName||'').toLowerCase());
+  });
+
+  if (!flat.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No clients</h3><p>'+
+      (search || loFilter
+        ? 'No clients match your search/filter. Try clearing them.'
+        : 'No client data has been synced yet.')+
+      '</p></div>';
+    return;
   }
+
+  // Render each as a regular client card (same component as My Clients view)
+  // with readOnly=true so the delete button is hidden — admins can still
+  // delete via the owning LO's view, or the per-loan delete on Loan Details.
+  flat.forEach(function(entry) {
+    var card = buildClientCard(entry.client, entry.owner, true);
+    // Inject a "Belongs to" badge into the card's meta row so admins can see
+    // ownership at a glance without opening the client.
+    var meta = card.querySelector('.client-meta');
+    if (meta) {
+      var loBadge = document.createElement('div');
+      loBadge.className = 'lo-tag-row';
+      loBadge.innerHTML = '<span class="lo-tag-badge" title="Loan officer">'+escH(humanizeEmail(entry.owner))+'</span>';
+      meta.parentNode.insertBefore(loBadge, meta.nextSibling);
+    }
+    wrap.appendChild(card);
+  });
 }
 
-function toggleAdminSection(bodyId, headId) {
-  var body = document.getElementById(bodyId);
-  var head = document.getElementById(headId);
-  if (!body) return;
-  var open = body.classList.contains('open');
-  body.classList.toggle('open', !open);
-  if (head) {
-    head.classList.toggle('is-open', !open);
-    var chev = head.querySelector('.chevron');
-    if (chev) chev.classList.toggle('open', !open);
-  }
-}
+// Old grouped-by-LO admin renderer kept as a fallback function name in case
+// anything else still references it. Now just delegates to the flat one.
+function toggleAdminSection() { /* deprecated — flat view doesn't collapse */ }
 
 function buildAdminClientList(clientList) {
   if (!clientList || !clientList.length) {

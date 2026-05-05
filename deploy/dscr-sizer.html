@@ -1614,11 +1614,31 @@ function prefillFromProspect(p) {
   showToast('Form pre-filled from prospect application');
 }
 
+// Reasonable email validator: not RFC-perfect but rejects garbage like
+// "asdf", "asdf@", "@x.com", "no-tld@example", and "bob smith@x.com".
+function _isValidEmail(s) {
+  if (!s) return false;
+  var t = String(s).trim();
+  if (t.length > 254) return false;
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(t);
+}
+
 function saveCurrentQuote() {
   var r = calculate();
   if (r.error) { showToast('Fix errors before saving'); return; }
   if (!r.address && !r.borrower) { showToast('Add an address or borrower name first'); return; }
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
+
+  // Validate borrower email format if provided. Allow blank (sizer can save
+  // without an email — ClientBook just won't be updated). But if the user
+  // typed something, it has to be a real email or we'll create a junk client
+  // record that breaks future lookups + Brevo sync.
+  var emailEl = $('borrowerEmail');
+  if (emailEl && emailEl.value.trim() && !_isValidEmail(emailEl.value.trim())) {
+    showToast('Please enter a valid email address');
+    emailEl.focus();
+    return;
+  }
 
   // Build formData snapshot — all field values
   var formData = {
@@ -1747,15 +1767,17 @@ function loadQuoteIntoForm(formData) {
   });
   // Show/hide the refi field based on loaded loanPurpose
   if (typeof onPurposeChange === 'function') onPurposeChange();
-  // Lock identity fields once a quote is loaded — these define the loan record
-  // and changing them would either create a duplicate or orphan the original.
-  ['borrowerName','borrowerEmail','propAddress'].forEach(function(id) {
+  // Lock borrower name once a quote is loaded — changing it would orphan
+  // the original loan record. Address and email remain editable: address
+  // edits flow through ClientBook.upsert which renames the loan in place
+  // (via _originalAddress matching), and email edits are validated on save.
+  ['borrowerName'].forEach(function(id) {
     var el = $(id);
     if (el) {
       el.readOnly = true;
       el.style.background = 'rgba(120,116,136,0.06)';
       el.style.cursor = 'not-allowed';
-      el.title = 'Locked — to change borrower or address, save as a new quote';
+      el.title = 'Locked — to change borrower, save as a new quote';
     }
   });
   run();
