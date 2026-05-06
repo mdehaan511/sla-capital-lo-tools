@@ -545,13 +545,18 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 </div><!-- /page -->
 
 <script>
-// ── Pricing data — Colchis RTL Pricing Sheet (Mar 24, 2026) ──
+// ── Pricing data — Colchis RTL Pricing Sheet (May 05, 2026) ──
 // PRICING values are Colchis's WHOLESALE base rate. Final borrower note
 // rate = PRICING + SPREAD[fico] + adjustments. Tier 1 (8+) gets -0.25%
 // reduction, Tier 2 baseline, Tier 3 +0.25%. MFR adjustment is per-LTV.
 // Sub-680 borrowers don't qualify under Colchis — they get a hardcoded
 // final rate from SUB680_RATE (SLA funds these through a separate channel).
-var FLOOR = 0.08; // Bridge / Light minimum 8.000%
+//
+// IMPORTANT: SLA's policy floor of 10.000% (line ~910) usually wins over
+// Colchis program minimums for normal-leverage deals. The Colchis minimums
+// only matter when wholesale + spread + adjustments would otherwise undercut
+// them (rare, mostly seen on high-LTV heavy/construction deals).
+var FLOOR = 0.0825; // Bridge / Light program minimum 8.250%
 var LABELS = { bridge:'Bridge', light:'Light Rehab', heavy:'Heavy Rehab', construction:'Construction' };
 var SPREAD = { 740:.0175, 720:.02, 700:.0225, 680:.025 };
 // LTV columns: <=70, <=75, <=80, <=85, <=90, <=95
@@ -563,38 +568,38 @@ var SUB680_RATE = { 650: .12, 620: .13, 550: .14 };
 var PRICING = {
   bridge: {
     sfr: {
-      740: [.08,   .08,   null,  null,  null,  null ],
-      720: [.08,   .08,   null,  null,  null,  null ],
-      700: [.08,   .08,   null,  null,  null,  null ],
-      680: [.08125,null,  null,  null,  null,  null ],
+      740: [.0825,  .0825,  null,   null,   null,   null  ],
+      720: [.0825,  .0825,  null,   null,   null,   null  ],
+      700: [.0825,  .0825,  null,   null,   null,   null  ],
+      680: [.08375, null,   null,   null,   null,   null  ],
     },
     mfr: {
-      740: [.08,   .08,   null,  null,  null,  null ],
-      720: [.08,   .08,   null,  null,  null,  null ],
-      700: [.08,   .08,   null,  null,  null,  null ],
-      680: [.08125,null,  null,  null,  null,  null ],
+      740: [.0825,  .0825,  null,   null,   null,   null  ],
+      720: [.0825,  .0825,  null,   null,   null,   null  ],
+      700: [.0825,  .0825,  null,   null,   null,   null  ],
+      680: [.08375, null,   null,   null,   null,   null  ],
     },
   },
   light: {
     sfr: {
-      740: [.08,   .08,   .08,   .08125,.0825, .08625],
-      720: [.08,   .08,   .08125,.0825, .08375,.0875 ],
-      700: [.08,   .08,   .08125,.0825, .08375,.0875 ],
-      680: [.08125,.0825, .08375,.085,  .08625,null  ],
+      740: [.0825,  .0825,  .0825,  .08375, .085,   .08875],
+      720: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
+      700: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
+      680: [.08375, .085,   .08625, .0875,  .08875, null  ],
     },
     mfr: {
-      740: [.08,   .08,   .08,   .08125,.0825, .08625],
-      720: [.08,   .08,   .08125,.0825, .08375,.0875 ],
-      700: [.08,   .08,   .08125,.0825, .08375,.0875 ],
-      680: [.08125,.0825, .08375,.085,  .08625,null  ],
+      740: [.0825,  .0825,  .0825,  .08375, .085,   .08875],
+      720: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
+      700: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
+      680: [.08375, .085,   .08625, .0875,  .08875, null  ],
     },
   },
   heavy: {
     sfr: {
-      740: [.08625,.0875, .08875,.09,   null,  null ],
-      720: [.0875, .08875,.09,   .09125,null,  null ],
-      700: [.0875, .08875,.09,   .09125,null,  null ],
-      680: [.09,   .09125,.0925, .09375,null,  null ],
+      740: [.08875, .09,    .09125, .0925,  null,   null  ],
+      720: [.09,    .09125, .0925,  .09375, null,   null  ],
+      700: [.09,    .09125, .0925,  .09375, null,   null  ],
+      680: [.0925,  .09375, .095,   .09625, null,   null  ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -605,10 +610,10 @@ var PRICING = {
   },
   construction: {
     sfr: {
-      740: [.08625,.0875, .08875,.09,   .09375,null ],
-      720: [.0875, .08875,.09,   .09125,.095,  null ],
-      700: [.0875, .08875,.09,   .09125,.095,  null ],
-      680: [.09,   .09125,.0925, .09375,null,  null ],
+      740: [.0875,  .08875, .09,    .09125, .095,   null  ],
+      720: [.08875, .09,    .09125, .0925,  .09625, null  ],
+      700: [.08875, .09,    .09125, .0925,  .09625, null  ],
+      680: [.09125, .0925,  .09375, .095,   null,   null  ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -902,8 +907,15 @@ function calculate(){
           if(sz==='3m'){ adj+=.0025; adjs.push({l:'Loan amount >$3M',v:.0025,c:'pos'}); }
           // Tier-1 baseline = wholesale + adjustments + spread − 0.25% (Tier 1 reduction)
           var tier1Base = cb + adj + SPREAD[fkey] - .0025;
-          // Apply program-minimum floors per the PDF (Bridge/Light 8.000%, Heavy/Construction 8.625%)
-          var progMin = (lt === 'bridge' || lt === 'light') ? 0.08 : 0.08625;
+          // Apply program-minimum floors per the PDF (May 5, 2026 sheet):
+          //   Bridge / Light Rehab: 8.250%
+          //   Construction:         8.750%
+          //   Heavy Rehab:          8.875%
+          var progMin =
+            (lt === 'bridge' || lt === 'light') ? 0.0825 :
+            (lt === 'construction')             ? 0.0875 :
+            (lt === 'heavy')                    ? 0.08875 :
+                                                  0.0825;
           if(tier1Base < progMin){ tier1Base = progMin; floor = true; }
           // SLA policy floor: Tier 1 baseline never below 10.000%.
           // (Tier 2 will be at least 10.250%; Tier 3 at least 10.500%.)
