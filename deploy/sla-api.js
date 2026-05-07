@@ -371,8 +371,9 @@
     },
   };
 
-  // ── Envelopes (e-signature) ────────────────────────────────────
-  // Phase 1 is intent-only — see netlify/functions/envelopes.mjs.
+  // ── Envelopes (e-signature via PandaDoc) ───────────────────────
+  // Phase 2 wires in real PandaDoc sends behind a dry-run flag — see
+  // netlify/functions/envelopes.mjs and _shared/pandadoc.mjs.
   var Envelopes = {
     list: function (opts) {
       opts = opts || {};
@@ -395,6 +396,23 @@
         owner: owner || '',
         reason: reason || '',
       });
+    },
+    refresh: function (envelopeId, owner) {
+      return api('POST', '/api/envelopes-refresh', {
+        envelopeId: envelopeId,
+        owner: owner || '',
+      });
+    },
+  };
+
+  // ── PandaDoc admin (super-admin) ────────────────────────────────
+  var PandaDoc = {
+    log: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.limit) qs.push('limit=' + encodeURIComponent(opts.limit));
+      var path = '/api/pandadoc-send-log' + (qs.length ? '?' + qs.join('&') : '');
+      return api('GET', path);
     },
   };
 
@@ -530,6 +548,7 @@
     ChatLog: ChatLog,
     Brevo: Brevo,
     Envelopes: Envelopes,
+    PandaDoc: PandaDoc,
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     Reminders: Reminders,

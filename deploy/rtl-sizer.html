@@ -1559,12 +1559,30 @@ netlifyIdentity.on('init', function(user) {
     var loanIdP      = urlParams.get('loanId');
     var ownerParam   = urlParams.get('owner');
     var autoDownload = urlParams.get('download') === '1';
+    // Signature-mode iframe handoff — see dscr-sizer.html for details
+    var signatureMode = urlParams.get('signatureMode') === '1';
 
     function tryAutoDownload() {
       if (!autoDownload) return;
       setTimeout(function() {
         try { downloadRTLPDF(); } catch(e) { console.warn('Auto-download failed:', e); }
       }, 500);
+    }
+
+    function trySignatureHandoff() {
+      if (!signatureMode) return;
+      setTimeout(function() {
+        try {
+          var b64 = getRTLRateSheetBase64ForSignature(1);
+          if (!b64) {
+            window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null' }, '*');
+            return;
+          }
+          window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: true, pdfBase64: b64 }, '*');
+        } catch (e) {
+          window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: (e && e.message) || 'unknown' }, '*');
+        }
+      }, 800);
     }
 
     function loadFromQuote() {
@@ -1591,7 +1609,7 @@ netlifyIdentity.on('init', function(user) {
           window._originalBorrowerEmail = hit.formData.borrowerEmail || '';
           return applyLockedOverrideIfAny(hit.formData).then(function(fd) {
             loadRTLQuote(fd);
-            tryAutoDownload();
+            tryAutoDownload(); trySignatureHandoff();
             return true;
           });
         }).catch(function(err) {
@@ -1609,7 +1627,7 @@ netlifyIdentity.on('init', function(user) {
           // the rate sheet / term sheet reflect the override.
           return applyLockedOverrideIfAny(q.formData).then(function(fd) {
             loadRTLQuote(fd);
-            tryAutoDownload();
+            tryAutoDownload(); trySignatureHandoff();
             return true;
           });
         }
@@ -1708,7 +1726,7 @@ netlifyIdentity.on('init', function(user) {
         window._originalAddress = found.address || '';
         window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
         loadRTLQuote(fd);
-        tryAutoDownload();
+        tryAutoDownload(); trySignatureHandoff();
         return true;
       }).catch(function(){ return false; });
     }
@@ -1765,9 +1783,20 @@ toggleRehab();
 
 // ── RTL Rate Sheet PDF ────────────────────────────────────────
 function downloadRTLPDF() {
+  return _generateRTLRateSheetPDF({ mode: 'download' });
+}
+
+// Phase 2 e-sign hook. Returns base64 PDF with PandaDoc field tags embedded.
+function getRTLRateSheetBase64ForSignature(signerCount) {
+  return _generateRTLRateSheetPDF({ mode: 'base64', embedAnchors: true });
+}
+
+function _generateRTLRateSheetPDF(opts) {
+  opts = opts || {};
   // Re-run calculate to get fresh values
   if (!document.getElementById('results').innerHTML || 
       document.getElementById('results').querySelector('.placeholder')) {
+    if (opts.mode === 'base64') return null;
     alert('Please calculate pricing first.'); return;
   }
 
@@ -1954,9 +1983,13 @@ function downloadRTLPDF() {
     doc.setFont('helvetica','normal'); doc.setFontSize(8);
     doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
     doc.text(d[0],lm+ox+8,baseline);
+    // Reserve label width + gap so long addresses don't overlap the label.
+    var labelW = doc.getTextWidth(d[0]);
     doc.setFont('helvetica','bold'); doc.setFontSize(8);
     doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
-    var val=doc.splitTextToSize(String(d[1]),colW-16)[0];
+    var valW = colW - 8 - labelW - 6 - 8;
+    if (valW < 30) valW = 30;
+    var val=doc.splitTextToSize(String(d[1]),valW)[0];
     doc.text(val,lm+ox+colW-8,baseline,{align:'right'});
     var colEnd=isLeft?half-1:details.length-1;
     if(i<colEnd){
@@ -1990,76 +2023,6 @@ function downloadRTLPDF() {
     sy=trow(row[0],row[1],sy,{labelColor:MUTED,valueColor:row[2],noLine:i===sizeData.length-1});
   });
   y+=sizeBlockH+10;
-
-  // Rate adjustments
-  checkPage(120);
-  var adjRows=[];
-  document.querySelectorAll('.breakdown tr').forEach(function(tr){
-    var tds=tr.querySelectorAll('td');
-    if(tds.length>=2) adjRows.push([tds[0].textContent.trim(),tds[1].textContent.trim()]);
-  });
-  if(adjRows.length){
-    var adjBlockH=22+adjRows.length*ROW_H+10;
-    doc.setFillColor(255,255,255);
-    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
-    rr(lm,y,cw,adjBlockH,4,'FD');
-    var ay=y+6;
-    doc.setFont('helvetica','bold'); doc.setFontSize(10);
-    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
-    doc.text('Rate Adjustments Applied',lm+10,ay+ROW_H*0.65);
-    ay+=ROW_H;
-    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
-    doc.line(lm+8,ay,lm+cw-8,ay);
-    adjRows.forEach(function(row,i){
-      var isPos=row[1].startsWith('+'), isNeg=row[1].startsWith('-')&&!row[1].includes('No adj');
-      var vc=isPos?DANGER:isNeg?SUCCESS:MUTED;
-      ay=trow(row[0],row[1],ay,{labelColor:MUTED,valueColor:vc,noLine:i===adjRows.length-1});
-    });
-    y+=adjBlockH+10;
-  }
-
-  // ── PAGE 2 ───────────────────────────────────────────────────
-  doc.addPage(); y=36;
-
-  // Leverage limits — read from rendered metric cards
-  checkPage(180);
-  function readMetric(cardSelector) {
-    var card = document.querySelector(cardSelector);
-    if (!card) return '—';
-    if (card.classList.contains('bad') || card.classList.contains('ineligible')) return 'Not eligible';
-    // Get just the metric-value text, clean up extra whitespace from nested spans
-    var valEl = card.querySelector('.metric-value');
-    if (!valEl) return '—';
-    // Combine text nodes cleanly: dollar amount + (pct)
-    var text = valEl.textContent.replace(/\s+/g,' ').trim();
-    return text || '—';
-  }
-  var lvgRows=[['LTP/LTV (Purchase to Price)',readMetric('#card-ltv')]];
-  if(isR){
-    var ltcVal  = readMetric('#ltc-card');
-    var larvVal = readMetric('#ltarv-card');
-    // Only show if the card is visible
-    var ltcCard  = document.getElementById('ltc-card');
-    var larvCard = document.getElementById('ltarv-card');
-    if(ltcCard  && ltcCard.style.display  !== 'none') lvgRows.push(['LTC (Loan-to-Cost)',    ltcVal]);
-    if(larvCard && larvCard.style.display !== 'none') lvgRows.push(['LTARV (Loan-to-ARV)',   larvVal]);
-  }
-
-  var lvgBlockH=22+lvgRows.length*ROW_H+10;
-  doc.setFillColor(255,255,255);
-  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
-  rr(lm,y,cw,lvgBlockH,4,'FD');
-  var lvy=y+6;
-  doc.setFont('helvetica','bold'); doc.setFontSize(10);
-  doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
-  doc.text('Leverage Limits',lm+10,lvy+ROW_H*0.65);
-  lvy+=ROW_H;
-  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
-  doc.line(lm+8,lvy,lm+cw-8,lvy);
-  lvgRows.forEach(function(row,i){
-    lvy=trow(row[0],row[1],lvy,{labelColor:MUTED,valueColor:TEXT,noLine:i===lvgRows.length-1});
-  });
-  y+=lvgBlockH+10;
 
   // Estimated closing costs
   checkPage(160);
@@ -2112,8 +2075,34 @@ function downloadRTLPDF() {
   rr(lm,y,cw,legalH,4,'FD');
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
   doc.text(legalLines,lm+8,y+10,{lineHeightFactor:1.35});
+  y += legalH + 14;
+
+  // ── SIGNATURE BLOCK (only when sending through PandaDoc) ──────
+  // See dscr-sizer.html for the rationale. White-on-white field tags
+  // get parsed by PandaDoc into real signature/date fields.
+  if (opts.embedAnchors) {
+    checkPage(60);
+    var sigBlockY = y;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text('Borrower Signature:', lm+8, sigBlockY+14);
+    doc.text('Date:', lm+8 + 320, sigBlockY+14);
+    doc.setDrawColor(MUTED[0],MUTED[1],MUTED[2]); doc.setLineWidth(0.5);
+    doc.line(lm+8 + 100, sigBlockY+18, lm+8 + 290, sigBlockY+18);
+    doc.line(lm+8 + 360, sigBlockY+18, lm+8 + 460, sigBlockY+18);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setTextColor(255,255,255);
+    doc.text('[signature:borrower________]', lm+8 + 100, sigBlockY+14);
+    doc.text('[date:borrower____]',          lm+8 + 360, sigBlockY+14);
+    y += 30;
+  }
 
   // Save
+  if (opts.mode === 'base64') {
+    var dataUri = doc.output('datauristring');
+    var idx = dataUri.indexOf(',');
+    return idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
+  }
   var addrSlug=(addrFull||'RTL_Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
   doc.save(addrSlug+'_RTL_Quote.pdf');
 }

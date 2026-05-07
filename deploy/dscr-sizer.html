@@ -1030,9 +1030,27 @@ function fmtDplain(n) {
   return '$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 
+// Public entrypoint for the LO's "Download Rate Sheet PDF" button.
 function downloadPDF() {
+  return _generateRateSheetPDF({ mode: 'download' });
+}
+
+// Used by the Send-for-Signature flow. Returns base64 PDF bytes (no data:
+// prefix) with PandaDoc field tags embedded for an N-signer envelope.
+// The Phase 2 implementation only supports 1 signer; co-signers are CC'd
+// without their own field. See _shared/pandadoc.mjs for that decision.
+function getRateSheetBase64ForSignature(signerCount) {
+  return _generateRateSheetPDF({ mode: 'base64', embedAnchors: true });
+}
+
+function _generateRateSheetPDF(opts) {
+  opts = opts || {};
   var r = calculate();
-  if (r.error) { alert('Please fix errors first: '+r.error); return; }
+  if (r.error) {
+    if (opts.mode === 'base64') return null;
+    alert('Please fix errors first: '+r.error);
+    return;
+  }
 
   var { jsPDF } = window.jspdf;
   var doc = new jsPDF({ orientation:'portrait', unit:'pt', format:'letter' });
@@ -1200,10 +1218,16 @@ function downloadPDF() {
     doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
     doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
     doc.text(d[0], lm+ox+8, baseline);
+    // Measure how much horizontal space the label took. Reserve a 6pt gap
+    // between label and value so a long address can't crash into the
+    // "Property Address" label on the left.
+    var labelW = doc.getTextWidth(d[0]);
 
     doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
     doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
-    var valW = colW - 16;
+    // valW = column width − left padding (8) − label − gap (6) − right padding (6)
+    var valW = colW - 8 - labelW - 6 - 6;
+    if (valW < 30) valW = 30; // sanity floor for very narrow rows
     var val = doc.splitTextToSize(String(d[1]), valW)[0];
     doc.text(val, lm+ox+colW-6, baseline, {align:'right'});
 
@@ -1543,8 +1567,46 @@ function downloadPDF() {
   rr(lm, y, cw, legalH, 4, 'FD');
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
   doc.text(legalLines, lm+8, y+10, {lineHeightFactor:1.35});
+  y += legalH + 14;
+
+  // ── SIGNATURE BLOCK (only when sending through PandaDoc) ──────
+  // PandaDoc parses field tags from the PDF's text content. The tags
+  // [signature:borrower___] and [date:borrower___] are recognized and
+  // replaced with interactive form fields. Underscores set the field
+  // width. Role 'borrower' must match the role on the recipient.
+  //
+  // Tag color matches the page background (white) so the text is
+  // invisible to a human reader before PandaDoc processes the file.
+  // After processing the tags become real signature/date fields.
+  if (opts.embedAnchors) {
+    checkPage(60);
+    var sigBlockY = y;
+    // Visible labels for the borrower
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text('Borrower Signature:', lm+8, sigBlockY+14);
+    doc.text('Date:', lm+8 + 320, sigBlockY+14);
+    // Underline guides for visual context
+    doc.setDrawColor(MUTED[0],MUTED[1],MUTED[2]); doc.setLineWidth(0.5);
+    doc.line(lm+8 + 100, sigBlockY+18, lm+8 + 290, sigBlockY+18);
+    doc.line(lm+8 + 360, sigBlockY+18, lm+8 + 460, sigBlockY+18);
+    // Invisible PandaDoc field tags — white text on white page background.
+    // The tags themselves are what PandaDoc sees and converts to fields.
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setTextColor(255,255,255);
+    doc.text('[signature:borrower________]', lm+8 + 100, sigBlockY+14);
+    doc.text('[date:borrower____]',          lm+8 + 360, sigBlockY+14);
+    y += 30;
+  }
 
   // ── SAVE ───────────────────────────────────────────────────
+  if (opts.mode === 'base64') {
+    // Strip the 'data:application/pdf;base64,' prefix so the caller gets
+    // raw base64 they can post to our backend.
+    var dataUri = doc.output('datauristring');
+    var idx = dataUri.indexOf(',');
+    return idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
+  }
   var addrSlug = (r.address||'Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
   doc.save(addrSlug+'_SLA_Quote.pdf');
 }
@@ -1850,12 +1912,35 @@ netlifyIdentity.on('init', function(user) {
       var loanIdP      = urlParams.get('loanId');
       var ownerParam   = urlParams.get('owner');
       var autoDownload = urlParams.get('download') === '1';
+      // Signature-mode iframe handoff: when this URL param is set, the page
+      // is being loaded inside a hidden iframe by loan-details.html. We
+      // generate the rate sheet with PandaDoc anchor tags embedded, then
+      // postMessage the base64 PDF up to the parent, which fires the
+      // envelope-create call. The body never paints visibly.
+      var signatureMode = urlParams.get('signatureMode') === '1';
 
       function tryAutoDownload() {
         if (!autoDownload) return;
         setTimeout(function() {
           try { downloadPDF(); } catch(e) { console.warn('Auto-download failed:', e); }
         }, 500);
+      }
+
+      function trySignatureHandoff() {
+        if (!signatureMode) return;
+        // Give the calculate() call time to finish painting the result panel
+        setTimeout(function() {
+          try {
+            var b64 = getRateSheetBase64ForSignature(1);
+            if (!b64) {
+              window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null' }, '*');
+              return;
+            }
+            window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: true, pdfBase64: b64 }, '*');
+          } catch (e) {
+            window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: (e && e.message) || 'unknown' }, '*');
+          }
+        }, 800);
       }
 
       function loadFromQuote() {
@@ -1882,7 +1967,7 @@ netlifyIdentity.on('init', function(user) {
             window._originalBorrowerEmail = hit.formData.borrowerEmail || '';
             return applyLockedOverrideIfAnyDSCR(hit.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
-              tryAutoDownload();
+              tryAutoDownload(); trySignatureHandoff();
               return true;
             });
           }).catch(function(err) {
@@ -1898,7 +1983,7 @@ netlifyIdentity.on('init', function(user) {
             // Item #2: apply LO override from loan record if present
             return applyLockedOverrideIfAnyDSCR(q.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
-              tryAutoDownload();
+              tryAutoDownload(); trySignatureHandoff();
               return true;
             });
           }
@@ -1971,7 +2056,7 @@ netlifyIdentity.on('init', function(user) {
           window._originalAddress = found.address || '';
           window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
           loadQuoteIntoForm(fd);
-          tryAutoDownload();
+          tryAutoDownload(); trySignatureHandoff();
           return true;
         }).catch(function(){ return false; });
       }

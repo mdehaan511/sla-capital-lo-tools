@@ -187,6 +187,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/envelopes-refresh"
+  to = "/.netlify/functions/envelopes-refresh"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/pandadoc-send-log"
+  to = "/.netlify/functions/pandadoc-send-log-list"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/chat"
   to = "/.netlify/functions/chat"
   status = 200

@@ -299,6 +299,14 @@
         <div class="save-status" id="brevoStatus"></div>
       </div>
 
+      <div class="setting-row">
+        <label>E-signature (PandaDoc) <span class="banner-tag off" id="pandadocModeTag">Loading…</span></label>
+        <div class="hint">"Send for Signature" on a Loan Details page kicks off a PandaDoc envelope. Configure <code>PANDADOC_API_KEY</code> in Netlify env vars. Leave <code>PANDADOC_DRY_RUN</code> unset (or set to <code>true</code>) — only the literal value <code>false</code> enables live sends. <strong>Always test in dry-run first;</strong> live mode emails real borrowers and counts against your PandaDoc plan. Note: rate sheets are fully wired with anchor tags; the loan application DOCX is recorded but not sent in live mode yet.</div>
+        <div class="input-row">
+          <a class="small-btn" href="pandadoc-log.html">View Send Log →</a>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -337,6 +345,7 @@ netlifyIdentity.on('init', function(user) {
     document.getElementById('activityCard').style.display = 'block';
     loadSettings();
     loadBrevoMode();
+    loadPandaDocMode();
   }
   loadStats();
 });
@@ -835,6 +844,22 @@ function loadBrevoMode() {
     var testBtn = document.getElementById('brevoTestBtn');
     if (allBtn)  allBtn.disabled  = !resp.enabled;
     if (testBtn) testBtn.disabled = !resp.enabled;
+  }).catch(function(){
+    tag.textContent = 'Unknown';
+    tag.className = 'banner-tag off';
+  });
+}
+
+function loadPandaDocMode() {
+  var tag = document.getElementById('pandadocModeTag');
+  if (!tag) return;
+  SLA.PandaDoc.log({ limit: 1 }).then(function(resp) {
+    var mode = resp.mode || 'disabled';
+    tag.textContent =
+      mode === 'live'    ? 'Live'    :
+      mode === 'dry-run' ? 'Dry Run' :
+                           'Disabled';
+    tag.className = 'banner-tag ' + (mode === 'live' ? 'live' : 'off');
   }).catch(function(){
     tag.textContent = 'Unknown';
     tag.className = 'banner-tag off';

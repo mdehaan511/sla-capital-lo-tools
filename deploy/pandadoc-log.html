@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PandaDoc Send Log — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --success: #1e6b3b; --warn: #7a5218;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; transition: all .15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500; padding: 6px 8px; border-radius: 6px; transition: color .12s; }
+    .nav-tool-link:hover { color: var(--gold); }
+    .logout-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; border-radius: 16px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .logout-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+    .page { max-width: 1200px; margin: 24px auto 0; }
+    .back-link { display: inline-block; color: var(--muted); text-decoration: none; font-size: 12px; margin-bottom: 8px; }
+    .back-link:hover { color: var(--gold); }
+    .page-header { margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .page-header p { color: var(--muted); font-size: 13.5px; line-height: 1.5; max-width: 720px; }
+    .mode-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); }
+    .mode-badge.live { background: rgba(30,107,59,0.08); color: var(--success); border-color: rgba(30,107,59,0.3); }
+    .mode-badge.dry { background: var(--gold-light); color: var(--gold-mid); border-color: var(--gold-border); }
+    .mode-badge.disabled { background: var(--bg); color: var(--muted); }
+
+    .ctrl-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+    .search-box, .lo-filter { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: inherit; font-size: 13px; background: var(--surface); }
+    .search-box { min-width: 280px; }
+    .search-box:focus, .lo-filter:focus { outline: none; border-color: var(--gold); }
+    .lo-filter { padding: 7px 28px 7px 14px; appearance: none; -webkit-appearance: none; cursor: pointer; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; }
+    .refresh-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 16px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .refresh-btn:hover { color: var(--gold); border-color: var(--gold); }
+    .stats { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+    .loading, .empty { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 48px 24px; text-align: center; color: var(--muted); font-size: 14px; }
+    .empty strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+
+    .log-list { display: flex; flex-direction: column; gap: 8px; }
+    .log-row { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); transition: border-color .12s; }
+    .log-row:hover { border-color: var(--gold-border); }
+    .log-row.error { border-left: 3px solid var(--danger); }
+    .log-row.dry { border-left: 3px solid var(--gold); }
+    .log-row.live { border-left: 3px solid var(--success); }
+    .log-head { display: grid; grid-template-columns: 130px 60px 100px 1fr 110px 90px; gap: 14px; padding: 12px 16px; cursor: pointer; align-items: center; font-size: 13px; }
+    .log-time { color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; }
+    .log-mode { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
+    .log-mode.dry-run { color: var(--gold-mid); }
+    .log-mode.live { color: var(--success); }
+    .log-action { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .log-doc { color: var(--dark); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-recipients { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-status { font-size: 12px; font-weight: 600; text-align: right; }
+    .log-status.ok { color: var(--success); }
+    .log-status.err { color: var(--danger); }
+    .log-toggle { color: var(--gold); font-size: 11px; font-weight: 600; text-align: right; user-select: none; }
+    .log-body { display: none; padding: 0 16px 14px; border-top: 1px solid var(--border); }
+    .log-row.open .log-body { display: block; }
+    .log-section { margin-top: 12px; }
+    .log-section-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+    .log-section-text { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 10px 12px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; font-family: 'DM Mono', monospace; }
+    .log-section-text.err { background: rgba(124,31,31,0.05); border-color: rgba(124,31,31,0.25); color: var(--danger); }
+
+    @media (max-width: 720px) {
+      .log-head { grid-template-columns: 1fr 80px; gap: 6px; padding: 10px 12px; }
+      .log-time, .log-mode, .log-action, .log-doc, .log-recipients, .log-status { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <a href="profile.html" class="back-link">← Back to Profile</a>
+  <div class="page-header">
+    <div>
+      <h1>PandaDoc Send Log</h1>
+      <p>Audit of every e-signature send attempt. Review payloads in dry-run mode before flipping to live. Click a row to expand the full details.</p>
+    </div>
+    <span class="mode-badge disabled" id="modeBadge">Loading…</span>
+  </div>
+
+  <div class="ctrl-row">
+    <input type="text" id="searchBox" class="search-box" placeholder="Search by recipient, doc, envelope ID…" oninput="render()" />
+    <select id="modeFilter" class="lo-filter" onchange="render()">
+      <option value="">All entries</option>
+      <option value="ok">Successful only</option>
+      <option value="error">Failures only</option>
+      <option value="dry-run">Dry-run only</option>
+      <option value="live">Live only</option>
+    </select>
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div id="content">
+    <div class="loading">Loading send log…</div>
+  </div>
+</div>
+
+<script>
+var _user = null;
+var _logs = [];
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!SLA.isSuperAdmin(user)) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Access denied</strong>This page is for super-admins only.</div>';
+    return;
+  }
+  _user = user;
+  document.getElementById('auth-gate').style.display = 'none';
+  loadAll();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function loadAll() {
+  document.getElementById('content').innerHTML = '<div class="loading">Loading send log…</div>';
+  SLA.PandaDoc.log({ limit: 500 }).then(function(resp) {
+    if (resp && resp.error) {
+      document.getElementById('content').innerHTML =
+        '<div class="empty"><strong>Couldn\'t load send log.</strong>' + escH(resp.error) + '</div>';
+      return;
+    }
+    _logs = (resp && resp.logs) || [];
+    var mode = (resp && resp.mode) || 'disabled';
+    var badge = document.getElementById('modeBadge');
+    badge.textContent =
+      mode === 'live'    ? 'Mode: LIVE — sends real envelopes' :
+      mode === 'dry-run' ? 'Mode: Dry-run — no API calls' :
+                           'Mode: DISABLED — set PANDADOC_API_KEY';
+    badge.className = 'mode-badge ' + (mode === 'live' ? 'live' : mode === 'dry-run' ? 'dry' : 'disabled');
+    render();
+  }).catch(function(err) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty"><strong>Couldn\'t load send log.</strong>' + escH(err.message || 'unknown') + '</div>';
+  });
+}
+
+function render() {
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var mFilter = document.getElementById('modeFilter').value;
+  var list = _logs.slice();
+
+  if (mFilter === 'ok')         list = list.filter(function(l){ return l.ok === true; });
+  else if (mFilter === 'error') list = list.filter(function(l){ return l.ok === false; });
+  else if (mFilter === 'dry-run') list = list.filter(function(l){ return l.mode === 'dry-run'; });
+  else if (mFilter === 'live')  list = list.filter(function(l){ return l.mode === 'live'; });
+
+  if (search) {
+    list = list.filter(function(l) {
+      var emails = (l.recipientEmails || []).join(' ');
+      var hay = ((l.documentName || '') + ' ' + emails + ' ' + (l.envelopeId || '') + ' ' + (l.pandadocDocumentId || '') + ' ' + (l.error || '') + ' ' + (l.action || '')).toLowerCase();
+      return hay.indexOf(search) >= 0;
+    });
+  }
+
+  document.getElementById('stats').textContent = list.length + ' of ' + _logs.length + ' entries';
+
+  if (!list.length) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty"><strong>No entries match.</strong>' +
+      (_logs.length ? 'Try clearing the filter or search.' : 'Send your first envelope from a Loan Details page to populate this log.') +
+      '</div>';
+    return;
+  }
+
+  var html = '<div class="log-list">';
+  list.forEach(function(l) {
+    var rowClass = 'log-row';
+    if (l.ok === false) rowClass += ' error';
+    else if (l.mode === 'dry-run') rowClass += ' dry';
+    else if (l.mode === 'live') rowClass += ' live';
+
+    var statusClass = (l.ok === false) ? 'err' : 'ok';
+    var statusText = (l.ok === false)
+      ? ('Failed' + (l.status ? ' ' + l.status : ''))
+      : (l.mode === 'dry-run' ? 'Logged' : (l.action === 'send' ? 'Sent' : (l.action || 'OK')));
+
+    var recipients = (l.recipientEmails || []).join(', ') || '—';
+
+    html += '<div class="' + rowClass + '" onclick="toggleRow(this)">' +
+      '<div class="log-head">' +
+        '<div class="log-time">' + escH(fmtTime(l.ts)) + '</div>' +
+        '<div class="log-mode ' + (l.mode || '') + '">' + escH(l.mode || '?') + '</div>' +
+        '<div class="log-action">' + escH(l.action || '—') + '</div>' +
+        '<div class="log-doc">' + escH(l.documentName || '—') + '</div>' +
+        '<div class="log-recipients">' + escH(recipients) + '</div>' +
+        '<div class="log-status ' + statusClass + '">' + escH(statusText) + '</div>' +
+      '</div>' +
+      '<div class="log-body">' +
+        (l.error ? '<div class="log-section">' +
+          '<div class="log-section-label">Error</div>' +
+          '<div class="log-section-text err">' + escH(l.error) + '</div>' +
+        '</div>' : '') +
+        '<div class="log-section">' +
+          '<div class="log-section-label">Details</div>' +
+          '<div class="log-section-text">' + escH(JSON.stringify(stripBig(l), null, 2)) + '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
+}
+
+// Strip the big base64-size and raw-response fields from the displayed
+// JSON so the panel stays readable. The backend already drops the actual
+// PDF bytes — we just hide a few noisy fields here.
+function stripBig(l) {
+  var copy = {};
+  Object.keys(l).forEach(function(k) {
+    if (k === 'raw' && l[k] && typeof l[k] === 'object') {
+      copy[k] = '(see PandaDoc dashboard for full response)';
+    } else {
+      copy[k] = l[k];
+    }
+  });
+  return copy;
+}
+
+function toggleRow(row) {
+  var sel = window.getSelection && window.getSelection();
+  if (sel && sel.toString().length > 0) return;
+  row.classList.toggle('open');
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  var diffMin = Math.floor((Date.now() - d) / 60000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return diffMin + 'm ago';
+  var diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return diffHr + 'h ago';
+  var diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return diffDay + 'd ago';
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+}
+
+function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>

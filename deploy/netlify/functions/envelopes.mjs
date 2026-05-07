@@ -3,21 +3,31 @@
  *
  * Single endpoint that dispatches by method:
  *   GET  → list envelopes (filterable)
- *   POST → create new envelope (Phase 1: stub, no PandaDoc call)
+ *   POST → create new envelope; calls PandaDoc if configured.
  *
- * Phase 1 is intent-only. No PandaDoc API calls. Envelopes get
- * status='queued' and sit there. Phase 2 will wire in real sends.
+ * Behavior depends on PandaDoc config (see _shared/pandadoc.mjs):
+ *   - PANDADOC_API_KEY unset → status stays 'queued' (Phase 1 stub)
+ *   - PANDADOC_DRY_RUN!=false → 'queued' + send-log entry, no real call
+ *   - Live mode → real PandaDoc envelope, status flips to 'sent'
+ *
+ * For Phase 2 we only send the rate sheet PDF. Loan-app docs in the request
+ * are tracked but not sent through PandaDoc — the DOCX template lacks
+ * embedded signature anchor tags, so it would fall through as a borrower-
+ * adds-own-fields experience. Once anchor tags are added to the template,
+ * this restriction can be lifted.
  *
  * Storage: blob store `envelopes`, key `{ownerKey}/{envelopeId}`.
  *
  * --- POST body ---
  * {
  *   clientId, loanId,
- *   docs:    [ { kind: 'rate_sheet'|'loan_app', name? } ],
+ *   docs:    [ { kind: 'rate_sheet'|'loan_app', name?, pdfBase64? } ],
  *   signers: [ { firstName, lastName, email } ],
  *   message?,
  *   _owner?  // admin: send on behalf of this LO
  * }
+ *
+ * pdfBase64 is required for rate_sheet kind in non-stub mode.
  *
  * --- GET query ---
  *   ?clientId=...&loanId=...   filter to one loan
@@ -30,6 +40,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { sendEnvelope, pandadocStatus, mapStatus } from './_shared/pandadoc.mjs';
 
 const VALID_DOC_KINDS = new Set(['rate_sheet', 'loan_app']);
 
@@ -93,8 +104,33 @@ async function handleCreate(req, context, user) {
     return json(400, { error: 'clientId and loanId required' });
   }
 
+  // Defense-in-depth: enforce the same "In Processing only" gate the UI
+  // shows. Without this an LO could craft a request to send a rate sheet
+  // for a loan still in Active or already Closed.
+  try {
+    const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
+    const client = await clientsStore.get(`${ownerKey}/${body.clientId}`, { type: 'json' });
+    if (!client) return json(404, { error: 'Client not found' });
+    const loan = (client.loans || []).find((l) => l.id === body.loanId);
+    if (!loan) return json(404, { error: 'Loan not found' });
+    if (loan.status !== 'approved') {
+      return json(400, {
+        error: 'Loan must be in In Processing status to send for signature. Current status: ' + (loan.status || 'unknown'),
+      });
+    }
+  } catch (e) {
+    console.error('envelopes-create status check failed:', e);
+    return json(500, { error: 'Could not verify loan status' });
+  }
+
   const now = new Date().toISOString();
   const envelopeId = genId();
+  const pdStatus = pandadocStatus();
+
+  // We DON'T persist pdfBase64 in the envelope record — it could be 1MB+
+  // per envelope. The browser uploaded it for the live send; once sent
+  // (or logged in dry-run), we drop it. In Phase 1 stub mode we never
+  // even received it.
   const record = {
     id: envelopeId,
     ownerKey,
@@ -105,6 +141,9 @@ async function handleCreate(req, context, user) {
     docs: docs.map((d) => ({
       kind: d.kind,
       name: String(d.name || (d.kind === 'rate_sheet' ? 'Rate Sheet' : 'Loan Application')).slice(0, 200),
+      // hadPdf: true tells the LO this doc actually had bytes; useful for
+      // distinguishing dry-run/stub envelopes from live ones at a glance.
+      hadPdf: !!d.pdfBase64,
     })),
     signers: signers.map((s, i) => ({
       firstName: String(s.firstName || '').slice(0, 80),
@@ -116,21 +155,112 @@ async function handleCreate(req, context, user) {
     message: String(body.message || '').slice(0, 2000),
     status: 'queued',
     statusUpdatedAt: now,
-    pandadocEnvelopeId: null,
+    pandadocMode: pdStatus.mode,
+    pandadocDocumentId: null, // populated below in dry-run/live modes
+    sendError: null,
     createdAt: now,
     history: [{
       ts: now,
       status: 'queued',
-      note: 'Created (Phase 1 stub — no API call sent).',
+      note: pdStatus.mode === 'disabled'
+        ? 'Created (Phase 1 stub — PandaDoc not configured).'
+        : pdStatus.mode === 'dry-run'
+        ? 'Created (dry-run mode — no real send).'
+        : 'Created — sending to PandaDoc…',
     }],
   };
 
+  // Persist the initial 'queued' record before we attempt the send. If the
+  // send fails or times out we still have a paper trail. We update again
+  // after the send returns.
+  const store = getStore({ name: 'envelopes', consistency: 'strong' });
+  const blobKey = `${ownerKey}/${envelopeId}`;
   try {
-    const store = getStore({ name: 'envelopes', consistency: 'strong' });
-    await store.setJSON(`${ownerKey}/${envelopeId}`, record);
+    await store.setJSON(blobKey, record);
   } catch (e) {
     console.error('envelopes create write failed:', e);
     return json(500, { error: 'Failed to save envelope' });
+  }
+
+  // ── PandaDoc send (skip entirely if disabled, log only in dry-run) ──
+  // We send ONE PandaDoc envelope per rate_sheet doc with a base64 PDF.
+  // If multiple docs are checked we send them as separate envelopes —
+  // the borrower will get separate emails. Bundling into one transaction
+  // is a follow-up enhancement; see envelopes.mjs header.
+  //
+  // loan_app docs are skipped in non-stub modes since the DOCX template
+  // doesn't have anchor tags yet. They're recorded in the envelope but
+  // the live API call only fires for rate_sheet.
+  if (pdStatus.enabled) {
+    let lastResult = null;
+    for (const doc of docs) {
+      if (doc.kind !== 'rate_sheet') {
+        record.history.push({
+          ts: new Date().toISOString(),
+          status: 'queued',
+          note: 'Skipped ' + doc.kind + ' — anchor tags not yet wired into that document type.',
+        });
+        continue;
+      }
+      if (!doc.pdfBase64) {
+        record.history.push({
+          ts: new Date().toISOString(),
+          status: 'queued',
+          note: 'Skipped rate sheet — no PDF bytes in request (browser must upload base64).',
+        });
+        continue;
+      }
+      const result = await sendEnvelope({
+        pdfBase64: doc.pdfBase64,
+        name: doc.name || 'Rate Sheet',
+        signers: record.signers,
+        message: record.message,
+        subject: 'SLA Capital — Please review and sign: ' + (doc.name || 'Rate Sheet'),
+        envelopeId,
+      });
+      lastResult = result;
+      const stamp = new Date().toISOString();
+      if (result.ok) {
+        record.pandadocDocumentId = result.pandadocDocumentId;
+        // Map PandaDoc status to our internal status. Live sends transition
+        // to 'sent'; dry-run stays at 'queued' so it's clear nothing left.
+        const mapped = mapStatus(result.status);
+        if (result.mode === 'live' && mapped) {
+          record.status = mapped;
+          record.statusUpdatedAt = stamp;
+        }
+        record.history.push({
+          ts: stamp,
+          status: record.status,
+          note: result.mode === 'dry-run'
+            ? 'Dry-run send simulated. PDF size: ' + doc.pdfBase64.length + ' bytes.'
+            : 'Sent via PandaDoc (document ' + result.pandadocDocumentId + ').',
+        });
+      } else {
+        record.status = 'failed';
+        record.statusUpdatedAt = stamp;
+        record.sendError = result.error || 'unknown';
+        record.history.push({
+          ts: stamp,
+          status: 'failed',
+          note: 'Send failed: ' + (result.error || 'unknown'),
+        });
+        break; // stop trying additional docs once one fails
+      }
+    }
+    // Persist the updated record
+    try { await store.setJSON(blobKey, record); }
+    catch (e) { console.warn('envelope final-state write failed:', e && e.message); }
+
+    if (lastResult && !lastResult.ok && pdStatus.mode === 'live') {
+      // Live send failed — surface the error to the caller. The envelope
+      // record exists with status='failed' so the LO can see what happened.
+      return json(502, {
+        ok: false,
+        envelope: record,
+        error: 'PandaDoc send failed: ' + lastResult.error,
+      });
+    }
   }
 
   return json(200, { ok: true, envelope: record });

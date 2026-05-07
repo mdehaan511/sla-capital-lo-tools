@@ -176,6 +176,9 @@
     .env-status-badge.completed { background: rgba(30,107,59,0.12); color: #1e6b3b; }
     .env-status-badge.voided    { background: rgba(124,31,31,0.08); color: var(--danger); }
     .env-status-badge.failed    { background: rgba(124,31,31,0.12); color: var(--danger); }
+    .env-mode-badge { display:inline-block; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; padding:1px 6px; border-radius:8px; vertical-align:middle; margin-left:4px; }
+    .env-mode-badge.dry-run { background:rgba(200,129,58,0.10); color:var(--gold-mid); border:1px solid rgba(200,129,58,0.25); }
+    .env-mode-badge.disabled { background:var(--bg); color:var(--muted); border:1px solid var(--border); }
     .env-card-meta { color: var(--muted); font-size: 11px; line-height: 1.45; }
     .env-card-meta strong { color: var(--text); font-weight: 600; }
     .env-card-actions { margin-top: 6px; display: flex; gap: 8px; }
@@ -279,9 +282,8 @@
 <div class="bi-modal-bg" id="esignModal">
   <div class="bi-modal" style="max-width:560px">
     <h3>Send for Signature</h3>
-    <p class="bi-sub">
-      <strong>Phase 1 — staging only.</strong> Records the request without actually sending through PandaDoc yet.
-      You can review what would have gone out in the envelope list below.
+    <p class="bi-sub" id="esModeNote">
+      <span class="es-mode-text">Borrower(s) get an email from PandaDoc with a secure link. The first signer is the primary signature; additional signers are CC'd on the envelope.</span>
     </p>
 
     <div style="margin-top:14px">
@@ -292,7 +294,7 @@
       </label>
       <label class="bi-checkbox" style="margin-top:4px">
         <input type="checkbox" id="esDocLoanApp" />
-        <span>Loan Application (DOCX, requires submitted borrower info)</span>
+        <span>Loan Application (DOCX) <em style="color:var(--muted);font-size:11px;font-style:normal">— recorded only; live send arrives in a future update</em></span>
       </label>
       <div style="font-size:11px;color:var(--muted);margin-top:6px">
         If both are picked, they're sent as one envelope so the borrower signs everything in a single session.
@@ -591,14 +593,16 @@ function render() {
     'Generate Loan Application (DOCX)' +
   '</button>';
 
-  // E-signature send. The button always shows (LO doesn't have to wait for
-  // borrower-info submission to send a rate sheet for signature). Phase 1
-  // is a stub — see envelopes.mjs comments. The envelope list below
-  // refreshes after each send so the LO sees what they've kicked off.
-  html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()" style="margin-top:8px">' +
-    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
-    'Send for Signature' +
-  '</button>';
+  // E-signature send — only available once the loan is in In Processing
+  // (status === 'approved'). Before then there's nothing meaningful to sign;
+  // after then (closed/denied) it's locked. Envelope history below still
+  // renders regardless of status so the LO can see past sends.
+  if (loanStatus === 'approved') {
+    html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()" style="margin-top:8px">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
+      'Send for Signature' +
+    '</button>';
+  }
 
   // Envelope history panel — populated async by refreshEnvelopes()
   html += '<div id="envelopesPanel" class="envelopes-panel" style="margin-top:14px;display:none">' +
@@ -982,27 +986,98 @@ function esSubmit() {
   btn.disabled = true;
   btn.textContent = 'Queueing…';
   status.className = 'bi-status';
-  status.textContent = 'Saving envelope…';
+  status.textContent = 'Generating rate sheet PDF…';
 
-  var ownerForCall = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
-  SLA.Envelopes.create({
-    clientId: _clientId,
-    loanId:   _loanId,
-    docs:     docs,
-    signers:  signers,
-    message:  document.getElementById('esMessage').value.trim(),
-  }, ownerForCall).then(function(resp) {
-    status.className = 'bi-status ok';
-    status.textContent = '✓ Envelope queued (Phase 1 stub — no email actually sent).';
-    setTimeout(function() {
-      closeEsignModal();
-      refreshEnvelopes();
-    }, 800);
-  }).catch(function(err) {
+  // ── Capture rate sheet PDF base64 (only if rate_sheet was selected) ──
+  // The PDF generator lives in the sizer pages. We load the matching sizer
+  // in a hidden iframe with ?signatureMode=1 so it generates the PDF with
+  // PandaDoc anchor tags embedded, then posts the base64 back to us via
+  // postMessage. If no rate_sheet, we skip the capture step.
+  var needsPdf = docs.some(function(d) { return d.kind === 'rate_sheet'; });
+
+  function postCreate(pdfBase64) {
+    // Attach base64 to the rate_sheet doc(s). Loan-app docs go through
+    // without bytes since the DOCX template doesn't have anchors yet.
+    var docsToSend = docs.map(function(d) {
+      if (d.kind === 'rate_sheet' && pdfBase64) {
+        return { kind: d.kind, name: d.name, pdfBase64: pdfBase64 };
+      }
+      return d;
+    });
+
+    var ownerForCall = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+    status.textContent = 'Saving envelope…';
+    SLA.Envelopes.create({
+      clientId: _clientId,
+      loanId:   _loanId,
+      docs:     docsToSend,
+      signers:  signers,
+      message:  document.getElementById('esMessage').value.trim(),
+    }, ownerForCall).then(function(resp) {
+      var env = resp && resp.envelope;
+      var mode = env && env.pandadocMode;
+      status.className = 'bi-status ok';
+      if (mode === 'live')        status.textContent = '✓ Envelope sent — borrower will receive an email shortly.';
+      else if (mode === 'dry-run') status.textContent = '✓ Envelope queued (dry-run mode — no email sent).';
+      else                         status.textContent = '✓ Envelope queued.';
+      setTimeout(function() {
+        closeEsignModal();
+        refreshEnvelopes();
+      }, 1100);
+    }).catch(function(err) {
+      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      status.className = 'bi-status err';
+      status.textContent = 'Failed: ' + (err.message || 'unknown error');
+    });
+  }
+
+  if (!needsPdf) {
+    postCreate(null);
+    return;
+  }
+
+  // Open the matching sizer in a hidden iframe to generate the PDF.
+  var sizerPage = (_loan.toolType === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  var sizerParams = 'clientId=' + encodeURIComponent(_clientId) +
+                    '&loanId=' + encodeURIComponent(_loanId) +
+                    '&signatureMode=1';
+  if (_loan.address) sizerParams += '&loadQuote=' + encodeURIComponent(_loan.address);
+  if (_loEmail && _user && _loEmail !== _user.email) {
+    sizerParams += '&owner=' + encodeURIComponent(_loEmail);
+  }
+
+  var iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1200px;height:1600px;border:0;visibility:hidden';
+  iframe.src = sizerPage + '?' + sizerParams;
+  document.body.appendChild(iframe);
+
+  var settled = false;
+  function onMsg(event) {
+    if (!event.data || event.data.type !== 'sla_rate_sheet_pdf') return;
+    if (settled) return;
+    settled = true;
+    window.removeEventListener('message', onMsg);
+    try { iframe.parentNode.removeChild(iframe); } catch (_) {}
+    if (!event.data.ok) {
+      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      status.className = 'bi-status err';
+      status.textContent = 'Could not generate rate sheet PDF: ' + (event.data.error || 'unknown');
+      return;
+    }
+    postCreate(event.data.pdfBase64);
+  }
+  window.addEventListener('message', onMsg);
+
+  // Safety timeout — if the sizer never posts back, give up after 10s
+  setTimeout(function() {
+    if (settled) return;
+    settled = true;
+    window.removeEventListener('message', onMsg);
+    try { iframe.parentNode.removeChild(iframe); } catch (_) {}
     btn.disabled = false; btn.textContent = 'Queue Envelope';
     status.className = 'bi-status err';
-    status.textContent = 'Failed: ' + (err.message || 'unknown error');
-  });
+    status.textContent = 'Rate sheet generation timed out. Try again, or generate the PDF in the sizer first.';
+  }, 12000);
 }
 
 // Re-pull this loan's envelopes from the server and render the panel.
@@ -1039,23 +1114,76 @@ function renderEnvelopeCard(env) {
   var when = env.createdAt ? new Date(env.createdAt).toLocaleString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }) : '';
-  var canVoid = (status !== 'completed' && status !== 'voided');
-  var actionsHtml = canVoid
-    ? '<div class="env-card-actions"><button onclick="voidEnvelope(\'' + escAttr(env.id) + '\')">Cancel envelope</button></div>'
+  // Mode badge: dry-run/disabled/live (if known). Helps the LO understand
+  // why an envelope is just sitting in queued state — they can't refresh
+  // a dry-run envelope because no real PandaDoc doc exists.
+  var modeBadge = '';
+  if (env.pandadocMode === 'dry-run') {
+    modeBadge = '<span class="env-mode-badge dry-run">dry-run</span>';
+  } else if (env.pandadocMode === 'disabled') {
+    modeBadge = '<span class="env-mode-badge disabled">stub</span>';
+  }
+
+  var canVoid = (status !== 'completed' && status !== 'voided' && status !== 'expired');
+  // Refresh only makes sense for live envelopes (real PandaDoc doc ID,
+  // not a dry-* placeholder, and not already in a terminal state).
+  var canRefresh = !!env.pandadocDocumentId &&
+    !String(env.pandadocDocumentId).startsWith('dry-') &&
+    status !== 'completed' && status !== 'voided' && status !== 'expired';
+
+  var actionsArr = [];
+  if (canRefresh) actionsArr.push('<button data-action="refresh" data-id="' + escAttr(env.id) + '">Refresh status</button>');
+  if (canVoid)    actionsArr.push('<button data-action="void"    data-id="' + escAttr(env.id) + '">Cancel envelope</button>');
+  var actionsHtml = actionsArr.length
+    ? '<div class="env-card-actions">' + actionsArr.join('') + '</div>'
     : '';
+
+  // Optional sendError display when the live send failed
+  var errHtml = (status === 'failed' && env.sendError)
+    ? '<div class="env-card-meta" style="color:var(--danger);margin-top:4px">Error: ' + escH(env.sendError) + '</div>'
+    : '';
+
   return (
     '<div class="env-card">' +
       '<div class="env-card-top">' +
-        '<div><strong>' + escH(docNames) + '</strong></div>' +
+        '<div><strong>' + escH(docNames) + '</strong> ' + modeBadge + '</div>' +
         '<span class="env-status-badge ' + status + '">' + status + '</span>' +
       '</div>' +
       '<div class="env-card-meta">' +
         'Sent to: ' + (signerNames || '—') + '<br>' +
         (when ? 'Created ' + escH(when) : '') +
       '</div>' +
+      errHtml +
       actionsHtml +
     '</div>'
   );
+}
+
+// Delegate envelope card button clicks. Using delegation rather than
+// inline onclick so escaping is simpler and the markup stays clean.
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest && e.target.closest('.env-card-actions button');
+  if (!btn) return;
+  var action = btn.dataset.action;
+  var id     = btn.dataset.id;
+  if (!action || !id) return;
+  if (action === 'refresh') refreshEnvelopeStatus(id);
+  else if (action === 'void') voidEnvelope(id);
+});
+
+function refreshEnvelopeStatus(envelopeId) {
+  var owner = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  showToast('Checking PandaDoc…');
+  SLA.Envelopes.refresh(envelopeId, owner).then(function(resp) {
+    if (resp && resp.changed) {
+      showToast('Status updated to ' + (resp.envelope && resp.envelope.status));
+    } else {
+      showToast('No status change' + (resp && resp.note ? ' — ' + resp.note : ''));
+    }
+    refreshEnvelopes();
+  }).catch(function(err) {
+    showToast('Refresh failed: ' + (err.message || 'unknown'));
+  });
 }
 
 function voidEnvelope(envelopeId) {
