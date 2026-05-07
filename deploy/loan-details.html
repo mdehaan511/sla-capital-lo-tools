@@ -151,6 +151,38 @@
     .bi-status { font-size: 12px; min-height: 18px; margin-bottom: 8px; }
     .bi-status.err { color: var(--danger, #7c1f1f); }
     .bi-status.ok { color: #256940; }
+    .bi-section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: block; }
+
+    /* E-sign signer rows */
+    .es-signer-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr 24px; gap: 6px; margin-bottom: 6px; align-items: center; }
+    .es-signer-row input { padding: 7px 9px; border: 1.5px solid var(--border); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 12px; background: var(--surface); }
+    .es-signer-row input:focus { outline: none; border-color: var(--gold); }
+    .es-signer-row input.has-err { border-color: var(--danger); }
+    .es-signer-rm { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0; font-size: 18px; line-height: 1; transition: color .15s; }
+    .es-signer-rm:hover { color: var(--danger); }
+    .es-signer-rm:disabled { opacity: 0.25; cursor: not-allowed; }
+
+    /* Envelopes panel on the loan-details left col */
+    .envelopes-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 12px; }
+    .envelopes-panel-hdr { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px; }
+    .env-card { padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; font-size: 12px; }
+    .env-card:last-child { margin-bottom: 0; }
+    .env-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+    .env-status-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .env-status-badge.queued    { background: var(--bg); color: var(--muted); }
+    .env-status-badge.sent      { background: rgba(38,26,54,0.08); color: var(--dark); }
+    .env-status-badge.viewed    { background: rgba(200,129,58,0.10); color: var(--gold-mid); }
+    .env-status-badge.signed    { background: rgba(200,129,58,0.18); color: var(--gold-mid); }
+    .env-status-badge.completed { background: rgba(30,107,59,0.12); color: #1e6b3b; }
+    .env-status-badge.voided    { background: rgba(124,31,31,0.08); color: var(--danger); }
+    .env-status-badge.failed    { background: rgba(124,31,31,0.12); color: var(--danger); }
+    .env-card-meta { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .env-card-meta strong { color: var(--text); font-weight: 600; }
+    .env-card-actions { margin-top: 6px; display: flex; gap: 8px; }
+    .env-card-actions button { background: transparent; border: none; color: var(--muted); font-size: 11px; cursor: pointer; padding: 0; text-decoration: underline; }
+    .env-card-actions button:hover { color: var(--danger); }
+
+    .esign-btn { color: var(--gold-mid); }
     .bi-info-box { padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--muted); margin-bottom: 1rem; }
     .bi-info-box strong { color: var(--text); }
     .bi-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
@@ -238,6 +270,51 @@
     <div class="bi-actions">
       <button class="bi-btn cancel" onclick="closeBorrowerInfoModal()">Close</button>
       <button class="bi-btn primary" id="biSendBtn" onclick="biSendOrCopy()">Generate Link</button>
+    </div>
+  </div>
+</div>
+
+<!-- Send for Signature modal — Phase 1 stub. Same visual pattern as the
+     borrower-info modal so it feels like a familiar dialog to LOs. -->
+<div class="bi-modal-bg" id="esignModal">
+  <div class="bi-modal" style="max-width:560px">
+    <h3>Send for Signature</h3>
+    <p class="bi-sub">
+      <strong>Phase 1 — staging only.</strong> Records the request without actually sending through PandaDoc yet.
+      You can review what would have gone out in the envelope list below.
+    </p>
+
+    <div style="margin-top:14px">
+      <label class="bi-section-label">Documents to send</label>
+      <label class="bi-checkbox" style="margin-top:6px">
+        <input type="checkbox" id="esDocRateSheet" checked />
+        <span>Rate Sheet (PDF generated from sizer)</span>
+      </label>
+      <label class="bi-checkbox" style="margin-top:4px">
+        <input type="checkbox" id="esDocLoanApp" />
+        <span>Loan Application (DOCX, requires submitted borrower info)</span>
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">
+        If both are picked, they're sent as one envelope so the borrower signs everything in a single session.
+      </div>
+    </div>
+
+    <div style="margin-top:18px">
+      <label class="bi-section-label">Signers</label>
+      <div id="esSignerList" style="margin-top:6px"></div>
+      <button type="button" class="bi-btn cancel" onclick="esAddSigner()" style="margin-top:6px;font-size:11px">+ Add another signer</button>
+    </div>
+
+    <div style="margin-top:14px">
+      <label class="bi-section-label">Optional message to signers</label>
+      <textarea id="esMessage" placeholder="Hi! Please review and sign the attached documents at your earliest convenience." style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px;resize:vertical"></textarea>
+    </div>
+
+    <div class="bi-status" id="esStatusMsg"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeEsignModal()">Cancel</button>
+      <button class="bi-btn primary" id="esSendBtn" onclick="esSubmit()">Queue Envelope</button>
     </div>
   </div>
 </div>
@@ -514,6 +591,21 @@ function render() {
     'Generate Loan Application (DOCX)' +
   '</button>';
 
+  // E-signature send. The button always shows (LO doesn't have to wait for
+  // borrower-info submission to send a rate sheet for signature). Phase 1
+  // is a stub — see envelopes.mjs comments. The envelope list below
+  // refreshes after each send so the LO sees what they've kicked off.
+  html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()" style="margin-top:8px">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
+    'Send for Signature' +
+  '</button>';
+
+  // Envelope history panel — populated async by refreshEnvelopes()
+  html += '<div id="envelopesPanel" class="envelopes-panel" style="margin-top:14px;display:none">' +
+    '<div class="envelopes-panel-hdr">E-signature envelopes</div>' +
+    '<div id="envelopesList"></div>' +
+  '</div>';
+
   // Delete loan — destructive, kept visually subtle so it's hard to hit by
   // accident. Always confirms before firing. Closed loans can still be
   // deleted; that's an admin housekeeping decision.
@@ -587,6 +679,9 @@ function render() {
   html += '</div>'; // close two-col
 
   document.getElementById('pageContent').innerHTML = html;
+
+  // Async-load the envelope history for this loan. Doesn't block render.
+  refreshEnvelopes();
 }
 
 // Item #4: LO can override the loan amount on Loan Details. Setting the
@@ -760,6 +855,217 @@ function deleteThisLoan() {
     setTimeout(function(){ window.location.href = dest; }, 600);
   }).catch(function(err) {
     alert('Delete failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+// ── E-signature (envelopes) ─────────────────────────────────
+// Phase 1: stub. The "send" just records intent in the envelopes blob
+// store and shows a queued status. Phase 2 wires in actual PandaDoc.
+//
+// State of the open modal — rebuilt each time the modal opens:
+var _esSignerCount = 0;
+
+function openSendForSignature() {
+  // Reset modal state
+  document.getElementById('esDocRateSheet').checked = true;
+  document.getElementById('esDocLoanApp').checked = false;
+  document.getElementById('esMessage').value = '';
+  document.getElementById('esStatusMsg').textContent = '';
+  document.getElementById('esStatusMsg').className = 'bi-status';
+  document.getElementById('esSendBtn').disabled = false;
+  document.getElementById('esSendBtn').textContent = 'Queue Envelope';
+
+  // Pre-fill the first signer with the client we have on file. The LO can
+  // edit, add more, or remove — but we save them a typing step on the
+  // common case (single borrower).
+  document.getElementById('esSignerList').innerHTML = '';
+  _esSignerCount = 0;
+  var firstName = (_client && _client.firstName) || '';
+  var lastName  = (_client && _client.lastName)  || '';
+  var email     = (_client && _client.email)     || '';
+  esAddSigner(firstName, lastName, email);
+
+  document.getElementById('esignModal').classList.add('show');
+}
+
+function closeEsignModal() {
+  document.getElementById('esignModal').classList.remove('show');
+}
+
+function esAddSigner(fn, ln, em) {
+  if (_esSignerCount >= 6) {
+    alert('Maximum 6 signers per envelope.');
+    return;
+  }
+  _esSignerCount++;
+  var idx = _esSignerCount;
+  var row = document.createElement('div');
+  row.className = 'es-signer-row';
+  row.dataset.idx = idx;
+  row.innerHTML =
+    '<input type="text"  class="es-fn"    placeholder="First name" value="' + escAttr(fn || '') + '" />' +
+    '<input type="text"  class="es-ln"    placeholder="Last name"  value="' + escAttr(ln || '') + '" />' +
+    '<input type="email" class="es-email" placeholder="email@example.com" value="' + escAttr(em || '') + '" />' +
+    '<button type="button" class="es-signer-rm" title="Remove signer" onclick="esRemoveSigner(' + idx + ')">&times;</button>';
+  document.getElementById('esSignerList').appendChild(row);
+  // Disable the remove button on the only signer (must keep at least one)
+  esRefreshRemoveButtons();
+}
+
+function esRemoveSigner(idx) {
+  var row = document.querySelector('.es-signer-row[data-idx="' + idx + '"]');
+  if (row) row.parentNode.removeChild(row);
+  esRefreshRemoveButtons();
+}
+
+function esRefreshRemoveButtons() {
+  var rows = document.querySelectorAll('.es-signer-row');
+  rows.forEach(function(r) {
+    var btn = r.querySelector('.es-signer-rm');
+    if (btn) btn.disabled = (rows.length <= 1);
+  });
+}
+
+function _esIsValidEmail(s) {
+  if (!s) return false;
+  var t = String(s).trim();
+  if (t.length > 254) return false;
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(t);
+}
+
+function esSubmit() {
+  var status = document.getElementById('esStatusMsg');
+  status.className = 'bi-status';
+  status.textContent = '';
+
+  // Collect docs
+  var docs = [];
+  if (document.getElementById('esDocRateSheet').checked) {
+    docs.push({ kind: 'rate_sheet', name: 'Rate Sheet — ' + (_loan.address || 'No address') });
+  }
+  if (document.getElementById('esDocLoanApp').checked) {
+    docs.push({ kind: 'loan_app',  name: 'Loan Application — ' + (_loan.address || 'No address') });
+  }
+  if (docs.length === 0) {
+    status.className = 'bi-status err';
+    status.textContent = 'Pick at least one document to send.';
+    return;
+  }
+
+  // Collect signers + validate
+  var rows = document.querySelectorAll('.es-signer-row');
+  var signers = [];
+  var hasErr = false;
+  var seenEmails = {};
+  rows.forEach(function(r) {
+    var fnEl = r.querySelector('.es-fn');
+    var lnEl = r.querySelector('.es-ln');
+    var emEl = r.querySelector('.es-email');
+    var fn = fnEl.value.trim();
+    var ln = lnEl.value.trim();
+    var em = emEl.value.trim().toLowerCase();
+    [fnEl, lnEl, emEl].forEach(function(el){ el.classList.remove('has-err'); });
+    if (!fn) { fnEl.classList.add('has-err'); hasErr = true; }
+    if (!ln) { lnEl.classList.add('has-err'); hasErr = true; }
+    if (!_esIsValidEmail(em)) { emEl.classList.add('has-err'); hasErr = true; }
+    else if (seenEmails[em])  { emEl.classList.add('has-err'); hasErr = true; }
+    seenEmails[em] = true;
+    signers.push({ firstName: fn, lastName: ln, email: em });
+  });
+  if (hasErr) {
+    status.className = 'bi-status err';
+    status.textContent = 'Fix the highlighted signer fields. Each signer needs first name, last name, and a unique valid email.';
+    return;
+  }
+
+  var btn = document.getElementById('esSendBtn');
+  btn.disabled = true;
+  btn.textContent = 'Queueing…';
+  status.className = 'bi-status';
+  status.textContent = 'Saving envelope…';
+
+  var ownerForCall = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Envelopes.create({
+    clientId: _clientId,
+    loanId:   _loanId,
+    docs:     docs,
+    signers:  signers,
+    message:  document.getElementById('esMessage').value.trim(),
+  }, ownerForCall).then(function(resp) {
+    status.className = 'bi-status ok';
+    status.textContent = '✓ Envelope queued (Phase 1 stub — no email actually sent).';
+    setTimeout(function() {
+      closeEsignModal();
+      refreshEnvelopes();
+    }, 800);
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Queue Envelope';
+    status.className = 'bi-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+// Re-pull this loan's envelopes from the server and render the panel.
+function refreshEnvelopes() {
+  if (!_clientId || !_loanId) return;
+  var panel = document.getElementById('envelopesPanel');
+  var listEl = document.getElementById('envelopesList');
+  if (!panel || !listEl) return;
+  var opts = { clientId: _clientId, loanId: _loanId };
+  // Cross-owner: admin viewing another LO's loan → ask for that owner's envelopes
+  if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
+  SLA.Envelopes.list(opts).then(function(resp) {
+    var envs = (resp && resp.envelopes) || [];
+    if (!envs.length) {
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = '';
+    listEl.innerHTML = envs.map(renderEnvelopeCard).join('');
+  }).catch(function(err) {
+    // Quiet failure — don't pollute the loan-details page with envelope errors
+    console.warn('refreshEnvelopes failed:', err && err.message);
+  });
+}
+
+function renderEnvelopeCard(env) {
+  var status = env.status || 'queued';
+  var docNames = (env.docs || []).map(function(d) {
+    return d.kind === 'rate_sheet' ? 'Rate Sheet' : 'Loan App';
+  }).join(' + ');
+  var signerNames = (env.signers || []).map(function(s) {
+    return escH((s.firstName || '') + ' ' + (s.lastName || ''));
+  }).join(', ');
+  var when = env.createdAt ? new Date(env.createdAt).toLocaleString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }) : '';
+  var canVoid = (status !== 'completed' && status !== 'voided');
+  var actionsHtml = canVoid
+    ? '<div class="env-card-actions"><button onclick="voidEnvelope(\'' + escAttr(env.id) + '\')">Cancel envelope</button></div>'
+    : '';
+  return (
+    '<div class="env-card">' +
+      '<div class="env-card-top">' +
+        '<div><strong>' + escH(docNames) + '</strong></div>' +
+        '<span class="env-status-badge ' + status + '">' + status + '</span>' +
+      '</div>' +
+      '<div class="env-card-meta">' +
+        'Sent to: ' + (signerNames || '—') + '<br>' +
+        (when ? 'Created ' + escH(when) : '') +
+      '</div>' +
+      actionsHtml +
+    '</div>'
+  );
+}
+
+function voidEnvelope(envelopeId) {
+  if (!confirm('Cancel this envelope? In Phase 1 this just flips it to voided in our records. Phase 2 will recall the PandaDoc envelope too.')) return;
+  var owner = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Envelopes.void(envelopeId, owner).then(function() {
+    showToast('Envelope cancelled');
+    refreshEnvelopes();
+  }).catch(function(err) {
+    alert('Failed to cancel: ' + (err.message || 'unknown'));
   });
 }
 

@@ -371,6 +371,33 @@
     },
   };
 
+  // ── Envelopes (e-signature) ────────────────────────────────────
+  // Phase 1 is intent-only — see netlify/functions/envelopes.mjs.
+  var Envelopes = {
+    list: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.clientId) qs.push('clientId=' + encodeURIComponent(opts.clientId));
+      if (opts.loanId)   qs.push('loanId='   + encodeURIComponent(opts.loanId));
+      if (opts.owner)    qs.push('owner='    + encodeURIComponent(opts.owner));
+      if (opts.all)      qs.push('all=1');
+      if (opts.limit)    qs.push('limit='    + encodeURIComponent(opts.limit));
+      var path = '/api/envelopes' + (qs.length ? '?' + qs.join('&') : '');
+      return api('GET', path);
+    },
+    create: function (data, owner) {
+      var path = '/api/envelopes' + (owner ? '?owner=' + encodeURIComponent(owner) : '');
+      return api('POST', path, data);
+    },
+    void: function (envelopeId, owner, reason) {
+      return api('POST', '/api/envelopes-void', {
+        envelopeId: envelopeId,
+        owner: owner || '',
+        reason: reason || '',
+      });
+    },
+  };
+
   // ── Profile (silent + explicit update) ──────────────────────────
   var Profile = {
     ping: function () {
@@ -502,6 +529,7 @@
     Admin: Admin,
     ChatLog: ChatLog,
     Brevo: Brevo,
+    Envelopes: Envelopes,
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     Reminders: Reminders,

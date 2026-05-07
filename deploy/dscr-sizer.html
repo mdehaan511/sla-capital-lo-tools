@@ -712,6 +712,7 @@ function calculate() {
   var ins       = parseFloat($('insurance').value)  || 0;
   var hoa       = parseFloat($('hoa').value)        || 0;
   var borrower  = $('borrowerName').value.trim();
+  var borrowerEmail = ($('borrowerEmail') && $('borrowerEmail').value.trim()) || '';
   var address   = $('propAddress').value.trim();
 
   if (loan<=0) return {error:'Enter a loan amount'};
@@ -840,7 +841,7 @@ function calculate() {
     loanType, ltv, dscr:dscrFinal, fico, baseRate, adjs,
     finalRate, pi:piFinal, taxes, ins, hoa,
     totalPayment:pmtFinal, rent,
-    borrower, address, loan, propVal, prepay, buydown, isIO, purpose, propType,
+    borrower, borrowerEmail, address, loan, propVal, prepay, buydown, isIO, purpose, propType,
     origFee, buydownFee, totalFees,
     netHiddenTpoPct, guidelineWarnings,
   };
@@ -1160,6 +1161,7 @@ function downloadPDF() {
 
   var details = [
     ['Borrower Name',       r.borrower||'\u2014'],
+    ['Borrower Email',      r.borrowerEmail||'\u2014'],
     ['Property Address',    r.address||'\u2014'],
     ['Loan Amount',         fmtDplain(r.loan)],
     ['Estimated Value',     fmtDplain(r.propVal)],

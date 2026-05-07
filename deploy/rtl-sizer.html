@@ -1820,6 +1820,10 @@ function downloadRTLPDF() {
   var addrFull=street+', '+city+', '+state+' '+zip;
   var isR=lt!=='bridge';
 
+  // Borrower contact info (added to rate sheet for client-info display)
+  var brwName  = (document.getElementById('borrowerName')  && document.getElementById('borrowerName').value.trim())  || '';
+  var brwEmail = (document.getElementById('borrowerEmail') && document.getElementById('borrowerEmail').value.trim()) || '';
+
   // Read computed results from DOM metrics
   function metricText(id){ var el=document.getElementById(id); return el?el.textContent.trim():'—'; }
   var rateEl=document.querySelector('.metric-value.xl');
@@ -1917,6 +1921,8 @@ function downloadRTLPDF() {
   // Loan details grid
   var ptLabelMap={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–10 Units'};
   var details=[
+    ['Borrower Name',       brwName||'\u2014'],
+    ['Borrower Email',      brwEmail||'\u2014'],
     ['Property Address',    addrFull||'\u2014'],
     ['Loan Type',           progLabel],
     ['Purchase Price',      fmtD(pp)],

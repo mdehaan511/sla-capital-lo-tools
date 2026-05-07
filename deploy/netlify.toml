@@ -175,6 +175,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/envelopes"
+  to = "/.netlify/functions/envelopes"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/envelopes-void"
+  to = "/.netlify/functions/envelopes-void"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/chat"
   to = "/.netlify/functions/chat"
   status = 200
