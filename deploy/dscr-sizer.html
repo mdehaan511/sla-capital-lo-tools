@@ -1112,18 +1112,33 @@ function _generateRateSheetPDF(opts) {
   }
 
   // ── LOGO ───────────────────────────────────────────────────
+  // The logo source PNG is high-res (sometimes 4000+ px wide). If we copy
+  // it to canvas at natural size and toDataURL as PNG, we get an 8-12 MB
+  // base64 string embedded in the PDF — which makes the whole rate-sheet
+  // PDF too large to POST through Netlify's 6 MB request limit when we
+  // send it for e-signature. Downscale to 2x display size and JPEG-
+  // encode at quality 0.9: same visual result, ~10 KB instead of 10 MB.
   y = 36;
   try {
-    var canvas = document.createElement('canvas');
-    var ctx = canvas.getContext('2d');
     var logoEl = document.querySelector('nav img');
     if (logoEl && logoEl.complete && logoEl.naturalWidth>0) {
-      canvas.width = logoEl.naturalWidth;
-      canvas.height = logoEl.naturalHeight;
-      ctx.drawImage(logoEl,0,0);
-      var imgData = canvas.toDataURL('image/png');
-      var logoW = 90, logoH = (logoEl.naturalHeight/logoEl.naturalWidth)*logoW;
-      doc.addImage(imgData,'PNG', W/2-logoW/2, y, logoW, logoH);
+      var logoW = 90;
+      var logoH = (logoEl.naturalHeight/logoEl.naturalWidth)*logoW;
+      // 2x oversample so it's crisp on high-DPI viewers but doesn't
+      // bloat the PDF. PDF unit is points (72/inch); browsers render
+      // ~96 px/inch — at 2x we get 240 px wide, plenty for a small logo.
+      var oversample = 2;
+      var canvas = document.createElement('canvas');
+      canvas.width  = Math.round(logoW * oversample);
+      canvas.height = Math.round(logoH * oversample);
+      var ctx = canvas.getContext('2d');
+      // White background so JPEG (no alpha) doesn't show the dark
+      // checkerboard pattern from transparent logos.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(logoEl, 0, 0, canvas.width, canvas.height);
+      var imgData = canvas.toDataURL('image/jpeg', 0.9);
+      doc.addImage(imgData, 'JPEG', W/2-logoW/2, y, logoW, logoH);
       y += logoH + 10;
     } else { throw 'no logo'; }
   } catch(e) {
@@ -1156,8 +1171,19 @@ function _generateRateSheetPDF(opts) {
   }
 
   // ── DARK HEADER ────────────────────────────────────────────
+  // Two-section band:
+  //   1. Top 44pt: rate + LTV summary (existing)
+  //   2. Bottom strip: full-width property address. We pull the address
+  //      out of the two-column details table below because it was being
+  //      truncated by splitTextToSize when the address spanned street +
+  //      city + state + zip — far more than fits in a half-column. The
+  //      band gives the address the full ~520pt of horizontal room.
+  var addrText = (r.address || '').trim();
+  var hasAddr = addrText.length > 0;
+  var headerH = 44;
+  var addrStripH = hasAddr ? 22 : 0;
   doc.setFillColor(DARK[0],DARK[1],DARK[2]);
-  rr(lm, y, cw, 44, 6, 'F');
+  rr(lm, y, cw, headerH + addrStripH, 6, 'F');
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
   doc.text('DSCR \u2014 '+r.loanType+' \u2014 LTV '+r.ltv.toFixed(1)+'%', lm+12, y+16);
@@ -1170,17 +1196,36 @@ function _generateRateSheetPDF(opts) {
   doc.setFont('helvetica','bold'); doc.setFontSize(20);
   doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
   doc.text(r.finalRate.toFixed(3)+'%', lm+cw-12, y+32, {align:'right'});
-  y += 44 + 10;
+  if (hasAddr) {
+    // Subtle separator between the rate band and the address strip
+    doc.setDrawColor(70, 55, 95); doc.setLineWidth(0.5);
+    doc.line(lm+8, y+headerH, lm+cw-8, y+headerH);
+    // Gold "PROPERTY" label on the left
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+    doc.setTextColor(180,160,130);
+    doc.text('PROPERTY', lm+12, y+headerH+13);
+    var labelW = doc.getTextWidth('PROPERTY') + 10; // gap after label
+    // Address: full width minus label minus right padding. Single line —
+    // splitTextToSize truncates if needed (extremely long addresses), but
+    // ~480pt at 10pt font fits 90+ chars which covers any real address.
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
+    var addrAvail = cw - labelW - 24;
+    var addrLine = doc.splitTextToSize(addrText, addrAvail)[0] || addrText;
+    doc.text(addrLine, lm+12+labelW, y+headerH+15);
+  }
+  y += headerH + addrStripH + 10;
 
   // ── LOAN DETAILS — two-column table ────────────────────────
   var ptLabel = {sfr:'Single Family','2-4':'2-4 Unit',nw_condo:'Non-Warrantable Condo',portfolio:'Portfolio'};
   var purposeLabel = {purchase:'Purchase',refi_rt:'Rate/Term Refi',refi_co:'Cash-Out Refi'};
   var ppLabel = {'54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)'};
 
+  // Property Address now lives in the dark hero band above — no longer
+  // included in the two-column details grid where it was getting truncated.
   var details = [
     ['Borrower Name',       r.borrower||'\u2014'],
     ['Borrower Email',      r.borrowerEmail||'\u2014'],
-    ['Property Address',    r.address||'\u2014'],
     ['Loan Amount',         fmtDplain(r.loan)],
     ['Estimated Value',     fmtDplain(r.propVal)],
     ['LTV',                 r.ltv.toFixed(1)+'%'],

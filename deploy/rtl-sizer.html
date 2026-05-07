@@ -1917,18 +1917,25 @@ function _generateRTLRateSheetPDF(opts) {
 
   // ── PAGE 1 ───────────────────────────────────────────────────
 
-  // Logo
+  // Logo — see dscr-sizer.html for the rationale on the downscale + JPEG.
+  // Source PNGs can be 4000+ px wide; embedding at natural res would push
+  // the PDF past Netlify's 6 MB POST limit during e-sign upload.
   y=36;
   try {
-    var canvas=document.createElement('canvas');
-    var ctx=canvas.getContext('2d');
     var logoEl=document.querySelector('nav img');
     if(logoEl&&logoEl.complete&&logoEl.naturalWidth>0){
-      canvas.width=logoEl.naturalWidth; canvas.height=logoEl.naturalHeight;
-      ctx.drawImage(logoEl,0,0);
-      var imgData=canvas.toDataURL('image/png');
-      var logoW=90, logoH=(logoEl.naturalHeight/logoEl.naturalWidth)*logoW;
-      doc.addImage(imgData,'PNG',W/2-logoW/2,y,logoW,logoH);
+      var logoW=90;
+      var logoH=(logoEl.naturalHeight/logoEl.naturalWidth)*logoW;
+      var oversample=2;
+      var canvas=document.createElement('canvas');
+      canvas.width=Math.round(logoW*oversample);
+      canvas.height=Math.round(logoH*oversample);
+      var ctx=canvas.getContext('2d');
+      ctx.fillStyle='#ffffff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(logoEl,0,0,canvas.width,canvas.height);
+      var imgData=canvas.toDataURL('image/jpeg',0.9);
+      doc.addImage(imgData,'JPEG',W/2-logoW/2,y,logoW,logoH);
       y+=logoH+10;
     } else throw 'no logo';
   } catch(e){
@@ -1956,9 +1963,15 @@ function _generateRTLRateSheetPDF(opts) {
     y+=18;
   } else { y+=6; }
 
-  // Dark header
+  // Dark header — see dscr-sizer.html for the rationale: address gets a
+  // full-width strip below the rate band so long city/state/zip combos
+  // don't get truncated by the half-column splitTextToSize fallback.
+  var addrText = (addrFull || '').trim();
+  var hasAddr = addrText.length > 0;
+  var headerH = 44;
+  var addrStripH = hasAddr ? 22 : 0;
   doc.setFillColor(DARK[0],DARK[1],DARK[2]);
-  rr(lm,y,cw,44,6,'F');
+  rr(lm,y,cw,headerH+addrStripH,6,'F');
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
   doc.text('RTL \u2014 '+progLabel+' \u2014 '+state, lm+12, y+16);
@@ -1971,14 +1984,27 @@ function _generateRTLRateSheetPDF(opts) {
   doc.setFont('helvetica','bold'); doc.setFontSize(20);
   doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
   doc.text(displayedRate, lm+cw-12, y+32, {align:'right'});
-  y+=44+10;
+  if (hasAddr) {
+    doc.setDrawColor(70, 55, 95); doc.setLineWidth(0.5);
+    doc.line(lm+8, y+headerH, lm+cw-8, y+headerH);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+    doc.setTextColor(180,160,130);
+    doc.text('PROPERTY', lm+12, y+headerH+13);
+    var addrLabelW = doc.getTextWidth('PROPERTY') + 10;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
+    var addrAvail = cw - addrLabelW - 24;
+    var addrLine = doc.splitTextToSize(addrText, addrAvail)[0] || addrText;
+    doc.text(addrLine, lm+12+addrLabelW, y+headerH+15);
+  }
+  y += headerH + addrStripH + 10;
 
-  // Loan details grid
+  // Loan details grid — Property Address now lives in the dark hero band
+  // above (full width, no truncation), so it's removed from this grid.
   var ptLabelMap={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–10 Units'};
   var details=[
     ['Borrower Name',       brwName||'\u2014'],
     ['Borrower Email',      brwEmail||'\u2014'],
-    ['Property Address',    addrFull||'\u2014'],
     ['Loan Type',           progLabel],
     ['Purchase Price',      fmtD(pp)],
     ['Rehab Budget',        isR?fmtD(rb):'\u2014'],
