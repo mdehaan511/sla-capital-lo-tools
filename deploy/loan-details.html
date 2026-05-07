@@ -1036,7 +1036,13 @@ function esSubmit() {
     return;
   }
 
-  // Open the matching sizer in a hidden iframe to generate the PDF.
+  // Open the matching sizer in a small popup window to generate the PDF.
+  // We use window.open instead of a hidden iframe because Netlify Identity's
+  // session can fail to initialize in iframes (the widget races on cookie
+  // access in some browsers, redirecting the iframe to '/' before the auth
+  // state propagates), which means the postMessage never fires and we time
+  // out. A real popup shares storage with the parent same-origin and
+  // authenticates reliably.
   var sizerPage = (_loan.toolType === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(_clientId) +
                     '&loanId=' + encodeURIComponent(_loanId) +
@@ -1046,10 +1052,17 @@ function esSubmit() {
     sizerParams += '&owner=' + encodeURIComponent(_loEmail);
   }
 
-  var iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1200px;height:1600px;border:0;visibility:hidden';
-  iframe.src = sizerPage + '?' + sizerParams;
-  document.body.appendChild(iframe);
+  var popup = window.open(
+    sizerPage + '?' + sizerParams,
+    'sla_pdfgen_' + Date.now(),
+    'width=900,height=700,scrollbars=yes,resizable=yes'
+  );
+  if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+    btn.disabled = false; btn.textContent = 'Queue Envelope';
+    status.className = 'bi-status err';
+    status.textContent = 'Popup blocked. Allow popups for this site, or open the sizer manually and try again.';
+    return;
+  }
 
   var settled = false;
   function onMsg(event) {
@@ -1057,7 +1070,7 @@ function esSubmit() {
     if (settled) return;
     settled = true;
     window.removeEventListener('message', onMsg);
-    try { iframe.parentNode.removeChild(iframe); } catch (_) {}
+    try { popup.close(); } catch (_) {}
     if (!event.data.ok) {
       btn.disabled = false; btn.textContent = 'Queue Envelope';
       status.className = 'bi-status err';
@@ -1068,16 +1081,31 @@ function esSubmit() {
   }
   window.addEventListener('message', onMsg);
 
-  // Safety timeout — if the sizer never posts back, give up after 10s
+  // Safety timeout. Auth init + quote autoload + PDF gen can take a while
+  // on slow connections, so we give it 25s before giving up. If the user
+  // closed the popup themselves, surface that as a different message.
+  var poll = setInterval(function() {
+    if (settled) { clearInterval(poll); return; }
+    if (popup.closed) {
+      clearInterval(poll);
+      settled = true;
+      window.removeEventListener('message', onMsg);
+      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      status.className = 'bi-status err';
+      status.textContent = 'PDF generator window was closed before it finished. Try again.';
+    }
+  }, 600);
+
   setTimeout(function() {
     if (settled) return;
+    clearInterval(poll);
     settled = true;
     window.removeEventListener('message', onMsg);
-    try { iframe.parentNode.removeChild(iframe); } catch (_) {}
+    try { popup.close(); } catch (_) {}
     btn.disabled = false; btn.textContent = 'Queue Envelope';
     status.className = 'bi-status err';
-    status.textContent = 'Rate sheet generation timed out. Try again, or generate the PDF in the sizer first.';
-  }, 12000);
+    status.textContent = 'Rate sheet generation timed out (25s). Try again, or generate the PDF in the sizer first.';
+  }, 25000);
 }
 
 // Re-pull this loan's envelopes from the server and render the panel.

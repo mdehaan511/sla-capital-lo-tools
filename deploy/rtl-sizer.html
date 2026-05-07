@@ -1541,7 +1541,13 @@ function showToast(msg) {
 // ── Auth guard ───────────────────────────────────────────────
 netlifyIdentity.on('init', function(user) {
 
-  if (!user) { window.location.replace('/'); }
+  if (!user) {
+    var inSigMode = new URLSearchParams(window.location.search).get('signatureMode') === '1';
+    if (inSigMode && window.opener) {
+      try { window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'Auth not initialized in popup. Refresh and try again.' }, '*'); } catch (_) {}
+    }
+    window.location.replace('/');
+  }
   else {
     window._loName  = (user.user_metadata && user.user_metadata.full_name) || '';
     window._loPhone = (user.user_metadata && user.user_metadata.phone) || '';
@@ -1571,16 +1577,25 @@ netlifyIdentity.on('init', function(user) {
 
     function trySignatureHandoff() {
       if (!signatureMode) return;
+      console.log('[SLA esign] trySignatureHandoff scheduled (RTL), 800ms');
       setTimeout(function() {
+        console.log('[SLA esign] generating rate sheet PDF (RTL)');
         try {
           var b64 = getRTLRateSheetBase64ForSignature(1);
           if (!b64) {
-            window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null' }, '*');
+            console.log('[SLA esign] PDF generation returned null (RTL) — likely calculate() error');
+            window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null. Check that the quote loaded and all required fields are filled.' }, '*');
+            if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null. Check that the quote loaded and all required fields are filled.' }, '*');
             return;
           }
+          console.log('[SLA esign] RTL PDF base64 length:', b64.length);
           window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: true, pdfBase64: b64 }, '*');
+          if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: true, pdfBase64: b64 }, '*');
         } catch (e) {
-          window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: (e && e.message) || 'unknown' }, '*');
+          console.error('[SLA esign] handoff threw (RTL):', e);
+          var err = (e && e.message) || 'unknown';
+          window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: err }, '*');
+          if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: err }, '*');
         }
       }, 800);
     }
@@ -1765,7 +1780,18 @@ netlifyIdentity.on('init', function(user) {
         if (!loaded && clientIdP && loanIdP) {
           return loadFromClientLoan();
         }
+      }).then(function(loaded2) {
+        // Backup handoff: if neither loader populated the form AND we're
+        // in signature mode, fire the handoff anyway so the parent sees
+        // an error rather than hanging.
+        if (signatureMode && !loaded2) {
+          console.log('[SLA esign] no quote/loan loaded (RTL) — firing handoff anyway');
+          trySignatureHandoff();
+        }
       });
+    } else if (signatureMode) {
+      console.log('[SLA esign] no loadAddr/clientId in URL (RTL), calling handoff');
+      trySignatureHandoff();
     }
     if (urlParams.get('fromProspect')) {
       try {
