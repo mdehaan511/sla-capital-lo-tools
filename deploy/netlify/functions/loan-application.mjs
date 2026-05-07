@@ -48,6 +48,17 @@
  *   [Deal State LLC is Registered (deal custom)] → llcState
  *   [Deal LLC EIN (deal custom)]                → llcEIN
  *   [Deal LLC Registered Address (deal custom)] → llcAddress+city+state+zip
+ *
+ * Declarations table (Yes/No, populated from per-guarantor radios on
+ * borrower-info.html):
+ *   [Decl USCitizen G{1,2}]              → g{0,1}.usCitizen
+ *   [Decl Bankrupt7yr G{1,2}]            → g{0,1}.bankruptcy7yr
+ *   [Decl Foreclosure7yr G{1,2}]         → g{0,1}.foreclosure7yr
+ *   [Decl Lawsuit G{1,2}]                → g{0,1}.partyToLawsuit
+ *   [Decl FederalDebtDelinquent G{1,2}]  → g{0,1}.delinquentFederalDebt
+ *   [Decl ObligatedForeclosed G{1,2}]    → g{0,1}.obligatedToForeclosed
+ *   [Decl OutstandingJudgments G{1,2}]   → g{0,1}.outstandingJudgments
+ *   [Decl IntendToOccupy G{1,2}]         → g{0,1}.intendToOccupy
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -296,6 +307,27 @@ function buildContext(data, record, client) {
     'Deal 2nd Borrower Marital Status (deal custom)': maritalLabel(g1.marital),
     'Deal 2nd Borrower SSN (deal custom)':            g1.ssn || '',
     'Deal 2nd Borrower Home Address (deal custom)':   composeAddr(g1.address, g1.city, g1.state, g1.zip),
+
+    // Declarations — Yes/No answers for the table at the bottom of the
+    // loan application. Both columns (G1, G2) are populated; if Guarantor
+    // 2 isn't filled in (single-guarantor loan) the G2 cells render as
+    // empty strings, matching how absent fields behave elsewhere.
+    'Decl USCitizen G1 (deal custom)':                yn(g0.usCitizen),
+    'Decl USCitizen G2 (deal custom)':                yn(g1.usCitizen),
+    'Decl Bankrupt7yr G1 (deal custom)':              yn(g0.bankruptcy7yr),
+    'Decl Bankrupt7yr G2 (deal custom)':              yn(g1.bankruptcy7yr),
+    'Decl Foreclosure7yr G1 (deal custom)':           yn(g0.foreclosure7yr),
+    'Decl Foreclosure7yr G2 (deal custom)':           yn(g1.foreclosure7yr),
+    'Decl Lawsuit G1 (deal custom)':                  yn(g0.partyToLawsuit),
+    'Decl Lawsuit G2 (deal custom)':                  yn(g1.partyToLawsuit),
+    'Decl FederalDebtDelinquent G1 (deal custom)':    yn(g0.delinquentFederalDebt),
+    'Decl FederalDebtDelinquent G2 (deal custom)':    yn(g1.delinquentFederalDebt),
+    'Decl ObligatedForeclosed G1 (deal custom)':      yn(g0.obligatedToForeclosed),
+    'Decl ObligatedForeclosed G2 (deal custom)':      yn(g1.obligatedToForeclosed),
+    'Decl OutstandingJudgments G1 (deal custom)':     yn(g0.outstandingJudgments),
+    'Decl OutstandingJudgments G2 (deal custom)':     yn(g1.outstandingJudgments),
+    'Decl IntendToOccupy G1 (deal custom)':           yn(g0.intendToOccupy),
+    'Decl IntendToOccupy G2 (deal custom)':           yn(g1.intendToOccupy),
   };
 }
 
@@ -326,6 +358,15 @@ function fmtMoney(v) {
   const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
   if (!isFinite(n)) return String(v);
   return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+// Map a stored 'yes'/'no' radio value into the user-visible 'Yes'/'No'
+// label that goes into the Declarations table on the docx. Anything else
+// (undefined, '', or a Guarantor 2 that doesn't exist) renders blank.
+function yn(v) {
+  if (v === 'yes') return 'Yes';
+  if (v === 'no')  return 'No';
+  return '';
 }
 
 function xmlEsc(s) {

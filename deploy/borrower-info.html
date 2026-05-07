@@ -893,6 +893,29 @@ function renderGuarantor(idx, label) {
   if (showRentals) {
     html += field(prefix + 'rentals', '# of rental properties currently owned', 'number', { required: true });
   }
+
+  // Declarations — these answers populate the Declarations table on the
+  // generated Loan Application docx. All required Yes/No. usCitizen is
+  // collected above next to marital status; the seven below are new.
+  // The merge keys in loan-application.mjs are:
+  //   g{i}.bankruptcy7yr        → [Decl Bankrupt7yr G{i+1} ...]
+  //   g{i}.foreclosure7yr       → [Decl Foreclosure7yr ...]
+  //   g{i}.partyToLawsuit       → [Decl Lawsuit ...]
+  //   g{i}.delinquentFederalDebt→ [Decl FederalDebtDelinquent ...]
+  //   g{i}.obligatedToForeclosed→ [Decl ObligatedForeclosed ...]
+  //   g{i}.outstandingJudgments → [Decl OutstandingJudgments ...]
+  //   g{i}.intendToOccupy       → [Decl IntendToOccupy ...]
+  var yesNo = [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }];
+  html += '<h5 style="margin-top:18px;margin-bottom:8px;font-size:14px;color:var(--dark)">Declarations</h5>' +
+    '<p class="hint" style="margin-top:-4px;margin-bottom:10px">All declarations are required. Answer truthfully — these statements form part of your loan application.</p>' +
+    field(prefix + 'bankruptcy7yr',         'Have you been declared bankrupt in the past 7 years?',                                                                                          'radio', { required: true, options: yesNo }) +
+    field(prefix + 'foreclosure7yr',        'Have you had a property foreclosed upon or given title or deed lieu thereof in the last 7 years?',                                              'radio', { required: true, options: yesNo }) +
+    field(prefix + 'partyToLawsuit',        'Are you a party to a lawsuit?',                                                                                                                 'radio', { required: true, options: yesNo }) +
+    field(prefix + 'delinquentFederalDebt', 'Are you presently delinquent or in default on any Federal debt or any other loan, mortgage, financial obligation, bond, or loan guarantee?',  'radio', { required: true, options: yesNo }) +
+    field(prefix + 'obligatedToForeclosed', 'Have you directly or indirectly been obligated on any loan which resulted in foreclosure?',                                                    'radio', { required: true, options: yesNo }) +
+    field(prefix + 'outstandingJudgments',  'Are there any outstanding judgments against you?',                                                                                              'radio', { required: true, options: yesNo }) +
+    field(prefix + 'intendToOccupy',        'Do you intend to occupy the subject property?',                                                                                                 'radio', { required: true, options: yesNo });
+
   return html;
 }
 
