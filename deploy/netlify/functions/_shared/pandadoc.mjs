@@ -113,9 +113,17 @@ function buildMultipart(pdfBuf, filename, dataObj) {
  * 'document.draft' (PandaDoc processes uploads asynchronously).
  *
  * We poll the document status endpoint with an exponential backoff,
- * giving up after ~10 seconds. Returns the final status string.
+ * giving up after ~6 seconds. This must fit within Netlify's synchronous
+ * function timeout (10s default, 30s on most plans) along with the
+ * upload, send, and blob write that bracket it. If the doc isn't draft
+ * by then, the caller saves the envelope as 'queued' with the real
+ * documentId; the manual "Refresh status" button will pick up the rest.
+ *
+ * Returns: 'document.draft' on success, 'timeout' on poll exhaustion,
+ * or the actual PD status if it's something terminal like
+ * 'document.creation_failed'.
  */
-async function waitForDraft(documentId, apiKey, maxMs = 12000) {
+async function waitForDraft(documentId, apiKey, maxMs = 6000) {
   const start = Date.now();
   let delay = 600;
   while (Date.now() - start < maxMs) {
@@ -238,14 +246,33 @@ export async function sendEnvelope({
 
   // Step 2: poll until status == document.draft
   const draftStatus = await waitForDraft(documentId, apiKey);
+  if (draftStatus === 'timeout') {
+    // Doc still uploading. Save the envelope with the real PandaDoc
+    // documentId so the LO's "Refresh status" button can pick it up
+    // once it's draft. We DIDN'T send yet — that's deferred. Mark this
+    // result as ok=true with status='processing' so the caller saves
+    // a useful record rather than treating it as a hard failure.
+    await writeLog({
+      mode: 'live', envelopeId, action: 'wait_draft', ok: true,
+      pandadocDocumentId: documentId,
+      status: 'still_processing',
+      note: 'Upload still processing after 6s. Saved as queued; refresh to pick up.',
+    });
+    return {
+      ok: true, mode: 'live', pandadocDocumentId: documentId,
+      status: 'document.uploaded',
+      pending: true,  // signals caller this is not yet sent
+    };
+  }
   if (draftStatus !== 'document.draft') {
+    // Real terminal failure (creation_failed, etc.)
     await writeLog({
       mode: 'live', envelopeId, action: 'wait_draft', ok: false,
       pandadocDocumentId: documentId, status: draftStatus,
     });
     return {
       ok: false, mode: 'live', pandadocDocumentId: documentId,
-      error: 'Document never reached draft status (' + draftStatus + ')',
+      error: 'Document creation failed (' + draftStatus + ')',
     };
   }
 

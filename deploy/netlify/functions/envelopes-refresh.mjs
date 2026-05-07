@@ -5,12 +5,15 @@
  * up webhooks, this is how the LO sees whether the borrower has viewed,
  * signed, or completed an envelope.
  *
- * Body: { envelopeId, owner? }
+ * Two responsibilities:
+ *   1. Pull the latest PandaDoc status, map it onto our internal status,
+ *      surface per-recipient signing state.
+ *   2. If the envelope is in 'queued' state and the document just reached
+ *      draft (i.e. the initial create timed out our short waitForDraft and
+ *      the LO is now coming back), trigger the send call. This lets the
+ *      "Refresh status" button finish what the create call started.
  *
- * No-op if:
- *   - PandaDoc is not configured (mode=disabled)
- *   - The envelope's pandadocDocumentId is missing or starts with 'dry-'
- *   - The envelope is already in a terminal state (completed/voided/expired)
+ * Body: { envelopeId, owner? }
  *
  * Permission: requester (original sender) or admin.
  */
@@ -22,8 +25,21 @@ import {
 import { getDocumentStatus, mapStatus, pandadocStatus } from './_shared/pandadoc.mjs';
 
 const TERMINAL = new Set(['completed', 'voided', 'expired']);
+const PD_BASE = 'https://api.pandadoc.com/public/v1';
 
 export default async (req, context) => {
+  try {
+    return await handle(req, context);
+  } catch (e) {
+    console.error('envelopes-refresh top-level error:', e);
+    return json(500, {
+      error: 'Server error: ' + ((e && e.message) || 'unknown'),
+      stack: String((e && e.stack) || '').split('\n').slice(0, 5).join(' | ').slice(0, 500),
+    });
+  }
+};
+
+async function handle(req, context) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
 
@@ -63,7 +79,7 @@ export default async (req, context) => {
     return json(200, { ok: true, envelope: env, note: 'PandaDoc not configured' });
   }
 
-  // Hit PandaDoc
+  // Hit PandaDoc for the doc's current status
   const result = await getDocumentStatus(env.pandadocDocumentId);
   if (!result.ok) {
     return json(502, {
@@ -73,19 +89,73 @@ export default async (req, context) => {
     });
   }
 
-  const mapped = mapStatus(result.status);
   const stamp = new Date().toISOString();
   let changed = false;
-  if (mapped && mapped !== env.status) {
-    env.status = mapped;
-    env.statusUpdatedAt = stamp;
-    env.history = env.history || [];
-    env.history.push({
-      ts: stamp,
-      status: mapped,
-      note: 'Refreshed from PandaDoc (raw status: ' + result.status + ')',
-    });
-    changed = true;
+  let triggeredSend = false;
+  let sendError = null;
+
+  // ── Recovery path: doc reached draft, our queued envelope hasn't been
+  //    sent yet — trigger the send call now.
+  if (env.status === 'queued' && result.status === 'document.draft') {
+    try {
+      const sendResp = await fetch(`${PD_BASE}/documents/${env.pandadocDocumentId}/send`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `API-Key ${process.env.PANDADOC_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: String(env.message || '').slice(0, 4000),
+          subject: 'SLA Capital — Please review and sign',
+          silent: false,
+        }),
+      });
+      const sendBody = await sendResp.json().catch(() => ({}));
+      if (sendResp.ok) {
+        env.status = 'sent';
+        env.statusUpdatedAt = stamp;
+        env.history = env.history || [];
+        env.history.push({
+          ts: stamp,
+          status: 'sent',
+          note: 'Refresh: doc finished uploading, send triggered.',
+        });
+        triggeredSend = true;
+        changed = true;
+      } else {
+        sendError = sendBody.detail || sendBody.message || ('HTTP ' + sendResp.status);
+        env.history = env.history || [];
+        env.history.push({
+          ts: stamp,
+          status: env.status,
+          note: 'Refresh: send retry failed (' + sendError + ').',
+        });
+      }
+    } catch (e) {
+      sendError = (e && e.message) || 'fetch failed';
+      env.history = env.history || [];
+      env.history.push({
+        ts: stamp,
+        status: env.status,
+        note: 'Refresh: send retry threw (' + sendError + ').',
+      });
+    }
+  }
+
+  // Otherwise, map and store the latest PandaDoc-side status
+  if (!triggeredSend) {
+    const mapped = mapStatus(result.status);
+    if (mapped && mapped !== env.status) {
+      env.status = mapped;
+      env.statusUpdatedAt = stamp;
+      env.history = env.history || [];
+      env.history.push({
+        ts: stamp,
+        status: mapped,
+        note: 'Refreshed from PandaDoc (raw status: ' + result.status + ')',
+      });
+      changed = true;
+    }
   }
 
   // Also surface per-recipient signing state so the LO can see who signed
@@ -97,7 +167,7 @@ export default async (req, context) => {
     }));
   }
 
-  if (changed || env.recipientStatus) {
+  if (changed || env.recipientStatus || triggeredSend) {
     try { await store.setJSON(key, env); }
     catch (e) { console.warn('refresh write failed:', e && e.message); }
   }
@@ -106,6 +176,8 @@ export default async (req, context) => {
     ok: true,
     envelope: env,
     changed,
+    triggeredSend,
+    sendError,
     rawStatus: result.status,
   });
-};
+}

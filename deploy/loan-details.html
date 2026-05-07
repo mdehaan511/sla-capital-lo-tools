@@ -1016,14 +1016,25 @@ function esSubmit() {
     }, ownerForCall).then(function(resp) {
       var env = resp && resp.envelope;
       var mode = env && env.pandadocMode;
+      // Look at the latest history entry to detect the "still uploading"
+      // pending state from PandaDoc — we don't get a flat flag, but the
+      // history note is recognizable. The envelope status will be 'queued'
+      // and there'll be a real (non-dry-) document ID.
+      var hist = (env && env.history) || [];
+      var lastNote = (hist[hist.length - 1] && hist[hist.length - 1].note) || '';
+      var isPending = mode === 'live' && env && env.status === 'queued' &&
+                      env.pandadocDocumentId &&
+                      String(env.pandadocDocumentId).indexOf('dry-') !== 0;
+
       status.className = 'bi-status ok';
-      if (mode === 'live')        status.textContent = '✓ Envelope sent — borrower will receive an email shortly.';
+      if (isPending)              status.textContent = '✓ Uploaded to PandaDoc — still processing. Use "Refresh status" in a minute to finish the send.';
+      else if (mode === 'live')   status.textContent = '✓ Envelope sent — borrower will receive an email shortly.';
       else if (mode === 'dry-run') status.textContent = '✓ Envelope queued (dry-run mode — no email sent).';
-      else                         status.textContent = '✓ Envelope queued.';
+      else                        status.textContent = '✓ Envelope queued.';
       setTimeout(function() {
         closeEsignModal();
         refreshEnvelopes();
-      }, 1100);
+      }, 1400);
     }).catch(function(err) {
       btn.disabled = false; btn.textContent = 'Queue Envelope';
       status.className = 'bi-status err';

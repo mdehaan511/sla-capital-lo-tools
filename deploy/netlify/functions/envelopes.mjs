@@ -222,20 +222,31 @@ async function handleCreate(req, context, user) {
       const stamp = new Date().toISOString();
       if (result.ok) {
         record.pandadocDocumentId = result.pandadocDocumentId;
-        // Map PandaDoc status to our internal status. Live sends transition
-        // to 'sent'; dry-run stays at 'queued' so it's clear nothing left.
-        const mapped = mapStatus(result.status);
-        if (result.mode === 'live' && mapped) {
-          record.status = mapped;
-          record.statusUpdatedAt = stamp;
+        if (result.pending) {
+          // Live mode but still uploading after our short poll. Keep
+          // status='queued', record the document ID, history-note that
+          // a refresh is needed to complete the send.
+          record.history.push({
+            ts: stamp,
+            status: 'queued',
+            note: 'Uploaded to PandaDoc (doc ' + result.pandadocDocumentId + '), still processing. Click "Refresh status" in a minute to complete the send.',
+          });
+        } else {
+          // Map PandaDoc status to our internal status. Live sends transition
+          // to 'sent'; dry-run stays at 'queued' so it's clear nothing left.
+          const mapped = mapStatus(result.status);
+          if (result.mode === 'live' && mapped) {
+            record.status = mapped;
+            record.statusUpdatedAt = stamp;
+          }
+          record.history.push({
+            ts: stamp,
+            status: record.status,
+            note: result.mode === 'dry-run'
+              ? 'Dry-run send simulated. PDF size: ' + doc.pdfBase64.length + ' bytes.'
+              : 'Sent via PandaDoc (document ' + result.pandadocDocumentId + ').',
+          });
         }
-        record.history.push({
-          ts: stamp,
-          status: record.status,
-          note: result.mode === 'dry-run'
-            ? 'Dry-run send simulated. PDF size: ' + doc.pdfBase64.length + ' bytes.'
-            : 'Sent via PandaDoc (document ' + result.pandadocDocumentId + ').',
-        });
       } else {
         record.status = 'failed';
         record.statusUpdatedAt = stamp;
@@ -311,12 +322,24 @@ async function handleList(req, user) {
 }
 
 export default async (req, context) => {
-  const pre = handleOptions(req); if (pre) return pre;
+  // Wrap the entire handler so an uncaught exception still returns JSON
+  // rather than letting Netlify render an HTML error page. The frontend
+  // surfaces 'Bad response' for non-JSON, which is unhelpful for debugging
+  // — we'd rather see the actual stack-trace fragment in the toast.
+  try {
+    const pre = handleOptions(req); if (pre) return pre;
 
-  const user = requireAuth(context, req);
-  if (!user) return json(401, { error: 'Not authenticated' });
+    const user = requireAuth(context, req);
+    if (!user) return json(401, { error: 'Not authenticated' });
 
-  if (req.method === 'GET')  return handleList(req, user);
-  if (req.method === 'POST') return handleCreate(req, context, user);
-  return json(405, { error: 'Method not allowed' });
+    if (req.method === 'GET')  return await handleList(req, user);
+    if (req.method === 'POST') return await handleCreate(req, context, user);
+    return json(405, { error: 'Method not allowed' });
+  } catch (e) {
+    console.error('envelopes top-level error:', e);
+    return json(500, {
+      error: 'Server error: ' + ((e && e.message) || 'unknown'),
+      stack: String((e && e.stack) || '').split('\n').slice(0, 5).join(' | ').slice(0, 500),
+    });
+  }
 };

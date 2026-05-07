@@ -43,7 +43,18 @@
         return r.text().then(function (txt) {
           var data;
           try { data = txt ? JSON.parse(txt) : {}; }
-          catch (e) { data = { error: 'Bad response', raw: txt }; }
+          catch (e) {
+            // Non-JSON response — almost always means a serverless function
+            // either crashed before responding (Netlify returns its default
+            // HTML error page) or timed out. Surface the HTTP status so the
+            // user/dev has something to act on. Trim the HTML body so we
+            // don't blow up the toast/alert with a giant error page.
+            var snippet = String(txt || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+            data = {
+              error: 'Server returned non-JSON response (HTTP ' + r.status + ')' + (snippet ? ' — ' + snippet : ''),
+              raw: txt,
+            };
+          }
           if (!r.ok) {
             var err = new Error(data.error || ('HTTP ' + r.status));
             err.status = r.status; err.data = data;
