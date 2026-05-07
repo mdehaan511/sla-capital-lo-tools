@@ -401,6 +401,12 @@
       var path = '/api/envelopes' + (owner ? '?owner=' + encodeURIComponent(owner) : '');
       return api('POST', path, data);
     },
+    send: function (envelopeId, owner) {
+      return api('POST', '/api/envelopes-send', {
+        envelopeId: envelopeId,
+        owner: owner || '',
+      });
+    },
     void: function (envelopeId, owner, reason) {
       return api('POST', '/api/envelopes-void', {
         envelopeId: envelopeId,

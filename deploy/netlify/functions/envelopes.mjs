@@ -127,10 +127,19 @@ async function handleCreate(req, context, user) {
   const envelopeId = genId();
   const pdStatus = pandadocStatus();
 
-  // We DON'T persist pdfBase64 in the envelope record — it could be 1MB+
-  // per envelope. The browser uploaded it for the live send; once sent
-  // (or logged in dry-run), we drop it. In Phase 1 stub mode we never
-  // even received it.
+  // Extract PDF base64s before building the persisted record. The PDFs
+  // are stashed in a side blob store so the envelope JSON stays small
+  // and the frontend can call the slower /api/envelopes-send next.
+  // This pattern keeps create() under 1 second, well clear of any
+  // Netlify function timeout — the actual PandaDoc upload happens in
+  // the follow-up send call.
+  const pdfsByDoc = {}; // index → base64
+  for (let i = 0; i < docs.length; i++) {
+    if (docs[i].pdfBase64) {
+      pdfsByDoc[i] = docs[i].pdfBase64;
+    }
+  }
+
   const record = {
     id: envelopeId,
     ownerKey,
@@ -138,12 +147,12 @@ async function handleCreate(req, context, user) {
     requesterEmail,
     clientId: String(body.clientId),
     loanId: String(body.loanId),
-    docs: docs.map((d) => ({
+    docs: docs.map((d, i) => ({
       kind: d.kind,
       name: String(d.name || (d.kind === 'rate_sheet' ? 'Rate Sheet' : 'Loan Application')).slice(0, 200),
       // hadPdf: true tells the LO this doc actually had bytes; useful for
       // distinguishing dry-run/stub envelopes from live ones at a glance.
-      hadPdf: !!d.pdfBase64,
+      hadPdf: !!pdfsByDoc[i],
     })),
     signers: signers.map((s, i) => ({
       firstName: String(s.firstName || '').slice(0, 80),
@@ -156,7 +165,7 @@ async function handleCreate(req, context, user) {
     status: 'queued',
     statusUpdatedAt: now,
     pandadocMode: pdStatus.mode,
-    pandadocDocumentId: null, // populated below in dry-run/live modes
+    pandadocDocumentId: null, // populated after the send call runs
     sendError: null,
     createdAt: now,
     history: [{
@@ -165,115 +174,40 @@ async function handleCreate(req, context, user) {
       note: pdStatus.mode === 'disabled'
         ? 'Created (Phase 1 stub — PandaDoc not configured).'
         : pdStatus.mode === 'dry-run'
-        ? 'Created (dry-run mode — no real send).'
-        : 'Created — sending to PandaDoc…',
+        ? 'Created (dry-run mode — send pending).'
+        : 'Created — PDF stashed, awaiting send call.',
     }],
   };
 
-  // Persist the initial 'queued' record before we attempt the send. If the
-  // send fails or times out we still have a paper trail. We update again
-  // after the send returns.
+  // Persist the envelope record (no PDFs in JSON — those are in a side store).
   const store = getStore({ name: 'envelopes', consistency: 'strong' });
   const blobKey = `${ownerKey}/${envelopeId}`;
   try {
     await store.setJSON(blobKey, record);
   } catch (e) {
     console.error('envelopes create write failed:', e);
-    return json(500, { error: 'Failed to save envelope' });
+    return json(500, { error: 'Failed to save envelope: ' + (e.message || 'unknown') });
   }
 
-  // ── PandaDoc send (skip entirely if disabled, log only in dry-run) ──
-  // We send ONE PandaDoc envelope per rate_sheet doc with a base64 PDF.
-  // If multiple docs are checked we send them as separate envelopes —
-  // the borrower will get separate emails. Bundling into one transaction
-  // is a follow-up enhancement; see envelopes.mjs header.
-  //
-  // loan_app docs are skipped in non-stub modes since the DOCX template
-  // doesn't have anchor tags yet. They're recorded in the envelope but
-  // the live API call only fires for rate_sheet.
-  if (pdStatus.enabled) {
-    let lastResult = null;
-    for (const doc of docs) {
-      if (doc.kind !== 'rate_sheet') {
-        record.history.push({
-          ts: new Date().toISOString(),
-          status: 'queued',
-          note: 'Skipped ' + doc.kind + ' — anchor tags not yet wired into that document type.',
-        });
-        continue;
+  // Stash each doc's PDF bytes in a separate blob store so envelopes-send
+  // can retrieve them. Keys: pdfs/{ownerKey}/{envelopeId}/{docIndex}
+  // We don't fail the whole request if a stash fails — log and let the
+  // user retry via the (forthcoming) send call.
+  if (Object.keys(pdfsByDoc).length > 0) {
+    const pdfStore = getStore({ name: 'envelope-pdfs', consistency: 'strong' });
+    await Promise.all(Object.entries(pdfsByDoc).map(async ([docIdx, b64]) => {
+      const pdfKey = `${ownerKey}/${envelopeId}/${docIdx}`;
+      try {
+        await pdfStore.set(pdfKey, b64);
+      } catch (e) {
+        console.error('PDF stash failed for', pdfKey, e);
       }
-      if (!doc.pdfBase64) {
-        record.history.push({
-          ts: new Date().toISOString(),
-          status: 'queued',
-          note: 'Skipped rate sheet — no PDF bytes in request (browser must upload base64).',
-        });
-        continue;
-      }
-      const result = await sendEnvelope({
-        pdfBase64: doc.pdfBase64,
-        name: doc.name || 'Rate Sheet',
-        signers: record.signers,
-        message: record.message,
-        subject: 'SLA Capital — Please review and sign: ' + (doc.name || 'Rate Sheet'),
-        envelopeId,
-      });
-      lastResult = result;
-      const stamp = new Date().toISOString();
-      if (result.ok) {
-        record.pandadocDocumentId = result.pandadocDocumentId;
-        if (result.pending) {
-          // Live mode but still uploading after our short poll. Keep
-          // status='queued', record the document ID, history-note that
-          // a refresh is needed to complete the send.
-          record.history.push({
-            ts: stamp,
-            status: 'queued',
-            note: 'Uploaded to PandaDoc (doc ' + result.pandadocDocumentId + '), still processing. Click "Refresh status" in a minute to complete the send.',
-          });
-        } else {
-          // Map PandaDoc status to our internal status. Live sends transition
-          // to 'sent'; dry-run stays at 'queued' so it's clear nothing left.
-          const mapped = mapStatus(result.status);
-          if (result.mode === 'live' && mapped) {
-            record.status = mapped;
-            record.statusUpdatedAt = stamp;
-          }
-          record.history.push({
-            ts: stamp,
-            status: record.status,
-            note: result.mode === 'dry-run'
-              ? 'Dry-run send simulated. PDF size: ' + doc.pdfBase64.length + ' bytes.'
-              : 'Sent via PandaDoc (document ' + result.pandadocDocumentId + ').',
-          });
-        }
-      } else {
-        record.status = 'failed';
-        record.statusUpdatedAt = stamp;
-        record.sendError = result.error || 'unknown';
-        record.history.push({
-          ts: stamp,
-          status: 'failed',
-          note: 'Send failed: ' + (result.error || 'unknown'),
-        });
-        break; // stop trying additional docs once one fails
-      }
-    }
-    // Persist the updated record
-    try { await store.setJSON(blobKey, record); }
-    catch (e) { console.warn('envelope final-state write failed:', e && e.message); }
-
-    if (lastResult && !lastResult.ok && pdStatus.mode === 'live') {
-      // Live send failed — surface the error to the caller. The envelope
-      // record exists with status='failed' so the LO can see what happened.
-      return json(502, {
-        ok: false,
-        envelope: record,
-        error: 'PandaDoc send failed: ' + lastResult.error,
-      });
-    }
+    }));
   }
 
+  // Return immediately. The frontend will call /api/envelopes-send next
+  // to actually trigger the PandaDoc upload+send. This split keeps each
+  // call short and well under any Netlify timeout.
   return json(200, { ok: true, envelope: record });
 }
 

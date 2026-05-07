@@ -996,6 +996,20 @@ function esSubmit() {
   var needsPdf = docs.some(function(d) { return d.kind === 'rate_sheet'; });
 
   function postCreate(pdfBase64) {
+    // Hard gate: Netlify functions reject request bodies over 6 MB at the
+    // gateway level, returning an opaque 500. Pre-flight check the PDF size
+    // and bail with a useful message if it's near that limit. (5 MB buffer
+    // accounts for JSON wrap + signers + message text + base64 padding.)
+    if (pdfBase64 && pdfBase64.length > 5_000_000) {
+      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      status.className = 'bi-status err';
+      status.textContent = 'Generated PDF is too large for direct send (' + Math.round(pdfBase64.length / 1024) + ' KB base64). Please contact support.';
+      console.error('[SLA esign] PDF base64 too large:', pdfBase64.length);
+      return;
+    }
+    if (pdfBase64) {
+      console.log('[SLA esign] posting envelope create. PDF base64 size:', pdfBase64.length, 'bytes');
+    }
     // Attach base64 to the rate_sheet doc(s). Loan-app docs go through
     // without bytes since the DOCX template doesn't have anchors yet.
     var docsToSend = docs.map(function(d) {
@@ -1016,25 +1030,36 @@ function esSubmit() {
     }, ownerForCall).then(function(resp) {
       var env = resp && resp.envelope;
       var mode = env && env.pandadocMode;
-      // Look at the latest history entry to detect the "still uploading"
-      // pending state from PandaDoc — we don't get a flat flag, but the
-      // history note is recognizable. The envelope status will be 'queued'
-      // and there'll be a real (non-dry-) document ID.
-      var hist = (env && env.history) || [];
-      var lastNote = (hist[hist.length - 1] && hist[hist.length - 1].note) || '';
-      var isPending = mode === 'live' && env && env.status === 'queued' &&
-                      env.pandadocDocumentId &&
-                      String(env.pandadocDocumentId).indexOf('dry-') !== 0;
-
-      status.className = 'bi-status ok';
-      if (isPending)              status.textContent = '✓ Uploaded to PandaDoc — still processing. Use "Refresh status" in a minute to finish the send.';
-      else if (mode === 'live')   status.textContent = '✓ Envelope sent — borrower will receive an email shortly.';
-      else if (mode === 'dry-run') status.textContent = '✓ Envelope queued (dry-run mode — no email sent).';
-      else                        status.textContent = '✓ Envelope queued.';
-      setTimeout(function() {
-        closeEsignModal();
-        refreshEnvelopes();
-      }, 1400);
+      // If PandaDoc isn't enabled, we're done — stub mode just records
+      // the envelope, no send call needed.
+      if (mode === 'disabled') {
+        status.className = 'bi-status ok';
+        status.textContent = '✓ Envelope queued (stub mode — PandaDoc not configured).';
+        setTimeout(function() {
+          closeEsignModal();
+          refreshEnvelopes();
+        }, 1400);
+        return;
+      }
+      // Live or dry-run: kick off the second-phase send. Update modal
+      // copy so the LO knows what's happening.
+      status.textContent = 'Sending to PandaDoc…';
+      return SLA.Envelopes.send(env.id, ownerForCall).then(function(sendResp) {
+        var senv = (sendResp && sendResp.envelope) || env;
+        var smode = senv.pandadocMode;
+        var isPending = smode === 'live' && senv.status === 'queued' &&
+                        senv.pandadocDocumentId &&
+                        String(senv.pandadocDocumentId).indexOf('dry-') !== 0;
+        status.className = 'bi-status ok';
+        if (isPending)               status.textContent = '✓ Uploaded to PandaDoc — still processing. Use "Refresh status" in a minute to finish the send.';
+        else if (smode === 'live')   status.textContent = '✓ Envelope sent — borrower will receive an email shortly.';
+        else if (smode === 'dry-run') status.textContent = '✓ Envelope queued (dry-run mode — no email sent).';
+        else                          status.textContent = '✓ Envelope queued.';
+        setTimeout(function() {
+          closeEsignModal();
+          refreshEnvelopes();
+        }, 1400);
+      });
     }).catch(function(err) {
       btn.disabled = false; btn.textContent = 'Queue Envelope';
       status.className = 'bi-status err';

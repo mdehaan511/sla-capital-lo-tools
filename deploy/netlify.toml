@@ -187,6 +187,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/envelopes-send"
+  to = "/.netlify/functions/envelopes-send"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/envelopes-refresh"
   to = "/.netlify/functions/envelopes-refresh"
   status = 200
