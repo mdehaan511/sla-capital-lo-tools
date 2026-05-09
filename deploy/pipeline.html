@@ -501,12 +501,17 @@ netlifyIdentity.on('init', function(user) {
   _user = user;
   _isAdmin = SLA.isAdmin(user);
   document.getElementById('auth-gate').style.display = 'none';
+  // Multi-select is available to ALL users now — LOs can clear their own
+  // duplicate quotes/prospects via Select Multiple → Decline. Backend
+  // checks (quotes-decide.mjs and prospects-bulk-delete.mjs) enforce that
+  // non-admins can only act on their own loans.
+  var smBtn = document.getElementById('selectModeBtn');
+  if (smBtn) smBtn.style.display = 'inline-block';
+
   if (_isAdmin) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     document.getElementById('scopeToggle').style.display = 'flex';
-    var smBtn = document.getElementById('selectModeBtn');
-    if (smBtn) smBtn.style.display = 'inline-block';
   }
   loadAll();
 });
@@ -922,7 +927,8 @@ function buildQuoteCard(it, colKey) {
   }
 
   // Bulk-select checkbox: rendered for ALL quote columns when select mode
-  // is on. Only admins see this (gated when toggling the mode).
+  // is on. Available to all users — backend (quotes-decide.mjs) ensures
+  // non-admins can only act on their own quotes.
   var bulkCb = '';
   var bulkClass = '';
   if (_selectMode) {

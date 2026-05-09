@@ -476,6 +476,12 @@ function getFICOMin(ficoStr) {
         </div>
         <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
       </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Phone <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label>
+          <input type="tel" id="borrowerPhone" placeholder="(555) 123-4567" />
+        </div>
+      </div>
 
       <div class="field span2">
         <div class="wrap">
@@ -1711,14 +1717,29 @@ function prefillFromProspect(p) {
     hoa:          p.monthlyHOA||'',
     loanAmt:      p.purchasePrice||'',
     propValue:    p.propertyValue||'',
+    // Currency Loan Amount for refinances. Without this AND the
+    // onPurposeChange() call below, the field stayed hidden and empty
+    // so the LO had to manually re-enter what the borrower already typed.
+    currentLoanAmt: p.currentLoanAmt||'',
   };
-  if (p.loanPurpose==='refinance') { var lp = $('loanPurpose'); if(lp) lp.value='refi_co'; }
+  if (p.loanPurpose==='refinance') {
+    var lp = $('loanPurpose');
+    if(lp) lp.value='refi_co';
+    // Reveal the conditional currentLoanAmt field. The select's onchange
+    // wires this up for manual selections, but programmatic .value = changes
+    // don't fire change events, so we have to call it ourselves.
+    if (typeof onPurposeChange === 'function') {
+      try { onPurposeChange(); } catch(_) {}
+    }
+  }
   Object.keys(map).forEach(function(id) {
     var el = $(id); if (el && map[id]) el.value = map[id];
   });
-  // Pre-fill borrower email from prospect
+  // Pre-fill borrower email + phone from prospect
   var emailEl = document.getElementById('borrowerEmail');
   if (emailEl && p.email) emailEl.value = p.email;
+  var phoneEl = document.getElementById('borrowerPhone');
+  if (phoneEl && p.phone) phoneEl.value = p.phone;
   // Store prospect reference for client promotion on save
   window._currentProspect = p;
   // Recalculate and re-render now that all fields are populated
@@ -1772,6 +1793,7 @@ function saveCurrentQuote() {
   var formData = {
     borrower:      $('borrowerName').value,
     borrowerEmail: ($('borrowerEmail') ? $('borrowerEmail').value.trim().toLowerCase() : ''),
+    borrowerPhone: ($('borrowerPhone') ? $('borrowerPhone').value.trim() : ''),
     address:    $('propAddress').value,
     loanAmt:    $('loanAmt').value,
     propValue:  $('propValue').value,
@@ -1838,7 +1860,7 @@ function saveCurrentQuote() {
     ClientBook.upsert(_quoteUser, formData.borrowerEmail,
       nameParts.slice(0,-1).join(' ') || nameParts[0] || '',
       nameParts.length > 1 ? nameParts[nameParts.length-1] : '',
-      '', loanRecord);
+      formData.borrowerPhone || '', loanRecord);
     window._originalAddress = formData.address; // update for subsequent saves
   }
 
@@ -1873,6 +1895,7 @@ function loadQuoteIntoForm(formData) {
   var fields = {
     borrowerName: formData.borrower      || formData.borrowerName  || '',
     borrowerEmail: formData.borrowerEmail || '',
+    borrowerPhone: formData.borrowerPhone || '',
     propAddress:  formData.address    || '',
     loanAmt:      formData.loanAmt    || '',
     propValue:    formData.propValue  || '',
@@ -2118,6 +2141,13 @@ netlifyIdentity.on('init', function(user) {
           // (the quote's formData might have been saved without the email).
           if (!fd.borrowerEmail && clientRec && clientRec.email) {
             fd = Object.assign({}, fd, { borrowerEmail: clientRec.email });
+          }
+          // Same for phone — older saved quotes won't have borrowerPhone in
+          // their formData; fall back to the client profile so returning
+          // LOs see the phone they previously entered (or that was filled
+          // in elsewhere, like the borrower-info form).
+          if (!fd.borrowerPhone && clientRec && clientRec.phone) {
+            fd = Object.assign({}, fd, { borrowerPhone: clientRec.phone });
           }
           window._originalAddress = found.address || '';
           window._originalBorrowerEmail = (clientRec && clientRec.email) || '';

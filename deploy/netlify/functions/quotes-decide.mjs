@@ -25,7 +25,6 @@ export default async (req, context) => {
 
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isAdmin(user)) return json(403, { error: 'Admin required' });
 
   const body = await readJsonBody(req);
   if (body === null) return json(400, { error: 'Invalid JSON' });
@@ -34,6 +33,14 @@ export default async (req, context) => {
   if (!ALLOWED.has(status)) return json(400, { error: 'Invalid status' });
 
   const cleanOwner = keySafe(String(ownerKey).toLowerCase());
+  // LOs can decide their OWN quotes (lets them clear duplicates / mark
+  // dropped leads as Declined themselves). Admins can decide anyone's.
+  // Without this gate, exposing the multi-select bulk-decline button to
+  // non-admins would just produce 403s.
+  const userKey = keySafe(normalizeEmail(user.email || ''));
+  if (!isAdmin(user) && cleanOwner !== userKey) {
+    return json(403, { error: 'Cannot decide another LO\'s quote' });
+  }
   const cleanId    = keySafe(String(quoteId));
   const key = `${cleanOwner}/${cleanId}`;
 

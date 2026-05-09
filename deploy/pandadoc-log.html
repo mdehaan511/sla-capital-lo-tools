@@ -239,14 +239,16 @@ function render() {
   document.getElementById('content').innerHTML = html;
 }
 
-// Strip the big base64-size and raw-response fields from the displayed
-// JSON so the panel stays readable. The backend already drops the actual
-// PDF bytes — we just hide a few noisy fields here.
+// Render the log entry as readable JSON. The `raw` field (when present)
+// is the actual PandaDoc response body — extremely useful for debugging
+// 4xx/5xx errors, so we keep it visible. We do strip the giant pdfBase64
+// if it sneaks in (the backend already replaces it with a size, but
+// belt-and-suspenders here).
 function stripBig(l) {
   var copy = {};
   Object.keys(l).forEach(function(k) {
-    if (k === 'raw' && l[k] && typeof l[k] === 'object') {
-      copy[k] = '(see PandaDoc dashboard for full response)';
+    if (k === 'pdfBase64') {
+      copy[k] = '(' + (typeof l[k] === 'string' ? l[k].length : 0) + ' bytes — omitted)';
     } else {
       copy[k] = l[k];
     }

@@ -271,8 +271,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="err-msg" id="err-purchasePrice">Required</div>
         </div>
 
-        <!-- Current / ARV value — label changes by loan type -->
-        <div class="field">
+        <!-- Current / ARV value — label changes by loan type. Hidden
+             entirely when Fix & Flip is selected because the LO sizes RTL
+             from purchase + rehab + ARV via the sizer's leverage caps —
+             the borrower doesn't need to specify a "loan amount" upfront. -->
+        <div class="field" id="field-propertyValue">
           <div class="wrap" id="wrap-propertyValue">
             <label id="lbl-propertyValue">Property Value / ARV <span class="req">*</span></label>
             <input type="text" inputmode="decimal" id="propertyValue" placeholder="$0" oninput="clearE('propertyValue'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
@@ -415,6 +418,14 @@ function onLoanProductChange() {
   // Refi field belongs to DSCR; clear if leaving DSCR
   if (!isDscr) setShow('cond-refi', false);
 
+  // Fix & Flip doesn't ask for "Property Value / Loan Amount" up top —
+  // the LO derives the loan amount from purchase + rehab + ARV using
+  // the sizer's LTC/LTV/LTARV caps. Asking the borrower to specify a
+  // loan amount confused some applicants and the value got ignored
+  // anyway. Hide the field entirely when FF is selected.
+  var pvField = document.getElementById('field-propertyValue');
+  if (pvField) pvField.style.display = isFF ? 'none' : '';
+
   // Funding date is half-width when paired with flipsCompleted (FF mode),
   // full-width otherwise so it doesn't look orphaned
   var fundingField = document.getElementById('field-fundingDate');
@@ -533,9 +544,12 @@ function validate() {
   var ok = true;
   var lp = gv('loanProduct');
 
-  // Always required
-  var always = ['firstName','lastName','phone','propAddress','propType','purchasePrice','propertyValue','fundingDate'];
+  // Always required (regardless of loan product)
+  var always = ['firstName','lastName','phone','propAddress','propType','purchasePrice','fundingDate'];
   always.forEach(function(id){ if (!gv(id)) { showE(id); ok=false; }});
+  // propertyValue is required for everything EXCEPT Fix & Flip (the field
+  // is hidden in FF mode — see onLoanProductChange).
+  if (lp !== 'fix_flip' && !gv('propertyValue')) { showE('propertyValue'); ok = false; }
 
   // Email
   var em = gv('email');

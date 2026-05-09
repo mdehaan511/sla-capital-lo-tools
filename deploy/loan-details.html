@@ -324,6 +324,25 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// ── E-signature feature flag ──────────────────────────────────────
+// Hides Send for Signature button + envelope history panel from non-
+// super-admins until PandaDoc production access is set up. Super-
+// admins continue to see and use the feature for testing.
+//
+// Values:
+//   'off'              — hidden from everyone
+//   'super-admin-only' — hidden from LOs, visible to super-admins (current)
+//   'on'               — visible to everyone (after PandaDoc production is ready)
+//
+// To flip back on after Monday's PandaDoc call: change to 'on'.
+var ESIGN_FEATURE = 'super-admin-only';
+
+function eSignVisible() {
+  if (ESIGN_FEATURE === 'on')  return true;
+  if (ESIGN_FEATURE === 'off') return false;
+  return !!(_user && SLA && SLA.isSuperAdmin && SLA.isSuperAdmin(_user));
+}
+
 var _user = null;
 var _clientId = null;
 var _loanId = null;
@@ -595,9 +614,10 @@ function render() {
 
   // E-signature send — only available once the loan is in In Processing
   // (status === 'approved'). Before then there's nothing meaningful to sign;
-  // after then (closed/denied) it's locked. Envelope history below still
-  // renders regardless of status so the LO can see past sends.
-  if (loanStatus === 'approved') {
+  // after then (closed/denied) it's locked. Also gated by the ESIGN_FEATURE
+  // flag at the top of this file — currently super-admin-only while we
+  // wait for PandaDoc production API access.
+  if (loanStatus === 'approved' && eSignVisible()) {
     html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()" style="margin-top:8px">' +
       '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
       'Send for Signature' +
@@ -1147,6 +1167,11 @@ function esSubmit() {
 // Re-pull this loan's envelopes from the server and render the panel.
 function refreshEnvelopes() {
   if (!_clientId || !_loanId) return;
+  // Feature-flagged: hidden from non-super-admins until PandaDoc production
+  // API is set up. Skipping the fetch entirely (rather than just hiding the
+  // panel) avoids unnecessary network calls and keeps Phase 1 dry-run
+  // envelopes from leaking into LO views.
+  if (!eSignVisible()) return;
   var panel = document.getElementById('envelopesPanel');
   var listEl = document.getElementById('envelopesList');
   if (!panel || !listEl) return;

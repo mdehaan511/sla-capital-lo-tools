@@ -329,6 +329,12 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
         </div>
         <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
       </div>
+      <div class="field">
+        <div class="wrap">
+          <label>Borrower Phone <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label>
+          <input type="tel" id="borrowerPhone" placeholder="(555) 123-4567" />
+        </div>
+      </div>
 
       <div class="form-divider"></div>
 
@@ -1299,6 +1305,25 @@ function prefillRTLFromProspect(p) {
   }
   if (typeof toggleRehab==='function') toggleRehab();
   if (typeof updateRegion==='function') updateRegion();
+  // Loan purpose + current loan amount for refis. Same fix as DSCR side:
+  // setting .value programmatically doesn't fire onchange, so we have to
+  // call the toggle ourselves to reveal field-currentLoanAmtRtl.
+  if (p.loanPurpose === 'refinance') {
+    var lpEl = document.getElementById('loanPurpose');
+    if (lpEl) {
+      // RTL refi options: 'refi_co' (cash out) or 'refi_rt'. The short-app
+      // form doesn't ask which; default to cash out as the more common case.
+      // The LO can change it after if needed.
+      lpEl.value = 'refi_co';
+      if (typeof onRtlPurposeChange === 'function') {
+        try { onRtlPurposeChange(); } catch(_) {}
+      }
+    }
+    if (p.currentLoanAmt) {
+      var clEl2 = document.getElementById('currentLoanAmt');
+      if (clEl2) clEl2.value = p.currentLoanAmt;
+    }
+  }
   // Pre-fill borrower fields from prospect
   var bnEl = document.getElementById('borrowerName');
   if (bnEl && p.firstName) bnEl.value = (p.firstName + ' ' + (p.lastName||'')).trim();
@@ -1308,6 +1333,10 @@ function prefillRTLFromProspect(p) {
   if (_beElR && p.email) _beElR.value = p.email;
   var _bnElR = document.getElementById('borrowerName');
   if (_bnElR && p.firstName) _bnElR.value = (p.firstName+' '+(p.lastName||'')).trim();
+  // Phone too — newly added in this deploy. Same "don't overwrite if blank"
+  // pattern as the email field.
+  var bpEl = document.getElementById('borrowerPhone');
+  if (bpEl && p.phone) bpEl.value = p.phone;
   window._currentProspect = p;
   // Force calculation since the form is now ready to price
   try {
@@ -1351,7 +1380,7 @@ function saveCurrentQuote() {
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
-    'borrowerName','borrowerEmail','transactionalAmt','currentLoanAmt'];
+    'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt'];
   var formData = {};
   fields.forEach(function(id) {
     var el = document.getElementById(id);
@@ -1474,7 +1503,7 @@ function saveCurrentQuote() {
     ClientBook.upsert(_quoteUser, formData.borrowerEmail,
       rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',
       rNameParts.length > 1 ? rNameParts[rNameParts.length-1] : '',
-      '', loanRec);
+      formData.borrowerPhone || '', loanRec);
     window._originalAddress = formData.address;
   }
 
@@ -1501,7 +1530,7 @@ function loadRTLQuote(formData) {
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
-    'borrowerName','borrowerEmail','transactionalAmt','currentLoanAmt'];
+    'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt'];
   fields.forEach(function(id) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
@@ -1711,6 +1740,11 @@ netlifyIdentity.on('init', function(user) {
             borrowerName: ((clientRec.firstName||'') + ' ' + (clientRec.lastName||'')).trim(),
             borrowerEmail: clientRec.email || '',
           });
+        }
+        // Fall back to client phone if the saved quote doesn't have one.
+        // Older quotes (pre-borrowerPhone-field) won't carry it.
+        if (!fd.borrowerPhone && clientRec && clientRec.phone) {
+          fd = Object.assign({}, fd, { borrowerPhone: clientRec.phone });
         }
         // If address is one combined string but no street/city/state fields,
         // try to parse them so the form fields populate correctly. Otherwise

@@ -234,7 +234,14 @@ export async function sendEnvelope({
   }
 
   if (!createResp.ok || !createBody.id) {
-    const errMsg = createBody.detail || createBody.message || ('HTTP ' + createResp.status);
+    let errMsg = createBody.detail || createBody.message || createBody.error;
+    if (!errMsg && createBody.non_field_errors && createBody.non_field_errors.length) {
+      errMsg = createBody.non_field_errors.join('; ');
+    }
+    if (!errMsg) {
+      const bodyStr = JSON.stringify(createBody);
+      errMsg = bodyStr === '{}' ? ('HTTP ' + createResp.status + ' (empty body)') : bodyStr.slice(0, 300);
+    }
     await writeLog({
       mode: 'live', envelopeId, action: 'create', ok: false,
       status: createResp.status, error: errMsg, raw: createBody,
@@ -302,7 +309,36 @@ export async function sendEnvelope({
   }
 
   if (!sendResp.ok) {
-    const errMsg = sendBody.detail || sendBody.message || ('HTTP ' + sendResp.status);
+    // PandaDoc returns a structured error body that varies by error class.
+    // Common shapes:
+    //   { type: 'permissions_error', detail: '...' }
+    //   { error: '...', message: '...' }
+    //   { detail: '...' }
+    //   { non_field_errors: ['...'] }
+    // We try detail/message/error first, then fall back to scanning for
+    // any string-valued field. The full body is logged regardless so the
+    // admin can inspect anything we missed.
+    let errMsg = sendBody.detail || sendBody.message || sendBody.error;
+    if (!errMsg && sendBody.non_field_errors && sendBody.non_field_errors.length) {
+      errMsg = sendBody.non_field_errors.join('; ');
+    }
+    if (!errMsg) {
+      // Last-ditch: stringify the body, trimmed to something readable
+      const bodyStr = JSON.stringify(sendBody);
+      errMsg = bodyStr === '{}' ? ('HTTP ' + sendResp.status + ' (empty body)') : bodyStr.slice(0, 300);
+    }
+    // Helpful hint for the most common sandbox failure mode: trying to
+    // send to an email outside the PandaDoc account's own domain. The
+    // returned `detail` for that case usually contains the word "domain"
+    // or "sandbox" or "trial".
+    if (sendResp.status === 403) {
+      const lcMsg = String(errMsg).toLowerCase();
+      const hintsSandbox = lcMsg.includes('domain') || lcMsg.includes('sandbox') || lcMsg.includes('trial') || lcMsg.includes('organization') || lcMsg.includes('organisation');
+      // If the body is empty or unhelpful, append a likely-cause hint
+      if (!hintsSandbox && (lcMsg === ('http ' + sendResp.status + ' (empty body)') || lcMsg.length < 30)) {
+        errMsg += ' — Likely cause: sandbox API keys can only send to email addresses on the same domain as your PandaDoc account. Use a recipient email matching your PandaDoc account domain, or switch to a production API key.';
+      }
+    }
     await writeLog({
       mode: 'live', envelopeId, action: 'send', ok: false,
       pandadocDocumentId: documentId, status: sendResp.status, error: errMsg, raw: sendBody,
