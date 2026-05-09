@@ -166,21 +166,37 @@
           if (phone && !existing.phone) existing.phone = phone;
           if (loanData) {
             existing.loans = existing.loans || [];
-            // Normalize an address by stripping commas, lowercasing, and
-            // collapsing whitespace. Then take the first 25 chars (street part)
-            // so we match even if the rest of the address (city/state/zip)
-            // changed format between saves. This prevents duplicate loans
-            // when address formatting changes (e.g. zip added in a later release).
+            var lIdx = -1;
+            // PRIMARY MATCH STRATEGY: by loan ID. The sizer sets
+            // _editingLoanId when it loaded an existing loan (via saved
+            // quote, loan-details URL params, or prospect promotion). When
+            // present, this is the deterministic match — we update THAT
+            // loan record regardless of how the address might have shifted
+            // (Google Places normalization, manual edits, etc.).
+            if (loanData._editingLoanId) {
+              for (var idIdx = 0; idIdx < existing.loans.length; idIdx++) {
+                if (existing.loans[idIdx].id === loanData._editingLoanId) {
+                  lIdx = idIdx; break;
+                }
+              }
+            }
+            // Fallback: address-based matching for sizer saves that don't
+            // have a known loan ID (i.e. brand new quote with no prior
+            // record). Normalize an address by stripping commas, lowercasing,
+            // and collapsing whitespace. Then take the first 25 chars
+            // (street part) so we match even if the rest of the address
+            // (city/state/zip) changed format between saves.
             var normAddrFull = (loanData.address || '').toLowerCase().trim();
             var normAddrStreet = normAddrFull.split(',')[0].trim().replace(/\s+/g, ' ');
-            var lIdx = -1;
-            for (var k = 0; k < existing.loans.length; k++) {
-              var existAddrFull = (existing.loans[k].address || '').toLowerCase().trim();
-              var existAddrStreet = existAddrFull.split(',')[0].trim().replace(/\s+/g, ' ');
-              // Match if full address matches OR street parts match
-              if (existAddrFull === normAddrFull
-                  || (normAddrStreet && existAddrStreet && existAddrStreet === normAddrStreet)) {
-                lIdx = k; break;
+            if (lIdx < 0) {
+              for (var k = 0; k < existing.loans.length; k++) {
+                var existAddrFull = (existing.loans[k].address || '').toLowerCase().trim();
+                var existAddrStreet = existAddrFull.split(',')[0].trim().replace(/\s+/g, ' ');
+                // Match if full address matches OR street parts match
+                if (existAddrFull === normAddrFull
+                    || (normAddrStreet && existAddrStreet && existAddrStreet === normAddrStreet)) {
+                  lIdx = k; break;
+                }
               }
             }
             if (lIdx < 0 && loanData._originalAddress) {
@@ -232,8 +248,15 @@
                 projectDescription: prior.projectDescription || loanData.projectDescription || '',
                 notes:       prior.notes       || loanData.notes || '',
               });
+              // _editingLoanId is a transient meta field used for matching,
+              // not a real loan property. Don't persist it.
+              delete existing.loans[lIdx]._editingLoanId;
             } else {
-              existing.loans.unshift(loanData);
+              // Strip the meta field before pushing too, in case the merge
+              // strategies all missed and we're creating a new loan.
+              var newLoan = Object.assign({}, loanData);
+              delete newLoan._editingLoanId;
+              existing.loans.unshift(newLoan);
             }
           }
         }

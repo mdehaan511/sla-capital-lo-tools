@@ -1707,6 +1707,41 @@ function initQuotes(userEmail) {
 
 function prefillFromProspect(p) {
   if (!p) return;
+  // Look up the loan record that prospects-save.mjs created for this
+  // prospect on the client, and lock onto its ID. Without this, the
+  // sizer save would generate a brand-new loan ID and the merge logic
+  // would have to fall back to address matching — which fails when the
+  // borrower-typed address differs from what Google Places returns.
+  // This is the deterministic fix: match by the loan ID, not the address.
+  if (p.email && window.SLA && SLA.Clients) {
+    SLA.Clients.list({}).then(function(r) {
+      var clients = (r && r.clients) || [];
+      var pEmail = String(p.email).toLowerCase().trim();
+      for (var ci = 0; ci < clients.length; ci++) {
+        if ((clients[ci].email || '').toLowerCase() !== pEmail) continue;
+        var loans = clients[ci].loans || [];
+        // Pick the most recent prospect-created loan that hasn't been
+        // priced yet (no rate). If multiple, prefer one matching the
+        // prospect's address.
+        var pAddr = (p.propAddress || '').toLowerCase().trim();
+        var match = null;
+        for (var li = 0; li < loans.length; li++) {
+          var l = loans[li];
+          if (!l.fromApplication) continue;
+          if (l.rate) continue;
+          var lAddr = (l.address || '').toLowerCase().trim();
+          if (pAddr && lAddr === pAddr) { match = l; break; }
+          if (!match) match = l;
+        }
+        if (match) {
+          window._editingLoanId = match.id;
+          window._editingClientId = clients[ci].id;
+        }
+        break;
+      }
+    }).catch(function(){});
+  }
+
   // Map prospect fields to DSCR form
   var map = {
     borrowerName: (p.firstName||'')+' '+(p.lastName||''),
@@ -1857,6 +1892,15 @@ function saveCurrentQuote() {
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRecord._originalAddress = window._originalAddress;
     }
+    // Critical fix for the "sizer save creates a duplicate" bug: when we
+    // have a known loan ID (loaded an existing quote, opened from a loan-
+    // details page, or promoted a prospect), pass it through so the
+    // backend updates THAT specific loan record. Without this, the
+    // backend falls back to address-matching, which fails when the
+    // borrower-typed address differs from Google Places' canonical form.
+    if (window._editingLoanId) {
+      loanRecord._editingLoanId = window._editingLoanId;
+    }
     ClientBook.upsert(_quoteUser, formData.borrowerEmail,
       nameParts.slice(0,-1).join(' ') || nameParts[0] || '',
       nameParts.length > 1 ? nameParts[nameParts.length-1] : '',
@@ -1864,16 +1908,14 @@ function saveCurrentQuote() {
     window._originalAddress = formData.address; // update for subsequent saves
   }
 
-  // Promote prospect to Book of Clients if this came from a prospect form
-  if (window._currentProspect && window.ClientBook) {
-    var savedQ = QuoteStore.getQuote(_quoteUser, 'dscr', formData.address);
-    if (savedQ) {
-      ClientBook.addOrUpdateClient(_quoteUser, window._currentProspect, savedQ);
-      // Prospect is now considered "worked"; prospects-list will hide it
-      // automatically because it matches a saved-quote address.
-      window._currentProspect = null;
-      try { localStorage.removeItem('sla_prefill_prospect'); } catch(e){}
-    }
+  // Promote prospect to Book of Clients if this came from a prospect form.
+  // We no longer call addOrUpdateClient here — the upsert above already
+  // handles the prospect's loan via the loanRecord, and addOrUpdateClient
+  // was creating a duplicate loan record on the client (it called upsert
+  // a second time with a different generated ID).
+  if (window._currentProspect) {
+    window._currentProspect = null;
+    try { localStorage.removeItem('sla_prefill_prospect'); } catch(e){}
   }
 
   // Visual feedback on button
@@ -2054,6 +2096,11 @@ netlifyIdentity.on('init', function(user) {
             if (!hit || !hit.formData) return false;
             window._originalAddress = hit.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = hit.formData.borrowerEmail || '';
+            // Capture the loanId so on save we update the existing loan
+            // record by ID rather than relying on address matching. Loan
+            // records on the client store are keyed by id, so this is the
+            // deterministic match.
+            window._editingLoanId = loanIdP || null;
             return applyLockedOverrideIfAnyDSCR(hit.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
               tryAutoDownload(); trySignatureHandoff();
@@ -2069,6 +2116,7 @@ netlifyIdentity.on('init', function(user) {
           if (q && q.formData) {
             window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = q.formData.borrowerEmail || '';
+            window._editingLoanId = loanIdP || null;
             // Item #2: apply LO override from loan record if present
             return applyLockedOverrideIfAnyDSCR(q.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
@@ -2151,6 +2199,12 @@ netlifyIdentity.on('init', function(user) {
           }
           window._originalAddress = found.address || '';
           window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
+          // Lock onto the existing loan's ID so save updates this record
+          // by ID instead of address-matching. This is the fix for "sizer
+          // edits don't show up in loan details" — without it, a sizer
+          // save with a slightly different address string would create a
+          // duplicate loan and orphan the loan-details page.
+          window._editingLoanId = found.id || loanIdP || null;
           loadQuoteIntoForm(fd);
           tryAutoDownload(); trySignatureHandoff();
           return true;
