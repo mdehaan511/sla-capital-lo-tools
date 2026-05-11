@@ -479,7 +479,7 @@ function getFICOMin(ficoStr) {
       <div class="field">
         <div class="wrap">
           <label>Borrower Phone <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label>
-          <input type="tel" id="borrowerPhone" placeholder="(555) 123-4567" />
+          <input type="tel" id="borrowerPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)" />
         </div>
       </div>
 
@@ -1890,7 +1890,7 @@ function prefillFromProspect(p) {
   var emailEl = document.getElementById('borrowerEmail');
   if (emailEl && p.email) emailEl.value = p.email;
   var phoneEl = document.getElementById('borrowerPhone');
-  if (phoneEl && p.phone) phoneEl.value = p.phone;
+  if (phoneEl && p.phone) { phoneEl.value = p.phone; applyPhoneMask(phoneEl); }
   // Store prospect reference for client promotion on save
   window._currentProspect = p;
   // Recalculate and re-render now that all fields are populated
@@ -1920,6 +1920,16 @@ function _clearEmailError() {
   var wrap = document.getElementById('borrowerEmailWrap');
   if (err) err.style.display = 'none';
   if (wrap) wrap.classList.remove('has-err');
+}
+
+// Format a phone input as (XXX) XXX-XXXX while the user types.
+// Mirrors the same helper in apply.html so the borrower-experience and
+// LO-side input behave consistently.
+function applyPhoneMask(el) {
+  var digits = String(el.value || '').replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) el.value = digits;
+  else if (digits.length <= 6) el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+  else el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
 }
 
 function saveCurrentQuote() {
@@ -2074,6 +2084,12 @@ function loadQuoteIntoForm(formData) {
     var el = $(id);
     if (el) el.value = fields[id];
   });
+  // Re-format the phone (could have been saved without formatting in
+  // older quotes, or pulled from the client record which may store raw
+  // digits). applyPhoneMask is idempotent — formatted input formats again
+  // to the same thing.
+  var phoneEl2 = $('borrowerPhone');
+  if (phoneEl2 && phoneEl2.value) applyPhoneMask(phoneEl2);
   // Show/hide the refi field based on loaded loanPurpose
   if (typeof onPurposeChange === 'function') onPurposeChange();
   // Lock borrower name once a quote is loaded — changing it would orphan
