@@ -154,7 +154,7 @@ var QuoteStore = (function () {
     }
   }
 
-  function updateStatus(userEmail, toolType, addrKey, status) {
+  function updateStatus(userEmail, toolType, addrKey, status, extraFields) {
     var norm = normalizeAddress(addrKey);
     var idx = _cache.findIndex(function (q) {
       return q.toolType === toolType && normalizeAddress(q.address) === norm;
@@ -162,6 +162,15 @@ var QuoteStore = (function () {
     if (idx < 0) return false;
     _cache[idx].status = status;
     _cache[idx].updatedAt = new Date().toISOString();
+    // Allow callers to splice in additional fields at the same time —
+    // e.g. submitNotes when transitioning to "submitted". This avoids a
+    // second round-trip and keeps the quote consistent with the loan
+    // record that the same caller is updating.
+    if (extraFields && typeof extraFields === 'object') {
+      Object.keys(extraFields).forEach(function (k) {
+        _cache[idx][k] = extraFields[k];
+      });
+    }
     SLA.Quotes.save(_cache[idx]).catch(function (err) {
       console.warn('QuoteStore.updateStatus persist failed:', err);
     });

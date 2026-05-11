@@ -254,6 +254,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <button class="filter-btn active" data-tf="all"  onclick="setTF('all')">All</button>
       <button class="filter-btn" data-tf="dscr"  onclick="setTF('dscr')">DSCR</button>
       <button class="filter-btn" data-tf="rtl"   onclick="setTF('rtl')">Fix &amp; Flip</button>
+      <button class="filter-btn" onclick="downloadClientsCSV()" title="Download visible clients as CSV">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;margin-right:4px;vertical-align:-1px"><path d="M6 1.5v6m0 0L3.5 5M6 7.5L8.5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 9v1.5h8V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        CSV
+      </button>
     </div>
     <div class="alpha-jump" id="alphaJump" style="display:none"></div>
     <div id="clientsList"></div>
@@ -275,6 +279,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       </button>
     </div>
     <div class="alpha-jump" id="adminAlphaJump" style="display:none"></div>
+    <div class="summary-bar" id="adminSummaryBar"></div>
     <div id="adminClientsList"></div>
   </div>
 </div>
@@ -376,6 +381,93 @@ function setTF(t) {
   _tf = t;
   document.querySelectorAll('[data-tf]').forEach(function(b){ b.classList.toggle('active', b.dataset.tf===t); });
   renderClients();
+}
+
+// CSV export of the LO's clients. Respects the currently-applied search +
+// type filter so the file matches what the LO is looking at on screen
+// (less surprising than always-exports-everything). Four columns:
+// Name, Email, Phone, Added Date.
+//
+// Escaping follows RFC 4180: wrap any value with comma/quote/newline in
+// double quotes, double-up internal quotes. UTF-8 BOM at the top so Excel
+// reads accented chars correctly.
+function downloadClientsCSV() {
+  if (!_clients || !_clients.length) {
+    alert('No clients to download yet.');
+    return;
+  }
+  // Apply the same filter logic renderClients() uses, so the CSV matches
+  // the on-screen view. If we ever diverge, this is the place to fix.
+  var search = (document.getElementById('searchInput').value||'').toLowerCase().trim();
+  var rows = _clients.filter(function(c) {
+    if (_tf !== 'all') {
+      var hasType = (c.loans||[]).some(function(l){ return l.toolType===_tf; });
+      if (!hasType) return false;
+    }
+    if (search) {
+      var hay = [c.firstName,c.lastName,c.email,c.phone,(c.prospectData||{}).propAddress||''].join(' ').toLowerCase();
+      if (hay.indexOf(search)<0) return false;
+    }
+    return true;
+  });
+  rows.sort(function(a, b) {
+    var aLast = (a.lastName || '').toLowerCase();
+    var bLast = (b.lastName || '').toLowerCase();
+    if (aLast !== bLast) return aLast.localeCompare(bLast);
+    return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase());
+  });
+  if (!rows.length) {
+    alert('No clients match the current filter.');
+    return;
+  }
+
+  function csvEsc(v) {
+    var s = String(v == null ? '' : v);
+    // Per RFC 4180: only quote if necessary
+    if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0 || s.indexOf('\r') >= 0) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    // YYYY-MM-DD so the CSV sorts naturally and Excel reads it as a date
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  var lines = ['Name,Email,Phone,Added Date'];
+  rows.forEach(function(c) {
+    var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim();
+    lines.push([
+      csvEsc(name),
+      csvEsc(c.email || ''),
+      csvEsc(c.phone || ''),
+      csvEsc(fmtDate(c.createdAt)),
+    ].join(','));
+  });
+
+  // UTF-8 BOM so Excel handles accented characters correctly
+  var bom = '\uFEFF';
+  var blob = new Blob([bom + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+  var ts = new Date().toISOString().slice(0, 10);
+  var fnSuffix = _tf !== 'all' ? '_' + _tf : '';
+  if (search) fnSuffix += '_filtered';
+  var filename = 'SLA_Clients_' + ts + fnSuffix + '.csv';
+
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Free the blob URL after the click is handled
+  setTimeout(function() { URL.revokeObjectURL(url); }, 0);
 }
 
 function setView(v) {
@@ -707,8 +799,29 @@ function renderAdminClients() {
     return (a.client.firstName||'').toLowerCase().localeCompare((b.client.firstName||'').toLowerCase());
   });
 
+  // Summary bar: total clients + total loans across the *filtered* set.
+  // Updates reactively whenever the search box or LO filter changes since
+  // both call renderAdminClients(). Mirrors the My Clients summary pattern.
+  var summaryEl = document.getElementById('adminSummaryBar');
+  if (summaryEl) {
+    var totalClients = flat.length;
+    var totalLoans = flat.reduce(function(s, e) { return s + ((e.client.loans||[]).length); }, 0);
+    var loCount = loFilter ? 1 : _adminData.filter(function(u){
+      return (u.clients || []).some(function(c) {
+        if (!search) return true;
+        var hay = ((c.firstName||'')+' '+(c.lastName||'')+' '+(c.email||'')+' '+(c.phone||'')+' '+u.email).toLowerCase();
+        return hay.indexOf(search) >= 0;
+      });
+    }).length;
+    summaryEl.innerHTML =
+      '<div class="summary-pill"><strong>'+totalClients+'</strong> clients</div>' +
+      '<div class="summary-pill"><strong>'+totalLoans+'</strong> total loans</div>' +
+      '<div class="summary-pill"><strong>'+loCount+'</strong> '+(loCount===1?'LO':'LOs')+'</div>';
+  }
+
   if (!flat.length) {
     if (alphaJump) alphaJump.style.display = 'none';
+    if (summaryEl) summaryEl.innerHTML = '';
     wrap.innerHTML = '<div class="empty-state"><h3>No clients</h3><p>'+
       (search || loFilter
         ? 'No clients match your search/filter. Try clearing them.'

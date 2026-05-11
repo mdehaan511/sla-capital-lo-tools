@@ -347,10 +347,33 @@
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  // Boot
+  // Boot — wait for Netlify Identity to initialize so we only inject the
+  // widget for signed-in users. On the login page (index.html) the widget
+  // shouldn't appear since the chat backend requires auth and would 401.
+  // On all other pages users are always signed in (page redirects to /
+  // otherwise), so this gate is a no-op there.
+  function bootWhenReady() {
+    if (typeof netlifyIdentity === 'undefined') {
+      // Widget script hasn't loaded yet — try again shortly
+      setTimeout(bootWhenReady, 100);
+      return;
+    }
+    var cur = null;
+    try { cur = netlifyIdentity.currentUser(); } catch (_) {}
+    if (cur) {
+      inject();
+    } else {
+      // Listen for login events (could happen on this page or a later one)
+      try {
+        netlifyIdentity.on('login', inject);
+        netlifyIdentity.on('init', function(user) { if (user) inject(); });
+      } catch (_) {}
+    }
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', inject);
+    document.addEventListener('DOMContentLoaded', bootWhenReady);
   } else {
-    inject();
+    bootWhenReady();
   }
 })();

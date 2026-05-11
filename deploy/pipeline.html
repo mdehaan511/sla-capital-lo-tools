@@ -441,6 +441,26 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Submit Notes modal (Quoted column → Submitted) -->
+<div class="bi-modal-bg" id="submitNotesModal">
+  <div class="bi-modal">
+    <h3>Submit Loan for Review</h3>
+    <p class="bi-sub" id="submitNotesSub">Add any notes for the underwriter before submitting. These will appear on the Submissions page and in the loan's Notes section.</p>
+
+    <div style="margin-top:14px">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">Notes for Underwriter (optional)</label>
+      <textarea id="submitNotesText" style="width:100%;min-height:90px;resize:vertical;border:1.5px solid var(--border);border-radius:var(--r-xs);padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:13px" placeholder="Any additional context the underwriter should know…"></textarea>
+    </div>
+
+    <div class="bi-status" id="submitNotesStatus"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeSubmitNotesModal()">Cancel</button>
+      <button class="bi-btn primary" id="submitNotesBtn" onclick="submitNotesConfirm()">Submit</button>
+    </div>
+  </div>
+</div>
+
 <!-- Send Loan App modal (Awaiting Application column) -->
 <div class="bi-modal-bg" id="sendBiModal">
   <div class="bi-modal">
@@ -1395,32 +1415,121 @@ function openInSizer(prospectId, ownerKey, tool) {
   window.location.href = dest + '?fromProspect=1';
 }
 
-// "Submit" a quote — moves it from Quoted → Submitted via QuoteStore status update.
-// Also fires the Slack notification path that lives in the loan-details page.
-// Here we use the simpler approach: just flip the status on the backend.
+// State held while the submit-notes modal is open. We need both the quote
+// AND the matching loan record (if any) so the confirm handler can update
+// both stores in one shot.
+var _submitNotesCtx = null;
+
+// "Submit" a quote — moves it from Quoted → Submitted. Opens a modal that
+// collects notes for the underwriter, then on confirm updates BOTH the
+// quote (drives Pipeline + Submissions) and the loan record (drives Loan
+// Details). The two used to be out of sync — quote was marked submitted,
+// loan stayed active — making the Loan Details page misleading.
 function goSubmit(quoteId, ownerKey) {
   var item = _items.quoted.find(function(it) { return it.id === quoteId && it.ownerKey === ownerKey; });
   if (!item) return;
-  var q = item.quote;
-  if (!confirm('Submit this loan for admin review?\n\n' + (q.borrower || q.address || ''))) return;
+  _submitNotesCtx = { quoteId: quoteId, ownerKey: ownerKey, item: item };
+  // Reset modal state
+  var ta = document.getElementById('submitNotesText');
+  if (ta) ta.value = '';
+  var sub = document.getElementById('submitNotesSub');
+  if (sub) sub.textContent = 'Submit "' + (item.quote.borrower || item.quote.address || 'this loan') + '" for review. Notes will appear on the Submissions page and in the loan\'s Notes section.';
+  document.getElementById('submitNotesStatus').textContent = '';
+  document.getElementById('submitNotesStatus').className = 'bi-status';
+  document.getElementById('submitNotesBtn').disabled = false;
+  document.getElementById('submitNotesBtn').textContent = 'Submit';
+  document.getElementById('submitNotesModal').classList.add('show');
+  setTimeout(function(){ if (ta) ta.focus(); }, 50);
+}
 
+function closeSubmitNotesModal() {
+  document.getElementById('submitNotesModal').classList.remove('show');
+  _submitNotesCtx = null;
+}
+
+function submitNotesConfirm() {
+  if (!_submitNotesCtx) return;
+  var ctx = _submitNotesCtx;
+  var notes = String((document.getElementById('submitNotesText') || {}).value || '').trim();
+  var status = document.getElementById('submitNotesStatus');
+  var btn = document.getElementById('submitNotesBtn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+  status.className = 'bi-status';
+  status.textContent = '';
+
+  var q = ctx.item.quote;
   var updated = Object.assign({}, q, {
     status: 'submitted',
     updatedAt: new Date().toISOString(),
+    submitNotes: notes,
   });
-  if (ownerKey && ownerKey !== (_user.email||'').toLowerCase()) {
-    updated._owner = ownerKey;
+  if (ctx.ownerKey && ctx.ownerKey !== (_user.email||'').toLowerCase()) {
+    updated._owner = ctx.ownerKey;
   }
+
+  // Two-store update: quote (drives Pipeline + Submissions) and the
+  // corresponding loan record on the client (drives Loan Details and
+  // makes the Notes section reflect the UW notes). If we can't find the
+  // matching loan (no client record yet, address mismatch), we still
+  // update the quote — the Submissions page reads from quotes so the UW
+  // workflow continues to work.
   SLA.Quotes.save(updated).then(function() {
-    showToast('Submitted for review');
-    // Also try Slack via Settings if configured (best-effort, fire and forget)
-    SLA.Settings.getAll().then(function(s) {
+    return updateLoanRecordOnSubmit(ctx.item, notes);
+  }).then(function() {
+    // Fire Slack notification (best-effort, fire and forget)
+    return SLA.Settings.getAll().then(function(s) {
       var hook = s && s.slack_webhook && s.slack_webhook.value;
-      if (hook) postSlackSubmission(hook, q);
+      if (hook) postSlackSubmission(hook, q, notes);
     }).catch(function(){});
+  }).then(function() {
+    closeSubmitNotesModal();
+    showToast('Submitted for review');
     loadAll();
   }).catch(function(err) {
-    showToast('Submit failed: ' + (err.message || 'unknown error'));
+    btn.disabled = false; btn.textContent = 'Submit';
+    status.className = 'bi-status err';
+    status.textContent = 'Submit failed: ' + (err.message || 'unknown error');
+  });
+}
+
+// Helper: locate the loan record matching a pipeline-quote item and
+// update its status + notes. The pipeline build path (renderRow) populates
+// _loanLookup with quote → loan refs; we use that to find the loan.
+function updateLoanRecordOnSubmit(quoteItem, notes) {
+  var lookup = quoteItem.loanLink || _loanLookup[(quoteItem.ownerKey || '').toLowerCase() + '|' + (quoteItem.quote.address || '').toLowerCase().trim()];
+  if (!lookup) {
+    // Quote exists but no matching loan record — return success without
+    // updating, the quote-only path was the pre-existing behavior.
+    return Promise.resolve();
+  }
+  var ownerOpt = (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) ? { all: true } : {};
+  return SLA.Clients.list(ownerOpt).then(function(r) {
+    var clients;
+    if (r && r.byOwner) {
+      clients = r.byOwner[lookup.ownerKey] || [];
+    } else {
+      clients = (r && r.clients) || [];
+    }
+    var client = clients.find(function(c) { return c.id === lookup.clientId; });
+    if (!client) return;
+    var loan = (client.loans || []).find(function(l) { return l.id === lookup.loanId; });
+    if (!loan) return;
+    loan.status = 'submitted';
+    loan.updatedAt = new Date().toISOString();
+    if (notes) {
+      loan.submitNotes   = notes;
+      loan.submitNotesAt = loan.updatedAt;
+      var ts = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+      var header = '— Submitted for UW review (' + ts + ') —';
+      var existing = String(loan.notes || '').trim();
+      loan.notes = existing ? (existing + '\n\n' + header + '\n' + notes) : (header + '\n' + notes);
+    }
+    var saveOpts = client;
+    if (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) {
+      saveOpts = Object.assign({}, client, { _owner: lookup.ownerKey });
+    }
+    return SLA.Clients.save(saveOpts);
   });
 }
 
@@ -1463,7 +1572,7 @@ function closeLoan(quoteId, ownerKey) {
   });
 }
 
-function postSlackSubmission(webhookUrl, q) {
+function postSlackSubmission(webhookUrl, q, notes) {
   var fd = q.formData || {};
   var loName = (_user.user_metadata && _user.user_metadata.full_name) || _user.email;
   var loanAmt = num(fd.loanAmt || fd.purchasePrice || q.loanAmt);
@@ -1479,6 +1588,13 @@ function postSlackSubmission(webhookUrl, q) {
       { type:'mrkdwn', text:'*Loan Officer*\n' + loName + ' | ' + (_user.email || '') },
     ]},
   ];
+  // Underwriter notes — only included when the LO actually entered some.
+  if (notes && String(notes).trim()) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: '*Notes for Underwriter*\n' + String(notes).trim() },
+    });
+  }
   try {
     fetch(webhookUrl, {
       method: 'POST', mode: 'no-cors',

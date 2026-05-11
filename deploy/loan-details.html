@@ -1293,6 +1293,7 @@ function submitLoan() {
     return;
   }
   var notes = (document.getElementById('ld-submitNotes') || {}).value || '';
+  notes = String(notes).trim();
 
   // Update the loan status in the client record
   var loans = _client.loans || [];
@@ -1300,6 +1301,22 @@ function submitLoan() {
   if (idx < 0) { alert('Loan not found.'); return; }
   loans[idx].status    = 'submitted';
   loans[idx].updatedAt = new Date().toISOString();
+  // Persist underwriter notes on the loan record so they show on:
+  //   1. The Submissions page (when UW is reviewing)
+  //   2. The Notes section on this Loan Details page (history)
+  //   3. The Slack notification (already happens below)
+  if (notes) {
+    loans[idx].submitNotes = notes;
+    loans[idx].submitNotesAt = new Date().toISOString();
+    // Append to free-form notes with a timestamped header so it's clear
+    // these were UW notes from a submit event (vs. ad-hoc LO notes).
+    var ts = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    var header = '— Submitted for UW review (' + ts + ') —';
+    var existingNotes = String(loans[idx].notes || '').trim();
+    loans[idx].notes = existingNotes
+      ? (existingNotes + '\n\n' + header + '\n' + notes)
+      : (header + '\n' + notes);
+  }
   _loan = loans[idx];
   _client.loans = loans;
 
@@ -1309,11 +1326,14 @@ function submitLoan() {
   }
 
   SLA.Clients.save(saveOpts).then(function() {
-    // Also reflect status in QuoteStore (Saved Quotes)
+    // Also reflect status in QuoteStore (Saved Quotes) — and forward the
+    // submit notes so the Submissions page (which reads from quotes) sees
+    // them on the card.
     try {
       if (window.QuoteStore) {
         var toolType = _loan.toolType || 'dscr';
-        QuoteStore.updateStatus(_loEmail, toolType, _loan.address, 'submitted');
+        var extra = notes ? { submitNotes: notes } : {};
+        QuoteStore.updateStatus(_loEmail, toolType, _loan.address, 'submitted', extra);
       }
     } catch(e) {}
 

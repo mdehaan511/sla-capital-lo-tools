@@ -91,6 +91,9 @@
     .sub-cell .val { font-size: 13px; font-weight: 500; color: var(--text); font-family: 'DM Mono', monospace; }
 
     .sub-card-foot { padding: 14px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--bg); }
+    .uw-notes { padding: 12px 20px; background: rgba(200,129,58,0.06); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); line-height: 1.5; }
+    .uw-notes .lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gold-mid); margin-bottom: 4px; }
+    .uw-notes .body { white-space: pre-wrap; word-wrap: break-word; }
     .reason-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); background: var(--surface); }
     .reason-input:focus { outline: none; border-color: var(--gold); }
     .decide-btn { font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; border: 1px solid; white-space: nowrap; }
@@ -338,6 +341,16 @@ function buildCard(r, idx) {
         cell(isDscr ? 'LTV' : 'Experience', isDscr ? ltv : experienceLabel) +
         cell('FICO', fico) +
       '</div>' +
+
+      // Underwriter notes from the LO at submit time. Set by pipeline
+      // goSubmit() or loan-details submitLoan(). Only renders when notes
+      // exist — no orange-tinted "empty" box for the common case.
+      (q.submitNotes ? (
+        '<div class="uw-notes">' +
+          '<div class="lbl">Notes from LO</div>' +
+          '<div class="body">' + escH(q.submitNotes) + '</div>' +
+        '</div>'
+      ) : '') +
 
       '<div class="sub-card-foot">' +
         '<input type="text" class="reason-input" id="reason-' + idx + '" placeholder="Optional notes for the LO (visible in their email)…" />' +
