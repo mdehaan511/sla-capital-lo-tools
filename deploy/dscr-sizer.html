@@ -918,33 +918,107 @@ function renderResult(r) {
     '</div>'+
   '</div>'+
 
-  // Item #8: Cashout / Refi summary
+  // Cash to Close / Cashout summary — shown for ALL purposes.
+  // The sign convention is "from the borrower's perspective":
+  //   Cash to Close > 0 = borrower brings that amount
+  //   Cash to Close < 0 = borrower receives that amount (i.e. net cash out)
+  //
+  // For Purchase: cash to close = price - loan + closing costs
+  // For Rate/Term Refi: cash to close = payoff + closing costs - new loan
+  //   (small positive = normal; significantly negative = de-facto cash out
+  //   and we flag it so the LO knows to reclassify the loan as refi_co)
+  // For Cash-Out Refi: we still display as "Estimated Cashout" (i.e. the
+  //   amount the borrower receives, sign-flipped from cash-to-close for
+  //   readability — borrowers think of cash-out as a positive number).
   (function() {
     var purpose = $('loanPurpose') && $('loanPurpose').value;
-    var isRefi = (purpose === 'refi_co' || purpose === 'refi_rt');
-    if (!isRefi) return '';
-    var currentLoan = parseFloat($('currentLoanAmt') && $('currentLoanAmt').value || 0) || 0;
-    var pts = (1 + (r.buydown || 0)) / 100; // origination + any buy-down
+    if (!purpose) return '';
+    var pts = (1 + (r.buydown || 0)) / 100; // origination + buy-down
     var ptsFee = r.loan * pts;
-    var flatFees = 995 + 700 + 500 + 120; // DSCR fee schedule = $2,315
+    var flatFees = 995 + 700 + 500 + 120; // DSCR schedule = $2,315
     var totalFees = ptsFee + flatFees;
-    var estCashout = r.loan - currentLoan - totalFees;
-    var label = (purpose === 'refi_co') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
-    var cls = estCashout >= 0 ? 'good' : 'bad';
-    return '<div class="rate-card">'+
-      '<div class="rate-body" style="padding-top:1.25rem">'+
-        '<table class="breakdown"><tbody>'+
-          '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cashout Estimate</td><td></td></tr>'+
-          '<tr><td>Requested Loan Amount</td><td class="bv base">'+fmtD(r.loan)+'</td></tr>'+
-          '<tr><td>− Current Loan Payoff</td><td class="bv neg">'+fmtD(currentLoan)+'</td></tr>'+
-          '<tr><td>− Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv neg">'+fmtD(ptsFee)+'</td></tr>'+
-          '<tr><td>− Flat Fees</td><td class="bv neg">$2,315</td></tr>'+
-        '</tbody></table>'+
-        '<div class="total-row"><span class="tl">'+label+'<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
-          '<span class="tv" style="color:var(--'+cls+')">'+fmtD(estCashout)+'</span></div>'+
-        '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* This does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
-      '</div>'+
-    '</div>';
+
+    if (purpose === 'purchase') {
+      var price = parseFloat($('propValue') && $('propValue').value || 0) || 0;
+      // Purchase Cash to Close = price - loan + closing costs
+      var ctc = price - r.loan + totalFees;
+      // Color: cash-to-close is informational on purchases (not a problem
+      // signal), so use a neutral readable tone, not the green/red treatment.
+      return '<div class="rate-card">'+
+        '<div class="rate-body" style="padding-top:1.25rem">'+
+          '<table class="breakdown"><tbody>'+
+            '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cash to Close Estimate</td><td></td></tr>'+
+            '<tr><td>Purchase Price</td><td class="bv base">'+fmtD(price)+'</td></tr>'+
+            '<tr><td>− Loan Amount</td><td class="bv neg">'+fmtD(r.loan)+'</td></tr>'+
+            '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
+            '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
+          '</tbody></table>'+
+          '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
+            '<span class="tv">'+fmtD(ctc)+'</span></div>'+
+          '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Borrower brings to closing. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
+        '</div>'+
+      '</div>';
+    }
+
+    // ── Refis: compute first, then branch on display ──
+    var currentLoan = parseFloat($('currentLoanAmt') && $('currentLoanAmt').value || 0) || 0;
+    // From borrower's perspective: cash to close = payoff + costs - new loan
+    var ctcRefi = currentLoan + totalFees - r.loan;
+    // Cashout = -cash to close. Positive = borrower receives.
+    var cashout = -ctcRefi;
+
+    if (purpose === 'refi_co') {
+      // Cash-out refi: present as Cashout (positive = good for borrower)
+      var coCls = cashout >= 0 ? 'good' : 'bad';
+      return '<div class="rate-card">'+
+        '<div class="rate-body" style="padding-top:1.25rem">'+
+          '<table class="breakdown"><tbody>'+
+            '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cashout Estimate</td><td></td></tr>'+
+            '<tr><td>Requested Loan Amount</td><td class="bv base">'+fmtD(r.loan)+'</td></tr>'+
+            '<tr><td>− Current Loan Payoff</td><td class="bv neg">'+fmtD(currentLoan)+'</td></tr>'+
+            '<tr><td>− Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv neg">'+fmtD(ptsFee)+'</td></tr>'+
+            '<tr><td>− Flat Fees</td><td class="bv neg">$2,315</td></tr>'+
+          '</tbody></table>'+
+          '<div class="total-row"><span class="tl">Estimated Cashout<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
+            '<span class="tv" style="color:var(--'+coCls+')">'+fmtD(cashout)+'</span></div>'+
+          '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
+        '</div>'+
+      '</div>';
+    }
+
+    if (purpose === 'refi_rt') {
+      // Rate/Term refi: show as Cash to Close. Flag if net is meaningfully
+      // negative (i.e. borrower is taking cash out) — that means this should
+      // be classified as a cash-out refi, not rate/term. Threshold is the
+      // greater of $2,000 or 2% of the loan amount per Mike's rule.
+      var threshold = Math.max(2000, r.loan * 0.02);
+      var isDeFactoCashout = ctcRefi < -threshold;
+      var rtFlag = isDeFactoCashout
+        ? '<div style="margin-top:10px;padding:10px 12px;background:#fff4e6;border:1px solid #f0a93a;border-radius:var(--r-xs);font-size:12px;color:#9a5f20;line-height:1.4">'+
+            '<strong>Heads up:</strong> The borrower is netting '+fmtD(Math.abs(ctcRefi))+' back at closing — over the rate/term threshold (greater of $2,000 or 2% of loan = '+fmtD(threshold)+'). This should likely be reclassified as a <strong>Cash-Out Refi</strong>. Switch Loan Purpose above to update pricing.'+
+          '</div>'
+        : '';
+      // For RT: positive cash-to-close is "borrower brings", negative is
+      // "borrower receives." Neutral display unless flagged.
+      var rtCls = isDeFactoCashout ? 'bad' : '';
+      return '<div class="rate-card">'+
+        '<div class="rate-body" style="padding-top:1.25rem">'+
+          '<table class="breakdown"><tbody>'+
+            '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cash to Close Estimate</td><td></td></tr>'+
+            '<tr><td>Current Loan Payoff</td><td class="bv base">'+fmtD(currentLoan)+'</td></tr>'+
+            '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
+            '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
+            '<tr><td>− New Loan Amount</td><td class="bv neg">'+fmtD(r.loan)+'</td></tr>'+
+          '</tbody></table>'+
+          '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
+            '<span class="tv"' + (rtCls?' style="color:var(--'+rtCls+')"':'') + '>'+fmtD(ctcRefi)+'</span></div>'+
+          '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Positive = borrower brings, negative = borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
+          rtFlag+
+        '</div>'+
+      '</div>';
+    }
+
+    return '';
   })()+
 
   '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>'+
@@ -1554,33 +1628,77 @@ function _generateRateSheetPDF(opts) {
 
   y += feeBlockH + 10;
 
-  // ── REFI CASHOUT / NET BLOCK (#8) ────────────────────────────
+  // ── CASH TO CLOSE / CASHOUT BLOCK ────────────────────────────
+  // Shown for ALL purposes now (was previously refi-only):
+  //   Purchase     → Cash to Close = price - loan + closing costs
+  //   Rate/Term    → Cash to Close = payoff + closing costs - new loan
+  //                  (flag if borrower nets > max($2k, 2% loan) back)
+  //   Cash-Out     → Estimated Cashout = -(cash to close)  (positive = receives)
   var purpose = $('loanPurpose').value;
-  var isRefi = (purpose === 'refi_co' || purpose === 'refi_rt');
-  if (isRefi) {
-    var currentLoan = parseFloat($('currentLoanAmt').value || 0) || 0;
-    var estCashout = r.loan - currentLoan - totalFeeAmt;
-    var cashLabel = (purpose === 'refi_co') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
+  var price = parseFloat($('propValue').value || 0) || 0;
+  var currentLoan = parseFloat($('currentLoanAmt').value || 0) || 0;
 
-    checkPage(120);
-    var rfRows = [
-      ['Requested Loan Amount',   r.loan],
-      ['Current Loan Payoff',     -currentLoan],
-      ['Total Closing Costs',     -totalFeeAmt],
+  var blockTitle, primaryLabel, primaryValue, secondaryNote, ctcRows, valueColor;
+
+  if (purpose === 'purchase') {
+    var ctcPurchase = price - r.loan + totalFeeAmt;
+    blockTitle    = 'Cash to Close Estimate';
+    primaryLabel  = 'Cash to Close';
+    primaryValue  = ctcPurchase;
+    valueColor    = TEXT;  // neutral; cash to close on a purchase is informational
+    secondaryNote = '* Borrower brings to closing. Does not include typical title/escrow costs or required prepaid taxes and insurance.';
+    ctcRows = [
+      ['Purchase Price',         price],
+      ['Loan Amount',           -r.loan],
+      ['Total Closing Costs',    totalFeeAmt],
     ];
-    var rfBlockH = 22 + rfRows.length * ROW_H + ROW_H + 24;
+  } else if (purpose === 'refi_co') {
+    // cashout = -ctc; positive = borrower receives
+    var cashoutPdf = r.loan - currentLoan - totalFeeAmt;
+    blockTitle    = 'Cashout Estimate';
+    primaryLabel  = 'Estimated Cashout';
+    primaryValue  = cashoutPdf;
+    valueColor    = cashoutPdf >= 0 ? SUCCESS : DANGER;
+    secondaryNote = '* Borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.';
+    ctcRows = [
+      ['Requested Loan Amount',  r.loan],
+      ['Current Loan Payoff',   -currentLoan],
+      ['Total Closing Costs',   -totalFeeAmt],
+    ];
+  } else if (purpose === 'refi_rt') {
+    var ctcRT = currentLoan + totalFeeAmt - r.loan;
+    var thresholdRT = Math.max(2000, r.loan * 0.02);
+    var isDeFactoCashoutRT = ctcRT < -thresholdRT;
+    blockTitle    = 'Cash to Close Estimate';
+    primaryLabel  = 'Cash to Close';
+    primaryValue  = ctcRT;
+    valueColor    = isDeFactoCashoutRT ? DANGER : TEXT;
+    secondaryNote = '* Positive = borrower brings, negative = borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.';
+    // Note: the LO-facing flag for "this should be reclassified as cash-out"
+    // appears only in the live sizer UI, not on the PDF — the rate sheet
+    // goes to the borrower, who doesn't need internal pricing concerns.
+    ctcRows = [
+      ['Current Loan Payoff',    currentLoan],
+      ['Total Closing Costs',    totalFeeAmt],
+      ['New Loan Amount',       -r.loan],
+    ];
+  }
+
+  if (blockTitle) {
+    checkPage(120);
+    var ctcBlockH = 22 + ctcRows.length * ROW_H + ROW_H + 24;
     doc.setFillColor(255,255,255);
     doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
-    rr(lm, y, cw, rfBlockH, 4, 'FD');
+    rr(lm, y, cw, ctcBlockH, 4, 'FD');
     var ry = y + 6;
     doc.setFont('helvetica','bold'); doc.setFontSize(10);
     doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
-    doc.text(cashLabel, lm+10, ry + ROW_H*0.65);
+    doc.text(blockTitle, lm+10, ry + ROW_H*0.65);
     ry += ROW_H;
     doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
     doc.line(lm+8, ry, lm+cw-8, ry);
 
-    rfRows.forEach(function(row) {
+    ctcRows.forEach(function(row) {
       ry = trow(row[0], (row[1] < 0 ? '−' : '') + fmtDplain(Math.abs(row[1])), ry, {
         labelColor: MUTED, valueColor: row[1] < 0 ? DANGER : TEXT,
       });
@@ -1588,20 +1706,18 @@ function _generateRateSheetPDF(opts) {
     doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
     doc.line(lm+8, ry, lm+cw-8, ry);
     ry += 4;
-    var cashColor = estCashout >= 0 ? SUCCESS : DANGER;
-    trow(cashLabel, fmtDplain(estCashout), ry, {
+    trow(primaryLabel, fmtDplain(primaryValue), ry, {
       labelColor: TEXT, labelBold: true,
-      valueColor: cashColor, valueBold: true,
+      valueColor: valueColor, valueBold: true,
       valueFontSize: 13, noLine: true,
     });
     ry += ROW_H + 4;
 
-    // Asterisk note
     doc.setFont('helvetica','italic'); doc.setFontSize(7.5);
     doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
-    doc.text('* This does not include typical title/escrow costs or required prepaid taxes and insurance.', lm+10, ry);
+    doc.text(secondaryNote, lm+10, ry);
 
-    y += rfBlockH + 10;
+    y += ctcBlockH + 10;
   }
 
   checkPage(80);
