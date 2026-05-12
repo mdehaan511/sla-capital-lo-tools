@@ -1223,6 +1223,18 @@ function calculate(){
   var mo=rate&&bMax?(bMax*rate/12):null;
   var addrFull=street+', '+city+', '+state+' '+zip;
 
+  // Stash the canonical calc outputs on window so renderCashoutSummary
+  // can use them directly instead of re-reading inputs. Before this, it
+  // was using purchasePrice (the as-is value on refis) as the "loan
+  // amount", which over-stated cashout dramatically when LTV capped the
+  // new loan below property value (which is the common refi case).
+  window._rtlLastCalc = {
+    bMax: bMax,
+    points: p,
+    rate: rate,
+    purpose: purp,
+  };
+
   // ── Render results ─────────────────────────────────────────
   var html='';
 
@@ -1445,8 +1457,12 @@ function renderTransactional(street, city, state, zip) {
 }
 
 // Render an Estimated Cashout / Net to Borrower card after the pricing card.
-// Only shown for cashout / rateterm refis. Uses the saved loan amount we
-// just computed; reads currentLoanAmt and the rate-derived points.
+// Only shown for cashout / rateterm refis. Pulls the canonical loan amount
+// AND origination points from window._rtlLastCalc — the values the
+// calculator just settled on. Earlier this function read purchasePrice
+// as the loan baseline, which on refis is "Property Value (As-Is)" — so
+// a $400k property capped at 65% LTV ($260k new loan) was producing a
+// "cashout" computed against $400k. Off by the LTV haircut.
 function renderCashoutSummary() {
   var rtlPurpose = document.getElementById('loanPurpose');
   if (!rtlPurpose) return;
@@ -1456,26 +1472,30 @@ function renderCashoutSummary() {
   var clEl = document.getElementById('currentLoanAmt');
   if (!clEl) return; // no field rendered yet
   var cl = parseFloat(clEl.value || 0) || 0;
-  // Use purchase price as the requested loan amount baseline (RTL has no
-  // separate "totalLoanAmount" field exposed by id).
-  var ppEl = document.getElementById('purchasePrice');
-  var loanAmt = ppEl ? (parseFloat(ppEl.value) || 0) : 0;
-  if (loanAmt <= 0) return; // can't compute meaningful cashout
 
+  // Pull the real computed values from the calc. If the calc didn't
+  // produce an eligible loan amount (e.g. LTV table returned 0), there's
+  // no meaningful cashout to render — bail rather than showing a
+  // misleading number computed against the property value.
+  var calc = window._rtlLastCalc || {};
+  var loanAmt = calc.bMax || 0;
+  if (loanAmt <= 0) return;
+
+  var ptsRate = (typeof calc.points === 'number' ? calc.points : 1.5); // FICO-tier points (1.5/2.0/3.0)
+  var ptsFee = loanAmt * (ptsRate / 100);
   var flatFees = 600 + 900 + 500 + 150; // RTL fee schedule = $2,150
-  // We don't have a "points" input on the RTL form; assume default 1pt origination
-  var ptsFee = loanAmt * 0.01;
   var totalFees = ptsFee + flatFees;
   var estCash = loanAmt - cl - totalFees;
   var label = (purpose === 'cashout') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
   var cashColor = estCash >= 0 ? 'var(--success, #256940)' : 'var(--danger, #7c1f1f)';
+  var ptsLabel = ptsRate.toFixed(2) + ' pt' + (ptsRate === 1 ? '' : 's');
 
   var html = '<div class="rate-card" style="margin-top:14px"><div class="rate-body">' +
     '<div style="font-weight:600;color:var(--text);margin-bottom:8px">Cashout Estimate</div>' +
     '<table class="rate-tbl"><tbody>' +
-      '<tr><td>Requested Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
+      '<tr><td>New Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
       '<tr><td>− Current Loan Payoff</td><td class="bv neg">$' + Math.round(cl).toLocaleString() + '</td></tr>' +
-      '<tr><td>− Origination (1.00 pt)</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
+      '<tr><td>− Origination (' + ptsLabel + ')</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
       '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
     '</tbody></table>' +
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
@@ -2493,14 +2513,19 @@ function _generateRTLRateSheetPDF(opts) {
   //             negative = borrower brings. "Cash to Close" doesn't fit
   //             a refi because there's no down payment.
   checkPage(160);
+  // RTL fee schedule. These match the live sizer's "Fees & Costs" panel
+  // (line ~546) and the cashout-estimate flat fees in renderCashoutSummary.
+  // Prior version of this PDF block had DSCR fees ($995/$700/$500/$120 =
+  // $2,315) pasted in by mistake — every cashout figure on the PDF was
+  // $165 off from the live UI as a result.
   var feeRows=[
     ['Origination ('+ptsLabel+')', fmtD(origFee)],
-    ['Underwriting Fee',           '$995'],
-    ['Doc Prep Fee',               '$700'],
+    ['Underwriting Fee',           '$600'],
+    ['Doc Prep Fee',               '$900'],
     ['Legal / Document Review',    '$500'],
-    ['Desktop Analysis',           '$120'],
+    ['Desktop Analysis',           '$150'],
   ];
-  var totalFees=origFee+995+700+500+120;
+  var totalFees=origFee+600+900+500+150;
 
   // Branch on purpose
   var isRefiPdf = (purp === 'cashout' || purp === 'rateterm');
