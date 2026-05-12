@@ -547,6 +547,15 @@ netlifyIdentity.on('init', function(user) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     document.getElementById('scopeToggle').style.display = 'flex';
+    // Super-admins land on the All LOs view by default — they almost
+    // always want the cross-LO firehose first. Regular admins keep the
+    // "My pipeline" default since they're typically using it like an LO.
+    if (SLA.isSuperAdmin(user)) {
+      _scope = 'all';
+      document.querySelectorAll('#scopeToggle button').forEach(function(b){
+        b.classList.toggle('active', b.dataset.scope === 'all');
+      });
+    }
   }
   loadAll();
 });

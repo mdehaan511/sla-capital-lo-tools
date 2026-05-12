@@ -18,10 +18,12 @@ window.ClientBook = {
   // Main entry point — called from sizers and apply.html on every save.
   // Delegates to SLA.Clients.upsert (backend-backed) so saved clients show
   // up in Clients page, admin views, and on other devices.
-  upsert: function(loEmail, borrowerEmail, firstName, lastName, phone, loanData) {
+  // `ownerOverride` (optional): used by sizer when admin opens another
+  // LO's quote, so the upsert targets that LO's owner key.
+  upsert: function(loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride) {
     if (!borrowerEmail) return;
     if (window.SLA && SLA.Clients && SLA.Clients.upsert) {
-      SLA.Clients.upsert(loEmail, borrowerEmail, firstName, lastName, phone, loanData)
+      SLA.Clients.upsert(loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride)
         .catch(function(err) { console.warn('ClientBook.upsert backend failed:', err); });
     }
   },
@@ -1804,7 +1806,10 @@ function saveCurrentQuote() {
   }
 
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
-  QuoteStore.saveQuote(_quoteUser, 'rtl', formData);
+  // Cross-LO override (see dscr-sizer.html for rationale). When admin
+  // opened this sizer with `?owner=<otherLO>`, save under that LO's key.
+  var ownerOvr = window._ownerOverride || null;
+  QuoteStore.saveQuote(_quoteUser, 'rtl', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
   // Always upsert into ClientBook when email is provided
   if (window.ClientBook && formData.borrowerEmail) {
@@ -1821,7 +1826,7 @@ function saveCurrentQuote() {
     ClientBook.upsert(_quoteUser, formData.borrowerEmail,
       rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',
       rNameParts.length > 1 ? rNameParts[rNameParts.length-1] : '',
-      formData.borrowerPhone || '', loanRec);
+      formData.borrowerPhone || '', loanRec, ownerOvr);
     window._originalAddress = formData.address;
   }
 
@@ -1958,6 +1963,9 @@ netlifyIdentity.on('init', function(user) {
       // have it. Fall through to a server query scoped to all LOs and find
       // the quote by address there.
       if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
+        // Mark this session as a cross-LO edit so the save paths attach
+        // _owner on persist (see dscr-sizer.html for full rationale).
+        window._ownerOverride = ownerParam.toLowerCase();
         return SLA.Quotes.list({ all: true }).then(function(r) {
           var byOwner = (r && r.byOwner) || {};
           var targetOwner = String(ownerParam).toLowerCase();
@@ -2040,6 +2048,10 @@ netlifyIdentity.on('init', function(user) {
     function loadFromClientLoan() {
       if (!window.SLA || !SLA.Clients) return Promise.resolve(false);
       var listOpts = ownerParam ? { all: true } : {};
+      // Cross-LO override — see dscr-sizer.html.
+      if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
+        window._ownerOverride = ownerParam.toLowerCase();
+      }
       return SLA.Clients.list(listOpts).then(function(r) {
         var found = null;
         var clientRec = null;

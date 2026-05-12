@@ -92,7 +92,7 @@ var QuoteStore = (function () {
   }
 
   // ── Mutations (update cache + fire-and-forget to backend) ────────
-  function saveQuote(userEmail, toolType, formData) {
+  function saveQuote(userEmail, toolType, formData, ownerOverride) {
     var addrKey = normalizeAddress(formData.address);
     var now = new Date().toISOString();
 
@@ -131,8 +131,15 @@ var QuoteStore = (function () {
     quote.loanAmt  = fd.loanAmt || fd.purchasePrice || '';
     quote.loanType = fd.loanType || quote.loanType || '';
 
+    // Cross-LO save: when admin is editing another LO's quote (sizer
+    // opened with `?owner=joe@...`), `_owner` tells the backend to
+    // persist under Joe's key, not Admin's. Without this, the save
+    // creates a brand-new quote under Admin's owner key — looks like a
+    // duplicate in the Pipeline's all-LOs view.
+    var payload = ownerOverride ? Object.assign({}, quote, { _owner: ownerOverride }) : quote;
+
     // Persist (fire-and-forget; log failures)
-    SLA.Quotes.save(quote).catch(function (err) {
+    SLA.Quotes.save(payload).catch(function (err) {
       console.warn('QuoteStore.saveQuote persist failed:', err);
     });
     return quote;

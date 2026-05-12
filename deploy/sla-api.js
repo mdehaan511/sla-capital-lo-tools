@@ -131,12 +131,33 @@
      * Upsert helper mirroring the old ClientBook.upsert shape so sizer pages
      * can keep calling a familiar function. Merges loanData into the matching
      * client (by email, then name), creating the client if needed.
+     *
+     * `ownerOverride` (optional): when set, the upsert lists clients from
+     * AND saves under that owner instead of the current user. Used by the
+     * sizer when a super-admin opens another LO's quote via `?owner=...` —
+     * without this, the modification would create duplicate records under
+     * the admin's owner key.
      */
-    upsert: function (_loEmail, borrowerEmail, firstName, lastName, phone, loanData) {
+    upsert: function (_loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride) {
       if (!borrowerEmail) return Promise.resolve(null);
       var normEmail = String(borrowerEmail).toLowerCase().trim();
+      var ovr = ownerOverride ? String(ownerOverride).toLowerCase().trim() : null;
 
-      return Clients.list().then(function (r) {
+      // Source the client list from the right owner. When no override, use
+      // the per-user `Clients.list()` which queries via auth identity. When
+      // overriding, we need `all=1` and post-filter (clients-list.mjs has
+      // no single-owner-other-than-self mode).
+      var listPromise = ovr
+        ? Clients.list({ all: true }).then(function (r) {
+            var byOwner = (r && r.byOwner) || {};
+            // Match ownerKey by either exact email or keySafe(email).
+            // keySafe replaces some chars but emails typically stay intact.
+            var hit = byOwner[ovr] || byOwner[ovr.replace(/[:/\\]/g, '_')] || [];
+            return { clients: hit };
+          })
+        : Clients.list();
+
+      return listPromise.then(function (r) {
         var clients = (r && r.clients) || [];
         var existing = null;
         for (var i = 0; i < clients.length; i++) {
@@ -260,6 +281,11 @@
             }
           }
         }
+        // Cross-LO save: when this upsert was invoked with an override,
+        // attach _owner so the backend persists under the right owner key.
+        // Without this, admin-side edits land under the admin's key,
+        // duplicating the record on the original owner's side.
+        if (ovr) existing._owner = ovr;
         return Clients.save(existing);
       });
     },
