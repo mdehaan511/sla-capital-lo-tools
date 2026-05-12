@@ -1921,15 +1921,24 @@ function loadRTLQuote(formData) {
   // the original loan record. Address and email remain editable: address
   // edits flow through ClientBook.upsert which renames the loan in place
   // (via _originalAddress matching), and email edits are validated on save.
-  ['borrowerName'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) {
-      el.readOnly = true;
-      el.style.background = 'rgba(120,116,136,0.06)';
-      el.style.cursor = 'not-allowed';
-      el.title = 'Locked — to change borrower, save as a new quote';
-    }
-  });
+  //
+  // Exception: skip the lock when the URL flag typeChanged=1 is present.
+  // That signals the loan was just rebuilt via Change Loan Type — the LO
+  // needs to be able to edit the name (e.g. to correct a typo) before
+  // saving the new product version.
+  var _isTypeChange = false;
+  try { _isTypeChange = new URLSearchParams(window.location.search).get('typeChanged') === '1'; } catch (_) {}
+  if (!_isTypeChange) {
+    ['borrowerName'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        el.readOnly = true;
+        el.style.background = 'rgba(120,116,136,0.06)';
+        el.style.cursor = 'not-allowed';
+        el.title = 'Locked — to change borrower, save as a new quote';
+      }
+    });
+  }
   if (typeof toggleRehab === 'function') toggleRehab();
   // Trigger transactional UI grey-out if applicable
   if (typeof onLoanTypeChange === 'function') onLoanTypeChange();

@@ -119,12 +119,23 @@ async function handle(req, context) {
   // formData: keep only the borrower + address fields so the new sizer's
   // loadFromClientLoan path prefills the carry-overs and leaves everything
   // else blank for the LO to fill in.
+  //
+  // Borrower info source priority:
+  //   1. The old loan's formData (sizer-created loans store it here)
+  //   2. The parent client record (apply.html-sourced loans store name as
+  //      client.firstName/lastName/email/phone, NOT in formData)
+  // Without the client-record fallback, application-sourced loans lost
+  // their borrower name on type change because the formData was empty.
   const oldFd = loan.formData || {};
+  const clientFullName = ((client.firstName || '') + ' ' + (client.lastName || '')).trim();
+  const carryName  = (oldFd.borrowerName || oldFd.borrower || clientFullName || '').trim();
+  const carryEmail = (oldFd.borrowerEmail || client.email || '').trim();
+  const carryPhone = (oldFd.borrowerPhone || client.phone || '').trim();
   carryOver.formData = {
-    borrower:      oldFd.borrower || oldFd.borrowerName || '',
-    borrowerName:  oldFd.borrowerName || oldFd.borrower || '',
-    borrowerEmail: oldFd.borrowerEmail || '',
-    borrowerPhone: oldFd.borrowerPhone || '',
+    borrower:      carryName,
+    borrowerName:  carryName,
+    borrowerEmail: carryEmail,
+    borrowerPhone: carryPhone,
     address:       oldFd.address || loan.address || '',
     // Address components (used by RTL sizer's separate street/city/state/zip inputs)
     propStreet:    oldFd.propStreet || extractStreet(oldFd.address || loan.address || ''),
@@ -172,11 +183,14 @@ async function handle(req, context) {
   }
 
   // Build the redirect URL — open the loan in the NEW sizer prefilled
-  // from the (now-cleared) loan record.
+  // from the (now-cleared) loan record. `typeChanged=1` tells the sizer
+  // to skip the usual borrower-name lock so the LO can edit it during
+  // the rebuild if needed (e.g. to correct a typo or use a legal name).
   const sizerPage = newType === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
   const params = new URLSearchParams({
     clientId: body.clientId,
     loanId:   body.loanId,
+    typeChanged: '1',
   });
   if (loan.address) params.set('loadQuote', loan.address);
   // Cross-owner sizer load — admin acting on another LO's loan
