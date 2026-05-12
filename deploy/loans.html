@@ -50,6 +50,14 @@
     .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 1rem; }
     .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 10px 16px; font-size: 12px; color: var(--muted); }
     .stat-pill strong { color: var(--text); font-size: 16px; display: inline-block; margin-right: 6px; font-weight: 600; font-family: 'DM Mono', monospace; }
+    /* Tool breakdown pills — count + volume per program (DSCR / RTL).
+       Volume sits in a muted color since count is the primary number. */
+    .stat-pill.tool-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; }
+    .stat-pill.tool-pill .tool-tag { margin-right: 0; }
+    .stat-pill.tool-pill strong { margin-right: 0; font-size: 17px; }
+    .stat-pill.tool-pill .vol { color: var(--muted); font-family: 'DM Mono', monospace; font-size: 12px; padding-left: 6px; border-left: 1px solid var(--border); }
+    .stat-pill.tool-pill.dscr { border-color: var(--gold-border); }
+    .stat-pill.tool-pill.rtl  { border-color: rgba(74, 110, 191, 0.3); }
 
     /* View tabs — admin My / All */
     .view-tabs { display: none; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.25rem; }
@@ -219,9 +227,12 @@ var STATUS_RANK = {
   denied:       0,
 };
 var STATUS_LABELS = {
-  active:       'Active',
+  // These mirror the Pipeline column names exactly (see pipeline.html
+  // status→column mapping). Only the terminal statuses (on_hold, denied,
+  // closed) don't have a Pipeline column — they keep their natural names.
+  active:       'Quoted',
   submitted:    'Submitted',
-  awaiting_app: 'Awaiting App',
+  awaiting_app: 'Awaiting Application',
   approved:     'In Processing',
   on_hold:      'On Hold',
   denied:       'Declined',
@@ -310,18 +321,11 @@ function decorateLoan(loan, client, ownerKey) {
   loan._loanAmtNum = parseFloat(String(loan.loanAmt || loan.purchasePrice || 0).replace(/[$,]/g, '')) || 0;
   loan._rateNum = parseFloat(loan.rate || 0) || 0;
   loan._pointsNum = parseFloat(loan.points || 0) || 0;
-  // Loan type display: humanize common values (bridge, light, heavy, construction, transactional, dscr)
-  var lt = String(loan.loanType || (loan.toolType === 'rtl' ? 'rtl' : 'dscr')).toLowerCase();
-  var LT_LABELS = {
-    bridge: 'Bridge',
-    light:  'Light Rehab',
-    heavy:  'Heavy Rehab',
-    construction: 'Construction',
-    transactional: 'Transactional',
-    dscr: 'DSCR',
-    rtl: 'RTL',
-  };
-  loan._loanTypeLabel = LT_LABELS[lt] || (loan.toolType === 'rtl' ? 'RTL' : 'DSCR');
+  // Loan Type display: show just "RTL" for anything from the RTL sizer
+  // (the underlying loanType — bridge / light / heavy / construction /
+  // transactional — is an RTL implementation detail, not a separate
+  // product line for reporting purposes). DSCR loans always show "DSCR".
+  loan._loanTypeLabel = (loan.toolType === 'rtl') ? 'RTL' : 'DSCR';
   return loan;
 }
 
@@ -489,9 +493,27 @@ function renderStats(rows) {
   var showing = (total === _allLoans.length || total === allInFlight)
     ? '<strong>' + total + '</strong> loans'
     : '<strong>' + total + '</strong> of ' + _allLoans.length + ' loans';
+
+  // Per-tool breakdown — count + volume for each so admins can see at a
+  // glance how DSCR vs RTL is split. Mirrors the table's filtered set.
+  var dscrRows = rows.filter(function(l) { return l.toolType !== 'rtl'; });
+  var rtlRows  = rows.filter(function(l) { return l.toolType === 'rtl'; });
+  var dscrVolume = dscrRows.reduce(function(s, l) { return s + (l._loanAmtNum || 0); }, 0);
+  var rtlVolume  = rtlRows.reduce(function(s, l) { return s + (l._loanAmtNum || 0); }, 0);
+
   document.getElementById('stats').innerHTML =
     '<div class="stat-pill">' + showing + ' shown</div>' +
-    '<div class="stat-pill"><strong>$' + Math.round(volume).toLocaleString() + '</strong> total volume</div>';
+    '<div class="stat-pill"><strong>$' + Math.round(volume).toLocaleString() + '</strong> total volume</div>' +
+    '<div class="stat-pill tool-pill dscr">' +
+      '<span class="tool-tag dscr">DSCR</span>' +
+      '<strong>' + dscrRows.length + '</strong>' +
+      '<span class="vol">$' + Math.round(dscrVolume).toLocaleString() + '</span>' +
+    '</div>' +
+    '<div class="stat-pill tool-pill rtl">' +
+      '<span class="tool-tag rtl">RTL</span>' +
+      '<strong>' + rtlRows.length + '</strong>' +
+      '<span class="vol">$' + Math.round(rtlVolume).toLocaleString() + '</span>' +
+    '</div>';
 }
 
 // ── View toggle (admin) ────────────────────────────────────────────
