@@ -76,6 +76,31 @@
     .status-badge.approved  { background: rgba(37,105,64,0.08); color: var(--success);  border-color: rgba(37,105,64,0.25); }
     .status-badge.denied    { background: rgba(124,31,31,0.07); color: var(--danger);   border-color: rgba(124,31,31,0.2); }
     .status-badge.on_hold   { background: rgba(122,82,24,0.07); color: var(--warn);     border-color: rgba(122,82,24,0.2); }
+    /* "In Pipeline:" badge — derived from loan.status, mapped to the
+       column the loan would sit in on the Pipeline page. Slightly
+       different look than status-badge so it reads as a location,
+       not a state. Hidden for terminal statuses (denied/closed/on_hold). */
+    .pipeline-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: var(--gold-light);
+      color: var(--gold-mid);
+      border: 1px solid var(--gold-border);
+    }
+    .pipeline-badge::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+    }
+    .pipeline-badge .lbl { color: var(--muted); font-weight: 500; margin-right: 2px; }
 
     .section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 20px; }
     .section-head { padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
@@ -439,6 +464,18 @@ function render() {
   var status = l.status || 'active';
   var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
 
+  // Map loan status → Pipeline column label, mirroring pipeline.html's
+  // own bucket logic (lines ~717). Terminal statuses (on_hold, denied,
+  // closed) don't appear in any pipeline column — we render nothing for
+  // those so the badge doesn't lie.
+  var PIPELINE_COLUMN = {
+    active:       'Quoted',
+    submitted:    'Submitted',
+    awaiting_app: 'Awaiting Application',
+    approved:     'In Processing',
+  };
+  var pipelineCol = PIPELINE_COLUMN[status] || null;
+
   // Sizer URL for "Open in Sizer" — passes clientId+loanId so the sizer
   // can pull the loan from the client record (works even when there's no
   // QuoteStore entry yet, e.g. for application-sourced loans).
@@ -495,6 +532,11 @@ function render() {
     '<div class="page-subtitle">' +
       '<span class="badge '+(l.toolType||'dscr')+'">'+((l.toolType||'dscr').toUpperCase())+'</span>' +
       '<span class="status-badge '+status+'">'+escH(STATUS_LABELS[status]||status)+'</span>' +
+      (pipelineCol
+        ? '<span class="pipeline-badge" title="This loan is currently in the '+escAttr(pipelineCol)+' column of the Pipeline">'+
+            '<span class="lbl">In Pipeline:</span>'+escH(pipelineCol)+
+          '</span>'
+        : '') +
       (c.firstName ? '<span style="color:var(--muted)">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</span>' : '') +
     '</div>' +
   '</div>';

@@ -411,10 +411,10 @@ function downloadClientsCSV() {
     return true;
   });
   rows.sort(function(a, b) {
-    var aLast = (a.lastName || '').toLowerCase();
-    var bLast = (b.lastName || '').toLowerCase();
-    if (aLast !== bLast) return aLast.localeCompare(bLast);
-    return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase());
+    var aFirst = (a.firstName || '').toLowerCase();
+    var bFirst = (b.firstName || '').toLowerCase();
+    if (aFirst !== bFirst) return aFirst.localeCompare(bFirst);
+    return (a.lastName || '').toLowerCase().localeCompare((b.lastName || '').toLowerCase());
   });
   if (!rows.length) {
     alert('No clients match the current filter.');
@@ -526,7 +526,7 @@ function renderClients() {
   // Group by first letter of last name (or '#' for missing)
   var groups = {};
   filtered.forEach(function(c) {
-    var letter = ((c.lastName || c.firstName || '#').charAt(0) || '#').toUpperCase();
+    var letter = ((c.firstName || c.lastName || '#').charAt(0) || '#').toUpperCase();
     if (!/[A-Z]/.test(letter)) letter = '#';
     if (!groups[letter]) groups[letter] = [];
     groups[letter].push(c);
@@ -793,10 +793,10 @@ function renderAdminClients() {
   });
 
   flat.sort(function(a, b) {
-    var aLast = (a.client.lastName||'').toLowerCase();
-    var bLast = (b.client.lastName||'').toLowerCase();
-    if (aLast !== bLast) return aLast.localeCompare(bLast);
-    return (a.client.firstName||'').toLowerCase().localeCompare((b.client.firstName||'').toLowerCase());
+    var aFirst = (a.client.firstName||'').toLowerCase();
+    var bFirst = (b.client.firstName||'').toLowerCase();
+    if (aFirst !== bFirst) return aFirst.localeCompare(bFirst);
+    return (a.client.lastName||'').toLowerCase().localeCompare((b.client.lastName||'').toLowerCase());
   });
 
   // Summary bar: total clients + total loans across the *filtered* set.
@@ -836,7 +836,7 @@ function renderAdminClients() {
   var groups = {};
   flat.forEach(function(entry) {
     var c = entry.client;
-    var letter = ((c.lastName || c.firstName || '#').charAt(0) || '#').toUpperCase();
+    var letter = ((c.firstName || c.lastName || '#').charAt(0) || '#').toUpperCase();
     if (!/[A-Z]/.test(letter)) letter = '#';
     if (!groups[letter]) groups[letter] = [];
     groups[letter].push(entry);
@@ -882,12 +882,12 @@ function buildAdminClientList(clientList) {
   if (!clientList || !clientList.length) {
     return '<div style="padding:20px;text-align:center;font-size:13px;color:var(--muted)">No synced client data.<br><small style="font-size:11px">Clients sync automatically when a quote is saved for a prospect.</small></div>';
   }
-  // Sort alphabetically by last name, then first name
+  // Sort alphabetically by first name, then last name
   var sorted = clientList.slice().sort(function(a, b) {
-    var aLast = (a.lastName || '').toLowerCase();
-    var bLast = (b.lastName || '').toLowerCase();
-    if (aLast !== bLast) return aLast.localeCompare(bLast);
-    return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase());
+    var aFirst = (a.firstName || '').toLowerCase();
+    var bFirst = (b.firstName || '').toLowerCase();
+    if (aFirst !== bFirst) return aFirst.localeCompare(bFirst);
+    return (a.lastName || '').toLowerCase().localeCompare((b.lastName || '').toLowerCase());
   });
   var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
   html += '<thead><tr>';

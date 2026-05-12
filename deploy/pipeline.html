@@ -429,6 +429,10 @@
   <button class="bulk-btn cancel" onclick="clearSelection()">Cancel</button>
   <button class="bulk-btn" onclick="bulkOnHold()">Put On Hold</button>
   <button class="bulk-btn danger" onclick="bulkDecline()">Decline</button>
+  <!-- Admin-only: hard-delete. Removes the quote AND its loan record so
+       nothing is left behind. Visibility toggled in the init handler when
+       _isAdmin is true. -->
+  <button class="bulk-btn danger" id="bulkDeleteBtn" onclick="bulkDelete()" style="display:none">Delete</button>
 </div>
 
 <!-- Reminder modal -->
@@ -547,6 +551,11 @@ netlifyIdentity.on('init', function(user) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     document.getElementById('scopeToggle').style.display = 'flex';
+    // Bulk Delete is admin-only — hard removes both the quote AND the
+    // matching loan record. Regular LOs use Decline (status change) or
+    // On Hold for cleanup; only admins can permanently delete records.
+    var delBtn = document.getElementById('bulkDeleteBtn');
+    if (delBtn) delBtn.style.display = 'inline-flex';
     // Super-admins land on the All LOs view by default — they almost
     // always want the cross-LO firehose first. Regular admins keep the
     // "My pipeline" default since they're typically using it like an LO.
@@ -1299,6 +1308,30 @@ function toggleSelectMode() {
   render();
 }
 
+// Cycle Select Multiple off whenever the user navigates away from the
+// Pipeline page. `pagehide` covers normal navigation and tab close.
+// When the user returns via the back button, modern browsers serve the
+// page from the bfcache — JS state is preserved, so we also need to
+// reset on `pageshow` when `event.persisted` is true (bfcache restore).
+function resetSelectModeIfActive() {
+  if (!_selectMode) return;
+  _selectMode = false;
+  _selectedItems.clear();
+  var btn = document.getElementById('selectModeBtn');
+  if (btn) {
+    btn.classList.remove('active');
+    btn.textContent = 'Select Multiple';
+  }
+  updateBulkBar();
+  // Re-render only if the page is visible (no point doing work if we're
+  // unloading); render() will fix card highlights and hide checkboxes.
+  if (document.visibilityState === 'visible') render();
+}
+window.addEventListener('pagehide', resetSelectModeIfActive);
+window.addEventListener('pageshow', function(e) {
+  if (e.persisted) resetSelectModeIfActive(); // restored from bfcache
+});
+
 function toggleSelect(checkbox) {
   var key = checkbox.dataset.key;
   if (checkbox.checked) _selectedItems.add(key);
@@ -1403,6 +1436,76 @@ function bulkDecline() {
 
   Promise.all(promises).then(function() {
     showToast('Bulk decline complete');
+    _selectedItems.clear();
+    _selectMode = false;
+    var btn = document.getElementById('selectModeBtn');
+    if (btn) { btn.classList.remove('active'); btn.textContent = 'Select Multiple'; }
+    loadAll();
+  });
+}
+
+// Bulk DELETE — admin-only. Hard-removes the quote AND the matching loan
+// record from the client so nothing's left behind. Different from Decline
+// (which just changes status to 'denied') in that this fully removes the
+// records — they won't show on Decisions, Submissions, or anywhere else.
+// Prospects in the selection are also hard-deleted (same as bulkDecline).
+function bulkDelete() {
+  var groups = groupSelection();
+  if (!groups.prospects.length && !groups.quotes.length) return;
+
+  var qN = groups.quotes.length;
+  var pN = groups.prospects.length;
+  var msg = 'Permanently DELETE ' + qN + ' quote' + (qN === 1 ? '' : 's');
+  if (pN > 0) msg += ' and ' + pN + ' prospect' + (pN === 1 ? '' : 's');
+  msg += '?\n\nThis removes the records entirely — quote, loan record, and ' +
+    'everything tied to them. Cannot be undone.';
+  if (!confirm(msg)) return;
+
+  var promises = [];
+
+  // Delete quotes: remove the quote + the matching loan record on the
+  // client (look up via _loanLookup). Two API calls per quote.
+  groups.quotes.forEach(function(q) {
+    var item = (_items[q.colKey] || []).find(function(it) {
+      return it.id === q.id && it.ownerKey === q.ownerKey;
+    });
+    if (!item) return;
+
+    // Delete the quote
+    promises.push(
+      SLA.Quotes.delete(q.id, { _owner: q.ownerKey })
+        .catch(function(err) { console.warn('quote delete failed', q.id, err); })
+    );
+
+    // Look up matching loan record and delete it too. Without this, the
+    // loan would stay on the client and orphan tools would flag it.
+    var addr = (item.quote.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    var addrStreet = addr.split(',')[0].trim();
+    var lookup = _loanLookup[q.ownerKey + '|' + addr]
+              || _loanLookup[q.ownerKey + '|street|' + addrStreet];
+    if (lookup) {
+      promises.push(
+        SLA.Clients.delete(lookup.clientId, {
+          loanId: lookup.loanId,
+          _owner: lookup.ownerKey,
+        }).catch(function(err) { console.warn('loan delete failed', lookup.loanId, err); })
+      );
+    }
+  });
+
+  // Prospects: same hard-delete path as bulkDecline uses.
+  if (groups.prospects.length) {
+    var items = groups.prospects.map(function(p) {
+      return { slug: p.ownerKey, prospectId: p.id };
+    });
+    promises.push(
+      SLA.Prospects.bulkDelete(items)
+        .catch(function(err) { console.warn('prospects bulkDelete failed', err); })
+    );
+  }
+
+  Promise.all(promises).then(function() {
+    showToast('Bulk delete complete');
     _selectedItems.clear();
     _selectMode = false;
     var btn = document.getElementById('selectModeBtn');
