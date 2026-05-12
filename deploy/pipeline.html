@@ -273,6 +273,21 @@
       font-size: 14px; font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace;
       margin-bottom: 8px;
     }
+    /* Visible-but-subtle warning when a card has no matching loan record.
+       Triggers when sizer save skipped client creation. Fix: LO opens the
+       sizer (link is already on the card), fills in missing borrower info
+       and re-saves. The Required-fields validation as of Deploy_143 means
+       new saves can't create more of these. */
+    .orphan-hint {
+      font-size: 11px;
+      color: var(--warn);
+      background: rgba(122,82,24,0.08);
+      border: 1px solid rgba(122,82,24,0.20);
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      cursor: help;
+    }
     .card-actions {
       display: flex; gap: 6px; flex-wrap: wrap;
       padding-top: 8px; border-top: 1px solid var(--border);
@@ -909,15 +924,28 @@ function buildQuoteCard(it, colKey) {
   }
 
   var actions = '';
+  // Orphan detection — quote exists in storage but no matching loan record.
+  // Most common cause: the original sizer save was missing borrower email,
+  // so ClientBook.upsert silently skipped creating the client+loan. The
+  // fix is for the LO to open the sizer (which prefills from the saved
+  // quote), fill in the missing borrower email, and save again — that
+  // creates the loan record. Required fields are enforced as of Deploy_143.
+  var isOrphan = !detailsUrl && colKey !== 'newApp';
+  var orphanHint = isOrphan
+    ? '<div class="orphan-hint" title="This quote has no Loan Details page yet. Open the Sizer and re-save with borrower name and email to fix.">⚠ Loan record missing — open Sizer to fix</div>'
+    : '';
+
   if (colKey === 'quoted') {
     actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     actions += '<button type="button" class="card-btn primary" onclick="goSubmit(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Submit</button>';
   } else if (colKey === 'submitted') {
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
+    else            actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
     actions += '<span class="card-btn muted">Awaiting decision</span>';
   } else if (colKey === 'awaitingApp') {
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
+    else            actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
     // Determine label from borrower-info status if a record exists for this client
     var bi = lookup ? (_borrowerInfoByClient[lookup.ownerKey + '|' + lookup.clientId] || _borrowerInfoByClient[lookup.clientId]) : null;
     var biStatus = bi && bi.status;
@@ -974,6 +1002,7 @@ function buildQuoteCard(it, colKey) {
       '<div class="card-title">' + nameHtml + '</div>' +
       '<div class="card-sub">' + addrHtml + '</div>' +
       '<div class="card-amt">' + amt + (rate ? ' <span style="font-size:11px;color:var(--muted);font-weight:500">@ ' + rate + '</span>' : '') + '</div>' +
+      orphanHint +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + tool.toUpperCase() + '</span>' +
         '<span>' + relDate(it.date) + '</span>' +

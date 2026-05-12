@@ -150,6 +150,17 @@ function escH(s) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// Build a sizer URL that loads this orphan's quote. The sizer reads
+// ?loadQuote=<address> + ?owner=<ownerKey> (when admin opens a quote
+// belonging to another LO). After save, the new flow (post-Deploy_143)
+// requires borrower email — so re-saving fixes the orphan.
+function sizerUrlForOrphan(o) {
+  var page = (o.toolType === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  var url = '/' + page + '?loadQuote=' + encodeURIComponent(o.address || '');
+  if (o.owner) url += '&owner=' + encodeURIComponent(o.owner);
+  return url;
+}
+
 function fmtDate(iso) {
   if (!iso) return '—';
   var d = new Date(iso);
@@ -180,7 +191,8 @@ function loadAll() {
     }
     _orphans = (resp.body && resp.body.orphans) || [];
     var summary = (resp.body && resp.body.summary) || {};
-    renderSummary(summary);
+    var diag = (resp.body && resp.body.diagnostics) || {};
+    renderSummary(summary, diag);
     render();
   }).catch(function(err) {
     document.getElementById('content').innerHTML =
@@ -188,11 +200,32 @@ function loadAll() {
   });
 }
 
-function renderSummary(s) {
+function renderSummary(s, diag) {
   document.getElementById('summary').innerHTML =
     '<div class="stat-pill"><strong>' + (s.total || 0) + '</strong> total orphans</div>' +
     '<div class="stat-pill good"><strong>' + (s.autoRecoverable || 0) + '</strong> auto-recoverable</div>' +
     '<div class="stat-pill warn"><strong>' + (s.needsManualFix || 0) + '</strong> need manual fix</div>';
+
+  // Diagnostics row — useful when the orphan count looks off vs. what
+  // you see in the Pipeline. Shows how the endpoint actually traversed
+  // storage so we can spot mismatches (e.g. "only saw 12 quotes total
+  // when Pipeline shows 40" would point at a key-prefix issue).
+  if (diag) {
+    var diagEl = document.getElementById('diagnostics');
+    if (!diagEl) {
+      diagEl = document.createElement('div');
+      diagEl.id = 'diagnostics';
+      diagEl.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px;padding:8px 12px;background:var(--surface);border:1px dashed var(--border);border-radius:var(--r-xs);font-family:DM Mono,monospace';
+      document.getElementById('summary').parentNode.insertBefore(diagEl, document.getElementById('summary').nextSibling);
+    }
+    diagEl.textContent =
+      'scan: ' + (diag.totalQuotesScanned || 0) + ' quotes total · ' +
+      'matched to a loan: ' + (diag.matchedClean || 0) + ' · ' +
+      'skipped by status (denied/closed): ' + (diag.skippedByStatus || 0) + ' · ' +
+      'no address: ' + (diag.skippedNoAddress || 0) + ' · ' +
+      'indexed: ' + (diag.uniqueLoanAddressesIndexed || 0) + ' loan addresses across ' +
+      (diag.ownersWithLoans || 0) + ' LOs';
+  }
 
   var bulkBtn = document.getElementById('bulkBtn');
   bulkBtn.disabled = !(s.autoRecoverable > 0);
@@ -226,11 +259,16 @@ function renderOrphan(o, idx) {
   } else if (o.hasEmail) {
     actions =
       '<button class="action-btn primary" onclick="recoverOne(' + idx + ')" ' + (o._inflight ? 'disabled' : '') + '>' + (o._inflight ? 'Recovering…' : 'Auto-recover') + '</button>' +
+      '<a class="action-btn subtle" href="' + sizerUrlForOrphan(o) + '" target="_blank" title="Open this quote in the sizer">Open Sizer</a>' +
       '<button class="action-btn subtle" onclick="skipOne(' + idx + ')">Skip</button>' +
       (o._failed ? '<div class="action-result err">' + escH(o._failureMsg || 'Failed') + '</div>' : '');
   } else {
+    // No email in the saved formData — can't auto-recover. Offer to open
+    // the sizer so admin (or the LO, if shared) can fill in the missing
+    // email and re-save. Since Deploy_143 requires email at save time,
+    // the new save will create the missing client+loan record.
     actions =
-      '<button class="action-btn" disabled title="No email in quote\'s formData — LO must re-open the sizer">Auto-recover</button>' +
+      '<a class="action-btn primary" href="' + sizerUrlForOrphan(o) + '" target="_blank" title="Open the sizer to add borrower email and re-save">Open Sizer to fix</a>' +
       '<button class="action-btn subtle" onclick="skipOne(' + idx + ')">Skip</button>';
   }
 

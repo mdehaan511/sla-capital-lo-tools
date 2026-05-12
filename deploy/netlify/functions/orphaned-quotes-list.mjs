@@ -87,22 +87,39 @@ async function handle(req, context) {
 
   // 2) Walk every quote. Any quote whose address doesn't match any loan
   //    for the same owner is an orphan.
+  //
+  // Status filter: include every quote that's still "live" — anything an
+  // LO might still be working on. Exclude only terminal states (denied,
+  // closed). Earlier versions of this endpoint over-filtered to just
+  // active+submitted, missing orphans in the Awaiting Application and
+  // In Processing columns of the Pipeline.
+  const ACTIVE_STATUSES = new Set([
+    'active',         // Quoted column
+    'submitted',      // Submitted column
+    'awaiting_app',   // Awaiting Application column
+    'approved',       // In Processing column
+    'on_hold',        // visible to admin; still recoverable
+  ]);
   const orphans = [];
+  let totalQuotesScanned = 0;
+  let skippedByStatus = 0;
+  let skippedNoAddress = 0;
+  let matchedClean = 0;
   try {
     const { blobs } = await quotesStore.list();
     for (const { key } of blobs) {
-      // quote keys: "<ownerKey>/<quoteId>" typically, but quotes-list.mjs
-      // suggests they may sometimes be flat. Handle both.
+      // quote keys: "<ownerKey>/<quoteId>". If key doesn't have a slash,
+      // skip it (legacy / malformed entries; better to ignore than mis-attribute).
       const slash = key.indexOf('/');
-      const ownerKey = slash >= 0 ? key.slice(0, slash) : keySafe(normalizeEmail(user.email));
+      if (slash < 0) continue;
+      const ownerKey = key.slice(0, slash);
       const quote = await quotesStore.get(key, { type: 'json' });
-      if (!quote || !quote.address) continue;
+      if (!quote) continue;
+      totalQuotesScanned++;
+      if (!quote.address) { skippedNoAddress++; continue; }
 
-      // Decided quotes (approved/denied/closed) aren't orphans we care
-      // about for Loan Details recovery — they may legitimately have no
-      // active loan record. Restrict to active/quoted/submitted state.
       const status = quote.status || 'active';
-      if (status !== 'active' && status !== 'submitted') continue;
+      if (!ACTIVE_STATUSES.has(status)) { skippedByStatus++; continue; }
 
       const set = loansByOwner[ownerKey];
       const qAddrFull = normAddr(quote.address);
@@ -111,7 +128,7 @@ async function handle(req, context) {
         (qAddrFull && set.full.has(qAddrFull)) ||
         (qAddrStreet && set.street.has(qAddrStreet))
       );
-      if (matched) continue;
+      if (matched) { matchedClean++; continue; }
 
       // Extract borrower info from formData (where the sizer stashes it)
       // with fallbacks to top-level quote fields used by older quotes.
@@ -130,10 +147,7 @@ async function handle(req, context) {
         toolType: quote.toolType || 'dscr',
         savedAt: quote.savedAt || quote.updatedAt || null,
         status,
-        // Whether auto-recovery is possible (requires email)
         hasEmail: !!borrowerEmail,
-        // Echo formData so the admin page can hand it to Clients.upsert
-        // without a second round-trip. Strip large/derived fields.
         formData: fd,
       });
     }
@@ -154,6 +168,17 @@ async function handle(req, context) {
       total: orphans.length,
       autoRecoverable: orphans.filter(o => o.hasEmail).length,
       needsManualFix: orphans.filter(o => !o.hasEmail).length,
+    },
+    // Diagnostics — surfaced in admin UI so we can verify the endpoint
+    // is actually scanning the expected number of quotes/clients
+    diagnostics: {
+      totalQuotesScanned,
+      skippedByStatus,
+      skippedNoAddress,
+      matchedClean,
+      ownersWithLoans: Object.keys(loansByOwner).length,
+      uniqueLoanAddressesIndexed: Object.values(loansByOwner)
+        .reduce((sum, s) => sum + s.full.size, 0),
     },
   });
 }
