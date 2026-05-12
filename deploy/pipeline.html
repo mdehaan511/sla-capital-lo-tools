@@ -385,6 +385,7 @@
   </div>
   <div class="nav-right">
     <a class="nav-tool-link current" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="loans.html">Loans</a>
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
     <a class="nav-tool-link" href="profile.html">Profile</a>
@@ -1658,6 +1659,11 @@ function updateLoanRecordOnSubmit(quoteItem, notes) {
     if (!loan) return;
     loan.status = 'submitted';
     loan.updatedAt = new Date().toISOString();
+    // Stamp submittedAt so the Loans page (and any future reporting)
+    // has a real submission timestamp instead of guessing from updatedAt.
+    // Only set it the first time — preserve the original submission date
+    // even if the loan is re-saved later for notes or other edits.
+    if (!loan.submittedAt) loan.submittedAt = loan.updatedAt;
     if (notes) {
       loan.submitNotes   = notes;
       loan.submitNotesAt = loan.updatedAt;

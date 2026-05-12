@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loans — SLA Capital</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --success: #1e6b3b; --warn: #7a5218;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1.5rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; padding: 2rem; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    /* Nav — matches the rest of the app */
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-left img { height: 48px; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; transition: all .15s; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .nav-tool-link { font-size: 13px; color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: var(--r-xs); transition: all .15s; }
+    .nav-tool-link:hover { color: var(--text); background: rgba(255,255,255,0.5); }
+    .nav-tool-link.current { color: var(--gold-mid); background: var(--gold-light); font-weight: 600; }
+    .logout-btn { padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 20px; font-size: 12px; cursor: pointer; transition: all .15s; }
+    .logout-btn:hover { color: var(--text); border-color: var(--text); }
+
+    .page { max-width: 100%; margin: 1.5rem auto 0; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; }
+    .page-header p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn { padding: 8px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: var(--r-xs); font-size: 13px; cursor: pointer; transition: all .15s; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; }
+    .btn:hover { background: var(--bg); }
+    .btn.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .btn.primary:hover { background: var(--gold-mid); border-color: var(--gold-mid); }
+
+    /* Stat pills */
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 1rem; }
+    .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 10px 16px; font-size: 12px; color: var(--muted); }
+    .stat-pill strong { color: var(--text); font-size: 16px; display: inline-block; margin-right: 6px; font-weight: 600; font-family: 'DM Mono', monospace; }
+
+    /* View tabs — admin My / All */
+    .view-tabs { display: none; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.25rem; }
+    .view-tab { background: none; border: none; padding: 10px 18px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; font-family: inherit; }
+    .view-tab.active { color: var(--gold-mid); border-bottom-color: var(--gold); font-weight: 600; }
+
+    /* Toolbar */
+    .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); }
+    .search-wrap { flex: 1; min-width: 220px; position: relative; }
+    .search-wrap input { width: 100%; padding: 8px 12px 8px 32px; border: 1px solid var(--border); border-radius: var(--r-xs); font-size: 13px; font-family: inherit; background: var(--bg); }
+    .search-wrap input:focus { outline: 2px solid var(--gold-border); outline-offset: -2px; background: #fff; }
+    .search-wrap .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; padding: 5px 11px; border-radius: 20px; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--muted); user-select: none; transition: all .15s; }
+    .chip:hover { color: var(--text); border-color: var(--text); }
+    .chip.active { background: var(--gold-light); color: var(--gold-mid); border-color: var(--gold-border); }
+    .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .chip.active .dot { background: var(--gold); }
+    .chip[data-status="active"]      .dot { background: rgba(38,26,54,0.4); }
+    .chip[data-status="submitted"]   .dot { background: var(--dark); }
+    .chip[data-status="awaiting_app"].dot { background: var(--warn); }
+    .chip[data-status="approved"]    .dot { background: var(--success); }
+    .chip[data-status="on_hold"]     .dot { background: var(--warn); }
+    .chip[data-status="denied"]      .dot { background: var(--danger); }
+
+    .lo-filter { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .lo-filter select { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); background: var(--bg); font-size: 12px; font-family: inherit; }
+
+    /* Table */
+    .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .table-scroll { overflow-x: auto; max-width: 100%; }
+    table.loans { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.loans thead { background: var(--bg); position: sticky; top: 0; z-index: 1; }
+    table.loans th { text-align: left; padding: 12px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); white-space: nowrap; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+    table.loans th:hover { color: var(--text); background: rgba(0,0,0,0.02); }
+    table.loans th .sort-arrow { display: inline-block; margin-left: 4px; font-size: 9px; opacity: 0.35; transition: opacity .15s; }
+    table.loans th.sorted .sort-arrow { opacity: 1; color: var(--gold-mid); }
+    table.loans th.numeric { text-align: right; }
+    table.loans td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    table.loans td.numeric { text-align: right; font-family: 'DM Mono', monospace; }
+    table.loans td.mono { font-family: 'DM Mono', monospace; font-size: 12px; }
+    table.loans tbody tr:hover { background: rgba(200,129,58,0.04); }
+    table.loans tbody tr:last-child td { border-bottom: 0; }
+    table.loans a { color: var(--text); text-decoration: none; border-bottom: 1px dotted transparent; transition: border-color .15s, color .15s; }
+    table.loans a:hover { color: var(--gold-mid); border-bottom-color: var(--gold-mid); }
+    table.loans .addr { color: var(--text); font-weight: 500; }
+    table.loans .client-name { color: var(--text); }
+
+    /* Status badge in cells */
+    .stat { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; white-space: nowrap; border: 1px solid transparent; }
+    .stat.active       { background: rgba(38,26,54,0.05);  color: var(--muted);   border-color: var(--border); }
+    .stat.submitted    { background: rgba(38,26,54,0.08);  color: var(--dark);    border-color: rgba(38,26,54,0.2); }
+    .stat.awaiting_app { background: rgba(200,129,58,0.10);color: var(--gold-mid);border-color: var(--gold-border); }
+    .stat.approved     { background: rgba(30,107,59,0.10); color: var(--success); border-color: rgba(30,107,59,0.25); }
+    .stat.on_hold      { background: rgba(122,82,24,0.10); color: var(--warn);    border-color: rgba(122,82,24,0.25); }
+    .stat.denied       { background: rgba(124,31,31,0.07); color: var(--danger);  border-color: rgba(124,31,31,0.2); }
+    .stat.closed       { background: rgba(30,107,59,0.18); color: var(--success); border-color: rgba(30,107,59,0.3); }
+
+    .tool-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 3px; background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); margin-right: 6px; vertical-align: middle; }
+    .tool-tag.rtl { background: rgba(74, 110, 191, 0.10); color: #4a6ebf; border-color: rgba(74, 110, 191, 0.3); }
+
+    .loading, .empty { padding: 4rem 2rem; text-align: center; color: var(--muted); }
+    .empty strong { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
+    .empty a { color: var(--gold-mid); text-decoration: none; border-bottom: 1px dotted; }
+
+    /* Mobile */
+    @media (max-width: 720px) {
+      .stats { gap: 8px; }
+      .stat-pill { padding: 8px 12px; font-size: 11px; }
+      .toolbar { padding: 10px 12px; gap: 8px; }
+      table.loans th, table.loans td { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Verifying access</div></div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img src="sla-logo.svg" alt="SLA Capital" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link current" href="loans.html">Loans</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" href="closed.html">Closed</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Loans</h1>
+      <p id="pageSubtitle">All loans in flight — quoted, submitted, awaiting app, and in processing.</p>
+    </div>
+    <div class="header-actions">
+      <a class="btn" href="closed.html">Closed Loans →</a>
+      <button class="btn" onclick="exportCsv()">Export CSV</button>
+    </div>
+  </div>
+
+  <!-- Admin view tabs -->
+  <div class="view-tabs" id="viewTabs">
+    <button class="view-tab active" data-view="my" onclick="setView('my')">My Loans</button>
+    <button class="view-tab" data-view="all" onclick="setView('all')">All LOs</button>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="searchInput" type="search" placeholder="Search address, client name, loan owner…" oninput="onSearchInput()" />
+    </div>
+    <div class="filter-chips" id="filterChips"></div>
+    <div class="lo-filter" id="loFilterWrap" style="display:none">
+      <span>LO:</span>
+      <select id="loFilter" onchange="renderTable()">
+        <option value="">All</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <div class="table-scroll">
+      <table class="loans">
+        <thead>
+          <tr id="thead"></tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="9"><div class="loading">Loading loans…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+var _user = null;
+var _isAdmin = false;
+var _allLoans = [];        // every loan we loaded
+var _view = 'my';           // 'my' or 'all' for admins
+var _sortBy = '_status';    // current sort key
+var _sortDir = 'asc';       // 'asc' or 'desc' — asc = "most advanced" for status
+var _statusFilters = { active: true, submitted: true, awaiting_app: true, approved: true, on_hold: false, denied: false };
+var _search = '';
+var _loFilter = '';
+
+// Status rank — higher number = "more advanced" in the loan lifecycle. We
+// invert this in the sort so "asc" displays approved → awaiting_app →
+// submitted → active. Closed lives on its own page so isn't shown here.
+// Terminal statuses (on_hold, denied) get the lowest ranks so when toggled
+// on they appear at the bottom of the table.
+var STATUS_RANK = {
+  approved:     5,
+  awaiting_app: 4,
+  submitted:    3,
+  active:       2,
+  on_hold:      1,
+  denied:       0,
+};
+var STATUS_LABELS = {
+  active:       'Active',
+  submitted:    'Submitted',
+  awaiting_app: 'Awaiting App',
+  approved:     'In Processing',
+  on_hold:      'On Hold',
+  denied:       'Declined',
+  closed:       'Closed',
+};
+
+// Column definitions. `key` is the loan field, `sort` is the sort transform.
+var COLUMNS = [
+  { id: 'address',     label: 'Address',      sort: function(l) { return (l.address || '').toLowerCase(); } },
+  { id: 'loanAmt',     label: 'Loan Amount',  numeric: true, sort: function(l) { return l._loanAmtNum || 0; } },
+  { id: 'loanType',    label: 'Loan Type',    sort: function(l) { return (l._loanTypeLabel || '').toLowerCase(); } },
+  { id: 'rate',        label: 'Interest Rate',numeric: true, sort: function(l) { return l._rateNum || 0; } },
+  { id: 'points',      label: 'Points',       numeric: true, sort: function(l) { return l._pointsNum || 0; } },
+  { id: '_status',     label: 'Loan Status',  sort: function(l) { return -(STATUS_RANK[l.status] || 0); } }, // negative so asc = approved first
+  { id: 'clientName',  label: 'Client Name',  sort: function(l) { return ((l._client.firstName || '') + ' ' + (l._client.lastName || '')).toLowerCase().trim(); } },
+  { id: 'submittedAt', label: 'Submission Date', sort: function(l) { return submissionTs(l); } },
+  { id: 'ownerKey',    label: 'Loan Owner',   sort: function(l) { return (l._ownerKey || '').toLowerCase(); } },
+];
+
+// ── Init ───────────────────────────────────────────────────────────
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = SLA.isAdmin(user);
+
+  document.getElementById('auth-gate').style.display = 'none';
+
+  // Admins see the My / All toggle + the LO filter dropdown + the
+  // Submissions nav link. Super-admins also default to All view.
+  if (_isAdmin) {
+    document.getElementById('viewTabs').style.display = 'flex';
+    document.getElementById('navSubmissionsLink').style.display = 'inline-block';
+    if (SLA.isSuperAdmin(user)) {
+      _view = 'all';
+      document.querySelectorAll('.view-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === 'all'); });
+    }
+  }
+
+  renderFilterChips();
+  renderHead();
+  loadAll();
+});
+
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+// ── Data load ──────────────────────────────────────────────────────
+function loadAll() {
+  var listOpts = (_isAdmin && _view === 'all') ? { all: true } : {};
+  SLA.Clients.list(listOpts).then(function(r) {
+    var flat = [];
+    if (_isAdmin && _view === 'all') {
+      // byOwner shape
+      var byOwner = (r && r.byOwner) || {};
+      Object.keys(byOwner).forEach(function(ownerKey) {
+        (byOwner[ownerKey] || []).forEach(function(c) {
+          (c.loans || []).forEach(function(l) {
+            flat.push(decorateLoan(l, c, ownerKey));
+          });
+        });
+      });
+    } else {
+      // self view — flat clients[] array
+      var clients = (r && r.clients) || [];
+      var selfOwner = (_user.email || '').toLowerCase();
+      clients.forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          flat.push(decorateLoan(l, c, selfOwner));
+        });
+      });
+    }
+    _allLoans = flat;
+    populateLoFilter();
+    renderTable();
+  }).catch(function(err) {
+    document.getElementById('tbody').innerHTML =
+      '<tr><td colspan="9"><div class="empty"><strong>Failed to load loans.</strong>' + escH(err && err.message || 'Unknown error') + '</div></td></tr>';
+  });
+}
+
+// Add derived fields onto each loan so sorting + display don't have to
+// recompute repeatedly. _client + _ownerKey are convenience pointers
+// back up to the containing records.
+function decorateLoan(loan, client, ownerKey) {
+  loan._client = client || {};
+  loan._ownerKey = ownerKey || '';
+  loan._loanAmtNum = parseFloat(String(loan.loanAmt || loan.purchasePrice || 0).replace(/[$,]/g, '')) || 0;
+  loan._rateNum = parseFloat(loan.rate || 0) || 0;
+  loan._pointsNum = parseFloat(loan.points || 0) || 0;
+  // Loan type display: humanize common values (bridge, light, heavy, construction, transactional, dscr)
+  var lt = String(loan.loanType || (loan.toolType === 'rtl' ? 'rtl' : 'dscr')).toLowerCase();
+  var LT_LABELS = {
+    bridge: 'Bridge',
+    light:  'Light Rehab',
+    heavy:  'Heavy Rehab',
+    construction: 'Construction',
+    transactional: 'Transactional',
+    dscr: 'DSCR',
+    rtl: 'RTL',
+  };
+  loan._loanTypeLabel = LT_LABELS[lt] || (loan.toolType === 'rtl' ? 'RTL' : 'DSCR');
+  return loan;
+}
+
+// ── Filter chips ───────────────────────────────────────────────────
+function renderFilterChips() {
+  // Order chips by lifecycle stage; defaults match _statusFilters above.
+  // Click toggles, multi-select.
+  var order = ['active', 'submitted', 'awaiting_app', 'approved', 'on_hold', 'denied'];
+  var html = order.map(function(s) {
+    var on = _statusFilters[s];
+    return '<span class="chip ' + (on ? 'active' : '') + '" data-status="' + s + '" onclick="toggleStatusFilter(\'' + s + '\')">' +
+      '<span class="dot"></span>' +
+      STATUS_LABELS[s] +
+    '</span>';
+  }).join('');
+  document.getElementById('filterChips').innerHTML = html;
+}
+
+function toggleStatusFilter(status) {
+  _statusFilters[status] = !_statusFilters[status];
+  renderFilterChips();
+  renderTable();
+}
+
+// ── LO filter (admins only) ────────────────────────────────────────
+function populateLoFilter() {
+  if (!(_isAdmin && _view === 'all')) {
+    document.getElementById('loFilterWrap').style.display = 'none';
+    return;
+  }
+  var owners = {};
+  _allLoans.forEach(function(l) { if (l._ownerKey) owners[l._ownerKey] = true; });
+  var keys = Object.keys(owners).sort();
+  var sel = document.getElementById('loFilter');
+  var current = sel.value;
+  sel.innerHTML = '<option value="">All</option>' + keys.map(function(k) {
+    return '<option value="' + escAttr(k) + '">' + escH(k) + '</option>';
+  }).join('');
+  sel.value = current; // preserve selection across reloads
+  document.getElementById('loFilterWrap').style.display = 'flex';
+}
+
+// ── Search ─────────────────────────────────────────────────────────
+var _searchTimer = null;
+function onSearchInput() {
+  // Debounce slightly so typing isn't janky on large tables
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(function() {
+    _search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+    renderTable();
+  }, 80);
+}
+
+// ── Sort + render ──────────────────────────────────────────────────
+function renderHead() {
+  var html = COLUMNS.map(function(col) {
+    var isSorted = (_sortBy === col.id);
+    var arrow = isSorted ? (_sortDir === 'asc' ? '▲' : '▼') : '▲';
+    return '<th class="' + (col.numeric ? 'numeric ' : '') + (isSorted ? 'sorted' : '') + '" onclick="setSort(\'' + col.id + '\')">' +
+      escH(col.label) +
+      '<span class="sort-arrow">' + arrow + '</span>' +
+    '</th>';
+  }).join('');
+  document.getElementById('thead').innerHTML = html;
+}
+
+function setSort(colId) {
+  if (_sortBy === colId) {
+    _sortDir = (_sortDir === 'asc') ? 'desc' : 'asc';
+  } else {
+    _sortBy = colId;
+    _sortDir = 'asc';
+  }
+  renderHead();
+  renderTable();
+}
+
+function getFiltered() {
+  var loFilter = document.getElementById('loFilter') ? document.getElementById('loFilter').value : '';
+  return _allLoans.filter(function(l) {
+    // Hide closed always (separate page)
+    if (l.status === 'closed') return false;
+    // Default-OFF statuses must be explicitly toggled
+    if (!_statusFilters[l.status || 'active']) return false;
+    if (loFilter && l._ownerKey !== loFilter) return false;
+    if (_search) {
+      var hay = [
+        l.address,
+        (l._client.firstName || '') + ' ' + (l._client.lastName || ''),
+        l._client.email,
+        l._ownerKey,
+        l._loanTypeLabel,
+        STATUS_LABELS[l.status],
+      ].join(' ').toLowerCase();
+      if (hay.indexOf(_search) === -1) return false;
+    }
+    return true;
+  });
+}
+
+function renderTable() {
+  var rows = getFiltered();
+  var col = COLUMNS.find(function(c) { return c.id === _sortBy; }) || COLUMNS[5];
+  rows.sort(function(a, b) {
+    var av = col.sort(a);
+    var bv = col.sort(b);
+    var cmp = (typeof av === 'string' && typeof bv === 'string') ? av.localeCompare(bv) : (av < bv ? -1 : av > bv ? 1 : 0);
+    if (_sortDir === 'desc') cmp = -cmp;
+    // Stable secondary sort: most-recent first within ties
+    if (cmp === 0) {
+      var aT = new Date(a.savedAt || a.updatedAt || 0).getTime();
+      var bT = new Date(b.savedAt || b.updatedAt || 0).getTime();
+      return bT - aT;
+    }
+    return cmp;
+  });
+
+  renderStats(rows);
+
+  if (!rows.length) {
+    var msg = _allLoans.length === 0
+      ? '<strong>No loans yet.</strong> Quote a deal from the <a href="dscr-sizer.html">DSCR</a> or <a href="rtl-sizer.html">RTL</a> sizer to get started.'
+      : '<strong>No loans match the current filters.</strong> Try clearing your search or toggling more status chips on.';
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="9"><div class="empty">' + msg + '</div></td></tr>';
+    return;
+  }
+
+  document.getElementById('tbody').innerHTML = rows.map(renderRow).join('');
+}
+
+function renderRow(l) {
+  var c = l._client;
+  var clientName = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || '—';
+  var status = l.status || 'active';
+  var loanUrl = 'loan-details.html?clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id) + '&owner=' + encodeURIComponent(l._ownerKey);
+  var clientUrl = 'client-details.html?clientId=' + encodeURIComponent(c.id) + '&owner=' + encodeURIComponent(l._ownerKey);
+  // Rates may be stored as decimal (.085) or already-percent (8.5).
+  // Threshold-detect: anything >1 is treated as already-percent.
+  var ratePct = l._rateNum > 1 ? l._rateNum : l._rateNum * 100;
+  var rateDisp = l._rateNum ? ratePct.toFixed(3).replace(/\.?0+$/, '') + '%' : '—';
+  var pointsDisp = l._pointsNum ? l._pointsNum.toFixed(2) + ' pts' : '—';
+  var amtDisp = l._loanAmtNum ? '$' + Math.round(l._loanAmtNum).toLocaleString() : '—';
+  var subDate = fmtDate(submissionDate(l));
+
+  return '<tr>' +
+    '<td><a class="addr" href="' + escAttr(loanUrl) + '">' +
+      '<span class="tool-tag ' + escAttr(l.toolType || 'dscr') + '">' + escH((l.toolType || 'dscr').toUpperCase()) + '</span>' +
+      escH(l.address || '—') +
+    '</a></td>' +
+    '<td class="numeric">' + escH(amtDisp) + '</td>' +
+    '<td>' + escH(l._loanTypeLabel) + '</td>' +
+    '<td class="numeric">' + escH(rateDisp) + '</td>' +
+    '<td class="numeric">' + escH(pointsDisp) + '</td>' +
+    '<td><span class="stat ' + status + '">' + escH(STATUS_LABELS[status] || status) + '</span></td>' +
+    '<td><a class="client-name" href="' + escAttr(clientUrl) + '">' + escH(clientName) + '</a></td>' +
+    '<td class="mono">' + escH(subDate) + '</td>' +
+    '<td class="mono">' + escH(l._ownerKey || '—') + '</td>' +
+  '</tr>';
+}
+
+function renderStats(rows) {
+  var total = rows.length;
+  var volume = rows.reduce(function(sum, l) { return sum + (l._loanAmtNum || 0); }, 0);
+  var allInFlight = _allLoans.filter(function(l) { return l.status !== 'closed' && l.status !== 'denied' && l.status !== 'on_hold'; }).length;
+  var showing = (total === _allLoans.length || total === allInFlight)
+    ? '<strong>' + total + '</strong> loans'
+    : '<strong>' + total + '</strong> of ' + _allLoans.length + ' loans';
+  document.getElementById('stats').innerHTML =
+    '<div class="stat-pill">' + showing + ' shown</div>' +
+    '<div class="stat-pill"><strong>$' + Math.round(volume).toLocaleString() + '</strong> total volume</div>';
+}
+
+// ── View toggle (admin) ────────────────────────────────────────────
+function setView(view) {
+  _view = view;
+  document.querySelectorAll('.view-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === view); });
+  document.getElementById('tbody').innerHTML = '<tr><td colspan="9"><div class="loading">Loading…</div></td></tr>';
+  loadAll();
+}
+
+// ── CSV export ─────────────────────────────────────────────────────
+function exportCsv() {
+  var rows = getFiltered();
+  var header = ['Address','Loan Amount','Loan Type','Interest Rate','Points','Status','Client Name','Client Email','Submission Date','Loan Owner','Tool'];
+  var lines = [header.join(',')];
+  rows.forEach(function(l) {
+    var c = l._client;
+    var clientName = ((c.firstName || '') + ' ' + (c.lastName || '')).trim();
+    var rateNum = l._rateNum;
+    var rateDisp = rateNum ? (rateNum > 1 ? rateNum.toFixed(4) : (rateNum * 100).toFixed(4)) : '';
+    lines.push([
+      csvCell(l.address || ''),
+      csvCell(l._loanAmtNum || ''),
+      csvCell(l._loanTypeLabel || ''),
+      csvCell(rateDisp),
+      csvCell(l._pointsNum || ''),
+      csvCell(STATUS_LABELS[l.status] || l.status || ''),
+      csvCell(clientName),
+      csvCell(c.email || ''),
+      csvCell(submissionDate(l) || ''),
+      csvCell(l._ownerKey || ''),
+      csvCell(l.toolType || ''),
+    ].join(','));
+  });
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'sla-loans-' + (new Date().toISOString().slice(0, 10)) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+}
+function csvCell(v) {
+  var s = String(v == null ? '' : v);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+function escH(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+function fmtDate(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// "Submission Date" semantic: when did this loan enter the pipeline?
+// We started writing loan.submittedAt on the submit action recently, but
+// older loans don't have it. Fallbacks:
+//   - Submitted / awaiting_app / approved without submittedAt → updatedAt
+//     (best guess: the last write was likely the status change)
+//   - Active without submittedAt → savedAt (when it was first quoted)
+//   - Else → null / em-dash
+function submissionDate(l) {
+  if (l.submittedAt) return l.submittedAt;
+  var st = l.status || 'active';
+  if (st === 'submitted' || st === 'awaiting_app' || st === 'approved') {
+    return l.updatedAt || l.savedAt || null;
+  }
+  return l.savedAt || null;
+}
+function submissionTs(l) {
+  var d = submissionDate(l);
+  return d ? new Date(d).getTime() : 0;
+}
+</script>
+
+</body>
+</html>
