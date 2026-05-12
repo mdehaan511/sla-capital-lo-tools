@@ -464,14 +464,15 @@ function getFICOMin(ficoStr) {
     <div class="form-body">
 
       <div class="field">
-        <div class="wrap">
+        <div class="wrap" id="borrowerNameWrap">
           <label>Borrower Name <span class="req">*</span></label>
-          <input type="text" id="borrowerName" placeholder="John Smith" />
+          <input type="text" id="borrowerName" placeholder="John Smith" oninput="_clearNameError()" />
         </div>
+        <div class="email-err" id="borrowerNameErr" style="display:none">Borrower name is required to save a quote.</div>
       </div>
       <div class="field">
         <div class="wrap" id="borrowerEmailWrap">
-          <label>Borrower Email</label>
+          <label>Borrower Email <span class="req">*</span></label>
           <input type="email" id="borrowerEmail" placeholder="borrower@email.com" oninput="_clearEmailError()" />
         </div>
         <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
@@ -1921,6 +1922,22 @@ function _clearEmailError() {
   if (err) err.style.display = 'none';
   if (wrap) wrap.classList.remove('has-err');
 }
+// Mirror of the email error helpers for borrower name. Name + email are
+// both required at save time — without them we can't create a client
+// record, which means the LO ends up with a "saved" quote that has no
+// matching Loan Details page. That silent failure is what we're fixing.
+function _showNameError(msg) {
+  var err = document.getElementById('borrowerNameErr');
+  var wrap = document.getElementById('borrowerNameWrap');
+  if (err) { err.textContent = msg || 'Borrower name is required to save a quote.'; err.style.display = 'block'; }
+  if (wrap) wrap.classList.add('has-err');
+}
+function _clearNameError() {
+  var err = document.getElementById('borrowerNameErr');
+  var wrap = document.getElementById('borrowerNameWrap');
+  if (err) err.style.display = 'none';
+  if (wrap) wrap.classList.remove('has-err');
+}
 
 // Format a phone input as (XXX) XXX-XXXX while the user types.
 // Mirrors the same helper in apply.html so the borrower-experience and
@@ -1938,17 +1955,35 @@ function saveCurrentQuote() {
   if (!r.address && !r.borrower) { showToast('Add an address or borrower name first'); return; }
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
 
-  // Validate borrower email format if provided. Allow blank (sizer can save
-  // without an email — ClientBook just won't be updated). But if the user
-  // typed something, it has to be a real email or we'll create a junk client
-  // record that breaks future lookups + Brevo sync.
+  // Hard requirements: both borrower name AND email must be present at save.
+  // Without them, ClientBook.upsert short-circuits and we get an orphaned
+  // quote (in Pipeline) with no matching Loan Details page. Catch this
+  // explicitly with field-level errors so the LO knows which field to fix.
+  var nameEl = $('borrowerName');
   var emailEl = $('borrowerEmail');
-  if (emailEl && emailEl.value.trim() && !_isValidEmail(emailEl.value.trim())) {
+  var nameVal = (nameEl && nameEl.value || '').trim();
+  var emailVal = (emailEl && emailEl.value || '').trim();
+  var firstErrorEl = null;
+  if (!emailVal) {
+    _showEmailError('Borrower email is required to save a quote.');
+    firstErrorEl = firstErrorEl || emailEl;
+  } else if (!_isValidEmail(emailVal)) {
     _showEmailError('Please enter a valid email address.');
-    emailEl.focus();
+    firstErrorEl = firstErrorEl || emailEl;
+  } else {
+    _clearEmailError();
+  }
+  if (!nameVal) {
+    _showNameError('Borrower name is required to save a quote.');
+    firstErrorEl = nameEl || firstErrorEl; // name comes first in the form, focus it preferentially
+  } else {
+    _clearNameError();
+  }
+  if (firstErrorEl) {
+    firstErrorEl.focus();
+    showToast('Borrower name and email are required to save a quote');
     return;
   }
-  _clearEmailError();
 
   // Build formData snapshot — all field values
   var formData = {

@@ -106,6 +106,13 @@
     .decide-btn.hold:hover:not(:disabled) { background: var(--warn); color: #fff; }
     .view-link { font-size: 12px; color: var(--muted); text-decoration: none; padding: 8px 12px; }
     .view-link:hover { color: var(--gold); }
+    /* Clickable name in title and address in subtitle. Inherit the parent
+       text color (so they look like normal text) but reveal the link
+       affordance on hover. Keeps the visual hierarchy intact. */
+    .sub-card-title a { color: inherit; text-decoration: none; border-bottom: 1px dotted transparent; transition: border-color 0.15s, color 0.15s; }
+    .sub-card-title a:hover { color: var(--gold); border-bottom-color: var(--gold); }
+    .sub-card-sub a { color: inherit; text-decoration: none; border-bottom: 1px dotted transparent; transition: border-color 0.15s, color 0.15s; }
+    .sub-card-sub a:hover { color: var(--gold); border-bottom-color: var(--gold); }
 
     .empty-state { text-align: center; padding: 4rem 2rem; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--r); }
     .empty-state h3 { font-family: 'Lora', serif; font-size: 17px; color: var(--text); margin-bottom: 8px; }
@@ -314,6 +321,44 @@ function buildCard(r, idx) {
       + '&loanId=' + encodeURIComponent(r.loanLink.loanId)
       + '&owner=' + encodeURIComponent(r.loanLink.ownerKey)
     : null;
+  var clientLink = r.loanLink
+    ? 'client-details.html?clientId=' + encodeURIComponent(r.loanLink.clientId)
+      + '&owner=' + encodeURIComponent(r.loanLink.ownerKey)
+    : null;
+
+  // Title shows borrower name when present, else falls back to address.
+  // We want:
+  //   - If we have a real borrower name AND a clientId, the name links to
+  //     Client Details. (The borrower may have multiple loans; that page
+  //     is the right destination for the name.)
+  //   - The address in the subtitle links to Loan Details (specific loan).
+  //   - If the title fell back to address (no borrower), and we have a
+  //     loanId, link the title to Loan Details — otherwise we'd have an
+  //     orphan plain-text title.
+  //   - When loanLink is missing (no matching loan record by address),
+  //     everything stays plain text.
+  var titleText = escH(q.borrower || q.address || 'Submission');
+  var titleHasName = !!q.borrower;
+  var titleHtml;
+  if (titleHasName && clientLink) {
+    titleHtml = '<a href="' + clientLink + '" title="View client details">' + titleText + '</a>';
+  } else if (!titleHasName && loanLink) {
+    // Title is showing an address — link it to loan details instead.
+    titleHtml = '<a href="' + loanLink + '" title="View loan details">' + titleText + '</a>';
+  } else {
+    titleHtml = titleText;
+  }
+
+  // Subtitle's address segment links to Loan Details when we have one.
+  // We only show it when there's both an address AND a borrower (otherwise
+  // the title IS the address and we don't repeat it).
+  var subAddrHtml = '';
+  if (q.address && q.borrower) {
+    var addrText = escH(q.address);
+    subAddrHtml = (loanLink
+      ? '<a href="' + loanLink + '" title="View loan details">' + addrText + '</a>'
+      : addrText) + ' · ';
+  }
 
   return (
     '<div class="sub-card" id="card-' + idx + '">' +
@@ -321,10 +366,10 @@ function buildCard(r, idx) {
         '<div>' +
           '<div class="sub-card-title">' +
             '<span class="tool-tag ' + (q.toolType || 'dscr') + '">' + (q.toolType || 'dscr').toUpperCase() + '</span>' +
-            escH(q.borrower || q.address || 'Submission') +
+            titleHtml +
           '</div>' +
           '<div class="sub-card-sub">' +
-            (q.address && q.borrower ? escH(q.address) + ' · ' : '') +
+            subAddrHtml +
             'LO: ' + escH(loName) +
           '</div>' +
         '</div>' +

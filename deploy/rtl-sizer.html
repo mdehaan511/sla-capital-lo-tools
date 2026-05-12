@@ -317,14 +317,15 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <!-- Borrower -->
       <div class="section-label">Borrower</div>
       <div class="field">
-        <div class="wrap">
-          <label>Borrower Name</label>
-          <input type="text" id="borrowerName" placeholder="John Smith" oninput="autoCalc()" />
+        <div class="wrap" id="borrowerNameWrap">
+          <label>Borrower Name <span class="req">*</span></label>
+          <input type="text" id="borrowerName" placeholder="John Smith" oninput="_clearNameError();autoCalc()" />
         </div>
+        <div class="email-err" id="borrowerNameErr" style="display:none">Borrower name is required to save a quote.</div>
       </div>
       <div class="field">
         <div class="wrap" id="borrowerEmailWrap">
-          <label>Borrower Email</label>
+          <label>Borrower Email <span class="req">*</span></label>
           <input type="email" id="borrowerEmail" placeholder="borrower@email.com" oninput="_clearEmailError()" />
         </div>
         <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
@@ -1643,13 +1644,49 @@ function _clearEmailError() {
   if (err) err.style.display = 'none';
   if (wrap) wrap.classList.remove('has-err');
 }
+// Name validation mirrors email — required at save time so the client
+// record gets created. Without name+email, sizer saves don't produce a
+// Loan Details page (which was the silent failure we just fixed).
+function _showNameError(msg) {
+  var err = document.getElementById('borrowerNameErr');
+  var wrap = document.getElementById('borrowerNameWrap');
+  if (err) { err.textContent = msg || 'Borrower name is required to save a quote.'; err.style.display = 'block'; }
+  if (wrap) wrap.classList.add('has-err');
+}
+function _clearNameError() {
+  var err = document.getElementById('borrowerNameErr');
+  var wrap = document.getElementById('borrowerNameWrap');
+  if (err) err.style.display = 'none';
+  if (wrap) wrap.classList.remove('has-err');
+}
 
 function saveCurrentQuote() {
-  // Validate borrower email format if provided.
+  // Hard requirements: both borrower name AND email must be present at save.
+  // Without them, ClientBook.upsert short-circuits and we get an orphaned
+  // quote (in Pipeline) with no matching Loan Details page.
+  var nameEl = document.getElementById('borrowerName');
   var emailEl = document.getElementById('borrowerEmail');
-  if (emailEl && emailEl.value.trim() && !_isValidEmail(emailEl.value.trim())) {
+  var nameVal = (nameEl && nameEl.value || '').trim();
+  var emailVal = (emailEl && emailEl.value || '').trim();
+  var firstErrorEl = null;
+  if (!emailVal) {
+    _showEmailError('Borrower email is required to save a quote.');
+    firstErrorEl = firstErrorEl || emailEl;
+  } else if (!_isValidEmail(emailVal)) {
     _showEmailError('Please enter a valid email address.');
-    emailEl.focus();
+    firstErrorEl = firstErrorEl || emailEl;
+  } else {
+    _clearEmailError();
+  }
+  if (!nameVal) {
+    _showNameError('Borrower name is required to save a quote.');
+    firstErrorEl = nameEl || firstErrorEl;
+  } else {
+    _clearNameError();
+  }
+  if (firstErrorEl) {
+    firstErrorEl.focus();
+    showToast('Borrower name and email are required to save a quote');
     return;
   }
   _clearEmailError();

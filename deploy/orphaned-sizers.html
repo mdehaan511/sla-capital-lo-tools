@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orphaned Sizers — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --success: #1e6b3b; --warn: #7a5218;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; padding: 2rem; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; transition: all .15s; white-space: nowrap; cursor: pointer; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+
+    .page { max-width: 1200px; margin: 2rem auto 0; }
+    .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .page-head h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; }
+    .page-head p { color: var(--muted); font-size: 13px; margin-top: 4px; line-height: 1.5; max-width: 680px; }
+
+    .summary { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 10px 16px; font-size: 13px; color: var(--muted); }
+    .stat-pill strong { color: var(--text); font-size: 17px; display: inline-block; margin-right: 6px; font-weight: 600; }
+    .stat-pill.warn strong { color: var(--warn); }
+    .stat-pill.good strong { color: var(--success); }
+
+    .ctrl-row { display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .refresh-btn, .bulk-btn { padding: 8px 16px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-xs); font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text); transition: all .15s; }
+    .refresh-btn:hover { background: var(--bg); }
+    .bulk-btn { background: var(--gold-light); border-color: var(--gold-border); color: var(--gold-mid); }
+    .bulk-btn:hover:not(:disabled) { background: var(--gold); color: #fff; }
+    .bulk-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .status { font-size: 12px; color: var(--muted); }
+
+    .orphan-list { display: flex; flex-direction: column; gap: 12px; }
+    .orphan { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px 20px; display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+    .orphan.recovered { opacity: 0.5; background: var(--gold-light); border-color: var(--gold-border); }
+    .orphan.failed { border-color: rgba(124,31,31,0.3); background: #fdf6f6; }
+    .orphan.no-email { background: #fdf9f0; border-color: rgba(122,82,24,0.25); }
+
+    .orphan-info { min-width: 0; }
+    .orphan-row { display: flex; gap: 16px; align-items: baseline; font-size: 13px; flex-wrap: wrap; }
+    .orphan-row + .orphan-row { margin-top: 6px; }
+    .orphan-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); min-width: 90px; }
+    .orphan-value { color: var(--text); }
+    .orphan-value.muted { color: var(--muted); font-style: italic; }
+    .orphan-value.mono { font-family: 'DM Mono', monospace; font-size: 12px; }
+    .tool-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 3px; background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); }
+    .tool-tag.rtl { background: rgba(74, 110, 191, 0.10); color: #4a6ebf; border-color: rgba(74, 110, 191, 0.3); }
+    .badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin-left: 8px; }
+    .badge.warn { background: rgba(122,82,24,0.12); color: var(--warn); border: 1px solid rgba(122,82,24,0.25); }
+    .badge.ok { background: rgba(30,107,59,0.10); color: var(--success); border: 1px solid rgba(30,107,59,0.25); }
+
+    .orphan-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; min-width: 130px; }
+    .action-btn { padding: 7px 14px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-xs); font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text); transition: all .15s; white-space: nowrap; font-family: inherit; }
+    .action-btn.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .action-btn.primary:hover:not(:disabled) { background: var(--gold-mid); border-color: var(--gold-mid); }
+    .action-btn.subtle { background: var(--bg); color: var(--muted); }
+    .action-btn.subtle:hover:not(:disabled) { color: var(--text); }
+    .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .action-result { font-size: 11px; color: var(--muted); text-align: right; min-height: 14px; }
+    .action-result.ok { color: var(--success); }
+    .action-result.err { color: var(--danger); }
+
+    .empty, .loading { text-align: center; padding: 4rem 2rem; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+    .empty strong { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
+    .empty.success { background: rgba(30,107,59,0.04); border-color: rgba(30,107,59,0.2); }
+    .empty.success strong { color: var(--success); }
+
+    @media (max-width: 640px) {
+      .orphan { grid-template-columns: 1fr; }
+      .orphan-actions { flex-direction: row; flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate">
+  <div class="gate-msg"><strong>Checking access…</strong>Verifying super-admin role</div>
+</div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="/"><img src="/sla-logo.svg" alt="SLA Capital" style="height: 48px; width: auto;"/></a>
+  </div>
+  <div class="nav-right">
+    <a href="/clients.html" class="nav-tools-btn">Clients</a>
+    <a href="/pipeline.html" class="nav-tools-btn">Pipeline</a>
+    <a href="/submissions.html" class="nav-tools-btn">Submissions</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Orphaned Sizers</h1>
+      <p>Quotes that exist in the Pipeline but have no corresponding loan record on the client. Usually caused by sizer saves that completed before borrower email was required (before Deploy_143). Auto-recover creates the missing client + loan record from the quote's stored data. Quotes without an email in their saved data need an LO to re-open the sizer and fill it in manually.</p>
+    </div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="ctrl-row">
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh list</button>
+    <button class="bulk-btn" id="bulkBtn" onclick="recoverAll()" disabled>Auto-recover all with email</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div id="content">
+    <div class="loading">Loading orphaned sizers…</div>
+  </div>
+</div>
+
+<script>
+var _user = null;
+var _orphans = [];
+var _bulkRunning = false;
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!SLA.isSuperAdmin(user)) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Access denied</strong>This page is for super-admins only.</div>';
+    return;
+  }
+  _user = user;
+  document.getElementById('auth-gate').style.display = 'none';
+  loadAll();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function escH(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function loadAll() {
+  document.getElementById('content').innerHTML = '<div class="loading">Loading orphaned sizers…</div>';
+  document.getElementById('summary').innerHTML = '';
+  document.getElementById('status').textContent = '';
+
+  // Direct fetch — only this page uses this endpoint, no need to add a
+  // helper to sla-api.js. Token comes from netlifyIdentity.
+  _user.jwt().then(function(token) {
+    return fetch('/api/orphaned-quotes-list', {
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+  }).then(function(r) {
+    return r.json().then(function(body) { return { status: r.status, body: body }; });
+  }).then(function(resp) {
+    if (resp.status !== 200) {
+      document.getElementById('content').innerHTML =
+        '<div class="empty"><strong>Couldn\'t load orphans.</strong>' +
+        escH((resp.body && resp.body.error) || ('HTTP ' + resp.status)) + '</div>';
+      return;
+    }
+    _orphans = (resp.body && resp.body.orphans) || [];
+    var summary = (resp.body && resp.body.summary) || {};
+    renderSummary(summary);
+    render();
+  }).catch(function(err) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty"><strong>Couldn\'t load orphans.</strong>' + escH(err.message || 'unknown') + '</div>';
+  });
+}
+
+function renderSummary(s) {
+  document.getElementById('summary').innerHTML =
+    '<div class="stat-pill"><strong>' + (s.total || 0) + '</strong> total orphans</div>' +
+    '<div class="stat-pill good"><strong>' + (s.autoRecoverable || 0) + '</strong> auto-recoverable</div>' +
+    '<div class="stat-pill warn"><strong>' + (s.needsManualFix || 0) + '</strong> need manual fix</div>';
+
+  var bulkBtn = document.getElementById('bulkBtn');
+  bulkBtn.disabled = !(s.autoRecoverable > 0);
+  bulkBtn.textContent = 'Auto-recover all with email (' + (s.autoRecoverable || 0) + ')';
+}
+
+function render() {
+  var el = document.getElementById('content');
+  if (!_orphans.length) {
+    el.innerHTML = '<div class="empty success"><strong>No orphans — all clear.</strong>Every saved quote has a matching loan record.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="orphan-list">' + _orphans.map(renderOrphan).join('') + '</div>';
+}
+
+function renderOrphan(o, idx) {
+  var emailRow = o.hasEmail
+    ? '<span class="orphan-value">' + escH(o.borrowerEmail) + '</span>'
+    : '<span class="orphan-value muted">(none — needs manual fix)</span>';
+  var nameRow = o.borrower
+    ? '<span class="orphan-value">' + escH(o.borrower) + '</span>'
+    : '<span class="orphan-value muted">(no name)</span>';
+  var cls = 'orphan' + (o._recovered ? ' recovered' : '') + (o._failed ? ' failed' : '') + (!o.hasEmail ? ' no-email' : '');
+  var badge = o._recovered
+    ? '<span class="badge ok">Recovered</span>'
+    : (!o.hasEmail ? '<span class="badge warn">No email</span>' : '');
+
+  var actions;
+  if (o._recovered) {
+    actions = '<div class="action-result ok">✓ Recovered. <br><a href="/loan-details.html?clientId=' + encodeURIComponent(o._recoveredClientId) + '&loanId=' + encodeURIComponent(o._recoveredLoanId) + '&owner=' + encodeURIComponent(o.owner) + '" style="color:var(--gold-mid)">View loan →</a></div>';
+  } else if (o.hasEmail) {
+    actions =
+      '<button class="action-btn primary" onclick="recoverOne(' + idx + ')" ' + (o._inflight ? 'disabled' : '') + '>' + (o._inflight ? 'Recovering…' : 'Auto-recover') + '</button>' +
+      '<button class="action-btn subtle" onclick="skipOne(' + idx + ')">Skip</button>' +
+      (o._failed ? '<div class="action-result err">' + escH(o._failureMsg || 'Failed') + '</div>' : '');
+  } else {
+    actions =
+      '<button class="action-btn" disabled title="No email in quote\'s formData — LO must re-open the sizer">Auto-recover</button>' +
+      '<button class="action-btn subtle" onclick="skipOne(' + idx + ')">Skip</button>';
+  }
+
+  return (
+    '<div class="' + cls + '" id="orphan-' + idx + '">' +
+      '<div class="orphan-info">' +
+        '<div class="orphan-row">' +
+          '<span class="tool-tag ' + escH(o.toolType || 'dscr') + '">' + escH((o.toolType || 'dscr').toUpperCase()) + '</span>' +
+          '<span class="orphan-value mono">' + escH(o.address || '—') + '</span>' +
+          badge +
+        '</div>' +
+        '<div class="orphan-row">' +
+          '<span class="orphan-label">Borrower</span>' + nameRow +
+          '<span class="orphan-label">Email</span>' + emailRow +
+        '</div>' +
+        '<div class="orphan-row">' +
+          '<span class="orphan-label">LO (owner)</span><span class="orphan-value mono">' + escH(o.owner || '—') + '</span>' +
+          '<span class="orphan-label">Saved</span><span class="orphan-value">' + escH(fmtDate(o.savedAt)) + '</span>' +
+          '<span class="orphan-label">Status</span><span class="orphan-value">' + escH(o.status) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="orphan-actions">' + actions + '</div>' +
+    '</div>'
+  );
+}
+
+function recoverOne(idx) {
+  var o = _orphans[idx];
+  if (!o || !o.hasEmail || o._inflight || o._recovered) return Promise.resolve();
+  o._inflight = true;
+  o._failed = false;
+  o._failureMsg = null;
+  rerenderOrphan(idx);
+
+  // Server-side recovery: cross-LO safe (admin acts on another LO's
+  // quote without the frontend Clients.upsert helper's owner-coupling
+  // limitations). The endpoint re-fetches the quote, builds the loan
+  // record, merges with existing client (if any), and persists.
+  return _user.jwt().then(function(token) {
+    return fetch('/api/orphaned-quote-recover', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ quoteKey: o.quoteKey, owner: o.owner }),
+    });
+  }).then(function(r) {
+    return r.json().then(function(body) { return { status: r.status, body: body }; });
+  }).then(function(resp) {
+    o._inflight = false;
+    if (resp.status === 200 && resp.body && resp.body.success) {
+      o._recovered = true;
+      o._recoveredClientId = resp.body.clientId;
+      o._recoveredLoanId   = resp.body.loanId;
+    } else {
+      o._failed = true;
+      o._failureMsg = (resp.body && resp.body.error) || ('HTTP ' + resp.status);
+    }
+    rerenderOrphan(idx);
+  }).catch(function(err) {
+    o._inflight = false;
+    o._failed = true;
+    o._failureMsg = (err && err.message) || 'Recovery failed';
+    rerenderOrphan(idx);
+  });
+}
+
+function rerenderOrphan(idx) {
+  var el = document.getElementById('orphan-' + idx);
+  if (!el) return;
+  // Replace the orphan card in place using outerHTML (simpler than
+  // surgically updating fields; the card isn't deep enough for that
+  // to matter for performance).
+  var tmp = document.createElement('div');
+  tmp.innerHTML = renderOrphan(_orphans[idx], idx);
+  el.parentNode.replaceChild(tmp.firstChild, el);
+}
+
+function skipOne(idx) {
+  // UI-only: hide the row but don't touch the underlying data. The
+  // orphan stays in storage; refreshing the list will bring it back.
+  var el = document.getElementById('orphan-' + idx);
+  if (el) el.style.display = 'none';
+}
+
+function recoverAll() {
+  if (_bulkRunning) return;
+  var queue = _orphans
+    .map(function(o, i) { return { o: o, i: i }; })
+    .filter(function(x) { return x.o.hasEmail && !x.o._recovered && !x.o._inflight; });
+  if (!queue.length) return;
+  if (!confirm('Auto-recover ' + queue.length + ' orphan(s)?\n\nThis will create client + loan records from each quote\'s saved data. Safe to retry — already-recovered orphans are skipped.')) return;
+
+  _bulkRunning = true;
+  var bulkBtn = document.getElementById('bulkBtn');
+  var status = document.getElementById('status');
+  bulkBtn.disabled = true;
+  bulkBtn.textContent = 'Recovering…';
+
+  var done = 0;
+  var failed = 0;
+  function next() {
+    if (!queue.length) {
+      _bulkRunning = false;
+      bulkBtn.disabled = false;
+      bulkBtn.textContent = 'Auto-recover all with email';
+      status.textContent = done + ' recovered, ' + failed + ' failed.';
+      return;
+    }
+    var item = queue.shift();
+    status.textContent = 'Recovering ' + (item.o.address || item.o.borrower || '—') + ' …';
+    recoverOne(item.i).then(function() {
+      if (_orphans[item.i]._recovered) done++;
+      else if (_orphans[item.i]._failed) failed++;
+      next();
+    });
+  }
+  next();
+}
+</script>
+
+</body>
+</html>

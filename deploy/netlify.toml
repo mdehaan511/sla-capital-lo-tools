@@ -205,6 +205,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/orphaned-quotes-list"
+  to = "/.netlify/functions/orphaned-quotes-list"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/orphaned-quote-recover"
+  to = "/.netlify/functions/orphaned-quote-recover"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/chat"
   to = "/.netlify/functions/chat"
   status = 200
