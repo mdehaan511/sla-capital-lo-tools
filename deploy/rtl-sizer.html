@@ -816,8 +816,23 @@ function pts(f){ if(f>=720)return 1.5; if(f>=620)return 2.0; return 3.0; }
 function colchisRate(lt,pt,fk,ltv){
   var g=PRICING[lt]&&PRICING[lt][pt]&&PRICING[lt][pt][fk]; if(!g)return null;
   var b=null, idx=-1;
+  // First pass: find the largest LTV column <= actual LTV. This is the
+  // standard lookup — rates are bucketed at .70/.75/.80/.85/.90/.95 LTV.
   for(var i=0;i<LTV_COLS.length;i++){
     if(LTV_COLS[i]<=ltv+.005&&g[i]!==null){ b=g[i]; idx=i; }
+  }
+  // Fallback: when the actual LTV is below every defined column (most
+  // common case: Bridge refis where Colchis caps LTV at 60–65% for some
+  // FICO/experience combos, but the PRICING matrix starts at the .70
+  // column). Rates only go UP with LTV, so applying the lowest defined
+  // column's rate is conservative-correct (the borrower's actual lower
+  // leverage means same-or-better risk; rate floors out at program min
+  // anyway). Without this fallback, Bridge refis with low LTV caps
+  // returned null and the result block showed "no pricing available."
+  if (b === null) {
+    for (var j = 0; j < LTV_COLS.length; j++) {
+      if (g[j] !== null) { b = g[j]; idx = j; break; }
+    }
   }
   return b===null?null:{rate:b, ltvIdx:idx};
 }
@@ -913,11 +928,28 @@ function validate(){
   if(!document.getElementById('propState').value){ showErr('propState'); ok=false; }
   var zip=document.getElementById('propZip').value.trim();
   if(zip&&!/^\d{5}$/.test(zip)){ showErr('propZip','Must be 5 digits'); ok=false; }
-  ['purchasePrice','arv'].forEach(function(id){
-    if(!(parseFloat(document.getElementById(id).value)>0)){ showErr(id); ok=false; }
-  });
-  var t=document.getElementById('loanType').value;
-  if(['light','heavy'].includes(t)&&!(parseFloat(document.getElementById('rehabBudget').value)>0)){
+
+  // purchasePrice is always required (it's the as-is property value on refis).
+  if(!(parseFloat(document.getElementById('purchasePrice').value)>0)){
+    showErr('purchasePrice'); ok=false;
+  }
+
+  // ARV is only required when the rehab math actually uses it: Light or
+  // Heavy Rehab on a purchase. Bridge has no rehab math (LTV against price
+  // only); refis price against as-is value, not ARV. Both hide the field
+  // in the UI via onLoanTypeChange / onRtlPurposeChange — before this fix,
+  // validate() still required ARV>0 regardless, so selecting Bridge+Refi
+  // first would silently fail validation with no visible error.
+  var t = document.getElementById('loanType').value;
+  var v = document.getElementById('loanPurpose').value;
+  var isRefiV = (v === 'cashout' || v === 'rateterm');
+  var arvApplies = ['light','heavy'].includes(t) && !isRefiV;
+  if (arvApplies && !(parseFloat(document.getElementById('arv').value)>0)) {
+    showErr('arv'); ok=false;
+  }
+
+  // Rehab budget required only when ARV is required (same applicability).
+  if (arvApplies && !(parseFloat(document.getElementById('rehabBudget').value)>0)) {
     showErr('rehabBudget'); ok=false;
   }
   return ok;
