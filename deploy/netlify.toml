@@ -217,6 +217,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/loan-change-type"
+  to = "/.netlify/functions/loan-change-type"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/chat"
   to = "/.netlify/functions/chat"
   status = 200

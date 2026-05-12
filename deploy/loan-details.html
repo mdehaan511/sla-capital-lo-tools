@@ -141,6 +141,28 @@
     .open-sizer-btn:hover { background: var(--gold-light); border-color: var(--gold); color: var(--gold); }
     .delete-loan-btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 9px 14px; background: transparent; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: all 0.15s; }
     .delete-loan-btn:hover { color: var(--danger); border-color: var(--danger); background: rgba(124,31,31,0.04); }
+    /* Change Loan Type button — intermediate destructiveness, between
+       Open Sizer (safe) and Delete (terminal). Uses the warn (amber) color
+       palette so it visually signals "important, irreversible, but not
+       deletion." */
+    .change-type-btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 9px 14px; background: transparent; border: 1px solid rgba(122,82,24,0.3); border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: var(--warn); cursor: pointer; transition: all 0.15s; }
+    .change-type-btn:hover { background: rgba(122,82,24,0.06); border-color: var(--warn); }
+    /* Confirmation modal for the loan-type change. Same structural styles
+       as other modals on this page. */
+    .ct-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+    .ct-overlay.open { display: flex; }
+    .ct-modal { background: var(--surface); border-radius: var(--r); padding: 24px 28px; max-width: 520px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+    .ct-modal h3 { font-family: 'Lora', serif; font-size: 20px; margin-bottom: 12px; }
+    .ct-modal .ct-warn { background: rgba(122,82,24,0.08); border: 1px solid rgba(122,82,24,0.25); padding: 12px 14px; border-radius: var(--r-xs); margin: 12px 0 18px; font-size: 13px; color: var(--warn); line-height: 1.5; }
+    .ct-modal .ct-warn strong { display: block; margin-bottom: 4px; font-weight: 700; }
+    .ct-modal .ct-keep, .ct-modal .ct-clear { font-size: 12px; line-height: 1.55; color: var(--muted); margin-top: 8px; }
+    .ct-modal .ct-keep b, .ct-modal .ct-clear b { color: var(--text); }
+    .ct-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+    .ct-modal-actions button { padding: 9px 18px; border-radius: var(--r-xs); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: inherit; }
+    .ct-modal-actions button:hover { background: var(--bg); }
+    .ct-modal-actions button.primary { background: var(--warn); border-color: var(--warn); color: #fff; }
+    .ct-modal-actions button.primary:hover { background: #5e3f12; border-color: #5e3f12; }
+    .ct-modal-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
     .term-sheet-btn { background: var(--gold); border-color: var(--gold); color: #fff; margin-top: 8px; }
     .term-sheet-btn:hover { background: var(--gold-mid); border-color: var(--gold-mid); color: #fff; }
     .borrower-info-btn { background: var(--surface); border-color: var(--gold-border); color: var(--gold-mid); margin-top: 8px; }
@@ -343,6 +365,28 @@
     <div class="bi-actions">
       <button class="bi-btn cancel" onclick="closeEsignModal()">Cancel</button>
       <button class="bi-btn primary" id="esSendBtn" onclick="esSubmit()">Queue Envelope</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change Loan Type confirmation modal -->
+<div class="ct-overlay" id="changeTypeOverlay">
+  <div class="ct-modal">
+    <h3 id="ctTitle">Change Loan Type?</h3>
+    <p id="ctSub" style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:6px"></p>
+    <div class="ct-warn">
+      <strong>⚠ This cannot be undone.</strong>
+      The loan needs to be rebuilt in the other sizer. Pricing, term sheet, and loan application data from the current product will be cleared.
+    </div>
+    <div class="ct-keep">
+      <b>Carries over:</b> Borrower name, email, phone, and property address.
+    </div>
+    <div class="ct-clear">
+      <b>Gets reset:</b> Interest rate, points, loan amount, product-specific fields (rent / rehab / ARV / etc.), submission status (returns to Quoted), and any sent envelopes are marked superseded.
+    </div>
+    <div class="ct-modal-actions">
+      <button type="button" onclick="closeChangeTypeModal()">Cancel</button>
+      <button type="button" class="primary" id="ctConfirmBtn" onclick="confirmChangeType()">Yes, change to <span id="ctTargetType">RTL</span></button>
     </div>
   </div>
 </div>
@@ -673,10 +717,20 @@ function render() {
     '<div id="envelopesList"></div>' +
   '</div>';
 
+  // Change loan type — DSCR ↔ RTL. Rebuilds the loan in the other sizer.
+  // Borrower / address info carries over; pricing + product-specific
+  // fields get cleared. Status reverts to active (Quoted in Pipeline) and
+  // any sent envelopes from before this point are hidden as superseded.
+  var otherType = isDscr ? 'RTL' : 'DSCR';
+  html += '<button type="button" class="change-type-btn" onclick="openChangeTypeModal()" style="margin-top:14px">' +
+    '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 5h7l-2-2M12 10H5l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    'Change to ' + otherType + ' Loan' +
+  '</button>';
+
   // Delete loan — destructive, kept visually subtle so it's hard to hit by
   // accident. Always confirms before firing. Closed loans can still be
   // deleted; that's an admin housekeeping decision.
-  html += '<button type="button" class="delete-loan-btn" onclick="deleteThisLoan()" style="margin-top:18px">' +
+  html += '<button type="button" class="delete-loan-btn" onclick="deleteThisLoan()" style="margin-top:10px">' +
     '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 4h9M6 4V3a1 1 0 011-1h1a1 1 0 011 1v1M5 4l.5 8a1 1 0 001 1h3a1 1 0 001-1L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
     'Delete this loan' +
   '</button>';
@@ -922,6 +976,65 @@ function deleteThisLoan() {
     setTimeout(function(){ window.location.href = dest; }, 600);
   }).catch(function(err) {
     alert('Delete failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+// ── Change Loan Type (DSCR ↔ RTL) ─────────────────────────────────
+// Rebuild the loan in the other sizer. Borrower + address info carries
+// over; pricing and product-specific fields get cleared. Status reverts
+// to active (Quoted in the Pipeline). Sent envelopes from before this
+// change are filtered out by refreshEnvelopes() going forward.
+function openChangeTypeModal() {
+  if (!_loan) return;
+  var isDscr = (_loan.toolType || 'dscr') !== 'rtl';
+  var target = isDscr ? 'RTL' : 'DSCR';
+  var addr = _loan.address || 'this loan';
+  document.getElementById('ctTitle').textContent = 'Change to ' + target + ' loan?';
+  document.getElementById('ctSub').textContent = 'Switching ' + addr + ' from ' + (isDscr ? 'DSCR' : 'RTL') + ' to ' + target + '.';
+  document.getElementById('ctTargetType').textContent = target;
+  document.getElementById('ctConfirmBtn').disabled = false;
+  document.getElementById('changeTypeOverlay').classList.add('open');
+}
+function closeChangeTypeModal() {
+  document.getElementById('changeTypeOverlay').classList.remove('open');
+}
+function confirmChangeType() {
+  if (!_clientId || !_loanId) return;
+  var btn = document.getElementById('ctConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Rebuilding…';
+
+  var body = { clientId: _clientId, loanId: _loanId };
+  // Cross-owner — admin acting on another LO's loan
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+
+  _user.jwt().then(function(token) {
+    return fetch('/api/loan-change-type', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  }).then(function(r) {
+    return r.json().then(function(j) { return { status: r.status, body: j }; });
+  }).then(function(resp) {
+    if (resp.status !== 200 || !resp.body || !resp.body.success) {
+      var msg = (resp.body && resp.body.error) || ('HTTP ' + resp.status);
+      btn.disabled = false;
+      btn.innerHTML = 'Yes, change to <span id="ctTargetType">' + (resp.body.newToolType || '').toUpperCase() + '</span>';
+      alert('Change failed: ' + msg);
+      return;
+    }
+    // Success — bounce to the new sizer with the loan prefilled
+    showToast('Loan rebuilt — opening ' + resp.body.newToolType.toUpperCase() + ' sizer');
+    setTimeout(function() {
+      window.location.href = resp.body.redirectUrl;
+    }, 500);
+  }).catch(function(err) {
+    btn.disabled = false;
+    alert('Change failed: ' + (err && err.message || 'network error'));
   });
 }
 
@@ -1223,6 +1336,17 @@ function refreshEnvelopes() {
   if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
   SLA.Envelopes.list(opts).then(function(resp) {
     var envs = (resp && resp.envelopes) || [];
+    // Hide envelopes created before the most recent loan-type change.
+    // After a type change, anything signed for the old product is
+    // superseded — the LO is starting over. We don't delete from storage
+    // (legal/audit record stays intact), just don't display them.
+    if (_loan && _loan._typeChangedAt) {
+      var changeTs = new Date(_loan._typeChangedAt).getTime();
+      envs = envs.filter(function(e) {
+        var envTs = new Date(e.createdAt || 0).getTime();
+        return envTs > changeTs;
+      });
+    }
     if (!envs.length) {
       panel.style.display = 'none';
       return;
