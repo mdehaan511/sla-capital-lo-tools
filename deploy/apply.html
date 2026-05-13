@@ -150,7 +150,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
               <option value="700-719">700–719 (Good)</option>
               <option value="680-699">680–699 (Fair)</option>
               <option value="660-679">660–679 (Fair)</option>
-              <option value="below-660">Below 660</option>
+              <option value="640-659">640–659</option>
+              <option value="620-639">620–639</option>
+              <option value="550-619">550–619</option>
             </select>
           </div>
           <div class="err-msg" id="err-creditScore">Required</div>
@@ -213,6 +215,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
               <option value="">— Select —</option>
               <option value="dscr">DSCR (Rental / Long-Term Financing)</option>
               <option value="fix_flip">Fix &amp; Flip / Hard Money (RTL)</option>
+              <option value="bridge">Bridge (Short-Term, No Rehab)</option>
+              <option value="transactional">Transactional Funding (Same-Day / 1-Day)</option>
             </select>
           </div>
           <div class="err-msg" id="err-loanProduct">Required</div>
@@ -407,27 +411,37 @@ function onLoanProductChange() {
   var v = document.getElementById('loanProduct').value;
   clearE('loanProduct');
 
-  // Show/hide conditional sections
-  var isDscr = v === 'dscr';
-  var isFF   = v === 'fix_flip';
+  // Three product families that all route through the RTL sizer on the LO
+  // side. They share most UI behaviors (no separate "property value"
+  // input, half-width funding date), but only Fix & Flip needs the rehab
+  // / ARV / flips-completed fields. Bridge has no rehab; Transactional
+  // is short-term cash and has no rehab either.
+  var isDscr      = v === 'dscr';
+  var isFF        = v === 'fix_flip';
+  var isBridge    = v === 'bridge';
+  var isTrans     = v === 'transactional';
+  var isRtlFamily = isFF || isBridge || isTrans;
 
-  setShow('cond-dscr',      isDscr);
-  setShow('cond-dscr-fin',  isDscr);
-  setShow('cond-fixflip-fin', isFF);
+  setShow('cond-dscr',          isDscr);
+  setShow('cond-dscr-fin',      isDscr);
+  // The rehab / ARV / project-description section is Fix & Flip only.
+  // Bridge has no rehab; Transactional is a same-day loan.
+  setShow('cond-fixflip-fin',   isFF);
+  // # Flips Completed (experience tier) is Fix & Flip only. Bridge does
+  // care about experience on the LO side but the borrower-facing form
+  // keeps it light — the LO can fill the tier in the sizer.
   setShow('cond-fixflip-flips', isFF);
   // Refi field belongs to DSCR; clear if leaving DSCR
   if (!isDscr) setShow('cond-refi', false);
 
-  // Fix & Flip doesn't ask for "Property Value / Loan Amount" up top —
-  // the LO derives the loan amount from purchase + rehab + ARV using
-  // the sizer's LTC/LTV/LTARV caps. Asking the borrower to specify a
-  // loan amount confused some applicants and the value got ignored
-  // anyway. Hide the field entirely when FF is selected.
+  // Hide the "Property Value / ARV" field for the entire RTL family.
+  // Borrowers reliably get this wrong, and the LO derives the loan from
+  // purchase price + (rehab/ARV when applicable) on the sizer side.
   var pvField = document.getElementById('field-propertyValue');
-  if (pvField) pvField.style.display = isFF ? 'none' : '';
+  if (pvField) pvField.style.display = isRtlFamily ? 'none' : '';
 
   // Funding date is half-width when paired with flipsCompleted (FF mode),
-  // full-width otherwise so it doesn't look orphaned
+  // full-width otherwise so it doesn't look orphaned.
   var fundingField = document.getElementById('field-fundingDate');
   if (fundingField) {
     if (isFF) {
@@ -446,24 +460,26 @@ function onLoanProductChange() {
 function updatePriceLabels() {
   var lp = document.getElementById('loanProduct').value;
   var lpur = document.getElementById('loanPurpose').value;
-  var isDscr = lp === 'dscr';
-  var isFF   = lp === 'fix_flip';
-  var isRefi = isDscr && lpur === 'refinance';
+  var isDscr   = lp === 'dscr';
+  var isFF     = lp === 'fix_flip';
+  var isBridge = lp === 'bridge';
+  var isTrans  = lp === 'transactional';
+  var isRefi   = isDscr && lpur === 'refinance';
 
-  // #3: Refinance → just "Requested Loan Amount"
-  // #4: DSCR Purchase → "Purchase Price"
-  // #5: Fix and Flip → "Requested Loan Amount" (was "Current Value")
+  // Purchase Price field label
+  //   DSCR refi   → "Requested Loan Amount"
+  //   DSCR purchase, Fix&Flip, Bridge → "Purchase Price"
+  //   Transactional → "Loan Amount" (it's a same-day pass-through)
   var purchaseLabel;
   if (isRefi)        purchaseLabel = 'Requested Loan Amount';
-  else if (isDscr)   purchaseLabel = 'Purchase Price';
-  else if (isFF)     purchaseLabel = 'Purchase Price';
-  else               purchaseLabel = 'Purchase Price / Loan Amount';
+  else if (isTrans)  purchaseLabel = 'Loan Amount';
+  else               purchaseLabel = 'Purchase Price';
 
+  // Property Value field label (only visible for DSCR; hidden for RTL family)
   var valueLabel;
   if (isRefi)        valueLabel = 'Current Property Value';
   else if (isDscr)   valueLabel = 'Current Property Value';
-  else if (isFF)     valueLabel = 'Requested Loan Amount';
-  else               valueLabel = 'Property Value / ARV';
+  else               valueLabel = 'Property Value';  // (hidden for RTL family — label kept for fallback)
 
   document.getElementById('lbl-purchasePrice').innerHTML = purchaseLabel + ' <span class="req">*</span>';
   document.getElementById('lbl-propertyValue').innerHTML = valueLabel    + ' <span class="req">*</span>';
@@ -547,9 +563,11 @@ function validate() {
   // Always required (regardless of loan product)
   var always = ['firstName','lastName','phone','propAddress','propType','purchasePrice','fundingDate'];
   always.forEach(function(id){ if (!gv(id)) { showE(id); ok=false; }});
-  // propertyValue is required for everything EXCEPT Fix & Flip (the field
-  // is hidden in FF mode — see onLoanProductChange).
-  if (lp !== 'fix_flip' && !gv('propertyValue')) { showE('propertyValue'); ok = false; }
+  // propertyValue is required only for DSCR — the field is hidden for the
+  // entire RTL family (fix_flip, bridge, transactional) since the LO
+  // derives the loan amount in the sizer rather than asking the borrower.
+  var isRtlFamily = (lp === 'fix_flip' || lp === 'bridge' || lp === 'transactional');
+  if (!isRtlFamily && !gv('propertyValue')) { showE('propertyValue'); ok = false; }
 
   // Email
   var em = gv('email');

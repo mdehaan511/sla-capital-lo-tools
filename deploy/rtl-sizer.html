@@ -436,8 +436,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
             <option value="720">720 – 739</option>
             <option value="700">700 – 719</option>
             <option value="680">680 – 699</option>
-            <option value="650">650 – 679</option>
-            <option value="620">620 – 649</option>
+            <option value="660">660 – 679</option>
+            <option value="640">640 – 659</option>
+            <option value="620">620 – 639</option>
             <option value="550">550 – 619</option>
           </select>
         </div>
@@ -573,8 +574,12 @@ var SPREAD = { 740:.0175, 720:.02, 700:.0225, 680:.025 };
 // LTV columns: <=70, <=75, <=80, <=85, <=90, <=95
 var LTV_COLS = [.70, .75, .80, .85, .90, .95];
 
-// Sub-680 hardcoded final rates (SLA-funded, bypass Colchis matrix + spread)
-var SUB680_RATE = { 650: .12, 620: .13, 550: .14 };
+// Sub-680 hardcoded final rates (SLA-funded, bypass Colchis matrix + spread).
+// Note: 660-679 corresponds to what was previously the "650-679" bucket —
+// same rate, just renamed to honestly reflect the lower bound. The
+// 640-659 bucket sits at 12.5%, midpoint between the 660 (.12) and
+// 620 (.13) buckets to reflect its in-between risk profile.
+var SUB680_RATE = { 660: .12, 640: .125, 620: .13, 550: .14 };
 
 var PRICING = {
   bridge: {
@@ -654,93 +659,93 @@ var MAX_LTP = {
   bridge:{
     sfr:{
       740:[.75,.75,.75], 720:[.75,.75,.70], 700:[.75,.75,.70], 680:[.70,.70,.65],
-      650:[.65,.65,.65], 620:[.60,.60,.60], 550:[.55,.55,.55],
+      660:[.65,.65,.65], 640:[.60,.60,.60], 620:[.60,.60,.60], 550:[.55,.55,.55],
     },
     mfr:{
       740:[.70,.70,.65], 720:[.70,.70,.60], 700:[.70,.65,.60], 680:[.65,.60,0],
-      650:[.60,.60,.60], 620:[.55,.55,.55], 550:[.50,.50,.50],
+      660:[.60,.60,.60], 640:[.55,.55,.55], 620:[.55,.55,.55], 550:[.50,.50,.50],
     },
   },
   light:{
     sfr:{
       740:[.90,.90,.90], 720:[.90,.90,.875], 700:[.90,.90,.85], 680:[.875,.85,.80],
-      650:[.80,.80,.80], 620:[.75,.75,.75], 550:[.70,.70,.70],
+      660:[.80,.80,.80], 640:[.75,.75,.75], 620:[.75,.75,.75], 550:[.70,.70,.70],
     },
     mfr:{
       // 0-3 experience column is empty in the Colchis doc for MFR Light
       // at all FICO bands — not funded. Tier-3 cells are 0 here.
       740:[.80,.80,0], 720:[.80,.80,0], 700:[.80,.75,0], 680:[.75,.75,0],
-      650:[.70,.70,0], 620:[.65,.65,0], 550:[.60,.60,0],
+      660:[.70,.70,0], 640:[.65,.65,0], 620:[.65,.65,0], 550:[.60,.60,0],
     },
   },
   heavy:{
     sfr:{
       740:[.80,.80,0], 720:[.80,.80,0], 700:[.80,.80,0], 680:[.75,.75,0],
-      650:[.70,.70,0], 620:[.65,.65,0], 550:[.60,.60,0],
+      660:[.70,.70,0], 640:[.65,.65,0], 620:[.65,.65,0], 550:[.60,.60,0],
     },
-    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
+    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 660:[0,0,0], 640:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
   },
   construction:{
     sfr:{
       740:[.60,.60,0], 720:[.60,.60,0], 700:[.60,.60,0], 680:[.60,.60,0],
-      650:[.55,.55,0], 620:[.50,.50,0], 550:[.45,.45,0],
+      660:[.55,.55,0], 640:[.50,.50,0], 620:[.50,.50,0], 550:[.45,.45,0],
     },
-    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
+    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 660:[0,0,0], 640:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
   },
 };
 var MAX_LTC = {
   light:{
     sfr:{
       740:[.925,.925,.90], 720:[.925,.925,.90], 700:[.925,.90,.875], 680:[.90,.875,.80],
-      650:[.85,.85,.80], 620:[.80,.80,.75], 550:[.75,.75,.70],
+      660:[.85,.85,.80], 640:[.80,.80,.75], 620:[.80,.80,.75], 550:[.75,.75,.70],
     },
     mfr:{
       // 0-3 column not funded per Colchis doc for MFR Light — kept at 0
       // so the leverage calc returns "not eligible" rather than computing
       // off a stale value while LTP says ineligible.
       740:[.85,.85,0], 720:[.85,.80,0], 700:[.85,.80,0], 680:[.80,.80,0],
-      650:[.75,.75,0], 620:[.70,.70,0], 550:[.65,.65,0],
+      660:[.75,.75,0], 640:[.70,.70,0], 620:[.70,.70,0], 550:[.65,.65,0],
     },
   },
   heavy:{
     sfr:{
       740:[.85,.85,0], 720:[.85,.85,0], 700:[.85,.825,0], 680:[.825,.80,0],
-      650:[.80,.75,0], 620:[.75,.70,0], 550:[.70,.65,0],
+      660:[.80,.75,0], 640:[.75,.70,0], 620:[.75,.70,0], 550:[.70,.65,0],
     },
-    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
+    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 660:[0,0,0], 640:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
   },
   construction:{
     sfr:{
       740:[.90,.85,0], 720:[.90,.85,0], 700:[.90,.85,0], 680:[.85,.825,0],
-      650:[.80,.775,0], 620:[.75,.725,0], 550:[.70,.675,0],
+      660:[.80,.775,0], 640:[.75,.725,0], 620:[.75,.725,0], 550:[.70,.675,0],
     },
-    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
+    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 660:[0,0,0], 640:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
   },
 };
 var MAX_LTARV = {
   light:{
     sfr:{
       740:[.75,.75,.75], 720:[.75,.75,.75], 700:[.75,.75,.70], 680:[.75,.70,.70],
-      650:[.70,.70,.65], 620:[.65,.65,.60], 550:[.60,.60,.55],
+      660:[.70,.70,.65], 640:[.65,.65,.60], 620:[.65,.65,.60], 550:[.60,.60,.55],
     },
     mfr:{
       740:[.65,.65,0], 720:[.65,.65,0], 700:[.65,.65,0], 680:[.60,.60,0],
-      650:[.55,.55,0], 620:[.50,.50,0], 550:[.45,.45,0],
+      660:[.55,.55,0], 640:[.50,.50,0], 620:[.50,.50,0], 550:[.45,.45,0],
     },
   },
   heavy:{
     sfr:{
       740:[.70,.70,0], 720:[.70,.70,0], 700:[.70,.70,0], 680:[.65,.65,0],
-      650:[.60,.60,0], 620:[.55,.55,0], 550:[.50,.50,0],
+      660:[.60,.60,0], 640:[.55,.55,0], 620:[.55,.55,0], 550:[.50,.50,0],
     },
-    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
+    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 660:[0,0,0], 640:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
   },
   construction:{
     sfr:{
       740:[.70,.70,0], 720:[.70,.70,0], 700:[.70,.70,0], 680:[.70,.65,0],
-      650:[.65,.60,0], 620:[.60,.55,0], 550:[.55,.50,0],
+      660:[.65,.60,0], 640:[.60,.55,0], 620:[.60,.55,0], 550:[.55,.50,0],
     },
-    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 650:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
+    mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 660:[0,0,0], 640:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
   },
 };
 
@@ -761,7 +766,8 @@ var REFI_LTV = {
       720: [.75, .75, .70],
       700: [.75, .75, .70],
       680: [.70, .70, .65],
-      650: [0,   0,   0  ],
+      660: [0,   0,   0  ],
+      640: [0,   0,   0  ],
       620: [0,   0,   0  ],
       550: [0,   0,   0  ],
     },
@@ -770,7 +776,8 @@ var REFI_LTV = {
       720: [.70, .70, .60],
       700: [.70, .65, .60],
       680: [.65, .60, 0  ],
-      650: [0,   0,   0  ],
+      660: [0,   0,   0  ],
+      640: [0,   0,   0  ],
       620: [0,   0,   0  ],
       550: [0,   0,   0  ],
     },
@@ -781,7 +788,8 @@ var REFI_LTV = {
       720: [.70, .70, .65],
       700: [.70, .70, .65],
       680: [.65, .65, .60],
-      650: [0,   0,   0  ],
+      660: [0,   0,   0  ],
+      640: [0,   0,   0  ],
       620: [0,   0,   0  ],
       550: [0,   0,   0  ],
     },
@@ -790,14 +798,18 @@ var REFI_LTV = {
       720: [.65, .60, .55],
       700: [.60, .55, .55],
       680: [.55, .55, 0  ],
-      650: [0,   0,   0  ],
+      660: [0,   0,   0  ],
+      640: [0,   0,   0  ],
       620: [0,   0,   0  ],
       550: [0,   0,   0  ],
     },
   },
 };
 
-function fk(f){ if(f>=740)return 740; if(f>=720)return 720; if(f>=700)return 700; if(f>=680)return 680; if(f>=650)return 650; if(f>=620)return 620; return 550; }
+// Map a numeric FICO (e.g. 740, 660, 640, 620) to the bucket key used in
+// the pricing tables. Buckets: 740+, 720-739, 700-719, 680-699, 660-679,
+// 640-659, 620-639, 550-619. (Previously: ... 650-679, 620-649, 550-619.)
+function fk(f){ if(f>=740)return 740; if(f>=720)return 720; if(f>=700)return 700; if(f>=680)return 680; if(f>=660)return 660; if(f>=640)return 640; if(f>=620)return 620; return 550; }
 function ei(e){ if(e>=8)return 0; if(e>=4)return 1; return 2; }
 function fmt(n){ return '$'+Math.round(n).toLocaleString(); }
 
@@ -1065,7 +1077,9 @@ function calculate(){
   // refi tables). The sub-680 SLA-funded pricing (12/13/14%) is for
   // Purchases only — refis at sub-680 are blocked entirely.
   if (isRefi && fr < 680) {
-    var ficoLabel = (fr<620?'<620':fr<650?'620-649':fr<680?'650-679':String(fr)+'+');
+    // Display label kept around for future use — current rErr message uses
+    // the raw FICO number, not this label. Updated to reflect new buckets.
+    var ficoLabel = (fr<620?'<620':fr<640?'620-639':fr<660?'640-659':fr<680?'660-679':String(fr)+'+');
     rErr = 'Refinance not supported (' + fr + ' FICO). Minimum 680 FICO required for any RTL refinance.';
     // Bypass all leverage / rate math — render only the error
   }
@@ -1147,12 +1161,19 @@ function calculate(){
   var progLabel = (LABELS[lt] || lt) + ' · ' + state;
 
   // FICO-based rate selection. Refi path already errored above if sub-680.
+  // Sub-680 buckets are SLA-funded with hardcoded final rates that bypass
+  // the Colchis matrix entirely. Bucket boundaries match the dropdown:
+  //   660-679 = .12    (renamed from old "650-679" bucket — same rate)
+  //   640-659 = .125   (midpoint — between 660 (.12) and 620 (.13))
+  //   620-639 = .13    (was "620-649" — same rate)
+  //   550-619 = .14    (unchanged)
   if (rErr) {
     // already set — skip rate path
   } else if (fr < 550) {
     rErr = 'FICO below 550 is outside all program guidelines.';
   } else if (fr < 620) { rate = .14; }
-  else if (fr < 650) { rate = .13; }
+  else if (fr < 640) { rate = .13; }
+  else if (fr < 660) { rate = .125; }
   else if (fr < 680) { rate = .12; }
   else {
     if(!bMax){ rErr='No eligible loan amount for this combination.'; }
@@ -1162,9 +1183,13 @@ function calculate(){
       var sz=bMax>3000000?'3m':bMax>2000000?'2m':'normal';
       // Sub-680 borrowers: SLA-funded with hardcoded final rates that bypass
       // the entire matrix + spread + adjustments path.
-      if (fkey === 650 || fkey === 620 || fkey === 550) {
+      if (fkey === 660 || fkey === 640 || fkey === 620 || fkey === 550) {
         rate = SUB680_RATE[fkey];
-        adjs.push({l:'SLA Sub-680 program ('+(fkey===650?'650-679':fkey===620?'620-649':'550-619')+')',v:rate,c:'pos'});
+        var bandLabel = fkey === 660 ? '660-679'
+                      : fkey === 640 ? '640-659'
+                      : fkey === 620 ? '620-639'
+                      : '550-619';
+        adjs.push({l:'SLA Sub-680 program ('+bandLabel+')',v:rate,c:'pos'});
       } else {
         var cbResult = colchisRate(lt,pt,fkey,ltvF);
         if(!cbResult){ rErr='No pricing available for this FICO/LTV combination.'; }
@@ -1578,6 +1603,29 @@ function initQuotes(userEmail) {
   });
 }
 
+// Map an apply-form `creditScore` value (e.g. "740-759", "660-679",
+// "640-659") to the RTL sizer's `fico` dropdown value. The RTL bucket
+// boundaries now align cleanly with the apply form's lower ranges
+// (660-679 and 640-659 both have dedicated buckets), so this mapping
+// is straightforward — no more straddle ambiguity.
+function applyFormCreditToRTLFico(creditScore) {
+  if (!creditScore) return '';
+  var map = {
+    '780+':    '740',  // RTL's top bucket is 740+
+    '760-779': '740',
+    '740-759': '740',
+    '720-739': '720',
+    '700-719': '700',
+    '680-699': '680',
+    '660-679': '660',  // Direct match — RTL bucket 660-679
+    '640-659': '640',  // Direct match — RTL bucket 640-659 (new)
+    '620-639': '620',  // Direct match — RTL bucket 620-639
+    '550-619': '550',
+    'below-660': '640', // legacy apply-form value; best-guess midpoint
+  };
+  return map[creditScore] || '';
+}
+
 function prefillRTLFromProspect(p) {
   if (!p) return;
   // Look up the prospect's existing loan record so save updates that
@@ -1632,6 +1680,44 @@ function prefillRTLFromProspect(p) {
     if (expEl) {
       for (var ti = 0; ti < expEl.options.length; ti++) {
         if (expEl.options[ti].value === tier) { expEl.selectedIndex = ti; break; }
+      }
+    }
+  }
+  // Auto-fill FICO from the apply form's creditScore range. The two
+  // dropdowns use different value formats — see applyFormCreditToRTLFico
+  // for the mapping rationale (RTL buckets are coarser).
+  if (p.creditScore) {
+    var rtlFico = applyFormCreditToRTLFico(p.creditScore);
+    if (rtlFico) {
+      var ficoEl = gEl('fico');
+      if (ficoEl) {
+        for (var fi = 0; fi < ficoEl.options.length; fi++) {
+          if (ficoEl.options[fi].value === rtlFico) { ficoEl.selectedIndex = fi; break; }
+        }
+      }
+    }
+  }
+  // Pre-select the loanType sub-dropdown based on the prospect's product.
+  // Light/Heavy auto-pick happens later in calculate() based on the rehab
+  // ratio; Bridge and Transactional need an explicit selection here since
+  // they don't have a rehab field to derive from.
+  if (p.loanProduct === 'bridge' || p.loanProduct === 'transactional') {
+    var ltEl = gEl('loanType');
+    if (ltEl) {
+      ltEl.value = p.loanProduct;
+      // For Transactional the purchase price IS the loan amount. The
+      // sizer's transactional UI uses a dedicated transactionalAmt field
+      // instead of purchasePrice, so populate it from the prospect's
+      // entered amount.
+      if (p.loanProduct === 'transactional' && p.purchasePrice) {
+        var txEl = gEl('transactionalAmt');
+        if (txEl) txEl.value = p.purchasePrice;
+      }
+      // onLoanTypeChange wires up the rehab-row visibility and the
+      // transactional-specific UI. Call it explicitly because programmatic
+      // .value assignment doesn't fire onchange.
+      if (typeof onLoanTypeChange === 'function') {
+        try { onLoanTypeChange(); } catch (_) {}
       }
     }
   }
@@ -1900,8 +1986,45 @@ function saveCurrentQuote() {
   showToast('Quote saved — ' + addrFull);
 }
 
+// Best-effort: split a "Street, City, ST ZIP" string into pieces.
+// Used by loadRTLQuote to fill the four split-address inputs when the
+// saved quote only carries the combined `address` string. Mirrors the
+// parseAddress helper inside the netlifyIdentity init scope.
+function parseAddressForLoad(s) {
+  var out = { propStreet: '', propCity: '', propState: '', propZip: '' };
+  if (!s) return out;
+  var parts = String(s).split(',').map(function(x){ return x.trim(); }).filter(Boolean);
+  if (parts.length && /^USA$/i.test(parts[parts.length-1])) parts.pop();
+  if (!parts.length) return out;
+  out.propStreet = parts[0] || '';
+  if (parts.length > 1) {
+    var tail = parts[parts.length - 1];
+    var m = tail.match(/^([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i);
+    if (m) {
+      out.propState = m[1].toUpperCase();
+      out.propZip   = m[2];
+      if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+    } else if (/^[A-Z]{2}$/i.test(tail)) {
+      out.propState = tail.toUpperCase();
+      if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+    } else {
+      out.propCity = parts.slice(1).join(', ');
+    }
+  }
+  return out;
+}
+
 function loadRTLQuote(formData) {
   if (!formData) return;
+  // If the saved quote only has a combined `address` string (legacy quotes
+  // from before the split-field schema, or any quote sourced from
+  // apply.html via loadFromClientLoan that didn't get re-saved), parse it
+  // into the four split fields the sizer renders. Without this, opening
+  // a quote from the Pipeline shows empty Street/City/State/Zip inputs.
+  if (formData.address && !formData.propStreet && !formData.propCity) {
+    var parsed = parseAddressForLoad(formData.address);
+    formData = Object.assign({}, formData, parsed);
+  }
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
@@ -2171,6 +2294,13 @@ netlifyIdentity.on('init', function(user) {
         // Map flipsCompleted (from application) → experience (sizer field) — #4
         if (!fd.experience && found.experience) fd.experience = found.experience;
         if (!fd.experience && found.flipsCompleted) fd.experience = found.flipsCompleted;
+        // Application-sourced loans carry the borrower's stated credit
+        // range (e.g. "740-759") on the loan record. Map it to the RTL
+        // sizer's coarser FICO bucket so the dropdown auto-fills.
+        if (!fd.fico && found.creditScore) {
+          var mapped = applyFormCreditToRTLFico(found.creditScore);
+          if (mapped) fd.fico = mapped;
+        }
 
         window._originalAddress = found.address || '';
         window._originalBorrowerEmail = (clientRec && clientRec.email) || '';

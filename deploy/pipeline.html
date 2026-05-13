@@ -430,9 +430,10 @@
   <button class="bulk-btn cancel" onclick="clearSelection()">Cancel</button>
   <button class="bulk-btn" onclick="bulkOnHold()">Put On Hold</button>
   <button class="bulk-btn danger" onclick="bulkDecline()">Decline</button>
-  <!-- Admin-only: hard-delete. Removes the quote AND its loan record so
-       nothing is left behind. Visibility toggled in the init handler when
-       _isAdmin is true. -->
+  <!-- Hard-delete: removes the quote AND its matching loan record so
+       nothing's left behind. Available to all users; backend enforces
+       per-record ownership so a non-admin can only delete their own
+       records. Visibility toggled in the init handler. -->
   <button class="bulk-btn danger" id="bulkDeleteBtn" onclick="bulkDelete()" style="display:none">Delete</button>
 </div>
 
@@ -547,16 +548,17 @@ netlifyIdentity.on('init', function(user) {
   // non-admins can only act on their own loans.
   var smBtn = document.getElementById('selectModeBtn');
   if (smBtn) smBtn.style.display = 'inline-block';
+  // Bulk Delete is also exposed to everyone. The backend (quotes-delete
+  // and clients-delete) enforces per-record ownership: a non-admin's
+  // delete call against another LO's record returns 403, so the UI can
+  // safely show the button to all users without risk of cross-LO damage.
+  var delBtn = document.getElementById('bulkDeleteBtn');
+  if (delBtn) delBtn.style.display = 'inline-flex';
 
   if (_isAdmin) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     document.getElementById('scopeToggle').style.display = 'flex';
-    // Bulk Delete is admin-only — hard removes both the quote AND the
-    // matching loan record. Regular LOs use Decline (status change) or
-    // On Hold for cleanup; only admins can permanently delete records.
-    var delBtn = document.getElementById('bulkDeleteBtn');
-    if (delBtn) delBtn.style.display = 'inline-flex';
     // Super-admins land on the All LOs view by default — they almost
     // always want the cross-LO firehose first. Regular admins keep the
     // "My pipeline" default since they're typically using it like an LO.
@@ -854,7 +856,9 @@ function buildProspectCard(it) {
   var name = ((p.firstName || '') + ' ' + (p.lastName || '')).trim() || (p.email || 'Borrower');
   var addr = p.propAddress || '';
   var amt  = fmtMoney(num(p.purchasePrice || p.propertyValue));
-  var tool = (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl') ? 'rtl' : 'dscr';
+  var tool = (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl'
+           || p.loanProduct === 'bridge'   || p.loanProduct === 'transactional')
+    ? 'rtl' : 'dscr';
   var loName = loDisplay(it.ownerKey);
   var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
 
@@ -1290,11 +1294,13 @@ document.addEventListener('DOMContentLoaded', function() {
 // Single unified selection set keyed by either:
 //   "prospect|<ownerKey>|<prospectId>"
 //   "quote|<ownerKey>|<quoteId>|<colKey>"
-// Mode is gated by the "Select Multiple" toggle. Only admins can enter
-// select mode (decline/hold both require admin perms server-side).
+// Mode is open to all users — the toggle button is revealed in the init
+// handler regardless of role. Backend endpoints (quotes-delete,
+// clients-delete, quotes-decide, prospects-bulk-delete) enforce that
+// non-admins can only act on their own records, so exposing the UI to
+// everyone is safe.
 
 function toggleSelectMode() {
-  if (!_isAdmin) return; // shouldn't even be reachable but defense in depth
   _selectMode = !_selectMode;
   var btn = document.getElementById('selectModeBtn');
   if (btn) {
@@ -1445,10 +1451,12 @@ function bulkDecline() {
   });
 }
 
-// Bulk DELETE — admin-only. Hard-removes the quote AND the matching loan
-// record from the client so nothing's left behind. Different from Decline
-// (which just changes status to 'denied') in that this fully removes the
-// records — they won't show on Decisions, Submissions, or anywhere else.
+// Bulk DELETE — available to all users. Hard-removes the quote AND the
+// matching loan record from the client so nothing's left behind.
+// Different from Decline (which just changes status to 'denied') in that
+// this fully removes the records — they won't show on Decisions,
+// Submissions, or anywhere else. Backend enforces ownership: non-admins
+// can only delete their own records (server returns 403 otherwise).
 // Prospects in the selection are also hard-deleted (same as bulkDecline).
 function bulkDelete() {
   var groups = groupSelection();

@@ -574,6 +574,12 @@ function getFICOMin(ficoStr) {
             <option value="700-719">700&#8211;719</option>
             <option value="680-699">680&#8211;699</option>
             <option value="660-679">660&#8211;679</option>
+            <!-- Below 660: parity with the apply form. DIYA's pricing
+                 matrix bottoms out at 660-679, so selecting any of these
+                 produces a "no DSCR available" error in calculate(). -->
+            <option value="640-659">640&#8211;659</option>
+            <option value="620-639">620&#8211;639</option>
+            <option value="550-619">550&#8211;619</option>
           </select>
         </div>
       </div>
@@ -727,6 +733,20 @@ function calculate() {
   var address   = $('propAddress').value.trim();
 
   if (loan<=0) return {error:'Enter a loan amount'};
+
+  // DIYA's pricing matrix bottoms out at FICO 660-679. The apply form
+  // and the FICO dropdown both include sub-660 ranges (640-659, 620-639,
+  // 550-619) for parity, but DSCR can't actually be priced for those
+  // borrowers. Bail with a clear message instead of letting the calc
+  // fall through to "no row matched" or a misleading default.
+  var SUB660 = ['640-659', '620-639', '550-619'];
+  if (SUB660.indexOf(fico) >= 0) {
+    return {
+      error: 'No DSCR pricing available for FICO ' + fico + '. ' +
+        'DIYA\'s minimum credit score is 660. Consider quoting this borrower ' +
+        'as an RTL (Bridge or Fix &amp; Flip) loan instead.',
+    };
+  }
 
   // Helper: max loan at the given LTV cap given the property value
   function maxLoanAt(ltvPct) {
@@ -1896,7 +1916,21 @@ function prefillFromProspect(p) {
   if (emailEl && p.email) emailEl.value = p.email;
   var phoneEl = document.getElementById('borrowerPhone');
   if (phoneEl && p.phone) { phoneEl.value = p.phone; applyPhoneMask(phoneEl); }
+  // Auto-fill FICO from the apply form's creditScore range. The apply
+  // form's values match the DSCR sizer's dropdown 1-to-1 (both use
+  // ranges like "740-759"), so it's a direct assignment. If the
+  // borrower picked a sub-660 range, the dropdown still has the option
+  // — calculate() will surface the "no DSCR pricing available" error.
+  if (p.creditScore) {
+    var ficoSel = document.getElementById('fico');
+    if (ficoSel) {
+      for (var fi = 0; fi < ficoSel.options.length; fi++) {
+        if (ficoSel.options[fi].value === p.creditScore) { ficoSel.selectedIndex = fi; break; }
+      }
+    }
+  }
   // Store prospect reference for client promotion on save
+  window._currentProspect = p;
   window._currentProspect = p;
   // Recalculate and re-render now that all fields are populated
   try { run(); } catch(e) { /* ignore */ }

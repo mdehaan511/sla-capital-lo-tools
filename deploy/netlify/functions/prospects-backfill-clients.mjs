@@ -89,15 +89,21 @@ export default async (req, context) => {
         continue;
       }
 
-      const isFF = prospect.loanProduct === 'fix_flip' || prospect.loanProduct === 'rtl';
+      // RTL family covers fix_flip, bridge, and transactional — see
+      // prospects-save.mjs for the full rationale.
+      const RTL_PRODUCTS = ['fix_flip', 'rtl', 'bridge', 'transactional'];
+      const isRtl = RTL_PRODUCTS.indexOf(prospect.loanProduct) >= 0;
+      let loanTypeForRecord = '';
+      if (prospect.loanProduct === 'bridge')             loanTypeForRecord = 'bridge';
+      else if (prospect.loanProduct === 'transactional') loanTypeForRecord = 'transactional';
       const loan = {
         id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-        toolType:    isFF ? 'rtl' : 'dscr',
+        toolType:    isRtl ? 'rtl' : 'dscr',
         address:     prospect.propAddress || '',
         savedAt:     prospect.submittedAt || new Date().toISOString(),
         updatedAt:   new Date().toISOString(),
         status:      'active',
-        loanType:    prospect.loanProduct || '',
+        loanType:    loanTypeForRecord,
         loanAmt:     prospect.purchasePrice || prospect.propertyValue || '',
         propValue:   prospect.propertyValue || prospect.estimatedARV || '',
         rent:        prospect.monthlyRent || '',
@@ -116,6 +122,9 @@ export default async (req, context) => {
         rehabBudget: prospect.rehabCost || '',
         arv:         prospect.estimatedARV || '',
         experience:  prospect.flipsCompleted || '',
+        // Match prospects-save.mjs: carry the credit-score range so the
+        // sizer's FICO dropdown auto-fills when the loan is opened.
+        creditScore: prospect.creditScore || '',
         fromApplication: true,
         backfilledAt: new Date().toISOString(),
       };

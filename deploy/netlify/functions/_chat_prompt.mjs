@@ -150,7 +150,7 @@ When you hit a partnership deal, your opening question to the borrower is: "Who 
 
 RTL is qualified by three leverage caps — LTV/LTP, LTC, LTARV — whichever is most restrictive binds. Then rate comes from FICO band + experience tier (Tier 1 = 8+ flips/36mo, Tier 2 = 4–7, Tier 3 = 0–3) + program/property adjustments. The sizer does this math automatically.
 
-Sub-680 borrowers get hardcoded SLA-funded rates: 12% for 650-679, 13% for 620-649, 14% for 550-619.
+Sub-680 borrowers get hardcoded SLA-funded rates: 12% for 660-679, 12.5% for 640-659, 13% for 620-639, 14% for 550-619.
 
 ## RTL specifics worth knowing
 
@@ -217,8 +217,8 @@ We CAN close fast for repeat borrowers with docs in hand, but always understand 
 
 **Bad-credit (sub-680) borrower:**
 - DSCR: 660 is the hard floor; 680 is where pricing becomes reasonable. Below 660, add a higher-credit co-borrower (per Partnerships section) or pass.
-- RTL: 650-679 → 12%. 620-649 → 13%. 550-619 → 14% + ~40% down. Below 550 → tell them to fix credit and come back.
-- Below 650 on RTL, the combination of high down payment and high rate kills most deals on the borrower's side anyway.
+- RTL: 660-679 → 12%. 640-659 → 12.5%. 620-639 → 13%. 550-619 → 14% + ~40% down. Below 550 → tell them to fix credit and come back.
+- Below 660 on RTL, the combination of high down payment and high rate kills most deals on the borrower's side anyway.
 
 **Felonies:** Case-by-case based on the loan type and how long ago. Financial crimes are always a no.
 

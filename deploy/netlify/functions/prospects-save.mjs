@@ -148,15 +148,26 @@ async function upsertClientFromProspect(prospect, loEmail) {
   }
 
   // Build a loan record from the application
-  const isFF = prospect.loanProduct === 'fix_flip' || prospect.loanProduct === 'rtl';
+  // RTL family covers fix_flip, bridge, and transactional — all route to
+  // the RTL sizer (toolType=rtl). DSCR is the only non-RTL product today.
+  const RTL_PRODUCTS = ['fix_flip', 'rtl', 'bridge', 'transactional'];
+  const isRtl = RTL_PRODUCTS.indexOf(prospect.loanProduct) >= 0;
+  // Map prospect.loanProduct → loan.loanType (the RTL sizer's sub-type
+  // dropdown). 'bridge' and 'transactional' map directly. 'fix_flip' is
+  // intentionally blank — the RTL sizer's auto-pick logic picks light vs
+  // heavy from the rehab-to-loan ratio after the prospect lands.
+  let loanTypeForRecord = '';
+  if (prospect.loanProduct === 'bridge')        loanTypeForRecord = 'bridge';
+  else if (prospect.loanProduct === 'transactional') loanTypeForRecord = 'transactional';
+  // 'fix_flip', 'rtl', 'dscr' all leave loanType blank
   const loan = {
     id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-    toolType:    isFF ? 'rtl' : 'dscr',
+    toolType:    isRtl ? 'rtl' : 'dscr',
     address:     prospect.propAddress || '',
     savedAt:     new Date().toISOString(),
     updatedAt:   new Date().toISOString(),
     status:      'active',
-    loanType:    prospect.loanProduct || '',
+    loanType:    loanTypeForRecord,
     loanAmt:     prospect.purchasePrice || prospect.propertyValue || '',
     propValue:   prospect.propertyValue || prospect.estimatedARV || '',
     rent:        prospect.monthlyRent || '',
@@ -177,6 +188,11 @@ async function upsertClientFromProspect(prospect, loEmail) {
     experience:  prospect.flipsCompleted || '',
     currentLoanAmt: prospect.currentLoanAmt || '',
     projectDescription: prospect.projectDescription || '',
+    // Carry the borrower's stated credit-score range onto the loan
+    // record so the sizer can map it to its own FICO dropdown when the
+    // LO opens this loan. Without this, application-sourced loans
+    // landed in the sizer with FICO unset, forcing the LO to re-key it.
+    creditScore: prospect.creditScore || '',
     fromApplication: true,
   };
 
