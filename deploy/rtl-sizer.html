@@ -238,8 +238,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .override-suffix { font-size: 0.8em; color: var(--muted); margin-left: 4px; }
 .metric-value.overridden { color: var(--gold-mid); }
 .metric-value.overridden::after { content: 'OVERRIDE'; display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--gold); margin-top: 2px; }
-/* "Pricing Overwrite Active" banner — pinned above the results card */
-.override-notice { display: none; background: rgba(200,129,58,0.10); border: 1px solid var(--gold-border); border-left: 3px solid var(--gold); border-radius: var(--r-xs); padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+/* "Pricing Overwrite Active" banner — pinned above the results card.
+   Hidden by default; .show class flips to flex when any override is set. */
+.override-notice { display: none; background: rgba(200,129,58,0.10); border: 1px solid var(--gold-border); border-left: 3px solid var(--gold); border-radius: var(--r-xs); padding: 10px 14px; margin-bottom: 12px; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
 .override-notice.show { display: flex; }
 .override-notice .nm-text { color: var(--gold-mid); font-weight: 600; }
 .override-notice .nm-text small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; margin-top: 2px; }
@@ -1128,54 +1129,56 @@ function hasActiveOverride() {
   return o.rate !== null || o.points !== null || o.dp !== null;
 }
 
-// Show the warning modal for a pending override action, OR — if the
-// warning has already been acknowledged for this loan — apply the
-// override immediately. Pending override info is stashed on the state
-// object so confirmOverrideAck() knows what to apply.
-function requestOverrideAck(field, value) {
+// Show the warning modal before allowing an override edit. On pencil
+// click we call requestOverrideAck(field) with no value — the modal
+// fires (if not yet acknowledged) and confirmOverrideAck() opens the
+// edit input. If already acknowledged for this loan, the input opens
+// immediately with no modal. Cancel discards the pending action.
+function requestOverrideAck(field) {
   window._rtlOverrides._pendingField = field;
-  window._rtlOverrides._pendingValue = value;
   if (window._rtlOverrides.warningAcknowledged) {
-    confirmOverrideAck();  // skip the modal
+    // Already confirmed once for this loan — skip the modal and open
+    // the edit input directly.
+    _openOverrideInput(field);
+    window._rtlOverrides._pendingField = null;
     return;
   }
   var ov = document.getElementById('overrideWarningOverlay');
   if (ov) ov.classList.add('open');
 }
 
-// User cancelled the override warning — drop the pending value and
-// re-render so the input reverts to the calc-default display.
+// User cancelled the override warning — drop the pending action and
+// leave the rendered metric cards untouched.
 function cancelOverrideAck() {
   window._rtlOverrides._pendingField = null;
-  window._rtlOverrides._pendingValue = null;
   var ov = document.getElementById('overrideWarningOverlay');
   if (ov) ov.classList.remove('open');
-  // Re-render to clear the in-progress input back to the default value
-  applyOverridesAndRender();
 }
 
-// User confirmed they have manager approval — commit the pending
-// override into state and apply.
+// User confirmed they have manager approval — flip the acknowledged
+// flag, dismiss the modal, then open the edit input for the field
+// they wanted to override.
 function confirmOverrideAck() {
   var field = window._rtlOverrides._pendingField;
-  var value = window._rtlOverrides._pendingValue;
-  if (field && value !== null && value !== undefined) {
-    window._rtlOverrides[field] = value;
-    window._rtlOverrides.warningAcknowledged = true;
-  }
+  window._rtlOverrides.warningAcknowledged = true;
   window._rtlOverrides._pendingField = null;
-  window._rtlOverrides._pendingValue = null;
   var ov = document.getElementById('overrideWarningOverlay');
   if (ov) ov.classList.remove('open');
-  applyOverridesAndRender();
-  lockLoanFinancialFields(true);
+  if (field) _openOverrideInput(field);
 }
 
-// Convert one of the three metric-value displays into an editable input
-// (or "swap back" to display when an override is cancelled). Called
-// from the pencil click handler. fieldKey is 'rate' | 'points' | 'dp'.
+// Pencil click entry point — defers to requestOverrideAck which
+// handles the modal-or-direct flow.
 function enableOverrideEdit(fieldKey) {
-  // Find the metric-value span by data-metric attr
+  requestOverrideAck(fieldKey);
+}
+
+// Internal: actually swap the metric-value display for an editable
+// input. Called by confirmOverrideAck (modal flow) or directly by
+// requestOverrideAck (when already acknowledged). On blur, the input's
+// value is committed straight into window._rtlOverrides and the calc
+// re-renders — no second modal pass.
+function _openOverrideInput(fieldKey) {
   var el = document.querySelector('.metric-value[data-metric="' + fieldKey + '"]');
   if (!el) return;
   var currentText = el.textContent.replace('OVERRIDE', '').trim();
@@ -1212,7 +1215,11 @@ function enableOverrideEdit(fieldKey) {
     }
     // Rate input is in %; store as decimal for math
     if (fieldKey === 'rate') v = v / 100;
-    requestOverrideAck(fieldKey, v);
+    // Commit directly — warning was already acknowledged before the
+    // input was opened, so no second modal.
+    window._rtlOverrides[fieldKey] = v;
+    applyOverridesAndRender();
+    lockLoanFinancialFields(true);
   });
   input.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') input.blur();
