@@ -121,6 +121,23 @@
        Contact rows use the same fin-grid pattern as Loan Financials. */
     .broker-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     @media (max-width: 600px) { .broker-info-grid { grid-template-columns: 1fr; } }
+    /* "Overridden" tag — appears next to Rate / Points / DP fin-labels
+       when the matching _rateOverride/_pointsOverride/_dpOverride flag
+       is set on the loan record. Subtle but distinct from the regular
+       label text so it doesn't dominate the cell. */
+    .override-tag {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: var(--gold);
+      color: #fff;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
 
     .section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 20px; }
     .section-head { padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
@@ -674,9 +691,16 @@ function render() {
         : '') +
       '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">' + (l.loanAmtLocked ? 'Edit' : 'Override') + '</button>' +
     '</div>';
+    // Deploy 162: small "Overridden" tag next to rate/points/DP cells
+    // when the matching pricing override is set on the loan record.
+    // Visual cue so post-funding audits can spot manually-priced deals.
+    var _hasRateOv   = (l._rateOverride   && String(l._rateOverride)   !== '');
+    var _hasPointsOv = (l._pointsOverride && String(l._pointsOverride) !== '');
+    var _hasDpOv     = (l._dpOverride     && String(l._dpOverride)     !== '');
+    var _ovTag = '<span class="override-tag" title="Manual override — applied by ' + escAttr(l._pricingOverrideBy || 'LO') + '">Overridden</span>';
     html += '<div class="fin-grid">' +
-      '<div class="fin-cell"><div class="fin-label">Rate</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Rate' + (_hasRateOv ? ' ' + _ovTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Points' + (_hasPointsOv ? ' ' + _ovTag : '') + '</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Purchase Price</div><div class="fin-val">'+fmtM(purchasePrice||loanAmt)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Rehab Budget</div><div class="fin-val">'+fmtM(rehabBudget)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">ARV</div><div class="fin-val">'+fmtM(arv)+'</div></div>' +
@@ -684,6 +708,7 @@ function render() {
       (loanType ? '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+escH(loanType)+'</div></div>' : '') +
       (loanTerm ? '<div class="fin-cell"><div class="fin-label">Loan Term</div><div class="fin-val">'+escH(loanTerm)+' mo</div></div>' : '') +
       (experienceDisplay ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experienceDisplay)+'</div></div>' : '') +
+      (_hasDpOv ? '<div class="fin-cell"><div class="fin-label">Down Payment ' + _ovTag + '</div><div class="fin-val">'+fmtM(parseFloat(l._dpOverride))+'</div></div>' : '') +
       // Broker Fee — shown only when non-zero, in pts (same unit as Points)
       (parseFloat(l.brokerFee || 0) > 0
         ? '<div class="fin-cell"><div class="fin-label">Broker Fee</div><div class="fin-val">'+parseFloat(l.brokerFee).toFixed(2)+' pts</div></div>'
@@ -819,33 +844,45 @@ function render() {
       '<button class="save-app-btn" onclick="saveAppFields()">Save Changes</button>' +
       '<span id="appStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
     '</div>' +
-  '</div></div>'  + // close section
-  '<div class="section" id="submitSection">' +
-    '<div class="section-head"><h2>Submit Loan</h2></div>' +
-    '<div class="section-body">' +
-      ((_loan.status === 'active' || _loan.status === 'on_hold')
-        ? '<div class="field"><label>Notes for Underwriter (optional)</label><textarea id="ld-submitNotes" style="min-height:70px;resize:vertical;border:1.5px solid var(--border);border-radius:var(--r-xs);padding:9px 12px;font-family:\'DM Sans\',sans-serif;font-size:13px;width:100%" placeholder="Any additional context…"></textarea></div>' +
-             '<div style="margin-top:12px"><button class="save-app-btn" style="background:var(--gold)" onclick="submitLoan()">Submit Loan →</button></div>'
-        : '<div style="font-size:13px;color:var(--muted)">Status: <strong>' + (STATUS_LABELS[_loan.status]||_loan.status) + '</strong> — this loan has already been submitted or decided.</div>') +
-    '</div>' +
-  '</div>'; // close section
+  '</div></div>'; // close section
+
+  // Submit Loan section removed (Deploy 162): submission is handled
+  // exclusively through Pipeline now to avoid two divergent submission
+  // flows. The submitLoan() helper is still defined below in case
+  // anything else calls it externally; harmless if unused.
 
   // Broker Info section — only renders for loans with a broker fee.
-  // Read-only display of name/company/email/phone captured at sizer save.
+  // Name/company/email/phone are editable inline (save via saveAppFields,
+  // same as the other application-side fields). Broker Fee itself is
+  // NOT editable here — that's set on the sizer; changing the fee mid-
+  // flight would require pricing recompute which we don't do at this layer.
   if (parseFloat(l.brokerFee || 0) > 0) {
+    var brokerFeePts = parseFloat(l.brokerFee).toFixed(2);
     html +=
     '<div class="section">' +
-      '<div class="section-head"><h2>Broker Info</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
+      '<div class="section-head"><h2>Broker Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
       '<div class="section-body">' +
-        '<div class="broker-info-grid">' +
-          '<div class="fin-cell"><div class="fin-label">Broker Name</div><div class="fin-val">'+(l.brokerName ? escH(l.brokerName) : '<span class="empty">—</span>')+'</div></div>' +
-          '<div class="fin-cell"><div class="fin-label">Broker Company</div><div class="fin-val">'+(l.brokerCompany ? escH(l.brokerCompany) : '<span class="empty">—</span>')+'</div></div>' +
-          '<div class="fin-cell"><div class="fin-label">Broker Email</div><div class="fin-val">'+
-            (l.brokerEmail ? '<a href="mailto:'+escAttr(l.brokerEmail)+'" style="color:var(--gold-mid);text-decoration:none;border-bottom:1px dotted">'+escH(l.brokerEmail)+'</a>' : '<span class="empty">—</span>')+
-          '</div></div>' +
-          '<div class="fin-cell"><div class="fin-label">Broker Phone</div><div class="fin-val">'+
-            (l.brokerPhone ? '<a href="tel:'+escAttr(l.brokerPhone.replace(/[^\d+]/g,''))+'" style="color:var(--gold-mid);text-decoration:none;border-bottom:1px dotted">'+escH(l.brokerPhone)+'</a>' : '<span class="empty">—</span>')+
-          '</div></div>' +
+        '<div class="app-grid">' +
+          '<div class="field"><label>Broker Name</label>' +
+            '<input type="text" id="af-brokerName" value="'+escAttr(l.brokerName||'')+'" placeholder="Broker name" />' +
+          '</div>' +
+          '<div class="field"><label>Broker Company</label>' +
+            '<input type="text" id="af-brokerCompany" value="'+escAttr(l.brokerCompany||'')+'" placeholder="Company / brokerage" />' +
+          '</div>' +
+          '<div class="field"><label>Broker Email</label>' +
+            '<input type="email" id="af-brokerEmail" value="'+escAttr(l.brokerEmail||'')+'" placeholder="broker@company.com" />' +
+          '</div>' +
+          '<div class="field"><label>Broker Phone</label>' +
+            '<input type="tel" id="af-brokerPhone" value="'+escAttr(l.brokerPhone||'')+'" placeholder="(555) 123-4567" />' +
+          '</div>' +
+          // Broker Fee: read-only, set on the sizer. Shown for reference.
+          '<div class="field" style="grid-column:1/-1"><label>Broker Fee <span style="font-size:11px;color:var(--muted);font-weight:400">· Set on sizer</span></label>' +
+            '<input type="text" value="'+brokerFeePts+' pts" readonly style="background:rgba(120,116,136,0.08);cursor:not-allowed" />' +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-top:14px;display:flex;align-items:center;gap:10px">' +
+          '<button class="save-app-btn" onclick="saveAppFields()">Save Changes</button>' +
+          '<span id="appStatus" style="display:none;color:var(--success);font-size:13px">Saved ✓</span>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -982,6 +1019,18 @@ function saveAppFields() {
     projectDescription: (document.getElementById('af-projectDescription') || { value: '' }).value.trim(),
     updatedAt:   new Date().toISOString(),
   };
+  // Broker contact fields are editable on Loan Details (Deploy 162).
+  // Only persist them when the inputs actually exist (i.e. this is a
+  // broker loan and the section was rendered). Broker Fee itself is
+  // intentionally NOT updatable here — that's a sizer-level pricing
+  // decision; changing the fee here would orphan the pricing math.
+  var bn = document.getElementById('af-brokerName');
+  if (bn) {
+    appFields.brokerName    = bn.value.trim();
+    appFields.brokerCompany = (document.getElementById('af-brokerCompany')||{value:''}).value.trim();
+    appFields.brokerEmail   = (document.getElementById('af-brokerEmail')  ||{value:''}).value.trim().toLowerCase();
+    appFields.brokerPhone   = (document.getElementById('af-brokerPhone')  ||{value:''}).value.trim();
+  }
 
   // Update the loan inside the client and save the whole client back
   var loans = _client.loans || [];
