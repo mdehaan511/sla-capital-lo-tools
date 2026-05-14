@@ -104,6 +104,14 @@ async function handle(req, context) {
     createdAt:    loan.createdAt || loan.savedAt || now,
     savedAt:      loan.savedAt || now,
     updatedAt:    now,
+    // Broker info is product-agnostic — the same broker is involved
+    // regardless of whether this is a DSCR or RTL loan, so it carries
+    // over on type change rather than getting wiped with pricing.
+    brokerFee:     loan.brokerFee     || '',
+    brokerName:    loan.brokerName    || '',
+    brokerCompany: loan.brokerCompany || '',
+    brokerEmail:   loan.brokerEmail   || '',
+    brokerPhone:   loan.brokerPhone   || '',
     // Audit
     _typeChangedAt:   now,
     _typeChangedFrom: oldType,
@@ -148,6 +156,12 @@ async function handle(req, context) {
     // Property purpose (purchase / refi / cashout) carries — borrowers
     // tend to know what they want regardless of product
     loanPurpose:   oldFd.loanPurpose || '',
+    // Broker info carries — same broker regardless of product
+    brokerFee:     oldFd.brokerFee     || loan.brokerFee     || '',
+    brokerName:    oldFd.brokerName    || loan.brokerName    || '',
+    brokerCompany: oldFd.brokerCompany || loan.brokerCompany || '',
+    brokerEmail:   oldFd.brokerEmail   || loan.brokerEmail   || '',
+    brokerPhone:   oldFd.brokerPhone   || loan.brokerPhone   || '',
   };
 
   client.loans[loanIdx] = carryOver;

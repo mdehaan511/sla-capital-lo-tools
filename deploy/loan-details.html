@@ -101,6 +101,26 @@
       background: var(--gold);
     }
     .pipeline-badge .lbl { color: var(--muted); font-weight: 500; margin-right: 2px; }
+    /* Broker Loan tag — appears in page-subtitle when loan.brokerFee > 0.
+       Distinct gold-on-white styling so it stands out without competing
+       with the pipeline badge. */
+    .broker-loan-tag {
+      display: inline-flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 4px;
+      background: var(--gold);
+      color: #fff;
+      border: 1px solid var(--gold);
+    }
+    /* Broker Info section — same shell as other read-only sections.
+       Contact rows use the same fin-grid pattern as Loan Financials. */
+    .broker-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 600px) { .broker-info-grid { grid-template-columns: 1fr; } }
 
     .section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 20px; }
     .section-head { padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
@@ -582,6 +602,12 @@ function render() {
             '<span class="lbl">In Pipeline:</span>'+escH(pipelineCol)+
           '</span>'
         : '') +
+      // Broker Loan tag — shows when a non-zero broker fee was entered
+      // on the sizer. Visual cue that the loan has third-party
+      // origination involved (and broker fee in the closing costs).
+      (parseFloat(l.brokerFee || 0) > 0
+        ? '<span class="broker-loan-tag" title="This loan has a broker fee. See Broker Info below.">Broker Loan</span>'
+        : '') +
       (c.firstName ? '<span style="color:var(--muted)">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</span>' : '') +
     '</div>' +
   '</div>';
@@ -631,6 +657,10 @@ function render() {
       (isIO==='yes' ? '<div class="fin-cell"><div class="fin-label">Interest Only</div><div class="fin-val">Yes</div></div>' : '') +
       (prepay ? '<div class="fin-cell"><div class="fin-label">Prepay Penalty</div><div class="fin-val">'+(prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay)+'</div></div>' : '') +
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
+      // Broker Fee — shown only when non-zero, formatted in points like origination.
+      (parseFloat(l.brokerFee || 0) > 0
+        ? '<div class="fin-cell"><div class="fin-label">Broker Fee</div><div class="fin-val">'+parseFloat(l.brokerFee).toFixed(2)+' pts</div></div>'
+        : '') +
     '</div>';
   } else {
     // Item #4 + #12: hero loan amount with override
@@ -654,6 +684,10 @@ function render() {
       (loanType ? '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+escH(loanType)+'</div></div>' : '') +
       (loanTerm ? '<div class="fin-cell"><div class="fin-label">Loan Term</div><div class="fin-val">'+escH(loanTerm)+' mo</div></div>' : '') +
       (experienceDisplay ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experienceDisplay)+'</div></div>' : '') +
+      // Broker Fee — shown only when non-zero, in pts (same unit as Points)
+      (parseFloat(l.brokerFee || 0) > 0
+        ? '<div class="fin-cell"><div class="fin-label">Broker Fee</div><div class="fin-val">'+parseFloat(l.brokerFee).toFixed(2)+' pts</div></div>'
+        : '') +
     '</div>';
   }
 
@@ -795,6 +829,27 @@ function render() {
         : '<div style="font-size:13px;color:var(--muted)">Status: <strong>' + (STATUS_LABELS[_loan.status]||_loan.status) + '</strong> — this loan has already been submitted or decided.</div>') +
     '</div>' +
   '</div>'; // close section
+
+  // Broker Info section — only renders for loans with a broker fee.
+  // Read-only display of name/company/email/phone captured at sizer save.
+  if (parseFloat(l.brokerFee || 0) > 0) {
+    html +=
+    '<div class="section">' +
+      '<div class="section-head"><h2>Broker Info</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
+      '<div class="section-body">' +
+        '<div class="broker-info-grid">' +
+          '<div class="fin-cell"><div class="fin-label">Broker Name</div><div class="fin-val">'+(l.brokerName ? escH(l.brokerName) : '<span class="empty">—</span>')+'</div></div>' +
+          '<div class="fin-cell"><div class="fin-label">Broker Company</div><div class="fin-val">'+(l.brokerCompany ? escH(l.brokerCompany) : '<span class="empty">—</span>')+'</div></div>' +
+          '<div class="fin-cell"><div class="fin-label">Broker Email</div><div class="fin-val">'+
+            (l.brokerEmail ? '<a href="mailto:'+escAttr(l.brokerEmail)+'" style="color:var(--gold-mid);text-decoration:none;border-bottom:1px dotted">'+escH(l.brokerEmail)+'</a>' : '<span class="empty">—</span>')+
+          '</div></div>' +
+          '<div class="fin-cell"><div class="fin-label">Broker Phone</div><div class="fin-val">'+
+            (l.brokerPhone ? '<a href="tel:'+escAttr(l.brokerPhone.replace(/[^\d+]/g,''))+'" style="color:var(--gold-mid);text-decoration:none;border-bottom:1px dotted">'+escH(l.brokerPhone)+'</a>' : '<span class="empty">—</span>')+
+          '</div></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
 
   html += '</div>'; // close right col
   html += '</div>'; // close two-col

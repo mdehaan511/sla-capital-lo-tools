@@ -76,6 +76,16 @@ window.ClientBook = {
       fundingDate: formData.fundingDate || '',
       notes:       formData.notes       || '',
       pricingSnapshot: formData._pricingSnapshot || null,
+      // Broker fields: when brokerFee > 0 the loan is a "Broker Loan"
+      // and shows the broker info on Loan Details. brokerFee is stored
+      // in points (1 = 1%); the dollar amount is recomputed from the
+      // loan amount wherever it's shown so it stays accurate even if
+      // the LO later overrides the loan amount on Loan Details.
+      brokerFee:     formData.brokerFee     || '',
+      brokerName:    formData.brokerName    || '',
+      brokerCompany: formData.brokerCompany || '',
+      brokerEmail:   formData.brokerEmail   || '',
+      brokerPhone:   formData.brokerPhone   || '',
     };
   },
 
@@ -193,6 +203,15 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .adv-arrow { font-size: 10px; transition: transform 0.2s; display: inline-block; }
 .adv-toggle.open .adv-arrow { transform: rotate(90deg); }
 .adv-body { grid-column: 1/-1; display: none; }
+/* Broker fields appear inside the Advanced section when the LO enters a
+   non-zero broker fee. Same two-column grid as the main form-body so the
+   fields align with the rest of the form. */
+.broker-fields { grid-column: 1/-1; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 4px; padding-top: 12px; border-top: 1px dashed var(--border); }
+@media (max-width: 600px) { .broker-fields { grid-template-columns: 1fr; } }
+/* Broker fee rows in the right-side fees card get a subtle gold tint so
+   they're visually distinct from SLA's own fees. */
+.fees-row.broker { color: var(--gold-mid); }
+.fees-row.broker .lbl { font-style: italic; }
 
 .submit-btn { display: block; width: calc(100% - 3.5rem); margin: 0 1.75rem 0.75rem; height: 46px; background: var(--dark); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
 .submit-btn:hover { background: var(--gold); }
@@ -510,9 +529,49 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <!-- Advanced -->
       <div class="adv-toggle span2" id="advToggle" onclick="toggleAdv()">
         <span class="adv-arrow">▶</span>
-        <span>Advanced — ZHVI Override</span>
+        <span>Advanced — Broker Fee & ZHVI Override</span>
       </div>
       <div class="adv-body span2" id="advBody">
+        <!-- Broker fee block. Entering a non-zero fee:
+             - Adds a "Broker Fee" line to the right-side fees card and
+               total ($ amount = loan × pts / 100, like origination)
+             - Adds the same line + total to the rate-sheet PDF
+             - Requires Broker Name (and surfaces Company/Email/Phone)
+             - Tags the saved loan as a "Broker Loan" on Loan Details
+        -->
+        <div class="field span2">
+          <div class="wrap">
+            <label>Broker Fee (points)</label>
+            <input type="number" id="brokerFee" min="0" step="0.25" placeholder="e.g. 1 = 1 point" oninput="onBrokerFeeChange();autoCalc()" />
+          </div>
+        </div>
+        <div class="broker-fields span2" id="brokerFields" style="display:none">
+          <div class="field">
+            <div class="wrap">
+              <label>Broker Name <span class="req">*</span></label>
+              <input type="text" id="brokerName" placeholder="" oninput="clearErr('brokerName')" />
+            </div>
+            <div class="err-msg" id="err-brokerName">Required when broker fee is entered</div>
+          </div>
+          <div class="field">
+            <div class="wrap">
+              <label>Broker Company</label>
+              <input type="text" id="brokerCompany" placeholder="" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="wrap">
+              <label>Broker Email</label>
+              <input type="email" id="brokerEmail" placeholder="" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="wrap">
+              <label>Broker Phone</label>
+              <input type="tel" id="brokerPhone" placeholder="" oninput="applyPhoneMask(this)" />
+            </div>
+          </div>
+        </div>
         <div class="field">
           <div class="wrap">
             <label>Property Value vs ZIP ZHVI</label>
@@ -549,7 +608,10 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="fees-row"><span>Doc Prep Fee</span><span>$900</span></div>
       <div class="fees-row"><span>Servicing/Processing Fee</span><span>$500</span></div>
       <div class="fees-row"><span>Credit/Background Check</span><span>$150</span></div>
-      <div class="fees-row total"><span>Total</span><span>$2,150</span></div>
+      <!-- Broker fee row(s) appear here only when a broker fee is entered.
+           Populated by renderBrokerFeesCardRows(). -->
+      <div id="brokerFeesCardRows"></div>
+      <div class="fees-row total"><span>Total</span><span id="feesCardTotal">$2,150</span></div>
       <div class="fees-foot">Reference only — see rate sheet for current pricing.</div>
     </div>
   </div>
@@ -878,6 +940,64 @@ function toggleAdv(){
   var b=document.getElementById('advBody');
   t.classList.toggle('open');
   b.style.display=t.classList.contains('open')?'block':'none';
+}
+
+// Show/hide the broker contact fields (Name/Company/Email/Phone) based on
+// whether a non-zero broker fee was entered. Name is required only when
+// the fee is set — the field's required-marker stays visible always for
+// consistency, but validate() only enforces it when fee > 0.
+function onBrokerFeeChange() {
+  var feeEl = document.getElementById('brokerFee');
+  var wrap  = document.getElementById('brokerFields');
+  if (!feeEl || !wrap) return;
+  var fee = parseFloat(feeEl.value) || 0;
+  wrap.style.display = fee > 0 ? 'grid' : 'none';
+  // Clear any prior name-required error when the fee drops to 0
+  if (fee <= 0) clearErr('brokerName');
+  renderBrokerFeesCardRows();
+}
+
+// Compute the $ amount of the broker fee based on the current best loan
+// amount estimate. Priority:
+//   1. window._rtlLastCalc.bMax (canonical max from last successful calc)
+//   2. transactional amount (if transactional loan type)
+//   3. purchase price input (pre-calc fallback)
+function brokerFeeDollars() {
+  var pts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+  if (pts <= 0) return 0;
+  var loanAmt = 0;
+  if (window._rtlLastCalc && window._rtlLastCalc.bMax > 0) {
+    loanAmt = window._rtlLastCalc.bMax;
+  } else {
+    var ltEl = document.getElementById('loanType');
+    if (ltEl && ltEl.value === 'transactional') {
+      loanAmt = parseFloat((document.getElementById('transactionalAmt')||{}).value) || 0;
+    } else {
+      loanAmt = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+    }
+  }
+  return loanAmt * (pts / 100);
+}
+
+// Refresh the broker-fee rows + total on the right-side fees card. Called
+// whenever the broker fee input changes or when a calc completes (since
+// the $ amount depends on the computed loan amount). When fee is 0, the
+// broker rows disappear and the total falls back to SLA's flat $2,150.
+function renderBrokerFeesCardRows() {
+  var rowsEl  = document.getElementById('brokerFeesCardRows');
+  var totalEl = document.getElementById('feesCardTotal');
+  if (!rowsEl || !totalEl) return;
+  var pts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+  var FLAT = 600 + 900 + 500 + 150; // $2,150
+  if (pts <= 0) {
+    rowsEl.innerHTML = '';
+    totalEl.textContent = '$' + FLAT.toLocaleString();
+    return;
+  }
+  var dol = brokerFeeDollars();
+  rowsEl.innerHTML =
+    '<div class="fees-row broker"><span class="lbl">Broker Fee (' + pts.toFixed(2) + ' pts)</span><span>$' + Math.round(dol).toLocaleString() + '</span></div>';
+  totalEl.textContent = '$' + Math.round(FLAT + dol).toLocaleString();
 }
 
 function toggleRehab(){
@@ -1261,6 +1381,11 @@ function calculate(){
     purpose: purp,
   };
 
+  // Refresh the right-side fees card now that the canonical loan amount
+  // has been computed. Without this, the broker-fee $ shown would reflect
+  // the purchase-price fallback instead of the actual loan size.
+  try { renderBrokerFeesCardRows(); } catch (_) {}
+
   // ── Render results ─────────────────────────────────────────
   var html='';
 
@@ -1426,7 +1551,11 @@ function renderTransactional(street, city, state, zip) {
 
   // Standard RTL fee schedule still applies
   var flatFees = 600 + 900 + 500 + 150; // = $2,150
-  var totalFees = ptsFee + flatFees;
+  // Broker fee (if set) is calculated against the transactional amount,
+  // since that's the actual loan size for these 1-day deals.
+  var brokerPts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+  var brokerDol = amt * (brokerPts / 100);
+  var totalFees = ptsFee + flatFees + brokerDol;
 
   // Monthly interest (1-day loans accrue interest only)
   var monthlyInterest = amt * rate / 12;
@@ -1462,6 +1591,9 @@ function renderTransactional(street, city, state, zip) {
       '<tr><td>Doc Prep Fee</td><td class="bv neg">$900</td></tr>' +
       '<tr><td>Servicing Fee</td><td class="bv neg">$500</td></tr>' +
       '<tr><td>Credit Fee</td><td class="bv neg">$150</td></tr>' +
+      (brokerPts > 0
+        ? '<tr><td>Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
+        : '') +
       '</tbody></table>' +
       '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
         '<span style="font-size:14px;font-weight:600">Total Estimated Closing Costs</span>' +
@@ -1510,7 +1642,11 @@ function renderCashoutSummary() {
   var ptsRate = (typeof calc.points === 'number' ? calc.points : 1.5); // FICO-tier points (1.5/2.0/3.0)
   var ptsFee = loanAmt * (ptsRate / 100);
   var flatFees = 600 + 900 + 500 + 150; // RTL fee schedule = $2,150
-  var totalFees = ptsFee + flatFees;
+  // Broker fee (if any) further reduces the borrower's net cash. Comes
+  // out of proceeds at funding just like origination.
+  var brokerPts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+  var brokerDol = loanAmt * (brokerPts / 100);
+  var totalFees = ptsFee + flatFees + brokerDol;
   var estCash = loanAmt - cl - totalFees;
   var label = (purpose === 'cashout') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
   var cashColor = estCash >= 0 ? 'var(--success, #256940)' : 'var(--danger, #7c1f1f)';
@@ -1523,6 +1659,9 @@ function renderCashoutSummary() {
       '<tr><td>− Current Loan Payoff</td><td class="bv neg">$' + Math.round(cl).toLocaleString() + '</td></tr>' +
       '<tr><td>− Origination (' + ptsLabel + ')</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
       '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
+      (brokerPts > 0
+        ? '<tr><td>− Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
+        : '') +
     '</tbody></table>' +
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
       '<span style="font-size:14px;font-weight:600">' + label + '<sup style="font-weight:400;color:var(--muted)">*</sup></span>' +
@@ -1825,16 +1964,34 @@ function saveCurrentQuote() {
   } else {
     _clearNameError();
   }
+  // Broker name required when broker fee is set
+  var brokerFeeVal = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+  if (brokerFeeVal > 0) {
+    var bnEl = document.getElementById('brokerName');
+    var bnVal = bnEl ? bnEl.value.trim() : '';
+    if (!bnVal) {
+      showErr('brokerName');
+      firstErrorEl = firstErrorEl || bnEl;
+      showToast('Broker name is required when a broker fee is entered');
+    }
+  }
   if (firstErrorEl) {
     firstErrorEl.focus();
-    showToast('Borrower name and email are required to save a quote');
+    if (!brokerFeeVal || (document.getElementById('brokerName')||{}).value) {
+      showToast('Borrower name and email are required to save a quote');
+    }
     return;
   }
   _clearEmailError();
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
-    'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt'];
+    'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
+    // Broker fields — captured at quote time. brokerFee is in points
+    // (1 = 1%); when 0/empty the loan isn't a broker loan and the
+    // contact fields stay empty. brokerName is required upstream when
+    // brokerFee > 0; the other contact fields are always optional.
+    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone'];
   var formData = {};
   fields.forEach(function(id) {
     var el = document.getElementById(id);
@@ -2028,11 +2185,26 @@ function loadRTLQuote(formData) {
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
-    'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt'];
+    'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
+    // Broker fields — populated when reopening a quote saved as a broker loan
+    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone'];
   fields.forEach(function(id) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
   });
+  // If the loaded quote has a broker fee, open the Advanced section so the
+  // LO can see what's there, and reveal the broker contact fields.
+  if (parseFloat(formData.brokerFee || 0) > 0) {
+    var advT = document.getElementById('advToggle');
+    var advB = document.getElementById('advBody');
+    if (advT && !advT.classList.contains('open')) {
+      advT.classList.add('open');
+      if (advB) advB.style.display = 'block';
+    }
+    if (typeof onBrokerFeeChange === 'function') {
+      try { onBrokerFeeChange(); } catch (_) {}
+    }
+  }
   // Re-format the phone — older quotes may have raw digits, and client-
   // record pulls bypass any input formatter. applyPhoneMask is idempotent.
   var phoneEl3 = document.getElementById('borrowerPhone');
@@ -2666,6 +2838,15 @@ function _generateRTLRateSheetPDF(opts) {
     ['Desktop Analysis',           '$150'],
   ];
   var totalFees=origFee+600+900+500+150;
+  // Broker fee: when set, the rate-sheet PDF shows it as an additional
+  // line item but never names the broker (per policy — the borrower
+  // receives this doc and shouldn't see the broker's identity).
+  var brokerPtsPdf = parseFloat(gv('brokerFee'))||0;
+  if (brokerPtsPdf > 0) {
+    var brokerDolPdf = bMaxNum * (brokerPtsPdf / 100);
+    feeRows.push(['Broker Fee ('+brokerPtsPdf.toFixed(2)+' pts)', fmtD(brokerDolPdf)]);
+    totalFees += brokerDolPdf;
+  }
 
   // Branch on purpose
   var isRefiPdf = (purp === 'cashout' || purp === 'rateterm');
