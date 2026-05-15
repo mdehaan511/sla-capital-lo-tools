@@ -655,9 +655,19 @@ function render() {
         : '') +
       '<button type="button" class="loan-hero-edit" onclick="overrideLoanAmt()">' + (l.loanAmtLocked ? 'Edit' : 'Override') + '</button>' +
     '</div>';
+    // Deploy 164: pricing override tags on DSCR fin-grid. Note Rate cell
+    // gets the gold "Overridden" pill when _rateOverride is set; a new
+    // LTV cell only renders when _ltvOverride is set (LTV isn't shown
+    // on DSCR Loan Details otherwise — it's implied by loanAmt/propVal).
+    var _hasDscrRateOv = (l._rateOverride && String(l._rateOverride) !== '');
+    var _hasDscrLtvOv  = (l._ltvOverride  && String(l._ltvOverride)  !== '');
+    var _dscrOvTag = '<span class="override-tag" title="Manual override — applied by ' + escAttr(l._pricingOverrideBy || 'LO') + '">Overridden</span>';
     html += '<div class="fin-grid">' +
-      '<div class="fin-cell"><div class="fin-label">Note Rate</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Note Rate' + (_hasDscrRateOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
+      (_hasDscrLtvOv
+        ? '<div class="fin-cell"><div class="fin-label">LTV ' + _dscrOvTag + '</div><div class="fin-val">'+(parseFloat(l._ltvOverride)*100).toFixed(1)+'%</div></div>'
+        : '') +
       '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
       // Item #10: existing loan amount, shown when refi
       ((loanPurpose === 'refi_co' || loanPurpose === 'refi_rt') && currentLoanAmt

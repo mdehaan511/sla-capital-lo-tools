@@ -81,6 +81,14 @@
       brokerCompany: formData.brokerCompany || '',
       brokerEmail:   formData.brokerEmail   || '',
       brokerPhone:   formData.brokerPhone   || '',
+      // Deploy 164: pricing override state on the loan record so
+      // reopening restores the overridden display + locked-fields
+      // state without re-firing the warning modal.
+      _rateOverride:             formData._rateOverride            || '',
+      _ltvOverride:              formData._ltvOverride             || '',
+      _pricingOverrideAt:        formData._pricingOverrideAt       || '',
+      _pricingOverrideBy:        formData._pricingOverrideBy       || '',
+      _pricingOverrideOriginal:  formData._pricingOverrideOriginal || null,
     };
   },
 
@@ -230,6 +238,48 @@
     .fees-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; color: var(--text); font-family: 'DM Mono', monospace; }
     .fees-row.total { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); font-weight: 700; color: var(--gold-mid); }
     .fees-foot { margin-top: 10px; font-size: 11px; color: var(--muted); font-style: italic; }
+
+    /* ─── Pricing Override UI (Deploy 164) ─────────────────────
+       Two values can be manually overridden on the DSCR result card:
+       Note Rate and LTV. Each gets a pencil icon; clicking fires a
+       warning modal (first time per loan), then converts the value
+       to an editable input. While ANY override is active, Loan +
+       Financial inputs lock. Borrower / Address / Broker Fee stay
+       editable. */
+    .override-pencil { display: inline-block; margin-left: 6px; width: 14px; height: 14px; cursor: pointer; opacity: 0.45; vertical-align: middle; transition: opacity 0.15s; }
+    .override-pencil:hover { opacity: 1; color: var(--gold); }
+    .override-pencil.on-dark { opacity: 0.55; color: rgba(255,255,255,0.6); }
+    .override-pencil.on-dark:hover { opacity: 1; color: var(--gold); }
+    .override-input { font-family: 'DM Mono', monospace; font-size: inherit; font-weight: inherit; color: inherit; background: var(--gold-light); border: 1.5px solid var(--gold-border); border-radius: 4px; padding: 2px 8px; width: 110px; outline: none; }
+    .override-input:focus { border-color: var(--gold); }
+    .override-input.on-dark { background: rgba(255,255,255,0.95); color: var(--text); }
+    .override-suffix { font-size: 0.8em; color: var(--muted); margin-left: 4px; }
+    .ov-meta.overridden { color: var(--gold-mid); }
+    .ov-meta.overridden::after { content: ' · OVERRIDE'; font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em; color: var(--gold); }
+    .rate-big .rv.overridden { color: var(--gold); }
+    .rate-big .rv.overridden::after { content: 'OVERRIDE'; display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--gold); margin-top: 2px; opacity: 0.9; }
+    /* "Pricing Overwrite Active" banner — hidden by default; .show flips to flex */
+    .override-notice { display: none; background: rgba(200,129,58,0.10); border: 1px solid var(--gold-border); border-left: 3px solid var(--gold); border-radius: var(--r-xs); padding: 10px 14px; margin-bottom: 12px; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+    .override-notice.show { display: flex; }
+    .override-notice .nm-text { color: var(--gold-mid); font-weight: 600; }
+    .override-notice .nm-text small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .override-notice .nm-restore { background: var(--gold); color: #fff; border: 0; border-radius: 4px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; flex-shrink: 0; }
+    .override-notice .nm-restore:hover { background: var(--gold-mid); }
+    /* Lock styling on loan/financial fields */
+    .override-locked { background: rgba(120,116,136,0.08) !important; cursor: not-allowed !important; opacity: 0.65; }
+    .override-locked-note { display: none; grid-column: 1/-1; padding: 6px 10px; margin: 4px 0 0; font-size: 11px; color: var(--muted); font-style: italic; background: rgba(120,116,136,0.05); border-radius: var(--r-xs); }
+    .override-locked-note.show { display: block; }
+    /* Warning modal — fires on first override action per loan */
+    .ow-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 9000; padding: 20px; }
+    .ow-overlay.open { display: flex; }
+    .ow-modal { background: var(--surface); border-radius: var(--r); padding: 24px 28px; max-width: 460px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+    .ow-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 12px; color: var(--gold-mid); }
+    .ow-modal .ow-body { font-size: 13.5px; line-height: 1.55; color: var(--text); }
+    .ow-modal .ow-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+    .ow-modal button { padding: 9px 18px; border-radius: var(--r-xs); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: inherit; }
+    .ow-modal button:hover { background: var(--bg); }
+    .ow-modal button.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .ow-modal button.primary:hover { background: var(--gold-mid); border-color: var(--gold-mid); }
     .gl-error { background: #fdf0f0; border: 1px solid rgba(124,31,31,0.18); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; padding: 10px 14px; margin-bottom: 10px; line-height: 1.5; }
     .gl-warn  { background: #fffbf0; border: 1px solid rgba(122,82,24,0.20); border-radius: var(--r-xs); color: var(--warn); font-size: 13px; padding: 10px 14px; margin-bottom: 10px; line-height: 1.5; }
 
@@ -249,6 +299,22 @@
   </style>
 </head>
 <body>
+
+<!-- Pricing Override warning modal — fires on the first override action
+     per loan. Once acknowledged the flag persists across overrides for
+     that loan; reopening a saved override-loan does NOT re-fire the modal. -->
+<div class="ow-overlay" id="overrideWarningOverlay">
+  <div class="ow-modal">
+    <h3>⚠ Manual Pricing Override</h3>
+    <div class="ow-body">
+      You are overwriting approved loan pricing. Please make sure you have manager approval.
+    </div>
+    <div class="ow-actions">
+      <button type="button" onclick="cancelOverrideAck()">Cancel</button>
+      <button type="button" class="primary" onclick="confirmOverrideAck()">I have approval — continue</button>
+    </div>
+  </div>
+</div>
 
 <!-- ════════════════════════════════════════════════════════
   PRICING CONFIG — DIYA CAPITAL
@@ -717,6 +783,15 @@ function getFICOMin(ficoStr) {
 
   <div class="results-col">
     <div id="quotesPanelWrap"></div>
+    <!-- Pricing Overwrite Active banner (Deploy 164). Hidden until any
+         of the two overrides (rate / ltv) is set. Restore button clears
+         all overrides at once and re-runs the calc from defaults. -->
+    <div class="override-notice" id="overrideNotice">
+      <div class="nm-text">⚑ Pricing Overwrite Active
+        <small id="overrideNoticeDetail">Manual values applied to one or more pricing fields.</small>
+      </div>
+      <button type="button" class="nm-restore" onclick="restoreOverridesToDefault()">Restore to Default</button>
+    </div>
     <div id="results" style="display:flex;flex-direction:column;gap:16px">
     <div class="placeholder">
       <div class="ph-icon">
@@ -983,8 +1058,13 @@ function renderResult(r) {
 
   return glBanners+'<div class="rate-card">'+
     '<div class="rate-header">'+
-      '<div class="rate-header-left"><div class="lender">SLA Capital &middot; Eff. '+DIYA.effectiveDate+'</div><div class="prog">DSCR &mdash; '+r.loanType+' &mdash; LTV '+r.ltv.toFixed(1)+'%</div></div>'+
-      '<div class="rate-big"><div class="rl">Note Rate</div><div class="rv">'+r.finalRate.toFixed(3)+'%</div></div>'+
+      // Header program line: LTV is overridable. Wraps the value in a
+      // span with data-metric so applyOverridesAndRender can mutate it.
+      // The .ov-meta class lets us style the overridden state.
+      '<div class="rate-header-left"><div class="lender">SLA Capital &middot; Eff. '+DIYA.effectiveDate+'</div>'+
+        '<div class="prog">DSCR &mdash; '+r.loanType+' &mdash; LTV <span class="ov-meta" data-metric="ltv">'+r.ltv.toFixed(1)+'%</span> <span class="override-pencil on-dark" onclick="enableOverrideEdit(\'ltv\')" title="Override LTV (requires manager approval)">✎</span></div>'+
+      '</div>'+
+      '<div class="rate-big"><div class="rl">Note Rate <span class="override-pencil on-dark" onclick="enableOverrideEdit(\'rate\')" title="Override rate (requires manager approval)">✎</span></div><div class="rv" data-metric="rate">'+r.finalRate.toFixed(3)+'%</div></div>'+
     '</div>'+
     '<div class="rate-body">'+
       '<table class="breakdown"><tbody>'+
@@ -1226,12 +1306,274 @@ function renderBrokerFeesCardRows() {
   totalEl.textContent = '$' + Math.round(FLAT + dol).toLocaleString();
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// PRICING OVERRIDE SYSTEM (Deploy 164 — mirrors RTL Deploy 162)
+// ═══════════════════════════════════════════════════════════════════
+// LO can manually override Note Rate and LTV on the result card.
+// Modal fires once per loan to acknowledge manager approval; once
+// acknowledged, additional overrides for that loan skip the modal.
+// When LTV is overridden, the loan amount derives from
+// (overridden_ltv * propVal), and downstream math (monthly P&I, DSCR
+// ratio, total fees, cash-to-close) all recompute from the derived
+// loan. Saved overrides round-trip via _rateOverride / _ltvOverride
+// on the loan record. While any override is active, loan + financial
+// inputs lock; borrower / address / broker fee stay editable.
+
+window._dscrOverrides = {
+  rate: null,                  // overridden rate (decimal, e.g. 0.075)
+  ltv: null,                   // overridden LTV (decimal fraction, e.g. 0.80)
+  warningAcknowledged: false,
+  _pendingField: null,
+};
+
+// DSCR-specific lock list. Includes every loan/financial input except
+// borrower fields, property address, and broker fee per the spec.
+var DSCR_OVERRIDE_LOCK_IDS = [
+  'loanAmt', 'propValue', 'fico', 'loanPurpose', 'propType', 'isIO',
+  'prepay', 'buydown', 'currentLoanAmt',
+  // Monthly cost inputs (taxes / insurance / HOA / rent) also lock —
+  // they affect DSCR ratio which depends on the (derived) loan amount.
+  'taxes', 'insurance', 'hoa', 'rent',
+];
+
+function hasActiveOverride() {
+  var o = window._dscrOverrides || {};
+  return o.rate !== null || o.ltv !== null;
+}
+
+// Pencil click entry — fires modal (first time) then opens input. If
+// already acknowledged for this loan, opens input directly.
+function requestOverrideAck(field) {
+  window._dscrOverrides._pendingField = field;
+  if (window._dscrOverrides.warningAcknowledged) {
+    _openOverrideInput(field);
+    window._dscrOverrides._pendingField = null;
+    return;
+  }
+  var ov = document.getElementById('overrideWarningOverlay');
+  if (ov) ov.classList.add('open');
+}
+
+function cancelOverrideAck() {
+  window._dscrOverrides._pendingField = null;
+  var ov = document.getElementById('overrideWarningOverlay');
+  if (ov) ov.classList.remove('open');
+}
+
+function confirmOverrideAck() {
+  var field = window._dscrOverrides._pendingField;
+  window._dscrOverrides.warningAcknowledged = true;
+  window._dscrOverrides._pendingField = null;
+  var ov = document.getElementById('overrideWarningOverlay');
+  if (ov) ov.classList.remove('open');
+  if (field) _openOverrideInput(field);
+}
+
+function enableOverrideEdit(fieldKey) {
+  requestOverrideAck(fieldKey);
+}
+
+// Swap the metric display for an editable input. On blur, the value
+// is committed straight into window._dscrOverrides and the calc
+// re-renders. No second modal pass.
+function _openOverrideInput(fieldKey) {
+  var el;
+  if (fieldKey === 'rate') {
+    el = document.querySelector('.rate-big .rv[data-metric="rate"]');
+  } else if (fieldKey === 'ltv') {
+    el = document.querySelector('.ov-meta[data-metric="ltv"]');
+  }
+  if (!el) return;
+  var currentText = el.textContent.replace(/[A-Z·\s]+OVERRIDE/i, '').trim();
+  // Both rate and ltv display as percentages — parse to decimal
+  var rawNum = parseFloat(currentText.replace(/[^\d.]/g, ''));
+  if (!isFinite(rawNum)) rawNum = 0;
+  var inputId = 'override-input-' + fieldKey;
+  // Inline input style depends on whether parent is on dark (rate hero)
+  var inputClass = fieldKey === 'rate' ? 'override-input on-dark' : 'override-input';
+  el.innerHTML =
+    '<input type="number" id="' + inputId + '" class="' + inputClass + '" value="' + rawNum +
+      '" step="' + (fieldKey === 'rate' ? '0.001' : '0.5') +
+      '" min="0" max="' + (fieldKey === 'ltv' ? '100' : '25') + '" />' +
+    '<span class="override-suffix"' + (fieldKey === 'rate' ? ' style="color:rgba(255,255,255,0.55)"' : '') + '>%</span>';
+  var input = document.getElementById(inputId);
+  input.focus();
+  input.select();
+  input.addEventListener('blur', function() {
+    var v = parseFloat(input.value);
+    if (!isFinite(v) || v < 0) {
+      applyOverridesAndRender();
+      return;
+    }
+    // Both rate and LTV input are in %; store as decimal for math
+    v = v / 100;
+    window._dscrOverrides[fieldKey] = v;
+    applyOverridesAndRender();
+    lockLoanFinancialFields(true);
+  });
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') { applyOverridesAndRender(); }
+  });
+}
+
+function restoreOverridesToDefault() {
+  if (!hasActiveOverride()) return;
+  if (!confirm('Restore pricing to the calculator default? This clears all manual overrides for this loan.')) return;
+  window._dscrOverrides = {
+    rate: null, ltv: null,
+    warningAcknowledged: false,
+    _pendingField: null,
+  };
+  lockLoanFinancialFields(false);
+  var notice = document.getElementById('overrideNotice');
+  if (notice) notice.classList.remove('show');
+  // Re-run the calc to repaint with defaults
+  if (typeof run === 'function') {
+    try { run(); } catch (_) {}
+  }
+}
+
+function lockLoanFinancialFields(lock) {
+  DSCR_OVERRIDE_LOCK_IDS.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (lock) {
+      el.classList.add('override-locked');
+      el.setAttribute('disabled', 'disabled');
+    } else {
+      el.classList.remove('override-locked');
+      el.removeAttribute('disabled');
+    }
+  });
+  var noteId = 'overrideLockNote';
+  var note = document.getElementById(noteId);
+  if (lock && !note) {
+    note = document.createElement('div');
+    note.id = noteId;
+    note.className = 'override-locked-note show';
+    note.textContent = 'Loan and Financial fields are locked while a pricing override is active. Click "Restore to Default" to unlock.';
+    var formBody = document.querySelector('.input-card .card-body') || document.querySelector('.input-card');
+    if (formBody) formBody.insertBefore(note, formBody.firstChild);
+  } else if (!lock && note) {
+    note.remove();
+  }
+}
+
+function refreshOverrideNotice() {
+  var notice = document.getElementById('overrideNotice');
+  if (!notice) return;
+  if (!hasActiveOverride()) {
+    notice.classList.remove('show');
+    return;
+  }
+  var o = window._dscrOverrides;
+  var parts = [];
+  if (o.rate !== null) parts.push('rate');
+  if (o.ltv  !== null) parts.push('LTV');
+  var detail = 'Overridden: ' + parts.join(', ') + '. Click Restore to revert.';
+  var detailEl = document.getElementById('overrideNoticeDetail');
+  if (detailEl) detailEl.textContent = detail;
+  notice.classList.add('show');
+}
+
+// Central re-render: apply overrides on top of the last calc result.
+// Stashed on window._dscrLastCalc by run() so we can read defaults
+// here and recompute effective values.
+function applyOverridesAndRender() {
+  var calc = window._dscrLastCalc;
+  if (!calc) { refreshOverrideNotice(); return; }
+  var o = window._dscrOverrides;
+  var effRate = (o.rate !== null) ? o.rate * 100 : calc.finalRate;  // percentage
+  var effLtv  = (o.ltv  !== null) ? o.ltv  * 100 : calc.ltv;        // percentage
+  // LTV override derives a new loan amount from property value.
+  // propVal is read live from the input (could change between calc
+  // and override, but lock should prevent that — defensive read).
+  var propVal = parseFloat(($('propValue')||{}).value) || calc.propVal || 0;
+  var effLoan = (o.ltv !== null && propVal > 0) ? Math.round(propVal * o.ltv) : calc.loan;
+
+  // Stash effective values for downstream consumers (PDF, save)
+  window._dscrLastCalcEffective = {
+    finalRate: effRate, ltv: effLtv, loan: effLoan, propVal: propVal,
+  };
+
+  // ── Update the rendered displays ────────────────────────────
+  var rateEl = document.querySelector('.rate-big .rv[data-metric="rate"]');
+  var ltvEl  = document.querySelector('.ov-meta[data-metric="ltv"]');
+  if (rateEl && isFinite(effRate)) {
+    rateEl.textContent = effRate.toFixed(3) + '%';
+    rateEl.classList.toggle('overridden', o.rate !== null);
+  }
+  if (ltvEl && isFinite(effLtv)) {
+    ltvEl.textContent = effLtv.toFixed(1) + '%';
+    ltvEl.classList.toggle('overridden', o.ltv !== null);
+  }
+  // Also update the "Final note rate" total-row at the bottom of the
+  // rate card. There's only one .total-row .tv on the rate card.
+  var rateCards = document.querySelectorAll('.rate-card');
+  if (rateCards.length > 0) {
+    var finalRow = rateCards[0].querySelector('.total-row .tv');
+    if (finalRow && isFinite(effRate)) finalRow.textContent = effRate.toFixed(3) + '%';
+  }
+  // Monthly Payment Breakdown card depends on rate AND loan amount.
+  // Recompute P&I + total payment + DSCR ratio.
+  if (rateCards.length > 1) {
+    var paymentCard = rateCards[1];
+    // P&I row: first .breakdown tr after the header row
+    var rows = paymentCard.querySelectorAll('.breakdown tbody tr');
+    if (rows.length >= 2) {
+      var piCell = rows[1].querySelector('.bv');
+      if (piCell) {
+        // Use the same calcPI helper logic — load the function reference
+        // by name since we're inside the same script scope.
+        var isIO = (calc.isIO === true || calc.isIO === 'yes');
+        var newPI;
+        try {
+          newPI = (typeof calcPI === 'function')
+            ? calcPI(effLoan, effRate / 100, isIO)
+            : (isIO ? effLoan * (effRate / 100) / 12
+                    : (function() {
+                        // 30-year amortizing fallback
+                        var n = 360, r = (effRate / 100) / 12;
+                        return r === 0 ? effLoan / n : effLoan * r / (1 - Math.pow(1 + r, -n));
+                      })());
+        } catch (_) { newPI = calc.pi; }
+        piCell.textContent = '$' + Math.round(newPI).toLocaleString();
+        // Total monthly = P&I + taxes + insurance + HOA
+        var totalRow = paymentCard.querySelector('.total-row .tv');
+        if (totalRow) {
+          var newTotal = newPI + (calc.taxes||0) + (calc.ins||0) + (calc.hoa||0);
+          totalRow.textContent = '$' + Math.round(newTotal).toLocaleString();
+        }
+        // DSCR ratio = rent / total monthly
+        var dscrSpan = paymentCard.querySelector('span[style*="22px"]');
+        if (dscrSpan && calc.rent > 0) {
+          var newDscr = calc.rent / (newPI + (calc.taxes||0) + (calc.ins||0) + (calc.hoa||0));
+          dscrSpan.textContent = newDscr.toFixed(2) + 'x';
+        }
+      }
+    }
+  }
+  // Broker fee rows depend on loan amount
+  try { renderBrokerFeesCardRows(); } catch (_) {}
+  refreshOverrideNotice();
+}
+
 function run() {
   updatePills();
   var r = calculate();
   $('results').innerHTML = renderResult(r);
+  // Stash the calc result for the override system to reference. Only
+  // a successful calc gets stashed — error returns leave the previous
+  // calc intact so an override-in-progress isn't blown away by a
+  // mid-stream invalid input.
+  if (r && !r.error) {
+    window._dscrLastCalc = r;
+  }
   // Refresh broker fee rows since the loan amount may have changed
   try { renderBrokerFeesCardRows(); } catch (_) {}
+  // Apply any active overrides on top of the rendered defaults
+  try { applyOverridesAndRender(); } catch (e) { console.warn('override render failed:', e); }
   // Toggle Save Quote button based on whether all required fields are filled
   toggleSaveButton();
 }
@@ -2218,6 +2560,17 @@ function saveCurrentQuote() {
     _dscr:         r.dscr ? r.dscr.toFixed(2) : '',
     _totalPayment: r.totalPayment ? r.totalPayment.toFixed(2) : '',
     _points:       (1 + (parseFloat(r.buydown) || 0)).toFixed(2) + ' pts',
+    // Deploy 164: pricing override state. Empty strings when no
+    // override is active. On reload these restore the override
+    // display + lock state WITHOUT re-firing the warning modal.
+    _rateOverride: (function() {
+      var ov = window._dscrOverrides || {};
+      return (ov.rate !== null && ov.rate !== undefined) ? String(ov.rate) : '';
+    })(),
+    _ltvOverride: (function() {
+      var ov = window._dscrOverrides || {};
+      return (ov.ltv !== null && ov.ltv !== undefined) ? String(ov.ltv) : '';
+    })(),
     // ── Full pricing snapshot for server-side rate sheet generation ──
     _pricingSnapshot: {
       tool: 'dscr',
@@ -2247,6 +2600,22 @@ function saveCurrentQuote() {
       computedAt: new Date().toISOString(),
     },
   };
+
+  // Deploy 164: pricing-override audit trail. Only stamp when an
+  // override is actually active. Captures who applied the override,
+  // when, and the algorithmic defaults at the time of override.
+  if (formData._rateOverride || formData._ltvOverride) {
+    formData._pricingOverrideAt = new Date().toISOString();
+    try {
+      var _u = (window._user && window._user.email) || '';
+      if (_u) formData._pricingOverrideBy = _u;
+    } catch (_) {}
+    formData._pricingOverrideOriginal = {
+      rate: (typeof r.finalRate === 'number') ? r.finalRate : null,
+      ltv:  (typeof r.ltv       === 'number') ? r.ltv       : null,
+      loan: (typeof r.loan      === 'number') ? r.loan      : null,
+    };
+  }
 
   // Cross-LO override: when admin opened this sizer with `?owner=<otherLO>`
   // and the loaded quote belongs to that LO, all subsequent saves must
@@ -2349,6 +2718,26 @@ function loadQuoteIntoForm(formData) {
     }
     if (typeof onBrokerFeeChange === 'function') {
       try { onBrokerFeeChange(); } catch (_) {}
+    }
+  }
+  // Deploy 164: restore pricing override state. warningAcknowledged=true
+  // so the modal doesn't re-fire. lockLoanFinancialFields engages the
+  // greyed/disabled state on the form inputs. applyOverridesAndRender
+  // (called after run() in the init flow) paints the overridden values
+  // over the calc defaults.
+  var hasOv = (formData._rateOverride && formData._rateOverride !== '') ||
+              (formData._ltvOverride  && formData._ltvOverride  !== '');
+  if (hasOv) {
+    window._dscrOverrides = {
+      rate: (formData._rateOverride && formData._rateOverride !== '') ? parseFloat(formData._rateOverride) : null,
+      ltv:  (formData._ltvOverride  && formData._ltvOverride  !== '') ? parseFloat(formData._ltvOverride)  : null,
+      warningAcknowledged: true,
+      _pendingField: null,
+    };
+    if (isNaN(window._dscrOverrides.rate)) window._dscrOverrides.rate = null;
+    if (isNaN(window._dscrOverrides.ltv))  window._dscrOverrides.ltv  = null;
+    if (typeof lockLoanFinancialFields === 'function') {
+      try { lockLoanFinancialFields(true); } catch (_) {}
     }
   }
   // Re-format the phone (could have been saved without formatting in

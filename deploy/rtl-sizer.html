@@ -3108,7 +3108,13 @@ function _generateRTLRateSheetPDF(opts) {
   }
   var ptsLabel=p.toFixed(2)+' pts';
 
-  // Get max loan + down payment from metric cards
+  // Get max loan + down payment from metric cards.
+  // Note: label-match uses indexOf rather than === because Deploy 162
+  // added an override-pencil span INSIDE the .metric-label for Rate /
+  // Points / Down Payment, so the label's textContent is now e.g.
+  // "Required Down Payment ✎" — the exact equality check broke and
+  // dpDisp/bMaxDisp/moDisp silently fell through to "—" placeholders.
+  // indexOf still works for the labels that don't have a pencil today.
   var metricCards=document.querySelectorAll('.metric-card');
   var bMaxDisp='—', dpDisp='—', moDisp='—';
   metricCards.forEach(function(card){
@@ -3116,9 +3122,9 @@ function _generateRTLRateSheetPDF(opts) {
     var val=card.querySelector('.metric-value');
     if(!lbl||!val)return;
     var t=lbl.textContent.trim();
-    if(t==='Maximum Loan Amount') bMaxDisp=val.textContent.trim();
-    if(t==='Required Down Payment') dpDisp=val.textContent.trim();
-    if(t==='Monthly Interest (I/O)') moDisp=val.textContent.trim();
+    if(t.indexOf('Maximum Loan Amount')===0)   bMaxDisp=val.textContent.trim();
+    if(t.indexOf('Required Down Payment')===0) dpDisp=val.textContent.trim();
+    if(t.indexOf('Monthly Interest')===0)      moDisp=val.textContent.trim();
   });
 
   // Parse bMax number for fee calculation
