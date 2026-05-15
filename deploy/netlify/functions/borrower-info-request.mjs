@@ -2,17 +2,25 @@
  * borrower-info-request.mjs — POST /api/borrower-info-request
  *
  * Authed (LO). Body:
- *   { clientId, loanId?, sendEmail? (default false) }
+ *   { clientId, loanId, sendEmail? (default false) }
  *
- * Creates or rotates a borrower-info token tied to the client. Returns the
- * full token URL that the LO can copy. If sendEmail=true, also emails the
- * borrower with the link.
+ * Creates or rotates a borrower-info token tied to a SPECIFIC LOAN
+ * on the client (since Deploy 168 — was per-client before that).
+ * Returns the full token URL that the LO can copy. If sendEmail=true,
+ * also emails the borrower with the link.
  *
- * Tokens live in the `borrower_info` blob store under the client's id.
- * If a non-completed record already exists, the token is rotated (so the
- * old link stops working). A completed record is preserved — if the LO
- * wants to re-request edits, they need to confirm it'll wipe the existing
- * data (handled client-side, server replaces unconditionally on this call).
+ * Records live in the `borrower_info` blob store keyed
+ * `<owner>/<clientId>/<loanId>`. If a record already exists for that
+ * loan, the token is rotated (old link stops working) and any existing
+ * collected data is preserved so the borrower can pick up where they
+ * left off. Each loan has its own independent record — DSCR and RTL
+ * loans on the same client do NOT share data, even if for the same
+ * property.
+ *
+ * Legacy fallback (Deploy 168 migration): if no record exists at the
+ * per-loan key but one exists at the old per-client key AND that
+ * legacy record's inferred loanId matches the requested loanId, lift
+ * it forward as the starting point. See _shared/borrower-info-keys.mjs.
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -20,6 +28,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { generateToken } from './_shared/crypto.mjs';
+import { newRecordKey, loadRecord } from './_shared/borrower-info-keys.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -42,6 +51,7 @@ async function handle(req, context) {
   const body = await readJsonBody(req);
   if (body === null) return json(400, { error: 'Invalid JSON' });
   if (!body || !body.clientId) return json(400, { error: 'clientId required' });
+  if (!body.loanId)             return json(400, { error: 'loanId required' });
 
   // Owner: default to current user. Admins may override.
   let owner = normalizeEmail(user.email);
@@ -59,11 +69,12 @@ async function handle(req, context) {
   if (!client) return json(404, { error: 'Client not found' });
   if (!client.email) return json(400, { error: 'Client has no email — add one first' });
 
-  // Find the matching loan if loanId given (for property pre-fill)
+  // Find the matching loan (now required)
   let loan = null;
-  if (body.loanId && Array.isArray(client.loans)) {
+  if (Array.isArray(client.loans)) {
     loan = client.loans.find((l) => l.id === body.loanId) || null;
   }
+  if (!loan) return json(404, { error: 'Loan not found on client' });
 
   // Look up LO profile for email "from" name
   let loProfile = null;
@@ -73,11 +84,13 @@ async function handle(req, context) {
   } catch (e) { /* non-fatal */ }
   const loName = (loProfile && loProfile.fullName) || (user.user_metadata && user.user_metadata.full_name) || user.email || 'Your loan officer';
 
-  // Build/rotate the record
+  // Build/rotate the record at the per-loan key (Deploy 168). loadRecord
+  // also handles the migration fallback: if there's a legacy per-client
+  // record whose inferred loanId matches body.loanId, it gets lifted to
+  // the new key as the starting point.
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const recordKey = `${ownerKey}/${keySafe(body.clientId)}`;
-  let existing = null;
-  try { existing = await store.get(recordKey, { type: 'json' }); } catch (_) {}
+  const recordKey = newRecordKey(ownerKey, body.clientId, body.loanId);
+  const existing = await loadRecord(store, ownerKey, body.clientId, body.loanId, client);
 
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_DAYS * 86400000).toISOString();
@@ -88,7 +101,7 @@ async function handle(req, context) {
 
   const record = {
     clientId: body.clientId,
-    loanId: body.loanId || null,
+    loanId: body.loanId,                    // required since Deploy 168
     ownerKey,
     ownerEmail: owner,
     borrowerEmail: client.email,

@@ -153,6 +153,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 // ─────────────────────────────────────────────────────────
 var TOKEN = new URLSearchParams(window.location.search).get('t') || '';
 var REVIEW_CLIENT_ID = new URLSearchParams(window.location.search).get('clientId') || '';
+var REVIEW_LOAN_ID   = new URLSearchParams(window.location.search).get('loanId')   || '';
 var REVIEW_OWNER     = new URLSearchParams(window.location.search).get('owner')    || '';
 var REVIEW_MODE      = !TOKEN && !!REVIEW_CLIENT_ID;
 // In review mode the page is loaded by the LO from Loan Details. We use
@@ -213,7 +214,11 @@ function loadFromServerAuthed() {
     showGate('SDK not loaded', 'The Loan Officer review SDK did not initialize.');
     return;
   }
-  var opts = REVIEW_OWNER ? { owner: REVIEW_OWNER } : {};
+  // Pass loanId so the server loads the correct per-loan record
+  // (Deploy 168 — was per-client before that).
+  var opts = {};
+  if (REVIEW_LOAN_ID) opts.loanId = REVIEW_LOAN_ID;
+  if (REVIEW_OWNER)   opts.owner  = REVIEW_OWNER;
   SLA.BorrowerInfo.loadAuth(REVIEW_CLIENT_ID, opts).then(function(resp) {
     try {
       STATE.status = resp.status;
@@ -225,6 +230,7 @@ function loadFromServerAuthed() {
       STATE.propAddress = (resp.prefill && resp.prefill.property && resp.prefill.property.address) || '';
       STATE.loName = (resp.prefill && resp.prefill.lo && resp.prefill.lo.name) || '';
       STATE.reviewClientId = resp.clientId;
+      STATE.reviewLoanId   = resp.loanId || REVIEW_LOAN_ID || '';
       STATE.reviewOwner    = resp.ownerKey;
       STATE.companies = (resp.prefill && resp.prefill.companies) || STATE.data.companies || [];
       applyPrefillToData();
@@ -1174,7 +1180,7 @@ function autoSave() {
   var dataToSave = packDataForSave();
 
   if (REVIEW_MODE) {
-    var opts = STATE.reviewOwner ? { owner: STATE.reviewOwner } : {};
+    var opts = {}; if (STATE.reviewOwner) opts.owner = STATE.reviewOwner; if (STATE.reviewLoanId) opts.loanId = STATE.reviewLoanId;
     SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function() {
       SAVING = false;
       setSaveStatus('Saved ' + nowTime() + ' (LO edit)', 'ok');
@@ -1309,7 +1315,7 @@ function submitFinal() {
 
   if (REVIEW_MODE) {
     // LO review: this is the final "Save & Close" — no completion event
-    var opts = STATE.reviewOwner ? { owner: STATE.reviewOwner } : {};
+    var opts = {}; if (STATE.reviewOwner) opts.owner = STATE.reviewOwner; if (STATE.reviewLoanId) opts.loanId = STATE.reviewLoanId;
     SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function() {
       showToast('Edits saved');
       btn.disabled = false; btn.textContent = 'Save edits';

@@ -4,7 +4,12 @@
  * Authed (LO). Returns all borrower-info records for the current user
  * (or all LOs if admin passes ?all=1).
  *
- * Returns: { records: [{clientId, ownerKey, status, sentAt, lastSavedAt, completedAt, expiresAt, token, url}, ...] }
+ * Since Deploy 168, records are per-loan: one entry per (clientId,
+ * loanId) combination. Records that pre-date the deploy without a
+ * loanId still appear here with loanId=null; consumers fall back to
+ * clientId-based lookup for those.
+ *
+ * Returns: { records: [{clientId, loanId, ownerKey, status, ...}, ...] }
  *
  * SSN_enc fields are stripped — never returned to client.
  */
@@ -38,6 +43,11 @@ async function handle(req, context) {
   const { blobs } = await store.list();
   const out = [];
 
+  // Track which (owner, clientId, loanId) keys we've already emitted so
+  // we don't double-count the legacy duplicate that borrower-info-save
+  // intentionally leaves behind during the per-loan migration.
+  const seen = new Set();
+
   await Promise.all(blobs.map(async ({ key }) => {
     const slashIdx = key.indexOf('/');
     if (slashIdx < 0) return;
@@ -46,8 +56,16 @@ async function handle(req, context) {
 
     const r = await store.get(key, { type: 'json' });
     if (!r) return;
+    // Dedupe: the migration may have left both a legacy per-client key
+    // AND a new per-loan key with the same content. Use clientId+loanId
+    // as the dedupe key; if a per-loan record exists, prefer it.
+    const dedupeKey = (r.ownerKey || '') + '|' + (r.clientId || '') + '|' + (r.loanId || '');
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+
     out.push({
       clientId: r.clientId,
+      loanId:   r.loanId || null,    // Deploy 168
       ownerKey: r.ownerKey,
       borrowerEmail: r.borrowerEmail || '',
       status: r.status,

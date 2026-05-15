@@ -3,12 +3,13 @@
  *
  * Authed (LO).
  *
- * GET ?clientId=...  → returns status + summary + data (with SSN MASKED for
- *                       safety in browser; full SSN never sent to frontend).
- *                       Pass &full=1 to also return full SSN — only allowed
- *                       for admins, and only used by the doc generator.
- * POST { clientId, data } → LO edits the borrower's submitted data. Same
- *                       SSN mask handling as the borrower-save endpoint.
+ * GET ?clientId=...&loanId=... → returns status + summary + data (with SSN
+ *                       MASKED for safety in browser; full SSN never sent
+ *                       to frontend). Pass &full=1 to also return full
+ *                       SSN — only allowed for admins, used by the doc
+ *                       generator. loanId is required since Deploy 168
+ *                       (per-loan records).
+ * POST { clientId, loanId, data } → LO edits the borrower's submitted data.
  *
  * The "see + edit" UX requirement means the LO can correct typos before
  * generating the doc. SSN edits replace the encrypted blob.
@@ -19,6 +20,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { encryptField, decryptField, maskSSN } from './_shared/crypto.mjs';
+import { loadRecord, saveRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try {
@@ -42,6 +44,7 @@ async function handle(req, context) {
 async function handleGet(req, user) {
   const url = new URL(req.url);
   const clientId = url.searchParams.get('clientId');
+  const loanId   = url.searchParams.get('loanId');  // Deploy 168
   const wantFull = url.searchParams.get('full') === '1';
   if (!clientId) return json(400, { error: 'clientId required' });
 
@@ -50,10 +53,15 @@ async function handleGet(req, user) {
   if (ownerOverride && isAdmin(user)) owner = normalizeEmail(ownerOverride);
   const ownerKey = keySafe(owner);
 
+  // Load client for loadRecord's loanId inference on legacy records
+  let client = null;
+  try {
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    client = await clientsStore.get(`${ownerKey}/${keySafe(clientId)}`, { type: 'json' });
+  } catch (_) {}
+
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const recordKey = `${ownerKey}/${keySafe(clientId)}`;
-  let record = null;
-  try { record = await store.get(recordKey, { type: 'json' }); } catch (_) {}
+  const record = await loadRecord(store, ownerKey, clientId, loanId, client);
   if (!record) return json(200, { exists: false });
 
   const data = record.data ? unmaskOrMask(record.data, wantFull && isAdmin(user)) : {};
@@ -67,6 +75,7 @@ async function handleGet(req, user) {
     borrowerEmail: record.borrowerEmail,
     requestedBy: record.requestedBy,
     prefill: record.prefill || {},
+    loanId: record.loanId,
     data,
   });
 }
@@ -75,15 +84,20 @@ async function handlePost(req, user) {
   const body = await readJsonBody(req);
   if (body === null) return json(400, { error: 'Invalid JSON' });
   if (!body || !body.clientId) return json(400, { error: 'clientId required' });
+  const loanId = body.loanId || null;
 
   let owner = normalizeEmail(user.email);
   if (body._owner && isAdmin(user)) owner = normalizeEmail(body._owner);
   const ownerKey = keySafe(owner);
 
+  let client = null;
+  try {
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    client = await clientsStore.get(`${ownerKey}/${keySafe(body.clientId)}`, { type: 'json' });
+  } catch (_) {}
+
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const recordKey = `${ownerKey}/${keySafe(body.clientId)}`;
-  let record = null;
-  try { record = await store.get(recordKey, { type: 'json' }); } catch (_) {}
+  const record = await loadRecord(store, ownerKey, body.clientId, loanId, client);
   if (!record) return json(404, { error: 'No borrower info on file' });
 
   // Same merge logic as the borrower save endpoint
@@ -92,7 +106,11 @@ async function handlePost(req, user) {
   record.lastEditedBy = user.email || '';
   record.updatedAt = record.lastSavedAt;
 
-  await store.setJSON(recordKey, record);
+  const targetLoanId = loanId || record.loanId;
+  if (!targetLoanId) {
+    return json(400, { error: 'loanId required (cannot resolve from record)' });
+  }
+  await saveRecord(store, ownerKey, body.clientId, targetLoanId, record);
   return json(200, { ok: true, status: record.status });
 }
 

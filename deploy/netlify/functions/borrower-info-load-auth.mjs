@@ -1,10 +1,12 @@
 /**
  * borrower-info-load-auth.mjs — GET /api/borrower-info-load-auth
  *
- * LO-authed endpoint. Returns the borrower-info record by clientId so the
- * LO can review/edit submitted data before generating the loan application.
+ * LO-authed endpoint. Returns the borrower-info record for a specific
+ * loan (Deploy 168 — was per-client before; loanId is now required).
+ * Used by the LO when reviewing/editing submitted data before
+ * generating the loan application.
  *
- * Query params: clientId, owner? (admin override)
+ * Query params: clientId, loanId, owner? (admin override)
  *
  * Response includes the SSN as plaintext under guarantors[i].ssn so the LO
  * can reveal it on the review page. The token is omitted from the response.
@@ -14,6 +16,7 @@ import {
   handleOptions, json, requireAuth, isAdmin, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { decryptField } from './_shared/crypto.mjs';
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try {
@@ -33,18 +36,29 @@ async function handle(req, context) {
 
   const url = new URL(req.url);
   const clientId = url.searchParams.get('clientId');
+  const loanId   = url.searchParams.get('loanId');
   if (!clientId) return json(400, { error: 'clientId required' });
+  // loanId is required since Deploy 168 (per-loan records). For
+  // backward compatibility with any callers that haven't been updated
+  // yet, we accept the call but the response will rely on loadRecord's
+  // legacy fallback to find the right per-client record.
+  // TODO: tighten to a hard requirement once all callers are updated.
 
   let owner = normalizeEmail(user.email);
   const ownerOverride = url.searchParams.get('owner');
   if (ownerOverride && isAdmin(user)) owner = normalizeEmail(ownerOverride);
   const ownerKey = keySafe(owner);
 
+  // Load the client so loadRecord can infer loanId for legacy records
+  let client = null;
+  try {
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    client = await clientsStore.get(`${ownerKey}/${keySafe(clientId)}`, { type: 'json' });
+  } catch (_) {}
+
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const recordKey = `${ownerKey}/${keySafe(clientId)}`;
-  let record = null;
-  try { record = await store.get(recordKey, { type: 'json' }); } catch (_) {}
-  if (!record) return json(404, { error: 'No borrower info on file for this client' });
+  const record = await loadRecord(store, ownerKey, clientId, loanId, client);
+  if (!record) return json(404, { error: 'No borrower info on file for this loan' });
 
   const data = record.data ? unmaskGuarantorSSNs(record.data) : {};
 

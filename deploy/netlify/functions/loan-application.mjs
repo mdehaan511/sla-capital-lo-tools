@@ -66,6 +66,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { decryptField } from './_shared/crypto.mjs';
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -96,29 +97,32 @@ async function handle(req, context) {
   const body = await readJsonBody(req);
   if (body === null) return json(400, { error: 'Invalid JSON' });
   if (!body || !body.clientId) return json(400, { error: 'clientId required' });
+  // loanId required since Deploy 168 (per-loan borrower-info). Falls
+  // back to legacy per-client lookup if not provided for backward
+  // compatibility, but the frontend always passes it now.
+  const loanId = body.loanId || null;
 
   let owner = normalizeEmail(user.email);
   if (body.owner && isAdmin(user)) owner = normalizeEmail(body.owner);
   const ownerKey = keySafe(owner);
 
-  // Load the borrower-info record
-  const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const recordKey = `${ownerKey}/${keySafe(body.clientId)}`;
-  let record = null;
-  try { record = await biStore.get(recordKey, { type: 'json' }); } catch (e) {
-    return json(500, { error: 'Failed to load borrower record' });
-  }
-  if (!record) return json(404, { error: 'No borrower information on file for this client' });
-
-  // Decrypt SSNs in-memory for the doc only
-  const data = decryptSSNs(record.data || {});
-
-  // Load the client record (for borrower name fallback + entity name fallback)
+  // Load the client first — needed both for entity/name fallback AND
+  // for loadRecord's inferLoanId fallback on legacy records.
   let client = null;
   try {
     const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
     client = await clientsStore.get(`${ownerKey}/${keySafe(body.clientId)}`, { type: 'json' });
   } catch (_) {}
+
+  // Load the borrower-info record. Tries per-loan key first; falls
+  // back to legacy per-client key (lifting it forward if the loanIds
+  // match). See _shared/borrower-info-keys.mjs.
+  const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+  const record = await loadRecord(biStore, ownerKey, body.clientId, loanId, client);
+  if (!record) return json(404, { error: 'No borrower information on file for this loan' });
+
+  // Decrypt SSNs in-memory for the doc only
+  const data = decryptSSNs(record.data || {});
 
   // Find the template
   const candidates = [

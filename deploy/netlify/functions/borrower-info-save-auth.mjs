@@ -4,7 +4,7 @@
  * LO-authed counterpart to borrower-info-save. Lets the LO edit a completed
  * borrower-info record before generating the loan application document.
  *
- * Body: { clientId, owner?, data: {...full data...} }
+ * Body: { clientId, loanId, owner?, data: {...full data...} }
  *
  * Same SSN encryption and same client/loan write-back as the borrower path.
  * Does NOT trigger the "loan-app received" notification or the awaiting_app
@@ -16,6 +16,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { encryptField } from './_shared/crypto.mjs';
+import { loadRecord, saveRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try {
@@ -36,15 +37,24 @@ async function handle(req, context) {
   const body = await readJsonBody(req);
   if (body === null) return json(400, { error: 'Invalid JSON' });
   if (!body || !body.clientId) return json(400, { error: 'clientId required' });
+  // loanId required since Deploy 168 (per-loan records). Accepted as
+  // optional for one transition deploy so any in-flight LO edits don't
+  // break; loadRecord falls back to the legacy per-client record.
+  const loanId = body.loanId || null;
 
   let owner = normalizeEmail(user.email);
   if (body.owner && isAdmin(user)) owner = normalizeEmail(body.owner);
   const ownerKey = keySafe(owner);
 
+  // Load client for loanId inference on legacy records
+  let client = null;
+  try {
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    client = await clientsStore.get(`${ownerKey}/${keySafe(body.clientId)}`, { type: 'json' });
+  } catch (_) {}
+
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const recordKey = `${ownerKey}/${keySafe(body.clientId)}`;
-  let record = null;
-  try { record = await store.get(recordKey, { type: 'json' }); } catch (_) {}
+  const record = await loadRecord(store, ownerKey, body.clientId, loanId, client);
   if (!record) return json(404, { error: 'No borrower info found' });
 
   // Merge incoming data: keep SSN encryption logic identical to borrower path
@@ -56,8 +66,15 @@ async function handle(req, context) {
   record.lastEditedBy = user.email || '';
   record.lastEditedAt = record.lastSavedAt;
 
+  // Resolve the loanId for the write key: prefer explicit body.loanId,
+  // fall back to record.loanId. With Option B records this is always set.
+  const targetLoanId = loanId || record.loanId;
+  if (!targetLoanId) {
+    return json(400, { error: 'loanId required (cannot resolve from record either)' });
+  }
+
   try {
-    await store.setJSON(recordKey, record);
+    await saveRecord(store, ownerKey, body.clientId, targetLoanId, record);
   } catch (e) {
     return json(500, { error: 'Failed to save edits' });
   }

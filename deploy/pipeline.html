@@ -617,13 +617,26 @@ function loadAll() {
     var remindersResp = results[4] || {};
     var biResp        = results[5] || { records: [] };
 
-    // Build borrower-info lookup by clientId (and ownerKey|clientId for admin scope)
+    // Build borrower-info lookup. Since Deploy 168 borrower-info is
+    // per-loan: records are keyed by (ownerKey, clientId, loanId). We
+    // index three ways so consumers can look up by whatever they have:
+    //   - ownerKey|clientId|loanId  (preferred; precise)
+    //   - ownerKey|clientId         (legacy fallback; first record wins)
+    //   - clientId                  (legacy fallback for single-LO case)
     _borrowerInfoByClient = {};
     (biResp.records || []).forEach(function(r) {
-      if (r && r.clientId) {
+      if (!r || !r.clientId) return;
+      if (r.loanId) {
+        _borrowerInfoByClient[r.ownerKey + '|' + r.clientId + '|' + r.loanId] = r;
+      }
+      // Legacy fallback indexes — only set if no entry yet, so the first
+      // record encountered for a given (owner, client) "wins" the fallback
+      // slot. The per-loan key above is always the right thing to read.
+      if (!_borrowerInfoByClient[r.ownerKey + '|' + r.clientId]) {
         _borrowerInfoByClient[r.ownerKey + '|' + r.clientId] = r;
-        // Also index by clientId alone for the common single-LO case
-        if (!_borrowerInfoByClient[r.clientId]) _borrowerInfoByClient[r.clientId] = r;
+      }
+      if (!_borrowerInfoByClient[r.clientId]) {
+        _borrowerInfoByClient[r.clientId] = r;
       }
     });
 
@@ -969,8 +982,14 @@ function buildQuoteCard(it, colKey) {
   } else if (colKey === 'awaitingApp') {
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     else            actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
-    // Determine label from borrower-info status if a record exists for this client
-    var bi = lookup ? (_borrowerInfoByClient[lookup.ownerKey + '|' + lookup.clientId] || _borrowerInfoByClient[lookup.clientId]) : null;
+    // Determine label from borrower-info status. Prefer per-loan lookup
+    // (Deploy 168); fall back to per-client for legacy records that
+    // haven't been re-saved yet.
+    var bi = lookup ? (
+      _borrowerInfoByClient[lookup.ownerKey + '|' + lookup.clientId + '|' + lookup.loanId] ||
+      _borrowerInfoByClient[lookup.ownerKey + '|' + lookup.clientId] ||
+      _borrowerInfoByClient[lookup.clientId]
+    ) : null;
     var biStatus = bi && bi.status;
     var btnLabel, btnClass;
     if (biStatus === 'in_progress') {
@@ -1791,9 +1810,12 @@ var _sendBiCtx = null; // {clientId, loanId, ownerKey}
 function openSendLoanAppModal(clientId, loanId, ownerKey) {
   _sendBiCtx = { clientId: clientId, loanId: loanId, ownerKey: ownerKey };
 
-  // Find the borrower email — try borrower-info record first, then the client record
+  // Find the borrower email — try per-loan borrower-info record first,
+  // then per-client legacy fallback, then the client record itself.
   var borrowerEmail = '';
-  var bi = _borrowerInfoByClient[ownerKey + '|' + clientId] || _borrowerInfoByClient[clientId];
+  var bi = _borrowerInfoByClient[ownerKey + '|' + clientId + '|' + loanId]
+        || _borrowerInfoByClient[ownerKey + '|' + clientId]
+        || _borrowerInfoByClient[clientId];
   if (bi && bi.borrowerEmail) {
     borrowerEmail = bi.borrowerEmail;
   } else {

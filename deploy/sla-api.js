@@ -494,6 +494,10 @@
   };
 
   // ── Borrower Info (LO triggers, borrower fills via token link) ──
+  // BorrowerInfo: per-loan since Deploy 168 (was per-client before).
+  // All methods that previously took just clientId now also take loanId
+  // (passed as opts.loanId). The server validates that the loanId
+  // exists on the client.
   var BorrowerInfo = {
     request: function (clientId, opts) {
       opts = opts || {};
@@ -512,12 +516,14 @@
     status: function (clientId, opts) {
       opts = opts || {};
       var qs = '?clientId=' + encodeURIComponent(clientId);
+      if (opts.loanId) qs += '&loanId=' + encodeURIComponent(opts.loanId);
       if (opts._owner) qs += '&owner=' + encodeURIComponent(opts._owner);
       return api('GET', '/api/borrower-info-status' + qs);
     },
     save: function (clientId, data, opts) {
       opts = opts || {};
       var body = { clientId: clientId, data: data };
+      if (opts.loanId) body.loanId = opts.loanId;
       if (opts._owner) body._owner = opts._owner;
       return api('POST', '/api/borrower-info-status', body);
     },
@@ -525,6 +531,7 @@
     loadAuth: function (clientId, opts) {
       opts = opts || {};
       var qs = '?clientId=' + encodeURIComponent(clientId);
+      if (opts.loanId) qs += '&loanId=' + encodeURIComponent(opts.loanId);
       if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
       return api('GET', '/api/borrower-info-load-auth' + qs);
     },
@@ -532,6 +539,7 @@
     saveAuth: function (clientId, data, opts) {
       opts = opts || {};
       var body = { clientId: clientId, data: data };
+      if (opts.loanId) body.loanId = opts.loanId;
       if (opts.owner) body.owner = opts.owner;
       return api('POST', '/api/borrower-info-save-auth', body);
     },

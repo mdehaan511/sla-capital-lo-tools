@@ -58,7 +58,22 @@ async function handle(req) {
     record.completedAt = new Date().toISOString();
   }
 
-  await store.setJSON(recordKey, record);
+  // Deploy 168: per-loan storage. If this record is currently at a
+  // legacy per-client key (no `/loanId` segment), migrate it forward
+  // on save. We still keep the legacy key around as a safety duplicate
+  // until we're confident nothing in the system depends on it; future
+  // reads prefer the new key.
+  const isLegacyKey = recordKey && recordKey.split('/').length < 3;
+  if (isLegacyKey && record.loanId) {
+    const newKey = `${record.ownerKey}/${recordKey.split('/')[1]}/${record.loanId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    // Write to new key first
+    await store.setJSON(newKey, record);
+    // Update legacy in place too (so already-cached references still
+    // resolve correctly until the legacy gets pruned in a later deploy)
+    await store.setJSON(recordKey, record);
+  } else {
+    await store.setJSON(recordKey, record);
+  }
 
   // Item #3: write property field edits (beds/baths/sqft, plus loan-purpose
   // and current loan amount for refis) back to the matching client loan record
@@ -266,11 +281,29 @@ async function syncPropertyFieldsToLoan(record) {
     }
   }
 
-  // Apply loan-level updates
+  // Apply loan-level updates. Find the target loan:
+  //   1. exact record.loanId match (the common path post-Deploy 168 when
+  //      records are per-loan)
+  //   2. if client has exactly one loan, use it
+  //   3. if exactly one loan is in awaiting_app, use it
+  //   4. otherwise log a warning and skip the loan-level writes; the
+  //      borrower-level + companies writes still happen
   if (Object.keys(loanUpdates).length > 0) {
     let targetLoan = null;
     if (record.loanId) targetLoan = client.loans.find((l) => l.id === record.loanId);
     if (!targetLoan && client.loans.length === 1) targetLoan = client.loans[0];
+    if (!targetLoan) {
+      const awaiting = client.loans.filter((l) => l.status === 'awaiting_app');
+      if (awaiting.length === 1) targetLoan = awaiting[0];
+    }
+    if (!targetLoan) {
+      console.warn(
+        'syncPropertyFieldsToLoan: no target loan resolved for',
+        'clientId=' + record.clientId,
+        'recordLoanId=' + (record.loanId || '(none)'),
+        '— client has', client.loans.length, 'loans'
+      );
+    }
     if (targetLoan) {
       Object.keys(loanUpdates).forEach((k) => {
         if (targetLoan[k] !== loanUpdates[k]) {
