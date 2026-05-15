@@ -1109,114 +1109,115 @@ function renderResult(r) {
   // For Cash-Out Refi: we still display as "Estimated Cashout" (i.e. the
   //   amount the borrower receives, sign-flipped from cash-to-close for
   //   readability — borrowers think of cash-out as a positive number).
-  (function() {
-    var purpose = $('loanPurpose') && $('loanPurpose').value;
-    if (!purpose) return '';
-    var pts = (1 + (r.buydown || 0)) / 100; // origination + buy-down
-    var ptsFee = r.loan * pts;
-    var flatFees = 995 + 700 + 500 + 120; // DSCR schedule = $2,315
-    // Broker fee for cash-to-close. Reads r.brokerFeeDol/brokerPts which
-    // calculate() returns. Falls back to the input directly if for some
-    // reason the calc result is missing those fields.
-    var brokerPts = (typeof r.brokerPts === 'number' ? r.brokerPts : (parseFloat(($('brokerFee')||{}).value) || 0));
-    var brokerDol = (typeof r.brokerFeeDol === 'number' ? r.brokerFeeDol : (r.loan * brokerPts / 100));
-    var totalFees = ptsFee + flatFees + brokerDol;
-    var brokerRow = brokerPts > 0
-      ? '<tr><td>+ Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv base">'+fmtD(brokerDol)+'</td></tr>'
-      : '';
-
-    if (purpose === 'purchase') {
-      var price = parseFloat($('propValue') && $('propValue').value || 0) || 0;
-      // Purchase Cash to Close = price - loan + closing costs
-      var ctc = price - r.loan + totalFees;
-      // Color: cash-to-close is informational on purchases (not a problem
-      // signal), so use a neutral readable tone, not the green/red treatment.
-      return '<div class="rate-card">'+
-        '<div class="rate-body" style="padding-top:1.25rem">'+
-          '<table class="breakdown"><tbody>'+
-            '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cash to Close Estimate</td><td></td></tr>'+
-            '<tr><td>Purchase Price</td><td class="bv base">'+fmtD(price)+'</td></tr>'+
-            '<tr><td>− Loan Amount</td><td class="bv neg">'+fmtD(r.loan)+'</td></tr>'+
-            '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
-            '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
-            brokerRow+
-          '</tbody></table>'+
-          '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
-            '<span class="tv">'+fmtD(ctc)+'</span></div>'+
-          '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Borrower brings to closing. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
-        '</div>'+
-      '</div>';
-    }
-
-    // ── Refis: compute first, then branch on display ──
-    var currentLoan = parseFloat($('currentLoanAmt') && $('currentLoanAmt').value || 0) || 0;
-    // From borrower's perspective: cash to close = payoff + costs - new loan
-    var ctcRefi = currentLoan + totalFees - r.loan;
-    // Cashout = -cash to close. Positive = borrower receives.
-    var cashout = -ctcRefi;
-
-    if (purpose === 'refi_co') {
-      // Cash-out refi: present as Cashout (positive = good for borrower)
-      var coCls = cashout >= 0 ? 'good' : 'bad';
-      return '<div class="rate-card">'+
-        '<div class="rate-body" style="padding-top:1.25rem">'+
-          '<table class="breakdown"><tbody>'+
-            '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cashout Estimate</td><td></td></tr>'+
-            '<tr><td>Requested Loan Amount</td><td class="bv base">'+fmtD(r.loan)+'</td></tr>'+
-            '<tr><td>− Current Loan Payoff</td><td class="bv neg">'+fmtD(currentLoan)+'</td></tr>'+
-            '<tr><td>− Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv neg">'+fmtD(ptsFee)+'</td></tr>'+
-            '<tr><td>− Flat Fees</td><td class="bv neg">$2,315</td></tr>'+
-            (brokerPts > 0
-              ? '<tr><td>− Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv neg">'+fmtD(brokerDol)+'</td></tr>'
-              : '')+
-          '</tbody></table>'+
-          '<div class="total-row"><span class="tl">Estimated Cashout<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
-            '<span class="tv" style="color:var(--'+coCls+')">'+fmtD(cashout)+'</span></div>'+
-          '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
-        '</div>'+
-      '</div>';
-    }
-
-    if (purpose === 'refi_rt') {
-      // Rate/Term refi: show as Cash to Close. Flag if net is meaningfully
-      // negative (i.e. borrower is taking cash out) — that means this should
-      // be classified as a cash-out refi, not rate/term. Threshold is the
-      // greater of $2,000 or 2% of the loan amount per Mike's rule.
-      var threshold = Math.max(2000, r.loan * 0.02);
-      var isDeFactoCashout = ctcRefi < -threshold;
-      var rtFlag = isDeFactoCashout
-        ? '<div style="margin-top:10px;padding:10px 12px;background:#fff4e6;border:1px solid #f0a93a;border-radius:var(--r-xs);font-size:12px;color:#9a5f20;line-height:1.4">'+
-            '<strong>Heads up:</strong> The borrower is netting '+fmtD(Math.abs(ctcRefi))+' back at closing — over the rate/term threshold (greater of $2,000 or 2% of loan = '+fmtD(threshold)+'). This should likely be reclassified as a <strong>Cash-Out Refi</strong>. Switch Loan Purpose above to update pricing.'+
-          '</div>'
-        : '';
-      // For RT: positive cash-to-close is "borrower brings", negative is
-      // "borrower receives." Neutral display unless flagged.
-      var rtCls = isDeFactoCashout ? 'bad' : '';
-      return '<div class="rate-card">'+
-        '<div class="rate-body" style="padding-top:1.25rem">'+
-          '<table class="breakdown"><tbody>'+
-            '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cash to Close Estimate</td><td></td></tr>'+
-            '<tr><td>Current Loan Payoff</td><td class="bv base">'+fmtD(currentLoan)+'</td></tr>'+
-            '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
-            '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
-            (brokerPts > 0
-              ? '<tr><td>+ Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv base">'+fmtD(brokerDol)+'</td></tr>'
-              : '')+
-            '<tr><td>− New Loan Amount</td><td class="bv neg">'+fmtD(r.loan)+'</td></tr>'+
-          '</tbody></table>'+
-          '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
-            '<span class="tv"' + (rtCls?' style="color:var(--'+rtCls+')"':'') + '>'+fmtD(ctcRefi)+'</span></div>'+
-          '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Positive = borrower brings, negative = borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
-          rtFlag+
-        '</div>'+
-      '</div>';
-    }
-
-    return '';
-  })()+
+  //
+  // Factored into renderCashToCloseCard(r, effLoan) so applyOverridesAndRender
+  // can regenerate this block with the override-derived loan amount when
+  // LTV is overridden. The default call passes effLoan=r.loan.
+  renderCashToCloseCard(r, r.loan)+
 
   '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>'+
   '<button class="dl-btn" onclick="downloadPDF()">&#8681; Download Rate Sheet PDF</button>';
+}
+
+// Render the cash-to-close / cashout summary card. Receives the full
+// calc result `r` plus an effective loan amount (which may differ from
+// r.loan when an LTV override is active). All loan-amount-dependent
+// math — origination dollars, broker fee dollars, cash-to-close totals
+// — is computed from effLoan; everything else (taxes, insurance, HOA,
+// monthly rent, current loan payoff for refis) comes from r.
+function renderCashToCloseCard(r, effLoan) {
+  var purpose = $('loanPurpose') && $('loanPurpose').value;
+  if (!purpose) return '';
+  var pts = (1 + (r.buydown || 0)) / 100; // origination + buy-down
+  var ptsFee = effLoan * pts;
+  var flatFees = 995 + 700 + 500 + 120; // DSCR schedule = $2,315
+  var brokerPts = (typeof r.brokerPts === 'number' ? r.brokerPts : (parseFloat(($('brokerFee')||{}).value) || 0));
+  var brokerDol = effLoan * brokerPts / 100;
+  var totalFees = ptsFee + flatFees + brokerDol;
+  var brokerRow = brokerPts > 0
+    ? '<tr><td>+ Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv base">'+fmtD(brokerDol)+'</td></tr>'
+    : '';
+
+  if (purpose === 'purchase') {
+    var price = parseFloat($('propValue') && $('propValue').value || 0) || 0;
+    var ctc = price - effLoan + totalFees;
+    return '<div class="rate-card" data-c2c>'+
+      '<div class="rate-body" style="padding-top:1.25rem">'+
+        '<table class="breakdown"><tbody>'+
+          '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cash to Close Estimate</td><td></td></tr>'+
+          '<tr><td>Purchase Price</td><td class="bv base">'+fmtD(price)+'</td></tr>'+
+          '<tr><td>− Loan Amount</td><td class="bv neg">'+fmtD(effLoan)+'</td></tr>'+
+          '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
+          '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
+          brokerRow+
+        '</tbody></table>'+
+        '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
+          '<span class="tv">'+fmtD(ctc)+'</span></div>'+
+        '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Borrower brings to closing. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  // ── Refis: compute first, then branch on display ──
+  var currentLoan = parseFloat($('currentLoanAmt') && $('currentLoanAmt').value || 0) || 0;
+  var ctcRefi = currentLoan + totalFees - effLoan;
+  var cashout = -ctcRefi;
+
+  if (purpose === 'refi_co') {
+    var coCls = cashout >= 0 ? 'good' : 'bad';
+    return '<div class="rate-card" data-c2c>'+
+      '<div class="rate-body" style="padding-top:1.25rem">'+
+        '<table class="breakdown"><tbody>'+
+          '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cashout Estimate</td><td></td></tr>'+
+          '<tr><td>Requested Loan Amount</td><td class="bv base">'+fmtD(effLoan)+'</td></tr>'+
+          '<tr><td>− Current Loan Payoff</td><td class="bv neg">'+fmtD(currentLoan)+'</td></tr>'+
+          '<tr><td>− Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv neg">'+fmtD(ptsFee)+'</td></tr>'+
+          '<tr><td>− Flat Fees</td><td class="bv neg">$2,315</td></tr>'+
+          (brokerPts > 0
+            ? '<tr><td>− Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv neg">'+fmtD(brokerDol)+'</td></tr>'
+            : '')+
+        '</tbody></table>'+
+        '<div class="total-row"><span class="tl">Estimated Cashout<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
+          '<span class="tv" style="color:var(--'+coCls+')">'+fmtD(cashout)+'</span></div>'+
+        '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  if (purpose === 'refi_rt') {
+    // Rate/Term refi: show as Cash to Close. Flag if net is meaningfully
+    // negative (i.e. borrower is taking cash out) — that means this should
+    // be classified as a cash-out refi, not rate/term. Threshold is the
+    // greater of $2,000 or 2% of the loan amount per Mike's rule.
+    var threshold = Math.max(2000, effLoan * 0.02);
+    var isDeFactoCashout = ctcRefi < -threshold;
+    var rtFlag = isDeFactoCashout
+      ? '<div style="margin-top:10px;padding:10px 12px;background:#fff4e6;border:1px solid #f0a93a;border-radius:var(--r-xs);font-size:12px;color:#9a5f20;line-height:1.4">'+
+          '<strong>Heads up:</strong> The borrower is netting '+fmtD(Math.abs(ctcRefi))+' back at closing — over the rate/term threshold (greater of $2,000 or 2% of loan = '+fmtD(threshold)+'). This should likely be reclassified as a <strong>Cash-Out Refi</strong>. Switch Loan Purpose above to update pricing.'+
+        '</div>'
+      : '';
+    var rtCls = isDeFactoCashout ? 'bad' : '';
+    return '<div class="rate-card" data-c2c>'+
+      '<div class="rate-body" style="padding-top:1.25rem">'+
+        '<table class="breakdown"><tbody>'+
+          '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cash to Close Estimate</td><td></td></tr>'+
+          '<tr><td>Current Loan Payoff</td><td class="bv base">'+fmtD(currentLoan)+'</td></tr>'+
+          '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
+          '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
+          (brokerPts > 0
+            ? '<tr><td>+ Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv base">'+fmtD(brokerDol)+'</td></tr>'
+            : '')+
+          '<tr><td>− New Loan Amount</td><td class="bv neg">'+fmtD(effLoan)+'</td></tr>'+
+        '</tbody></table>'+
+        '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
+          '<span class="tv"' + (rtCls?' style="color:var(--'+rtCls+')"':'') + '>'+fmtD(ctcRefi)+'</span></div>'+
+        '<div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic">* Positive = borrower brings, negative = borrower receives. Does not include typical title/escrow costs or required prepaid taxes and insurance.</div>'+
+        rtFlag+
+      '</div>'+
+    '</div>';
+  }
+
+  return '';
 }
 
 function updatePills() {
@@ -1299,7 +1300,16 @@ function renderBrokerFeesCardRows() {
     totalEl.textContent = '$' + FLAT.toLocaleString();
     return;
   }
-  var loanAmt = parseFloat(($('loanAmt')||{}).value) || 0;
+  // Prefer the override-effective loan amount when an LTV override is
+  // active — otherwise the dollar fee shown here would lag behind the
+  // recomputed loan and disagree with the cash-to-close summary.
+  var eff = window._dscrLastCalcEffective;
+  var loanAmt;
+  if (eff && typeof eff.loan === 'number' && eff.loan > 0) {
+    loanAmt = eff.loan;
+  } else {
+    loanAmt = parseFloat(($('loanAmt')||{}).value) || 0;
+  }
   var dol = loanAmt * (pts / 100);
   rowsEl.innerHTML =
     '<div class="fees-row broker"><span class="lbl">Broker Fee (' + pts.toFixed(2) + ' pts)</span><span>$' + Math.round(dol).toLocaleString() + '</span></div>';
@@ -1554,8 +1564,56 @@ function applyOverridesAndRender() {
       }
     }
   }
-  // Broker fee rows depend on loan amount
+  // Broker fee rows depend on loan amount (now reads effective loan
+  // from window._dscrLastCalcEffective stashed above).
   try { renderBrokerFeesCardRows(); } catch (_) {}
+
+  // ── Regenerate the cash-to-close / cashout summary card ────────
+  // When LTV is overridden the loan amount derives from propVal × ltv,
+  // so the cash-to-close summary's loan amount, origination dollars,
+  // broker fee dollars, and total all need to be recomputed. We use
+  // the renderCashToCloseCard(r, effLoan) helper which the main
+  // renderResult also calls, but pass the effective loan instead.
+  try {
+    var c2cWrap = document.querySelector('.rate-card[data-c2c]');
+    if (c2cWrap && typeof renderCashToCloseCard === 'function') {
+      var newHTML = renderCashToCloseCard(calc, effLoan);
+      // The helper returns either an empty string (no purpose set) or
+      // a full <div class="rate-card" data-c2c>...</div>. Use a tmp
+      // container so we can extract the new element and swap cleanly.
+      var tmp = document.createElement('div');
+      tmp.innerHTML = newHTML;
+      var newCard = tmp.firstElementChild;
+      if (newCard) c2cWrap.parentNode.replaceChild(newCard, c2cWrap);
+    }
+  } catch (e) { console.warn('cash-to-close re-render failed:', e); }
+
+  // ── Surface the derived loan amount when LTV is overridden ────
+  // DSCR doesn't have a Max Loan card, so without this the LO has no
+  // visible cue that the underlying loan amount has changed (other
+  // than via the cash-to-close summary). Add a small pill above the
+  // Monthly Payment Breakdown card noting the derived loan.
+  var existingDerived = document.getElementById('derivedLoanNote');
+  if (o.ltv !== null && propVal > 0) {
+    if (!existingDerived) {
+      var note = document.createElement('div');
+      note.id = 'derivedLoanNote';
+      note.style.cssText = 'background:rgba(200,129,58,0.08);border:1px solid var(--gold-border);border-radius:var(--r-xs);padding:10px 14px;font-size:13px;color:var(--gold-mid);display:flex;justify-content:space-between;align-items:center;gap:12px';
+      // Place it right after the rate-card (rateCards[0])
+      if (rateCards.length > 0 && rateCards[0].parentNode) {
+        rateCards[0].parentNode.insertBefore(note, rateCards[0].nextSibling);
+      }
+    }
+    var noteEl = document.getElementById('derivedLoanNote');
+    if (noteEl) {
+      noteEl.innerHTML =
+        '<span><strong>Derived Loan Amount:</strong> $' + Math.round(effLoan).toLocaleString() + '</span>' +
+        '<span style="font-size:11px;color:var(--muted);font-style:italic">From overridden LTV ' + (effLtv).toFixed(1) + '% × Property Value $' + Math.round(propVal).toLocaleString() + '</span>';
+    }
+  } else if (existingDerived) {
+    existingDerived.remove();
+  }
+
   refreshOverrideNotice();
 }
 
@@ -1634,6 +1692,45 @@ function _generateRateSheetPDF(opts) {
     if (opts.mode === 'base64') return null;
     alert('Please fix errors first: '+r.error);
     return;
+  }
+
+  // Deploy 166: apply any active pricing overrides to the calc result
+  // before generating the PDF. Without this, the rate sheet would print
+  // the algorithmic default rate/LTV/loan even though the LO has
+  // manually overridden them on the sizer. Rate override is in decimal,
+  // stored as e.g. 0.0825; the calc result uses percentage (8.25).
+  var ov = window._dscrOverrides || {};
+  if (ov.rate !== null && ov.rate !== undefined && isFinite(ov.rate)) {
+    r.finalRate = ov.rate * 100;
+  }
+  if (ov.ltv !== null && ov.ltv !== undefined && isFinite(ov.ltv)) {
+    var ovPvForPdf = parseFloat(($('propValue')||{}).value) || r.propVal || 0;
+    if (ovPvForPdf > 0) {
+      r.loan = Math.round(ovPvForPdf * ov.ltv);
+      r.ltv  = ov.ltv * 100;
+      // Recompute fees + monthly P&I + DSCR ratio on the new loan
+      var bd = r.buydown || 0;
+      r.origFee    = r.loan * (1 + bd) / 100;
+      r.buydownFee = r.loan * bd / 100;
+      r.totalFees  = r.origFee
+        + (FEES ? (FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis) : (995+700+500+120));
+      try {
+        if (typeof calcPI === 'function') {
+          r.pi = calcPI(r.loan, r.finalRate / 100, r.isIO);
+          r.totalPayment = r.pi + (r.taxes||0) + (r.ins||0) + (r.hoa||0);
+          if (r.rent > 0 && r.totalPayment > 0) r.dscr = r.rent / r.totalPayment;
+        }
+      } catch (_) {}
+    }
+  } else if (ov.rate !== null && ov.rate !== undefined && isFinite(ov.rate)) {
+    // Rate-only override (no LTV override) — still need to recompute P&I
+    try {
+      if (typeof calcPI === 'function') {
+        r.pi = calcPI(r.loan, r.finalRate / 100, r.isIO);
+        r.totalPayment = r.pi + (r.taxes||0) + (r.ins||0) + (r.hoa||0);
+        if (r.rent > 0 && r.totalPayment > 0) r.dscr = r.rent / r.totalPayment;
+      }
+    } catch (_) {}
   }
 
   var { jsPDF } = window.jspdf;
@@ -2615,6 +2712,46 @@ function saveCurrentQuote() {
       ltv:  (typeof r.ltv       === 'number') ? r.ltv       : null,
       loan: (typeof r.loan      === 'number') ? r.loan      : null,
     };
+    // Deploy 166: when LTV is overridden, the loan amount derives from
+    // propVal × ltv. Save that derived loan amount (and recomputed
+    // fees) onto the record so downstream views (Pipeline, Loans page,
+    // Loan Details, rate sheet PDF) all see the override-effective
+    // numbers — not the stale pre-override calc result. Same goes for
+    // the rate override — finalRate stored on the snapshot has to
+    // reflect the override or the rate sheet PDF prints the wrong rate.
+    var effLoanForSave = r.loan;
+    if (formData._ltvOverride) {
+      var ovLtv = parseFloat(formData._ltvOverride);
+      var ovPv  = parseFloat(formData.propValue) || r.propVal || 0;
+      if (isFinite(ovLtv) && ovPv > 0) {
+        effLoanForSave = Math.round(ovPv * ovLtv);
+        formData.loanAmt = String(effLoanForSave);
+      }
+    }
+    var effRateForSave = (formData._rateOverride && !isNaN(parseFloat(formData._rateOverride)))
+      ? parseFloat(formData._rateOverride) * 100  // stored as decimal; snapshot is %
+      : r.finalRate;
+    // Recompute fees on the effective loan
+    var buydownFor = parseFloat(formData.buydown) || 0;
+    var origPct    = 1 + buydownFor;
+    var origFeeEff = effLoanForSave * origPct / 100;
+    var totalFeesEff = origFeeEff
+      + (FEES ? (FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis) : (995+700+500+120))
+      + (effLoanForSave * buydownFor / 100);
+    // Surface human-readable totals (used by Pipeline cards + Loans page)
+    formData._finalRate = effRateForSave.toFixed(3);
+    formData._maxLoan   = String(effLoanForSave);
+    // Update the snapshot so server-side rate sheet generation uses
+    // the override-effective numbers
+    if (formData._pricingSnapshot) {
+      formData._pricingSnapshot.finalRate = effRateForSave;
+      formData._pricingSnapshot.loanAmt   = effLoanForSave;
+      formData._pricingSnapshot.ltv       = formData._ltvOverride
+        ? parseFloat(formData._ltvOverride) * 100
+        : r.ltv;
+      formData._pricingSnapshot.origFee   = origFeeEff;
+      formData._pricingSnapshot.totalFees = totalFeesEff;
+    }
   }
 
   // Cross-LO override: when admin opened this sizer with `?owner=<otherLO>`
