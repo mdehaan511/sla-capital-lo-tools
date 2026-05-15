@@ -768,6 +768,21 @@ function render() {
     'Generate Loan Application (DOCX)' +
   '</button>';
 
+  // Deploy 167: manual "Move to In Processing" button. Visible only when
+  // the loan is stuck in awaiting_app — i.e. the borrower has been sent
+  // the loan application link but the auto-advance to approved didn't
+  // fire (or fired and silently bailed due to address mismatch / missing
+  // loanId on the borrower-info record / etc.). The button is gold
+  // because it's an exceptional action; LOs shouldn't normally need it,
+  // but it's the safety valve when the automatic transition breaks down.
+  if (loanStatus === 'awaiting_app') {
+    html += '<button type="button" class="open-sizer-btn" onclick="moveToInProcessing()" style="margin-top:14px;background:var(--gold);color:#fff;border-color:var(--gold)">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 7.5h11M8.5 3l4 4.5-4 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      'Move to In Processing' +
+    '</button>';
+    html += '<div style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center;font-style:italic">Use when the borrower has completed the application but the loan didn\'t auto-advance.</div>';
+  }
+
   // E-signature send — only available once the loan is in In Processing
   // (status === 'approved'). Before then there's nothing meaningful to sign;
   // after then (closed/denied) it's locked. Also gated by the ESIGN_FEATURE
@@ -1090,6 +1105,65 @@ function deleteThisLoan() {
     setTimeout(function(){ window.location.href = dest; }, 600);
   }).catch(function(err) {
     alert('Delete failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+// ── Move to In Processing (manual advance) ────────────────────────
+// Safety-valve action for when the automatic awaiting_app → approved
+// transition (in borrower-info-save.mjs > advanceQuoteToInProcessing)
+// silently bailed. Most common cause is address-string mismatch
+// between the client's loan record and the saved quote — the borrower
+// completes the app, the form-submit handler updates the borrower-info
+// record's status to 'complete', but the address-match-based quote
+// bump never finds a quote and the loan stays at awaiting_app.
+//
+// Hits POST /api/loan-advance-status which updates both the client
+// loan record AND any matching quotes (using more permissive address
+// normalization). Stamps audit fields so we can spot manually-advanced
+// loans in retrospect.
+function moveToInProcessing() {
+  if (!_loan || !_client) return;
+  if (_loan.status !== 'awaiting_app') {
+    showToast('Loan is not in Awaiting Application state.');
+    return;
+  }
+  if (!confirm('Move this loan to "In Processing"?\n\nUse this only when the borrower has confirmed completion of the loan application but the loan didn\'t auto-advance.')) return;
+
+  var btnTextEl = event && event.currentTarget;
+  if (btnTextEl) { btnTextEl.disabled = true; btnTextEl.style.opacity = '0.6'; }
+
+  var body = { clientId: _client.clientId, loanId: _loanId, newStatus: 'approved' };
+  // Cross-LO admin: include owner override when acting on another LO's loan
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+
+  fetch('/api/loan-advance-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (_user.token && _user.token.access_token || '') },
+    body: JSON.stringify(body),
+  })
+  .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
+  .then(function(resp) {
+    if (!resp.ok || !resp.body.success) {
+      var msg = (resp.body && resp.body.error) || ('Request failed (' + resp.status + ')');
+      showToast('Move failed: ' + msg);
+      if (btnTextEl) { btnTextEl.disabled = false; btnTextEl.style.opacity = ''; }
+      return;
+    }
+    var qInfo = resp.body.quotesUpdated > 0
+      ? ' (' + resp.body.quotesUpdated + ' quote' + (resp.body.quotesUpdated === 1 ? '' : 's') + ' synced)'
+      : '';
+    showToast('Loan moved to In Processing' + qInfo);
+    // Update local state + redirect to Pipeline so the LO sees it in
+    // the right column. The Loan Details page would also re-render
+    // correctly, but Pipeline is where they'll want to verify it
+    // landed in the right place.
+    setTimeout(function() {
+      window.location.href = 'pipeline.html';
+    }, 900);
+  })
+  .catch(function(err) {
+    showToast('Move failed: ' + (err.message || 'unknown error'));
+    if (btnTextEl) { btnTextEl.disabled = false; btnTextEl.style.opacity = ''; }
   });
 }
 

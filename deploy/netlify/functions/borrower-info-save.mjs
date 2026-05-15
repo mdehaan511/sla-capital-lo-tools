@@ -83,12 +83,28 @@ async function handle(req) {
       console.warn('borrower-info-save: borrower notify failed:', e);
     }
     // Bump the matching quote from `awaiting_app` → `approved` so the loan
-    // jumps to the "In Processing" pipeline column.
+    // jumps to the "In Processing" pipeline column. Result is captured
+    // and logged loudly when the auto-advance bailed — useful when LOs
+    // report "borrower completed the app but the loan didn't move" so
+    // we can see WHY in the function logs.
+    let advanceResult = null;
     try {
-      await advanceQuoteToInProcessing(record);
+      advanceResult = await advanceQuoteToInProcessing(record);
+      if (advanceResult && !advanceResult.ok) {
+        console.warn(
+          'borrower-info-save: auto-advance bailed —',
+          'token=' + (record.token || '').slice(0, 8),
+          'reason=' + advanceResult.reason
+        );
+      }
     } catch (e) {
-      console.warn('borrower-info-save: quote advance failed:', e);
+      console.warn('borrower-info-save: quote advance threw:', e);
+      advanceResult = { ok: false, reason: 'exception: ' + (e.message || 'unknown') };
     }
+    // Stamp the advance result on the borrower-info record itself so
+    // we can audit later without grepping logs.
+    record.advanceResult = advanceResult;
+    try { await store.setJSON(recordKey, record); } catch (_) {}
   }
 
   return json(200, { ok: true, status: record.status });
@@ -272,47 +288,129 @@ async function syncPropertyFieldsToLoan(record) {
   }
 }
 
+// Try to auto-advance the matching quote(s) + client.loan record from
+// `awaiting_app` → `approved` when the borrower submits the loan app.
+//
+// Failure modes this function defends against (Deploy 167):
+//   1. record.loanId doesn't match any loan on the client → fall back to
+//      address-matching across all loans, not just exactly-one-loan
+//   2. Quote address has trailing ", USA"/", US" or "Street" vs "St" etc.
+//      Use aggressive normalization rather than simple lowercase+trim
+//   3. Quote status is not exactly 'awaiting_app' → only bump statuses
+//      we know are valid pre-conditions; never downgrade
+//
+// Returns: { ok: bool, reason?: string, quotesUpdated: number, loanUpdated: bool }
+// so the caller can surface diagnostic info if the auto-advance failed.
 async function advanceQuoteToInProcessing(record) {
-  if (!record.ownerKey || !record.clientId) return;
+  if (!record.ownerKey || !record.clientId) {
+    return { ok: false, reason: 'missing ownerKey or clientId on record', quotesUpdated: 0, loanUpdated: false };
+  }
   // Find the loan address from the client record so we can match the quote
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const clientKey = `${record.ownerKey}/${record.clientId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   let client = null;
   try { client = await clientsStore.get(clientKey, { type: 'json' }); } catch (_) {}
-  if (!client || !Array.isArray(client.loans)) return;
+  if (!client || !Array.isArray(client.loans)) {
+    return { ok: false, reason: 'client not found or has no loans', quotesUpdated: 0, loanUpdated: false };
+  }
 
-  // Identify the target loan: prefer record.loanId; otherwise the first loan
+  // Identify the target loan: prefer record.loanId; fall back to (in order):
+  //   - the only loan, if there's exactly one
+  //   - the only loan still in awaiting_app, if there's exactly one such
+  //   - null (and we bail with a reason)
   let targetLoan = null;
   if (record.loanId) targetLoan = client.loans.find((l) => l.id === record.loanId);
   if (!targetLoan && client.loans.length === 1) targetLoan = client.loans[0];
-  if (!targetLoan || !targetLoan.address) return;
+  if (!targetLoan) {
+    const awaiting = client.loans.filter((l) => l.status === 'awaiting_app');
+    if (awaiting.length === 1) targetLoan = awaiting[0];
+  }
+  if (!targetLoan || !targetLoan.address) {
+    return {
+      ok: false,
+      reason: record.loanId
+        ? `no loan matched loanId="${record.loanId}" (client has ${client.loans.length} loans)`
+        : `no targetable loan (client has ${client.loans.length} loans, ${client.loans.filter(l => l.status === 'awaiting_app').length} awaiting_app)`,
+      quotesUpdated: 0,
+      loanUpdated: false,
+    };
+  }
 
-  const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const target = norm(targetLoan.address);
+  // Aggressive address normalization. Tolerates ", USA" tails, "Street"
+  // vs "St" variants, comma/period punctuation differences. Same algo
+  // used by loan-advance-status.mjs.
+  const aggrNorm = (s) => {
+    let x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    x = x.replace(/,\s*(usa|us|united states)\.?$/i, '');
+    x = x.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave')
+         .replace(/\bboulevard\b/g, 'blvd').replace(/\bdrive\b/g, 'dr')
+         .replace(/\broad\b/g, 'rd').replace(/\blane\b/g, 'ln')
+         .replace(/\bcourt\b/g, 'ct').replace(/\bcircle\b/g, 'cir')
+         .replace(/\bplace\b/g, 'pl').replace(/\bparkway\b/g, 'pkwy')
+         .replace(/\btrail\b/g, 'trl').replace(/\bterrace\b/g, 'ter');
+    x = x.replace(/[.,]/g, '');
+    return x.trim();
+  };
+  const target = aggrNorm(targetLoan.address);
 
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-  const { blobs } = await quotesStore.list({ prefix: record.ownerKey + '/' });
-  for (const { key } of blobs) {
-    const q = await quotesStore.get(key, { type: 'json' });
-    if (!q || norm(q.address) !== target) continue;
-    if (q.status === 'awaiting_app') {
-      q.status = 'approved';
-      q.updatedAt = new Date().toISOString();
-      q.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
-      await quotesStore.setJSON(key, q);
+  let quotesUpdated = 0;
+  let quotesMatched = 0;
+  try {
+    const { blobs } = await quotesStore.list({ prefix: record.ownerKey + '/' });
+    for (const { key } of blobs) {
+      const q = await quotesStore.get(key, { type: 'json' });
+      if (!q || aggrNorm(q.address) !== target) continue;
+      quotesMatched += 1;
+      if (q.status === 'awaiting_app') {
+        q.status = 'approved';
+        q.updatedAt = new Date().toISOString();
+        q.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
+        await quotesStore.setJSON(key, q);
+        quotesUpdated += 1;
+      }
+    }
+  } catch (e) {
+    return { ok: false, reason: 'quote store error: ' + (e.message || 'unknown'), quotesUpdated, loanUpdated: false };
+  }
+
+  // Mirror the status into the client loan record(s) that match
+  let loanUpdated = false;
+  for (const l of client.loans) {
+    if (aggrNorm(l.address) === target && l.status === 'awaiting_app') {
+      l.status = 'approved';
+      l.updatedAt = new Date().toISOString();
+      l.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
+      loanUpdated = true;
+    }
+  }
+  if (loanUpdated) {
+    try {
+      await clientsStore.setJSON(clientKey, client);
+    } catch (e) {
+      return { ok: false, reason: 'client save error: ' + (e.message || 'unknown'), quotesUpdated, loanUpdated: false };
     }
   }
 
-  // Mirror the status into the client loan record too
-  let changed = false;
-  for (const l of client.loans) {
-    if (norm(l.address) === target && l.status === 'awaiting_app') {
-      l.status = 'approved';
-      l.updatedAt = new Date().toISOString();
-      changed = true;
-    }
+  // If we matched a loan and updated it, that's the primary success signal.
+  // Zero quote matches is suspect (we'd expect at least one per loan) but
+  // not catastrophic if the loan record itself was updated correctly.
+  if (loanUpdated) {
+    return { ok: true, quotesUpdated, loanUpdated, quotesMatched };
   }
-  if (changed) await clientsStore.setJSON(clientKey, client);
+  // No loan record was in awaiting_app, but maybe it was already advanced
+  // by something else. Distinguish from "nothing matched at all".
+  const anyAwaiting = client.loans.some((l) => aggrNorm(l.address) === target && l.status === 'awaiting_app');
+  if (!anyAwaiting && quotesMatched > 0) {
+    return { ok: true, reason: 'loan was already past awaiting_app', quotesUpdated, loanUpdated: false, quotesMatched };
+  }
+  return {
+    ok: false,
+    reason: `no awaiting_app loan matched address "${targetLoan.address}" (normalized: "${target}"); ${quotesMatched} quote(s) matched address but none were in awaiting_app`,
+    quotesUpdated,
+    loanUpdated: false,
+    quotesMatched,
+  };
 }
 
 // Merge incoming data with existing. SSN values in guarantors get
