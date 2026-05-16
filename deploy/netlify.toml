@@ -325,12 +325,6 @@
   force = true
 
 [[redirects]]
-  from = "/api/debug-context"
-  to = "/.netlify/functions/debug-context"
-  status = 200
-  force = true
-
-[[redirects]]
   from = "/api/settings"
   to = "/.netlify/functions/settings"
   status = 200

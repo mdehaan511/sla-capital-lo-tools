@@ -17,6 +17,7 @@ import {
 } from './_shared/auth.mjs';
 import { encryptField } from './_shared/crypto.mjs';
 import { loadRecord, saveRecord } from './_shared/borrower-info-keys.mjs';
+import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 
 export default async (req, context) => {
   try {
@@ -66,6 +67,22 @@ async function handle(req, context) {
   record.lastEditedBy = user.email || '';
   record.lastEditedAt = record.lastSavedAt;
 
+  // Deploy 173: LO submission-on-behalf-of-borrower. When body.complete is
+  // true and the record isn't already complete, flip the status the same
+  // way the borrower path does. This is the LO equivalent of the borrower
+  // clicking "Submit information" on the form — fires the property-fields
+  // sync + the auto-advance to APPROVED so the loan actually moves out of
+  // the Awaiting Application column. We stamp who submitted on behalf
+  // for audit (different from lastEditedBy which only records the most
+  // recent touch).
+  const submittingOnBehalf = !!body.complete && record.status !== 'complete';
+  if (submittingOnBehalf) {
+    record.status = 'complete';
+    record.completedAt = new Date().toISOString();
+    record.submittedOnBehalfBy = user.email || '';
+    record.submittedOnBehalfAt = record.completedAt;
+  }
+
   // Resolve the loanId for the write key: prefer explicit body.loanId,
   // fall back to record.loanId. With Option B records this is always set.
   const targetLoanId = loanId || record.loanId;
@@ -79,16 +96,46 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to save edits' });
   }
 
-  // Mirror borrower-profile fields back to the client record (item #6 sync).
-  // We re-use the helper from borrower-info-save by re-implementing inline
-  // — keeping the dependency contained.
+  // Mirror borrower-profile fields back to the client record. Done on
+  // EVERY save (not just completion) so the LO sees their edits flow
+  // into the client immediately. The downstream property-fields sync
+  // (loan-level: bedrooms, sqft, propType, etc.) only fires on
+  // completion since those fields go onto the loan record specifically.
   try {
     await syncBorrowerFieldsToClient(record);
   } catch (e) {
     console.warn('borrower-info-save-auth: client sync failed:', e);
   }
 
-  return json(200, { ok: true });
+  // On final submission, fire the full sync + auto-advance — same
+  // post-completion handling the borrower path runs.
+  if (submittingOnBehalf) {
+    try {
+      await syncPropertyFieldsToLoan(record);
+    } catch (e) {
+      console.warn('borrower-info-save-auth: property-fields sync failed:', e);
+    }
+    let advanceResult = null;
+    try {
+      advanceResult = await advanceQuoteToInProcessing(record);
+      if (advanceResult && !advanceResult.ok) {
+        console.warn(
+          'borrower-info-save-auth: auto-advance bailed —',
+          'token=' + (record.token || '').slice(0, 8),
+          'reason=' + advanceResult.reason
+        );
+      }
+    } catch (e) {
+      console.warn('borrower-info-save-auth: advance threw:', e);
+      advanceResult = { ok: false, reason: 'exception: ' + (e.message || 'unknown') };
+    }
+    // Stamp the advance result for audit (same pattern as borrower path)
+    record.advanceResult = advanceResult;
+    try { await saveRecord(store, ownerKey, body.clientId, targetLoanId, record); } catch (_) {}
+    return json(200, { ok: true, status: 'complete', advanceResult });
+  }
+
+  return json(200, { ok: true, status: record.status });
 }
 
 function mergeData(existing, incoming) {

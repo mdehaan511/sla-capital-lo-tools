@@ -29,6 +29,7 @@ import {
 } from './_shared/auth.mjs';
 import { generateToken } from './_shared/crypto.mjs';
 import { newRecordKey, loadRecord } from './_shared/borrower-info-keys.mjs';
+import { writeTokenIndex, deleteTokenIndex } from './_shared/borrower-info-token-index.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -124,6 +125,18 @@ async function handle(req, context) {
   } catch (e) {
     return json(500, { error: 'Failed to save request' });
   }
+
+  // Deploy 172: write the token→recordKey index entry so subsequent
+  // public load/save calls can resolve the token in O(1) instead of
+  // walking the entire borrower_info store. If we're rotating a token
+  // (existing record had a different token), invalidate the old index
+  // entry so the previous link stops resolving via the index path.
+  if (existing && existing.token && existing.token !== token) {
+    await deleteTokenIndex(existing.token);
+  }
+  await writeTokenIndex(token, recordKey, {
+    ownerKey, clientId: body.clientId, loanId: body.loanId,
+  });
 
   // Build the borrower-facing URL
   const siteUrl = (process.env.URL || '').replace(/\/$/, '');

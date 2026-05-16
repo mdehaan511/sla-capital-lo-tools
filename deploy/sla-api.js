@@ -535,12 +535,16 @@
       if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
       return api('GET', '/api/borrower-info-load-auth' + qs);
     },
-    // LO-authed: write back edits to the borrower-info record
+    // LO-authed: write back edits to the borrower-info record.
+    // opts.complete=true triggers LO submission-on-behalf-of-borrower
+    // (Deploy 173) — flips status to 'complete' and fires the same
+    // post-completion sync + auto-advance the borrower path runs.
     saveAuth: function (clientId, data, opts) {
       opts = opts || {};
       var body = { clientId: clientId, data: data };
       if (opts.loanId) body.loanId = opts.loanId;
       if (opts.owner) body.owner = opts.owner;
+      if (opts.complete) body.complete = true;
       return api('POST', '/api/borrower-info-save-auth', body);
     },
   };

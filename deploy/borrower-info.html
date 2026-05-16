@@ -232,6 +232,10 @@ function loadFromServerAuthed() {
       STATE.reviewClientId = resp.clientId;
       STATE.reviewLoanId   = resp.loanId || REVIEW_LOAN_ID || '';
       STATE.reviewOwner    = resp.ownerKey;
+      // Deploy 173: remember the application status so the LO's button
+      // bar can show "Save edits" + "Submit on behalf of borrower" when
+      // the app isn't yet complete, vs just "Save edits" once submitted.
+      STATE.reviewStatus   = resp.status || '';
       STATE.companies = (resp.prefill && resp.prefill.companies) || STATE.data.companies || [];
       applyPrefillToData();
       renderApp();
@@ -481,7 +485,20 @@ function renderApp() {
         '<div>' +
           (STATE.page < STATE.totalPages
             ? '<button class="btn primary" onclick="goNext()">Next →</button>'
-            : '<button class="btn success" onclick="submitFinal()">' + (REVIEW_MODE ? 'Save edits' : 'Submit information') + '</button>') +
+            // Deploy 173: in REVIEW_MODE the LO gets two buttons —
+            // "Save edits" for partial work, and "Submit on behalf of
+            // borrower" for the final completion event (which fires
+            // the auto-advance to APPROVED + property/loan field sync).
+            // For the borrower path it's a single Submit button.
+            : (REVIEW_MODE
+                ? (STATE.reviewStatus === 'complete'
+                    // Already complete — show only Save (LO is correcting fields after submission)
+                    ? '<button class="btn success" onclick="submitFinal()">Save edits</button>'
+                    : '<button class="btn" onclick="submitFinal()" style="margin-right:8px">Save edits</button>' +
+                      '<button class="btn success" onclick="submitOnBehalf()">Submit on behalf of borrower</button>')
+                : '<button class="btn success" onclick="submitFinal()">Submit information</button>'
+              )
+          ) +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1345,6 +1362,52 @@ function submitFinal() {
       btn.disabled = false; btn.textContent = 'Submit information';
       showToast('Submit failed — check connection');
     });
+}
+
+// LO-only path. Final submission on behalf of the borrower — flips the
+// application status to 'complete' and triggers the auto-advance to
+// APPROVED on the loan. Same end-state as the borrower clicking Submit
+// themselves, just initiated by the LO. We don't run validateCurrentPage
+// here: in review mode the LO is responsible for whatever's filled
+// in, and locking them out of submission for missing fields would be
+// counter-productive (the whole point is they're correcting/completing
+// what the borrower didn't finish). They get a confirmation prompt
+// instead so they don't fire it accidentally.
+function submitOnBehalf() {
+  if (!REVIEW_MODE) return;
+  if (!confirm(
+    'Submit this application on behalf of the borrower?\n\n' +
+    'This will:\n' +
+    '  • Mark the application as complete\n' +
+    '  • Move the loan from "Awaiting Application" to "In Processing"\n' +
+    '  • Sync property fields back to the loan record\n\n' +
+    'You should only do this when you\'ve confirmed the information with the borrower.'
+  )) return;
+
+  var btn = event.target;
+  btn.disabled = true; btn.textContent = 'Submitting…';
+  var dataToSave = packDataForSave();
+  var opts = { complete: true };
+  if (STATE.reviewOwner)  opts.owner  = STATE.reviewOwner;
+  if (STATE.reviewLoanId) opts.loanId = STATE.reviewLoanId;
+
+  SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function(resp) {
+    // Update local status so the next render shows the post-submission
+    // button layout (just "Save edits"). Surface advance-result issues
+    // so the LO sees them — if the auto-advance bailed for some reason
+    // they need to know the loan didn't actually move.
+    STATE.reviewStatus = 'complete';
+    if (resp && resp.advanceResult && !resp.advanceResult.ok) {
+      showToast('Submitted — but loan auto-advance failed: ' + (resp.advanceResult.reason || 'unknown'));
+    } else {
+      showToast('Submitted on behalf of borrower. Loan moved to In Processing.');
+    }
+    btn.disabled = false;
+    renderApp();   // re-render so button bar updates
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Submit on behalf of borrower';
+    showToast('Submit failed: ' + ((err && err.message) || 'unknown'));
+  });
 }
 
 function validateCurrentPage() {

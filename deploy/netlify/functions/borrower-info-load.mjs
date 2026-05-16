@@ -10,6 +10,7 @@
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json } from './_shared/auth.mjs';
 import { decryptField, maskSSN } from './_shared/crypto.mjs';
+import { lookupTokenKey, writeTokenIndex } from './_shared/borrower-info-token-index.mjs';
 
 export default async (req, context) => {
   try {
@@ -50,14 +51,30 @@ async function handle(req) {
   });
 }
 
-// Walk the entire `borrower_info` store to find a record by token. With low
-// cardinality this is fine; if it grows large we can keep a token→key index.
+// Resolve a record from its token. Deploy 172 added a token→recordKey
+// index for O(1) lookup; if the token isn't indexed (legacy token from
+// before the index existed) we fall back to walking the entire store
+// and backfill the index so the next lookup is fast.
 async function findByToken(token) {
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
+  // Fast path: token index
+  const fastKey = await lookupTokenKey(token);
+  if (fastKey) {
+    try {
+      const r = await store.get(fastKey, { type: 'json' });
+      if (r && r.token === token) return r;
+    } catch (_) { /* fall through */ }
+  }
+  // Slow path: walk store. Backfill the index after a hit.
   const { blobs } = await store.list();
   for (const { key } of blobs) {
     const r = await store.get(key, { type: 'json' });
-    if (r && r.token === token) return r;
+    if (r && r.token === token) {
+      writeTokenIndex(token, key, {
+        ownerKey: r.ownerKey, clientId: r.clientId, loanId: r.loanId,
+      }).catch(function() {});
+      return r;
+    }
   }
   return null;
 }

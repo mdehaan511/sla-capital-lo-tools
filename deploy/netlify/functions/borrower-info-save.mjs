@@ -12,6 +12,8 @@
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, readJsonBody } from './_shared/auth.mjs';
 import { encryptField } from './_shared/crypto.mjs';
+import { lookupTokenKey, writeTokenIndex } from './_shared/borrower-info-token-index.mjs';
+import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 
 export default async (req, context) => {
   try {
@@ -31,12 +33,42 @@ async function handle(req) {
   if (!body || !body.t) return json(400, { error: 'Missing token' });
 
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const { blobs } = await store.list();
+
+  // Deploy 172: try the token index first (O(1) lookup), fall back to
+  // a full store walk for legacy tokens that pre-date the index. After
+  // a successful walk-fallback we write the index entry so subsequent
+  // lookups for the same token use the fast path.
   let recordKey = null;
   let record = null;
-  for (const { key } of blobs) {
-    const r = await store.get(key, { type: 'json' });
-    if (r && r.token === body.t) { record = r; recordKey = key; break; }
+  const fastKey = await lookupTokenKey(body.t);
+  if (fastKey) {
+    try {
+      const r = await store.get(fastKey, { type: 'json' });
+      // Defensive: the index entry could point at a key whose record
+      // no longer matches the token (e.g. token rotated, index entry
+      // wasn't cleaned up, or the record was deleted). Verify before
+      // trusting it.
+      if (r && r.token === body.t) {
+        record = r;
+        recordKey = fastKey;
+      }
+    } catch (_) { /* fall through to slow path */ }
+  }
+
+  // Slow path: walk the entire store. Only fires when the token index
+  // didn't resolve (legacy token, or index out of sync).
+  if (!record) {
+    const { blobs } = await store.list();
+    for (const { key } of blobs) {
+      const r = await store.get(key, { type: 'json' });
+      if (r && r.token === body.t) { record = r; recordKey = key; break; }
+    }
+    // Backfill the index so the next save is fast. Best-effort.
+    if (record && recordKey) {
+      writeTokenIndex(body.t, recordKey, {
+        ownerKey: record.ownerKey, clientId: record.clientId, loanId: record.loanId,
+      }).catch(function() {});
+    }
   }
   if (!record) return json(404, { error: 'Link not found or expired' });
   if (record.expiresAt && new Date(record.expiresAt) < new Date()) {
@@ -123,327 +155,6 @@ async function handle(req) {
   }
 
   return json(200, { ok: true, status: record.status });
-}
-
-// Map long-form property-type codes to loan-record codes used elsewhere.
-// Long form may emit: sfh, sfr, 2-4, 5+, condo_w, condo_nw, townhome,
-// manufactured, rural, portfolio. Loan-record/sizer uses: sfr, 2-4, condo,
-// nw_condo, multi, portfolio.
-function normalizePropType(pt) {
-  if (!pt) return '';
-  const map = {
-    sfh: 'sfr', sfr: 'sfr',
-    '2-4': '2-4',
-    '5+': 'multi', mfr: 'multi', multi: 'multi',
-    condo: 'condo', condo_w: 'condo',
-    nw_condo: 'nw_condo', condo_nw: 'nw_condo',
-    townhome: 'sfr',     // loan-record has no townhome → bucket as sfr
-    manufactured: 'sfr',
-    rural: 'sfr',
-    portfolio: 'portfolio',
-  };
-  return map[String(pt).toLowerCase()] || String(pt);
-}
-
-async function syncPropertyFieldsToLoan(record) {
-  if (!record.ownerKey || !record.clientId) return;
-  const data = record.data || {};
-
-  // Property-level fields (live on the loan record)
-  const loanUpdates = {};
-  if (data.bedrooms)        loanUpdates.bedrooms       = String(data.bedrooms);
-  if (data.bathrooms)       loanUpdates.bathrooms      = String(data.bathrooms);
-  if (data.sqft)            loanUpdates.sqft           = String(data.sqft);
-  if (data.propertyType)    loanUpdates.propType       = normalizePropType(data.propertyType);
-  if (data.currentLoanAmt)  loanUpdates.currentLoanAmt = String(data.currentLoanAmt);
-  if (data.currentLoanAmount) loanUpdates.currentLoanAmt = String(data.currentLoanAmount);
-  if (data.purchaseOrRefi)  loanUpdates.purchaseOrRefi = String(data.purchaseOrRefi);
-  if (data.dscrPurchaseRefi) loanUpdates.purchaseOrRefi = String(data.dscrPurchaseRefi);
-  if (data.planDescription) loanUpdates.projectDescription = String(data.planDescription);
-  // Item #10: long-app close date → loan record fundingDate (renamed Desired Close Date everywhere)
-  if (data.dscrCloseDate) loanUpdates.fundingDate = String(data.dscrCloseDate);
-  if (data.ffCloseDate)   loanUpdates.fundingDate = String(data.ffCloseDate);
-
-  // Borrower-level fields (live on the CLIENT record, reused across loans — item #6)
-  // The form packs these into data.guarantors[0] (with sub-fields like
-  // firstName, dob, fico, etc.) — NOT as top-level g1_* fields.
-  const g0 = (Array.isArray(data.guarantors) && data.guarantors[0]) || {};
-  const clientUpdates = {};
-  if (data.borrowerFirstName) clientUpdates.firstName = String(data.borrowerFirstName);
-  if (data.borrowerLastName)  clientUpdates.lastName  = String(data.borrowerLastName);
-  if (data.borrowerEmail)     clientUpdates.email     = String(data.borrowerEmail).toLowerCase().trim();
-  if (data.borrowerPhone)     clientUpdates.phone     = String(data.borrowerPhone);
-  // Pull DOB/FICO/marital/citizenship/address from Guarantor 1 (primary borrower).
-  if (g0.dob)        clientUpdates.dob           = String(g0.dob);
-  if (g0.fico)       clientUpdates.fico          = String(g0.fico);
-  if (g0.marital)    clientUpdates.maritalStatus = String(g0.marital);
-  if (g0.usCitizen)  clientUpdates.usCitizen     = String(g0.usCitizen);
-  if (g0.address || g0.city || g0.state || g0.zip) {
-    clientUpdates.homeAddress = {
-      street: g0.address || '',
-      city:   g0.city    || '',
-      state:  g0.state   || '',
-      zip:    g0.zip     || '',
-    };
-  }
-  // Item #5: experience metrics — # of flips in last 36 months, # of rentals owned
-  if (g0.flips !== undefined && g0.flips !== '')      clientUpdates.flips    = String(g0.flips);
-  if (g0.rentals !== undefined && g0.rentals !== '')  clientUpdates.rentals  = String(g0.rentals);
-  // SSN — keep encrypted on the client record so future loans can use it.
-  // We pull from g0.ssn_enc which the merge step set from incoming SSN.
-  if (g0.ssn_enc) clientUpdates.ssn_enc = g0.ssn_enc;
-
-  // Companies/entities (item #8) — extract from data.companies if present.
-  // Borrower form will provide this as an array. We never overwrite the
-  // existing companies array unless new data came in.
-  let companiesUpdate = null;
-  if (Array.isArray(data.companies) && data.companies.length > 0) {
-    companiesUpdate = data.companies
-      .filter((c) => c && (c.name || c.ein))
-      .map((c) => ({
-        id:      c.id || ('co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
-        name:    String(c.name  || ''),
-        state:   String(c.state || ''),
-        ein:     String(c.ein   || ''),
-        address: String(c.address || ''),
-        city:    String(c.city    || ''),
-        addrState: String(c.addrState || ''),
-        zip:     String(c.zip || ''),
-      }));
-  }
-
-  if (Object.keys(loanUpdates).length === 0
-      && Object.keys(clientUpdates).length === 0
-      && !companiesUpdate) return;
-
-  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-  const clientKey = `${record.ownerKey}/${record.clientId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-  let client = null;
-  try { client = await clientsStore.get(clientKey, { type: 'json' }); } catch (_) {}
-  if (!client) return;
-  if (!Array.isArray(client.loans)) client.loans = [];
-
-  let changed = false;
-
-  // Apply client-level updates
-  Object.keys(clientUpdates).forEach((k) => {
-    const incoming = clientUpdates[k];
-    // For nested objects (homeAddress), check stringified equality
-    const existing = client[k];
-    const same = (typeof incoming === 'object')
-      ? (JSON.stringify(existing) === JSON.stringify(incoming))
-      : (existing === incoming);
-    if (!same) {
-      client[k] = incoming;
-      changed = true;
-    }
-  });
-
-  // Merge companies — preserve existing entries by id, add new.
-  // Safety net: also dedupe by name+EIN so repeated autosaves with different
-  // generated ids don't pile up duplicate entities.
-  if (companiesUpdate) {
-    const existing = Array.isArray(client.companies) ? client.companies : [];
-    const merged = [];
-    const seenIds = new Set();
-    const norm = (s) => String(s || '').trim().toLowerCase();
-    const ed = (s) => String(s || '').replace(/\D/g, '');
-    const matchKey = (c) => norm(c.name) + '|' + ed(c.ein);
-    const seenKeys = new Set();
-
-    companiesUpdate.forEach((c) => {
-      const k = matchKey(c);
-      // Skip if we already merged an equivalent entity by name+EIN
-      if ((c.name || c.ein) && seenKeys.has(k)) return;
-      const match = existing.find((e) => e.id === c.id) ||
-                    existing.find((e) => matchKey(e) === k && (c.name || c.ein));
-      if (match) {
-        merged.push(Object.assign({}, match, c, { id: match.id }));
-        seenIds.add(match.id);
-      } else {
-        merged.push(c);
-        seenIds.add(c.id);
-      }
-      if (c.name || c.ein) seenKeys.add(k);
-    });
-    // Keep any prior companies that the borrower didn't touch this round
-    existing.forEach((e) => {
-      const k = matchKey(e);
-      if (!seenIds.has(e.id) && !seenKeys.has(k)) {
-        merged.push(e);
-        seenIds.add(e.id);
-        if (e.name || e.ein) seenKeys.add(k);
-      }
-    });
-    if (JSON.stringify(client.companies) !== JSON.stringify(merged)) {
-      client.companies = merged;
-      changed = true;
-    }
-  }
-
-  // Apply loan-level updates. Find the target loan:
-  //   1. exact record.loanId match (the common path post-Deploy 168 when
-  //      records are per-loan)
-  //   2. if client has exactly one loan, use it
-  //   3. if exactly one loan is in awaiting_app, use it
-  //   4. otherwise log a warning and skip the loan-level writes; the
-  //      borrower-level + companies writes still happen
-  if (Object.keys(loanUpdates).length > 0) {
-    let targetLoan = null;
-    if (record.loanId) targetLoan = client.loans.find((l) => l.id === record.loanId);
-    if (!targetLoan && client.loans.length === 1) targetLoan = client.loans[0];
-    if (!targetLoan) {
-      const awaiting = client.loans.filter((l) => l.status === 'awaiting_app');
-      if (awaiting.length === 1) targetLoan = awaiting[0];
-    }
-    if (!targetLoan) {
-      console.warn(
-        'syncPropertyFieldsToLoan: no target loan resolved for',
-        'clientId=' + record.clientId,
-        'recordLoanId=' + (record.loanId || '(none)'),
-        '— client has', client.loans.length, 'loans'
-      );
-    }
-    if (targetLoan) {
-      Object.keys(loanUpdates).forEach((k) => {
-        if (targetLoan[k] !== loanUpdates[k]) {
-          targetLoan[k] = loanUpdates[k];
-          changed = true;
-        }
-      });
-      if (changed) targetLoan.updatedAt = new Date().toISOString();
-    }
-  }
-
-  if (changed) {
-    client.updatedAt = new Date().toISOString();
-    await clientsStore.setJSON(clientKey, client);
-  }
-}
-
-// Try to auto-advance the matching quote(s) + client.loan record from
-// `awaiting_app` → `approved` when the borrower submits the loan app.
-//
-// Failure modes this function defends against (Deploy 167):
-//   1. record.loanId doesn't match any loan on the client → fall back to
-//      address-matching across all loans, not just exactly-one-loan
-//   2. Quote address has trailing ", USA"/", US" or "Street" vs "St" etc.
-//      Use aggressive normalization rather than simple lowercase+trim
-//   3. Quote status is not exactly 'awaiting_app' → only bump statuses
-//      we know are valid pre-conditions; never downgrade
-//
-// Returns: { ok: bool, reason?: string, quotesUpdated: number, loanUpdated: bool }
-// so the caller can surface diagnostic info if the auto-advance failed.
-async function advanceQuoteToInProcessing(record) {
-  if (!record.ownerKey || !record.clientId) {
-    return { ok: false, reason: 'missing ownerKey or clientId on record', quotesUpdated: 0, loanUpdated: false };
-  }
-  // Find the loan address from the client record so we can match the quote
-  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-  const clientKey = `${record.ownerKey}/${record.clientId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-  let client = null;
-  try { client = await clientsStore.get(clientKey, { type: 'json' }); } catch (_) {}
-  if (!client || !Array.isArray(client.loans)) {
-    return { ok: false, reason: 'client not found or has no loans', quotesUpdated: 0, loanUpdated: false };
-  }
-
-  // Identify the target loan: prefer record.loanId; fall back to (in order):
-  //   - the only loan, if there's exactly one
-  //   - the only loan still in awaiting_app, if there's exactly one such
-  //   - null (and we bail with a reason)
-  let targetLoan = null;
-  if (record.loanId) targetLoan = client.loans.find((l) => l.id === record.loanId);
-  if (!targetLoan && client.loans.length === 1) targetLoan = client.loans[0];
-  if (!targetLoan) {
-    const awaiting = client.loans.filter((l) => l.status === 'awaiting_app');
-    if (awaiting.length === 1) targetLoan = awaiting[0];
-  }
-  if (!targetLoan || !targetLoan.address) {
-    return {
-      ok: false,
-      reason: record.loanId
-        ? `no loan matched loanId="${record.loanId}" (client has ${client.loans.length} loans)`
-        : `no targetable loan (client has ${client.loans.length} loans, ${client.loans.filter(l => l.status === 'awaiting_app').length} awaiting_app)`,
-      quotesUpdated: 0,
-      loanUpdated: false,
-    };
-  }
-
-  // Aggressive address normalization. Tolerates ", USA" tails, "Street"
-  // vs "St" variants, comma/period punctuation differences. Same algo
-  // used by loan-advance-status.mjs.
-  const aggrNorm = (s) => {
-    let x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    x = x.replace(/,\s*(usa|us|united states)\.?$/i, '');
-    x = x.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave')
-         .replace(/\bboulevard\b/g, 'blvd').replace(/\bdrive\b/g, 'dr')
-         .replace(/\broad\b/g, 'rd').replace(/\blane\b/g, 'ln')
-         .replace(/\bcourt\b/g, 'ct').replace(/\bcircle\b/g, 'cir')
-         .replace(/\bplace\b/g, 'pl').replace(/\bparkway\b/g, 'pkwy')
-         .replace(/\btrail\b/g, 'trl').replace(/\bterrace\b/g, 'ter');
-    x = x.replace(/[.,]/g, '');
-    return x.trim();
-  };
-  const target = aggrNorm(targetLoan.address);
-
-  const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-  let quotesUpdated = 0;
-  let quotesMatched = 0;
-  try {
-    const { blobs } = await quotesStore.list({ prefix: record.ownerKey + '/' });
-    for (const { key } of blobs) {
-      const q = await quotesStore.get(key, { type: 'json' });
-      if (!q || aggrNorm(q.address) !== target) continue;
-      quotesMatched += 1;
-      if (q.status === 'awaiting_app') {
-        q.status = 'approved';
-        q.updatedAt = new Date().toISOString();
-        q.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
-        await quotesStore.setJSON(key, q);
-        quotesUpdated += 1;
-      }
-    }
-  } catch (e) {
-    return { ok: false, reason: 'quote store error: ' + (e.message || 'unknown'), quotesUpdated, loanUpdated: false };
-  }
-
-  // Mirror the status into the client loan record(s) that match
-  let loanUpdated = false;
-  for (const l of client.loans) {
-    if (aggrNorm(l.address) === target && l.status === 'awaiting_app') {
-      l.status = 'approved';
-      l.updatedAt = new Date().toISOString();
-      l.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
-      loanUpdated = true;
-    }
-  }
-  if (loanUpdated) {
-    try {
-      await clientsStore.setJSON(clientKey, client);
-    } catch (e) {
-      return { ok: false, reason: 'client save error: ' + (e.message || 'unknown'), quotesUpdated, loanUpdated: false };
-    }
-  }
-
-  // If we matched a loan and updated it, that's the primary success signal.
-  // Zero quote matches is suspect (we'd expect at least one per loan) but
-  // not catastrophic if the loan record itself was updated correctly.
-  if (loanUpdated) {
-    return { ok: true, quotesUpdated, loanUpdated, quotesMatched };
-  }
-  // No loan record was in awaiting_app, but maybe it was already advanced
-  // by something else. Distinguish from "nothing matched at all".
-  const anyAwaiting = client.loans.some((l) => aggrNorm(l.address) === target && l.status === 'awaiting_app');
-  if (!anyAwaiting && quotesMatched > 0) {
-    return { ok: true, reason: 'loan was already past awaiting_app', quotesUpdated, loanUpdated: false, quotesMatched };
-  }
-  return {
-    ok: false,
-    reason: `no awaiting_app loan matched address "${targetLoan.address}" (normalized: "${target}"); ${quotesMatched} quote(s) matched address but none were in awaiting_app`,
-    quotesUpdated,
-    loanUpdated: false,
-    quotesMatched,
-  };
 }
 
 // Merge incoming data with existing. SSN values in guarantors get
