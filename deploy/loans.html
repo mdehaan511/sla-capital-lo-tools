@@ -30,9 +30,9 @@
     .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; text-decoration: none; transition: all .15s; }
     .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
     .nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .nav-tool-link { font-size: 13px; color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: var(--r-xs); transition: all .15s; }
-    .nav-tool-link:hover { color: var(--text); background: rgba(255,255,255,0.5); }
-    .nav-tool-link.current { color: var(--gold-mid); background: var(--gold-light); font-weight: 600; }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
     .logout-btn { padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 20px; font-size: 12px; cursor: pointer; transition: all .15s; }
     .logout-btn:hover { color: var(--text); border-color: var(--text); }
 
@@ -139,7 +139,7 @@
 
 <nav class="nav">
   <div class="nav-left">
-    <a href="index.html"><img src="sla-logo.svg" alt="SLA Capital" /></a>
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
     <a href="index.html" class="nav-tools-btn">Tools</a>
   </div>
   <div class="nav-right">

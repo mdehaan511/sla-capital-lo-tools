@@ -459,8 +459,9 @@ function setActivityView(v) {
 function renderActivityTable(users) {
   window._lastActivityUsers = users;
 
-  var totals = { users: users.length, prospects: 0, quoted: 0, submitted: 0, approved: 0, closed: 0, volume: 0, commission: 0 };
+  var totals = { users: users.length, clients: 0, prospects: 0, quoted: 0, submitted: 0, approved: 0, closed: 0, volume: 0, commission: 0 };
   users.forEach(function(u) {
+    totals.clients   += u.clientCount    || 0;
     totals.prospects += u.prospectCount  || 0;
     totals.quoted    += u.quoteCount     || 0;
     totals.submitted += u.submittedCount || 0;
@@ -473,6 +474,7 @@ function renderActivityTable(users) {
   var html =
     '<div class="summary-strip">' +
       summary('Users', users.length) +
+      summary('Total Clients', totals.clients) +
       summary('Total Prospects', totals.prospects) +
       summary('Total Closed', totals.closed) +
       summary('Closed Volume', fmtMoney(totals.volume)) +
@@ -510,6 +512,11 @@ function renderVolumeTable(sorted) {
       '<th>Role</th>' +
       '<th>Last Active</th>' +
       '<th>Apply Link</th>' +
+      // Deploy 170: surface clientCount (already returned by the stats
+      // API but previously hidden) so an LO's roster-growth shows up
+      // alongside pipeline metrics. Useful for spotting people who are
+      // adding clients but not converting them.
+      '<th class="right">Clients Added</th>' +
       '<th class="right">Quoted</th>' +
       '<th class="right">Submitted</th>' +
       '<th class="right">Approved</th>' +
@@ -532,6 +539,7 @@ function renderVolumeTable(sorted) {
         ? '<button class="copy-btn" onclick="copyUrl(this, \'' + escAttr(applyUrl) + '\')">Copy</button>'
         : '<span style="color:var(--muted);font-size:11px">—</span>'
       ) + '</td>' +
+      '<td class="right">' + (u.clientCount    || 0) + '</td>' +
       '<td class="right">' + (u.quoteCount     || 0) + '</td>' +
       '<td class="right">' + (u.submittedCount || 0) + '</td>' +
       '<td class="right">' + (u.approvedCount  || 0) + '</td>' +

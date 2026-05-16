@@ -121,6 +121,34 @@
 </head>
 <body>
 
+<!-- Create New Loan modal (Deploy 170). Opens from the action row above
+     the Client Profile section. LO picks DSCR or RTL; we open the right
+     sizer with prefillContact=1 + clientId so the borrower name / email /
+     phone are filled in but no existing loan loads. -->
+<div class="modal-bg" id="createLoanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:20px">
+  <div class="modal" style="background:var(--surface);border-radius:12px;padding:28px;max-width:420px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,0.25)">
+    <h3 style="font-family:'Lora',serif;font-size:20px;margin:0 0 6px;color:var(--text)">Create New Loan</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 18px">Which loan type are you running for this borrower?</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button type="button" onclick="createLoanOfType('dscr')" style="padding:14px 18px;background:var(--gold-light);border:1.5px solid var(--gold-border);border-radius:8px;font-size:14px;font-weight:600;color:var(--gold-mid);cursor:pointer;font-family:inherit;text-align:left">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <span>DSCR</span>
+          <span style="font-size:11px;font-weight:400;color:var(--muted)">Long-term rental · 30Y / ARM</span>
+        </div>
+      </button>
+      <button type="button" onclick="createLoanOfType('rtl')" style="padding:14px 18px;background:var(--gold-light);border:1.5px solid var(--gold-border);border-radius:8px;font-size:14px;font-weight:600;color:var(--gold-mid);cursor:pointer;font-family:inherit;text-align:left">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <span>RTL</span>
+          <span style="font-size:11px;font-weight:400;color:var(--muted)">Bridge · Fix &amp; Flip · Transactional</span>
+        </div>
+      </button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:18px">
+      <button type="button" onclick="closeCreateLoanModal()" style="padding:9px 18px;font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-family:inherit">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <nav class="nav">
   
   <div class="nav-left">
@@ -245,6 +273,21 @@ function render() {
     '</div>' +
   '</div>';
 
+  // Top action row (Deploy 170): Create New Loan launches a small
+  // modal asking DSCR or RTL, then opens the right sizer with the
+  // borrower's contact info pre-filled (prefillContact=1 URL param).
+  // Send Loan Prequal — placeholder for future prequal-link flow.
+  html += '<div class="client-actions" style="display:flex;gap:10px;margin-bottom:1.6rem;flex-wrap:wrap">' +
+    '<button type="button" class="action-btn primary" onclick="openCreateLoanModal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--gold);color:#fff;border:1px solid var(--gold);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
+      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' +
+      'Create New Loan' +
+    '</button>' +
+    '<button type="button" class="action-btn" onclick="sendLoanPrequal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
+      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4l5 4 5-4M2 4v6h10V4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
+      'Send Loan Prequal' +
+    '</button>' +
+  '</div>';
+
   // Profile edit section
   html += '<div class="section">' +
     '<div class="section-head"><h2>Client Profile</h2></div>' +
@@ -348,16 +391,24 @@ function render() {
         detailsUrl += '&owner=' + encodeURIComponent(_loEmail);
       }
 
+      // Address cell links directly to Loan Details (Deploy 170 — was a
+      // separate "Details →" button before). Saves the LO a click and
+      // matches the convention used elsewhere (Pipeline cards, Loans
+      // page) where the address is the primary affordance for opening
+      // a loan. The trailing button cell now only has the delete
+      // action so it stays narrow.
+      var addrCell = l.id
+        ? '<a href="'+detailsUrl+'" class="address-link" style="color:var(--gold-mid);text-decoration:none;border-bottom:1px dotted var(--gold-border)">'+escH(l.address||'—')+'</a>'
+        : escH(l.address || '—');
       html += '<tr>' +
-        '<td class="td-mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escH(l.address||'—')+'</td>' +
+        '<td class="td-mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+addrCell+'</td>' +
         '<td><span class="badge '+(l.toolType||'dscr')+'">'+((l.toolType||'dscr').toUpperCase())+'</span></td>' +
         '<td style="font-size:12px;'+statusStyle+'">'+escH(statusLabel)+'</td>' +
         '<td class="td-mono">'+escH(amt)+'</td>' +
         '<td class="td-mono">'+escH(rate)+'</td>' +
         '<td class="td-mono" style="font-size:11px">'+escH(fico)+'</td>' +
         '<td class="td-mono">'+date+'</td>' +
-        '<td style="white-space:nowrap;display:flex;gap:6px;align-items:center">' +
-          (l.id ? '<a href="'+detailsUrl+'" class="details-link">Details →</a>' : '') +
+        '<td style="white-space:nowrap">' +
           (l.id ? '<button class="del-loan-btn" onclick="deleteLoan(\''+escAttr(l.id)+'\')">✕</button>' : '') +
         '</td>' +
         '</tr>';
@@ -614,6 +665,78 @@ function deleteClient() {
     window.location.href = 'clients.html';
   }).catch(function(err) {
     showToast('Delete failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+// ─── Create New Loan modal (Deploy 170) ───────────────────────
+// Opens from the gold "Create New Loan" button above Client Profile.
+// User picks DSCR or RTL; we open the right sizer with the client's
+// id + prefillContact=1 so borrower name/email/phone get populated
+// without trying to load an existing loan.
+function openCreateLoanModal() {
+  if (!_client) { showToast('Client not loaded yet'); return; }
+  var modal = document.getElementById('createLoanModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeCreateLoanModal() {
+  var modal = document.getElementById('createLoanModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function createLoanOfType(toolType) {
+  closeCreateLoanModal();
+  if (!_client) return;
+  var page = toolType === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  var url = page + '?clientId=' + encodeURIComponent(_client.id) + '&prefillContact=1';
+  // Thread owner through if admin is viewing another LO's client.
+  if (_loEmail && _user && _loEmail !== _user.email) {
+    url += '&owner=' + encodeURIComponent(_loEmail);
+  }
+  window.location.href = url;
+}
+
+// ─── Send Loan Prequal (Deploy 170) ───────────────────────────
+// Emails the client a link to the LO's public prequal form
+// (apply.html?lo=<lo-email>) — same link the LO has on their Profile
+// page, but with a personalized email message. When the borrower
+// submits the form, the existing prospects-save flow upserts the
+// client record by email match, so this is safe to send to an
+// already-existing client.
+function sendLoanPrequal() {
+  if (!_client) { showToast('Client not loaded'); return; }
+  if (!_client.email) {
+    showToast('Client has no email on file — add one in Client Profile first.');
+    return;
+  }
+  if (!confirm('Send a prequal application link to ' + _client.email + '?')) return;
+
+  var body = { clientId: _client.id };
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+
+  netlifyIdentity.currentUser().jwt().then(function(token) {
+    return fetch('/api/prequal-send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify(body),
+    });
+  })
+  .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
+  .then(function(resp) {
+    if (!resp.ok) {
+      var msg = (resp.body && resp.body.error) || ('Request failed (' + resp.status + ')');
+      showToast('Send failed: ' + msg);
+      return;
+    }
+    showToast(resp.body.emailed
+      ? 'Prequal link emailed to ' + _client.email
+      : 'Link generated (email failed — check console)');
+  })
+  .catch(function(err) {
+    showToast('Send failed: ' + (err.message || 'unknown'));
   });
 }
 

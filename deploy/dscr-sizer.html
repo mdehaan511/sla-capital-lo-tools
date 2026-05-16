@@ -2963,6 +2963,10 @@ netlifyIdentity.on('init', function(user) {
       var loanIdP      = urlParams.get('loanId');
       var ownerParam   = urlParams.get('owner');
       var autoDownload = urlParams.get('download') === '1';
+      // prefillContact=1 — created from Client Details "Create New Loan".
+      // Loads the client record and fills name/email/phone, but does NOT
+      // load any existing loan.
+      var prefillContactOnly = urlParams.get('prefillContact') === '1';
       // Signature-mode iframe handoff: when this URL param is set, the page
       // is being loaded inside a hidden iframe by loan-details.html. We
       // generate the rate sheet with PandaDoc anchor tags embedded, then
@@ -3155,14 +3159,54 @@ netlifyIdentity.on('init', function(user) {
         }).catch(function(){ return false; });
       }
 
+      function loadContactOnly() {
+        // Light variant of loadFromClientLoan — pulls only the client
+        // record for borrower contact pre-fill, doesn't try to load an
+        // existing loan. Used by the "Create New Loan" flow from Client
+        // Details where the LO wants a fresh quote with the borrower
+        // already populated.
+        if (!window.SLA || !SLA.Clients) return Promise.resolve(false);
+        var listOpts = ownerParam ? { all: true } : {};
+        if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
+          window._ownerOverride = ownerParam.toLowerCase();
+        }
+        return SLA.Clients.list(listOpts).then(function(r) {
+          var clientRec = null;
+          var iter = function(list) {
+            for (var i = 0; i < list.length; i++) {
+              if (list[i].id === clientIdP) { clientRec = list[i]; return; }
+            }
+          };
+          if (r && r.byOwner) {
+            Object.keys(r.byOwner).forEach(function(k){ if (!clientRec) iter(r.byOwner[k] || []); });
+          } else {
+            iter((r && r.clients) || []);
+          }
+          if (!clientRec) return false;
+          try {
+            var nameEl  = document.getElementById('borrowerName');
+            var emailEl = document.getElementById('borrowerEmail');
+            var phoneEl = document.getElementById('borrowerPhone');
+            if (nameEl)  nameEl.value  = ((clientRec.firstName||'') + ' ' + (clientRec.lastName||'')).trim();
+            if (emailEl) emailEl.value = clientRec.email || '';
+            if (phoneEl) phoneEl.value = clientRec.phone || '';
+          } catch (_) {}
+          return true;
+        }).catch(function(){ return false; });
+      }
+
       if ((loadAddr || clientIdP) && window.QuoteStore) {
         // Try the QuoteStore lookup first if we have an address;
         // fall back to the client/loan lookup (handles application-sourced
-        // loans that have no quote yet).
+        // loans that have no quote yet). prefillContact=1 skips the loan
+        // lookup entirely and just fills borrower contact fields.
         var loader = loadAddr ? loadFromQuote() : Promise.resolve(false);
         loader.then(function(loaded) {
           if (!loaded && clientIdP && loanIdP) {
             return loadFromClientLoan();
+          }
+          if (!loaded && clientIdP && prefillContactOnly) {
+            return loadContactOnly();
           }
         }).then(function(loaded2) {
           // If neither loader populated the form AND we're in signature

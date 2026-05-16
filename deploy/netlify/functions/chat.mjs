@@ -48,7 +48,10 @@ async function logChatTurn(user, question, answer, pageContext) {
     // Key under {ownerKey}/{ts}-{rand} so admin listing can filter per LO,
     // and so timestamps sort lexically (ISO format).
     const key = `${ownerKey}/${id}`;
-    const store = getStore({ name: 'chat-logs', consistency: 'eventual' });
+    // strong consistency so the write commits before the function exits —
+    // eventual consistency can queue writes that get dropped when the
+    // serverless instance terminates immediately after.
+    const store = getStore({ name: 'chat-logs', consistency: 'strong' });
     await store.setJSON(key, record);
   } catch (e) {
     console.warn('chat log write failed:', e && e.message);
@@ -175,12 +178,29 @@ export default async (req, context) => {
       } catch (e) {
         controller.enqueue(encoder.encode('data: ' + JSON.stringify({ error: e.message || 'Stream error' }) + '\n\n'));
       } finally {
-        controller.close();
-        // Fire-and-forget log write. We only log when we got meaningful
-        // assistant output; partial errors with no text are skipped.
+        // Persist Q+A to chat-logs BEFORE closing the stream. Previously
+        // this was a fire-and-forget call after controller.close() — but
+        // in serverless environments (Netlify Functions / Lambda) any
+        // pending async work after the response body finishes can be
+        // killed before it completes. Awaiting here keeps the function
+        // alive until the blob write lands. The user has already
+        // received every byte of the assistant's reply at this point
+        // (the deltas were enqueued during streaming), so this only
+        // delays the function's exit, not the user's perceived latency.
+        //
+        // Why this was missing log entries: the first chat turn in a
+        // fresh function instance often "got lucky" — the instance
+        // stayed warm long enough for setJSON to finish. Subsequent
+        // turns, especially when the user was typing quickly, hit a
+        // colder/faster termination and the writes never landed.
         if (assistantText.trim()) {
-          logChatTurn(user, lastUserQ, assistantText, pageContext);
+          try {
+            await logChatTurn(user, lastUserQ, assistantText, pageContext);
+          } catch (e) {
+            console.warn('chat log await failed:', e && e.message);
+          }
         }
+        controller.close();
       }
     },
   });

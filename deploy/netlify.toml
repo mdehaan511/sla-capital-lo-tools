@@ -229,6 +229,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/prequal-send"
+  to = "/.netlify/functions/prequal-send"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/chat"
   to = "/.netlify/functions/chat"
   status = 200

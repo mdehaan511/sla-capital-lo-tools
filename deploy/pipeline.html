@@ -509,6 +509,13 @@
 
     <div class="bi-actions">
       <button class="bi-btn cancel" onclick="closeSendLoanAppModal()">Close</button>
+      <!-- View/Edit Application opens borrower-info.html in LO review mode
+           in a new tab. Only visible when an application exists (i.e.
+           status is in_progress or complete) — for `pending` status the
+           borrower hasn't started yet, so there's nothing to view. The
+           button is shown by openSendLoanAppModal() conditional on the
+           current borrower-info record's status. -->
+      <button class="bi-btn" id="sendBiViewBtn" onclick="sendBiViewEdit()" style="display:none">View/Edit Application</button>
       <button class="bi-btn primary" id="sendBiBtn" onclick="sendBiSubmit()">Generate Link</button>
     </div>
   </div>
@@ -1836,8 +1843,10 @@ function openSendLoanAppModal(clientId, loanId, ownerKey) {
 
   // Notice if a record already exists for this client
   var info = document.getElementById('sendBiInfoBox');
+  var viewBtn = document.getElementById('sendBiViewBtn');
   info.style.display = 'none';
   info.innerHTML = '';
+  if (viewBtn) viewBtn.style.display = 'none';
   if (bi) {
     var msg = '';
     if (bi.status === 'in_progress') msg = '<strong>Application in progress.</strong> Borrower has started but not finished. Generating a new link will replace the old one (their progress is preserved).';
@@ -1847,6 +1856,11 @@ function openSendLoanAppModal(clientId, loanId, ownerKey) {
       info.innerHTML = msg;
       info.style.display = 'block';
       document.getElementById('sendBiBtn').textContent = 'Replace Link';
+    }
+    // Show View/Edit button only when there's data to view (in_progress
+    // or complete). For pending status the borrower hasn't started yet.
+    if (viewBtn && (bi.status === 'in_progress' || bi.status === 'complete')) {
+      viewBtn.style.display = 'inline-block';
     }
   }
 
@@ -1861,6 +1875,19 @@ function openSendLoanAppModal(clientId, loanId, ownerKey) {
 function closeSendLoanAppModal() {
   document.getElementById('sendBiModal').classList.remove('show');
   _sendBiCtx = null;
+}
+
+// View/Edit Application — opens borrower-info.html in LO review mode in
+// a new tab so the LO can correct typos or fill in gaps before generating
+// the loan application DOCX. Uses the same URL shape as the "Review
+// Application" button on Loan Details. Passes loanId so the per-loan
+// borrower-info record loads (Deploy 168 — was per-client before).
+function sendBiViewEdit() {
+  if (!_sendBiCtx) return;
+  var url = 'borrower-info.html?clientId=' + encodeURIComponent(_sendBiCtx.clientId);
+  if (_sendBiCtx.loanId)   url += '&loanId=' + encodeURIComponent(_sendBiCtx.loanId);
+  if (_sendBiCtx.ownerKey) url += '&owner=' + encodeURIComponent(_sendBiCtx.ownerKey);
+  window.open(url, '_blank');
 }
 
 function sendBiSubmit() {

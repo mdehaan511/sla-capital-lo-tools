@@ -2750,6 +2750,11 @@ netlifyIdentity.on('init', function(user) {
     var loanIdP      = urlParams.get('loanId');
     var ownerParam   = urlParams.get('owner');
     var autoDownload = urlParams.get('download') === '1';
+    // prefillContact=1 — created from Client Details "Create New Loan".
+    // Loads the client record and fills name/email/phone, but does NOT
+    // load any existing loan. The LO is starting a fresh quote for this
+    // borrower without inheriting another loan's details.
+    var prefillContactOnly = urlParams.get('prefillContact') === '1';
     // Signature-mode iframe handoff — see dscr-sizer.html for details
     var signatureMode = urlParams.get('signatureMode') === '1';
 
@@ -2984,11 +2989,51 @@ netlifyIdentity.on('init', function(user) {
       return out;
     }
 
+    function loadContactOnly() {
+      // Light variant of loadFromClientLoan — pulls the client record
+      // but doesn't try to load an existing loan. Just fills the
+      // borrower contact fields so the LO can start a fresh quote.
+      if (!window.SLA || !SLA.Clients) return Promise.resolve(false);
+      var listOpts = ownerParam ? { all: true } : {};
+      if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
+        window._ownerOverride = ownerParam.toLowerCase();
+      }
+      return SLA.Clients.list(listOpts).then(function(r) {
+        var clientRec = null;
+        var iter = function(list) {
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].id === clientIdP) { clientRec = list[i]; return; }
+          }
+        };
+        if (r && r.byOwner) {
+          Object.keys(r.byOwner).forEach(function(k){ if (!clientRec) iter(r.byOwner[k] || []); });
+        } else {
+          iter((r && r.clients) || []);
+        }
+        if (!clientRec) return false;
+        try {
+          var nameEl = document.getElementById('borrowerName');
+          var emailEl = document.getElementById('borrowerEmail');
+          var phoneEl = document.getElementById('borrowerPhone');
+          if (nameEl)  nameEl.value  = ((clientRec.firstName||'') + ' ' + (clientRec.lastName||'')).trim();
+          if (emailEl) emailEl.value = clientRec.email || '';
+          if (phoneEl) phoneEl.value = clientRec.phone || '';
+        } catch (_) {}
+        return true;
+      }).catch(function(){ return false; });
+    }
+
     if ((loadAddr || clientIdP) && window.QuoteStore) {
       var loader = loadAddr ? loadFromQuote() : Promise.resolve(false);
       loader.then(function(loaded) {
         if (!loaded && clientIdP && loanIdP) {
           return loadFromClientLoan();
+        }
+        // No existing loan to load — if prefillContact=1 was passed,
+        // just fill borrower contact fields and let the LO take it
+        // from there.
+        if (!loaded && clientIdP && prefillContactOnly) {
+          return loadContactOnly();
         }
       }).then(function(loaded2) {
         // Backup handoff: if neither loader populated the form AND we're
@@ -3395,6 +3440,60 @@ function _generateRTLRateSheetPDF(opts) {
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
   doc.text(footnote, lm+10, fy);
   y+=feeBlockH+10;
+
+  // ── Cash Reserve Requirement (Deploy 170) ─────────────────────
+  // Standard RTL underwriting rule: borrower must have liquid reserves
+  // = Down Payment + (6 × Monthly Interest) + (10% × Rehab Budget).
+  //   - Down Payment: only present on purchase loans (parsed earlier
+  //     into dpDisp). For refis we still compute the formula but the
+  //     DP term is zero.
+  //   - Monthly Interest: already captured in moDisp (e.g. "$2,500/mo");
+  //     strip the suffix to get the dollar number.
+  //   - Rehab Budget: only applies to fix/flip programs (light/heavy);
+  //     reads directly from the rehabBudget input. Zero on bridge /
+  //     transactional / DSCR loans.
+  // We show the formula breakdown so the borrower can verify the math.
+  var crDPNum    = parseFloat((dpDisp||'').replace(/[$,]/g,''))||0;
+  var crMoIntNum = parseFloat((moDisp||'').replace(/[$,]/g,'').replace(/\/mo.*$/i,''))||0;
+  var crRehabRaw = parseFloat(gv('rehabBudget'))||0;
+  var crRehabContrib = crRehabRaw * 0.10;
+  var crHoldingContrib = crMoIntNum * 6;
+  var crTotal = crDPNum + crHoldingContrib + crRehabContrib;
+
+  var crRows = [
+    ['Down Payment',                  fmtD(crDPNum)],
+    ['6 Months Holding Costs (Interest × 6)', fmtD(crHoldingContrib)],
+    ['10% of Renovation Budget',      fmtD(crRehabContrib)],
+  ];
+  var crBlockH = 22 + crRows.length*ROW_H + ROW_H*2 + 20;
+  checkPage(crBlockH + 14);
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,crBlockH,4,'FD');
+  var cry = y + 6;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+  doc.text('Cash Reserve Requirement', lm+10, cry+ROW_H*0.65);
+  cry += ROW_H;
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  doc.line(lm+8, cry, lm+cw-8, cry);
+  crRows.forEach(function(row,i){
+    cry = trow(row[0], row[1], cry, {
+      labelColor: MUTED, valueColor: TEXT,
+      noLine: i === crRows.length - 1,
+    });
+  });
+  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+  doc.line(lm+8, cry, lm+cw-8, cry); cry += 4;
+  trow('Total Cash Reserve Required', fmtD(crTotal) + '*', cry, {
+    labelColor: TEXT, labelBold: true,
+    valueColor: TEXT, valueBold: true, valueFontSize: 13, noLine: true,
+  });
+  cry += ROW_H + 4;
+  doc.setFont('helvetica','italic'); doc.setFontSize(7.5);
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text('* Required liquid reserves the borrower must show prior to closing.', lm+10, cry);
+  y += crBlockH + 10;
 
   // Legal footer
   checkPage(80);
