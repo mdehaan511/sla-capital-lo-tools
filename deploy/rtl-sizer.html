@@ -3443,27 +3443,41 @@ function _generateRTLRateSheetPDF(opts) {
 
   // ── Cash Reserve Requirement (Deploy 170) ─────────────────────
   // Standard RTL underwriting rule: borrower must have liquid reserves
-  // = Down Payment + (6 × Monthly Interest) + (10% × Rehab Budget).
-  //   - Down Payment: only present on purchase loans (parsed earlier
-  //     into dpDisp). For refis we still compute the formula but the
-  //     DP term is zero.
+  // = Cash to Close + (6 × Monthly Interest) + (10% × Rehab Budget).
+  //   - Cash to Close: for purchases, totalFees + down payment (the
+  //     full out-of-pocket at closing). For refis, the borrower
+  //     usually NETS cash back, so cash-to-close is $0 — unless the
+  //     numbers shake out negative (i.e. they have to bring money to
+  //     refi) in which case it's the positive bring-amount.
   //   - Monthly Interest: already captured in moDisp (e.g. "$2,500/mo");
   //     strip the suffix to get the dollar number.
   //   - Rehab Budget: only applies to fix/flip programs (light/heavy);
   //     reads directly from the rehabBudget input. Zero on bridge /
   //     transactional / DSCR loans.
   // We show the formula breakdown so the borrower can verify the math.
-  var crDPNum    = parseFloat((dpDisp||'').replace(/[$,]/g,''))||0;
+  // Recompute cash-to-close here since the per-branch vars above
+  // (cashToClose / netRefi) were local-scoped inside the if/else.
+  var crCashToClose;
+  if (isRefiPdf) {
+    var crNet = bMaxNum - currentLoanPdf - totalFees;
+    // Refi cash-to-close = absolute amount borrower BRINGS, if any.
+    // When net is positive the borrower is receiving cash and the
+    // cash-to-close contribution to reserves is zero.
+    crCashToClose = crNet < 0 ? -crNet : 0;
+  } else {
+    var crDPForC2C = parseFloat((dpDisp||'').replace(/[$,]/g,''))||0;
+    crCashToClose = totalFees + crDPForC2C;
+  }
   var crMoIntNum = parseFloat((moDisp||'').replace(/[$,]/g,'').replace(/\/mo.*$/i,''))||0;
   var crRehabRaw = parseFloat(gv('rehabBudget'))||0;
   var crRehabContrib = crRehabRaw * 0.10;
   var crHoldingContrib = crMoIntNum * 6;
-  var crTotal = crDPNum + crHoldingContrib + crRehabContrib;
+  var crTotal = crCashToClose + crHoldingContrib + crRehabContrib;
 
   var crRows = [
-    ['Down Payment',                  fmtD(crDPNum)],
+    ['Cash to Close',                         fmtD(crCashToClose)],
     ['6 Months Holding Costs (Interest × 6)', fmtD(crHoldingContrib)],
-    ['10% of Renovation Budget',      fmtD(crRehabContrib)],
+    ['10% of Renovation Budget',              fmtD(crRehabContrib)],
   ];
   var crBlockH = 22 + crRows.length*ROW_H + ROW_H*2 + 20;
   checkPage(crBlockH + 14);
