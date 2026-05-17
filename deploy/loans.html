@@ -501,9 +501,22 @@ function renderStats(rows) {
   var dscrVolume = dscrRows.reduce(function(s, l) { return s + (l._loanAmtNum || 0); }, 0);
   var rtlVolume  = rtlRows.reduce(function(s, l) { return s + (l._loanAmtNum || 0); }, 0);
 
+  // Deploy 174: separate stat tile for In Processing volume. "In
+  // Processing" = status 'approved' here (see STATUS_LABELS map above —
+  // the column shows "In Processing" even though the underlying status
+  // code is 'approved'). Helps the LO see at a glance how much pipeline
+  // is actually in active processing vs. just sitting in earlier stages.
+  // Sums against the currently-filtered rows so it tracks any status
+  // toggles the user has applied to the table.
+  var inProcessingRows = rows.filter(function(l) { return l.status === 'approved'; });
+  var inProcessingVolume = inProcessingRows.reduce(function(s, l) { return s + (l._loanAmtNum || 0); }, 0);
+
   document.getElementById('stats').innerHTML =
     '<div class="stat-pill">' + showing + ' shown</div>' +
     '<div class="stat-pill"><strong>$' + Math.round(volume).toLocaleString() + '</strong> total volume</div>' +
+    '<div class="stat-pill" style="border-color:var(--success);color:var(--success)">' +
+      '<strong style="color:var(--success)">$' + Math.round(inProcessingVolume).toLocaleString() + '</strong> in processing' +
+    '</div>' +
     '<div class="stat-pill tool-pill dscr">' +
       '<span class="tool-tag dscr">DSCR</span>' +
       '<strong>' + dscrRows.length + '</strong>' +
