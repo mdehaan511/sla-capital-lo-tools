@@ -332,8 +332,8 @@
 ════════════════════════════════════════════════════════ -->
 <script>
 const DIYA = {
-  effectiveDate: "May 13, 2026",
-  baseRate: { "30Y Fixed": 6.475, "10/6 ARM": 6.475, "7/6 ARM": 6.375, "5/6 ARM": 6.375 },
+  effectiveDate: "May 14, 2026",
+  baseRate: { "30Y Fixed": 6.525, "10/6 ARM": 6.525, "7/6 ARM": 6.425, "5/6 ARM": 6.425 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050, 0.250],
@@ -359,7 +359,7 @@ const DIYA = {
     "1.00-1.19": [0,0,0,0,0,0,0],
     "1.20+":     [-0.050,-0.050,-0.050,-0.050,-0.075,-0.100,-0.125],
   },
-  ppp: { "54321":-0.100, "321":0.150, "320":0.200, "300":0.300 },
+  ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.150, "320":0.200, "300":0.300 },
 
   // TPO rate adjustments by premium percentage (per 5/13/26 sheet — values
   // unchanged from prior sheet, only base rates moved)
@@ -710,6 +710,7 @@ function getFICOMin(ficoStr) {
         <div class="wrap">
           <label>Prepayment Penalty <span class="req">*</span></label>
           <select id="prepay">
+            <option value="5y6m">5-Year / 6-Month (5Yr/6Mo)</option>
             <option value="54321" selected>5-Year (54321)</option>
             <option value="321">3-Year (321)</option>
             <option value="320">2-Year (320)</option>
@@ -719,7 +720,14 @@ function getFICOMin(ficoStr) {
       </div>
       <div class="field">
         <div class="wrap">
-          <!-- Buy-down reduces hidden TPO: 0.25% buy-down = 0.25% less hidden TPO = lower rate -->
+          <!-- Buy-down reduces the visible hidden TPO in the rate
+               math, so the borrower sees a lower rate. The TPO premium
+               table values (DIYA.tpo) are used as the lookup: 0.25%
+               buy-down → -0.070% rate, 0.50% → -0.140%, 0.75% → -0.210%,
+               1.00% → -0.280%. The points the borrower pays for the
+               buy-down become our profit on top of the regular spread
+               (we don't actually reduce the rate to DIYA, just to the
+               borrower). Keeps our 1% TPO spread intact. -->
           <label>Buy-Down Points <span class="req">*</span></label>
           <select id="buydown">
             <option value="0" selected>No buy-down (1 pt total)</option>
@@ -971,12 +979,18 @@ function calculate() {
   var pppA = DIYA.ppp[prepay]!==undefined?DIYA.ppp[prepay]:0;
   adjs.push({label:'Prepay penalty ('+prepay+')', value:pppA});
 
-  // Hidden TPO reduced by buy-down
-  // netHiddenTpoPct: always 1% minus buy-down
-  // netHiddenTpoAdj: the corresponding rate adjustment
+  // Hidden TPO reduced by buy-down. Each 0.25% the borrower pays in
+  // buy-down reduces the hidden 1% TPO by the same 0.25%, and the rate
+  // adjustment moves accordingly from DIYA.tpo. So a 0.25% buy-down
+  // gives a 0.070% rate reduction (1.00% TPO adj 0.280 → 0.75% adj
+  // 0.210), 1.00% buy-down gives 0.280% reduction (TPO fully eliminated
+  // from rate display, although the LO still keeps the spread to DIYA
+  // since on our end the hidden TPO remains intact — borrower-side
+  // discount comes from our profit, not from changing the DIYA price).
+  // Hidden — not in adjs, applied silently so the borrower's rate
+  // breakdown shows only the legitimate adjustments.
   var netHiddenTpoPct = DIYA.HIDDEN_TPO_PCT - buydown;  // e.g. 1.00 - 0.50 = 0.50
   var netHiddenTpoAdj = DIYA.tpo[netHiddenTpoPct.toFixed(2)] || 0;
-  // Hidden — not in adjs, applied silently
   var baseAdj = adjs.reduce(function(s,a){return s+(a.value||0);},0);
   var ratePass1 = baseRate + baseAdj + netHiddenTpoAdj;
 
@@ -1900,7 +1914,7 @@ function _generateRateSheetPDF(opts) {
   // ── LOAN DETAILS — two-column table ────────────────────────
   var ptLabel = {sfr:'Single Family','2-4':'2-4 Unit',nw_condo:'Non-Warrantable Condo',portfolio:'Portfolio'};
   var purposeLabel = {purchase:'Purchase',refi_rt:'Rate/Term Refi',refi_co:'Cash-Out Refi'};
-  var ppLabel = {'54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)'};
+  var ppLabel = {'5y6m':'5-Year / 6-Month (5Yr/6Mo)','54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)'};
 
   // Property Address now lives in the dark hero band above — no longer
   // included in the two-column details grid where it was getting truncated.
