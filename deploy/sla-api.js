@@ -585,6 +585,91 @@
       if (opts.complete) body.complete = true;
       return api('POST', '/api/borrower-info-save-auth', body);
     },
+    // Deploy 179: native e-sign. Submits the typed signature +
+    // consent. Server stores the signed PDF, emails the borrower,
+    // fires the auto-advance to In Processing. No auth (token only —
+    // the borrower is signing on their own behalf via the link).
+    sign: function (token, signerName, opts) {
+      opts = opts || {};
+      var body = {
+        t: token,
+        signerName: signerName,
+        consentAccepted: true,
+        consentVersion: opts.consentVersion,
+      };
+      if (opts.signerEmail) body.signerEmail = opts.signerEmail;
+      if (opts.geolocation) body.geolocation = opts.geolocation;
+      // No-auth call — bypasses the api() helper's token logic.
+      return fetch('/api/borrower-info-sign', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) {
+            var err = new Error(d.error || ('HTTP ' + r.status));
+            err.status = r.status; err.data = d;
+            throw err;
+          }
+          return d;
+        });
+      });
+    },
+  };
+
+  // Public consent fetcher — no auth, used by the borrower signing page
+  // to render the latest ESIGN/UETA consent text and version number.
+  var ESignConsent = {
+    fetch: function () {
+      return fetch('/api/esign-consent', { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); });
+    },
+  };
+
+  // LO-authed: download or read metadata for a signed loan application.
+  var SignedApplication = {
+    meta: function (clientId, loanId, opts) {
+      opts = opts || {};
+      var qs = '?clientId=' + encodeURIComponent(clientId)
+             + '&loanId=' + encodeURIComponent(loanId)
+             + '&meta=1';
+      if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
+      return api('GET', '/api/signed-application' + qs);
+    },
+    // Returns a download URL with auth-bearing query params injected.
+    // Simpler than streaming a Blob through JS: we open the URL with
+    // the JWT in an Authorization header via a fetch + temporary
+    // object URL, which kicks off the browser's native download.
+    download: function (clientId, loanId, opts) {
+      opts = opts || {};
+      var qs = '?clientId=' + encodeURIComponent(clientId)
+             + '&loanId=' + encodeURIComponent(loanId);
+      if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
+      return getToken().then(function (token) {
+        return fetch('/api/signed-application' + qs, {
+          headers: { 'Authorization': 'Bearer ' + token },
+        }).then(function (r) {
+          if (!r.ok) {
+            return r.json().catch(function () { return {}; }).then(function (d) {
+              throw new Error(d.error || 'Download failed (HTTP ' + r.status + ')');
+            });
+          }
+          return r.blob().then(function (blob) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            // pull suggested filename from Content-Disposition
+            var cd = r.headers.get('Content-Disposition') || '';
+            var m = /filename="([^"]+)"/.exec(cd);
+            a.download = m ? m[1] : 'SLA_Signed_Application.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+          });
+        });
+      });
+    },
   };
 
   // ── Reminders ───────────────────────────────────────────────────
@@ -667,6 +752,8 @@
     PandaDoc: PandaDoc,
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
+    ESignConsent: ESignConsent,
+    SignedApplication: SignedApplication,
     Reminders: Reminders,
     Search: Search,
     getRoles: getRoles,

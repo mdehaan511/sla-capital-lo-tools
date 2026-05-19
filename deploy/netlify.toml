@@ -277,6 +277,24 @@
   force = true
 
 [[redirects]]
+  from = "/api/borrower-info-sign"
+  to = "/.netlify/functions/borrower-info-sign"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/signed-application"
+  to = "/.netlify/functions/signed-application-get"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/esign-consent"
+  to = "/.netlify/functions/esign-consent"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-status"
   to = "/.netlify/functions/borrower-info-status"
   status = 200

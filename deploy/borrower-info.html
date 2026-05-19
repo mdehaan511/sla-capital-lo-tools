@@ -161,7 +161,7 @@ var REVIEW_MODE      = !TOKEN && !!REVIEW_CLIENT_ID;
 // and bypass the "completed → thank you screen" wall.
 var STATE = {
   page: 1,
-  totalPages: 4,
+  totalPages: 5,
   status: 'pending',
   data: {},
   prefill: {},
@@ -444,12 +444,20 @@ function showGate(title, message) {
     '<div class="gate"><h2>' + escH(title) + '</h2><p>' + escH(message) + '</p></div>';
 }
 
-function showComplete() {
+function showComplete(opts) {
+  opts = opts || {};
+  var heading = opts.signed ? 'Application signed' : 'Information submitted';
+  var body = opts.signed
+    ? ('Thank you. Your loan application has been electronically signed and sent to your loan officer. ' +
+       (opts.emailedBorrower
+         ? 'A copy has been emailed to you for your records.'
+         : 'A copy of the signed application is on file with your loan officer.'))
+    : 'Thank you. Your loan officer has been notified and will be in touch shortly. You can close this page.';
   document.getElementById('root').innerHTML =
     '<div class="complete-msg">' +
       '<div class="check"><svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M8 16l6 6 12-12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
-      '<h2>Information submitted</h2>' +
-      '<p>Thank you. Your loan officer has been notified and will be in touch shortly. You can close this page.</p>' +
+      '<h2>' + heading + '</h2>' +
+      '<p>' + body + '</p>' +
     '</div>';
 }
 
@@ -485,18 +493,18 @@ function renderApp() {
         '<div>' +
           (STATE.page < STATE.totalPages
             ? '<button class="btn primary" onclick="goNext()">Next →</button>'
-            // Deploy 173: in REVIEW_MODE the LO gets two buttons —
-            // "Save edits" for partial work, and "Submit on behalf of
-            // borrower" for the final completion event (which fires
-            // the auto-advance to APPROVED + property/loan field sync).
-            // For the borrower path it's a single Submit button.
+            // Deploy 173/179: at the LAST page in REVIEW_MODE (LO is
+            // filling on behalf of the borrower) we show the LO action
+            // buttons. For the BORROWER path on the last page we show
+            // NOTHING here — the inline signing UI on page 5 handles
+            // its own submit button so the LO/borrower paths can
+            // diverge cleanly.
             : (REVIEW_MODE
                 ? (STATE.reviewStatus === 'complete'
-                    // Already complete — show only Save (LO is correcting fields after submission)
                     ? '<button class="btn success" onclick="submitFinal()">Save edits</button>'
                     : '<button class="btn" onclick="submitFinal()" style="margin-right:8px">Save edits</button>' +
                       '<button class="btn success" onclick="submitOnBehalf()">Submit on behalf of borrower</button>')
-                : '<button class="btn success" onclick="submitFinal()">Submit information</button>'
+                : '' // borrower: page-5's own Sign Application button handles submit
               )
           ) +
         '</div>' +
@@ -504,6 +512,12 @@ function renderApp() {
     '</div>';
   document.getElementById('root').innerHTML = html;
   bindAutoSave();
+  // Deploy 179: fetch and paint the ESIGN consent text when the
+  // borrower lands on page 5. No-op in REVIEW_MODE (LO doesn't see
+  // the signing UI).
+  if (STATE.page === STATE.totalPages && !REVIEW_MODE) {
+    loadEsignConsent();
+  }
 }
 
 function pageTitleHtml() {
@@ -512,6 +526,7 @@ function pageTitleHtml() {
     2: 'Property',
     3: 'Loan Details',
     4: 'Vesting & Guarantors',
+    5: 'Review & Sign',
   };
   return '<span class="progress-step">' + escH(titles[STATE.page] || '') + '</span>';
 }
@@ -521,6 +536,7 @@ function renderPage() {
   if (STATE.page === 2) return renderPage2();
   if (STATE.page === 3) return renderPage3();
   if (STATE.page === 4) return renderPage4();
+  if (STATE.page === 5) return renderPage5();
   return '';
 }
 
@@ -941,6 +957,301 @@ function renderGuarantor(idx, label) {
 
   return html;
 }
+
+// ─────────────────────────────────────────────────────────
+// PAGE 5 — Review & E-Sign (Deploy 179)
+// Shows a read-only summary of everything the borrower entered, the
+// ESIGN/UETA consent fetched from /api/esign-consent, an explicit
+// consent checkbox, and a typed signature field. Submitting on this
+// page calls /api/borrower-info-sign which generates the signed PDF,
+// stamps the audit trail, emails the borrower a copy, and fires the
+// auto-advance to APPROVED. The LO review path (REVIEW_MODE) sees the
+// same read-only summary but without the signing UI — the LO uses the
+// footer buttons (Save edits / Submit on behalf) instead.
+// ─────────────────────────────────────────────────────────
+function renderPage5() {
+  var d = STATE.data || {};
+  var g = (d.guarantors && d.guarantors[0]) || {};
+  var g2 = (d.guarantors && d.guarantors[1]) || null;
+  var co = (d.companies && d.companies[0]) || null;
+
+  var html = '<h2 style="margin-bottom:8px">Review &amp; Sign</h2>' +
+    '<p class="hint" style="margin-bottom:24px">Please review the information you provided. ' +
+    'When everything looks correct, read the consent below and sign at the bottom of the page.</p>';
+
+  // Summary card — read-only display of what they entered
+  function row(label, value) {
+    if (!value && value !== 0) return '';
+    return '<div class="rv-row">' +
+             '<div class="rv-label">' + escH(label) + '</div>' +
+             '<div class="rv-value">' + escH(value) + '</div>' +
+           '</div>';
+  }
+
+  function summarySection(title, rows) {
+    var inner = rows.filter(function(r){return r;}).join('');
+    if (!inner) return '';
+    return '<div class="rv-section">' +
+             '<div class="rv-section-title">' + escH(title) + '</div>' +
+             inner +
+           '</div>';
+  }
+
+  var addrParts = [g.address, g.city, [g.state, g.zip].filter(Boolean).join(' ')].filter(Boolean);
+  var homeAddr = addrParts.join(', ');
+
+  html += '<style>' +
+    '.rv-section { background:#fff; border:1px solid var(--border, #E4DFD4); border-radius:8px; padding:18px 20px; margin-bottom:14px; }' +
+    '.rv-section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--gold, #C8813A); margin-bottom:10px; border-bottom:1px solid var(--gold-light, #F5E9D8); padding-bottom:6px; }' +
+    '.rv-row { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:5px 0; font-size:13px; }' +
+    '.rv-row:not(:last-child) { border-bottom:1px dotted #EFEAE0; }' +
+    '.rv-label { color:var(--muted, #7A7488); flex:0 0 40%; }' +
+    '.rv-value { color:var(--text, #1A1520); font-weight:500; text-align:right; flex:1; word-break:break-word; }' +
+    '.esign-consent-box { background:#fff; border:1px solid var(--border, #E4DFD4); border-radius:8px; padding:18px 22px; margin:18px 0; max-height:280px; overflow-y:auto; font-size:12px; line-height:1.55; white-space:pre-wrap; color:#1A1520; font-family:Georgia, serif; }' +
+    '.esign-checkbox-row { display:flex; gap:10px; align-items:flex-start; padding:14px 16px; background:var(--gold-light, #F5E9D8); border:1px solid var(--gold-border, #D4A572); border-radius:6px; margin-bottom:18px; }' +
+    '.esign-checkbox-row input[type="checkbox"] { margin-top:3px; flex-shrink:0; width:18px; height:18px; cursor:pointer; }' +
+    '.esign-checkbox-row label { font-size:13px; line-height:1.5; color:#1A1520; cursor:pointer; }' +
+    '.signature-block { background:#fff; border:2px solid var(--gold, #C8813A); border-radius:8px; padding:20px 22px; margin-bottom:18px; }' +
+    '.signature-block label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--gold, #C8813A); display:block; margin-bottom:8px; }' +
+    '.signature-block input { font-family:"Brush Script MT", "Lucida Handwriting", cursive; font-size:28px; padding:8px 12px; border:0; border-bottom:1.5px solid #888; width:100%; background:transparent; }' +
+    '.signature-block input:focus { outline:none; border-bottom-color:var(--gold, #C8813A); }' +
+    '.signature-block .signature-note { font-size:11px; color:var(--muted, #7A7488); margin-top:8px; line-height:1.4; }' +
+    '.sign-submit-btn { background:var(--gold, #C8813A); color:#fff; border:0; padding:14px 28px; font-size:15px; font-weight:600; border-radius:8px; cursor:pointer; width:100%; transition:all 0.15s; }' +
+    '.sign-submit-btn:hover:not(:disabled) { background:#a86b2f; }' +
+    '.sign-submit-btn:disabled { opacity:0.5; cursor:not-allowed; }' +
+    '</style>';
+
+  html += summarySection('Contact', [
+    row('Name',  ((g.firstName || d.borrowerFirstName || '') + ' ' + (g.lastName || d.borrowerLastName || '')).trim()),
+    row('Email', g.email || d.borrowerEmail || ''),
+    row('Phone', g.phone || d.borrowerPhone || ''),
+    row('Date of Birth', g.dob),
+    row('Marital Status', g.marital),
+    row('Estimated FICO', g.fico),
+    row('Home Address', homeAddr),
+  ]);
+
+  html += summarySection('Property', [
+    row('Address',       d.propertyAddress),
+    row('Property Type', d.propertyType),
+    row('Units',         d.numUnits),
+    row('Bedrooms',      d.bedrooms),
+    row('Bathrooms',     d.bathrooms),
+    row('Square Footage', d.sqft),
+    row('Flood Zone',    d.floodZone),
+  ]);
+
+  html += summarySection('Loan', [
+    row('Purpose',                d.dscrPurchaseRefi || d.purchaseOrRefi || d.loanPurpose),
+    row('Requested Loan Amount',  d.requestedLoanAmt || d.loanAmt),
+    row('Required Close Date',    d.dscrCloseDate || d.ffCloseDate),
+    row('Purchase Price',         d.purchasePrice),
+    row('After-Repair Value',     d.arv),
+    row('Rehab Budget',           d.renoCost),
+    row('Current Loan Balance',   d.currentLoanAmount || d.currentLoanAmt),
+    row('Current Market Value',   d.currentValue),
+    row('Current Monthly Rent',   d.currentRent),
+    row('Annual Property Taxes',  d.annualTaxes),
+    row('Annual Insurance',       d.annualInsurance),
+    row('Annual HOA',             d.annualHOA),
+    row('Project Description',    d.planDescription),
+    row('Exit Strategy',          d.exitStrategy),
+  ]);
+
+  if (g2) {
+    var g2Addr = [g2.address, g2.city, [g2.state, g2.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    html += summarySection('Co-Guarantor', [
+      row('Name',  ((g2.firstName || '') + ' ' + (g2.lastName || '')).trim()),
+      row('Email', g2.email),
+      row('Phone', g2.phone),
+      row('Date of Birth', g2.dob),
+      row('Home Address', g2Addr),
+    ]);
+  }
+
+  if (co && (co.name || co.ein)) {
+    var coAddr = [co.address, co.city, [co.addrState, co.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    html += summarySection('Vesting Entity', [
+      row('Entity Name',   co.name),
+      row('State',         co.state),
+      row('EIN',           co.ein),
+      row('Address',       coAddr),
+    ]);
+  }
+
+  // REVIEW_MODE (LO is filling on behalf): show summary only, hide
+  // consent + signature UI. LO uses footer buttons instead.
+  if (REVIEW_MODE) {
+    html += '<div style="background:var(--gold-light, #F5E9D8);border:1px solid var(--gold-border, #D4A572);border-radius:8px;padding:14px 18px;margin-top:10px;font-size:13px;line-height:1.5;color:#1A1520">' +
+      '<strong>Review mode.</strong> You\'re viewing this as the loan officer. ' +
+      'The borrower\'s e-signature is required to complete this application — use ' +
+      '<em>Submit on behalf of borrower</em> below only if you\'ve confirmed the information with them and they\'ve authorized you to submit.' +
+    '</div>';
+    return html;
+  }
+
+  // Borrower path: signing UI
+
+  // Pre-fill signer name from what they entered as borrower name
+  var defaultSignerName = ((g.firstName || d.borrowerFirstName || '') + ' ' + (g.lastName || d.borrowerLastName || '')).trim();
+
+  // Consent box — text gets populated from /api/esign-consent fetch
+  // when page 5 mounts. We start with a placeholder; loadEsignConsent()
+  // fills it in.
+  html += '<div class="rv-section" style="margin-top:20px">' +
+    '<div class="rv-section-title">Electronic Signature Consent</div>' +
+    '<div id="esignConsentBox" class="esign-consent-box">Loading consent text&hellip;</div>' +
+  '</div>';
+
+  html += '<div class="esign-checkbox-row">' +
+    '<input type="checkbox" id="esignConsentCheckbox" onchange="onEsignConsentChange()" />' +
+    '<label for="esignConsentCheckbox" id="esignCheckboxLabel">' +
+      'I have read and agree to the ESIGN/UETA Consent above.' +
+    '</label>' +
+  '</div>';
+
+  html += '<div class="signature-block">' +
+    '<label for="signerNameInput">Type your full legal name to sign</label>' +
+    '<input type="text" id="signerNameInput" value="' + escAttr(defaultSignerName) + '" ' +
+      'oninput="onSignerNameChange()" autocomplete="off" spellcheck="false" />' +
+    '<div class="signature-note">' +
+      'By typing your full legal name above and clicking <strong>Sign Application</strong>, ' +
+      'you are electronically signing this loan application. This signature has the same legal effect as a handwritten signature.' +
+    '</div>' +
+  '</div>';
+
+  html += '<button type="button" class="sign-submit-btn" id="signSubmitBtn" onclick="signApplication()" disabled>' +
+    'Sign Application' +
+  '</button>';
+
+  html += '<div id="signError" style="color:#9b1d20;font-size:13px;margin-top:14px;text-align:center;display:none"></div>';
+
+  return html;
+}
+
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Page 5 wiring (Deploy 179) ───────────────────────────
+var ESIGN_CONSENT_LOADED = null; // {version, text, checkboxLabel}
+
+function loadEsignConsent() {
+  if (ESIGN_CONSENT_LOADED) {
+    // Already cached — paint
+    paintEsignConsent();
+    return;
+  }
+  SLA.ESignConsent.fetch().then(function (r) {
+    ESIGN_CONSENT_LOADED = r;
+    paintEsignConsent();
+  }).catch(function (e) {
+    var box = document.getElementById('esignConsentBox');
+    if (box) box.textContent = 'Failed to load consent text. Please refresh the page.';
+  });
+}
+
+function paintEsignConsent() {
+  if (!ESIGN_CONSENT_LOADED) return;
+  var box = document.getElementById('esignConsentBox');
+  if (box) box.textContent = ESIGN_CONSENT_LOADED.text;
+  var lbl = document.getElementById('esignCheckboxLabel');
+  if (lbl && ESIGN_CONSENT_LOADED.checkboxLabel) lbl.textContent = ESIGN_CONSENT_LOADED.checkboxLabel;
+}
+
+function onEsignConsentChange() { updateSignSubmitState(); }
+function onSignerNameChange()   { updateSignSubmitState(); }
+
+function updateSignSubmitState() {
+  var btn = document.getElementById('signSubmitBtn');
+  if (!btn) return;
+  var consent = document.getElementById('esignConsentCheckbox');
+  var nameEl  = document.getElementById('signerNameInput');
+  var ok = consent && consent.checked && nameEl && nameEl.value.trim().length >= 3;
+  btn.disabled = !ok;
+}
+
+function signApplication() {
+  var btn = document.getElementById('signSubmitBtn');
+  var errEl = document.getElementById('signError');
+  var nameEl = document.getElementById('signerNameInput');
+  var consent = document.getElementById('esignConsentCheckbox');
+  errEl.style.display = 'none';
+  errEl.textContent = '';
+  if (!consent || !consent.checked) {
+    errEl.textContent = 'You must check the ESIGN/UETA consent box to sign.';
+    errEl.style.display = 'block';
+    return;
+  }
+  var signerName = nameEl.value.trim();
+  if (signerName.length < 3) {
+    errEl.textContent = 'Please type your full legal name to sign.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!ESIGN_CONSENT_LOADED || !ESIGN_CONSENT_LOADED.version) {
+    errEl.textContent = 'Consent text failed to load. Please refresh the page.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing\u2026';
+
+  // First, save the latest form data so the server has whatever's on
+  // screen before it generates the signed PDF. The auto-save in the
+  // form may not have caught the last edit.
+  var dataToSave = packDataForSave();
+  fetch('/api/borrower-info-save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ t: TOKEN, data: dataToSave }),
+  }).then(function () {
+    // Optional: capture coarse geolocation if the user permits. This is
+    // best-effort — many users will deny and that's fine. The audit
+    // trail records "geolocation: ''" in that case.
+    return new Promise(function (resolve) {
+      if (!navigator.geolocation) return resolve('');
+      var timed = false;
+      var to = setTimeout(function () { timed = true; resolve(''); }, 3000);
+      navigator.geolocation.getCurrentPosition(
+        function (pos) {
+          if (timed) return;
+          clearTimeout(to);
+          var g = pos.coords;
+          resolve(g.latitude.toFixed(4) + ',' + g.longitude.toFixed(4) +
+                  ' (\u00B1' + Math.round(g.accuracy || 0) + 'm)');
+        },
+        function () { clearTimeout(to); resolve(''); },
+        { enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }
+      );
+    });
+  }).then(function (geoloc) {
+    var opts = { consentVersion: ESIGN_CONSENT_LOADED.version };
+    if (geoloc) opts.geolocation = geoloc;
+    var emailEl = document.getElementById('signerEmailInput');
+    if (emailEl && emailEl.value) opts.signerEmail = emailEl.value;
+    return SLA.BorrowerInfo.sign(TOKEN, signerName, opts);
+  }).then(function (resp) {
+    // Successful sign — show the thank-you screen. showComplete()
+    // exists and is reused.
+    showComplete({
+      signed: true,
+      signedAt: resp.signedAt,
+      emailedBorrower: resp.emailedBorrower,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }).catch(function (err) {
+    btn.disabled = false;
+    btn.textContent = 'Sign Application';
+    var msg = (err && err.message) || 'Signing failed. Please try again.';
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+  });
+}
+
 
 // ─────────────────────────────────────────────────────────
 // Field render helper

@@ -763,10 +763,20 @@ function render() {
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3l11 0M2 8l11 0M2 13l8 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
     'Review Submitted Application' +
   '</button>';
-  html += '<button type="button" class="open-sizer-btn term-sheet-btn generate-app-btn" id="generateAppBtn" onclick="generateLoanApp()" disabled style="margin-top:8px">' +
-    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3" stroke="currentColor" stroke-width="1.5"/></svg>' +
-    'Generate Loan Application (DOCX)' +
+  // Deploy 179: replaced the "Generate Loan Application (DOCX)" button
+  // with a "Download Signed Application (PDF)" button. The application
+  // is now signed by the borrower inline during the long-form flow,
+  // and the signed PDF (with audit trail + ESIGN/UETA consent record)
+  // is stored when they sign. The button is hidden until a signed
+  // record exists for this loan — refreshSignedApplicationStatus()
+  // unhides it.
+  html += '<button type="button" class="open-sizer-btn term-sheet-btn" id="downloadSignedAppBtn" onclick="downloadSignedApp()" style="margin-top:8px;display:none">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M7 7v4m-2-2l2 2 2-2" stroke="currentColor" stroke-width="1.5"/></svg>' +
+    'Download Signed Application (PDF)' +
   '</button>';
+  // Small inline status under the button: signer name + signed-at + IP.
+  // Hidden by default until refreshSignedApplicationStatus() fills it.
+  html += '<div id="signedAppStatus" style="display:none;margin-top:10px;padding:10px 12px;background:#fff;border:1px solid var(--border, #E4DFD4);border-radius:6px;font-size:11.5px;line-height:1.5"></div>';
 
   // Deploy 167: manual "Move to In Processing" button. Visible only when
   // the loan is stuck in awaiting_app — i.e. the borrower has been sent
@@ -1985,11 +1995,16 @@ function refreshBorrowerInfoStatus() {
     if (!r) return;
     btn.classList.remove('complete','in-progress');
     var s = r.status;
-    var reviewBtn   = document.getElementById('reviewAppBtn');
-    var generateBtn = document.getElementById('generateAppBtn');
+    var reviewBtn = document.getElementById('reviewAppBtn');
     var canReview = (s === 'complete' || s === 'in_progress');
-    if (reviewBtn)   reviewBtn.disabled   = !canReview;
-    if (generateBtn) generateBtn.disabled = (s !== 'complete');
+    if (reviewBtn) reviewBtn.disabled = !canReview;
+    // Deploy 179: the old DOCX-generation button was removed; signing
+    // now happens inline in the borrower form and produces a signed
+    // PDF stored in the signed_applications blob store. Refresh that
+    // status whenever borrower-info status changes since the two are
+    // tightly coupled (a complete borrower-info record usually has a
+    // signed PDF too).
+    refreshSignedApplicationStatus();
     // Don't override the gated default state when nothing's happened yet
     if (s === 'complete') {
       btn.classList.add('complete');
@@ -2011,6 +2026,67 @@ function refreshBorrowerInfoStatus() {
       }
     }
   }).catch(function(){});
+}
+
+// ── Signed Application status + download (Deploy 179) ───────────
+// Fired alongside refreshBorrowerInfoStatus whenever the borrower-info
+// state changes. Hits /api/signed-application?meta=1 to see if a signed
+// PDF exists for this loan; if so unhides the download button and the
+// inline status pane showing signer name, signed-at, IP, seal validity.
+function refreshSignedApplicationStatus() {
+  if (!_client || !_loanId) return;
+  if (!window.SLA || !SLA.SignedApplication) return;
+  var btn = document.getElementById('downloadSignedAppBtn');
+  var pane = document.getElementById('signedAppStatus');
+  if (!btn || !pane) return;
+
+  var opts = {};
+  if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
+
+  SLA.SignedApplication.meta(_client.id, _loanId, opts).then(function(meta) {
+    if (!meta || !meta.audit) {
+      btn.style.display = 'none';
+      pane.style.display = 'none';
+      return;
+    }
+    btn.style.display = '';
+    pane.style.display = '';
+    var a = meta.audit;
+    var when = a.signedAt ? new Date(a.signedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'unknown';
+    var sealOK = meta.sealValid;
+    pane.innerHTML =
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><strong style="color:var(--success, #1F7A4A)">\u2713 Signed</strong>' +
+      (sealOK ? '<span style="font-size:10px;color:var(--muted,#7A7488)">audit seal verified</span>'
+              : '<span style="font-size:10px;color:#9b1d20;font-weight:600">audit seal INVALID</span>') +
+      '</div>' +
+      '<div><span style="color:var(--muted,#7A7488)">Signed by:</span> ' + escH(a.signerName || '') + '</div>' +
+      '<div><span style="color:var(--muted,#7A7488)">Signed at:</span> ' + escH(when) + '</div>' +
+      '<div><span style="color:var(--muted,#7A7488)">IP:</span> ' + escH(a.ipAddress || 'unavailable') + '</div>' +
+      (a.geolocation ? '<div><span style="color:var(--muted,#7A7488)">Location:</span> ' + escH(a.geolocation) + '</div>' : '') +
+      '<div><span style="color:var(--muted,#7A7488)">Consent version:</span> v' + escH(a.consentVersion || '?') + '</div>';
+  }).catch(function() {
+    // 404 means no signed record yet — keep things hidden
+    btn.style.display = 'none';
+    pane.style.display = 'none';
+  });
+}
+
+function downloadSignedApp() {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  var btn = document.getElementById('downloadSignedAppBtn');
+  var originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Downloading\u2026';
+  var opts = {};
+  if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
+  SLA.SignedApplication.download(_client.id, _loanId, opts).then(function() {
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+    showToast('Download failed: ' + ((err && err.message) || 'unknown'));
+  });
 }
 
 // Hook the status refresh into the existing render() call.
