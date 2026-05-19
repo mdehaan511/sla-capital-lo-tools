@@ -618,7 +618,7 @@ function renderPage2() {
       required: true,
       placeholder: '1234 Main St, Spokane, WA 99224',
       autocomplete: 'property',
-      hint: 'Start typing and select a suggestion. The full address will be saved as one line.',
+      hint: 'Start typing and pick a suggestion from the dropdown — the address must include city, state, and ZIP.',
     }) +
 
     field('floodZone', 'Is the property in a Flood Zone?', 'radio', {
@@ -859,7 +859,7 @@ function renderPage4() {
       field('llcAddress', 'Entity registered address', 'text', {
         autocomplete: 'llc',
         placeholder: '500 Main St, Spokane, WA 99201',
-        hint: 'Start typing and select a suggestion.',
+        hint: 'Start typing and pick a suggestion from the dropdown — the address must include city, state, and ZIP.',
       });
   }
 
@@ -922,7 +922,7 @@ function renderGuarantor(idx, label) {
       required: true,
       placeholder: '123 Main St, Spokane, WA 99224',
       autocomplete: 'guarantor:' + idx,
-      hint: 'Start typing and select a suggestion.',
+      hint: 'Start typing and pick a suggestion from the dropdown — the address must include city, state, and ZIP.',
     }) +
     '<div class="field-row">' +
       field(prefix + 'marital', 'Marital Status', 'radio', {
@@ -1249,6 +1249,43 @@ function signApplication() {
     errEl.textContent = 'Consent text failed to load. Please refresh the page.';
     errEl.style.display = 'block';
     return;
+  }
+
+  // Deploy 181: address completeness check. Both the property address
+  // and each guarantor home address must be full US addresses with a
+  // city, state, and ZIP — these are needed for the loan application
+  // PDF, the credit pull, and the title work. We use a permissive
+  // pattern (at least two commas + a 2-letter state + 5-digit ZIP),
+  // since that\u2019s what Google\u2019s formatted_address returns when the
+  // borrower picks an autocomplete suggestion. If the borrower typed
+  // a partial address without using the picker, we surface it here
+  // rather than after the signing event.
+  function looksLikeFullAddress(s) {
+    if (!s) return false;
+    // Tolerate trailing ", USA" if it slipped through
+    var v = String(s).trim().replace(/,\s*USA$/i, '');
+    // Must end with ST ZIP and have at least two commas before that
+    return /,\s*[^,]+,\s*[A-Z]{2}\s+\d{5}(-\d{4})?$/i.test(v);
+  }
+
+  var d = STATE.data;
+  if (!looksLikeFullAddress(d.propertyAddress)) {
+    errEl.innerHTML = 'The subject <strong>property address</strong> is incomplete. ' +
+      'Please go back to the Property page and select your address from the autocomplete dropdown so we capture the city, state, and ZIP.';
+    errEl.style.display = 'block';
+    return;
+  }
+  var guarantors = (d.guarantors || []);
+  for (var i = 0; i < guarantors.length; i++) {
+    var g = guarantors[i] || {};
+    if (!g.address && !d['g' + i + '_address']) continue; // skip empty (validation elsewhere)
+    var addr = g.address || d['g' + i + '_address'];
+    if (!looksLikeFullAddress(addr)) {
+      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s home address</strong> is incomplete. ' +
+        'Please go back to the Vesting & Guarantors page and select the address from the autocomplete dropdown so we capture the city, state, and ZIP.';
+      errEl.style.display = 'block';
+      return;
+    }
   }
 
   btn.disabled = true;

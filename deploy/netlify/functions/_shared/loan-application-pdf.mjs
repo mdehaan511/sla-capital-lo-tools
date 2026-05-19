@@ -165,80 +165,231 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         doc.y = Math.max(doc.y, yStart + 14);
       }
 
-      // ── BORROWER / GUARANTOR ─────────────────────────────────────
-      section('Primary Borrower / Guarantor');
-      row('Full name', `${g0.firstName || data.borrowerFirstName || ''} ${g0.lastName || data.borrowerLastName || ''}`.trim());
-      row('Email', g0.email || data.borrowerEmail || client && client.email || '');
-      row('Phone', g0.phone || data.borrowerPhone || client && client.phone || '');
-      row('Date of birth', g0.dob || '');
-      row('Estimated FICO', g0.fico || '');
-      row('Marital status', g0.marital || '');
-      row('US citizen', g0.usCitizen || '');
-      row('SSN', fmtSSN(g0.ssn));
-      row('Home address', fmtAddr({
-        street: g0.address, city: g0.city, state: g0.state, zip: g0.zip,
-      }));
-      row('Investment experience', `${g0.flips || 0} flips · ${g0.rentals || 0} rentals`);
+      // ── Label maps ──────────────────────────────────────────────
+      // Borrower form stores enum codes; the PDF shows human-readable
+      // labels matching the docx.
+      const LOAN_TYPE_LABEL = {
+        fix_flip:     'Fix and Flip Loan',
+        dscr:         'DSCR (Rental Purchase or Refi)',
+        dscr_2nd:     'DSCR 2nd Position',
+        construction: 'New Construction',
+      };
+      const PROPERTY_TYPE_LABEL = {
+        sfr:       'Single Family Home',
+        '2-4':     '2-4 Unit Residential',
+        mfr:       '5+ Unit Multifamily',
+        condo_w:   'Condo - Warrantable',
+        condo_nw:  'Condo - Non Warrantable',
+        portfolio: 'Portfolio (Multiple Properties)',
+        townhome:  'Townhome',
+        manuf:     'Manufactured Home',
+        rural:     'Rural (5+ Acres)',
+      };
+      const RENTAL_KIND_LABEL = {
+        ltr:   'Long Term Rental (6+ Month leases)',
+        str:   'Short Term Rental (AirBNB or leases under 6 months)',
+        other: 'Other',
+      };
+      const PURCHASE_REFI_LABEL = {
+        purchase:  'Purchase',
+        refinance: 'Refinance',
+      };
+      const YES_NO_LABEL = (v) => v === 'yes' ? 'Yes' : (v === 'no' ? 'No' : (v || ''));
+      const CAP1 = (s) => s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '';
+
+      // The form only collects a Number of Units field for propertyType
+      // '2-4' and 'mfr' (multifamily). For everything else the unit count
+      // is implicitly 1. The docx form always has a Number of Units
+      // value, so we resolve it here.
+      const MULTI_PROP_TYPES = new Set(['2-4', 'mfr']);
+      const resolvedNumUnits = MULTI_PROP_TYPES.has(data.propertyType)
+        ? (data.numUnits || '')
+        : '1';
+
+      const loanType = data.loanType || '';
+      const loanTypeLabel = LOAN_TYPE_LABEL[loanType] || loanType || '';
+      const propertyTypeLabel = PROPERTY_TYPE_LABEL[data.propertyType] || data.propertyType || '';
+
+      // The "Requested Loan Amount" field name varies by loan type
+      // because the form has separate per-loan-type input fields.
+      const requestedLoanAmt =
+        data.requestedLoanFF || data.requestedLoanDSCR || data.requestedLoanNC ||
+        data.requestedLoanAmt || data.loanAmt ||
+        (record.prefill && record.prefill.loanAmt) || '';
+
+      // The "Desired Closing Date" field also varies by loan type.
+      const desiredCloseDate = data.ffCloseDate || data.dscrCloseDate || data.ncCloseDate || '';
+
+      const isFF       = loanType === 'fix_flip';
+      const isDSCR     = loanType === 'dscr' || loanType === 'dscr_2nd';
+      const isPurchase = (data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose) === 'purchase';
+      const isRefi     = (data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose) === 'refinance';
+
+      // ── SECTION A: PERSONAL LOAN PROPOSAL & PROPERTY INFO ──────
+      // Matches the first table in the SLA Loan Application docx.
+      section('Personal Loan Proposal and Property Information');
+      row('Subject Property Address', data.propertyAddress
+        || (record.prefill && record.prefill.propertyAddress) || '');
+      row('Type of Loan Requested', loanTypeLabel);
+      row('Property Type', propertyTypeLabel);
+      row('Number of Units', resolvedNumUnits);
+      row('Purchase or Refinance?', PURCHASE_REFI_LABEL[data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose] || '');
+      row('Original Purchase Date (if Refi)', isRefi ? (data.originalPurchaseDate || '') : '');
+      row('Loan Term', loanTypeLabel);  // The docx labels this redundantly
+      row('Requested Loan Amount', fmtMoney(requestedLoanAmt));
+      row('Current Market Value (As Is)', fmtMoney(data.currentValue));
+      row('Desired Closing Date', desiredCloseDate);
       doc.moveDown(0.5);
 
-      if (g1) {
-        section('Co-Borrower / Guarantor');
-        row('Full name', `${g1.firstName || ''} ${g1.lastName || ''}`.trim());
-        row('Email', g1.email || '');
-        row('Phone', g1.phone || '');
-        row('Date of birth', g1.dob || '');
-        row('Estimated FICO', g1.fico || '');
-        row('Marital status', g1.marital || '');
-        row('US citizen', g1.usCitizen || '');
-        row('SSN', fmtSSN(g1.ssn));
-        row('Home address', fmtAddr({
-          street: g1.address, city: g1.city, state: g1.state, zip: g1.zip,
-        }));
-        row('Investment experience', `${g1.flips || 0} flips · ${g1.rentals || 0} rentals`);
+      // ── SECTION B: F&F questions ────────────────────────────────
+      if (isFF) {
+        section('Questions for Fix and Flip Loans');
+        row('Purchase Price', fmtMoney(data.purchasePrice));
+        row('Expected ARV', fmtMoney(data.arv));
+        row('Renovation Costs', fmtMoney(data.renoCost));
+        row('Exit Strategy', CAP1(data.exitStrategy));
+        row('Project Summary', data.planDescription || '');
         doc.moveDown(0.5);
       }
 
-      // ── PROPERTY & LOAN ─────────────────────────────────────────
-      section('Property & Loan');
-      row('Property address', data.propertyAddress || (record.prefill && record.prefill.propertyAddress) || '');
-      row('Property type', data.propertyType || '');
-      row('Number of units', data.numUnits || '');
-      row('Flood zone', data.floodZone || '');
-      row('Bedrooms', data.bedrooms || '');
-      row('Bathrooms', data.bathrooms || '');
-      row('Square footage', data.sqft || '');
-      const purpose = data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose || '';
-      row('Purchase or refinance', purpose);
-      row('Loan type', record.toolType || (record.prefill && record.prefill.toolType) || '');
-      row('Requested loan amount', fmtMoney(data.requestedLoanAmt || data.loanAmt || (record.prefill && record.prefill.loanAmt)));
-      row('Required close date', data.dscrCloseDate || data.ffCloseDate || '');
-      if (data.purchasePrice)        row('Purchase price',     fmtMoney(data.purchasePrice));
-      if (data.arv)                  row('After-repair value', fmtMoney(data.arv));
-      if (data.renoCost)             row('Rehab budget',       fmtMoney(data.renoCost));
-      if (data.currentLoanAmount || data.currentLoanAmt) {
-        row('Current loan balance', fmtMoney(data.currentLoanAmount || data.currentLoanAmt));
+      // ── SECTION C: DSCR questions ────────────────────────────────
+      if (isDSCR) {
+        section('Questions for DSCR Loans');
+        row('What kind of rental is this?', RENTAL_KIND_LABEL[data.rentalKind] || '');
+        row('Property currently leased?', YES_NO_LABEL(data.allRented));
+        row('How long is the current lease?', data.leaseLength || '');  // not collected by current form
+        row('Monthly Rent (or Market Rent if vacant)', fmtMoney(data.currentRent));
+        row('Annual Property Taxes', fmtMoney(data.annualTaxes));
+        row('Annual Insurance Premium', fmtMoney(data.annualInsurance));
+        row('HOA Dues (If Applicable)', fmtMoney(data.annualHOA));
+        row('Property in a Flood Zone?', CAP1(data.floodZone));
+        doc.moveDown(0.5);
+      } else {
+        // Non-DSCR: still surface flood zone since the docx asks it
+        // outside the DSCR-only table for some loan types
+        if (data.floodZone) {
+          section('Additional Property Info');
+          row('Property in a Flood Zone?', CAP1(data.floodZone));
+          if (data.bedrooms)  row('Number of Bedrooms', data.bedrooms);
+          if (data.bathrooms) row('Number of Bathrooms', data.bathrooms);
+          if (data.sqft)      row('Square Footage', data.sqft);
+          doc.moveDown(0.5);
+        }
       }
-      if (data.currentValue)         row('Current market value', fmtMoney(data.currentValue));
-      if (data.currentRent)          row('Current monthly rent', fmtMoney(data.currentRent));
-      if (data.annualTaxes)          row('Annual property taxes', fmtMoney(data.annualTaxes));
-      if (data.annualInsurance)      row('Annual insurance',     fmtMoney(data.annualInsurance));
-      if (data.annualHOA)            row('Annual HOA',           fmtMoney(data.annualHOA));
-      if (data.planDescription)      row('Project / plan',       data.planDescription);
-      if (data.exitStrategy)         row('Exit strategy',        data.exitStrategy);
-      if (data.originalPurchaseDate) row('Original purchase date', data.originalPurchaseDate);
-      doc.moveDown(0.5);
 
-      // ── ENTITY / VESTING ────────────────────────────────────────
-      if (co0 && (co0.name || co0.ein)) {
-        section('Vesting Entity');
-        row('Entity name', co0.name || '');
-        row('State of formation', co0.state || '');
-        row('EIN', co0.ein || '');
-        row('Registered address', fmtAddr({
-          street: co0.address, city: co0.city, state: co0.addrState, zip: co0.zip,
-        }));
+      // ── SECTION D: Guarantor Information ────────────────────────
+      function renderGuarantorBlock(g, label) {
+        if (!g) return;
+        section(label);
+        row('Full Legal Name', `${g.firstName || ''} ${g.lastName || ''}`.trim());
+        row('Date of Birth', g.dob || '');
+        row('Social Security Number', fmtSSN(g.ssn));
+        row('Estimated Credit Score', g.fico || '');
+        row('Email Address', g.email || '');
+        row('Phone Number', g.phone || '');
+        row('Home Address', g.address || '');
+        row('At this address 2+ years?', g.twoYearAddress || ''); // not collected today
+        row('Mailing Address (if different)', g.mailingAddress || ''); // not collected today
+        row('Marital Status', CAP1(g.marital));
+        // Experience (form-specific; not in docx but useful)
+        const expBits = [];
+        if (g.flips != null && g.flips !== '')   expBits.push(`${g.flips} flips`);
+        if (g.rentals != null && g.rentals !== '') expBits.push(`${g.rentals} rentals`);
+        if (expBits.length) row('Investment Experience', expBits.join(' · '));
         doc.moveDown(0.5);
       }
+      renderGuarantorBlock(g0, 'Guarantor 1');
+      if (g1) renderGuarantorBlock(g1, 'Guarantor 2');
+
+      // ── SECTION E: Entity Information ────────────────────────────
+      // The borrower form stores LLC info as flat top-level fields
+      // (llcName, llcEIN, llcState, llcAddress) — not nested under
+      // companies[]. Render whichever shape we find.
+      const llcName    = data.llcName    || (co0 && co0.name)     || '';
+      const llcEIN     = data.llcEIN     || (co0 && co0.ein)      || '';
+      const llcState   = data.llcState   || (co0 && co0.state)    || '';
+      const llcAddress = data.llcAddress || (co0 && co0.address)  || '';
+      if (llcName || llcEIN || llcState || llcAddress) {
+        section('Entity Information');
+        row('Vesting Entity Name', llcName);
+        row('Vesting Entity EIN', llcEIN);
+        row('State Entity is Registered In', llcState);
+        row('Vesting Entity Address', llcAddress);
+        row('Guarantor 1 % Ownership', data.g0Ownership || '');  // not collected today
+        row('Guarantor 2 % Ownership', data.g1Ownership || '');  // not collected today
+        doc.moveDown(0.5);
+      }
+
+      // ── SECTION F: Declarations ──────────────────────────────────
+      // Mirrors the docx Declarations table: rows are questions,
+      // columns are Guarantor 1 and Guarantor 2 (if present).
+      function declarationsTable() {
+        if (doc.y > doc.page.height - 200) doc.addPage();
+        section('Declarations');
+
+        const hasG2 = !!g1;
+        const colWidths = hasG2 ? [340, 75, 75] : [415, 75];
+        const startX = 54;
+        const tableW = colWidths.reduce((a, b) => a + b, 0);
+        const declarations = [
+          ['Are you a US Citizen?',                                                                                  'usCitizen'],
+          ['Have you been declared bankrupt in the past 7 years?',                                                   'bankruptcy7yr'],
+          ['Have you had a property foreclosed upon or given title or deed lieu thereof in the last 7 years?',       'foreclosure7yr'],
+          ['Are you a party to a lawsuit?',                                                                          'partyToLawsuit'],
+          ['Are you presently delinquent or in default on any Federal debt or any other loan or mortgage?',          'delinquentFederalDebt'],
+          ['Have you directly or indirectly been obligated on any loan which resulted in foreclosure?',              'obligatedToForeclosed'],
+          ['Are there any outstanding judgments against you?',                                                       'outstandingJudgments'],
+          ['Do you intend to occupy the subject property?',                                                          'intendToOccupy'],
+        ];
+
+        // Header row
+        const headerY = doc.y;
+        doc.rect(startX, headerY, tableW, 18).fill(GOLD_LIGHT);
+        doc.fillColor(TEXT).font('Helvetica-Bold').fontSize(8.5)
+          .text('', startX + 6, headerY + 5, { width: colWidths[0] - 12 });
+        doc.text('Guarantor 1', startX + colWidths[0] + 6, headerY + 5,
+                 { width: colWidths[1] - 12, align: 'center' });
+        if (hasG2) {
+          doc.text('Guarantor 2', startX + colWidths[0] + colWidths[1] + 6, headerY + 5,
+                   { width: colWidths[2] - 12, align: 'center' });
+        }
+        doc.y = headerY + 18;
+
+        declarations.forEach((d, i) => {
+          if (doc.y > doc.page.height - 60) {
+            doc.addPage();
+          }
+          const rowY = doc.y;
+          // Estimate row height based on question wrap
+          const questionH = doc.heightOfString(d[0], { width: colWidths[0] - 12, fontSize: 8 });
+          const rowH = Math.max(20, questionH + 8);
+          // Alternating background
+          if (i % 2 === 0) {
+            doc.rect(startX, rowY, tableW, rowH).fill('#FAF8F3');
+          }
+          // Cell borders
+          doc.strokeColor(BORDER).lineWidth(0.4)
+            .rect(startX, rowY, colWidths[0], rowH).stroke()
+            .rect(startX + colWidths[0], rowY, colWidths[1], rowH).stroke();
+          if (hasG2) {
+            doc.rect(startX + colWidths[0] + colWidths[1], rowY, colWidths[2], rowH).stroke();
+          }
+          doc.fillColor(TEXT).font('Helvetica').fontSize(8)
+            .text(d[0], startX + 6, rowY + 5, { width: colWidths[0] - 12 });
+          doc.font('Helvetica-Bold').fontSize(9.5)
+            .text(YES_NO_LABEL(g0[d[1]]) || '\u2014',
+                  startX + colWidths[0], rowY + (rowH / 2) - 5,
+                  { width: colWidths[1], align: 'center' });
+          if (hasG2) {
+            doc.text(YES_NO_LABEL(g1[d[1]]) || '\u2014',
+                     startX + colWidths[0] + colWidths[1], rowY + (rowH / 2) - 5,
+                     { width: colWidths[2], align: 'center' });
+          }
+          doc.y = rowY + rowH;
+        });
+        doc.moveDown(0.5);
+      }
+      declarationsTable();
 
       // ─────────────────────────────────────────────────────────
       // SIGNATURE BLOCK + AUDIT HELPERS (used per-signer below)
