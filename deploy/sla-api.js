@@ -488,8 +488,46 @@
       return api('POST', '/api/profile-ping', {})
         .catch(function () { /* silent */ });
     },
+    // Update the authenticated user's profile. Two-step (Deploy 178):
+    //   1. Write user_metadata directly via gotrue's currentUser.update().
+    //      Users are allowed to write their own user_metadata, no admin
+    //      token needed. (gotrue's `data` field IS user_metadata — a
+    //      naming quirk of the library.) This is the source of truth
+    //      that admin views via the Identity API will see.
+    //   2. Mirror to our profiles blob store so SLA pages reading
+    //      from blobs reflect the change immediately. Non-blocking:
+    //      if the mirror fails the user_metadata write still landed
+    //      and they'll see their data correctly.
+    //
+    // Pre-Deploy-178 we routed the user_metadata write through a
+    // serverless function that called the Identity admin API. That
+    // path was fragile (short-lived admin tokens often arrived
+    // expired; misconfigured NETLIFY_AUTH_TOKEN gave "invalid number
+    // of segments" errors). Doing it client-side is simpler and more
+    // reliable for the user's OWN profile.
     update: function (fields) {
-      return api('POST', '/api/profile-update', fields || {});
+      fields = fields || {};
+      var u = window.netlifyIdentity && window.netlifyIdentity.currentUser
+        ? window.netlifyIdentity.currentUser() : null;
+      if (!u) return Promise.reject(new Error('Not signed in'));
+
+      // Translate our field names to gotrue's user_metadata keys.
+      var meta = {};
+      if (typeof fields.fullName === 'string') meta.full_name = fields.fullName;
+      if (typeof fields.phone    === 'string') meta.phone     = fields.phone;
+
+      // gotrue's `data` is user_metadata. It merges shallowly so other
+      // user_metadata keys (e.g. set by another flow) survive.
+      return u.update({ data: meta }).then(function () {
+        // Mirror to our blob store. If this fails the toast still says
+        // "Saved" because the user_metadata write succeeded — that's the
+        // canonical record. Admin views that read from the blob will
+        // catch up on the next mirror.
+        return api('POST', '/api/profile-update', fields).catch(function (e) {
+          console.warn('SLA.Profile.update: mirror to blob failed (user_metadata still saved):', e && e.message);
+          return { ok: true, mirrorFailed: true };
+        });
+      });
     },
   };
 

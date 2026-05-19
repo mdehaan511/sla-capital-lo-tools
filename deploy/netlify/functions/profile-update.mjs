@@ -1,10 +1,25 @@
 /**
  * profile-update.mjs — POST /api/profile-update
  *
- * Update the authenticated user's own profile fields (full_name, phone).
- * Writes to Netlify Identity user_metadata via the admin API
- * (NETLIFY_AUTH_TOKEN required), then mirrors to our `profiles` Blobs
- * store so other pages see the new values immediately.
+ * Mirrors the authenticated user's profile fields (fullName, phone) to
+ * our `profiles` blob store so admin views see them. The user's actual
+ * user_metadata on Netlify Identity is updated client-side directly via
+ * netlifyIdentity.currentUser().update({ data: {...} }) — see
+ * SLA.Profile.update in sla-api.js. The client write doesn't need an
+ * admin token (users can write their own user_metadata via the gotrue
+ * API), so this endpoint is the simpler "mirror to blob" half.
+ *
+ * Pre-Deploy-178: we ALSO called the Identity admin API from here using
+ * either context.clientContext.identity.token or NETLIFY_AUTH_TOKEN to
+ * write user_metadata server-side. That path was fragile: the
+ * clientContext admin token is short-lived and often arrives expired in
+ * function invocations (well-documented Netlify issue), and a manually
+ * set NETLIFY_AUTH_TOKEN is a PAT (opaque string), not a JWT — the
+ * Identity API rejects it with "Invalid token: token contains an
+ * invalid number of segments" since a PAT has no dot-separated
+ * segments. Both failure modes blocked users (including new signups)
+ * from saving their profile. Moving the user_metadata write client-
+ * side bypasses both problems entirely.
  *
  * Body: { fullName?, phone? }
  */
@@ -32,52 +47,6 @@ export default async (req, context) => {
     return json(400, { error: 'Nothing to update' });
   }
 
-  // Resolve Identity admin URL + token
-  let identityUrl = '';
-  let identityToken = '';
-  const cc = context && context.clientContext;
-  if (cc && cc.identity && cc.identity.url && cc.identity.token) {
-    identityUrl = cc.identity.url;
-    identityToken = cc.identity.token;
-  } else if (process.env.NETLIFY_AUTH_TOKEN && process.env.URL) {
-    identityUrl = process.env.URL.replace(/\/$/, '') + '/.netlify/identity';
-    identityToken = process.env.NETLIFY_AUTH_TOKEN;
-  } else {
-    return json(500, { error: 'Identity admin token not configured (set NETLIFY_AUTH_TOKEN env var)' });
-  }
-
-  // PUT to Identity admin to merge user_metadata
-  try {
-    // First fetch current user_metadata so we don't clobber other fields
-    const getResp = await fetch(`${identityUrl}/admin/users/${encodeURIComponent(user.sub)}`, {
-      headers: { Authorization: `Bearer ${identityToken}` },
-    });
-    let currentMeta = (user.user_metadata || {});
-    if (getResp.ok) {
-      const currentUser = await getResp.json();
-      if (currentUser && currentUser.user_metadata) currentMeta = currentUser.user_metadata;
-    }
-
-    const merged = Object.assign({}, currentMeta, updates);
-
-    const putResp = await fetch(`${identityUrl}/admin/users/${encodeURIComponent(user.sub)}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${identityToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ user_metadata: merged }),
-    });
-
-    if (!putResp.ok) {
-      const txt = await putResp.text().catch(() => '');
-      return json(putResp.status, { error: `Identity API ${putResp.status}: ${txt.slice(0, 200)}` });
-    }
-  } catch (e) {
-    console.error('profile-update identity write failed:', e);
-    return json(500, { error: 'Failed to update Identity profile' });
-  }
-
   // Mirror to profiles store so other pages reflect the change immediately
   try {
     const store = getStore({ name: 'profiles', consistency: 'strong' });
@@ -96,7 +65,8 @@ export default async (req, context) => {
     profile.last_seen_at = new Date().toISOString();
     await store.setJSON(profileKey, profile);
   } catch (e) {
-    console.warn('profile-update mirror failed (non-fatal):', e);
+    console.warn('profile-update mirror failed:', e);
+    return json(500, { error: 'Failed to save profile' });
   }
 
   return json(200, { ok: true, updated: updates });
