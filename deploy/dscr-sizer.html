@@ -23,11 +23,11 @@
   // `ownerOverride` (optional): used by sizer when admin opens another
   // LO's quote, so the upsert targets that LO's owner key.
   upsert: function(loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride) {
-    if (!borrowerEmail) return;
-    if (window.SLA && SLA.Clients && SLA.Clients.upsert) {
-      SLA.Clients.upsert(loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride)
-        .catch(function(err) { console.warn('ClientBook.upsert backend failed:', err); });
-    }
+    if (!borrowerEmail) return Promise.resolve(null);
+    if (!(window.SLA && SLA.Clients && SLA.Clients.upsert)) return Promise.resolve(null);
+    // Deploy 187 (bug 2 fix v3): see rtl-sizer.html for rationale.
+    // Return the promise so the caller can await + surface errors.
+    return SLA.Clients.upsert(loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride);
   },
 
   // Build a loan record from sizer formData + empty app fields
@@ -233,6 +233,7 @@
     .dl-btn:hover { background: var(--gold-mid); }
     .save-btn:disabled, .save-btn.save-disabled { background: rgba(120,116,136,0.18); color: var(--muted); cursor: not-allowed; border-color: var(--border); }
     .save-btn:disabled:hover, .save-btn.save-disabled:hover { background: rgba(120,116,136,0.18); color: var(--muted); }
+    .save-btn.save-failed { background: rgba(124,31,31,0.10); color: var(--danger); border-color: var(--danger); }
     .fees-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 14px 18px; margin-top: 16px; }
     .fees-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
     .fees-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; color: var(--text); font-family: 'DM Mono', monospace; }
@@ -2802,6 +2803,36 @@ function saveCurrentQuote() {
   QuoteStore.saveQuote(_quoteUser, 'dscr', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
   // Always upsert into ClientBook when email is provided
+  // Deploy 188 (bug 2 fix v3): success toast + button-flash now only
+  // fire AFTER the backend upsert resolves. See rtl-sizer.html for
+  // the full rationale.
+  var addrForToast = formData.address || formData.borrower;
+  var btn = document.getElementById('saveQuoteBtn');
+  function showSuccess() {
+    if (btn) {
+      btn.textContent = '\u2713 Saved';
+      btn.classList.add('saved');
+      setTimeout(function() {
+        btn.textContent = '\u2605 Save Quote';
+        btn.classList.remove('saved');
+      }, 2500);
+    }
+    showToast('Quote saved \u2014 ' + addrForToast);
+  }
+  function showFailure(err) {
+    console.error('[SLA] Quote save failed:', err);
+    var msg = (err && err.message) || 'unknown error';
+    if (btn) {
+      btn.textContent = '\u26A0 Save failed';
+      btn.classList.add('save-failed');
+      setTimeout(function() {
+        btn.textContent = '\u2605 Save Quote';
+        btn.classList.remove('save-failed');
+      }, 4000);
+    }
+    showToast('Save failed: ' + msg + ' (see console)');
+  }
+
   if (window.ClientBook && formData.borrowerEmail) {
     var loanRecord = ClientBook.buildLoanFromSizer('dscr', formData.address, formData, 'active');
     var nameParts = (formData.borrower || '').trim().split(' ');
@@ -2818,11 +2849,31 @@ function saveCurrentQuote() {
     if (window._editingLoanId) {
       loanRecord._editingLoanId = window._editingLoanId;
     }
+    console.log('[SLA] DSCR save \u2192 upsert:', {
+      loanId: window._editingLoanId || '(none, will address-match)',
+      rate: loanRecord.rate, points: loanRecord.points,
+      address: loanRecord.address, email: formData.borrowerEmail,
+    });
     ClientBook.upsert(_quoteUser, formData.borrowerEmail,
       nameParts.slice(0,-1).join(' ') || nameParts[0] || '',
       nameParts.length > 1 ? nameParts[nameParts.length-1] : '',
-      formData.borrowerPhone || '', loanRecord, ownerOvr);
-    window._originalAddress = formData.address; // update for subsequent saves
+      formData.borrowerPhone || '', loanRecord, ownerOvr)
+      .then(function(resp) {
+        console.log('[SLA] DSCR upsert ok:', resp);
+        window._originalAddress = formData.address;
+        showSuccess();
+      })
+      .catch(showFailure);
+  } else if (!formData.borrowerEmail) {
+    console.warn('[SLA] DSCR save: no borrowerEmail, skipping ClientBook upsert');
+    showToast('Quote saved locally, but no borrower email \u2014 won\u2019t appear in Loan Details until email is added.');
+    if (btn) {
+      btn.textContent = '\u2713 Saved (local)';
+      btn.classList.add('saved');
+      setTimeout(function() { btn.textContent = '\u2605 Save Quote'; btn.classList.remove('saved'); }, 2500);
+    }
+  } else {
+    showSuccess();
   }
 
   // Promote prospect to Book of Clients if this came from a prospect form.
@@ -2834,19 +2885,6 @@ function saveCurrentQuote() {
     window._currentProspect = null;
     try { localStorage.removeItem('sla_prefill_prospect'); } catch(e){}
   }
-
-  // Visual feedback on button
-  var btn = document.getElementById('saveQuoteBtn');
-  if (btn) {
-    btn.textContent = '✓ Saved';
-    btn.classList.add('saved');
-    setTimeout(function() {
-      btn.textContent = '★ Save Quote';
-      btn.classList.remove('saved');
-    }, 2500);
-  }
-
-  showToast('Quote saved — ' + (formData.address || formData.borrower));
 }
 
 function loadQuoteIntoForm(formData) {
