@@ -2119,13 +2119,25 @@ function rtlAllRequiredFilled() {
     }
     return true;
   }
+  // Deploy 187 (bug 2 fix): refis (cashout / rateterm) hide the ARV and
+  // Rehab Budget inputs entirely \u2014 those fields are irrelevant when
+  // refinancing an existing property at as-is value. Without this skip
+  // the Save button stays permanently disabled on refis (which the LO
+  // reads as "Save isn\u2019t working" \u2014 nothing happens on click). The
+  // calculate() validate() path already correctly skips these for
+  // refis; this helper just needed the same logic to match.
+  var purpEl = document.getElementById('loanPurpose');
+  var isRefi = purpEl && (purpEl.value === 'cashout' || purpEl.value === 'rateterm');
   for (var i = 0; i < RTL_REQUIRED.length; i++) {
     var el = document.getElementById(RTL_REQUIRED[i]);
     if (!el) continue; // skip fields that don't exist on this variant
-    // Rehab budget is only required for non-bridge loans
+    // ARV is hidden for refis (no rehab math, LTV against as-is value)
+    if (RTL_REQUIRED[i] === 'arv' && isRefi) continue;
+    // Rehab budget: not required for bridge loans, not required for refis
     if (RTL_REQUIRED[i] === 'rehabBudget') {
       var lt = document.getElementById('loanType');
       if (lt && lt.value === 'bridge') continue;
+      if (isRefi) continue;
     }
     if (!String(el.value || '').trim()) return false;
   }

@@ -190,27 +190,24 @@
         var full = String(place.formatted_address || '').replace(/,\s*USA$/i, '');
         el.value = full;
       }
-      el.dispatchEvent(new Event('input',  { bubbles: true }));
+      // Deploy 186 (bug 4 fix v2): only fire the `change` event on the
+      // autocomplete input, NOT `input`. Google Places treats `input`
+      // events as "user is typing" and triggers a new query, which
+      // re-shows the dropdown — defeating any attempt to hide it. The
+      // `change` event is enough to trigger our onFieldChange handler
+      // (it listens to both). Companion fields still get both events
+      // since they\u2019re not bound to autocomplete.
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      // Deploy 186 (bug 4 fix): Google Places only auto-hides the
-      // pac-container dropdown on blur, but after a place is selected
-      // the input remains focused. On forms where the user might keep
-      // typing in the same field, the dropdown stays open showing the
-      // OLD suggestions \u2014 confusing UX. Explicitly close any visible
-      // .pac-container after a successful pick. We avoid blur()ing the
-      // input itself (some browsers focus the next form field on blur,
-      // which would be disorienting); instead we hide pac-containers
-      // via the official approach: display:none on the visible ones.
-      setTimeout(function() {
-        var containers = document.querySelectorAll('.pac-container');
-        containers.forEach(function(c) {
-          if (c.style.display !== 'none') {
-            c.style.display = 'none';
-            // Re-show next time the user focuses an autocomplete input.
-            // Google will set display:'' itself on next keystroke.
-          }
-        });
-      }, 0);
+      // Hide the pac-container immediately. Google may try to re-show
+      // on future keystrokes; that\u2019s desired behavior. We just want
+      // to suppress the lingering dropdown right after a successful
+      // pick when the user is moving on to the next field.
+      var pacs = document.querySelectorAll('.pac-container');
+      pacs.forEach(function(c) { c.style.display = 'none'; });
+      // Belt-and-suspenders: blur the input so Google\u2019s own hide-on-
+      // blur logic fires. Refocus on the NEXT input via tab-order is
+      // handled by the form, not us.
+      try { el.blur(); } catch (_) {}
     });
   }
 
@@ -280,6 +277,29 @@
     injectPacStyles();
     bindRoot(document);
     loadMapsIfNeeded(function() { bindRoot(document); });
+
+    // Deploy 186 (bug 4 fix v3): document-level click handler that
+    // hides any visible .pac-container whenever the user clicks
+    // anything that ISN\u2019T an autocomplete input or inside a
+    // pac-item. Belt-and-suspenders \u2014 covers cases where Google\u2019s
+    // own hide-on-blur logic doesn\u2019t fire (e.g. user picks via mouse
+    // and the input never blurs because the click was on the
+    // pac-item, not anywhere else). Runs on capture so we intercept
+    // before any other click handler.
+    document.addEventListener('click', function(e) {
+      var t = e.target;
+      // If the click is inside a pac-item, Google will handle it
+      // (selecting the suggestion and triggering place_changed which
+      // does its own hide). Don\u2019t interfere.
+      if (t && t.closest && t.closest('.pac-container')) return;
+      // If the click is on an autocomplete input, the user is
+      // re-engaging \u2014 leave the dropdown alone.
+      if (t && t.tagName === 'INPUT' && t.hasAttribute &&
+          t.hasAttribute('data-sla-autocomplete')) return;
+      // Otherwise hide all visible pac-containers.
+      var pacs = document.querySelectorAll('.pac-container');
+      pacs.forEach(function(c) { c.style.display = 'none'; });
+    }, true);
   }
 
   if (document.readyState === 'loading') {
