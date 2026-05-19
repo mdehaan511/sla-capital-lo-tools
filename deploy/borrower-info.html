@@ -521,9 +521,19 @@ function renderApp() {
     '</div>';
   document.getElementById('root').innerHTML = html;
   bindAutoSave();
+  // Deploy 182: re-run sla-forms.js bindings on every render so dynamic
+  // inputs created by goNext()/goPrev() get the Google Places
+  // Autocomplete attached + money/phone/SSN/EIN masks re-applied. The
+  // initial bindRoot() at boot only sees inputs that exist at boot
+  // time, which on this form is just page 1\u2019s inputs — every other
+  // page\u2019s autocomplete fields would never bind without this. The
+  // address validator at sign time rejects partial addresses, so a
+  // missing autocomplete on page 2/4 becomes a hard submit blocker.
+  if (window.SLAForms && SLAForms.reformatExisting) {
+    SLAForms.reformatExisting(document);
+  }
   // Deploy 179: fetch and paint the ESIGN consent text when the
-  // borrower lands on page 5. No-op in REVIEW_MODE (LO doesn't see
-  // the signing UI).
+  // borrower lands on page 5. No-op in REVIEW_MODE.
   if (STATE.page === STATE.totalPages && !REVIEW_MODE) {
     loadEsignConsent();
   }
@@ -749,6 +759,21 @@ function renderPage3() {
           onchange: 'render()',
           options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
         });
+      if (d.allRented === 'yes') {
+        // Lease length only matters when there\u2019s a lease in place.
+        // Deploy 182.
+        html += field('leaseLength', 'How long is the current lease?', 'select', {
+          required: true,
+          options: [
+            { v: '',           l: '\u2014 Select \u2014' },
+            { v: 'month',      l: 'Month-to-month' },
+            { v: '6mo',        l: '6 months' },
+            { v: '12mo',       l: '12 months' },
+            { v: '24mo_plus',  l: '24 months or longer' },
+            { v: 'other',      l: 'Other' },
+          ],
+        });
+      }
       if (d.allRented === 'no') {
         html += field('emptyUnits', 'How many units are currently empty?', 'number', { required: true });
       }
@@ -924,6 +949,36 @@ function renderGuarantor(idx, label) {
       autocomplete: 'guarantor:' + idx,
       hint: 'Start typing and pick a suggestion from the dropdown — the address must include city, state, and ZIP.',
     }) +
+    // Deploy 182: 2-year address residency question. If "no", capture
+    // the previous address. The "Address must include city, state, ZIP"
+    // hint applies here too since we'll need it for the loan app.
+    field(prefix + 'twoYearAddress', 'Have you lived at this address for 2 or more years?', 'radio', {
+      required: true,
+      onchange: 'render()',
+      options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+    }) +
+    (d[prefix + 'twoYearAddress'] === 'no'
+      ? field(prefix + 'prevAddress', 'Previous home address', 'text', {
+          required: true,
+          placeholder: '456 Old St, Spokane, WA 99224',
+          autocomplete: 'guarantor:' + idx + ':prev',
+          hint: 'Where you lived before your current address. Pick from the autocomplete dropdown so we capture city, state, and ZIP.',
+        })
+      : '') +
+    // Mailing address (if different from home).
+    field(prefix + 'mailingSameAsHome', 'Mailing address same as home address?', 'radio', {
+      required: true,
+      onchange: 'render()',
+      options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+    }) +
+    (d[prefix + 'mailingSameAsHome'] === 'no'
+      ? field(prefix + 'mailingAddress', 'Mailing address', 'text', {
+          required: true,
+          placeholder: '789 PO Box, Spokane, WA 99224',
+          autocomplete: 'guarantor:' + idx + ':mail',
+          hint: 'Pick from the autocomplete dropdown so we capture city, state, and ZIP.',
+        })
+      : '') +
     '<div class="field-row">' +
       field(prefix + 'marital', 'Marital Status', 'radio', {
         required: true,
@@ -963,6 +1018,18 @@ function renderGuarantor(idx, label) {
     field(prefix + 'obligatedToForeclosed', 'Have you directly or indirectly been obligated on any loan which resulted in foreclosure?',                                                    'radio', { required: true, options: yesNo }) +
     field(prefix + 'outstandingJudgments',  'Are there any outstanding judgments against you?',                                                                                              'radio', { required: true, options: yesNo }) +
     field(prefix + 'intendToOccupy',        'Do you intend to occupy the subject property?',                                                                                                 'radio', { required: true, options: yesNo });
+
+  // Deploy 182: % ownership of the vesting LLC. Shown only if hasLLC.
+  // Stored as a plain number (no % suffix); displayed in the PDF
+  // with a % appended. We don\u2019t validate that G1 + G2 sum to 100
+  // because LLCs often have additional non-guarantor members.
+  if (d.hasLLC === 'yes') {
+    html += field(prefix + 'ownership', 'Percent ownership of the vesting LLC', 'number', {
+      required: true,
+      placeholder: 'e.g. 50',
+      hint: 'Enter a number 0-100. All members with more than 20% ownership must be a guarantor.',
+    });
+  }
 
   return html;
 }
@@ -1038,6 +1105,9 @@ function renderPage5() {
     row('Marital Status', g.marital),
     row('Estimated FICO', g.fico),
     row('Home Address', homeAddr),
+    row('2+ years at address?', g.twoYearAddress),
+    g.twoYearAddress === 'no' ? row('Previous Address', g.prevAddress) : '',
+    g.mailingSameAsHome === 'no' ? row('Mailing Address', g.mailingAddress) : '',
   ]);
 
   html += summarySection('Property', [
@@ -1051,15 +1121,17 @@ function renderPage5() {
   ]);
 
   html += summarySection('Loan', [
+    row('Loan Type',              d.loanType),
     row('Purpose',                d.dscrPurchaseRefi || d.purchaseOrRefi || d.loanPurpose),
-    row('Requested Loan Amount',  d.requestedLoanAmt || d.loanAmt),
-    row('Required Close Date',    d.dscrCloseDate || d.ffCloseDate),
+    row('Requested Loan Amount',  d.requestedLoanFF || d.requestedLoanDSCR || d.requestedLoanNC || d.requestedLoanAmt || d.loanAmt),
+    row('Required Close Date',    d.dscrCloseDate || d.ffCloseDate || d.ncCloseDate),
     row('Purchase Price',         d.purchasePrice),
     row('After-Repair Value',     d.arv),
     row('Rehab Budget',           d.renoCost),
     row('Current Loan Balance',   d.currentLoanAmount || d.currentLoanAmt),
     row('Current Market Value',   d.currentValue),
     row('Current Monthly Rent',   d.currentRent),
+    row('Lease Length',           d.leaseLength),
     row('Annual Property Taxes',  d.annualTaxes),
     row('Annual Insurance',       d.annualInsurance),
     row('Annual HOA',             d.annualHOA),
@@ -1075,16 +1147,21 @@ function renderPage5() {
       row('Phone', g2.phone),
       row('Date of Birth', g2.dob),
       row('Home Address', g2Addr),
+      row('2+ years at address?', g2.twoYearAddress),
+      g2.twoYearAddress === 'no' ? row('Previous Address', g2.prevAddress) : '',
+      g2.mailingSameAsHome === 'no' ? row('Mailing Address', g2.mailingAddress) : '',
     ]);
   }
 
-  if (co && (co.name || co.ein)) {
-    var coAddr = [co.address, co.city, [co.addrState, co.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  if (co && (co.name || co.ein) || d.llcName) {
+    var coAddr = d.llcAddress || (co && (co.address || ''));
     html += summarySection('Vesting Entity', [
-      row('Entity Name',   co.name),
-      row('State',         co.state),
-      row('EIN',           co.ein),
+      row('Entity Name',   d.llcName || (co && co.name)),
+      row('State',         d.llcState || (co && co.state)),
+      row('EIN',           d.llcEIN || (co && co.ein)),
       row('Address',       coAddr),
+      row('Guarantor 1 % Ownership', g.ownership ? g.ownership + '%' : ''),
+      g2 ? row('Guarantor 2 % Ownership', g2.ownership ? g2.ownership + '%' : '') : '',
     ]);
   }
 
@@ -1283,6 +1360,24 @@ function signApplication() {
     if (!looksLikeFullAddress(addr)) {
       errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s home address</strong> is incomplete. ' +
         'Please go back to the Vesting & Guarantors page and select the address from the autocomplete dropdown so we capture the city, state, and ZIP.';
+      errEl.style.display = 'block';
+      return;
+    }
+    // Deploy 182: validate previous address (when < 2 years at current)
+    // and mailing address (when different from home).
+    var prev = g.prevAddress || d['g' + i + '_prevAddress'];
+    var twoYr = g.twoYearAddress || d['g' + i + '_twoYearAddress'];
+    if (twoYr === 'no' && prev && !looksLikeFullAddress(prev)) {
+      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s previous address</strong> is incomplete. ' +
+        'Please pick a full address from the autocomplete dropdown (city, state, ZIP).';
+      errEl.style.display = 'block';
+      return;
+    }
+    var mail = g.mailingAddress || d['g' + i + '_mailingAddress'];
+    var mailSame = g.mailingSameAsHome || d['g' + i + '_mailingSameAsHome'];
+    if (mailSame === 'no' && mail && !looksLikeFullAddress(mail)) {
+      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s mailing address</strong> is incomplete. ' +
+        'Please pick a full address from the autocomplete dropdown (city, state, ZIP).';
       errEl.style.display = 'block';
       return;
     }

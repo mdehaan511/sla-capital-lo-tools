@@ -670,6 +670,15 @@
         });
       });
     },
+    // Deploy 182: LO-only resend of the borrower-2 signing link.
+    // Rotates the b2 token and emails a fresh link to the co-borrower.
+    // Only valid when the loan is awaiting_borrower2.
+    resendBorrower2: function (clientId, loanId, opts) {
+      opts = opts || {};
+      var body = { clientId: clientId, loanId: loanId };
+      if (opts.owner) body.owner = opts.owner;
+      return api('POST', '/api/borrower2-auth-resend', body);
+    },
   };
 
   // ── Reminders ───────────────────────────────────────────────────

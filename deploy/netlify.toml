@@ -139,12 +139,6 @@
   force = true
 
 [[redirects]]
-  from = "/api/loan-application"
-  to = "/.netlify/functions/loan-application"
-  status = 200
-  force = true
-
-[[redirects]]
   from = "/api/client-ssn-reveal"
   to = "/.netlify/functions/client-ssn-reveal"
   status = 200
@@ -303,6 +297,12 @@
 [[redirects]]
   from = "/api/borrower2-auth-sign"
   to = "/.netlify/functions/borrower2-auth-sign"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower2-auth-resend"
+  to = "/.netlify/functions/borrower2-auth-resend"
   status = 200
   force = true
 

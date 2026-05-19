@@ -194,6 +194,13 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         purchase:  'Purchase',
         refinance: 'Refinance',
       };
+      const RENTAL_LEASE_LABEL = {
+        month:    'Month-to-month',
+        '6mo':    '6 months',
+        '12mo':   '12 months',
+        '24mo_plus': '24 months or longer',
+        other:    'Other',
+      };
       const YES_NO_LABEL = (v) => v === 'yes' ? 'Yes' : (v === 'no' ? 'No' : (v || ''));
       const CAP1 = (s) => s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '';
 
@@ -257,7 +264,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         section('Questions for DSCR Loans');
         row('What kind of rental is this?', RENTAL_KIND_LABEL[data.rentalKind] || '');
         row('Property currently leased?', YES_NO_LABEL(data.allRented));
-        row('How long is the current lease?', data.leaseLength || '');  // not collected by current form
+        row('How long is the current lease?', RENTAL_LEASE_LABEL[data.leaseLength] || data.leaseLength || '');
         row('Monthly Rent (or Market Rent if vacant)', fmtMoney(data.currentRent));
         row('Annual Property Taxes', fmtMoney(data.annualTaxes));
         row('Annual Insurance Premium', fmtMoney(data.annualInsurance));
@@ -288,8 +295,17 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         row('Email Address', g.email || '');
         row('Phone Number', g.phone || '');
         row('Home Address', g.address || '');
-        row('At this address 2+ years?', g.twoYearAddress || ''); // not collected today
-        row('Mailing Address (if different)', g.mailingAddress || ''); // not collected today
+        // Deploy 182: 2-year residency + previous address (conditional)
+        row('At this address 2+ years?', YES_NO_LABEL(g.twoYearAddress));
+        if (g.twoYearAddress === 'no' && g.prevAddress) {
+          row('Previous Home Address', g.prevAddress);
+        }
+        // Mailing address (if different)
+        if (g.mailingSameAsHome === 'no') {
+          row('Mailing Address (if different)', g.mailingAddress || '');
+        } else if (g.mailingSameAsHome === 'yes') {
+          row('Mailing Address (if different)', 'Same as home');
+        }
         row('Marital Status', CAP1(g.marital));
         // Experience (form-specific; not in docx but useful)
         const expBits = [];
@@ -302,9 +318,6 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       if (g1) renderGuarantorBlock(g1, 'Guarantor 2');
 
       // ── SECTION E: Entity Information ────────────────────────────
-      // The borrower form stores LLC info as flat top-level fields
-      // (llcName, llcEIN, llcState, llcAddress) — not nested under
-      // companies[]. Render whichever shape we find.
       const llcName    = data.llcName    || (co0 && co0.name)     || '';
       const llcEIN     = data.llcEIN     || (co0 && co0.ein)      || '';
       const llcState   = data.llcState   || (co0 && co0.state)    || '';
@@ -315,8 +328,14 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         row('Vesting Entity EIN', llcEIN);
         row('State Entity is Registered In', llcState);
         row('Vesting Entity Address', llcAddress);
-        row('Guarantor 1 % Ownership', data.g0Ownership || '');  // not collected today
-        row('Guarantor 2 % Ownership', data.g1Ownership || '');  // not collected today
+        // Deploy 182: ownership is now collected per-guarantor inside
+        // their own block (g.ownership). Old code used g0Ownership/
+        // g1Ownership at the top level — fall back to those for any
+        // pre-Deploy-182 records.
+        const g0Own = (g0 && g0.ownership) || data.g0Ownership || '';
+        const g1Own = (g1 && g1.ownership) || data.g1Ownership || '';
+        row('Guarantor 1 % Ownership', g0Own ? `${g0Own}%` : '');
+        if (g1) row('Guarantor 2 % Ownership', g1Own ? `${g1Own}%` : '');
         doc.moveDown(0.5);
       }
 
