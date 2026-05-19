@@ -595,6 +595,19 @@ function render() {
   var experienceDisplay = l.experienceLabel || fd.experienceLabel || experience || '';
   var propTypeDisplay = l.propTypeLabel || fd.propTypeLabel || l.propType || fd.propType || '';
   var loanTerm      = l.loanTerm      || fd.loanTerm      || '';
+  // Deploy 186 (bug 2 fix): Down Payment was previously gated on
+  // _dpOverride being set, which meant it didn\u2019t appear on standard
+  // (non-overridden) RTL loans even though the sizer computed it.
+  // Pull from override first, then fall back to the pricing snapshot
+  // captured at sizer save time.
+  var downPayment = '';
+  if (l._dpOverride && String(l._dpOverride) !== '') {
+    downPayment = parseFloat(l._dpOverride) || '';
+  } else if (l.pricingSnapshot && l.pricingSnapshot.downPayment) {
+    downPayment = l.pricingSnapshot.downPayment;
+  } else if (fd._pricingSnapshot && fd._pricingSnapshot.downPayment) {
+    downPayment = fd._pricingSnapshot.downPayment;
+  }
 
   var html = '<div class="page-header">' +
     '<div class="breadcrumb">' +
@@ -713,7 +726,9 @@ function render() {
       (loanType ? '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+escH(loanType)+'</div></div>' : '') +
       (loanTerm ? '<div class="fin-cell"><div class="fin-label">Loan Term</div><div class="fin-val">'+escH(loanTerm)+' mo</div></div>' : '') +
       (experienceDisplay ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experienceDisplay)+'</div></div>' : '') +
-      (_hasDpOv ? '<div class="fin-cell"><div class="fin-label">Down Payment ' + _ovTag + '</div><div class="fin-val">'+fmtM(parseFloat(l._dpOverride))+'</div></div>' : '') +
+      (downPayment
+        ? '<div class="fin-cell"><div class="fin-label">Down Payment'+(_hasDpOv ? ' ' + _ovTag : '')+'</div><div class="fin-val">'+fmtM(downPayment)+'</div></div>'
+        : '') +
       // Broker Fee — shown only when non-zero, in pts (same unit as Points)
       (parseFloat(l.brokerFee || 0) > 0
         ? '<div class="fin-cell"><div class="fin-label">Broker Fee</div><div class="fin-val">'+parseFloat(l.brokerFee).toFixed(2)+' pts</div></div>'
@@ -1385,7 +1400,7 @@ function esSubmit() {
   // for a future deploy.)
   var needsPdf = docs.some(function(d) { return d.kind === 'rate_sheet'; });
 
-  function postCreate(pdfBase64) {
+  function postCreate(pdfBase64, sigCoords) {
     // Hard gate: Netlify functions reject request bodies over 6 MB at
     // the gateway level. Pre-flight check the PDF size.
     if (pdfBase64 && pdfBase64.length > 5_000_000) {
@@ -1396,14 +1411,19 @@ function esSubmit() {
       return;
     }
     if (pdfBase64) {
-      console.log('[SLA esign] posting envelope create. PDF base64 size:', pdfBase64.length, 'bytes');
+      console.log('[SLA esign] posting envelope create. PDF base64 size:', pdfBase64.length, 'bytes; sigCoords:', sigCoords);
     }
     // Every doc must now have pdfBase64 — the native flow stamps the
     // actual PDF. Loan-app sends here would need a separately-generated
     // PDF; for now the only doc kind in the UI is rate_sheet.
     var docsToSend = docs.map(function(d) {
       if (d.kind === 'rate_sheet' && pdfBase64) {
-        return { kind: d.kind, name: d.name, pdfBase64: pdfBase64 };
+        return {
+          kind: d.kind, name: d.name, pdfBase64: pdfBase64,
+          // Deploy 186: pass through the signature-line coordinates so
+          // the backend can stamp the typed signature on the line.
+          sigCoords: sigCoords || null,
+        };
       }
       return d;
     }).filter(function(d) { return !!d.pdfBase64; });
@@ -1455,7 +1475,7 @@ function esSubmit() {
   }
 
   if (!needsPdf) {
-    postCreate(null);
+    postCreate(null, null);
     return;
   }
 
@@ -1500,7 +1520,9 @@ function esSubmit() {
       status.textContent = 'Could not generate rate sheet PDF: ' + (event.data.error || 'unknown');
       return;
     }
-    postCreate(event.data.pdfBase64);
+    // Deploy 186: forward sigCoords so the backend can stamp the typed
+    // signature on the visible signature line of the rate sheet.
+    postCreate(event.data.pdfBase64, event.data.sigCoords || null);
   }
   window.addEventListener('message', onMsg);
 

@@ -165,6 +165,70 @@ export async function appendSignaturePageToPdf({ pdfBase64, envelope, doc }) {
   const timesItalic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
   const times       = await pdf.embedFont(StandardFonts.TimesRoman);
 
+  // Deploy 186: stamp typed signatures onto the original rate sheet\u2019s
+  // visible "Borrower Signature: ___ Date: ___" line, using the
+  // sigCoords captured by the sizer at PDF-generation time. Without
+  // these coordinates the audit page at the end is the only place the
+  // signature appears, which surprised LOs ("the signature line is
+  // still blank"). We stamp every signer that has signed; for
+  // multi-signer envelopes signers stack vertically beneath the line.
+  const sigCoords = doc && doc.sigCoords;
+  if (sigCoords && sigCoords.pageNumber && sigCoords.pageHeight) {
+    const pageIdx = sigCoords.pageNumber - 1;
+    const allPages = pdf.getPages();
+    const targetPage = allPages[pageIdx] || allPages[allPages.length - 1];
+    if (targetPage) {
+      const targetHeight = targetPage.getHeight();
+      // Convert jsPDF top-left y to pdf-lib bottom-left y.
+      const sigYTop  = targetHeight - sigCoords.sigYFromTop;
+      const dateYTop = targetHeight - sigCoords.dateYFromTop;
+
+      const signedSigners = (envelope.signers || []).filter(
+        (s) => s && s.audit && s.audit.signedAt
+      );
+      // Render signer 1 on the line (the canonical "Borrower Signature").
+      // Additional signers stack BELOW the line so they\u2019re still visible.
+      const lineGap = 22;
+      signedSigners.forEach((s, idx) => {
+        const offset = idx * lineGap;
+        const fullName = (s.firstName || '') + ' ' + (s.lastName || '');
+        const dateStr = s.audit.signedAt
+          ? new Date(s.audit.signedAt).toLocaleDateString('en-US', {
+              year: 'numeric', month: 'short', day: 'numeric',
+            })
+          : '';
+        // The typed signature in italic Times (script-like), sized to
+        // fit the underline (~14pt looks right for a 188pt line).
+        targetPage.drawText(fullName.trim(), {
+          x: sigCoords.sigX,
+          y: sigYTop - offset,
+          size: 14,
+          font: timesItalic,
+          color: PLUM,
+        });
+        // Date in Helvetica, smaller, on the date line.
+        targetPage.drawText(dateStr, {
+          x: sigCoords.dateX,
+          y: dateYTop - offset,
+          size: 11,
+          font: helv,
+          color: TEXT,
+        });
+        // For signers 2+, also label which signer this is so it\u2019s clear
+        // when looking at the page that multiple people signed.
+        if (idx > 0) {
+          targetPage.drawText('Co-Signer ' + (idx + 1) + ':', {
+            x: sigCoords.sigX - 92,
+            y: sigYTop - offset,
+            size: 8,
+            font: helv,
+            color: MUTED,
+          });
+        }
+      });
+    }
+  }
+
   const page = pdf.addPage([PAGE_W, PAGE_H]);
 
   // Header band

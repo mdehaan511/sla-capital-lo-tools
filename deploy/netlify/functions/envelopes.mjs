@@ -47,6 +47,26 @@ function genId() {
   return 'env_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
 }
 
+// Deploy 186: validate + coerce the sigCoords object from the sizer.
+// Returns null if the input is missing/malformed. The eSign backend
+// stamper checks for null and falls back to "no on-page stamp" if so.
+function sanitizeSigCoords(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const numeric = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+  const required = ['pageNumber', 'pageWidth', 'pageHeight', 'sigX', 'sigYFromTop', 'dateX', 'dateYFromTop'];
+  const out = {};
+  for (const k of required) {
+    const n = numeric(raw[k]);
+    if (n == null) return null;
+    out[k] = n;
+  }
+  // Bounds sanity: page must be reasonable Letter/A4-ish
+  if (out.pageWidth  < 200 || out.pageWidth  > 2000) return null;
+  if (out.pageHeight < 200 || out.pageHeight > 3000) return null;
+  if (out.pageNumber < 1   || out.pageNumber > 50)   return null;
+  return out;
+}
+
 async function handleCreate(req, context, user) {
   const body = await readJsonBody(req);
   if (!body) return json(400, { error: 'Invalid request' });
@@ -133,6 +153,12 @@ async function handleCreate(req, context, user) {
       hadPdf: true,
       pdfHash: hashPdf(d.pdfBase64),
       pdfSize: Buffer.from(d.pdfBase64, 'base64').length,
+      // Deploy 186: signature-line coordinates captured by the sizer
+      // when the PDF was generated. The eSign backend uses these to
+      // stamp the typed signature + signing date on the visible
+      // "Borrower Signature: ___ Date: ___" line. Optional \u2014 if
+      // absent, only the appended signature page shows the signature.
+      sigCoords: sanitizeSigCoords(d.sigCoords),
     })),
     signers: signers.map((s, i) => ({
       firstName: String(s.firstName || '').slice(0, 80),

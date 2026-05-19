@@ -119,6 +119,23 @@
     // Autocomplete (Google Places) — only binds once Maps script is loaded
     var acInputs = root.querySelectorAll('input[data-sla-autocomplete]');
     if (window.google && window.google.maps && window.google.maps.places) {
+      // Deploy 186 (bug 4 partial fix): when a form re-renders (e.g.
+      // borrower-info\u2019s renderApp wipes innerHTML), Autocomplete
+      // instances bound to old inputs are orphaned but their
+      // .pac-container divs remain in document.body. Sweep any that
+      // aren\u2019t actively shown by a focused input. We don\u2019t remove
+      // them outright (Google\u2019s library may try to reuse them); we
+      // hide them so they don\u2019t visually overlap.
+      try {
+        var active = document.activeElement;
+        var activeIsAddressInput = active && active.tagName === 'INPUT' &&
+          active.hasAttribute && active.hasAttribute('data-sla-autocomplete');
+        if (!activeIsAddressInput) {
+          var containers = document.querySelectorAll('.pac-container');
+          containers.forEach(function(c) { c.style.display = 'none'; });
+        }
+      } catch (_) {}
+
       console.log('[sla-forms] Maps loaded, binding autocomplete to', acInputs.length, 'inputs');
       acInputs.forEach(function(el) {
         if (el._slaAcBound) return;
@@ -175,6 +192,25 @@
       }
       el.dispatchEvent(new Event('input',  { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
+      // Deploy 186 (bug 4 fix): Google Places only auto-hides the
+      // pac-container dropdown on blur, but after a place is selected
+      // the input remains focused. On forms where the user might keep
+      // typing in the same field, the dropdown stays open showing the
+      // OLD suggestions \u2014 confusing UX. Explicitly close any visible
+      // .pac-container after a successful pick. We avoid blur()ing the
+      // input itself (some browsers focus the next form field on blur,
+      // which would be disorienting); instead we hide pac-containers
+      // via the official approach: display:none on the visible ones.
+      setTimeout(function() {
+        var containers = document.querySelectorAll('.pac-container');
+        containers.forEach(function(c) {
+          if (c.style.display !== 'none') {
+            c.style.display = 'none';
+            // Re-show next time the user focuses an autocomplete input.
+            // Google will set display:'' itself on next keystroke.
+          }
+        });
+      }, 0);
     });
   }
 

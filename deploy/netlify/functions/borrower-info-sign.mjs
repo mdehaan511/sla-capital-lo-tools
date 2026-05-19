@@ -335,8 +335,20 @@ async function handle(req) {
   }
 
   // ── 10. Notify the LO ─────────────────────────────────────────
-  try { await notifyLOOfSignedApp(record, b1Audit, { hasB2, b2Name: b2Block && b2Block.name }); }
-  catch (e) { console.warn('borrower-info-sign: LO notify failed:', e && e.message); }
+  // Sends an email to the LO (requestedBy/ownerEmail on the borrower-
+  // info record) with the signed PDF attached. Returns false on
+  // failure but doesn\u2019t throw \u2014 a borrower\u2019s signing should never
+  // fail because of a downstream LO-side email.
+  let loNotified = false;
+  try {
+    loNotified = await notifyLOOfSignedApp(record, b1Audit, {
+      hasB2,
+      b2Name: b2Block && b2Block.name,
+      pdfBuffer,
+    });
+  } catch (e) {
+    console.warn('borrower-info-sign: LO notify failed:', e && e.message);
+  }
 
   return json(200, {
     ok: true,
@@ -344,6 +356,7 @@ async function handle(req) {
     status: pdfStatus,
     emailedBorrower: emailedB1,
     emailedCoBorrower: emailedB2,
+    emailedLO: loNotified,
     awaitingBorrower2: hasB2,
     advanceResult,
   });
@@ -506,48 +519,119 @@ async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress
 async function notifyLOOfSignedApp(record, audit, opts) {
   opts = opts || {};
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return false;
+  if (!apiKey) {
+    console.warn('notifyLOOfSignedApp: RESEND_API_KEY not configured');
+    return false;
+  }
 
-  const loEmail = record.requestedBy || '';
-  if (!loEmail) return false;
+  // Resolve the LO email. The record\u2019s `requestedBy` is set when the
+  // LO sent a borrower-info link via /api/borrower-info-request, but
+  // older or LO-side-created records may only have `ownerEmail`.
+  // `ownerKey` is a sanitized version of the email path-safe; not a
+  // real email, so it doesn\u2019t serve as a fallback for emailing.
+  const loEmail = record.requestedBy || record.ownerEmail || '';
+  if (!loEmail) {
+    console.warn('notifyLOOfSignedApp: no LO email on record', record.ownerKey);
+    return false;
+  }
 
+  const propertyAddress = (record.data && record.data.propertyAddress) || '';
   const subject = opts.hasB2
-    ? `Loan app signed by Borrower 1 — awaiting Borrower 2: ${record.data && record.data.propertyAddress || 'borrower'}`
-    : `Loan application signed: ${record.data && record.data.propertyAddress || 'borrower'}`;
-  const text = opts.hasB2
+    ? `Loan app signed by Borrower 1 \u2014 awaiting Borrower 2: ${propertyAddress || 'borrower'}`
+    : `Loan application signed: ${propertyAddress || 'borrower'}`;
+
+  const signedWhen = new Date(audit.signedAt).toLocaleString('en-US', {
+    dateStyle: 'medium', timeStyle: 'short',
+  });
+
+  const textBody = opts.hasB2
     ? [
         `Borrower 1 (${audit.signerName}) has signed the loan application.`,
         '',
-        `We\u2019ve emailed Borrower 2 (${opts.b2Name || 'co-borrower'}) a link to sign their own prequal credit & background check authorization.`,
+        `We've emailed Borrower 2 (${opts.b2Name || 'co-borrower'}) a link to sign their own prequal credit & background check authorization.`,
         '',
-        `Signed at: ${new Date(audit.signedAt).toLocaleString('en-US')}`,
-        `Property: ${record.data && record.data.propertyAddress || '(not provided)'}`,
+        `Signed at: ${signedWhen}`,
+        `Property: ${propertyAddress || '(not provided)'}`,
+        `IP: ${audit.ipAddress || 'unavailable'}`,
         '',
-        `The loan will move to "In Processing" once Borrower 2 signs.`,
+        `The loan will move to "In Processing" once Borrower 2 signs. An interim signed copy is attached.`,
         '',
         'SLA Capital',
       ].join('\n')
     : [
-        `Good news — your borrower just signed their loan application.`,
+        `Good news \u2014 your borrower just signed their loan application.`,
         '',
         `Borrower: ${audit.signerName} <${audit.signerEmail}>`,
-        `Signed at: ${new Date(audit.signedAt).toLocaleString('en-US')}`,
-        `Property: ${record.data && record.data.propertyAddress || '(not provided)'}`,
+        `Signed at: ${signedWhen}`,
+        `Property: ${propertyAddress || '(not provided)'}`,
+        `IP: ${audit.ipAddress || 'unavailable'}`,
         '',
-        `The loan has been moved to "In Processing" in your pipeline. The signed PDF is available on the Loan Details page.`,
+        `The loan has been moved to "In Processing" in your pipeline. The signed PDF is attached.`,
         '',
         'SLA Capital',
       ].join('\n');
 
-  const resp = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: 'SLA Capital <noreply@leads.slacapital.com>',
-      to: [loEmail],
-      subject,
-      text,
-    }),
-  });
-  return resp.ok;
+  const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const htmlBody =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+    '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+      '<div style="background:#261A36;padding:24px">' +
+        '<h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital \u2014 ' +
+          (opts.hasB2 ? 'Borrower 1 Signed (awaiting Co-Borrower)' : 'Loan Application Signed') +
+        '</h1>' +
+      '</div>' +
+      '<div style="padding:24px;color:#1A1520">' +
+        (opts.hasB2
+          ? `<p style="font-size:14px;line-height:1.6"><strong>${escH(audit.signerName)}</strong> has signed the loan application. We've emailed Borrower 2 (${escH(opts.b2Name || 'co-borrower')}) a link to sign their own authorization.</p>`
+          : `<p style="font-size:14px;line-height:1.6">Good news \u2014 your borrower just signed their loan application. The signed PDF is attached.</p>`) +
+        '<table style="font-size:13px;line-height:1.7;margin:14px 0">' +
+          `<tr><td style="color:#7A7488;padding-right:12px">Borrower</td><td><strong>${escH(audit.signerName)}</strong> &lt;${escH(audit.signerEmail)}&gt;</td></tr>` +
+          `<tr><td style="color:#7A7488;padding-right:12px">Signed at</td><td>${escH(signedWhen)}</td></tr>` +
+          `<tr><td style="color:#7A7488;padding-right:12px">Property</td><td>${escH(propertyAddress || '(not provided)')}</td></tr>` +
+          `<tr><td style="color:#7A7488;padding-right:12px">IP</td><td>${escH(audit.ipAddress || 'unavailable')}</td></tr>` +
+        '</table>' +
+        (opts.hasB2
+          ? `<p style="font-size:13px;color:#7A7488">An interim signed copy is attached. The loan will move to "In Processing" once Borrower 2 signs.</p>`
+          : `<p style="font-size:13px;color:#7A7488">The loan has been moved to "In Processing" in your pipeline.</p>`) +
+      '</div>' +
+    '</div>' +
+    '</body></html>';
+
+  // Attach the signed PDF (interim for hasB2, final otherwise).
+  const attachments = [];
+  if (opts.pdfBuffer) {
+    const pdfB64 = Buffer.isBuffer(opts.pdfBuffer)
+      ? opts.pdfBuffer.toString('base64')
+      : Buffer.from(opts.pdfBuffer).toString('base64');
+    const filenameSafe = (propertyAddress || 'SLA_Loan_Application')
+      .replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 60);
+    attachments.push({
+      filename: `${filenameSafe}_Signed${opts.hasB2 ? '_Interim' : ''}.pdf`,
+      content: pdfB64,
+    });
+  }
+
+  try {
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'SLA Capital <noreply@leads.slacapital.com>',
+        to: [loEmail],
+        subject,
+        text: textBody,
+        html: htmlBody,
+        attachments,
+      }),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      console.warn(`notifyLOOfSignedApp: Resend ${resp.status}`, t.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('notifyLOOfSignedApp: fetch threw:', e && e.message);
+    return false;
+  }
 }

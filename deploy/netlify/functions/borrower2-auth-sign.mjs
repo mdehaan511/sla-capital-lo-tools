@@ -216,14 +216,19 @@ async function handle(req) {
   }
 
   // ── 9. Notify the LO ──────────────────────────────────────────
-  try { await notifyLOOfB2Signed(biRecord, rec, b2Audit); }
-  catch (e) { console.warn('borrower2-auth-sign: LO notify failed:', e && e.message); }
+  let loNotified = false;
+  try {
+    loNotified = await notifyLOOfB2Signed(biRecord, rec, b2Audit, { pdfBuffer });
+  } catch (e) {
+    console.warn('borrower2-auth-sign: LO notify failed:', e && e.message);
+  }
 
   return json(200, {
     ok: true,
     signedAt,
     emailedBorrower1: emailedB1,
     emailedBorrower2: emailedB2,
+    emailedLO: loNotified,
     advanceResult,
   });
 }
@@ -288,34 +293,83 @@ async function emailFinalSignedCopy({ toEmail, toName, propertyAddress, pdfBuffe
   return true;
 }
 
-async function notifyLOOfB2Signed(biRecord, signedRec, b2Audit) {
+async function notifyLOOfB2Signed(biRecord, signedRec, b2Audit, opts) {
+  opts = opts || {};
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return false;
-  const loEmail = biRecord.requestedBy || '';
-  if (!loEmail) return false;
-  const subject = `Loan application fully signed: ${(biRecord.data && biRecord.data.propertyAddress) || 'borrower'}`;
+  if (!apiKey) {
+    console.warn('notifyLOOfB2Signed: RESEND_API_KEY not configured');
+    return false;
+  }
+  // Fallback to ownerEmail if requestedBy is missing.
+  const loEmail = biRecord.requestedBy || biRecord.ownerEmail || '';
+  if (!loEmail) {
+    console.warn('notifyLOOfB2Signed: no LO email on record', biRecord.ownerKey);
+    return false;
+  }
+  const propertyAddress = (biRecord.data && biRecord.data.propertyAddress) || '';
+  const subject = `Loan application fully signed: ${propertyAddress || 'borrower'}`;
   const text = [
-    `Both borrowers have now signed the loan application.`,
+    `Both borrowers have now signed the loan application. The fully-signed PDF is attached.`,
     '',
     `Borrower 1: ${signedRec.borrower1.name} <${signedRec.borrower1.email}>`,
     `Borrower 2: ${b2Audit.signerName} <${b2Audit.signerEmail}>`,
     `B2 signed at: ${new Date(b2Audit.signedAt).toLocaleString('en-US')}`,
-    `Property: ${(biRecord.data && biRecord.data.propertyAddress) || '(not provided)'}`,
+    `Property: ${propertyAddress || '(not provided)'}`,
+    `B2 IP: ${b2Audit.ipAddress || 'unavailable'}`,
     '',
-    `The loan has been moved to "In Processing" in your pipeline. The fully-signed PDF is available on the Loan Details page.`,
+    `The loan has been moved to "In Processing" in your pipeline.`,
     '',
     'SLA Capital',
   ].join('\n');
 
-  const resp = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: 'SLA Capital <noreply@leads.slacapital.com>',
-      to: [loEmail],
-      subject,
-      text,
-    }),
-  });
-  return resp.ok;
+  const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+    '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+      '<div style="background:#261A36;padding:24px">' +
+        '<h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital \u2014 Loan Application Fully Signed</h1>' +
+      '</div>' +
+      '<div style="padding:24px;color:#1A1520">' +
+        `<p style="font-size:14px;line-height:1.6">Both borrowers have now signed the loan application. The fully-signed PDF is attached.</p>` +
+        '<table style="font-size:13px;line-height:1.7;margin:14px 0">' +
+          `<tr><td style="color:#7A7488;padding-right:12px">Borrower 1</td><td><strong>${escH(signedRec.borrower1.name)}</strong> &lt;${escH(signedRec.borrower1.email)}&gt;</td></tr>` +
+          `<tr><td style="color:#7A7488;padding-right:12px">Borrower 2</td><td><strong>${escH(b2Audit.signerName)}</strong> &lt;${escH(b2Audit.signerEmail)}&gt;</td></tr>` +
+          `<tr><td style="color:#7A7488;padding-right:12px">B2 signed at</td><td>${escH(new Date(b2Audit.signedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }))}</td></tr>` +
+          `<tr><td style="color:#7A7488;padding-right:12px">Property</td><td>${escH(propertyAddress || '(not provided)')}</td></tr>` +
+        '</table>' +
+        `<p style="font-size:13px;color:#7A7488">The loan has been moved to "In Processing" in your pipeline.</p>` +
+      '</div>' +
+    '</div>' +
+    '</body></html>';
+
+  const attachments = [];
+  if (opts.pdfBuffer) {
+    const pdfB64 = Buffer.isBuffer(opts.pdfBuffer)
+      ? opts.pdfBuffer.toString('base64')
+      : Buffer.from(opts.pdfBuffer).toString('base64');
+    const filenameSafe = (propertyAddress || 'SLA_Loan_Application')
+      .replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 60);
+    attachments.push({ filename: `${filenameSafe}_FullySigned.pdf`, content: pdfB64 });
+  }
+
+  try {
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'SLA Capital <noreply@leads.slacapital.com>',
+        to: [loEmail],
+        subject, text, html, attachments,
+      }),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      console.warn(`notifyLOOfB2Signed: Resend ${resp.status}`, t.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('notifyLOOfB2Signed: fetch threw:', e && e.message);
+    return false;
+  }
 }

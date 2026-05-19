@@ -2467,13 +2467,41 @@ function saveCurrentQuote() {
     };
   }
 
-  var rateEl = document.getElementById('results') && document.querySelector('#results .rv');
-  var maxEl  = document.querySelector('.metric-value.xl');
-  if (rateEl) formData._finalRate = rateEl.textContent;
+  // Deploy 186 (bug 2 fix): the previous DOM-scraping approach
+  // (querySelector('#results .rv').textContent + .metric-value.xl
+  // indexing) was fragile \u2014 if the LO opened the sizer and saved
+  // without re-running Calc, or if the metric ordering shifted, the
+  // scrape returned empty and Loan Details showed "Not yet priced".
+  // Mirror the DSCR sizer\u2019s pattern: force a calculate() right before
+  // scraping so window._rtlLastCalc is current, then read values
+  // directly from that canonical object.
+  try { calculate(); } catch (_) { /* if calc errors, we save what we have */ }
+  var calcSrc = window._rtlLastCalc || {};
+  // _rtlLastCalc.rate is decimal (e.g. 0.09875); Loan Details expects
+  // a percentage string like "9.875" (it appends "%" at display time).
+  if (typeof calcSrc.rate === 'number' && isFinite(calcSrc.rate) && calcSrc.rate > 0) {
+    formData._finalRate = (calcSrc.rate * 100).toFixed(3);
+  } else {
+    // Fallback to DOM scrape for safety, stripping the trailing %
+    var rateEl_ = document.getElementById('results') && document.querySelector('#results .rv');
+    if (rateEl_) {
+      formData._finalRate = String(rateEl_.textContent || '').replace(/[^0-9.]/g, '');
+    } else {
+      formData._finalRate = '';
+    }
+  }
+  if (typeof calcSrc.points === 'number' && isFinite(calcSrc.points)) {
+    // Points stored as "X.XX pts" string to match the DSCR sizer\u2019s
+    // convention and Loan Details\u2019 display path.
+    formData._points = calcSrc.points.toFixed(2) + ' pts';
+  } else {
+    var ptsEl_ = document.querySelectorAll('.metric-value.xl');
+    formData._points = (ptsEl_.length >= 2) ? ptsEl_[1].textContent : '';
+  }
+  if (typeof calcSrc.bMax === 'number' && isFinite(calcSrc.bMax) && calcSrc.bMax > 0) {
+    formData._maxLoan = String(Math.round(calcSrc.bMax));
+  }
   formData.loanAmt = '';
-  // Capture points from DOM
-  var ptsEl = document.querySelectorAll('.metric-value.xl');
-  if (ptsEl.length >= 2) formData._points = ptsEl[1].textContent;
   // Item #2 (loan-app prefill): capture the computed max loan amount so the
   // long application can use it as the default Requested Loan Amount.
   // We walk the metric cards looking for the "Maximum Loan Amount" label.
@@ -2771,16 +2799,17 @@ netlifyIdentity.on('init', function(user) {
       setTimeout(function() {
         console.log('[SLA esign] generating rate sheet PDF (RTL)');
         try {
-          var b64 = getRTLRateSheetBase64ForSignature(1);
-          if (!b64) {
+          var result = getRTLRateSheetForSignature(1);
+          if (!result || !result.pdfBase64) {
             console.log('[SLA esign] PDF generation returned null (RTL) — likely calculate() error');
             window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null. Check that the quote loaded and all required fields are filled.' }, '*');
             if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: 'PDF generation returned null. Check that the quote loaded and all required fields are filled.' }, '*');
             return;
           }
-          console.log('[SLA esign] RTL PDF base64 length:', b64.length);
-          window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: true, pdfBase64: b64 }, '*');
-          if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: true, pdfBase64: b64 }, '*');
+          console.log('[SLA esign] RTL PDF base64 length:', result.pdfBase64.length, 'sigCoords:', result.sigCoords);
+          var payload = { type: 'sla_rate_sheet_pdf', ok: true, pdfBase64: result.pdfBase64, sigCoords: result.sigCoords };
+          window.parent.postMessage(payload, '*');
+          if (window.opener) window.opener.postMessage(payload, '*');
         } catch (e) {
           console.error('[SLA esign] handoff threw (RTL):', e);
           var err = (e && e.message) || 'unknown';
@@ -3067,8 +3096,17 @@ function downloadRTLPDF() {
   return _generateRTLRateSheetPDF({ mode: 'download' });
 }
 
-// Phase 2 e-sign hook. Returns base64 PDF with PandaDoc field tags embedded.
+// Native eSign hook. Returns just base64 (legacy callers).
 function getRTLRateSheetBase64ForSignature(signerCount) {
+  var r = _generateRTLRateSheetPDF({ mode: 'base64', embedAnchors: true });
+  if (!r) return null;
+  return r.pdfBase64;
+}
+
+// Deploy 186: native eSign hook. Returns { pdfBase64, sigCoords } so the
+// backend can stamp the typed signature + date on the visible
+// signature line.
+function getRTLRateSheetForSignature(signerCount) {
   return _generateRTLRateSheetPDF({ mode: 'base64', embedAnchors: true });
 }
 
@@ -3522,9 +3560,10 @@ function _generateRTLRateSheetPDF(opts) {
   doc.text(legalLines,lm+8,y+10,{lineHeightFactor:1.35});
   y += legalH + 14;
 
-  // ── SIGNATURE BLOCK (only when sending through PandaDoc) ──────
-  // See dscr-sizer.html for the rationale. White-on-white field tags
-  // get parsed by PandaDoc into real signature/date fields.
+  // ── SIGNATURE BLOCK (only when sending through native eSign) ──
+  // See dscr-sizer.html for the rationale. Coordinates are captured
+  // so the eSign backend can stamp the typed signature on the line.
+  var sigCoords = null;
   if (opts.embedAnchors) {
     checkPage(60);
     var sigBlockY = y;
@@ -3535,10 +3574,15 @@ function _generateRTLRateSheetPDF(opts) {
     doc.setDrawColor(MUTED[0],MUTED[1],MUTED[2]); doc.setLineWidth(0.5);
     doc.line(lm+8 + 100, sigBlockY+18, lm+8 + 290, sigBlockY+18);
     doc.line(lm+8 + 360, sigBlockY+18, lm+8 + 460, sigBlockY+18);
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
-    doc.setTextColor(255,255,255);
-    doc.text('[signature:borrower________]', lm+8 + 100, sigBlockY+14);
-    doc.text('[date:borrower____]',          lm+8 + 360, sigBlockY+14);
+    sigCoords = {
+      pageNumber: doc.internal.getCurrentPageInfo().pageNumber,
+      pageWidth: W,
+      pageHeight: H,
+      sigX: lm + 8 + 102,
+      sigYFromTop: sigBlockY + 14,
+      dateX: lm + 8 + 362,
+      dateYFromTop: sigBlockY + 14,
+    };
     y += 30;
   }
 
@@ -3546,7 +3590,8 @@ function _generateRTLRateSheetPDF(opts) {
   if (opts.mode === 'base64') {
     var dataUri = doc.output('datauristring');
     var idx = dataUri.indexOf(',');
-    return idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
+    var b64 = idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
+    return { pdfBase64: b64, sigCoords: sigCoords };
   }
   var addrSlug=(addrFull||'RTL_Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
   doc.save(addrSlug+'_RTL_Quote.pdf');
