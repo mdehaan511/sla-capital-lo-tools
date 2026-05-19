@@ -446,13 +446,22 @@ function showGate(title, message) {
 
 function showComplete(opts) {
   opts = opts || {};
-  var heading = opts.signed ? 'Application signed' : 'Information submitted';
-  var body = opts.signed
-    ? ('Thank you. Your loan application has been electronically signed and sent to your loan officer. ' +
-       (opts.emailedBorrower
-         ? 'A copy has been emailed to you for your records.'
-         : 'A copy of the signed application is on file with your loan officer.'))
-    : 'Thank you. Your loan officer has been notified and will be in touch shortly. You can close this page.';
+  var heading, body;
+  if (opts.awaitingBorrower2) {
+    heading = 'Application signed';
+    body = 'Thank you. We\u2019ve emailed your co-borrower a link to sign their own credit and background check authorization. ' +
+           'Once they sign, the loan application will be fully complete and both of you will receive the final signed PDF. ' +
+           (opts.emailedBorrower ? 'A copy of the application (with your signature) has been emailed to you for your records.' : '');
+  } else if (opts.signed) {
+    heading = 'Application signed';
+    body = 'Thank you. Your loan application has been electronically signed and sent to your loan officer. ' +
+           (opts.emailedBorrower
+             ? 'A copy has been emailed to you for your records.'
+             : 'A copy of the signed application is on file with your loan officer.');
+  } else {
+    heading = 'Information submitted';
+    body = 'Thank you. Your loan officer has been notified and will be in touch shortly. You can close this page.';
+  }
   document.getElementById('root').innerHTML =
     '<div class="complete-msg">' +
       '<div class="check"><svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M8 16l6 6 12-12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
@@ -1095,33 +1104,57 @@ function renderPage5() {
   // Pre-fill signer name from what they entered as borrower name
   var defaultSignerName = ((g.firstName || d.borrowerFirstName || '') + ' ' + (g.lastName || d.borrowerLastName || '')).trim();
 
-  // Consent box — text gets populated from /api/esign-consent fetch
-  // when page 5 mounts. We start with a placeholder; loadEsignConsent()
-  // fills it in.
-  html += '<div class="rv-section" style="margin-top:20px">' +
-    '<div class="rv-section-title">Electronic Signature Consent</div>' +
-    '<div id="esignConsentBox" class="esign-consent-box">Loading consent text&hellip;</div>' +
-  '</div>';
+  // Deploy 180: four consent forms must be accepted in this single
+  // signing event for borrower 1:
+  //   1. ESIGN/UETA Consent to Use Electronic Signatures
+  //   2. Loan Application Acknowledgement & Agreement (the long
+  //      "(1) through (11)" text from the SLA loan app)
+  //   3. Authorization to Conduct Prequal Credit & Background Checks
+  //   4. Authorization to Release Information
+  // Each form has its own consent text box + its own consent
+  // checkbox. Borrower 2 (if any) signs their own copy of form (3) via
+  // a separate emailed link after borrower 1 finishes here.
+  function consentSection(formKey, labelId, boxId, sectionTitle) {
+    return '<div class="rv-section" style="margin-top:20px">' +
+      '<div class="rv-section-title">' + escH(sectionTitle) + '</div>' +
+      '<div id="' + boxId + '" class="esign-consent-box">Loading\u2026</div>' +
+    '</div>' +
+    '<div class="esign-checkbox-row">' +
+      '<input type="checkbox" id="' + formKey + 'Check" onchange="updateSignSubmitState()" />' +
+      '<label for="' + formKey + 'Check" id="' + labelId + '">Loading\u2026</label>' +
+    '</div>';
+  }
 
-  html += '<div class="esign-checkbox-row">' +
-    '<input type="checkbox" id="esignConsentCheckbox" onchange="onEsignConsentChange()" />' +
-    '<label for="esignConsentCheckbox" id="esignCheckboxLabel">' +
-      'I have read and agree to the ESIGN/UETA Consent above.' +
-    '</label>' +
-  '</div>';
+  html += consentSection('loanAck', 'loanAckLabel', 'loanAckBox', 'Loan Application Acknowledgement & Agreement');
+  html += consentSection('prequal', 'prequalLabel', 'prequalBox', 'Authorization to Conduct Prequal Credit & Background Checks');
+  html += consentSection('infoRel', 'infoRelLabel', 'infoRelBox', 'Authorization to Release Information');
+  html += consentSection('esign',   'esignLabel',   'esignBox',   'Electronic Signature Consent (ESIGN / UETA)');
+
+  // Co-borrower notice
+  var hasCoBorrower = String(d.numGuarantors || '1') === '2'
+    && d.guarantors && d.guarantors[1] && (d.guarantors[1].email || '').trim();
+  if (hasCoBorrower) {
+    var g2 = d.guarantors[1];
+    var g2Name = ((g2.firstName || '') + ' ' + (g2.lastName || '')).trim() || 'your co-borrower';
+    html += '<div style="background:var(--gold-light,#F5E9D8);border:1px solid var(--gold-border,#D4A572);border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13px;line-height:1.55;color:#1A1520">' +
+      '<strong>Co-borrower signature required.</strong><br>' +
+      'After you sign, we\u2019ll email <strong>' + escH(g2Name) + '</strong> at <strong>' + escH(g2.email) + '</strong> a link to sign their own credit & background check authorization. ' +
+      'The loan application won\u2019t finalize until they sign. Both of you will then receive the fully-signed PDF.' +
+    '</div>';
+  }
 
   html += '<div class="signature-block">' +
     '<label for="signerNameInput">Type your full legal name to sign</label>' +
     '<input type="text" id="signerNameInput" value="' + escAttr(defaultSignerName) + '" ' +
-      'oninput="onSignerNameChange()" autocomplete="off" spellcheck="false" />' +
+      'oninput="updateSignSubmitState()" autocomplete="off" spellcheck="false" />' +
     '<div class="signature-note">' +
       'By typing your full legal name above and clicking <strong>Sign Application</strong>, ' +
-      'you are electronically signing this loan application. This signature has the same legal effect as a handwritten signature.' +
+      'you are electronically signing all four forms above. This signature has the same legal effect as a handwritten signature.' +
     '</div>' +
   '</div>';
 
   html += '<button type="button" class="sign-submit-btn" id="signSubmitBtn" onclick="signApplication()" disabled>' +
-    'Sign Application' +
+    (hasCoBorrower ? 'Sign Application & Notify Co-Borrower' : 'Sign Application') +
   '</button>';
 
   html += '<div id="signError" style="color:#9b1d20;font-size:13px;margin-top:14px;text-align:center;display:none"></div>';
@@ -1140,7 +1173,6 @@ var ESIGN_CONSENT_LOADED = null; // {version, text, checkboxLabel}
 
 function loadEsignConsent() {
   if (ESIGN_CONSENT_LOADED) {
-    // Already cached — paint
     paintEsignConsent();
     return;
   }
@@ -1148,40 +1180,62 @@ function loadEsignConsent() {
     ESIGN_CONSENT_LOADED = r;
     paintEsignConsent();
   }).catch(function (e) {
-    var box = document.getElementById('esignConsentBox');
-    if (box) box.textContent = 'Failed to load consent text. Please refresh the page.';
+    // Best-effort fallback if the fetch fails — show a message in any
+    // of the consent boxes so the borrower knows what's wrong.
+    ['esignBox', 'loanAckBox', 'prequalBox', 'infoRelBox'].forEach(function (id) {
+      var b = document.getElementById(id);
+      if (b) b.textContent = 'Failed to load consent text. Please refresh the page.';
+    });
   });
 }
 
 function paintEsignConsent() {
   if (!ESIGN_CONSENT_LOADED) return;
-  var box = document.getElementById('esignConsentBox');
-  if (box) box.textContent = ESIGN_CONSENT_LOADED.text;
-  var lbl = document.getElementById('esignCheckboxLabel');
-  if (lbl && ESIGN_CONSENT_LOADED.checkboxLabel) lbl.textContent = ESIGN_CONSENT_LOADED.checkboxLabel;
+  // Deploy 180: paint all four consent texts + labels into their
+  // respective boxes. Fallback to the v1 fields (text/checkboxLabel)
+  // if the server hasn't been updated yet.
+  var c = ESIGN_CONSENT_LOADED;
+  function paint(boxId, labelId, text, label) {
+    var b = document.getElementById(boxId);
+    var l = document.getElementById(labelId);
+    if (b) b.textContent = text || '';
+    if (l && label) l.textContent = label;
+  }
+  paint('esignBox',   'esignLabel',   c.esignText   || c.text          || '', c.esignLabel   || c.checkboxLabel || '');
+  paint('loanAckBox', 'loanAckLabel', c.loanAckText || '', c.loanAckLabel || '');
+  paint('prequalBox', 'prequalLabel', c.prequalText || '', c.prequalLabel || '');
+  paint('infoRelBox', 'infoRelLabel', c.infoReleaseText || '', c.infoReleaseLabel || '');
 }
-
-function onEsignConsentChange() { updateSignSubmitState(); }
-function onSignerNameChange()   { updateSignSubmitState(); }
 
 function updateSignSubmitState() {
   var btn = document.getElementById('signSubmitBtn');
   if (!btn) return;
-  var consent = document.getElementById('esignConsentCheckbox');
   var nameEl  = document.getElementById('signerNameInput');
-  var ok = consent && consent.checked && nameEl && nameEl.value.trim().length >= 3;
-  btn.disabled = !ok;
+  var nameOK = nameEl && nameEl.value.trim().length >= 3;
+  // All four checkboxes must be checked
+  var allChecked = ['esignCheck', 'loanAckCheck', 'prequalCheck', 'infoRelCheck']
+    .every(function (id) {
+      var el = document.getElementById(id);
+      return el && el.checked;
+    });
+  btn.disabled = !(nameOK && allChecked);
 }
 
 function signApplication() {
   var btn = document.getElementById('signSubmitBtn');
   var errEl = document.getElementById('signError');
   var nameEl = document.getElementById('signerNameInput');
-  var consent = document.getElementById('esignConsentCheckbox');
   errEl.style.display = 'none';
   errEl.textContent = '';
-  if (!consent || !consent.checked) {
-    errEl.textContent = 'You must check the ESIGN/UETA consent box to sign.';
+
+  // Re-verify all four consents at click time
+  var allChecked = ['esignCheck', 'loanAckCheck', 'prequalCheck', 'infoRelCheck']
+    .every(function (id) {
+      var el = document.getElementById(id);
+      return el && el.checked;
+    });
+  if (!allChecked) {
+    errEl.textContent = 'You must check all four consent boxes above to sign.';
     errEl.style.display = 'block';
     return;
   }
@@ -1209,9 +1263,7 @@ function signApplication() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ t: TOKEN, data: dataToSave }),
   }).then(function () {
-    // Optional: capture coarse geolocation if the user permits. This is
-    // best-effort — many users will deny and that's fine. The audit
-    // trail records "geolocation: ''" in that case.
+    // Optional geolocation
     return new Promise(function (resolve) {
       if (!navigator.geolocation) return resolve('');
       var timed = false;
@@ -1231,16 +1283,17 @@ function signApplication() {
   }).then(function (geoloc) {
     var opts = { consentVersion: ESIGN_CONSENT_LOADED.version };
     if (geoloc) opts.geolocation = geoloc;
-    var emailEl = document.getElementById('signerEmailInput');
-    if (emailEl && emailEl.value) opts.signerEmail = emailEl.value;
     return SLA.BorrowerInfo.sign(TOKEN, signerName, opts);
   }).then(function (resp) {
-    // Successful sign — show the thank-you screen. showComplete()
-    // exists and is reused.
+    // Differentiate the thank-you message based on whether a co-borrower
+    // still needs to sign. The server returns awaitingBorrower2: true if
+    // borrower 2 has been sent their own link.
     showComplete({
       signed: true,
       signedAt: resp.signedAt,
       emailedBorrower: resp.emailedBorrower,
+      awaitingBorrower2: resp.awaitingBorrower2,
+      emailedCoBorrower: resp.emailedCoBorrower,
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }).catch(function (err) {

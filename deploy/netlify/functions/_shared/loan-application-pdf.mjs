@@ -19,7 +19,12 @@
  * width section headers, label/value rows with clear hierarchy.
  */
 import PDFDocument from 'pdfkit';
-import { ESIGN_CONSENT_TEXT } from './esign.mjs';
+import {
+  ESIGN_CONSENT_TEXT,
+  LOAN_ACKNOWLEDGEMENT_TEXT,
+  PREQUAL_CREDIT_AUTH_TEXT,
+  INFO_RELEASE_AUTH_TEXT,
+} from './esign.mjs';
 
 // SLA brand colors (RGB to match the rest of the app)
 const PLUM       = '#261A36';
@@ -29,7 +34,24 @@ const TEXT       = '#1A1520';
 const MUTED      = '#7A7488';
 const BORDER     = '#E4DFD4';
 
-export function renderSignedApplicationPDF({ record, client, signature, audit, loProfile }) {
+/**
+ * Render the signed loan application PDF.
+ *
+ * @param {object} params
+ * @param {object} params.record    - The borrower_info blob record
+ * @param {object} params.client    - The client blob record (for entity fallback)
+ * @param {Array<object>} params.signers - Array of signers. Each entry:
+ *     { role: 'borrower1' | 'borrower2',
+ *       name: string,
+ *       email: string,
+ *       audit: object | null,         // null if hasn\u2019t signed yet
+ *       signedAuths: string[] }        // which forms they signed
+ *   Order matters — first entry is rendered first.
+ * @param {string} [params.status] - 'awaiting_borrower2' | 'complete'
+ */
+export function renderSignedApplicationPDF({ record, client, signers, status }) {
+  signers = signers || [];
+  status = status || 'complete';
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -75,6 +97,14 @@ export function renderSignedApplicationPDF({ record, client, signature, audit, l
         return '$' + Math.round(num).toLocaleString('en-US');
       };
 
+      // Derive the "executed" date for the header — use the most
+      // recent signer\u2019s signed-at, or fall back to now if no signer
+      // has signed yet (shouldn\u2019t happen in normal flow but defensive).
+      const signedSigners = signers.filter((s) => s && s.audit && s.audit.signedAt);
+      const latestSignedAt = signedSigners.length
+        ? signedSigners.map((s) => s.audit.signedAt).sort().slice(-1)[0]
+        : new Date().toISOString();
+
       // ── HEADER ──────────────────────────────────────────────────
       const startY = doc.y;
       doc.rect(0, 0, doc.page.width, 70).fill(PLUM);
@@ -84,7 +114,7 @@ export function renderSignedApplicationPDF({ record, client, signature, audit, l
         .text('SLA CAPITAL  ·  LOAN APPLICATION', 54, 46);
       // Doc date on the right
       doc.fillColor(GOLD_LIGHT).fontSize(8)
-        .text('Executed: ' + new Date(audit.signedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
+        .text('Executed: ' + new Date(latestSignedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
               doc.page.width - 250, 30, { width: 200, align: 'right' });
       // Gold rule under the header
       doc.rect(0, 70, doc.page.width, 2).fill(GOLD);
@@ -98,6 +128,14 @@ export function renderSignedApplicationPDF({ record, client, signature, audit, l
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
         .text('Sir Lends A Lot LLC dba SLA Capital  ·  For business-purpose, investment property loans only.',
               { align: 'center' });
+      // If borrower 2 still hasn\u2019t signed, show a clearly-marked
+      // "interim" banner so anyone reading the PDF knows it\u2019s not
+      // yet the final fully-signed version.
+      if (status === 'awaiting_borrower2') {
+        doc.moveDown(0.3);
+        doc.fillColor('#9B5E1D').font('Helvetica-Bold').fontSize(9)
+          .text('\u2014 INTERIM COPY: Awaiting Co-Borrower Signature \u2014', { align: 'center' });
+      }
       doc.moveDown(1.5);
 
       // ── Section helper ──────────────────────────────────────────
@@ -202,54 +240,137 @@ export function renderSignedApplicationPDF({ record, client, signature, audit, l
         doc.moveDown(0.5);
       }
 
-      // ── BORROWER CERTIFICATIONS (ESIGN CONSENT) ─────────────────
-      // Force a page break here if the consent + signature block won't
-      // fit; the consent text is long.
+      // ─────────────────────────────────────────────────────────
+      // SIGNATURE BLOCK + AUDIT HELPERS (used per-signer below)
+      // ─────────────────────────────────────────────────────────
+      // Renders a boxed typed signature in script font, with the
+      // typed-by caption underneath. If the signer hasn\u2019t signed yet
+      // (audit is null), shows an empty box with a "[Signature pending
+      // — Borrower 2]" placeholder so the document remains legible
+      // when distributed as an interim copy.
+      function sigBlock(signer, captionRole) {
+        if (doc.y > doc.page.height - 130) doc.addPage();
+        const sigY = doc.y + 4;
+        doc.rect(54, sigY, doc.page.width - 108, 50)
+          .strokeColor(BORDER).lineWidth(0.7).stroke();
+
+        if (signer && signer.audit && signer.audit.signedAt) {
+          doc.font('Times-Italic').fontSize(22).fillColor(PLUM)
+            .text(signer.name || '', 64, sigY + 10, {
+              width: doc.page.width - 128, height: 35,
+            });
+          doc.font('Helvetica').fontSize(8).fillColor(MUTED)
+            .text(`Typed by ${signer.name || ''} on ` +
+                  new Date(signer.audit.signedAt).toLocaleString('en-US', {
+                    year: 'numeric', month: 'long', day: 'numeric',
+                    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+                  }) +
+                  '   \u2014   ' + captionRole,
+                  64, sigY + 56);
+        } else {
+          // Awaiting signature
+          doc.font('Helvetica-Oblique').fontSize(11).fillColor('#9B5E1D')
+            .text('[Signature pending — ' + captionRole + ']',
+                  64, sigY + 20, { width: doc.page.width - 128 });
+          doc.font('Helvetica').fontSize(8).fillColor(MUTED)
+            .text(captionRole + ' has not yet signed this form.', 64, sigY + 56);
+        }
+        doc.y = sigY + 76;
+      }
+
+      // ── SECTION 1: LOAN ACKNOWLEDGEMENT & AGREEMENT ─────────────
       if (doc.y > 400) doc.addPage();
-      section('Borrower Certifications & Electronic Signature Consent');
+      section('Loan Application Acknowledgement & Agreement');
+      doc.font('Helvetica').fontSize(8).fillColor(TEXT)
+        .text(LOAN_ACKNOWLEDGEMENT_TEXT, { lineGap: 1.5, align: 'justify' });
+      doc.moveDown(0.8);
+      // Sub-section: signatures for the acknowledgement. Both
+      // borrowers (if 2) need to sign this since it\u2019s a joint
+      // representation about the loan application.
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD)
+        .text('SIGNATURES');
+      doc.moveTo(54, doc.y + 1).lineTo(doc.page.width - 54, doc.y + 1)
+        .strokeColor(GOLD).lineWidth(0.5).stroke();
+      doc.moveDown(0.4);
+
+      signers.forEach((signer) => {
+        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        sigBlock(signer, role);
+        doc.moveDown(0.3);
+      });
+
+      // ── SECTION 2: ESIGN/UETA CONSENT (informational) ──────────
+      if (doc.y > 450) doc.addPage();
+      section('Electronic Signature Consent (ESIGN / UETA)');
       doc.font('Helvetica').fontSize(8).fillColor(TEXT)
         .text(ESIGN_CONSENT_TEXT, { lineGap: 1.5, align: 'justify' });
-      doc.moveDown(1);
+      doc.moveDown(0.6);
 
-      // ── SIGNATURE BLOCK ─────────────────────────────────────────
-      if (doc.y > doc.page.height - 200) doc.addPage();
-      section('Signature');
+      // ── SECTION 3: AUTHORIZATION TO CONDUCT PREQUAL CREDIT & BACKGROUND CHECKS ──
+      // One copy per signer (each signer authorizes their OWN credit pull).
+      signers.forEach((signer, idx) => {
+        if (idx > 0 || doc.y > 350) doc.addPage();
+        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        section(`Authorization to Conduct Prequal Credit & Background Checks — ${role}`);
+        doc.font('Helvetica').fontSize(8).fillColor(TEXT)
+          .text(PREQUAL_CREDIT_AUTH_TEXT, { lineGap: 1.5, align: 'justify' });
+        doc.moveDown(0.8);
+        sigBlock(signer, role);
+      });
 
-      // Boxed signature in a "script" font so it visually reads like a signature
-      const sigY = doc.y + 4;
-      doc.rect(54, sigY, doc.page.width - 108, 50).strokeColor(BORDER).lineWidth(0.7).stroke();
-      // pdfkit doesn't include script fonts by default; "Times-Italic" is a
-      // reasonable cross-platform stand-in that reads as a signature.
-      doc.font('Times-Italic').fontSize(22).fillColor(PLUM)
-        .text(signature.signerName || '', 64, sigY + 10, {
-          width: doc.page.width - 128, height: 35,
-        });
-      // Below-line caption with timestamp
-      doc.font('Helvetica').fontSize(8).fillColor(MUTED)
-        .text(`Typed by ${signature.signerName || ''} on ${new Date(audit.signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZoneName: 'short' })}`,
-              64, sigY + 56);
-      doc.y = sigY + 78;
+      // ── SECTION 4: AUTHORIZATION TO RELEASE INFORMATION ─────────
+      doc.addPage();
+      section('Authorization to Release Information');
+      doc.font('Helvetica').fontSize(8).fillColor(TEXT)
+        .text(INFO_RELEASE_AUTH_TEXT, { lineGap: 1.5, align: 'justify' });
+      doc.moveDown(0.8);
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD)
+        .text('SIGNATURES');
+      doc.moveTo(54, doc.y + 1).lineTo(doc.page.width - 54, doc.y + 1)
+        .strokeColor(GOLD).lineWidth(0.5).stroke();
+      doc.moveDown(0.4);
+      signers.forEach((signer) => {
+        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        sigBlock(signer, role);
+        doc.moveDown(0.3);
+      });
 
       // ── AUDIT TRAIL ─────────────────────────────────────────────
-      // Always visible at the end. Provides the auditability without
-      // hiding it from the borrower — they can see what we recorded.
+      // One audit block per signer, since each signer is an
+      // independent signature event with its own IP/UA/timestamp/seal.
+      doc.addPage();
       section('Electronic Signature Audit');
-      row('Signer', signature.signerName || '');
-      row('Signer email', signature.signerEmail || g0.email || data.borrowerEmail || '');
-      row('Signed at (UTC)', audit.signedAt || '');
-      row('IP address', audit.ipAddress || 'unavailable');
-      row('User agent', (audit.userAgent || '').slice(0, 100));
-      if (audit.geolocation) {
-        row('Geolocation', audit.geolocation);
-      }
-      row('Consent version', `v${audit.consentVersion}`);
-      row('Document content hash (SHA-256)', audit.dataHash || '');
-      row('Audit seal (HMAC-SHA256)', (audit.seal || '').slice(0, 32) + '…');
+      doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+        .text('Each signer below represents an independent electronic-signature event recorded by the SLA Capital system.', { lineGap: 1.5 });
+      doc.moveDown(0.5);
+
+      signers.forEach((signer, idx) => {
+        if (idx > 0) doc.moveDown(0.6);
+        const a = signer.audit;
+        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(PLUM)
+          .text(role + ' \u2014 ' + (signer.name || ''));
+        doc.moveDown(0.2);
+        if (!a || !a.signedAt) {
+          doc.font('Helvetica-Oblique').fontSize(9).fillColor('#9B5E1D')
+            .text('[Signature pending — no audit event recorded yet.]');
+          return;
+        }
+        row('Signer email', signer.email || '');
+        row('Signed at (UTC)', a.signedAt || '');
+        row('IP address', a.ipAddress || 'unavailable');
+        row('User agent', (a.userAgent || '').slice(0, 100));
+        if (a.geolocation) row('Geolocation', a.geolocation);
+        row('Consent version', `v${a.consentVersion}`);
+        row('Forms signed', (a.signedAuths || []).join(', '));
+        row('Document content hash (SHA-256)', a.dataHash || '');
+        row('Audit seal (HMAC-SHA256)', (a.seal || '').slice(0, 32) + '\u2026');
+      });
 
       doc.moveDown(0.6);
       doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(MUTED)
         .text(
-          'This document was electronically signed by the borrower in accordance with the federal ESIGN Act (15 U.S.C. § 7001 et seq.) and applicable state UETA statutes. The audit trail above provides cryptographic evidence of the signing event. The content hash binds the signature to the specific data values reproduced in this document; any tampering with the borrower\'s stored record after signing would change this hash. The HMAC seal (computed with a server-side secret) provides tamper-evidence for the audit fields themselves.',
+          'This document was electronically signed in accordance with the federal ESIGN Act (15 U.S.C. \u00A7 7001 et seq.) and applicable state UETA statutes. The audit trail above provides cryptographic evidence of each signing event. The content hash binds each signature to the specific data values reproduced in this document; any tampering with the borrower\u2019s stored record after signing would change this hash. The HMAC seal (computed with a server-side secret) provides tamper-evidence for the audit fields themselves.',
           { align: 'justify', lineGap: 1 }
         );
 

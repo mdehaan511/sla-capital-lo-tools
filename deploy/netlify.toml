@@ -295,6 +295,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/borrower2-auth-info"
+  to = "/.netlify/functions/borrower2-auth-info"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower2-auth-sign"
+  to = "/.netlify/functions/borrower2-auth-sign"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-status"
   to = "/.netlify/functions/borrower-info-status"
   status = 200

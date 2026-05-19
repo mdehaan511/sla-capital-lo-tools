@@ -54,18 +54,44 @@ async function handle(req, context) {
   if (!rec) return json(404, { error: 'No signed application on file for this loan' });
 
   if (wantMeta) {
-    // Return metadata only — no PDF binary. Validates the seal so the
-    // UI can show "tamper-evident: ✓" or warn if invalid.
-    const sealValid = verifyAudit(rec.audit);
+    // Deploy 180: records have two shapes in the wild:
+    //   - Old (Deploy 179): { audit, borrowerEmail, ... }     single-signer
+    //   - New (Deploy 180): { borrower1: {audit, email, ...}, borrower2: null | {audit?, ...},
+    //                         status, numBorrowers, ... }
+    // We surface both shapes here so the loan-details UI keeps
+    // working without changes. The UI reads `meta.audit` for the
+    // status pane — we mirror borrower1.audit there. New UI code
+    // can opt into reading borrower1/borrower2/status directly.
+    const b1 = rec.borrower1 || null;
+    const b2 = rec.borrower2 || null;
+    const primaryAudit = (b1 && b1.audit) || rec.audit || null;
+    const sealValid = primaryAudit ? verifyAudit(primaryAudit) : false;
+    const b2SealValid = (b2 && b2.audit) ? verifyAudit(b2.audit) : null;
     return json(200, {
       clientId: rec.clientId,
       loanId: rec.loanId,
-      borrowerEmail: rec.borrowerEmail,
+      // Backward-compat fields (Deploy 179 UI)
+      borrowerEmail: (b1 && b1.email) || rec.borrowerEmail || '',
+      audit: primaryAudit,
+      // New fields (Deploy 180)
+      status: rec.status || 'complete',
+      numBorrowers: rec.numBorrowers || 1,
+      borrower1: b1 ? {
+        name: b1.name, email: b1.email, audit: b1.audit, signedAuths: b1.signedAuths,
+      } : null,
+      borrower2: b2 ? {
+        name: b2.name, email: b2.email,
+        invitedAt: b2.invitedAt, tokenExpiresAt: b2.tokenExpiresAt,
+        audit: b2.audit, signedAuths: b2.signedAuths,
+        hasPendingSignature: !b2.audit || !b2.audit.signedAt,
+      } : null,
+      // Common
       propertyAddress: rec.propertyAddress,
-      audit: rec.audit,
       pdfSize: rec.pdfSize,
       createdAt: rec.createdAt,
+      updatedAt: rec.updatedAt || rec.createdAt,
       sealValid,
+      b2SealValid,
     });
   }
 

@@ -2054,18 +2054,47 @@ function refreshSignedApplicationStatus() {
     var a = meta.audit;
     var when = a.signedAt ? new Date(a.signedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'unknown';
     var sealOK = meta.sealValid;
-    pane.innerHTML =
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><strong style="color:var(--success, #1F7A4A)">\u2713 Signed</strong>' +
-      (sealOK ? '<span style="font-size:10px;color:var(--muted,#7A7488)">audit seal verified</span>'
-              : '<span style="font-size:10px;color:#9b1d20;font-weight:600">audit seal INVALID</span>') +
-      '</div>' +
-      '<div><span style="color:var(--muted,#7A7488)">Signed by:</span> ' + escH(a.signerName || '') + '</div>' +
-      '<div><span style="color:var(--muted,#7A7488)">Signed at:</span> ' + escH(when) + '</div>' +
-      '<div><span style="color:var(--muted,#7A7488)">IP:</span> ' + escH(a.ipAddress || 'unavailable') + '</div>' +
-      (a.geolocation ? '<div><span style="color:var(--muted,#7A7488)">Location:</span> ' + escH(a.geolocation) + '</div>' : '') +
-      '<div><span style="color:var(--muted,#7A7488)">Consent version:</span> v' + escH(a.consentVersion || '?') + '</div>';
+
+    // Deploy 180: status can be 'awaiting_borrower2' if borrower 2
+    // hasn\u2019t signed yet. In that case the "Signed" header is
+    // qualified and we show borrower 2\u2019s pending row.
+    var b2Pending = meta.status === 'awaiting_borrower2'
+      || (meta.borrower2 && meta.borrower2.hasPendingSignature);
+    var b2 = meta.borrower2 || null;
+
+    var html = '';
+    if (b2Pending) {
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+        '<strong style="color:#9B5E1D">\u2713 Borrower 1 signed</strong>' +
+        '<span style="font-size:10px;color:var(--muted,#7A7488)">awaiting Borrower 2</span>' +
+        '</div>';
+    } else {
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+        '<strong style="color:var(--success, #1F7A4A)">\u2713 Fully signed</strong>' +
+        (sealOK ? '<span style="font-size:10px;color:var(--muted,#7A7488)">audit seal verified</span>'
+                : '<span style="font-size:10px;color:#9b1d20;font-weight:600">audit seal INVALID</span>') +
+        '</div>';
+    }
+    html += '<div><span style="color:var(--muted,#7A7488)">Borrower 1:</span> ' + escH(a.signerName || '') + ' \u2014 ' + escH(when) + '</div>';
+    if (a.ipAddress) html += '<div><span style="color:var(--muted,#7A7488)">IP:</span> ' + escH(a.ipAddress) + '</div>';
+    if (a.geolocation) html += '<div><span style="color:var(--muted,#7A7488)">Location:</span> ' + escH(a.geolocation) + '</div>';
+
+    if (b2) {
+      if (b2.audit && b2.audit.signedAt) {
+        var b2when = new Date(b2.audit.signedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+        html += '<div style="margin-top:4px"><span style="color:var(--muted,#7A7488)">Borrower 2:</span> ' + escH(b2.audit.signerName || b2.name || '') + ' \u2014 ' + escH(b2when) + '</div>';
+      } else {
+        var invited = b2.invitedAt ? new Date(b2.invitedAt).toLocaleString('en-US', { dateStyle: 'medium' }) : '';
+        html += '<div style="margin-top:4px"><span style="color:var(--muted,#7A7488)">Borrower 2:</span> ' +
+          escH(b2.name || b2.email || 'co-borrower') +
+          ' \u2014 <span style="color:#9B5E1D">awaiting signature</span>' +
+          (invited ? ' (invited ' + escH(invited) + ')' : '') +
+          '</div>';
+      }
+    }
+    html += '<div><span style="color:var(--muted,#7A7488)">Consent version:</span> v' + escH(a.consentVersion || '?') + '</div>';
+    pane.innerHTML = html;
   }).catch(function() {
-    // 404 means no signed record yet — keep things hidden
     btn.style.display = 'none';
     pane.style.display = 'none';
   });

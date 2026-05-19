@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Co-Borrower Authorization · SLA Capital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --gold:#C8813A;--gold-mid:#b5712d;--gold-light:rgba(200,129,58,0.10);
+  --gold-border:rgba(200,129,58,0.28);--dark:#261a36;--bg:#f0ece5;
+  --surface:#ffffff;--text:#1a1520;--muted:#7a7488;--border:#E4DFD4;
+  --success:#256940;--danger:#7c1f1f;
+  --r:12px;--r-sm:8px;--r-xs:6px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:0 1rem 5rem}
+.nav{max-width:760px;margin:0 auto;padding:1.5rem 0 0;display:flex;align-items:center;gap:12px}
+.nav img{height:44px}
+.nav-tagline{font-size:12px;color:var(--muted)}
+.page{max-width:760px;margin:0 auto;padding-top:2rem}
+.page-header h1{font-family:'Lora',serif;font-size:24px;font-weight:600;margin-bottom:8px}
+.page-header p{font-size:13.5px;color:var(--muted);line-height:1.6;max-width:560px}
+.summary-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:18px 22px;margin:22px 0;font-size:13.5px;line-height:1.7}
+.summary-card .row{display:flex;gap:12px;padding:3px 0}
+.summary-card .row .lbl{color:var(--muted);flex:0 0 130px}
+.summary-card .row .val{font-weight:600}
+.auth-section-title{font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark);margin:28px 0 8px}
+.consent-box{background:#fff;border:1px solid var(--border);border-radius:8px;padding:18px 22px;max-height:300px;overflow-y:auto;font-size:12.5px;line-height:1.6;white-space:pre-wrap;font-family:Georgia,serif;color:var(--text);margin-bottom:16px}
+.consent-row{display:flex;gap:10px;align-items:flex-start;padding:14px 16px;background:var(--gold-light);border:1px solid var(--gold-border);border-radius:6px;margin-bottom:20px}
+.consent-row input[type="checkbox"]{margin-top:3px;flex-shrink:0;width:18px;height:18px;cursor:pointer}
+.consent-row label{font-size:13px;line-height:1.5;cursor:pointer}
+.sig-block{background:#fff;border:2px solid var(--gold);border-radius:8px;padding:20px 22px;margin-bottom:18px}
+.sig-block label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--gold);display:block;margin-bottom:8px}
+.sig-block input{font-family:"Brush Script MT","Lucida Handwriting",cursive;font-size:28px;padding:8px 12px;border:0;border-bottom:1.5px solid #888;width:100%;background:transparent}
+.sig-block input:focus{outline:none;border-bottom-color:var(--gold)}
+.sig-block .sig-note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4}
+.sign-btn{background:var(--gold);color:#fff;border:0;padding:14px 28px;font-size:15px;font-weight:600;border-radius:8px;cursor:pointer;width:100%;transition:background 0.15s}
+.sign-btn:hover:not(:disabled){background:var(--gold-mid)}
+.sign-btn:disabled{opacity:0.5;cursor:not-allowed}
+.err{color:var(--danger);font-size:13px;margin-top:14px;text-align:center;display:none}
+.status-banner{padding:16px 20px;border-radius:8px;font-size:13.5px;line-height:1.55;margin:24px 0}
+.status-banner.error{background:#fdebec;border:1px solid #f3c1c4;color:var(--danger)}
+.status-banner.success{background:#e6f4ec;border:1px solid #b9dcc7;color:var(--success)}
+.loading{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
+@media (max-width:600px){
+  .page{padding-top:1rem}
+  .page-header h1{font-size:20px}
+}
+</style>
+</head>
+<body>
+<div class="nav">
+  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital">
+  <div class="nav-tagline">Co-Borrower Authorization</div>
+</div>
+<div class="page" id="root">
+  <div class="loading">Loading authorization\u2026</div>
+</div>
+
+<script src="sla-api.js"></script>
+<script>
+var qs = new URLSearchParams(window.location.search);
+var TOKEN = qs.get('t') || '';
+var CONSENT = null;
+var INFO = null;
+
+function escH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function renderError(msg, expired) {
+  document.getElementById('root').innerHTML =
+    '<div class="page-header"><h1>Co-Borrower Authorization</h1></div>' +
+    '<div class="status-banner error">' +
+      '<strong>' + (expired ? 'Link expired' : 'Unable to load this authorization link.') + '</strong><br>' +
+      escH(msg || 'Please ask your loan officer to send a new link.') +
+    '</div>';
+}
+
+function renderAlreadySigned() {
+  document.getElementById('root').innerHTML =
+    '<div class="page-header"><h1>Already signed</h1></div>' +
+    '<div class="status-banner success">' +
+      'You\u2019ve already signed this authorization. Thank you! You can close this page.' +
+    '</div>';
+}
+
+function renderComplete() {
+  document.getElementById('root').innerHTML =
+    '<div class="page-header"><h1>Authorization signed</h1></div>' +
+    '<div class="status-banner success">' +
+      '<strong>Thank you.</strong> You\u2019ve signed the Authorization to Conduct Prequal Credit &amp; Background Checks. A copy of the fully-signed loan application has been emailed to both borrowers.' +
+    '</div>';
+}
+
+function renderForm() {
+  if (!INFO || !CONSENT) return;
+  var html = '';
+  html += '<div class="page-header">';
+  html += '<h1>Co-Borrower Authorization</h1>';
+  html += '<p>' + escH(INFO.b1Name || 'Your co-borrower') + ' has submitted a loan application with SLA Capital that lists you as a guarantor. ' +
+          'Federal law requires <strong>your own</strong> authorization to pull your credit and run background checks. Please review and sign below.</p>';
+  html += '</div>';
+
+  html += '<div class="summary-card">';
+  if (INFO.propertyAddress) html += '<div class="row"><div class="lbl">Property</div><div class="val">' + escH(INFO.propertyAddress) + '</div></div>';
+  html += '<div class="row"><div class="lbl">Primary Borrower</div><div class="val">' + escH(INFO.b1Name) + '</div></div>';
+  html += '<div class="row"><div class="lbl">Co-Borrower (you)</div><div class="val">' + escH(INFO.b2Name) + '</div></div>';
+  html += '<div class="row"><div class="lbl">Email</div><div class="val">' + escH(INFO.b2Email) + '</div></div>';
+  html += '</div>';
+
+  html += '<div class="auth-section-title">Authorization to Conduct Prequal Credit &amp; Background Checks</div>';
+  html += '<div class="consent-box">' + escH(CONSENT.prequalText) + '</div>';
+
+  html += '<div class="consent-row">' +
+    '<input type="checkbox" id="prequalCheck" onchange="updateBtn()" />' +
+    '<label for="prequalCheck">' + escH(CONSENT.prequalLabel) + '</label>' +
+  '</div>';
+
+  html += '<div class="auth-section-title" style="margin-top:10px;font-size:15px">Electronic Signature Consent (ESIGN / UETA)</div>';
+  html += '<div class="consent-box" style="max-height:220px">' + escH(CONSENT.esignText) + '</div>';
+  html += '<div class="consent-row">' +
+    '<input type="checkbox" id="esignCheck" onchange="updateBtn()" />' +
+    '<label for="esignCheck">' + escH(CONSENT.esignLabel) + '</label>' +
+  '</div>';
+
+  html += '<div class="sig-block">' +
+    '<label for="sigName">Type your full legal name to sign</label>' +
+    '<input type="text" id="sigName" value="' + escH(INFO.b2Name) + '" oninput="updateBtn()" autocomplete="off" spellcheck="false" />' +
+    '<div class="sig-note">By typing your full legal name above and clicking <strong>Sign Authorization</strong>, you are electronically signing this authorization. This signature has the same legal effect as a handwritten signature.</div>' +
+  '</div>';
+
+  html += '<button type="button" class="sign-btn" id="signBtn" onclick="signNow()" disabled>Sign Authorization</button>';
+  html += '<div class="err" id="errEl"></div>';
+
+  document.getElementById('root').innerHTML = html;
+}
+
+function updateBtn() {
+  var btn = document.getElementById('signBtn');
+  if (!btn) return;
+  var pq = document.getElementById('prequalCheck');
+  var es = document.getElementById('esignCheck');
+  var nm = document.getElementById('sigName');
+  btn.disabled = !(pq && pq.checked && es && es.checked && nm && nm.value.trim().length >= 3);
+}
+
+function signNow() {
+  var btn = document.getElementById('signBtn');
+  var err = document.getElementById('errEl');
+  var nm = document.getElementById('sigName');
+  err.style.display = 'none'; err.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Signing\u2026';
+
+  // Optional geolocation (best-effort, like the borrower-info flow)
+  new Promise(function (resolve) {
+    if (!navigator.geolocation) return resolve('');
+    var timed = false;
+    var to = setTimeout(function () { timed = true; resolve(''); }, 3000);
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        if (timed) return;
+        clearTimeout(to);
+        var g = pos.coords;
+        resolve(g.latitude.toFixed(4) + ',' + g.longitude.toFixed(4) +
+                ' (\u00B1' + Math.round(g.accuracy || 0) + 'm)');
+      },
+      function () { clearTimeout(to); resolve(''); },
+      { enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }
+    );
+  }).then(function (geo) {
+    return fetch('/api/borrower2-auth-sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        t: TOKEN,
+        signerName: nm.value.trim(),
+        consentAccepted: true,
+        consentVersion: CONSENT.version,
+        geolocation: geo,
+      }),
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) {
+          var e = new Error(d.error || ('HTTP ' + r.status));
+          e.status = r.status;
+          throw e;
+        }
+        return d;
+      });
+    });
+  }).then(function () {
+    renderComplete();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }).catch(function (e) {
+    btn.disabled = false;
+    btn.textContent = 'Sign Authorization';
+    err.textContent = (e && e.message) || 'Signing failed. Please try again.';
+    err.style.display = 'block';
+  });
+}
+
+// Load info + consent text in parallel, then render the form
+if (!TOKEN) {
+  renderError('Missing signing token.');
+} else {
+  Promise.all([
+    fetch('/api/borrower2-auth-info?t=' + encodeURIComponent(TOKEN)).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error(d.error || 'Failed to load');
+        return d;
+      });
+    }),
+    fetch('/api/esign-consent').then(function (r) { return r.json(); }),
+  ]).then(function (results) {
+    INFO = results[0];
+    if (INFO.expired)       { renderError('This signing link has expired. Ask your loan officer to send a new one.', true); return; }
+    if (INFO.alreadySigned) { renderAlreadySigned(); return; }
+    var c = results[1];
+    CONSENT = {
+      version: c.version,
+      esignText: c.text || c.esignText,
+      esignLabel: c.checkboxLabel || c.esignLabel,
+      prequalText: c.prequalText || '',
+      prequalLabel: c.prequalLabel || '',
+    };
+    if (!CONSENT.prequalText) {
+      renderError('Authorization text could not be loaded. Please try again later.');
+      return;
+    }
+    renderForm();
+  }).catch(function (e) {
+    renderError((e && e.message) || 'Failed to load.');
+  });
+}
+</script>
+</body>
+</html>
