@@ -25,6 +25,7 @@ import {
   PREQUAL_CREDIT_AUTH_TEXT,
   INFO_RELEASE_AUTH_TEXT,
 } from './esign.mjs';
+import { decryptField } from './crypto.mjs';
 
 // SLA brand colors (RGB to match the rest of the app)
 const PLUM       = '#261A36';
@@ -91,6 +92,24 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         if (digits.length !== 9) return ssn;
         return digits.slice(0, 3) + '-' + digits.slice(3, 5) + '-' + digits.slice(5);
       };
+      // Resolve a guarantor\u2019s SSN for display on the signed PDF.
+      // The borrower form encrypts SSNs at rest: plaintext is stripped
+      // and the encrypted blob is stored as `ssn_enc`. For the signed
+      // loan application we decrypt here so the document includes the
+      // full SSN, which is required for underwriting. Note: the
+      // resulting PDF (stored in signed_applications + emailed to the
+      // borrower) will contain the unmasked SSN \u2014 this is a deliberate
+      // tradeoff per business requirement, not a security regression.
+      const resolveSSN = (g) => {
+        if (!g) return '';
+        if (g.ssn_enc) {
+          try {
+            const plain = decryptField(g.ssn_enc);
+            if (plain) return plain;
+          } catch (_) { /* fall through */ }
+        }
+        return g.ssn || '';
+      };
       const fmtMoney = (n) => {
         const num = parseFloat(String(n || '').replace(/[$,]/g, ''));
         if (!isFinite(num) || num === 0) return '';
@@ -122,27 +141,45 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       doc.fillColor(TEXT).y = 90;
 
       // ── DOCUMENT TITLE ──────────────────────────────────────────
+      // IMPORTANT: pass x + width explicitly. The previous text() call
+      // (the Executed-date stamp on the right of the header) left the
+      // sticky pdfkit text position at x \u2248 doc.page.width - 250 with
+      // a 200px width. Without resetting here, "SIGNED LOAN
+      // APPLICATION" centers inside that 200px box on the right edge
+      // of the page instead of across the full content width.
       doc.font('Times-Bold').fontSize(16).fillColor(PLUM)
-        .text('SIGNED LOAN APPLICATION', { align: 'center' });
+        .text('SIGNED LOAN APPLICATION', 54, doc.y, {
+          width: doc.page.width - 108,
+          align: 'center',
+        });
       doc.moveDown(0.3);
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
-        .text('Sir Lends A Lot LLC dba SLA Capital  ·  For business-purpose, investment property loans only.',
-              { align: 'center' });
+        .text('Sir Lends A Lot LLC dba SLA Capital  \u00B7  For business-purpose, investment property loans only.',
+              54, doc.y, { width: doc.page.width - 108, align: 'center' });
       // If borrower 2 still hasn\u2019t signed, show a clearly-marked
       // "interim" banner so anyone reading the PDF knows it\u2019s not
       // yet the final fully-signed version.
       if (status === 'awaiting_borrower2') {
         doc.moveDown(0.3);
         doc.fillColor('#9B5E1D').font('Helvetica-Bold').fontSize(9)
-          .text('\u2014 INTERIM COPY: Awaiting Co-Borrower Signature \u2014', { align: 'center' });
+          .text('\u2014 INTERIM COPY: Awaiting Co-Borrower Signature \u2014',
+                54, doc.y, { width: doc.page.width - 108, align: 'center' });
       }
       doc.moveDown(1.5);
 
       // ── Section helper ──────────────────────────────────────────
+      // CRITICAL: always pass x + y + width explicitly so that any
+      // upstream caller that left x positioned somewhere narrow
+      // (e.g. the Executed-date stamp in the header, or the
+      // Declarations table\u2019s cell text) doesn\u2019t pollute pdfkit\u2019s
+      // sticky text position. Without this, the title and following
+      // body text inherit a narrow column and wrap mid-word.
       function section(title) {
         if (doc.y > doc.page.height - 120) doc.addPage();
         doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD)
-          .text(title.toUpperCase());
+          .text(title.toUpperCase(), 54, doc.y, {
+            width: doc.page.width - 108,
+          });
         doc.moveTo(54, doc.y + 1).lineTo(doc.page.width - 54, doc.y + 1)
           .strokeColor(GOLD).lineWidth(0.5).stroke();
         doc.moveDown(0.4);
@@ -290,7 +327,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         section(label);
         row('Full Legal Name', `${g.firstName || ''} ${g.lastName || ''}`.trim());
         row('Date of Birth', g.dob || '');
-        row('Social Security Number', fmtSSN(g.ssn));
+        row('Social Security Number', fmtSSN(resolveSSN(g)));
         row('Estimated Credit Score', g.fico || '');
         row('Email Address', g.email || '');
         row('Phone Number', g.phone || '');
@@ -448,21 +485,34 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         doc.y = sigY + 76;
       }
 
+      // Helper to render a long body paragraph at full content width.
+      // Same reason as section() — pdfkit text state is sticky; always
+      // pass x explicitly so it doesn\u2019t inherit a narrow column from
+      // an upstream caller.
+      function paragraph(text, opts) {
+        opts = opts || {};
+        doc.font(opts.font || 'Helvetica').fontSize(opts.size || 8).fillColor(opts.color || TEXT)
+          .text(text, 54, doc.y, Object.assign({
+            width: doc.page.width - 108,
+            lineGap: 1.5,
+            align: 'justify',
+          }, opts.textOpts || {}));
+      }
+      // Sub-section header inside a major section (e.g. "SIGNATURES")
+      function subHeader(title) {
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD)
+          .text(title.toUpperCase(), 54, doc.y, { width: doc.page.width - 108 });
+        doc.moveTo(54, doc.y + 1).lineTo(doc.page.width - 54, doc.y + 1)
+          .strokeColor(GOLD).lineWidth(0.5).stroke();
+        doc.moveDown(0.4);
+      }
+
       // ── SECTION 1: LOAN ACKNOWLEDGEMENT & AGREEMENT ─────────────
       if (doc.y > 400) doc.addPage();
       section('Loan Application Acknowledgement & Agreement');
-      doc.font('Helvetica').fontSize(8).fillColor(TEXT)
-        .text(LOAN_ACKNOWLEDGEMENT_TEXT, { lineGap: 1.5, align: 'justify' });
+      paragraph(LOAN_ACKNOWLEDGEMENT_TEXT);
       doc.moveDown(0.8);
-      // Sub-section: signatures for the acknowledgement. Both
-      // borrowers (if 2) need to sign this since it\u2019s a joint
-      // representation about the loan application.
-      doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD)
-        .text('SIGNATURES');
-      doc.moveTo(54, doc.y + 1).lineTo(doc.page.width - 54, doc.y + 1)
-        .strokeColor(GOLD).lineWidth(0.5).stroke();
-      doc.moveDown(0.4);
-
+      subHeader('Signatures');
       signers.forEach((signer) => {
         const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
         sigBlock(signer, role);
@@ -472,8 +522,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       // ── SECTION 2: ESIGN/UETA CONSENT (informational) ──────────
       if (doc.y > 450) doc.addPage();
       section('Electronic Signature Consent (ESIGN / UETA)');
-      doc.font('Helvetica').fontSize(8).fillColor(TEXT)
-        .text(ESIGN_CONSENT_TEXT, { lineGap: 1.5, align: 'justify' });
+      paragraph(ESIGN_CONSENT_TEXT);
       doc.moveDown(0.6);
 
       // ── SECTION 3: AUTHORIZATION TO CONDUCT PREQUAL CREDIT & BACKGROUND CHECKS ──
@@ -482,8 +531,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         if (idx > 0 || doc.y > 350) doc.addPage();
         const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
         section(`Authorization to Conduct Prequal Credit & Background Checks — ${role}`);
-        doc.font('Helvetica').fontSize(8).fillColor(TEXT)
-          .text(PREQUAL_CREDIT_AUTH_TEXT, { lineGap: 1.5, align: 'justify' });
+        paragraph(PREQUAL_CREDIT_AUTH_TEXT);
         doc.moveDown(0.8);
         sigBlock(signer, role);
       });
@@ -491,14 +539,9 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       // ── SECTION 4: AUTHORIZATION TO RELEASE INFORMATION ─────────
       doc.addPage();
       section('Authorization to Release Information');
-      doc.font('Helvetica').fontSize(8).fillColor(TEXT)
-        .text(INFO_RELEASE_AUTH_TEXT, { lineGap: 1.5, align: 'justify' });
+      paragraph(INFO_RELEASE_AUTH_TEXT);
       doc.moveDown(0.8);
-      doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD)
-        .text('SIGNATURES');
-      doc.moveTo(54, doc.y + 1).lineTo(doc.page.width - 54, doc.y + 1)
-        .strokeColor(GOLD).lineWidth(0.5).stroke();
-      doc.moveDown(0.4);
+      subHeader('Signatures');
       signers.forEach((signer) => {
         const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
         sigBlock(signer, role);
@@ -511,7 +554,9 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       doc.addPage();
       section('Electronic Signature Audit');
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
-        .text('Each signer below represents an independent electronic-signature event recorded by the SLA Capital system.', { lineGap: 1.5 });
+      doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+        .text('Each signer below represents an independent electronic-signature event recorded by the SLA Capital system.',
+              54, doc.y, { width: doc.page.width - 108, lineGap: 1.5 });
       doc.moveDown(0.5);
 
       signers.forEach((signer, idx) => {
@@ -519,11 +564,12 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
         const a = signer.audit;
         const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
         doc.font('Helvetica-Bold').fontSize(10).fillColor(PLUM)
-          .text(role + ' \u2014 ' + (signer.name || ''));
+          .text(role + ' \u2014 ' + (signer.name || ''), 54, doc.y, { width: doc.page.width - 108 });
         doc.moveDown(0.2);
         if (!a || !a.signedAt) {
           doc.font('Helvetica-Oblique').fontSize(9).fillColor('#9B5E1D')
-            .text('[Signature pending — no audit event recorded yet.]');
+            .text('[Signature pending — no audit event recorded yet.]',
+                  54, doc.y, { width: doc.page.width - 108 });
           return;
         }
         row('Signer email', signer.email || '');
@@ -541,7 +587,8 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(MUTED)
         .text(
           'This document was electronically signed in accordance with the federal ESIGN Act (15 U.S.C. \u00A7 7001 et seq.) and applicable state UETA statutes. The audit trail above provides cryptographic evidence of each signing event. The content hash binds each signature to the specific data values reproduced in this document; any tampering with the borrower\u2019s stored record after signing would change this hash. The HMAC seal (computed with a server-side secret) provides tamper-evidence for the audit fields themselves.',
-          { align: 'justify', lineGap: 1 }
+          54, doc.y,
+          { width: doc.page.width - 108, align: 'justify', lineGap: 1 }
         );
 
       doc.end();
