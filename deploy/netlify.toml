@@ -192,9 +192,41 @@
   status = 200
   force = true
 
+# Native eSign endpoints (Deploy 185)
+
 [[redirects]]
-  from = "/api/pandadoc-send-log"
-  to = "/.netlify/functions/pandadoc-send-log-list"
+  from = "/api/envelopes-resend-signer"
+  to = "/.netlify/functions/envelopes-resend-signer"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/envelope-signer-info"
+  to = "/.netlify/functions/envelope-signer-info"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/envelope-signer-pdf"
+  to = "/.netlify/functions/envelope-signer-pdf"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/envelope-sign"
+  to = "/.netlify/functions/envelope-sign"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/envelope-consent"
+  to = "/.netlify/functions/envelope-consent"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/envelope-final-pdf"
+  to = "/.netlify/functions/envelope-final-pdf"
   status = 200
   force = true
 

@@ -431,9 +431,12 @@
     },
   };
 
-  // ── Envelopes (e-signature via PandaDoc) ───────────────────────
-  // Phase 2 wires in real PandaDoc sends behind a dry-run flag — see
-  // netlify/functions/envelopes.mjs and _shared/pandadoc.mjs.
+  // ── Envelopes (native e-signature, Deploy 185) ─────────────────
+  // The old PandaDoc integration has been replaced by SLA Capital\u2019s
+  // own e-signature flow. Signers get a unique tokenized link by
+  // email and sign via /term-sheet-sign.html. Once all signers have
+  // signed, the original PDFs are stamped with a signatures page and
+  // the result is emailed back to everyone.
   var Envelopes = {
     list: function (opts) {
       opts = opts || {};
@@ -469,18 +472,45 @@
         owner: owner || '',
       });
     },
-  };
-
-  // ── PandaDoc admin (super-admin) ────────────────────────────────
-  var PandaDoc = {
-    log: function (opts) {
+    // Deploy 185: rotate one signer\u2019s token and resend their invitation.
+    resendSigner: function (envelopeId, signerIndex, owner) {
+      return api('POST', '/api/envelopes-resend-signer', {
+        envelopeId: envelopeId,
+        signerIndex: signerIndex,
+        owner: owner || '',
+      });
+    },
+    // Deploy 185: download a final (stamped) PDF from a completed envelope.
+    downloadFinal: function (envelopeId, docIdx, opts) {
       opts = opts || {};
-      var qs = [];
-      if (opts.limit) qs.push('limit=' + encodeURIComponent(opts.limit));
-      var path = '/api/pandadoc-send-log' + (qs.length ? '?' + qs.join('&') : '');
-      return api('GET', path);
+      var qs = '?envelopeId=' + encodeURIComponent(envelopeId) + '&doc=' + (docIdx || 0);
+      if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
+      return getToken().then(function(token) {
+        return fetch('/api/envelope-final-pdf' + qs, {
+          headers: { 'Authorization': 'Bearer ' + token },
+        }).then(function(r) {
+          if (!r.ok) {
+            return r.json().catch(function() { return {}; }).then(function(d) {
+              throw new Error(d.error || ('HTTP ' + r.status));
+            });
+          }
+          return r.blob().then(function(blob) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            var cd = r.headers.get('Content-Disposition') || '';
+            var m = /filename="([^"]+)"/.exec(cd);
+            a.download = m ? m[1] : 'SLA_Signed_Document.pdf';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+          });
+        });
+      });
     },
   };
+
+  // PandaDoc namespace removed in Deploy 185 \u2014 functionality
+  // replaced by the native Envelopes API above.
 
   // ── Profile (silent + explicit update) ──────────────────────────
   var Profile = {
@@ -758,7 +788,6 @@
     ChatLog: ChatLog,
     Brevo: Brevo,
     Envelopes: Envelopes,
-    PandaDoc: PandaDoc,
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,
     ESignConsent: ESignConsent,

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review and Sign · SLA Capital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --gold:#C8813A;--gold-mid:#b5712d;--gold-light:rgba(200,129,58,0.10);
+  --gold-border:rgba(200,129,58,0.28);--dark:#261a36;--bg:#f0ece5;
+  --surface:#ffffff;--text:#1a1520;--muted:#7a7488;--border:#E4DFD4;
+  --success:#256940;--danger:#7c1f1f;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:0 1rem 5rem}
+.nav{max-width:920px;margin:0 auto;padding:1.5rem 0 0;display:flex;align-items:center;gap:12px}
+.nav img{height:44px}
+.nav-tagline{font-size:12px;color:var(--muted)}
+.page{max-width:920px;margin:0 auto;padding-top:1.5rem}
+.page-header h1{font-family:'Lora',serif;font-size:24px;font-weight:600;margin-bottom:8px}
+.page-header p{font-size:13.5px;color:var(--muted);line-height:1.6;max-width:680px}
+.summary-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:18px 22px;margin:22px 0;font-size:13.5px;line-height:1.7}
+.summary-card .row{display:flex;gap:12px;padding:3px 0}
+.summary-card .row .lbl{color:var(--muted);flex:0 0 130px}
+.summary-card .row .val{font-weight:600;flex:1}
+.message-block{background:var(--gold-light);border-left:3px solid var(--gold);border-radius:4px;padding:14px 16px;margin:18px 0;font-size:13.5px;line-height:1.55;white-space:pre-wrap}
+.section-title{font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark);margin:28px 0 12px}
+.doc-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px}
+.doc-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.doc-name{font-weight:600;flex:1;min-width:0}
+.doc-meta{font-size:11.5px;color:var(--muted)}
+.doc-buttons{display:flex;gap:8px;flex-wrap:wrap}
+.doc-buttons button, .doc-buttons a{font-size:12px;font-weight:600;padding:6px 12px;border-radius:4px;border:0;cursor:pointer;text-decoration:none;display:inline-block}
+.btn-primary{background:var(--gold);color:#fff}
+.btn-primary:hover{background:var(--gold-mid)}
+.btn-secondary{background:#fff;color:var(--gold);border:1px solid var(--gold)!important}
+.doc-iframe{display:none;width:100%;height:600px;border:1px solid var(--border);border-radius:6px;margin-top:10px;background:#fafafa}
+.doc-iframe.open{display:block}
+.consent-box{background:#fff;border:1px solid var(--border);border-radius:8px;padding:18px 22px;max-height:280px;overflow-y:auto;font-size:12.5px;line-height:1.6;white-space:pre-wrap;font-family:Georgia,serif;color:var(--text);margin-bottom:16px}
+.consent-row{display:flex;gap:10px;align-items:flex-start;padding:14px 16px;background:var(--gold-light);border:1px solid var(--gold-border);border-radius:6px;margin-bottom:18px}
+.consent-row input[type="checkbox"]{margin-top:3px;flex-shrink:0;width:18px;height:18px;cursor:pointer}
+.consent-row label{font-size:13px;line-height:1.5;cursor:pointer}
+.sig-block{background:#fff;border:2px solid var(--gold);border-radius:8px;padding:20px 22px;margin-bottom:18px}
+.sig-block label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--gold);display:block;margin-bottom:8px}
+.sig-block input{font-family:"Brush Script MT","Lucida Handwriting",cursive;font-size:28px;padding:8px 12px;border:0;border-bottom:1.5px solid #888;width:100%;background:transparent}
+.sig-block input:focus{outline:none;border-bottom-color:var(--gold)}
+.sig-block .sig-note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4}
+.sign-btn{background:var(--gold);color:#fff;border:0;padding:14px 28px;font-size:15px;font-weight:600;border-radius:8px;cursor:pointer;width:100%;transition:background 0.15s}
+.sign-btn:hover:not(:disabled){background:var(--gold-mid)}
+.sign-btn:disabled{opacity:0.5;cursor:not-allowed}
+.err{color:var(--danger);font-size:13px;margin-top:14px;text-align:center;display:none}
+.status-banner{padding:16px 20px;border-radius:8px;font-size:13.5px;line-height:1.55;margin:24px 0}
+.status-banner.error{background:#fdebec;border:1px solid #f3c1c4;color:var(--danger)}
+.status-banner.success{background:#e6f4ec;border:1px solid #b9dcc7;color:var(--success)}
+.loading{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
+@media (max-width:600px){
+  .page{padding-top:1rem}
+  .page-header h1{font-size:20px}
+  .doc-iframe{height:480px}
+}
+</style>
+</head>
+<body>
+<div class="nav">
+  <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital">
+  <div class="nav-tagline">Review and Sign</div>
+</div>
+<div class="page" id="root">
+  <div class="loading">Loading documents&hellip;</div>
+</div>
+
+<script>
+var qs = new URLSearchParams(window.location.search);
+var TOKEN = qs.get('t') || '';
+var CONSENT = null;
+var INFO = null;
+
+function escH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function renderError(msg, expired) {
+  document.getElementById('root').innerHTML =
+    '<div class="page-header"><h1>Sign Documents</h1></div>' +
+    '<div class="status-banner error">' +
+      '<strong>' + (expired ? 'Link expired' : 'Unable to load this signing link.') + '</strong><br>' +
+      escH(msg || 'Please ask your loan officer to send a new link.') +
+    '</div>';
+}
+
+function renderAlreadySigned() {
+  document.getElementById('root').innerHTML =
+    '<div class="page-header"><h1>Already signed</h1></div>' +
+    '<div class="status-banner success">' +
+      'You have already signed this envelope. A signed copy will be emailed to you when all other signers complete. You can close this page.' +
+    '</div>';
+}
+
+function renderComplete() {
+  document.getElementById('root').innerHTML =
+    '<div class="page-header"><h1>Thank you</h1></div>' +
+    '<div class="status-banner success">' +
+      '<strong>You\u2019ve signed.</strong> A signed copy of the document(s) will be emailed to you ' +
+      'once all signers have completed. If you\u2019re the only signer, expect the email shortly.' +
+    '</div>';
+}
+
+function toggleDoc(idx) {
+  var f = document.getElementById('docFrame' + idx);
+  var btn = document.getElementById('docToggle' + idx);
+  if (!f) return;
+  var isOpen = f.classList.contains('open');
+  if (isOpen) {
+    f.classList.remove('open');
+    btn.textContent = 'Preview in page';
+  } else {
+    if (!f.src) {
+      f.src = '/api/envelope-signer-pdf?t=' + encodeURIComponent(TOKEN) + '&doc=' + idx;
+    }
+    f.classList.add('open');
+    btn.textContent = 'Hide preview';
+  }
+}
+
+function renderForm() {
+  if (!INFO || !CONSENT) return;
+  var html = '';
+  html += '<div class="page-header">';
+  html += '<h1>Review and Sign</h1>';
+  html += '<p>' + escH(INFO.loName || 'Your loan officer') + ' at SLA Capital has prepared the document(s) below for your electronic signature. ' +
+          'Please review each document, then complete the signature block at the bottom.</p>';
+  html += '</div>';
+
+  html += '<div class="summary-card">';
+  if (INFO.propertyAddress) html += '<div class="row"><div class="lbl">Property</div><div class="val">' + escH(INFO.propertyAddress) + '</div></div>';
+  html += '<div class="row"><div class="lbl">Signer (you)</div><div class="val">' + escH(INFO.signer.firstName + ' ' + INFO.signer.lastName) + '</div></div>';
+  html += '<div class="row"><div class="lbl">Email</div><div class="val">' + escH(INFO.signer.email) + '</div></div>';
+  html += '</div>';
+
+  if (INFO.message) {
+    html += '<div class="message-block"><strong>Note from your loan officer:</strong><br>' + escH(INFO.message) + '</div>';
+  }
+
+  html += '<div class="section-title">Documents</div>';
+  INFO.docs.forEach(function(d) {
+    var sizeKb = d.pdfSize ? (Math.round(d.pdfSize/1024) + ' KB') : '';
+    var downloadHref = '/api/envelope-signer-pdf?t=' + encodeURIComponent(TOKEN) + '&doc=' + d.idx;
+    html += '<div class="doc-card">';
+    html += '<div class="doc-row">';
+    html +=   '<div class="doc-name">' + escH(d.name) + '</div>';
+    html +=   '<div class="doc-meta">' + escH(sizeKb) + '</div>';
+    html +=   '<div class="doc-buttons">';
+    html +=     '<button type="button" class="btn-secondary" id="docToggle' + d.idx + '" onclick="toggleDoc(' + d.idx + ')">Preview in page</button>';
+    html +=     '<a href="' + downloadHref + '" target="_blank" rel="noopener" class="btn-primary">Open / Download</a>';
+    html +=   '</div>';
+    html += '</div>';
+    html += '<iframe id="docFrame' + d.idx + '" class="doc-iframe"></iframe>';
+    html += '</div>';
+  });
+
+  html += '<div class="section-title">Electronic Signature Consent (ESIGN / UETA)</div>';
+  html += '<div class="consent-box">' + escH(CONSENT.text) + '</div>';
+  html += '<div class="consent-row">' +
+    '<input type="checkbox" id="esignCheck" onchange="updateBtn()" />' +
+    '<label for="esignCheck">' + escH(CONSENT.checkboxLabel) + '</label>' +
+  '</div>';
+
+  var defaultName = (INFO.signer.firstName + ' ' + INFO.signer.lastName).trim();
+  html += '<div class="sig-block">' +
+    '<label for="sigName">Type your full legal name to sign</label>' +
+    '<input type="text" id="sigName" value="' + escH(defaultName) + '" oninput="updateBtn()" autocomplete="off" spellcheck="false" />' +
+    '<div class="sig-note">By typing your full legal name above and clicking <strong>Sign Documents</strong>, you electronically sign every document listed above. This signature has the same legal effect as a handwritten signature.</div>' +
+  '</div>';
+
+  html += '<button type="button" class="sign-btn" id="signBtn" onclick="signNow()" disabled>Sign Documents</button>';
+  html += '<div class="err" id="errEl"></div>';
+
+  document.getElementById('root').innerHTML = html;
+  updateBtn();
+}
+
+function updateBtn() {
+  var btn = document.getElementById('signBtn');
+  if (!btn) return;
+  var es = document.getElementById('esignCheck');
+  var nm = document.getElementById('sigName');
+  btn.disabled = !(es && es.checked && nm && nm.value.trim().length >= 3);
+}
+
+function signNow() {
+  var btn = document.getElementById('signBtn');
+  var err = document.getElementById('errEl');
+  var nm = document.getElementById('sigName');
+  err.style.display = 'none';
+  err.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Signing\u2026';
+
+  // Best-effort geolocation
+  new Promise(function(resolve) {
+    if (!navigator.geolocation) return resolve('');
+    var timed = false;
+    var to = setTimeout(function() { timed = true; resolve(''); }, 3000);
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        if (timed) return;
+        clearTimeout(to);
+        var g = pos.coords;
+        resolve(g.latitude.toFixed(4) + ',' + g.longitude.toFixed(4) +
+                ' (\u00B1' + Math.round(g.accuracy || 0) + 'm)');
+      },
+      function() { clearTimeout(to); resolve(''); },
+      { enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }
+    );
+  }).then(function(geo) {
+    return fetch('/api/envelope-sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        t: TOKEN,
+        signerName: nm.value.trim(),
+        consentAccepted: true,
+        consentVersion: CONSENT.version,
+        geolocation: geo,
+      }),
+    }).then(function(r) {
+      return r.json().then(function(d) {
+        if (!r.ok) {
+          var e = new Error(d.error || ('HTTP ' + r.status));
+          e.status = r.status;
+          throw e;
+        }
+        return d;
+      });
+    });
+  }).then(function() {
+    renderComplete();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }).catch(function(e) {
+    btn.disabled = false;
+    btn.textContent = 'Sign Documents';
+    err.textContent = (e && e.message) || 'Signing failed. Please try again.';
+    err.style.display = 'block';
+  });
+}
+
+if (!TOKEN) {
+  renderError('Missing signing token.');
+} else {
+  Promise.all([
+    fetch('/api/envelope-signer-info?t=' + encodeURIComponent(TOKEN)).then(function(r) {
+      return r.json().then(function(d) {
+        if (!r.ok) throw new Error(d.error || 'Failed to load');
+        return d;
+      });
+    }),
+    fetch('/api/envelope-consent').then(function(r) { return r.json(); }),
+  ]).then(function(results) {
+    INFO = results[0];
+    if (INFO.expired)              { renderError('This signing link has expired. Ask your loan officer to send a new one.', true); return; }
+    if (INFO.signer.alreadySigned) { renderAlreadySigned(); return; }
+    CONSENT = results[1];
+    if (!CONSENT.text || !CONSENT.version) {
+      renderError('Consent text could not be loaded. Please try again.');
+      return;
+    }
+    renderForm();
+  }).catch(function(e) {
+    renderError((e && e.message) || 'Failed to load.');
+  });
+}
+</script>
+</body>
+</html>

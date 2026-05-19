@@ -1,24 +1,29 @@
 /**
  * envelopes-send.mjs — POST /api/envelopes-send
  *
- * Second phase of the e-sign flow. The frontend calls /api/envelopes
- * first (fast: validates + saves record + stashes PDF bytes), then this
- * endpoint to do the slow PandaDoc upload+send. Decoupling them keeps
- * each call short and well clear of any function timeout.
+ * NATIVE eSIGN \u2014 Deploy 185. Second phase of the e-sign flow. The
+ * frontend calls /api/envelopes first (validates + saves record +
+ * stashes PDF bytes), then this endpoint to:
+ *
+ *   1. Generate a unique signing token for each signer
+ *   2. Index each token in `envelope-signer-idx` for O(1) lookup
+ *   3. Email each signer an invitation with their personalized link
+ *   4. Flip envelope status to 'sent'
  *
  * Body: { envelopeId, owner? }
+ * Auth: requester or admin.
  *
- * Returns the updated envelope record. On live send timeout (PDF still
- * processing on PandaDoc's side after our 6s poll), returns ok: true
- * with envelope.status='queued' — the LO clicks "Refresh status" later
- * to complete the send.
+ * On email failure the envelope still has tokens — the LO can
+ * "Resend signing link" per-signer to retry just that signer.
  */
 import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { sendEnvelope, pandadocStatus, mapStatus } from './_shared/pandadoc.mjs';
+import { generateSignerToken } from './_shared/native-esign.mjs';
+
+const TOKEN_TTL_DAYS = 30;
 
 export default async (req, context) => {
   try {
@@ -47,145 +52,178 @@ async function handle(req, context) {
   const key = `${ownerKey}/${body.envelopeId}`;
 
   let env;
-  try { env = await store.get(key, { type: 'json' }); }
-  catch (_) { env = null; }
+  try { env = await store.get(key, { type: 'json' }); } catch (_) { env = null; }
   if (!env) return json(404, { error: 'Envelope not found' });
-
-  // Permission check
   if (env.requesterEmail !== normalizeEmail(user.email) && !isAdmin(user)) {
     return json(403, { error: 'Not authorized to send this envelope' });
   }
-
-  // Don't re-send already-sent envelopes
   if (env.status !== 'queued') {
     return json(200, { ok: true, envelope: env, note: 'Envelope already past queued state' });
   }
-
-  const pdStatus = pandadocStatus();
-
-  // If PandaDoc isn't configured this is a no-op (Phase 1 stub mode):
-  // the envelope stays in 'queued' state with no documentId.
-  if (!pdStatus.enabled) {
-    env.history = env.history || [];
-    env.history.push({
-      ts: new Date().toISOString(),
-      status: 'queued',
-      note: 'Send called but PandaDoc not configured (stub mode).',
+  if (env.envelopeMode === 'pandadoc-legacy') {
+    return json(400, {
+      error: 'This is a legacy PandaDoc envelope. PandaDoc is no longer integrated; create a new envelope to use the native e-sign flow.',
     });
-    try { await store.setJSON(key, env); } catch (_) {}
-    return json(200, { ok: true, envelope: env, note: 'PandaDoc not configured' });
   }
 
-  // Pull stashed PDFs from the side blob store.
-  const pdfStore = getStore({ name: 'envelope-pdfs', consistency: 'strong' });
+  const now = new Date().toISOString();
+  const tokenExpiresAt = new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  let lastResult = null;
-  for (let i = 0; i < (env.docs || []).length; i++) {
-    const doc = env.docs[i];
-    const stamp = new Date().toISOString();
-
-    if (doc.kind !== 'rate_sheet') {
-      env.history.push({
-        ts: stamp,
-        status: 'queued',
-        note: 'Skipped ' + doc.kind + ' — anchor tags not yet wired into that document type.',
-      });
-      continue;
-    }
-    if (!doc.hadPdf) {
-      env.history.push({
-        ts: stamp,
-        status: 'queued',
-        note: 'Skipped rate sheet — no PDF bytes were uploaded with the create call.',
-      });
-      continue;
-    }
-
-    // Fetch PDF bytes for this doc
-    let pdfBase64 = null;
+  // Generate tokens + write to the signer-token index for O(1) lookup
+  const idx = getStore({ name: 'envelope-signer-idx', consistency: 'strong' });
+  env.signers = await Promise.all(env.signers.map(async (s, i) => {
+    const token = generateSignerToken();
     try {
-      pdfBase64 = await pdfStore.get(`${ownerKey}/${env.id}/${i}`);
-    } catch (_) { pdfBase64 = null; }
-    if (!pdfBase64) {
-      env.status = 'failed';
-      env.statusUpdatedAt = stamp;
-      env.sendError = 'PDF bytes not found in storage';
-      env.history.push({
-        ts: stamp,
-        status: 'failed',
-        note: 'PDF lookup failed — bytes missing from storage.',
+      await idx.setJSON(token, {
+        envelopeKey: key,
+        signerIndex: i,
+        expiresAt: tokenExpiresAt,
       });
-      break;
+    } catch (e) {
+      console.warn('signer idx write failed (lookup will walk):', e && e.message);
     }
+    return {
+      ...s,
+      token,
+      tokenExpiresAt,
+      invitedAt: now,
+    };
+  }));
 
-    const result = await sendEnvelope({
-      pdfBase64,
-      name: doc.name || 'Rate Sheet',
-      signers: env.signers,
-      message: env.message,
-      subject: 'SLA Capital — Please review and sign: ' + (doc.name || 'Rate Sheet'),
-      envelopeId: env.id,
-    });
-    lastResult = result;
+  // Build the signing URL base — prefer the request host so preview
+  // deploys self-resolve.
+  const proto = (req.headers.get ? req.headers.get('x-forwarded-proto') : req.headers['x-forwarded-proto']) || 'https';
+  const host  = (req.headers.get ? req.headers.get('host') : req.headers.host) || '';
+  const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://silver-narwhal-0d9f84.netlify.app');
 
-    if (result.ok) {
-      env.pandadocDocumentId = result.pandadocDocumentId;
-      if (result.pending) {
-        env.history.push({
-          ts: stamp,
-          status: 'queued',
-          note: 'Uploaded to PandaDoc (doc ' + result.pandadocDocumentId + '), still processing. Click "Refresh status" in a minute to complete the send.',
-        });
-      } else {
-        const mapped = mapStatus(result.status);
-        if (result.mode === 'live' && mapped) {
-          env.status = mapped;
-          env.statusUpdatedAt = stamp;
-        }
-        env.history.push({
-          ts: stamp,
-          status: env.status,
-          note: result.mode === 'dry-run'
-            ? 'Dry-run send simulated. PDF size: ' + pdfBase64.length + ' bytes.'
-            : 'Sent via PandaDoc (document ' + result.pandadocDocumentId + ').',
-        });
-      }
-    } else {
-      env.status = 'failed';
-      env.statusUpdatedAt = stamp;
-      env.sendError = result.error || 'unknown';
-      env.history.push({
-        ts: stamp,
-        status: 'failed',
-        note: 'Send failed: ' + (result.error || 'unknown'),
+  // Look up LO profile for "from" display name in emails
+  let loName = '';
+  try {
+    const profilesStore = getStore({ name: 'profiles', consistency: 'eventual' });
+    const p = await profilesStore.get(keySafe(env.requesterEmail), { type: 'json' });
+    if (p) loName = ((p.firstName || '') + ' ' + (p.lastName || '')).trim() || env.requesterEmail;
+  } catch (_) {}
+  if (!loName) loName = env.requesterEmail;
+
+  // Look up property address from the loan for context in the email
+  let propertyAddress = '';
+  try {
+    const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
+    const client = await clientsStore.get(`${env.ownerKey}/${env.clientId}`, { type: 'json' });
+    const loan = client && (client.loans || []).find((l) => l.id === env.loanId);
+    if (loan) propertyAddress = loan.propertyAddress || '';
+  } catch (_) {}
+
+  // Send invitation emails
+  const emailResults = [];
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    env.status = 'sent';
+    env.statusUpdatedAt = now;
+    env.sendError = 'RESEND_API_KEY not configured \u2014 tokens generated but no emails sent.';
+    env.history.push({ ts: now, status: 'sent', note: env.sendError });
+    try { await store.setJSON(key, env); } catch (_) {}
+    return json(200, { ok: true, envelope: env, warning: env.sendError });
+  }
+
+  for (let i = 0; i < env.signers.length; i++) {
+    const s = env.signers[i];
+    const link = `${base}/term-sheet-sign.html?t=${encodeURIComponent(s.token)}`;
+    try {
+      const r = await sendInvitationEmail({
+        apiKey, signer: s, envelope: env, link, loName, propertyAddress,
       });
-      break;
+      emailResults.push({ email: s.email, ok: r });
+    } catch (e) {
+      console.warn('invitation email failed for', s.email, e && e.message);
+      emailResults.push({ email: s.email, ok: false, error: (e && e.message) || 'unknown' });
     }
   }
 
-  // Persist updated record
+  const allEmailsOk = emailResults.every((r) => r.ok);
+  env.status = allEmailsOk ? 'sent' : 'partial_send_failure';
+  env.statusUpdatedAt = now;
+  env.sendError = allEmailsOk ? null : 'Some invitation emails failed to send';
+  env.history.push({
+    ts: now,
+    status: env.status,
+    note: allEmailsOk
+      ? `Sent invitations to ${env.signers.length} signer(s).`
+      : 'Send results: ' + JSON.stringify(emailResults).slice(0, 400),
+  });
+
   try { await store.setJSON(key, env); }
   catch (e) { console.warn('envelope post-send write failed:', e && e.message); }
 
-  // Cleanup: delete stashed PDFs after a successful (or definitively
-  // failed) send so we don't accumulate megabytes of dead bytes. We KEEP
-  // them only when status is still 'queued' (pending case — refresh may
-  // need them again, though refresh uses the documentId, not the bytes).
-  if (env.status !== 'queued') {
-    const docCount = (env.docs || []).length;
-    for (let i = 0; i < docCount; i++) {
-      try { await pdfStore.delete(`${ownerKey}/${env.id}/${i}`); }
-      catch (_) {}
-    }
-  }
+  return json(200, { ok: true, envelope: env, emailResults });
+}
 
-  if (lastResult && !lastResult.ok && pdStatus.mode === 'live') {
-    return json(502, {
-      ok: false,
-      envelope: env,
-      error: 'PandaDoc send failed: ' + lastResult.error,
-    });
-  }
+async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress }) {
+  const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const docList = (envelope.docs || []).map((d) => d.name).join(', ');
+  const subject = 'Please review and sign: ' + (docList || 'SLA Capital documents');
 
-  return json(200, { ok: true, envelope: env });
+  const text = [
+    `Hi ${signer.firstName},`,
+    '',
+    `${loName} at SLA Capital has prepared ${envelope.docs.length} document${envelope.docs.length === 1 ? '' : 's'} for your review and electronic signature.`,
+    '',
+    propertyAddress ? `Property: ${propertyAddress}` : '',
+    `Documents: ${docList}`,
+    '',
+    envelope.message ? 'Note from your loan officer:' : '',
+    envelope.message ? envelope.message : '',
+    '',
+    'Click the link below to review and sign:',
+    link,
+    '',
+    'This link is unique to you and expires in 30 days.',
+    '',
+    'Reply to this email if you have any questions.',
+    '',
+    'Sir Lends A Lot LLC dba SLA Capital',
+  ].filter((l) => l !== null && l !== undefined && l !== '').join('\n');
+
+  const html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+    '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+      '<div style="background:#261A36;padding:24px">' +
+        '<h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital \u2014 Documents for Your Signature</h1>' +
+      '</div>' +
+      '<div style="padding:24px;color:#1A1520">' +
+        `<p style="font-size:14px;line-height:1.6">Hi ${escH(signer.firstName)},</p>` +
+        `<p style="font-size:14px;line-height:1.6"><strong>${escH(loName)}</strong> at SLA Capital has prepared ` +
+          `${envelope.docs.length} document${envelope.docs.length === 1 ? '' : 's'} for your review and electronic signature.</p>` +
+        (propertyAddress
+          ? `<p style="font-size:14px;line-height:1.6"><strong>Property:</strong> ${escH(propertyAddress)}</p>`
+          : '') +
+        `<p style="font-size:14px;line-height:1.6"><strong>Documents:</strong> ${escH(docList)}</p>` +
+        (envelope.message
+          ? `<div style="background:#F5E9D8;padding:14px 16px;border-left:3px solid #C8813A;border-radius:4px;margin:16px 0">` +
+              `<p style="font-size:13px;line-height:1.55;margin:0"><strong>Note from your loan officer:</strong></p>` +
+              `<p style="font-size:13px;line-height:1.55;margin:6px 0 0;white-space:pre-wrap">${escH(envelope.message)}</p>` +
+            `</div>`
+          : '') +
+        `<p style="margin:24px 0;text-align:center"><a href="${escH(link)}" style="background:#C8813A;color:#fff;padding:12px 28px;text-decoration:none;border-radius:6px;font-weight:600;font-size:14px">Review and Sign \u2192</a></p>` +
+        `<p style="font-size:12px;color:#7A7488">Or copy and paste this link: <a href="${escH(link)}">${escH(link)}</a></p>` +
+        '<p style="font-size:12px;color:#7A7488">This link is unique to you and expires in 30 days.</p>' +
+        '<p style="font-size:12px;color:#7A7488;margin-top:24px">Sir Lends A Lot LLC dba SLA Capital. For business-purpose, investment property loans only.</p>' +
+      '</div>' +
+    '</div>' +
+    '</body></html>';
+
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'SLA Capital <noreply@leads.slacapital.com>',
+      to: [signer.email],
+      subject, text, html,
+    }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '');
+    throw new Error(`Resend ${resp.status}: ${t.slice(0, 200)}`);
+  }
+  return true;
 }

@@ -362,13 +362,13 @@
   </div>
 </div>
 
-<!-- Send for Signature modal — Phase 1 stub. Same visual pattern as the
+<!-- Send for Signature modal — native eSign. Same visual pattern as the
      borrower-info modal so it feels like a familiar dialog to LOs. -->
 <div class="bi-modal-bg" id="esignModal">
   <div class="bi-modal" style="max-width:560px">
     <h3>Send for Signature</h3>
     <p class="bi-sub" id="esModeNote">
-      <span class="es-mode-text">Borrower(s) get an email from PandaDoc with a secure link. The first signer is the primary signature; additional signers are CC'd on the envelope.</span>
+      <span class="es-mode-text">Each signer gets a unique secure link by email. They review the document(s) and electronically sign with their typed legal name. When all signers have signed, everyone receives the final signed PDF.</span>
     </p>
 
     <div style="margin-top:14px">
@@ -432,17 +432,12 @@
 
 <script>
 // ── E-signature feature flag ──────────────────────────────────────
-// Hides Send for Signature button + envelope history panel from non-
-// super-admins until PandaDoc production access is set up. Super-
-// admins continue to see and use the feature for testing.
-//
-// Values:
-//   'off'              — hidden from everyone
-//   'super-admin-only' — hidden from LOs, visible to super-admins (current)
-//   'on'               — visible to everyone (after PandaDoc production is ready)
-//
-// To flip back on after Monday's PandaDoc call: change to 'on'.
-var ESIGN_FEATURE = 'super-admin-only';
+// Was gated to super-admins during the PandaDoc-pilot phase. As of
+// Deploy 185 the native eSign flow is the production path so this
+// is on for everyone. The flag is kept (rather than ripping it out)
+// in case we need to disable globally for an incident — flip to
+// 'off' to hide.
+var ESIGN_FEATURE = 'on';
 
 function eSignVisible() {
   if (ESIGN_FEATURE === 'on')  return true;
@@ -796,8 +791,8 @@ function render() {
   // E-signature send — only available once the loan is in In Processing
   // (status === 'approved'). Before then there's nothing meaningful to sign;
   // after then (closed/denied) it's locked. Also gated by the ESIGN_FEATURE
-  // flag at the top of this file — currently super-admin-only while we
-  // wait for PandaDoc production API access.
+  // flag at the top of this file (default 'on' as of Deploy 185 / native
+  // eSign).
   if (loanStatus === 'approved' && eSignVisible()) {
     html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()" style="margin-top:8px">' +
       '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
@@ -1251,8 +1246,11 @@ function confirmChangeType() {
 }
 
 // ── E-signature (envelopes) ─────────────────────────────────
-// Phase 1: stub. The "send" just records intent in the envelopes blob
-// store and shows a queued status. Phase 2 wires in actual PandaDoc.
+// Native eSign as of Deploy 185. The "send" creates an envelope with
+// per-signer tokens and emails each signer an invitation. Signers
+// review + sign on /term-sheet-sign.html. When all signers complete,
+// the PDFs are stamped (signature page appended) and emailed to
+// everyone. See netlify/functions/_shared/native-esign.mjs.
 //
 // State of the open modal — rebuilt each time the modal opens:
 var _esSignerCount = 0;
@@ -1377,17 +1375,19 @@ function esSubmit() {
   status.textContent = 'Generating rate sheet PDF…';
 
   // ── Capture rate sheet PDF base64 (only if rate_sheet was selected) ──
-  // The PDF generator lives in the sizer pages. We load the matching sizer
-  // in a hidden iframe with ?signatureMode=1 so it generates the PDF with
-  // PandaDoc anchor tags embedded, then posts the base64 back to us via
-  // postMessage. If no rate_sheet, we skip the capture step.
+  // The PDF generator lives in the sizer pages. We load the matching
+  // sizer in a popup with ?signatureMode=1 so it generates the PDF and
+  // posts the base64 back via postMessage. If no rate_sheet, we skip
+  // the capture step.
+  // (Deploy 185: the invisible PandaDoc anchor tags in the sizer PDFs
+  // are now no-ops but harmless — they\u2019re plain white-on-white text
+  // that doesn\u2019t affect rendering. Removing them is a sizer cleanup
+  // for a future deploy.)
   var needsPdf = docs.some(function(d) { return d.kind === 'rate_sheet'; });
 
   function postCreate(pdfBase64) {
-    // Hard gate: Netlify functions reject request bodies over 6 MB at the
-    // gateway level, returning an opaque 500. Pre-flight check the PDF size
-    // and bail with a useful message if it's near that limit. (5 MB buffer
-    // accounts for JSON wrap + signers + message text + base64 padding.)
+    // Hard gate: Netlify functions reject request bodies over 6 MB at
+    // the gateway level. Pre-flight check the PDF size.
     if (pdfBase64 && pdfBase64.length > 5_000_000) {
       btn.disabled = false; btn.textContent = 'Queue Envelope';
       status.className = 'bi-status err';
@@ -1398,17 +1398,25 @@ function esSubmit() {
     if (pdfBase64) {
       console.log('[SLA esign] posting envelope create. PDF base64 size:', pdfBase64.length, 'bytes');
     }
-    // Attach base64 to the rate_sheet doc(s). Loan-app docs go through
-    // without bytes since the DOCX template doesn't have anchors yet.
+    // Every doc must now have pdfBase64 — the native flow stamps the
+    // actual PDF. Loan-app sends here would need a separately-generated
+    // PDF; for now the only doc kind in the UI is rate_sheet.
     var docsToSend = docs.map(function(d) {
       if (d.kind === 'rate_sheet' && pdfBase64) {
         return { kind: d.kind, name: d.name, pdfBase64: pdfBase64 };
       }
       return d;
-    });
+    }).filter(function(d) { return !!d.pdfBase64; });
+
+    if (docsToSend.length === 0) {
+      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      status.className = 'bi-status err';
+      status.textContent = 'No documents had PDF bytes to send. Please pick a Rate Sheet.';
+      return;
+    }
 
     var ownerForCall = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
-    status.textContent = 'Saving envelope…';
+    status.textContent = 'Saving envelope\u2026';
     SLA.Envelopes.create({
       clientId: _clientId,
       loanId:   _loanId,
@@ -1417,36 +1425,27 @@ function esSubmit() {
       message:  document.getElementById('esMessage').value.trim(),
     }, ownerForCall).then(function(resp) {
       var env = resp && resp.envelope;
-      var mode = env && env.pandadocMode;
-      // If PandaDoc isn't enabled, we're done — stub mode just records
-      // the envelope, no send call needed.
-      if (mode === 'disabled') {
-        status.className = 'bi-status ok';
-        status.textContent = '✓ Envelope queued (stub mode — PandaDoc not configured).';
-        setTimeout(function() {
-          closeEsignModal();
-          refreshEnvelopes();
-        }, 1400);
-        return;
-      }
-      // Live or dry-run: kick off the second-phase send. Update modal
-      // copy so the LO knows what's happening.
-      status.textContent = 'Sending to PandaDoc…';
+      if (!env) throw new Error('Envelope create returned no record');
+      // Kick off the second-phase send: tokens + invitation emails.
+      status.textContent = 'Sending invitations\u2026';
       return SLA.Envelopes.send(env.id, ownerForCall).then(function(sendResp) {
         var senv = (sendResp && sendResp.envelope) || env;
-        var smode = senv.pandadocMode;
-        var isPending = smode === 'live' && senv.status === 'queued' &&
-                        senv.pandadocDocumentId &&
-                        String(senv.pandadocDocumentId).indexOf('dry-') !== 0;
         status.className = 'bi-status ok';
-        if (isPending)               status.textContent = '✓ Uploaded to PandaDoc — still processing. Use "Refresh status" in a minute to finish the send.';
-        else if (smode === 'live')   status.textContent = '✓ Envelope sent — borrower will receive an email shortly.';
-        else if (smode === 'dry-run') status.textContent = '✓ Envelope queued (dry-run mode — no email sent).';
-        else                          status.textContent = '✓ Envelope queued.';
+        if (senv.status === 'sent') {
+          var n = (senv.signers || []).length;
+          status.textContent = '\u2713 Sent invitations to ' + n + ' signer' + (n === 1 ? '' : 's') + '.';
+        } else if (senv.status === 'partial_send_failure') {
+          status.textContent = '\u26A0 Sent, but some invitation emails failed. Use Resend on the envelope panel below.';
+        } else {
+          status.textContent = '\u2713 Envelope ' + senv.status + '.';
+        }
+        if (sendResp && sendResp.warning) {
+          status.textContent += ' (' + sendResp.warning + ')';
+        }
         setTimeout(function() {
           closeEsignModal();
           refreshEnvelopes();
-        }, 1400);
+        }, 1600);
       });
     }).catch(function(err) {
       btn.disabled = false; btn.textContent = 'Queue Envelope';
@@ -1535,10 +1534,9 @@ function esSubmit() {
 // Re-pull this loan's envelopes from the server and render the panel.
 function refreshEnvelopes() {
   if (!_clientId || !_loanId) return;
-  // Feature-flagged: hidden from non-super-admins until PandaDoc production
-  // API is set up. Skipping the fetch entirely (rather than just hiding the
-  // panel) avoids unnecessary network calls and keeps Phase 1 dry-run
-  // envelopes from leaking into LO views.
+  // Feature-flagged: ESIGN_FEATURE at the top of this file. Default
+  // 'on' as of Deploy 185 (native eSign is production). Setting to
+  // 'off' globally hides the panel and skips the list call.
   if (!eSignVisible()) return;
   var panel = document.getElementById('envelopesPanel');
   var listEl = document.getElementById('envelopesList');
@@ -1576,28 +1574,64 @@ function renderEnvelopeCard(env) {
   var docNames = (env.docs || []).map(function(d) {
     return d.kind === 'rate_sheet' ? 'Rate Sheet' : 'Loan App';
   }).join(' + ');
-  var signerNames = (env.signers || []).map(function(s) {
-    return escH((s.firstName || '') + ' ' + (s.lastName || ''));
-  }).join(', ');
   var when = env.createdAt ? new Date(env.createdAt).toLocaleString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }) : '';
-  // Mode badge: dry-run/disabled/live (if known). Helps the LO understand
-  // why an envelope is just sitting in queued state — they can't refresh
-  // a dry-run envelope because no real PandaDoc doc exists.
-  var modeBadge = '';
-  if (env.pandadocMode === 'dry-run') {
-    modeBadge = '<span class="env-mode-badge dry-run">dry-run</span>';
-  } else if (env.pandadocMode === 'disabled') {
-    modeBadge = '<span class="env-mode-badge disabled">stub</span>';
+
+  // Mode badge: legacy PandaDoc envelopes vs native (Deploy 185).
+  // Native envelopes get no badge by default; legacy ones get a
+  // read-only indicator so the LO knows refresh/resend won\u2019t work.
+  var isLegacy = (env.envelopeMode === 'pandadoc-legacy') ||
+                 (!env.envelopeMode && env.pandadocMode);
+  var modeBadge = isLegacy
+    ? '<span class="env-mode-badge disabled">legacy</span>'
+    : '';
+
+  // Per-signer state — surfaces signed/pending so the LO can chase down
+  // who hasn\u2019t signed yet without going into PandaDoc (now retired).
+  var signersHtml = '';
+  if (env.signers && env.signers.length) {
+    signersHtml = '<div class="env-signers" style="margin-top:8px;font-size:11.5px;line-height:1.7">';
+    env.signers.forEach(function(s, idx) {
+      var nm = escH((s.firstName || '') + ' ' + (s.lastName || ''));
+      var em = escH(s.email || '');
+      var hasSigned = !!(s.hasSigned || s.signedAt);
+      var stateBadge;
+      if (hasSigned) {
+        var when2 = s.signedAt ? new Date(s.signedAt).toLocaleString([], { month: 'short', day: 'numeric' }) : '';
+        stateBadge = '<span style="color:#256940;font-weight:600">\u2713 signed' + (when2 ? ' ' + escH(when2) : '') + '</span>';
+      } else {
+        stateBadge = '<span style="color:#9B5E1D;font-weight:600">pending</span>';
+      }
+      var resendBtn = '';
+      if (!hasSigned && !isLegacy && status !== 'completed' && status !== 'voided') {
+        resendBtn = ' <button data-action="resend-signer" data-id="' + escAttr(env.id) + '" data-signer="' + idx + '" ' +
+          'style="font-size:10px;padding:2px 7px;margin-left:6px;background:transparent;color:var(--gold,#C8813A);border:1px solid var(--gold,#C8813A);border-radius:3px;cursor:pointer">Resend</button>';
+      }
+      var resendInfo = '';
+      if (s.resendCount && s.resendCount > 0) {
+        resendInfo = ' <span style="color:var(--muted,#7A7488);font-size:10.5px">(resent ' + s.resendCount + 'x)</span>';
+      }
+      signersHtml += '<div>\u2022 ' + nm + ' &lt;' + em + '&gt; \u2014 ' + stateBadge + resendInfo + resendBtn + '</div>';
+    });
+    signersHtml += '</div>';
   }
 
-  var canVoid = (status !== 'completed' && status !== 'voided' && status !== 'expired');
-  // Refresh only makes sense for live envelopes (real PandaDoc doc ID,
-  // not a dry-* placeholder, and not already in a terminal state).
-  var canRefresh = !!env.pandadocDocumentId &&
-    !String(env.pandadocDocumentId).startsWith('dry-') &&
-    status !== 'completed' && status !== 'voided' && status !== 'expired';
+  // Per-doc download buttons when envelope is completed
+  var downloadsHtml = '';
+  if (status === 'completed' && !isLegacy && env.docs && env.docs.length) {
+    downloadsHtml = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">';
+    env.docs.forEach(function(d, idx) {
+      downloadsHtml += '<button data-action="download-final" data-id="' + escAttr(env.id) + '" data-doc="' + idx + '" ' +
+        'style="font-size:11px;font-weight:600;padding:5px 11px;background:#fff;color:var(--gold,#C8813A);border:1px solid var(--gold,#C8813A);border-radius:4px;cursor:pointer">' +
+        '\u2193 ' + escH(d.name || ('Doc ' + (idx + 1))) +
+      '</button>';
+    });
+    downloadsHtml += '</div>';
+  }
+
+  var canVoid = !isLegacy && status !== 'completed' && status !== 'voided' && status !== 'expired';
+  var canRefresh = !isLegacy && status !== 'completed' && status !== 'voided' && status !== 'expired';
 
   var actionsArr = [];
   if (canRefresh) actionsArr.push('<button data-action="refresh" data-id="' + escAttr(env.id) + '">Refresh status</button>');
@@ -1606,22 +1640,33 @@ function renderEnvelopeCard(env) {
     ? '<div class="env-card-actions">' + actionsArr.join('') + '</div>'
     : '';
 
-  // Optional sendError display when the live send failed
-  var errHtml = (status === 'failed' && env.sendError)
-    ? '<div class="env-card-meta" style="color:var(--danger);margin-top:4px">Error: ' + escH(env.sendError) + '</div>'
+  // Optional error display
+  var errHtml = '';
+  if (status === 'failed' && env.sendError) {
+    errHtml = '<div class="env-card-meta" style="color:var(--danger);margin-top:4px">Error: ' + escH(env.sendError) + '</div>';
+  } else if (status === 'partial_send_failure') {
+    errHtml = '<div class="env-card-meta" style="color:#9B5E1D;margin-top:4px">Some invitation emails failed. Use Resend per-signer above.</div>';
+  } else if (status === 'completed_stamping_failed') {
+    errHtml = '<div class="env-card-meta" style="color:var(--danger);margin-top:4px">All signed, but PDF stamping failed: ' + escH(env.sendError || 'unknown') + '</div>';
+  }
+
+  var legacyNote = isLegacy
+    ? '<div class="env-card-meta" style="color:var(--muted,#7A7488);margin-top:4px;font-style:italic">Legacy PandaDoc envelope \u2014 read only. Create a new envelope to send for signature.</div>'
     : '';
 
   return (
     '<div class="env-card">' +
       '<div class="env-card-top">' +
         '<div><strong>' + escH(docNames) + '</strong> ' + modeBadge + '</div>' +
-        '<span class="env-status-badge ' + status + '">' + status + '</span>' +
+        '<span class="env-status-badge ' + status + '">' + escH(status) + '</span>' +
       '</div>' +
       '<div class="env-card-meta">' +
-        'Sent to: ' + (signerNames || '—') + '<br>' +
         (when ? 'Created ' + escH(when) : '') +
       '</div>' +
+      signersHtml +
+      downloadsHtml +
       errHtml +
+      legacyNote +
       actionsHtml +
     '</div>'
   );
@@ -1630,23 +1675,25 @@ function renderEnvelopeCard(env) {
 // Delegate envelope card button clicks. Using delegation rather than
 // inline onclick so escaping is simpler and the markup stays clean.
 document.addEventListener('click', function(e) {
-  var btn = e.target.closest && e.target.closest('.env-card-actions button');
+  var btn = e.target.closest && e.target.closest('.env-card-actions button, .env-card [data-action]');
   if (!btn) return;
   var action = btn.dataset.action;
   var id     = btn.dataset.id;
   if (!action || !id) return;
-  if (action === 'refresh') refreshEnvelopeStatus(id);
-  else if (action === 'void') voidEnvelope(id);
+  if (action === 'refresh')       refreshEnvelopeStatus(id);
+  else if (action === 'void')     voidEnvelope(id);
+  else if (action === 'resend-signer') resendEnvelopeSigner(id, parseInt(btn.dataset.signer, 10), btn);
+  else if (action === 'download-final') downloadEnvelopeFinal(id, parseInt(btn.dataset.doc, 10), btn);
 });
 
 function refreshEnvelopeStatus(envelopeId) {
   var owner = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
-  showToast('Checking PandaDoc…');
+  showToast('Refreshing\u2026');
   SLA.Envelopes.refresh(envelopeId, owner).then(function(resp) {
     if (resp && resp.changed) {
       showToast('Status updated to ' + (resp.envelope && resp.envelope.status));
     } else {
-      showToast('No status change' + (resp && resp.note ? ' — ' + resp.note : ''));
+      showToast('No status change' + (resp && resp.note ? ' \u2014 ' + resp.note : ''));
     }
     refreshEnvelopes();
   }).catch(function(err) {
@@ -1655,13 +1702,44 @@ function refreshEnvelopeStatus(envelopeId) {
 }
 
 function voidEnvelope(envelopeId) {
-  if (!confirm('Cancel this envelope? In Phase 1 this just flips it to voided in our records. Phase 2 will recall the PandaDoc envelope too.')) return;
+  if (!confirm('Cancel this envelope? All outstanding signing links will be invalidated. Signers who haven\u2019t signed yet will get an error if they click their link.')) return;
   var owner = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
   SLA.Envelopes.void(envelopeId, owner).then(function() {
     showToast('Envelope cancelled');
     refreshEnvelopes();
   }).catch(function(err) {
     alert('Failed to cancel: ' + (err.message || 'unknown'));
+  });
+}
+
+// Deploy 185: rotate one signer\u2019s token + resend their invitation email.
+function resendEnvelopeSigner(envelopeId, signerIndex, btn) {
+  if (!confirm('Send a new signing link to this signer? The old link will stop working.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+  var owner = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Envelopes.resendSigner(envelopeId, signerIndex, owner).then(function(resp) {
+    if (resp && resp.emailedAt) {
+      showToast('New signing link sent');
+    } else {
+      showToast('Token rotated but email may have failed \u2014 check delivery logs');
+    }
+    refreshEnvelopes();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Resend'; }
+    alert('Resend failed: ' + (err.message || 'unknown'));
+  });
+}
+
+// Deploy 185: download a signed copy of one doc from a completed envelope.
+function downloadEnvelopeFinal(envelopeId, docIdx, btn) {
+  var originalText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Downloading\u2026'; }
+  var owner = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Envelopes.downloadFinal(envelopeId, docIdx, { owner: owner }).then(function() {
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    showToast('Download failed: ' + (err.message || 'unknown'));
   });
 }
 

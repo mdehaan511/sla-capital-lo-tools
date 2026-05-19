@@ -1,46 +1,38 @@
 /**
  * envelopes.mjs — /api/envelopes
  *
- * Single endpoint that dispatches by method:
- *   GET  → list envelopes (filterable)
- *   POST → create new envelope; calls PandaDoc if configured.
+ * GET  → list envelopes (filterable)
+ * POST → create a new envelope (status \u2018queued\u2019, awaiting send)
  *
- * Behavior depends on PandaDoc config (see _shared/pandadoc.mjs):
- *   - PANDADOC_API_KEY unset → status stays 'queued' (Phase 1 stub)
- *   - PANDADOC_DRY_RUN!=false → 'queued' + send-log entry, no real call
- *   - Live mode → real PandaDoc envelope, status flips to 'sent'
+ * NATIVE eSIGN \u2014 Deploy 185. Replaces the PandaDoc-backed
+ * implementation. PDFs uploaded by the LO are stashed in
+ * `envelope-pdfs`; on /api/envelopes-send each signer gets a unique
+ * token + invitation email. When signers click their link and sign,
+ * /api/envelope-sign records the event. Once all signers have signed,
+ * the original PDFs are stamped with an appended Signatures page and
+ * emailed to everyone.
  *
- * For Phase 2 we only send the rate sheet PDF. Loan-app docs in the request
- * are tracked but not sent through PandaDoc — the DOCX template lacks
- * embedded signature anchor tags, so it would fall through as a borrower-
- * adds-own-fields experience. Once anchor tags are added to the template,
- * this restriction can be lifted.
+ * Legacy PandaDoc envelopes (pre-Deploy 185) remain readable in the
+ * list \u2014 they show with `envelopeMode: 'pandadoc-legacy'` and are
+ * effectively read-only.
  *
  * Storage: blob store `envelopes`, key `{ownerKey}/{envelopeId}`.
  *
  * --- POST body ---
  * {
  *   clientId, loanId,
- *   docs:    [ { kind: 'rate_sheet'|'loan_app', name?, pdfBase64? } ],
+ *   docs:    [ { kind: 'rate_sheet'|'loan_app', name?, pdfBase64 } ],
  *   signers: [ { firstName, lastName, email } ],
  *   message?,
  *   _owner?  // admin: send on behalf of this LO
  * }
- *
- * pdfBase64 is required for rate_sheet kind in non-stub mode.
- *
- * --- GET query ---
- *   ?clientId=...&loanId=...   filter to one loan
- *   ?owner=...                 admin: scope to one LO
- *   ?all=1                     admin: every envelope
- *   ?limit=N                   default 200, max 1000
  */
 import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { sendEnvelope, pandadocStatus, mapStatus } from './_shared/pandadoc.mjs';
+import { hashPdf } from './_shared/native-esign.mjs';
 
 const VALID_DOC_KINDS = new Set(['rate_sheet', 'loan_app']);
 
@@ -69,7 +61,6 @@ async function handleCreate(req, context, user) {
   }
   const ownerKey = keySafe(ownerEmail);
 
-  // Validate docs
   const docs = Array.isArray(body.docs) ? body.docs : [];
   if (docs.length === 0) return json(400, { error: 'At least one document is required' });
   if (docs.length > 5) return json(400, { error: 'Too many documents in one envelope' });
@@ -77,9 +68,11 @@ async function handleCreate(req, context, user) {
     if (!d || !VALID_DOC_KINDS.has(d.kind)) {
       return json(400, { error: 'Invalid document kind: ' + (d && d.kind) });
     }
+    if (!d.pdfBase64) {
+      return json(400, { error: 'Each document must include pdfBase64 bytes' });
+    }
   }
 
-  // Validate signers
   const signers = Array.isArray(body.signers) ? body.signers : [];
   if (signers.length === 0) return json(400, { error: 'At least one signer is required' });
   if (signers.length > 6) return json(400, { error: 'Too many signers (max 6)' });
@@ -91,8 +84,6 @@ async function handleCreate(req, context, user) {
       return json(400, { error: 'Signer first and last name required' });
     }
   }
-
-  // Refuse exact duplicate emails — that confuses PandaDoc later
   const emailSet = new Set();
   for (const s of signers) {
     const e = normalizeEmail(s.email);
@@ -104,9 +95,7 @@ async function handleCreate(req, context, user) {
     return json(400, { error: 'clientId and loanId required' });
   }
 
-  // Defense-in-depth: enforce the same "In Processing only" gate the UI
-  // shows. Without this an LO could craft a request to send a rate sheet
-  // for a loan still in Active or already Closed.
+  // Defense-in-depth: enforce the "In Processing only" gate the UI shows.
   try {
     const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
     const client = await clientsStore.get(`${ownerKey}/${body.clientId}`, { type: 'json' });
@@ -125,19 +114,10 @@ async function handleCreate(req, context, user) {
 
   const now = new Date().toISOString();
   const envelopeId = genId();
-  const pdStatus = pandadocStatus();
 
-  // Extract PDF base64s before building the persisted record. The PDFs
-  // are stashed in a side blob store so the envelope JSON stays small
-  // and the frontend can call the slower /api/envelopes-send next.
-  // This pattern keeps create() under 1 second, well clear of any
-  // Netlify function timeout — the actual PandaDoc upload happens in
-  // the follow-up send call.
-  const pdfsByDoc = {}; // index → base64
+  const pdfsByDoc = {};
   for (let i = 0; i < docs.length; i++) {
-    if (docs[i].pdfBase64) {
-      pdfsByDoc[i] = docs[i].pdfBase64;
-    }
+    pdfsByDoc[i] = docs[i].pdfBase64;
   }
 
   const record = {
@@ -150,36 +130,35 @@ async function handleCreate(req, context, user) {
     docs: docs.map((d, i) => ({
       kind: d.kind,
       name: String(d.name || (d.kind === 'rate_sheet' ? 'Rate Sheet' : 'Loan Application')).slice(0, 200),
-      // hadPdf: true tells the LO this doc actually had bytes; useful for
-      // distinguishing dry-run/stub envelopes from live ones at a glance.
-      hadPdf: !!pdfsByDoc[i],
+      hadPdf: true,
+      pdfHash: hashPdf(d.pdfBase64),
+      pdfSize: Buffer.from(d.pdfBase64, 'base64').length,
     })),
     signers: signers.map((s, i) => ({
       firstName: String(s.firstName || '').slice(0, 80),
       lastName:  String(s.lastName  || '').slice(0, 80),
       email:     normalizeEmail(s.email),
-      role: 'borrower',
+      role: i === 0 ? 'borrower' : 'cosigner' + (i + 1),
       signingOrder: i + 1,
+      token: null,
+      tokenExpiresAt: null,
+      audit: null,
+      signedAt: null,
+      invitedAt: null,
+      resendCount: 0,
     })),
     message: String(body.message || '').slice(0, 2000),
     status: 'queued',
     statusUpdatedAt: now,
-    pandadocMode: pdStatus.mode,
-    pandadocDocumentId: null, // populated after the send call runs
+    envelopeMode: 'native',
     sendError: null,
     createdAt: now,
     history: [{
-      ts: now,
-      status: 'queued',
-      note: pdStatus.mode === 'disabled'
-        ? 'Created (Phase 1 stub — PandaDoc not configured).'
-        : pdStatus.mode === 'dry-run'
-        ? 'Created (dry-run mode — send pending).'
-        : 'Created — PDF stashed, awaiting send call.',
+      ts: now, status: 'queued',
+      note: 'Created \u2014 PDFs stashed, awaiting send call.',
     }],
   };
 
-  // Persist the envelope record (no PDFs in JSON — those are in a side store).
   const store = getStore({ name: 'envelopes', consistency: 'strong' });
   const blobKey = `${ownerKey}/${envelopeId}`;
   try {
@@ -189,25 +168,13 @@ async function handleCreate(req, context, user) {
     return json(500, { error: 'Failed to save envelope: ' + (e.message || 'unknown') });
   }
 
-  // Stash each doc's PDF bytes in a separate blob store so envelopes-send
-  // can retrieve them. Keys: pdfs/{ownerKey}/{envelopeId}/{docIndex}
-  // We don't fail the whole request if a stash fails — log and let the
-  // user retry via the (forthcoming) send call.
-  if (Object.keys(pdfsByDoc).length > 0) {
-    const pdfStore = getStore({ name: 'envelope-pdfs', consistency: 'strong' });
-    await Promise.all(Object.entries(pdfsByDoc).map(async ([docIdx, b64]) => {
-      const pdfKey = `${ownerKey}/${envelopeId}/${docIdx}`;
-      try {
-        await pdfStore.set(pdfKey, b64);
-      } catch (e) {
-        console.error('PDF stash failed for', pdfKey, e);
-      }
-    }));
-  }
+  const pdfStore = getStore({ name: 'envelope-pdfs', consistency: 'strong' });
+  await Promise.all(Object.entries(pdfsByDoc).map(async ([docIdx, b64]) => {
+    const pdfKey = `${ownerKey}/${envelopeId}/${docIdx}`;
+    try { await pdfStore.set(pdfKey, b64); }
+    catch (e) { console.error('PDF stash failed for', pdfKey, e); }
+  }));
 
-  // Return immediately. The frontend will call /api/envelopes-send next
-  // to actually trigger the PandaDoc upload+send. This split keeps each
-  // call short and well under any Netlify timeout.
   return json(200, { ok: true, envelope: record });
 }
 
@@ -245,6 +212,24 @@ async function handleList(req, user) {
     envelopes = envelopes.filter(Boolean);
     if (clientId) envelopes = envelopes.filter((e) => e.clientId === clientId);
     if (loanId)   envelopes = envelopes.filter((e) => e.loanId === loanId);
+    // Strip large fields for list view: full audit JSON is heavy, and
+    // tokens shouldn\u2019t leak in a list response (they\u2019re for the
+    // signer\u2019s email link only).
+    envelopes = envelopes.map((e) => ({
+      ...e,
+      signers: (e.signers || []).map((s) => ({
+        firstName: s.firstName, lastName: s.lastName, email: s.email,
+        role: s.role, signingOrder: s.signingOrder,
+        signedAt: s.signedAt || (s.audit && s.audit.signedAt) || null,
+        invitedAt: s.invitedAt,
+        resendCount: s.resendCount,
+        hasSigned: !!(s.audit && s.audit.signedAt),
+      })),
+      // Legacy compat: surface the historical pandadocMode field as
+      // envelopeMode so the UI can fan out on type. For pre-Deploy-185
+      // records, envelopeMode is absent and we synthesize it.
+      envelopeMode: e.envelopeMode || (e.pandadocMode ? 'pandadoc-legacy' : 'native'),
+    }));
     envelopes.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     envelopes = envelopes.slice(0, limit);
   } catch (e) {
@@ -256,16 +241,10 @@ async function handleList(req, user) {
 }
 
 export default async (req, context) => {
-  // Wrap the entire handler so an uncaught exception still returns JSON
-  // rather than letting Netlify render an HTML error page. The frontend
-  // surfaces 'Bad response' for non-JSON, which is unhelpful for debugging
-  // — we'd rather see the actual stack-trace fragment in the toast.
   try {
     const pre = handleOptions(req); if (pre) return pre;
-
     const user = requireAuth(context, req);
     if (!user) return json(401, { error: 'Not authenticated' });
-
     if (req.method === 'GET')  return await handleList(req, user);
     if (req.method === 'POST') return await handleCreate(req, context, user);
     return json(405, { error: 'Method not allowed' });
