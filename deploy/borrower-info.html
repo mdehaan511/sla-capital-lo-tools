@@ -1337,18 +1337,50 @@ function signApplication() {
   // borrower picks an autocomplete suggestion. If the borrower typed
   // a partial address without using the picker, we surface it here
   // rather than after the signing event.
+  // Deploy 183: more permissive address validation. Replaced the
+  // strict "street, city, ST zip" regex from Deploy 181 with a
+  // component-based check that accepts real-world variations:
+  //   - Apt prefixes, extra commas (e.g. "Spokane, WA, 99224")
+  //   - Missing comma between city and state ("Palm Harbor FL 34684")
+  //   - PO Boxes, rural routes
+  //   - Trailing ", USA" or ", USA." (Google sometimes returns it)
+  // Requires:
+  //   - At least one comma (structural minimum)
+  //   - A 5-digit ZIP (optionally +4) at the end
+  //   - A valid 2-letter US state code adjacent to the ZIP
   function looksLikeFullAddress(s) {
     if (!s) return false;
-    // Tolerate trailing ", USA" if it slipped through
-    var v = String(s).trim().replace(/,\s*USA$/i, '');
-    // Must end with ST ZIP and have at least two commas before that
-    return /,\s*[^,]+,\s*[A-Z]{2}\s+\d{5}(-\d{4})?$/i.test(v);
+    var v = String(s).trim().replace(/,?\s*USA\.?$/i, '').trim();
+    if (v.indexOf(',') < 0) return false;
+    if (!/\b\d{5}(-\d{4})?\s*$/.test(v)) return false;
+    var US_STATES = 'AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC';
+    var stRe = new RegExp('(?:\\b|^)(' + US_STATES + ')(?:,\\s*|\\s+)\\d{5}(-\\d{4})?\\s*$', 'i');
+    return stRe.test(v);
+  }
+
+  // Helper: HTML-escape a value so we can safely echo it back to the
+  // user in the error message (showing them what we got vs. what we expect).
+  function _escAddrShow(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function _fixBtn(pageNum, fieldId) {
+    // A button that jumps to the right page and focuses the offending
+    // field. Skips validation (we know the borrower is partway through
+    // the form — they don\u2019t need a "fill in required fields" toast
+    // blocking them from going back).
+    return ' <button type="button" onclick="goToPageAndFocus(' + pageNum + ',&quot;' + fieldId + '&quot;)" ' +
+      'style="background:var(--gold,#C8813A);color:#fff;border:0;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;cursor:pointer;margin-left:6px">' +
+      'Fix it &rarr;' +
+    '</button>';
   }
 
   var d = STATE.data;
   if (!looksLikeFullAddress(d.propertyAddress)) {
-    errEl.innerHTML = 'The subject <strong>property address</strong> is incomplete. ' +
-      'Please go back to the Property page and select your address from the autocomplete dropdown so we capture the city, state, and ZIP.';
+    errEl.innerHTML = 'The subject <strong>property address</strong> is missing the city, state, or ZIP. ' +
+      (d.propertyAddress ? 'We have: <em>' + _escAddrShow(d.propertyAddress) + '</em>. ' : '') +
+      'Tap the field on Page 2 and pick a complete address from the autocomplete dropdown.' +
+      _fixBtn(2, 'f_propertyAddress');
     errEl.style.display = 'block';
     return;
   }
@@ -1358,8 +1390,10 @@ function signApplication() {
     if (!g.address && !d['g' + i + '_address']) continue; // skip empty (validation elsewhere)
     var addr = g.address || d['g' + i + '_address'];
     if (!looksLikeFullAddress(addr)) {
-      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s home address</strong> is incomplete. ' +
-        'Please go back to the Vesting & Guarantors page and select the address from the autocomplete dropdown so we capture the city, state, and ZIP.';
+      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s home address</strong> is missing the city, state, or ZIP. ' +
+        'We have: <em>' + _escAddrShow(addr) + '</em>. ' +
+        'Tap the field and pick a complete address from the autocomplete dropdown.' +
+        _fixBtn(4, 'f_g' + i + '_address');
       errEl.style.display = 'block';
       return;
     }
@@ -1368,16 +1402,20 @@ function signApplication() {
     var prev = g.prevAddress || d['g' + i + '_prevAddress'];
     var twoYr = g.twoYearAddress || d['g' + i + '_twoYearAddress'];
     if (twoYr === 'no' && prev && !looksLikeFullAddress(prev)) {
-      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s previous address</strong> is incomplete. ' +
-        'Please pick a full address from the autocomplete dropdown (city, state, ZIP).';
+      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s previous address</strong> is missing the city, state, or ZIP. ' +
+        'We have: <em>' + _escAddrShow(prev) + '</em>. ' +
+        'Pick a full address from the autocomplete dropdown.' +
+        _fixBtn(4, 'f_g' + i + '_prevAddress');
       errEl.style.display = 'block';
       return;
     }
     var mail = g.mailingAddress || d['g' + i + '_mailingAddress'];
     var mailSame = g.mailingSameAsHome || d['g' + i + '_mailingSameAsHome'];
     if (mailSame === 'no' && mail && !looksLikeFullAddress(mail)) {
-      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s mailing address</strong> is incomplete. ' +
-        'Please pick a full address from the autocomplete dropdown (city, state, ZIP).';
+      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s mailing address</strong> is missing the city, state, or ZIP. ' +
+        'We have: <em>' + _escAddrShow(mail) + '</em>. ' +
+        'Pick a full address from the autocomplete dropdown.' +
+        _fixBtn(4, 'f_g' + i + '_mailingAddress');
       errEl.style.display = 'block';
       return;
     }
@@ -1818,6 +1856,29 @@ function goPrev() {
   STATE.page--;
   renderApp();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Deploy 183: jump to a specific page and focus a specific field.
+// Used by the "Fix it" buttons in the page-5 address validation
+// errors so the borrower lands on the offending field instead of
+// hunting for it.
+function goToPageAndFocus(pageNum, fieldId) {
+  STATE.page = pageNum;
+  renderApp();
+  // Wait a tick for the DOM to mount, then scroll the field into
+  // view and select its text so the borrower can immediately re-type
+  // or re-pick.
+  setTimeout(function() {
+    var el = document.getElementById(fieldId);
+    if (!el) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(function() {
+      try { el.focus(); el.select && el.select(); } catch (_) {}
+    }, 350);
+  }, 60);
 }
 
 function submitFinal() {
