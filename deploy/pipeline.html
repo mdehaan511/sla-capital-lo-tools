@@ -482,6 +482,29 @@
   </div>
 </div>
 
+<!-- Deploy 190: Assign Prospect to LO modal — admin tool for prospects
+     that came in unassigned (apply.html ?lo= missing or stripped). -->
+<div class="bi-modal-bg" id="assignProspectModal">
+  <div class="bi-modal">
+    <h3>Assign Prospect to LO</h3>
+    <p class="bi-sub" id="assignProspectSub">Choose the loan officer this prospect should be assigned to. This will create a Client and initial Loan record under that LO.</p>
+
+    <div style="margin-top:14px">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">Loan Officer</label>
+      <select id="assignProspectLO" style="width:100%;border:1.5px solid var(--border);border-radius:var(--r-xs);padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:13px;background:#fff">
+        <option value="">— Select an LO —</option>
+      </select>
+    </div>
+
+    <div class="bi-status" id="assignProspectStatus"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeAssignProspectModal()">Cancel</button>
+      <button class="bi-btn primary" id="assignProspectBtn" onclick="assignProspectConfirm()">Assign</button>
+    </div>
+  </div>
+</div>
+
 <!-- Send Loan App modal (Awaiting Application column) -->
 <div class="bi-modal-bg" id="sendBiModal">
   <div class="bi-modal">
@@ -909,6 +932,15 @@ function buildProspectCard(it) {
       '</div>' +
       '<div class="card-actions">' +
         '<button type="button" class="card-btn primary" onclick="openInSizer(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\', \'' + tool + '\')">Open in Sizer</button>' +
+        // Deploy 190: admin-only "Assign to LO" action. Only relevant
+        // when the prospect arrived with no LO attribution (?lo= missing
+        // from apply.html URL or stripped in transit). Re-stores the
+        // prospect under the target LO\u2019s ownerKey and runs the same
+        // client + initial loan auto-create as a fresh application.
+        (_isAdmin && it.ownerKey === 'unassigned'
+          ? '<button type="button" class="card-btn" onclick="openAssignProspectModal(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\', \'' + escAttr(name) + '\')">Assign to LO\u2026</button>'
+          : ''
+        ) +
       '</div>' +
     '</div>'
   );
@@ -1589,6 +1621,75 @@ function openInSizer(prospectId, ownerKey, tool) {
   try { localStorage.setItem('sla_prefill_prospect', JSON.stringify(item.prospect)); } catch(e){}
   var dest = (tool === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
   window.location.href = dest + '?fromProspect=1';
+}
+
+// Deploy 190: assign an unassigned prospect to an LO. Re-stores the
+// prospect under the LO\u2019s owner key on the backend AND runs the same
+// client + initial loan auto-create as a fresh application, so the LO
+// sees the borrower in Clients and the loan in Loan Details.
+var _assignProspectCtx = null;
+
+function openAssignProspectModal(prospectId, ownerKey, displayName) {
+  _assignProspectCtx = { prospectId: prospectId, ownerKey: ownerKey };
+  var sub = document.getElementById('assignProspectSub');
+  if (sub) sub.textContent = 'Choose the loan officer "' + displayName + '" should be assigned to. This will create a Client and initial Loan record under that LO so they can pick up the application.';
+  var sel = document.getElementById('assignProspectLO');
+  if (sel) {
+    // Populate from _profileMap (set during pipeline load)
+    sel.innerHTML = '<option value="">\u2014 Select an LO \u2014</option>';
+    var emails = Object.keys(_profileMap).sort(function(a, b) {
+      var aName = (_profileMap[a].fullName || a).toLowerCase();
+      var bName = (_profileMap[b].fullName || b).toLowerCase();
+      return aName < bName ? -1 : aName > bName ? 1 : 0;
+    });
+    emails.forEach(function(em) {
+      var p = _profileMap[em];
+      var opt = document.createElement('option');
+      opt.value = em;
+      opt.textContent = (p.fullName || em.split('@')[0]) + ' \u2014 ' + em;
+      sel.appendChild(opt);
+    });
+  }
+  document.getElementById('assignProspectStatus').textContent = '';
+  document.getElementById('assignProspectStatus').className = 'bi-status';
+  document.getElementById('assignProspectBtn').disabled = false;
+  document.getElementById('assignProspectBtn').textContent = 'Assign';
+  document.getElementById('assignProspectModal').classList.add('show');
+}
+
+function closeAssignProspectModal() {
+  document.getElementById('assignProspectModal').classList.remove('show');
+  _assignProspectCtx = null;
+}
+
+function assignProspectConfirm() {
+  if (!_assignProspectCtx) return;
+  var ctx = _assignProspectCtx;
+  var sel = document.getElementById('assignProspectLO');
+  var toLoEmail = sel ? sel.value : '';
+  var status = document.getElementById('assignProspectStatus');
+  var btn = document.getElementById('assignProspectBtn');
+  if (!toLoEmail) {
+    status.className = 'bi-status err';
+    status.textContent = 'Please choose a loan officer.';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Assigning\u2026';
+  status.className = 'bi-status';
+  status.textContent = '';
+  SLA.Prospects.reassign(ctx.ownerKey, ctx.prospectId, toLoEmail).then(function(resp) {
+    status.className = 'bi-status ok';
+    status.textContent = '\u2713 Assigned to ' + toLoEmail + (resp && resp.clientCreated ? ' \u2014 Client + Loan created.' : '');
+    setTimeout(function() {
+      closeAssignProspectModal();
+      // Reload pipeline data so the prospect now appears under the LO\u2019s bucket
+      loadAll();
+    }, 1200);
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Assign';
+    status.className = 'bi-status err';
+    status.textContent = 'Failed: ' + ((err && err.message) || 'unknown error');
+  });
 }
 
 // State held while the submit-notes modal is open. We need both the quote

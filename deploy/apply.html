@@ -388,13 +388,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <script>
 // ── Parse LO from URL ?lo=firstname_lastname ──────────────────
+// Deploy 190: also persist to sessionStorage so the lo assignment
+// survives accidental reloads/back-button/session restoration that
+// drop the query string. Previously, if the borrower visited the
+// link, then navigated away, then returned via the back button or
+// session restore, the URL came back without `?lo=` and the prospect
+// was saved as unassigned (no client/loan record auto-created).
 var _loSlug = '';
 var _loEmail = '';
 var _loDisplay = '';
 
 (function(){
   var params = new URLSearchParams(window.location.search);
-  _loSlug = (params.get('lo') || '').toLowerCase().trim();
+  var fromUrl = (params.get('lo') || '').toLowerCase().trim();
+  if (fromUrl) {
+    _loSlug = fromUrl;
+    // Cache for the rest of the session so reload/back/forward keeps it
+    try { sessionStorage.setItem('sla_apply_lo', fromUrl); } catch (_) {}
+  } else {
+    // URL didn\u2019t have ?lo= \u2014 try sessionStorage (set during a prior
+    // visit in this same session)
+    try {
+      var cached = sessionStorage.getItem('sla_apply_lo');
+      if (cached) _loSlug = String(cached).toLowerCase().trim();
+    } catch (_) {}
+  }
   if (_loSlug) {
     // Humanize the email localpart for display: "mike.dehaan@x.com" → "Mike Dehaan"
     var local = _loSlug.indexOf('@') >= 0 ? _loSlug.split('@')[0] : _loSlug;
@@ -556,6 +574,16 @@ function applyPhoneMask(el) {
   else el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
 }
 
+function _looksLikeFullAddress(s) {
+  if (!s) return false;
+  var v = String(s).trim().replace(/,?\s*USA\.?$/i, '').trim();
+  if (v.indexOf(',') < 0) return false;
+  if (!/\b\d{5}(-\d{4})?\s*$/.test(v)) return false;
+  var US_STATES = 'AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC';
+  var stRe = new RegExp('(?:\\b|^)(' + US_STATES + ')(?:,\\s*|\\s+)\\d{5}(-\\d{4})?\\s*$', 'i');
+  return stRe.test(v);
+}
+
 function validate() {
   var ok = true;
   var lp = gv('loanProduct');
@@ -563,6 +591,18 @@ function validate() {
   // Always required (regardless of loan product)
   var always = ['firstName','lastName','phone','propAddress','propType','purchasePrice','fundingDate'];
   always.forEach(function(id){ if (!gv(id)) { showE(id); ok=false; }});
+
+  // Deploy 190: require the property address to include city/state/ZIP.
+  // Previously a borrower could type "1234 Main St" without picking from
+  // the Google Places dropdown and submit. The prospect record then had
+  // no state/zip, which broke the sizer flow downstream (no Loan Details
+  // page, sizer couldn\u2019t auto-load proper location data). Now we
+  // require the address to look like "Street, City, ST 00000".
+  var addr = gv('propAddress');
+  if (addr && !_looksLikeFullAddress(addr)) {
+    showE('propAddress', 'Please pick your address from the dropdown so it includes the city, state, and ZIP code.');
+    ok = false;
+  }
   // propertyValue is required only for DSCR — the field is hidden for the
   // entire RTL family (fix_flip, bridge, transactional) since the LO
   // derives the loan amount in the sizer rather than asking the borrower.

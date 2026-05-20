@@ -79,6 +79,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/prospects-reassign"
+  to = "/.netlify/functions/prospects-reassign"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/quotes"
   to = "/.netlify/functions/quotes-list"
   status = 200
