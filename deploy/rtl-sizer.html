@@ -2548,6 +2548,16 @@ function saveCurrentQuote() {
     currentLoanAmt: parseFloat(formData.currentLoanAmt || 0) || 0,
     computedAt: new Date().toISOString(),
   };
+  // Deploy 193: declare rateEl before use. Prior versions referenced
+  // rateEl on the next line without ever declaring it in this scope,
+  // which threw `ReferenceError: rateEl is not defined` and aborted
+  // the entire save function (no toast, no upsert, nothing). The LO
+  // saw a Save button that did nothing. The selector matches the rate
+  // display in the results panel \u2014 same one used by the override
+  // logic at line ~1355 and the _finalRate capture at line ~2503.
+  var rateEl = document.querySelector('.metric-value[data-metric="rate"]')
+    || document.querySelector('#results .rv')
+    || document.querySelector('#results .metric-value.xl');
   if (rateEl) snapshot.finalRate = parseFloat(String(rateEl.textContent).replace(/[^0-9.]/g, '')) / 100 || null;
   metricCards.forEach(function(card) {
     var label = card.querySelector('.metric-label');
