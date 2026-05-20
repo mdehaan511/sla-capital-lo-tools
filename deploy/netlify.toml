@@ -261,6 +261,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/loan-update-from-sizer"
+  to = "/.netlify/functions/loan-update-from-sizer"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"
   status = 200

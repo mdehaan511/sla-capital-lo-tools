@@ -128,6 +128,24 @@
       });
     },
     /**
+     * Deploy 192: direct ID-based loan update. Bypasses the brittle
+     * email/address matching in upsert(). Use when the caller already
+     * has a confirmed (clientId, loanId) pair \u2014 typically the sizer
+     * when window._editingClientId and window._editingLoanId are both
+     * set (LO opened an existing loan to edit).
+     *
+     * Returns the updated loan record on success, rejects on any
+     * backend error (missing client, missing loan, write failure, etc).
+     */
+    updateLoanDirect: function (clientId, loanId, loanData, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId, loanData: loanData };
+      if (ownerOverride) body.owner = ownerOverride;
+      return api('POST', '/api/loan-update-from-sizer', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
+    /**
      * Upsert helper mirroring the old ClientBook.upsert shape so sizer pages
      * can keep calling a familiar function. Merges loanData into the matching
      * client (by email, then name), creating the client if needed.

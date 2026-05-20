@@ -2803,78 +2803,93 @@ function saveCurrentQuote() {
 
   QuoteStore.saveQuote(_quoteUser, 'dscr', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
-  // Always upsert into ClientBook when email is provided
-  // Deploy 188 (bug 2 fix v3): success toast + button-flash now only
-  // fire AFTER the backend upsert resolves. See rtl-sizer.html for
-  // the full rationale.
+  // Deploy 192 (CRITICAL): revert the Deploy-188 "gate toast on promise"
+  // pattern. The LO reported that no sizer saves were working AT ALL,
+  // which we now believe was because the upsert promise was hanging
+  // (or rejecting silently in a way that the LO never saw). The new
+  // pattern below restores immediate feedback and ALSO surfaces
+  // failures via a follow-up toast, so the LO always sees something.
   var addrForToast = formData.address || formData.borrower;
   var btn = document.getElementById('saveQuoteBtn');
-  function showSuccess() {
-    if (btn) {
-      btn.textContent = '\u2713 Saved';
-      btn.classList.add('saved');
-      setTimeout(function() {
-        btn.textContent = '\u2605 Save Quote';
-        btn.classList.remove('saved');
-      }, 2500);
-    }
-    showToast('Quote saved \u2014 ' + addrForToast);
-  }
-  function showFailure(err) {
-    console.error('[SLA] Quote save failed:', err);
-    var msg = (err && err.message) || 'unknown error';
-    if (btn) {
-      btn.textContent = '\u26A0 Save failed';
-      btn.classList.add('save-failed');
-      setTimeout(function() {
-        btn.textContent = '\u2605 Save Quote';
-        btn.classList.remove('save-failed');
-      }, 4000);
-    }
-    showToast('Save failed: ' + msg + ' (see console)');
-  }
 
+  // Step 1: immediate visual feedback. The LO sees this no matter what.
+  if (btn) {
+    btn.textContent = '\u2713 Saved';
+    btn.classList.add('saved');
+    setTimeout(function() {
+      btn.textContent = '\u2605 Save Quote';
+      btn.classList.remove('saved');
+    }, 2500);
+  }
+  showToast('Quote saved \u2014 ' + addrForToast);
+
+  // Step 2: persist the loan. Try the direct ID-based update first
+  // (when both clientId AND loanId are known \u2014 i.e. the LO opened an
+  // existing loan to edit). Falls back to the legacy upsert path for
+  // brand-new quotes where the IDs aren\u2019t resolved yet.
   if (window.ClientBook && formData.borrowerEmail) {
     var loanRecord = ClientBook.buildLoanFromSizer('dscr', formData.address, formData, 'active');
     var nameParts = (formData.borrower || '').trim().split(' ');
-    // If address changed from loaded quote, rename the loan in ClientBook
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRecord._originalAddress = window._originalAddress;
     }
-    // Critical fix for the "sizer save creates a duplicate" bug: when we
-    // have a known loan ID (loaded an existing quote, opened from a loan-
-    // details page, or promoted a prospect), pass it through so the
-    // backend updates THAT specific loan record. Without this, the
-    // backend falls back to address-matching, which fails when the
-    // borrower-typed address differs from Google Places' canonical form.
-    if (window._editingLoanId) {
-      loanRecord._editingLoanId = window._editingLoanId;
+
+    function handleDscrSaveSuccess(resp) {
+      console.log('[SLA] DSCR save ok:', resp);
+      window._originalAddress = formData.address;
     }
-    console.log('[SLA] DSCR save \u2192 upsert:', {
-      loanId: window._editingLoanId || '(none, will address-match)',
-      rate: loanRecord.rate, points: loanRecord.points,
-      address: loanRecord.address, email: formData.borrowerEmail,
-    });
-    ClientBook.upsert(_quoteUser, formData.borrowerEmail,
-      nameParts.slice(0,-1).join(' ') || nameParts[0] || '',
-      nameParts.length > 1 ? nameParts[nameParts.length-1] : '',
-      formData.borrowerPhone || '', loanRecord, ownerOvr)
-      .then(function(resp) {
-        console.log('[SLA] DSCR upsert ok:', resp);
-        window._originalAddress = formData.address;
-        showSuccess();
-      })
-      .catch(showFailure);
+    function handleDscrSaveFailure(err) {
+      console.error('[SLA] DSCR save failed:', err);
+      var msg = (err && err.message) || 'unknown error';
+      showToast('\u26A0 Save did not reach the server: ' + msg + ' (see console)');
+      if (btn) {
+        btn.textContent = '\u26A0 Save failed';
+        btn.classList.add('save-failed');
+        setTimeout(function() {
+          btn.textContent = '\u2605 Save Quote';
+          btn.classList.remove('save-failed');
+        }, 6000);
+      }
+    }
+
+    var hasDirectIds = window._editingClientId && window._editingLoanId
+      && window.SLA && SLA.Clients && SLA.Clients.updateLoanDirect;
+
+    if (hasDirectIds) {
+      // Direct ID-based update: bypasses the email/address matching in
+      // Clients.upsert entirely. The loan is found by (clientId, loanId)
+      // on the backend.
+      console.log('[SLA] DSCR save \u2192 updateLoanDirect:', {
+        clientId: window._editingClientId,
+        loanId: window._editingLoanId,
+        rate: loanRecord.rate, points: loanRecord.points,
+        address: loanRecord.address,
+      });
+      SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRecord, ownerOvr)
+        .then(handleDscrSaveSuccess)
+        .catch(handleDscrSaveFailure);
+    } else {
+      // Brand-new quote (no editing IDs resolved yet). Fall back to the
+      // legacy upsert path which auto-creates the client + initial loan.
+      if (window._editingLoanId) loanRecord._editingLoanId = window._editingLoanId;
+      console.log('[SLA] DSCR save \u2192 upsert (fallback, no clientId):', {
+        loanId: window._editingLoanId || '(none, will address-match)',
+        rate: loanRecord.rate, points: loanRecord.points,
+        address: loanRecord.address, email: formData.borrowerEmail,
+      });
+      var upsertPromise = ClientBook.upsert(_quoteUser, formData.borrowerEmail,
+        nameParts.slice(0,-1).join(' ') || nameParts[0] || '',
+        nameParts.length > 1 ? nameParts[nameParts.length-1] : '',
+        formData.borrowerPhone || '', loanRecord, ownerOvr);
+      if (upsertPromise && typeof upsertPromise.then === 'function') {
+        upsertPromise.then(handleDscrSaveSuccess).catch(handleDscrSaveFailure);
+      } else {
+        console.warn('[SLA] DSCR save: ClientBook.upsert did not return a promise:', upsertPromise);
+      }
+    }
   } else if (!formData.borrowerEmail) {
-    console.warn('[SLA] DSCR save: no borrowerEmail, skipping ClientBook upsert');
-    showToast('Quote saved locally, but no borrower email \u2014 won\u2019t appear in Loan Details until email is added.');
-    if (btn) {
-      btn.textContent = '\u2713 Saved (local)';
-      btn.classList.add('saved');
-      setTimeout(function() { btn.textContent = '\u2605 Save Quote'; btn.classList.remove('saved'); }, 2500);
-    }
-  } else {
-    showSuccess();
+    console.warn('[SLA] DSCR save: no borrowerEmail, ClientBook upsert skipped');
+    showToast('\u2139 Note: no borrower email \u2014 quote saved locally only.');
   }
 
   // Promote prospect to Book of Clients if this came from a prospect form.
@@ -3113,11 +3128,12 @@ netlifyIdentity.on('init', function(user) {
             if (!hit || !hit.formData) return false;
             window._originalAddress = hit.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = hit.formData.borrowerEmail || '';
-            // Capture the loanId so on save we update the existing loan
-            // record by ID rather than relying on address matching. Loan
-            // records on the client store are keyed by id, so this is the
-            // deterministic match.
-            window._editingLoanId = loanIdP || null;
+            // Capture the loanId AND clientId so on save we can do a
+            // direct ID-based loan update (see /api/loan-update-from-sizer)
+            // instead of relying on the brittle email→address matching in
+            // Clients.upsert. The clientId comes from the loan-details URL.
+            window._editingLoanId   = loanIdP   || null;
+            window._editingClientId = clientIdP || null;
             return applyLockedOverrideIfAnyDSCR(hit.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
               tryAutoDownload(); trySignatureHandoff();
@@ -3133,7 +3149,8 @@ netlifyIdentity.on('init', function(user) {
           if (q && q.formData) {
             window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = q.formData.borrowerEmail || '';
-            window._editingLoanId = loanIdP || null;
+            window._editingLoanId   = loanIdP   || null;
+            window._editingClientId = clientIdP || null;
             // Item #2: apply LO override from loan record if present
             return applyLockedOverrideIfAnyDSCR(q.formData).then(function(fd) {
               loadQuoteIntoForm(fd);

@@ -2597,73 +2597,89 @@ function saveCurrentQuote() {
   QuoteStore.saveQuote(_quoteUser, 'rtl', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
 
-  // Deploy 188 (bug 2 fix v3): the success toast + button-flash now
-  // only fire AFTER the backend upsert resolves. Previously they
-  // fired unconditionally before the upsert promise settled, so LOs
-  // saw "Quote saved" even when the backend rejected (auth, perm,
-  // network) and Loan Details never updated. The catch surfaces the
-  // actual error so we can diagnose instead of silently failing.
+  // Deploy 192 (CRITICAL): revert the Deploy-188 "gate toast on promise"
+  // pattern. See dscr-sizer.html for full rationale. Now: immediate
+  // toast on save click, follow-up toast on failure.
   var btn = document.getElementById('saveQuoteBtn');
-  function showSuccess() {
-    if (btn) {
-      btn.textContent = '\u2713 Saved';
-      btn.classList.add('saved');
-      setTimeout(function() { btn.textContent = '\u2605 Save Quote'; btn.classList.remove('saved'); }, 2500);
-    }
-    showToast('Quote saved \u2014 ' + addrFull);
-  }
-  function showFailure(err) {
-    console.error('[SLA] Quote save failed:', err);
-    var msg = (err && err.message) || 'unknown error';
-    if (btn) {
-      btn.textContent = '\u26A0 Save failed';
-      btn.classList.add('save-failed');
-      setTimeout(function() { btn.textContent = '\u2605 Save Quote'; btn.classList.remove('save-failed'); }, 4000);
-    }
-    showToast('Save failed: ' + msg + ' (see console)');
-  }
 
-  // Upsert into ClientBook when email is provided.
+  // Step 1: immediate visual feedback. LO sees this no matter what.
+  if (btn) {
+    btn.textContent = '\u2713 Saved';
+    btn.classList.add('saved');
+    setTimeout(function() {
+      btn.textContent = '\u2605 Save Quote';
+      btn.classList.remove('saved');
+    }, 2500);
+  }
+  showToast('Quote saved \u2014 ' + addrFull);
+
+  // Step 2: persist the loan. Try the direct ID-based update first
+  // (when both clientId AND loanId are known \u2014 i.e. the LO opened an
+  // existing loan to edit). Falls back to the legacy upsert path for
+  // brand-new quotes where the IDs aren\u2019t resolved yet.
   if (window.ClientBook && formData.borrowerEmail) {
     var loanRec = ClientBook.buildLoanFromSizer('rtl', formData.address, formData, 'active');
     var rNameParts = (formData.borrowerName || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRec._originalAddress = window._originalAddress;
     }
-    // Pass the known loan ID through so the backend updates THAT record
-    // rather than address-matching (and potentially creating a duplicate).
-    if (window._editingLoanId) {
-      loanRec._editingLoanId = window._editingLoanId;
+
+    function handleSaveSuccess(resp) {
+      console.log('[SLA] RTL save ok:', resp);
+      window._originalAddress = formData.address;
     }
-    console.log('[SLA] RTL save \u2192 upsert:', {
-      loanId: window._editingLoanId || '(none, will address-match)',
-      rate: loanRec.rate, points: loanRec.points,
-      dpFromSnapshot: loanRec.pricingSnapshot && loanRec.pricingSnapshot.downPayment,
-      address: loanRec.address, email: formData.borrowerEmail,
-    });
-    ClientBook.upsert(_quoteUser, formData.borrowerEmail,
-      rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',
-      rNameParts.length > 1 ? rNameParts[rNameParts.length-1] : '',
-      formData.borrowerPhone || '', loanRec, ownerOvr)
-      .then(function(resp) {
-        console.log('[SLA] RTL upsert ok:', resp);
-        window._originalAddress = formData.address;
-        showSuccess();
-      })
-      .catch(showFailure);
+    function handleSaveFailure(err) {
+      console.error('[SLA] RTL save failed:', err);
+      var msg = (err && err.message) || 'unknown error';
+      showToast('\u26A0 Save did not reach the server: ' + msg + ' (see console)');
+      if (btn) {
+        btn.textContent = '\u26A0 Save failed';
+        btn.classList.add('save-failed');
+        setTimeout(function() {
+          btn.textContent = '\u2605 Save Quote';
+          btn.classList.remove('save-failed');
+        }, 6000);
+      }
+    }
+
+    var hasDirectIds = window._editingClientId && window._editingLoanId
+      && window.SLA && SLA.Clients && SLA.Clients.updateLoanDirect;
+
+    if (hasDirectIds) {
+      // Direct ID-based update: bypasses the email/address matching in
+      // Clients.upsert entirely. The loan is found by (clientId, loanId)
+      // on the backend.
+      console.log('[SLA] RTL save \u2192 updateLoanDirect:', {
+        clientId: window._editingClientId,
+        loanId: window._editingLoanId,
+        rate: loanRec.rate, points: loanRec.points,
+        address: loanRec.address,
+      });
+      SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRec, ownerOvr)
+        .then(handleSaveSuccess)
+        .catch(handleSaveFailure);
+    } else {
+      // Brand-new quote (no editing IDs resolved yet). Fall back to the
+      // legacy upsert path which auto-creates the client + initial loan.
+      if (window._editingLoanId) loanRec._editingLoanId = window._editingLoanId;
+      console.log('[SLA] RTL save \u2192 upsert (fallback, no clientId):', {
+        loanId: window._editingLoanId || '(none, will address-match)',
+        rate: loanRec.rate, points: loanRec.points,
+        address: loanRec.address, email: formData.borrowerEmail,
+      });
+      var upsertPromise = ClientBook.upsert(_quoteUser, formData.borrowerEmail,
+        rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',
+        rNameParts.length > 1 ? rNameParts[rNameParts.length-1] : '',
+        formData.borrowerPhone || '', loanRec, ownerOvr);
+      if (upsertPromise && typeof upsertPromise.then === 'function') {
+        upsertPromise.then(handleSaveSuccess).catch(handleSaveFailure);
+      } else {
+        console.warn('[SLA] RTL save: ClientBook.upsert did not return a promise:', upsertPromise);
+      }
+    }
   } else if (!formData.borrowerEmail) {
-    // No email \u2014 only the local QuoteStore was written. Tell the LO
-    // why Loan Details won\u2019t update.
-    console.warn('[SLA] RTL save: no borrowerEmail, skipping ClientBook upsert');
-    showToast('Quote saved locally, but no borrower email \u2014 won\u2019t appear in Loan Details until email is added.');
-    if (btn) {
-      btn.textContent = '\u2713 Saved (local)';
-      btn.classList.add('saved');
-      setTimeout(function() { btn.textContent = '\u2605 Save Quote'; btn.classList.remove('saved'); }, 2500);
-    }
-  } else {
-    // ClientBook unavailable \u2014 paranoid fallback
-    showSuccess();
+    console.warn('[SLA] RTL save: no borrowerEmail, ClientBook upsert skipped');
+    showToast('\u2139 Note: no borrower email \u2014 quote saved locally only.');
   }
 
   // Prospect cleanup. The upsert above already wrote the loan via the
@@ -2905,6 +2921,7 @@ netlifyIdentity.on('init', function(user) {
           window._originalAddress = hit.formData.address || decodeURIComponent(loadAddr);
           window._originalBorrowerEmail = hit.formData.borrowerEmail || '';
           window._editingLoanId = loanIdP || null;
+          window._editingClientId = clientIdP || null;
           return applyLockedOverrideIfAny(hit.formData).then(function(fd) {
             loadRTLQuote(fd);
             tryAutoDownload(); trySignatureHandoff();
@@ -2921,6 +2938,7 @@ netlifyIdentity.on('init', function(user) {
           window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
           window._originalBorrowerEmail = q.formData.borrowerEmail || '';
           window._editingLoanId = loanIdP || null;
+          window._editingClientId = clientIdP || null;
           // Item #2: if the loan record has an LO override (loanAmtLocked),
           // use that locked amount instead of the original quote amount so
           // the rate sheet / term sheet reflect the override.
@@ -3044,6 +3062,7 @@ netlifyIdentity.on('init', function(user) {
         // instead of trying to address-match. See dscr-sizer.html for the
         // full rationale on why address matching is fragile.
         window._editingLoanId = found.id || loanIdP || null;
+        window._editingClientId = (clientRec && clientRec.id) || clientIdP || null;
         loadRTLQuote(fd);
         tryAutoDownload(); trySignatureHandoff();
         return true;
