@@ -483,17 +483,58 @@ function onUser(user) {
   if (navAdmin && window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
     navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
   }
+  // Deploy 194 (perf): stale-while-revalidate. First try the local
+  // cache for instant paint. The cache is populated by any prior page
+  // load (Clients page, Pipeline, etc.) within the last 5 minutes.
+  // If found, render immediately; the fresh fetch still runs and
+  // re-renders when it arrives. If not cached, skip directly to the
+  // network fetch (no double-paint).
+  var cachedFound = fetchLoanFromCache();
+  if (cachedFound) {
+    _client = cachedFound.client;
+    _loan   = cachedFound.loan;
+    render();
+  }
   fetchLoan().then(function(found) {
     if (!found) {
-      document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Loan not found</h3><p><a href="clients.html">← Back to Clients</a></p></div>';
+      // Only show \u201cnot found\u201d if we never managed to paint anything.
+      // If we already painted from cache, leave it (the cached loan
+      // might be stale but it\u2019s better than wiping the page).
+      if (!cachedFound) {
+        document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Loan not found</h3><p><a href="clients.html">\u2190 Back to Clients</a></p></div>';
+      }
       return;
     }
     _client = found.client;
     _loan   = found.loan;
     render();
   }).catch(function(err) {
-    document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Failed to load</h3><p>'+(err.message||'')+'</p><p><a href="clients.html">← Back to Clients</a></p></div>';
+    if (!cachedFound) {
+      document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Failed to load</h3><p>'+(err.message||'')+'</p><p><a href="clients.html">\u2190 Back to Clients</a></p></div>';
+    }
   });
+}
+
+// Deploy 194 (perf): synchronous lookup against localStorage cache so
+// loan-details can paint without waiting on the network. Returns null
+// if the cache is empty or the loan isn\u2019t in it; the caller then
+// falls back to fetchLoan() exclusively.
+function fetchLoanFromCache() {
+  if (!window.SLA || !SLA.Clients || !SLA.Clients.listCached) return null;
+  try {
+    var clients = SLA.Clients.listCached();
+    if (!Array.isArray(clients)) return null;
+    for (var ci = 0; ci < clients.length; ci++) {
+      if (clients[ci].id !== _clientId) continue;
+      var loans = clients[ci].loans || [];
+      for (var li = 0; li < loans.length; li++) {
+        if (loans[li].id === _loanId) {
+          return { client: clients[ci], loan: loans[li] };
+        }
+      }
+    }
+  } catch (e) { /* cache miss is fine, fall through */ }
+  return null;
 }
 
 // Find the {client, loan} in the backend. Admins may pass ?owner= to view another LO's loan.

@@ -189,20 +189,6 @@
           }
         }
 
-        // Deploy 189 (bug 2 diagnostic): log the resolution so we can see
-        // which client/loan the save matched against, or whether a
-        // duplicate was created. The next time a save "succeeds" but
-        // Loan Details doesn\u2019t update, this tells us exactly where the
-        // merge fell through. Remove or quiet later once stable.
-        var diag = {
-          totalClients: clients.length,
-          matchedClient: existing ? { id: existing.id, email: existing.email, loanCount: (existing.loans||[]).length } : null,
-          incomingEmail: normEmail,
-          incomingEditingLoanId: loanData && loanData._editingLoanId,
-          incomingAddress: loanData && loanData.address,
-        };
-        console.log('[SLA] Clients.upsert resolution:', diag);
-
         if (!existing) {
           existing = {
             id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
@@ -304,14 +290,15 @@
               // _editingLoanId is a transient meta field used for matching,
               // not a real loan property. Don't persist it.
               delete existing.loans[lIdx]._editingLoanId;
-              console.log('[SLA] Clients.upsert: UPDATED existing loan at index', lIdx, 'id', existing.loans[lIdx].id);
             } else {
               // Strip the meta field before pushing too, in case the merge
               // strategies all missed and we're creating a new loan.
               var newLoan = Object.assign({}, loanData);
               delete newLoan._editingLoanId;
               existing.loans.unshift(newLoan);
-              console.warn('[SLA] Clients.upsert: created NEW loan (no match found). incomingEditingLoanId=' + (loanData && loanData._editingLoanId) + ' existing loan IDs=' + existing.loans.slice(1).map(function(l){return l.id;}).join(','));
+              // Keep this warn \u2014 a "new loan from upsert" when we expected
+              // to update an existing one is a real bug signal.
+              console.warn('[SLA] Clients.upsert: created NEW loan (no match found). incomingEditingLoanId=' + (loanData && loanData._editingLoanId));
             }
           }
         }
@@ -320,17 +307,7 @@
         // Without this, admin-side edits land under the admin's key,
         // duplicating the record on the original owner's side.
         if (ovr) existing._owner = ovr;
-        console.log('[SLA] Clients.upsert posting:', {
-          clientId: existing.id,
-          loanCount: (existing.loans || []).length,
-          loans: (existing.loans || []).map(function(l) {
-            return { id: l.id, addr: l.address, rate: l.rate, points: l.points, status: l.status };
-          }),
-        });
-        return Clients.save(existing).then(function(resp) {
-          console.log('[SLA] Clients.save response:', resp);
-          return resp;
-        });
+        return Clients.save(existing);
       });
     },
   };

@@ -411,3 +411,36 @@
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Deploy 194 (perf): cache static JS/CSS aggressively in the browser.
+# These files change on each deploy (Netlify serves the latest build's
+# content for the same URL), but within a session they should not be
+# re-downloaded on every page navigation. 5-minute revalidation gives
+# us a balance: fast in-session navigation, with a fresh fetch shortly
+# after any new deploy. `stale-while-revalidate` lets the browser
+# serve cached content immediately AND refresh in the background so
+# the next nav also feels instant.
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=300, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=300, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/*.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/*.ico"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"

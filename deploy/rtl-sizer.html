@@ -2635,7 +2635,6 @@ function saveCurrentQuote() {
     }
 
     function handleSaveSuccess(resp) {
-      console.log('[SLA] RTL save ok:', resp);
       window._originalAddress = formData.address;
     }
     function handleSaveFailure(err) {
@@ -2659,12 +2658,6 @@ function saveCurrentQuote() {
       // Direct ID-based update: bypasses the email/address matching in
       // Clients.upsert entirely. The loan is found by (clientId, loanId)
       // on the backend.
-      console.log('[SLA] RTL save \u2192 updateLoanDirect:', {
-        clientId: window._editingClientId,
-        loanId: window._editingLoanId,
-        rate: loanRec.rate, points: loanRec.points,
-        address: loanRec.address,
-      });
       SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRec, ownerOvr)
         .then(handleSaveSuccess)
         .catch(handleSaveFailure);
@@ -2672,11 +2665,6 @@ function saveCurrentQuote() {
       // Brand-new quote (no editing IDs resolved yet). Fall back to the
       // legacy upsert path which auto-creates the client + initial loan.
       if (window._editingLoanId) loanRec._editingLoanId = window._editingLoanId;
-      console.log('[SLA] RTL save \u2192 upsert (fallback, no clientId):', {
-        loanId: window._editingLoanId || '(none, will address-match)',
-        rate: loanRec.rate, points: loanRec.points,
-        address: loanRec.address, email: formData.borrowerEmail,
-      });
       var upsertPromise = ClientBook.upsert(_quoteUser, formData.borrowerEmail,
         rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',
         rNameParts.length > 1 ? rNameParts[rNameParts.length-1] : '',

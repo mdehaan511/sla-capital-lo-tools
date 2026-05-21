@@ -331,6 +331,22 @@ netlifyIdentity.on('init', function(user) {
     renderSummary();
     renderClients();
   });
+
+  // Deploy 194 (perf): stale-while-revalidate paint. If there\u2019s a
+  // recent cached client list in localStorage (populated by any prior
+  // visit within the last 5 min), render it synchronously so the
+  // page paints instantly. The fresh fetch above still runs and
+  // re-renders with up-to-date data when it arrives.
+  try {
+    if (window.SLA && SLA.Clients && SLA.Clients.listCached) {
+      var cached = SLA.Clients.listCached();
+      if (Array.isArray(cached) && cached.length) {
+        _clients = cached;
+        renderSummary();
+        renderClients();
+      }
+    }
+  } catch (_) {}
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
