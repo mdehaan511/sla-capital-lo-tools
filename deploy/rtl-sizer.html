@@ -681,13 +681,22 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       </div>
     </div>
 
-    <!-- Fee schedule (informational, always visible) -->
+    <!-- Fee schedule (informational, always visible). For rehab/bridge
+         loans the standard four-line schedule is shown. For Transactional
+         Funding, Deploy 196 simplified this to a single $1,000 loan
+         processing fee. onLoanTypeChange() toggles which rows are
+         visible so the LO never sees both at once. -->
     <div class="fees-card">
       <div class="fees-head">SLA Capital Fees</div>
-      <div class="fees-row"><span>Underwriting Fee</span><span>$600</span></div>
-      <div class="fees-row"><span>Doc Prep Fee</span><span>$900</span></div>
-      <div class="fees-row"><span>Servicing/Processing Fee</span><span>$500</span></div>
-      <div class="fees-row"><span>Credit/Background Check</span><span>$150</span></div>
+      <div id="feesCardRehabRows">
+        <div class="fees-row"><span>Underwriting Fee</span><span>$600</span></div>
+        <div class="fees-row"><span>Doc Prep Fee</span><span>$900</span></div>
+        <div class="fees-row"><span>Servicing/Processing Fee</span><span>$500</span></div>
+        <div class="fees-row"><span>Credit/Background Check</span><span>$150</span></div>
+      </div>
+      <div id="feesCardTransactionalRows" style="display:none">
+        <div class="fees-row"><span>Loan Processing Fee</span><span>$1,000</span></div>
+      </div>
       <!-- Broker fee row(s) appear here only when a broker fee is entered.
            Populated by renderBrokerFeesCardRows(). -->
       <div id="brokerFeesCardRows"></div>
@@ -1062,13 +1071,17 @@ function brokerFeeDollars() {
 // Refresh the broker-fee rows + total on the right-side fees card. Called
 // whenever the broker fee input changes or when a calc completes (since
 // the $ amount depends on the computed loan amount). When fee is 0, the
-// broker rows disappear and the total falls back to SLA's flat $2,150.
+// broker rows disappear and the total falls back to SLA's flat base
+// (which depends on loan type \u2014 $2,150 for rehab/bridge,
+// $1,000 for transactional per Deploy 196).
 function renderBrokerFeesCardRows() {
   var rowsEl  = document.getElementById('brokerFeesCardRows');
   var totalEl = document.getElementById('feesCardTotal');
   if (!rowsEl || !totalEl) return;
   var pts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
-  var FLAT = 600 + 900 + 500 + 150; // $2,150
+  var ltEl = document.getElementById('loanType');
+  var isTransactional = ltEl && ltEl.value === 'transactional';
+  var FLAT = isTransactional ? 1000 : (600 + 900 + 500 + 150); // $1,000 or $2,150
   if (pts <= 0) {
     rowsEl.innerHTML = '';
     totalEl.textContent = '$' + FLAT.toLocaleString();
@@ -1440,6 +1453,15 @@ function onLoanTypeChange() {
   // Show/hide the direct loan amount field
   var amtField = document.getElementById('field-transactionalAmt');
   if (amtField) amtField.style.display = isTransactional ? '' : 'none';
+
+  // Deploy 196: swap the SLA Fees reference card between the rehab/
+  // bridge fee schedule and the simpler $1,000 transactional flat fee.
+  var rehabRows = document.getElementById('feesCardRehabRows');
+  var txRows    = document.getElementById('feesCardTransactionalRows');
+  if (rehabRows) rehabRows.style.display = isTransactional ? 'none' : '';
+  if (txRows)    txRows.style.display    = isTransactional ? '' : 'none';
+  // Refresh the total (also accounts for any broker fee already entered).
+  renderBrokerFeesCardRows();
 
   // Grey out the LOAN-section selects + amount fields when transactional
   var disabledIds = ['fico','experience','propType','loanTerm','loanPurpose',
@@ -1974,13 +1996,17 @@ function renderTransactional(street, city, state, zip) {
   var pts  = 1.0;      // 1.0 points
   var ptsFee = amt * (pts / 100);
 
-  // Standard RTL fee schedule still applies
-  var flatFees = 600 + 900 + 500 + 150; // = $2,150
+  // Deploy 196: transactional funding uses a single flat $1,000 loan
+  // processing fee instead of the itemized rehab/bridge fee schedule
+  // ($600 underwriting + $900 doc prep + $500 servicing + $150 credit).
+  // The 1-day nature of these deals doesn\u2019t warrant the same
+  // overhead, and the single line item is cleaner on the rate sheet.
+  var processingFee = 1000;
   // Broker fee (if set) is calculated against the transactional amount,
   // since that's the actual loan size for these 1-day deals.
   var brokerPts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
   var brokerDol = amt * (brokerPts / 100);
-  var totalFees = ptsFee + flatFees + brokerDol;
+  var totalFees = ptsFee + processingFee + brokerDol;
 
   // Monthly interest (1-day loans accrue interest only)
   var monthlyInterest = amt * rate / 12;
@@ -2012,10 +2038,7 @@ function renderTransactional(street, city, state, zip) {
     // Closing cost breakdown
     html += '<table class="rate-tbl" style="margin-top:14px"><tbody>' +
       '<tr><td>Origination (1.00 pt)</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
-      '<tr><td>Underwriting Fee</td><td class="bv neg">$600</td></tr>' +
-      '<tr><td>Doc Prep Fee</td><td class="bv neg">$900</td></tr>' +
-      '<tr><td>Servicing Fee</td><td class="bv neg">$500</td></tr>' +
-      '<tr><td>Credit Fee</td><td class="bv neg">$150</td></tr>' +
+      '<tr><td>Loan Processing Fee</td><td class="bv neg">$1,000</td></tr>' +
       (brokerPts > 0
         ? '<tr><td>Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
         : '') +
@@ -3187,6 +3210,272 @@ function getRTLRateSheetForSignature(signerCount) {
   return _generateRTLRateSheetPDF({ mode: 'base64', embedAnchors: true });
 }
 
+// Deploy 195: dedicated rate-sheet PDF for Transactional Funding (1-day)
+// loans. The main RTL rate sheet is built around the rehab/bridge
+// pricing matrix \u2014 LTV columns, FICO grids, investor experience
+// tiers, ARV, rehab budgets \u2014 none of which apply to a 1-day
+// transactional loan. This generator mirrors the on-screen
+// renderTransactional() output: hardcoded 12% rate, 1pt origination,
+// flat fee schedule, daily interest. One page, simple table.
+//
+// Signature block (when opts.embedAnchors is true) follows the same
+// pattern as the main sheet so the native eSign flow keeps working
+// for transactional deals.
+function _generateRTLTransactionalPDF(opts) {
+  var { jsPDF } = window.jspdf;
+  var doc = new jsPDF({ orientation:'portrait', unit:'pt', format:'letter' });
+
+  var W=612, H=792, lm=44, cw=W-lm*2, y=0;
+  var ROW_H=22;
+
+  var DARK=[38,26,54], GOLD=[200,129,58], WHITE=[255,255,255];
+  var BORD=[221,216,208], MUTED=[100,94,110], TEXT=[26,21,32];
+  var LGREY=[240,236,229];
+
+  function rr(x,yy,w,h,rad,style){ doc.roundedRect(x,yy,w,h,rad,rad,style); }
+  function checkPage(needed) { if (y+needed > H-48) { doc.addPage(); y=36; } }
+  function fmtD(n){ if(!n||isNaN(n))return '—'; return '$'+Math.round(n).toLocaleString(); }
+  function trow(label,value,yy,opts2){
+    opts2=opts2||{};
+    var lc=opts2.labelColor||MUTED, vc=opts2.valueColor||TEXT;
+    var lb=opts2.labelBold||false, vb=opts2.valueBold!==false;
+    var fs=opts2.fontSize||9.5, vfs=opts2.valueFontSize||fs;
+    var baseline=yy+ROW_H*0.68;
+    doc.setFont('helvetica',lb?'bold':'normal');
+    doc.setFontSize(fs); doc.setTextColor(lc[0],lc[1],lc[2]);
+    doc.text(label, lm+10, baseline);
+    doc.setFont('helvetica',vb?'bold':'normal');
+    doc.setFontSize(vfs); doc.setTextColor(vc[0],vc[1],vc[2]);
+    doc.text(value, lm+cw-10, baseline, {align:'right'});
+    if (!opts2.noLine){
+      doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.4);
+      doc.line(lm+8,yy+ROW_H,lm+cw-8,yy+ROW_H);
+    }
+    return yy+ROW_H;
+  }
+
+  // ── Read inputs ──────────────────────────────────────────────
+  function gv(id){ var el=document.getElementById(id); return el?el.value:''; }
+  var street=gv('propStreet').trim(), city=gv('propCity').trim();
+  var state=gv('propState'), zip=gv('propZip').trim();
+  var addrFull=(street+', '+city+', '+state+' '+zip).replace(/^,\s*|,\s*$/g,'').trim();
+
+  var brwName  = gv('borrowerName').trim();
+  var brwEmail = gv('borrowerEmail').trim();
+  var brwPhone = gv('borrowerPhone').trim();
+
+  var amt = parseFloat(gv('transactionalAmt')) || 0;
+  var rate = 0.12;          // 12.000% — same hardcode as renderTransactional
+  var pts  = 1.0;           // 1pt origination
+  var ptsFee = amt * (pts / 100);
+  var brokerPts = parseFloat(gv('brokerFee')) || 0;
+  var brokerDol = amt * (brokerPts / 100);
+  // Deploy 196: single flat $1,000 processing fee replaces the
+  // itemized rehab/bridge schedule. See on-screen renderTransactional
+  // for matching change \u2014 the two must stay in sync.
+  var processingFee = 1000;
+  var totalFees = ptsFee + processingFee + brokerDol;
+  var dailyInterest = amt * rate / 365;
+  var monthlyInterest = amt * rate / 12;
+
+  // ── Logo ─────────────────────────────────────────────────────
+  y=36;
+  try {
+    var logoEl=document.querySelector('nav img');
+    if(logoEl && logoEl.complete && logoEl.naturalWidth>0){
+      var logoW=90;
+      var logoH=(logoEl.naturalHeight/logoEl.naturalWidth)*logoW;
+      var canvas=document.createElement('canvas');
+      canvas.width=Math.round(logoW*2); canvas.height=Math.round(logoH*2);
+      var ctx=canvas.getContext('2d');
+      ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(logoEl,0,0,canvas.width,canvas.height);
+      doc.addImage(canvas.toDataURL('image/jpeg',0.9),'JPEG',W/2-logoW/2,y,logoW,logoH);
+      y+=logoH+10;
+    } else throw 'no logo';
+  } catch(e){
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.setTextColor(DARK[0],DARK[1],DARK[2]);
+    doc.text('SLA Capital',W/2,y+14,{align:'center'}); y+=26;
+  }
+
+  // Subtitle
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text('Transactional Funding Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
+  y+=14;
+
+  // LO contact
+  var loName=window._loName||'', loPhone=window._loPhone||'', loEmail=window._loEmail||'';
+  if(loName||loPhone||loEmail){
+    var loParts=[];
+    if(loName)loParts.push(loName);
+    if(loEmail)loParts.push(loEmail);
+    if(loPhone)loParts.push(loPhone);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text(loParts.join('  \u00B7  '),W/2,y+10,{align:'center'});
+    y+=18;
+  } else { y+=6; }
+
+  // ── Dark header with rate + address ─────────────────────────
+  var headerH = 44;
+  var addrStripH = addrFull ? 22 : 0;
+  doc.setFillColor(DARK[0],DARK[1],DARK[2]);
+  rr(lm,y,cw,headerH+addrStripH,6,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
+  doc.text('TRANSACTIONAL FUNDING \u2014 1-Day Term', lm+12, y+16);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(180,170,195);
+  doc.text('SLA Capital  \u00B7  Same-Day Close/Repay Program', lm+12, y+30);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  doc.setTextColor(180,160,130);
+  doc.text('INTEREST RATE', lm+cw-12, y+13, {align:'right'});
+  doc.setFont('helvetica','bold'); doc.setFontSize(20);
+  doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
+  doc.text((rate*100).toFixed(3)+'%', lm+cw-12, y+32, {align:'right'});
+  if (addrFull) {
+    doc.setDrawColor(70, 55, 95); doc.setLineWidth(0.5);
+    doc.line(lm+8, y+headerH, lm+cw-8, y+headerH);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+    doc.setTextColor(180,160,130);
+    doc.text('PROPERTY', lm+12, y+headerH+13);
+    var addrLabelW = doc.getTextWidth('PROPERTY') + 10;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
+    var addrAvail = cw - addrLabelW - 24;
+    var addrLine = doc.splitTextToSize(addrFull, addrAvail)[0] || addrFull;
+    doc.text(addrLine, lm+12+addrLabelW, y+headerH+15);
+  }
+  y += headerH + addrStripH + 14;
+
+  // ── Loan summary ─────────────────────────────────────────────
+  var summaryRows = [
+    ['Borrower Name',       brwName||'\u2014'],
+    ['Borrower Email',      brwEmail||'\u2014'],
+    ['Borrower Phone',      brwPhone||'\u2014'],
+    ['Loan Type',           'Transactional Funding'],
+    ['Loan Amount',         fmtD(amt)],
+    ['Loan Term',           '1 day (same-day repayment)'],
+    ['Interest Rate',       (rate*100).toFixed(3)+'%'],
+    ['Origination Points',  pts.toFixed(2)+' pts'],
+  ];
+
+  var sumBlockH = summaryRows.length*ROW_H + 12;
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,sumBlockH,4,'FD');
+  var sry = y + 6;
+  summaryRows.forEach(function(row, idx) {
+    var isLast = idx === summaryRows.length-1;
+    sry = trow(row[0], row[1], sry, { noLine: isLast });
+  });
+  y += sumBlockH + 14;
+
+  // ── Closing costs ────────────────────────────────────────────
+  checkPage(180);
+  var feeRows = [
+    ['Origination (' + pts.toFixed(2) + ' pts)', fmtD(ptsFee)],
+    ['Loan Processing Fee',        '$1,000'],
+  ];
+  if (brokerPts > 0) {
+    feeRows.push(['Broker Fee (' + brokerPts.toFixed(2) + ' pts)', fmtD(brokerDol)]);
+  }
+
+  // Section title outside the box
+  doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+  doc.setTextColor(DARK[0],DARK[1],DARK[2]);
+  doc.text('Estimated Closing Costs', lm, y + 4);
+  y += 12;
+
+  var feesBlockH = feeRows.length*ROW_H + ROW_H + 12; // rows + total + padding
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,feesBlockH,4,'FD');
+  var fry = y + 6;
+  feeRows.forEach(function(row) {
+    fry = trow(row[0], row[1], fry);
+  });
+  // Heavy line then total
+  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+  doc.line(lm+8, fry, lm+cw-8, fry); fry += 4;
+  trow('Total Estimated Closing Costs', fmtD(totalFees), fry, {
+    labelColor: TEXT, labelBold: true,
+    valueColor: TEXT, valueBold: true, valueFontSize: 13, noLine: true,
+  });
+  y += feesBlockH + 14;
+
+  // ── Daily / extended-hold interest ───────────────────────────
+  checkPage(80);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+  doc.setTextColor(DARK[0],DARK[1],DARK[2]);
+  doc.text('Interest Accrual (if held beyond same-day repayment)', lm, y + 4);
+  y += 12;
+
+  var intRows = [
+    ['Daily Interest', fmtD(dailyInterest)],
+    ['Monthly Interest (if held 30 days)', fmtD(monthlyInterest)],
+  ];
+  var intBlockH = intRows.length * ROW_H + 12;
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,intBlockH,4,'FD');
+  var iry = y + 6;
+  intRows.forEach(function(row, idx) {
+    var isLast = idx === intRows.length-1;
+    iry = trow(row[0], row[1], iry, { noLine: isLast });
+  });
+  y += intBlockH + 14;
+
+  // ── Legal footer ─────────────────────────────────────────────
+  checkPage(80);
+  var legal = 'IMPORTANT NOTICE \u2014 Transactional funding is a 1-day bridge product for same-day-close, same-day-repay transactions. Daily interest accrues if the loan is held beyond same-day repayment. This document is a preliminary rate estimate only and does not constitute a commitment to lend. All rates, terms, and conditions are subject to change following full underwriting review. SLA Capital reserves the right to modify or withdraw this estimate at any time prior to issuing a formal commitment letter.';
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  var legalLines = doc.splitTextToSize(legal, cw-16);
+  var legalH = legalLines.length*10 + 14;
+  doc.setFillColor(LGREY[0],LGREY[1],LGREY[2]);
+  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
+  rr(lm,y,cw,legalH,4,'FD');
+  doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  doc.text(legalLines, lm+8, y+10, {lineHeightFactor:1.35});
+  y += legalH + 14;
+
+  // ── Signature block (eSign only) ─────────────────────────────
+  var sigCoords = null;
+  if (opts.embedAnchors) {
+    checkPage(60);
+    var sigBlockY = y;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.setTextColor(TEXT[0],TEXT[1],TEXT[2]);
+    doc.text('Borrower Signature:', lm+8, sigBlockY+14);
+    doc.text('Date:', lm+8 + 320, sigBlockY+14);
+    doc.setDrawColor(MUTED[0],MUTED[1],MUTED[2]); doc.setLineWidth(0.5);
+    doc.line(lm+8 + 100, sigBlockY+18, lm+8 + 290, sigBlockY+18);
+    doc.line(lm+8 + 360, sigBlockY+18, lm+8 + 460, sigBlockY+18);
+    sigCoords = {
+      pageNumber: doc.internal.getCurrentPageInfo().pageNumber,
+      pageWidth: W,
+      pageHeight: H,
+      sigX: lm + 8 + 102,
+      sigYFromTop: sigBlockY + 14,
+      dateX: lm + 8 + 362,
+      dateYFromTop: sigBlockY + 14,
+    };
+    y += 30;
+  }
+
+  // ── Save ─────────────────────────────────────────────────────
+  if (opts.mode === 'base64') {
+    var dataUri = doc.output('datauristring');
+    var idx = dataUri.indexOf(',');
+    var b64 = idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
+    return { pdfBase64: b64, sigCoords: sigCoords };
+  }
+  var addrSlug=(addrFull||'Transactional_Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  doc.save(addrSlug+'_Transactional_Quote.pdf');
+}
+
 function _generateRTLRateSheetPDF(opts) {
   opts = opts || {};
   // Re-run calculate to get fresh values
@@ -3194,6 +3483,21 @@ function _generateRTLRateSheetPDF(opts) {
       document.getElementById('results').querySelector('.placeholder')) {
     if (opts.mode === 'base64') return null;
     alert('Please calculate pricing first.'); return;
+  }
+
+  // Deploy 195: branch to the dedicated transactional rate sheet when
+  // the loan type is Transactional Funding. The main RTL rate sheet
+  // below is built around the rehab/bridge pricing matrix and reads
+  // values from "Maximum Loan Amount" / "Required Down Payment" /
+  // "Monthly Interest" metric cards \u2014 none of which exist on the
+  // transactional on-screen output. Without this branch the PDF
+  // would render the borrower\u2019s entered loan amount as if it were
+  // the interest rate (the first .metric-value.xl on the page) and
+  // fall through to "\u2014" placeholders for every dollar figure,
+  // producing a useless document.
+  var loanTypeEl = document.getElementById('loanType');
+  if (loanTypeEl && loanTypeEl.value === 'transactional') {
+    return _generateRTLTransactionalPDF(opts);
   }
 
   var { jsPDF } = window.jspdf;

@@ -428,6 +428,30 @@
   </div>
 </div>
 
+<!-- Deploy 195: Cancel Loan modal. The confirmation step matters here
+     because the action is destructive — the loan moves to a terminal
+     status, drops off Pipeline and Loans defaults, and visually looks
+     gone unless the LO knows to check the Cancelled view. -->
+<div class="bi-modal-bg" id="cancelLoanModal">
+  <div class="bi-modal" style="max-width:520px">
+    <h3>Cancel Loan</h3>
+    <p class="bi-sub" id="cancelLoanSub">This loan will be moved to <strong>Cancelled</strong> status. It will no longer appear on the Pipeline or in the default Loans view, but stays accessible from the Cancelled view if it needs to be restored later.</p>
+
+    <div style="margin-top:14px">
+      <label class="bi-section-label">Reason (optional)</label>
+      <textarea id="cancelReason" placeholder="e.g., Borrower backed out, financing fell through, deal restructured&hellip;" style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px;resize:vertical"></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Recorded on the loan record for future reference.</div>
+    </div>
+
+    <div class="bi-status" id="cancelLoanStatus"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeCancelLoanModal()">Keep loan</button>
+      <button class="bi-btn primary" id="cancelLoanBtn" onclick="confirmCancelLoan()" style="background:#7C1F1F;border-color:#7C1F1F">Cancel loan</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -856,6 +880,32 @@ function render() {
     '</button>';
   }
 
+  // Deploy 195: Cancel Loan button. For loans that were approved but
+  // didn\u2019t end up closing \u2014 borrower backed out, deal fell through,
+  // financing collapsed. Only visible in awaiting_app or approved \u2014
+  // a Quoted loan hasn\u2019t advanced far enough to need cancellation,
+  // and Submitted loans should go through underwriting decisioning.
+  // Styled subtly (text-only with danger color) so it doesn\u2019t compete
+  // with the primary actions; this is an end-of-life action.
+  if (loanStatus === 'awaiting_app' || loanStatus === 'approved') {
+    html += '<button type="button" class="cancel-loan-btn" onclick="openCancelLoanModal()" style="margin-top:14px">' +
+      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M5 5l4 4M9 5l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+      'Cancel Loan' +
+    '</button>';
+  }
+
+  // Deploy 195: Restore button \u2014 only visible when the loan is
+  // currently cancelled. Reverts to the status the loan had immediately
+  // before cancellation (stored in _cancelledFrom on the loan record).
+  if (loanStatus === 'cancelled') {
+    var restoreTarget = (l._cancelledFrom === 'awaiting_app') ? 'Awaiting Application' : 'In Processing';
+    html += '<button type="button" class="open-sizer-btn" onclick="restoreCancelledLoan()" style="margin-top:14px;background:var(--gold);color:#fff;border-color:var(--gold)">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 7.5C3 5 5 3 7.5 3S12 5 12 7.5 10 12 7.5 12M3 7.5L1.5 6M3 7.5L4.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      'Restore Loan' +
+    '</button>';
+    html += '<div style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center;font-style:italic">Will return to \u201c' + restoreTarget + '\u201d status.</div>';
+  }
+
   // Envelope history panel — populated async by refreshEnvelopes()
   html += '<div id="envelopesPanel" class="envelopes-panel" style="margin-top:14px;display:none">' +
     '<div class="envelopes-panel-hdr">E-signature envelopes</div>' +
@@ -1239,6 +1289,107 @@ function moveToInProcessing() {
   .catch(function(err) {
     showToast('Move failed: ' + (err.message || 'unknown error'));
     if (btnTextEl) { btnTextEl.disabled = false; btnTextEl.style.opacity = ''; }
+  });
+}
+
+// ── Cancel Loan / Restore Cancelled Loan ──────────────────────────
+// Deploy 195: cancellation is for loans that were approved (i.e. moved
+// to "In Processing") but never closed \u2014 borrower backed out,
+// financing fell through, deal restructured. Distinct from `denied`
+// (we declined to lend) and from `closed` (loan funded). Cancelled
+// loans live on their own page (`cancelled.html`) so they don\u2019t
+// clutter the active pipeline but remain accessible.
+//
+// Backend at /api/loan-cancel enforces the eligibility rules
+// (only awaiting_app or approved can be cancelled). Restore reverts
+// to whichever status the loan had right before cancel \u2014 stored on
+// the loan record as _cancelledFrom.
+function openCancelLoanModal() {
+  if (!_loan) return;
+  var allowed = ['awaiting_app', 'approved'];
+  if (allowed.indexOf(_loan.status) < 0) {
+    showToast('Only loans in Awaiting Application or In Processing can be cancelled.');
+    return;
+  }
+  var sub = document.getElementById('cancelLoanSub');
+  if (sub) {
+    var fromLabel = _loan.status === 'awaiting_app' ? 'Awaiting Application' : 'In Processing';
+    sub.innerHTML = 'This loan will be moved from <strong>' + fromLabel + '</strong> to <strong>Cancelled</strong>. ' +
+      'It will no longer appear on the Pipeline or in the default Loans view, but stays accessible from the Cancelled view if it needs to be restored later.';
+  }
+  document.getElementById('cancelReason').value = '';
+  document.getElementById('cancelLoanStatus').textContent = '';
+  document.getElementById('cancelLoanStatus').className = 'bi-status';
+  document.getElementById('cancelLoanBtn').disabled = false;
+  document.getElementById('cancelLoanBtn').textContent = 'Cancel loan';
+  document.getElementById('cancelLoanModal').classList.add('show');
+}
+
+function closeCancelLoanModal() {
+  document.getElementById('cancelLoanModal').classList.remove('show');
+}
+
+function confirmCancelLoan() {
+  if (!_loan || !_client) return;
+  var reason = (document.getElementById('cancelReason').value || '').trim();
+  var statusEl = document.getElementById('cancelLoanStatus');
+  var btn = document.getElementById('cancelLoanBtn');
+  btn.disabled = true;
+  btn.textContent = 'Cancelling\u2026';
+  statusEl.className = 'bi-status';
+  statusEl.textContent = '';
+
+  var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Loans.cancel(_client.id, _loanId, reason, ownerOvr).then(function(resp) {
+    statusEl.className = 'bi-status ok';
+    statusEl.textContent = '\u2713 Loan cancelled' + (resp.warning ? ' \u2014 ' + resp.warning : '');
+    // Update local state so the page re-renders with the new badge +
+    // shows the Restore button instead of Cancel.
+    if (resp.loan) {
+      _loan = resp.loan;
+      // Mutate the loan inside _client.loans too so future renders
+      // (e.g. if another control causes a re-render) see the change.
+      var loans = _client.loans || [];
+      var idx = loans.findIndex(function(x) { return x.id === _loanId; });
+      if (idx >= 0) loans[idx] = resp.loan;
+    } else {
+      _loan.status = 'cancelled';
+    }
+    setTimeout(function() {
+      closeCancelLoanModal();
+      render();
+    }, 700);
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Cancel loan';
+    statusEl.className = 'bi-status err';
+    statusEl.textContent = 'Failed: ' + ((err && err.message) || 'unknown error');
+  });
+}
+
+function restoreCancelledLoan() {
+  if (!_loan || !_client) return;
+  if (_loan.status !== 'cancelled') {
+    showToast('Loan is not cancelled.');
+    return;
+  }
+  if (!confirm('Restore this loan?\n\nIt will return to its prior status (Awaiting Application or In Processing) and reappear in Pipeline and Loans.')) return;
+
+  var btn = event && event.currentTarget;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+
+  var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Loans.uncancel(_client.id, _loanId, ownerOvr).then(function(resp) {
+    showToast('Loan restored to ' + (resp.newStatus === 'awaiting_app' ? 'Awaiting Application' : 'In Processing'));
+    if (resp.loan) {
+      _loan = resp.loan;
+      var loans = _client.loans || [];
+      var idx = loans.findIndex(function(x) { return x.id === _loanId; });
+      if (idx >= 0) loans[idx] = resp.loan;
+    }
+    setTimeout(function() { render(); }, 700);
+  }).catch(function(err) {
+    showToast('Restore failed: ' + ((err && err.message) || 'unknown'));
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
   });
 }
 

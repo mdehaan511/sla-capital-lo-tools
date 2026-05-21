@@ -267,6 +267,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/loan-cancel"
+  to = "/.netlify/functions/loan-cancel"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"
   status = 200

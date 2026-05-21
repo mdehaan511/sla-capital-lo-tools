@@ -810,6 +810,40 @@
     return user.email.toLowerCase();
   }
 
+  // ── Loans ───────────────────────────────────────────────────────
+  // Loan-level mutations that operate on loans inside a client record.
+  // (Reads still go through Clients.list() since loans are nested.)
+  var Loans = {
+    /**
+     * Deploy 195: cancel a loan that\u2019s in awaiting_app or approved.
+     * For approved loans that ended up not closing. Backend records a
+     * full audit trail (_cancelledAt, _cancelledBy, _cancelledFrom,
+     * _cancelReason) so we can later report on cancellation patterns.
+     */
+    cancel: function (clientId, loanId, reason, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId };
+      if (reason)        body.reason = reason;
+      if (ownerOverride) body.owner  = ownerOverride;
+      return api('POST', '/api/loan-cancel', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
+    /**
+     * Restore a cancelled loan back to the status it had before it
+     * was cancelled (typically `approved`). For the case where the LO
+     * mis-clicked Cancel, or the deal restarted after being shelved.
+     */
+    uncancel: function (clientId, loanId, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId, restore: true };
+      if (ownerOverride) body.owner = ownerOverride;
+      return api('POST', '/api/loan-cancel', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
+  };
+
   // ── Public namespace ────────────────────────────────────────────
   window.SLA = {
     api: api,
@@ -827,6 +861,7 @@
     ESignConsent: ESignConsent,
     SignedApplication: SignedApplication,
     Reminders: Reminders,
+    Loans: Loans,
     Search: Search,
     getRoles: getRoles,
     isAdmin: isAdmin,
