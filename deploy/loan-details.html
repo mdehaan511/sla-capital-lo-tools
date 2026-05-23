@@ -818,10 +818,10 @@ function render() {
     var _rtlRehabNum    = parseFloat(rehabBudget)   || 0;
     var _rtlArvNum      = parseFloat(arv)           || 0;
     // Dutch / Non-Dutch from loan record (saved by sizer Deploy 196).
-    // Legacy loans saved before this field existed default to non_dutch
-    // — the more borrower-friendly view that matches what the sizer
-    // payment math used to show (full loan amount, single value).
-    var _rtlIsDutch     = (l.dutchInterest || (fd && fd.dutchInterest) || 'non_dutch') === 'dutch';
+    // Legacy loans saved before this field existed default to 'dutch'
+    // — Deploy 197 flipped the default to match the new sizer behavior
+    // (Dutch is the industry-standard private-lending structure).
+    var _rtlIsDutch     = (l.dutchInterest || (fd && fd.dutchInterest) || 'dutch') === 'dutch';
     // Rehab holdback proxy: any non-zero rehab budget means the loan
     // has an escrow component, so Non-Dutch will show a real start→max
     // dynamic. Bridge / refi / transactional all land here with rehab=0.
@@ -975,27 +975,14 @@ function render() {
     '</button>';
   }
 
-  // Deploy 195 / widened in Deploy 196: Cancel Loan + Decline Loan.
-  //   Cancel = the deal didn't close (borrower backed out, financing
-  //            fell through). Borrower-/deal-driven drop-off.
-  //   Decline = SLA's call that we won't lend. Our decision.
-  // Both are end-of-life actions and both are now available across all
-  // non-terminal statuses (Quoted / Submitted / Awaiting App / In
-  // Processing). Both styled subtly so they don't compete with primary
-  // actions. Decline shares the same danger styling as Cancel \u2014 pick
-  // the one that matches what actually happened.
+  // Deploy 195 / Deploy 196 / Deploy 197: Cancel Loan + Decline Loan
+  // moved further down in the action stack, just above "Delete this
+  // loan", and restyled to match the rest of the action buttons (full-
+  // width primary style with danger color) instead of the original
+  // subtle text-only treatment. Block now lives below the envelope
+  // history panel \u2014 see further down in this function.
   var _terminalForEnd = ['cancelled', 'denied', 'closed'];
   var _canEndLoan = _terminalForEnd.indexOf(loanStatus) < 0;
-  if (_canEndLoan) {
-    html += '<button type="button" class="cancel-loan-btn" onclick="openCancelLoanModal()" style="margin-top:14px">' +
-      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M5 5l4 4M9 5l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
-      'Cancel Loan' +
-    '</button>';
-    html += '<button type="button" class="cancel-loan-btn" onclick="openDeclineLoanModal()" style="margin-top:8px">' +
-      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
-      'Decline Loan' +
-    '</button>';
-  }
 
   // Deploy 195: Restore button \u2014 only visible when the loan is
   // currently cancelled. Reverts to the status the loan had immediately
@@ -1024,6 +1011,22 @@ function render() {
     '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 5h7l-2-2M12 10H5l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
     'Change to ' + otherType + ' Loan' +
   '</button>';
+
+  // Deploy 197: Cancel Loan + Decline Loan moved here (just above
+  // Delete) and restyled to the same open-sizer-btn shell the other
+  // action buttons use. Danger color via inline style — matching the
+  // modal confirm buttons (#7C1F1F). Hidden for terminal statuses
+  // (closed / denied / cancelled).
+  if (_canEndLoan) {
+    html += '<button type="button" class="open-sizer-btn" onclick="openCancelLoanModal()" style="margin-top:14px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M5 5l5 5M10 5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+      'Cancel Loan' +
+    '</button>';
+    html += '<button type="button" class="open-sizer-btn" onclick="openDeclineLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M4 7.5h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+      'Decline Loan' +
+    '</button>';
+  }
 
   // Delete loan — destructive, kept visually subtle so it's hard to hit by
   // accident. Always confirms before firing. Closed loans can still be

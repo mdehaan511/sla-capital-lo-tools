@@ -67,11 +67,11 @@ window.ClientBook = {
       ficoLabel:     formData.ficoLabel     || '',
       propTypeLabel: formData.propTypeLabel || '',
       currentLoanAmt: formData.currentLoanAmt || '',
-      // Deploy 196: Dutch / Non-Dutch interest structure. Stored as
-      // 'dutch' or 'non_dutch'; empty string falls back to 'non_dutch'
-      // on Loan Details (the default for legacy loans saved before this
-      // field existed).
-      dutchInterest: formData.dutchInterest || '',
+      // Deploy 196/197: Dutch / Non-Dutch interest structure. Stored as
+      // 'dutch' or 'non_dutch'. Defaults to 'dutch' if nothing is set
+      // (Deploy 197 made Dutch the system default since it matches the
+      // industry-standard private-lending structure).
+      dutchInterest: formData.dutchInterest || 'dutch',
       // Item #2 (loan-app prefill): the computed max loan from the sizer
       maxLoan:       formData._maxLoan       || '',
       // Application fields (editable on Loan Details page)
@@ -584,9 +584,13 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="field">
         <div class="wrap">
           <label>Interest Structure <span class="req">*</span></label>
+          <!-- Deploy 197: default flipped to Dutch (most common in
+               private lending — interest accrues on the full loan from
+               day one). LO can toggle to Non-Dutch when the deal
+               structure actually escrows the rehab budget. -->
           <select id="dutchInterest" onchange="autoCalc()">
-            <option value="non_dutch" selected>Non-Dutch (interest on drawn funds only)</option>
-            <option value="dutch">Dutch (interest on full loan amount from day one)</option>
+            <option value="dutch" selected>Dutch (interest on full loan amount from day one)</option>
+            <option value="non_dutch">Non-Dutch (interest on drawn funds only)</option>
           </select>
         </div>
       </div>
@@ -1956,28 +1960,48 @@ function calculate(){
     html += '</div>';
   }
 
-  // Monthly Interest (Deploy 196: Dutch / Non-Dutch dual display).
-  // Dutch    → single flat payment, labeled as such.
-  // Non-Dutch → "starting → max" range; collapses to a single value when
-  //             there's no rehab budget (bridge / transactional / refi)
-  //             since starting and max are equal in that case.
+  // Deploy 197: split the single Monthly Interest card into two side-
+  // by-side cards. Starting Payment always renders; Max Payment is
+  // hidden under Dutch (where start === max, so the second card would
+  // duplicate the first). The metrics grid uses CSS grid so the two
+  // cards land next to each other automatically.
+  //
+  // Starting Payment card —
+  //   Dutch    → moMax (interest on full loan from day one).
+  //   Non-Dutch with rehab → moStart (interest on initial advance).
+  //   Non-Dutch no rehab    → moMax (no holdback means start == max).
   html += '<div class="metric-card">';
-  html += '<div class="metric-label">Monthly Interest (I/O)</div>';
+  html += '<div class="metric-label">Starting Payment</div>';
   if (!moMax) {
     html += '<div class="metric-value"><span class="na">N/A</span></div>';
-  } else if (isDutch) {
-    html += '<div class="metric-value">'+fmt(moMax)+'/mo</div>';
-    html += '<div class="metric-sub">Dutch — flat for life of loan</div>';
-  } else if (moStart !== null && Math.round(moStart) !== Math.round(moMax)) {
-    // Non-Dutch with a real rehab holdback — show the range.
-    html += '<div class="metric-value">'+fmt(moStart)+' → '+fmt(moMax)+'</div>';
-    html += '<div class="metric-sub">Non-Dutch — starts at interest on initial advance ('+fmt(initAdv)+'), grows to max as rehab draws</div>';
   } else {
-    // Non-Dutch with no rehab holdback — starting equals max.
-    html += '<div class="metric-value">'+fmt(moMax)+'/mo</div>';
-    html += '<div class="metric-sub">Non-Dutch — no rehab holdback, flat payment</div>';
+    var _moStartDisp = (moStart !== null && moStart !== undefined) ? moStart : moMax;
+    html += '<div class="metric-value">'+fmt(_moStartDisp)+'/mo</div>';
+    if (isDutch) {
+      html += '<div class="metric-sub">Dutch — flat for life of loan</div>';
+    } else if (initAdv !== null && initAdv !== undefined && Math.round(initAdv) !== Math.round(bMax || 0)) {
+      html += '<div class="metric-sub">Interest on initial advance ('+fmt(initAdv)+')</div>';
+    } else {
+      html += '<div class="metric-sub">No rehab holdback</div>';
+    }
   }
   html += '</div>';
+
+  // Max Payment card — only rendered for Non-Dutch loans. Under Dutch,
+  // start == max so the second card is redundant; under Non-Dutch it
+  // shows the worst-case payment the borrower will see (when rehab is
+  // fully drawn).
+  if (!isDutch) {
+    html += '<div class="metric-card">';
+    html += '<div class="metric-label">Max Payment</div>';
+    if (!moMax) {
+      html += '<div class="metric-value"><span class="na">N/A</span></div>';
+    } else {
+      html += '<div class="metric-value">'+fmt(moMax)+'/mo</div>';
+      html += '<div class="metric-sub">Reached when rehab budget is fully drawn</div>';
+    }
+    html += '</div>';
+  }
 
   // LTP/LTV (on refis, this card shows "LTV" against as-is value; on
   // purchases, it's the legacy LTP/LTV against purchase price)
@@ -2848,6 +2872,15 @@ function loadRTLQuote(formData) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
   });
+  // Deploy 197: defensive — legacy quotes saved before Deploy 196 don't
+  // have a dutchInterest field at all (skipped by the forEach above so
+  // the HTML default stays). Post-Deploy-196 quotes always have a value
+  // and override the default. The edge case is a quote that saved an
+  // empty string (shouldn't happen after Deploy 197's buildLoanFromSizer
+  // default, but defensive): snap back to 'dutch' so the select isn't
+  // left in selectedIndex=-1 limbo.
+  var _dutchEl = document.getElementById('dutchInterest');
+  if (_dutchEl && !_dutchEl.value) _dutchEl.value = 'dutch';
   // If the loaded quote has a broker fee, open the Advanced section so the
   // LO can see what's there, and reveal the broker contact fields.
   if (parseFloat(formData.brokerFee || 0) > 0) {
