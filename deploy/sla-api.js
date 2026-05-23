@@ -842,6 +842,34 @@
         return r;
       });
     },
+    /**
+     * Deploy 196: decline a loan. SLA's call that we won't lend on it
+     * — distinct from `cancel` (borrower/deal-driven drop-off) and
+     * from `closed` (loan funded). Audit fields written on the loan
+     * record: _declinedAt, _declinedBy, _declinedFrom, _declineReason.
+     */
+    decline: function (clientId, loanId, reason, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId };
+      if (reason)        body.reason = reason;
+      if (ownerOverride) body.owner  = ownerOverride;
+      return api('POST', '/api/loan-decline', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
+    /**
+     * Restore a declined loan back to the status it had before the
+     * decline (stored as _declinedFrom on the loan record). Mirrors
+     * the cancel / uncancel pair.
+     */
+    undecline: function (clientId, loanId, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId, restore: true };
+      if (ownerOverride) body.owner = ownerOverride;
+      return api('POST', '/api/loan-decline', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
   };
 
   // ── Public namespace ────────────────────────────────────────────

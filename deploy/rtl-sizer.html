@@ -67,6 +67,11 @@ window.ClientBook = {
       ficoLabel:     formData.ficoLabel     || '',
       propTypeLabel: formData.propTypeLabel || '',
       currentLoanAmt: formData.currentLoanAmt || '',
+      // Deploy 196: Dutch / Non-Dutch interest structure. Stored as
+      // 'dutch' or 'non_dutch'; empty string falls back to 'non_dutch'
+      // on Loan Details (the default for legacy loans saved before this
+      // field existed).
+      dutchInterest: formData.dutchInterest || '',
       // Item #2 (loan-app prefill): the computed max loan from the sizer
       maxLoan:       formData._maxLoan       || '',
       // Application fields (editable on Loan Details page)
@@ -559,6 +564,29 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
             <option value="12">12 months</option>
             <option value="13">13 – 18 months</option>
             <option value="19">19 – 24 months</option>
+          </select>
+        </div>
+      </div>
+      <!-- Deploy 196: Dutch vs Non-Dutch interest structure.
+           Dutch     = interest accrues on the full loan amount from day
+                       one, including the undrawn rehab budget held in
+                       escrow. Payment is constant for the life of the loan.
+           Non-Dutch = interest accrues only on funds drawn. The borrower's
+                       payment starts at interest on the initial advance
+                       (loan amt minus rehab holdback) and grows as draws
+                       come out of escrow, peaking at interest on the full
+                       loan amount when rehab is fully drawn.
+           Display-only — no rate or points change either way. For non-
+           rehab loan types (Bridge / Transactional / Refi) the rehab
+           budget is zero so starting and maximum payments are identical
+           regardless of selection; we leave the field visible anyway for
+           consistency. -->
+      <div class="field">
+        <div class="wrap">
+          <label>Interest Structure <span class="req">*</span></label>
+          <select id="dutchInterest" onchange="autoCalc()">
+            <option value="non_dutch" selected>Non-Dutch (interest on drawn funds only)</option>
+            <option value="dutch">Dutch (interest on full loan amount from day one)</option>
           </select>
         </div>
       </div>
@@ -1808,7 +1836,27 @@ function calculate(){
 
   var p=pts(fr);
   var pDol=bMax?bMax*p/100:null;
-  var mo=rate&&bMax?(bMax*rate/12):null;
+  // Deploy 196: Dutch vs Non-Dutch monthly payment math.
+  //   Maximum monthly = interest on the full loan amount (max draw scenario).
+  //   Starting monthly = interest on the initial advance:
+  //     - Rehab purchases (light/heavy/construction): initial = bMax − rb.
+  //       The rehab budget sits in escrow; the borrower only pays interest
+  //       on what's actually been disbursed.
+  //     - Bridge / Transactional / Refi: no escrow → initial = bMax.
+  //   Dutch structure pays max from day one, so starting = max regardless.
+  //   We always compute both so the rate-sheet PDF can show both rows.
+  var dutchEl  = document.getElementById('dutchInterest');
+  var isDutch  = !!(dutchEl && dutchEl.value === 'dutch');
+  var initAdv  = (isR && rb > 0 && bMax) ? Math.max(0, bMax - rb) : bMax;
+  var moMax    = rate && bMax  ? (bMax   * rate / 12) : null;
+  var moStart  = rate && initAdv != null
+    ? (isDutch ? moMax : (initAdv * rate / 12))
+    : null;
+  // Legacy single-value `mo` kept for any downstream readers (rate-sheet
+  // PDF DOM scrape, override flows). Equals max payment, which is the
+  // worst-case the borrower will see — same value the old single-line
+  // display showed.
+  var mo = moMax;
   var addrFull=street+', '+city+', '+state+' '+zip;
 
   // Stash the canonical calc outputs on window so renderCashoutSummary
@@ -1821,6 +1869,13 @@ function calculate(){
     points: p,
     rate: rate,
     purpose: purp,
+    // Deploy 196: surface Dutch state + dual payments on the canonical
+    // calc object so the save flow + loan-details can read them
+    // without re-running calculate().
+    isDutch: isDutch,
+    initAdv: initAdv,
+    monthlyStart: moStart,
+    monthlyMax: moMax,
   };
 
   // Refresh the right-side fees card now that the canonical loan amount
@@ -1901,10 +1956,27 @@ function calculate(){
     html += '</div>';
   }
 
-  // Monthly
+  // Monthly Interest (Deploy 196: Dutch / Non-Dutch dual display).
+  // Dutch    → single flat payment, labeled as such.
+  // Non-Dutch → "starting → max" range; collapses to a single value when
+  //             there's no rehab budget (bridge / transactional / refi)
+  //             since starting and max are equal in that case.
   html += '<div class="metric-card">';
   html += '<div class="metric-label">Monthly Interest (I/O)</div>';
-  html += '<div class="metric-value">'+(mo?fmt(mo)+'/mo':'<span class=\'na\'>N/A</span>')+'</div>';
+  if (!moMax) {
+    html += '<div class="metric-value"><span class="na">N/A</span></div>';
+  } else if (isDutch) {
+    html += '<div class="metric-value">'+fmt(moMax)+'/mo</div>';
+    html += '<div class="metric-sub">Dutch — flat for life of loan</div>';
+  } else if (moStart !== null && Math.round(moStart) !== Math.round(moMax)) {
+    // Non-Dutch with a real rehab holdback — show the range.
+    html += '<div class="metric-value">'+fmt(moStart)+' → '+fmt(moMax)+'</div>';
+    html += '<div class="metric-sub">Non-Dutch — starts at interest on initial advance ('+fmt(initAdv)+'), grows to max as rehab draws</div>';
+  } else {
+    // Non-Dutch with no rehab holdback — starting equals max.
+    html += '<div class="metric-value">'+fmt(moMax)+'/mo</div>';
+    html += '<div class="metric-sub">Non-Dutch — no rehab holdback, flat payment</div>';
+  }
   html += '</div>';
 
   // LTP/LTV (on refis, this card shows "LTV" against as-is value; on
@@ -2451,7 +2523,11 @@ function saveCurrentQuote() {
     // (1 = 1%); when 0/empty the loan isn't a broker loan and the
     // contact fields stay empty. brokerName is required upstream when
     // brokerFee > 0; the other contact fields are always optional.
-    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone'];
+    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
+    // Deploy 196: Dutch / Non-Dutch interest structure selector. Persisted
+    // so Loan Details and the rate-sheet PDF can show the matching
+    // starting / maximum monthly payment math.
+    'dutchInterest'];
   var formData = {};
   fields.forEach(function(id) {
     var el = document.getElementById(id);
@@ -2570,6 +2646,13 @@ function saveCurrentQuote() {
     experience: formData.experience || '',
     currentLoanAmt: parseFloat(formData.currentLoanAmt || 0) || 0,
     computedAt: new Date().toISOString(),
+    // Deploy 196: Dutch / Non-Dutch + dual monthly payments captured at
+    // save time. Loan Details reads these directly so it doesn't have to
+    // re-run the leverage / payment math on render.
+    dutchInterest: formData.dutchInterest || 'non_dutch',
+    monthlyStart: (window._rtlLastCalc && typeof window._rtlLastCalc.monthlyStart === 'number') ? window._rtlLastCalc.monthlyStart : null,
+    monthlyMax:   (window._rtlLastCalc && typeof window._rtlLastCalc.monthlyMax   === 'number') ? window._rtlLastCalc.monthlyMax   : null,
+    initialAdvance: (window._rtlLastCalc && typeof window._rtlLastCalc.initAdv   === 'number') ? window._rtlLastCalc.initAdv     : null,
   };
   // Deploy 193: declare rateEl before use. Prior versions referenced
   // rateEl on the next line without ever declaring it in this scope,
@@ -2756,7 +2839,11 @@ function loadRTLQuote(formData) {
     'experience','propType','loanTerm','loanPurpose','zhvi',
     'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
     // Broker fields — populated when reopening a quote saved as a broker loan
-    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone'];
+    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
+    // Deploy 196: restore Dutch / Non-Dutch selection from saved quote.
+    // Legacy loans (saved pre-Deploy 196) won't have this field; the
+    // <select> default (non_dutch) handles that case.
+    'dutchInterest'];
   fields.forEach(function(id) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
@@ -3595,6 +3682,18 @@ function _generateRTLRateSheetPDF(opts) {
   var bMaxNum=parseFloat((bMaxDisp||'').replace(/[$,]/g,''))||0;
   var origFee=bMaxNum*p/100;
 
+  // Deploy 196: pull Dutch/Non-Dutch state + dual monthly payments from
+  // the canonical calc snapshot. Falls back to the legacy moDisp scrape
+  // for the very-old code path where _rtlLastCalc isn't populated (e.g.
+  // a stale page that never re-ran calculate() — shouldn't happen since
+  // _generateRTLRateSheetPDF gates on results being present, but defensive).
+  var _calcSnap   = window._rtlLastCalc || {};
+  var pdfIsDutch  = !!_calcSnap.isDutch;
+  var pdfMoStart  = (typeof _calcSnap.monthlyStart === 'number' && isFinite(_calcSnap.monthlyStart)) ? _calcSnap.monthlyStart : null;
+  var pdfMoMax    = (typeof _calcSnap.monthlyMax   === 'number' && isFinite(_calcSnap.monthlyMax))   ? _calcSnap.monthlyMax   : null;
+  var pdfInitAdv  = (typeof _calcSnap.initAdv      === 'number' && isFinite(_calcSnap.initAdv))      ? _calcSnap.initAdv      : null;
+  var pdfHasDraw  = pdfMoStart !== null && pdfMoMax !== null && Math.round(pdfMoStart) !== Math.round(pdfMoMax);
+
   var LABELS={bridge:'Bridge',light:'Light Rehab',heavy:'Heavy Rehab' };
   var progLabel=(LABELS[lt]||lt);
   var expLabel=exp>=8?'Tier 1 (8+ projects)':exp>=4?'Tier 2 (4–7 projects)':'Tier 3 (0–3 projects)';
@@ -3705,6 +3804,10 @@ function _generateRTLRateSheetPDF(opts) {
     ['Investor Experience', expLabel],
     ['Origination Points',  ptsLabel],
     ['Interest Only',       'Yes'],
+    // Deploy 196: surface Dutch / Non-Dutch on the rate sheet so the
+    // borrower can see how interest accrues. Dutch = flat from day one;
+    // Non-Dutch = grows as rehab draws.
+    ['Interest Structure',  pdfIsDutch ? 'Dutch (flat \u2014 full loan)' : 'Non-Dutch (drawn funds only)'],
   ];
 
   var half=Math.ceil(details.length/2);
@@ -3743,12 +3846,28 @@ function _generateRTLRateSheetPDF(opts) {
 
   // Loan sizing results
   checkPage(160);
+  // Deploy 196: split the single Monthly Interest row into Starting +
+  // Maximum payment when the loan has a real rehab holdback under a
+  // Non-Dutch structure. Dutch or no-rehab loans collapse back to a
+  // single payment row (start === max).
   var sizeData=[
     ['Maximum Loan Amount', bMaxDisp,  TEXT],
     ['Required Down Payment',dpDisp,   SUCCESS],
-    ['Monthly Interest (I/O)',moDisp,  TEXT],
-    ['Origination Points Cost', fmtD(origFee), TEXT],
   ];
+  if (!pdfIsDutch && pdfHasDraw) {
+    // Non-Dutch with rehab holdback — show the dynamic. "Starting" is
+    // interest on the initial advance (loan minus rehab escrow);
+    // "Maximum" is interest on the full loan once rehab is fully drawn.
+    var initLbl = pdfInitAdv !== null ? ' (on '+fmtD(pdfInitAdv)+' initial advance)' : '';
+    sizeData.push(['Starting Monthly Payment'+initLbl, fmtD(pdfMoStart)+'/mo', TEXT]);
+    sizeData.push(['Maximum Monthly Payment (rehab fully drawn)', fmtD(pdfMoMax)+'/mo', TEXT]);
+  } else {
+    // Dutch, bridge, transactional, or refi — flat payment.
+    var moLine = pdfMoMax !== null ? (fmtD(pdfMoMax)+'/mo') : moDisp;
+    var moLbl  = pdfIsDutch ? 'Monthly Payment (Dutch — flat)' : 'Monthly Interest (I/O)';
+    sizeData.push([moLbl, moLine, TEXT]);
+  }
+  sizeData.push(['Origination Points Cost', fmtD(origFee), TEXT]);
   var sizeBlockH=22+sizeData.length*ROW_H+10;
   doc.setFillColor(255,255,255);
   doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);

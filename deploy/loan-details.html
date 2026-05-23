@@ -452,6 +452,30 @@
   </div>
 </div>
 
+<!-- Deploy 196: Decline Loan modal. Parallel to Cancel but for the SLA-
+     driven "we won't lend on this" decision. Same styling and reason
+     capture; backend writes _declinedAt / _declinedBy / _declinedFrom
+     for the audit trail. -->
+<div class="bi-modal-bg" id="declineLoanModal">
+  <div class="bi-modal" style="max-width:520px">
+    <h3>Decline Loan</h3>
+    <p class="bi-sub" id="declineLoanSub">This loan will be moved to <strong>Declined</strong> status. Use this when SLA has decided not to lend on the deal.</p>
+
+    <div style="margin-top:14px">
+      <label class="bi-section-label">Reason (optional)</label>
+      <textarea id="declineReason" placeholder="e.g., FICO below threshold, asset doesn&rsquo;t qualify, concentration limit&hellip;" style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px;resize:vertical"></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Recorded on the loan record for future reference.</div>
+    </div>
+
+    <div class="bi-status" id="declineLoanStatus"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeDeclineLoanModal()">Keep loan</button>
+      <button class="bi-btn primary" id="declineLoanBtn" onclick="confirmDeclineLoan()" style="background:#7C1F1F;border-color:#7C1F1F">Decline loan</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -781,6 +805,56 @@ function render() {
     var _hasPointsOv = (l._pointsOverride && String(l._pointsOverride) !== '');
     var _hasDpOv     = (l._dpOverride     && String(l._dpOverride)     !== '');
     var _ovTag = '<span class="override-tag" title="Manual override — applied by ' + escAttr(l._pricingOverrideBy || 'LO') + '">Overridden</span>';
+    // Deploy 196: derive actual-loan-amount metrics (monthly payment +
+    // LTP/LTV/LTC/LTARV). All ratios are computed from the loanAmt that
+    // will actually fund the loan — which may be an LO override below
+    // the sizer's max — NOT the leverage caps that the sizer used to
+    // size the loan. Hidden when the underlying inputs are missing or
+    // the loan hasn't been priced yet.
+    var _rtlLoanAmtNum  = parseFloat(loanAmt)      || 0;
+    var _rtlRateDec     = parseFloat(rate)/100;
+    if (!isFinite(_rtlRateDec) || _rtlRateDec <= 0) _rtlRateDec = 0;
+    var _rtlPurchaseNum = parseFloat(purchasePrice) || 0;
+    var _rtlRehabNum    = parseFloat(rehabBudget)   || 0;
+    var _rtlArvNum      = parseFloat(arv)           || 0;
+    // Dutch / Non-Dutch from loan record (saved by sizer Deploy 196).
+    // Legacy loans saved before this field existed default to non_dutch
+    // — the more borrower-friendly view that matches what the sizer
+    // payment math used to show (full loan amount, single value).
+    var _rtlIsDutch     = (l.dutchInterest || (fd && fd.dutchInterest) || 'non_dutch') === 'dutch';
+    // Rehab holdback proxy: any non-zero rehab budget means the loan
+    // has an escrow component, so Non-Dutch will show a real start→max
+    // dynamic. Bridge / refi / transactional all land here with rehab=0.
+    var _rtlHasRehab    = _rtlRehabNum > 0;
+    var _rtlMoMax       = (_rtlLoanAmtNum > 0 && _rtlRateDec > 0) ? (_rtlLoanAmtNum * _rtlRateDec / 12) : 0;
+    var _rtlInitAdv     = _rtlHasRehab ? Math.max(0, _rtlLoanAmtNum - _rtlRehabNum) : _rtlLoanAmtNum;
+    var _rtlMoStart     = (_rtlIsDutch || !_rtlHasRehab) ? _rtlMoMax
+                          : ((_rtlInitAdv > 0 && _rtlRateDec > 0) ? (_rtlInitAdv * _rtlRateDec / 12) : 0);
+    // Ratio denominators: on refis, "Purchase Price" is reused as the
+    // as-is property value, so LTP becomes LTV; LTC/LTARV don't apply on
+    // refis (no rehab/ARV path) — same convention as the sizer.
+    var _rtlIsRefi      = (loanPurpose === 'cashout' || loanPurpose === 'rateterm');
+    var _rtlLtpPct      = (_rtlPurchaseNum > 0) ? (_rtlLoanAmtNum / _rtlPurchaseNum * 100) : null;
+    var _rtlLtcPct      = (!_rtlIsRefi && (_rtlPurchaseNum + _rtlRehabNum) > 0)
+                            ? (_rtlLoanAmtNum / (_rtlPurchaseNum + _rtlRehabNum) * 100) : null;
+    var _rtlLtarvPct    = (!_rtlIsRefi && _rtlArvNum > 0)
+                            ? (_rtlLoanAmtNum / _rtlArvNum * 100) : null;
+    var _rtlLtpLbl      = _rtlIsRefi ? 'LTV' : 'LTP/LTV';
+    function _rtlFmtMo(n) { return fmtM(n).replace(/\.00$/, '') + '/mo'; }
+    function _rtlFmtPct(n){ return n != null ? n.toFixed(1) + '%' : '—'; }
+    var _rtlMoCellHtml;
+    if (_rtlMoMax <= 0) {
+      _rtlMoCellHtml = '<div class="fin-val"><span class="empty">Not yet priced</span></div>';
+    } else if (_rtlIsDutch) {
+      _rtlMoCellHtml = '<div class="fin-val">'+_rtlFmtMo(_rtlMoMax)+'</div>' +
+                       '<div class="fin-sub" style="font-size:11px;color:var(--muted);margin-top:2px">Dutch — flat</div>';
+    } else if (Math.round(_rtlMoStart) !== Math.round(_rtlMoMax)) {
+      _rtlMoCellHtml = '<div class="fin-val">'+_rtlFmtMo(_rtlMoStart)+' → '+_rtlFmtMo(_rtlMoMax)+'</div>' +
+                       '<div class="fin-sub" style="font-size:11px;color:var(--muted);margin-top:2px">Non-Dutch — grows as rehab draws</div>';
+    } else {
+      _rtlMoCellHtml = '<div class="fin-val">'+_rtlFmtMo(_rtlMoMax)+'</div>';
+    }
+
     html += '<div class="fin-grid">' +
       '<div class="fin-cell"><div class="fin-label">Rate' + (_hasRateOv ? ' ' + _ovTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points' + (_hasPointsOv ? ' ' + _ovTag : '') + '</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
@@ -793,6 +867,20 @@ function render() {
       (experienceDisplay ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experienceDisplay)+'</div></div>' : '') +
       (downPayment
         ? '<div class="fin-cell"><div class="fin-label">Down Payment'+(_hasDpOv ? ' ' + _ovTag : '')+'</div><div class="fin-val">'+fmtM(downPayment)+'</div></div>'
+        : '') +
+      // Deploy 196: Monthly Payment + LTP/LTV/LTC/LTARV against the
+      // ACTUAL loan amount (not the sizer's max). Each ratio cell only
+      // renders when its denominator is present, so legacy DSCR-style
+      // RTL records with sparse data don't show "—%" placeholders.
+      '<div class="fin-cell"><div class="fin-label">Monthly Payment</div>'+_rtlMoCellHtml+'</div>' +
+      (_rtlLtpPct != null
+        ? '<div class="fin-cell"><div class="fin-label">'+_rtlLtpLbl+'</div><div class="fin-val">'+_rtlFmtPct(_rtlLtpPct)+'</div></div>'
+        : '') +
+      (_rtlLtcPct != null
+        ? '<div class="fin-cell"><div class="fin-label">LTC</div><div class="fin-val">'+_rtlFmtPct(_rtlLtcPct)+'</div></div>'
+        : '') +
+      (_rtlLtarvPct != null
+        ? '<div class="fin-cell"><div class="fin-label">LTARV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtarvPct)+'</div></div>'
         : '') +
       // Broker Fee — shown only when non-zero, in pts (same unit as Points)
       (parseFloat(l.brokerFee || 0) > 0
@@ -868,29 +956,44 @@ function render() {
     html += '<div style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center;font-style:italic">Use when the borrower has completed the application but the loan didn\'t auto-advance.</div>';
   }
 
-  // E-signature send — only available once the loan is in In Processing
-  // (status === 'approved'). Before then there's nothing meaningful to sign;
-  // after then (closed/denied) it's locked. Also gated by the ESIGN_FEATURE
-  // flag at the top of this file (default 'on' as of Deploy 185 / native
-  // eSign).
-  if (loanStatus === 'approved' && eSignVisible()) {
+  // E-signature send — available from "Quoted" (active) onward so LOs can
+  // get the rate sheet in front of the borrower early in the process.
+  // Deploy 196: widened from approved-only to {active, submitted, awaiting_app,
+  // approved}. Locked at terminal statuses (closed / denied / cancelled /
+  // on_hold) since there's nothing actionable to sign. Also gated by the
+  // ESIGN_FEATURE flag at the top of this file (default 'on' as of
+  // Deploy 185 / native eSign).
+  var _esignActiveStatuses = ['active', 'submitted', 'awaiting_app', 'approved'];
+  if (_esignActiveStatuses.indexOf(loanStatus) >= 0 && eSignVisible()) {
+    // Label shifts a bit when the loan is still at Quoted to telegraph
+    // that this is the early-stage "share rate sheet" use of the flow,
+    // not the late-stage closing-doc send.
+    var _esignLabel = (loanStatus === 'active') ? 'Send Rate Sheet for Signature' : 'Send for Signature';
     html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()" style="margin-top:8px">' +
       '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
-      'Send for Signature' +
+      _esignLabel +
     '</button>';
   }
 
-  // Deploy 195: Cancel Loan button. For loans that were approved but
-  // didn\u2019t end up closing \u2014 borrower backed out, deal fell through,
-  // financing collapsed. Only visible in awaiting_app or approved \u2014
-  // a Quoted loan hasn\u2019t advanced far enough to need cancellation,
-  // and Submitted loans should go through underwriting decisioning.
-  // Styled subtly (text-only with danger color) so it doesn\u2019t compete
-  // with the primary actions; this is an end-of-life action.
-  if (loanStatus === 'awaiting_app' || loanStatus === 'approved') {
+  // Deploy 195 / widened in Deploy 196: Cancel Loan + Decline Loan.
+  //   Cancel = the deal didn't close (borrower backed out, financing
+  //            fell through). Borrower-/deal-driven drop-off.
+  //   Decline = SLA's call that we won't lend. Our decision.
+  // Both are end-of-life actions and both are now available across all
+  // non-terminal statuses (Quoted / Submitted / Awaiting App / In
+  // Processing). Both styled subtly so they don't compete with primary
+  // actions. Decline shares the same danger styling as Cancel \u2014 pick
+  // the one that matches what actually happened.
+  var _terminalForEnd = ['cancelled', 'denied', 'closed'];
+  var _canEndLoan = _terminalForEnd.indexOf(loanStatus) < 0;
+  if (_canEndLoan) {
     html += '<button type="button" class="cancel-loan-btn" onclick="openCancelLoanModal()" style="margin-top:14px">' +
       '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M5 5l4 4M9 5l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
       'Cancel Loan' +
+    '</button>';
+    html += '<button type="button" class="cancel-loan-btn" onclick="openDeclineLoanModal()" style="margin-top:8px">' +
+      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+      'Decline Loan' +
     '</button>';
   }
 
@@ -1304,16 +1407,25 @@ function moveToInProcessing() {
 // (only awaiting_app or approved can be cancelled). Restore reverts
 // to whichever status the loan had right before cancel \u2014 stored on
 // the loan record as _cancelledFrom.
+// Deploy 196: status → human label map shared by Cancel + Decline modal subs.
+var _STATUS_LABEL_FOR_END = {
+  active:        'Quoted',
+  submitted:     'Submitted',
+  awaiting_app:  'Awaiting Application',
+  approved:      'In Processing',
+};
 function openCancelLoanModal() {
   if (!_loan) return;
-  var allowed = ['awaiting_app', 'approved'];
+  // Deploy 196: widened to all non-terminal statuses. Mirrors the
+  // CANCEL_FROM list in loan-cancel.mjs — keep them in sync.
+  var allowed = ['active', 'submitted', 'awaiting_app', 'approved'];
   if (allowed.indexOf(_loan.status) < 0) {
-    showToast('Only loans in Awaiting Application or In Processing can be cancelled.');
+    showToast('This loan is already terminal (closed, denied, or cancelled) and cannot be cancelled again.');
     return;
   }
   var sub = document.getElementById('cancelLoanSub');
   if (sub) {
-    var fromLabel = _loan.status === 'awaiting_app' ? 'Awaiting Application' : 'In Processing';
+    var fromLabel = _STATUS_LABEL_FOR_END[_loan.status] || _loan.status;
     sub.innerHTML = 'This loan will be moved from <strong>' + fromLabel + '</strong> to <strong>Cancelled</strong>. ' +
       'It will no longer appear on the Pipeline or in the default Loans view, but stays accessible from the Cancelled view if it needs to be restored later.';
   }
@@ -1323,6 +1435,66 @@ function openCancelLoanModal() {
   document.getElementById('cancelLoanBtn').disabled = false;
   document.getElementById('cancelLoanBtn').textContent = 'Cancel loan';
   document.getElementById('cancelLoanModal').classList.add('show');
+}
+
+// ── Decline Loan ───────────────────────────────────────────────────
+// Deploy 196: distinct from Cancel — Decline is OUR decision to not
+// fund the loan, where Cancel is the borrower's / deal's drop-off.
+// Backend at /api/loan-decline mirrors the loan-cancel flow.
+function openDeclineLoanModal() {
+  if (!_loan) return;
+  var allowed = ['active', 'submitted', 'awaiting_app', 'approved'];
+  if (allowed.indexOf(_loan.status) < 0) {
+    showToast('This loan is already terminal (closed, denied, or cancelled) and cannot be declined.');
+    return;
+  }
+  var sub = document.getElementById('declineLoanSub');
+  if (sub) {
+    var fromLabel = _STATUS_LABEL_FOR_END[_loan.status] || _loan.status;
+    sub.innerHTML = 'This loan will be moved from <strong>' + fromLabel + '</strong> to <strong>Declined</strong>. ' +
+      'Use this when SLA has decided not to lend on the deal. The loan will leave the Pipeline and move to the Declined tab on Decisions, where an admin can restore it if needed.';
+  }
+  document.getElementById('declineReason').value = '';
+  document.getElementById('declineLoanStatus').textContent = '';
+  document.getElementById('declineLoanStatus').className = 'bi-status';
+  document.getElementById('declineLoanBtn').disabled = false;
+  document.getElementById('declineLoanBtn').textContent = 'Decline loan';
+  document.getElementById('declineLoanModal').classList.add('show');
+}
+function closeDeclineLoanModal() {
+  document.getElementById('declineLoanModal').classList.remove('show');
+}
+function confirmDeclineLoan() {
+  if (!_loan || !_client) return;
+  var reason = (document.getElementById('declineReason').value || '').trim();
+  var statusEl = document.getElementById('declineLoanStatus');
+  var btn = document.getElementById('declineLoanBtn');
+  btn.disabled = true;
+  btn.textContent = 'Declining…';
+  statusEl.className = 'bi-status';
+  statusEl.textContent = '';
+
+  var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Loans.decline(_client.id, _loanId, reason, ownerOvr).then(function(resp) {
+    statusEl.className = 'bi-status ok';
+    statusEl.textContent = '✓ Loan declined' + (resp.warning ? ' — ' + resp.warning : '');
+    if (resp.loan) {
+      _loan = resp.loan;
+      var loans = _client.loans || [];
+      var idx = loans.findIndex(function(x) { return x.id === _loanId; });
+      if (idx >= 0) loans[idx] = resp.loan;
+    } else {
+      _loan.status = 'denied';
+    }
+    setTimeout(function() {
+      closeDeclineLoanModal();
+      render();
+    }, 700);
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Decline loan';
+    statusEl.className = 'bi-status err';
+    statusEl.textContent = 'Failed: ' + ((err && err.message) || 'unknown error');
+  });
 }
 
 function closeCancelLoanModal() {

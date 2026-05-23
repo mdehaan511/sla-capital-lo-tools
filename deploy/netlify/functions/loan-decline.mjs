@@ -1,20 +1,25 @@
 /**
- * loan-cancel.mjs — POST /api/loan-cancel
+ * loan-decline.mjs — POST /api/loan-decline
  *
- * Deploy 195: cancel a loan that\u2019s in awaiting_app or approved status.
- * For loans that were approved but ended up not closing \u2014 borrower
- * backed out, financing fell through, deal dried up. The cancellation
- * is a terminal state separate from `closed` (closed = funded with us)
- * and from `denied` (we declined to lend).
+ * Deploy 196: SLA declines to lend on a loan. Distinct from `cancelled`
+ * (deal fell through / borrower backed out) and from `closed` (loan
+ * funded). Decline is OUR decision; cancel is the borrower's or the
+ * deal's. Both are terminal — but they tell different stories and live
+ * on different review pages (decisions.html vs cancelled.html).
  *
- * Eligibility: only loans currently in `awaiting_app` or `approved` can
- * be cancelled. A loan in `active` (Quoted) hasn\u2019t reached the
- * cancellation-worthy stage yet, and `submitted` loans should move
- * through underwriting decisioning before they can be cancelled.
- * Closed loans don\u2019t get cancelled \u2014 they\u2019re already done.
+ * Modeled directly on loan-cancel.mjs (Deploy 195). Same shape: owner
+ * resolution, strong-consistency client store read-modify-write, quote
+ * sync for downstream pipeline reads.
  *
- * Un-cancel: pass `restore: true` to revert a cancelled loan back to
- * `approved`. Useful when the LO mis-clicked or the deal restarts.
+ * Eligibility: any active (Quoted) / submitted / awaiting_app / approved
+ * loan can be declined. Terminal statuses (closed / cancelled / denied)
+ * can't be declined again. The LO can decline their own loans without
+ * admin approval — same self-service pattern as quotes-decide for
+ * declining a single quote (see auth note there).
+ *
+ * Un-decline (restore): pass `restore: true` to revert a denied loan
+ * back to whatever status it had right before the decline. Useful when
+ * an LO clicks Decline by mistake.
  *
  * Body: { clientId, loanId, reason?, restore?, owner? }
  *
@@ -26,19 +31,17 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 
-// Deploy 196: widened from {awaiting_app, approved} to all non-terminal
-// statuses. LOs reported needing to drop dead Quoted leads without
-// going through Decline (which implies SLA-driven denial; Cancel is
-// for borrower-/deal-driven drop-off). Terminal statuses (closed,
-// denied, cancelled) remain ineligible.
-const CANCEL_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
-const RESTORE_TO  = 'approved';
+const DECLINE_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
+// Fallback when _declinedFrom was never written (e.g. a hand-edited
+// record). Approved is the safest restore target since it's the latest
+// stage a normal decline flow would have come from.
+const RESTORE_TO   = 'approved';
 
 export default async (req, context) => {
   try {
     return await handle(req, context);
   } catch (e) {
-    console.error('loan-cancel top-level error:', e);
+    console.error('loan-decline top-level error:', e);
     return json(500, { error: 'Server error: ' + ((e && e.message) || 'unknown') });
   }
 };
@@ -87,37 +90,32 @@ async function handle(req, context) {
   const prevStatus = targetLoan.status || '';
   const now = new Date().toISOString();
 
-  // Apply the transition
   if (isRestore) {
-    // Restore path \u2014 only valid from cancelled
-    if (prevStatus !== 'cancelled') {
-      return json(400, { error: 'Loan is not cancelled. Current status: ' + prevStatus });
+    // Restore path — only valid from denied
+    if (prevStatus !== 'denied') {
+      return json(400, { error: 'Loan is not declined. Current status: ' + prevStatus });
     }
-    // Restore to where the loan was BEFORE it was cancelled, if we
-    // stored that. Otherwise fall back to `approved` (the most common
-    // pre-cancel state).
-    const restoreTo = targetLoan._cancelledFrom || RESTORE_TO;
+    const restoreTo = targetLoan._declinedFrom || RESTORE_TO;
     targetLoan.status = restoreTo;
     targetLoan.updatedAt = now;
     targetLoan._restoredAt = now;
     targetLoan._restoredBy = selfEmail;
-    // Keep the cancellation history (don\u2019t wipe _cancelledAt etc.)
-    // so audit trail is preserved \u2014 just clear the active marker.
-    delete targetLoan._cancelledFrom; // no longer needed
+    // Audit trail kept; just clear the active marker so future decline
+    // flows record fresh _declinedFrom / _declinedAt values.
+    delete targetLoan._declinedFrom;
   } else {
-    // Cancel path
-    if (CANCEL_FROM.indexOf(prevStatus) < 0) {
+    if (DECLINE_FROM.indexOf(prevStatus) < 0) {
       return json(400, {
-        error: 'Loan cannot be cancelled from status \u201c' + prevStatus + '\u201d. ' +
-               'Only Quoted, Submitted, Awaiting Application, or In Processing loans can be cancelled.',
+        error: 'Loan cannot be declined from status “' + prevStatus + '”. ' +
+               'Only Quoted, Submitted, Awaiting Application, or In Processing loans can be declined.',
       });
     }
-    targetLoan.status = 'cancelled';
+    targetLoan.status = 'denied';
     targetLoan.updatedAt = now;
-    targetLoan._cancelledAt = now;
-    targetLoan._cancelledBy = selfEmail;
-    targetLoan._cancelledFrom = prevStatus;
-    if (reason) targetLoan._cancelReason = reason;
+    targetLoan._declinedAt = now;
+    targetLoan._declinedBy = selfEmail;
+    targetLoan._declinedFrom = prevStatus;
+    if (reason) targetLoan._declineReason = reason;
   }
 
   try {
@@ -126,10 +124,10 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
 
-  // Mirror the status change onto matching quotes (best-effort). Same
-  // address-aware fuzzy match as loan-advance-status. Failure is
-  // non-fatal \u2014 the client.loans record is what Pipeline/Loans read
-  // from, so the LO sees the change immediately even if quote sync lags.
+  // Mirror onto quotes (best-effort). Pipeline + Submissions read from
+  // the quotes store, so this is what makes the decline visible there
+  // immediately. Failure is non-fatal — the client.loans record is
+  // authoritative for the Loans / Loan Details views.
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
   let quotesUpdated = 0;
   const newStatus = targetLoan.status;
@@ -159,16 +157,16 @@ async function handle(req, context) {
         q._restoredAt = now;
         q._restoredBy = selfEmail;
       } else {
-        q._cancelledAt = now;
-        q._cancelledBy = selfEmail;
-        q._cancelledFrom = prevStatus;
-        if (reason) q._cancelReason = reason;
+        q._declinedAt = now;
+        q._declinedBy = selfEmail;
+        q._declinedFrom = prevStatus;
+        if (reason) q._declineReason = reason;
       }
       await quotesStore.setJSON(key, q);
       quotesUpdated += 1;
     }
   } catch (e) {
-    console.warn('loan-cancel: quote sync failed:', e);
+    console.warn('loan-decline: quote sync failed:', e);
     return json(200, {
       success: true,
       prevStatus,

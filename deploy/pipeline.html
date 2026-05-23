@@ -430,6 +430,13 @@
   <button class="bulk-btn cancel" onclick="clearSelection()">Cancel</button>
   <button class="bulk-btn" onclick="bulkOnHold()">Put On Hold</button>
   <button class="bulk-btn danger" onclick="bulkDecline()">Decline</button>
+  <!-- Deploy 196: bulk Cancel Loan. Distinct from Decline — Cancel is
+       for deals that fell through (borrower backed out, financing
+       collapsed), Decline is SLA's call that we won't lend. Both
+       terminal; loan-cancel.mjs enforces eligibility (non-terminal
+       statuses only). Prospects have no loan record yet so they're
+       skipped, same as Put On Hold. -->
+  <button class="bulk-btn danger" onclick="bulkCancel()">Cancel Loan</button>
   <!-- Hard-delete: removes the quote AND its matching loan record so
        nothing's left behind. Available to all users; backend enforces
        per-record ownership so a non-admin can only delete their own
@@ -1573,6 +1580,72 @@ function bulkDelete() {
 
   Promise.all(promises).then(function() {
     showToast('Bulk delete complete');
+    _selectedItems.clear();
+    _selectMode = false;
+    var btn = document.getElementById('selectModeBtn');
+    if (btn) { btn.classList.remove('active'); btn.textContent = 'Select Multiple'; }
+    loadAll();
+  });
+}
+
+// Deploy 196: bulk Cancel Loan. Hits /api/loan-cancel per selected
+// quote, after looking up the matching client+loan IDs via _loanLookup
+// (same pattern as bulkDelete — backend takes clientId+loanId, not the
+// quoteId). Prospects in the selection are skipped — they don't have
+// a loan record yet and the borrower-driven "cancel" doesn't apply
+// (use Delete to drop the lead, or Decline if SLA passed on it).
+// Errors per-quote are caught individually so a single 4xx (e.g.
+// trying to cancel a closed loan) doesn't abort the rest of the batch.
+function bulkCancel() {
+  var groups = groupSelection();
+  if (!groups.quotes.length && !groups.prospects.length) return;
+
+  var qN = groups.quotes.length;
+  var pN = groups.prospects.length;
+  if (qN === 0) {
+    alert('No quotes selected. Only prospects, which can\'t be cancelled — they have no loan record yet.');
+    return;
+  }
+  var skipNote = pN > 0
+    ? '\n\n(' + pN + ' prospect' + (pN === 1 ? '' : 's') + ' will be skipped — prospects don\'t have a loan record yet.)'
+    : '';
+  var msg = 'Cancel ' + qN + ' loan' + (qN === 1 ? '' : 's') + '?\n\n' +
+    'Use this when the deal didn\'t close (borrower backed out, financing fell through). ' +
+    'The loan(s) will move to Cancelled status and drop off the Pipeline. ' +
+    'You can restore each one individually from the Cancelled view.' + skipNote;
+  if (!confirm(msg)) return;
+
+  var promises = [];
+  var skippedNoLookup = 0;
+  groups.quotes.forEach(function(q) {
+    var item = (_items[q.colKey] || []).find(function(it) {
+      return it.id === q.id && it.ownerKey === q.ownerKey;
+    });
+    if (!item) return;
+    var addr = (item.quote.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    var addrStreet = addr.split(',')[0].trim();
+    var lookup = _loanLookup[q.ownerKey + '|' + addr]
+              || _loanLookup[q.ownerKey + '|street|' + addrStreet];
+    if (!lookup) {
+      // Quote with no matching loan record on the client — can't cancel
+      // via loan-cancel.mjs (it requires clientId+loanId). Fall back to
+      // a decide('on_hold') would change semantics, so we just count
+      // the skip and surface it in the toast.
+      skippedNoLookup += 1;
+      return;
+    }
+    promises.push(
+      SLA.Loans.cancel(lookup.clientId, lookup.loanId, 'Cancelled via bulk action.', lookup.ownerKey)
+        .catch(function(err) { console.warn('cancel failed for', lookup.loanId, err); })
+    );
+  });
+
+  Promise.all(promises).then(function() {
+    var msg = promises.length + ' loan' + (promises.length === 1 ? '' : 's') + ' cancelled';
+    if (skippedNoLookup > 0) {
+      msg += ' (' + skippedNoLookup + ' skipped — no matching loan record)';
+    }
+    showToast(msg);
     _selectedItems.clear();
     _selectMode = false;
     var btn = document.getElementById('selectModeBtn');

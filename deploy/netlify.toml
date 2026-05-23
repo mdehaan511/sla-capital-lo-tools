@@ -272,6 +272,15 @@
   status = 200
   force = true
 
+# Deploy 196: loan-decline — LO-initiated decline of a loan. SLA's "we
+# won't lend on this" decision, distinct from loan-cancel (which is the
+# borrower's / deal's drop-off).
+[[redirects]]
+  from = "/api/loan-decline"
+  to = "/.netlify/functions/loan-decline"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"
