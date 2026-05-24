@@ -955,6 +955,16 @@ function openAddContact() {
   });
   var s = document.getElementById('ac-status');
   s.textContent = ''; s.className = 'modal-status';
+  // Deploy 198 (fix): reset the save button. It gets disabled during
+  // the save (line ~988) and is only reset on failure in the .catch
+  // path — so after a SUCCESSFUL add, the button stays disabled with
+  // text "Saving…" and the modal just closes. The next time the user
+  // opens this modal, clicking Save does nothing because the button is
+  // still disabled. User reported as "every 2nd add doesn't save."
+  // Resetting here makes every fresh open start clean regardless of
+  // how the previous open ended.
+  var resetBtn = document.getElementById('ac-saveBtn');
+  if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = 'Save Contact'; }
   document.getElementById('addContactModal').classList.add('show');
   setTimeout(function(){ document.getElementById('ac-firstName').focus(); }, 50);
 }
