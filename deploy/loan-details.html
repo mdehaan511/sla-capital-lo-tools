@@ -503,6 +503,14 @@ var _loEmail = null;
 function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escAttr(s) { return String(s||'').replace(/"/g,'&quot;'); }
 function fmtM(n) { var v = Number(n); return (v && !isNaN(v)) ? '$'+v.toLocaleString() : '—'; }
+// Deploy 199: small helper for the Baseline panel + future status
+// timestamps. Returns "2026-05-23 14:32 PM" style — locale, short.
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+}
 function showToast(msg) {
   var t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
@@ -1001,6 +1009,64 @@ function render() {
     '<div class="envelopes-panel-hdr">E-signature envelopes</div>' +
     '<div id="envelopesList"></div>' +
   '</div>';
+
+  // Deploy 199 (Phase 1) — Baseline LOS sync panel. Visible once the
+  // loan has reached the approved gate OR has any Baseline sync
+  // history. The Retry button is wired to /api/baseline-sync-trigger
+  // which (in Phase 1) runs the orchestrator in forced dry-run mode —
+  // every "step" writes to the baseline-sync-log audit store but no
+  // HTTP calls reach Baseline. Phase 2 flips the dry-run lock in
+  // _shared/baseline-sync.mjs (PHASE_1_FORCE_DRY_RUN) and the same UI
+  // becomes live.
+  var _showBaseline = (loanStatus === 'approved') || !!l._baselineSyncStatus;
+  if (_showBaseline) {
+    var _bStatus = l._baselineSyncStatus || 'not_synced';
+    var _bMode   = l._baselineSyncMode   || null;
+    var _bAt     = l._baselineSyncedAt   || l._baselineLastAttemptAt || null;
+    var _bErr    = l._baselineLastError  || null;
+    var _bBy     = l._baselineLastAttemptBy || null;
+    var _bEntId  = l._baselineEntityId   || null;
+    var _bG1Id   = l._baselineGuarantor1Id || null;
+    var _bG2Id   = l._baselineGuarantor2Id || null;
+    var _bLoanId = l._baselineLoanId     || null;
+
+    var _bBadgeColor = _bStatus === 'synced'  ? 'var(--success, #1e6b3b)' :
+                       _bStatus === 'partial' ? '#7a5218' :
+                       _bStatus === 'failed'  ? 'var(--danger, #7c1f1f)' :
+                                                'var(--muted, #7a7488)';
+    var _bBadgeLabel = _bStatus === 'synced'     ? 'Synced'  :
+                       _bStatus === 'partial'    ? 'Partial' :
+                       _bStatus === 'failed'     ? 'Failed'  :
+                                                   'Not synced';
+    var _bBtnLabel = _bStatus === 'synced'  ? 'Re-sync to Baseline' :
+                     _bStatus === 'partial' ? 'Retry Baseline sync' :
+                     _bStatus === 'failed'  ? 'Retry Baseline sync' :
+                                              'Send to Baseline';
+
+    html += '<div class="envelopes-panel" style="margin-top:14px">' +
+      '<div class="envelopes-panel-hdr" style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+        '<span>Baseline LOS</span>' +
+        '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;background:#fff;border:1px solid var(--border, #E4DFD4);color:'+_bBadgeColor+'">'+escH(_bBadgeLabel)+'</span>' +
+      '</div>' +
+      '<div style="padding:10px 12px;font-size:12px;line-height:1.55;color:var(--text)">' +
+        (_bMode ? '<div style="color:var(--muted);font-size:11px;margin-bottom:6px">Mode: '+escH(_bMode)+(_bMode === 'dry-run' ? ' (Phase 1 — no live API calls yet)' : '')+'</div>' : '') +
+        (_bAt ? '<div><strong style="font-weight:600">Last attempt:</strong> '+escH(fmtDateTime(_bAt))+(_bBy ? ' by '+escH(_bBy) : '')+'</div>' : '') +
+        (_bErr ? '<div style="margin-top:6px;color:var(--danger, #7c1f1f);font-size:11.5px"><strong>Last error:</strong> '+escH(_bErr)+'</div>' : '') +
+        ((_bEntId || _bG1Id || _bG2Id || _bLoanId)
+          ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border, #E4DFD4);font-family:\'DM Mono\', monospace;font-size:11px;color:var(--muted);line-height:1.7">' +
+              (_bLoanId ? '<div><strong style="color:var(--text)">Loan:</strong> '+escH(_bLoanId)+'</div>' : '') +
+              (_bEntId  ? '<div><strong style="color:var(--text)">Entity:</strong> '+escH(_bEntId)+'</div>' : '') +
+              (_bG1Id   ? '<div><strong style="color:var(--text)">Guarantor 1:</strong> '+escH(_bG1Id)+'</div>' : '') +
+              (_bG2Id   ? '<div><strong style="color:var(--text)">Guarantor 2:</strong> '+escH(_bG2Id)+'</div>' : '') +
+            '</div>'
+          : '') +
+        '<button type="button" class="open-sizer-btn" onclick="triggerBaselineSync()" style="margin-top:12px">' +
+          '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 7.5h11M8.5 3l4 4.5-4 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+          escH(_bBtnLabel) +
+        '</button>' +
+      '</div>' +
+    '</div>';
+  }
 
   // Change loan type — DSCR ↔ RTL. Rebuilds the loan in the other sizer.
   // Borrower / address info carries over; pricing + product-specific
@@ -1565,6 +1631,56 @@ function restoreCancelledLoan() {
   }).catch(function(err) {
     showToast('Restore failed: ' + ((err && err.message) || 'unknown'));
     if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  });
+}
+
+// ── Baseline LOS sync (Deploy 199 — Phase 1) ──────────────────────
+// Click handler for the "Send to Baseline" / "Retry Baseline sync"
+// button rendered by the Baseline panel. Calls /api/baseline-sync-
+// trigger which (in Phase 1) runs the orchestrator in forced dry-run
+// mode — the audit log records every "step" with the would-have-been-
+// sent payload, but no HTTP calls reach Baseline. The backend persists
+// the resulting refs (entity / guarantor / loan IDs) onto the loan
+// record so the panel reflects sync progress immediately.
+function triggerBaselineSync() {
+  if (!_client || !_loan) return;
+  var addr = _loan.address || 'this loan';
+  var already = (_loan._baselineSyncStatus === 'synced');
+  var msg = already
+    ? 'Re-sync ' + addr + ' to Baseline?\n\nThis will create new records in Baseline if any IDs no longer match. Most often you want to retry only when the prior sync failed or was partial.'
+    : 'Send ' + addr + ' to Baseline?\n\nThis will create the entity (if applicable), each guarantor, connect them, and create the loan.';
+  if (!confirm(msg)) return;
+
+  var btn = event && event.currentTarget;
+  var originalLabel = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = 'Syncing…'; }
+
+  var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Baseline.trigger(_client.id, _loanId, ownerOvr).then(function(resp) {
+    // Backend already persisted refs + status onto the loan; pull
+    // fresh client/loan and re-render so the panel reflects the new
+    // state (instead of trusting the response shape ourselves).
+    var summary = resp && resp.loanStatus;
+    if (summary === 'synced') {
+      showToast('Baseline sync complete' + (resp.mode === 'dry-run' ? ' (dry-run — no API calls)' : ''));
+    } else if (summary === 'partial') {
+      showToast('Baseline sync partial — see admin log');
+    } else {
+      showToast('Baseline sync failed: ' + (resp.error || 'unknown'));
+    }
+    // Refresh the page state. The simplest correct thing is a soft
+    // reload via the page's loader; if that's not exposed, fall back
+    // to window.location.reload().
+    setTimeout(function() {
+      if (typeof loadLoan === 'function') {
+        loadLoan().then(render);
+      } else {
+        window.location.reload();
+      }
+    }, 600);
+  }).catch(function(err) {
+    showToast('Baseline sync request failed: ' + ((err && err.message) || 'unknown'));
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = originalLabel; }
   });
 }
 

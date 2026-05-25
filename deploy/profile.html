@@ -300,6 +300,18 @@
         <div class="save-status" id="brevoStatus"></div>
       </div>
 
+      <!-- Deploy 199 — Baseline LOS (Phase 1 scaffolding). The toggle/mode
+           is read from the backend; Phase 1 force-runs dry-run regardless
+           of env. Backfill / "Send all approved loans" intentionally
+           omitted in Phase 1 — bring it back in a later phase. -->
+      <div class="setting-row">
+        <label>Loan-origination sync (Baseline) <span class="banner-tag off">Phase 1 — dry-run only</span></label>
+        <div class="hint">When a loan reaches <strong>Approved</strong> with the borrower application <strong>complete</strong>, an entity, each guarantor, and the loan itself are pushed to Baseline. Configure <code>BASELINE_API_KEY</code> in Netlify env vars. Phase 1 is force-locked to dry-run (<code>PHASE_1_FORCE_DRY_RUN</code> in <code>_shared/baseline-sync.mjs</code>) — every call is logged but no HTTP request reaches Baseline. Phase 2 will flip the lock and enable the per-loan "Send to Baseline" button on Loan Details.</div>
+        <div class="input-row">
+          <a class="small-btn" href="baseline-log.html">View Sync Log →</a>
+        </div>
+      </div>
+
       <div class="setting-row">
         <label>E-signature <span class="banner-tag on">Native</span></label>
         <div class="hint">Term sheets and loan applications are signed via SLA Capital\u2019s built-in native e-signature flow. Signers get a unique tokenized link by email; their signatures are cryptographically sealed with the <code>ESIGN_SEAL_SECRET</code> env var. Email delivery uses Resend (<code>RESEND_API_KEY</code>). PandaDoc has been retired.</div>

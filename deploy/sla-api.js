@@ -465,6 +465,29 @@
     },
   };
 
+  // ── Baseline LOS (Deploy 199 — Phase 1 scaffolding) ────────────
+  // Pushes approved+app-complete loans into the Baseline loan-
+  // origination system. log() is super-admin only; trigger() is
+  // loan-owner or admin. Phase 1 backend runs in forced dry-run
+  // mode — calling trigger() will write to the audit log but never
+  // hit Baseline. See netlify/functions/_shared/baseline-sync.mjs
+  // for the PHASE_1_FORCE_DRY_RUN safety lock.
+  var Baseline = {
+    log: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.limit)  qs.push('limit='  + encodeURIComponent(opts.limit));
+      if (opts.loanId) qs.push('loanId=' + encodeURIComponent(opts.loanId));
+      var path = '/api/baseline-sync-log' + (qs.length ? '?' + qs.join('&') : '');
+      return api('GET', path);
+    },
+    trigger: function (clientId, loanId, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId };
+      if (ownerOverride) body.owner = ownerOverride;
+      return api('POST', '/api/baseline-sync-trigger', body);
+    },
+  };
+
   // ── Envelopes (native e-signature, Deploy 185) ─────────────────
   // The old PandaDoc integration has been replaced by SLA Capital\u2019s
   // own e-signature flow. Signers get a unique tokenized link by
@@ -883,6 +906,7 @@
     Admin: Admin,
     ChatLog: ChatLog,
     Brevo: Brevo,
+    Baseline: Baseline,
     Envelopes: Envelopes,
     Profile: Profile,
     BorrowerInfo: BorrowerInfo,

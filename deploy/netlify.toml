@@ -311,6 +311,24 @@
   status = 200
   force = true
 
+# Deploy 199 — Baseline LOS integration (Phase 1 scaffolding).
+# baseline-sync-log:     super-admin audit viewer.
+# baseline-sync-trigger: manual "Send to Baseline" button on Loan
+#                        Details. Phase 1 runs in forced dry-run mode
+#                        (see _shared/baseline-sync.mjs PHASE_1_FORCE_
+#                        DRY_RUN) so neither endpoint hits Baseline yet.
+[[redirects]]
+  from = "/api/baseline-sync-log"
+  to = "/.netlify/functions/baseline-sync-log"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/baseline-sync-trigger"
+  to = "/.netlify/functions/baseline-sync-trigger"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"
