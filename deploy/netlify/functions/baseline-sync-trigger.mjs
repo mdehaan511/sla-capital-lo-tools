@@ -30,6 +30,7 @@ import {
   handleOptions, json, requireAuth, isAdmin, normalizeEmail, keySafe, readJsonBody,
 } from './_shared/auth.mjs';
 import { syncLoanToBaseline } from './_shared/baseline-sync.mjs';
+import { postSlack } from './_shared/slack.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -107,6 +108,17 @@ export default async (req, context) => {
     : ((result.refs.baselineEntityId || result.refs.baselineGuarantor1Id) ? 'partial' : 'failed');
 
   const now = new Date().toISOString();
+  // Compact step summary: { step, ok, status?, error? } — small enough
+  // to embed on the loan record so the UI can render per-step badges
+  // without re-fetching the audit log. The full request/response bodies
+  // stay in baseline-sync-log; this is just the LED-strip view.
+  const stepsSummary = (result.steps || []).map((s) => ({
+    step:   s.step,
+    ok:     !!s.ok,
+    status: s.status || null,
+    error:  s.error  || null,
+  }));
+
   const updatedLoan = {
     ...loan,
     _baselineEntityId:     result.refs.baselineEntityId      || loan._baselineEntityId      || null,
@@ -119,6 +131,7 @@ export default async (req, context) => {
     _baselineLastAttemptAt: now,
     _baselineLastAttemptBy: selfEmail,
     _baselineLastError:    result.ok ? null : (result.error || 'unknown'),
+    _baselineLastSteps:    stepsSummary,
   };
 
   const updatedClient = {
@@ -136,6 +149,37 @@ export default async (req, context) => {
     // we can do is surface the persistence error in the response so the
     // LO knows their loan record wasn't updated.
     return json(200, { ...result, persistError: 'failed_to_save_loan_refs' });
+  }
+
+  // ── Slack alert on LIVE failure ─────────────────────────────────
+  //
+  // Fire-and-forget — never block the response on Slack. Skipped when
+  // the sync was dry-run (no real failure to alert about) or when no
+  // Slack webhook is configured (the helper short-circuits).
+  if (!result.ok && result.mode === 'live') {
+    const siteUrl = (process.env.URL || 'https://slaloantools.netlify.app').replace(/\/+$/, '');
+    const loanLink = siteUrl +
+      '/loan-details.html?clientId=' + encodeURIComponent(body.clientId) +
+      '&loanId='   + encodeURIComponent(body.loanId) +
+      (ownerEmail !== selfEmail ? '&owner=' + encodeURIComponent(ownerEmail) : '');
+    const failingStep = (stepsSummary.find((s) => !s.ok) || { step: result.error || 'unknown' });
+    const text = ':warning: Baseline sync failed — ' + (loan.address || body.loanId);
+    const message = {
+      text,
+      blocks: [
+        { type: 'section', text: { type: 'mrkdwn',
+          text: '*Baseline sync failed*\n*Loan:* ' + (loan.address || body.loanId) +
+                '\n*Owner:* ' + ownerEmail +
+                '\n*Failing step:* `' + failingStep.step + '`' +
+                (failingStep.error ? '\n*Error:* ' + failingStep.error : '') +
+                (failingStep.status ? ' (HTTP ' + failingStep.status + ')' : '') +
+                '\n*Triggered by:* ' + selfEmail +
+                '\n<' + loanLink + '|Open loan details>',
+        }},
+      ],
+    };
+    // Don't await — alert shouldn't slow the response.
+    postSlack(message).catch((e) => console.warn('Slack alert failed (silently):', e && e.message));
   }
 
   return json(200, { ...result, loanStatus: summaryStatus });

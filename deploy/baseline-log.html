@@ -182,13 +182,17 @@ function loadAll() {
                            'Mode: DISABLED — set BASELINE_API_KEY';
     badge.className = 'mode-badge ' + (mode === 'live' ? 'live' : mode === 'dry-run' ? 'dry' : 'disabled');
 
-    // Phase note — surfaces the PHASE_1_FORCE_DRY_RUN lock so the
-    // super-admin understands why we're stuck in dry-run even after
-    // setting BASELINE_DRY_RUN=false.
+    // Phase note — short signal of where we are in the rollout. Phase
+    // 1 had a force-dry-run lock; Phase 2 removed it (env-only). Phase
+    // 2.5 expands the field mapping once Baseline PULL dumps land;
+    // Phase 3 wires the auto-fire trigger from approval.
     var phaseEl = document.getElementById('phaseNote');
     if (resp && resp.phase === 'phase-1-scaffold') {
       phaseEl.textContent = 'Phase 1 scaffolding — dry-run is force-enabled in code. ' +
         'Search _shared/baseline-sync.mjs for PHASE_1_FORCE_DRY_RUN to promote to Phase 2.';
+    } else if (resp && resp.phase === 'phase-2-manual-live') {
+      phaseEl.textContent = 'Phase 2 — manual "Send to Baseline" button is live. ' +
+        'Field mapping is intentionally minimal (core fields only) until the PULL dumps land — Phase 2.5 expands it.';
     } else {
       phaseEl.textContent = '';
     }

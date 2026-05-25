@@ -34,22 +34,18 @@
  *                                       → { ok, mode, steps:[...], error? }
  *   listLog({ limit, loanId })          → [<log entries>, ...]  (newest first)
  *
- * Phase status: PHASE 1 (scaffolding). Real API calls are stubbed — the
- * orchestrator currently always runs in dry-run regardless of env, so
- * Phase 1 can deploy safely to main without risk of hitting Baseline.
- * Phase 2 will remove the hard dry-run lock and enable the manual
- * "Send to Baseline" button. Phase 3 wires auto-fire from
- * advanceQuoteToInProcessing().
+ * Phase status: PHASE 2 (manual button live). The hardcoded dry-run
+ * lock has been removed — env var BASELINE_DRY_RUN now controls mode
+ * (defaults to true / dry-run; explicit 'false' enables live calls).
+ * The "Send to Baseline" button on Loan Details makes real HTTP
+ * requests when env is configured for live. Phase 3 wires auto-fire
+ * from advanceQuoteToInProcessing(). Phase 2.5 will expand the field
+ * mapping once a real Baseline GET response reveals the configured
+ * custom field names.
  */
 import { getStore } from '@netlify/blobs';
 
 const DEFAULT_BASE_URL = 'https://production.baselinesoftware.com/production/api';
-
-// PHASE 1 SAFETY LOCK — keep dry-run on regardless of env vars.
-// Flip to `false` in Phase 2 once you've verified the field mapping
-// against a real Baseline response. Search for this constant when
-// promoting.
-const PHASE_1_FORCE_DRY_RUN = true;
 
 function isEnabled() {
   if (process.env.BASELINE_ENABLED === '0') return false;
@@ -58,14 +54,12 @@ function isEnabled() {
 
 /**
  * Defaults to dry-run unless BASELINE_DRY_RUN is *explicitly* set to
- * "false". Same fail-safe pattern as brevo.mjs — typos or a deleted
- * env var keep you in dry-run instead of silently going live.
- *
- * Phase 1 additionally forces dry-run on regardless of env via the
- * PHASE_1_FORCE_DRY_RUN constant above.
+ * the string "false" (lowercase). Same fail-safe pattern as brevo.mjs
+ * — typos or a deleted env var keep you in dry-run instead of silently
+ * going live. To enable real Baseline calls, set BASELINE_DRY_RUN=false
+ * in the Netlify environment.
  */
 function isDryRun() {
-  if (PHASE_1_FORCE_DRY_RUN) return true;
   const raw = process.env.BASELINE_DRY_RUN;
   if (raw === undefined || raw === null || raw === '') return true;
   return String(raw).toLowerCase() !== 'false';
@@ -86,7 +80,10 @@ export function baselineStatus() {
     mode: !isEnabled() ? 'disabled' : (isDryRun() ? 'dry-run' : 'live'),
     configured: !!process.env.BASELINE_API_KEY,
     baseUrl: baseUrl(),
-    phase: PHASE_1_FORCE_DRY_RUN ? 'phase-1-scaffold' : 'phase-2+',
+    // Phase tag drives a small note in the admin viewer. Phase 2 still
+    // ships with minimal field mapping until the PULL dumps land —
+    // Phase 2.5 will bump this to 'phase-2.5' or 'phase-3'.
+    phase: 'phase-2-manual-live',
   };
 }
 
@@ -476,7 +473,8 @@ async function runStep(stepName, method, path, body, mode, ctx) {
     return { step: stepName, ok: true, mode, body: { Id: fakeId }, status: 0 };
   }
 
-  // Live mode (Phase 2+ — not reachable in Phase 1 due to PHASE_1_FORCE_DRY_RUN)
+  // Live mode (Phase 2+) — actually call Baseline. The orchestrator
+  // halts the sequence on the first failure (caller checks step.ok).
   const resp = await baselineFetch(method, path, body);
   const durationMs = Date.now() - startedAt;
   await writeLog({

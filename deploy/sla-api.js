@@ -465,13 +465,14 @@
     },
   };
 
-  // ── Baseline LOS (Deploy 199 — Phase 1 scaffolding) ────────────
+  // ── Baseline LOS (Deploy 199/200 — Phase 2 manual button live) ──
   // Pushes approved+app-complete loans into the Baseline loan-
   // origination system. log() is super-admin only; trigger() is
-  // loan-owner or admin. Phase 1 backend runs in forced dry-run
-  // mode — calling trigger() will write to the audit log but never
-  // hit Baseline. See netlify/functions/_shared/baseline-sync.mjs
-  // for the PHASE_1_FORCE_DRY_RUN safety lock.
+  // loan-owner or admin. Mode is controlled by the Netlify env var
+  // BASELINE_DRY_RUN — defaults to true (audit log only); set to
+  // the literal string 'false' to enable real Baseline calls. The
+  // trigger button on Loan Details is what the LO clicks; auto-fire
+  // on approval ships in Phase 3.
   var Baseline = {
     log: function (opts) {
       opts = opts || {};

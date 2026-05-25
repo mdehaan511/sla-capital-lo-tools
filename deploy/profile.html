@@ -300,13 +300,23 @@
         <div class="save-status" id="brevoStatus"></div>
       </div>
 
-      <!-- Deploy 199 — Baseline LOS (Phase 1 scaffolding). The toggle/mode
-           is read from the backend; Phase 1 force-runs dry-run regardless
-           of env. Backfill / "Send all approved loans" intentionally
-           omitted in Phase 1 — bring it back in a later phase. -->
+      <!-- Deploy 200 — Baseline LOS (Phase 2 — manual button live).
+           The hard dry-run lock from Phase 1 is gone; env var
+           BASELINE_DRY_RUN controls mode. Auto-fire on approval lands
+           in Phase 3; expanded field mapping (custom fields) lands in
+           Phase 2.5 once PULL dumps are in. The mode tag is loaded
+           from /api/baseline-sync-log just like Brevo's. -->
       <div class="setting-row">
-        <label>Loan-origination sync (Baseline) <span class="banner-tag off">Phase 1 — dry-run only</span></label>
-        <div class="hint">When a loan reaches <strong>Approved</strong> with the borrower application <strong>complete</strong>, an entity, each guarantor, and the loan itself are pushed to Baseline. Configure <code>BASELINE_API_KEY</code> in Netlify env vars. Phase 1 is force-locked to dry-run (<code>PHASE_1_FORCE_DRY_RUN</code> in <code>_shared/baseline-sync.mjs</code>) — every call is logged but no HTTP request reaches Baseline. Phase 2 will flip the lock and enable the per-loan "Send to Baseline" button on Loan Details.</div>
+        <label>Loan-origination sync (Baseline) <span class="banner-tag off" id="baselineModeTag">Loading…</span></label>
+        <div class="hint">When a loan reaches <strong>Approved</strong> with the borrower application <strong>complete</strong>, an entity, each guarantor, and the loan itself are pushed to Baseline (auto-fire ships in Phase 3 — for now the LO clicks "Send to Baseline" on Loan Details). Configure these env vars in Netlify:
+          <ul style="margin:8px 0 0 18px;padding:0;list-style:disc;color:var(--muted)">
+            <li><code>BASELINE_API_KEY</code> — required.</li>
+            <li><code>BASELINE_DRY_RUN</code> — defaults to <code>true</code>. Set to the literal string <code>false</code> to enable real Baseline calls. Anything else (typos, "FALSE", unset) stays in dry-run as a fail-safe.</li>
+            <li><code>BASELINE_ENABLED</code> — optional kill switch. Set to <code>0</code> to disable all calls without unsetting the key.</li>
+            <li><code>BASELINE_BASE_URL</code> — defaults to <code>https://production.baselinesoftware.com/production/api</code>. Override only if Baseline gave you a different tenant URL.</li>
+          </ul>
+          On sync failure (live mode only) a Slack message is sent to the configured webhook. Field mapping is currently minimal (core fields only) — Phase 2.5 expands it once we have a real Baseline <code>GET /borrower</code> + <code>GET /loan</code> response to map custom fields against.
+        </div>
         <div class="input-row">
           <a class="small-btn" href="baseline-log.html">View Sync Log →</a>
         </div>
@@ -355,6 +365,7 @@ netlifyIdentity.on('init', function(user) {
     document.getElementById('activityCard').style.display = 'block';
     loadSettings();
     loadBrevoMode();
+    loadBaselineMode();
   }
   loadStats();
 });
@@ -842,6 +853,25 @@ function runUserPurge() {
   }).catch(function(err) {
     status.className = 'save-status err';
     status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+// ── Baseline (super_admin) ──────────────────────────────
+// Deploy 200 (Phase 2): show current mode tag — Live / Dry Run /
+// Disabled. Identical pattern to loadBrevoMode below.
+function loadBaselineMode() {
+  var tag = document.getElementById('baselineModeTag');
+  if (!tag) return;
+  SLA.Baseline.log({ limit: 1 }).then(function(resp) {
+    var mode = resp && resp.mode || 'disabled';
+    tag.textContent =
+      mode === 'live'    ? 'Live'    :
+      mode === 'dry-run' ? 'Dry Run' :
+                           'Disabled';
+    tag.className = 'banner-tag ' + (mode === 'live' ? 'live' : 'off');
+  }).catch(function() {
+    tag.textContent = 'Unknown';
+    tag.className = 'banner-tag off';
   });
 }
 
