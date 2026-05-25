@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.1-loan-type-drives-product',
+    phase: 'phase-2.8.2-numeric-id-and-fallbacks',
   };
 }
 
@@ -200,6 +200,104 @@ function redactSensitive(payload) {
   }
   walk(clone);
   return clone;
+}
+
+// ── Data-source fallback helpers (Deploy 210 / Phase 2.8.2) ─────────
+//
+// Real production loans don't always have a fully-populated long-app
+// (borrower_info) record. The user's first test loan had bi.status =
+// 'complete' but guarantorsCount=0 and hasLLC=null — yet the client
+// record itself had borrower name + email + phone from when the loan
+// was originally created. Without these fallbacks, the orchestrator
+// would skip entity + g1 steps and the loan would sync to Baseline
+// orphaned (no Primary_Borrower).
+//
+// Each helper tries sources in priority order:
+//   Guarantor: bi.guarantors[idx] → flat bi.g{idx}_* → client record (idx=0 only)
+//   Entity:    bi.hasLLC='yes' + llcName → client.companies[0]
+
+function getGuarantor(bi, client, idx) {
+  // Priority 1: packed guarantors array from the long-app save flow
+  if (bi && Array.isArray(bi.guarantors) && bi.guarantors[idx]) {
+    return { ...bi.guarantors[idx], _source: 'long_app_packed' };
+  }
+  // Priority 2: flat g{idx}_* keys (unpacked form data)
+  const prefix = 'g' + idx + '_';
+  if (bi && (bi[prefix + 'email'] || bi[prefix + 'firstName'])) {
+    return {
+      firstName: bi[prefix + 'firstName'] || '',
+      lastName:  bi[prefix + 'lastName']  || '',
+      email:     bi[prefix + 'email']     || '',
+      phone:     bi[prefix + 'phone']     || '',
+      dob:       bi[prefix + 'dob']       || '',
+      fico:      bi[prefix + 'fico']      || '',
+      ssn:       bi[prefix + 'ssn']       || '',
+      ssn_enc:   bi[prefix + 'ssn_enc']   || '',
+      address:   bi[prefix + 'address']   || '',
+      city:      bi[prefix + 'city']      || '',
+      state:     bi[prefix + 'state']     || '',
+      marital:   bi[prefix + 'marital']   || '',
+      usCitizen: bi[prefix + 'usCitizen'] || '',
+      flips:     bi[prefix + 'flips']     || '',
+      _source:   'long_app_flat',
+    };
+  }
+  // Priority 3 (primary guarantor only): client record contact info.
+  // The client always has at minimum email+name+phone since those are
+  // captured when the loan is first created. Less rich than the long-
+  // app but enough to attach a borrower to the Baseline loan.
+  if (idx === 0 && client && client.email) {
+    return {
+      firstName: client.firstName || '',
+      lastName:  client.lastName  || '',
+      email:     client.email     || '',
+      phone:     client.phone     || '',
+      dob:       client.dob       || '',
+      fico:      client.fico      || '',
+      ssn_enc:   client.ssn_enc   || '',
+      address:   (client.homeAddress && client.homeAddress.street) || '',
+      city:      (client.homeAddress && client.homeAddress.city)   || '',
+      state:     (client.homeAddress && client.homeAddress.state)  || '',
+      marital:   client.maritalStatus || '',
+      usCitizen: client.usCitizen || '',
+      flips:     client.flips || '',
+      _source:   'client_record',
+    };
+  }
+  return null;
+}
+
+function getEntityInfo(bi, client) {
+  // Priority 1: long-app says hasLLC='yes' with a name
+  if (bi && bi.hasLLC === 'yes') {
+    const llcName = bi.llcName || (bi.companies && bi.companies[0] && bi.companies[0].name);
+    if (llcName) {
+      const company = (bi.companies || []).find((c) => c.name === llcName) || {};
+      return {
+        name:    llcName,
+        street1: company.address || bi.llcAddress || '',
+        city:    company.city || '',
+        state:   company.addrState || bi.llcState || '',
+        ein:     company.ein || bi.llcEIN || '',
+        _source: 'long_app',
+      };
+    }
+  }
+  // Priority 2: client.companies[] (synced from a prior loan's LLC info)
+  if (client && Array.isArray(client.companies) && client.companies[0]) {
+    const c = client.companies[0];
+    if (c && c.name) {
+      return {
+        name:    c.name,
+        street1: c.address || '',
+        city:    c.city || '',
+        state:   c.addrState || c.state || '',
+        ein:     c.ein || '',
+        _source: 'client_companies',
+      };
+    }
+  }
+  return null;
 }
 
 // ── Payload builders (PHASE 2.5 — expanded from real PULL dump) ─────
@@ -342,19 +440,25 @@ function normalizePoints(p) {
   return n;
 }
 
-// Deploy 208 — derive a Baseline-style external ID from our SLA loanId.
-// User's existing Baseline IDs use SLA-YYYYMMDD-NNNN format. Our SLA
-// loanIds are l_<timestamp>_<6chars>. Extract the random suffix and
-// combine with today's date to mimic the format:
-//   l_1779394940264_890j  →  SLA-20260525-890j
-// Idempotent (same SLA loanId → same Baseline Id every call) so retries
-// safely deduplicate.
+// Deploy 208/210 — derive a Baseline-style external ID from our SLA
+// loanId. Existing customer IDs use SLA-YYYYMMDD-NNNN format with a
+// 4-digit numeric suffix. Deploy 210 swapped the alphanumeric suffix
+// from the SLA loanId for a deterministic 4-digit numeric hash so the
+// format actually matches (e.g. SLA-20260525-4732, not SLA-..._890j).
+// Same SLA loanId always hashes to the same Baseline Id → retries
+// safely deduplicate. Collision risk at ~20 loans/day is < 2%/year.
 function deriveBaselineLoanId(loan) {
   const date = (loan && loan.fundingDate)
     ? String(loan.fundingDate).replace(/-/g, '')
     : todayCompact();
-  const match = String(loan && loan.id || '').match(/_([a-zA-Z0-9]+)$/);
-  const suffix = match ? match[1] : Math.random().toString(36).slice(2, 6);
+  // djb2-style 32-bit hash, mod 10000 → 0-9999, zero-padded.
+  let hash = 0;
+  const s = String(loan && loan.id || '');
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+  }
+  const num = Math.abs(hash) % 10000;
+  const suffix = String(num).padStart(4, '0');
   return 'SLA-' + date + '-' + suffix;
 }
 
@@ -420,31 +524,26 @@ function parseAddress(s) {
  * customer's Baseline product config.
  */
 function buildEntityPayload(loan, client, bi) {
-  if (!bi || bi.hasLLC !== 'yes') return null;
-  const llcName = bi.llcName || (bi.companies && bi.companies[0] && bi.companies[0].name);
-  if (!llcName) return null;
-
-  // Long-app uses a Google-Places-formatted string in bi.llcAddress
-  // plus separate city/state/zip from the picker, attached to the
-  // matching companies[] entry. Prefer the parsed components.
-  const company = (bi.companies || []).find((c) => c.name === llcName) || {};
-  const stateRaw = company.addrState || bi.llcState || '';
+  // Deploy 210 — uses getEntityInfo() fallback chain: long-app's
+  // hasLLC='yes' + llcName takes priority; otherwise falls back to
+  // client.companies[0] (if any LLC was ever synced for this client).
+  // Returns null only if neither source has any entity data, meaning
+  // the loan genuinely vests in the individual.
+  const ent = getEntityInfo(bi, client);
+  if (!ent) return null;
 
   const payload = {
     Is_Company:      true,
-    Name:            llcName,
-    Address_Street1: company.address || bi.llcAddress || '',
-    Address_City:    company.city || '',
-    Address_State:   expandState(stateRaw),
+    Name:            ent.name,
+    Address_Street1: ent.street1,
+    Address_City:    ent.city,
+    Address_State:   expandState(ent.state),
     Address_Country: 'United States',
   };
 
-  // Phase 2.6 — Tax_ID (EIN) is a custom field on the borrower record
-  // in the customer's Baseline product config. Not visible in GET
-  // responses but settable on POST. Value is the EIN string in
-  // XX-XXXXXXX format from the borrower long-app.
-  const ein = (company && company.ein) || bi.llcEIN || '';
-  if (ein) payload.Tax_ID = String(ein).trim();
+  // Phase 2.6 — Tax_ID (EIN) custom field. XX-XXXXXXX format from the
+  // long-app or client.companies entry.
+  if (ent.ein) payload.Tax_ID = String(ent.ein).trim();
 
   // Strip blanks (defensive — same pattern as buildPersonPayload).
   Object.keys(payload).forEach((k) => {
@@ -588,13 +687,10 @@ function buildLoanPayload(loan, client, bi, refs) {
   const baselineStatus    = 'lead';
   const baselineSubstatus = isRTL ? 'RTL' : 'DSCR';
 
-  // Deploy 209 (Phase 2.8.1) — switched from Product field to Loan_Type
-  // per user direction. Baseline auto-selects the correct product
-  // (DIYA - DSCR Loan for DSCR; RTL - Colchis for RTL) based on the
-  // Loan_Type value. This also unlocks product-dependent fields like
-  // Origination_Points and Term — without a product selected, those
-  // fields don't exist on the loan record.
-  const loanTypeValue = isRTL ? 'RTL' : 'DSCR';
+  // Deploy 210 (Phase 2.8.2) — Loan_Type removed. User configured
+  // Baseline so that the Substatus value (RTL / DSCR) auto-selects
+  // the correct product. We just set Substatus; Baseline handles the
+  // product selection on its side.
 
   const payload = {
     // ─ Identity ───────────────────────────────────────────────────
@@ -605,10 +701,6 @@ function buildLoanPayload(loan, client, bi, refs) {
     Name:      loan.address || ('Loan ' + loan.id),
     Status:    baselineStatus,
     Substatus: baselineSubstatus,
-    // Deploy 209 — Loan_Type drives Baseline-side product selection
-    // (DSCR → DIYA - DSCR Loan; RTL → RTL - Colchis). Replaces the
-    // Product field guess from Deploy 208.
-    Loan_Type: loanTypeValue,
 
     // ─ Property address (parsed) ─────────────────────────────────
     Address_Street1: addr.street1,
@@ -836,25 +928,31 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     result.refs.baselineLoanId = null;
   }
 
-  // Deploy 208 — long-app snapshot. Sanitized snapshot of the fields
-  // that drive whether entity / guarantor steps run. Lets us see at a
-  // glance why a step might have been skipped. Never includes raw PII
-  // (only field presence + email domain).
-  function snapshotBi(b) {
-    if (!b) return { present: false };
-    const guarantors = Array.isArray(b.guarantors) ? b.guarantors : [];
+  // Deploy 208/210 — long-app + fallback snapshot. Sanitized snapshot
+  // of what drives the entity / guarantor steps. Deploy 210 added the
+  // _source tag on each resolved object so we can see whether the data
+  // came from the long-app, flat keys, or the client fallback.
+  function snapshotBi(b, c) {
+    const ent = getEntityInfo(b, c);
+    const g1 = getGuarantor(b, c, 0);
+    const g2 = getGuarantor(b, c, 1);
     return {
-      present: true,
-      status:  b.status || null,
-      hasLLC:  b.hasLLC || null,
-      llcName: b.llcName ? 'set' : 'unset',
-      companiesCount: Array.isArray(b.companies) ? b.companies.length : 0,
-      guarantorsCount: guarantors.length,
-      g1: guarantors[0]
-        ? { emailDomain: ((guarantors[0].email||'').split('@')[1] || null), hasFirstName: !!guarantors[0].firstName, hasLastName: !!guarantors[0].lastName, hasPhone: !!guarantors[0].phone, hasDob: !!guarantors[0].dob, hasFico: !!guarantors[0].fico, hasSsnEnc: !!guarantors[0].ssn_enc }
+      bi_present:  !!b,
+      bi_status:   b ? (b.status || null) : null,
+      bi_hasLLC:   b ? (b.hasLLC || null) : null,
+      bi_llcName:  b && b.llcName ? 'set' : 'unset',
+      bi_companiesCount: b && Array.isArray(b.companies) ? b.companies.length : 0,
+      bi_guarantorsCount: b && Array.isArray(b.guarantors) ? b.guarantors.length : 0,
+      client_email_present: !!(c && c.email),
+      client_companies_count: c && Array.isArray(c.companies) ? c.companies.length : 0,
+      resolved_entity: ent
+        ? { source: ent._source, hasName: !!ent.name, hasState: !!ent.state, hasEin: !!ent.ein }
         : null,
-      g2: guarantors[1]
-        ? { emailDomain: ((guarantors[1].email||'').split('@')[1] || null), hasFirstName: !!guarantors[1].firstName, hasLastName: !!guarantors[1].lastName }
+      resolved_g1: g1
+        ? { source: g1._source, emailDomain: ((g1.email||'').split('@')[1] || null), hasFirstName: !!g1.firstName, hasLastName: !!g1.lastName, hasPhone: !!g1.phone, hasDob: !!g1.dob, hasFico: !!g1.fico, hasSsnEnc: !!g1.ssn_enc }
+        : null,
+      resolved_g2: g2
+        ? { source: g2._source, emailDomain: ((g2.email||'').split('@')[1] || null), hasFirstName: !!g2.firstName, hasLastName: !!g2.lastName }
         : null,
     };
   }
@@ -864,7 +962,7 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   result._debug = {
     rawRefsFromLoan,
     refsAfterFilter: { ...result.refs },
-    biSnapshot: snapshotBi(borrowerInfo),
+    biSnapshot: snapshotBi(borrowerInfo, client),
   };
 
   // Bail early on missing prerequisites — log the bail so the audit
@@ -890,9 +988,12 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     return result;
   }
 
-  const guarantors = Array.isArray(borrowerInfo.guarantors) ? borrowerInfo.guarantors : [];
-  const g1 = guarantors[0] || null;
-  const g2 = guarantors[1] || null;
+  // Deploy 210 — use the fallback chain instead of reading guarantors[]
+  // directly. getGuarantor tries: long-app packed → flat g{idx}_* keys
+  // → client record (g0 only). Means we can sync even loans whose long-
+  // app didn't fully populate page 4.
+  const g1 = getGuarantor(borrowerInfo, client, 0);
+  const g2 = getGuarantor(borrowerInfo, client, 1);
 
   // Step 1 — entity (LLC). Skip if no LLC OR if already synced.
   const entityPayload = buildEntityPayload(loan, client, borrowerInfo);
@@ -902,11 +1003,12 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && step.body && step.body.Id) result.refs.baselineEntityId = step.body.Id;
     if (!step.ok) return finalize(result, 'entity_failed');
   } else if (!result.refs.baselineEntityId) {
-    // Deploy 208 — log explicit "skipped" entry so /baseline-log.html
-    // shows WHY the step didn't run. Without this, skipped steps are
-    // invisible and we have to guess.
+    // Deploy 208/210 — log "skipped" entry with reason. With the new
+    // fallback chain (long-app → client.companies), the only way
+    // entityPayload comes back null is if NEITHER source has any LLC
+    // data — meaning the loan vests in the individual.
     const reason = !entityPayload
-      ? (borrowerInfo && borrowerInfo.hasLLC !== 'yes' ? 'no_LLC_on_long_app' : 'missing_LLC_name_or_fields')
+      ? 'no_LLC_data_in_long_app_or_client_record'
       : 'already_synced';
     await logSkipped('entity', reason, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push({ step: 'entity', ok: true, skipped: true, mode: result.mode, reason });
@@ -920,8 +1022,11 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && step.body && step.body.Id) result.refs.baselineGuarantor1Id = step.body.Id;
     if (!step.ok) return finalize(result, 'g1_failed');
   } else if (!result.refs.baselineGuarantor1Id) {
+    // Deploy 210 — with the client-record fallback, g1 should almost
+    // never be null. If it is, the client record itself has no email,
+    // which means something upstream is broken.
     const reason = !g1Payload
-      ? (g1 && !g1.email ? 'g1_missing_email' : 'g1_missing_or_incomplete')
+      ? (g1 && !g1.email ? 'g1_resolved_but_no_email' : 'no_borrower_data_anywhere_check_client_record')
       : 'already_synced';
     await logSkipped('g1', reason, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push({ step: 'g1', ok: true, skipped: true, mode: result.mode, reason });
