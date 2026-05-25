@@ -44,6 +44,7 @@
  * custom field names.
  */
 import { getStore } from '@netlify/blobs';
+import { decryptField } from './crypto.mjs';
 
 const DEFAULT_BASE_URL = 'https://production.baselinesoftware.com/production/api';
 
@@ -75,16 +76,26 @@ function baseUrl() {
  * the same mode badge pattern.
  */
 export function baselineStatus() {
+  // Diagnostic info — the literal env var values (NOT the API key) so
+  // a super-admin can self-diagnose why mode isn't what they expect.
+  // Common case: BASELINE_DRY_RUN set to 'true' or unset → mode is
+  // dry-run even though the user set up the key. The only value that
+  // flips to live is the literal lowercase string 'false'.
+  const rawDryRun = process.env.BASELINE_DRY_RUN;
   return {
     enabled: isEnabled(),
     mode: !isEnabled() ? 'disabled' : (isDryRun() ? 'dry-run' : 'live'),
     configured: !!process.env.BASELINE_API_KEY,
     baseUrl: baseUrl(),
+    // Phase 2.6 diagnostics. Tells the user exactly what BASELINE_DRY_RUN
+    // resolves to so they can debug a "I set live but it's still dry-run"
+    // case without me asking them what the env var is set to.
+    dryRunRaw: rawDryRun == null ? null : String(rawDryRun),
+    enabledKillSwitch: process.env.BASELINE_ENABLED === '0',
     // Phase tag drives a small note in the admin viewer. 2.5 expanded
-    // the field mapping from real GET /borrower + /loan dumps; 2.6 adds
-    // the PII custom fields (SSN/EIN/declarations) once the customer
-    // provides the Baseline product's custom field names.
-    phase: 'phase-2.5-expanded-mapping',
+    // the field mapping; 2.6 added Tax_ID + Social_Security_Number
+    // custom fields + diagnostics. Phase 3 wires auto-fire.
+    phase: 'phase-2.6-custom-fields',
   };
 }
 
@@ -149,7 +160,15 @@ export async function listLog(opts) {
 function redactSensitive(payload) {
   if (!payload || typeof payload !== 'object') return payload;
   const clone = JSON.parse(JSON.stringify(payload));
-  const SENSITIVE = ['SSN', 'ssn', 'Ssn', 'EIN', 'ein', 'Ein', 'Tax_Id', 'Tax_ID', 'tax_id'];
+  // Field names to redact in the audit log. Covers our own internal
+  // names (ssn, ssn_enc, ein) and Baseline's confirmed field names
+  // (Phase 2.6: Tax_ID, Social_Security_Number).
+  const SENSITIVE = [
+    'SSN', 'ssn', 'ssn_enc', 'Ssn',
+    'EIN', 'ein', 'Ein',
+    'Tax_Id', 'Tax_ID', 'tax_id',
+    'Social_Security_Number', 'social_security_number',
+  ];
   function walk(obj) {
     if (!obj || typeof obj !== 'object') return;
     for (const k of Object.keys(obj)) {
@@ -309,11 +328,17 @@ function buildEntityPayload(loan, client, bi) {
     Address_Country: 'United States',
   };
 
-  // TODO Phase 2.6 — custom fields not in the public schema. Examples
-  // of likely Baseline field names (uncomment + verify when user
-  // provides the actual names):
-  //   payload.EIN = company.ein || bi.llcEIN || undefined;
-  //   payload.Borrower_Entity_Type = 'Limited Liability Company';
+  // Phase 2.6 — Tax_ID (EIN) is a custom field on the borrower record
+  // in the customer's Baseline product config. Not visible in GET
+  // responses but settable on POST. Value is the EIN string in
+  // XX-XXXXXXX format from the borrower long-app.
+  const ein = (company && company.ein) || bi.llcEIN || '';
+  if (ein) payload.Tax_ID = String(ein).trim();
+
+  // Strip blanks (defensive — same pattern as buildPersonPayload).
+  Object.keys(payload).forEach((k) => {
+    if (payload[k] === undefined || payload[k] === '' || payload[k] === null) delete payload[k];
+  });
 
   return payload;
 }
@@ -337,6 +362,23 @@ function buildEntityPayload(loan, client, bi) {
 function buildPersonPayload(g) {
   if (!g || !g.email) return null;
 
+  // Phase 2.6 — SSN decrypted from at-rest storage. Long-app encrypts
+  // the SSN with SSN_ENCRYPTION_KEY and stores it as g.ssn_enc; some
+  // legacy records may still have plain g.ssn. Try both; fall through
+  // silently on decrypt failure (Baseline gets the record without
+  // SSN rather than failing the whole sync).
+  let ssn = '';
+  if (g.ssn_enc) {
+    try {
+      ssn = decryptField(g.ssn_enc) || '';
+    } catch (e) {
+      console.warn('baseline buildPersonPayload: SSN decrypt failed (continuing without):', e && e.message);
+    }
+  } else if (g.ssn) {
+    ssn = String(g.ssn);
+  }
+  ssn = ssn.trim();
+
   const payload = {
     Is_Company:      false,
     First_Name:      g.firstName || '',
@@ -352,6 +394,12 @@ function buildPersonPayload(g) {
     Address_Country: 'United States',
     Credit_Score:    g.fico ? parseInt(g.fico, 10) : undefined,
   };
+
+  // Social_Security_Number is the customer's custom field name (per
+  // user, confirmed Phase 2.6). Only attached if we successfully
+  // decrypted; we never send "" since that would overwrite a real
+  // value in Baseline with empty.
+  if (ssn) payload.Social_Security_Number = ssn;
 
   // Strip undefined/empty so we don't overwrite existing Baseline data
   // with blanks on PATCH-like upserts.

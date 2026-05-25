@@ -116,6 +116,7 @@
       <h1>Baseline Sync Log</h1>
       <p>Audit of every Baseline API attempt — entity creates, guarantor creates, connections, and loan creates. In dry-run mode, payloads are recorded but never sent. Click a row to expand the full request and response. SSN and EIN values are redacted.</p>
       <div class="phase-note" id="phaseNote"></div>
+      <div class="phase-note" id="envDiag" style="margin-top:4px;font-family:'DM Mono',monospace;font-size:11px"></div>
     </div>
     <span class="mode-badge disabled" id="modeBadge">Loading…</span>
   </div>
@@ -196,8 +197,28 @@ function loadAll() {
     } else if (resp && resp.phase === 'phase-2.5-expanded-mapping') {
       phaseEl.textContent = 'Phase 2.5 — field mapping expanded from real Baseline GET dumps. ' +
         'PII custom fields (SSN/EIN/declarations) deferred to Phase 2.6 pending exact field names.';
+    } else if (resp && resp.phase === 'phase-2.6-custom-fields') {
+      phaseEl.textContent = 'Phase 2.6 — Tax_ID + Social_Security_Number custom fields wired. ' +
+        'Declarations intentionally skipped per user.';
     } else {
       phaseEl.textContent = '';
+    }
+
+    // Phase 2.6 — env-var diagnostic strip so super-admin can see
+    // exactly why mode is what it is. Most common "why isn't this
+    // live?" cause is BASELINE_DRY_RUN unset / set to 'true' / typoed.
+    var diagEl = document.getElementById('envDiag');
+    if (diagEl) {
+      var parts = [];
+      parts.push('BASELINE_API_KEY: ' + (resp.configured ? 'set' : 'UNSET'));
+      var rawDryRun = (resp.dryRunRaw == null) ? '(unset → defaults to dry-run)' : ('"' + resp.dryRunRaw + '"');
+      parts.push('BASELINE_DRY_RUN: ' + rawDryRun);
+      if (resp.enabledKillSwitch) parts.push('BASELINE_ENABLED=0 (kill switch active)');
+      parts.push('Resolved mode: ' + (resp.mode || 'unknown'));
+      diagEl.innerHTML = parts.map(escH).join(' &middot; ');
+      if (resp.mode !== 'live' && resp.configured && rawDryRun !== '"false"') {
+        diagEl.innerHTML += '<br><span style="color:var(--gold-mid)">Tip: set BASELINE_DRY_RUN to the literal lowercase string <code>false</code> in Netlify env vars to enable live calls. Other values (true / True / TRUE / unset / "") all keep dry-run on for safety. Remember to redeploy or trigger a new function invocation after changing env vars.</span>';
+      }
     }
 
     render();
