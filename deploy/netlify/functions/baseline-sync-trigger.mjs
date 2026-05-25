@@ -103,9 +103,22 @@ export default async (req, context) => {
   //   'failed'  — first step failed, nothing usable created
   //   'pending' — never set here (reserved for Phase 3 auto-trigger
   //               where we kick off async)
-  const summaryStatus = result.ok
-    ? 'synced'
-    : ((result.refs.baselineEntityId || result.refs.baselineGuarantor1Id) ? 'partial' : 'failed');
+  // Deploy 204 (Phase 2.7 hotfix): dry-run never produces real Baseline
+  // records, so it can't be 'synced' regardless of whether all the
+  // dry-run steps "succeeded". Distinct branch keeps the LO's panel
+  // honest after a dry-run test:
+  //   synced     — live, all steps ok
+  //   partial    — live, some steps got real refs back, then a failure stopped
+  //   failed     — live, first real step failed → no usable refs created
+  //   not_synced — dry-run (default), or never attempted
+  let summaryStatus;
+  if (result.mode === 'dry-run') {
+    summaryStatus = 'not_synced';
+  } else if (result.ok) {
+    summaryStatus = 'synced';
+  } else {
+    summaryStatus = (result.refs.baselineEntityId || result.refs.baselineGuarantor1Id) ? 'partial' : 'failed';
+  }
 
   const now = new Date().toISOString();
   // Compact step summary: { step, ok, status?, error? } — small enough
@@ -119,15 +132,22 @@ export default async (req, context) => {
     error:  s.error  || null,
   }));
 
+  // Deploy 204 (Phase 2.7 hotfix): only persist Baseline IDs when the
+  // sync ran in LIVE mode. Dry-run "IDs" are fake (__DRYRUN__-prefixed)
+  // — persisting them onto the loan record would cause the next live
+  // retry to skip every step because the refs are already populated.
+  // We still persist status / lastAttempt / lastSteps in both modes so
+  // the panel and audit log reflect every attempt.
+  const persistRefs = (result.mode === 'live');
   const updatedLoan = {
     ...loan,
-    _baselineEntityId:     result.refs.baselineEntityId      || loan._baselineEntityId      || null,
-    _baselineGuarantor1Id: result.refs.baselineGuarantor1Id  || loan._baselineGuarantor1Id  || null,
-    _baselineGuarantor2Id: result.refs.baselineGuarantor2Id  || loan._baselineGuarantor2Id  || null,
-    _baselineLoanId:       result.refs.baselineLoanId        || loan._baselineLoanId        || null,
+    _baselineEntityId:     persistRefs ? (result.refs.baselineEntityId      || loan._baselineEntityId      || null) : (loan._baselineEntityId      || null),
+    _baselineGuarantor1Id: persistRefs ? (result.refs.baselineGuarantor1Id  || loan._baselineGuarantor1Id  || null) : (loan._baselineGuarantor1Id  || null),
+    _baselineGuarantor2Id: persistRefs ? (result.refs.baselineGuarantor2Id  || loan._baselineGuarantor2Id  || null) : (loan._baselineGuarantor2Id  || null),
+    _baselineLoanId:       persistRefs ? (result.refs.baselineLoanId        || loan._baselineLoanId        || null) : (loan._baselineLoanId        || null),
     _baselineSyncStatus:   summaryStatus,
     _baselineSyncMode:     result.mode,
-    _baselineSyncedAt:     result.ok ? now : (loan._baselineSyncedAt || null),
+    _baselineSyncedAt:     (result.ok && persistRefs) ? now : (loan._baselineSyncedAt || null),
     _baselineLastAttemptAt: now,
     _baselineLastAttemptBy: selfEmail,
     _baselineLastError:    result.ok ? null : (result.error || 'unknown'),

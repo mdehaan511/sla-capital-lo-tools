@@ -598,6 +598,21 @@ async function baselineFetch(method, path, body) {
   }
 }
 
+// Deploy 204 (Phase 2.7 hotfix): dry-run runs persist FAKE Baseline IDs
+// onto the loan record (e.g. _baselineEntityId = 'dryrun_entity_abc').
+// On a subsequent LIVE retry, the orchestrator saw those refs and
+// thought "already synced, skip" — making zero real API calls but
+// marking the loan as synced. This helper recognises both legacy
+// dry-run prefixes ('dryrun_') and the new clearly-marked prefix
+// ('__DRYRUN__') so existing affected loans self-heal on their next
+// retry, and new dry-runs can never poison the record.
+function isRealBaselineId(id) {
+  if (!id || typeof id !== 'string') return false;
+  if (id.indexOf('dryrun_')   === 0) return false;
+  if (id.indexOf('__DRYRUN__') === 0) return false;
+  return true;
+}
+
 // ── Main orchestrator ────────────────────────────────────────────────
 
 /**
@@ -626,11 +641,15 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     ok: false,
     mode: !isEnabled() ? 'disabled' : (isDryRun() ? 'dry-run' : 'live'),
     steps: [],
+    // Deploy 204 (Phase 2.7 hotfix): filter out dry-run-tainted refs.
+    // If a previous dry-run persisted a fake ID, treat it as missing
+    // so a live retry actually runs all the steps. isRealBaselineId()
+    // recognizes both 'dryrun_' (legacy) and '__DRYRUN__' (current).
     refs: {
-      baselineEntityId:      loan && loan._baselineEntityId      || null,
-      baselineGuarantor1Id:  loan && loan._baselineGuarantor1Id  || null,
-      baselineGuarantor2Id:  loan && loan._baselineGuarantor2Id  || null,
-      baselineLoanId:        loan && loan._baselineLoanId        || null,
+      baselineEntityId:      isRealBaselineId(loan && loan._baselineEntityId)      ? loan._baselineEntityId      : null,
+      baselineGuarantor1Id:  isRealBaselineId(loan && loan._baselineGuarantor1Id)  ? loan._baselineGuarantor1Id  : null,
+      baselineGuarantor2Id:  isRealBaselineId(loan && loan._baselineGuarantor2Id)  ? loan._baselineGuarantor2Id  : null,
+      baselineLoanId:        isRealBaselineId(loan && loan._baselineLoanId)        ? loan._baselineLoanId        : null,
     },
   };
 
@@ -744,11 +763,15 @@ async function runStep(stepName, method, path, body, mode, ctx) {
       ...ctx,
     };
     await writeLog(entry);
-    // Return a plausible Body so the orchestrator's "did this step
-    // succeed → store its returned Id" logic still flows. The fake
-    // Id is prefixed so it's obvious in the log if a dry-run id ever
-    // accidentally hits production code.
-    const fakeId = stepName === 'loan' ? (ctx.loanId || 'dryrun_loan') : 'dryrun_' + stepName + '_' + Math.random().toString(36).slice(2, 8);
+    // Deploy 204 (Phase 2.7 hotfix): use a clearly-marked __DRYRUN__
+    // prefix for ALL dry-run fake IDs (including the loan step, which
+    // previously used the real loanId — making dry-run-vs-real refs
+    // indistinguishable). The orchestrator's isRealBaselineId() guard
+    // filters these out so a future live retry actually runs the
+    // step. The trigger endpoint additionally skips ref persistence
+    // in dry-run mode so this branch should never write back to the
+    // loan record anyway — defense in depth.
+    const fakeId = '__DRYRUN__' + stepName + '_' + Math.random().toString(36).slice(2, 8);
     return { step: stepName, ok: true, mode, body: { Id: fakeId }, status: 0 };
   }
 
