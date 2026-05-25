@@ -207,6 +207,8 @@ function loadAll() {
       phaseEl.textContent = 'Phase 2.7.2 — anomaly detection. Sync now fails loudly if 0 steps ran (instead of returning misleading "synced").';
     } else if (resp && resp.phase === 'phase-2.7.3-panel-debug') {
       phaseEl.textContent = 'Phase 2.7.3 — diagnostic bundle persisted onto the loan record and shown in the Loan Details panel.';
+    } else if (resp && resp.phase === 'phase-2.8-config-and-bugfixes') {
+      phaseEl.textContent = 'Phase 2.8 — config (Status=lead, Substatus=DSCR/RTL, Product, SLA-YYYYMMDD-xxx Id) + bugfixes (Rate decimal, points stripped, address parser, term fallback) + skip-logging.';
     } else {
       phaseEl.textContent = '';
     }
@@ -274,9 +276,17 @@ function render() {
     else if (l.mode === 'live') rowClass += ' live';
 
     var statusClass = l.ok ? 'ok' : 'err';
-    var statusText = l.ok
-      ? (l.mode === 'dry-run' ? 'Logged' : ('OK ' + (l.status || '')))
-      : ('Failed' + (l.status ? ' ' + l.status : ''));
+    var statusText;
+    if (l.skipped) {
+      // Deploy 208 — skipped steps are ok=true but didn't make a real
+      // HTTP call; flag distinctly so they're easy to spot.
+      statusText = 'SKIPPED';
+      statusClass = 'ok';
+    } else if (l.ok) {
+      statusText = (l.mode === 'dry-run' ? 'Logged' : ('OK ' + (l.status || '')));
+    } else {
+      statusText = 'Failed' + (l.status ? ' ' + l.status : '');
+    }
 
     html += '<div class="' + rowClass + '" onclick="toggleRow(this)">' +
       '<div class="log-head">' +

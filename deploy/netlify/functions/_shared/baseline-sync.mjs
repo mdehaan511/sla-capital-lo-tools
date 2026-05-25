@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.7.3-panel-debug',
+    phase: 'phase-2.8-config-and-bugfixes',
   };
 }
 
@@ -121,6 +121,22 @@ async function writeLog(entry) {
   } catch (e) {
     console.warn('baseline log write failed:', e && e.message);
   }
+}
+
+// Deploy 208 — write a "step skipped" audit entry. Same store as
+// writeLog, just with a `skipped: true` flag so the viewer can style
+// it differently and we can filter for it. Helps diagnose "why didn't
+// the entity step run?" cases without DevTools.
+async function logSkipped(stepName, reason, mode, ctx) {
+  await writeLog({
+    step: stepName,
+    mode,
+    ok: true,
+    skipped: true,
+    note: 'Step skipped: ' + reason,
+    skipReason: reason,
+    ...ctx,
+  });
 }
 
 /**
@@ -281,6 +297,9 @@ function mapMaritalStatus(s) {
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
+function todayCompact() {
+  return todayISO().replace(/-/g, ''); // 20260525
+}
 function addMonthsISO(iso, months) {
   if (!iso) return undefined;
   const d = new Date(iso + 'T00:00:00Z');
@@ -297,6 +316,95 @@ function fmtPhone(s) {
   if (!digits) return undefined;
   if (digits.length === 10) return '1' + digits;
   return digits;
+}
+
+// Deploy 208 — normalize rate to decimal. Our loan records store rate
+// as a percent number (e.g. 10.5 for 10.5%), but Baseline expects the
+// decimal form (0.105). Heuristic: values < 1 are already decimal,
+// values >= 1 are percent and need /100. Catches both formats so
+// historical data still works.
+function normalizeRate(r) {
+  const n = parseFloat(r);
+  if (!n || isNaN(n)) return undefined;
+  return n < 1 ? n : (n / 100);
+}
+
+// Deploy 208 — normalize Origination_Points. Our loan record stores
+// "1.50 pts" (with text), but Baseline wants just the number. Strip
+// any non-numeric characters, parse, return as numeric (Baseline's
+// dump shows the field as a string but their docs accept numeric too).
+function normalizePoints(p) {
+  if (p == null || p === '') return undefined;
+  const s = String(p).replace(/[^\d.]/g, '');
+  if (!s) return undefined;
+  const n = parseFloat(s);
+  if (isNaN(n)) return undefined;
+  return n;
+}
+
+// Deploy 208 — derive a Baseline-style external ID from our SLA loanId.
+// User's existing Baseline IDs use SLA-YYYYMMDD-NNNN format. Our SLA
+// loanIds are l_<timestamp>_<6chars>. Extract the random suffix and
+// combine with today's date to mimic the format:
+//   l_1779394940264_890j  →  SLA-20260525-890j
+// Idempotent (same SLA loanId → same Baseline Id every call) so retries
+// safely deduplicate.
+function deriveBaselineLoanId(loan) {
+  const date = (loan && loan.fundingDate)
+    ? String(loan.fundingDate).replace(/-/g, '')
+    : todayCompact();
+  const match = String(loan && loan.id || '').match(/_([a-zA-Z0-9]+)$/);
+  const suffix = match ? match[1] : Math.random().toString(36).slice(2, 6);
+  return 'SLA-' + date + '-' + suffix;
+}
+
+// Deploy 208 — robust address parser. Old version only handled
+// "Street, City, STATE ZIP" (state+zip combined). Production data
+// also comes through as "Street, City, STATE, ZIP" (separate pieces)
+// from Google Places autocomplete, which was leaving Address_State
+// and Address_Zipcode null on the Baseline-side. Rewrite handles both
+// forms plus optional trailing USA / United States.
+function parseAddress(s) {
+  const out = { street1: '', city: '', state: '', zip: '' };
+  if (!s) return out;
+  const parts = String(s).split(',').map((p) => p.trim()).filter(Boolean);
+  // Strip trailing country marker if present.
+  if (parts.length && /^(USA|US|United States)$/i.test(parts[parts.length - 1])) {
+    parts.pop();
+  }
+  if (parts.length === 0) return out;
+  out.street1 = parts[0];
+  if (parts.length === 1) return out;
+
+  const last = parts[parts.length - 1];
+  const stateZip   = last.match(/^([A-Z]{2})\s+(\d{5})(?:-\d{4})?$/);
+  const zipOnly    = last.match(/^(\d{5})(?:-\d{4})?$/);
+  const stateOnly  = last.match(/^([A-Z]{2})$/);
+
+  if (stateZip) {
+    // "Street, City, STATE ZIP"
+    out.state = stateZip[1];
+    out.zip   = stateZip[2];
+    if (parts.length >= 3) out.city = parts.slice(1, parts.length - 1).join(', ');
+  } else if (zipOnly && parts.length >= 3) {
+    // "Street, City, STATE, ZIP"  ← Google Places typical
+    out.zip = zipOnly[1];
+    const secondLast = parts[parts.length - 2];
+    if (/^[A-Z]{2}$/.test(secondLast)) {
+      out.state = secondLast;
+      if (parts.length >= 4) out.city = parts.slice(1, parts.length - 2).join(', ');
+    } else {
+      out.city = parts.slice(1, parts.length - 1).join(', ');
+    }
+  } else if (stateOnly && parts.length >= 2) {
+    // "Street, City, STATE"  (no zip)
+    out.state = stateOnly[1];
+    if (parts.length >= 3) out.city = parts.slice(1, parts.length - 1).join(', ');
+  } else {
+    // Couldn't detect zip/state — everything after street is city.
+    out.city = parts.slice(1).join(', ');
+  }
+  return out;
 }
 
 /**
@@ -461,7 +569,11 @@ function buildLoanPayload(loan, client, bi, refs) {
   // is Origination + Term months. Baseline computes Per_Diem etc. from
   // these — important to get them right.
   const origination = loan.fundingDate || todayISO();
-  const termMonths = parseInt(loan.loanTerm, 10) || undefined;
+  // Deploy 208 — term fallback. RTL loans default to 12 months when
+  // not set on the record (private-lending standard); DSCR loans leave
+  // it unset so Baseline's product default applies.
+  let termMonths = parseInt(loan.loanTerm, 10);
+  if (!termMonths || isNaN(termMonths)) termMonths = isRTL ? 12 : undefined;
   const maturity = termMonths ? addMonthsISO(origination, termMonths) : undefined;
 
   // Amortization type. Dutch ONLY for now — user opted to leave Non-
@@ -469,11 +581,31 @@ function buildLoanPayload(loan, client, bi, refs) {
   // the exact enum string for that mode.
   const amortizationType = isDutch ? 'Interest-Only (Loan Amount)' : undefined;
 
+  // Deploy 208 — configurable Status + Substatus per user direction.
+  // All new loans push into 'lead' status. Substatus tracks product
+  // family (DSCR vs RTL) for the team's pipeline filtering. Both
+  // settable per Baseline's docs.
+  const baselineStatus    = 'lead';
+  const baselineSubstatus = isRTL ? 'RTL' : 'DSCR';
+
+  // Deploy 208 — Product field. Custom field name not yet confirmed
+  // by the user — best guess is `Product` (matches Baseline's verbose
+  // naming convention). Values per user: DSCR → "DIYA - DSCR Loan",
+  // RTL → "RTL - Colchis". If Baseline silently drops it, the field
+  // name is wrong and the user will report which one populated; we
+  // adjust here.
+  const productValue = isRTL ? 'RTL - Colchis' : 'DIYA - DSCR Loan';
+
   const payload = {
     // ─ Identity ───────────────────────────────────────────────────
-    Id:     loan.id,                            // SLA loanId — idempotent external key
-    Name:   loan.address || ('Loan ' + loan.id),
-    Status: 'approved',
+    // Deploy 208 — switched to SLA-YYYYMMDD-<suffix> format matching
+    // the customer's existing Baseline ID convention. Derived
+    // deterministically from our SLA loanId so retries dedupe.
+    Id:        deriveBaselineLoanId(loan),
+    Name:      loan.address || ('Loan ' + loan.id),
+    Status:    baselineStatus,
+    Substatus: baselineSubstatus,
+    Product:   productValue,
 
     // ─ Property address (parsed) ─────────────────────────────────
     Address_Street1: addr.street1,
@@ -505,13 +637,21 @@ function buildLoanPayload(loan, client, bi, refs) {
 
     // ─ Loan terms ─────────────────────────────────────────────────
     Loan_Amount:        loanAmt,
-    Rate:               parseFloat(loan.rate) || undefined,           // decimal (0.12)
+    // Deploy 208 — convert percent (10.5) to decimal (0.105). Our loan
+    // records store rate as percent (display value); Baseline's dump
+    // showed rate as decimal (0.12). normalizeRate detects which format
+    // came in and converts; >= 1 means percent (divide), < 1 means
+    // already decimal. Pre-208 we sent 10.5 verbatim → Baseline read it
+    // as 1050%, making Per_Diem and Principal_Interest grotesque.
+    Rate:               normalizeRate(loan.rate),
     Term:               termMonths,
     Holdback:           rehab > 0 ? rehab : undefined,                // RTL only
     Initial_Advance:    initialAdv,                                   // RTL only
     Origination:        origination,
     Maturity:           maturity,
-    Origination_Points: loan.points != null ? String(loan.points) : undefined,
+    // Deploy 208 — strip text like " pts" off the points value; send
+    // as a number. Pre-208 we were sending "1.50 pts" verbatim.
+    Origination_Points: normalizePoints(loan.points),
     Amortization_Type:  amortizationType,
     Frequency:          'Monthly',
 
@@ -537,32 +677,10 @@ function buildLoanPayload(loan, client, bi, refs) {
   return payload;
 }
 
-/**
- * Heuristic parse of "123 Main St, Spokane, WA 99208" into components.
- * Returns the best guess; downstream Baseline will store whatever we
- * send so a partial parse is better than nothing.
- */
-function parseAddress(s) {
-  const out = { street1: '', city: '', state: '', zip: '' };
-  if (!s) return out;
-  const parts = String(s).split(',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length >= 1) out.street1 = parts[0];
-  if (parts.length >= 2) out.city = parts[1];
-  if (parts.length >= 3) {
-    // Last comma-piece is usually "STATE ZIP" or "STATE ZIP, USA"
-    const tail = parts[parts.length - 1].replace(/\bUSA\b/i, '').trim();
-    const m = tail.match(/^([A-Z]{2})\s+(\d{5})(?:-\d{4})?$/);
-    if (m) {
-      out.state = m[1];
-      out.zip = m[2];
-    } else {
-      // Tail might be "WA 99208 USA" with USA in its own piece
-      const tailM = parts[2] && parts[2].match(/^([A-Z]{2})\s+(\d{5})/);
-      if (tailM) { out.state = tailM[1]; out.zip = tailM[2]; }
-    }
-  }
-  return out;
-}
+// Note: parseAddress was hoisted up to live with the other field-
+// normalization helpers (and rewritten in Deploy 208 to handle
+// "Street, City, State, Zip" addresses that Google Places returns).
+// See the top of the file.
 
 // ── HTTP helper ──────────────────────────────────────────────────────
 
@@ -715,12 +833,35 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     result.refs.baselineLoanId = null;
   }
 
+  // Deploy 208 — long-app snapshot. Sanitized snapshot of the fields
+  // that drive whether entity / guarantor steps run. Lets us see at a
+  // glance why a step might have been skipped. Never includes raw PII
+  // (only field presence + email domain).
+  function snapshotBi(b) {
+    if (!b) return { present: false };
+    const guarantors = Array.isArray(b.guarantors) ? b.guarantors : [];
+    return {
+      present: true,
+      status:  b.status || null,
+      hasLLC:  b.hasLLC || null,
+      llcName: b.llcName ? 'set' : 'unset',
+      companiesCount: Array.isArray(b.companies) ? b.companies.length : 0,
+      guarantorsCount: guarantors.length,
+      g1: guarantors[0]
+        ? { emailDomain: ((guarantors[0].email||'').split('@')[1] || null), hasFirstName: !!guarantors[0].firstName, hasLastName: !!guarantors[0].lastName, hasPhone: !!guarantors[0].phone, hasDob: !!guarantors[0].dob, hasFico: !!guarantors[0].fico, hasSsnEnc: !!guarantors[0].ssn_enc }
+        : null,
+      g2: guarantors[1]
+        ? { emailDomain: ((guarantors[1].email||'').split('@')[1] || null), hasFirstName: !!guarantors[1].firstName, hasLastName: !!guarantors[1].lastName }
+        : null,
+    };
+  }
+
   // Attach a debug bundle that the trigger endpoint can pass through
-  // in its response. Helps me see exactly what state the loan record
-  // is in when the sync starts. Cleared on success-paths-finalized.
+  // in its response and persist onto the loan for panel display.
   result._debug = {
     rawRefsFromLoan,
     refsAfterFilter: { ...result.refs },
+    biSnapshot: snapshotBi(borrowerInfo),
   };
 
   // Bail early on missing prerequisites — log the bail so the audit
@@ -757,6 +898,15 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     result.steps.push(step);
     if (step.ok && step.body && step.body.Id) result.refs.baselineEntityId = step.body.Id;
     if (!step.ok) return finalize(result, 'entity_failed');
+  } else if (!result.refs.baselineEntityId) {
+    // Deploy 208 — log explicit "skipped" entry so /baseline-log.html
+    // shows WHY the step didn't run. Without this, skipped steps are
+    // invisible and we have to guess.
+    const reason = !entityPayload
+      ? (borrowerInfo && borrowerInfo.hasLLC !== 'yes' ? 'no_LLC_on_long_app' : 'missing_LLC_name_or_fields')
+      : 'already_synced';
+    await logSkipped('entity', reason, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
+    result.steps.push({ step: 'entity', ok: true, skipped: true, mode: result.mode, reason });
   }
 
   // Step 2 — Guarantor 1.
@@ -766,6 +916,12 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     result.steps.push(step);
     if (step.ok && step.body && step.body.Id) result.refs.baselineGuarantor1Id = step.body.Id;
     if (!step.ok) return finalize(result, 'g1_failed');
+  } else if (!result.refs.baselineGuarantor1Id) {
+    const reason = !g1Payload
+      ? (g1 && !g1.email ? 'g1_missing_email' : 'g1_missing_or_incomplete')
+      : 'already_synced';
+    await logSkipped('g1', reason, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
+    result.steps.push({ step: 'g1', ok: true, skipped: true, mode: result.mode, reason });
   }
 
   // Step 3 — Guarantor 2 (if any).
@@ -776,6 +932,9 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && step.body && step.body.Id) result.refs.baselineGuarantor2Id = step.body.Id;
     if (!step.ok) return finalize(result, 'g2_failed');
   }
+  // Note: g2 is genuinely optional (single-borrower loans). No "skipped"
+  // log when there's no g2 on the long-app — that's expected, not an
+  // anomaly. Only log if g2 was present but unsendable (edge case).
 
   // Step 4 — connect G1 ↔ entity.
   if (result.refs.baselineEntityId && result.refs.baselineGuarantor1Id) {
