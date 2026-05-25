@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8-config-and-bugfixes',
+    phase: 'phase-2.8.1-loan-type-drives-product',
   };
 }
 
@@ -588,13 +588,13 @@ function buildLoanPayload(loan, client, bi, refs) {
   const baselineStatus    = 'lead';
   const baselineSubstatus = isRTL ? 'RTL' : 'DSCR';
 
-  // Deploy 208 — Product field. Custom field name not yet confirmed
-  // by the user — best guess is `Product` (matches Baseline's verbose
-  // naming convention). Values per user: DSCR → "DIYA - DSCR Loan",
-  // RTL → "RTL - Colchis". If Baseline silently drops it, the field
-  // name is wrong and the user will report which one populated; we
-  // adjust here.
-  const productValue = isRTL ? 'RTL - Colchis' : 'DIYA - DSCR Loan';
+  // Deploy 209 (Phase 2.8.1) — switched from Product field to Loan_Type
+  // per user direction. Baseline auto-selects the correct product
+  // (DIYA - DSCR Loan for DSCR; RTL - Colchis for RTL) based on the
+  // Loan_Type value. This also unlocks product-dependent fields like
+  // Origination_Points and Term — without a product selected, those
+  // fields don't exist on the loan record.
+  const loanTypeValue = isRTL ? 'RTL' : 'DSCR';
 
   const payload = {
     // ─ Identity ───────────────────────────────────────────────────
@@ -605,7 +605,10 @@ function buildLoanPayload(loan, client, bi, refs) {
     Name:      loan.address || ('Loan ' + loan.id),
     Status:    baselineStatus,
     Substatus: baselineSubstatus,
-    Product:   productValue,
+    // Deploy 209 — Loan_Type drives Baseline-side product selection
+    // (DSCR → DIYA - DSCR Loan; RTL → RTL - Colchis). Replaces the
+    // Product field guess from Deploy 208.
+    Loan_Type: loanTypeValue,
 
     // ─ Property address (parsed) ─────────────────────────────────
     Address_Street1: addr.street1,
