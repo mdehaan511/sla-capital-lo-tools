@@ -152,6 +152,11 @@ export default async (req, context) => {
     _baselineLastAttemptBy: selfEmail,
     _baselineLastError:    result.ok ? null : (result.error || 'unknown'),
     _baselineLastSteps:    stepsSummary,
+    // Deploy 207 (Phase 2.7.3): persist the orchestrator's debug
+    // bundle (rawRefsFromLoan + refsAfterFilter) onto the loan so
+    // the panel can render it directly. Lets us debug without
+    // needing to capture the trigger response in DevTools.
+    _baselineLastDebug:    result._debug || null,
   };
 
   const updatedClient = {

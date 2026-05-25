@@ -1067,6 +1067,11 @@ function render() {
     // exactly which step failed without round-tripping to the audit
     // log. Each entry: { step, ok, status?, error? }.
     var _bSteps  = Array.isArray(l._baselineLastSteps) ? l._baselineLastSteps : [];
+    // Deploy 207 (Phase 2.7.3): orchestrator debug bundle persisted
+    // alongside the result so we can show what state the loan record
+    // was in when the sync started, without needing to capture the
+    // network response in DevTools.
+    var _bDebug  = l._baselineLastDebug || null;
 
     var _bBadgeColor = _bStatus === 'synced'  ? 'var(--success, #1e6b3b)' :
                        _bStatus === 'partial' ? '#7a5218' :
@@ -1091,6 +1096,15 @@ function render() {
         (_bAt ? '<div><strong style="font-weight:600">Last attempt:</strong> '+escH(fmtDateTime(_bAt))+(_bBy ? ' by '+escH(_bBy) : '')+'</div>' : '') +
         (_bErr ? '<div style="margin-top:6px;color:var(--danger, #7c1f1f);font-size:11.5px"><strong>Last error:</strong> '+escH(_bErr)+'</div>' : '') +
         (_bSteps.length ? renderBaselineSteps(_bSteps) : '') +
+        // Deploy 207 — always show the debug block when present so it's
+        // easy to copy/paste back. Tiny font, monospaced, in a
+        // scrollable box. Renders the raw refs that came off the loan
+        // record + the refs the orchestrator decided to use after
+        // filtering. If they differ, the filter cleaned tainted state;
+        // if both empty, the loan never had baseline metadata.
+        (_bDebug ? '<details style="margin-top:10px;font-size:11px"><summary style="cursor:pointer;color:var(--muted);user-select:none">Diagnostic info (click to expand) — share if asked</summary>' +
+          '<pre style="margin:6px 0 0;padding:8px;background:var(--bg, #f0ece5);border:1px solid var(--border, #E4DFD4);border-radius:6px;font-family:\'DM Mono\', monospace;font-size:10.5px;line-height:1.4;overflow-x:auto;white-space:pre-wrap">' + escH(JSON.stringify(_bDebug, null, 2)) + '</pre>' +
+        '</details>' : '') +
         ((_bEntId || _bG1Id || _bG2Id || _bLoanId)
           ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border, #E4DFD4);font-family:\'DM Mono\', monospace;font-size:11px;color:var(--muted);line-height:1.7">' +
               (_bLoanId ? '<div><strong style="color:var(--text)">Loan:</strong> '+escH(_bLoanId)+'</div>' : '') +
