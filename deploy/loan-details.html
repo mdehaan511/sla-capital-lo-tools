@@ -1087,7 +1087,7 @@ function render() {
         '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;background:#fff;border:1px solid var(--border, #E4DFD4);color:'+_bBadgeColor+'">'+escH(_bBadgeLabel)+'</span>' +
       '</div>' +
       '<div style="padding:10px 12px;font-size:12px;line-height:1.55;color:var(--text)">' +
-        (_bMode ? '<div style="color:var(--muted);font-size:11px;margin-bottom:6px">Mode: '+escH(_bMode)+(_bMode === 'dry-run' ? ' (Phase 1 — no live API calls yet)' : '')+'</div>' : '') +
+        (_bMode ? '<div style="color:var(--muted);font-size:11px;margin-bottom:6px">Last sync ran in: <strong>'+escH(_bMode)+'</strong>'+(_bMode === 'dry-run' ? ' (audit log only — no HTTP calls made on that attempt)' : '')+'</div>' : '') +
         (_bAt ? '<div><strong style="font-weight:600">Last attempt:</strong> '+escH(fmtDateTime(_bAt))+(_bBy ? ' by '+escH(_bBy) : '')+'</div>' : '') +
         (_bErr ? '<div style="margin-top:6px;color:var(--danger, #7c1f1f);font-size:11.5px"><strong>Last error:</strong> '+escH(_bErr)+'</div>' : '') +
         (_bSteps.length ? renderBaselineSteps(_bSteps) : '') +
