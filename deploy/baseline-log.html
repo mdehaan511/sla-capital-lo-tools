@@ -200,6 +200,9 @@ function loadAll() {
     } else if (resp && resp.phase === 'phase-2.6-custom-fields') {
       phaseEl.textContent = 'Phase 2.6 — Tax_ID + Social_Security_Number custom fields wired. ' +
         'Declarations intentionally skipped per user.';
+    } else if (resp && resp.phase === 'phase-2.7-fix-dryrun-poisoning') {
+      phaseEl.textContent = 'Phase 2.7 — fixed dry-run refs poisoning live retries. ' +
+        'Tainted refs from earlier attempts auto-cleared on next sync.';
     } else {
       phaseEl.textContent = '';
     }

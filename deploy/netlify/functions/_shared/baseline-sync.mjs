@@ -94,8 +94,9 @@ export function baselineStatus() {
     enabledKillSwitch: process.env.BASELINE_ENABLED === '0',
     // Phase tag drives a small note in the admin viewer. 2.5 expanded
     // the field mapping; 2.6 added Tax_ID + Social_Security_Number
-    // custom fields + diagnostics. Phase 3 wires auto-fire.
-    phase: 'phase-2.6-custom-fields',
+    // custom fields + diagnostics; 2.7 fixed the dry-run-refs-poisoning
+    // bug. Phase 3 wires auto-fire.
+    phase: 'phase-2.7-fix-dryrun-poisoning',
   };
 }
 
@@ -641,10 +642,19 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     ok: false,
     mode: !isEnabled() ? 'disabled' : (isDryRun() ? 'dry-run' : 'live'),
     steps: [],
-    // Deploy 204 (Phase 2.7 hotfix): filter out dry-run-tainted refs.
+    // Deploy 204 + 205 (Phase 2.7 hotfix): filter dry-run-tainted refs.
     // If a previous dry-run persisted a fake ID, treat it as missing
     // so a live retry actually runs all the steps. isRealBaselineId()
     // recognizes both 'dryrun_' (legacy) and '__DRYRUN__' (current).
+    //
+    // CAVEAT — the LOAN step's pre-Deploy-204 dry-run fake ID was the
+    // real loanId itself (unprefixed), so it slips through the filter
+    // looking legitimate. If we kept it, a live retry would create
+    // entity + guarantors but SKIP the loan-create step — partial
+    // sync, no loan in Baseline. Deploy 205 adds the second guard
+    // below: if any of the borrower refs were filtered out, the whole
+    // prior attempt is suspect — clear the loan ref too. The user's
+    // affected loan recovers on the next retry.
     refs: {
       baselineEntityId:      isRealBaselineId(loan && loan._baselineEntityId)      ? loan._baselineEntityId      : null,
       baselineGuarantor1Id:  isRealBaselineId(loan && loan._baselineGuarantor1Id)  ? loan._baselineGuarantor1Id  : null,
@@ -652,6 +662,24 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
       baselineLoanId:        isRealBaselineId(loan && loan._baselineLoanId)        ? loan._baselineLoanId        : null,
     },
   };
+  // Deploy 205 guard — if any borrower ref came in dry-run-tainted,
+  // discard the loan ref too. They're a unit; the previous attempt
+  // was a dry-run and produced no real Baseline records.
+  const hadBorrowerRefs = !!(
+    (loan && loan._baselineEntityId)     ||
+    (loan && loan._baselineGuarantor1Id) ||
+    (loan && loan._baselineGuarantor2Id)
+  );
+  const keptBorrowerRefs = !!(
+    result.refs.baselineEntityId      ||
+    result.refs.baselineGuarantor1Id  ||
+    result.refs.baselineGuarantor2Id
+  );
+  if (hadBorrowerRefs && !keptBorrowerRefs) {
+    // Borrower refs existed but were ALL dry-run-tainted → loan ref
+    // (even if unprefixed) is from the same poisoned attempt.
+    result.refs.baselineLoanId = null;
+  }
 
   // Bail early on missing prerequisites — log the bail so the audit
   // trail captures it, but return a clean result instead of an error.
