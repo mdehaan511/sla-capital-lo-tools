@@ -80,10 +80,11 @@ export function baselineStatus() {
     mode: !isEnabled() ? 'disabled' : (isDryRun() ? 'dry-run' : 'live'),
     configured: !!process.env.BASELINE_API_KEY,
     baseUrl: baseUrl(),
-    // Phase tag drives a small note in the admin viewer. Phase 2 still
-    // ships with minimal field mapping until the PULL dumps land —
-    // Phase 2.5 will bump this to 'phase-2.5' or 'phase-3'.
-    phase: 'phase-2-manual-live',
+    // Phase tag drives a small note in the admin viewer. 2.5 expanded
+    // the field mapping from real GET /borrower + /loan dumps; 2.6 adds
+    // the PII custom fields (SSN/EIN/declarations) once the customer
+    // provides the Baseline product's custom field names.
+    phase: 'phase-2.5-expanded-mapping',
   };
 }
 
@@ -163,94 +164,324 @@ function redactSensitive(payload) {
   return clone;
 }
 
-// ── Payload builders (PHASE 1: minimal core fields only) ────────────
+// ── Payload builders (PHASE 2.5 — expanded from real PULL dump) ─────
 //
-// Phase 2 will expand these once the user pastes a Baseline GET response
-// revealing the configured custom field names. Until then we emit only
-// the fields documented in the public Baseline schema so the dry-run
-// log gives us a complete preview of what's about to be sent.
+// Mapping derived from a confirmed GET /borrower + GET /loan response
+// on the customer's Baseline account. State strings use full names
+// ("Idaho", not "ID") — confirmed by the example. Phone is country-
+// code-prefixed digits-only ("12087716115"). Rate is a decimal (0.12).
+// Dates are YYYY-MM-DD. Loan terms include the RTL-friendly Holdback
+// and Initial_Advance fields that map cleanly to our rehab budget +
+// initial draw concept.
+//
+// Custom-field fields known to exist in Baseline but NOT returned by
+// the GET endpoint (and therefore not in my dump) — SSN, EIN, the
+// long-app declarations (bankruptcy/foreclosure/lawsuits/etc.). These
+// are settable on POST/PATCH but their exact field names need to come
+// from the customer's Baseline product configuration. Marked TODO
+// throughout; Phase 2.6 wires them.
+
+// 2-letter → full state name. Baseline expects the full name based on
+// the dump ("Idaho" in both Address_State and Borrower_Jurisdiction).
+// Pass-through if the input is already the full name.
+const US_STATES = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia',
+  FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
+  IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana',
+  ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan',
+  MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana',
+  NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey',
+  NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota',
+  OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania',
+  RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota',
+  TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia',
+  WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+};
+function expandState(s) {
+  if (!s) return '';
+  const trimmed = String(s).trim();
+  // Already a full name (more than 2 chars and not all upper)
+  if (trimmed.length > 2) return trimmed;
+  const upper = trimmed.toUpperCase();
+  return US_STATES[upper] || trimmed;
+}
+
+// SLA property-type slug → Baseline enum value. Our example loan had
+// Address_Property_Type=null so the exact enum strings aren't 100%
+// confirmed — these are educated guesses based on common LOS
+// conventions. Baseline silently drops unknown enum values, so the
+// failure mode is "field stays empty" not "request rejected".
+const PROPERTY_TYPE_MAP = {
+  sfr:          'Single Family',
+  single:       'Single Family',
+  '2-4':        '2-4 Unit',
+  '5+':         '5+ Unit',
+  mfr:          'Multi-Family',
+  multi:        'Multi-Family',
+  condo_w:      'Condominium',
+  condo_nw:     'Condominium',
+  condo:        'Condominium',
+  townhome:     'Townhouse',
+  townhouse:    'Townhouse',
+  manufactured: 'Manufactured',
+  rural:        'Rural',
+  portfolio:    'Portfolio',
+};
+function mapPropertyType(s) {
+  if (!s) return undefined;
+  const key = String(s).trim().toLowerCase();
+  return PROPERTY_TYPE_MAP[key]; // undefined if unknown — let Baseline default
+}
+
+// Enum guesses for citizenship + marital. Same caveat — exact strings
+// not visible in the GET dump (both nullable). Adjust if Baseline
+// drops the value.
+function mapCitizenship(yesNo) {
+  if (yesNo == null || yesNo === '') return undefined;
+  const v = String(yesNo).trim().toLowerCase();
+  if (v === 'yes' || v === 'us' || v === 'us_citizen' || v === 'us citizen') return 'US Citizen';
+  if (v === 'no' || v === 'non_us' || v === 'foreign') return 'Non-US Citizen';
+  return undefined;
+}
+function mapMaritalStatus(s) {
+  if (s == null || s === '') return undefined;
+  const v = String(s).trim().toLowerCase();
+  if (v === 'married')   return 'Married';
+  if (v === 'single')    return 'Single';
+  if (v === 'divorced')  return 'Divorced';
+  if (v === 'widowed')   return 'Widowed';
+  if (v === 'separated') return 'Separated';
+  return undefined;
+}
+
+// Date helpers — Baseline expects YYYY-MM-DD throughout.
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+function addMonthsISO(iso, months) {
+  if (!iso) return undefined;
+  const d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return undefined;
+  d.setUTCMonth(d.getUTCMonth() + (Number(months) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+// Strip non-digits + ensure US "1" country-code prefix. Baseline phones
+// in the dump look like "12087716115" — country code + 10 digits.
+function fmtPhone(s) {
+  if (!s) return undefined;
+  const digits = String(s).replace(/[^\d]/g, '');
+  if (!digits) return undefined;
+  if (digits.length === 10) return '1' + digits;
+  return digits;
+}
 
 /**
  * Build the POST /borrower payload for the vesting LLC entity.
  * Returns null if the long-app has no LLC (loan vests in the individual).
+ *
+ * The Baseline borrower record for an entity is fairly thin: Name,
+ * Is_Company, address parts. Entity-specific lending metadata
+ * (Borrower_Entity_Type, Borrower_Jurisdiction) is set at the LOAN
+ * level instead — see buildLoanPayload below.
+ *
+ * TODO Phase 2.6: add EIN once we have the custom field name from the
+ * customer's Baseline product config.
  */
 function buildEntityPayload(loan, client, bi) {
   if (!bi || bi.hasLLC !== 'yes') return null;
   const llcName = bi.llcName || (bi.companies && bi.companies[0] && bi.companies[0].name);
   if (!llcName) return null;
 
-  // Best-effort address split — long-app uses a Google-places-formatted
-  // string in bi.llcAddress, plus separate city/zip from the picker
-  // attached to the companies[] entry. Try both sources.
+  // Long-app uses a Google-Places-formatted string in bi.llcAddress
+  // plus separate city/state/zip from the picker, attached to the
+  // matching companies[] entry. Prefer the parsed components.
   const company = (bi.companies || []).find((c) => c.name === llcName) || {};
+  const stateRaw = company.addrState || bi.llcState || '';
 
-  return {
-    Is_Company: true,
-    Name: llcName,
+  const payload = {
+    Is_Company:      true,
+    Name:            llcName,
     Address_Street1: company.address || bi.llcAddress || '',
-    Address_City: company.city || '',
-    Address_State: company.addrState || bi.llcState || '',
-    Address_Country: 'US',
-    // EIN and state-of-formation will be added in Phase 2 once we know
-    // the Baseline product's custom field names.
+    Address_City:    company.city || '',
+    Address_State:   expandState(stateRaw),
+    Address_Country: 'United States',
   };
+
+  // TODO Phase 2.6 — custom fields not in the public schema. Examples
+  // of likely Baseline field names (uncomment + verify when user
+  // provides the actual names):
+  //   payload.EIN = company.ein || bi.llcEIN || undefined;
+  //   payload.Borrower_Entity_Type = 'Limited Liability Company';
+
+  return payload;
 }
 
 /**
  * Build the POST /borrower payload for a single guarantor (person).
+ *
+ * The Team-list view in the GET dump showed: Id, Name, First_Name,
+ * Last_Name, Email, Other_Email, Date_Birth, Phone, Phone_Secondary,
+ * Is_Company, Created_At, Updated_At, Credit_Score. Address fields
+ * weren't on the Team-list view but standalone person borrowers
+ * almost certainly accept them — sending; if Baseline ignores, no harm.
+ *
  * @param {object} g — guarantor object from borrower_info.guarantors[i]
+ *
+ * TODO Phase 2.6: SSN (custom field), declarations (bankruptcy7yr /
+ * foreclosure7yr / partyToLawsuit / delinquentFederalDebt / obligated
+ * ToForeclosed / outstandingJudgments / intendToOccupy) — all live in
+ * borrower_info but their Baseline custom field names need confirming.
  */
 function buildPersonPayload(g) {
   if (!g || !g.email) return null;
-  const phone = String(g.phone || '').replace(/[^\d]/g, '');
-  return {
-    Is_Company: false,
-    First_Name: g.firstName || '',
-    Last_Name: g.lastName || '',
-    Email: String(g.email || '').trim().toLowerCase(),
-    Phone: phone || undefined,
-    Date_Birth: g.dob || undefined, // expected YYYY-MM-DD
+
+  const payload = {
+    Is_Company:      false,
+    First_Name:      g.firstName || '',
+    Last_Name:       g.lastName || '',
+    Name:            (g.firstName || '') + (g.lastName ? ' ' + g.lastName : ''),
+    Email:           String(g.email || '').trim().toLowerCase(),
+    Other_Email:     String(g.email || '').trim().toLowerCase(), // matched dump
+    Phone:           fmtPhone(g.phone),
+    Date_Birth:      g.dob || undefined, // expected YYYY-MM-DD
     Address_Street1: g.address || '',
-    Address_City: g.city || '',
-    Address_State: g.state || '',
-    Address_Country: 'US',
-    // SSN, FICO, marital, citizenship, declarations → Phase 2 custom fields.
+    Address_City:    g.city || '',
+    Address_State:   expandState(g.state || ''),
+    Address_Country: 'United States',
+    Credit_Score:    g.fico ? parseInt(g.fico, 10) : undefined,
   };
+
+  // Strip undefined/empty so we don't overwrite existing Baseline data
+  // with blanks on PATCH-like upserts.
+  Object.keys(payload).forEach((k) => {
+    if (payload[k] === undefined || payload[k] === '' || payload[k] === null) delete payload[k];
+  });
+
+  return payload;
 }
 
 /**
  * Build the POST /loan payload. Our SLA loanId is sent as Baseline's
- * `Id` so retries are idempotent — re-POSTing the same Id will fail on
- * Baseline's side, which we treat as a "already synced" success.
+ * `Id` so retries are idempotent — re-POSTing the same Id will be
+ * rejected on Baseline's side and we treat that as "already synced".
+ *
+ * Loan-level fields cover four categories:
+ *   1. Identity     — Id, Name, Status, Borrower_Id, Guarantor_Id
+ *   2. Property     — Address_* (parsed) + property detail fields
+ *   3. Loan terms   — Loan_Amount, Rate, Term, Holdback, Initial_Advance,
+ *                     Origination, Maturity, Origination_Points,
+ *                     Amortization_Type, Frequency
+ *   4. Borrower/Guarantor denormalized — entity type, jurisdiction,
+ *                     citizenship, marital status, credit score, flips
+ *                     (these are auto-populated by Baseline from the
+ *                     linked records when the GET returns, but setting
+ *                     them explicitly on create ensures the new loan
+ *                     has rich metadata even before the borrower
+ *                     records are fully fleshed out)
  */
 function buildLoanPayload(loan, client, bi, refs) {
-  // Parse the property address — long-app keeps street/city/state/zip
-  // separately, but the loan record stores it as a single string. We
-  // prefer the parsed components from borrower_info; fall back to a
-  // string split heuristic if missing.
   const addr = parseAddress(loan.address || '');
+  const isRTL = (loan.toolType || '') === 'rtl';
+  const isDutch = (loan.dutchInterest || (bi && bi.dutchInterest) || 'dutch') === 'dutch';
 
-  // Pick the primary Borrower_Id: prefer the entity; fall back to G1
-  // (the long-app first guarantor); final fallback is the client.
-  const primaryBorrowerId =
-    refs.baselineEntityId ||
-    refs.baselineGuarantor1Id ||
-    null;
+  const g1 = (bi && bi.guarantors && bi.guarantors[0]) || {};
+
+  // Identity ----------------------------------------------------------
+  // Primary borrower: prefer the entity (LLC); fall back to G1 person
+  // when the loan vests in the individual (no entity created).
+  // Guarantor_Id: G1's person id, but ONLY when there's a distinct
+  // entity. When the loan vests in G1 directly there's no separate
+  // guarantor — Borrower_Id alone covers it.
+  const primaryBorrowerId = refs.baselineEntityId || refs.baselineGuarantor1Id || null;
+  const guarantorId = refs.baselineEntityId ? (refs.baselineGuarantor1Id || null) : null;
+
+  // Loan amounts ------------------------------------------------------
+  const loanAmt   = parseFloat(loan.loanAmt) || undefined;
+  const rehab     = isRTL ? (parseFloat(loan.rehabBudget) || 0) : 0;
+  // Initial advance = loan amount minus rehab holdback (RTL only).
+  // For DSCR / no-rehab loans, leave undefined so Baseline uses its
+  // own default (typically = loan amount).
+  const initialAdv = isRTL && rehab > 0 && loanAmt ? (loanAmt - rehab) : undefined;
+
+  // Dates -------------------------------------------------------------
+  // Origination defaults to today if no funding date on file; Maturity
+  // is Origination + Term months. Baseline computes Per_Diem etc. from
+  // these — important to get them right.
+  const origination = loan.fundingDate || todayISO();
+  const termMonths = parseInt(loan.loanTerm, 10) || undefined;
+  const maturity = termMonths ? addMonthsISO(origination, termMonths) : undefined;
+
+  // Amortization type. Dutch ONLY for now — user opted to leave Non-
+  // Dutch unset (Baseline product default applies) until we confirm
+  // the exact enum string for that mode.
+  const amortizationType = isDutch ? 'Interest-Only (Loan Amount)' : undefined;
 
   const payload = {
-    Id: loan.id, // SLA loanId → Baseline external ID, idempotent
-    Name: loan.address || ('Loan ' + loan.id),
+    // ─ Identity ───────────────────────────────────────────────────
+    Id:     loan.id,                            // SLA loanId — idempotent external key
+    Name:   loan.address || ('Loan ' + loan.id),
     Status: 'approved',
+
+    // ─ Property address (parsed) ─────────────────────────────────
     Address_Street1: addr.street1,
-    Address_City: addr.city,
-    Address_State: addr.state,
+    Address_City:    addr.city,
+    Address_State:   expandState(addr.state),
     Address_Zipcode: addr.zip,
-    Loan_Amount: parseFloat(loan.loanAmt) || undefined,
-    Rate: parseFloat(loan.rate) || undefined,
-    // Origination / Maturity are placeholders for Phase 2 once we
-    // confirm the date semantics with a real PULL.
+    Address_Country: 'United States',
+
+    // ─ Property details ──────────────────────────────────────────
+    Address_Property_Type:          mapPropertyType(loan.propType || (bi && bi.propertyType)),
+    Address_Beds:                   parseInt(loan.bedrooms, 10) || undefined,
+    Address_Baths:                  parseFloat(loan.bathrooms) || undefined,
+    Address_Gross_Livable_Area_GLA: parseInt(loan.sqft, 10) || undefined,
+    Address_Project_Summary:        loan.projectDescription || (bi && bi.planDescription) || undefined,
+
+    // RTL fields (purchase price, rehab, ARV)
+    Address_Purchase_Price:         isRTL ? (parseFloat(loan.purchasePrice) || undefined) : undefined,
+    Address_ARV_Borrower:           isRTL ? (parseFloat(loan.arv) || undefined)           : undefined,
+    Address_Total_Rehab:            isRTL ? (rehab || undefined)                          : undefined,
+
+    // DSCR fields (as-is value, rent)
+    Address_As_Is_Value:            !isRTL ? (parseFloat(loan.propValue) || undefined) : undefined,
+    Address_Actual_Rent:            !isRTL ? (parseFloat(loan.rent)      || undefined) : undefined,
+    Address_Market_Rent:            !isRTL ? (parseFloat(loan.rent)      || undefined) : undefined,
+
+    // Carrying costs (both products)
+    Address_Property_Taxes:         parseFloat(loan.taxes)     || undefined,
+    Address_HOA_Fees:               parseFloat(loan.hoa)       || undefined,
+
+    // ─ Loan terms ─────────────────────────────────────────────────
+    Loan_Amount:        loanAmt,
+    Rate:               parseFloat(loan.rate) || undefined,           // decimal (0.12)
+    Term:               termMonths,
+    Holdback:           rehab > 0 ? rehab : undefined,                // RTL only
+    Initial_Advance:    initialAdv,                                   // RTL only
+    Origination:        origination,
+    Maturity:           maturity,
+    Origination_Points: loan.points != null ? String(loan.points) : undefined,
+    Amortization_Type:  amortizationType,
+    Frequency:          'Monthly',
+
+    // ─ Borrower/Guarantor denormalized metadata ──────────────────
+    Borrower_Entity_Type: refs.baselineEntityId ? 'Limited Liability Company' : undefined,
+    Borrower_Jurisdiction: refs.baselineEntityId ? expandState(bi && (bi.llcState || (bi.companies && bi.companies[0] && bi.companies[0].addrState)) || '') : undefined,
+    Guarantor_Citizenship:    mapCitizenship(g1.usCitizen),
+    Guarantor_Marital_Status: mapMaritalStatus(g1.marital),
+    Guarantor_Credit_Score:   g1.fico ? parseInt(g1.fico, 10) : undefined,
+    Guarantor_Num_Flipped:    g1.flips != null && g1.flips !== '' ? parseInt(g1.flips, 10) : undefined,
   };
+
+  // Link entity + guarantor by Baseline IDs (these power Borrower_*
+  // and Guarantor_* auto-fill from the linked records).
   if (primaryBorrowerId) payload.Borrower_Id = primaryBorrowerId;
+  if (guarantorId)       payload.Guarantor_Id = guarantorId;
+
+  // Strip blanks so we don't overwrite Baseline-side data on retries.
+  Object.keys(payload).forEach((k) => {
+    if (payload[k] === undefined || payload[k] === '' || payload[k] === null) delete payload[k];
+  });
 
   return payload;
 }

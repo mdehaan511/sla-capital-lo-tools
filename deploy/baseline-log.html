@@ -193,6 +193,9 @@ function loadAll() {
     } else if (resp && resp.phase === 'phase-2-manual-live') {
       phaseEl.textContent = 'Phase 2 — manual "Send to Baseline" button is live. ' +
         'Field mapping is intentionally minimal (core fields only) until the PULL dumps land — Phase 2.5 expands it.';
+    } else if (resp && resp.phase === 'phase-2.5-expanded-mapping') {
+      phaseEl.textContent = 'Phase 2.5 — field mapping expanded from real Baseline GET dumps. ' +
+        'PII custom fields (SSN/EIN/declarations) deferred to Phase 2.6 pending exact field names.';
     } else {
       phaseEl.textContent = '';
     }
