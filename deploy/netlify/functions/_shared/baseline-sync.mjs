@@ -94,9 +94,11 @@ export function baselineStatus() {
     enabledKillSwitch: process.env.BASELINE_ENABLED === '0',
     // Phase tag drives a small note in the admin viewer. 2.5 expanded
     // the field mapping; 2.6 added Tax_ID + Social_Security_Number
-    // custom fields + diagnostics; 2.7 fixed the dry-run-refs-poisoning
-    // bug. Phase 3 wires auto-fire.
-    phase: 'phase-2.7-fix-dryrun-poisoning',
+    // custom fields + diagnostics; 2.7 fixed the dry-run-refs-
+    // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
+    // failure mode never returns "synced" again. Phase 3 wires
+    // auto-fire from approval.
+    phase: 'phase-2.7.2-anomaly-detection',
   };
 }
 
@@ -638,6 +640,14 @@ function isRealBaselineId(id) {
  */
 export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   ctx = ctx || {};
+  // Deploy 206 (Phase 2.7.2): capture the raw loan refs BEFORE
+  // filtering so we can surface them in the response as a debug aid.
+  const rawRefsFromLoan = {
+    baselineEntityId:      (loan && loan._baselineEntityId)     || null,
+    baselineGuarantor1Id:  (loan && loan._baselineGuarantor1Id) || null,
+    baselineGuarantor2Id:  (loan && loan._baselineGuarantor2Id) || null,
+    baselineLoanId:        (loan && loan._baselineLoanId)       || null,
+  };
   const result = {
     ok: false,
     mode: !isEnabled() ? 'disabled' : (isDryRun() ? 'dry-run' : 'live'),
@@ -680,6 +690,38 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     // (even if unprefixed) is from the same poisoned attempt.
     result.refs.baselineLoanId = null;
   }
+
+  // Deploy 206 (Phase 2.7.2): EDGE CASE we missed in 205. If the loan
+  // record had ONLY a _baselineLoanId set (no entity/g1/g2 — say the
+  // user cleared them manually, or a previous failed attempt left
+  // a partial state, or the SLA loanId was stamped some other way),
+  // hadBorrowerRefs is false and the guard doesn't fire. The
+  // orchestrator then keeps the loan ref, skips the loan-create step,
+  // and ALL other steps' connect targets are missing → 0 steps run
+  // total. End result: misleading "synced" with empty audit log.
+  //
+  // Fix: if all three borrower refs are null but loan ref is set,
+  // the loan record is in a half-broken state. There's no way to
+  // verify the existing loanId points to a real Baseline record
+  // without doing a Baseline GET first (and even then a 404 would
+  // require us to re-create). Simpler & safer: clear the loan ref
+  // so we always re-create cleanly. The duplicate-Id rejection from
+  // Baseline then becomes our idempotency signal (we treat it as
+  // "already synced" if Baseline says the Id exists).
+  if (!result.refs.baselineEntityId &&
+      !result.refs.baselineGuarantor1Id &&
+      !result.refs.baselineGuarantor2Id &&
+      result.refs.baselineLoanId) {
+    result.refs.baselineLoanId = null;
+  }
+
+  // Attach a debug bundle that the trigger endpoint can pass through
+  // in its response. Helps me see exactly what state the loan record
+  // is in when the sync starts. Cleared on success-paths-finalized.
+  result._debug = {
+    rawRefsFromLoan,
+    refsAfterFilter: { ...result.refs },
+  };
 
   // Bail early on missing prerequisites — log the bail so the audit
   // trail captures it, but return a clean result instead of an error.
@@ -760,6 +802,17 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     // also echo back an internal numeric Id; both should work as references.
     if (step.ok) result.refs.baselineLoanId = (step.body && step.body.Id) || loan.id;
     if (!step.ok) return finalize(result, 'loan_failed');
+  }
+
+  // Deploy 206 (Phase 2.7.2) — anomaly guard. If we reach here with zero
+  // steps having run, something silently no-op'd: either every
+  // build*Payload returned null (rare — would need no LLC AND no g1
+  // email AND a pre-existing loan ref) OR the orchestrator was tricked
+  // by stale refs into skipping everything (the original bug class
+  // we've been chasing). Surface it loudly instead of returning a
+  // misleading "synced" state.
+  if (result.steps.length === 0) {
+    return finalize(result, 'no_steps_ran');
   }
 
   return finalize(result);

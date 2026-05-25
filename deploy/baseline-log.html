@@ -203,6 +203,8 @@ function loadAll() {
     } else if (resp && resp.phase === 'phase-2.7-fix-dryrun-poisoning') {
       phaseEl.textContent = 'Phase 2.7 — fixed dry-run refs poisoning live retries. ' +
         'Tainted refs from earlier attempts auto-cleared on next sync.';
+    } else if (resp && resp.phase === 'phase-2.7.2-anomaly-detection') {
+      phaseEl.textContent = 'Phase 2.7.2 — anomaly detection. Sync now fails loudly if 0 steps ran (instead of returning misleading "synced").';
     } else {
       phaseEl.textContent = '';
     }
