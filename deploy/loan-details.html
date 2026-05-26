@@ -1040,6 +1040,18 @@ function render() {
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M7 7v4m-2-2l2 2 2-2" stroke="currentColor" stroke-width="1.5"/></svg>' +
     'Download Signed Application (PDF)' +
   '</button>';
+
+  // Deploy 231 — Unsigned Loan Application PDF. Generated fresh from the
+  // current borrower_info data, with [UNSIGNED — Filled by LO on behalf
+  // of borrower] stamps replacing the signature glyphs. Useful when the
+  // LO captured the long-app data via "Save on behalf" but the borrower
+  // hasn't signed — gives the underwriter a readable snapshot without
+  // chasing a signature. Renders only when there's borrower_info data
+  // for this loan; refreshBorrowerInfoStatus() unhides it.
+  html += '<button type="button" class="open-sizer-btn term-sheet-btn" id="downloadUnsignedAppBtn" onclick="downloadUnsignedApp()" style="margin-top:8px;display:none">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 8h5M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+    'Generate Application PDF (Unsigned)' +
+  '</button>';
   // Small inline status under the button: signer name + signed-at + IP.
   // Hidden by default until refreshSignedApplicationStatus() fills it.
   html += '<div id="signedAppStatus" style="display:none;margin-top:10px;padding:10px 12px;background:#fff;border:1px solid var(--border, #E4DFD4);border-radius:6px;font-size:11.5px;line-height:1.5"></div>';
@@ -2971,6 +2983,17 @@ function refreshBorrowerInfoStatus() {
     // tightly coupled (a complete borrower-info record usually has a
     // signed PDF too).
     refreshSignedApplicationStatus();
+    // Deploy 231 — show the "Generate Application PDF (Unsigned)"
+    // button whenever borrower_info exists for this loan (any status
+    // beyond 'pending'). The signed PDF button still has its own
+    // gating; the unsigned button is for when there's data to render
+    // but no signature event. Both can be visible simultaneously —
+    // signed for the legal copy, unsigned for the working snapshot.
+    var unsignedBtn = document.getElementById('downloadUnsignedAppBtn');
+    if (unsignedBtn) {
+      var hasData = (s === 'complete' || s === 'in_progress');
+      unsignedBtn.style.display = hasData ? '' : 'none';
+    }
     // Don't override the gated default state when nothing's happened yet
     if (s === 'complete') {
       btn.classList.add('complete');
@@ -3090,6 +3113,27 @@ function downloadSignedApp() {
     btn.disabled = false;
     btn.innerHTML = originalHTML;
     showToast('Download failed: ' + ((err && err.message) || 'unknown'));
+  });
+}
+
+// Deploy 231 \u2014 Generate the UNSIGNED internal-use PDF. Hits the
+// unsigned-render endpoint which builds fresh from the current
+// borrower_info data each call.
+function downloadUnsignedApp() {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  var btn = document.getElementById('downloadUnsignedAppBtn');
+  var originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Generating\u2026';
+  var opts = {};
+  if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
+  SLA.SignedApplication.downloadUnsigned(_client.id, _loanId, opts).then(function() {
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+    showToast('Generate failed: ' + ((err && err.message) || 'unknown'));
   });
 }
 

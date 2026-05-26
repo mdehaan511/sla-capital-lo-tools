@@ -779,6 +779,40 @@
         });
       });
     },
+    // Deploy 231: generate + download an UNSIGNED internal-use PDF.
+    // For loans where the long app was filled on behalf of the
+    // borrower (no signature event). Mirrors download() above but
+    // hits the unsigned-render endpoint instead of the signed-blob
+    // fetch endpoint.
+    downloadUnsigned: function (clientId, loanId, opts) {
+      opts = opts || {};
+      var qs = '?clientId=' + encodeURIComponent(clientId)
+             + '&loanId=' + encodeURIComponent(loanId);
+      if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
+      return getToken().then(function (token) {
+        return fetch('/api/loan-application-pdf-unsigned' + qs, {
+          headers: { 'Authorization': 'Bearer ' + token },
+        }).then(function (r) {
+          if (!r.ok) {
+            return r.json().catch(function () { return {}; }).then(function (d) {
+              throw new Error(d.error || 'Download failed (HTTP ' + r.status + ')');
+            });
+          }
+          return r.blob().then(function (blob) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            var cd = r.headers.get('Content-Disposition') || '';
+            var m = /filename="([^"]+)"/.exec(cd);
+            a.download = m ? m[1] : 'SLA_Loan_Application_UNSIGNED.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+          });
+        });
+      });
+    },
     // Deploy 182: LO-only resend of the borrower-2 signing link.
     // Rotates the b2 token and emails a fresh link to the co-borrower.
     // Only valid when the loan is awaiting_borrower2.

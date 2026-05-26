@@ -290,6 +290,16 @@
   status = 200
   force = true
 
+# Deploy 231: loan-application-pdf-unsigned — generate an UNSIGNED
+# internal-use PDF for loans whose long app was filled on behalf of
+# borrower (no signature event). Renders the same template as the
+# signed version with [UNSIGNED] stamps + LO entry record.
+[[redirects]]
+  from = "/api/loan-application-pdf-unsigned"
+  to = "/.netlify/functions/loan-application-pdf-unsigned"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"

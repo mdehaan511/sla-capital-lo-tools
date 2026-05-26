@@ -50,9 +50,21 @@ const BORDER     = '#E4DFD4';
  *   Order matters — first entry is rendered first.
  * @param {string} [params.status] - 'awaiting_borrower2' | 'complete'
  */
-export function renderSignedApplicationPDF({ record, client, signers, status }) {
+export function renderSignedApplicationPDF({ record, client, signers, status, unsigned, enteredBy }) {
   signers = signers || [];
   status = status || 'complete';
+  // Deploy 231 — `unsigned` mode renders the same document but with no
+  // signature claim. Used by the "Generate Application PDF (Unsigned)"
+  // button on Loan Details for the save-on-behalf flow where the LO
+  // captured the application data but the borrower never signed. The
+  // PDF is an internal-use snapshot, not a legal record:
+  //   - Title becomes LOAN APPLICATION (UNSIGNED — INTERNAL USE)
+  //   - Every sigBlock renders a "[Unsigned — filled by LO on behalf
+  //     of borrower]" stamp instead of the signature glyph
+  //   - The audit-trail section is replaced with a single "Entered by"
+  //     block showing the LO who triggered the generation
+  unsigned = !!unsigned;
+  enteredBy = enteredBy || {};  // { name, email, at }
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -147,8 +159,12 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       // a 200px width. Without resetting here, "SIGNED LOAN
       // APPLICATION" centers inside that 200px box on the right edge
       // of the page instead of across the full content width.
+      // Deploy 231 \u2014 title and banner depend on signed vs unsigned mode.
+      const titleText = unsigned
+        ? 'LOAN APPLICATION (UNSIGNED \u2014 INTERNAL USE)'
+        : 'SIGNED LOAN APPLICATION';
       doc.font('Times-Bold').fontSize(16).fillColor(PLUM)
-        .text('SIGNED LOAN APPLICATION', 54, doc.y, {
+        .text(titleText, 54, doc.y, {
           width: doc.page.width - 108,
           align: 'center',
         });
@@ -156,10 +172,15 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
         .text('Sir Lends A Lot LLC dba SLA Capital  \u00B7  For business-purpose, investment property loans only.',
               54, doc.y, { width: doc.page.width - 108, align: 'center' });
-      // If borrower 2 still hasn\u2019t signed, show a clearly-marked
-      // "interim" banner so anyone reading the PDF knows it\u2019s not
-      // yet the final fully-signed version.
-      if (status === 'awaiting_borrower2') {
+      if (unsigned) {
+        doc.moveDown(0.3);
+        doc.fillColor('#9B5E1D').font('Helvetica-Bold').fontSize(9)
+          .text('\u2014 UNSIGNED INTERNAL COPY \u00B7 Filled by Loan Officer on behalf of borrower \u2014',
+                54, doc.y, { width: doc.page.width - 108, align: 'center' });
+      } else if (status === 'awaiting_borrower2') {
+        // If borrower 2 still hasn't signed, show a clearly-marked
+        // "interim" banner so anyone reading the PDF knows it's not
+        // yet the final fully-signed version.
         doc.moveDown(0.3);
         doc.fillColor('#9B5E1D').font('Helvetica-Bold').fontSize(9)
           .text('\u2014 INTERIM COPY: Awaiting Co-Borrower Signature \u2014',
@@ -640,8 +661,28 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
                   }) +
                   '   \u2014   ' + captionRole,
                   64, sigY + 56);
+        } else if (unsigned) {
+          // Deploy 231 — unsigned PDF: stamp instead of glyph. Caption
+          // names the LO who entered the data so the file is traceable
+          // even though it's not a signed legal record.
+          doc.font('Helvetica-Bold').fontSize(11).fillColor('#9B5E1D')
+            .text('[UNSIGNED — Filled by LO on behalf of borrower]',
+                  64, sigY + 20, { width: doc.page.width - 128 });
+          const eb = enteredBy.name || enteredBy.email || '';
+          const ts = enteredBy.at
+            ? new Date(enteredBy.at).toLocaleString('en-US', {
+                year: 'numeric', month: 'long', day: 'numeric',
+                hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+              })
+            : '';
+          const captionParts = [];
+          if (eb) captionParts.push('Entered by ' + eb);
+          if (ts) captionParts.push(ts);
+          captionParts.push(captionRole);
+          doc.font('Helvetica').fontSize(8).fillColor(MUTED)
+            .text(captionParts.join('   —   '), 64, sigY + 56);
         } else {
-          // Awaiting signature
+          // Awaiting signature (interim copy waiting on Borrower 2)
           doc.font('Helvetica-Oblique').fontSize(11).fillColor('#9B5E1D')
             .text('[Signature pending — ' + captionRole + ']',
                   64, sigY + 20, { width: doc.page.width - 128 });
@@ -717,7 +758,49 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       // ── AUDIT TRAIL ─────────────────────────────────────────────
       // One audit block per signer, since each signer is an
       // independent signature event with its own IP/UA/timestamp/seal.
+      // Deploy 231 — unsigned PDFs swap this for an "Application Entry
+      // Record" block (LO name + when, no crypto audit). See below.
       doc.addPage();
+      if (unsigned) {
+        section('Application Entry Record');
+        const ebName  = enteredBy.name  || '';
+        const ebEmail = enteredBy.email || '';
+        const ebAt    = enteredBy.at    || '';
+        doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+          .text('This is an internal-use copy of the loan application data collected on behalf of the borrower. It is not a signed legal document. The block below identifies the SLA Capital loan officer who entered the data and the time of entry.',
+                54, doc.y, { width: doc.page.width - 108, lineGap: 1.5 });
+        doc.moveDown(0.6);
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(PLUM)
+          .text('Entered By', 54, doc.y, { width: doc.page.width - 108 });
+        doc.moveDown(0.3);
+        if (ebName)  row('Loan Officer', ebName);
+        if (ebEmail) row('Email', ebEmail);
+        if (ebAt) {
+          row('Entered at', new Date(ebAt).toLocaleString('en-US', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+          }));
+        }
+        if (signers.length) {
+          doc.moveDown(0.4);
+          doc.font('Helvetica-Bold').fontSize(10).fillColor(PLUM)
+            .text('Application Pertains To', 54, doc.y, { width: doc.page.width - 108 });
+          doc.moveDown(0.3);
+          signers.forEach((s) => {
+            const r = s.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+            row(r, (s.name || '') + (s.email ? '  —  ' + s.email : ''));
+          });
+        }
+        doc.moveDown(0.6);
+        doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(MUTED)
+          .text(
+            'No electronic-signature event has been recorded for this document. If a signed copy is required for closing, the borrower must complete the long-form loan application via the secure link sent to their email. This unsigned copy is provided for internal review only.',
+            54, doc.y,
+            { width: doc.page.width - 108, align: 'justify', lineGap: 1 }
+          );
+        doc.end();
+        return;
+      }
       section('Electronic Signature Audit');
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
