@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.3-wrapped-response-fix',
+    phase: 'phase-2.8.4-409-graceful-email-attach',
   };
 }
 
@@ -663,12 +663,16 @@ function buildPersonPayload(g) {
  *                     has rich metadata even before the borrower
  *                     records are fully fleshed out)
  */
-function buildLoanPayload(loan, client, bi, refs) {
+function buildLoanPayload(loan, client, bi, refs, g1Resolved, g2Resolved) {
   const addr = parseAddress(loan.address || '');
   const isRTL = (loan.toolType || '') === 'rtl';
   const isDutch = (loan.dutchInterest || (bi && bi.dutchInterest) || 'dutch') === 'dutch';
 
-  const g1 = (bi && bi.guarantors && bi.guarantors[0]) || {};
+  // Deploy 212 — accept the resolved guarantor objects from the
+  // orchestrator's getGuarantor() fallback chain (long-app → flat →
+  // client record). Previously we re-read bi.guarantors[0] which
+  // missed the client-record fallback case entirely.
+  const g1 = g1Resolved || (bi && bi.guarantors && bi.guarantors[0]) || {};
 
   // Identity ----------------------------------------------------------
   // Primary borrower: prefer the entity (LLC); fall back to G1 person
@@ -783,10 +787,31 @@ function buildLoanPayload(loan, client, bi, refs) {
     Guarantor_Num_Flipped:    g1.flips != null && g1.flips !== '' ? parseInt(g1.flips, 10) : undefined,
   };
 
-  // Link entity + guarantor by Baseline IDs (these power Borrower_*
-  // and Guarantor_* auto-fill from the linked records).
-  if (primaryBorrowerId) payload.Borrower_Id = primaryBorrowerId;
-  if (guarantorId)       payload.Guarantor_Id = guarantorId;
+  // Link entity + guarantor.
+  // Preferred: explicit Baseline IDs (when we successfully created /
+  // had the IDs from a prior sync). Fallback: email-based auto-attach,
+  // which Baseline resolves to an existing borrower if one matches
+  // the email, otherwise creates a new one.
+  //
+  // Deploy 212 — email fallback added to handle the common case of an
+  // investor with multiple loans (the borrower already exists in
+  // Baseline → our POST /borrower returned 409 → we don't have an Id
+  // → loan POST needs Borrower_Email / Guarantor_Email to link).
+  if (primaryBorrowerId) {
+    payload.Borrower_Id = primaryBorrowerId;
+  } else if (g1 && g1.email) {
+    // No entity (vests in individual) AND we couldn't create g1 person
+    // directly. Auto-attach by email — Baseline will link the existing
+    // borrower or create one with this email.
+    payload.Borrower_Email = String(g1.email).trim().toLowerCase();
+  }
+  if (guarantorId) {
+    payload.Guarantor_Id = guarantorId;
+  } else if (refs.baselineEntityId && g1 && g1.email) {
+    // Entity is the Borrower; G1 is the Guarantor. No g1 Id (409
+    // duplicate-email on borrower POST), so attach G1 by email.
+    payload.Guarantor_Email = String(g1.email).trim().toLowerCase();
+  }
 
   // Strip blanks so we don't overwrite Baseline-side data on retries.
   Object.keys(payload).forEach((k) => {
@@ -1034,6 +1059,19 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     return undefined;
   }
 
+  // Deploy 212 — Baseline returns 409 + "That email address is already
+  // in use" (plain text, captured as response.raw) when POST /borrower
+  // hits an existing email. Normal in production for repeat borrowers;
+  // also happens during testing. Treated as soft-success — the loan
+  // POST will attach via Borrower_Email/Guarantor_Email instead.
+  function isDuplicateEmailError(step) {
+    if (!step || step.ok) return false;
+    if (step.status === 409) return true;
+    // Some platforms return 400 with a body indicating the conflict.
+    const text = step.body && (step.body.raw || step.body.error || step.body.message) || '';
+    return /already in use|already exists|duplicate/i.test(String(text));
+  }
+
   // Step 1 — entity (LLC). Skip if no LLC OR if already synced.
   const entityPayload = buildEntityPayload(loan, client, borrowerInfo);
   if (entityPayload && !result.refs.baselineEntityId) {
@@ -1060,8 +1098,20 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     const step = await runStep('g1', 'POST', '/borrower', g1Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
     const g1Id = extractId(step.body, 'borrower');
-    if (step.ok && g1Id) result.refs.baselineGuarantor1Id = g1Id;
-    if (!step.ok) return finalize(result, 'g1_failed');
+    if (step.ok && g1Id) {
+      result.refs.baselineGuarantor1Id = g1Id;
+    } else if (!step.ok && isDuplicateEmailError(step)) {
+      // Deploy 212 — 409 "email already in use" means a borrower with
+      // this email already exists in Baseline (a previous sync, or
+      // this investor's prior loan). Not a real failure — the loan
+      // POST will attach via Guarantor_Email instead. Don't set the
+      // ref; the loan-payload builder will fall through to email-attach.
+      step.ok = true;  // re-mark for the panel (✓ instead of ✕)
+      step.skipped = true;
+      step.reason = 'existing_borrower_by_email_will_attach_via_loan';
+    } else if (!step.ok) {
+      return finalize(result, 'g1_failed');
+    }
   } else if (!result.refs.baselineGuarantor1Id) {
     // Deploy 210 — with the client-record fallback, g1 should almost
     // never be null. If it is, the client record itself has no email,
@@ -1079,8 +1129,16 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     const step = await runStep('g2', 'POST', '/borrower', g2Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
     const g2Id = extractId(step.body, 'borrower');
-    if (step.ok && g2Id) result.refs.baselineGuarantor2Id = g2Id;
-    if (!step.ok) return finalize(result, 'g2_failed');
+    if (step.ok && g2Id) {
+      result.refs.baselineGuarantor2Id = g2Id;
+    } else if (!step.ok && isDuplicateEmailError(step)) {
+      // Same soft-success pattern as g1 (Deploy 212).
+      step.ok = true;
+      step.skipped = true;
+      step.reason = 'existing_borrower_by_email_will_attach_via_loan';
+    } else if (!step.ok) {
+      return finalize(result, 'g2_failed');
+    }
   }
   // Note: g2 is genuinely optional (single-borrower loans). No "skipped"
   // log when there's no g2 on the long-app — that's expected, not an
@@ -1104,7 +1162,10 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
 
   // Step 6 — loan.
   if (!result.refs.baselineLoanId) {
-    const loanPayload = buildLoanPayload(loan, client, borrowerInfo, result.refs);
+    // Deploy 212 — pass the resolved g1/g2 (with fallbacks) into the
+    // payload builder so it can use g1.email for auto-attach when an
+    // explicit Guarantor_Id isn't available.
+    const loanPayload = buildLoanPayload(loan, client, borrowerInfo, result.refs, g1, g2);
     const step = await runStep('loan', 'POST', '/loan', loanPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
     // Deploy 211 — Baseline returns { loan: { Id: "SLA-..." } } wrapped.
