@@ -33,6 +33,8 @@ import {
 // borrower-info auto-advance silently bailed). Same helper as
 // advanceQuoteToInProcessing uses.
 import { syncOnApproval as _baselineSyncOnApproval } from './_shared/baseline-sync.mjs';
+// Deploy 226 — auto-write a "status" entry to the loan's audit log.
+import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 const ALLOWED_TARGETS = ['approved'];
 
@@ -94,6 +96,19 @@ async function handle(req, context) {
   targetLoan._manualAdvanceAt   = now;
   targetLoan._manualAdvanceBy   = selfEmail;
   targetLoan._manualAdvanceFrom = prevStatus;
+
+  // Deploy 226 — audit-log the status change.
+  {
+    const meta = (user && user.user_metadata) || {};
+    const author = meta.full_name || meta.fullName || user.email || '';
+    appendNoteEntry(targetLoan, {
+      kind:        'status',
+      text:        'Manually advanced status: ' + (prevStatus || '—') + ' → ' + body.newStatus,
+      author,
+      authorEmail: user.email || '',
+      meta:        { from: prevStatus, to: body.newStatus, via: 'manual_advance' },
+    });
+  }
 
   // If the loan is being advanced to "approved" from "awaiting_app",
   // stamp borrowerInfoCompletedAt as a defensive measure — the loan

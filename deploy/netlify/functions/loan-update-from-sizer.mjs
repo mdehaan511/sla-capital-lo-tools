@@ -26,6 +26,9 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 226 — append "reprice" entry to the loan's audit log when the
+// sizer save changes rate / loanAmt / points / term vs. the prior record.
+import { appendNoteEntry, describeReprice } from './_shared/notes-log.mjs';
 
 export default async (req, context) => {
   try {
@@ -111,6 +114,23 @@ async function handle(req, context) {
   // Strip transient meta fields that shouldn\u2019t persist.
   delete merged._editingLoanId;
   delete merged._editingClientId;
+
+  // Deploy 226 \u2014 auto-append a "reprice" audit-log entry when the sizer
+  // save changed rate / loanAmt / points / term vs. the prior record.
+  // Skipped silently when this is a brand-new loan (prior had no rate)
+  // or when nothing meaningful changed.
+  const repriceDelta = describeReprice(prior, merged);
+  if (repriceDelta && prior.rate != null && prior.rate !== '') {
+    const meta = (user && user.user_metadata) || {};
+    const author = meta.full_name || meta.fullName || user.email || '';
+    appendNoteEntry(merged, {
+      kind:        'reprice',
+      text:        repriceDelta.text,
+      author,
+      authorEmail: user.email || '',
+      meta:        repriceDelta.meta,
+    });
+  }
 
   client.loans[idx] = merged;
   client.updatedAt = now;

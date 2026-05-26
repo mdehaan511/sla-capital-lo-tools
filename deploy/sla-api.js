@@ -909,6 +909,27 @@
         return r;
       });
     },
+    /**
+     * Deploy 226: append a single audit-log entry to a loan's notesLog.
+     * Used by the Loan Details "Add note" box. Backend also writes
+     * entries from other auto-event paths (sizer reprice, status
+     * changes, admin decisions, long-app sent / received).
+     *
+     * @param {string} clientId
+     * @param {string} loanId
+     * @param {object} opts — { text, kind?, meta?, owner? }
+     */
+    addNote: function (clientId, loanId, opts) {
+      var body = { clientId: clientId, loanId: loanId };
+      body.text = (opts && opts.text) || '';
+      if (opts && opts.kind) body.kind = opts.kind;
+      if (opts && opts.meta) body.meta = opts.meta;
+      if (opts && opts.owner) body.owner = opts.owner;
+      return api('POST', '/api/loan-note-add', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
   };
 
   // ── Public namespace ────────────────────────────────────────────

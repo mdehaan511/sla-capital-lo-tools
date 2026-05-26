@@ -16,6 +16,8 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 226 — log the admin decision on the loan's audit trail.
+import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 const ALLOWED = new Set(['approved', 'denied', 'on_hold']);
 
@@ -75,9 +77,18 @@ export default async (req, context) => {
     return json(500, { error: 'Failed to save decision' });
   }
 
-  // Mirror the status into the client record's matching loan (best-effort)
+  // Mirror the status into the client record's matching loan (best-effort).
+  // Deploy 226 — pass status + reason + actor so syncToClientLoan can
+  // append a "decision" entry to the loan's audit log.
   try {
-    await syncToClientLoan(cleanOwner, quote, persistedStatus);
+    const adminMeta = (user && user.user_metadata) || {};
+    const adminName = adminMeta.full_name || adminMeta.fullName || user.email || '';
+    await syncToClientLoan(cleanOwner, quote, persistedStatus, {
+      verb:        status,                  // 'approved' | 'denied' | 'on_hold'
+      reason:      reason || '',
+      adminEmail:  user.email || '',
+      adminName,
+    });
   } catch (e) {
     console.warn('quotes-decide: client sync failed:', e);
   }
@@ -95,7 +106,7 @@ export default async (req, context) => {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-async function syncToClientLoan(ownerKey, quote, status) {
+async function syncToClientLoan(ownerKey, quote, status, audit) {
   if (!quote.address) return;
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -108,8 +119,27 @@ async function syncToClientLoan(ownerKey, quote, status) {
     let changed = false;
     for (const l of c.loans) {
       if (norm(l.address) === target) {
+        const prevStatus = l.status || '';
         l.status = status;
         l.updatedAt = new Date().toISOString();
+        // Deploy 226 — audit log entry for the admin's decision.
+        if (audit) {
+          const verbDisplay = audit.verb === 'approved'
+            ? 'Approved — moved to Awaiting Application'
+            : audit.verb === 'denied'
+              ? 'Denied'
+              : audit.verb === 'on_hold'
+                ? 'Placed on hold'
+                : 'Decision: ' + audit.verb;
+          const tail = audit.reason ? '\n\nAdmin notes: ' + audit.reason : '';
+          appendNoteEntry(l, {
+            kind:        'decision',
+            text:        verbDisplay + tail,
+            author:      audit.adminName || 'Admin',
+            authorEmail: audit.adminEmail || '',
+            meta:        { from: prevStatus, to: status, decision: audit.verb, reason: audit.reason || '' },
+          });
+        }
         changed = true;
       }
     }

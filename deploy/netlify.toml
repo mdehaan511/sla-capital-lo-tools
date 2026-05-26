@@ -281,6 +281,15 @@
   status = 200
   force = true
 
+# Deploy 226: loan-note-add — append a single timestamped entry to a
+# loan's notesLog audit trail. Used by the Loan Details manual-note box
+# and by the pipeline pre-discussed submit flow.
+[[redirects]]
+  from = "/api/loan-note-add"
+  to = "/.netlify/functions/loan-note-add"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"

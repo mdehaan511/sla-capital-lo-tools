@@ -147,6 +147,41 @@
     .tag-editable { background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); }
     .section-body { padding: 1.25rem 1.5rem; }
 
+    /* Deploy 226 — Notes audit log styles. Bigger panel, scrollable list,
+       per-entry timestamp + kind badge + author. Designed so the box
+       commands attention but doesn't dominate the page. */
+    .notes-toolbar { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 14px; }
+    .notes-toolbar textarea { flex: 1; min-height: 60px; max-height: 220px; resize: vertical; border: 1.5px solid var(--border); border-radius: var(--r-xs); padding: 10px 12px; font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.5; }
+    .notes-toolbar button { white-space: nowrap; padding: 10px 18px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; border-radius: var(--r-xs); border: none; cursor: pointer; }
+    .notes-toolbar .btn-add { background: var(--accent); color: #fff; }
+    .notes-toolbar .btn-add:hover { background: var(--accent-dark); }
+    .notes-toolbar .btn-add:disabled { opacity: 0.6; cursor: not-allowed; }
+    .notes-toolbar .btn-jump { background: rgba(120,116,136,0.12); color: var(--muted); }
+    .notes-toolbar .btn-jump:hover { background: rgba(120,116,136,0.22); }
+    .notes-list { max-height: 520px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r-xs); background: rgba(120,116,136,0.04); padding: 4px; }
+    .notes-list-inner { display: flex; flex-direction: column; gap: 8px; }
+    .note-entry { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 12px 14px; }
+    .note-entry-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; font-size: 11px; color: var(--muted); }
+    .note-entry-time { font-weight: 600; color: var(--dark); }
+    .note-entry-author { font-weight: 500; }
+    .note-entry-kind { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 20px; border: 1px solid; }
+    .nk-manual        { background: var(--pill-bg);                color: var(--muted);   border-color: var(--border); }
+    .nk-submit        { background: rgba(38,26,54,0.08);           color: var(--dark);    border-color: rgba(38,26,54,0.25); }
+    .nk-pre_discussed { background: rgba(200,129,58,0.10);         color: var(--gold-mid);border-color: var(--gold-border); }
+    .nk-reprice       { background: rgba(255,176,46,0.12);         color: #7a5218;        border-color: rgba(122,82,24,0.30); }
+    .nk-decision      { background: rgba(37,105,64,0.10);          color: #256940;        border-color: rgba(37,105,64,0.30); }
+    .nk-decline       { background: rgba(124,31,31,0.10);          color: #7c1f1f;        border-color: rgba(124,31,31,0.30); }
+    .nk-status        { background: rgba(45,99,217,0.08);          color: #1f4a9e;        border-color: rgba(31,74,158,0.25); }
+    .nk-app_sent      { background: rgba(45,99,217,0.06);          color: #1f4a9e;        border-color: rgba(31,74,158,0.18); }
+    .nk-app_received  { background: rgba(37,105,64,0.08);          color: #256940;        border-color: rgba(37,105,64,0.25); }
+    .nk-system        { background: var(--pill-bg);                color: var(--muted);   border-color: var(--border); }
+    .nk-legacy        { background: var(--pill-bg);                color: var(--muted);   border-color: var(--border); }
+    .note-entry-body { font-size: 13px; line-height: 1.55; color: var(--dark); white-space: pre-wrap; word-break: break-word; }
+    .notes-empty { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+    .notes-status { margin-top: 8px; font-size: 12px; min-height: 16px; }
+    .notes-status.err { color: var(--danger, #7c1f1f); }
+    .notes-status.ok { color: var(--success, #256940); }
+
     /* Read-only financial grid */
     .fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-radius: var(--r-xs); overflow: hidden; }
     .fin-cell { background: var(--surface); padding: 12px 16px; }
@@ -1211,13 +1246,41 @@ function render() {
       '</div>' +
       '<div class="field"><label>Desired Close Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" /></div>' +
       '<div class="field span2"><label>Description of Project</label><textarea id="af-projectDescription" placeholder="Briefly describe the work the borrower plans to complete (F&amp;F loans only)">'+escH(l.projectDescription||'')+'</textarea></div>' +
-      '<div class="field span2"><label>Notes</label><textarea id="af-notes" placeholder="Additional notes about this loan…">'+escH(l.notes||'')+'</textarea></div>' +
+      // Deploy 226 — Notes moved out of the Application Form section
+      // and into a dedicated Notes audit log section rendered below.
+      // The legacy free-form textarea is gone; new notes are timestamped
+      // entries appended via the audit log UI, not the Save Changes
+      // button (so app-form saves no longer touch loan.notes).
     '</div>' +
     '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
       '<button class="save-app-btn" onclick="saveAppFields()">Save Changes</button>' +
       '<span id="appStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
     '</div>' +
   '</div></div>'; // close section
+
+  // Deploy 226 — Notes / audit log section. Replaces the old free-form
+  // notes textarea with a scrollable timestamped log. Renders below the
+  // Application Form section. Manual notes append via /api/loan-note-add;
+  // status changes / reprices / decisions auto-write entries from their
+  // respective backend endpoints.
+  html +=
+    '<div class="section">' +
+      '<div class="section-head">' +
+        '<h2>Notes &amp; Activity</h2>' +
+        '<span class="section-tag tag-editable">Audit Log</span>' +
+      '</div>' +
+      '<div class="section-body">' +
+        '<div class="notes-toolbar">' +
+          '<textarea id="noteInput" placeholder="Add a note about this loan — borrower contact, status checkpoint, conversation summary…" onkeydown="handleNoteKeydown(event)"></textarea>' +
+          '<button class="btn-add" id="noteAddBtn" onclick="addNoteFromUI()">Add Note</button>' +
+          '<button class="btn-jump" onclick="jumpNotesToBottom()" title="Jump to oldest">↓ Bottom</button>' +
+        '</div>' +
+        '<div class="notes-status" id="noteStatus"></div>' +
+        '<div class="notes-list" id="notesList">' +
+          '<div class="notes-list-inner" id="notesListInner"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
 
   // Submit Loan section removed (Deploy 162): submission is handled
   // exclusively through Pipeline now to avoid two divergent submission
@@ -1268,6 +1331,145 @@ function render() {
 
   // Async-load the envelope history for this loan. Doesn't block render.
   refreshEnvelopes();
+
+  // Deploy 226 — render the Notes audit log into the section we just
+  // emitted. Pulled into its own function so we can re-render after each
+  // manual Add Note without bouncing through the whole page render.
+  renderNotesLog();
+}
+
+// ── Notes audit log (Deploy 226) ────────────────────────────────────
+
+function renderNotesLog() {
+  var inner = document.getElementById('notesListInner');
+  if (!inner) return;
+  var entries = (_loan && Array.isArray(_loan.notesLog)) ? _loan.notesLog.slice() : [];
+  // Newest first — sort by ISO timestamp descending.
+  entries.sort(function(a, b) {
+    var ta = String(a && a.ts || ''); var tb = String(b && b.ts || '');
+    if (ta < tb) return 1;
+    if (ta > tb) return -1;
+    return 0;
+  });
+  // Append legacy `loan.notes` (free-form pre-audit-log text) as a single
+  // entry at the very bottom (oldest). Keeps the existing data visible
+  // without losing the chronology of new entries above it.
+  var legacy = _loan && String(_loan.notes || '').trim();
+  if (legacy) {
+    entries.push({
+      id: 'legacy',
+      ts: _loan.createdAt || _loan.updatedAt || '',
+      author: '',
+      authorEmail: '',
+      kind: 'legacy',
+      text: legacy,
+    });
+  }
+  if (!entries.length) {
+    inner.innerHTML = '<div class="notes-empty">No notes yet. Add the first one above. Status updates, reprices, and admin decisions also land here automatically.</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var when = formatNoteTime(e.ts);
+    var kindLabel = noteKindLabel(e.kind);
+    var who = e.author || e.authorEmail || (e.kind === 'legacy' ? 'Legacy note' : '');
+    html +=
+      '<div class="note-entry">' +
+        '<div class="note-entry-head">' +
+          (when ? '<span class="note-entry-time">' + escH(when) + '</span>' : '') +
+          (who ? '<span class="note-entry-author">'+ escH(who) +'</span>' : '') +
+          '<span class="note-entry-kind nk-' + escH(e.kind || 'manual') + '">' + escH(kindLabel) + '</span>' +
+        '</div>' +
+        '<div class="note-entry-body">' + escH(e.text || '') + '</div>' +
+      '</div>';
+  }
+  inner.innerHTML = html;
+  // Default to top (newest) — that's where the scroll position
+  // naturally lands after innerHTML replacement, but make explicit.
+  var list = document.getElementById('notesList');
+  if (list) list.scrollTop = 0;
+}
+
+function formatNoteTime(iso) {
+  if (!iso) return '';
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+  } catch (e) { return iso; }
+}
+
+function noteKindLabel(k) {
+  switch (k) {
+    case 'manual':        return 'Note';
+    case 'submit':        return 'Submitted';
+    case 'pre_discussed': return 'Pre-discussed';
+    case 'reprice':       return 'Reprice';
+    case 'decision':      return 'Decision';
+    case 'decline':       return 'Declined';
+    case 'app_sent':      return 'App sent';
+    case 'app_received':  return 'App received';
+    case 'status':        return 'Status';
+    case 'system':        return 'System';
+    case 'legacy':        return 'Pre-audit-log';
+    default:              return String(k || 'Note');
+  }
+}
+
+function jumpNotesToBottom() {
+  var list = document.getElementById('notesList');
+  if (!list) return;
+  list.scrollTop = list.scrollHeight;
+}
+
+function handleNoteKeydown(e) {
+  // Ctrl+Enter / Cmd+Enter to submit, mirroring chat patterns LOs are
+  // already familiar with.
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    addNoteFromUI();
+  }
+}
+
+function addNoteFromUI() {
+  var ta = document.getElementById('noteInput');
+  var btn = document.getElementById('noteAddBtn');
+  var stat = document.getElementById('noteStatus');
+  if (!ta || !_loan || !_client) return;
+  var text = String(ta.value || '').trim();
+  if (!text) {
+    stat.className = 'notes-status err';
+    stat.textContent = 'Type a note first.';
+    return;
+  }
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Saving…';
+  stat.className = 'notes-status';
+  stat.textContent = '';
+
+  var ownerOverride = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Loans.addNote(_client.id, _loan.id, { text: text, kind: 'manual', owner: ownerOverride }).then(function(r) {
+    if (r && r.entry) {
+      if (!Array.isArray(_loan.notesLog)) _loan.notesLog = [];
+      _loan.notesLog.push(r.entry);
+    }
+    ta.value = '';
+    btn.disabled = false; btn.textContent = originalLabel;
+    stat.className = 'notes-status ok';
+    stat.textContent = 'Note saved';
+    setTimeout(function(){ if (stat.textContent === 'Note saved') stat.textContent = ''; }, 2500);
+    renderNotesLog();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = originalLabel;
+    stat.className = 'notes-status err';
+    stat.textContent = 'Save failed: ' + (err.message || 'unknown');
+  });
 }
 
 // Item #4: LO can override the loan amount on Loan Details. Setting the
@@ -1388,7 +1590,9 @@ function saveAppFields() {
     loanPurpose: document.getElementById('af-loanPurpose').value,
     rentalType:  document.getElementById('af-rentalType').value,
     fundingDate: document.getElementById('af-fundingDate').value,
-    notes:       document.getElementById('af-notes').value.trim(),
+    // Deploy 226 — notes moved to the dedicated audit log section. App
+    // form Save no longer touches loan.notes / loan.notesLog so the two
+    // surfaces can evolve independently.
     projectDescription: (document.getElementById('af-projectDescription') || { value: '' }).value.trim(),
     updatedAt:   new Date().toISOString(),
   };

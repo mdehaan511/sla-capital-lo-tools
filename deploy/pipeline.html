@@ -469,6 +469,31 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Deploy 226: Pre-discussed Ask modal (Quoted → ?). Two paths.
+     "No" opens the existing UW submit-notes flow. "Yes" opens the
+     pre-discussed details modal and skips the Submitted column. -->
+<div class="bi-modal-bg" id="submitAskModal">
+  <div class="bi-modal">
+    <h3>Submitting a loan for review</h3>
+    <p class="bi-sub" id="submitAskSub">Quick check — have you already discussed this loan with a senior LO (Mike, Chance, or another senior)?</p>
+
+    <div style="margin-top:18px;display:flex;flex-direction:column;gap:8px">
+      <button class="bi-btn primary" style="width:100%;text-align:left;padding:14px 16px" onclick="submitAskAnswer('yes')">
+        <strong>Yes — already discussed</strong>
+        <div style="font-size:12px;color:rgba(255,255,255,0.85);font-weight:400;margin-top:3px">Skip UW review. Captures details for the file, moves loan straight to Awaiting Application.</div>
+      </button>
+      <button class="bi-btn" style="width:100%;text-align:left;padding:14px 16px;border:1.5px solid var(--border);background:#fff;color:var(--dark)" onclick="submitAskAnswer('no')">
+        <strong>No — submit for UW review</strong>
+        <div style="font-size:12px;color:var(--muted);font-weight:400;margin-top:3px">Standard flow. Adds the loan to the Submissions queue for Mike or Chance to review.</div>
+      </button>
+    </div>
+
+    <div class="bi-actions" style="margin-top:18px">
+      <button class="bi-btn cancel" onclick="closeSubmitAskModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Submit Notes modal (Quoted column → Submitted) -->
 <div class="bi-modal-bg" id="submitNotesModal">
   <div class="bi-modal">
@@ -485,6 +510,28 @@
     <div class="bi-actions">
       <button class="bi-btn cancel" onclick="closeSubmitNotesModal()">Cancel</button>
       <button class="bi-btn primary" id="submitNotesBtn" onclick="submitNotesConfirm()">Submit</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deploy 226: Pre-discussed Details modal — long-form text capture for
+     loans already discussed with a senior LO. Skips Submitted, lands in
+     Awaiting Application. Audit-logged on the loan. -->
+<div class="bi-modal-bg" id="submitPreDiscussedModal">
+  <div class="bi-modal" style="max-width:640px">
+    <h3>Pre-Discussed Loan — Capture Details</h3>
+    <p class="bi-sub" id="submitPreDiscussedSub">So we don't forget, give us all the details of this deal. This text is saved to the loan's Notes audit log and is visible on Loan Details. The loan will move straight to Awaiting Application (UW review is skipped).</p>
+
+    <div style="margin-top:14px">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">Deal details (required)</label>
+      <textarea id="submitPreDiscussedText" style="width:100%;min-height:170px;resize:vertical;border:1.5px solid var(--border);border-radius:var(--r-xs);padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:13px" placeholder="Who did you discuss this with, what was decided, what's the borrower story, what's the property, what conditions if any…"></textarea>
+    </div>
+
+    <div class="bi-status" id="submitPreDiscussedStatus"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeSubmitPreDiscussedModal()">Back</button>
+      <button class="bi-btn primary" id="submitPreDiscussedBtn" onclick="submitPreDiscussedConfirm()">Move to Awaiting Application</button>
     </div>
   </div>
 </div>
@@ -1770,16 +1817,41 @@ function assignProspectConfirm() {
 // both stores in one shot.
 var _submitNotesCtx = null;
 
-// "Submit" a quote — moves it from Quoted → Submitted. Opens a modal that
-// collects notes for the underwriter, then on confirm updates BOTH the
-// quote (drives Pipeline + Submissions) and the loan record (drives Loan
-// Details). The two used to be out of sync — quote was marked submitted,
-// loan stayed active — making the Loan Details page misleading.
+// "Submit" a quote — Deploy 226 introduces a fork. First open the Ask
+// modal: "Have you already discussed this with a senior LO?". Yes →
+// long-form pre-discussed details capture, then skip Submitted and go
+// direct to Awaiting Application. No → existing UW review flow.
 function goSubmit(quoteId, ownerKey) {
   var item = _items.quoted.find(function(it) { return it.id === quoteId && it.ownerKey === ownerKey; });
   if (!item) return;
   _submitNotesCtx = { quoteId: quoteId, ownerKey: ownerKey, item: item };
-  // Reset modal state
+  // Reset Ask modal state
+  var sub = document.getElementById('submitAskSub');
+  if (sub) sub.textContent = 'Quick check — have you already discussed "' + (item.quote.borrower || item.quote.address || 'this loan') + '" with a senior LO (Mike, Chance, or another senior)?';
+  document.getElementById('submitAskModal').classList.add('show');
+}
+
+function closeSubmitAskModal() {
+  document.getElementById('submitAskModal').classList.remove('show');
+  // Exit point — clear ctx so we don't carry it into an unrelated click.
+  _submitNotesCtx = null;
+}
+
+// Deploy 226: branch based on Yes/No.
+function submitAskAnswer(ans) {
+  if (!_submitNotesCtx) return;
+  document.getElementById('submitAskModal').classList.remove('show');
+  if (ans === 'yes') {
+    openPreDiscussedModal();
+  } else {
+    openUWNotesModal();
+  }
+}
+
+// Opens the existing UW-notes modal (the "No" path — standard flow).
+function openUWNotesModal() {
+  var item = _submitNotesCtx && _submitNotesCtx.item;
+  if (!item) return;
   var ta = document.getElementById('submitNotesText');
   if (ta) ta.value = '';
   var sub = document.getElementById('submitNotesSub');
@@ -1790,6 +1862,31 @@ function goSubmit(quoteId, ownerKey) {
   document.getElementById('submitNotesBtn').textContent = 'Submit';
   document.getElementById('submitNotesModal').classList.add('show');
   setTimeout(function(){ if (ta) ta.focus(); }, 50);
+}
+
+// Opens the pre-discussed long-form details modal (the "Yes" path).
+function openPreDiscussedModal() {
+  var item = _submitNotesCtx && _submitNotesCtx.item;
+  if (!item) return;
+  var ta = document.getElementById('submitPreDiscussedText');
+  if (ta) ta.value = '';
+  var sub = document.getElementById('submitPreDiscussedSub');
+  if (sub) sub.textContent = 'So we don’t forget, give us all the details of this deal — "' + (item.quote.borrower || item.quote.address || 'this loan') + '". This text is saved to the loan’s Notes audit log. The loan will move straight to Awaiting Application; UW review is skipped.';
+  document.getElementById('submitPreDiscussedStatus').textContent = '';
+  document.getElementById('submitPreDiscussedStatus').className = 'bi-status';
+  document.getElementById('submitPreDiscussedBtn').disabled = false;
+  document.getElementById('submitPreDiscussedBtn').textContent = 'Move to Awaiting Application';
+  document.getElementById('submitPreDiscussedModal').classList.add('show');
+  setTimeout(function(){ if (ta) ta.focus(); }, 50);
+}
+
+function closeSubmitPreDiscussedModal() {
+  document.getElementById('submitPreDiscussedModal').classList.remove('show');
+  // Re-open the Ask modal so the LO can correct course if they hit Back
+  // by mistake. (Cancel from Ask actually exits.)
+  if (_submitNotesCtx) {
+    document.getElementById('submitAskModal').classList.add('show');
+  }
 }
 
 function closeSubmitNotesModal() {
@@ -1843,6 +1940,161 @@ function submitNotesConfirm() {
   });
 }
 
+// Deploy 226: Pre-discussed path confirm. Skips the Submitted column —
+// quote + loan flip directly to awaiting_app, captured details land in
+// the notes audit log + the legacy notes string. Fires an alternate
+// Slack notification so admins still see when this happens.
+function submitPreDiscussedConfirm() {
+  if (!_submitNotesCtx) return;
+  var ctx = _submitNotesCtx;
+  var text = String((document.getElementById('submitPreDiscussedText') || {}).value || '').trim();
+  var status = document.getElementById('submitPreDiscussedStatus');
+  var btn = document.getElementById('submitPreDiscussedBtn');
+
+  if (!text || text.length < 20) {
+    status.className = 'bi-status err';
+    status.textContent = 'Please give us a few sentences of detail — the captured text is what UW relies on without the formal review.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  status.className = 'bi-status';
+  status.textContent = '';
+
+  var q = ctx.item.quote;
+  // Quote flips directly to awaiting_app, bypassing 'submitted'. We
+  // stash the pre-discussed marker + the details on the quote too so
+  // any future audit (Submissions page filter, etc.) can recognize this
+  // bypassed-review case.
+  var updated = Object.assign({}, q, {
+    status: 'awaiting_app',
+    updatedAt: new Date().toISOString(),
+    submitNotes: text,
+    _preDiscussed: true,
+    _preDiscussedAt: new Date().toISOString(),
+    _preDiscussedBy: (_user && _user.email) || '',
+  });
+  if (ctx.ownerKey && ctx.ownerKey !== (_user.email||'').toLowerCase()) {
+    updated._owner = ctx.ownerKey;
+  }
+
+  SLA.Quotes.save(updated).then(function() {
+    return updateLoanRecordPreDiscussed(ctx.item, text);
+  }).then(function() {
+    // Alternate Slack notification — admins still need to see this happen.
+    return SLA.Settings.getAll().then(function(s) {
+      var hook = s && s.slack_webhook && s.slack_webhook.value;
+      if (hook) postSlackPreDiscussed(hook, q, text);
+    }).catch(function(){});
+  }).then(function() {
+    document.getElementById('submitPreDiscussedModal').classList.remove('show');
+    _submitNotesCtx = null;
+    showToast('Moved to Awaiting Application (pre-discussed)');
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Move to Awaiting Application';
+    status.className = 'bi-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+// Mirror of updateLoanRecordOnSubmit but for the pre-discussed path —
+// status=awaiting_app, kind=pre_discussed audit log entry, and legacy
+// notes string also gets the timestamped header for backward compat.
+function updateLoanRecordPreDiscussed(quoteItem, text) {
+  var lookup = quoteItem.loanLink || _loanLookup[(quoteItem.ownerKey || '').toLowerCase() + '|' + (quoteItem.quote.address || '').toLowerCase().trim()];
+  if (!lookup) return Promise.resolve();
+  var ownerOpt = (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) ? { all: true } : {};
+  return SLA.Clients.list(ownerOpt).then(function(r) {
+    var clients;
+    if (r && r.byOwner) {
+      clients = r.byOwner[lookup.ownerKey] || [];
+    } else {
+      clients = (r && r.clients) || [];
+    }
+    var client = clients.find(function(c) { return c.id === lookup.clientId; });
+    if (!client) return;
+    var loan = (client.loans || []).find(function(l) { return l.id === lookup.loanId; });
+    if (!loan) return;
+    var now = new Date().toISOString();
+    var prevStatus = loan.status || '';
+    loan.status = 'awaiting_app';
+    loan.updatedAt = now;
+    if (!loan.submittedAt) loan.submittedAt = now;
+    loan._preDiscussed   = true;
+    loan._preDiscussedAt = now;
+    loan._preDiscussedBy = (_user && _user.email) || '';
+    loan.submitNotes     = text;
+    loan.submitNotesAt   = now;
+
+    // Audit log entry (manual append via the in-memory array — we save
+    // the whole client back below, so this rides along).
+    if (!Array.isArray(loan.notesLog)) loan.notesLog = [];
+    var umeta = (_user && _user.user_metadata) || {};
+    var authorName = umeta.full_name || umeta.fullName || (_user && _user.email) || '';
+    loan.notesLog.push({
+      id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+      ts: now,
+      author: authorName,
+      authorEmail: (_user && _user.email) || '',
+      kind: 'pre_discussed',
+      text: text,
+      meta: { from: prevStatus, to: 'awaiting_app' },
+    });
+
+    // Legacy notes string append — preserves backward compat for any
+    // page that still reads loan.notes directly.
+    var dateStr = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    var header = '— Pre-discussed with senior LO (' + dateStr + ') —';
+    var existing = String(loan.notes || '').trim();
+    loan.notes = existing ? (existing + '\n\n' + header + '\n' + text) : (header + '\n' + text);
+
+    var saveOpts = client;
+    if (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) {
+      saveOpts = Object.assign({}, client, { _owner: lookup.ownerKey });
+    }
+    return SLA.Clients.save(saveOpts);
+  });
+}
+
+// Slack alert for the pre-discussed bypass — distinct from the standard
+// "New Loan Submitted" message so admins notice the difference.
+function postSlackPreDiscussed(webhookUrl, q, text) {
+  var user = _user;
+  var loName  = user && user.user_metadata && user.user_metadata.full_name || '';
+  var loEmail = user && user.email || '';
+  var fd = q.formData || {};
+  var borrower = q.borrower || fd.borrower || '';
+  var address  = q.address  || fd.address  || '';
+  var loanAmt  = (fd.loanAmt || fd.purchasePrice || q.loanAmt);
+  var amtFmt   = loanAmt ? '$'+Number(loanAmt).toLocaleString() : '-';
+  var rate     = q.finalRate || fd._finalRate ? ((q.finalRate || fd._finalRate)+'%') : '-';
+  var dateStr  = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  var blocks = [
+    { type:'header', text:{ type:'plain_text', text:':handshake: Pre-Discussed Loan - SLA Capital', emoji:true } },
+    { type:'section', text:{ type:'mrkdwn', text:'_LO marked this loan as already discussed with a senior LO. UW review was skipped and the loan moved direct to Awaiting Application._' }},
+    { type:'section', fields:[
+      { type:'mrkdwn', text:'*Address*\n'+(address||'-') },
+      { type:'mrkdwn', text:'*Borrower*\n'+(borrower||'-') },
+      { type:'mrkdwn', text:'*Loan Amount*\n'+amtFmt },
+      { type:'mrkdwn', text:'*Rate*\n'+rate },
+      { type:'mrkdwn', text:'*Loan Officer*\n'+(loName ? (loName + ' | ' + loEmail) : (loEmail||'-')) },
+      { type:'mrkdwn', text:'*When*\n'+dateStr },
+    ]},
+    { type:'section', text:{ type:'mrkdwn', text:'*Details captured*\n'+text.slice(0, 2900) }},
+    { type:'divider' },
+    { type:'context', elements:[{ type:'mrkdwn', text:'View in SLA Capital -> Pipeline -> Awaiting Application' }] },
+  ];
+  try {
+    fetch(webhookUrl, {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ blocks: blocks })
+    });
+  } catch(e) {}
+}
+
 // Helper: locate the loan record matching a pipeline-quote item and
 // update its status + notes. The pipeline build path (renderRow) populates
 // _loanLookup with quote → loan refs; we use that to find the loan.
@@ -1865,6 +2117,7 @@ function updateLoanRecordOnSubmit(quoteItem, notes) {
     if (!client) return;
     var loan = (client.loans || []).find(function(l) { return l.id === lookup.loanId; });
     if (!loan) return;
+    var prevStatusForLog = loan.status || '';
     loan.status = 'submitted';
     loan.updatedAt = new Date().toISOString();
     // Stamp submittedAt so the Loans page (and any future reporting)
@@ -1880,6 +2133,21 @@ function updateLoanRecordOnSubmit(quoteItem, notes) {
       var existing = String(loan.notes || '').trim();
       loan.notes = existing ? (existing + '\n\n' + header + '\n' + notes) : (header + '\n' + notes);
     }
+    // Deploy 226 — audit log entry for the UW-review submit path. Captures
+    // the LO's submit notes so the Loan Details audit log reflects the
+    // hand-off to UW.
+    if (!Array.isArray(loan.notesLog)) loan.notesLog = [];
+    var umetaS = (_user && _user.user_metadata) || {};
+    var authorS = umetaS.full_name || umetaS.fullName || (_user && _user.email) || '';
+    loan.notesLog.push({
+      id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+      ts: loan.updatedAt,
+      author: authorS,
+      authorEmail: (_user && _user.email) || '',
+      kind: 'submit',
+      text: 'Submitted for UW review' + (notes ? '\n\nNotes: ' + notes : ''),
+      meta: { from: prevStatusForLog, to: 'submitted' },
+    });
     var saveOpts = client;
     if (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) {
       saveOpts = Object.assign({}, client, { _owner: lookup.ownerKey });

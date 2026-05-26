@@ -30,6 +30,8 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 226 — audit log entry on decline / restore.
+import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 const DECLINE_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
 // Fallback when _declinedFrom was never written (e.g. a hand-edited
@@ -90,6 +92,8 @@ async function handle(req, context) {
   const prevStatus = targetLoan.status || '';
   const now = new Date().toISOString();
 
+  const umeta = (user && user.user_metadata) || {};
+  const actorName = umeta.full_name || umeta.fullName || user.email || '';
   if (isRestore) {
     // Restore path — only valid from denied
     if (prevStatus !== 'denied') {
@@ -103,6 +107,14 @@ async function handle(req, context) {
     // Audit trail kept; just clear the active marker so future decline
     // flows record fresh _declinedFrom / _declinedAt values.
     delete targetLoan._declinedFrom;
+    // Deploy 226 — audit log entry on restore.
+    appendNoteEntry(targetLoan, {
+      kind:        'status',
+      text:        'Loan restored from Declined → ' + restoreTo,
+      author:      actorName,
+      authorEmail: user.email || '',
+      meta:        { from: 'denied', to: restoreTo, via: 'restore' },
+    });
   } else {
     if (DECLINE_FROM.indexOf(prevStatus) < 0) {
       return json(400, {
@@ -116,6 +128,14 @@ async function handle(req, context) {
     targetLoan._declinedBy = selfEmail;
     targetLoan._declinedFrom = prevStatus;
     if (reason) targetLoan._declineReason = reason;
+    // Deploy 226 — audit log entry on decline.
+    appendNoteEntry(targetLoan, {
+      kind:        'decline',
+      text:        'Loan declined' + (reason ? ' — ' + reason : ''),
+      author:      actorName,
+      authorEmail: user.email || '',
+      meta:        { from: prevStatus, to: 'denied', reason: reason || '' },
+    });
   }
 
   try {

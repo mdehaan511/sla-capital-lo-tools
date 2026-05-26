@@ -33,6 +33,8 @@ import { writeTokenIndex, deleteTokenIndex } from './_shared/borrower-info-token
 // Deploy 223 — reply_to header set to the LO who owns the lead so
 // borrower replies go to the right inbox (not noreply@).
 import { getOwnerReplyTo } from './_shared/email.mjs';
+// Deploy 226 — audit log entry on the loan when the long app is sent.
+import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -162,6 +164,31 @@ async function handle(req, context) {
       });
     } catch (e) {
       console.warn('borrower-info-request: email failed:', e);
+    }
+  }
+
+  // Deploy 226 — when the LO sent the long-app email (sendEmail=true),
+  // append an "app_sent" entry to the loan's audit log. We only fire on
+  // explicit sends so that LOs regenerating the link without emailing
+  // (e.g., to copy/paste it) don't pollute the log. Best-effort.
+  if (body.sendEmail) {
+    try {
+      const matchIdx = (client.loans || []).findIndex((l) => l && l.id === body.loanId);
+      if (matchIdx >= 0) {
+        const umeta = (user && user.user_metadata) || {};
+        const authorName = umeta.full_name || umeta.fullName || user.email || '';
+        appendNoteEntry(client.loans[matchIdx], {
+          kind:        'app_sent',
+          text:        'Sent long-form loan application to ' + recipientEmail + (emailed ? '' : ' (email failed — link generated)'),
+          author:      authorName,
+          authorEmail: user.email || '',
+          meta:        { borrowerEmail: recipientEmail, emailed: !!emailed },
+        });
+        client.loans[matchIdx].updatedAt = new Date().toISOString();
+        await clientsStore.setJSON(`${ownerKey}/${keySafe(body.clientId)}`, client);
+      }
+    } catch (e) {
+      console.warn('borrower-info-request: audit log write failed (non-fatal):', e && e.message);
     }
   }
 

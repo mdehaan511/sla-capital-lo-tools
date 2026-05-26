@@ -27,6 +27,9 @@ import { getStore } from '@netlify/blobs';
 // moves the loan to "In Processing" also pushes the record to Baseline.
 // The helper is fire-and-await but never throws to the caller.
 import { syncOnApproval as _baselineSyncOnApproval } from './baseline-sync.mjs';
+// Deploy 226 — audit log: write "app_received" + "status" entries when
+// the long app comes back and the loan flips awaiting_app → approved.
+import { appendNoteEntry } from './notes-log.mjs';
 
 // Translate the long-form property-type slug to the loan-record slug.
 // Long form may emit: sfh, sfr, 2-4, 5+, condo_w, condo_nw, townhome,
@@ -277,9 +280,27 @@ export async function advanceQuoteToInProcessing(record) {
   let advancedLoan = null; // capture the loan we flipped, for Baseline sync below
   for (const l of client.loans) {
     if (aggrNorm(l.address) === target && l.status === 'awaiting_app') {
+      const prevStatus = l.status;
       l.status = 'approved';
       l.updatedAt = new Date().toISOString();
       l.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
+      // Deploy 226 — audit log entries: app_received + status flip.
+      // System-authored because this fires on the borrower's submit, not
+      // an LO action.
+      appendNoteEntry(l, {
+        kind:        'app_received',
+        text:        'Borrower completed and submitted the long-form loan application.',
+        author:      'SLA Platform',
+        authorEmail: 'system@slacapital.com',
+        meta:        { completedAt: l.borrowerInfoCompletedAt },
+      });
+      appendNoteEntry(l, {
+        kind:        'status',
+        text:        'Status: ' + prevStatus + ' → approved (long app complete → In Processing)',
+        author:      'SLA Platform',
+        authorEmail: 'system@slacapital.com',
+        meta:        { from: prevStatus, to: 'approved', via: 'borrower-info-complete' },
+      });
       loanUpdated = true;
       advancedLoan = l;
     }
