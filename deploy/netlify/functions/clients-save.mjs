@@ -72,6 +72,56 @@ export default async (req, context) => {
     if (existing && existing.ssn_enc && !record.ssn_enc) {
       record.ssn_enc = existing.ssn_enc;
     }
+
+    // Deploy 228 — propagate first/last name changes. The Pipeline tile
+    // and rate-sheet PDF both read the borrower name from places other
+    // than client.firstName/lastName (loan.borrowerName on the client
+    // itself; quote.borrower in the separate quotes store). When the
+    // LO renames a client to fix a typo, those downstream fields need
+    // to update too — otherwise the new name only shows on the Client
+    // Details page while everywhere else still shows the old name.
+    const oldFirst = existing && existing.firstName || '';
+    const oldLast  = existing && existing.lastName  || '';
+    const newFirst = record.firstName || '';
+    const newLast  = record.lastName  || '';
+    const nameChanged = (oldFirst !== newFirst) || (oldLast !== newLast);
+    if (nameChanged) {
+      const newFull = (newFirst + ' ' + newLast).trim();
+      // (a) Loan records on this client — rewrite borrowerName on each.
+      if (Array.isArray(record.loans)) {
+        for (const l of record.loans) {
+          if (l && typeof l === 'object') l.borrowerName = newFull;
+        }
+      }
+      // (b) Quote records in the `quotes` store under this owner — find
+      // any whose formData.borrowerEmail matches this client's email
+      // and update quote.borrower + quote.formData.borrower. Best-
+      // effort; failure is non-fatal (the save itself still goes through).
+      (async () => {
+        try {
+          const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+          const target = String(record.email || '').toLowerCase().trim();
+          if (!target) return;
+          const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
+          for (const { key: qKey } of blobs) {
+            const q = await quotesStore.get(qKey, { type: 'json' });
+            if (!q) continue;
+            const qEmail = String((q.formData && q.formData.borrowerEmail) || q.borrowerEmail || '').toLowerCase().trim();
+            if (qEmail !== target) continue;
+            q.borrower = newFull;
+            if (q.formData) {
+              q.formData.borrower     = newFull;
+              q.formData.borrowerName = newFull;
+            }
+            q.updatedAt = new Date().toISOString();
+            await quotesStore.setJSON(qKey, q);
+          }
+        } catch (e) {
+          console.warn('clients-save: quote borrower-name propagation failed (non-fatal):', e && e.message);
+        }
+      })();
+    }
+
     await store.setJSON(key, record);
 
     // Fire-and-forget Brevo sync. Failures never block the save response.

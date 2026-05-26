@@ -16,6 +16,9 @@ import { lookupTokenKey, writeTokenIndex } from './_shared/borrower-info-token-i
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 import { getOwnerReplyTo } from './_shared/email.mjs';
+// Deploy 228 — parse single-line Google formatted_address to fill
+// city/state/zip on guarantor home + company addresses.
+import { fillAddressBlanks } from './_shared/address.mjs';
 
 export default async (req, context) => {
   try {
@@ -163,6 +166,14 @@ async function handle(req) {
 // encrypted into a separate ssn_enc field; the plaintext never lands in
 // stored JSON. If the incoming SSN is empty/unchanged ("***-**-1234" mask),
 // we keep whatever we already had.
+//
+// Deploy 228 — also parse the single-line Google formatted_address that
+// the long app stores in g.address / company.address. If the borrower
+// picked from autocomplete, g.address holds the full string but the
+// separate g.city / g.state / g.zip fields are blank. Without this
+// parse pass: (1) Client Profile saves an empty home-address city/
+// state/zip; (2) Baseline borrower-create gets a partial address and
+// 500s server-side; (3) the LO loses structured data for reporting.
 function mergeData(existing, incoming) {
   const out = Object.assign({}, existing, incoming);
 
@@ -179,9 +190,46 @@ function mergeData(existing, incoming) {
       }
       // Never persist plaintext SSN
       delete merged.ssn;
+      // Deploy 228 — parse the home address single-line string to fill
+      // city/state/zip if they're blank. Also parses the optional
+      // previous-address + mailing-address fields collected post-
+      // Deploy 182. Non-destructive: never overwrites an explicit value.
+      fillAddressBlanks(merged);
+      if (merged.prevAddress || merged.prevCity || merged.prevState || merged.prevZip) {
+        // Treat the prev-address bundle as its own object so the parser
+        // can refill its companion city/state/zip without colliding
+        // with the home address fields.
+        const prev = { address: merged.prevAddress, city: merged.prevCity, state: merged.prevState, zip: merged.prevZip };
+        fillAddressBlanks(prev);
+        merged.prevCity  = prev.city;
+        merged.prevState = prev.state;
+        merged.prevZip   = prev.zip;
+      }
+      if (merged.mailingAddress || merged.mailingCity || merged.mailingState || merged.mailingZip) {
+        const mail = { address: merged.mailingAddress, city: merged.mailingCity, state: merged.mailingState, zip: merged.mailingZip };
+        fillAddressBlanks(mail);
+        merged.mailingCity  = mail.city;
+        merged.mailingState = mail.state;
+        merged.mailingZip   = mail.zip;
+      }
       return merged;
     });
   }
+
+  // Deploy 228 — same address-parse pass for companies (LLC vesting
+  // entities). The long app collects company.address as a single Google
+  // formatted_address; without parsing, Client Profile companies and
+  // Baseline entity-create both miss city/state.
+  if (Array.isArray(incoming.companies)) {
+    const existingCo = Array.isArray(existing.companies) ? existing.companies : [];
+    out.companies = incoming.companies.map((c, i) => {
+      const exC = existingCo[i] || {};
+      const merged = Object.assign({}, exC, c);
+      fillAddressBlanks(merged);
+      return merged;
+    });
+  }
+
   return out;
 }
 

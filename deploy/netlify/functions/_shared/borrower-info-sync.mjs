@@ -30,6 +30,11 @@ import { syncOnApproval as _baselineSyncOnApproval } from './baseline-sync.mjs';
 // Deploy 226 — audit log: write "app_received" + "status" entries when
 // the long app comes back and the loan flips awaiting_app → approved.
 import { appendNoteEntry } from './notes-log.mjs';
+// Deploy 228 — parse single-line Google formatted_address so the
+// home address landing on the Client Profile has structured
+// city/state/zip even when the borrower used single-line autocomplete
+// in the long app.
+import { parseAddress } from './address.mjs';
 
 // Translate the long-form property-type slug to the loan-record slug.
 // Long form may emit: sfh, sfr, 2-4, 5+, condo_w, condo_nw, townhome,
@@ -97,12 +102,23 @@ export async function syncPropertyFieldsToLoan(record) {
   if (g0.marital)    clientUpdates.maritalStatus = String(g0.marital);
   if (g0.usCitizen)  clientUpdates.usCitizen     = String(g0.usCitizen);
   if (g0.address || g0.city || g0.state || g0.zip) {
-    clientUpdates.homeAddress = {
-      street: g0.address || '',
-      city:   g0.city    || '',
-      state:  g0.state   || '',
-      zip:    g0.zip     || '',
-    };
+    // Deploy 228 — parse the combined address string to recover any
+    // embedded city/state/zip from a Google formatted_address. If the
+    // separate fields are already populated they take precedence; if
+    // they're blank but the address has the data inline, the parser
+    // pulls it out. Also strips the redundant "City, ST ZIP, USA" tail
+    // from the street so the street value is just the street line.
+    const parsed = parseAddress(g0.address || '');
+    const city  = String(g0.city  || '').trim() || parsed.city  || '';
+    const state = String(g0.state || '').trim() || parsed.state || '';
+    const zip   = String(g0.zip   || '').trim() || parsed.zip   || '';
+    // When the original g0.address has commas we can confidently use
+    // just the parsed street; otherwise keep the original input (it's
+    // already just a street).
+    const street = (parsed.street1 && String(g0.address || '').indexOf(',') >= 0)
+      ? parsed.street1
+      : (g0.address || '');
+    clientUpdates.homeAddress = { street, city, state, zip };
   }
   if (g0.flips !== undefined && g0.flips !== '')      clientUpdates.flips    = String(g0.flips);
   if (g0.rentals !== undefined && g0.rentals !== '')  clientUpdates.rentals  = String(g0.rentals);
@@ -112,16 +128,30 @@ export async function syncPropertyFieldsToLoan(record) {
   if (Array.isArray(data.companies) && data.companies.length > 0) {
     companiesUpdate = data.companies
       .filter((c) => c && (c.name || c.ein))
-      .map((c) => ({
-        id:      c.id || ('co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
-        name:    String(c.name  || ''),
-        state:   String(c.state || ''),
-        ein:     String(c.ein   || ''),
-        address: String(c.address || ''),
-        city:    String(c.city    || ''),
-        addrState: String(c.addrState || ''),
-        zip:     String(c.zip || ''),
-      }));
+      .map((c) => {
+        // Deploy 228 — same single-line address parse for the LLC
+        // address. Without this, Client Profile companies entries show
+        // a full address string in `address` but no separate
+        // city/addrState/zip — and the sizer's "Companies" picker
+        // displays them weirdly.
+        const parsed = parseAddress(String(c.address || ''));
+        const city      = String(c.city      || '').trim() || parsed.city  || '';
+        const addrState = String(c.addrState || '').trim() || parsed.state || '';
+        const zip       = String(c.zip       || '').trim() || parsed.zip   || '';
+        const street    = (parsed.street1 && String(c.address || '').indexOf(',') >= 0)
+          ? parsed.street1
+          : String(c.address || '');
+        return {
+          id:        c.id || ('co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
+          name:      String(c.name  || ''),
+          state:     String(c.state || ''),    // jurisdiction (filing state)
+          ein:       String(c.ein   || ''),
+          address:   street,
+          city,
+          addrState,                            // address state (where mail goes)
+          zip,
+        };
+      });
   }
 
   if (Object.keys(loanUpdates).length === 0

@@ -103,6 +103,12 @@ async function handle(req, context) {
     sqft:        incoming.sqft        || prior.sqft,
     projectDescription: incoming.projectDescription || prior.projectDescription || '',
     notes:       incoming.notes       || prior.notes || '',
+    // Deploy 228 \u2014 preserve Desired Close Date. The sizer has no
+    // input for it; without preservation, every sizer save clobbers
+    // the value supplied by the prospect short app or set on Loan
+    // Details. Same preservation pattern as the other app-section
+    // fields above.
+    fundingDate: incoming.fundingDate || prior.fundingDate || '',
     // Preserve status: a save shouldn\u2019t demote a Submitted loan back
     // to Active. If the sizer doesn\u2019t explicitly send a status, keep
     // the prior status. If it does, only accept if prior was active.
