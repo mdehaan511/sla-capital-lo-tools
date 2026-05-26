@@ -102,7 +102,7 @@ export function baselineStatus() {
     // auto-fire from approval. Deploy 225 — partial-address guard
     // (drop all Address_* unless we have full Street + City + State,
     // parse Google formatted_address strings on the way in).
-    phase: 'deploy-225-partial-address-guard',
+    phase: 'deploy-228.2-borrower-address-500-fallback',
   };
 }
 
@@ -1383,7 +1383,11 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   // Step 1 — entity (LLC). Skip if no LLC OR if already synced.
   const entityPayload = buildEntityPayload(loan, client, borrowerInfo);
   if (entityPayload && !result.refs.baselineEntityId) {
-    const step = await runStep('entity', 'POST', '/borrower', entityPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
+    // Deploy 228.2 — same address-strip fallback as the guarantor
+    // steps. The entity address goes through the same Baseline
+    // address validator, so a missing ZIP / geocoding fail / etc.
+    // would 500 the same way.
+    const step = await postBorrowerWithAddressFallback('entity', entityPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
     const entId = extractId(step.body, 'borrower');
     if (step.ok && entId) {
@@ -1416,7 +1420,12 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   // Step 2 — Guarantor 1.
   const g1Payload = buildPersonPayload(g1);
   if (g1Payload && !result.refs.baselineGuarantor1Id) {
-    const step = await runStep('g1', 'POST', '/borrower', g1Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
+    // Deploy 228.2 — wrap POST /borrower so a 500 from the address
+    // validator (missing ZIP, geocoding fail, generic "Something went
+    // wrong") falls back to a retry with Address_* stripped. The
+    // borrower record gets created without an address; recovery audit
+    // entry tells the LO to add it manually or fix and re-sync.
+    const step = await postBorrowerWithAddressFallback('g1', g1Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
     const g1Id = extractId(step.body, 'borrower');
     if (step.ok && g1Id) {
@@ -1473,7 +1482,8 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   // Step 3 — Guarantor 2 (if any).
   const g2Payload = buildPersonPayload(g2);
   if (g2Payload && !result.refs.baselineGuarantor2Id) {
-    const step = await runStep('g2', 'POST', '/borrower', g2Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
+    // Deploy 228.2 — same address-strip fallback as g1.
+    const step = await postBorrowerWithAddressFallback('g2', g2Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
     const g2Id = extractId(step.body, 'borrower');
     if (step.ok && g2Id) {
@@ -1600,6 +1610,57 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
  * Always returns the step's outcome (caller uses it to decide whether
  * to continue the sequence). Never throws.
  */
+// Deploy 228.2 — Borrower-create wrapper with address-strip retry.
+//
+// Baseline's POST /borrower endpoint returns a generic HTTP 500
+// "Something went wrong. Please contact support." when its address
+// validator rejects (missing ZIP, geocoding fail, etc.) — the error
+// body never tells us which field tripped it. To unblock the sync, we
+// retry once with all Address_* fields stripped. The borrower record
+// gets created without a home address; the LO can later edit it in
+// the Baseline UI or fix the SLA-side data and re-sync.
+//
+// Returns the step object from the SUCCESSFUL call (with
+// recoveryNote attached when the retry was used), or the original
+// failed step if even the strip-and-retry didn't work.
+async function postBorrowerWithAddressFallback(stepName, payload, mode, ctx) {
+  const step = await runStep(stepName, 'POST', '/borrower', payload, mode, ctx);
+  if (step.ok || step.skipped) return step;
+  const hadAddress = !!(payload && (payload.Address_Street1 || payload.Address_City || payload.Address_State || payload.Address_Zipcode));
+  const is500 = step.status === 500;
+  if (!is500 || !hadAddress) return step;
+
+  // Strip and retry. Logged as a separate step (stepName + '_no_address')
+  // so the per-step strip in the Loan Details panel makes the retry
+  // visible without needing to expand the full audit log.
+  const stripped = Object.assign({}, payload);
+  delete stripped.Address_Street1;
+  delete stripped.Address_City;
+  delete stripped.Address_State;
+  delete stripped.Address_Zipcode;
+  delete stripped.Address_Country;
+  const retry = await runStep(stepName + '_no_address', 'POST', '/borrower', stripped, mode, ctx);
+  if (retry.ok) {
+    retry.recoveryNote = 'Initial POST /borrower returned 500 (likely address validator). Retried without Address_* fields and succeeded. The Baseline borrower record was created WITHOUT a home address — add it manually in the Baseline UI, or fix the address on the SLA-side borrower record (typically the home address ZIP) and re-sync.';
+    // Persist a recovery audit entry so it shows up in /baseline-log.html.
+    await writeLog({
+      step: stepName + '_recovery_no_address',
+      mode,
+      ok: true,
+      note: retry.recoveryNote,
+      baselineId: extractId(retry.body, 'borrower') || null,
+      originalStatus: step.status,
+      originalError: (step.body && step.body.error) || step.raw || null,
+      ...ctx,
+    });
+    return retry;
+  }
+  // Both attempts failed — return the ORIGINAL step (with the
+  // original error message) so the LO sees the real error, not the
+  // retry's noise.
+  return step;
+}
+
 async function runStep(stepName, method, path, body, mode, ctx) {
   const startedAt = Date.now();
   const url = baseUrl() + (path.startsWith('/') ? path : '/' + path);
