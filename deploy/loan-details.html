@@ -1118,6 +1118,17 @@ function render() {
           '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 7.5h11M8.5 3l4 4.5-4 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
           escH(_bBtnLabel) +
         '</button>' +
+        // Deploy 221 — "Reset Baseline link" button. Visible when any
+        // Baseline ref is persisted (otherwise nothing to reset).
+        // Use case: a loan stuck in a half-synced state (e.g. exists
+        // in Baseline but missing Guarantor). Reset clears the SLA-
+        // side refs; LO then manually deletes the orphan record in
+        // Baseline UI and clicks Retry to create fresh.
+        ((_bEntId || _bG1Id || _bG2Id || _bLoanId)
+          ? '<button type="button" class="open-sizer-btn" onclick="resetBaselineLink()" style="margin-top:8px;background:transparent;color:var(--muted, #7a7488);border:1px dashed var(--border, #E4DFD4);font-size:12px">' +
+              'Reset Baseline link (advanced)' +
+            '</button>'
+          : '') +
       '</div>' +
     '</div>';
   }
@@ -1735,6 +1746,40 @@ function triggerBaselineSync() {
   }).catch(function(err) {
     showToast('Baseline sync request failed: ' + ((err && err.message) || 'unknown'));
     if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = originalLabel; }
+  });
+}
+
+// Deploy 221 — Reset Baseline link. Clears the SLA-side persisted
+// refs (_baselineEntityId / _baselineGuarantor1Id / _baselineLoanId /
+// etc.) so the next "Send to Baseline" creates fresh records. Used to
+// recover from a half-synced state — e.g. when a loan was created in
+// Baseline BEFORE the person↔entity connection existed, and Baseline
+// therefore can't auto-derive the Guarantor. No way to fix the existing
+// Baseline loan record via PATCH; only path is to recreate it.
+//
+// Warning shown to user since this is a destructive-ish action — they
+// have to know to manually delete the orphan Baseline records to avoid
+// duplicates.
+function resetBaselineLink() {
+  if (!_client || !_loan) return;
+  var msg =
+    'Reset the Baseline link for this loan?\n\n' +
+    'This clears the locally-stored Baseline IDs so the next "Send to Baseline" creates fresh records. ' +
+    'It does NOT delete the existing Baseline-side records — you should manually delete the orphaned loan ' +
+    'in Baseline UI BEFORE clicking Retry, otherwise a duplicate will be created.\n\n' +
+    'Use this when a loan got stuck in a half-synced state (e.g. exists in Baseline but missing Guarantor).';
+  if (!confirm(msg)) return;
+
+  var btn = event && event.currentTarget;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = 'Resetting…'; }
+
+  var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  SLA.Baseline.reset(_client.id, _loanId, ownerOvr).then(function(resp) {
+    showToast('Baseline refs cleared. Delete the orphan Baseline record(s), then click Send to Baseline.');
+    setTimeout(function() { window.location.reload(); }, 800);
+  }).catch(function(err) {
+    showToast('Reset failed: ' + ((err && err.message) || 'unknown'));
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'Reset Baseline link (advanced)'; }
   });
 }
 

@@ -329,6 +329,15 @@
   status = 200
   force = true
 
+# Deploy 221 — clears persisted Baseline refs on a loan so the next
+# Retry creates fresh records (used when a loan is stuck with broken
+# linkage from old bug-era syncs).
+[[redirects]]
+  from = "/api/baseline-sync-reset"
+  to = "/.netlify/functions/baseline-sync-reset"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/borrower-info-request"
   to = "/.netlify/functions/borrower-info-request"

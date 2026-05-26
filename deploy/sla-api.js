@@ -487,6 +487,21 @@
       if (ownerOverride) body.owner = ownerOverride;
       return api('POST', '/api/baseline-sync-trigger', body);
     },
+    // Deploy 221 — clear all persisted Baseline refs on a loan so the
+    // next trigger creates fresh records. Used to recover loans stuck
+    // in a half-synced state (loan exists in Baseline but Guarantor
+    // never attached because the person↔entity connection happened
+    // AFTER the loan was created — Baseline only derives Guarantor at
+    // loan-create time from the entity Team snapshot).
+    //
+    // NOTE — this does NOT delete the Baseline-side records. The LO
+    // must manually delete the orphan loan in Baseline UI before
+    // clicking Retry, otherwise a duplicate will be created.
+    reset: function (clientId, loanId, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId };
+      if (ownerOverride) body.owner = ownerOverride;
+      return api('POST', '/api/baseline-sync-reset', body);
+    },
   };
 
   // ── Envelopes (native e-signature, Deploy 185) ─────────────────

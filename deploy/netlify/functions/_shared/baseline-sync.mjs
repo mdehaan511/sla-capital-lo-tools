@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.11-guarantor-email-and-mutation-probe',
+    phase: 'phase-2.8.12-reset-baseline-link',
   };
 }
 
