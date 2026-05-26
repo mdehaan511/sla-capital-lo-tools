@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.5-clear-stale-loan-refs',
+    phase: 'phase-2.8.6-graphql-find-by-email',
   };
 }
 
@@ -835,6 +835,67 @@ function buildLoanPayload(loan, client, bi, refs, g1Resolved, g2Resolved) {
  * Phase 1: this is unreachable because the orchestrator runs in dry-run
  * mode. Phase 2 wires it in.
  */
+// Deploy 215 (Phase 2.8.6) — find an existing borrower by email via
+// Baseline's GraphQL endpoint. Used when POST /borrower returns 409
+// "email already in use" so we can recover the existing borrower's Id
+// and attach it to the loan as Guarantor_Id (the documented behavior
+// of Guarantor_Email auto-attach is unclear; the explicit Guarantor_Id
+// path is what we know works).
+//
+// GraphQL field-name casing is not fully documented for this customer's
+// schema — the public docs example used `loans` lowercase for the type
+// name. We try the most likely casings in order and accept the first
+// success. Returns the borrower's Id or null if none found / all
+// queries errored.
+async function findBorrowerByEmail(email) {
+  if (!email) return null;
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!cleanEmail) return null;
+
+  // Try a couple of casing variants for the email field name. Baseline
+  // GraphQL might use Email (PascalCase, matching REST) or email
+  // (lowercase, more typical for GraphQL).
+  const queries = [
+    '{ borrowers(where: { Email: { _eq: "' + cleanEmail + '" } }) { Id Email } }',
+    '{ borrowers(where: { email: { _eq: "' + cleanEmail + '" } }) { Id email } }',
+  ];
+
+  for (const query of queries) {
+    try {
+      const url = baseUrl() + '/graph';
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Token ' + process.env.BASELINE_API_KEY,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
+      const text = await resp.text().catch(() => '');
+      let parsed;
+      try { parsed = text ? JSON.parse(text) : {}; } catch (_) { parsed = null; }
+      if (!parsed) continue;
+      // GraphQL errors → try next query
+      if (parsed.errors && parsed.errors.length) {
+        console.warn('baseline graphql errors:', JSON.stringify(parsed.errors).slice(0, 300));
+        continue;
+      }
+      const borrowers = parsed.data && parsed.data.borrowers;
+      if (Array.isArray(borrowers) && borrowers.length > 0) {
+        return borrowers[0].Id || borrowers[0].id || null;
+      }
+      // Query succeeded but no rows — borrower doesn't exist by this
+      // email (which is odd given we got a 409 from POST). Stop here.
+      return null;
+    } catch (e) {
+      console.warn('baseline findBorrowerByEmail threw:', e && e.message);
+      // Try next query
+    }
+  }
+  return null;
+}
+
 async function baselineFetch(method, path, body) {
   const url = baseUrl() + (path.startsWith('/') ? path : '/' + path);
   try {
@@ -1127,14 +1188,23 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && g1Id) {
       result.refs.baselineGuarantor1Id = g1Id;
     } else if (!step.ok && isDuplicateEmailError(step)) {
-      // Deploy 212 — 409 "email already in use" means a borrower with
-      // this email already exists in Baseline (a previous sync, or
-      // this investor's prior loan). Not a real failure — the loan
-      // POST will attach via Guarantor_Email instead. Don't set the
-      // ref; the loan-payload builder will fall through to email-attach.
-      step.ok = true;  // re-mark for the panel (✓ instead of ✕)
-      step.skipped = true;
-      step.reason = 'existing_borrower_by_email_will_attach_via_loan';
+      // Deploy 215 (Phase 2.8.6) — 409 means a borrower with this
+      // email already exists. Look it up via GraphQL so we can use
+      // the explicit Guarantor_Id on the loan POST. (Guarantor_Email
+      // auto-attach is unverified and appears to silently drop.)
+      const existingId = await findBorrowerByEmail(g1Payload.Email);
+      if (existingId) {
+        result.refs.baselineGuarantor1Id = existingId;
+        step.ok = true;
+        step.skipped = true;
+        step.reason = 'existing_borrower_found_via_graphql:' + existingId;
+      } else {
+        // Couldn't find via GraphQL — soft-success anyway and let the
+        // loan POST attempt email-based attach as a last resort.
+        step.ok = true;
+        step.skipped = true;
+        step.reason = 'existing_borrower_by_email_graphql_lookup_failed';
+      }
     } else if (!step.ok) {
       return finalize(result, 'g1_failed');
     }
@@ -1158,10 +1228,18 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && g2Id) {
       result.refs.baselineGuarantor2Id = g2Id;
     } else if (!step.ok && isDuplicateEmailError(step)) {
-      // Same soft-success pattern as g1 (Deploy 212).
-      step.ok = true;
-      step.skipped = true;
-      step.reason = 'existing_borrower_by_email_will_attach_via_loan';
+      // Same GraphQL lookup pattern as g1 (Deploy 215).
+      const existingId = await findBorrowerByEmail(g2Payload.Email);
+      if (existingId) {
+        result.refs.baselineGuarantor2Id = existingId;
+        step.ok = true;
+        step.skipped = true;
+        step.reason = 'existing_borrower_found_via_graphql:' + existingId;
+      } else {
+        step.ok = true;
+        step.skipped = true;
+        step.reason = 'existing_borrower_by_email_graphql_lookup_failed';
+      }
     } else if (!step.ok) {
       return finalize(result, 'g2_failed');
     }

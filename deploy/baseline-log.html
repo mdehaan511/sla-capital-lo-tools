@@ -219,6 +219,8 @@ function loadAll() {
       phaseEl.textContent = 'Phase 2.8.4 — HTTP 409 duplicate-email no longer fails the sync; loan POST falls back to Borrower_Email / Guarantor_Email auto-attach.';
     } else if (resp && resp.phase === 'phase-2.8.5-clear-stale-loan-refs') {
       phaseEl.textContent = 'Phase 2.8.5 — stale-format loan refs (pre-Deploy-210 l_<...>) auto-cleared so next retry re-creates with the current SLA-YYYYMMDD-NNNN format. Trigger fallback chain removed (result.refs is authoritative).';
+    } else if (resp && resp.phase === 'phase-2.8.6-graphql-find-by-email') {
+      phaseEl.textContent = 'Phase 2.8.6 — when POST /borrower returns 409, GraphQL /api/graph finds the existing borrower by email so we can attach them via explicit Guarantor_Id on the loan.';
     } else {
       phaseEl.textContent = '';
     }
