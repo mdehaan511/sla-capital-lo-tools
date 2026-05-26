@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.2-numeric-id-and-fallbacks',
+    phase: 'phase-2.8.3-wrapped-response-fix',
   };
 }
 
@@ -217,37 +217,41 @@ function redactSensitive(payload) {
 //   Entity:    bi.hasLLC='yes' + llcName → client.companies[0]
 
 function getGuarantor(bi, client, idx) {
+  let g = null;
+
   // Priority 1: packed guarantors array from the long-app save flow
   if (bi && Array.isArray(bi.guarantors) && bi.guarantors[idx]) {
-    return { ...bi.guarantors[idx], _source: 'long_app_packed' };
+    g = { ...bi.guarantors[idx], _source: 'long_app_packed' };
   }
   // Priority 2: flat g{idx}_* keys (unpacked form data)
-  const prefix = 'g' + idx + '_';
-  if (bi && (bi[prefix + 'email'] || bi[prefix + 'firstName'])) {
-    return {
-      firstName: bi[prefix + 'firstName'] || '',
-      lastName:  bi[prefix + 'lastName']  || '',
-      email:     bi[prefix + 'email']     || '',
-      phone:     bi[prefix + 'phone']     || '',
-      dob:       bi[prefix + 'dob']       || '',
-      fico:      bi[prefix + 'fico']      || '',
-      ssn:       bi[prefix + 'ssn']       || '',
-      ssn_enc:   bi[prefix + 'ssn_enc']   || '',
-      address:   bi[prefix + 'address']   || '',
-      city:      bi[prefix + 'city']      || '',
-      state:     bi[prefix + 'state']     || '',
-      marital:   bi[prefix + 'marital']   || '',
-      usCitizen: bi[prefix + 'usCitizen'] || '',
-      flips:     bi[prefix + 'flips']     || '',
-      _source:   'long_app_flat',
-    };
+  if (!g) {
+    const prefix = 'g' + idx + '_';
+    if (bi && (bi[prefix + 'email'] || bi[prefix + 'firstName'])) {
+      g = {
+        firstName: bi[prefix + 'firstName'] || '',
+        lastName:  bi[prefix + 'lastName']  || '',
+        email:     bi[prefix + 'email']     || '',
+        phone:     bi[prefix + 'phone']     || '',
+        dob:       bi[prefix + 'dob']       || '',
+        fico:      bi[prefix + 'fico']      || '',
+        ssn:       bi[prefix + 'ssn']       || '',
+        ssn_enc:   bi[prefix + 'ssn_enc']   || '',
+        address:   bi[prefix + 'address']   || '',
+        city:      bi[prefix + 'city']      || '',
+        state:     bi[prefix + 'state']     || '',
+        marital:   bi[prefix + 'marital']   || '',
+        usCitizen: bi[prefix + 'usCitizen'] || '',
+        flips:     bi[prefix + 'flips']     || '',
+        _source:   'long_app_flat',
+      };
+    }
   }
   // Priority 3 (primary guarantor only): client record contact info.
   // The client always has at minimum email+name+phone since those are
   // captured when the loan is first created. Less rich than the long-
   // app but enough to attach a borrower to the Baseline loan.
-  if (idx === 0 && client && client.email) {
-    return {
+  if (!g && idx === 0 && client && client.email) {
+    g = {
       firstName: client.firstName || '',
       lastName:  client.lastName  || '',
       email:     client.email     || '',
@@ -264,7 +268,18 @@ function getGuarantor(bi, client, idx) {
       _source:   'client_record',
     };
   }
-  return null;
+
+  // Deploy 211 — primary-guarantor address backfill. Long-app
+  // sometimes saves Street1 without City/State (Google Places
+  // didn't autocomplete a full match, or the borrower typed manually
+  // and the form let them through). For g0, fill missing city/state
+  // from client.homeAddress when available.
+  if (g && idx === 0 && client && client.homeAddress) {
+    if (!g.city)  g.city  = client.homeAddress.city  || '';
+    if (!g.state) g.state = client.homeAddress.state || '';
+  }
+
+  return g;
 }
 
 function getEntityInfo(bi, client) {
@@ -603,6 +618,15 @@ function buildPersonPayload(g) {
     Address_State:   expandState(g.state || ''),
     Address_Country: 'United States',
     Credit_Score:    g.fico ? parseInt(g.fico, 10) : undefined,
+    // Deploy 211 — moved from loan-level Guarantor_* fields to the
+    // person-borrower record. Baseline denormalizes onto the loan
+    // automatically when the borrower is linked. Field names are best
+    // guesses based on Baseline's naming convention (the dump showed
+    // Borrower_/Guarantor_ prefixes on the loan-level versions; the
+    // borrower-record fields most likely drop the prefix).
+    Citizenship:     mapCitizenship(g.usCitizen),
+    Marital_Status:  mapMaritalStatus(g.marital),
+    Num_Flipped:     g.flips != null && g.flips !== '' ? parseInt(g.flips, 10) : undefined,
   };
 
   // Social_Security_Number is the customer's custom field name (per
@@ -995,12 +1019,28 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   const g1 = getGuarantor(borrowerInfo, client, 0);
   const g2 = getGuarantor(borrowerInfo, client, 1);
 
+  // Deploy 211 — Baseline POST responses are wrapped:
+  //   { "borrower": { "Id": "15633071", ... } }
+  //   { "loan":     { "Id": "SLA-...",   ... } }
+  // Pre-Deploy-211 we read step.body.Id (always undefined) so refs
+  // never populated and the loan was created with no Borrower_Id /
+  // Guarantor_Id — orphaned borrowers + orphaned loan. Helper unwraps
+  // either shape, falling back to the unwrapped form for forward
+  // compatibility if Baseline ever drops the wrapper.
+  function extractId(stepBody, key) {
+    if (!stepBody) return undefined;
+    if (stepBody[key] && stepBody[key].Id) return stepBody[key].Id;
+    if (stepBody.Id) return stepBody.Id;
+    return undefined;
+  }
+
   // Step 1 — entity (LLC). Skip if no LLC OR if already synced.
   const entityPayload = buildEntityPayload(loan, client, borrowerInfo);
   if (entityPayload && !result.refs.baselineEntityId) {
     const step = await runStep('entity', 'POST', '/borrower', entityPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
-    if (step.ok && step.body && step.body.Id) result.refs.baselineEntityId = step.body.Id;
+    const entId = extractId(step.body, 'borrower');
+    if (step.ok && entId) result.refs.baselineEntityId = entId;
     if (!step.ok) return finalize(result, 'entity_failed');
   } else if (!result.refs.baselineEntityId) {
     // Deploy 208/210 — log "skipped" entry with reason. With the new
@@ -1019,7 +1059,8 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   if (g1Payload && !result.refs.baselineGuarantor1Id) {
     const step = await runStep('g1', 'POST', '/borrower', g1Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
-    if (step.ok && step.body && step.body.Id) result.refs.baselineGuarantor1Id = step.body.Id;
+    const g1Id = extractId(step.body, 'borrower');
+    if (step.ok && g1Id) result.refs.baselineGuarantor1Id = g1Id;
     if (!step.ok) return finalize(result, 'g1_failed');
   } else if (!result.refs.baselineGuarantor1Id) {
     // Deploy 210 — with the client-record fallback, g1 should almost
@@ -1037,7 +1078,8 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   if (g2Payload && !result.refs.baselineGuarantor2Id) {
     const step = await runStep('g2', 'POST', '/borrower', g2Payload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
-    if (step.ok && step.body && step.body.Id) result.refs.baselineGuarantor2Id = step.body.Id;
+    const g2Id = extractId(step.body, 'borrower');
+    if (step.ok && g2Id) result.refs.baselineGuarantor2Id = g2Id;
     if (!step.ok) return finalize(result, 'g2_failed');
   }
   // Note: g2 is genuinely optional (single-borrower loans). No "skipped"
@@ -1065,9 +1107,12 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     const loanPayload = buildLoanPayload(loan, client, borrowerInfo, result.refs);
     const step = await runStep('loan', 'POST', '/loan', loanPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
-    // Loan's external Id is what we sent (loan.id). Some Baseline endpoints
-    // also echo back an internal numeric Id; both should work as references.
-    if (step.ok) result.refs.baselineLoanId = (step.body && step.body.Id) || loan.id;
+    // Deploy 211 — Baseline returns { loan: { Id: "SLA-..." } } wrapped.
+    // extractId handles either shape. Fallback to the deterministic Id
+    // we sent in case the response shape is unexpected.
+    if (step.ok) {
+      result.refs.baselineLoanId = extractId(step.body, 'loan') || deriveBaselineLoanId(loan);
+    }
     if (!step.ok) return finalize(result, 'loan_failed');
   }
 
