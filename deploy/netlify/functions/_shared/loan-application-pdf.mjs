@@ -411,10 +411,27 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       // Legal/Doc fees are SLA's standard DSCR fees ($1,695 + $500).
       // Rate Buydown and Origination Fee pull from the loan record so
       // they reflect what the LO actually quoted on the sizer.
-      const buydown    = (loanRec && loanRec.buydown != null) ? parseFloat(loanRec.buydown) : null;
-      const origPoints = (loanRec && loanRec.points  != null) ? parseFloat(loanRec.points)  : null;
-      const buydownStr    = (buydown    != null && isFinite(buydown))    ? (buydown.toFixed(buydown    % 1 === 0 ? 0 : 2) + '% of the Loan Amount') : '0% of the Loan Amount';
-      const origPointsStr = (origPoints != null && isFinite(origPoints)) ? (origPoints.toFixed(origPoints % 1 === 0 ? 0 : 2) + '% of the Loan Amount') : '';
+      // Deploy 231.1 — separate Rate Buydown from Origination Fee.
+      // The DSCR sizer stores loan.points as the COMBINED total
+      // (formula in dscr-sizer.html: `_points = (1 + buydown).toFixed(2)
+      // + ' pts'`). So `loan.points` carries both the 1pt origination
+      // AND the rate-buydown points stacked on top. Mike wants the PDF
+      // to show them as two distinct rows matching how the LO quoted
+      // them in the sizer: Origination Fee separate from Rate Buydown.
+      // Compute origination as (total points − buydown points).
+      // For RTL where buydown is zero (no rate-buy concept), this just
+      // returns the total points — still correct.
+      const buydown      = (loanRec && loanRec.buydown != null) ? parseFloat(loanRec.buydown) : null;
+      const totalPoints  = (loanRec && loanRec.points  != null) ? parseFloat(loanRec.points)  : null;
+      const buydownNum   = (buydown   != null && isFinite(buydown))   ? buydown   : 0;
+      const totalNum     = (totalPoints != null && isFinite(totalPoints)) ? totalPoints : null;
+      const origNum      = (totalNum != null) ? Math.max(0, totalNum - buydownNum) : null;
+      const fmtPoints = (n) => {
+        if (n == null || !isFinite(n)) return '';
+        return n.toFixed(n % 1 === 0 ? 0 : 2) + '% of the Loan Amount';
+      };
+      const buydownStr    = (buydown != null && isFinite(buydown) && buydown > 0) ? fmtPoints(buydown) : '0% of the Loan Amount';
+      const origPointsStr = (origNum != null) ? fmtPoints(origNum) : '';
 
       // Render only when we have something meaningful (any priced loan
       // will, but pre-sizer records may not).
