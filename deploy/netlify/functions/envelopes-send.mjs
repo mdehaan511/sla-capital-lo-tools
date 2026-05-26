@@ -22,6 +22,8 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { generateSignerToken } from './_shared/native-esign.mjs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 const TOKEN_TTL_DAYS = 30;
 
@@ -132,6 +134,7 @@ async function handle(req, context) {
     try {
       const r = await sendInvitationEmail({
         apiKey, signer: s, envelope: env, link, loName, propertyAddress,
+        ownerKey: env.ownerKey,
       });
       emailResults.push({ email: s.email, ok: r });
     } catch (e) {
@@ -158,7 +161,7 @@ async function handle(req, context) {
   return json(200, { ok: true, envelope: env, emailResults });
 }
 
-async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress }) {
+async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress, ownerKey }) {
   const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const docList = (envelope.docs || []).map((d) => d.name).join(', ');
   const subject = 'Please review and sign: ' + (docList || 'SLA Capital documents');
@@ -212,6 +215,7 @@ async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, pro
     '</div>' +
     '</body></html>';
 
+  const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -219,6 +223,7 @@ async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, pro
       from: 'SLA Capital <noreply@leads.slacapital.com>',
       to: [signer.email],
       subject, text, html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   if (!resp.ok) {

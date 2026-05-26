@@ -26,6 +26,8 @@ import {
   requireAuth, normalizeEmail, isAdmin, keySafe,
 } from './_shared/auth.mjs';
 import { generateBorrower2Token } from './_shared/esign.mjs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 const B2_TOKEN_TTL_DAYS = 30;
 
@@ -157,6 +159,7 @@ async function handle(req, context) {
       '</div>' +
       '</body></html>';
 
+    const replyTo = await getOwnerReplyTo(rec.ownerKey);
     try {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -165,6 +168,7 @@ async function handle(req, context) {
           from: 'SLA Capital <noreply@leads.slacapital.com>',
           to: [rec.borrower2.email],
           subject, text, html,
+          ...(replyTo ? { reply_to: replyTo } : {}),
         }),
       });
       if (resp.ok) emailedAt = new Date().toISOString();

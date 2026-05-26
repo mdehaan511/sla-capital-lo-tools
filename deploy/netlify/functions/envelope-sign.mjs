@@ -24,6 +24,8 @@ import {
   getClientIp, getUserAgent, appendSignaturePageToPdf, hashPdf,
 } from './_shared/native-esign.mjs';
 import { lookupEnvelopeByToken } from './envelope-signer-info.mjs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 export default async (req) => {
   try { return await handle(req); }
@@ -284,6 +286,7 @@ async function sendFinalCopiesEmail({ envelope, stampedPdfs }) {
       '</div>' +
       '</body></html>';
 
+    const replyTo = await getOwnerReplyTo(envelope.ownerKey);
     try {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -293,6 +296,7 @@ async function sendFinalCopiesEmail({ envelope, stampedPdfs }) {
           to: [r.email],
           subject, text, html,
           attachments,
+          ...(replyTo ? { reply_to: replyTo } : {}),
         }),
       });
       if (resp.ok) sent++;

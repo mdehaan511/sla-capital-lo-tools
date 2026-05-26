@@ -40,6 +40,8 @@ import {
   generateBorrower2Token,
 } from './_shared/esign.mjs';
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 // Which forms each signer signed in their single signing event.
 // Borrower 1\u2019s session covers all three forms (their own); borrower 2\u2019s
@@ -312,6 +314,7 @@ async function handle(req) {
         pdfBuffer,
         isInterim: true,
         coBorrowerName: b2Block.name,
+        ownerKey: record.ownerKey,
       });
       emailedB2 = await emailBorrower2AuthLink({
         toEmail: b2Block.email,
@@ -320,6 +323,7 @@ async function handle(req) {
         propertyAddress: signedRecord.propertyAddress,
         token: b2Token,
         req,
+        ownerKey: record.ownerKey,
       });
     } else {
       emailedB1 = await emailSignedCopy({
@@ -328,6 +332,7 @@ async function handle(req) {
         propertyAddress: signedRecord.propertyAddress,
         pdfBuffer,
         isInterim: false,
+        ownerKey: record.ownerKey,
       });
     }
   } catch (e) {
@@ -362,7 +367,7 @@ async function handle(req) {
   });
 }
 
-async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, isInterim, coBorrowerName }) {
+async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, isInterim, coBorrowerName, ownerKey }) {
   if (!toEmail) return false;
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -417,6 +422,7 @@ async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, is
     '</div>' +
     '</body></html>';
 
+  const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -429,6 +435,7 @@ async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, is
       attachments: [
         { filename, content: pdfBuffer.toString('base64') },
       ],
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   if (!resp.ok) {
@@ -439,7 +446,7 @@ async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, is
 }
 
 // Email borrower 2 a link to sign their own prequal credit auth.
-async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress, token, req }) {
+async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress, token, req, ownerKey }) {
   if (!toEmail) return false;
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return false;
@@ -498,6 +505,7 @@ async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress
     '</div>' +
     '</body></html>';
 
+  const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -507,6 +515,7 @@ async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress
       subject,
       text,
       html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   if (!resp.ok) {
@@ -612,6 +621,7 @@ async function notifyLOOfSignedApp(record, audit, opts) {
   }
 
   try {
+    const replyTo = await getOwnerReplyTo(record && record.ownerKey);
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -622,6 +632,7 @@ async function notifyLOOfSignedApp(record, audit, opts) {
         text: textBody,
         html: htmlBody,
         attachments,
+        ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
     if (!resp.ok) {

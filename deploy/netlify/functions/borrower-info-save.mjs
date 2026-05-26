@@ -14,6 +14,8 @@ import { handleOptions, json, readJsonBody } from './_shared/auth.mjs';
 import { encryptField } from './_shared/crypto.mjs';
 import { lookupTokenKey, writeTokenIndex } from './_shared/borrower-info-token-index.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 export default async (req, context) => {
   try {
@@ -222,6 +224,7 @@ async function notifyBorrower(record) {
       '</div>' +
     '</div></body></html>';
 
+  const replyTo = await getOwnerReplyTo(record.ownerKey);
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -229,6 +232,7 @@ async function notifyBorrower(record) {
       from: 'SLA Capital <noreply@leads.slacapital.com>',
       to: [toEmail],
       subject, text, html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   return true;
@@ -265,6 +269,7 @@ async function notifyLO(record) {
       '</div>' +
     '</div></body></html>';
 
+  const replyTo = await getOwnerReplyTo(record.ownerKey);
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -272,6 +277,7 @@ async function notifyLO(record) {
       from: 'SLA Capital <noreply@leads.slacapital.com>',
       to: [toEmail],
       subject, text, html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   return true;

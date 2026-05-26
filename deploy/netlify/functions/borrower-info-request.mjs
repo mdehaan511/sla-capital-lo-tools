@@ -30,6 +30,9 @@ import {
 import { generateToken } from './_shared/crypto.mjs';
 import { newRecordKey, loadRecord } from './_shared/borrower-info-keys.mjs';
 import { writeTokenIndex, deleteTokenIndex } from './_shared/borrower-info-token-index.mjs';
+// Deploy 223 — reply_to header set to the LO who owns the lead so
+// borrower replies go to the right inbox (not noreply@).
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -154,6 +157,7 @@ async function handle(req, context) {
         loName,
         loEmail: owner,
         link,
+        ownerKey,
         propertyAddress: (loan && loan.address) || (client.loans && client.loans[0] && client.loans[0].address) || '',
       });
     } catch (e) {
@@ -247,7 +251,7 @@ function buildPrefill(client, loan, loInfo) {
   return pf;
 }
 
-async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, propertyAddress }) {
+async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, propertyAddress, ownerKey }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.warn('RESEND_API_KEY not set — cannot send borrower-info email');
@@ -288,6 +292,9 @@ async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, prope
     '</div>' +
     '</body></html>';
 
+  // Deploy 223 — reply_to set to the LO so borrower replies route
+  // back to them instead of the unmonitored noreply@ from-address.
+  const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -297,6 +304,7 @@ async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, prope
       subject,
       text,
       html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   if (!resp.ok) {

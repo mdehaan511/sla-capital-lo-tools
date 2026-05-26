@@ -23,6 +23,8 @@ import {
 } from './_shared/esign.mjs';
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 const B2_SIGNED_AUTHS = ['prequal_credit'];
 
@@ -204,12 +206,14 @@ async function handle(req) {
       toName: rec.borrower1.name,
       propertyAddress: rec.propertyAddress,
       pdfBuffer,
+      ownerKey: rec.ownerKey,
     });
     emailedB2 = await emailFinalSignedCopy({
       toEmail: rec.borrower2.email,
       toName: rec.borrower2.name,
       propertyAddress: rec.propertyAddress,
       pdfBuffer,
+      ownerKey: rec.ownerKey,
     });
   } catch (e) {
     console.warn('borrower2-auth-sign: email failed:', e && e.message);
@@ -233,7 +237,7 @@ async function handle(req) {
   });
 }
 
-async function emailFinalSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer }) {
+async function emailFinalSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, ownerKey }) {
   if (!toEmail) return false;
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return false;
@@ -272,6 +276,7 @@ async function emailFinalSignedCopy({ toEmail, toName, propertyAddress, pdfBuffe
     '</div>' +
     '</body></html>';
 
+  const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -284,6 +289,7 @@ async function emailFinalSignedCopy({ toEmail, toName, propertyAddress, pdfBuffe
       attachments: [
         { filename, content: pdfBuffer.toString('base64') },
       ],
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   if (!resp.ok) {
@@ -352,6 +358,7 @@ async function notifyLOOfB2Signed(biRecord, signedRec, b2Audit, opts) {
     attachments.push({ filename: `${filenameSafe}_FullySigned.pdf`, content: pdfB64 });
   }
 
+  const replyTo = await getOwnerReplyTo(biRecord && biRecord.ownerKey);
   try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -360,6 +367,7 @@ async function notifyLOOfB2Signed(biRecord, signedRec, b2Audit, opts) {
         from: 'SLA Capital <noreply@leads.slacapital.com>',
         to: [loEmail],
         subject, text, html, attachments,
+        ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
     if (!resp.ok) {

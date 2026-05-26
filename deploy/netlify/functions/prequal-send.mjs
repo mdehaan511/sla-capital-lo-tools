@@ -16,6 +16,8 @@
  * Returns: { ok, link, emailed }
  */
 import { getStore } from '@netlify/blobs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
@@ -69,6 +71,7 @@ async function handle(req, context) {
   let emailed = false;
   try {
     emailed = await sendPrequalEmail({
+      ownerKey,
       toEmail: client.email,
       toName: ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || client.email,
       loName,
@@ -83,7 +86,7 @@ async function handle(req, context) {
   return json(200, { ok: true, link, emailed });
 }
 
-async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link }) {
+async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link, ownerKey }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.warn('RESEND_API_KEY not set — cannot send prequal email');
@@ -120,6 +123,7 @@ async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link }) {
     '</div>' +
     '</body></html>';
 
+  const replyTo = await getOwnerReplyTo(ownerKey);
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -129,6 +133,7 @@ async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link }) {
       subject,
       text,
       html,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
   if (!resp.ok) {

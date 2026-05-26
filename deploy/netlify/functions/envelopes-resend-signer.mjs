@@ -16,6 +16,8 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { generateSignerToken } from './_shared/native-esign.mjs';
+// Deploy 223 — reply_to = LO who owns the lead.
+import { getOwnerReplyTo } from './_shared/email.mjs';
 
 const TOKEN_TTL_DAYS = 30;
 
@@ -139,6 +141,7 @@ export default async (req, context) => {
         '</div>' +
         '</body></html>';
 
+      const replyTo = await getOwnerReplyTo(ownerKey);
       try {
         const resp = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -148,6 +151,7 @@ export default async (req, context) => {
             to: [signer.email],
             subject: 'New signing link \u2014 ' + docList,
             text, html,
+            ...(replyTo ? { reply_to: replyTo } : {}),
           }),
         });
         if (resp.ok) emailedAt = new Date().toISOString();
