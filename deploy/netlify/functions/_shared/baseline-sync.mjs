@@ -102,7 +102,7 @@ export function baselineStatus() {
     // auto-fire from approval. Deploy 225 — partial-address guard
     // (drop all Address_* unless we have full Street + City + State,
     // parse Google formatted_address strings on the way in).
-    phase: 'deploy-229-payload-lockdown-and-per-field-patch',
+    phase: 'deploy-229.1-parallel-patches-prevent-timeout',
   };
 }
 
@@ -1722,29 +1722,53 @@ async function postBorrowerWithAddressFallback(stepName, payload, mode, ctx) {
 // AND the audit log makes it obvious which custom fields Baseline
 // accepts on Mike's per-customer config (no docs to go by).
 //
-// Best-effort: failures are logged but don't change the success
-// status of the parent create step. The borrower record exists
-// either way; the LO can fill missing values manually in Baseline UI.
+// Deploy 229.1 — PATCH calls fire in PARALLEL via Promise.all and
+// each is individually try/caught. Sequential firing pushed the
+// orchestrator past Netlify's 10s function timeout when 4+ follow-up
+// fields were present (5 PATCHes × ~600ms = 3s extra per borrower,
+// and there are 2 borrowers + 1 entity worst-case). Concurrent
+// firing brings total PATCH time down to the slowest single PATCH.
+//
+// Best-effort: per-PATCH failures are logged (each as its own audit
+// entry) but never propagate up — the parent create step's success
+// is what matters. The borrower record exists either way; the LO
+// can fill missing values manually in Baseline UI.
 async function firePersonFollowUpPatches(parentStep, createStep, followUps, mode, ctx) {
   if (!followUps || typeof followUps !== 'object') return;
   const borrowerId = extractId(createStep.body, 'borrower');
   if (!borrowerId) return;
   const keys = Object.keys(followUps).filter((k) => followUps[k] !== undefined && followUps[k] !== null && followUps[k] !== '');
   if (!keys.length) return;
-  for (const fieldName of keys) {
+  // Each PATCH wrapped in its own try/catch so one throwing doesn't
+  // poison the Promise.all (which would crash the whole orchestrator
+  // with no audit trail of which field misbehaved).
+  await Promise.all(keys.map(async (fieldName) => {
     const patchBody = {};
     patchBody[fieldName] = followUps[fieldName];
-    await runStep(
-      parentStep + '_patch_' + fieldName,
-      'PATCH',
-      '/borrower/' + borrowerId,
-      patchBody,
-      mode,
-      ctx,
-    );
-    // Per-field result is captured in the audit log via runStep itself;
-    // no need to read it back here. Failures are not fatal.
-  }
+    try {
+      await runStep(
+        parentStep + '_patch_' + fieldName,
+        'PATCH',
+        '/borrower/' + borrowerId,
+        patchBody,
+        mode,
+        ctx,
+      );
+    } catch (e) {
+      // runStep already catches inside baselineFetch, but defense in depth
+      // in case writeLog or some other helper throws unexpectedly. Logged
+      // so the LO sees what happened.
+      try {
+        await writeLog({
+          step:   parentStep + '_patch_' + fieldName,
+          mode,
+          ok:     false,
+          error:  'patch threw uncaught: ' + (e && e.message),
+          ...ctx,
+        });
+      } catch (_) { /* swallow log failure */ }
+    }
+  }));
 }
 
 function stripFields(payload, keys) {
