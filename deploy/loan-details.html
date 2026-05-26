@@ -149,15 +149,20 @@
 
     /* Deploy 226 — Notes audit log styles. Bigger panel, scrollable list,
        per-entry timestamp + kind badge + author. Designed so the box
-       commands attention but doesn't dominate the page. */
-    .notes-toolbar { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 14px; }
-    .notes-toolbar textarea { flex: 1; min-height: 60px; max-height: 220px; resize: vertical; border: 1.5px solid var(--border); border-radius: var(--r-xs); padding: 10px 12px; font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.5; }
-    .notes-toolbar button { white-space: nowrap; padding: 10px 18px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; border-radius: var(--r-xs); border: none; cursor: pointer; }
-    .notes-toolbar .btn-add { background: var(--accent); color: #fff; }
-    .notes-toolbar .btn-add:hover { background: var(--accent-dark); }
-    .notes-toolbar .btn-add:disabled { opacity: 0.6; cursor: not-allowed; }
-    .notes-toolbar .btn-jump { background: rgba(120,116,136,0.12); color: var(--muted); }
-    .notes-toolbar .btn-jump:hover { background: rgba(120,116,136,0.22); }
+       commands attention but doesn't dominate the page.
+       Deploy 227 — restructured: textarea full width on its own row,
+       Add Note button right-aligned beneath it, and a separate Top/
+       Bottom jump bar sits directly above the saved entries list. */
+    .notes-input-wrap { margin-bottom: 12px; }
+    .notes-input-wrap textarea { width: 100%; box-sizing: border-box; min-height: 70px; max-height: 240px; resize: vertical; border: 1.5px solid var(--border); border-radius: var(--r-xs); padding: 10px 12px; font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.5; }
+    .notes-input-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+    .notes-input-row .btn-add { white-space: nowrap; padding: 10px 22px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; border-radius: var(--r-xs); border: none; cursor: pointer; background: var(--accent); color: #fff; }
+    .notes-input-row .btn-add:hover { background: var(--accent-dark); }
+    .notes-input-row .btn-add:disabled { opacity: 0.6; cursor: not-allowed; }
+    .notes-jumpbar { display: flex; justify-content: flex-end; gap: 6px; margin: 0 0 8px; }
+    .notes-jumpbar .btn-jump { padding: 6px 12px; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; border-radius: var(--r-xs); border: 1px solid var(--border); cursor: pointer; background: var(--surface); color: var(--muted); }
+    .notes-jumpbar .btn-jump:hover { background: rgba(120,116,136,0.10); color: var(--dark); }
+    .notes-jumpbar .btn-jump.active { background: rgba(120,116,136,0.18); color: var(--dark); }
     .notes-list { max-height: 520px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r-xs); background: rgba(120,116,136,0.04); padding: 4px; }
     .notes-list-inner { display: flex; flex-direction: column; gap: 8px; }
     .note-entry { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 12px 14px; }
@@ -408,17 +413,18 @@
 
     <div style="margin-top:14px">
       <label class="bi-section-label">Documents to send</label>
+      <!-- Deploy 227 — DOCX Loan Application option removed. The long
+           loan application is collected through the borrower-info long
+           form + native eSign signature flow; there's no need for a
+           separate DOCX option here. Rate Sheet is the sole document
+           sent through this modal. The hidden #esDocLoanApp input is
+           kept in the DOM (disabled, off) so existing JS that reads it
+           via .checked doesn't throw. -->
       <label class="bi-checkbox" style="margin-top:6px">
         <input type="checkbox" id="esDocRateSheet" checked />
         <span>Rate Sheet (PDF generated from sizer)</span>
       </label>
-      <label class="bi-checkbox" style="margin-top:4px">
-        <input type="checkbox" id="esDocLoanApp" />
-        <span>Loan Application (DOCX) <em style="color:var(--muted);font-size:11px;font-style:normal">— recorded only; live send arrives in a future update</em></span>
-      </label>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px">
-        If both are picked, they're sent as one envelope so the borrower signs everything in a single session.
-      </div>
+      <input type="checkbox" id="esDocLoanApp" style="display:none" />
     </div>
 
     <div style="margin-top:18px">
@@ -975,10 +981,31 @@ function render() {
     'Download Rate Sheet' +
   '</a>';
 
-  html += '<button type="button" class="open-sizer-btn term-sheet-btn" onclick="downloadTermSheet()">' +
-    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 8h5M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    'Generate Term Sheet' +
-  '</button>';
+  // Deploy 227 — Send Rate Sheet for Signature moved here, immediately
+  // below Download Rate Sheet (the two are functionally paired — LO
+  // either downloads to share manually OR sends through eSign). Label
+  // is now always "Send Rate Sheet for Signature" regardless of status,
+  // since the rate sheet remains what gets sent even past Quoted.
+  // Eligibility unchanged: active / submitted / awaiting_app / approved
+  // (locked at terminal statuses cancelled / denied / closed / on_hold).
+  var _esignActiveStatusesEarly = ['active', 'submitted', 'awaiting_app', 'approved'];
+  var _loanStatusEarly = (_loan && _loan.status) || 'active';
+  if (_esignActiveStatusesEarly.indexOf(_loanStatusEarly) >= 0 && eSignVisible()) {
+    html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
+      'Send Rate Sheet for Signature' +
+    '</button>';
+  }
+
+  // Deploy 227 — Term Sheet button is admin / super-admin only.
+  // Cavalry LOs don't issue term sheets directly; that's an admin
+  // hand-off step. Hiding from non-admins prevents accidental sends.
+  if (window.SLA && SLA.isAdmin && SLA.isAdmin(_user)) {
+    html += '<button type="button" class="open-sizer-btn term-sheet-btn" onclick="downloadTermSheet()">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 8h5M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      'Generate Term Sheet' +
+    '</button>';
+  }
 
   // Item #11: Gate the "Send Full Loan Application" button.
   // Enabled only after the loan has been submitted for review (status
@@ -1032,24 +1059,10 @@ function render() {
     html += '<div style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center;font-style:italic">Use when the borrower has completed the application but the loan didn\'t auto-advance.</div>';
   }
 
-  // E-signature send — available from "Quoted" (active) onward so LOs can
-  // get the rate sheet in front of the borrower early in the process.
-  // Deploy 196: widened from approved-only to {active, submitted, awaiting_app,
-  // approved}. Locked at terminal statuses (closed / denied / cancelled /
-  // on_hold) since there's nothing actionable to sign. Also gated by the
-  // ESIGN_FEATURE flag at the top of this file (default 'on' as of
-  // Deploy 185 / native eSign).
-  var _esignActiveStatuses = ['active', 'submitted', 'awaiting_app', 'approved'];
-  if (_esignActiveStatuses.indexOf(loanStatus) >= 0 && eSignVisible()) {
-    // Label shifts a bit when the loan is still at Quoted to telegraph
-    // that this is the early-stage "share rate sheet" use of the flow,
-    // not the late-stage closing-doc send.
-    var _esignLabel = (loanStatus === 'active') ? 'Send Rate Sheet for Signature' : 'Send for Signature';
-    html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()" style="margin-top:8px">' +
-      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
-      _esignLabel +
-    '</button>';
-  }
+  // Deploy 227 — the Send Rate Sheet for Signature button moved up to
+  // sit directly below Download Rate Sheet (see earlier in this render).
+  // Block formerly here has been removed; the upper placement is the
+  // single source for the button.
 
   // Deploy 195 / Deploy 196 / Deploy 197: Cancel Loan + Decline Loan
   // moved further down in the action stack, just above "Delete this
@@ -1168,39 +1181,74 @@ function render() {
     '</div>';
   }
 
-  // Change loan type — DSCR ↔ RTL. Rebuilds the loan in the other sizer.
-  // Borrower / address info carries over; pricing + product-specific
-  // fields get cleared. Status reverts to active (Quoted in Pipeline) and
-  // any sent envelopes from before this point are hidden as superseded.
+  // Deploy 227 — Change-Type, Cancel, Decline, Delete buttons are now
+  // tucked inside a collapsible "Change Loan Status" section so they
+  // don't compete for visual attention with the everyday actions
+  // (download rate sheet, send for signature, etc.). Admins get an
+  // additional dropdown to manually set the loan to ANY status — used
+  // when a loan got stuck in an unusual state and needs to be nudged.
   var otherType = isDscr ? 'RTL' : 'DSCR';
-  html += '<button type="button" class="change-type-btn" onclick="openChangeTypeModal()" style="margin-top:14px">' +
-    '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 5h7l-2-2M12 10H5l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    'Change to ' + otherType + ' Loan' +
-  '</button>';
+  var _isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
 
-  // Deploy 197: Cancel Loan + Decline Loan moved here (just above
-  // Delete) and restyled to the same open-sizer-btn shell the other
-  // action buttons use. Danger color via inline style — matching the
-  // modal confirm buttons (#7C1F1F). Hidden for terminal statuses
-  // (closed / denied / cancelled).
-  if (_canEndLoan) {
-    html += '<button type="button" class="open-sizer-btn" onclick="openCancelLoanModal()" style="margin-top:14px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
-      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M5 5l5 5M10 5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
-      'Cancel Loan' +
-    '</button>';
-    html += '<button type="button" class="open-sizer-btn" onclick="openDeclineLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
-      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M4 7.5h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
-      'Decline Loan' +
-    '</button>';
-  }
-
-  // Delete loan — destructive, kept visually subtle so it's hard to hit by
-  // accident. Always confirms before firing. Closed loans can still be
-  // deleted; that's an admin housekeeping decision.
-  html += '<button type="button" class="delete-loan-btn" onclick="deleteThisLoan()" style="margin-top:10px">' +
-    '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 4h9M6 4V3a1 1 0 011-1h1a1 1 0 011 1v1M5 4l.5 8a1 1 0 001 1h3a1 1 0 001-1L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    'Delete this loan' +
-  '</button>';
+  html += '<details class="change-status-wrap" style="margin-top:14px;border:1px solid var(--border, #E4DFD4);border-radius:var(--r-xs, 6px);background:var(--surface, #fff)">' +
+    '<summary style="padding:11px 14px;cursor:pointer;font-size:13px;font-weight:600;color:var(--dark);user-select:none;list-style:none;display:flex;align-items:center;gap:8px">' +
+      '<svg width="11" height="11" viewBox="0 0 15 15" fill="none" style="transition:transform 0.18s"><path d="M5 3l5 4.5-5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '<span>Change Loan Status</span>' +
+      '<span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400">advanced actions</span>' +
+    '</summary>' +
+    '<div style="padding:12px 14px;border-top:1px solid var(--border, #E4DFD4)">' +
+      // Change Type — DSCR ↔ RTL. Rebuilds the loan in the other sizer.
+      // Borrower / address info carries over; pricing + product-specific
+      // fields get cleared. Status reverts to active (Quoted) and any
+      // sent envelopes are hidden as superseded.
+      '<button type="button" class="change-type-btn" onclick="openChangeTypeModal()" style="width:100%">' +
+        '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 5h7l-2-2M12 10H5l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        'Change to ' + otherType + ' Loan' +
+      '</button>' +
+      // Cancel + Decline — only for non-terminal statuses.
+      (_canEndLoan
+        ? '<button type="button" class="open-sizer-btn" onclick="openCancelLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
+            '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M5 5l5 5M10 5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+            'Cancel Loan' +
+          '</button>' +
+          '<button type="button" class="open-sizer-btn" onclick="openDeclineLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
+            '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M4 7.5h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
+            'Decline Loan' +
+          '</button>'
+        : '') +
+      // Admin-only: manual move to any status. The selected status is
+      // sent to /api/loan-advance-status which (Deploy 227) accepts any
+      // status when the caller is admin / super-admin. Audit-logged on
+      // the loan.
+      (_isAdminUser
+        ? '<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border, #E4DFD4)">' +
+            '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Admin — Manual Status Move</div>' +
+            '<div style="display:flex;gap:8px;align-items:center">' +
+              '<select id="adminStatusPick" style="flex:1;padding:9px 10px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:\'DM Sans\',sans-serif;font-size:13px;background:#fff">' +
+                '<option value="">Select target status…</option>' +
+                '<option value="active">Quoted (active)</option>' +
+                '<option value="on_hold">On Hold</option>' +
+                '<option value="submitted">Submitted - Pending Review</option>' +
+                '<option value="awaiting_app">Awaiting Application</option>' +
+                '<option value="approved">In Processing (approved)</option>' +
+                '<option value="closed">Closed</option>' +
+                '<option value="denied">Declined</option>' +
+                '<option value="cancelled">Cancelled</option>' +
+              '</select>' +
+              '<button type="button" onclick="adminMoveStatus()" class="open-sizer-btn" style="margin:0;padding:9px 16px;background:var(--accent, #C8813A);color:#fff;border-color:var(--accent, #C8813A);width:auto;white-space:nowrap">Move</button>' +
+            '</div>' +
+            '<div id="adminStatusMsg" style="font-size:11px;min-height:14px;margin-top:6px;color:var(--muted)"></div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:6px;font-style:italic">Use sparingly — bypasses normal flow gates. Audit-logged on the loan and visible in Notes.</div>' +
+          '</div>'
+        : '') +
+      // Delete loan — destructive. Kept inside this section so it's
+      // intentional to find but explicit when chosen.
+      '<button type="button" class="delete-loan-btn" onclick="deleteThisLoan()" style="margin-top:14px">' +
+        '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 4h9M6 4V3a1 1 0 011-1h1a1 1 0 011 1v1M5 4l.5 8a1 1 0 001 1h3a1 1 0 001-1L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        'Delete this loan' +
+      '</button>' +
+    '</div>' +
+  '</details>';
 
   html += '</div></div>'; // close section-body, section
 
@@ -1270,12 +1318,17 @@ function render() {
         '<span class="section-tag tag-editable">Audit Log</span>' +
       '</div>' +
       '<div class="section-body">' +
-        '<div class="notes-toolbar">' +
+        '<div class="notes-input-wrap">' +
           '<textarea id="noteInput" placeholder="Add a note about this loan — borrower contact, status checkpoint, conversation summary…" onkeydown="handleNoteKeydown(event)"></textarea>' +
-          '<button class="btn-add" id="noteAddBtn" onclick="addNoteFromUI()">Add Note</button>' +
-          '<button class="btn-jump" onclick="jumpNotesToBottom()" title="Jump to oldest">↓ Bottom</button>' +
+          '<div class="notes-input-row">' +
+            '<button class="btn-add" id="noteAddBtn" onclick="addNoteFromUI()">Add Note</button>' +
+          '</div>' +
         '</div>' +
         '<div class="notes-status" id="noteStatus"></div>' +
+        '<div class="notes-jumpbar">' +
+          '<button class="btn-jump active" id="noteJumpTopBtn" onclick="jumpNotesTo(\'top\')" title="Newest entries">↑ Top</button>' +
+          '<button class="btn-jump" id="noteJumpBottomBtn" onclick="jumpNotesTo(\'bottom\')" title="Oldest entries">↓ Bottom</button>' +
+        '</div>' +
         '<div class="notes-list" id="notesList">' +
           '<div class="notes-list-inner" id="notesListInner"></div>' +
         '</div>' +
@@ -1421,10 +1474,19 @@ function noteKindLabel(k) {
   }
 }
 
-function jumpNotesToBottom() {
+// Deploy 227 — two-button Top/Bottom toggle. List is sorted newest-first
+// so "Top" = scrollTop=0 (newest) and "Bottom" = scrollTop=scrollHeight
+// (oldest including the legacy entry, if any).
+function jumpNotesTo(where) {
   var list = document.getElementById('notesList');
   if (!list) return;
-  list.scrollTop = list.scrollHeight;
+  if (where === 'bottom') list.scrollTop = list.scrollHeight;
+  else                    list.scrollTop = 0;
+  // Reflect which end is active in the button styling.
+  var top = document.getElementById('noteJumpTopBtn');
+  var bot = document.getElementById('noteJumpBottomBtn');
+  if (top) top.classList.toggle('active', where !== 'bottom');
+  if (bot) bot.classList.toggle('active', where === 'bottom');
 }
 
 function handleNoteKeydown(e) {
@@ -1730,6 +1792,64 @@ function moveToInProcessing() {
   .catch(function(err) {
     showToast('Move failed: ' + (err.message || 'unknown error'));
     if (btnTextEl) { btnTextEl.disabled = false; btnTextEl.style.opacity = ''; }
+  });
+}
+
+// Deploy 227 — Admin / super-admin only. Manually move the loan to any
+// status. Backend gates: loan-advance-status.mjs accepts any allowed
+// status when isAdmin(user). Audit-logged on the loan via the kind=status
+// entry the endpoint writes.
+function adminMoveStatus() {
+  if (!_loan || !_client) return;
+  if (!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user))) {
+    showToast('Admin only');
+    return;
+  }
+  var sel = document.getElementById('adminStatusPick');
+  var msg = document.getElementById('adminStatusMsg');
+  if (!sel) return;
+  var target = sel.value;
+  if (!target) {
+    if (msg) { msg.textContent = 'Pick a target status first.'; msg.style.color = '#7c1f1f'; }
+    return;
+  }
+  if (target === _loan.status) {
+    if (msg) { msg.textContent = 'Loan is already in that status.'; msg.style.color = '#7c1f1f'; }
+    return;
+  }
+  var labelMap = {
+    active: 'Quoted', on_hold: 'On Hold', submitted: 'Submitted',
+    awaiting_app: 'Awaiting Application', approved: 'In Processing',
+    closed: 'Closed', denied: 'Declined', cancelled: 'Cancelled',
+  };
+  var human = labelMap[target] || target;
+  if (!confirm('Manually move this loan to "' + human + '"?\n\nThis bypasses the normal flow. The change will be visible in the Notes audit log.')) return;
+
+  if (msg) { msg.textContent = 'Moving…'; msg.style.color = 'var(--muted)'; }
+  var body = { clientId: _client.id, loanId: _loanId, newStatus: target };
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+
+  netlifyIdentity.currentUser().jwt().then(function(token) {
+    return fetch('/api/loan-advance-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify(body),
+    });
+  })
+  .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
+  .then(function(resp) {
+    if (!resp.ok || !resp.body.success) {
+      var emsg = (resp.body && resp.body.error) || ('Request failed (' + resp.status + ')');
+      if (msg) { msg.textContent = 'Failed: ' + emsg; msg.style.color = '#7c1f1f'; }
+      return;
+    }
+    showToast('Status moved to ' + human);
+    // Reload the page to re-render with the new status — easier than
+    // hand-patching every status-dependent block on the page.
+    setTimeout(function(){ window.location.reload(); }, 600);
+  })
+  .catch(function(err) {
+    if (msg) { msg.textContent = 'Failed: ' + (err.message || 'unknown'); msg.style.color = '#7c1f1f'; }
   });
 }
 

@@ -36,7 +36,12 @@ import { syncOnApproval as _baselineSyncOnApproval } from './_shared/baseline-sy
 // Deploy 226 — auto-write a "status" entry to the loan's audit log.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 
-const ALLOWED_TARGETS = ['approved'];
+// Non-admin callers can only push to 'approved' — the existing safety-
+// valve use case (loan got stuck in awaiting_app, manually nudge it
+// into In Processing). Deploy 227 — admins / super-admins can move to
+// any valid status from the Loan Details "Change Loan Status" panel.
+const ALLOWED_TARGETS_NORMAL = ['approved'];
+const ALLOWED_TARGETS_ADMIN  = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved', 'closed', 'denied', 'cancelled'];
 
 export default async (req, context) => {
   try {
@@ -58,8 +63,10 @@ async function handle(req, context) {
   if (!body) return json(400, { error: 'Invalid JSON' });
   if (!body.clientId) return json(400, { error: 'clientId required' });
   if (!body.loanId)   return json(400, { error: 'loanId required' });
-  if (!body.newStatus || ALLOWED_TARGETS.indexOf(body.newStatus) < 0) {
-    return json(400, { error: 'newStatus must be one of: ' + ALLOWED_TARGETS.join(', ') });
+  // Deploy 227 — admins can move to any status; non-admins only 'approved'.
+  const allowed = isAdmin(user) ? ALLOWED_TARGETS_ADMIN : ALLOWED_TARGETS_NORMAL;
+  if (!body.newStatus || allowed.indexOf(body.newStatus) < 0) {
+    return json(400, { error: 'newStatus must be one of: ' + allowed.join(', ') });
   }
 
   const selfEmail = normalizeEmail(user.email);
