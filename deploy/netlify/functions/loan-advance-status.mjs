@@ -28,6 +28,11 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
+// advances a loan to approved (the safety-valve path for when the
+// borrower-info auto-advance silently bailed). Same helper as
+// advanceQuoteToInProcessing uses.
+import { syncOnApproval as _baselineSyncOnApproval } from './_shared/baseline-sync.mjs';
 
 const ALLOWED_TARGETS = ['approved'];
 
@@ -97,6 +102,19 @@ async function handle(req, context) {
   // info record itself still has the accurate timestamp.
   if (body.newStatus === 'approved' && !targetLoan.borrowerInfoCompletedAt) {
     targetLoan.borrowerInfoCompletedAt = now;
+  }
+
+  // Deploy 222 (Phase 3) — auto-fire Baseline sync when this manual
+  // advance lands at 'approved'. Same helper as the borrower-info
+  // auto-advance path. Mutates targetLoan in place so the single
+  // setJSON below persists both the status change and the Baseline
+  // refs atomically. Never throws.
+  if (body.newStatus === 'approved') {
+    try {
+      await _baselineSyncOnApproval(client, targetLoan, ownerKey, selfEmail);
+    } catch (e) {
+      console.error('loan-advance-status: baseline sync threw, ignoring:', e && e.message);
+    }
   }
 
   try {

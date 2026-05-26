@@ -22,6 +22,11 @@
  * so the loan never moved to APPROVED and property fields never synced.
  */
 import { getStore } from '@netlify/blobs';
+// Deploy 222 (Phase 3) — auto-fire Baseline sync when loan flips to
+// approved. Imported here so the same flip-to-approved code path that
+// moves the loan to "In Processing" also pushes the record to Baseline.
+// The helper is fire-and-await but never throws to the caller.
+import { syncOnApproval as _baselineSyncOnApproval } from './baseline-sync.mjs';
 
 // Translate the long-form property-type slug to the loan-record slug.
 // Long form may emit: sfh, sfr, 2-4, 5+, condo_w, condo_nw, townhome,
@@ -269,15 +274,35 @@ export async function advanceQuoteToInProcessing(record) {
   }
 
   let loanUpdated = false;
+  let advancedLoan = null; // capture the loan we flipped, for Baseline sync below
   for (const l of client.loans) {
     if (aggrNorm(l.address) === target && l.status === 'awaiting_app') {
       l.status = 'approved';
       l.updatedAt = new Date().toISOString();
       l.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
       loanUpdated = true;
+      advancedLoan = l;
     }
   }
   if (loanUpdated) {
+    // Deploy 222 (Phase 3) — auto-fire the Baseline sync on this
+    // approval. The two trigger conditions (status='approved' AND
+    // borrower_info.status='complete') are guaranteed met right here:
+    // status flipped above, and we're being called BY a borrower-
+    // info completion code path. The helper mutates advancedLoan in
+    // place with the Baseline refs + sync-status fields, so the
+    // single setJSON below persists both the status flip and the
+    // Baseline state atomically.
+    //
+    // Wrapped in try/catch out of paranoia — the helper's contract
+    // is "never throws" but a runtime bug must not block the loan
+    // advance. Baseline failure is captured in the helper's audit
+    // log and Slack alert.
+    try {
+      await _baselineSyncOnApproval(client, advancedLoan, record.ownerKey, record.advancedBy || 'auto:borrower-info-complete');
+    } catch (e) {
+      console.error('advanceQuoteToInProcessing: baseline sync threw, ignoring:', e && e.message);
+    }
     try {
       await clientsStore.setJSON(clientKey, client);
     } catch (e) {

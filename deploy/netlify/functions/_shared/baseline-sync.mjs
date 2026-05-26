@@ -45,6 +45,8 @@
  */
 import { getStore } from '@netlify/blobs';
 import { decryptField } from './crypto.mjs';
+import { keySafe } from './auth.mjs';
+import { postSlack } from './slack.mjs';
 
 const DEFAULT_BASE_URL = 'https://production.baselinesoftware.com/production/api';
 
@@ -98,7 +100,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.12-reset-baseline-link',
+    phase: 'phase-3-auto-fire-on-approval',
   };
 }
 
@@ -137,6 +139,133 @@ async function logSkipped(stepName, reason, mode, ctx) {
     skipReason: reason,
     ...ctx,
   });
+}
+
+/**
+ * Deploy 222 (Phase 3) — auto-fire Baseline sync when a loan flips
+ * to `approved`. Called from two places:
+ *
+ *   1. advanceQuoteToInProcessing() in _shared/borrower-info-sync.mjs
+ *      — fires when the borrower's long-app submission auto-advances
+ *      the loan from `awaiting_app` → `approved`. Covers all four
+ *      borrower-info completion paths.
+ *
+ *   2. loan-advance-status.mjs — fires on the LO's manual safety-
+ *      valve advance (when the auto-advance didn't pick up the
+ *      borrower-info completion for some reason).
+ *
+ * Caller passes the already-loaded `client` and `targetLoan`; this
+ * helper:
+ *   - loads borrower_info from the per-loan blob key
+ *   - runs the syncLoanToBaseline orchestrator
+ *   - MUTATES targetLoan in place with the resulting refs + status
+ *     fields (caller is responsible for the subsequent client.setJSON)
+ *   - fires a Slack alert on live-mode failure
+ *
+ * NEVER throws. A Baseline failure (network error, 5xx, etc.) must not
+ * block the approval flow — the loan still advances in SLA Tools. The
+ * Slack alert lets the admin know to investigate.
+ *
+ * Returns { ok, mode, summaryStatus, error? }. Caller can log or check
+ * the result if they want; usually fire-and-await.
+ */
+export async function syncOnApproval(client, targetLoan, ownerKey, triggerUserEmail) {
+  if (!isEnabled()) {
+    return { ok: false, mode: 'disabled', summaryStatus: 'not_synced', skipped: true, reason: 'baseline_disabled' };
+  }
+  if (!client || !targetLoan || !ownerKey) {
+    return { ok: false, mode: 'unknown', summaryStatus: 'not_synced', error: 'missing_required_args' };
+  }
+
+  // Load borrower_info for this (client, loan). Per-loan key, since
+  // Deploy 168. Tolerant of missing data — orchestrator's precheck
+  // will short-circuit if bi is needed but missing.
+  let borrowerInfo = null;
+  try {
+    const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+    const biKey = ownerKey + '/' + keySafe(client.id) + '/' + keySafe(targetLoan.id);
+    borrowerInfo = await biStore.get(biKey, { type: 'json' });
+  } catch (e) {
+    console.warn('syncOnApproval: borrower_info read failed (continuing):', e && e.message);
+  }
+
+  const trigUser = triggerUserEmail || 'auto:approval';
+  let result;
+  try {
+    result = await syncLoanToBaseline(targetLoan, client, borrowerInfo, {
+      triggerUserEmail: trigUser,
+      triggerReason: 'auto_on_approval',
+      ownerKey,
+    });
+  } catch (e) {
+    // Defensive — the orchestrator's own contract is "never throws"
+    // but a runtime bug shouldn't break the approval flow.
+    console.error('syncOnApproval: orchestrator threw unexpectedly:', e);
+    return { ok: false, mode: 'unknown', summaryStatus: 'failed', error: 'orchestrator_threw:' + (e && e.message) };
+  }
+
+  // Compute summary status (mirror trigger.mjs's logic — dry-run is
+  // never "synced" because no real Baseline records exist).
+  let summaryStatus;
+  if (result.mode === 'dry-run') {
+    summaryStatus = 'not_synced';
+  } else if (result.ok) {
+    summaryStatus = 'synced';
+  } else {
+    summaryStatus = (result.refs.baselineEntityId || result.refs.baselineGuarantor1Id) ? 'partial' : 'failed';
+  }
+
+  const stepsSummary = (result.steps || []).map((s) => ({
+    step: s.step, ok: !!s.ok, status: s.status || null, error: s.error || null,
+  }));
+
+  // Mutate targetLoan in place. Caller will save the client record in
+  // the same transaction that's flipping the loan status — keeps the
+  // Baseline-side refs and the SLA-side status change atomic.
+  const now = new Date().toISOString();
+  const persistRefs = (result.mode === 'live');
+
+  if (persistRefs) {
+    targetLoan._baselineEntityId     = result.refs.baselineEntityId     || null;
+    targetLoan._baselineGuarantor1Id = result.refs.baselineGuarantor1Id || null;
+    targetLoan._baselineGuarantor2Id = result.refs.baselineGuarantor2Id || null;
+    targetLoan._baselineLoanId       = result.refs.baselineLoanId       || null;
+  }
+  targetLoan._baselineSyncStatus    = summaryStatus;
+  targetLoan._baselineSyncMode      = result.mode;
+  if (result.ok && persistRefs) targetLoan._baselineSyncedAt = now;
+  targetLoan._baselineLastAttemptAt = now;
+  targetLoan._baselineLastAttemptBy = trigUser;
+  targetLoan._baselineLastError     = result.ok ? null : (result.error || 'unknown');
+  targetLoan._baselineLastSteps     = stepsSummary;
+  targetLoan._baselineLastDebug     = result._debug || null;
+
+  // Slack alert on live-mode failure. Fire-and-forget — never block
+  // the approval flow on Slack.
+  if (!result.ok && result.mode === 'live') {
+    const siteUrl = (process.env.URL || 'https://slaloantools.netlify.app').replace(/\/+$/, '');
+    const loanLink = siteUrl +
+      '/loan-details.html?clientId=' + encodeURIComponent(client.id) +
+      '&loanId='   + encodeURIComponent(targetLoan.id);
+    const failingStep = (stepsSummary.find((s) => !s.ok) || { step: result.error || 'unknown' });
+    const message = {
+      text: ':warning: Baseline auto-sync failed — ' + (targetLoan.address || targetLoan.id),
+      blocks: [
+        { type: 'section', text: { type: 'mrkdwn',
+          text: '*Baseline auto-sync failed* (fired on loan approval)\n' +
+                '*Loan:* ' + (targetLoan.address || targetLoan.id) + '\n' +
+                '*Failing step:* `' + failingStep.step + '`' +
+                (failingStep.error ? '\n*Error:* ' + failingStep.error : '') +
+                (failingStep.status ? ' (HTTP ' + failingStep.status + ')' : '') + '\n' +
+                '*Trigger:* ' + trigUser + '\n' +
+                '<' + loanLink + '|Open loan details>',
+        }},
+      ],
+    };
+    postSlack(message).catch((e) => console.warn('Slack alert failed silently:', e && e.message));
+  }
+
+  return { ok: result.ok, mode: result.mode, summaryStatus, error: result.error || null };
 }
 
 /**

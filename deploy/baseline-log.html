@@ -237,6 +237,8 @@ function loadAll() {
       phaseEl.textContent = 'Phase 2.8.11 — PATCH adds Guarantor_Email alongside Guarantor_Id (undocumented but might auto-attach). Also probes GraphQL mutationType to discover write capabilities for fallback.';
     } else if (resp && resp.phase === 'phase-2.8.12-reset-baseline-link') {
       phaseEl.textContent = 'Phase 2.8.12 — "Reset Baseline link" button on Loan Details clears persisted SLA-side refs so the next Send to Baseline creates fresh records. For recovering loans stuck in half-synced state (e.g. no Guarantor because the person↔entity connect happened post-create).';
+    } else if (resp && resp.phase === 'phase-3-auto-fire-on-approval') {
+      phaseEl.textContent = 'Phase 3 — Baseline sync auto-fires when a loan flips to approved (from borrower-info completion OR LO manual advance). LOs no longer need to click "Send to Baseline" manually. Slack alert on live-mode failure.';
     } else {
       phaseEl.textContent = '';
     }
