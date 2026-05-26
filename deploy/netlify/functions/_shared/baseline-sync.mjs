@@ -102,7 +102,7 @@ export function baselineStatus() {
     // auto-fire from approval. Deploy 225 — partial-address guard
     // (drop all Address_* unless we have full Street + City + State,
     // parse Google formatted_address strings on the way in).
-    phase: 'deploy-228.3-progressive-strip-retry-chain',
+    phase: 'deploy-229-payload-lockdown-and-per-field-patch',
   };
 }
 
@@ -702,12 +702,18 @@ function buildEntityPayload(loan, client, bi) {
     Address_Country: entHaveFullAddress ? 'United States' : undefined,
   };
 
-  // Phase 2.6 — Tax_ID (EIN) custom field. XX-XXXXXXX format from the
-  // long-app or client.companies entry.
-  if (ent.ein) payload.Tax_ID = String(ent.ein).trim();
+  // Deploy 229 — Tax_ID (EIN) moved to _followUpFields. Same risk
+  // profile as the person-borrower custom fields: if Baseline rejects
+  // it on POST we don't lose the create. Will be PATCHed individually
+  // after the entity record exists.
+  payload._followUpFields = {};
+  if (ent.ein) payload._followUpFields.Tax_ID = String(ent.ein).trim();
 
   // Strip blanks (defensive — same pattern as buildPersonPayload).
+  // _followUpFields stays even if empty so the orchestrator knows
+  // there's nothing to PATCH.
   Object.keys(payload).forEach((k) => {
+    if (k === '_followUpFields') return;
     if (payload[k] === undefined || payload[k] === '' || payload[k] === null) delete payload[k];
   });
 
@@ -774,6 +780,26 @@ function buildPersonPayload(g) {
   const zip    = (parsed.zip   || g.zip   || '').trim();
   const haveFullAddress = !!(street && city && stRaw);
 
+  // Deploy 229 — payload split into two buckets.
+  //
+  // The Herbert Loper diagnostic (5/26) ran the strip-and-retry chain
+  // and proved: tier 4 (no Credit_Score / Citizenship / Marital_Status)
+  // succeeds, tier 3 (with them) returns 500. So at least one of those
+  // three fields trips Baseline's POST /borrower validator. The
+  // successful response also revealed the real field name for flip
+  // count: "Projects_Completed_In_Last_36_Months" (our Num_Flipped was
+  // silently being ignored).
+  //
+  // Without Baseline API docs we don't know whether those fields are
+  // read-only on POST, require a Custom_Fields wrapper, need a
+  // different enum string, or something else. To unblock the everyday
+  // sync flow we:
+  //   (1) build the POST payload with only known-safe fields, and
+  //   (2) attach a _followUpFields bag for the orchestrator to PATCH
+  //       onto the borrower record after creation. Each PATCH is fired
+  //       individually so a 500 on one field doesn't block the others;
+  //       successes + failures land in the audit log so we learn over
+  //       time which fields actually work on Mike's Baseline config.
   const payload = {
     Is_Company:      false,
     First_Name:      g.firstName || '',
@@ -788,27 +814,26 @@ function buildPersonPayload(g) {
     Address_State:   haveFullAddress ? expandState(stRaw) : undefined,
     Address_Zipcode: haveFullAddress ? (zip || undefined) : undefined,
     Address_Country: haveFullAddress ? 'United States' : undefined,
-    Credit_Score:    g.fico ? parseInt(g.fico, 10) : undefined,
-    // Deploy 211 — moved from loan-level Guarantor_* fields to the
-    // person-borrower record. Baseline denormalizes onto the loan
-    // automatically when the borrower is linked. Field names are best
-    // guesses based on Baseline's naming convention (the dump showed
-    // Borrower_/Guarantor_ prefixes on the loan-level versions; the
-    // borrower-record fields most likely drop the prefix).
-    Citizenship:     mapCitizenship(g.usCitizen),
-    Marital_Status:  mapMaritalStatus(g.marital),
-    Num_Flipped:     g.flips != null && g.flips !== '' ? parseInt(g.flips, 10) : undefined,
   };
 
-  // Social_Security_Number is the customer's custom field name (per
-  // user, confirmed Phase 2.6). Only attached if we successfully
-  // decrypted; we never send "" since that would overwrite a real
-  // value in Baseline with empty.
-  if (ssn) payload.Social_Security_Number = ssn;
+  // Follow-up PATCH fields. Each is attempted as a SEPARATE PATCH
+  // /borrower/{Id} call after the create succeeds. Per-field PATCH
+  // means a 500 on one doesn't block the others. The orchestrator
+  // strips this property off before sending the POST so it doesn't
+  // get into the network call.
+  payload._followUpFields = {};
+  const fico = g.fico ? parseInt(g.fico, 10) : null;
+  if (fico)                                        payload._followUpFields.Credit_Score                            = fico;
+  if (g.flips != null && g.flips !== '')           payload._followUpFields.Projects_Completed_In_Last_36_Months    = parseInt(g.flips, 10);
+  const citizenshipVal = mapCitizenship(g.usCitizen);
+  if (citizenshipVal)                              payload._followUpFields.Citizenship                              = citizenshipVal;
+  const maritalVal = mapMaritalStatus(g.marital);
+  if (maritalVal)                                  payload._followUpFields.Marital_Status                          = maritalVal;
+  if (ssn)                                         payload._followUpFields.Social_Security_Number                  = ssn;
 
-  // Strip undefined/empty so we don't overwrite existing Baseline data
-  // with blanks on PATCH-like upserts.
+  // Strip undefined/empty from the main payload.
   Object.keys(payload).forEach((k) => {
+    if (k === '_followUpFields') return;
     if (payload[k] === undefined || payload[k] === '' || payload[k] === null) delete payload[k];
   });
 
@@ -1631,8 +1656,21 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
 // Whichever tier succeeds wins. If even tier 4 fails, the original
 // (tier 1) step is returned so the LO sees the real error message.
 async function postBorrowerWithAddressFallback(stepName, payload, mode, ctx) {
+  // Deploy 229 — strip the _followUpFields bag (PATCH-eligible custom
+  // fields attached by buildPersonPayload) before sending. We fire
+  // them via per-field PATCH after the create succeeds.
+  const followUps = payload && payload._followUpFields;
+  if (followUps) {
+    payload = Object.assign({}, payload);
+    delete payload._followUpFields;
+  }
+
   const t1 = await runStep(stepName, 'POST', '/borrower', payload, mode, ctx);
-  if (t1.ok || t1.skipped) return t1;
+  if (t1.ok) {
+    await firePersonFollowUpPatches(stepName, t1, followUps, mode, ctx);
+    return t1;
+  }
+  if (t1.skipped) return t1;
   if (t1.status !== 500) return t1;
 
   // Tier 2 — strip address.
@@ -1641,28 +1679,27 @@ async function postBorrowerWithAddressFallback(stepName, payload, mode, ctx) {
   const t2 = await runStep(stepName + '_no_address', 'POST', '/borrower', t2Payload, mode, ctx);
   if (t2.ok) {
     await recordRecovery(stepName, t2, t1, mode, ctx, 'address', stripped2);
+    await firePersonFollowUpPatches(stepName, t2, followUps, mode, ctx);
     return t2;
   }
   if (t2.status !== 500) return t1;
 
-  // Tier 3 — also drop SSN + Other_Email + Num_Flipped (custom fields
-  // we've been guessing at; these are the most-likely-to-be-rejected
-  // by Baseline's validator since they may not exist or may have
-  // format constraints we don't know about).
-  const t3Payload = stripFields(t2Payload, ['Social_Security_Number','Other_Email','Num_Flipped']);
+  // Tier 3 — also drop Other_Email (the only remaining standard-schema
+  // optional field beyond address). Custom fields aren't in the main
+  // payload anymore (Deploy 229 — they're _followUpFields).
+  const t3Payload = stripFields(t2Payload, ['Other_Email']);
   const stripped3 = changedKeys(payload, t3Payload);
-  const t3 = await runStep(stepName + '_minimal_custom', 'POST', '/borrower', t3Payload, mode, ctx);
+  const t3 = await runStep(stepName + '_no_other_email', 'POST', '/borrower', t3Payload, mode, ctx);
   if (t3.ok) {
-    await recordRecovery(stepName, t3, t1, mode, ctx, 'address + SSN/Other_Email/Num_Flipped', stripped3);
+    await recordRecovery(stepName, t3, t1, mode, ctx, 'address + Other_Email', stripped3);
+    await firePersonFollowUpPatches(stepName, t3, followUps, mode, ctx);
     return t3;
   }
   if (t3.status !== 500) return t1;
 
   // Tier 4 — bare minimum payload. First_Name, Last_Name, Name, Email,
-  // Is_Company, Phone, Date_Birth only. Strip the demographic/credit
-  // enum fields (Citizenship, Marital_Status, Credit_Score). If even
-  // this fails, the issue is in Baseline (or in one of the truly-
-  // required fields like Email format).
+  // Is_Company, Phone, Date_Birth only. If even this fails, the issue
+  // is in Baseline (or in one of the truly-required fields).
   const KEEP = new Set(['First_Name','Last_Name','Name','Email','Is_Company','Phone','Date_Birth']);
   const t4Payload = {};
   Object.keys(payload).forEach((k) => { if (KEEP.has(k)) t4Payload[k] = payload[k]; });
@@ -1670,12 +1707,44 @@ async function postBorrowerWithAddressFallback(stepName, payload, mode, ctx) {
   const t4 = await runStep(stepName + '_minimal', 'POST', '/borrower', t4Payload, mode, ctx);
   if (t4.ok) {
     await recordRecovery(stepName, t4, t1, mode, ctx, 'all optional fields', stripped4);
+    await firePersonFollowUpPatches(stepName, t4, followUps, mode, ctx);
     return t4;
   }
 
   // Nothing worked — return the original failure so the LO sees the
   // real error context (not the noise from the retries).
   return t1;
+}
+
+// Deploy 229 — after a successful POST /borrower, fire a separate
+// PATCH /borrower/{Id} call for each follow-up field individually.
+// Per-field PATCH means a 500 on one field doesn't block the others,
+// AND the audit log makes it obvious which custom fields Baseline
+// accepts on Mike's per-customer config (no docs to go by).
+//
+// Best-effort: failures are logged but don't change the success
+// status of the parent create step. The borrower record exists
+// either way; the LO can fill missing values manually in Baseline UI.
+async function firePersonFollowUpPatches(parentStep, createStep, followUps, mode, ctx) {
+  if (!followUps || typeof followUps !== 'object') return;
+  const borrowerId = extractId(createStep.body, 'borrower');
+  if (!borrowerId) return;
+  const keys = Object.keys(followUps).filter((k) => followUps[k] !== undefined && followUps[k] !== null && followUps[k] !== '');
+  if (!keys.length) return;
+  for (const fieldName of keys) {
+    const patchBody = {};
+    patchBody[fieldName] = followUps[fieldName];
+    await runStep(
+      parentStep + '_patch_' + fieldName,
+      'PATCH',
+      '/borrower/' + borrowerId,
+      patchBody,
+      mode,
+      ctx,
+    );
+    // Per-field result is captured in the audit log via runStep itself;
+    // no need to read it back here. Failures are not fatal.
+  }
 }
 
 function stripFields(payload, keys) {
