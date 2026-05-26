@@ -1078,8 +1078,21 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     const step = await runStep('entity', 'POST', '/borrower', entityPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
     result.steps.push(step);
     const entId = extractId(step.body, 'borrower');
-    if (step.ok && entId) result.refs.baselineEntityId = entId;
-    if (!step.ok) return finalize(result, 'entity_failed');
+    if (step.ok && entId) {
+      result.refs.baselineEntityId = entId;
+    } else if (!step.ok && isDuplicateEmailError(step)) {
+      // Deploy 212a — entity 409 (LLC name + state already exists in
+      // Baseline from a prior sync). Soft-success; we can't attach
+      // an entity by email at loan-create time (no Borrower_Email-
+      // equivalent for entities), so the loan will fall back to
+      // attaching G1 as the Borrower instead. Less ideal but the
+      // loan still syncs with a borrower attached.
+      step.ok = true;
+      step.skipped = true;
+      step.reason = 'existing_entity_no_id_recoverable_via_loan';
+    } else if (!step.ok) {
+      return finalize(result, 'entity_failed');
+    }
   } else if (!result.refs.baselineEntityId) {
     // Deploy 208/210 — log "skipped" entry with reason. With the new
     // fallback chain (long-app → client.companies), the only way
