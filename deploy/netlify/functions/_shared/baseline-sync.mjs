@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.9-graphql-diagnostics',
+    phase: 'phase-2.8.10-people-table',
   };
 }
 
@@ -851,27 +851,17 @@ async function findBorrowerByEmail(email) {
   const cleanEmail = String(email).trim().toLowerCase();
   if (!cleanEmail) return out;
 
-  // Try a wider range of patterns. GraphQL conventions vary:
-  //   - Type name: borrowers (plural — Hasura-style) or borrower (singular)
-  //   - Field name: Email (PascalCase, matching REST) or email (lowercase)
-  //   - Filter: where: { field: { _eq: X } } (Hasura/PostgREST style) or
-  //             direct args: (Email: "X")
-  // Stop at the first query that returns a non-empty result.
+  // Deploy 219 — schema introspection revealed the GraphQL type for
+  // borrowers is `people` (Hasura convention; the REST /borrower
+  // endpoint is a view over this table). All fields are snake_case
+  // lowercase (id, email). The single canonical query below is what
+  // the schema actually accepts; the alternates are kept as
+  // diagnostics in case the schema evolves.
   const queries = [
-    // Hasura-style where with PascalCase field
-    { label: 'plural+where+Email',  query: '{ borrowers(where: { Email: { _eq: "' + cleanEmail + '" } }) { Id Email } }' },
-    // Hasura-style where with lowercase field
-    { label: 'plural+where+email',  query: '{ borrowers(where: { email: { _eq: "' + cleanEmail + '" } }) { Id email } }' },
-    // Singular type
-    { label: 'singular+where+Email', query: '{ borrower(where: { Email: { _eq: "' + cleanEmail + '" } }) { Id Email } }' },
-    { label: 'singular+where+email', query: '{ borrower(where: { email: { _eq: "' + cleanEmail + '" } }) { Id email } }' },
-    // Direct args (no `where`)
-    { label: 'plural+args+Email',   query: '{ borrowers(Email: "' + cleanEmail + '") { Id } }' },
-    { label: 'plural+args+email',   query: '{ borrowers(email: "' + cleanEmail + '") { Id } }' },
-    // Schema introspection — last resort. Reveals the actual type names
-    // so we can fix the helper. Doesn't return borrower data, just
-    // discovery info.
-    { label: 'introspect',          query: '{ __schema { queryType { fields { name args { name type { name kind } } } } } }' },
+    // Canonical (confirmed by introspection in Deploy 218):
+    { label: 'people+where+email', query: '{ people(where: { email: { _eq: "' + cleanEmail + '" } }) { id email } }' },
+    // Diagnostic fallbacks if schema changes:
+    { label: 'people+where+Email', query: '{ people(where: { Email: { _eq: "' + cleanEmail + '" } }) { id Email } }' },
   ];
 
   for (const q of queries) {
@@ -893,23 +883,20 @@ async function findBorrowerByEmail(email) {
       catch (_) { attempt.body = { raw: String(text).slice(0, 500) }; }
 
       if (!attempt.body) { out.attempts.push(attempt); continue; }
-      // For the introspection query, just record the result and stop
-      // searching — we won't get borrower data from it.
-      if (q.label === 'introspect') {
-        out.attempts.push(attempt);
-        continue;
-      }
       // GraphQL errors → try next query
       if (attempt.body.errors && attempt.body.errors.length) {
         out.attempts.push(attempt);
         continue;
       }
-      // Look for borrower data in the response
+      // Look for borrower data in the response. Deploy 219 — the
+      // schema's actual table is `people`. Keep `borrowers` /
+      // `borrower` as fallback keys in case the schema evolves or a
+      // different tenant uses different naming.
       const data = attempt.body.data || {};
-      const candidates = data.borrowers || data.borrower;
+      const candidates = data.people || data.borrowers || data.borrower;
       const list = Array.isArray(candidates) ? candidates : (candidates ? [candidates] : []);
       if (list.length > 0) {
-        out.id = list[0].Id || list[0].id || null;
+        out.id = list[0].id || list[0].Id || null;
         out.attempts.push(attempt);
         if (out.id) return out;
       }

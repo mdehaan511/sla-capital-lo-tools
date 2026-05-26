@@ -230,6 +230,8 @@ function loadAll() {
       phaseEl.textContent = 'Phase 2.8.8 — after each soft-success on a 409, writes a follow-up audit entry (g1_recovery / g2_recovery) showing whether the GraphQL lookup found the existing borrower.';
     } else if (resp && resp.phase === 'phase-2.8.9-graphql-diagnostics') {
       phaseEl.textContent = 'Phase 2.8.9 — GraphQL lookup tries multiple query variants (plural/singular type, PascalCase/lowercase field, where-clause/direct-args, plus schema introspection). Per-attempt responses captured in the recovery audit entry.';
+    } else if (resp && resp.phase === 'phase-2.8.10-people-table') {
+      phaseEl.textContent = 'Phase 2.8.10 — borrowers live as `people` in the GraphQL schema (Hasura convention). Lookup query uses `{ people(where: { email: { _eq: "X" } }) { id email } }`. Confirmed via Deploy 218 introspection.';
     } else {
       phaseEl.textContent = '';
     }
