@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.7-patch-loan-borrower-refs',
+    phase: 'phase-2.8.8-recovery-audit-entries',
   };
 }
 
@@ -1198,12 +1198,36 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
         step.ok = true;
         step.skipped = true;
         step.reason = 'existing_borrower_found_via_graphql:' + existingId;
+        // Deploy 217 (Phase 2.8.8) — write a follow-up audit entry so
+        // the audit log reflects what actually happened (the raw 409
+        // entry above misleads at a glance).
+        await writeLog({
+          step: 'g1_recovery',
+          mode: result.mode,
+          ok: true,
+          note: 'GraphQL found existing borrower by email: ' + existingId,
+          baselineId: existingId,
+          loanId: loan.id,
+          clientId: client.id,
+          ownerKey: ctx.ownerKey,
+          triggerUserEmail: ctx.triggerUserEmail,
+        });
       } else {
         // Couldn't find via GraphQL — soft-success anyway and let the
         // loan POST attempt email-based attach as a last resort.
         step.ok = true;
         step.skipped = true;
         step.reason = 'existing_borrower_by_email_graphql_lookup_failed';
+        await writeLog({
+          step: 'g1_recovery',
+          mode: result.mode,
+          ok: false,
+          note: 'GraphQL lookup failed to find borrower by email. Both Email and email field-name casings errored or returned no rows. Borrower will not be attached as Guarantor.',
+          loanId: loan.id,
+          clientId: client.id,
+          ownerKey: ctx.ownerKey,
+          triggerUserEmail: ctx.triggerUserEmail,
+        });
       }
     } else if (!step.ok) {
       return finalize(result, 'g1_failed');
@@ -1228,17 +1252,38 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && g2Id) {
       result.refs.baselineGuarantor2Id = g2Id;
     } else if (!step.ok && isDuplicateEmailError(step)) {
-      // Same GraphQL lookup pattern as g1 (Deploy 215).
+      // Same GraphQL lookup pattern as g1 (Deploy 215/217).
       const existingId = await findBorrowerByEmail(g2Payload.Email);
       if (existingId) {
         result.refs.baselineGuarantor2Id = existingId;
         step.ok = true;
         step.skipped = true;
         step.reason = 'existing_borrower_found_via_graphql:' + existingId;
+        await writeLog({
+          step: 'g2_recovery',
+          mode: result.mode,
+          ok: true,
+          note: 'GraphQL found existing borrower by email: ' + existingId,
+          baselineId: existingId,
+          loanId: loan.id,
+          clientId: client.id,
+          ownerKey: ctx.ownerKey,
+          triggerUserEmail: ctx.triggerUserEmail,
+        });
       } else {
         step.ok = true;
         step.skipped = true;
         step.reason = 'existing_borrower_by_email_graphql_lookup_failed';
+        await writeLog({
+          step: 'g2_recovery',
+          mode: result.mode,
+          ok: false,
+          note: 'GraphQL lookup failed to find borrower by email.',
+          loanId: loan.id,
+          clientId: client.id,
+          ownerKey: ctx.ownerKey,
+          triggerUserEmail: ctx.triggerUserEmail,
+        });
       }
     } else if (!step.ok) {
       return finalize(result, 'g2_failed');
