@@ -99,8 +99,10 @@ export function baselineStatus() {
     // custom fields + diagnostics; 2.7 fixed the dry-run-refs-
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
-    // auto-fire from approval.
-    phase: 'phase-3-auto-fire-on-approval',
+    // auto-fire from approval. Deploy 225 — partial-address guard
+    // (drop all Address_* unless we have full Street + City + State,
+    // parse Google formatted_address strings on the way in).
+    phase: 'deploy-225-partial-address-guard',
   };
 }
 
@@ -676,13 +678,28 @@ function buildEntityPayload(loan, client, bi) {
   const ent = getEntityInfo(bi, client);
   if (!ent) return null;
 
+  // Deploy 225 — same partial-address guard as buildPersonPayload. The
+  // entity's street1 commonly comes through as a Google formatted_address
+  // ("Street, City, ST ZIP, USA") when the long-app's LLC address field
+  // is used in single-line autocomplete mode. Parse to recover city/
+  // state/zip, then fall back to separate fields if present. If we
+  // still don't have city + state, drop ALL Address_* fields rather
+  // than send a partial address (Baseline 500s on Street1-only payloads).
+  const entParsed = parseAddress(ent.street1 || '');
+  const entStreet = (entParsed.street1 || ent.street1 || '').trim();
+  const entCity   = (entParsed.city  || ent.city  || '').trim();
+  const entStRaw  = (entParsed.state || ent.state || '').trim();
+  const entZip    = (entParsed.zip   || '').trim();
+  const entHaveFullAddress = !!(entStreet && entCity && entStRaw);
+
   const payload = {
     Is_Company:      true,
     Name:            ent.name,
-    Address_Street1: ent.street1,
-    Address_City:    ent.city,
-    Address_State:   expandState(ent.state),
-    Address_Country: 'United States',
+    Address_Street1: entHaveFullAddress ? entStreet : undefined,
+    Address_City:    entHaveFullAddress ? entCity   : undefined,
+    Address_State:   entHaveFullAddress ? expandState(entStRaw) : undefined,
+    Address_Zipcode: entHaveFullAddress ? (entZip || undefined) : undefined,
+    Address_Country: entHaveFullAddress ? 'United States' : undefined,
   };
 
   // Phase 2.6 — Tax_ID (EIN) custom field. XX-XXXXXXX format from the
@@ -733,6 +750,30 @@ function buildPersonPayload(g) {
   }
   ssn = ssn.trim();
 
+  // Deploy 225 — defensive address resolution. The long app stores the
+  // home address as a single combined string in g.address with optional
+  // separate g.city / g.state / g.zip. In single-line autocomplete mode
+  // we get the Google formatted_address ("Street, City, ST ZIP, USA")
+  // in g.address and the separate fields stay blank. In structured
+  // mode the reverse — separate fields are filled and g.address holds
+  // just the street.
+  //
+  // Phase-2 prod test (Herbert Loper, 5/26) returned a 500 from Baseline
+  // POST /borrower because we sent Address_Street1 + Address_Country
+  // with no City/State (those got stripped by the blank-removal loop
+  // below). Baseline appears to crash server-side on a partial address.
+  //
+  // Strategy: parse g.address first to recover embedded city/state/zip,
+  // then fall back to the separate fields. If we STILL don't have both
+  // city AND state, drop ALL Address_* fields so we send no address at
+  // all rather than a half-address.
+  const parsed = parseAddress(g.address || '');
+  const street = (parsed.street1 || g.address || '').trim();
+  const city   = (parsed.city  || g.city  || '').trim();
+  const stRaw  = (parsed.state || g.state || '').trim();
+  const zip    = (parsed.zip   || g.zip   || '').trim();
+  const haveFullAddress = !!(street && city && stRaw);
+
   const payload = {
     Is_Company:      false,
     First_Name:      g.firstName || '',
@@ -742,10 +783,11 @@ function buildPersonPayload(g) {
     Other_Email:     String(g.email || '').trim().toLowerCase(), // matched dump
     Phone:           fmtPhone(g.phone),
     Date_Birth:      g.dob || undefined, // expected YYYY-MM-DD
-    Address_Street1: g.address || '',
-    Address_City:    g.city || '',
-    Address_State:   expandState(g.state || ''),
-    Address_Country: 'United States',
+    Address_Street1: haveFullAddress ? street : undefined,
+    Address_City:    haveFullAddress ? city   : undefined,
+    Address_State:   haveFullAddress ? expandState(stRaw) : undefined,
+    Address_Zipcode: haveFullAddress ? (zip || undefined) : undefined,
+    Address_Country: haveFullAddress ? 'United States' : undefined,
     Credit_Score:    g.fico ? parseInt(g.fico, 10) : undefined,
     // Deploy 211 — moved from loan-level Guarantor_* fields to the
     // person-borrower record. Baseline denormalizes onto the loan
