@@ -102,7 +102,7 @@ export function baselineStatus() {
     // auto-fire from approval. Deploy 225 — partial-address guard
     // (drop all Address_* unless we have full Street + City + State,
     // parse Google formatted_address strings on the way in).
-    phase: 'deploy-228.2-borrower-address-500-fallback',
+    phase: 'deploy-228.3-progressive-strip-retry-chain',
   };
 }
 
@@ -1610,55 +1610,101 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
  * Always returns the step's outcome (caller uses it to decide whether
  * to continue the sequence). Never throws.
  */
-// Deploy 228.2 — Borrower-create wrapper with address-strip retry.
+// Deploy 228.2 / 228.3 — Borrower-create with progressive-strip retry chain.
 //
 // Baseline's POST /borrower endpoint returns a generic HTTP 500
-// "Something went wrong. Please contact support." when its address
-// validator rejects (missing ZIP, geocoding fail, etc.) — the error
-// body never tells us which field tripped it. To unblock the sync, we
-// retry once with all Address_* fields stripped. The borrower record
-// gets created without a home address; the LO can later edit it in
-// the Baseline UI or fix the SLA-side data and re-sync.
+// "Something went wrong. Please contact support." when ANY field
+// trips its validator — the body never says which. Without API docs,
+// we walk down a chain of progressively-stripped payloads on 500.
+// Each retry is logged as its own step so the audit log makes it
+// obvious which payload finally got through (and therefore which
+// stripped field was the culprit).
 //
-// Returns the step object from the SUCCESSFUL call (with
-// recoveryNote attached when the retry was used), or the original
-// failed step if even the strip-and-retry didn't work.
+// Tiers (each only fires on the previous one's 500):
+//   tier 1 — full payload (as-built)
+//   tier 2 — no Address_* (Deploy 228.2)
+//   tier 3 — no Address_* + no SSN, Other_Email, Num_Flipped
+//            (custom/optional fields most likely to be format-rejected)
+//   tier 4 — minimal: First_Name, Last_Name, Name, Email, Is_Company,
+//            Phone, Date_Birth only. Everything else dropped.
+//
+// Whichever tier succeeds wins. If even tier 4 fails, the original
+// (tier 1) step is returned so the LO sees the real error message.
 async function postBorrowerWithAddressFallback(stepName, payload, mode, ctx) {
-  const step = await runStep(stepName, 'POST', '/borrower', payload, mode, ctx);
-  if (step.ok || step.skipped) return step;
-  const hadAddress = !!(payload && (payload.Address_Street1 || payload.Address_City || payload.Address_State || payload.Address_Zipcode));
-  const is500 = step.status === 500;
-  if (!is500 || !hadAddress) return step;
+  const t1 = await runStep(stepName, 'POST', '/borrower', payload, mode, ctx);
+  if (t1.ok || t1.skipped) return t1;
+  if (t1.status !== 500) return t1;
 
-  // Strip and retry. Logged as a separate step (stepName + '_no_address')
-  // so the per-step strip in the Loan Details panel makes the retry
-  // visible without needing to expand the full audit log.
-  const stripped = Object.assign({}, payload);
-  delete stripped.Address_Street1;
-  delete stripped.Address_City;
-  delete stripped.Address_State;
-  delete stripped.Address_Zipcode;
-  delete stripped.Address_Country;
-  const retry = await runStep(stepName + '_no_address', 'POST', '/borrower', stripped, mode, ctx);
-  if (retry.ok) {
-    retry.recoveryNote = 'Initial POST /borrower returned 500 (likely address validator). Retried without Address_* fields and succeeded. The Baseline borrower record was created WITHOUT a home address — add it manually in the Baseline UI, or fix the address on the SLA-side borrower record (typically the home address ZIP) and re-sync.';
-    // Persist a recovery audit entry so it shows up in /baseline-log.html.
-    await writeLog({
-      step: stepName + '_recovery_no_address',
-      mode,
-      ok: true,
-      note: retry.recoveryNote,
-      baselineId: extractId(retry.body, 'borrower') || null,
-      originalStatus: step.status,
-      originalError: (step.body && step.body.error) || step.raw || null,
-      ...ctx,
-    });
-    return retry;
+  // Tier 2 — strip address.
+  const t2Payload = stripFields(payload, ['Address_Street1','Address_City','Address_State','Address_Zipcode','Address_Country']);
+  const stripped2 = changedKeys(payload, t2Payload);
+  const t2 = await runStep(stepName + '_no_address', 'POST', '/borrower', t2Payload, mode, ctx);
+  if (t2.ok) {
+    await recordRecovery(stepName, t2, t1, mode, ctx, 'address', stripped2);
+    return t2;
   }
-  // Both attempts failed — return the ORIGINAL step (with the
-  // original error message) so the LO sees the real error, not the
-  // retry's noise.
-  return step;
+  if (t2.status !== 500) return t1;
+
+  // Tier 3 — also drop SSN + Other_Email + Num_Flipped (custom fields
+  // we've been guessing at; these are the most-likely-to-be-rejected
+  // by Baseline's validator since they may not exist or may have
+  // format constraints we don't know about).
+  const t3Payload = stripFields(t2Payload, ['Social_Security_Number','Other_Email','Num_Flipped']);
+  const stripped3 = changedKeys(payload, t3Payload);
+  const t3 = await runStep(stepName + '_minimal_custom', 'POST', '/borrower', t3Payload, mode, ctx);
+  if (t3.ok) {
+    await recordRecovery(stepName, t3, t1, mode, ctx, 'address + SSN/Other_Email/Num_Flipped', stripped3);
+    return t3;
+  }
+  if (t3.status !== 500) return t1;
+
+  // Tier 4 — bare minimum payload. First_Name, Last_Name, Name, Email,
+  // Is_Company, Phone, Date_Birth only. Strip the demographic/credit
+  // enum fields (Citizenship, Marital_Status, Credit_Score). If even
+  // this fails, the issue is in Baseline (or in one of the truly-
+  // required fields like Email format).
+  const KEEP = new Set(['First_Name','Last_Name','Name','Email','Is_Company','Phone','Date_Birth']);
+  const t4Payload = {};
+  Object.keys(payload).forEach((k) => { if (KEEP.has(k)) t4Payload[k] = payload[k]; });
+  const stripped4 = changedKeys(payload, t4Payload);
+  const t4 = await runStep(stepName + '_minimal', 'POST', '/borrower', t4Payload, mode, ctx);
+  if (t4.ok) {
+    await recordRecovery(stepName, t4, t1, mode, ctx, 'all optional fields', stripped4);
+    return t4;
+  }
+
+  // Nothing worked — return the original failure so the LO sees the
+  // real error context (not the noise from the retries).
+  return t1;
+}
+
+function stripFields(payload, keys) {
+  const out = Object.assign({}, payload);
+  keys.forEach((k) => { delete out[k]; });
+  return out;
+}
+
+function changedKeys(before, after) {
+  const out = [];
+  Object.keys(before).forEach((k) => { if (!(k in after)) out.push(k); });
+  return out;
+}
+
+async function recordRecovery(stepName, retryStep, originalStep, mode, ctx, label, strippedFields) {
+  retryStep.recoveryNote = 'Initial POST /borrower returned 500. Retried with ' + label + ' stripped and succeeded. ' +
+    'The Baseline borrower record was created WITHOUT these fields: ' + strippedFields.join(', ') + '. ' +
+    'Edit the borrower in the Baseline UI to fill them in, or fix the upstream format issue and re-sync.';
+  await writeLog({
+    step: stepName + '_recovery',
+    mode,
+    ok: true,
+    note: retryStep.recoveryNote,
+    baselineId: extractId(retryStep.body, 'borrower') || null,
+    strippedFields,
+    originalStatus: originalStep.status,
+    originalError: (originalStep.body && originalStep.body.error) || originalStep.raw || null,
+    ...ctx,
+  });
 }
 
 async function runStep(stepName, method, path, body, mode, ctx) {
