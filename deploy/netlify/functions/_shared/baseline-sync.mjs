@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.8-recovery-audit-entries',
+    phase: 'phase-2.8.9-graphql-diagnostics',
   };
 }
 
@@ -835,32 +835,47 @@ function buildLoanPayload(loan, client, bi, refs, g1Resolved, g2Resolved) {
  * Phase 1: this is unreachable because the orchestrator runs in dry-run
  * mode. Phase 2 wires it in.
  */
-// Deploy 215 (Phase 2.8.6) — find an existing borrower by email via
-// Baseline's GraphQL endpoint. Used when POST /borrower returns 409
-// "email already in use" so we can recover the existing borrower's Id
-// and attach it to the loan as Guarantor_Id (the documented behavior
-// of Guarantor_Email auto-attach is unclear; the explicit Guarantor_Id
-// path is what we know works).
+// Deploy 215/218 (Phase 2.8.6 / 2.8.9) — find an existing borrower by
+// email via Baseline's GraphQL endpoint. Used when POST /borrower
+// returns 409 "email already in use" so we can recover the existing
+// borrower's Id and attach it to the loan as Guarantor_Id.
 //
-// GraphQL field-name casing is not fully documented for this customer's
-// schema — the public docs example used `loans` lowercase for the type
-// name. We try the most likely casings in order and accept the first
-// success. Returns the borrower's Id or null if none found / all
-// queries errored.
+// GraphQL schema is not documented for this customer — type and field
+// names need probing. Deploy 218 makes this diagnostic: returns
+// { id, attempts } where attempts is the array of every query tried
+// and what Baseline returned. The caller writes attempts to the audit
+// log so we can see WHY a lookup failed.
 async function findBorrowerByEmail(email) {
-  if (!email) return null;
+  const out = { id: null, attempts: [] };
+  if (!email) return out;
   const cleanEmail = String(email).trim().toLowerCase();
-  if (!cleanEmail) return null;
+  if (!cleanEmail) return out;
 
-  // Try a couple of casing variants for the email field name. Baseline
-  // GraphQL might use Email (PascalCase, matching REST) or email
-  // (lowercase, more typical for GraphQL).
+  // Try a wider range of patterns. GraphQL conventions vary:
+  //   - Type name: borrowers (plural — Hasura-style) or borrower (singular)
+  //   - Field name: Email (PascalCase, matching REST) or email (lowercase)
+  //   - Filter: where: { field: { _eq: X } } (Hasura/PostgREST style) or
+  //             direct args: (Email: "X")
+  // Stop at the first query that returns a non-empty result.
   const queries = [
-    '{ borrowers(where: { Email: { _eq: "' + cleanEmail + '" } }) { Id Email } }',
-    '{ borrowers(where: { email: { _eq: "' + cleanEmail + '" } }) { Id email } }',
+    // Hasura-style where with PascalCase field
+    { label: 'plural+where+Email',  query: '{ borrowers(where: { Email: { _eq: "' + cleanEmail + '" } }) { Id Email } }' },
+    // Hasura-style where with lowercase field
+    { label: 'plural+where+email',  query: '{ borrowers(where: { email: { _eq: "' + cleanEmail + '" } }) { Id email } }' },
+    // Singular type
+    { label: 'singular+where+Email', query: '{ borrower(where: { Email: { _eq: "' + cleanEmail + '" } }) { Id Email } }' },
+    { label: 'singular+where+email', query: '{ borrower(where: { email: { _eq: "' + cleanEmail + '" } }) { Id email } }' },
+    // Direct args (no `where`)
+    { label: 'plural+args+Email',   query: '{ borrowers(Email: "' + cleanEmail + '") { Id } }' },
+    { label: 'plural+args+email',   query: '{ borrowers(email: "' + cleanEmail + '") { Id } }' },
+    // Schema introspection — last resort. Reveals the actual type names
+    // so we can fix the helper. Doesn't return borrower data, just
+    // discovery info.
+    { label: 'introspect',          query: '{ __schema { queryType { fields { name args { name type { name kind } } } } } }' },
   ];
 
-  for (const query of queries) {
+  for (const q of queries) {
+    const attempt = { label: q.label, query: q.query, httpStatus: null, body: null };
     try {
       const url = baseUrl() + '/graph';
       const resp = await fetch(url, {
@@ -870,30 +885,41 @@ async function findBorrowerByEmail(email) {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query: q.query }),
       });
+      attempt.httpStatus = resp.status;
       const text = await resp.text().catch(() => '');
-      let parsed;
-      try { parsed = text ? JSON.parse(text) : {}; } catch (_) { parsed = null; }
-      if (!parsed) continue;
-      // GraphQL errors → try next query
-      if (parsed.errors && parsed.errors.length) {
-        console.warn('baseline graphql errors:', JSON.stringify(parsed.errors).slice(0, 300));
+      try { attempt.body = text ? JSON.parse(text) : null; }
+      catch (_) { attempt.body = { raw: String(text).slice(0, 500) }; }
+
+      if (!attempt.body) { out.attempts.push(attempt); continue; }
+      // For the introspection query, just record the result and stop
+      // searching — we won't get borrower data from it.
+      if (q.label === 'introspect') {
+        out.attempts.push(attempt);
         continue;
       }
-      const borrowers = parsed.data && parsed.data.borrowers;
-      if (Array.isArray(borrowers) && borrowers.length > 0) {
-        return borrowers[0].Id || borrowers[0].id || null;
+      // GraphQL errors → try next query
+      if (attempt.body.errors && attempt.body.errors.length) {
+        out.attempts.push(attempt);
+        continue;
       }
-      // Query succeeded but no rows — borrower doesn't exist by this
-      // email (which is odd given we got a 409 from POST). Stop here.
-      return null;
+      // Look for borrower data in the response
+      const data = attempt.body.data || {};
+      const candidates = data.borrowers || data.borrower;
+      const list = Array.isArray(candidates) ? candidates : (candidates ? [candidates] : []);
+      if (list.length > 0) {
+        out.id = list[0].Id || list[0].id || null;
+        out.attempts.push(attempt);
+        if (out.id) return out;
+      }
+      out.attempts.push(attempt);
     } catch (e) {
-      console.warn('baseline findBorrowerByEmail threw:', e && e.message);
-      // Try next query
+      attempt.error = e && e.message;
+      out.attempts.push(attempt);
     }
   }
-  return null;
+  return out;
 }
 
 async function baselineFetch(method, path, body) {
@@ -1188,45 +1214,38 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && g1Id) {
       result.refs.baselineGuarantor1Id = g1Id;
     } else if (!step.ok && isDuplicateEmailError(step)) {
-      // Deploy 215 (Phase 2.8.6) — 409 means a borrower with this
-      // email already exists. Look it up via GraphQL so we can use
-      // the explicit Guarantor_Id on the loan POST. (Guarantor_Email
-      // auto-attach is unverified and appears to silently drop.)
-      const existingId = await findBorrowerByEmail(g1Payload.Email);
-      if (existingId) {
-        result.refs.baselineGuarantor1Id = existingId;
+      // Deploy 215/218 — 409 means existing borrower; GraphQL lookup
+      // to recover their Id for Guarantor_Id attachment.
+      const lookup = await findBorrowerByEmail(g1Payload.Email);
+      if (lookup.id) {
+        result.refs.baselineGuarantor1Id = lookup.id;
         step.ok = true;
         step.skipped = true;
-        step.reason = 'existing_borrower_found_via_graphql:' + existingId;
-        // Deploy 217 (Phase 2.8.8) — write a follow-up audit entry so
-        // the audit log reflects what actually happened (the raw 409
-        // entry above misleads at a glance).
+        step.reason = 'existing_borrower_found_via_graphql:' + lookup.id;
         await writeLog({
           step: 'g1_recovery',
           mode: result.mode,
           ok: true,
-          note: 'GraphQL found existing borrower by email: ' + existingId,
-          baselineId: existingId,
-          loanId: loan.id,
-          clientId: client.id,
-          ownerKey: ctx.ownerKey,
-          triggerUserEmail: ctx.triggerUserEmail,
+          note: 'GraphQL found existing borrower by email: ' + lookup.id,
+          baselineId: lookup.id,
+          attempts: lookup.attempts,
+          loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail,
         });
       } else {
-        // Couldn't find via GraphQL — soft-success anyway and let the
-        // loan POST attempt email-based attach as a last resort.
         step.ok = true;
         step.skipped = true;
         step.reason = 'existing_borrower_by_email_graphql_lookup_failed';
+        // Deploy 218 — include the per-attempt details so we can
+        // diagnose. Each attempt has label / query / httpStatus / body
+        // showing what Baseline returned. Click to expand the entry
+        // in /baseline-log.html to see them.
         await writeLog({
           step: 'g1_recovery',
           mode: result.mode,
           ok: false,
-          note: 'GraphQL lookup failed to find borrower by email. Both Email and email field-name casings errored or returned no rows. Borrower will not be attached as Guarantor.',
-          loanId: loan.id,
-          clientId: client.id,
-          ownerKey: ctx.ownerKey,
-          triggerUserEmail: ctx.triggerUserEmail,
+          note: 'GraphQL lookup failed across all field-name and type-name variants. Per-attempt responses captured in `attempts` for diagnosis.',
+          attempts: lookup.attempts,
+          loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail,
         });
       }
     } else if (!step.ok) {
@@ -1252,23 +1271,21 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     if (step.ok && g2Id) {
       result.refs.baselineGuarantor2Id = g2Id;
     } else if (!step.ok && isDuplicateEmailError(step)) {
-      // Same GraphQL lookup pattern as g1 (Deploy 215/217).
-      const existingId = await findBorrowerByEmail(g2Payload.Email);
-      if (existingId) {
-        result.refs.baselineGuarantor2Id = existingId;
+      // Same GraphQL lookup pattern as g1 (Deploy 215/218).
+      const lookup = await findBorrowerByEmail(g2Payload.Email);
+      if (lookup.id) {
+        result.refs.baselineGuarantor2Id = lookup.id;
         step.ok = true;
         step.skipped = true;
-        step.reason = 'existing_borrower_found_via_graphql:' + existingId;
+        step.reason = 'existing_borrower_found_via_graphql:' + lookup.id;
         await writeLog({
           step: 'g2_recovery',
           mode: result.mode,
           ok: true,
-          note: 'GraphQL found existing borrower by email: ' + existingId,
-          baselineId: existingId,
-          loanId: loan.id,
-          clientId: client.id,
-          ownerKey: ctx.ownerKey,
-          triggerUserEmail: ctx.triggerUserEmail,
+          note: 'GraphQL found existing borrower by email: ' + lookup.id,
+          baselineId: lookup.id,
+          attempts: lookup.attempts,
+          loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail,
         });
       } else {
         step.ok = true;
@@ -1278,11 +1295,9 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
           step: 'g2_recovery',
           mode: result.mode,
           ok: false,
-          note: 'GraphQL lookup failed to find borrower by email.',
-          loanId: loan.id,
-          clientId: client.id,
-          ownerKey: ctx.ownerKey,
-          triggerUserEmail: ctx.triggerUserEmail,
+          note: 'GraphQL lookup failed across all field-name and type-name variants.',
+          attempts: lookup.attempts,
+          loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail,
         });
       }
     } else if (!step.ok) {
