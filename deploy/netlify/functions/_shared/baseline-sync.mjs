@@ -102,7 +102,7 @@ export function baselineStatus() {
     // auto-fire from approval. Deploy 225 — partial-address guard
     // (drop all Address_* unless we have full Street + City + State,
     // parse Google formatted_address strings on the way in).
-    phase: 'deploy-229.1-parallel-patches-prevent-timeout',
+    phase: 'deploy-229.2-hoist-extractid-fix-502',
   };
 }
 
@@ -1377,33 +1377,11 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   const g1 = getGuarantor(borrowerInfo, client, 0);
   const g2 = getGuarantor(borrowerInfo, client, 1);
 
-  // Deploy 211 — Baseline POST responses are wrapped:
-  //   { "borrower": { "Id": "15633071", ... } }
-  //   { "loan":     { "Id": "SLA-...",   ... } }
-  // Pre-Deploy-211 we read step.body.Id (always undefined) so refs
-  // never populated and the loan was created with no Borrower_Id /
-  // Guarantor_Id — orphaned borrowers + orphaned loan. Helper unwraps
-  // either shape, falling back to the unwrapped form for forward
-  // compatibility if Baseline ever drops the wrapper.
-  function extractId(stepBody, key) {
-    if (!stepBody) return undefined;
-    if (stepBody[key] && stepBody[key].Id) return stepBody[key].Id;
-    if (stepBody.Id) return stepBody.Id;
-    return undefined;
-  }
-
-  // Deploy 212 — Baseline returns 409 + "That email address is already
-  // in use" (plain text, captured as response.raw) when POST /borrower
-  // hits an existing email. Normal in production for repeat borrowers;
-  // also happens during testing. Treated as soft-success — the loan
-  // POST will attach via Borrower_Email/Guarantor_Email instead.
-  function isDuplicateEmailError(step) {
-    if (!step || step.ok) return false;
-    if (step.status === 409) return true;
-    // Some platforms return 400 with a body indicating the conflict.
-    const text = step.body && (step.body.raw || step.body.error || step.body.message) || '';
-    return /already in use|already exists|duplicate/i.test(String(text));
-  }
+  // Deploy 229.2 — extractId and isDuplicateEmailError moved to module
+  // scope (see top of file) so postBorrowerWithAddressFallback and
+  // firePersonFollowUpPatches can use them. They were nested inside
+  // this orchestrator function as closures; calling them from the
+  // outside-scoped wrapper functions threw ReferenceError → 502 fast.
 
   // Step 1 — entity (LLC). Skip if no LLC OR if already synced.
   const entityPayload = buildEntityPayload(loan, client, borrowerInfo);
@@ -1635,6 +1613,32 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
  * Always returns the step's outcome (caller uses it to decide whether
  * to continue the sequence). Never throws.
  */
+// Deploy 229.2 — module-scope versions of helpers previously nested
+// inside the orchestrator. They're used by postBorrowerWithAddressFallback
+// + firePersonFollowUpPatches below, which live at module scope and
+// therefore can't reach into the orchestrator's closure scope.
+
+// Baseline POST responses are wrapped: { "borrower": { "Id": "...", ... } }
+// or { "loan": { "Id": "SLA-...", ... } }. Unwraps either shape, with a
+// forward-compat fallback to the unwrapped form.
+function extractId(stepBody, key) {
+  if (!stepBody) return undefined;
+  if (stepBody[key] && stepBody[key].Id) return stepBody[key].Id;
+  if (stepBody.Id) return stepBody.Id;
+  return undefined;
+}
+
+// Baseline returns 409 + "That email address is already in use" (plain
+// text in response.raw) when POST /borrower hits an existing email.
+// Some platforms return 400 with the conflict in the body. Treated as
+// soft-success by the orchestrator.
+function isDuplicateEmailError(step) {
+  if (!step || step.ok) return false;
+  if (step.status === 409) return true;
+  const text = step.body && (step.body.raw || step.body.error || step.body.message) || '';
+  return /already in use|already exists|duplicate/i.test(String(text));
+}
+
 // Deploy 228.2 / 228.3 — Borrower-create with progressive-strip retry chain.
 //
 // Baseline's POST /borrower endpoint returns a generic HTTP 500
