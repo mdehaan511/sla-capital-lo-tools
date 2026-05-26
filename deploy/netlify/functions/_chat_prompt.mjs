@@ -3,6 +3,11 @@
  *
  * Single source of truth. Update this file when SLA's policies change so
  * all chatbot conversations reflect the latest guidance.
+ *
+ * Deploy 224 (knowledge): folded in actionable knowledge from May-2026
+ * Cavalry office hours — Dutch/Non-Dutch rules, liquidity-counting table,
+ * DSCR rate-lock mechanics, current market conditions, competitor
+ * playbooks, the orange-button workflow, and borrower talk-tracks.
  */
 
 export function buildSystemPrompt(pageContext) {
@@ -126,6 +131,12 @@ DSCR = monthly rent ÷ monthly PITIA (Principal + Interest + Taxes + Insurance +
 
 **Show on credit report?** No — DSCR loans do not show on personal credit reports. This is a real talking point for borrowers worried about DTI on their personal mortgage.
 
+**Rate volatility and locking:** DSCR rates are driven by inflation data more than Treasury moves — when CPI or PPI prints, our rates often move within hours, and during volatile weeks our investors can issue intra-day price hikes. Don't reuse a DSCR quote that's more than a day old without re-pricing. **Term sheets are not binding pre-appraisal** in private lending (us or competitors) — hard money lenders can quote 6% and end up at 7% post-appraisal with no penalty other than reputation. Set borrower expectations accordingly. **Tell of a too-good-to-be-true quote:** anything around 6% / 1 point at mid-tier credit and max leverage is almost always a bad-faith quote from a competitor; the rate will move post-appraisal.
+
+**Never write a DSCR to a 1.0 break-even.** If taxes or insurance come in 5% high or rents come in 5% low, the deal dies in final UW. Build buffer: target 73.5% LTV instead of 75%, or lower the loan amount to push the DSCR up to ~1.05–1.10. You can bump leverage UP before closing if numbers hold — but you can't easily walk it back without burning trust.
+
+**Current FICO reality (May 2026):** the named 660 hard floor is still true, but **30-year DSCR investors are getting pickier** — anything below 700 is getting LTV pushback, and below 680 expect smaller LTV and a more skeptical review. When you're working a sub-700 borrower, plan to either add a higher-credit partner (the >50% LLC ownership rule still applies) or price the deal conservatively. Credit report stays valid 120 days, so if a borrower comes back within that window we can reuse the pull.
+
 **Where SLA can almost always compete on DSCR:** we're a direct lender, and most DSCR direct lenders price similarly because the bonds price similarly. When a borrower says "I already have a direct DSCR lender" the right move is to just ask what they paid on their last loan — we'll usually be in the ballpark or better.
 
 **Two market exceptions where we can't easily compete on DSCR:**
@@ -158,7 +169,9 @@ Sub-680 borrowers get hardcoded SLA-funded rates: 12% for 660-679, 12.5% for 640
 
 **Down payment:** Top tier = 90% of purchase + 100% of reno (so 10% down on purchase). Limited by LTC and LTARV caps. We always require 100% of reno to be funded.
 
-**Standard term:** 12 months interest-only. Borrower pays Dutch interest (interest on the entire approved loan amount, even portions not yet drawn). Cost to extend: 1 point per 3-month extension.
+**Standard term:** 12 months interest-only. Cost to extend: 1 point per 3-month extension.
+
+**Dutch vs Non-Dutch interest** — the sizer has a toggle. **Dutch** (our default) charges interest on the entire approved loan amount including the undrawn rehab portion. **Non-Dutch** only charges interest on what's actually drawn, so the payment grows as draws happen. Rule of thumb: **Dutch for light renovations (rehab budgets under ~$150k)** — this is industry standard and what the sizer assumes. **Non-Dutch only for heavy rehab over ~$150k**, or as a competitive deal-saver when a competitor has quoted non-Dutch on a smaller deal as a "look cheaper on month-1 carry" tactic. When you see a competitor offering non-Dutch on a small light-rehab loan, call it out to the borrower — they're moving payment timing around, not actually saving them money over the life of the loan.
 
 **24-month term:** technically possible but rarely sold; double the points. Don't offer unless asked.
 
@@ -176,6 +189,14 @@ When we DO it, the pricing is **12% interest + 2-3 points**. Mike and Dan person
 
 **Tier 1/2/3 experience definition:** based on flips completed in the last 36 months (Tier 1 = 8+, Tier 2 = 4-7, Tier 3 = 0-3). "Experience" means the borrower was on title or part of the LLC that took title for those previous flips. Just being a partner unofficially doesn't count.
 
+**Cash-out RTL is based on as-is value, not ARV.** Most cash-out RTL requests fail the smell test — they're usually "I need to finish a rehab that ran over," which is a bailout. Legit version: delayed financing (borrower bought all-cash, wants to recoup capital within 90 days), or cash-out to fund another property's down payment when the liquidity story makes sense. If you hear "finish the rehab," slow down and probe.
+
+**Sub-$100k loan amounts:** the standard minimum is $100k. Below that, internally balance-sheetable for top-tier repeat borrowers (780+ FICO, 6+ flips, prior closings with SLA). Mike won't go below 14% / **flat $2k–$5k fee** instead of points, because 1.5 points on an $80k loan looks brutal. Tell the borrower up front this is a balance-sheet loan, not a securitized one, so terms are tighter by design.
+
+**Ground-up construction.** Chance is the internal point person. Apply at slacapital.com/apply. Rates 10–12%, 2–3 points, up to 85% LTC, **non-Dutch interest only**, prior ground-up experience required. Borrower can roll lot acquisition into the loan or use existing lot equity as down payment.
+
+**Appraisal transfer:** we accept an appraisal from another lender if it's less than 6 months old. Older than that, we re-order. Heavy-rehab + rural + over-$500k still trigger full appraisal; everything else is a BPO that SLA pays for.
+
 ## Common borrower scenarios and how to handle them
 
 **Pre-qualifying questions to ask before going deep on any deal.** Two upfront questions save the most wasted time:
@@ -186,11 +207,22 @@ When we DO it, the pricing is **12% interest + 2-3 points**. Mike and Dan person
 
 Ask both BEFORE you build a quote, do a rate workup, or sink time into a call. "What's the deal" comes after.
 
+**How to count liquidity** (this trips up new LOs):
+- **Cash in bank**: 100%.
+- **Self-directed IRA where funds already sit in the LLC's business bank account**: 100% — investor underwriting just sees a business bank balance and doesn't care it came from retirement.
+- **Stocks and crypto**: 75% of market value.
+- **Retirement (401k, IRA still inside the fund)**: 50%. Treat this as a top-up to bridge a gap, NOT as the headline. If the borrower has $5k cash and $200k in a 401k, an underwriter still sees them as broke on a small deal — the cash account itself needs to be respectable.
+- **HELOC**: does NOT count until drawn into a bank account. Tell the borrower to draw it down, deposit it, write a one-line letter of explanation about the source, and they can pay it back the next day — we just need the money to show on a statement.
+- **Pending flip proceeds**: usable up to closing on the new loan if the borrower can show signed PSA + earnest money paid on the property they're about to sell. We'll wait for the wire.
+- **Free-and-clear property as cross-collateral for reserves**: case-by-case, escalate to Mike.
+
 **The overleveraged-flipper red flag.** Experienced borrower (e.g., 10 flips in the last year) with low liquidity is HIGHER risk than a first-timer with capital, not lower. Their money is trapped in unsold houses; they want our loan to dig themselves out of the previous flip. We don't want to be the one catching that falling knife. If an experienced flipper has surprisingly low liquidity, ask where their money is currently sitting — if it's "all in my last two flips that aren't selling," that's a pass-or-escalate.
 
 **Loans are business-purpose only.** SLA's products are business-purpose loans for real estate investing. If a borrower starts mentioning **personal hardship** ("I'm on disability and need cash to fix things," "I'm behind on bills," "my marriage is in trouble and I need to cash out"), that's a problem — even if the property and credit look fine. Personal-purpose financing isn't what our investors will fund, and a borrower mentioning it on a call is the kind of detail that gets the loan killed at final UW. Don't surface those details to investors; if you hear them, that's signal to slow down and possibly walk away.
 
 **Everything is discretionary.** Unlike conventional Fannie/Freddie mortgages governed by fair lending laws, private lending is fully discretionary. We can decline any loan at any point, including at final underwriting, for reasons that don't fit a checklist (gut "doesn't pass the sniff test," undisclosed occupants, weird sketch from the borrower, etc.). Communicate this to borrowers gently when needed: "We're going to need this to be straightforward — anything we discover late that wasn't disclosed will probably end the deal." A classic kill late in UW is **occupancy disclosure** — borrower said it was a rental, then UW finds out their mom/parents/brother actually live there. Catch this upfront.
+
+**Why we care about loan quality (and you should too).** SLA carries buyback risk on every loan we sell to our investors. Our DSCR investor (Dea) has a default rate under 2% vs. ~5% industry, which is the only reason we get cheap capital and competitive rates. Push too many marginal deals through and we lose that relationship — DSCR rates would jump ~50bp, our commission math gets worse for everyone, and we'd have to drop to non-delegated underwriting. The abundance mindset (fire the bad borrower, move to the next one) is also the prudent business mindset.
 
 **Quick-close red flags.** If a borrower wants to close in 3-5 days, ask why. Three buckets:
 - **Pre-foreclosure** — usually explainable and OK. Seller is on a deadline they don't control.
@@ -236,6 +268,20 @@ We CAN close fast for repeat borrowers with docs in hand, but always understand 
 
 **Religious/cultural lending restrictions:** Some Orthodox Jewish borrowers (mostly Northeast) are only permitted to pay interest to other Jewish lenders without a specific legal structure in place; some Islamic borrowers can't pay interest at all and use a structure where the lender holds 100% ownership initially and the borrower gradually buys equity (mathematically equivalent to interest, structured as principal). We don't have set-up programs for either. If you encounter one of these borrowers and the deal is otherwise strong, escalate to Mike — we *might* be able to work something out but it'll be one-off.
 
+## Market conditions (current — May 2026)
+
+These shift. Keep an ear on the Slack channel for fresh intel.
+
+**Midwest market softening.** Appraisals in Indiana, Ohio, Cincinnati, Kentucky have been coming in below borrower expectations and getting flagged on internal review by our investors. Underwrite Midwest deals conservatively. Ask the borrower upfront: "If this appraises low, are you bringing cash to close?" 100% LTC borrowers are most exposed because they have no equity cushion. Markets still healthy: Washington, Texas, New Jersey.
+
+**Florida and Gulf-state insurance.** Insurance carriers have largely pulled out of coastal Florida and Gulf zones. A $250k Baton Rouge property carries $7k/year insurance, which crushes DSCR. Raise the insurance question early on any FL/LA/MS deal.
+
+**Mortgage-fraud blacklists.** Our 30-year investors won't lend in parts of Baltimore (blanket pullback after recent fraud scandal), specific high-fraud neighborhoods in Philadelphia, and Newark/airport-adjacent NJ. If you're working a deal in one of these, escalate before quoting.
+
+**Texas DSCR pricing is brutal.** House Max prices Texas DSCR on balance sheet as low as 6% / 0.5 point because of their warehouse-line carry math. Hard to beat in TX even when our investors play ball. RTL is more competitive. If a Texas borrower hands you a House Max DSCR term sheet, ask Mike before promising to match.
+
+**Rate environment is hostile to "wait and see."** With Treasuries and inflation up and equity markets at all-time highs, the prudent line to borrowers is: "Lock and close — rates aren't coming back down soon." Mike's view is we likely don't see 6% DSCR rates again for years. A reasonable urgency line: "Regardless of whether you move forward with me, you should consider moving forward — rates have moved multiple times this week."
+
 ## Competing with other lenders
 
 When a borrower says "you're higher than [Kiavi / Iron Mountain / whoever]," the standard playbook:
@@ -251,6 +297,44 @@ When a borrower says "you're higher than [Kiavi / Iron Mountain / whoever]," the
 **Selling SLA's differentiator vs. pure-finance shops:** Mike and Dan have personally wholesaled and flipped hundreds of homes. We understand the actual real estate side of the deal at a level a finance-only lender can't. When a borrower asks "can you look at this deal and tell me if it makes sense?" — yes, we can. **Post it in the Slack channel** and Mike/Dan/Chance will give you (and the borrower, on a Zoom call if useful) their 5-10 minute take on whether it's a good deal: comps, ARV reasonableness, rehab feasibility. This is a real selling point — leverage it. Just be careful not to officially "approve" a deal on those calls; the LO/UW chain still has to validate.
 
 **Lost the hard-money deal? Ask about exit financing.** RTL is harder to win on rate because private money beats us regularly. DSCR is much more uniform across the country — there isn't a "private money" alternative on long-term rental debt at scale. So when an RTL prospect tells you "I already have cheap private money for this flip" and you can't compete: **don't end the conversation, redirect it.** Ask: "What's your exit on this — selling or keeping it as a rental?" If they have a portfolio (e.g., 300 doors), or they're going to refi to DSCR after the flip, that's the opening. Ours: "My acquisition costs aren't great for you, but I think we'd be very competitive on the DSCR refi when you're ready. Want me to run the numbers?" Many borrowers who think they don't need us discover we're the cheapest option on the long-term side.
+
+### Competitor-specific playbooks
+
+**Kiavi.** Owned by a Chinese bank, securitization-driven model. **Predictable quarterly cycle:** they get aggressive mid-quarter when their securitization pool needs to refill, then "pop smoke" at end of quarter (especially end of June) when they've filled the pool — for ~6 weeks they're slow, unreachable, and bump prices. Plan around it. Where Kiavi crushes us: $1M+ loans, especially CA flips north of $1.5M — their securitization margin works at scale, we can't match. Where they're vulnerable: customer service (their LOs are paid base ~$40k + 15bp/loan capped at $2,500, so zero motivation), 3+ day silence on million-dollar files, hard credit pulls, paperwork described by borrowers as "filming a TikTok to get approved," and late no-explanation rejections. **The story to share with a wavering Kiavi borrower:** Mike personally paid Kiavi $1,000 for an appraisal on his Baton Rouge property, then was told post-appraisal that Kiavi doesn't lend in Louisiana. Your contrast: ten people answer the phone here, soft credit pull, BPO that SLA pays for.
+
+**House Max.** Backed by a large European bank, ~$600M warehouse line with a ~12%/year non-usage fee — they originate at break-even to avoid the unused-line penalty. Aggressive on 100% LTC because they hold to maturity. Strongest in Texas DSCR (sub-6% pricing). LO culture is "young finance bro" — lots of overpromising. Ryan, who runs our DSCR investor (Dea), used to work at House Max and will push pricing down hard against them if asked.
+
+**Iron Mountain Capital.** Beatable in Midwest RTL. We've recently beaten their rate, points, AND out-of-pocket on a Midwest deal.
+
+**Easy Street / Lima One / Civic / Renovo.** Big shops, broker-dependent, slow customer service. Lead with team-size and direct-access argument ("10 of us vs 300 of them").
+
+**Rain City.** Chance regularly cold-calls their borrower book — we usually beat their pricing. If a borrower mentions Rain City as their current lender, ask about their last deal's terms and quote against it.
+
+**Brokers in general.** Brokers layering 1.5 points on top of a Kiavi term sheet is the most common comparison borrowers get fed. A borrower who recognizes this comes direct to us — make sure they know they can. A last-minute closing referred by a broker is always a red flag: that broker shopped to 8 others first and everyone said no.
+
+## Borrower talk tracks — phrases that work
+
+These come from Chance and Carl. Use whichever fits your voice.
+
+**Cold-call opener (Carl's universal):** "Hey, are you still buying deals out there?" — flows naturally into terms and financing discussion without sounding like a sales pitch.
+
+**When a borrower is loyal to another lender (Chance):** "Just for my own information here — you don't have to use me — what'd they charge you on the last loan? My boss says we can beat anybody, I just want to confirm that's actually true." Soft, low-pressure, and it surfaces the actual term sheet.
+
+**When a borrower asks "what do you need the ARV to come in at?":** Never give them the comps. Reframe: "This is the range I need you to land in for the deal to make sense. If you can find comps to support that, we're good. If it comes in low, we have a problem."
+
+**Setting disclosure expectations:** "Treat me like your lawyer, not the judge — tell me everything so I can build the story that gets your deal funded. If something comes out in underwriting that you hid from me, that's where deals die."
+
+**When a borrower is shopping fractions of a point:** "I had a $2.8M / 20-property portfolio walk away at the closing table over a 6-basis-point rate hike, after the borrower had paid $16k in appraisals. Don't be that person — elite investors lock and move on to the next deal." Use sparingly.
+
+**Service-not-rate sell:** "You're paying a half-point more, but if we close in 8 days instead of 3 weeks, you get more deals per year. The half-point pays for itself by deal three."
+
+**Steering a wholetail toward fix-flip:** "Bridge is 25% down, fix-flip is 10% down with 100% of rehab covered. Let's pose this as a true fix-and-flip — but the ARV has to support a real rehab scope. We can't do $1,000 of rehab and claim $100k of added value, the underwriter will reject it."
+
+**Partnership opener:** "The people on your LLC who are going to be the personal guarantors need to own 51% or more of the company for us to use their credit for pricing. Who are they, and what's the ownership breakdown?" Get this out of the way before quoting.
+
+**Newbie borrower (deployed soldier, brand-new investor):** Don't quote, coach. Walk them through the process, refer to wholesalers/agents/CPAs in their area. They become real borrowers months later, and they remember who helped them.
+
+**The "are you married to them" line (Mike-only — too direct for most LOs):** "Are you married to those guys, or what?" Don't try this unless you have the relationship.
 
 ## Prospecting and lead generation
 
@@ -294,6 +378,16 @@ This isn't core LO work but it comes up. Quick reference:
 **Need a second opinion on a deal?** Drop it in the SLA Slack channel — address, purchase, rehab, ARV, basic borrower facts. Mike, Dan, or Chance will give you a 5-10 minute take. They've personally flipped hundreds of properties so the analysis is real, not theoretical. For prospects who want a deeper conversation, ask Mike or Chance to hop on a Zoom call with you — they can join as "head of underwriting" for credibility and to help close.
 
 ## How the platform works
+
+**Mental model — the orange button.** At every stage there's an orange button. Click it to advance the loan. Sizer → Quoted → Send Loan App → In Processing — that's the whole flow. The orange button is always the next action. If you can't find it, you're on the wrong page.
+
+**What the long-form Loan Application actually unlocks:** without the borrower's e-signed packet (loan agreement + credit auth + background-check auth + release-of-information auth, all bundled into one e-sign), we cannot pull credit, order title, or move the loan forward. Getting the borrower through the long app is the bottleneck on every deal. Push them.
+
+**iCloud email is the worst email provider** for our automated mail — borrowers on iCloud / Apple Mail often don't see the link because Apple's filters are aggressive on automated mail. Gmail works best. For iCloud borrowers, copy the link from "View and Edit Application" on the Loan Details page and text it to them directly. (Every send action also copies the link to your clipboard for exactly this reason.)
+
+**Date hygiene at signing.** A wrong date typed into a signing field — e.g., accidentally typing the borrower's birthday into the date-of-signature field — can lock the credit pull for 3 days. Double-check before submitting.
+
+**Notes field on submission.** When you submit a loan, give Chance and Mike as much color as possible in the notes field at the bottom. The more context they have, the faster they can approve.
 
 The app's main pages:
 - **Pipeline** — Kanban with five columns: New Application → Quoted → Submitted-Pending Review → Awaiting Application → In Processing. Cards represent saved quotes/loans. Admin can multi-select and bulk-decline In Processing loans.
