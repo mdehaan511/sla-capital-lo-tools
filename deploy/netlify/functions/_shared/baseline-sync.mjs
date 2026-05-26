@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.6-graphql-find-by-email',
+    phase: 'phase-2.8.7-patch-loan-borrower-refs',
   };
 }
 
@@ -1279,6 +1279,26 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
       result.refs.baselineLoanId = extractId(step.body, 'loan') || deriveBaselineLoanId(loan);
     }
     if (!step.ok) return finalize(result, 'loan_failed');
+  } else if (result.refs.baselineEntityId || result.refs.baselineGuarantor1Id) {
+    // Deploy 216 (Phase 2.8.7) — loan already exists in Baseline, but
+    // we may have borrower refs that weren't available the first time
+    // (e.g. g1 was a 409 originally and we just resolved their Id via
+    // GraphQL on this retry). PATCH the existing loan to set the
+    // Borrower_Id / Guarantor_Id so the loan finally has its borrowers
+    // attached.
+    //
+    // Idempotent — if Baseline already has these set on the loan, PATCH
+    // with the same values is a no-op. If the entity Id matches but
+    // Guarantor_Id was empty, this fills it in.
+    const patchPayload = {};
+    if (result.refs.baselineEntityId)     patchPayload.Borrower_Id  = result.refs.baselineEntityId;
+    if (result.refs.baselineGuarantor1Id) patchPayload.Guarantor_Id = result.refs.baselineGuarantor1Id;
+    if (Object.keys(patchPayload).length > 0) {
+      const patchPath = '/loan/' + encodeURIComponent(result.refs.baselineLoanId);
+      const step = await runStep('loan_patch', 'PATCH', patchPath, patchPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
+      result.steps.push(step);
+      if (!step.ok) return finalize(result, 'loan_patch_failed');
+    }
   }
 
   // Deploy 206 (Phase 2.7.2) — anomaly guard. If we reach here with zero

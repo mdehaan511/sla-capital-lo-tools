@@ -139,6 +139,7 @@
       <option value="connect_g1">Connect G1</option>
       <option value="connect_g2">Connect G2</option>
       <option value="loan">Loan</option>
+      <option value="loan_patch">Loan PATCH</option>
     </select>
     <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
     <span class="stats" id="stats"></span>
@@ -221,6 +222,8 @@ function loadAll() {
       phaseEl.textContent = 'Phase 2.8.5 — stale-format loan refs (pre-Deploy-210 l_<...>) auto-cleared so next retry re-creates with the current SLA-YYYYMMDD-NNNN format. Trigger fallback chain removed (result.refs is authoritative).';
     } else if (resp && resp.phase === 'phase-2.8.6-graphql-find-by-email') {
       phaseEl.textContent = 'Phase 2.8.6 — when POST /borrower returns 409, GraphQL /api/graph finds the existing borrower by email so we can attach them via explicit Guarantor_Id on the loan.';
+    } else if (resp && resp.phase === 'phase-2.8.7-patch-loan-borrower-refs') {
+      phaseEl.textContent = 'Phase 2.8.7 — when the loan already exists in Baseline but we now have borrower refs that werent set the first time, PATCH /loan/{id} to attach Borrower_Id / Guarantor_Id.';
     } else {
       phaseEl.textContent = '';
     }
