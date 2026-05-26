@@ -285,6 +285,172 @@ export function renderSignedApplicationPDF({ record, client, signers, status }) 
       row('Desired Closing Date', desiredCloseDate);
       doc.moveDown(0.5);
 
+      // ── SECTION A.5: LOAN DETAILS ──────────────────────────────
+      // Deploy 230 — mirrors the "Preliminary Transaction Details"
+      // table on the DIYA LOI. Shows the priced loan terms the LO
+      // generated in the sizer (rate, LTV, term, prepay, DSCR, purpose,
+      // escrow). Surfaced here so borrowers signing the long
+      // application see the pricing alongside the rest of their
+      // representations. Backed up by the Disclaimer block below
+      // Estimated Fees so borrowers understand these are preliminary.
+      //
+      // Pulls from the loan record (client.loans matched by
+      // record.loanId), falling back to prefill / data when fields
+      // aren't on the loan yet.
+      const loanRec = (() => {
+        if (!record || !record.loanId || !client || !Array.isArray(client.loans)) return null;
+        return client.loans.find((l) => l && l.id === record.loanId) || null;
+      })();
+      const pf = record.prefill || {};
+
+      // Helpers for display formatting.
+      const fmtPct = (v, digits) => {
+        const n = parseFloat(String(v == null ? '' : v).replace(/[%,\s]/g, ''));
+        if (!isFinite(n) || n === 0) return '';
+        return n.toFixed(digits == null ? 2 : digits) + '%';
+      };
+      const fmtRatio = (v) => {
+        const n = parseFloat(String(v == null ? '' : v).replace(/[x,\s]/gi, ''));
+        if (!isFinite(n) || n === 0) return '';
+        return n.toFixed(2) + 'x';
+      };
+      const calcLTV = () => {
+        const amt  = parseFloat(String((loanRec && loanRec.loanAmt) || requestedLoanAmt || '').replace(/[$,]/g, ''));
+        const val  = parseFloat(String((loanRec && loanRec.propValue) || data.currentValue || '').replace(/[$,]/g, ''));
+        if (!isFinite(amt) || !isFinite(val) || val <= 0) return '';
+        return ((amt / val) * 100).toFixed(0) + '%';
+      };
+      const loanTermDisplay = () => {
+        // DSCR is always 360 months / 30-year fixed; RTL is 12 months IO.
+        if (loanRec && loanRec.term) return loanRec.term + ' Months';
+        if (isDSCR) return '360 Months';
+        if (isFF)   return '12 Months';
+        return '';
+      };
+      // Prepay codes are stored as compact strings (e.g. "5/4/3/2/1" or
+      // "54321"). Show what was saved; if it's a clean compact form
+      // expand to a human-readable label.
+      const prepayDisplay = () => {
+        const raw = (loanRec && loanRec.prepay) || data.prepay || '';
+        if (!raw) return '';
+        const compact = String(raw).replace(/[^0-9]/g, '');
+        if (compact === '54321')  return '5 Year Stepdown (54321)';
+        if (compact === '5555')   return '5 Year Flat (5555)';
+        if (compact === '4321')   return '4 Year Stepdown (4321)';
+        if (compact === '321')    return '3 Year Stepdown (321)';
+        if (compact === '00000' || compact === '0') return 'None';
+        return String(raw);
+      };
+      const purposeDisplay = () => {
+        const code = data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose
+                  || (loanRec && loanRec.loanPurpose) || '';
+        if (!code) return '';
+        const c = String(code).toLowerCase();
+        if (c === 'refi_co' || c === 'cashout' || c === 'cashout_refi' || c === 'cashout refi') return 'Cashout Refi';
+        if (c === 'refi_rt' || c === 'rate_and_term' || c === 'refinance') return 'Rate/Term Refi';
+        if (c === 'purchase') return 'Purchase';
+        return PURCHASE_REFI_LABEL[c] || code;
+      };
+
+      const interestRateStr = fmtPct(loanRec && loanRec.rate, 3);
+      const ltvStr          = calcLTV();
+      const dscrStr         = fmtRatio((loanRec && loanRec.dscr) || data.estimatedDSCR);
+
+      // Only render the section if we have at least one meaningful
+      // value. Avoids an empty "Loan Details" header on records that
+      // pre-date the sizer-priced loan (e.g. legacy app-only flows).
+      const hasAnyLoanDetail = !!(interestRateStr || ltvStr || dscrStr || loanRec || data.prepay);
+      if (hasAnyLoanDetail) {
+        section('Loan Details');
+        // Interest Rate gets an asterisk; full footnote rendered below
+        // the section.
+        if (interestRateStr) row('Interest Rate *', interestRateStr);
+        if (ltvStr)          row('Loan-to-Value Ratio (LTV)', ltvStr);
+        row('Loan Term', loanTermDisplay());
+        const prepayStr = prepayDisplay();
+        if (prepayStr)       row('Prepayment Penalty', prepayStr);
+        if (dscrStr)         row('Estimated DSCR', dscrStr);
+        const purposeStr = purposeDisplay();
+        if (purposeStr)      row('Loan Purpose', purposeStr);
+        row('Escrow Account', 'Yes (Taxes and Insurance)');
+
+        // Rate-lock footnote (DIYA-style). Small italic muted body.
+        doc.moveDown(0.3);
+        doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(MUTED)
+          .text(
+            '* The Interest Rate will be locked following the execution date of this Letter of Intent or after all appraisals have been received, and the rate lock will be for 45 calendar days. Your Loan Interest Rate is based on loan credit parameters, represented by you (and stated in this Letter), and may be changed if differences are found in underwriting, at Originator’s sole discretion.',
+            54, doc.y,
+            { width: doc.page.width - 108, align: 'justify', lineGap: 1 }
+          );
+        doc.moveDown(0.6);
+      }
+
+      // ── SECTION A.6: ESTIMATED FEES & OTHER DETAILS ────────────
+      // Deploy 230 — fees block matching the DIYA LOI. Underwriting +
+      // Legal/Doc fees are SLA's standard DSCR fees ($1,695 + $500).
+      // Rate Buydown and Origination Fee pull from the loan record so
+      // they reflect what the LO actually quoted on the sizer.
+      const buydown    = (loanRec && loanRec.buydown != null) ? parseFloat(loanRec.buydown) : null;
+      const origPoints = (loanRec && loanRec.points  != null) ? parseFloat(loanRec.points)  : null;
+      const buydownStr    = (buydown    != null && isFinite(buydown))    ? (buydown.toFixed(buydown    % 1 === 0 ? 0 : 2) + '% of the Loan Amount') : '0% of the Loan Amount';
+      const origPointsStr = (origPoints != null && isFinite(origPoints)) ? (origPoints.toFixed(origPoints % 1 === 0 ? 0 : 2) + '% of the Loan Amount') : '';
+
+      // Render only when we have something meaningful (any priced loan
+      // will, but pre-sizer records may not).
+      if (hasAnyLoanDetail) {
+        section('Estimated Fees & Other Details *');
+        row('Rate Buydown',  buydownStr);
+        row('Origination Fee', origPointsStr || '—');
+        row('Underwriting Fee', '$1,695');
+        row('Legal/Doc Fee', '$500');
+        // Appraisals row — long descriptive paragraph; render full-width.
+        if (doc.y > doc.page.height - 100) doc.addPage();
+        const apprStartY = doc.y;
+        doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+          .text('Appraisals', 54, apprStartY, { width: 130 });
+        doc.font('Helvetica').fontSize(8.5).fillColor(TEXT)
+          .text('Costs can vary based on several factors including geographic region, the service provider and the type of report ordered. Costs are controlled by independent third parties, subject to change without notice and are not within the Originator’s control. Borrower to pay appraiser directly.',
+                54 + 130 + 8, apprStartY,
+                { width: doc.page.width - 54 - 54 - 130 - 8, lineGap: 1 });
+        doc.moveDown(0.4);
+
+        // Footnote — matches DIYA LOI.
+        doc.font('Helvetica-Oblique').fontSize(7.5).fillColor(MUTED)
+          .text(
+            '^ The above estimates do not include title fees, borrower’s legal fees, or any other third-party costs incurred while closing the loan. We have a Title/Escrow vendor with whom we have a strong relationship and believe is the cheapest and most efficient option. If you have a strong preference to use another vendor, please let us know.',
+            54, doc.y,
+            { width: doc.page.width - 108, align: 'justify', lineGap: 1 }
+          );
+        doc.moveDown(0.6);
+
+        // ── DISCLAIMER on preliminary terms ──────────────────────
+        // Deploy 230 — Added because the new Loan Details + Estimated
+        // Fees sections now display specific pricing/terms a borrower
+        // could mistake for a binding offer. Existing LOAN_
+        // ACKNOWLEDGEMENT_TEXT covers borrower-side reps (11 points,
+        // FCRA, etc.) but doesn't disclaim the LENDER's right to
+        // withdraw/adjust pricing or the non-binding nature of these
+        // preliminary terms. The two paragraphs below are adapted from
+        // DIYA's standard LOI disclaimer.
+        if (doc.y > doc.page.height - 140) doc.addPage();
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(GOLD)
+          .text('Disclaimer — Preliminary Terms', 54, doc.y, { width: doc.page.width - 108 });
+        doc.moveDown(0.25);
+        doc.font('Helvetica').fontSize(8).fillColor(TEXT)
+          .text(
+            'The proposed Loan Interest Rate and terms may be unilaterally withdrawn or adjusted by Originator in its sole discretion at any time in the event, during the underwriting process, certain loan parameters are determined to be materially and adversely different compared to those presented in this Application.',
+            54, doc.y,
+            { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
+          );
+        doc.moveDown(0.35);
+        doc.text(
+            'Please note this Application serves to outline the terms of the proposed financing of the referenced transaction. The terms set forth in this Application are merely a general proposal and are neither a binding offer nor a contract. Borrower understands and agrees that Originator is not obligated to enter into the transaction contemplated herein, on the terms set forth herein, or on any other terms, unless and until Originator obtains internal committee approval — predicated on multiple factors including but not limited to satisfactory appraisal, satisfactory credit review of the borrowing entity and Key Principals, satisfactory review of the property’s market, and Originator or its capital partner executes and delivers to Borrower final definitive loan documents, the terms of which shall supersede in their entirety the terms set forth herein.',
+            54, doc.y,
+            { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
+          );
+        doc.moveDown(0.8);
+      }
+
       // ── SECTION B: F&F questions ────────────────────────────────
       if (isFF) {
         section('Questions for Fix and Flip Loans');
