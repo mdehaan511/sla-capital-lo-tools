@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.10-people-table',
+    phase: 'phase-2.8.11-guarantor-email-and-mutation-probe',
   };
 }
 
@@ -909,6 +909,56 @@ async function findBorrowerByEmail(email) {
   return out;
 }
 
+// Deploy 220 — one-time diagnostic. Asks Baseline GraphQL for the list
+// of available mutation fields. Writes them into the audit log so we
+// can see whether insert_guarantees_one (or similar) is available for
+// directly inserting the guarantor↔loan linkage when PATCH doesn't
+// honor it. Never throws.
+async function probeMutationSchema(ctx) {
+  const query = '{ __schema { mutationType { name fields { name args { name type { name kind ofType { name kind } } } } } } }';
+  try {
+    const url = baseUrl() + '/graph';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Token ' + process.env.BASELINE_API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ query }),
+    });
+    const text = await resp.text().catch(() => '');
+    let parsed;
+    try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = { raw: text.slice(0, 500) }; }
+    // Look specifically for guarantees-related mutation fields, since
+    // those are what we need.
+    const mutationType = parsed && parsed.data && parsed.data.__schema && parsed.data.__schema.mutationType;
+    const allFields = (mutationType && mutationType.fields) || [];
+    const guaranteeFields = allFields.filter((f) => /guarantee|guaranty|borrow|people|insert|update/i.test(f.name)).map((f) => f.name);
+    await writeLog({
+      step: 'mutation_probe',
+      mode: 'live',
+      ok: !!mutationType,
+      note: mutationType
+        ? ('GraphQL mutationType available. ' + allFields.length + ' total mutation fields. ' + guaranteeFields.length + ' look guarantee/borrow/insert/update related.')
+        : 'GraphQL returned no mutationType (queries-only schema?). See full response.',
+      mutationTypeName: mutationType && mutationType.name,
+      mutationFieldCount: allFields.length,
+      guaranteeRelatedMutationFields: guaranteeFields.slice(0, 40),
+      response: parsed,
+      ...ctx,
+    });
+  } catch (e) {
+    await writeLog({
+      step: 'mutation_probe',
+      mode: 'live',
+      ok: false,
+      note: 'Mutation probe threw: ' + (e && e.message),
+      ...ctx,
+    });
+  }
+}
+
 async function baselineFetch(method, path, body) {
   const url = baseUrl() + (path.startsWith('/') ? path : '/' + path);
   try {
@@ -1327,24 +1377,33 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
     }
     if (!step.ok) return finalize(result, 'loan_failed');
   } else if (result.refs.baselineEntityId || result.refs.baselineGuarantor1Id) {
-    // Deploy 216 (Phase 2.8.7) — loan already exists in Baseline, but
-    // we may have borrower refs that weren't available the first time
-    // (e.g. g1 was a 409 originally and we just resolved their Id via
-    // GraphQL on this retry). PATCH the existing loan to set the
-    // Borrower_Id / Guarantor_Id so the loan finally has its borrowers
-    // attached.
+    // Deploy 216/220 — loan already exists in Baseline, but we may
+    // have borrower refs that weren't available the first time. PATCH
+    // the existing loan to set Borrower_Id / Guarantor_Id.
     //
-    // Idempotent — if Baseline already has these set on the loan, PATCH
-    // with the same values is a no-op. If the entity Id matches but
-    // Guarantor_Id was empty, this fills it in.
+    // Deploy 220 — modify-loan docs don't list Guarantor_* as settable,
+    // and our last test showed PATCH with Guarantor_Id alone didn't
+    // create the guarantees linkage. Also include Guarantor_Email so
+    // Baseline can use email-based auto-attach (same documented
+    // behavior as Borrower_Email; Guarantor_Email isn't documented
+    // but the docs note "any field available in the loan can be set").
     const patchPayload = {};
     if (result.refs.baselineEntityId)     patchPayload.Borrower_Id  = result.refs.baselineEntityId;
     if (result.refs.baselineGuarantor1Id) patchPayload.Guarantor_Id = result.refs.baselineGuarantor1Id;
+    if (g1 && g1.email) patchPayload.Guarantor_Email = String(g1.email).trim().toLowerCase();
     if (Object.keys(patchPayload).length > 0) {
       const patchPath = '/loan/' + encodeURIComponent(result.refs.baselineLoanId);
       const step = await runStep('loan_patch', 'PATCH', patchPath, patchPayload, result.mode, { loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail });
       result.steps.push(step);
       if (!step.ok) return finalize(result, 'loan_patch_failed');
+    }
+
+    // Deploy 220 — additionally probe GraphQL for mutation support so
+    // we can fall back to insert_guarantees_one if PATCH doesn't wire
+    // the guarantor. Logs the available mutation field names into the
+    // audit so we can craft the right write call in Deploy 221.
+    if (result.refs.baselineLoanId && result.refs.baselineGuarantor1Id) {
+      await probeMutationSchema({ loanId: loan.id, clientId: client.id, ownerKey: ctx.ownerKey, triggerUserEmail: ctx.triggerUserEmail, baselineLoanId: result.refs.baselineLoanId, baselineGuarantor1Id: result.refs.baselineGuarantor1Id });
     }
   }
 

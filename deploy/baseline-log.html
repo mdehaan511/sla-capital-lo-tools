@@ -142,6 +142,7 @@
       <option value="loan_patch">Loan PATCH</option>
       <option value="g1_recovery">G1 Recovery</option>
       <option value="g2_recovery">G2 Recovery</option>
+      <option value="mutation_probe">Mutation Probe</option>
     </select>
     <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
     <span class="stats" id="stats"></span>
@@ -232,6 +233,8 @@ function loadAll() {
       phaseEl.textContent = 'Phase 2.8.9 — GraphQL lookup tries multiple query variants (plural/singular type, PascalCase/lowercase field, where-clause/direct-args, plus schema introspection). Per-attempt responses captured in the recovery audit entry.';
     } else if (resp && resp.phase === 'phase-2.8.10-people-table') {
       phaseEl.textContent = 'Phase 2.8.10 — borrowers live as `people` in the GraphQL schema (Hasura convention). Lookup query uses `{ people(where: { email: { _eq: "X" } }) { id email } }`. Confirmed via Deploy 218 introspection.';
+    } else if (resp && resp.phase === 'phase-2.8.11-guarantor-email-and-mutation-probe') {
+      phaseEl.textContent = 'Phase 2.8.11 — PATCH adds Guarantor_Email alongside Guarantor_Id (undocumented but might auto-attach). Also probes GraphQL mutationType to discover write capabilities for fallback.';
     } else {
       phaseEl.textContent = '';
     }
