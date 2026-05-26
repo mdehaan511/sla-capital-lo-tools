@@ -115,6 +115,12 @@
     save: function (client) {
       return api('POST', '/api/clients-save', client).then(function (r) {
         cache.clear('clients');
+        // Deploy 228.1 — also clear the quotes cache. Backend
+        // clients-save propagates client-rename changes to matching
+        // quote records (so Pipeline tiles + rate sheet PDF show the
+        // new name); without this clear, the frontend Pipeline page
+        // would keep serving cached old names for up to 5 minutes.
+        cache.clear('quotes');
         return r;
       });
     },

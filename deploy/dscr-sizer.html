@@ -3160,12 +3160,13 @@ netlifyIdentity.on('init', function(user) {
           var targetFull   = norm(fd.address);
           var targetStreet = targetFull.split(',')[0].trim().replace(/\s+/g, ' ');
           var found = null;
+          var foundClient = null;
           clients.some(function(c) {
             (c.loans || []).some(function(l) {
               if (!l.address) return false;
               var ls = norm(l.address);
               var lstreet = ls.split(',')[0].trim().replace(/\s+/g, ' ');
-              if (ls === targetFull || (lstreet && lstreet === targetStreet)) { found = l; return true; }
+              if (ls === targetFull || (lstreet && lstreet === targetStreet)) { found = l; foundClient = c; return true; }
               return false;
             });
             return !!found;
@@ -3173,6 +3174,24 @@ netlifyIdentity.on('init', function(user) {
           if (found && found.loanAmtLocked && found.loanAmt) {
             console.log('[sizer] Applying LO override: loanAmt = ' + found.loanAmt + ' (locked)');
             fd = Object.assign({}, fd, { loanAmt: found.loanAmt, _loanAmtLocked: true });
+          }
+          // Deploy 228.1 — always overwrite borrower contact fields from
+          // the live client record. The QuoteStore localStorage cache and
+          // even the saved quote in the backend can hold stale name/
+          // email/phone (e.g., after the LO renamed the client on the
+          // Client Details page to fix a typo). The client record is the
+          // single source of truth for these fields; pull from there
+          // every load so the sizer + rate sheet always show the
+          // current name.
+          if (foundClient) {
+            var freshName  = ((foundClient.firstName||'') + ' ' + (foundClient.lastName||'')).trim();
+            var freshEmail = (foundClient.email || '').toLowerCase();
+            var freshPhone = foundClient.phone || '';
+            fd = Object.assign({}, fd);
+            if (freshName)  fd.borrower      = freshName;
+            if (freshName)  fd.borrowerName  = freshName;
+            if (freshEmail) fd.borrowerEmail = freshEmail;
+            if (freshPhone) fd.borrowerPhone = freshPhone;
           }
           return fd;
         }).catch(function(){ return fd; });

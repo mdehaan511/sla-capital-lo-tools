@@ -93,33 +93,51 @@ export default async (req, context) => {
           if (l && typeof l === 'object') l.borrowerName = newFull;
         }
       }
-      // (b) Quote records in the `quotes` store under this owner — find
-      // any whose formData.borrowerEmail matches this client's email
-      // and update quote.borrower + quote.formData.borrower. Best-
-      // effort; failure is non-fatal (the save itself still goes through).
-      (async () => {
-        try {
-          const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-          const target = String(record.email || '').toLowerCase().trim();
-          if (!target) return;
-          const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
-          for (const { key: qKey } of blobs) {
-            const q = await quotesStore.get(qKey, { type: 'json' });
-            if (!q) continue;
-            const qEmail = String((q.formData && q.formData.borrowerEmail) || q.borrowerEmail || '').toLowerCase().trim();
-            if (qEmail !== target) continue;
-            q.borrower = newFull;
-            if (q.formData) {
-              q.formData.borrower     = newFull;
-              q.formData.borrowerName = newFull;
-            }
-            q.updatedAt = new Date().toISOString();
-            await quotesStore.setJSON(qKey, q);
-          }
-        } catch (e) {
-          console.warn('clients-save: quote borrower-name propagation failed (non-fatal):', e && e.message);
+      // (b) Quote records in the `quotes` store under this owner. Match
+      // by EITHER formData.borrowerEmail (preferred, set by the sizer at
+      // save) OR by quote.address being one of this client's loan
+      // addresses (fallback for legacy quotes saved before the sizer
+      // started persisting borrowerEmail on the formData). Update quote.
+      // borrower + quote.formData.borrower so Pipeline tiles + rate
+      // sheet PDF show the fresh name.
+      //
+      // Deploy 228.1 — switched from fire-and-forget IIFE to await
+      // before responding, so the client save call doesn't return until
+      // every matching quote is updated. Was non-deterministic before;
+      // Mike saw stale Pipeline tiles because the quote update was
+      // still in flight when the page refreshed.
+      try {
+        const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+        const target = String(record.email || '').toLowerCase().trim();
+        // Build a Set of normalized loan addresses for fallback matching.
+        const normAddr = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        const loanAddrs = new Set();
+        if (Array.isArray(record.loans)) {
+          record.loans.forEach((l) => { if (l && l.address) loanAddrs.add(normAddr(l.address)); });
         }
-      })();
+        const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
+        let touched = 0;
+        for (const { key: qKey } of blobs) {
+          const q = await quotesStore.get(qKey, { type: 'json' });
+          if (!q) continue;
+          const qEmail = String((q.formData && q.formData.borrowerEmail) || q.borrowerEmail || '').toLowerCase().trim();
+          const qAddr  = normAddr(q.address || (q.formData && q.formData.address) || '');
+          const emailMatch = target && qEmail === target;
+          const addrMatch  = qAddr && loanAddrs.has(qAddr);
+          if (!emailMatch && !addrMatch) continue;
+          q.borrower = newFull;
+          if (q.formData) {
+            q.formData.borrower     = newFull;
+            q.formData.borrowerName = newFull;
+          }
+          q.updatedAt = new Date().toISOString();
+          await quotesStore.setJSON(qKey, q);
+          touched += 1;
+        }
+        if (touched > 0) console.log(`clients-save: propagated rename to ${touched} quote(s) for client ${record.id}`);
+      } catch (e) {
+        console.warn('clients-save: quote borrower-name propagation failed (non-fatal):', e && e.message);
+      }
     }
 
     await store.setJSON(key, record);
