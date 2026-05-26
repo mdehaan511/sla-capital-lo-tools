@@ -98,7 +98,7 @@ export function baselineStatus() {
     // poisoning bug; 2.7.2 added anomaly detection so the silent-no-op
     // failure mode never returns "synced" again. Phase 3 wires
     // auto-fire from approval.
-    phase: 'phase-2.8.4-409-graceful-email-attach',
+    phase: 'phase-2.8.5-clear-stale-loan-refs',
   };
 }
 
@@ -950,6 +950,19 @@ export async function syncLoanToBaseline(loan, client, borrowerInfo, ctx) {
   if (hadBorrowerRefs && !keptBorrowerRefs) {
     // Borrower refs existed but were ALL dry-run-tainted → loan ref
     // (even if unprefixed) is from the same poisoned attempt.
+    result.refs.baselineLoanId = null;
+  }
+
+  // Deploy 214 (Phase 2.8.5) — auto-clear stale-format loan refs. Pre-
+  // Deploy-210 we used our SLA loanId (l_<timestamp>_<6chars>) as the
+  // Baseline Id directly. Deploy 210 switched to the customer's
+  // SLA-YYYYMMDD-NNNN format. Loans that synced before the format
+  // change have refs in the old format; the Baseline records at
+  // those IDs are typically broken (Rate as percent, no Primary_
+  // Borrower, etc. — bug accumulation from the early phases). Clearing
+  // forces the next retry to POST a fresh Baseline record with the
+  // current format and the current correct field mapping.
+  if (result.refs.baselineLoanId && !String(result.refs.baselineLoanId).startsWith('SLA-')) {
     result.refs.baselineLoanId = null;
   }
 

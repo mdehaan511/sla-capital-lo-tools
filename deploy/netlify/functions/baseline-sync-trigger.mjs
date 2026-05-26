@@ -138,13 +138,19 @@ export default async (req, context) => {
   // retry to skip every step because the refs are already populated.
   // We still persist status / lastAttempt / lastSteps in both modes so
   // the panel and audit log reflect every attempt.
+  //
+  // Deploy 214 (Phase 2.8.5): removed the `|| loan._baselineXxxId`
+  // fallback chain. The orchestrator's result.refs is the authoritative
+  // post-sync state — if it nullified a ref via a guard (dry-run
+  // tainted / stale-format / etc.), persisting null is correct. The
+  // fallback was reinstating cleared values, defeating the guards.
   const persistRefs = (result.mode === 'live');
   const updatedLoan = {
     ...loan,
-    _baselineEntityId:     persistRefs ? (result.refs.baselineEntityId      || loan._baselineEntityId      || null) : (loan._baselineEntityId      || null),
-    _baselineGuarantor1Id: persistRefs ? (result.refs.baselineGuarantor1Id  || loan._baselineGuarantor1Id  || null) : (loan._baselineGuarantor1Id  || null),
-    _baselineGuarantor2Id: persistRefs ? (result.refs.baselineGuarantor2Id  || loan._baselineGuarantor2Id  || null) : (loan._baselineGuarantor2Id  || null),
-    _baselineLoanId:       persistRefs ? (result.refs.baselineLoanId        || loan._baselineLoanId        || null) : (loan._baselineLoanId        || null),
+    _baselineEntityId:     persistRefs ? (result.refs.baselineEntityId     || null) : (loan._baselineEntityId     || null),
+    _baselineGuarantor1Id: persistRefs ? (result.refs.baselineGuarantor1Id || null) : (loan._baselineGuarantor1Id || null),
+    _baselineGuarantor2Id: persistRefs ? (result.refs.baselineGuarantor2Id || null) : (loan._baselineGuarantor2Id || null),
+    _baselineLoanId:       persistRefs ? (result.refs.baselineLoanId       || null) : (loan._baselineLoanId       || null),
     _baselineSyncStatus:   summaryStatus,
     _baselineSyncMode:     result.mode,
     _baselineSyncedAt:     (result.ok && persistRefs) ? now : (loan._baselineSyncedAt || null),

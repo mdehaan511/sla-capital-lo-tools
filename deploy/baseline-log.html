@@ -209,6 +209,16 @@ function loadAll() {
       phaseEl.textContent = 'Phase 2.7.3 — diagnostic bundle persisted onto the loan record and shown in the Loan Details panel.';
     } else if (resp && resp.phase === 'phase-2.8-config-and-bugfixes') {
       phaseEl.textContent = 'Phase 2.8 — config (Status=lead, Substatus=DSCR/RTL, Product, SLA-YYYYMMDD-xxx Id) + bugfixes (Rate decimal, points stripped, address parser, term fallback) + skip-logging.';
+    } else if (resp && resp.phase === 'phase-2.8.1-loan-type-drives-product') {
+      phaseEl.textContent = 'Phase 2.8.1 — Loan_Type drives product (Substatus / Loan_Type can pick the product on Baseline side).';
+    } else if (resp && resp.phase === 'phase-2.8.2-numeric-id-and-fallbacks') {
+      phaseEl.textContent = 'Phase 2.8.2 — numeric 4-digit ID hash + fallback chains (long-app → flat → client record / client.companies).';
+    } else if (resp && resp.phase === 'phase-2.8.3-wrapped-response-fix') {
+      phaseEl.textContent = 'Phase 2.8.3 — Baseline wrapped POST responses ({borrower:{Id}} / {loan:{Id}}) now correctly unwrapped. Citizenship / Marital_Status / Num_Flipped moved to borrower-level payload.';
+    } else if (resp && resp.phase === 'phase-2.8.4-409-graceful-email-attach') {
+      phaseEl.textContent = 'Phase 2.8.4 — HTTP 409 duplicate-email no longer fails the sync; loan POST falls back to Borrower_Email / Guarantor_Email auto-attach.';
+    } else if (resp && resp.phase === 'phase-2.8.5-clear-stale-loan-refs') {
+      phaseEl.textContent = 'Phase 2.8.5 — stale-format loan refs (pre-Deploy-210 l_<...>) auto-cleared so next retry re-creates with the current SLA-YYYYMMDD-NNNN format. Trigger fallback chain removed (result.refs is authoritative).';
     } else {
       phaseEl.textContent = '';
     }
