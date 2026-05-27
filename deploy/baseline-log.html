@@ -434,7 +434,7 @@ function refreshMirrorSummary() {
       parts.push('$' + Math.round(s.totalLoanAmount).toLocaleString() + ' total');
     }
     if (s.lastMirroredAt) {
-      parts.push('last sync ' + fmtAge(s.lastMirroredAt));
+      parts.push('last sync ' + fmtTime(s.lastMirroredAt));
     }
     var byStatus = s.byStatus || {};
     var statusKeys = Object.keys(byStatus);
