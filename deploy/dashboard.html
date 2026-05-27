@@ -137,6 +137,20 @@
       <div class="last-sync" id="lastSyncLine">—</div>
     </div>
     <div class="header-actions">
+      <!-- Deploy 233.4 — chart-control selectors. Year selector lets
+           Mike compare prior years to Pipedrive history. Hide Liquidated
+           checkbox restores the original behavior if needed.
+           Debug Mode unhides a per-loan diagnostic panel. -->
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+        Year
+        <select id="yearSelect" onchange="renderAll()" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:12.5px"></select>
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+        <input type="checkbox" id="hideLiquidated" onchange="renderAll()" /> hide liquidated
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+        <input type="checkbox" id="debugMode" onchange="renderDebugPanel()" /> debug
+      </label>
       <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
         <input type="checkbox" id="mirrorForce" /> force re-fetch all
       </label>
@@ -153,14 +167,14 @@
   <!-- Revenue projection chart -->
   <div class="chart-card">
     <h2>Revenue Projections by Month</h2>
-    <div class="chart-sub" id="revenueSub">THIS YEAR · WON + OPEN + ON HOLD · ARCHIVED EXCLUDED</div>
+    <div class="chart-sub" id="revenueSub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · ARCHIVED EXCLUDED</div>
     <div class="chart-wrap"><canvas id="revenueChart"></canvas></div>
   </div>
 
   <!-- Volume chart -->
   <div class="chart-card">
     <h2>Loan Volume by Month</h2>
-    <div class="chart-sub" id="volumeSub">THIS YEAR · WON + OPEN + ON HOLD · DEAL VALUE (USD) · ARCHIVED EXCLUDED</div>
+    <div class="chart-sub" id="volumeSub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · DEAL VALUE (USD) · ARCHIVED EXCLUDED</div>
     <div class="chart-wrap"><canvas id="volumeChart"></canvas></div>
   </div>
 
@@ -178,6 +192,13 @@
     <h2>Loans by State</h2>
     <div class="chart-sub">PIPELINE + CLOSED · COUNT · TOTAL $</div>
     <div id="stateTableWrap" style="max-height:360px;overflow-y:auto"></div>
+  </div>
+
+  <!-- Debug Panel (hidden unless ?debug=1 or the checkbox is on) -->
+  <div id="debugPanel" class="chart-card" style="display:none">
+    <h2>Debug — Chart Aggregation</h2>
+    <div class="chart-sub">PER-LOAN BREAKDOWN OF WHAT MADE IT INTO THE CURRENT YEAR'S BUCKETS</div>
+    <div id="debugContent"></div>
   </div>
 
   <!-- Loans table -->
@@ -393,6 +414,35 @@ function refreshLastSync() {
     : 'No mirror data yet — click "Sync from Baseline" to seed it.';
 }
 
+// Deploy 233.4 — populate the Year selector based on what's in the
+// mirror. Includes the current year plus any year for which we have
+// loans with a parseable close date. Defaults to current year.
+function populateYearSelect() {
+  var sel = document.getElementById('yearSelect');
+  if (!sel) return;
+  var years = {};
+  var curYear = new Date().getFullYear();
+  years[curYear] = true;
+  for (var i = 0; i < _loans.length; i++) {
+    var parsed = parseLoanDate(loanCloseDate(_loans[i]));
+    if (parsed && parsed.year >= 2020 && parsed.year <= curYear + 5) {
+      years[parsed.year] = true;
+    }
+  }
+  var yearList = Object.keys(years).map(function(y){ return parseInt(y, 10); }).sort(function(a,b){ return b - a; });
+  // Preserve current selection if possible
+  var prev = parseInt(sel.value || curYear, 10);
+  sel.innerHTML = yearList.map(function(y) {
+    return '<option value="' + y + '"' + (y === prev || y === curYear ? ' selected' : '') + '>' + y + '</option>';
+  }).join('');
+  if (!sel.value) sel.value = String(curYear);
+}
+
+function selectedYear() {
+  var sel = document.getElementById('yearSelect');
+  return parseInt((sel && sel.value) || new Date().getFullYear(), 10);
+}
+
 function setErr(msg) {
   var el = document.getElementById('errBanner');
   el.innerHTML = msg ? '<div class="err-banner">' + escH(msg) + '</div>' : '';
@@ -443,12 +493,126 @@ function runMirrorSync() {
 
 // ── Render orchestrator ──────────────────────────────────────────
 function renderAll() {
+  populateYearSelect();
   renderStats();
   renderRevenueChart();
   renderVolumeChart();
   renderPerformanceStats();
   renderStateTable();
   renderTable();
+  renderDebugPanel();
+}
+
+// Deploy 233.4 — debug panel. Renders the per-loan breakdown of what
+// landed in each bucket for the currently-selected year, plus a list
+// of every loan that was EXCLUDED with a reason. Mike requested for
+// reconciling against Pipedrive. Hidden unless the debug checkbox is on.
+function renderDebugPanel() {
+  var cb = document.getElementById('debugMode');
+  var panel = document.getElementById('debugPanel');
+  if (!cb || !panel) return;
+  if (!cb.checked) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  // Re-aggregate revenue so _lastAgg is current for the selected year.
+  var year = selectedYear();
+  monthlyAggregates(year, estimatedRevenue);
+  var agg = _lastAgg;
+  if (!agg) { document.getElementById('debugContent').innerHTML = '<div class="loading">No data.</div>'; return; }
+
+  // Sum totals per bucket so the header reads at a glance.
+  var sum = function(arr) { return arr.reduce(function(s, x) { return s + x.v; }, 0); };
+  var totalWon    = sum(agg.included.won);
+  var totalOpen   = sum(agg.included.open);
+  var totalOnHold = sum(agg.included.onHold);
+  var allInc = agg.included.won.length + agg.included.open.length + agg.included.onHold.length;
+  var html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">' +
+    debugCard('Won',     agg.included.won.length,    totalWon,    '#2d6f51') +
+    debugCard('Open',    agg.included.open.length,   totalOpen,   '#1f4a9e') +
+    debugCard('On Hold', agg.included.onHold.length, totalOnHold, '#8a2a2a') +
+    debugCard('Excluded', agg.excluded.length, sum(agg.excluded), 'var(--muted)') +
+  '</div>';
+
+  // Per-bucket loan list
+  ['won', 'open', 'onHold'].forEach(function(b) {
+    var label = b === 'won' ? 'Won bucket' : b === 'open' ? 'Open bucket' : 'On Hold bucket';
+    html += debugBucket(label, agg.included[b]);
+  });
+
+  // Excluded list — grouped by reason
+  var byReason = {};
+  agg.excluded.forEach(function(e) {
+    var r = e.reason || '(unknown)';
+    if (!byReason[r]) byReason[r] = [];
+    byReason[r].push(e);
+  });
+  html += '<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--dark);padding:6px 0">' +
+    'Excluded loans (' + agg.excluded.length + ')' +
+  '</summary>';
+  Object.keys(byReason).sort().forEach(function(r) {
+    html += '<div style="margin-top:8px"><strong style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">' + escH(r) + ' (' + byReason[r].length + ')</strong>';
+    html += '<table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:4px"><thead><tr>' +
+      '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">Id</th>' +
+      '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">Name</th>' +
+      '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">Status</th>' +
+      '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">Date</th>' +
+      '<th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:600">Metric</th>' +
+    '</tr></thead><tbody>';
+    byReason[r].slice(0, 50).forEach(function(e) {
+      html += '<tr>' +
+        '<td style="padding:3px 8px;font-family:monospace;font-size:11px">' + escH(e.id || '') + '</td>' +
+        '<td style="padding:3px 8px">' + escH((e.name || '').slice(0, 60)) + '</td>' +
+        '<td style="padding:3px 8px">' + escH(e.status || '') + '</td>' +
+        '<td style="padding:3px 8px;font-family:monospace;font-size:11px">' + escH(e.date || '') + '</td>' +
+        '<td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">' + (isFinite(e.v) ? fmtMoney(e.v) : '—') + '</td>' +
+      '</tr>';
+    });
+    if (byReason[r].length > 50) {
+      html += '<tr><td colspan="5" style="padding:6px 8px;color:var(--muted);font-style:italic">…and ' + (byReason[r].length - 50) + ' more</td></tr>';
+    }
+    html += '</tbody></table></div>';
+  });
+  html += '</details>';
+
+  document.getElementById('debugContent').innerHTML = html;
+}
+
+function debugCard(label, count, total, color) {
+  return '<div style="background:rgba(120,116,136,0.04);border:1px solid var(--border);border-radius:6px;padding:10px 12px">' +
+    '<div style="font-size:11px;color:' + color + ';font-weight:700;text-transform:uppercase;letter-spacing:0.05em">' + escH(label) + '</div>' +
+    '<div style="font-family:Lora,serif;font-size:18px;font-weight:600;margin-top:2px">' + fmtMoney(total) + '</div>' +
+    '<div style="font-size:11px;color:var(--muted)">' + count + ' loan' + (count === 1 ? '' : 's') + '</div>' +
+  '</div>';
+}
+
+function debugBucket(label, items) {
+  if (!items.length) return '';
+  var byMonth = {};
+  items.forEach(function(it) {
+    if (!byMonth[it.month]) byMonth[it.month] = { count: 0, total: 0, items: [] };
+    byMonth[it.month].count += 1;
+    byMonth[it.month].total += it.v;
+    byMonth[it.month].items.push(it);
+  });
+  var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var html = '<details style="margin-top:10px" open><summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--dark);padding:6px 0">' +
+    escH(label) + ' — ' + items.length + ' loans, ' + fmtMoney(items.reduce(function(s, x) { return s + x.v; }, 0)) +
+  '</summary>';
+  Object.keys(byMonth).map(function(m){ return parseInt(m,10); }).sort(function(a,b){ return a-b; }).forEach(function(m) {
+    var b = byMonth[m];
+    html += '<div style="margin:6px 0;padding-left:10px"><strong style="font-size:12px">' + monthNames[m-1] + '</strong> — ' + b.count + ' loans, ' + fmtMoney(b.total);
+    html += '<table style="width:100%;font-size:11.5px;border-collapse:collapse;margin-top:3px"><tbody>';
+    b.items.forEach(function(it) {
+      html += '<tr>' +
+        '<td style="padding:2px 8px;font-family:monospace;font-size:11px">' + escH(it.id || '') + '</td>' +
+        '<td style="padding:2px 8px">' + escH((it.name || '').slice(0, 70)) + '</td>' +
+        '<td style="padding:2px 8px"><span class="pill ' + statusPillClass(it.status) + '">' + escH(it.status || '—') + '</span></td>' +
+        '<td style="padding:2px 8px;text-align:right;font-variant-numeric:tabular-nums">' + fmtMoney(it.v) + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+  });
+  html += '</details>';
+  return html;
 }
 
 // ── Stat cards ───────────────────────────────────────────────────
@@ -482,17 +646,17 @@ function statCard(label, value, sub) {
 
 // ── Revenue chart (stacked: Open + Won per month) ────────────────
 function renderRevenueChart() {
-  var year = new Date().getFullYear();
+  var year = selectedYear();
   var data = monthlyAggregates(year, function(l) { return estimatedRevenue(l); });
-  drawStackedBar('revenueChart', data, 'revenue', function(v) {
+  drawStackedBar('revenueChart', data, year, 'revenue', function(v) {
     return v >= 1000 ? Math.round(v / 1000) + 'K' : Math.round(v);
   });
 }
 
 function renderVolumeChart() {
-  var year = new Date().getFullYear();
+  var year = selectedYear();
   var data = monthlyAggregates(year, function(l) { return numAmt(l.Loan_Amount); });
-  drawStackedBar('volumeChart', data, 'volume', function(v) {
+  drawStackedBar('volumeChart', data, year, 'volume', function(v) {
     if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
     if (v >= 1000)    return Math.round(v / 1000) + 'K';
     return Math.round(v);
@@ -504,34 +668,90 @@ function renderVolumeChart() {
 // pipeline), and On Hold (separate so it doesn't pollute the open-
 // pipeline forecast). Archived/lost/declined are EXCLUDED.
 // Loans without a parseable close date are skipped.
+// Deploy 233.4 — when summing per-month buckets, allow exclusions
+// (archived always; liquidated only when the "Hide liquidated" toggle
+// is on). Returns rich diagnostics so the debug panel can show which
+// loans landed where and why others were excluded.
 function monthlyAggregates(year, metricFn) {
+  var hideLiq = document.getElementById('hideLiquidated');
+  hideLiq = hideLiq ? hideLiq.checked : false;
   var won    = new Array(12).fill(0);
   var open   = new Array(12).fill(0);
   var onHold = new Array(12).fill(0);
+  var includedByBucket = { won: [], open: [], onHold: [] };
+  var excluded = [];  // { id, name, reason }
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
-    // Deploy 233.2 — also exclude Liquidated. Revenue from those was
-    // collected at close (often historical); Mike asked to hide them
-    // from the forecast chart.
-    if (isArchived(l) || isLiquidated(l)) continue;
+    if (isArchived(l)) {
+      excluded.push({ id: l.Id, name: l.Name, reason: 'archived', status: l.Status, date: loanCloseDate(l), v: metricFn(l) });
+      continue;
+    }
+    if (hideLiq && isLiquidated(l)) {
+      excluded.push({ id: l.Id, name: l.Name, reason: 'liquidated (hidden by toggle)', status: l.Status, date: loanCloseDate(l), v: metricFn(l) });
+      continue;
+    }
     var d = loanCloseDate(l);
-    if (!d) continue;
-    var m = parseInt(String(d).slice(5, 7), 10);
-    var y = parseInt(String(d).slice(0, 4), 10);
-    if (y !== year || !isFinite(m)) continue;
+    var parsed = parseLoanDate(d);
+    if (!parsed) {
+      excluded.push({ id: l.Id, name: l.Name, reason: 'no parseable close/created date', status: l.Status, date: d, v: metricFn(l) });
+      continue;
+    }
+    if (parsed.year !== year) {
+      excluded.push({ id: l.Id, name: l.Name, reason: 'year ' + parsed.year + ' != ' + year, status: l.Status, date: d, v: metricFn(l) });
+      continue;
+    }
     var v = metricFn(l);
-    if (!isFinite(v) || v <= 0) continue;
-    if (isWon(l))         won[m - 1]    += v;
-    else if (isOnHold(l)) onHold[m - 1] += v;
-    else                  open[m - 1]   += v;
+    if (!isFinite(v) || v <= 0) {
+      excluded.push({ id: l.Id, name: l.Name, reason: 'zero/missing metric', status: l.Status, date: d, v: v });
+      continue;
+    }
+    var bucket;
+    // Liquidated counts as Won (paid-off loans had a real close-month
+    // revenue event — same bucket as Sold). Mike's prior request to
+    // "hide liquidated from chart" is now driven by the toggle above;
+    // when the toggle is OFF (default) we include them.
+    if (isWon(l) || isLiquidated(l)) {
+      won[parsed.month - 1] += v;
+      includedByBucket.won.push({ id: l.Id, name: l.Name, month: parsed.month, status: l.Status, v: v });
+      bucket = 'won';
+    } else if (isOnHold(l)) {
+      onHold[parsed.month - 1] += v;
+      includedByBucket.onHold.push({ id: l.Id, name: l.Name, month: parsed.month, status: l.Status, v: v });
+      bucket = 'onHold';
+    } else {
+      open[parsed.month - 1] += v;
+      includedByBucket.open.push({ id: l.Id, name: l.Name, month: parsed.month, status: l.Status, v: v });
+      bucket = 'open';
+    }
   }
+  // Stash for debug panel
+  _lastAgg = { year: year, included: includedByBucket, excluded: excluded };
   return { won: won, open: open, onHold: onHold };
 }
 
-function drawStackedBar(canvasId, data, kind, fmtTick) {
+// Deploy 233.4 — robust date parser. Most Baseline records return
+// YYYY-MM-DD, but older imports / manual entries may use ISO
+// timestamps or MM/DD/YYYY. Returns { year, month } or null.
+function parseLoanDate(d) {
+  if (!d) return null;
+  var s = String(d).trim();
+  // ISO: 2025-12-08 or 2025-12-08T00:00:00Z
+  var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return { year: parseInt(iso[1], 10), month: parseInt(iso[2], 10) };
+  // US: 12/08/2025 or 12-08-2025
+  var us = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (us) return { year: parseInt(us[3], 10), month: parseInt(us[1], 10) };
+  // Last attempt — let Date parse
+  var d2 = new Date(s);
+  if (!isNaN(d2.getTime())) return { year: d2.getFullYear(), month: d2.getMonth() + 1 };
+  return null;
+}
+
+var _lastAgg = null;  // Last aggregation result, for debug panel
+
+function drawStackedBar(canvasId, data, year, kind, fmtTick) {
   var ctx = document.getElementById(canvasId).getContext('2d');
   if (_charts[canvasId]) _charts[canvasId].destroy();
-  var year = new Date().getFullYear();
   var monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
     .map(function(m) { return m + ' ' + year; });
   _charts[canvasId] = new Chart(ctx, {
