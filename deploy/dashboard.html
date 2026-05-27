@@ -139,28 +139,28 @@
   <!-- Revenue projection chart -->
   <div class="chart-card">
     <h2>Revenue Projections by Month</h2>
-    <div class="chart-sub" id="revenueSub">THIS YEAR · OPEN + WON</div>
+    <div class="chart-sub" id="revenueSub">THIS YEAR · WON + OPEN + ON HOLD · ARCHIVED EXCLUDED</div>
     <div class="chart-wrap"><canvas id="revenueChart"></canvas></div>
   </div>
 
   <!-- Volume chart -->
   <div class="chart-card">
     <h2>Loan Volume by Month</h2>
-    <div class="chart-sub" id="volumeSub">THIS YEAR · OPEN + WON · DEAL VALUE (USD)</div>
+    <div class="chart-sub" id="volumeSub">THIS YEAR · WON + OPEN + ON HOLD · DEAL VALUE (USD) · ARCHIVED EXCLUDED</div>
     <div class="chart-wrap"><canvas id="volumeChart"></canvas></div>
   </div>
 
-  <!-- Loan type + state donuts -->
+  <!-- Performance stats + state table side-by-side -->
   <div class="chart-row">
     <div class="chart-card">
-      <h2>Loans by Type</h2>
-      <div class="chart-sub">ACTIVE PIPELINE · COUNT</div>
-      <div class="chart-wrap"><canvas id="typeChart"></canvas></div>
+      <h2>Performance Stats</h2>
+      <div class="chart-sub">CLOSE RATE · AVG LOAN SIZE · AVG POINTS · AVG RATE</div>
+      <div id="perfStatsWrap"></div>
     </div>
     <div class="chart-card">
       <h2>Loans by State</h2>
-      <div class="chart-sub">ACTIVE PIPELINE · COUNT</div>
-      <div class="chart-wrap"><canvas id="stateChart"></canvas></div>
+      <div class="chart-sub">ACTIVE PIPELINE · COUNT · TOTAL $</div>
+      <div id="stateTableWrap" style="max-height:320px;overflow-y:auto"></div>
     </div>
   </div>
 
@@ -194,34 +194,69 @@ var _charts = {};           // Chart.js instances; destroyed on re-render
 
 // Status interpretation. Baseline statuses observed in the wild:
 // 'lead', 'under_review', 'approved', 'closed', 'sold', 'declined',
-// 'denied', 'withdrawn'. 'sold' is the unambiguous "Won" signal.
-// 'lost' / 'declined' / 'denied' / 'withdrawn' are terminal failures.
-// Everything else is open pipeline.
-function isWon(loan)  { return (loan && loan.Status) === 'sold' || (loan && loan.Status) === 'closed' || (loan && loan.Status) === 'funded'; }
-function isLost(loan) {
+// 'denied', 'withdrawn', 'on_hold', 'archived'.
+//
+// Buckets for the dashboard:
+//   Won      — sold / closed / funded (counted as revenue this year)
+//   On Hold  — explicit hold; rendered separately in red
+//   Archived — terminal failure; EXCLUDED from forecasts, kept only
+//              for the close-rate denominator
+//   Open     — everything else (active pipeline)
+function isWon(loan) {
   var s = (loan && loan.Status) || '';
-  return s === 'lost' || s === 'declined' || s === 'denied' || s === 'withdrawn' || s === 'cancelled';
+  return s === 'sold' || s === 'closed' || s === 'funded';
 }
-function isOpen(loan) { return loan && !isWon(loan) && !isLost(loan); }
+function isOnHold(loan) {
+  var s = String((loan && loan.Status)    || '').toLowerCase();
+  var sub = String((loan && loan.Substatus) || '').toLowerCase();
+  return s === 'on_hold' || s === 'hold' || s.indexOf('hold') >= 0
+      || sub === 'on_hold' || sub === 'hold' || sub.indexOf('hold') >= 0;
+}
+function isArchived(loan) {
+  if (!loan) return false;
+  if (loan.Archived === true || loan.Is_Archived === true) return true;
+  var s = String(loan.Status || '').toLowerCase();
+  return s === 'archived' || s === 'lost' || s === 'declined'
+      || s === 'denied' || s === 'withdrawn' || s === 'cancelled';
+}
+function isOpen(loan) {
+  return loan && !isWon(loan) && !isOnHold(loan) && !isArchived(loan);
+}
 
 // Revenue estimate per loan.
-//   origination_points × loan_amount   (the LO's points charged at close)
-// + flat_fees                           (UW + Doc + Legal — DSCR $2,315, RTL $2,150 per CLAUDE.md)
-// Phase 3 will layer in projected interest collected over loan term;
-// for now Phase 2 uses closing-day revenue which is what shows up in
-// most BPL dashboards.
+//   (Origination_Points / 100) × Loan_Amount   (e.g., 2 pts on $200k = $4,000)
+// + flat fees                                  (DSCR $2,315 / RTL $2,150 per CLAUDE.md)
+//
+// Phase 3 will layer in projected interest collected over loan term
+// (servicing model) and yield spread (sold model). Phase 2 uses
+// closing-day revenue only.
+//
+// Important: Baseline returns Origination_Points as a PERCENTAGE-as-
+// number (1.5 for 1.5%, not 0.015). Earlier Deploy 233 multiplied by
+// the raw value which inflated revenue 100×; Deploy 233.1 divides by
+// 100 to get the actual decimal.
 function estimatedRevenue(loan) {
   if (!loan) return 0;
   var amt = parseFloat(String(loan.Loan_Amount || 0).replace(/[$,]/g, ''));
   if (!isFinite(amt) || amt <= 0) return 0;
   var pts = parseFloat(loan.Origination_Points || 0);
   if (!isFinite(pts)) pts = 0;
-  // Baseline stores Origination_Points as a decimal (0.01 = 1%) per
-  // baseline-sync.mjs normalizePoints. Multiply directly.
-  var pointsRevenue = amt * pts;
+  // pts > 1 → already in percent form (e.g. 2 = 2%); divide by 100.
+  // pts <= 1 → already decimal (e.g. 0.02 = 2%); use as-is.
+  // Defensive heuristic in case Baseline's format ever flips.
+  var ptsDecimal = pts > 1 ? (pts / 100) : pts;
+  var pointsRevenue = amt * ptsDecimal;
   var isRTL = (loan.Substatus || '').toUpperCase() === 'RTL';
   var flatFees = isRTL ? 2150 : 2315;
   return pointsRevenue + flatFees;
+}
+
+// Helper for the points column / stats — always returns the percent
+// value (e.g., 1.5 for 1.5%). Mirrors the heuristic in estimatedRevenue.
+function pointsAsPercent(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) return null;
+  return n > 1 ? n : (n * 100);   // <=1 means decimal form (0.015 → 1.5%)
 }
 
 function loanCloseDate(loan) {
@@ -322,8 +357,8 @@ function renderAll() {
   renderStats();
   renderRevenueChart();
   renderVolumeChart();
-  renderTypeChart();
-  renderStateChart();
+  renderPerformanceStats();
+  renderStateTable();
   renderTable();
 }
 
@@ -376,14 +411,17 @@ function renderVolumeChart() {
 }
 
 // Aggregates: for each of 12 months, sum the metric (revenue or volume)
-// split into Won (Status=sold) and Open (everything not won/lost).
+// split into THREE buckets — Won (sold/closed/funded), Open (active
+// pipeline), and On Hold (separate so it doesn't pollute the open-
+// pipeline forecast). Archived/lost/declined are EXCLUDED.
 // Loans without a parseable close date are skipped.
 function monthlyAggregates(year, metricFn) {
-  var won  = new Array(12).fill(0);
-  var open = new Array(12).fill(0);
+  var won    = new Array(12).fill(0);
+  var open   = new Array(12).fill(0);
+  var onHold = new Array(12).fill(0);
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
-    if (isLost(l)) continue;
+    if (isArchived(l)) continue;
     var d = loanCloseDate(l);
     if (!d) continue;
     var m = parseInt(String(d).slice(5, 7), 10);
@@ -391,10 +429,11 @@ function monthlyAggregates(year, metricFn) {
     if (y !== year || !isFinite(m)) continue;
     var v = metricFn(l);
     if (!isFinite(v) || v <= 0) continue;
-    if (isWon(l)) won[m - 1]  += v;
-    else          open[m - 1] += v;
+    if (isWon(l))         won[m - 1]    += v;
+    else if (isOnHold(l)) onHold[m - 1] += v;
+    else                  open[m - 1]   += v;
   }
-  return { won: won, open: open };
+  return { won: won, open: open, onHold: onHold };
 }
 
 function drawStackedBar(canvasId, data, kind, fmtTick) {
@@ -418,6 +457,12 @@ function drawStackedBar(canvasId, data, kind, fmtTick) {
           label: 'Open',
           data: data.open,
           backgroundColor: '#9BC4E2',
+          stack: 'a',
+        },
+        {
+          label: 'On Hold',
+          data: data.onHold,
+          backgroundColor: '#C75050',
           stack: 'a',
         },
       ],
@@ -450,69 +495,121 @@ function drawStackedBar(canvasId, data, kind, fmtTick) {
   });
 }
 
-// ── Type donut (Substatus = RTL / DSCR / etc.) ───────────────────
-function renderTypeChart() {
-  var counts = {};
-  for (var i = 0; i < _loans.length; i++) {
-    var l = _loans[i];
-    if (!isOpen(l)) continue;  // only active pipeline
-    var t = (l.Substatus || '(none)').toUpperCase();
-    counts[t] = (counts[t] || 0) + 1;
+// ── Performance Stats table (split by RTL / DSCR) ────────────────
+// Close rate uses the (won) / (won + archived) definition Mike asked
+// for: how often a loan that came in either closed or was killed.
+// Averages exclude archived to avoid skewing the numbers with
+// terminal-failure data.
+function renderPerformanceStats() {
+  function statsFor(typeLabel, filterFn) {
+    var won  = 0;     // closed
+    var arch = 0;     // archived (not closed)
+    var amts = [];    // for avg loan size
+    var pts  = [];    // for avg points
+    var rts  = [];    // for avg rate
+    for (var i = 0; i < _loans.length; i++) {
+      var l = _loans[i];
+      if (!filterFn(l)) continue;
+      if (isWon(l))      won  += 1;
+      if (isArchived(l)) arch += 1;
+      // Averages: include all non-archived (won + open + onHold).
+      if (!isArchived(l)) {
+        var amt = numAmt(l.Loan_Amount);
+        if (amt > 0) amts.push(amt);
+        var p = pointsAsPercent(l.Origination_Points);
+        if (p != null && p > 0) pts.push(p);
+        var r = parseFloat(l.Rate);
+        if (isFinite(r) && r > 0) rts.push(r > 1 ? r : r * 100);  // normalize to percent
+      }
+    }
+    var closeRate = (won + arch) > 0 ? (won / (won + arch) * 100) : null;
+    var avg = function(arr) { return arr.length ? (arr.reduce(function(s, v) { return s + v; }, 0) / arr.length) : null; };
+    return {
+      type: typeLabel,
+      won: won,
+      arch: arch,
+      closeRate: closeRate,
+      avgAmt: avg(amts),
+      avgPts: avg(pts),
+      avgRate: avg(rts),
+    };
   }
-  drawDonut('typeChart', counts);
+
+  var rows = [
+    statsFor('RTL',  function(l) { return (l.Substatus || '').toUpperCase() === 'RTL'; }),
+    statsFor('DSCR', function(l) { return (l.Substatus || '').toUpperCase() === 'DSCR'; }),
+    statsFor('All',  function(l) { return true; }),
+  ];
+
+  var fmtPct = function(v) { return v == null ? '—' : v.toFixed(1) + '%'; };
+  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse">';
+  html += '<thead><tr>' +
+    '<th style="text-align:left;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Type</th>' +
+    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Closed</th>' +
+    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Archived</th>' +
+    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Close Rate</th>' +
+    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Avg Loan</th>' +
+    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Avg Pts</th>' +
+    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Avg Rate</th>' +
+  '</tr></thead><tbody>';
+  rows.forEach(function(r) {
+    html += '<tr>' +
+      '<td style="padding:9px 6px;border-top:1px solid var(--border);font-weight:600">' + escH(r.type) + '</td>' +
+      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + r.won + '</td>' +
+      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)">' + r.arch + '</td>' +
+      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + fmtPct(r.closeRate) + '</td>' +
+      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.avgAmt != null ? fmtMoney(r.avgAmt) : '—') + '</td>' +
+      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.avgPts != null ? r.avgPts.toFixed(2) + '%' : '—') + '</td>' +
+      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.avgRate != null ? r.avgRate.toFixed(2) + '%' : '—') + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('perfStatsWrap').innerHTML = html;
 }
 
-// ── State donut ─────────────────────────────────────────────────
-function renderStateChart() {
-  var counts = {};
+// ── Loans by State (table — count + total $) ─────────────────────
+function renderStateTable() {
+  var byState = {};   // key: state → { count, total }
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
-    if (!isOpen(l)) continue;
-    var st = (l.Address_State || extractStateFromName(l.Name) || '(unknown)').trim() || '(unknown)';
-    counts[st] = (counts[st] || 0) + 1;
+    if (!isOpen(l)) continue;  // active pipeline only, matches old donut scope
+    var st = (l.Address_State || extractStateFromName(l.Name) || '').trim() || '(unknown)';
+    if (!byState[st]) byState[st] = { count: 0, total: 0 };
+    byState[st].count += 1;
+    byState[st].total += numAmt(l.Loan_Amount);
   }
-  drawDonut('stateChart', counts);
+  var rows = Object.keys(byState)
+    .map(function(k) { return { state: k, count: byState[k].count, total: byState[k].total }; })
+    .sort(function(a, b) { return b.count - a.count; });
+
+  if (!rows.length) {
+    document.getElementById('stateTableWrap').innerHTML =
+      '<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">No active loans to break out by state.</div>';
+    return;
+  }
+  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse">';
+  html += '<thead><tr>' +
+    '<th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">State</th>' +
+    '<th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Loans</th>' +
+    '<th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Total $</th>' +
+  '</tr></thead><tbody>';
+  rows.forEach(function(r) {
+    html += '<tr>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border)">' + escH(r.state) + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + r.count + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.total > 0 ? fmtMoney(r.total) : '—') + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('stateTableWrap').innerHTML = html;
 }
 
 // Extract 2-letter state code from "Address, City, ST ZIP" Name string
 // when Address_State isn't populated on the loan record.
 function extractStateFromName(name) {
   if (!name) return '';
-  // Find last ", XX " or ", XX," pattern with 2-letter uppercase code
   var m = String(name).match(/,\s*([A-Z]{2})(?:\s|,)/);
   return m ? m[1] : '';
-}
-
-function drawDonut(canvasId, counts) {
-  var ctx = document.getElementById(canvasId).getContext('2d');
-  if (_charts[canvasId]) _charts[canvasId].destroy();
-  // Sort by count desc, top 10, lump remainder into "Other"
-  var entries = Object.keys(counts).map(function(k) { return [k, counts[k]]; })
-    .sort(function(a, b) { return b[1] - a[1]; });
-  var labels = [], values = [];
-  if (entries.length <= 10) {
-    entries.forEach(function(e) { labels.push(e[0]); values.push(e[1]); });
-  } else {
-    entries.slice(0, 9).forEach(function(e) { labels.push(e[0]); values.push(e[1]); });
-    var rest = entries.slice(9).reduce(function(s, e) { return s + e[1]; }, 0);
-    labels.push('Other'); values.push(rest);
-  }
-  var palette = ['#C8813A', '#6FA48B', '#9BC4E2', '#261A36', '#B57F46', '#7A7488', '#A6D8B9', '#4D7BA8', '#D6A878', '#9F8DAA'];
-  _charts[canvasId] = new Chart(ctx, {
-    type: 'doughnut',
-    data: { labels: labels, datasets: [{ data: values, backgroundColor: palette.slice(0, labels.length), borderColor: '#fff', borderWidth: 2 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right', labels: { font: { family: 'DM Sans', size: 12 }, boxWidth: 12, padding: 10 } },
-        tooltip: { callbacks: { label: function(ctx) {
-          var total = ctx.dataset.data.reduce(function(s, v) { return s + v; }, 0);
-          var pct = total ? Math.round(ctx.parsed / total * 100) : 0;
-          return ctx.label + ': ' + ctx.parsed + ' (' + pct + '%)';
-        }}},
-      },
-    },
-  });
 }
 
 // ── Loans table ─────────────────────────────────────────────────
@@ -592,7 +689,7 @@ function renderTable() {
       '<td>' + escH(l.Substatus || '—') + '</td>' +
       '<td class="num">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
       '<td class="num">' + (l.Rate ? (Number(l.Rate) * 100).toFixed(2) + '%' : '—') + '</td>' +
-      '<td class="num">' + (l.Origination_Points ? (Number(l.Origination_Points) * 100).toFixed(2) + '%' : '—') + '</td>' +
+      '<td class="num">' + (l.Origination_Points != null && l.Origination_Points !== '' ? pointsAsPercent(l.Origination_Points).toFixed(2) + '%' : '—') + '</td>' +
       '<td>' + escH(loanCloseDate(l) || '—') + '</td>' +
     '</tr>';
   });
