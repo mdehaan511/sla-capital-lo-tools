@@ -4031,9 +4031,11 @@ function _generateRTLRateSheetPDF(opts) {
   doc.text(footnote, lm+10, fy);
   y+=feeBlockH+10;
 
-  // ── Cash Reserve Requirement (Deploy 170) ─────────────────────
+  // ── Cash Reserve Requirement (Deploy 170 / Deploy 235.1) ──────
   // Standard RTL underwriting rule: borrower must have liquid reserves
-  // = Cash to Close + (6 × Monthly Interest) + (10% × Rehab Budget).
+  // = Cash to Close + (6 × Monthly Interest) + (20% × Rehab Budget).
+  // Deploy 235.1 — rehab contribution bumped from 10% to 20% per Mike;
+  // matches CLAUDE.md's documented business rule.
   //   - Cash to Close: for purchases, totalFees + down payment (the
   //     full out-of-pocket at closing). For refis, the borrower
   //     usually NETS cash back, so cash-to-close is $0 — unless the
@@ -4070,14 +4072,14 @@ function _generateRTLRateSheetPDF(opts) {
                  : (pdfMoStart !== null && pdfMoStart > 0) ? pdfMoStart
                  : (parseFloat((moDisp||'').replace(/[$,]/g,'').replace(/\/mo.*$/i,'')) || 0);
   var crRehabRaw = parseFloat(gv('rehabBudget'))||0;
-  var crRehabContrib = crRehabRaw * 0.10;
+  var crRehabContrib = crRehabRaw * 0.20;
   var crHoldingContrib = crMoIntNum * 6;
   var crTotal = crCashToClose + crHoldingContrib + crRehabContrib;
 
   var crRows = [
     ['Cash to Close',                         fmtD(crCashToClose)],
     ['6 Months Holding Costs (Interest × 6)', fmtD(crHoldingContrib)],
-    ['10% of Renovation Budget',              fmtD(crRehabContrib)],
+    ['20% of Renovation Budget',              fmtD(crRehabContrib)],
   ];
   var crBlockH = 22 + crRows.length*ROW_H + ROW_H*2 + 20;
   checkPage(crBlockH + 14);
