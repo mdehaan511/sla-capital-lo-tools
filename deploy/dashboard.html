@@ -167,7 +167,7 @@
   <!-- Revenue projection chart -->
   <div class="chart-card">
     <h2>Revenue Projections by Month</h2>
-    <div class="chart-sub" id="revenueSub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · POINTS + FEES + TPO PREMIUM (DSCR) · ARCHIVED EXCLUDED</div>
+    <div class="chart-sub" id="revenueSub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · POINTS + FEES + TPO PREMIUM (DSCR) − COST OF CAPITAL · ARCHIVED EXCLUDED</div>
     <div class="chart-wrap"><canvas id="revenueChart"></canvas></div>
   </div>
 
@@ -367,7 +367,13 @@ function estimatedRevenue(loan) {
     pointsRevenue += amt * tpoDecimal;
   }
   var flatFees = type === 'RTL' ? 2150 : 2315;
-  return pointsRevenue + flatFees;
+  // Deploy 233.6 — subtract Cost of Capital. SLA doesn't actually
+  // collect this slice; it's the funding partner's cut at close. Per
+  // Mike: $1,495 flat per DSCR loan, 0.25 points (0.25% of loan
+  // amount) per RTL. Not present on the Baseline record — hardcoded
+  // SLA business rule.
+  var costOfCapital = type === 'RTL' ? (amt * 0.0025) : 1495;
+  return pointsRevenue + flatFees - costOfCapital;
 }
 
 // Deploy 233.5 — discover the TPO Premium percentage on a loan record.
