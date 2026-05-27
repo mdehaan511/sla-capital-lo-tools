@@ -53,6 +53,68 @@
     } catch (_) { console.log('[BrokerPicker]', msg); }
   }
 
+  // Phone formatter — both sizers expose applyPhoneMask(el) at page scope.
+  // Picker mirrors that style ((xxx) xxx-xxxx) for inline-field fills and
+  // chip-meta display so saved phones don't render as raw digits.
+  function formatPhoneDigits(raw) {
+    var digits = String(raw == null ? '' : raw).replace(/\D/g, '').slice(0, 10);
+    if (!digits) return '';
+    if (digits.length <= 3)  return digits;
+    if (digits.length <= 6)  return '(' + digits.slice(0,3) + ') ' + digits.slice(3);
+    return '(' + digits.slice(0,3) + ') ' + digits.slice(3,6) + '-' + digits.slice(6);
+  }
+  function applyPhoneFormatToField(key) {
+    var el = getField(key);
+    if (!el || !el.value) return;
+    if (typeof window.applyPhoneMask === 'function') {
+      try { window.applyPhoneMask(el); return; } catch (_) {}
+    }
+    el.value = formatPhoneDigits(el.value);
+  }
+
+  // ── Brokers API shim ────────────────────────────────────────────
+  // Falls back to direct fetch when SLA.Brokers is missing (e.g. a
+  // cached pre-Phase-1 sla-api.js is still in the browser). Mirrors
+  // the SLA.api auth flow.
+  function getJwt() {
+    try {
+      var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+      if (!u || !u.jwt) return Promise.resolve('');
+      return u.jwt().then(function (t) { return t || ''; });
+    } catch (_) { return Promise.resolve(''); }
+  }
+  function fallbackFetch(method, path, body) {
+    return getJwt().then(function (token) {
+      var opts = { method: method, headers: { 'Accept': 'application/json' } };
+      if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+      if (body !== undefined) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      return fetch(path, opts).then(function (r) {
+        return r.text().then(function (txt) {
+          var data; try { data = txt ? JSON.parse(txt) : {}; } catch (_) { data = { error: 'Non-JSON HTTP ' + r.status }; }
+          if (!r.ok) { var e = new Error(data.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+          return data;
+        });
+      });
+    });
+  }
+  function callList() {
+    if (window.SLA && window.SLA.Brokers && window.SLA.Brokers.listCached) {
+      return window.SLA.Brokers.listCached();
+    }
+    console.warn('[BrokerPicker] SLA.Brokers missing — using direct fetch fallback (clear browser cache to fix)');
+    return fallbackFetch('GET', '/api/brokers');
+  }
+  function callSave(payload) {
+    if (window.SLA && window.SLA.Brokers && window.SLA.Brokers.save) {
+      return window.SLA.Brokers.save(payload);
+    }
+    console.warn('[BrokerPicker] SLA.Brokers missing — using direct fetch fallback for save');
+    return fallbackFetch('POST', '/api/brokers-save', payload);
+  }
+
   // ── CSS (injected once) ─────────────────────────────────────────
   function injectStyle() {
     if (document.getElementById('bp-style')) return;
@@ -131,7 +193,7 @@
     var metaBits = [];
     if (broker.company) metaBits.push(broker.company);
     if (broker.email)   metaBits.push(broker.email);
-    if (broker.phone)   metaBits.push(broker.phone);
+    if (broker.phone)   metaBits.push(formatPhoneDigits(broker.phone) || broker.phone);
     chip.innerHTML =
       '<div class="bp-chip-icon">✓</div>' +
       '<div class="bp-chip-text">' +
@@ -181,7 +243,11 @@
     setFieldVal('name',    broker.name    || '');
     setFieldVal('company', broker.company || '');
     setFieldVal('email',   broker.email   || '');
+    // Phone — set raw digits then apply the sizer's mask so the field
+    // shows "(555) 123-4567" instead of "5551234567". Broker records
+    // saved before Phase 2.1 may have raw digits or unformatted strings.
     setFieldVal('phone',   broker.phone   || '');
+    applyPhoneFormatToField('phone');
   }
 
   function clearFields() {
@@ -215,11 +281,7 @@
 
   // ── Search / dropdown ───────────────────────────────────────────
   function loadBrokers() {
-    if (!window.SLA || !window.SLA.Brokers) {
-      console.warn('[BrokerPicker] SLA.Brokers not available — picker disabled');
-      return Promise.resolve([]);
-    }
-    return window.SLA.Brokers.listCached().then(function (r) {
+    return callList().then(function (r) {
       ALL_BROKERS = (r && r.brokers) || [];
       return ALL_BROKERS;
     }).catch(function (e) {
@@ -247,6 +309,7 @@
         var meta = [];
         if (b.company) meta.push(b.company);
         if (b.email)   meta.push(b.email);
+        if (b.phone)   meta.push(formatPhoneDigits(b.phone) || b.phone);
         return '<div class="bp-item" data-id="' + escapeAttr(b.id) + '" data-idx="' + i + '">' +
                  '<div class="bp-item-name">' + escapeHtml(b.name || '(unnamed)') + '</div>' +
                  (meta.length ? '<div class="bp-item-meta">' + escapeHtml(meta.join(' · ')) + '</div>' : '') +
@@ -283,25 +346,26 @@
   }
 
   function saveAsNew() {
-    if (!window.SLA || !window.SLA.Brokers) {
-      toast('Broker API not available');
-      return;
-    }
     var name = getFieldVal('name');
     if (!name) { toast('Enter a broker name first'); return; }
+    // Normalize phone before persisting so the broker record stores a
+    // consistent display format. Email is lowercased server-side by
+    // brokers-save.mjs; we leave that alone here.
+    var rawPhone = getFieldVal('phone');
+    var fmtPhone = formatPhoneDigits(rawPhone) || rawPhone;
     var payload = {
       name:    name,
       company: getFieldVal('company'),
       email:   getFieldVal('email'),
-      phone:   getFieldVal('phone'),
+      phone:   fmtPhone,
       notes:   '',
     };
     var btn = document.getElementById('bp-save-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-    window.SLA.Brokers.save(payload).then(function (r) {
+    callSave(payload).then(function (r) {
       var saved = (r && r.broker) || null;
       if (!saved || !saved.id) {
-        toast('Save failed — try again');
+        toast('Save failed — server returned no broker record. Try again.');
         if (btn) { btn.disabled = false; btn.textContent = '+ Save as new broker'; }
         return;
       }
