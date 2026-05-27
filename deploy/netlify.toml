@@ -300,6 +300,16 @@
   status = 200
   force = true
 
+# Deploy 232 (Baseline Mirror Phase 1 — Step 1): baseline-discover
+# probes Baseline's API to find the list-style endpoint for loans.
+# Diagnostic only; super-admin gated. Once we know the right shape,
+# the real mirror sync gets built against it.
+[[redirects]]
+  from = "/api/baseline-discover"
+  to = "/.netlify/functions/baseline-discover"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"
