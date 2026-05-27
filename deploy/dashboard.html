@@ -167,7 +167,7 @@
   <!-- Revenue projection chart -->
   <div class="chart-card">
     <h2>Revenue Projections by Month</h2>
-    <div class="chart-sub" id="revenueSub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · ARCHIVED EXCLUDED</div>
+    <div class="chart-sub" id="revenueSub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · POINTS + FEES + TPO PREMIUM (DSCR) · ARCHIVED EXCLUDED</div>
     <div class="chart-wrap"><canvas id="revenueChart"></canvas></div>
   </div>
 
@@ -354,9 +354,41 @@ function estimatedRevenue(loan) {
   // like 0.005 are decimal-form (also 0.5%).
   var ptsDecimal = pts < 0.1 ? pts : (pts / 100);
   var pointsRevenue = amt * ptsDecimal;
+  // Deploy 233.5 — TPO Premium revenue. For DSCR loans DIYA pays SLA
+  // a third-party originator premium on top of borrower-paid points.
+  // Mike: "TPO Premium ... equivalent to more points". Same percent-
+  // vs-decimal heuristic. We don't know the exact field name in
+  // Mike's Baseline config so tpoPremiumPct() probes a handful of
+  // likely candidates.
   var type = inferLoanType(loan);
+  var tpo = tpoPremiumPct(loan);
+  if (tpo > 0) {
+    var tpoDecimal = tpo < 0.1 ? tpo : (tpo / 100);
+    pointsRevenue += amt * tpoDecimal;
+  }
   var flatFees = type === 'RTL' ? 2150 : 2315;
   return pointsRevenue + flatFees;
+}
+
+// Deploy 233.5 — discover the TPO Premium percentage on a loan record.
+// We don't know Baseline's canonical field name on Mike's account, so
+// check several plausible candidates and return the first that yields
+// a meaningful positive value.
+var TPO_PREMIUM_FIELDS = [
+  'TPO_Premium', 'TPO_Premium_Pct', 'TPO_Rebate',
+  'Tpo_Premium', 'tpo_premium', 'TpoPremium',
+  'Premium', 'Yield_Spread_Premium', 'YSP',
+  'Service_Release_Premium', 'SRP',
+];
+function tpoPremiumPct(loan) {
+  if (!loan) return 0;
+  for (var i = 0; i < TPO_PREMIUM_FIELDS.length; i++) {
+    var f = TPO_PREMIUM_FIELDS[i];
+    if (loan[f] === undefined || loan[f] === null || loan[f] === '') continue;
+    var n = parseFloat(loan[f]);
+    if (isFinite(n) && n > 0) return n;
+  }
+  return 0;
 }
 
 // Helper for the points column / stats. Normalizes Baseline's mixed
@@ -531,6 +563,64 @@ function renderDebugPanel() {
     debugCard('On Hold', agg.included.onHold.length, totalOnHold, '#8a2a2a') +
     debugCard('Excluded', agg.excluded.length, sum(agg.excluded), 'var(--muted)') +
   '</div>';
+
+  // Deploy 233.5 — TPO Premium discovery. Find a sample DSCR loan and
+  // dump all its TPO/premium-related fields so Mike can confirm which
+  // field name Baseline actually uses on his account. Defaults to the
+  // first DSCR loan we find that has a numeric value in any candidate
+  // field; falls back to the first DSCR loan if none.
+  var sample = null;
+  for (var i = 0; i < _loans.length; i++) {
+    if (inferLoanType(_loans[i]) !== 'DSCR') continue;
+    if (tpoPremiumPct(_loans[i]) > 0) { sample = _loans[i]; break; }
+    if (!sample) sample = _loans[i];
+  }
+  if (sample) {
+    html += '<details style="margin-top:14px" open><summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--dark);padding:6px 0">' +
+      'TPO Premium discovery (DSCR sample: ' + escH(sample.Id || '') + ')' +
+    '</summary>';
+    html += '<div style="font-size:11.5px;color:var(--muted);margin:4px 0 8px">Tried these candidate field names on this DSCR loan. The first one returning a positive number is what estimatedRevenue() uses. If none look right, the field name on your account is different — paste the matching field name back and I’ll wire it.</div>';
+    html += '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr>' +
+      '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">Candidate field</th>' +
+      '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">Value on this loan</th>' +
+      '<th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">Status</th>' +
+    '</tr></thead><tbody>';
+    var matched = false;
+    TPO_PREMIUM_FIELDS.forEach(function(f) {
+      var v = sample[f];
+      var status;
+      if (v === undefined) status = 'field not present';
+      else if (v === null || v === '') status = 'present but empty';
+      else if (!matched && isFinite(parseFloat(v)) && parseFloat(v) > 0) {
+        status = '✓ USED'; matched = true;
+      }
+      else if (isFinite(parseFloat(v))) status = 'present, zero/negative';
+      else status = 'present, non-numeric';
+      html += '<tr>' +
+        '<td style="padding:3px 8px;font-family:monospace;font-size:11.5px">' + escH(f) + '</td>' +
+        '<td style="padding:3px 8px;font-variant-numeric:tabular-nums">' + escH(v === undefined ? '—' : JSON.stringify(v)) + '</td>' +
+        '<td style="padding:3px 8px;color:' + (status.indexOf('USED') >= 0 ? '#2d6f51' : 'var(--muted)') + ';font-weight:' + (status.indexOf('USED') >= 0 ? '700' : '400') + '">' + escH(status) + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table>';
+    // Full raw field dump so Mike can scan for the right name himself
+    html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--muted);padding:4px 0">All fields on this loan (raw)</summary>';
+    var keys = Object.keys(sample).sort();
+    html += '<table style="width:100%;font-size:11.5px;border-collapse:collapse;margin-top:4px"><tbody>';
+    keys.forEach(function(k) {
+      var raw = sample[k];
+      var disp;
+      if (raw === null) disp = '<em style="color:var(--muted)">null</em>';
+      else if (typeof raw === 'object') disp = JSON.stringify(raw).slice(0, 120);
+      else disp = String(raw).slice(0, 120);
+      html += '<tr>' +
+        '<td style="padding:2px 8px;font-family:monospace;font-size:11px">' + escH(k) + '</td>' +
+        '<td style="padding:2px 8px">' + disp + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></details>';
+    html += '</details>';
+  }
 
   // Per-bucket loan list
   ['won', 'open', 'onHold'].forEach(function(b) {
