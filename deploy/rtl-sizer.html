@@ -11,6 +11,10 @@
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
 <script src="quotes.js"></script>
+<!-- Deploy 236 (Brokers Phase 2): shared broker picker. Mounts inside
+     the #brokerFields div on init and persists a brokerId hidden field
+     that buildLoanFromSizer pulls into the loan record. -->
+<script src="broker-picker.js"></script>
 <script>
 window.ClientBook = {
 
@@ -95,6 +99,11 @@ window.ClientBook = {
       brokerCompany: formData.brokerCompany || '',
       brokerEmail:   formData.brokerEmail   || '',
       brokerPhone:   formData.brokerPhone   || '',
+      // Deploy 236 (Brokers Phase 2): canonical broker entity reference.
+      // Inline fields above are kept for backward-compat / fast display;
+      // brokerId is the link to the broker book record. Empty when the
+      // loan was typed in manually without picking from the book.
+      brokerId:      formData.brokerId      || '',
       // Deploy 162: pricing override state. Empty strings when no
       // override is active; set on the loan record so reopening
       // restores the overridden display + locked-fields state without
@@ -2548,6 +2557,10 @@ function saveCurrentQuote() {
     // contact fields stay empty. brokerName is required upstream when
     // brokerFee > 0; the other contact fields are always optional.
     'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
+    // Deploy 236 (Brokers Phase 2): hidden brokerId set by BrokerPicker.
+    // Captured here alongside the inline fields so buildLoanFromSizer
+    // sees it in formData.
+    'brokerId',
     // Deploy 196: Dutch / Non-Dutch interest structure selector. Persisted
     // so Loan Details and the rate-sheet PDF can show the matching
     // starting / maximum monthly payment math.
@@ -2864,6 +2877,9 @@ function loadRTLQuote(formData) {
     'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
     // Broker fields — populated when reopening a quote saved as a broker loan
     'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
+    // Deploy 236 (Brokers Phase 2): restore hidden brokerId so the picker
+    // can rehydrate the binding chip below.
+    'brokerId',
     // Deploy 196: restore Dutch / Non-Dutch selection from saved quote.
     // Legacy loans (saved pre-Deploy 196) won't have this field; the
     // <select> default (non_dutch) handles that case.
@@ -2894,6 +2910,17 @@ function loadRTLQuote(formData) {
       try { onBrokerFeeChange(); } catch (_) {}
     }
   }
+  // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
+  // ask the picker to bind to it. The picker fetches the broker record
+  // from the LO's book and (a) sets the chip, (b) locks the inline
+  // fields to read-only. We do this AFTER the fields above are painted
+  // so the broker's saved values are the visible ones. If the brokerId
+  // is orphaned (broker deleted), the picker clears the hidden ref and
+  // leaves the inline fields editable.
+  try {
+    var _bid = formData.brokerId || '';
+    if (_bid && window.BrokerPicker) { window.BrokerPicker.restore(_bid); }
+  } catch (_) {}
   // Deploy 162: restore pricing override state from the saved formData.
   // We mark warningAcknowledged=true so reopening a previously-overridden
   // loan doesn't re-fire the warning modal. The notice banner + locked
@@ -2983,6 +3010,13 @@ netlifyIdentity.on('init', function(user) {
     window._loPhone = (user.user_metadata && user.user_metadata.phone) || '';
     window._loEmail = user.email || '';
     initQuotes(user.email);
+    // Deploy 236 (Brokers Phase 2): mount the broker picker inside the
+    // existing #brokerFields div. It injects a search box + hidden
+    // brokerId input. saveCurrentQuote() reads brokerId off the DOM,
+    // and loadFromQuote() / loadFromClientLoan() call
+    // BrokerPicker.restore(loan.brokerId) after they paint the inline
+    // fields so the binding chip shows on reload.
+    try { if (window.BrokerPicker) window.BrokerPicker.init('brokerFields'); } catch (_) {}
     var navAdmin = document.getElementById('navAdminLink');
     if (navAdmin) {
       var roles = (user.app_metadata && user.app_metadata.roles) || [];

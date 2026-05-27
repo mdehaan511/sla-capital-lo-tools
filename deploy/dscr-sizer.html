@@ -12,6 +12,10 @@
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
   <script src="quotes.js"></script>
+  <!-- Deploy 236 (Brokers Phase 2): shared broker picker. Mounts inside
+       the #brokerFields div on init and persists a brokerId hidden field
+       that buildLoanFromSizer pulls into the loan record. -->
+  <script src="broker-picker.js"></script>
   <script>
   // Minimal ClientBook for sizer pages
   window.ClientBook = {
@@ -2710,6 +2714,11 @@ function saveCurrentQuote() {
     brokerCompany: ($('brokerCompany') ? $('brokerCompany').value.trim() : ''),
     brokerEmail:   ($('brokerEmail') ? $('brokerEmail').value.trim().toLowerCase() : ''),
     brokerPhone:   ($('brokerPhone') ? $('brokerPhone').value.trim() : ''),
+    // Deploy 236 (Brokers Phase 2): canonical broker entity reference.
+    // Inline fields above are kept for backward-compat / fast display;
+    // brokerId is the link to the broker book record. Empty when the
+    // loan was typed in manually without picking from the book.
+    brokerId:      (document.getElementById('brokerId') ? document.getElementById('brokerId').value.trim() : ''),
     // Item #5/#6: human-readable labels for display in Loan Details + Submission
     ficoLabel:     ($('fico').options[$('fico').selectedIndex] ? $('fico').options[$('fico').selectedIndex].text : ''),
     propTypeLabel: ($('propType').options[$('propType').selectedIndex] ? $('propType').options[$('propType').selectedIndex].text : ''),
@@ -2940,6 +2949,10 @@ function loadQuoteIntoForm(formData) {
     brokerCompany: formData.brokerCompany || '',
     brokerEmail:   formData.brokerEmail   || '',
     brokerPhone:   formData.brokerPhone   || '',
+    // Deploy 236 (Brokers Phase 2): hidden brokerId reference. Populated
+    // by BrokerPicker.restore() below — set here too so any later code
+    // path reading off the DOM sees the value immediately on paint.
+    brokerId:      formData.brokerId      || '',
   };
   Object.keys(fields).forEach(function(id) {
     var el = $(id);
@@ -2958,6 +2971,17 @@ function loadQuoteIntoForm(formData) {
       try { onBrokerFeeChange(); } catch (_) {}
     }
   }
+  // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
+  // ask the picker to bind to it. The picker fetches the broker record
+  // from the LO's book and (a) sets the chip, (b) locks the inline
+  // fields to read-only. We do this AFTER the fields above are painted
+  // so the broker's saved values are the visible ones. If the brokerId
+  // is orphaned (broker deleted), the picker clears the hidden ref and
+  // leaves the inline fields editable.
+  try {
+    var _bid = formData.brokerId || '';
+    if (_bid && window.BrokerPicker) { window.BrokerPicker.restore(_bid); }
+  } catch (_) {}
   // Deploy 164: restore pricing override state. warningAcknowledged=true
   // so the modal doesn't re-fire. lockLoanFinancialFields engages the
   // greyed/disabled state on the form inputs. applyOverridesAndRender
@@ -3050,6 +3074,13 @@ netlifyIdentity.on('init', function(user) {
       window._loPhone = (user.user_metadata && user.user_metadata.phone)       || '';
       window._loEmail = user.email || '';
       initQuotes(user.email);
+      // Deploy 236 (Brokers Phase 2): mount the broker picker inside the
+      // existing #brokerFields div. It injects a search box + hidden
+      // brokerId input. saveCurrentQuote() reads brokerId off the DOM,
+      // and loadFromQuote() / loadFromClientLoan() call
+      // BrokerPicker.restore(loan.brokerId) after they paint the inline
+      // fields so the binding chip shows on reload.
+      try { if (window.BrokerPicker) window.BrokerPicker.init('brokerFields'); } catch (_) {}
       // Show admin nav link if admin
       var navAdmin = document.getElementById('navAdminLink');
       if (navAdmin) {
