@@ -193,18 +193,38 @@ var _sortDir = 'desc';
 var _charts = {};           // Chart.js instances; destroyed on re-render
 
 // Status interpretation. Baseline statuses observed in the wild:
-// 'lead', 'under_review', 'approved', 'closed', 'sold', 'declined',
-// 'denied', 'withdrawn', 'on_hold', 'archived'.
+// 'lead', 'under_review', 'approved', 'closed', 'sold', 'liquidated',
+// 'in_servicing', 'declined', 'denied', 'withdrawn', 'on_hold',
+// 'archived'.
 //
 // Buckets for the dashboard:
-//   Won      — sold / closed / funded (counted as revenue this year)
-//   On Hold  — explicit hold; rendered separately in red
-//   Archived — terminal failure; EXCLUDED from forecasts, kept only
-//              for the close-rate denominator
-//   Open     — everything else (active pipeline)
+//   Won        — sold / closed / funded / in_servicing
+//                (chart bucket; deals SLA closed but liquidated is
+//                 broken out separately and HIDDEN from the chart per
+//                 Mike's request — those revenues are past tense)
+//   Liquidated — fully paid off (Status='liquidated'). Excluded from
+//                forecast charts; counted in Performance Stats with
+//                Sold + In Servicing.
+//   On Hold    — explicit hold; rendered red in the charts.
+//   Archived   — terminal failure; EXCLUDED from charts entirely.
+//                Tracked only for the close-rate denominator.
+//   Open       — everything else (active pipeline).
 function isWon(loan) {
-  var s = (loan && loan.Status) || '';
-  return s === 'sold' || s === 'closed' || s === 'funded';
+  var s   = String((loan && loan.Status)    || '').toLowerCase();
+  var sub = String((loan && loan.Substatus) || '').toLowerCase();
+  if (s === 'sold' || s === 'closed' || s === 'funded') return true;
+  if (s === 'in_servicing' || s === 'servicing') return true;
+  if (sub === 'in_servicing' || sub === 'servicing') return true;
+  return false;
+}
+function isLiquidated(loan) {
+  return String((loan && loan.Status) || '').toLowerCase() === 'liquidated';
+}
+// "Closed" = any loan that successfully reached an end-of-pipeline
+// state. For Performance Stats (Mike: "loans that have closed only —
+// Liquidated, Sold, or In Servicing").
+function isClosed(loan) {
+  return isWon(loan) || isLiquidated(loan);
 }
 function isOnHold(loan) {
   var s = String((loan && loan.Status)    || '').toLowerCase();
@@ -220,7 +240,30 @@ function isArchived(loan) {
       || s === 'denied' || s === 'withdrawn' || s === 'cancelled';
 }
 function isOpen(loan) {
-  return loan && !isWon(loan) && !isOnHold(loan) && !isArchived(loan);
+  return loan && !isWon(loan) && !isLiquidated(loan) && !isOnHold(loan) && !isArchived(loan);
+}
+
+// Detect loan type for closed loans. Substatus carries 'RTL' / 'DSCR'
+// when we push fresh to Baseline, but as a loan progresses the
+// Substatus often changes ("Transferred" once sold, etc.) so we lose
+// the type signal. Heuristic chain:
+//   1) Substatus exact match RTL / DSCR
+//   2) Holdback or Initial_Advance present  → RTL (rehab budget +
+//      initial draw are RTL-only Baseline fields)
+//   3) Term <= 18 months → RTL; >= 240 months → DSCR
+//   4) Default UNKNOWN
+function inferLoanType(loan) {
+  if (!loan) return 'UNKNOWN';
+  var sub = String(loan.Substatus || '').toUpperCase();
+  if (sub === 'RTL' || sub === 'DSCR') return sub;
+  if (parseFloat(loan.Holdback)        > 0) return 'RTL';
+  if (parseFloat(loan.Initial_Advance) > 0) return 'RTL';
+  var term = parseFloat(loan.Term);
+  if (isFinite(term)) {
+    if (term >= 240) return 'DSCR';
+    if (term <= 18)  return 'RTL';
+  }
+  return 'UNKNOWN';
 }
 
 // Revenue estimate per loan.
@@ -241,22 +284,23 @@ function estimatedRevenue(loan) {
   if (!isFinite(amt) || amt <= 0) return 0;
   var pts = parseFloat(loan.Origination_Points || 0);
   if (!isFinite(pts)) pts = 0;
-  // pts > 1 → already in percent form (e.g. 2 = 2%); divide by 100.
-  // pts <= 1 → already decimal (e.g. 0.02 = 2%); use as-is.
-  // Defensive heuristic in case Baseline's format ever flips.
-  var ptsDecimal = pts > 1 ? (pts / 100) : pts;
-  var pointsRevenue = amt * ptsDecimal;
-  var isRTL = (loan.Substatus || '').toUpperCase() === 'RTL';
-  var flatFees = isRTL ? 2150 : 2315;
+  // Deploy 233.2 — Baseline returns Origination_Points as a
+  // percentage-as-number (1.5 = 1.5%, 2 = 2%). Always divide by 100.
+  // The earlier "pts > 1 ? /100 : as-is" heuristic was wrong: a loan
+  // with exactly 1 point was treated as raw 1.0 multiplier, producing
+  // revenue equal to the loan amount (millions per month in aggregate).
+  var pointsRevenue = amt * (pts / 100);
+  var type = inferLoanType(loan);
+  var flatFees = type === 'RTL' ? 2150 : 2315;
   return pointsRevenue + flatFees;
 }
 
-// Helper for the points column / stats — always returns the percent
-// value (e.g., 1.5 for 1.5%). Mirrors the heuristic in estimatedRevenue.
+// Helper for the points column / stats — converts Baseline's
+// percentage-as-number to a display percent value (1.5 → 1.5).
 function pointsAsPercent(v) {
   var n = parseFloat(v);
   if (!isFinite(n)) return null;
-  return n > 1 ? n : (n * 100);   // <=1 means decimal form (0.015 → 1.5%)
+  return n;
 }
 
 function loanCloseDate(loan) {
@@ -421,7 +465,10 @@ function monthlyAggregates(year, metricFn) {
   var onHold = new Array(12).fill(0);
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
-    if (isArchived(l)) continue;
+    // Deploy 233.2 — also exclude Liquidated. Revenue from those was
+    // collected at close (often historical); Mike asked to hide them
+    // from the forecast chart.
+    if (isArchived(l) || isLiquidated(l)) continue;
     var d = loanCloseDate(l);
     if (!d) continue;
     var m = parseInt(String(d).slice(5, 7), 10);
@@ -496,37 +543,44 @@ function drawStackedBar(canvasId, data, kind, fmtTick) {
 }
 
 // ── Performance Stats table (split by RTL / DSCR) ────────────────
-// Close rate uses the (won) / (won + archived) definition Mike asked
-// for: how often a loan that came in either closed or was killed.
-// Averages exclude archived to avoid skewing the numbers with
-// terminal-failure data.
+// Deploy 233.2 — restricted to CLOSED loans only (Sold + Liquidated +
+// In Servicing) per Mike. Pipeline loans don't yet have settled
+// terms so they'd dilute the averages.
+//   Close Rate = closed_loans / (closed_loans + archived_loans)
+//   Averages run over closed loans only.
+// Loan-type detection uses inferLoanType() so loans whose Substatus
+// has moved past 'RTL'/'DSCR' (e.g. 'Transferred' after sale) still
+// land in the right row.
 function renderPerformanceStats() {
-  function statsFor(typeLabel, filterFn) {
-    var won  = 0;     // closed
-    var arch = 0;     // archived (not closed)
-    var amts = [];    // for avg loan size
-    var pts  = [];    // for avg points
-    var rts  = [];    // for avg rate
+  function statsFor(typeLabel, typeMatcher) {
+    var closed = 0;
+    var arch   = 0;
+    var amts = [];
+    var pts  = [];
+    var rts  = [];
     for (var i = 0; i < _loans.length; i++) {
       var l = _loans[i];
-      if (!filterFn(l)) continue;
-      if (isWon(l))      won  += 1;
-      if (isArchived(l)) arch += 1;
-      // Averages: include all non-archived (won + open + onHold).
-      if (!isArchived(l)) {
-        var amt = numAmt(l.Loan_Amount);
-        if (amt > 0) amts.push(amt);
-        var p = pointsAsPercent(l.Origination_Points);
-        if (p != null && p > 0) pts.push(p);
-        var r = parseFloat(l.Rate);
-        if (isFinite(r) && r > 0) rts.push(r > 1 ? r : r * 100);  // normalize to percent
+      if (!typeMatcher(l)) continue;
+      if (isArchived(l)) {
+        arch += 1;
+        // Archived loans contribute to the close-rate denominator
+        // only; their pricing data isn't included in averages.
+        continue;
       }
+      if (!isClosed(l)) continue;   // skip pipeline loans
+      closed += 1;
+      var amt = numAmt(l.Loan_Amount);
+      if (amt > 0) amts.push(amt);
+      var p = pointsAsPercent(l.Origination_Points);
+      if (p != null && p > 0) pts.push(p);
+      var r = parseFloat(l.Rate);
+      if (isFinite(r) && r > 0) rts.push(r > 1 ? r : r * 100);  // normalize to percent
     }
-    var closeRate = (won + arch) > 0 ? (won / (won + arch) * 100) : null;
+    var closeRate = (closed + arch) > 0 ? (closed / (closed + arch) * 100) : null;
     var avg = function(arr) { return arr.length ? (arr.reduce(function(s, v) { return s + v; }, 0) / arr.length) : null; };
     return {
       type: typeLabel,
-      won: won,
+      won: closed,
       arch: arch,
       closeRate: closeRate,
       avgAmt: avg(amts),
@@ -536,8 +590,8 @@ function renderPerformanceStats() {
   }
 
   var rows = [
-    statsFor('RTL',  function(l) { return (l.Substatus || '').toUpperCase() === 'RTL'; }),
-    statsFor('DSCR', function(l) { return (l.Substatus || '').toUpperCase() === 'DSCR'; }),
+    statsFor('RTL',  function(l) { return inferLoanType(l) === 'RTL'; }),
+    statsFor('DSCR', function(l) { return inferLoanType(l) === 'DSCR'; }),
     statsFor('All',  function(l) { return true; }),
   ];
 
@@ -568,11 +622,14 @@ function renderPerformanceStats() {
 }
 
 // ── Loans by State (table — count + total $) ─────────────────────
+// Deploy 233.2 — include active pipeline + closed loans (Sold,
+// Liquidated, In Servicing). Archived excluded. Matches Mike's ask:
+// "active pipeline loans or Liquidated, Sold, or In Servicing loans".
 function renderStateTable() {
   var byState = {};   // key: state → { count, total }
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
-    if (!isOpen(l)) continue;  // active pipeline only, matches old donut scope
+    if (isArchived(l)) continue;
     var st = (l.Address_State || extractStateFromName(l.Name) || '').trim() || '(unknown)';
     if (!byState[st]) byState[st] = { count: 0, total: 0 };
     byState[st].count += 1;
