@@ -849,6 +849,52 @@
     },
   };
 
+  // ── Brokers ─────────────────────────────────────────────────────
+  // Deploy 236 — brokers as a first-class entity. Owner-scoped (LOs
+  // own their broker book the same way they own their client book).
+  // Phase 2 wires this into the sizer broker picker; Phase 3 spins up
+  // a brokers.html admin page; Phase 5 migrates existing inline
+  // brokerEmail data on loan records into proper broker entities.
+  var Brokers = {
+    list: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.all) qs.push('all=1');
+      var path = '/api/brokers' + (qs.length ? '?' + qs.join('&') : '');
+      return api('GET', path).then(function (r) {
+        cache.set('brokers', r);
+        return r;
+      });
+    },
+    listCached: function (opts) {
+      var cached = cache.get('brokers');
+      if (cached) return Promise.resolve(cached);
+      return Brokers.list(opts);
+    },
+    save: function (broker) {
+      return api('POST', '/api/brokers-save', broker).then(function (r) {
+        cache.clear('brokers');
+        return r;
+      });
+    },
+    delete: function (id, opts) {
+      opts = opts || {};
+      var body = { id: id };
+      if (opts.owner) body._owner = opts.owner;
+      return api('POST', '/api/brokers-delete', body).then(function (r) {
+        cache.clear('brokers');
+        return r;
+      });
+    },
+    // Lookup helper used by sizer autocomplete + Phase 5 migration.
+    find: function (email, opts) {
+      opts = opts || {};
+      var qs = ['email=' + encodeURIComponent(email)];
+      if (opts.owner) qs.push('owner=' + encodeURIComponent(opts.owner));
+      return api('GET', '/api/brokers-find?' + qs.join('&'));
+    },
+  };
+
   // ── Reminders ───────────────────────────────────────────────────
   // One active reminder per loan. Save replaces any existing non-completed
   // reminder for the same loanId.
@@ -1015,6 +1061,7 @@
     ESignConsent: ESignConsent,
     SignedApplication: SignedApplication,
     Reminders: Reminders,
+    Brokers: Brokers,
     Loans: Loans,
     Search: Search,
     getRoles: getRoles,

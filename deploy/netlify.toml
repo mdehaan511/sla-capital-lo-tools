@@ -324,6 +324,31 @@
   status = 200
   force = true
 
+# Deploy 236 (Brokers Phase 1): brokers as a first-class entity.
+# Owner-scoped blob store (each LO has their own broker book; admins
+# see all via ?all=1). Phase 2 wires the sizer's broker fields to pick
+# from this store instead of typing inline.
+[[redirects]]
+  from = "/api/brokers"
+  to = "/.netlify/functions/brokers-list"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/brokers-save"
+  to = "/.netlify/functions/brokers-save"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/brokers-delete"
+  to = "/.netlify/functions/brokers-delete"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/brokers-find"
+  to = "/.netlify/functions/brokers-find"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"
