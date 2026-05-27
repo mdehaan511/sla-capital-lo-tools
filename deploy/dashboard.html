@@ -82,10 +82,24 @@
     td.addr a { color: var(--dark); text-decoration: none; }
     td.addr a:hover { text-decoration: underline; }
     .pill { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-    .pill-sold     { background: rgba(111,164,139,0.16); color: #2d6f51; }
-    .pill-approved { background: rgba(155,196,226,0.22); color: #1f4a9e; }
-    .pill-lead     { background: rgba(200,129,58,0.16); color: var(--gold-mid); }
-    .pill-default  { background: rgba(120,116,136,0.12); color: var(--muted); }
+    /* Deploy 233.3 — full status palette. Pipeline stages use cool
+       progression (gold → orange → indigo → blue → green). On Hold is
+       red. Terminal failures muted grey-red. Liquidated and servicing
+       distinct shades of green. */
+    .pill-lead       { background: rgba(200,129,58,0.16);  color: var(--gold-mid); }
+    .pill-quoted     { background: rgba(200,129,58,0.16);  color: var(--gold-mid); }
+    .pill-submitted  { background: rgba(247,168,71,0.22);  color: #7a5218; }
+    .pill-review     { background: rgba(247,168,71,0.22);  color: #7a5218; }
+    .pill-awaiting   { background: rgba(155,196,226,0.22); color: #1f4a9e; }
+    .pill-approved   { background: rgba(125,162,225,0.30); color: #1f4a9e; }
+    .pill-processing { background: rgba(125,162,225,0.30); color: #1f4a9e; }
+    .pill-hold       { background: rgba(199,80,80,0.18);   color: #8a2a2a; }
+    .pill-sold       { background: rgba(111,164,139,0.20); color: #2d6f51; }
+    .pill-servicing  { background: rgba(111,164,139,0.30); color: #1f5a3a; }
+    .pill-liquidated { background: rgba(120,116,136,0.18); color: #4a4658; }
+    .pill-archived   { background: rgba(120,116,136,0.10); color: var(--muted); }
+    .pill-declined   { background: rgba(124,31,31,0.10);   color: #7c1f1f; }
+    .pill-default    { background: rgba(120,116,136,0.12); color: var(--muted); }
 
     .empty, .loading { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
     .err-banner { padding: 14px 18px; background: rgba(124,31,31,0.06); border: 1px solid rgba(124,31,31,0.22); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; margin-bottom: 18px; }
@@ -150,18 +164,20 @@
     <div class="chart-wrap"><canvas id="volumeChart"></canvas></div>
   </div>
 
-  <!-- Performance stats + state table side-by-side -->
-  <div class="chart-row">
-    <div class="chart-card">
-      <h2>Performance Stats</h2>
-      <div class="chart-sub">CLOSE RATE · AVG LOAN SIZE · AVG POINTS · AVG RATE</div>
-      <div id="perfStatsWrap"></div>
-    </div>
-    <div class="chart-card">
-      <h2>Loans by State</h2>
-      <div class="chart-sub">ACTIVE PIPELINE · COUNT · TOTAL $</div>
-      <div id="stateTableWrap" style="max-height:320px;overflow-y:auto"></div>
-    </div>
+  <!-- Performance Stats — full width so the 8-column table doesn't
+       wrap. Deploy 233.3 split this out of the previous side-by-side
+       row with the state table. -->
+  <div class="chart-card">
+    <h2>Performance Stats</h2>
+    <div class="chart-sub">ACTIVE · CLOSE RATE · AVG LOAN SIZE · AVG POINTS · AVG RATE</div>
+    <div id="perfStatsWrap"></div>
+  </div>
+
+  <!-- Loans by State (full width below) -->
+  <div class="chart-card">
+    <h2>Loans by State</h2>
+    <div class="chart-sub">PIPELINE + CLOSED · COUNT · TOTAL $</div>
+    <div id="stateTableWrap" style="max-height:360px;overflow-y:auto"></div>
   </div>
 
   <!-- Loans table -->
@@ -188,8 +204,32 @@
 var _user = null;
 var _loans = [];            // all mirrored loans
 var _tab = 'active';        // 'active' | 'sold' | 'all'
-var _sortBy = 'origination';
+// Deploy 233.3 — default sort = pipeline status (closest to funding
+// at top). Clicking the Status header also sorts by this order.
+var _sortBy = 'status';
 var _sortDir = 'desc';
+
+// Pipeline ranking. Higher number = closer to funding (top of list).
+// When the user clicks the Status header, this is the comparator used.
+function statusOrder(loan) {
+  var s = String((loan && loan.Status) || '').toLowerCase();
+  // Pipeline (in flight, approaching close)
+  if (s === 'approved' || s === 'in_processing') return 100;
+  if (s === 'awaiting_app' || s === 'awaiting application' || s === 'awaiting_application') return 90;
+  if (s === 'submitted' || s === 'under_review' || s === 'pending_review' || s === 'pending review') return 80;
+  if (s === 'lead' || s === 'quoted' || s === 'active' || s === 'pre_qual') return 70;
+  // Paused
+  if (s === 'on_hold' || s === 'hold') return 60;
+  // Closed (already funded)
+  if (s === 'in_servicing' || s === 'servicing') return 55;
+  if (s === 'funded' || s === 'closed' || s === 'sold') return 50;
+  // Liquidated (past tense)
+  if (s === 'liquidated') return 40;
+  // Terminal failures
+  if (s === 'archived')  return 10;
+  if (s === 'declined' || s === 'denied' || s === 'withdrawn' || s === 'cancelled' || s === 'lost') return 5;
+  return 30; // unknown statuses slot in the middle
+}
 var _charts = {};           // Chart.js instances; destroyed on re-render
 
 // Status interpretation. Baseline statuses observed in the wild:
@@ -284,23 +324,28 @@ function estimatedRevenue(loan) {
   if (!isFinite(amt) || amt <= 0) return 0;
   var pts = parseFloat(loan.Origination_Points || 0);
   if (!isFinite(pts)) pts = 0;
-  // Deploy 233.2 — Baseline returns Origination_Points as a
-  // percentage-as-number (1.5 = 1.5%, 2 = 2%). Always divide by 100.
-  // The earlier "pts > 1 ? /100 : as-is" heuristic was wrong: a loan
-  // with exactly 1 point was treated as raw 1.0 multiplier, producing
-  // revenue equal to the loan amount (millions per month in aggregate).
-  var pointsRevenue = amt * (pts / 100);
+  // Deploy 233.3 — handle MIXED storage formats. Most loans in the
+  // mirror store Origination_Points as a percent-number (1.5 = 1.5%),
+  // but some have it as a decimal (0.015 = 1.5%) — that's what was
+  // pulling the RTL avg down to 0.66%. Heuristic: anything <0.1 is
+  // decimal; >=0.1 is percent-number. BPL points realistically range
+  // 0.5% – 5%, so values like 0.5 are percent-form (0.5%) and values
+  // like 0.005 are decimal-form (also 0.5%).
+  var ptsDecimal = pts < 0.1 ? pts : (pts / 100);
+  var pointsRevenue = amt * ptsDecimal;
   var type = inferLoanType(loan);
   var flatFees = type === 'RTL' ? 2150 : 2315;
   return pointsRevenue + flatFees;
 }
 
-// Helper for the points column / stats — converts Baseline's
-// percentage-as-number to a display percent value (1.5 → 1.5).
+// Helper for the points column / stats. Normalizes Baseline's mixed
+// storage formats to a single percent value:
+//   1.5    → 1.5  (already percent-form)
+//   0.015  → 1.5  (decimal-form, multiply by 100)
 function pointsAsPercent(v) {
   var n = parseFloat(v);
   if (!isFinite(n)) return null;
-  return n;
+  return n < 0.1 ? (n * 100) : n;
 }
 
 function loanCloseDate(loan) {
@@ -517,13 +562,17 @@ function drawStackedBar(canvasId, data, kind, fmtTick) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      // Deploy 233.3 — index mode so hovering any part of a column
+      // shows all three stack segments + the footer total.
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'bottom', labels: { font: { family: 'DM Sans', size: 12 } } },
         tooltip: {
+          mode: 'index',
+          intersect: false,
           callbacks: {
             label: function(ctx) {
               var v = ctx.parsed.y;
-              if (kind === 'volume') return ctx.dataset.label + ': $' + Number(v).toLocaleString();
               return ctx.dataset.label + ': $' + Number(v).toLocaleString();
             },
             footer: function(items) {
@@ -553,6 +602,7 @@ function drawStackedBar(canvasId, data, kind, fmtTick) {
 // land in the right row.
 function renderPerformanceStats() {
   function statsFor(typeLabel, typeMatcher) {
+    var active = 0;   // Deploy 233.3 — pipeline loans (open + on hold)
     var closed = 0;
     var arch   = 0;
     var amts = [];
@@ -561,26 +611,23 @@ function renderPerformanceStats() {
     for (var i = 0; i < _loans.length; i++) {
       var l = _loans[i];
       if (!typeMatcher(l)) continue;
-      if (isArchived(l)) {
-        arch += 1;
-        // Archived loans contribute to the close-rate denominator
-        // only; their pricing data isn't included in averages.
-        continue;
-      }
-      if (!isClosed(l)) continue;   // skip pipeline loans
+      if (isArchived(l)) { arch += 1; continue; }
+      if (isOpen(l) || isOnHold(l)) { active += 1; continue; }
+      if (!isClosed(l)) continue;
       closed += 1;
       var amt = numAmt(l.Loan_Amount);
       if (amt > 0) amts.push(amt);
       var p = pointsAsPercent(l.Origination_Points);
       if (p != null && p > 0) pts.push(p);
       var r = parseFloat(l.Rate);
-      if (isFinite(r) && r > 0) rts.push(r > 1 ? r : r * 100);  // normalize to percent
+      if (isFinite(r) && r > 0) rts.push(r > 1 ? r : r * 100);
     }
     var closeRate = (closed + arch) > 0 ? (closed / (closed + arch) * 100) : null;
     var avg = function(arr) { return arr.length ? (arr.reduce(function(s, v) { return s + v; }, 0) / arr.length) : null; };
     return {
       type: typeLabel,
-      won: closed,
+      active: active,
+      closed: closed,
       arch: arch,
       closeRate: closeRate,
       avgAmt: avg(amts),
@@ -596,25 +643,33 @@ function renderPerformanceStats() {
   ];
 
   var fmtPct = function(v) { return v == null ? '—' : v.toFixed(1) + '%'; };
-  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse">';
+  var th = function(label, align) {
+    return '<th style="text-align:' + (align || 'left') + ';padding:9px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap">' + label + '</th>';
+  };
+  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse;table-layout:auto">';
   html += '<thead><tr>' +
-    '<th style="text-align:left;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Type</th>' +
-    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Closed</th>' +
-    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Archived</th>' +
-    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Close Rate</th>' +
-    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Avg Loan</th>' +
-    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Avg Pts</th>' +
-    '<th style="text-align:right;padding:8px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Avg Rate</th>' +
+    th('Type', 'left') +
+    th('Active', 'right') +
+    th('Closed', 'right') +
+    th('Archived', 'right') +
+    th('Close Rate', 'right') +
+    th('Avg Loan', 'right') +
+    th('Avg Pts', 'right') +
+    th('Avg Rate', 'right') +
   '</tr></thead><tbody>';
   rows.forEach(function(r) {
+    var td = function(content, align, extra) {
+      return '<td style="padding:10px;border-top:1px solid var(--border);text-align:' + (align || 'left') + ';' + (extra || '') + '">' + content + '</td>';
+    };
     html += '<tr>' +
-      '<td style="padding:9px 6px;border-top:1px solid var(--border);font-weight:600">' + escH(r.type) + '</td>' +
-      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + r.won + '</td>' +
-      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)">' + r.arch + '</td>' +
-      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + fmtPct(r.closeRate) + '</td>' +
-      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.avgAmt != null ? fmtMoney(r.avgAmt) : '—') + '</td>' +
-      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.avgPts != null ? r.avgPts.toFixed(2) + '%' : '—') + '</td>' +
-      '<td style="padding:9px 6px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.avgRate != null ? r.avgRate.toFixed(2) + '%' : '—') + '</td>' +
+      td('<span style="font-weight:600">' + escH(r.type) + '</span>', 'left') +
+      td(String(r.active), 'right', 'font-variant-numeric:tabular-nums;color:var(--dark)') +
+      td(String(r.closed), 'right', 'font-variant-numeric:tabular-nums') +
+      td(String(r.arch),   'right', 'font-variant-numeric:tabular-nums;color:var(--muted)') +
+      td(fmtPct(r.closeRate),                                        'right', 'font-variant-numeric:tabular-nums') +
+      td(r.avgAmt != null ? fmtMoney(r.avgAmt) : '—',                'right', 'font-variant-numeric:tabular-nums') +
+      td(r.avgPts != null ? r.avgPts.toFixed(2) + '%' : '—',         'right', 'font-variant-numeric:tabular-nums') +
+      td(r.avgRate != null ? r.avgRate.toFixed(2) + '%' : '—',       'right', 'font-variant-numeric:tabular-nums') +
     '</tr>';
   });
   html += '</tbody></table>';
@@ -704,7 +759,10 @@ function renderTable() {
     switch (_sortBy) {
       case 'address':   av = (a.Name || ''); bv = (b.Name || ''); break;
       case 'state':     av = (a.Address_State || ''); bv = (b.Address_State || ''); break;
-      case 'status':    av = (a.Status || ''); bv = (b.Status || ''); break;
+      // Deploy 233.3 — Status sorts by pipeline-proximity order
+      // (closest to funding at top, terminal failures at bottom).
+      // Descending direction puts highest-priority first.
+      case 'status':    av = statusOrder(a); bv = statusOrder(b); break;
       case 'type':      av = (a.Substatus || ''); bv = (b.Substatus || ''); break;
       case 'amount':    av = numAmt(a.Loan_Amount); bv = numAmt(b.Loan_Amount); break;
       case 'rate':      av = parseFloat(a.Rate) || 0; bv = parseFloat(b.Rate) || 0; break;
@@ -756,9 +814,21 @@ function renderTable() {
 
 function statusPillClass(s) {
   var v = String(s || '').toLowerCase();
+  // Pipeline (sorted by proximity to funding)
+  if (v === 'approved' || v === 'in_processing') return 'pill-processing';
+  if (v === 'awaiting_app' || v === 'awaiting application' || v === 'awaiting_application') return 'pill-awaiting';
+  if (v === 'submitted' || v === 'pending_review' || v === 'pending review') return 'pill-submitted';
+  if (v === 'under_review') return 'pill-review';
+  if (v === 'lead' || v === 'quoted' || v === 'active' || v === 'pre_qual') return 'pill-lead';
+  // Paused
+  if (v === 'on_hold' || v === 'hold') return 'pill-hold';
+  // Closed states
+  if (v === 'in_servicing' || v === 'servicing') return 'pill-servicing';
   if (v === 'sold' || v === 'closed' || v === 'funded') return 'pill-sold';
-  if (v === 'approved' || v === 'under_review' || v === 'in_processing') return 'pill-approved';
-  if (v === 'lead') return 'pill-lead';
+  if (v === 'liquidated') return 'pill-liquidated';
+  // Terminal failures
+  if (v === 'archived')  return 'pill-archived';
+  if (v === 'declined' || v === 'denied' || v === 'withdrawn' || v === 'cancelled' || v === 'lost') return 'pill-declined';
   return 'pill-default';
 }
 
