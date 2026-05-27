@@ -26,6 +26,11 @@ import {
   INFO_RELEASE_AUTH_TEXT,
 } from './esign.mjs';
 import { decryptField } from './crypto.mjs';
+// Deploy 231.2 — parse the single-line Google formatted_address that
+// the long app sometimes stores in g.address so we can render
+// "Street, City, ST ZIP" on the Home/Previous/Mailing/Entity rows
+// even when the form only captured a combined string.
+import { parseAddress } from './address.mjs';
 
 // SLA brand colors (RGB to match the rest of the app)
 const PLUM       = '#261A36';
@@ -97,6 +102,23 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         const parts = [a.street || a.address, a.city, [a.state, a.zip].filter(Boolean).join(' ')]
           .filter(Boolean);
         return parts.join(', ');
+      };
+      // Deploy 231.2 — format an address from either:
+      //   - separate { street, city, state, zip } fields (preferred),
+      //   - OR a single-line combined string where city/state/zip may
+      //     already be embedded (Google formatted_address mode).
+      // Robust to both. Avoids double-printing "Stevensville, MI" when
+      // the borrower picked from autocomplete AND the form ALSO has
+      // city/state filled in via Deploy 228's parser. Always returns
+      // "Street, City, ST ZIP" shape when data is available.
+      const fmtFullAddress = (street1Source, city, state, zip) => {
+        const parsed = parseAddress(street1Source || '');
+        const cleanStreet = (parsed.street1 || street1Source || '').trim();
+        const cleanCity   = (String(city  || '').trim()) || parsed.city  || '';
+        const cleanState  = (String(state || '').trim()) || parsed.state || '';
+        const cleanZip    = (String(zip   || '').trim()) || parsed.zip   || '';
+        const stateZip = [cleanState, cleanZip].filter(Boolean).join(' ');
+        return [cleanStreet, cleanCity, stateZip].filter(Boolean).join(', ');
       };
       const fmtSSN = (ssn) => {
         if (!ssn) return '';
@@ -535,15 +557,19 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         row('Estimated Credit Score', g.fico || '');
         row('Email Address', g.email || '');
         row('Phone Number', g.phone || '');
-        row('Home Address', g.address || '');
+        // Deploy 231.2 — Home Address now includes City, State, ZIP
+        // assembled from the long-app fields (or parsed from the
+        // single-line autocomplete value when the form didn't capture
+        // them separately).
+        row('Home Address', fmtFullAddress(g.address, g.city, g.state, g.zip));
         // Deploy 182: 2-year residency + previous address (conditional)
         row('At this address 2+ years?', YES_NO_LABEL(g.twoYearAddress));
         if (g.twoYearAddress === 'no' && g.prevAddress) {
-          row('Previous Home Address', g.prevAddress);
+          row('Previous Home Address', fmtFullAddress(g.prevAddress, g.prevCity, g.prevState, g.prevZip));
         }
         // Mailing address (if different)
         if (g.mailingSameAsHome === 'no') {
-          row('Mailing Address (if different)', g.mailingAddress || '');
+          row('Mailing Address (if different)', fmtFullAddress(g.mailingAddress, g.mailingCity, g.mailingState, g.mailingZip));
         } else if (g.mailingSameAsHome === 'yes') {
           row('Mailing Address (if different)', 'Same as home');
         }
@@ -563,12 +589,19 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       const llcEIN     = data.llcEIN     || (co0 && co0.ein)      || '';
       const llcState   = data.llcState   || (co0 && co0.state)    || '';
       const llcAddress = data.llcAddress || (co0 && co0.address)  || '';
+      // Deploy 231.2 — entity address may also come through with
+      // separate city/addrState/zip companions. The Companies array
+      // entries store the address state under `addrState` (vs `state`
+      // which is the jurisdiction); both are checked.
+      const llcCity    = data.llcCity    || (co0 && co0.city)     || '';
+      const llcAddrSt  = data.llcAddrState || (co0 && co0.addrState) || '';
+      const llcZip     = data.llcZip     || (co0 && co0.zip)      || '';
       if (llcName || llcEIN || llcState || llcAddress) {
         section('Entity Information');
         row('Vesting Entity Name', llcName);
         row('Vesting Entity EIN', llcEIN);
         row('State Entity is Registered In', llcState);
-        row('Vesting Entity Address', llcAddress);
+        row('Vesting Entity Address', fmtFullAddress(llcAddress, llcCity, llcAddrSt, llcZip));
         // Deploy 182: ownership is now collected per-guarantor inside
         // their own block (g.ownership). Old code used g0Ownership/
         // g1Ownership at the top level — fall back to those for any
