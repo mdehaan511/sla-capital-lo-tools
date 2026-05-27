@@ -388,6 +388,7 @@
     <a class="nav-tool-link" href="clients.html">Clients</a>
     <a class="nav-tool-link" href="loans.html">Loans</a>
     <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" id="navDashboardLink" href="dashboard.html" style="display:none">Dashboard</a>
     <a class="nav-tool-link" href="profile.html">Profile</a>
 
     <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
@@ -642,6 +643,7 @@ netlifyIdentity.on('init', function(user) {
   if (_isAdmin) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+    var d = document.getElementById('navDashboardLink');  if (d) d.style.display = 'inline-block';
     document.getElementById('scopeToggle').style.display = 'flex';
     // Super-admins land on the All LOs view by default — they almost
     // always want the cross-LO firehose first. Regular admins keep the
