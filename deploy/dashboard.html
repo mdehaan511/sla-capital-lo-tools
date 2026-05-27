@@ -567,15 +567,15 @@ function renderUpcomingClosings() {
     if (!d) continue;
     var parsed = parseLoanDate(d);
     if (!parsed) continue;
-    // Build ISO yyyy-mm-dd as the grouping key. parseLoanDate already
-    // gives us year/month; we need day too, so re-derive via Date.
-    var dateObj = new Date(d);
-    if (isNaN(dateObj.getTime())) continue;
-    // Normalize to local midnight for stable grouping
-    dateObj.setHours(0,0,0,0);
+    // Deploy 233.8 — build the local-time Date from parsed components
+    // so a YYYY-MM-DD string doesn't get UTC-interpreted (which would
+    // show "May 29" as "May 28" in US timezones).
+    var dateObj = new Date(parsed.year, parsed.month - 1, parsed.day);
     var ms = dateObj.getTime();
     if (ms < todayMs) continue;
-    var key = dateObj.toISOString().slice(0, 10);
+    var key = parsed.year + '-' +
+              String(parsed.month).padStart(2, '0') + '-' +
+              String(parsed.day).padStart(2, '0');
     if (!byDate[key]) byDate[key] = { count: 0, total: 0, ms: ms };
     byDate[key].count += 1;
     byDate[key].total += numAmt(l.Loan_Amount);
@@ -607,19 +607,23 @@ function renderUpcomingClosings() {
 
 // Format an ISO date as "May 29th, 2026" with the correct ordinal
 // suffix on the day. Used by Upcoming Closings.
+// Deploy 233.8 — parse components manually so YYYY-MM-DD strings
+// don't UTC-shift into the previous day in US-timezone browsers.
 function fmtClosingDate(iso) {
   if (!iso) return '';
-  var d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  var monthName = d.toLocaleString('en-US', { month: 'long' });
-  var day = d.getDate();
+  var parsed = parseLoanDate(iso);
+  if (!parsed) return iso;
+  // Build a LOCAL date — toLocaleString reads off it for the month name.
+  var local = new Date(parsed.year, parsed.month - 1, parsed.day);
+  var monthName = local.toLocaleString('en-US', { month: 'long' });
+  var day = parsed.day;
   var suffix;
   if (day >= 11 && day <= 13) suffix = 'th';
   else if (day % 10 === 1)    suffix = 'st';
   else if (day % 10 === 2)    suffix = 'nd';
   else if (day % 10 === 3)    suffix = 'rd';
   else                        suffix = 'th';
-  return monthName + ' ' + day + suffix + ', ' + d.getFullYear();
+  return monthName + ' ' + day + suffix + ', ' + parsed.year;
 }
 
 // Deploy 233.4 — debug panel. Renders the per-loan breakdown of what
@@ -906,21 +910,28 @@ function monthlyAggregates(year, metricFn) {
   return { won: won, open: open, onHold: onHold };
 }
 
-// Deploy 233.4 — robust date parser. Most Baseline records return
-// YYYY-MM-DD, but older imports / manual entries may use ISO
-// timestamps or MM/DD/YYYY. Returns { year, month } or null.
+// Deploy 233.4/233.8 — robust date parser. Most Baseline records
+// return YYYY-MM-DD, but older imports / manual entries may use ISO
+// timestamps or MM/DD/YYYY. Returns { year, month, day } or null.
+//
+// CRITICAL: never call `new Date('2026-05-29')` to display a calendar
+// date — that string parses as UTC midnight, and a US-timezone browser
+// will render it as May 28 evening (one day early). We extract
+// year/month/day directly from the string so callers can build a
+// LOCAL date (new Date(y, m-1, d)) without falling into the UTC trap.
 function parseLoanDate(d) {
   if (!d) return null;
   var s = String(d).trim();
   // ISO: 2025-12-08 or 2025-12-08T00:00:00Z
   var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return { year: parseInt(iso[1], 10), month: parseInt(iso[2], 10) };
+  if (iso) return { year: parseInt(iso[1], 10), month: parseInt(iso[2], 10), day: parseInt(iso[3], 10) };
   // US: 12/08/2025 or 12-08-2025
   var us = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (us) return { year: parseInt(us[3], 10), month: parseInt(us[1], 10) };
-  // Last attempt — let Date parse
+  if (us) return { year: parseInt(us[3], 10), month: parseInt(us[1], 10), day: parseInt(us[2], 10) };
+  // Last attempt — let Date parse, but read components in LOCAL time
+  // to stay consistent with the no-UTC-trap policy.
   var d2 = new Date(s);
-  if (!isNaN(d2.getTime())) return { year: d2.getFullYear(), month: d2.getMonth() + 1 };
+  if (!isNaN(d2.getTime())) return { year: d2.getFullYear(), month: d2.getMonth() + 1, day: d2.getDate() };
   return null;
 }
 
