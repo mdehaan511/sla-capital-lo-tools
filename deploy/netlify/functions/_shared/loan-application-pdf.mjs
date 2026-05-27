@@ -483,32 +483,10 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
           );
         doc.moveDown(0.6);
 
-        // ── DISCLAIMER on preliminary terms ──────────────────────
-        // Deploy 230 — Added because the new Loan Details + Estimated
-        // Fees sections now display specific pricing/terms a borrower
-        // could mistake for a binding offer. Existing LOAN_
-        // ACKNOWLEDGEMENT_TEXT covers borrower-side reps (11 points,
-        // FCRA, etc.) but doesn't disclaim the LENDER's right to
-        // withdraw/adjust pricing or the non-binding nature of these
-        // preliminary terms. The two paragraphs below are adapted from
-        // DIYA's standard LOI disclaimer.
-        if (doc.y > doc.page.height - 140) doc.addPage();
-        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(GOLD)
-          .text('Disclaimer — Preliminary Terms', 54, doc.y, { width: doc.page.width - 108 });
-        doc.moveDown(0.25);
-        doc.font('Helvetica').fontSize(8).fillColor(TEXT)
-          .text(
-            'The proposed Loan Interest Rate and terms may be unilaterally withdrawn or adjusted by Originator in its sole discretion at any time in the event, during the underwriting process, certain loan parameters are determined to be materially and adversely different compared to those presented in this Application.',
-            54, doc.y,
-            { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
-          );
-        doc.moveDown(0.35);
-        doc.text(
-            'Please note this Application serves to outline the terms of the proposed financing of the referenced transaction. The terms set forth in this Application are merely a general proposal and are neither a binding offer nor a contract. Borrower understands and agrees that Originator is not obligated to enter into the transaction contemplated herein, on the terms set forth herein, or on any other terms, unless and until Originator obtains internal committee approval — predicated on multiple factors including but not limited to satisfactory appraisal, satisfactory credit review of the borrowing entity and Key Principals, satisfactory review of the property’s market, and Originator or its capital partner executes and delivers to Borrower final definitive loan documents, the terms of which shall supersede in their entirety the terms set forth herein.',
-            54, doc.y,
-            { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
-          );
-        doc.moveDown(0.8);
+        // Deploy 231.3 — Disclaimer block moved to after the
+        // Declarations section so it reads as a final clarification on
+        // the borrower's representations rather than being interleaved
+        // with the application data.
       }
 
       // ── SECTION B: F&F questions ────────────────────────────────
@@ -764,7 +742,54 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         doc.moveDown(0.4);
       }
 
-      // ── SECTION 1: LOAN ACKNOWLEDGEMENT & AGREEMENT ─────────────
+      // Deploy 231.3 — Reordered narrative. New sequence:
+      //   1. Disclaimer — Preliminary Terms (moved out of the Fees
+      //      block, now anchors the end of the application-data
+      //      sections).
+      //   2. Electronic Signature Consent — with signatures. Borrowers
+      //      first consent to e-sign, then the acknowledgements that
+      //      follow are actually e-signed.
+      //   3. Loan Application Acknowledgement & Agreement — with sigs.
+      //   4. Authorization to Conduct Prequal Credit & Background
+      //      Checks — one per signer.
+      //   5. Authorization to Release Information — with sigs.
+      //   6. Audit / Entry Record.
+
+      // ── DISCLAIMER — PRELIMINARY TERMS ───────────────────────────
+      if (doc.y > 400) doc.addPage();
+      section('Disclaimer — Preliminary Terms');
+      doc.font('Helvetica').fontSize(8.5).fillColor(TEXT)
+        .text(
+          'The proposed Loan Interest Rate and terms may be unilaterally withdrawn or adjusted by Originator in its sole discretion at any time in the event, during the underwriting process, certain loan parameters are determined to be materially and adversely different compared to those presented in this Application.',
+          54, doc.y,
+          { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
+        );
+      doc.moveDown(0.4);
+      doc.text(
+          'Please note this Application serves to outline the terms of the proposed financing of the referenced transaction. The terms set forth in this Application are merely a general proposal and are neither a binding offer nor a contract. Borrower understands and agrees that Originator is not obligated to enter into the transaction contemplated herein, on the terms set forth herein, or on any other terms, unless and until Originator obtains internal committee approval — predicated on multiple factors including but not limited to satisfactory appraisal, satisfactory credit review of the borrowing entity and Key Principals, satisfactory review of the property’s market, and Originator or its capital partner executes and delivers to Borrower final definitive loan documents, the terms of which shall supersede in their entirety the terms set forth herein.',
+          54, doc.y,
+          { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
+        );
+      doc.moveDown(0.8);
+
+      // ── SECTION 1: ESIGN/UETA CONSENT — with signatures ─────────
+      // Moved here from its previous (informational-only) position
+      // after the Loan Acknowledgement. Borrowers now sign this
+      // BEFORE acknowledging the loan rep agreement so the act of
+      // signing the rest of the document is itself covered by their
+      // affirmative ESIGN consent.
+      if (doc.y > 450) doc.addPage();
+      section('Electronic Signature Consent (ESIGN / UETA)');
+      paragraph(ESIGN_CONSENT_TEXT);
+      doc.moveDown(0.6);
+      subHeader('Signatures');
+      signers.forEach((signer) => {
+        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        sigBlock(signer, role);
+        doc.moveDown(0.3);
+      });
+
+      // ── SECTION 2: LOAN ACKNOWLEDGEMENT & AGREEMENT ─────────────
       if (doc.y > 400) doc.addPage();
       section('Loan Application Acknowledgement & Agreement');
       paragraph(LOAN_ACKNOWLEDGEMENT_TEXT);
@@ -775,12 +800,6 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         sigBlock(signer, role);
         doc.moveDown(0.3);
       });
-
-      // ── SECTION 2: ESIGN/UETA CONSENT (informational) ──────────
-      if (doc.y > 450) doc.addPage();
-      section('Electronic Signature Consent (ESIGN / UETA)');
-      paragraph(ESIGN_CONSENT_TEXT);
-      doc.moveDown(0.6);
 
       // ── SECTION 3: AUTHORIZATION TO CONDUCT PREQUAL CREDIT & BACKGROUND CHECKS ──
       // One copy per signer (each signer authorizes their OWN credit pull).
