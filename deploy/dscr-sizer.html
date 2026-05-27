@@ -336,10 +336,20 @@ const DIYA = {
   // Deploy 234 — Diya 1-4 Unit Rate Sheet effective 5.27.26. Only
   // base rates changed vs the 5.20.26 sheet (-0.225 across both pairs).
   // All adjustment tables (FICO/LTV, IO, cash-out, condo, multi-unit,
-  // portfolio, UPB, DSCR, PPP, TPO Premium) are unchanged. The new
-  // sheet additionally introduces an EXPLICIT Rate Buydown table and
-  // TPO Premium / Rate Buydown caps by UPB — neither is wired into
-  // sizer math yet; see notes below.
+  // portfolio, UPB, DSCR, PPP, TPO Premium) are unchanged.
+  //
+  // STANDING RULE — Rate Buydown: IGNORE any explicit Rate Buydown
+  // table Diya publishes on their sheets. SLA's internal model is the
+  // "buydown reduces the hidden 1% TPO" approach already implemented
+  // here (see HIDDEN_TPO_PCT + HIDDEN_TPO_ADJ + the netHiddenTpoPct
+  // math in calculate()). Per Mike (5.28.26), this is how SLA prices
+  // buydowns internally and it should not change when Diya's sheets
+  // start showing a separate Rate Buydown table. Only update the base
+  // rates and any adjustment values that actually changed on each
+  // new sheet — leave the buydown logic alone.
+  //
+  // TPO Premium / Rate Buydown caps by UPB band on the 5.27.26 sheet
+  // also intentionally NOT wired into sizer math.
   effectiveDate: "May 27, 2026",
   baseRate: { "30Y Fixed": 6.350, "10/6 ARM": 6.350, "7/6 ARM": 6.250, "5/6 ARM": 6.250 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
