@@ -756,29 +756,31 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       //   6. Audit / Entry Record.
 
       // ── DISCLAIMER — PRELIMINARY TERMS ───────────────────────────
-      if (doc.y > 400) doc.addPage();
+      // Deploy 231.4 — bottom-anchored to the Declarations page so it
+      // reads as the final clarification at the foot of the data
+      // sections. We measure the disclaimer's total height and position
+      // doc.y so the block ends at the page bottom margin. If the
+      // Declarations table ran long enough that there isn't room, we
+      // fall back to rendering inline — pdfkit will auto-paginate.
+      const _disPara1 = 'The proposed Loan Interest Rate and terms may be unilaterally withdrawn or adjusted by Originator in its sole discretion at any time in the event, during the underwriting process, certain loan parameters are determined to be materially and adversely different compared to those presented in this Application.';
+      const _disPara2 = 'Please note this Application serves to outline the terms of the proposed financing of the referenced transaction. The terms set forth in this Application are merely a general proposal and are neither a binding offer nor a contract. Borrower understands and agrees that Originator is not obligated to enter into the transaction contemplated herein, on the terms set forth herein, or on any other terms, unless and until Originator obtains internal committee approval — predicated on multiple factors including but not limited to satisfactory appraisal, satisfactory credit review of the borrowing entity and Key Principals, satisfactory review of the property’s market, and Originator or its capital partner executes and delivers to Borrower final definitive loan documents, the terms of which shall supersede in their entirety the terms set forth herein.';
+      const _disOpts  = { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 };
+      doc.font('Helvetica').fontSize(8.5);
+      const _disH1 = doc.heightOfString(_disPara1, _disOpts);
+      const _disH2 = doc.heightOfString(_disPara2, _disOpts);
+      const _disBlockH = _disH1 + _disH2 + 38; // + section header + spacing
+      const _bottomY = doc.page.height - doc.page.margins.bottom - _disBlockH;
+      if (doc.y < _bottomY) doc.y = _bottomY;
       section('Disclaimer — Preliminary Terms');
       doc.font('Helvetica').fontSize(8.5).fillColor(TEXT)
-        .text(
-          'The proposed Loan Interest Rate and terms may be unilaterally withdrawn or adjusted by Originator in its sole discretion at any time in the event, during the underwriting process, certain loan parameters are determined to be materially and adversely different compared to those presented in this Application.',
-          54, doc.y,
-          { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
-        );
+        .text(_disPara1, 54, doc.y, _disOpts);
       doc.moveDown(0.4);
-      doc.text(
-          'Please note this Application serves to outline the terms of the proposed financing of the referenced transaction. The terms set forth in this Application are merely a general proposal and are neither a binding offer nor a contract. Borrower understands and agrees that Originator is not obligated to enter into the transaction contemplated herein, on the terms set forth herein, or on any other terms, unless and until Originator obtains internal committee approval — predicated on multiple factors including but not limited to satisfactory appraisal, satisfactory credit review of the borrowing entity and Key Principals, satisfactory review of the property’s market, and Originator or its capital partner executes and delivers to Borrower final definitive loan documents, the terms of which shall supersede in their entirety the terms set forth herein.',
-          54, doc.y,
-          { width: doc.page.width - 108, align: 'justify', lineGap: 1.5 }
-        );
-      doc.moveDown(0.8);
+      doc.text(_disPara2, 54, doc.y, _disOpts);
 
       // ── SECTION 1: ESIGN/UETA CONSENT — with signatures ─────────
-      // Moved here from its previous (informational-only) position
-      // after the Loan Acknowledgement. Borrowers now sign this
-      // BEFORE acknowledging the loan rep agreement so the act of
-      // signing the rest of the document is itself covered by their
-      // affirmative ESIGN consent.
-      if (doc.y > 450) doc.addPage();
+      // Deploy 231.4 — always starts on its own page so the consent
+      // text + signature blocks are visually self-contained.
+      doc.addPage();
       section('Electronic Signature Consent (ESIGN / UETA)');
       paragraph(ESIGN_CONSENT_TEXT);
       doc.moveDown(0.6);
@@ -803,8 +805,11 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
 
       // ── SECTION 3: AUTHORIZATION TO CONDUCT PREQUAL CREDIT & BACKGROUND CHECKS ──
       // One copy per signer (each signer authorizes their OWN credit pull).
-      signers.forEach((signer, idx) => {
-        if (idx > 0 || doc.y > 350) doc.addPage();
+      // Deploy 231.4 — each signer's prequal auth gets its own page,
+      // including the first one, so the consent text + signature block
+      // are visually self-contained per borrower.
+      signers.forEach((signer) => {
+        doc.addPage();
         const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
         section(`Authorization to Conduct Prequal Credit & Background Checks — ${role}`);
         paragraph(PREQUAL_CREDIT_AUTH_TEXT);
