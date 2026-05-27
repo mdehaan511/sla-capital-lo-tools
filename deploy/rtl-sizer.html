@@ -3981,7 +3981,10 @@ function _generateRTLRateSheetPDF(opts) {
     primaryRowColor = netRefi >= 0 ? SUCCESS : DANGER;
     auxRows = [
       ['New Loan Amount',           fmtD(bMaxNum)],
-      ['Less: Current Loan Payoff', '−' + fmtD(currentLoanPdf)],
+      // Deploy 235 — ASCII hyphen; jsPDFs default Helvetica is missing
+      // the Unicode em-minus glyph (U+2212) and renders it as garbage
+      // with wide letter-spacing.
+      ['Less: Current Loan Payoff', '-' + fmtD(currentLoanPdf)],
     ];
     footnote = '* Positive = borrower receives at closing, negative = borrower brings. Does not include standard title/escrow fees or required prepaid taxes and insurance.';
   } else {
@@ -4055,7 +4058,17 @@ function _generateRTLRateSheetPDF(opts) {
     var crDPForC2C = parseFloat((dpDisp||'').replace(/[$,]/g,''))||0;
     crCashToClose = totalFees + crDPForC2C;
   }
-  var crMoIntNum = parseFloat((moDisp||'').replace(/[$,]/g,'').replace(/\/mo.*$/i,''))||0;
+  // Deploy 235 — Deploy 197 renamed the metric card from "Monthly
+  // Interest" to "Starting Payment"/"Max Payment", which broke the
+  // legacy moDisp scrape above ("indexOf('Monthly Interest')" matches
+  // nothing now). Result was a zero holding-cost row + zero reserve.
+  // Pull from the canonical _rtlLastCalc snapshot instead — pdfMoMax
+  // is conservative (covers full draw); pdfMoStart is the floor
+  // (Dutch loans have start == max). Fall back to the legacy scrape
+  // only if the snapshot somehow isn't populated.
+  var crMoIntNum = (pdfMoMax !== null && pdfMoMax > 0) ? pdfMoMax
+                 : (pdfMoStart !== null && pdfMoStart > 0) ? pdfMoStart
+                 : (parseFloat((moDisp||'').replace(/[$,]/g,'').replace(/\/mo.*$/i,'')) || 0);
   var crRehabRaw = parseFloat(gv('rehabBudget'))||0;
   var crRehabContrib = crRehabRaw * 0.10;
   var crHoldingContrib = crMoIntNum * 6;

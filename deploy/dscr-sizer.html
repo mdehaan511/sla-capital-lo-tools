@@ -2351,8 +2351,13 @@ function _generateRateSheetPDF(opts) {
     doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
     doc.line(lm+8, ry, lm+cw-8, ry);
 
+    // Deploy 235 — ASCII hyphen instead of Unicode em-minus (U+2212).
+    // jsPDFs default Helvetica is missing the em-minus glyph; the
+    // previous '−' character was rendering as garbage in the PDF with
+    // bogus letter-spacing (looked like ' " $ 2 0 9 , 0 0 0' for a
+    // negative number).
     ctcRows.forEach(function(row) {
-      ry = trow(row[0], (row[1] < 0 ? '−' : '') + fmtDplain(Math.abs(row[1])), ry, {
+      ry = trow(row[0], (row[1] < 0 ? '-' : '') + fmtDplain(Math.abs(row[1])), ry, {
         labelColor: MUTED, valueColor: row[1] < 0 ? DANGER : TEXT,
       });
     });
