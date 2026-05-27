@@ -121,6 +121,26 @@
     <span class="mode-badge disabled" id="modeBadge">Loading…</span>
   </div>
 
+  <!-- Deploy 232 (Mirror Phase 1) — admin Sync from Baseline button.
+       Chunked sync against /api/baseline-mirror-sync. JS loop calls
+       repeatedly until done=true so the long detail-fetch run fits
+       inside Netlify's per-invocation 10s timeout. -->
+  <div style="background:var(--surface);border:1px solid var(--border, #E4DFD4);border-radius:var(--r-xs, 6px);padding:14px 16px;margin-bottom:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:280px">
+        <div style="font-size:13px;font-weight:600;color:var(--dark)">Baseline Loan Mirror</div>
+        <div id="mirrorSummary" style="font-size:11.5px;color:var(--muted);margin-top:2px">—</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="mirrorForce" /> force re-fetch all
+        </label>
+        <button type="button" id="mirrorSyncBtn" onclick="runMirrorSync()" style="padding:8px 16px;background:var(--accent, #C8813A);color:#fff;border:none;border-radius:var(--r-xs, 6px);font-family:'DM Sans',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer">Sync from Baseline</button>
+      </div>
+    </div>
+    <div id="mirrorProgress" style="font-size:11.5px;color:var(--muted);margin-top:8px;min-height:14px"></div>
+  </div>
+
   <div class="ctrl-row">
     <input type="text" id="searchBox" class="search-box" placeholder="Search by loanId, owner, step, or error…" oninput="render()" />
     <select id="modeFilter" class="lo-filter" onchange="render()">
@@ -167,6 +187,7 @@ netlifyIdentity.on('init', function(user) {
   _user = user;
   document.getElementById('auth-gate').style.display = 'none';
   loadAll();
+  refreshMirrorSummary();
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
@@ -388,6 +409,105 @@ function fmtTime(iso) {
 }
 
 function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Deploy 232 (Mirror Phase 1) — admin sync controls ─────────────
+//
+// runMirrorSync() drives the chunked sync: repeated POSTs to
+// /api/baseline-mirror-sync with the previous response's nextOffset,
+// until the backend returns done=true. Each call processes ~25 loans
+// and returns count totals so we can paint a progress line.
+//
+// Concurrency: button disables while a sync is in flight. Force-reload
+// gets toggled via the checkbox; unchecked syncs skip loans whose
+// status hasn't changed since they were last mirrored.
+function refreshMirrorSummary() {
+  if (!_user) return;
+  SLA.Baseline.mirror.list({ summary: 1 }).then(function(r) {
+    if (!r || !r.summary) {
+      document.getElementById('mirrorSummary').textContent = 'No mirror data yet — click "Sync from Baseline" to seed it.';
+      return;
+    }
+    var s = r.summary;
+    var parts = [];
+    parts.push(r.count + ' loan' + (r.count === 1 ? '' : 's') + ' mirrored');
+    if (s.totalLoanAmount > 0) {
+      parts.push('$' + Math.round(s.totalLoanAmount).toLocaleString() + ' total');
+    }
+    if (s.lastMirroredAt) {
+      parts.push('last sync ' + fmtAge(s.lastMirroredAt));
+    }
+    var byStatus = s.byStatus || {};
+    var statusKeys = Object.keys(byStatus);
+    if (statusKeys.length) {
+      var top = statusKeys
+        .map(function(k) { return { k: k, c: byStatus[k].count }; })
+        .sort(function(a, b) { return b.c - a.c; })
+        .slice(0, 4)
+        .map(function(x) { return x.k + ': ' + x.c; })
+        .join(' · ');
+      parts.push(top);
+    }
+    document.getElementById('mirrorSummary').textContent = parts.join('  ·  ');
+  }).catch(function(err) {
+    document.getElementById('mirrorSummary').textContent = 'Summary load failed: ' + (err && err.message);
+  });
+}
+
+function runMirrorSync() {
+  var btn = document.getElementById('mirrorSyncBtn');
+  var prog = document.getElementById('mirrorProgress');
+  var force = document.getElementById('mirrorForce').checked;
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Syncing…';
+  var totalSynced = 0;
+  var totalSkipped = 0;
+  var totalErrors = [];
+  var startedAt = Date.now();
+
+  function nextChunk(offset) {
+    return SLA.Baseline.mirror.sync({ offset: offset, force: force }).then(function(r) {
+      if (!r || !r.ok) {
+        throw new Error((r && r.error) || 'Unknown sync error');
+      }
+      totalSynced  += r.synced  || 0;
+      totalSkipped += r.skipped || 0;
+      if (Array.isArray(r.errors) && r.errors.length) {
+        totalErrors = totalErrors.concat(r.errors);
+      }
+      var pctDone = r.totalCount ? Math.round((r.nextOffset / r.totalCount) * 100) : 0;
+      prog.textContent =
+        'Processing ' + r.nextOffset + ' / ' + r.totalCount + ' (' + pctDone + '%) — ' +
+        totalSynced + ' synced, ' + totalSkipped + ' skipped' +
+        (totalErrors.length ? ', ' + totalErrors.length + ' errors' : '') +
+        '  ·  elapsed ' + Math.round((Date.now() - startedAt) / 1000) + 's';
+      if (r.done) {
+        return r;
+      }
+      return nextChunk(r.nextOffset);
+    });
+  }
+
+  nextChunk(0).then(function(r) {
+    var elapsed = Math.round((Date.now() - startedAt) / 1000);
+    prog.textContent =
+      'Done. ' + totalSynced + ' synced, ' + totalSkipped + ' unchanged, ' +
+      totalErrors.length + ' errors in ' + elapsed + 's.';
+    if (totalErrors.length) {
+      // Surface the first few errors inline so a partial failure is visible.
+      var sample = totalErrors.slice(0, 3).map(function(e) { return e.id + ': ' + e.error; }).join('  ·  ');
+      prog.textContent += '   First errors: ' + sample;
+    }
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    refreshMirrorSummary();
+  }).catch(function(err) {
+    prog.textContent = 'Sync failed: ' + (err && err.message);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  });
+}
 </script>
 </body>
 </html>

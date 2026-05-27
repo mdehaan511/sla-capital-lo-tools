@@ -310,6 +310,20 @@
   status = 200
   force = true
 
+# Deploy 232 (Mirror Phase 1 — Step 3/4): chunked pull from Baseline
+# into the local baseline_loans_mirror blob store + admin read endpoint
+# for the dashboard (Phase 2).
+[[redirects]]
+  from = "/api/baseline-mirror-sync"
+  to = "/.netlify/functions/baseline-mirror-sync"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/baseline-mirror-list"
+  to = "/.netlify/functions/baseline-mirror-list"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prequal-send"
   to = "/.netlify/functions/prequal-send"

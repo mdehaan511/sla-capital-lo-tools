@@ -508,6 +508,31 @@
       if (ownerOverride) body.owner = ownerOverride;
       return api('POST', '/api/baseline-sync-reset', body);
     },
+    // Deploy 232 — Phase 1 admin dashboard mirror. Pulls loans from
+    // Baseline's GET /loan into a local blob store so dashboard reads
+    // are fast + don't burn API calls per page load.
+    mirror: {
+      // One chunk of the sync. Frontend loops until done==true.
+      // opts: { offset, limit, force }
+      sync: function (opts) {
+        opts = opts || {};
+        var body = {};
+        if (opts.offset != null) body.offset = opts.offset;
+        if (opts.limit  != null) body.limit  = opts.limit;
+        if (opts.force)          body.force  = true;
+        return api('POST', '/api/baseline-mirror-sync', body);
+      },
+      // Returns mirrored loans (admin only).
+      list: function (opts) {
+        opts = opts || {};
+        var qs = [];
+        if (opts.summary)      qs.push('summary=1');
+        if (opts.status)       qs.push('status=' + encodeURIComponent(opts.status));
+        if (opts.limit != null) qs.push('limit=' + encodeURIComponent(opts.limit));
+        var path = '/api/baseline-mirror-list' + (qs.length ? '?' + qs.join('&') : '');
+        return api('GET', path);
+      },
+    },
   };
 
   // ── Envelopes (native e-signature, Deploy 185) ─────────────────
