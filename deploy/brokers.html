@@ -265,9 +265,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <input type="text" id="searchInput" placeholder="Search name, company, email, phone…" oninput="renderBrokers()" />
       </div>
       <select id="sortBy" class="sort-select" onchange="renderBrokers()">
-        <option value="volume">Sort: Total Volume</option>
+        <option value="volumeClosed">Sort: Loan Volume Closed</option>
+        <option value="volume">Sort: Total Volume Bound</option>
         <option value="deals">Sort: Deal Count</option>
-        <option value="commission">Sort: Commission Earned</option>
+        <option value="avgPts">Sort: Avg Points Charged</option>
         <option value="name">Sort: Name (A→Z)</option>
         <option value="recent">Sort: Recently Updated</option>
       </select>
@@ -325,7 +326,10 @@ function fmtPhone(raw) {
 // ─── State ─────────────────────────────────────────────────────────────
 // _user: current Netlify Identity user
 // _brokers: array of broker records owned by current LO
-// _aggregates: { brokerId -> { loans:[], dealCount, totalVolume, totalFee$, byStatus } }
+// _aggregates: { brokerId -> {
+//     loans, dealCount, totalVolume, totalVolumeClosed,
+//     totalCommission, totalBrokerFeePts, dealsWithFee, byStatus
+//   } }
 // _adminData: only set in admin view — { byOwner: { 'lo@x.com': { brokers, aggregates } } }
 var _user = null;
 var _isAdmin = false;
@@ -357,9 +361,12 @@ function aggregateFromClients(clients, brokers) {
       brokerId: b.id,
       loans: [],
       dealCount: 0,
-      totalVolume: 0,
-      totalCommission: 0,
-      byStatus: {}, // status -> count
+      totalVolume: 0,        // sum loanAmt across ALL bound loans
+      totalVolumeClosed: 0,  // sum loanAmt where status === 'closed'
+      totalCommission: 0,    // legacy / detail line — sum loanAmt × pts/100
+      totalBrokerFeePts: 0,  // sum brokerFee points across deals w/ fee>0
+      dealsWithFee: 0,       // denominator for avg points
+      byStatus: {},          // status -> count
     };
   });
   (clients||[]).forEach(function(c) {
@@ -378,9 +385,18 @@ function aggregateFromClients(clients, brokers) {
         // for very early pre-amount quotes; otherwise 0).
         var amt = Number(l.loanAmt || l.maxLoan || 0) || 0;
         bucket.totalVolume += amt;
-        // Broker commission $ = loanAmt × (brokerFee points / 100)
+        // "Closed" on the SLA side is its own status (terminal post-funding)
+        // — distinct from 'approved' which is post-underwriting / in-processing.
+        // See loan-details.html status options for the canonical list.
+        if (l.status === 'closed') bucket.totalVolumeClosed += amt;
+        // Broker commission $ — kept as a detail-level stat (per-loan column
+        // in the expanded table). Summary now leads with Volume Closed.
         var pts = Number(l.brokerFee || 0) || 0;
         if (pts > 0 && amt > 0) bucket.totalCommission += amt * (pts / 100);
+        // Avg points charged tracker — only count deals where a broker
+        // fee was actually entered, so deals saved with no fee don't
+        // drag the average toward zero.
+        if (pts > 0) { bucket.totalBrokerFeePts += pts; bucket.dealsWithFee += 1; }
         // Status histogram
         var st = l.status || 'active';
         bucket.byStatus[st] = (bucket.byStatus[st] || 0) + 1;
@@ -422,32 +438,38 @@ function renderBrokers() {
     });
   }
 
-  // Sort
+  // Sort. Default is volumeClosed since that's the metric Mike treats as
+  // the primary "is this broker actually worth it" signal.
   items.sort(function(a, b) {
-    var aa = _aggregates[a.id] || { dealCount:0, totalVolume:0, totalCommission:0 };
-    var bb = _aggregates[b.id] || { dealCount:0, totalVolume:0, totalCommission:0 };
+    var aa = _aggregates[a.id] || { dealCount:0, totalVolume:0, totalVolumeClosed:0, totalBrokerFeePts:0, dealsWithFee:0 };
+    var bb = _aggregates[b.id] || { dealCount:0, totalVolume:0, totalVolumeClosed:0, totalBrokerFeePts:0, dealsWithFee:0 };
+    var avgA = aa.dealsWithFee ? (aa.totalBrokerFeePts / aa.dealsWithFee) : 0;
+    var avgB = bb.dealsWithFee ? (bb.totalBrokerFeePts / bb.dealsWithFee) : 0;
     switch (sortBy) {
       case 'name':       return (a.name||'').localeCompare(b.name||'');
       case 'deals':      return bb.dealCount - aa.dealCount;
-      case 'commission': return bb.totalCommission - aa.totalCommission;
+      case 'avgPts':     return avgB - avgA;
+      case 'volume':     return bb.totalVolume - aa.totalVolume;
       case 'recent':     return new Date(b.updatedAt||b.createdAt||0) - new Date(a.updatedAt||a.createdAt||0);
-      case 'volume':
-      default:           return bb.totalVolume - aa.totalVolume;
+      case 'volumeClosed':
+      default:           return bb.totalVolumeClosed - aa.totalVolumeClosed;
     }
   });
 
-  // Summary
-  var totalDeals = 0, totalVolume = 0, totalCommission = 0;
+  // Summary. Lead with Loan Volume Closed (the metric Mike cares about
+  // most). Total Volume Bound stays as a smaller pill so the pipeline
+  // size is still visible. Commission moves to the per-broker detail.
+  var totalDeals = 0, totalVolume = 0, totalVolumeClosed = 0;
   Object.keys(_aggregates).forEach(function(id) {
-    totalDeals      += _aggregates[id].dealCount;
-    totalVolume     += _aggregates[id].totalVolume;
-    totalCommission += _aggregates[id].totalCommission;
+    totalDeals        += _aggregates[id].dealCount;
+    totalVolume       += _aggregates[id].totalVolume;
+    totalVolumeClosed += _aggregates[id].totalVolumeClosed;
   });
   document.getElementById('summaryBar').innerHTML =
     '<span class="summary-pill"><strong>' + _brokers.length + '</strong> brokers</span>' +
     '<span class="summary-pill"><strong>' + totalDeals + '</strong> deals</span>' +
     '<span class="summary-pill"><strong>' + fmt$(totalVolume) + '</strong> total volume</span>' +
-    '<span class="summary-pill gold"><strong>' + fmt$(totalCommission) + '</strong> commission paid out</span>' +
+    '<span class="summary-pill gold"><strong>' + fmt$(totalVolumeClosed) + '</strong> loan volume closed</span>' +
     (_orphanedInline.length ? '<span class="summary-pill" style="background:rgba(124,31,31,.06);color:var(--danger);border-color:rgba(124,31,31,.2)"><strong>' + _orphanedInline.length + '</strong> legacy loans not linked to a broker entity</span>' : '');
 
   // Empty state
@@ -459,7 +481,7 @@ function renderBrokers() {
   }
 
   list.innerHTML = items.map(function(b) {
-    var agg = _aggregates[b.id] || { dealCount:0, totalVolume:0, totalCommission:0, loans:[] };
+    var agg = _aggregates[b.id] || { dealCount:0, totalVolume:0, totalVolumeClosed:0, loans:[] };
     var isOpen = !!_expandedRows[b.id];
     var avatar = initials(b.name);
     var phoneFmt = fmtPhone(b.phone);
@@ -484,8 +506,8 @@ function renderBrokers() {
               '<div class="broker-cell-val ' + (phoneFmt?'':'muted') + '">' + escapeHtml(phoneFmt || '—') + '</div>' +
             '</div>' +
             '<div>' +
-              '<div class="broker-cell-label">Commission</div>' +
-              '<div class="broker-cell-val gold">' + fmt$(agg.totalCommission) + '</div>' +
+              '<div class="broker-cell-label">Loan Volume Closed</div>' +
+              '<div class="broker-cell-val gold">' + fmt$(agg.totalVolumeClosed) + '</div>' +
             '</div>' +
           '</div>' +
           '<div class="broker-stats">' + dealsBadge + '</div>' +
@@ -504,6 +526,9 @@ function renderBrokers() {
 
 function renderBrokerDetail(broker, agg) {
   var avgVolume = agg.dealCount > 0 ? agg.totalVolume / agg.dealCount : 0;
+  // Avg Points Charged — denominator is only deals where a broker fee
+  // was actually entered (avoids zero-fee deals dragging the mean to 0).
+  var avgPts = (agg.dealsWithFee > 0) ? (agg.totalBrokerFeePts / agg.dealsWithFee) : 0;
 
   // Loans table
   var loansHtml;
@@ -551,9 +576,9 @@ function renderBrokerDetail(broker, agg) {
   return '' +
     '<div class="detail-grid">' +
       '<div class="detail-stat"><div class="detail-stat-label">Total Deals</div><div class="detail-stat-val">' + agg.dealCount + '</div></div>' +
-      '<div class="detail-stat"><div class="detail-stat-label">Total Volume</div><div class="detail-stat-val">' + fmt$(agg.totalVolume) + '</div></div>' +
+      '<div class="detail-stat"><div class="detail-stat-label">Loan Volume Closed</div><div class="detail-stat-val gold">' + fmt$(agg.totalVolumeClosed) + '</div></div>' +
       '<div class="detail-stat"><div class="detail-stat-label">Avg Loan Size</div><div class="detail-stat-val">' + fmt$(avgVolume) + '</div></div>' +
-      '<div class="detail-stat"><div class="detail-stat-label">Commission Earned</div><div class="detail-stat-val gold">' + fmt$(agg.totalCommission) + '</div></div>' +
+      '<div class="detail-stat"><div class="detail-stat-label">Avg Points Charged</div><div class="detail-stat-val">' + (avgPts ? avgPts.toFixed(2) + ' pts' : '—') + '</div></div>' +
     '</div>' +
     (broker.notes ? '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xs);padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--text);white-space:pre-wrap"><strong style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Notes</strong>' + escapeHtml(broker.notes) + '</div>' : '') +
     loansHtml;
@@ -727,7 +752,8 @@ function renderAdminBrokers() {
     if (!brokers.length && search) return '';
     totalBrokers += brokers.length;
     var rowsHtml = brokers.length ? brokers.map(function(b) {
-      var agg = section.aggregates[b.id] || { dealCount:0, totalVolume:0, totalCommission:0 };
+      var agg = section.aggregates[b.id] || { dealCount:0, totalVolume:0, totalVolumeClosed:0, totalBrokerFeePts:0, dealsWithFee:0 };
+      var avgPts = agg.dealsWithFee > 0 ? (agg.totalBrokerFeePts / agg.dealsWithFee) : 0;
       totalDeals += agg.dealCount;
       var avatar = initials(b.name);
       return '' +
@@ -741,7 +767,7 @@ function renderAdminBrokers() {
               '</div>' +
               '<div><div class="broker-cell-label">Email</div><div class="broker-cell-val">' + escapeHtml(b.email||'—') + '</div></div>' +
               '<div><div class="broker-cell-label">Deals</div><div class="broker-cell-val">' + agg.dealCount + '</div></div>' +
-              '<div><div class="broker-cell-label">Volume / Commission</div><div class="broker-cell-val">' + fmt$(agg.totalVolume) + ' <span style="color:var(--muted)">/</span> <span class="gold" style="color:var(--gold-mid)">' + fmt$(agg.totalCommission) + '</span></div></div>' +
+              '<div><div class="broker-cell-label">Volume Closed <span style="color:var(--muted);font-weight:400">·</span> Avg Pts</div><div class="broker-cell-val"><span class="gold" style="color:var(--gold-mid)">' + fmt$(agg.totalVolumeClosed) + '</span> <span style="color:var(--muted)">·</span> ' + (avgPts ? avgPts.toFixed(2) + ' pts' : '—') + '</div></div>' +
             '</div>' +
           '</div>' +
         '</div>';
