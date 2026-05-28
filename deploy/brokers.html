@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Broker Book — SLA Capital</title>
+<!--
+  brokers.html — Deploy 236.3 (Brokers Phase 3a)
+
+  LO's broker book. Mirror of clients.html structure intentionally so
+  the look-and-feel is consistent.
+
+  Data flow:
+    1. SLA.Brokers.list() → per-LO list, or admin all=1 → byOwner map
+    2. SLA.Clients.list() → walk every loan, accumulate stats keyed
+       by loan.brokerId (deal count, total volume, total broker $)
+    3. Render table; click row → expand to show that broker's loans
+
+  No new endpoints needed — all aggregation happens client-side from
+  existing /api/brokers and /api/clients responses.
+-->
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-api.js"></script>
+  <script src="sla-search.js"></script>
+  <script src="sla-notifications.js"></script>
+<script src="sla-chat.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&family=Lora:wght@500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --gold:#C8813A;--gold-mid:#b5712d;--gold-light:rgba(200,129,58,0.10);
+  --gold-border:rgba(200,129,58,0.28);--dark:#261a36;--bg:#f0ece5;
+  --surface:#fff;--text:#1a1520;--muted:#7a7488;--border:#ddd8d0;
+  --r:12px;--r-xs:8px;--success:#256940;--danger:#7c1f1f;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:0 1rem 4rem}
+#auth-gate{position:fixed;inset:0;background:var(--dark);display:flex;align-items:center;justify-content:center;z-index:9999}
+#auth-gate p{color:rgba(255,255,255,0.4);font-size:14px}
+.nav{max-width:1200px;margin:0 auto;padding:1.5rem 0 0;display:flex;align-items:center;justify-content:space-between}
+.nav img{height:44px;width:auto}
+.nav-right{display:flex;align-items:center;gap:10px}
+.nav-left{display:flex;align-items:center;gap:12px}
+.nav-tools-btn{display:inline-block;padding:6px 14px;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);border-radius:20px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;text-decoration:none;transition:all 0.15s;white-space:nowrap}
+.nav-tools-btn:hover{background:var(--gold);color:#fff;border-color:var(--gold)}
+.nav-tool-link{font-size:12px;font-weight:600;color:var(--muted);text-decoration:none;padding:5px 12px;border-radius:20px;border:1px solid var(--border);transition:all 0.15s;white-space:nowrap}
+.nav-tool-link:hover{border-color:var(--gold);color:var(--gold)}
+.nav-tool-link.current{background:var(--dark);border-color:var(--dark);color:#fff}
+.logout-btn{font-size:12px;font-weight:600;color:var(--muted);background:transparent;-webkit-appearance:none;appearance:none;border:1px solid var(--border);padding:5px 12px;border-radius:20px;cursor:pointer;transition:all .15s}
+.logout-btn:hover{border-color:var(--gold);color:var(--gold)}
+
+.page{max-width:1200px;margin:0 auto;padding-top:2.25rem}
+.page-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:16px}
+.page-header h1{font-size:22px;font-weight:600}
+.page-header p{font-size:13px;color:var(--muted);margin-top:3px}
+
+.view-tabs{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:30px;padding:3px;gap:2px;margin-bottom:1.5rem;width:fit-content}
+.view-tab{padding:6px 18px;border-radius:26px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;font-family:'DM Sans',sans-serif;color:var(--muted);transition:all .15s;white-space:nowrap}
+.view-tab.active{background:var(--dark);color:#fff}
+
+.summary-bar{display:flex;gap:12px;margin-bottom:1.25rem;flex-wrap:wrap}
+.summary-pill{font-size:12px;padding:5px 14px;border-radius:20px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+.summary-pill strong{color:var(--text)}
+.summary-pill.gold{background:var(--gold-light);color:var(--gold-mid);border-color:var(--gold-border)}
+.summary-pill.gold strong{color:var(--gold-mid)}
+
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:1.25rem}
+.search-wrap{position:relative;flex:1;min-width:200px;max-width:380px}
+.search-wrap input{width:100%;height:38px;padding:0 12px 0 36px;border:1px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface);outline:none;transition:border-color .15s}
+.search-wrap input:focus{border-color:var(--gold)}
+.search-wrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none}
+.sort-select{height:38px;padding:0 32px 0 14px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>");background-repeat:no-repeat;background-position:right 14px center}
+.sort-select:focus{outline:none;border-color:var(--gold)}
+.admin-lo-filter{height:38px;padding:0 32px 0 14px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>");background-repeat:no-repeat;background-position:right 14px center;margin-left:auto}
+.admin-lo-filter:focus{outline:none;border-color:var(--gold)}
+.admin-lo-filter.has-value{border-color:var(--gold);background-color:rgba(200,129,58,0.06);color:var(--gold-mid)}
+
+.add-btn{padding:9px 16px;background:var(--dark);color:#fff;border:none;border-radius:22px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
+.add-btn:hover{background:#1c1227}
+
+/* Broker cards (rows) */
+.broker-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:10px}
+.broker-header{display:flex;align-items:center;gap:14px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .1s}
+.broker-header:hover{background:#faf8f5}
+.broker-header.open{border-bottom:1px solid var(--border)}
+.broker-avatar{width:36px;height:36px;border-radius:50%;background:var(--gold);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.broker-info{flex:1;min-width:0;display:grid;grid-template-columns:1.5fr 1.2fr 1.4fr 1fr;gap:18px;align-items:center}
+.broker-name{font-size:14px;font-weight:600;color:var(--text)}
+.broker-meta{font-size:12px;color:var(--muted);margin-top:2px;font-family:'DM Mono',monospace}
+.broker-cell{font-size:13px;color:var(--text)}
+.broker-cell-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:2px}
+.broker-cell-val{font-size:13px;font-weight:500}
+.broker-cell-val.gold{color:var(--gold-mid)}
+.broker-cell-val.muted{color:var(--muted);font-style:italic;font-size:12px}
+.broker-stats{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.stat-badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:var(--gold-light);color:var(--gold-mid);border:1px solid var(--gold-border)}
+.stat-badge.muted{background:rgba(120,116,136,0.08);color:var(--muted);border-color:var(--border)}
+.broker-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.icon-btn{width:30px;height:30px;border-radius:50%;border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.icon-btn:hover{border-color:var(--gold);color:var(--gold)}
+.icon-btn.danger:hover{border-color:var(--danger);color:var(--danger);background:rgba(124,31,31,.06)}
+.chevron{color:var(--muted);transition:transform .2s;flex-shrink:0;padding:4px;cursor:pointer}
+.chevron.open{transform:rotate(180deg)}
+
+.lo-tag-badge{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--gold-light);color:var(--gold-mid);border:1px solid var(--gold-border);margin-top:4px}
+.lo-tag-badge::before{content:"●";font-size:8px;line-height:1}
+
+/* Expanded section */
+.broker-detail{display:none;padding:16px 20px;background:#faf8f5;border-top:1px solid var(--border)}
+.broker-detail.open{display:block}
+.detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:14px}
+.detail-stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xs);padding:11px 14px}
+.detail-stat-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
+.detail-stat-val{font-size:16px;font-weight:600;color:var(--text)}
+.detail-stat-val.gold{color:var(--gold-mid)}
+
+/* Loans table inside detail */
+.loans-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xs);overflow:hidden}
+.loans-table th{padding:9px 14px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:#faf8f5;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.loans-table td{padding:11px 14px;font-size:12.5px;border-bottom:1px solid #f0ece6;vertical-align:middle}
+.loans-table tr:last-child td{border-bottom:none}
+.loans-table tr.clickable{cursor:pointer;transition:background .1s}
+.loans-table tr.clickable:hover{background:#faf8f5}
+.loans-table .td-mono{font-family:'DM Mono',monospace;font-size:12px}
+.loans-table .addr-link{color:var(--text);text-decoration:none;border-bottom:1px solid transparent;transition:all 0.15s}
+.loans-table .addr-link:hover{color:var(--gold);border-bottom-color:var(--gold)}
+.badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:20px}
+.badge.dscr{background:rgba(38,26,54,.08);color:var(--dark)}
+.badge.rtl,.badge.fix_flip,.badge.bridge,.badge.light_rehab,.badge.heavy_rehab{background:rgba(200,129,58,.12);color:var(--gold-mid)}
+.status-pill{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:20px}
+.status-active{background:rgba(38,26,54,.08);color:var(--dark)}
+.status-on_hold{background:rgba(200,129,58,.12);color:var(--gold-mid)}
+.status-submitted{background:rgba(80,140,200,.12);color:#3b7ab8}
+.status-approved{background:rgba(60,170,90,.14);color:#256940}
+.status-denied{background:rgba(124,31,31,.10);color:var(--danger)}
+.status-cancelled{background:rgba(120,116,136,.10);color:var(--muted)}
+
+.empty-state{padding:4rem 2rem;text-align:center}
+.empty-state h3{font-size:16px;font-weight:600;margin-bottom:8px;color:var(--muted)}
+.empty-state p{font-size:13px;color:var(--muted);line-height:1.6;max-width:520px;margin:0 auto}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--dark);color:#fff;font-size:13px;font-weight:500;padding:10px 20px;border-radius:30px;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* Modal — Add / Edit Broker */
+.modal-bg{position:fixed;inset:0;background:rgba(38,26,54,0.55);display:none;align-items:center;justify-content:center;z-index:100;padding:1rem}
+.modal-bg.show{display:flex}
+.modal{background:var(--surface);border-radius:var(--r);max-width:520px;width:100%;padding:1.75rem;max-height:90vh;overflow-y:auto}
+.modal h3{font-family:'Lora',serif;font-size:19px;margin-bottom:8px}
+.modal-intro{font-size:13px;color:var(--muted);margin-bottom:1.25rem;line-height:1.5}
+.modal-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal-field{margin-bottom:1rem}
+.modal-field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:6px}
+.modal-field label .req{color:var(--danger)}
+.modal-field input,.modal-field textarea{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--r-xs);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text)}
+.modal-field textarea{min-height:70px;resize:vertical}
+.modal-field input:focus,.modal-field textarea:focus{outline:none;border-color:var(--gold)}
+.modal-status{font-size:12px;min-height:18px;margin-bottom:8px}
+.modal-status.err{color:var(--danger)}
+.modal-status.ok{color:var(--success)}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.modal-btn{font-size:13px;font-weight:600;padding:9px 18px;border-radius:22px;cursor:pointer;font-family:'DM Sans',sans-serif;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+.modal-btn.primary{background:var(--dark);border-color:var(--dark);color:#fff}
+.modal-btn.primary:hover:not(:disabled){background:#1c1227}
+.modal-btn.danger{border-color:rgba(124,31,31,.3);color:var(--danger);background:var(--surface)}
+.modal-btn.danger:hover{background:rgba(124,31,31,.06)}
+.modal-btn:disabled{opacity:0.5;cursor:wait}
+
+/* Admin section for byOwner view */
+.admin-section{margin-bottom:20px}
+.user-section-hdr{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 20px;cursor:pointer;user-select:none;transition:background .1s}
+.user-section-hdr:hover{background:#faf8f5}
+.user-section-hdr.is-open{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.user-avatar{width:34px;height:34px;border-radius:50%;background:var(--dark);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0}
+.user-section-body{border:1px solid var(--border);border-top:none;border-bottom-left-radius:var(--r);border-bottom-right-radius:var(--r);overflow:hidden;display:none;padding:16px 20px}
+.user-section-body.open{display:block}
+
+@media (max-width: 820px) {
+  .broker-info{grid-template-columns:1fr;gap:8px}
+  .detail-grid{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+<div id="auth-gate"><p>Checking authentication…</p></div>
+<div class="toast" id="toast"></div>
+
+<!-- Add/Edit Broker modal -->
+<div class="modal-bg" id="brokerModal">
+  <div class="modal">
+    <h3 id="bmTitle">Add Broker</h3>
+    <p class="modal-intro" id="bmIntro">Save a broker to your book. Their info will auto-fill when you bind a loan to them in the sizer.</p>
+    <input type="hidden" id="bm-id" />
+    <div class="modal-row">
+      <div class="modal-field">
+        <label>Broker Name <span class="req">*</span></label>
+        <input type="text" id="bm-name" />
+      </div>
+      <div class="modal-field">
+        <label>Company</label>
+        <input type="text" id="bm-company" />
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="modal-field">
+        <label>Email</label>
+        <input type="email" id="bm-email" placeholder="broker@example.com" />
+      </div>
+      <div class="modal-field">
+        <label>Phone</label>
+        <input type="tel" id="bm-phone" placeholder="(555) 123-4567" oninput="maskPhone(this)" />
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Notes</label>
+      <textarea id="bm-notes" placeholder="Anything you want to remember about this broker (deal terms preference, intro source, etc.)"></textarea>
+    </div>
+    <div class="modal-status" id="bm-status"></div>
+    <div class="modal-actions">
+      <button class="modal-btn danger" id="bm-deleteBtn" style="display:none" onclick="deleteBrokerConfirm()">Delete</button>
+      <button class="modal-btn" onclick="closeBrokerModal()">Cancel</button>
+      <button class="modal-btn primary" id="bm-saveBtn" onclick="saveBroker()">Save</button>
+    </div>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link current" href="brokers.html">Brokers</a>
+    <a class="nav-tool-link" href="loans.html">Loans</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Broker Book</h1>
+      <p id="pageSubtitle">Brokers you work with, with deal history and commission totals.</p>
+    </div>
+    <div>
+      <button class="add-btn" onclick="openAddBroker()">+ Add Broker</button>
+    </div>
+  </div>
+
+  <!-- Admin view switcher -->
+  <div class="view-tabs" id="viewTabs" style="display:none">
+    <button class="view-tab active" data-view="my" onclick="setView('my')">My Brokers</button>
+    <button class="view-tab" data-view="admin" onclick="setView('admin')">All Users</button>
+  </div>
+
+  <!-- My Brokers -->
+  <div id="myView">
+    <div class="summary-bar" id="summaryBar"></div>
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input type="text" id="searchInput" placeholder="Search name, company, email, phone…" oninput="renderBrokers()" />
+      </div>
+      <select id="sortBy" class="sort-select" onchange="renderBrokers()">
+        <option value="volume">Sort: Total Volume</option>
+        <option value="deals">Sort: Deal Count</option>
+        <option value="commission">Sort: Commission Earned</option>
+        <option value="name">Sort: Name (A→Z)</option>
+        <option value="recent">Sort: Recently Updated</option>
+      </select>
+    </div>
+    <div id="brokersList"></div>
+  </div>
+
+  <!-- Admin View -->
+  <div id="adminView" style="display:none">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input type="text" id="adminSearch" placeholder="Search across all users…" oninput="renderAdminBrokers()" />
+      </div>
+      <select id="adminLoFilter" class="admin-lo-filter" onchange="renderAdminBrokers()">
+        <option value="">All LOs</option>
+      </select>
+    </div>
+    <div id="adminBrokersList"></div>
+  </div>
+</div>
+
+<script>
+// ─── Tiny helpers ──────────────────────────────────────────────────────
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(window._toastTo);
+  window._toastTo = setTimeout(function(){ t.classList.remove('show'); }, 2400);
+}
+function fmt$(n) { var v = Number(n)||0; return '$' + Math.round(v).toLocaleString(); }
+function fmt$0(n) { return fmt$(n); }
+function initials(s) {
+  return String(s||'').split(/\s+/).filter(Boolean).slice(0,2).map(function(p){return p[0].toUpperCase();}).join('') || '?';
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function maskPhone(el) {
+  var d = String(el.value||'').replace(/\D/g,'').slice(0,10);
+  if (d.length<=3) el.value=d;
+  else if (d.length<=6) el.value='('+d.slice(0,3)+') '+d.slice(3);
+  else el.value='('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6);
+}
+function fmtPhone(raw) {
+  var d = String(raw||'').replace(/\D/g,'').slice(0,10);
+  if (!d) return '';
+  if (d.length<=3) return d;
+  if (d.length<=6) return '('+d.slice(0,3)+') '+d.slice(3);
+  return '('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6);
+}
+
+// ─── State ─────────────────────────────────────────────────────────────
+// _user: current Netlify Identity user
+// _brokers: array of broker records owned by current LO
+// _aggregates: { brokerId -> { loans:[], dealCount, totalVolume, totalFee$, byStatus } }
+// _adminData: only set in admin view — { byOwner: { 'lo@x.com': { brokers, aggregates } } }
+var _user = null;
+var _isAdmin = false;
+var _brokers = [];
+var _aggregates = {};   // brokerId -> aggregates
+var _orphanedInline = []; // legacy loans with brokerEmail but no brokerId
+var _adminData = null;
+var _currentView = 'my';
+var _editingBrokerId = null;
+var _expandedRows = {}; // brokerId -> bool
+
+// ─── Cost of capital constants (mirror of dashboard.html) ─────────────
+// DSCR cost = $1,495 per loan (no offset for points)
+// RTL cost  = 0.25 points × loan amount
+// We don't subtract these from broker commission because that's pre-COC;
+// the LO is paid on points collected, but worth noting elsewhere.
+
+// ─── Aggregation ──────────────────────────────────────────────────────
+// Walks every loan on every client and accumulates stats keyed by
+// loan.brokerId. Loans without a brokerId but WITH a brokerEmail get
+// tracked separately as "orphaned inline" so the admin page can offer
+// a "claim/migrate this into your broker book" workflow (Phase 5).
+function aggregateFromClients(clients, brokers) {
+  var byId = {};
+  var orphans = [];
+  // Seed every known broker so they show even with zero deals.
+  (brokers||[]).forEach(function(b) {
+    byId[b.id] = {
+      brokerId: b.id,
+      loans: [],
+      dealCount: 0,
+      totalVolume: 0,
+      totalCommission: 0,
+      byStatus: {}, // status -> count
+    };
+  });
+  (clients||[]).forEach(function(c) {
+    (c.loans||[]).forEach(function(l) {
+      var bid = (l.brokerId || '').trim();
+      if (bid && byId[bid]) {
+        // Stamp the client context onto the loan so the detail table
+        // can link back to Loan Details without another lookup.
+        l._clientId = c.id;
+        l._clientEmail = c.email;
+        l._clientName  = ((c.firstName||'')+' '+(c.lastName||'')).trim();
+        var bucket = byId[bid];
+        bucket.loans.push(l);
+        bucket.dealCount += 1;
+        // Volume = the loan amount when present (use _maxLoan as fallback
+        // for very early pre-amount quotes; otherwise 0).
+        var amt = Number(l.loanAmt || l.maxLoan || 0) || 0;
+        bucket.totalVolume += amt;
+        // Broker commission $ = loanAmt × (brokerFee points / 100)
+        var pts = Number(l.brokerFee || 0) || 0;
+        if (pts > 0 && amt > 0) bucket.totalCommission += amt * (pts / 100);
+        // Status histogram
+        var st = l.status || 'active';
+        bucket.byStatus[st] = (bucket.byStatus[st] || 0) + 1;
+      } else if ((l.brokerEmail || l.brokerName) && !bid) {
+        // Orphan — has broker inline fields but isn't linked to an entity.
+        orphans.push({
+          loan: l,
+          client: c,
+        });
+      }
+    });
+  });
+  return { byId: byId, orphans: orphans };
+}
+
+// ─── Status pill helper ───────────────────────────────────────────────
+function statusPill(status) {
+  var s = status || 'active';
+  var labels = {
+    active: 'Active', on_hold: 'On Hold', submitted: 'Submitted',
+    approved: 'Approved', denied: 'Denied', cancelled: 'Cancelled',
+  };
+  return '<span class="status-pill status-' + escapeHtml(s) + '">' + escapeHtml(labels[s] || s) + '</span>';
+}
+
+// ─── Render: My Brokers ────────────────────────────────────────────────
+function renderBrokers() {
+  var list = document.getElementById('brokersList');
+  var search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+  var sortBy = document.getElementById('sortBy').value;
+
+  var items = _brokers.slice();
+
+  // Search filter
+  if (search) {
+    items = items.filter(function(b) {
+      var hay = [b.name||'', b.company||'', b.email||'', b.phone||''].join(' ').toLowerCase();
+      return hay.indexOf(search) >= 0;
+    });
+  }
+
+  // Sort
+  items.sort(function(a, b) {
+    var aa = _aggregates[a.id] || { dealCount:0, totalVolume:0, totalCommission:0 };
+    var bb = _aggregates[b.id] || { dealCount:0, totalVolume:0, totalCommission:0 };
+    switch (sortBy) {
+      case 'name':       return (a.name||'').localeCompare(b.name||'');
+      case 'deals':      return bb.dealCount - aa.dealCount;
+      case 'commission': return bb.totalCommission - aa.totalCommission;
+      case 'recent':     return new Date(b.updatedAt||b.createdAt||0) - new Date(a.updatedAt||a.createdAt||0);
+      case 'volume':
+      default:           return bb.totalVolume - aa.totalVolume;
+    }
+  });
+
+  // Summary
+  var totalDeals = 0, totalVolume = 0, totalCommission = 0;
+  Object.keys(_aggregates).forEach(function(id) {
+    totalDeals      += _aggregates[id].dealCount;
+    totalVolume     += _aggregates[id].totalVolume;
+    totalCommission += _aggregates[id].totalCommission;
+  });
+  document.getElementById('summaryBar').innerHTML =
+    '<span class="summary-pill"><strong>' + _brokers.length + '</strong> brokers</span>' +
+    '<span class="summary-pill"><strong>' + totalDeals + '</strong> deals</span>' +
+    '<span class="summary-pill"><strong>' + fmt$(totalVolume) + '</strong> total volume</span>' +
+    '<span class="summary-pill gold"><strong>' + fmt$(totalCommission) + '</strong> commission paid out</span>' +
+    (_orphanedInline.length ? '<span class="summary-pill" style="background:rgba(124,31,31,.06);color:var(--danger);border-color:rgba(124,31,31,.2)"><strong>' + _orphanedInline.length + '</strong> legacy loans not linked to a broker entity</span>' : '');
+
+  // Empty state
+  if (!items.length) {
+    list.innerHTML = !_brokers.length
+      ? '<div class="empty-state"><h3>No brokers in your book yet</h3><p>Brokers get added automatically when you bind a loan to one in the sizer (via the search box above the broker fee section), or when a broker submits an application via your apply link. You can also add one manually with the button above.</p></div>'
+      : '<div class="empty-state"><h3>No matches</h3><p>No brokers match your search. Try clearing the search or adding a new broker.</p></div>';
+    return;
+  }
+
+  list.innerHTML = items.map(function(b) {
+    var agg = _aggregates[b.id] || { dealCount:0, totalVolume:0, totalCommission:0, loans:[] };
+    var isOpen = !!_expandedRows[b.id];
+    var avatar = initials(b.name);
+    var phoneFmt = fmtPhone(b.phone);
+    var dealsBadge = agg.dealCount > 0
+      ? '<span class="stat-badge">' + agg.dealCount + ' ' + (agg.dealCount === 1 ? 'deal' : 'deals') + '</span>'
+      : '<span class="stat-badge muted">No deals yet</span>';
+    return '' +
+      '<div class="broker-card" data-id="' + escapeHtml(b.id) + '">' +
+        '<div class="broker-header ' + (isOpen?'open':'') + '" onclick="toggleBroker(\'' + b.id + '\', event)">' +
+          '<div class="broker-avatar">' + escapeHtml(avatar) + '</div>' +
+          '<div class="broker-info">' +
+            '<div>' +
+              '<div class="broker-name">' + escapeHtml(b.name || '(unnamed)') + '</div>' +
+              (b.company ? '<div class="broker-meta">' + escapeHtml(b.company) + '</div>' : '') +
+            '</div>' +
+            '<div>' +
+              '<div class="broker-cell-label">Email</div>' +
+              '<div class="broker-cell-val ' + (b.email?'':'muted') + '">' + escapeHtml(b.email || '—') + '</div>' +
+            '</div>' +
+            '<div>' +
+              '<div class="broker-cell-label">Phone</div>' +
+              '<div class="broker-cell-val ' + (phoneFmt?'':'muted') + '">' + escapeHtml(phoneFmt || '—') + '</div>' +
+            '</div>' +
+            '<div>' +
+              '<div class="broker-cell-label">Commission</div>' +
+              '<div class="broker-cell-val gold">' + fmt$(agg.totalCommission) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="broker-stats">' + dealsBadge + '</div>' +
+          '<div class="broker-actions">' +
+            '<button class="icon-btn" title="Edit" onclick="event.stopPropagation();openEditBroker(\'' + b.id + '\')">✎</button>' +
+            '<button class="icon-btn danger" title="Delete" onclick="event.stopPropagation();quickDeleteBroker(\'' + b.id + '\')">×</button>' +
+          '</div>' +
+          '<div class="chevron ' + (isOpen?'open':'') + '">▾</div>' +
+        '</div>' +
+        '<div class="broker-detail ' + (isOpen?'open':'') + '">' +
+          renderBrokerDetail(b, agg) +
+        '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function renderBrokerDetail(broker, agg) {
+  var avgVolume = agg.dealCount > 0 ? agg.totalVolume / agg.dealCount : 0;
+
+  // Loans table
+  var loansHtml;
+  if (!agg.loans.length) {
+    loansHtml = '<p style="font-size:13px;color:var(--muted);font-style:italic;padding:8px 4px">No loans bound to this broker yet. Use the broker picker in the DSCR or Fix & Flip sizer to link a deal.</p>';
+  } else {
+    var rows = agg.loans.slice().sort(function(a,b) {
+      return new Date(b.updatedAt||b.createdAt||0) - new Date(a.updatedAt||a.createdAt||0);
+    });
+    loansHtml = '' +
+      '<table class="loans-table">' +
+        '<thead><tr>' +
+          '<th>Borrower</th>' +
+          '<th>Property</th>' +
+          '<th>Type</th>' +
+          '<th>Loan Amount</th>' +
+          '<th>Broker Fee</th>' +
+          '<th>Commission $</th>' +
+          '<th>Status</th>' +
+          '<th>Updated</th>' +
+        '</tr></thead><tbody>' +
+        rows.map(function(l) {
+          var typeKey = (l.loanType || '').toLowerCase().replace(/\s+/g,'_');
+          var amt = Number(l.loanAmt || l.maxLoan || 0) || 0;
+          var pts = Number(l.brokerFee || 0) || 0;
+          var comm = (pts > 0 && amt > 0) ? amt * (pts / 100) : 0;
+          var updated = l.updatedAt || l.createdAt;
+          var updatedStr = updated ? new Date(updated).toLocaleDateString() : '—';
+          var dlUrl = 'loan-details.html?clientId=' + encodeURIComponent(l._clientId||'') + '&loanId=' + encodeURIComponent(l.id||'');
+          return '<tr class="clickable" onclick="window.location.href=\'' + dlUrl + '\'">' +
+            '<td>' + escapeHtml(l._clientName || l._clientEmail || '—') + '</td>' +
+            '<td><a class="addr-link" href="' + dlUrl + '" onclick="event.stopPropagation()">' + escapeHtml(l.propAddress || l.address || '—') + '</a></td>' +
+            '<td><span class="badge ' + escapeHtml(typeKey) + '">' + escapeHtml(l.loanTypeLabel || l.loanType || '—') + '</span></td>' +
+            '<td class="td-mono">' + (amt ? fmt$(amt) : '—') + '</td>' +
+            '<td class="td-mono">' + (pts ? pts.toFixed(2) + ' pts' : '—') + '</td>' +
+            '<td class="td-mono">' + (comm ? fmt$(comm) : '—') + '</td>' +
+            '<td>' + statusPill(l.status) + '</td>' +
+            '<td class="td-mono">' + updatedStr + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody>' +
+      '</table>';
+  }
+
+  return '' +
+    '<div class="detail-grid">' +
+      '<div class="detail-stat"><div class="detail-stat-label">Total Deals</div><div class="detail-stat-val">' + agg.dealCount + '</div></div>' +
+      '<div class="detail-stat"><div class="detail-stat-label">Total Volume</div><div class="detail-stat-val">' + fmt$(agg.totalVolume) + '</div></div>' +
+      '<div class="detail-stat"><div class="detail-stat-label">Avg Loan Size</div><div class="detail-stat-val">' + fmt$(avgVolume) + '</div></div>' +
+      '<div class="detail-stat"><div class="detail-stat-label">Commission Earned</div><div class="detail-stat-val gold">' + fmt$(agg.totalCommission) + '</div></div>' +
+    '</div>' +
+    (broker.notes ? '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xs);padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--text);white-space:pre-wrap"><strong style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Notes</strong>' + escapeHtml(broker.notes) + '</div>' : '') +
+    loansHtml;
+}
+
+function toggleBroker(id, ev) {
+  if (ev && (ev.target.tagName === 'BUTTON' || ev.target.tagName === 'A')) return;
+  _expandedRows[id] = !_expandedRows[id];
+  renderBrokers();
+}
+
+// ─── Modal: add / edit ─────────────────────────────────────────────────
+function openAddBroker() {
+  _editingBrokerId = null;
+  document.getElementById('bmTitle').textContent = 'Add Broker';
+  document.getElementById('bmIntro').textContent = 'Save a broker to your book. Their info will auto-fill when you bind a loan to them in the sizer.';
+  document.getElementById('bm-id').value = '';
+  document.getElementById('bm-name').value = '';
+  document.getElementById('bm-company').value = '';
+  document.getElementById('bm-email').value = '';
+  document.getElementById('bm-phone').value = '';
+  document.getElementById('bm-notes').value = '';
+  document.getElementById('bm-status').textContent = '';
+  document.getElementById('bm-status').className = 'modal-status';
+  document.getElementById('bm-deleteBtn').style.display = 'none';
+  document.getElementById('brokerModal').classList.add('show');
+  setTimeout(function(){ document.getElementById('bm-name').focus(); }, 50);
+}
+
+function openEditBroker(id) {
+  var b = _brokers.filter(function(x){return x.id===id;})[0];
+  if (!b) return;
+  _editingBrokerId = id;
+  document.getElementById('bmTitle').textContent = 'Edit Broker';
+  document.getElementById('bmIntro').textContent = 'Update this broker’s contact info. Existing loans bound to this broker pick up the changes immediately.';
+  document.getElementById('bm-id').value = id;
+  document.getElementById('bm-name').value = b.name || '';
+  document.getElementById('bm-company').value = b.company || '';
+  document.getElementById('bm-email').value = b.email || '';
+  document.getElementById('bm-phone').value = fmtPhone(b.phone) || (b.phone || '');
+  document.getElementById('bm-notes').value = b.notes || '';
+  document.getElementById('bm-status').textContent = '';
+  document.getElementById('bm-status').className = 'modal-status';
+  document.getElementById('bm-deleteBtn').style.display = 'inline-block';
+  document.getElementById('brokerModal').classList.add('show');
+}
+
+function closeBrokerModal() {
+  document.getElementById('brokerModal').classList.remove('show');
+}
+
+function saveBroker() {
+  var name = (document.getElementById('bm-name').value || '').trim();
+  var statusEl = document.getElementById('bm-status');
+  if (!name) { statusEl.textContent = 'Name is required'; statusEl.className = 'modal-status err'; return; }
+  var payload = {
+    name:    name,
+    company: (document.getElementById('bm-company').value || '').trim(),
+    email:   (document.getElementById('bm-email').value || '').trim().toLowerCase(),
+    phone:   (document.getElementById('bm-phone').value || '').trim(),
+    notes:   (document.getElementById('bm-notes').value || '').trim(),
+  };
+  if (_editingBrokerId) payload.id = _editingBrokerId;
+  var btn = document.getElementById('bm-saveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  statusEl.textContent = ''; statusEl.className = 'modal-status';
+  SLA.Brokers.save(payload).then(function(r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'Save failed');
+    showToast(_editingBrokerId ? 'Broker updated' : 'Broker added');
+    closeBrokerModal();
+    return loadData();
+  }).catch(function(e) {
+    statusEl.textContent = 'Error: ' + (e.message || 'unknown');
+    statusEl.className = 'modal-status err';
+  }).then(function() {
+    btn.disabled = false; btn.textContent = 'Save';
+  });
+}
+
+function quickDeleteBroker(id) {
+  var b = _brokers.filter(function(x){return x.id===id;})[0];
+  if (!b) return;
+  var agg = _aggregates[id] || { dealCount: 0 };
+  var msg = agg.dealCount > 0
+    ? 'Delete "' + (b.name||'this broker') + '"? They have ' + agg.dealCount + ' linked deal(s). The loan records will keep their inline broker info but lose the link to the entity.'
+    : 'Delete "' + (b.name||'this broker') + '"?';
+  if (!confirm(msg)) return;
+  SLA.Brokers.delete(id).then(function(r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'Delete failed');
+    showToast('Broker deleted');
+    return loadData();
+  }).catch(function(e) {
+    showToast('Delete failed: ' + (e.message || 'unknown'));
+  });
+}
+
+function deleteBrokerConfirm() {
+  if (!_editingBrokerId) return;
+  var id = _editingBrokerId;
+  closeBrokerModal();
+  quickDeleteBroker(id);
+}
+
+// ─── Admin view ───────────────────────────────────────────────────────
+function setView(v) {
+  _currentView = v;
+  Array.prototype.forEach.call(document.querySelectorAll('.view-tab'), function(t) {
+    t.classList.toggle('active', t.getAttribute('data-view') === v);
+  });
+  document.getElementById('myView').style.display    = (v === 'my')    ? 'block' : 'none';
+  document.getElementById('adminView').style.display = (v === 'admin') ? 'block' : 'none';
+  if (v === 'admin' && !_adminData) loadAdminData();
+}
+
+function loadAdminData() {
+  var listEl = document.getElementById('adminBrokersList');
+  listEl.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
+  Promise.all([
+    SLA.Brokers.list({ all: true }),
+    SLA.Clients.list({ all: true }),
+  ]).then(function(results) {
+    var brokersByOwner = (results[0] && results[0].byOwner) || {};
+    var clientsByOwner = (results[1] && results[1].byOwner) || {};
+    var ownerKeys = Object.keys(brokersByOwner).sort();
+    var data = {};
+    ownerKeys.forEach(function(owner) {
+      var brokers = brokersByOwner[owner] || [];
+      var clients = clientsByOwner[owner] || [];
+      var aggResult = aggregateFromClients(clients, brokers);
+      data[owner] = {
+        brokers: brokers,
+        aggregates: aggResult.byId,
+        orphans: aggResult.orphans,
+      };
+    });
+    _adminData = data;
+    // Populate LO filter
+    var sel = document.getElementById('adminLoFilter');
+    var current = sel.value;
+    sel.innerHTML = '<option value="">All LOs</option>' + ownerKeys.map(function(o) {
+      return '<option value="' + escapeHtml(o) + '">' + escapeHtml(o) + ' (' + (data[o].brokers.length) + ')</option>';
+    }).join('');
+    if (current) sel.value = current;
+    renderAdminBrokers();
+  }).catch(function(e) {
+    listEl.innerHTML = '<div class="empty-state"><h3>Failed to load</h3><p>' + escapeHtml(e.message || 'unknown') + '</p></div>';
+  });
+}
+
+function renderAdminBrokers() {
+  if (!_adminData) return;
+  var listEl = document.getElementById('adminBrokersList');
+  var search = (document.getElementById('adminSearch').value || '').toLowerCase().trim();
+  var loFilter = document.getElementById('adminLoFilter').value;
+  var sel = document.getElementById('adminLoFilter');
+  sel.classList.toggle('has-value', !!loFilter);
+
+  var owners = Object.keys(_adminData).sort();
+  if (loFilter) owners = owners.filter(function(o){ return o === loFilter; });
+
+  var totalBrokers = 0, totalDeals = 0;
+  var html = owners.map(function(owner) {
+    var section = _adminData[owner];
+    var brokers = section.brokers.slice();
+    if (search) {
+      brokers = brokers.filter(function(b) {
+        var hay = [b.name||'',b.company||'',b.email||'',b.phone||''].join(' ').toLowerCase();
+        return hay.indexOf(search) >= 0;
+      });
+    }
+    if (!brokers.length && search) return '';
+    totalBrokers += brokers.length;
+    var rowsHtml = brokers.length ? brokers.map(function(b) {
+      var agg = section.aggregates[b.id] || { dealCount:0, totalVolume:0, totalCommission:0 };
+      totalDeals += agg.dealCount;
+      var avatar = initials(b.name);
+      return '' +
+        '<div class="broker-card">' +
+          '<div class="broker-header">' +
+            '<div class="broker-avatar">' + escapeHtml(avatar) + '</div>' +
+            '<div class="broker-info">' +
+              '<div>' +
+                '<div class="broker-name">' + escapeHtml(b.name||'(unnamed)') + '</div>' +
+                (b.company ? '<div class="broker-meta">' + escapeHtml(b.company) + '</div>' : '') +
+              '</div>' +
+              '<div><div class="broker-cell-label">Email</div><div class="broker-cell-val">' + escapeHtml(b.email||'—') + '</div></div>' +
+              '<div><div class="broker-cell-label">Deals</div><div class="broker-cell-val">' + agg.dealCount + '</div></div>' +
+              '<div><div class="broker-cell-label">Volume / Commission</div><div class="broker-cell-val">' + fmt$(agg.totalVolume) + ' <span style="color:var(--muted)">/</span> <span class="gold" style="color:var(--gold-mid)">' + fmt$(agg.totalCommission) + '</span></div></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }).join('') : '<p style="font-size:13px;color:var(--muted);font-style:italic;padding:8px 4px">No brokers in this book.</p>';
+
+    return '' +
+      '<div class="admin-section">' +
+        '<div class="user-section-hdr is-open">' +
+          '<div class="user-avatar">' + escapeHtml(initials(owner)) + '</div>' +
+          '<div style="flex:1"><div style="font-size:14px;font-weight:600">' + escapeHtml(owner) + '</div><div style="font-size:11px;color:var(--muted);margin-top:2px">' + section.brokers.length + ' brokers · ' + Object.keys(section.aggregates).reduce(function(sum,id){return sum+(section.aggregates[id].dealCount||0);},0) + ' deals</div></div>' +
+        '</div>' +
+        '<div class="user-section-body open">' + rowsHtml + '</div>' +
+      '</div>';
+  }).join('');
+
+  if (!html) {
+    listEl.innerHTML = '<div class="empty-state"><h3>No matches</h3><p>No brokers match your filter.</p></div>';
+    return;
+  }
+  listEl.innerHTML = html;
+}
+
+// ─── Load & init ──────────────────────────────────────────────────────
+function loadData() {
+  return Promise.all([
+    SLA.Brokers.list(),
+    SLA.Clients.list(),
+  ]).then(function(results) {
+    _brokers = (results[0] && results[0].brokers) || [];
+    var clients = (results[1] && results[1].clients) || [];
+    var aggResult = aggregateFromClients(clients, _brokers);
+    _aggregates = aggResult.byId;
+    _orphanedInline = aggResult.orphans;
+    renderBrokers();
+  }).catch(function(e) {
+    console.error('[brokers] loadData failed', e);
+    document.getElementById('brokersList').innerHTML =
+      '<div class="empty-state"><h3>Failed to load</h3><p>' + escapeHtml(e.message || 'unknown') + '</p></div>';
+  });
+}
+
+// Bootstrap once Identity confirms a user.
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  window._user = user;
+  var roles = (user.app_metadata && user.app_metadata.roles) || [];
+  if (typeof roles === 'string') roles = [roles];
+  _isAdmin = roles.some(function(r){ return r==='admin' || r==='super_admin'; });
+  if (_isAdmin) {
+    document.getElementById('viewTabs').style.display = 'flex';
+    var ns = document.getElementById('navSubmissionsLink');
+    if (ns) ns.style.display = 'inline-block';
+  }
+  document.getElementById('auth-gate').style.display = 'none';
+  loadData();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+</script>
+</body>
+</html>
