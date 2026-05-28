@@ -3204,6 +3204,12 @@ netlifyIdentity.on('init', function(user) {
             // Clients.upsert. The clientId comes from the loan-details URL.
             window._editingLoanId   = loanIdP   || null;
             window._editingClientId = clientIdP || null;
+            // Deploy 236.10 — also stash the loaded quote's status so a
+            // subsequent save that ends up creating a NEW quote (rare,
+            // happens when the matching quote got deleted between load
+            // and save) inherits the right pipeline column instead of
+            // defaulting to Quoted.
+            window._editingLoanStatus = hit.status || '';
             return applyLockedOverrideIfAnyDSCR(hit.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
               tryAutoDownload(); trySignatureHandoff();
@@ -3228,6 +3234,9 @@ netlifyIdentity.on('init', function(user) {
             window._originalBorrowerEmail = q.formData.borrowerEmail || '';
             window._editingLoanId   = loanIdP   || null;
             window._editingClientId = clientIdP || null;
+            // Deploy 236.10 — stash quote status (same rationale as the
+            // cross-LO branch above).
+            window._editingLoanStatus = q.status || '';
             // Item #2: apply LO override from loan record if present
             return applyLockedOverrideIfAnyDSCR(q.formData).then(function(fd) {
               loadQuoteIntoForm(fd);

@@ -3115,6 +3115,9 @@ netlifyIdentity.on('init', function(user) {
           window._originalBorrowerEmail = hit.formData.borrowerEmail || '';
           window._editingLoanId = loanIdP || null;
           window._editingClientId = clientIdP || null;
+          // Deploy 236.10 — stash loaded quote's status (see dscr-sizer
+          // for full rationale).
+          window._editingLoanStatus = hit.status || '';
           return applyLockedOverrideIfAny(hit.formData).then(function(fd) {
             loadRTLQuote(fd);
             tryAutoDownload(); trySignatureHandoff();
@@ -3137,6 +3140,8 @@ netlifyIdentity.on('init', function(user) {
           window._originalBorrowerEmail = q.formData.borrowerEmail || '';
           window._editingLoanId = loanIdP || null;
           window._editingClientId = clientIdP || null;
+          // Deploy 236.10 — stash quote status.
+          window._editingLoanStatus = q.status || '';
           // Item #2: if the loan record has an LO override (loanAmtLocked),
           // use that locked amount instead of the original quote amount so
           // the rate sheet / term sheet reflect the override.
