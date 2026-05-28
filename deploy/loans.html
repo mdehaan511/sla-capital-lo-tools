@@ -177,7 +177,7 @@
   <div class="toolbar">
     <div class="search-wrap">
       <span class="search-icon">⌕</span>
-      <input id="searchInput" type="search" placeholder="Search address, client name, loan owner…" oninput="onSearchInput()" />
+      <input id="searchInput" type="search" placeholder="Search address, client, owner, broker…" oninput="onSearchInput()" />
     </div>
     <div class="filter-chips" id="filterChips"></div>
     <div class="lo-filter" id="loFilterWrap" style="display:none">
@@ -420,6 +420,12 @@ function getFiltered() {
         l._ownerKey,
         l._loanTypeLabel,
         STATUS_LABELS[l.status],
+        // Deploy 236.15 (Brokers Phase 4) — search hits broker fields
+        // too. Typing a broker's name / company / email here filters
+        // to loans bound to that broker. Uses inline fields, so it
+        // works whether the loan was bound via the picker (brokerId)
+        // or pre-Phase-1 inline-only data.
+        l.brokerName, l.brokerCompany, l.brokerEmail,
       ].join(' ').toLowerCase();
       if (hay.indexOf(_search) === -1) return false;
     }

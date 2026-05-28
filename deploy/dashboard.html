@@ -200,6 +200,17 @@
     </div>
   </div>
 
+  <!-- Deploy 236.15 (Brokers Phase 4) — Top Brokers by closed volume.
+       Reads from the SLA clients store (which carries brokerId per loan)
+       not the Baseline mirror, so the figures match brokers.html exactly. -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Top Brokers by Volume Closed</h2>
+      <div class="chart-sub">RANKED BY SUM OF LOAN AMOUNT WHERE STATUS=CLOSED · CLICK A ROW FOR FULL DEAL HISTORY</div>
+      <div id="topBrokersWrap" style="max-height:360px;overflow-y:auto"></div>
+    </div>
+  </div>
+
   <!-- Debug Panel (hidden unless ?debug=1 or the checkbox is on) -->
   <div id="debugPanel" class="chart-card" style="display:none">
     <h2>Debug — Chart Aggregation</h2>
@@ -547,8 +558,119 @@ function renderAll() {
   renderPerformanceStats();
   renderStateTable();
   renderUpcomingClosings();
+  renderTopBrokers();
   renderTable();
   renderDebugPanel();
+}
+
+// Deploy 236.15 (Brokers Phase 4) — Top Brokers by Volume Closed.
+// Reads from the SLA clients store (not the Baseline mirror) because
+// brokerId lives on the SLA loan record, not on Baseline. Volume
+// closed = sum(loan.loanAmt) where loan.status === 'closed', grouped
+// by loan.brokerId. Names come from the brokers store.
+//
+// We lazy-load these two stores the first time this widget renders to
+// keep dashboard load time low for users who never scroll down. The
+// fetched data is cached on window for subsequent renders.
+function renderTopBrokers() {
+  var wrap = document.getElementById('topBrokersWrap');
+  if (!wrap) return;
+  if (window._topBrokersData) { _renderTopBrokersFromData(wrap, window._topBrokersData); return; }
+  wrap.innerHTML = '<div class="loading">Loading broker data…</div>';
+  // Dashboard is admin-only (enforced at netlifyIdentity.on('init') —
+  // non-admins get bounced before we even render). So always use the
+  // all=1 path to aggregate every LO's brokers + clients.
+  Promise.all([
+    SLA.Clients.list({ all: true }),
+    SLA.Brokers.list({ all: true }),
+  ]).then(function(results) {
+    var clientsResp = results[0] || {};
+    var brokersResp = results[1] || {};
+    // Flatten across owners (admin) or use the LO's own list.
+    var clients = [];
+    if (clientsResp.byOwner) {
+      Object.keys(clientsResp.byOwner).forEach(function(k) {
+        (clientsResp.byOwner[k] || []).forEach(function(c) { c._ownerKey = k; clients.push(c); });
+      });
+    } else {
+      clients = clientsResp.clients || [];
+    }
+    var brokersByOwnerId = {}; // 'ownerKey|brokerId' -> broker record
+    if (brokersResp.byOwner) {
+      Object.keys(brokersResp.byOwner).forEach(function(k) {
+        (brokersResp.byOwner[k] || []).forEach(function(b) {
+          brokersByOwnerId[k + '|' + b.id] = b;
+        });
+      });
+    } else {
+      var myKey = (_user && _user.email || '').toLowerCase();
+      (brokersResp.brokers || []).forEach(function(b) { brokersByOwnerId[myKey + '|' + b.id] = b; });
+    }
+    // Aggregate per broker: deals, total closed volume.
+    var byBroker = {}; // 'ownerKey|brokerId' -> { broker, dealCount, volumeClosed }
+    clients.forEach(function(c) {
+      var ownerKey = (c._ownerKey || (c.createdBy || '').toLowerCase());
+      (c.loans || []).forEach(function(l) {
+        var bid = (l.brokerId || '').trim();
+        if (!bid) return;
+        var key = ownerKey + '|' + bid;
+        if (!byBroker[key]) {
+          byBroker[key] = {
+            broker: brokersByOwnerId[key] || { id: bid, name: l.brokerName || '(deleted broker)', company: l.brokerCompany || '' },
+            ownerKey: ownerKey,
+            dealCount: 0,
+            volumeClosed: 0,
+          };
+        }
+        byBroker[key].dealCount += 1;
+        if (l.status === 'closed') {
+          var amt = Number(l.loanAmt || 0) || 0;
+          byBroker[key].volumeClosed += amt;
+        }
+      });
+    });
+    var rows = Object.keys(byBroker).map(function(k) { return byBroker[k]; });
+    rows.sort(function(a, b) { return b.volumeClosed - a.volumeClosed; });
+    window._topBrokersData = rows;
+    _renderTopBrokersFromData(wrap, rows);
+  }).catch(function(err) {
+    wrap.innerHTML = '<div class="loading" style="color:var(--danger)">Failed to load: ' + ((err && err.message) || 'unknown') + '</div>';
+  });
+}
+
+function _renderTopBrokersFromData(wrap, rows) {
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="loading">No broker-linked loans yet. Bind a loan to a broker in the sizer to start tracking.</div>';
+    return;
+  }
+  // Show top 10, then a "View all" link to brokers.html.
+  var top = rows.slice(0, 10);
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    '<thead><tr>' +
+      '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Broker</th>' +
+      '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Company</th>' +
+      '<th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Deals</th>' +
+      '<th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Volume Closed</th>' +
+    '</tr></thead><tbody>' +
+    top.map(function(r) {
+      var b = r.broker || {};
+      var bname = b.name || '(unnamed)';
+      var company = b.company || '—';
+      return '<tr style="cursor:pointer" onclick="window.location.href=\'brokers.html\'" title="Open Broker Book">' +
+        '<td style="padding:9px 10px;border-bottom:1px solid #f0ece6">' + _escH(bname) + '</td>' +
+        '<td style="padding:9px 10px;border-bottom:1px solid #f0ece6;color:var(--muted)">' + _escH(company) + '</td>' +
+        '<td style="padding:9px 10px;text-align:right;border-bottom:1px solid #f0ece6">' + r.dealCount + '</td>' +
+        '<td style="padding:9px 10px;text-align:right;border-bottom:1px solid #f0ece6;font-weight:600">' + fmtMoney(r.volumeClosed) + '</td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table>';
+  if (rows.length > 10) {
+    html += '<div style="padding:10px;text-align:center"><a href="brokers.html" style="font-size:12px;color:var(--gold-mid);text-decoration:none">View all ' + rows.length + ' brokers →</a></div>';
+  }
+  wrap.innerHTML = html;
+}
+function _escH(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // Deploy 233.7 — Upcoming Closings list. Walks the mirror for pipeline

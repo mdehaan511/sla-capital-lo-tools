@@ -408,7 +408,7 @@
         <a href="decisions.html?status=on_hold"       class="status-btn hold">⏸ On Hold</a>
         <a href="decisions.html?status=denied"        class="status-btn denied">✕ Declined</a>
       </div>
-      <input type="text" id="searchBox" class="search-box" placeholder="Search address or borrower…" oninput="render()" />
+      <input type="text" id="searchBox" class="search-box" placeholder="Search address, borrower, or broker…" oninput="render()" />
       <select id="loFilter" class="lo-filter" style="display:none" onchange="onLoFilterChange()">
         <option value="">All LOs</option>
       </select>
@@ -906,10 +906,16 @@ function render() {
       var hay;
       if (it.kind === 'prospect') {
         var p = it.prospect;
-        hay = ((p.firstName||'') + ' ' + (p.lastName||'') + ' ' + (p.email||'') + ' ' + (p.propAddress||'')).toLowerCase();
+        // Deploy 236.15 (Brokers Phase 4) — search hits broker fields
+        // too. Typing a broker's name / company / email here filters
+        // the pipeline to tiles tied to that broker.
+        hay = ((p.firstName||'') + ' ' + (p.lastName||'') + ' ' + (p.email||'') + ' ' + (p.propAddress||'')
+             + ' ' + (p.brokerName||'') + ' ' + (p.brokerCompany||'') + ' ' + (p.brokerEmail||'')).toLowerCase();
       } else {
         var q = it.quote;
-        hay = ((q.borrower||'') + ' ' + (q.address||'') + ' ' + ((q.formData && q.formData.loanType)||'')).toLowerCase();
+        var qFd = q.formData || {};
+        hay = ((q.borrower||'') + ' ' + (q.address||'') + ' ' + (qFd.loanType||'')
+             + ' ' + (qFd.brokerName||'') + ' ' + (qFd.brokerCompany||'') + ' ' + (qFd.brokerEmail||'')).toLowerCase();
       }
       return hay.indexOf(search) >= 0;
     });

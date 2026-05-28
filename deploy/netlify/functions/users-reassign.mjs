@@ -25,7 +25,13 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 
-const STORES = ['clients', 'quotes', 'prospects', 'reminders', 'borrower_info'];
+// Deploy 236.15 (Brokers Phase 3d) — also reassign 'brokers'. Without
+// this, an LO's broker book would stay behind under the old owner key
+// when they're removed from the platform, leaving loans with
+// brokerIds that no longer resolve in the receiving LO's namespace.
+// Including brokers here keeps the (loan.brokerId -> broker record)
+// link resolvable post-reassign.
+const STORES = ['clients', 'quotes', 'prospects', 'reminders', 'borrower_info', 'brokers'];
 
 export default async (req, context) => {
   try {
