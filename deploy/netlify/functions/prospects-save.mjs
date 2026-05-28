@@ -82,6 +82,17 @@ export default async (req, context) => {
     monthlyHOA: String(body.monthlyHOA || ''),
     fundingDate: String(body.fundingDate || ''),
     status: 'new',
+    // Deploy 236.14 — Phase 3c broker fields. The sanitized prospect
+    // record previously DROPPED these fields because they weren't in
+    // this allowlist. Downstream code (notifyLO, upsertClientFromProspect,
+    // linkOrCreateBroker) all read from this prospect object, so
+    // omitting them here meant Phase 3c was a silent no-op even though
+    // apply.html was correctly POSTing the data.
+    submitterType: String(body.submitterType || 'borrower'),
+    brokerName:    String(body.brokerName    || ''),
+    brokerCompany: String(body.brokerCompany || ''),
+    brokerEmail:   String(body.brokerEmail   || '').toLowerCase().trim(),
+    brokerPhone:   String(body.brokerPhone   || ''),
   };
 
   // The loSlug is the LO's email address (URL-encoded). The storage key
