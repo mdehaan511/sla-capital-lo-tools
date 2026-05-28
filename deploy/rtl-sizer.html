@@ -2755,6 +2755,8 @@ function saveCurrentQuote() {
   // first. Same fix as dscr-sizer.html.
   formData._editingClientId = window._editingClientId || '';
   formData._editingLoanId   = window._editingLoanId   || '';
+  // Deploy 236.9 — see dscr-sizer.html for rationale.
+  formData._loanStatus      = window._editingLoanStatus || '';
 
   QuoteStore.saveQuote(_quoteUser, 'rtl', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
@@ -3292,6 +3294,10 @@ netlifyIdentity.on('init', function(user) {
         // full rationale on why address matching is fragile.
         window._editingLoanId = found.id || loanIdP || null;
         window._editingClientId = (clientRec && clientRec.id) || clientIdP || null;
+        // Deploy 236.9 — stash loan status so a fresh per-loan quote
+        // adopts the right initial bucket on save (see dscr-sizer.html
+        // for the full rationale).
+        window._editingLoanStatus = found.status || '';
         loadRTLQuote(fd);
         tryAutoDownload(); trySignatureHandoff();
         return true;

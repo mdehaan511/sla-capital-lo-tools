@@ -2841,6 +2841,11 @@ function saveCurrentQuote() {
   // and the second save silently overwrites the first.
   formData._editingClientId = window._editingClientId || '';
   formData._editingLoanId   = window._editingLoanId   || '';
+  // Deploy 236.9 — pass through the loaded loan's status so a fresh
+  // per-loan quote record adopts the right initial bucket (instead of
+  // defaulting to 'active' / Quoted, which would visually demote a
+  // loan already in Awaiting App / Submitted / Approved).
+  formData._loanStatus      = window._editingLoanStatus || '';
 
   QuoteStore.saveQuote(_quoteUser, 'dscr', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
@@ -3358,6 +3363,14 @@ netlifyIdentity.on('init', function(user) {
           // save with a slightly different address string would create a
           // duplicate loan and orphan the loan-details page.
           window._editingLoanId = found.id || loanIdP || null;
+          // Deploy 236.9 — stash the loan's current status so that when
+          // the LO saves the sizer (creating a fresh per-loan quote
+          // record), QuoteStore.saveQuote can inherit the real loan
+          // status instead of resetting to 'active'. Otherwise saving
+          // a loan that was already in Awaiting App / Submitted /
+          // Approved visually demotes it back to Quoted in the
+          // pipeline.
+          window._editingLoanStatus = found.status || '';
           loadQuoteIntoForm(fd);
           tryAutoDownload(); trySignatureHandoff();
           return true;

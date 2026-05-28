@@ -66,19 +66,27 @@ var QuoteStore = (function () {
       if (iQ >= 0) return iQ;
     }
     // Then by address. Prefer quotes that DON'T already have a loanId —
-    // those belong to another loan at the same address, not this one.
+    // those are legacy quotes that can still adopt this loan's identity
+    // on save without trampling another loan's record.
     if (opts.address) {
       var norm = normalizeAddress(opts.address);
       var iA1 = _cache.findIndex(function (q) {
         return q.toolType === toolType && normalizeAddress(q.address) === norm && !q.loanId;
       });
       if (iA1 >= 0) return iA1;
-      // Last-resort: any quote at this address. Only hit when there's no
-      // loanId disambiguator — preserves the pre-fix behavior for purely
-      // legacy data.
-      return _cache.findIndex(function (q) {
-        return q.toolType === toolType && normalizeAddress(q.address) === norm;
-      });
+      // Last-resort: any quote at this address. Deploy 236.9 — ONLY fire
+      // when the caller didn't supply a loanId. If we DO have a loanId
+      // expectation and no matching-or-unstamped quote exists, we MUST
+      // return -1 so the caller creates a brand-new quote for this
+      // loan. Hitting a quote that belongs to a different loanId would
+      // silently overwrite that other loan's record (the exact bug
+      // 236.7 was supposed to fix end-to-end — turns out the save-side
+      // collision survived in this fallback).
+      if (!opts.loanId) {
+        return _cache.findIndex(function (q) {
+          return q.toolType === toolType && normalizeAddress(q.address) === norm;
+        });
+      }
     }
     return -1;
   }
@@ -176,6 +184,14 @@ var QuoteStore = (function () {
       var idSuffix = loanId
         ? String(loanId).replace(/[^a-z0-9]+/gi, '_').toLowerCase()
         : String(addrKey || Date.now()).replace(/[^a-z0-9]+/g, '_');
+      // Deploy 236.9 — when a fresh quote is being created for an
+      // already-existing loan (the most common case after the 236.7
+      // bug-rescue flow), inherit the loan's current status from
+      // formData._loanStatus (stashed by loadFromClientLoan) instead
+      // of resetting to 'active'. Without this, saving from the sizer
+      // would visually demote a loan that's already in Awaiting App /
+      // Submitted / Approved back to Quoted in the pipeline.
+      var initialStatus = String((formData && formData._loanStatus) || '').trim() || 'active';
       quote = {
         id:        'q_' + toolType + '_' + idSuffix,
         address:   formData.address || '',
@@ -183,7 +199,7 @@ var QuoteStore = (function () {
         savedAt:   now,
         updatedAt: now,
         toolType:  toolType,
-        status:    'active',
+        status:    initialStatus,
         formData:  formData,
         loanId:    loanId   || '',
         clientId:  clientId || '',
