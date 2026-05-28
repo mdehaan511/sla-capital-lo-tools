@@ -53,17 +53,25 @@ var QuoteStore = (function () {
   // a real loan record.
   function findIdxBy(toolType, opts) {
     opts = opts || {};
-    // Most specific match first — by stored loanId on the quote.
+    // Deploy 236.11 — try quoteId FIRST. It's the most specific
+    // identifier and unique by construction (it's the storage key).
+    // When the caller knows the exact quote (e.g. the saved-quotes
+    // panel passing q.id from a row click), this must win over
+    // loanId — because two quote records can legitimately share a
+    // loanId (e.g. the address-keyed legacy quote + the new
+    // loanId-keyed quote both stamped with the same loanId during
+    // the 236.7 transition). loanId-first would otherwise return the
+    // wrong record and a delete-by-id would nuke the wrong tile.
+    if (opts.quoteId) {
+      var iQ = _cache.findIndex(function (q) { return q.id === opts.quoteId; });
+      if (iQ >= 0) return iQ;
+    }
+    // Then by stored loanId on the quote.
     if (opts.loanId) {
       var iL = _cache.findIndex(function (q) {
         return q.toolType === toolType && q.loanId === opts.loanId;
       });
       if (iL >= 0) return iL;
-    }
-    // Then by explicit quoteId (used by deleteQuote when caller has the id).
-    if (opts.quoteId) {
-      var iQ = _cache.findIndex(function (q) { return q.id === opts.quoteId; });
-      if (iQ >= 0) return iQ;
     }
     // Then by address. Prefer quotes that DON'T already have a loanId —
     // those are legacy quotes that can still adopt this loan's identity

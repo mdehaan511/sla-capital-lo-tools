@@ -1613,8 +1613,31 @@ function bulkDelete() {
 
   var promises = [];
 
-  // Delete quotes: remove the quote + the matching loan record on the
-  // client (look up via _loanLookup). Two API calls per quote.
+  // Deploy 236.11 — only delete the loan record when this is the LAST
+  // quote pointing at it. Pre-fix behavior assumed 1 quote = 1 loan, so
+  // deleting the quote also deleted the loan to avoid orphaning. After
+  // the same-address-two-loan fixes (236.7+), multiple distinct quotes
+  // can legitimately point to the SAME loan (e.g. a legacy address-
+  // keyed quote and the new loanId-keyed quote that adopted the same
+  // loanId during the migration). Deleting one of those quotes must
+  // NOT delete the shared loan or the other tile dies.
+  //
+  // Build a count of "how many quotes point at each loanId across this
+  // owner's full quote list" before processing the selection, then
+  // decrement as we delete.
+  var quotesPerLoan = {}; // 'ownerKey|loanId' -> count
+  Object.keys(_items).forEach(function (col) {
+    (_items[col] || []).forEach(function (it) {
+      if (it.kind !== 'quote') return;
+      var qq  = it.quote || {};
+      var qFd = qq.formData || {};
+      var ll  = qq.loanId || qFd._editingLoanId || '';
+      if (!ll) return;
+      var k = (it.ownerKey || '') + '|' + ll;
+      quotesPerLoan[k] = (quotesPerLoan[k] || 0) + 1;
+    });
+  });
+
   groups.quotes.forEach(function(q) {
     var item = (_items[q.colKey] || []).find(function(it) {
       return it.id === q.id && it.ownerKey === q.ownerKey;
@@ -1627,9 +1650,8 @@ function bulkDelete() {
         .catch(function(err) { console.warn('quote delete failed', q.id, err); })
     );
 
-    // Look up matching loan record and delete it too. Without this, the
-    // loan would stay on the client and orphan tools would flag it.
-    // Deploy 236.7 — prefer quote's stored loan identity over address.
+    // Look up matching loan record. Deploy 236.7 — prefer quote's
+    // stored loan identity over address.
     var addr = (item.quote.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
     var addrStreet = addr.split(',')[0].trim();
     var qFd = item.quote.formData || {};
@@ -1640,13 +1662,24 @@ function bulkDelete() {
       : (_loanLookup[q.ownerKey + '|id|' + qLoanId]
          || _loanLookup[q.ownerKey + '|' + addr]
          || _loanLookup[q.ownerKey + '|street|' + addrStreet]);
+
+    // Deploy 236.11 — only delete the loan if this is the last quote
+    // pointing at it. Other quotes still need it to resolve their
+    // click-through + Loan Details views.
     if (lookup) {
-      promises.push(
-        SLA.Clients.delete(lookup.clientId, {
-          loanId: lookup.loanId,
-          _owner: lookup.ownerKey,
-        }).catch(function(err) { console.warn('loan delete failed', lookup.loanId, err); })
-      );
+      var sharedKey = (q.ownerKey || '') + '|' + lookup.loanId;
+      var remaining = (quotesPerLoan[sharedKey] || 0) - 1;
+      quotesPerLoan[sharedKey] = remaining;
+      if (remaining <= 0) {
+        promises.push(
+          SLA.Clients.delete(lookup.clientId, {
+            loanId: lookup.loanId,
+            _owner: lookup.ownerKey,
+          }).catch(function(err) { console.warn('loan delete failed', lookup.loanId, err); })
+        );
+      } else {
+        console.log('[pipeline] kept loan ' + lookup.loanId + ' — still referenced by ' + remaining + ' other quote(s)');
+      }
     }
   });
 
