@@ -284,6 +284,11 @@ export async function advanceQuoteToInProcessing(record) {
   }
 
   const target = aggrNorm(targetLoan.address);
+  // Deploy 236.12 — match by loanId when we know it (we always do here:
+  // targetLoan was resolved by record.loanId above). This avoids
+  // flipping quotes/loans for ANOTHER loan at the same address (e.g.
+  // partner re-applies on same property with better credit).
+  const targetLoanId = targetLoan.id || '';
 
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
   let quotesUpdated = 0;
@@ -292,7 +297,12 @@ export async function advanceQuoteToInProcessing(record) {
     const { blobs } = await quotesStore.list({ prefix: record.ownerKey + '/' });
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
-      if (!q || aggrNorm(q.address) !== target) continue;
+      if (!q) continue;
+      // Deploy 236.12 — loanId match when both sides have it; fall back
+      // to address for legacy pre-Deploy-236.7 quotes.
+      const matchesById   = targetLoanId && q.loanId && q.loanId === targetLoanId;
+      const matchesByAddr = !q.loanId && aggrNorm(q.address) === target;
+      if (!matchesById && !matchesByAddr) continue;
       quotesMatched += 1;
       if (q.status === 'awaiting_app') {
         q.status = 'approved';
@@ -309,7 +319,12 @@ export async function advanceQuoteToInProcessing(record) {
   let loanUpdated = false;
   let advancedLoan = null; // capture the loan we flipped, for Baseline sync below
   for (const l of client.loans) {
-    if (aggrNorm(l.address) === target && l.status === 'awaiting_app') {
+    // Deploy 236.12 — strict loanId match for the loan-side flip. The
+    // address fallback covers truly legacy data with no loan id (which
+    // shouldn't exist post-Deploy-236.7 in any sane case).
+    const matchesLoan = (targetLoanId && l.id === targetLoanId)
+                     || (!targetLoanId && aggrNorm(l.address) === target);
+    if (matchesLoan && l.status === 'awaiting_app') {
       const prevStatus = l.status;
       l.status = 'approved';
       l.updatedAt = new Date().toISOString();
@@ -364,7 +379,10 @@ export async function advanceQuoteToInProcessing(record) {
   if (loanUpdated) {
     return { ok: true, quotesUpdated, loanUpdated, quotesMatched };
   }
-  const anyAwaiting = client.loans.some((l) => aggrNorm(l.address) === target && l.status === 'awaiting_app');
+  // Deploy 236.12 — loanId match (same rationale as above).
+  const anyAwaiting = client.loans.some((l) =>
+    ((targetLoanId && l.id === targetLoanId) || (!targetLoanId && aggrNorm(l.address) === target))
+    && l.status === 'awaiting_app');
   if (!anyAwaiting && quotesMatched > 0) {
     return { ok: true, reason: 'loan was already past awaiting_app', quotesUpdated, loanUpdated: false, quotesMatched };
   }

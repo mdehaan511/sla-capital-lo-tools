@@ -107,40 +107,90 @@ export default async (req, context) => {
 // ── Helpers ──────────────────────────────────────────────────
 
 async function syncToClientLoan(ownerKey, quote, status, audit) {
-  if (!quote.address) return;
+  if (!quote.address && !quote.loanId) return;
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const target = norm(quote.address);
+  // Deploy 236.12 — match by loanId when the quote carries one (post-
+  // Deploy-236.7 quotes do). Address-only match would otherwise update
+  // EVERY loan at this property, which is wrong when two distinct
+  // loans share an address (e.g. partner re-applies with better credit).
+  const targetLoanId = String(quote.loanId || '').trim();
+  const targetClientId = String(quote.clientId || '').trim();
+
+  // Deploy 236.12 — before mutating the loan, check whether OTHER quotes
+  // still point at it. If yes, leave the loan record alone — the other
+  // quote(s) need it intact. This is the same "last-quote-standing"
+  // pattern that pipeline.bulkDelete uses on the client side.
+  let otherQuotesForLoan = 0;
+  if (targetLoanId) {
+    try {
+      const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+      const { blobs: qBlobs } = await quotesStore.list({ prefix: ownerKey + '/' });
+      for (const { key: qk } of qBlobs) {
+        const qq = await quotesStore.get(qk, { type: 'json' });
+        if (!qq || qq.id === quote.id) continue;
+        if (String(qq.loanId || '') === targetLoanId) otherQuotesForLoan += 1;
+      }
+    } catch (_) { /* best-effort — fall through to mutate if list fails */ }
+  }
 
   const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
   for (const { key } of blobs) {
     const c = await clientsStore.get(key, { type: 'json' });
     if (!c || !c.loans) continue;
+    // Deploy 236.12 — when targeting a specific clientId+loanId, skip
+    // any client that doesn't match.
+    if (targetClientId && c.id !== targetClientId) continue;
     let changed = false;
     for (const l of c.loans) {
-      if (norm(l.address) === target) {
-        const prevStatus = l.status || '';
-        l.status = status;
-        l.updatedAt = new Date().toISOString();
-        // Deploy 226 — audit log entry for the admin's decision.
-        if (audit) {
-          const verbDisplay = audit.verb === 'approved'
-            ? 'Approved — moved to Awaiting Application'
-            : audit.verb === 'denied'
-              ? 'Denied'
-              : audit.verb === 'on_hold'
-                ? 'Placed on hold'
-                : 'Decision: ' + audit.verb;
-          const tail = audit.reason ? '\n\nAdmin notes: ' + audit.reason : '';
-          appendNoteEntry(l, {
-            kind:        'decision',
-            text:        verbDisplay + tail,
-            author:      audit.adminName || 'Admin',
-            authorEmail: audit.adminEmail || '',
-            meta:        { from: prevStatus, to: status, decision: audit.verb, reason: audit.reason || '' },
-          });
+      // Match by loanId first (deterministic). Address fallback only
+      // for pre-Deploy-236.7 quotes that never got a loanId stamped.
+      const matchesLoanId = targetLoanId && l.id === targetLoanId;
+      const matchesAddress = !targetLoanId && target && norm(l.address) === target;
+      if (matchesLoanId || matchesAddress) {
+        if (otherQuotesForLoan > 0) {
+          // Other quotes still reference this loan — don't change its
+          // status. Just write an audit entry so the LO can see that a
+          // quote was decided but the loan record was preserved.
+          if (audit) {
+            const verbDisplay = audit.verb === 'approved' ? 'Approved' :
+                                audit.verb === 'denied'   ? 'Denied' :
+                                audit.verb === 'on_hold'  ? 'Placed on hold' :
+                                'Decision: ' + audit.verb;
+            const tail = audit.reason ? '\n\nAdmin notes: ' + audit.reason : '';
+            appendNoteEntry(l, {
+              kind:        'decision',
+              text:        verbDisplay + ' (one of ' + (otherQuotesForLoan + 1) + ' quotes on this loan — loan status preserved)' + tail,
+              author:      audit.adminName || 'Admin',
+              authorEmail: audit.adminEmail || '',
+              meta:        { decision: audit.verb, reason: audit.reason || '', loanStatusPreserved: true },
+            });
+            changed = true;
+          }
+        } else {
+          const prevStatus = l.status || '';
+          l.status = status;
+          l.updatedAt = new Date().toISOString();
+          if (audit) {
+            const verbDisplay = audit.verb === 'approved'
+              ? 'Approved — moved to Awaiting Application'
+              : audit.verb === 'denied'
+                ? 'Denied'
+                : audit.verb === 'on_hold'
+                  ? 'Placed on hold'
+                  : 'Decision: ' + audit.verb;
+            const tail = audit.reason ? '\n\nAdmin notes: ' + audit.reason : '';
+            appendNoteEntry(l, {
+              kind:        'decision',
+              text:        verbDisplay + tail,
+              author:      audit.adminName || 'Admin',
+              authorEmail: audit.adminEmail || '',
+              meta:        { from: prevStatus, to: status, decision: audit.verb, reason: audit.reason || '' },
+            });
+          }
+          changed = true;
         }
-        changed = true;
       }
     }
     if (changed) await clientsStore.setJSON(key, c);

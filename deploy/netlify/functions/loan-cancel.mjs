@@ -152,7 +152,15 @@ async function handle(req, context) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      if (aggrNorm(q.address || '') !== targetAddr) continue;
+      // Deploy 236.12 — match by loanId first (Deploy-236.7+ quotes
+      // carry it). Address-only fuzzy match would otherwise also update
+      // quotes for ANOTHER loan at the same address. Fall back to
+      // address only when the quote has no loanId (legacy data).
+      if (q.loanId) {
+        if (q.loanId !== body.loanId) continue;
+      } else {
+        if (aggrNorm(q.address || '') !== targetAddr) continue;
+      }
       q.status = newStatus;
       q.updatedAt = now;
       if (isRestore) {
