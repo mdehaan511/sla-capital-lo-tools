@@ -14,6 +14,10 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { syncClient as brevoSyncClient } from './_shared/brevo.mjs';
+// Deploy 236.5 (Brokers Phase 3b) — auto-link any loan on this client
+// that has broker inline fields but no brokerId. Safe to run even on
+// loans that already have a brokerId (no-op fast path in the helper).
+import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 
 /**
  * Look up a profile by email and return a best-effort full name. Never throws.
@@ -137,6 +141,31 @@ export default async (req, context) => {
         if (touched > 0) console.log(`clients-save: propagated rename to ${touched} quote(s) for client ${record.id}`);
       } catch (e) {
         console.warn('clients-save: quote borrower-name propagation failed (non-fatal):', e && e.message);
+      }
+    }
+
+    // Deploy 236.5 — broker entity auto-link across all loans on this
+    // client. Runs sequentially (not parallel) to keep a single broker
+    // book read per loan and to avoid create-create races on the same
+    // email coming in on two new loans at once. Per-loan failure is
+    // logged but never blocks the save.
+    if (Array.isArray(record.loans) && record.loans.length) {
+      for (const l of record.loans) {
+        if (!l || typeof l !== 'object') continue;
+        if (!l.brokerName && !l.brokerEmail && !l.brokerId) continue;
+        try {
+          const linked = await linkOrCreateBroker(ownerKey, l);
+          if (linked && linked.id) {
+            l.brokerId = linked.id;
+            const b = linked.broker || {};
+            if (b.name)    l.brokerName    = b.name;
+            if (b.company) l.brokerCompany = b.company;
+            if (b.email)   l.brokerEmail   = b.email;
+            if (b.phone)   l.brokerPhone   = b.phone;
+          }
+        } catch (e) {
+          console.warn('clients-save: broker auto-link failed for loan ' + (l.id || '?') + ':', e && e.message);
+        }
       }
     }
 

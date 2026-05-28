@@ -17,6 +17,11 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, readJsonBody, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 236.5 (Brokers Phase 3b) — when a prospect carries broker
+// fields (apply.html broker mode in Phase 3c), resolve or create the
+// broker entity in the LO's book so the materialized loan lands with
+// a brokerId already set.
+import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -193,8 +198,38 @@ async function upsertClientFromProspect(prospect, loEmail) {
     // LO opens this loan. Without this, application-sourced loans
     // landed in the sizer with FICO unset, forcing the LO to re-key it.
     creditScore: prospect.creditScore || '',
+    // Deploy 236.5 — broker fields from apply.html broker mode. Empty
+    // when the prospect was filed by the borrower themselves. Captured
+    // even when blank so the loan record schema stays consistent.
+    brokerName:    prospect.brokerName    || '',
+    brokerCompany: prospect.brokerCompany || '',
+    brokerEmail:   prospect.brokerEmail   || '',
+    brokerPhone:   prospect.brokerPhone   || '',
+    brokerFee:     prospect.brokerFee     || '',
     fromApplication: true,
   };
+
+  // Deploy 236.5 — resolve the broker entity in the LO's book and bind
+  // the loan to it. Best-effort: if it fails, the loan still saves with
+  // inline broker fields, and Phase 5 migration will catch it later.
+  try {
+    if (loan.brokerName || loan.brokerEmail) {
+      const linked = await linkOrCreateBroker(ownerKey, loan);
+      if (linked && linked.id) {
+        loan.brokerId = linked.id;
+        const b = linked.broker || {};
+        // Canonicalize inline fields from the broker record when the
+        // entity already exists (subsequent submissions from the same
+        // broker reuse the entity's stored name/company/etc).
+        if (b.name)    loan.brokerName    = b.name;
+        if (b.company) loan.brokerCompany = b.company;
+        if (b.email)   loan.brokerEmail   = b.email;
+        if (b.phone)   loan.brokerPhone   = b.phone;
+      }
+    }
+  } catch (e) {
+    console.warn('prospects-save: broker auto-link failed (non-fatal):', e && e.message);
+  }
 
   const now = new Date().toISOString();
   let record;

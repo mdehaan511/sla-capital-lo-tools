@@ -29,6 +29,11 @@ import {
 // Deploy 226 — append "reprice" entry to the loan's audit log when the
 // sizer save changes rate / loanAmt / points / term vs. the prior record.
 import { appendNoteEntry, describeReprice } from './_shared/notes-log.mjs';
+// Deploy 236.5 (Brokers Phase 3b) — auto-link the loan to a broker
+// entity when broker inline fields are set but brokerId isn't. Catches
+// the case where the LO typed broker info directly without using the
+// picker, OR where they're saving a loan that pre-dates the picker.
+import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 
 export default async (req, context) => {
   try {
@@ -120,6 +125,29 @@ async function handle(req, context) {
   // Strip transient meta fields that shouldn\u2019t persist.
   delete merged._editingLoanId;
   delete merged._editingClientId;
+
+  // Deploy 236.5 \u2014 broker entity auto-link. Runs only if there's some
+  // broker data on the merged record AND brokerId isn't already a
+  // valid pointer to a record in this LO's book. Best-effort: failure
+  // never blocks the save, broker-link.mjs swallows internally.
+  try {
+    if (merged && (merged.brokerName || merged.brokerEmail || merged.brokerId)) {
+      const linked = await linkOrCreateBroker(ownerKey, merged);
+      if (linked && linked.id) {
+        merged.brokerId = linked.id;
+        // Backfill the inline fields from the canonical broker record
+        // so the loan display stays consistent if the broker record was
+        // edited recently (the broker book is the source of truth now).
+        const b = linked.broker || {};
+        if (b.name)    merged.brokerName    = b.name;
+        if (b.company) merged.brokerCompany = b.company;
+        if (b.email)   merged.brokerEmail   = b.email;
+        if (b.phone)   merged.brokerPhone   = b.phone;
+      }
+    }
+  } catch (e) {
+    console.warn('loan-update-from-sizer: broker auto-link failed (non-fatal):', e && e.message);
+  }
 
   // Deploy 226 \u2014 auto-append a "reprice" audit-log entry when the sizer
   // save changed rate / loanAmt / points / term vs. the prior record.
