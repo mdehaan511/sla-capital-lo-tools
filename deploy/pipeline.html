@@ -858,10 +858,13 @@ function loadAll() {
     // Quotes split by status (quotes already collected above)
     quotes.forEach(function(item) {
       var s = item.quote.status || 'active';
+      // Deploy 236.13 — cancelled is now also filtered out of the
+      // active pipeline (was previously falling into the 'quoted' else
+      // branch which made cancelled tiles linger in the Quoted column).
       var bucket = s === 'submitted'    ? 'submitted'
                  : s === 'awaiting_app' ? 'awaitingApp'
                  : s === 'approved'     ? 'approved'
-                 : (s === 'on_hold' || s === 'denied' || s === 'closed') ? null
+                 : (s === 'on_hold' || s === 'denied' || s === 'closed' || s === 'cancelled') ? null
                  : 'quoted';
       if (!bucket) return;
       _items[bucket].push({

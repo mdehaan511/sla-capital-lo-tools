@@ -107,16 +107,19 @@ export default async (req, context) => {
 // ── Helpers ──────────────────────────────────────────────────
 
 async function syncToClientLoan(ownerKey, quote, status, audit) {
-  if (!quote.address && !quote.loanId) return;
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const target = norm(quote.address);
-  // Deploy 236.12 — match by loanId when the quote carries one (post-
-  // Deploy-236.7 quotes do). Address-only match would otherwise update
-  // EVERY loan at this property, which is wrong when two distinct
-  // loans share an address (e.g. partner re-applies with better credit).
   const targetLoanId = String(quote.loanId || '').trim();
   const targetClientId = String(quote.clientId || '').trim();
+  // Deploy 236.13 — require targetLoanId. A quote without a loanId is
+  // a legacy / orphan record; address-only propagation would walk into
+  // OTHER loans at the same property. The LO can re-stamp loanId on
+  // any orphan by opening it in the sizer and clicking Save Quote.
+  if (!targetLoanId) {
+    console.log('[quotes-decide] quote ' + quote.id + ' has no loanId — skipping loan-side sync (re-save in sizer to fix)');
+    return;
+  }
 
   // Deploy 236.12 — before mutating the loan, check whether OTHER quotes
   // still point at it. If yes, leave the loan record alone — the other
@@ -144,8 +147,11 @@ async function syncToClientLoan(ownerKey, quote, status, audit) {
     if (targetClientId && c.id !== targetClientId) continue;
     let changed = false;
     for (const l of c.loans) {
-      // Match by loanId first (deterministic). Address fallback only
-      // for pre-Deploy-236.7 quotes that never got a loanId stamped.
+      // Deploy 236.13 — STRICT loanId match. Address fallback only
+      // fires when this quote ITSELF has no loanId (truly legacy
+      // pre-Deploy-236.7 record). If the quote has a loanId, address
+      // match is disabled — we don't want to walk into another loan
+      // at the same property.
       const matchesLoanId = targetLoanId && l.id === targetLoanId;
       const matchesAddress = !targetLoanId && target && norm(l.address) === target;
       if (matchesLoanId || matchesAddress) {

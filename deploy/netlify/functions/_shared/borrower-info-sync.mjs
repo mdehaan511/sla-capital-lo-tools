@@ -298,11 +298,12 @@ export async function advanceQuoteToInProcessing(record) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.12 — loanId match when both sides have it; fall back
-      // to address for legacy pre-Deploy-236.7 quotes.
-      const matchesById   = targetLoanId && q.loanId && q.loanId === targetLoanId;
-      const matchesByAddr = !q.loanId && aggrNorm(q.address) === target;
-      if (!matchesById && !matchesByAddr) continue;
+      // Deploy 236.13 — STRICT loanId match. Address fallback removed
+      // to prevent cross-loan contamination at the same property.
+      // Legacy quotes without loanId must be re-saved in the sizer to
+      // adopt the loanId before they'll auto-advance on long-app
+      // completion.
+      if (!targetLoanId || q.loanId !== targetLoanId) continue;
       quotesMatched += 1;
       if (q.status === 'awaiting_app') {
         q.status = 'approved';
@@ -319,12 +320,9 @@ export async function advanceQuoteToInProcessing(record) {
   let loanUpdated = false;
   let advancedLoan = null; // capture the loan we flipped, for Baseline sync below
   for (const l of client.loans) {
-    // Deploy 236.12 — strict loanId match for the loan-side flip. The
-    // address fallback covers truly legacy data with no loan id (which
-    // shouldn't exist post-Deploy-236.7 in any sane case).
-    const matchesLoan = (targetLoanId && l.id === targetLoanId)
-                     || (!targetLoanId && aggrNorm(l.address) === target);
-    if (matchesLoan && l.status === 'awaiting_app') {
+    // Deploy 236.13 — strict loanId match.
+    if (targetLoanId && l.id !== targetLoanId) continue;
+    if (l.status === 'awaiting_app') {
       const prevStatus = l.status;
       l.status = 'approved';
       l.updatedAt = new Date().toISOString();
@@ -379,10 +377,9 @@ export async function advanceQuoteToInProcessing(record) {
   if (loanUpdated) {
     return { ok: true, quotesUpdated, loanUpdated, quotesMatched };
   }
-  // Deploy 236.12 — loanId match (same rationale as above).
+  // Deploy 236.13 — strict loanId match.
   const anyAwaiting = client.loans.some((l) =>
-    ((targetLoanId && l.id === targetLoanId) || (!targetLoanId && aggrNorm(l.address) === target))
-    && l.status === 'awaiting_app');
+    targetLoanId && l.id === targetLoanId && l.status === 'awaiting_app');
   if (!anyAwaiting && quotesMatched > 0) {
     return { ok: true, reason: 'loan was already past awaiting_app', quotesUpdated, loanUpdated: false, quotesMatched };
   }

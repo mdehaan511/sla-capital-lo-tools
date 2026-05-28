@@ -173,15 +173,15 @@ async function handle(req, context) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.12 — match by loanId first (Deploy-236.7+ quotes
-      // carry it). Address-only would also update quotes for another
-      // loan at the same property.
-      if (q.loanId) {
-        if (q.loanId !== body.loanId) continue;
-      } else {
-        const qAddr = aggrNorm(q.address || '');
-        if (qAddr !== targetAddr) continue;
-      }
+      // Deploy 236.13 — STRICT loanId match. When we know the target
+      // loan (we always do here — body.loanId is required), only sync
+      // quotes that explicitly carry that loanId. Legacy quotes
+      // without loanId are skipped from this sync (they'd otherwise
+      // address-match and walk into quotes for a different loan at
+      // the same property). The LO can re-stamp a legacy quote by
+      // opening it in the sizer and Save Quote, which writes the
+      // current loanId onto it (per Deploy 236.7+).
+      if (q.loanId !== body.loanId) continue;
       // Update — but don't downgrade. If the quote is already at a
       // "further along" status (e.g. closed), leave it alone.
       const RANK = { active: 0, submitted: 1, awaiting_app: 2, approved: 3, closed: 4 };

@@ -170,14 +170,9 @@ async function handle(req, context) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.12 — match by loanId first (Deploy-236.7+ quotes
-      // carry it). Address-only match would also flip quotes for
-      // another loan at the same property.
-      if (q.loanId) {
-        if (q.loanId !== body.loanId) continue;
-      } else {
-        if (aggrNorm(q.address || '') !== targetAddr) continue;
-      }
+      // Deploy 236.13 — STRICT loanId match (no address fallback).
+      // See loan-advance-status.mjs for rationale.
+      if (q.loanId !== body.loanId) continue;
       q.status = newStatus;
       q.updatedAt = now;
       if (isRestore) {
