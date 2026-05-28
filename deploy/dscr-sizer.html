@@ -3167,11 +3167,25 @@ netlifyIdentity.on('init', function(user) {
             var targetOwner = String(ownerParam).toLowerCase();
             var targetAddr = decodeURIComponent(loadAddr).toLowerCase().trim();
             var hit = null;
+            // Deploy 236.8 — prefer loanId-based match (the deterministic
+            // loan identity from the loan-details URL). Falls back to
+            // address-only match for legacy quotes without a stored
+            // loanId. Avoids returning the wrong borrower's quote when
+            // two loans share an address.
             Object.keys(byOwner).some(function(k) {
               if (k.toLowerCase() !== targetOwner) return false;
               return (byOwner[k] || []).some(function(q) {
                 if ((q.toolType || 'dscr') !== 'dscr') return false;
+                if (loanIdP && q.loanId) {
+                  if (q.loanId === loanIdP) { hit = q; return true; }
+                  return false; // wrong loan at this owner — keep looking
+                }
                 if ((q.address || '').toLowerCase().trim() !== targetAddr) return false;
+                // Address match but no loanId on either side — accept
+                // only if no other quote at this address has a loanId
+                // for the URL's loanId (would be ambiguous). Simple
+                // heuristic: accept if hit is null, but mark for sanity
+                // check below.
                 hit = q;
                 return true;
               });
@@ -3196,7 +3210,14 @@ netlifyIdentity.on('init', function(user) {
           });
         }
         return QuoteStore.init().then(function() {
-          var q = QuoteStore.getQuote(user.email, 'dscr', decodeURIComponent(loadAddr));
+          // Deploy 236.8 — pass loanIdP so the quote lookup matches by
+          // loan identity, not just address. Without this, when two
+          // loans share an address (e.g. partner re-applies for same
+          // property with better credit), the sizer would load
+          // whichever borrower's quote happened to win the address
+          // collision, even though loan-details was clearly pointing
+          // at the OTHER loan via URL clientId+loanId.
+          var q = QuoteStore.getQuote(user.email, 'dscr', decodeURIComponent(loadAddr), { loanId: loanIdP });
           if (q && q.formData) {
             window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
             window._originalBorrowerEmail = q.formData.borrowerEmail || '';
@@ -3209,6 +3230,13 @@ netlifyIdentity.on('init', function(user) {
               return true;
             });
           }
+          // Deploy 236.8 — when no quote matches the loanId, return
+          // false so the loader chain falls through to
+          // loadFromClientLoan(), which reads the loan record directly
+          // from the clients store using the URL clientId+loanId. That
+          // path is the definitive load for application-sourced loans
+          // and for cases where this loan's prior quote was overwritten
+          // by another loan at the same address (pre-Deploy-236.7 data).
           return false;
         });
       }
@@ -3224,16 +3252,32 @@ netlifyIdentity.on('init', function(user) {
           var targetStreet = targetFull.split(',')[0].trim().replace(/\s+/g, ' ');
           var found = null;
           var foundClient = null;
-          clients.some(function(c) {
-            (c.loans || []).some(function(l) {
-              if (!l.address) return false;
-              var ls = norm(l.address);
-              var lstreet = ls.split(',')[0].trim().replace(/\s+/g, ' ');
-              if (ls === targetFull || (lstreet && lstreet === targetStreet)) { found = l; foundClient = c; return true; }
-              return false;
+          // Deploy 236.8 — prefer the URL-supplied clientId+loanId
+          // (deterministic loan identity) over address-based search.
+          // Same-address collisions otherwise return whichever loan
+          // is iterated first, applying the wrong borrower's override.
+          if (clientIdP && loanIdP) {
+            clients.some(function(c) {
+              if (c.id !== clientIdP) return false;
+              (c.loans || []).some(function(l) {
+                if (l.id !== loanIdP) return false;
+                found = l; foundClient = c; return true;
+              });
+              return !!found;
             });
-            return !!found;
-          });
+          }
+          if (!found) {
+            clients.some(function(c) {
+              (c.loans || []).some(function(l) {
+                if (!l.address) return false;
+                var ls = norm(l.address);
+                var lstreet = ls.split(',')[0].trim().replace(/\s+/g, ' ');
+                if (ls === targetFull || (lstreet && lstreet === targetStreet)) { found = l; foundClient = c; return true; }
+                return false;
+              });
+              return !!found;
+            });
+          }
           if (found && found.loanAmtLocked && found.loanAmt) {
             console.log('[sizer] Applying LO override: loanAmt = ' + found.loanAmt + ' (locked)');
             fd = Object.assign({}, fd, { loanAmt: found.loanAmt, _loanAmtLocked: true });

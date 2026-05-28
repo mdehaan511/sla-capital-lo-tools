@@ -3092,10 +3092,17 @@ netlifyIdentity.on('init', function(user) {
           var targetOwner = String(ownerParam).toLowerCase();
           var targetAddr = decodeURIComponent(loadAddr).toLowerCase().trim();
           var hit = null;
+          // Deploy 236.8 — prefer loanId-based match (same fix as
+          // dscr-sizer.html). Avoids returning the wrong borrower's
+          // quote when two loans share an address.
           Object.keys(byOwner).some(function(k) {
             if (k.toLowerCase() !== targetOwner) return false;
             return (byOwner[k] || []).some(function(q) {
               if ((q.toolType || 'dscr') !== 'rtl') return false;
+              if (loanIdP && q.loanId) {
+                if (q.loanId === loanIdP) { hit = q; return true; }
+                return false;
+              }
               if ((q.address || '').toLowerCase().trim() !== targetAddr) return false;
               hit = q;
               return true;
@@ -3117,7 +3124,12 @@ netlifyIdentity.on('init', function(user) {
         });
       }
       return QuoteStore.init().then(function() {
-        var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr));
+        // Deploy 236.8 — pass loanIdP so the quote lookup matches by
+        // loan identity, not just address. Without this, two loans at
+        // the same property collide on the address lookup and the
+        // sizer can load the wrong borrower's quote. Same fix as
+        // dscr-sizer.html.
+        var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr), { loanId: loanIdP });
         if (q && q.formData) {
           window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
           window._originalBorrowerEmail = q.formData.borrowerEmail || '';
@@ -3132,6 +3144,10 @@ netlifyIdentity.on('init', function(user) {
             return true;
           });
         }
+        // Deploy 236.8 — no matching quote for this loanId. Return
+        // false so the loader chain falls through to
+        // loadFromClientLoan(), which uses the URL clientId+loanId to
+        // load the loan record directly from the clients store.
         return false;
       });
     }
@@ -3149,7 +3165,20 @@ netlifyIdentity.on('init', function(user) {
         var targetStreet = targetFull.split(',')[0].trim().replace(/\s+/g, ' ');
         var found = null;
         var foundClient = null;
-        clients.some(function(c) {
+        // Deploy 236.8 — prefer URL-supplied clientId+loanId over
+        // address search (same fix as dscr-sizer.html). Address-only
+        // search picks the wrong loan when two loans share an address.
+        if (clientIdP && loanIdP) {
+          clients.some(function(c) {
+            if (c.id !== clientIdP) return false;
+            (c.loans || []).some(function(l) {
+              if (l.id !== loanIdP) return false;
+              found = l; foundClient = c; return true;
+            });
+            return !!found;
+          });
+        }
+        if (!found) clients.some(function(c) {
           (c.loans || []).some(function(l) {
             if (!l.address) return false;
             var ls = norm(l.address);
