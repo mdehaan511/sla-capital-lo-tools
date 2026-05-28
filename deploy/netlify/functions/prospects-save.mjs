@@ -291,11 +291,24 @@ async function notifyLO(prospect) {
   const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '—';
   const fmtText = (v) => v || '—';
 
-  const subject = `New loan application — ${name || prospect.email}`;
+  // Deploy 236.6 — flag broker-submitted apps in the subject so the LO
+  // sees the source at a glance. apply.html Phase 3c sets submitterType
+  // to 'broker' when a broker is filling out on behalf of a borrower.
+  const isBrokerApp = prospect.submitterType === 'broker';
+  const subject = isBrokerApp
+    ? `New loan application (via broker) — ${name || prospect.email}`
+    : `New loan application — ${name || prospect.email}`;
 
   const text = [
     `New loan application submitted ${new Date(prospect.submittedAt).toLocaleString('en-US')}`,
     '',
+    ...(isBrokerApp ? [
+      `Submitted by Broker: ${fmtText(prospect.brokerName)}`,
+      `  Company: ${fmtText(prospect.brokerCompany)}`,
+      `  Email:   ${fmtText(prospect.brokerEmail)}`,
+      `  Phone:   ${fmtText(prospect.brokerPhone)}`,
+      '',
+    ] : []),
     `Borrower: ${name}`,
     `Email:    ${prospect.email}`,
     `Phone:    ${fmtText(prospect.phone)}`,
@@ -324,6 +337,15 @@ async function notifyLO(prospect) {
     '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — New Loan Application</h1>' +
     `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(new Date(prospect.submittedAt).toLocaleString('en-US'))}</p></div>` +
     '<div style="padding:24px">' +
+    (isBrokerApp
+      ? '<div style="background:rgba(200,129,58,0.10);border:1px solid rgba(200,129,58,0.28);border-radius:8px;padding:12px 14px;margin-bottom:16px">' +
+          '<div style="font-size:10px;font-weight:600;color:#b5712d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Submitted by Broker</div>' +
+          `<div style="font-size:13px;font-weight:600;color:#1a1520">${esc(prospect.brokerName || '—')}` +
+            (prospect.brokerCompany ? ` <span style="font-weight:400;color:#7a7488">· ${esc(prospect.brokerCompany)}</span>` : '') +
+          '</div>' +
+          `<div style="font-size:12px;color:#7a7488;margin-top:2px">${esc(prospect.brokerEmail || '—')} · ${esc(prospect.brokerPhone || '—')}</div>` +
+        '</div>'
+      : '') +
     `<h2 style="font-size:15px;margin:0 0 12px">${esc(name || prospect.email)}</h2>` +
     '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
     row('Email', esc(prospect.email)) +
@@ -352,7 +374,13 @@ async function notifyLO(prospect) {
     subject,
     text,
     html,
-    reply_to: prospect.email || undefined,
+    // Deploy 236.6 — reply_to. For broker-submitted apps we lead with
+    // the broker (they're the active contact), but include the borrower
+    // too so the LO can reply-all. For self-submitted apps, just the
+    // borrower as before.
+    reply_to: isBrokerApp
+      ? [prospect.brokerEmail, prospect.email].filter(Boolean)
+      : (prospect.email || undefined),
   });
 
   const resp = await fetch('https://api.resend.com/emails', {

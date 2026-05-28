@@ -57,6 +57,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .cond{display:none}
 .cond.show{display:contents}
 
+/* Submitter-type segmented control (Deploy 236.6 — apply.html broker
+   mode). Lives at the very top of the form. Picking "I am a broker"
+   reveals the Broker Information card and re-labels Step 1 as the
+   Borrower's info. */
+.submitter-card{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);padding:18px 20px;margin-bottom:16px}
+.submitter-q{font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px}
+.submitter-q .req{color:var(--gold);margin-left:1px}
+.submitter-toggle{display:flex;gap:8px;flex-wrap:wrap}
+.submitter-opt{flex:1;min-width:220px;border:1.5px solid var(--border);background:var(--surface);border-radius:var(--r-xs);padding:12px 14px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);cursor:pointer;text-align:left;transition:all .15s;line-height:1.35}
+.submitter-opt:hover{border-color:var(--gold)}
+.submitter-opt.active{border-color:var(--gold);background:var(--gold-light);color:var(--gold-mid);font-weight:600}
+.submitter-opt small{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:2px}
+.submitter-opt.active small{color:var(--gold-mid)}
+.submitter-err{font-size:11px;color:var(--danger);margin-top:8px;display:none}
+.submitter-err.show{display:block}
+
 /* Dividers */
 .divider{grid-column:1/-1;height:1px;background:var(--border);margin:2px 0}
 .section-lbl{grid-column:1/-1;font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-top:4px}
@@ -95,9 +111,69 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- ── FORM ───────────────────────────────────────────────── -->
   <form id="appForm" onsubmit="return false">
 
+    <!-- Submitter type — Deploy 236.6 (Brokers Phase 3c).
+         Asked up-front so the LO knows immediately who they're talking
+         to. Picking "I am a broker" reveals the Broker Information
+         card below and re-labels Step 1's heading from "Your
+         Information" to "Borrower Information" (the person the broker
+         is representing). The Borrower fields stay the same — they
+         are always required because the loan is for the borrower. -->
+    <div class="submitter-card">
+      <div class="submitter-q">Who is submitting this application? <span class="req">*</span></div>
+      <div class="submitter-toggle">
+        <button type="button" class="submitter-opt active" data-submitter="borrower" onclick="setSubmitter('borrower')">
+          I am the borrower
+          <small>I'm applying for a loan for myself / my own LLC.</small>
+        </button>
+        <button type="button" class="submitter-opt" data-submitter="broker" onclick="setSubmitter('broker')">
+          I am a loan broker
+          <small>I'm representing a borrower and submitting on their behalf.</small>
+        </button>
+      </div>
+      <div class="submitter-err" id="err-submitter">Please choose how you're submitting this application.</div>
+    </div>
+
+    <!-- Broker Information — only shown when "I am a loan broker" is
+         selected above. The four fields here populate the brokerName /
+         brokerCompany / brokerEmail / brokerPhone slots on the
+         prospect, which the server (prospects-save.mjs) resolves into
+         a broker entity in the LO's book via linkOrCreateBroker. -->
+    <div class="card" id="brokerCard" style="display:none">
+      <div class="card-head"><div class="step">B</div>Broker Information</div>
+      <div class="card-body">
+        <div class="field">
+          <div class="wrap" id="wrap-brokerName">
+            <label>Broker Name <span class="req">*</span></label>
+            <input type="text" id="brokerName" oninput="clearE('brokerName')" />
+          </div>
+          <div class="err-msg" id="err-brokerName">Required</div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-brokerCompany">
+            <label>Broker Company</label>
+            <input type="text" id="brokerCompany" />
+          </div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-brokerEmail">
+            <label>Broker Email <span class="req">*</span></label>
+            <input type="email" id="brokerEmail" oninput="clearE('brokerEmail')" />
+          </div>
+          <div class="err-msg" id="err-brokerEmail">Valid email required</div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-brokerPhone">
+            <label>Broker Phone <span class="req">*</span></label>
+            <input type="tel" id="brokerPhone" placeholder="(555) 123-4567" oninput="clearE('brokerPhone'); applyPhoneMask(this)" />
+          </div>
+          <div class="err-msg" id="err-brokerPhone">Required</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Step 1: Your Information -->
     <div class="card">
-      <div class="card-head"><div class="step">1</div>Your Information</div>
+      <div class="card-head"><div class="step">1</div><span id="borrowerCardTitle">Your Information</span></div>
       <div class="card-body">
         <div class="field">
           <div class="wrap" id="wrap-firstName">
@@ -516,6 +592,40 @@ function onLoanPurposeChange() {
   updatePriceLabels();
 }
 
+// ── Submitter toggle (Deploy 236.6) ───────────────────────────
+// _submitterType: 'borrower' (default) or 'broker'. When 'broker',
+// the Broker Information card is revealed and Step 1's title is
+// switched from "Your Information" to "Borrower Information". The
+// submit handler reads this to decide what broker fields to attach
+// to the prospect payload.
+var _submitterType = 'borrower';
+function setSubmitter(type) {
+  if (type !== 'broker' && type !== 'borrower') return;
+  _submitterType = type;
+  // Toggle button active state
+  Array.prototype.forEach.call(document.querySelectorAll('.submitter-opt'), function (btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-submitter') === type);
+  });
+  // Show/hide broker info card
+  var brokerCard = document.getElementById('brokerCard');
+  if (brokerCard) brokerCard.style.display = (type === 'broker') ? '' : 'none';
+  // Re-label Step 1 — "Your Information" for the borrower-self path,
+  // "Borrower Information" when a broker is filling in on behalf.
+  var bct = document.getElementById('borrowerCardTitle');
+  if (bct) bct.textContent = (type === 'broker') ? 'Borrower Information' : 'Your Information';
+  // Also tweak the page-header copy so the broker isn't confused by
+  // text that addresses them ("we can quote your loan").
+  var ph = document.querySelector('.page-header p');
+  if (ph) {
+    ph.textContent = (type === 'broker')
+      ? "Fill out the form below for the borrower you're representing so we can quote their loan. We'll be in touch with you shortly after we receive it."
+      : 'Fill out the form below so we can most accurately give you a quote for your loan. Once completed, your Loan Officer will be in touch shortly.';
+  }
+  // Clear any prior submitter error
+  var se = document.getElementById('err-submitter');
+  if (se) se.classList.remove('show');
+}
+
 // ── Validation ────────────────────────────────────────────────
 function clearE(id) {
   var wrap = document.getElementById('wrap-'+id);
@@ -637,6 +747,18 @@ function validate() {
     if (!gv('flipsCompleted')) { showE('flipsCompleted'); ok=false; }
   }
 
+  // Deploy 236.6 — broker-mode required fields. Name + email + phone
+  // are all required so the LO has at least two contact paths to the
+  // broker (the broker book stores email as the canonical match key,
+  // but phone is the fallback when the broker has multiple email
+  // aliases).
+  if (_submitterType === 'broker') {
+    if (!gv('brokerName'))  { showE('brokerName');  ok=false; }
+    var bem = gv('brokerEmail');
+    if (!bem || !bem.includes('@')) { showE('brokerEmail', 'Valid broker email required'); ok=false; }
+    if (!gv('brokerPhone')) { showE('brokerPhone'); ok=false; }
+  }
+
   return ok;
 }
 
@@ -681,6 +803,16 @@ function submitApp() {
     monthlyInsurance:gv('monthlyInsurance'),
     monthlyHOA:      gv('monthlyHOA'),
     fundingDate:     gv('fundingDate'),
+    // Deploy 236.6 — broker mode. Captured when submitterType is
+    // 'broker'; fields are blank when the borrower applied themselves.
+    // The server (prospects-save.mjs Deploy 236.5) auto-creates or
+    // finds the broker entity in the LO's book and binds the
+    // materialized loan via brokerId.
+    submitterType: _submitterType,
+    brokerName:    (_submitterType === 'broker') ? gv('brokerName')    : '',
+    brokerCompany: (_submitterType === 'broker') ? gv('brokerCompany') : '',
+    brokerEmail:   (_submitterType === 'broker') ? gv('brokerEmail')   : '',
+    brokerPhone:   (_submitterType === 'broker') ? gv('brokerPhone')   : '',
   };
 
   // Lock the submit button while the request is in flight
