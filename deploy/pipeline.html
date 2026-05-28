@@ -760,19 +760,23 @@ function loadAll() {
     function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
     function ne(s){ return String(s||'').toLowerCase().trim(); }
     function streetOf(s) { return norm(s).split(',')[0].trim().replace(/\s+/g,' '); }
+    // Deploy 236.7 — index loans by loanId AS WELL so the address-keyed
+    // index can stop being the sole source of truth. The address index
+    // remains for legacy quotes that don't yet carry loanId/clientId.
     if (clientsResp.byOwner) {
       Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
         (clientsResp.byOwner[ownerKey] || []).forEach(function(c) {
           _clientById[ownerKey + '|' + c.id] = c;
           if (c.email) _contactLookup[ownerKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: ownerKey };
           (c.loans || []).forEach(function(l) {
-            if (!l.address || !l.id) return;
+            if (!l.id) return;
             var rec = { clientId: c.id, loanId: l.id, ownerKey: ownerKey };
-            _loanLookup[ownerKey + '|' + norm(l.address)] = rec;
-            // Also index by street-prefix so cards with slightly different
-            // address formatting still find the matching loan.
-            var st = streetOf(l.address);
-            if (st) _loanLookup[ownerKey + '|street|' + st] = rec;
+            _loanLookup[ownerKey + '|id|' + l.id] = rec;
+            if (l.address) {
+              _loanLookup[ownerKey + '|' + norm(l.address)] = rec;
+              var st = streetOf(l.address);
+              if (st) _loanLookup[ownerKey + '|street|' + st] = rec;
+            }
           });
         });
       });
@@ -782,11 +786,14 @@ function loadAll() {
         _clientById[myKey + '|' + c.id] = c;
         if (c.email) _contactLookup[myKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: myKey };
         (c.loans || []).forEach(function(l) {
-          if (!l.address || !l.id) return;
+          if (!l.id) return;
           var rec2 = { clientId: c.id, loanId: l.id, ownerKey: myKey };
-          _loanLookup[myKey + '|' + norm(l.address)] = rec2;
-          var st2 = streetOf(l.address);
-          if (st2) _loanLookup[myKey + '|street|' + st2] = rec2;
+          _loanLookup[myKey + '|id|' + l.id] = rec2;
+          if (l.address) {
+            _loanLookup[myKey + '|' + norm(l.address)] = rec2;
+            var st2 = streetOf(l.address);
+            if (st2) _loanLookup[myKey + '|street|' + st2] = rec2;
+          }
         });
       });
     }
@@ -1010,8 +1017,18 @@ function buildQuoteCard(it, colKey) {
   var addr = q.address || '';
   var addrNorm = (addr||'').trim().toLowerCase().replace(/\s+/g,' ');
   var addrStreet = addrNorm.split(',')[0].trim().replace(/\s+/g,' ');
-  var lookup = _loanLookup[it.ownerKey + '|' + addrNorm]
-            || _loanLookup[it.ownerKey + '|street|' + addrStreet];
+  // Deploy 236.7 (critical fix) — prefer the quote's stored loan
+  // identity. When two loans share an address, the address-keyed lookup
+  // returns whichever loan was indexed last, misrouting tile clicks to
+  // the wrong loan-details page. Quotes saved after this deploy carry
+  // their own loanId/clientId; legacy quotes fall through to address.
+  var quoteLoanId   = q.loanId   || (fd && fd._editingLoanId)   || '';
+  var quoteClientId = q.clientId || (fd && fd._editingClientId) || '';
+  var lookup = (quoteLoanId && quoteClientId)
+    ? { clientId: quoteClientId, loanId: quoteLoanId, ownerKey: it.ownerKey }
+    : (_loanLookup[it.ownerKey + '|id|'   + quoteLoanId]
+       || _loanLookup[it.ownerKey + '|' + addrNorm]
+       || _loanLookup[it.ownerKey + '|street|' + addrStreet]);
   // Item #3: prefer the loan record's loanAmt (which carries any LO override)
   // over the saved formData's value. Fall back to formData/quote values if no
   // matching loan record is found.
@@ -1164,8 +1181,17 @@ function reminderForCard(it) {
   var addr = it.quote.address || fd.address || '';
   var addrNorm = (addr||'').trim().toLowerCase().replace(/\s+/g,' ');
   var addrStreet = addrNorm.split(',')[0].trim().replace(/\s+/g,' ');
-  var lookup = _loanLookup[it.ownerKey + '|' + addrNorm]
-            || _loanLookup[it.ownerKey + '|street|' + addrStreet];
+  // Deploy 236.7 — prefer the quote's stored loan identity (see
+  // buildQuoteCard for the same pattern). Reminders are loanId-keyed
+  // server-side, so an address-keyed misroute lands the reminder on
+  // the wrong loan when two loans share an address.
+  var quoteLoanId   = it.quote.loanId   || (fd && fd._editingLoanId)   || '';
+  var quoteClientId = it.quote.clientId || (fd && fd._editingClientId) || '';
+  var lookup = (quoteLoanId && quoteClientId)
+    ? { clientId: quoteClientId, loanId: quoteLoanId, ownerKey: it.ownerKey }
+    : (_loanLookup[it.ownerKey + '|id|' + quoteLoanId]
+       || _loanLookup[it.ownerKey + '|' + addrNorm]
+       || _loanLookup[it.ownerKey + '|street|' + addrStreet]);
   if (!lookup) return null;
   return _remindersByLoan[lookup.loanId] || null;
 }
@@ -1603,10 +1629,17 @@ function bulkDelete() {
 
     // Look up matching loan record and delete it too. Without this, the
     // loan would stay on the client and orphan tools would flag it.
+    // Deploy 236.7 — prefer quote's stored loan identity over address.
     var addr = (item.quote.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
     var addrStreet = addr.split(',')[0].trim();
-    var lookup = _loanLookup[q.ownerKey + '|' + addr]
-              || _loanLookup[q.ownerKey + '|street|' + addrStreet];
+    var qFd = item.quote.formData || {};
+    var qLoanId   = item.quote.loanId   || qFd._editingLoanId   || '';
+    var qClientId = item.quote.clientId || qFd._editingClientId || '';
+    var lookup = (qLoanId && qClientId)
+      ? { clientId: qClientId, loanId: qLoanId, ownerKey: q.ownerKey }
+      : (_loanLookup[q.ownerKey + '|id|' + qLoanId]
+         || _loanLookup[q.ownerKey + '|' + addr]
+         || _loanLookup[q.ownerKey + '|street|' + addrStreet]);
     if (lookup) {
       promises.push(
         SLA.Clients.delete(lookup.clientId, {
@@ -1674,8 +1707,15 @@ function bulkCancel() {
     if (!item) return;
     var addr = (item.quote.address || '').trim().toLowerCase().replace(/\s+/g, ' ');
     var addrStreet = addr.split(',')[0].trim();
-    var lookup = _loanLookup[q.ownerKey + '|' + addr]
-              || _loanLookup[q.ownerKey + '|street|' + addrStreet];
+    // Deploy 236.7 — prefer quote's stored loan identity.
+    var qFd = item.quote.formData || {};
+    var qLoanId   = item.quote.loanId   || qFd._editingLoanId   || '';
+    var qClientId = item.quote.clientId || qFd._editingClientId || '';
+    var lookup = (qLoanId && qClientId)
+      ? { clientId: qClientId, loanId: qLoanId, ownerKey: q.ownerKey }
+      : (_loanLookup[q.ownerKey + '|id|' + qLoanId]
+         || _loanLookup[q.ownerKey + '|' + addr]
+         || _loanLookup[q.ownerKey + '|street|' + addrStreet]);
     if (!lookup) {
       // Quote with no matching loan record on the client — can't cancel
       // via loan-cancel.mjs (it requires clientId+loanId). Fall back to
@@ -2006,7 +2046,15 @@ function submitPreDiscussedConfirm() {
 // status=awaiting_app, kind=pre_discussed audit log entry, and legacy
 // notes string also gets the timestamped header for backward compat.
 function updateLoanRecordPreDiscussed(quoteItem, text) {
-  var lookup = quoteItem.loanLink || _loanLookup[(quoteItem.ownerKey || '').toLowerCase() + '|' + (quoteItem.quote.address || '').toLowerCase().trim()];
+  // Deploy 236.7 — prefer quote's stored loan identity over address.
+  var qFd = (quoteItem.quote && quoteItem.quote.formData) || {};
+  var qLoanId   = (quoteItem.quote && quoteItem.quote.loanId)   || qFd._editingLoanId   || '';
+  var qClientId = (quoteItem.quote && quoteItem.quote.clientId) || qFd._editingClientId || '';
+  var ownerLc = (quoteItem.ownerKey || '').toLowerCase();
+  var lookup = quoteItem.loanLink
+    || ((qLoanId && qClientId) ? { clientId: qClientId, loanId: qLoanId, ownerKey: ownerLc }
+        : _loanLookup[ownerLc + '|id|' + qLoanId]
+          || _loanLookup[ownerLc + '|' + (quoteItem.quote.address || '').toLowerCase().trim()]);
   if (!lookup) return Promise.resolve();
   var ownerOpt = (lookup.ownerKey && lookup.ownerKey !== (_user.email||'').toLowerCase()) ? { all: true } : {};
   return SLA.Clients.list(ownerOpt).then(function(r) {
@@ -2102,7 +2150,15 @@ function postSlackPreDiscussed(webhookUrl, q, text) {
 // update its status + notes. The pipeline build path (renderRow) populates
 // _loanLookup with quote → loan refs; we use that to find the loan.
 function updateLoanRecordOnSubmit(quoteItem, notes) {
-  var lookup = quoteItem.loanLink || _loanLookup[(quoteItem.ownerKey || '').toLowerCase() + '|' + (quoteItem.quote.address || '').toLowerCase().trim()];
+  // Deploy 236.7 — prefer quote's stored loan identity over address.
+  var qFd = (quoteItem.quote && quoteItem.quote.formData) || {};
+  var qLoanId   = (quoteItem.quote && quoteItem.quote.loanId)   || qFd._editingLoanId   || '';
+  var qClientId = (quoteItem.quote && quoteItem.quote.clientId) || qFd._editingClientId || '';
+  var ownerLc = (quoteItem.ownerKey || '').toLowerCase();
+  var lookup = quoteItem.loanLink
+    || ((qLoanId && qClientId) ? { clientId: qClientId, loanId: qLoanId, ownerKey: ownerLc }
+        : _loanLookup[ownerLc + '|id|' + qLoanId]
+          || _loanLookup[ownerLc + '|' + (quoteItem.quote.address || '').toLowerCase().trim()]);
   if (!lookup) {
     // Quote exists but no matching loan record — return success without
     // updating, the quote-only path was the pre-existing behavior.

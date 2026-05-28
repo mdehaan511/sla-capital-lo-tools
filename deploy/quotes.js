@@ -36,6 +36,53 @@ var QuoteStore = (function () {
     return (addr || '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
 
+  // Deploy 236.7 (critical fix) — quote identity by LOAN, not address.
+  //
+  // Old behavior: quotes were keyed by `q_<tool>_<address>`. When two loans
+  // existed at the same property (e.g. a borrower with poor credit applies,
+  // then their partner with better credit applies for the same address),
+  // the second quote save OVERWROTE the first because the storage key
+  // collided. Pipeline tiles routed via address-based lookup also misrouted
+  // to whichever loan won the address race.
+  //
+  // New behavior: a quote sourced from a known loan (_editingLoanId on
+  // formData) gets a unique-per-loan ID and stores clientId/loanId at the
+  // top level so the pipeline / saved-quotes panel can route via the loan
+  // reference directly. Standalone quotes (typed into the sizer with no
+  // loan loaded yet) keep the legacy address-based ID until the LO opens
+  // a real loan record.
+  function findIdxBy(toolType, opts) {
+    opts = opts || {};
+    // Most specific match first — by stored loanId on the quote.
+    if (opts.loanId) {
+      var iL = _cache.findIndex(function (q) {
+        return q.toolType === toolType && q.loanId === opts.loanId;
+      });
+      if (iL >= 0) return iL;
+    }
+    // Then by explicit quoteId (used by deleteQuote when caller has the id).
+    if (opts.quoteId) {
+      var iQ = _cache.findIndex(function (q) { return q.id === opts.quoteId; });
+      if (iQ >= 0) return iQ;
+    }
+    // Then by address. Prefer quotes that DON'T already have a loanId —
+    // those belong to another loan at the same address, not this one.
+    if (opts.address) {
+      var norm = normalizeAddress(opts.address);
+      var iA1 = _cache.findIndex(function (q) {
+        return q.toolType === toolType && normalizeAddress(q.address) === norm && !q.loanId;
+      });
+      if (iA1 >= 0) return iA1;
+      // Last-resort: any quote at this address. Only hit when there's no
+      // loanId disambiguator — preserves the pre-fix behavior for purely
+      // legacy data.
+      return _cache.findIndex(function (q) {
+        return q.toolType === toolType && normalizeAddress(q.address) === norm;
+      });
+    }
+    return -1;
+  }
+
   function formatDate(isoStr) {
     if (!isoStr) return '—';
     var d = new Date(isoStr);
@@ -84,21 +131,27 @@ var QuoteStore = (function () {
     });
   }
 
-  function getQuote(userEmail, toolType, addrKey) {
-    var norm = normalizeAddress(addrKey);
-    return _cache.find(function (q) {
-      return q.toolType === toolType && normalizeAddress(q.address) === norm;
-    }) || null;
+  function getQuote(userEmail, toolType, addrKey, opts) {
+    // opts.loanId — preferred match key (Deploy 236.7). Falls back to
+    // address-only lookup for legacy quotes saved before this deploy.
+    var idx = findIdxBy(toolType, {
+      loanId: opts && opts.loanId,
+      address: addrKey,
+    });
+    return idx >= 0 ? _cache[idx] : null;
   }
 
   // ── Mutations (update cache + fire-and-forget to backend) ────────
   function saveQuote(userEmail, toolType, formData, ownerOverride) {
     var addrKey = normalizeAddress(formData.address);
     var now = new Date().toISOString();
+    // Deploy 236.7 — loanId/clientId from the sizer's editing state.
+    // When set, this is the canonical identity of the loan this quote
+    // represents and overrides address as the dedupe key.
+    var loanId   = String((formData && formData._editingLoanId)   || '').trim() || null;
+    var clientId = String((formData && formData._editingClientId) || '').trim() || null;
 
-    var idx = _cache.findIndex(function (q) {
-      return q.toolType === toolType && normalizeAddress(q.address) === addrKey;
-    });
+    var idx = findIdxBy(toolType, { loanId: loanId, address: formData.address });
 
     var quote;
     if (idx >= 0) {
@@ -110,10 +163,21 @@ var QuoteStore = (function () {
         formData:  formData,
         // preserve status and savedAt
       });
+      // Backfill loanId/clientId on legacy quotes that didn't have them
+      // (the LO has now opened this quote inside a real loan context).
+      if (loanId   && !quote.loanId)   quote.loanId   = loanId;
+      if (clientId && !quote.clientId) quote.clientId = clientId;
       _cache[idx] = quote;
     } else {
+      // ID strategy: unique-per-loan when we know the loan, address-based
+      // as a legacy fallback. Standalone quotes (no _editingLoanId yet)
+      // still get the old address-keyed id so existing single-loan flows
+      // work unchanged.
+      var idSuffix = loanId
+        ? String(loanId).replace(/[^a-z0-9]+/gi, '_').toLowerCase()
+        : String(addrKey || Date.now()).replace(/[^a-z0-9]+/g, '_');
       quote = {
-        id:        'q_' + toolType + '_' + String(addrKey || Date.now()).replace(/[^a-z0-9]+/g, '_'),
+        id:        'q_' + toolType + '_' + idSuffix,
         address:   formData.address || '',
         borrower:  formData.borrower || '',
         savedAt:   now,
@@ -121,6 +185,8 @@ var QuoteStore = (function () {
         toolType:  toolType,
         status:    'active',
         formData:  formData,
+        loanId:    loanId   || '',
+        clientId:  clientId || '',
       };
       _cache.unshift(quote);
     }
@@ -145,15 +211,18 @@ var QuoteStore = (function () {
     return quote;
   }
 
-  function deleteQuote(userEmail, toolType, addrOrKey) {
-    var norm = normalizeAddress(addrOrKey);
-    var removed = null;
-    _cache = _cache.filter(function (q) {
-      if (q.toolType === toolType && normalizeAddress(q.address) === norm) {
-        removed = q; return false;
-      }
-      return true;
+  function deleteQuote(userEmail, toolType, addrOrKey, opts) {
+    // Deploy 236.7 — opts.loanId is preferred when caller knows the loan
+    // identity. addrOrKey is kept as the third arg for back-compat (most
+    // callers pass an address); we also try matching it as a quote id.
+    var idx = findIdxBy(toolType, {
+      loanId:  opts && opts.loanId,
+      quoteId: addrOrKey,
+      address: addrOrKey,
     });
+    if (idx < 0) return;
+    var removed = _cache[idx];
+    _cache.splice(idx, 1);
     if (removed && removed.id) {
       SLA.Quotes.delete(removed.id).catch(function (err) {
         console.warn('QuoteStore.deleteQuote persist failed:', err);
@@ -161,10 +230,12 @@ var QuoteStore = (function () {
     }
   }
 
-  function updateStatus(userEmail, toolType, addrKey, status, extraFields) {
-    var norm = normalizeAddress(addrKey);
-    var idx = _cache.findIndex(function (q) {
-      return q.toolType === toolType && normalizeAddress(q.address) === norm;
+  function updateStatus(userEmail, toolType, addrKey, status, extraFields, opts) {
+    // Deploy 236.7 — opts.loanId preferred over address. Same fallback
+    // chain as deleteQuote.
+    var idx = findIdxBy(toolType, {
+      loanId:  opts && opts.loanId,
+      address: addrKey,
     });
     if (idx < 0) return false;
     _cache[idx].status = status;
@@ -246,8 +317,12 @@ var QuoteStore = (function () {
       document.getElementById('quotesChevron').style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
     });
 
-    // Cache of address → loan-details URL, populated async after first list call
-    var loanLinkCache = {};
+    // Deploy 236.7 — loan-details URL by loanId (was: by address, which
+    // collided when two loans shared an address). The address index is
+    // kept ONLY as a fallback for legacy quotes that haven't yet been
+    // re-saved with a stored loanId/clientId.
+    var loanLinkById = {};   // loanId → URL
+    var loanLinkByAddr = {}; // normAddr → URL (legacy fallback)
     function refreshLoanLinks() {
       if (!window.SLA || !SLA.Clients) return;
       SLA.Clients.list().then(function(r) {
@@ -255,8 +330,13 @@ var QuoteStore = (function () {
         var norm = function(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); };
         clients.forEach(function(c) {
           (c.loans || []).forEach(function(l) {
-            if (l.address && l.id) {
-              loanLinkCache[norm(l.address)] = 'loan-details.html?clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
+            if (!l.id) return;
+            var url = 'loan-details.html?clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
+            loanLinkById[l.id] = url;
+            if (l.address) {
+              // Address fallback: last-write-wins is fine here because
+              // it's only used when the quote has NO stored loanId.
+              loanLinkByAddr[norm(l.address)] = url;
             }
           });
         });
@@ -282,7 +362,9 @@ var QuoteStore = (function () {
       var norm = function(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); };
       qs.slice(0, 3).forEach(function (q, i) {
         var s = STATUS_COLORS[q.status] || STATUS_COLORS.active;
-        var url = loanLinkCache[norm(q.address)];
+        // Deploy 236.7 — prefer the stored loanId. Address fallback only
+        // fires for legacy quotes saved before this fix.
+        var url = (q.loanId && loanLinkById[q.loanId]) || loanLinkByAddr[norm(q.address)];
         var addrHtml = url
           ? '<a href="' + url + '" style="color:inherit;text-decoration:none;border-bottom:1px solid transparent;transition:border-color 0.15s" onmouseover="this.style.borderBottomColor=\'var(--gold)\';this.style.color=\'var(--gold)\'" onmouseout="this.style.borderBottomColor=\'transparent\';this.style.color=\'\'">' + escHtml(q.address || 'No address') + '</a>'
           : escHtml(q.address || 'No address');
@@ -310,7 +392,10 @@ var QuoteStore = (function () {
         row.querySelector('.q-del-btn').addEventListener('click', function (e) {
           e.stopPropagation();
           if (confirm('Delete saved quote for:\n' + q.address + '?')) {
-            deleteQuote(userEmail, toolType, q.address);
+            // Deploy 236.7 — delete by quote.id (unambiguous) instead of
+            // address. Falls through to address-based match for legacy
+            // quotes without an id field (shouldn't happen but defensive).
+            deleteQuote(userEmail, toolType, q.id || q.address, { loanId: q.loanId });
             renderBody();
             if (onDelete) onDelete(q);
           }

@@ -2833,6 +2833,15 @@ function saveCurrentQuote() {
   // untouched on the LO's side.
   var ownerOvr = window._ownerOverride || null;
 
+  // Deploy 236.7 (critical bug fix) — stamp the loan identity onto the
+  // quote payload so QuoteStore.saveQuote can dedupe by loanId instead
+  // of address. Without these, two loans at the same property (e.g.
+  // borrower with poor credit applies, then their partner with better
+  // credit applies for the same address) collide on the same quote key
+  // and the second save silently overwrites the first.
+  formData._editingClientId = window._editingClientId || '';
+  formData._editingLoanId   = window._editingLoanId   || '';
+
   QuoteStore.saveQuote(_quoteUser, 'dscr', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
   // Deploy 192 (CRITICAL): revert the Deploy-188 "gate toast on promise"

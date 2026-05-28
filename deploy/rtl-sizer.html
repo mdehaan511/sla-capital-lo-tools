@@ -2748,6 +2748,14 @@ function saveCurrentQuote() {
   // Cross-LO override (see dscr-sizer.html for rationale). When admin
   // opened this sizer with `?owner=<otherLO>`, save under that LO's key.
   var ownerOvr = window._ownerOverride || null;
+  // Deploy 236.7 (critical bug fix) — stamp the loan identity onto the
+  // quote payload so QuoteStore.saveQuote can dedupe by loanId instead
+  // of address. Without these, two loans at the same property collide
+  // on the same quote key and the second save silently overwrites the
+  // first. Same fix as dscr-sizer.html.
+  formData._editingClientId = window._editingClientId || '';
+  formData._editingLoanId   = window._editingLoanId   || '';
+
   QuoteStore.saveQuote(_quoteUser, 'rtl', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
 
