@@ -2973,15 +2973,28 @@ function loadQuoteIntoForm(formData) {
     var el = $(id);
     if (el) el.value = fields[id];
   });
-  // If the loaded quote has a broker fee, open the Advanced section and
-  // reveal the broker contact fields so the LO can see what's there.
-  if (parseFloat(formData.brokerFee || 0) > 0) {
+  // Deploy 236.17 — open Advanced + reveal broker section whenever
+  // ANY broker info is set on the loan (id, name, or email), not
+  // just when a non-zero fee was entered. Apply.html broker mode
+  // submissions land with broker contact but no fee until the LO
+  // sets one here, so the prior `brokerFee > 0` gate left the
+  // broker picker hidden right at the moment the LO wanted to see
+  // (and confirm) the broker.
+  var _hasBroker = parseFloat(formData.brokerFee || 0) > 0
+                || (formData.brokerId   && String(formData.brokerId).trim())
+                || (formData.brokerName && String(formData.brokerName).trim())
+                || (formData.brokerEmail && String(formData.brokerEmail).trim());
+  if (_hasBroker) {
     var advT = document.getElementById('advToggle');
     var advB = document.getElementById('advBody');
     if (advT && !advT.classList.contains('open')) {
       advT.classList.add('open');
       if (advB) advB.style.display = 'block';
     }
+    // Show the broker fields explicitly even if fee is still 0, so
+    // the picker chip + locked inputs are visible on first paint.
+    var bf = document.getElementById('brokerFields');
+    if (bf) bf.style.display = 'grid';
     if (typeof onBrokerFeeChange === 'function') {
       try { onBrokerFeeChange(); } catch (_) {}
     }

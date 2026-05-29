@@ -799,11 +799,15 @@ function render() {
             '<span class="lbl">In Pipeline:</span>'+escH(pipelineCol)+
           '</span>'
         : '') +
-      // Broker Loan tag — shows when a non-zero broker fee was entered
-      // on the sizer. Visual cue that the loan has third-party
-      // origination involved (and broker fee in the closing costs).
-      (parseFloat(l.brokerFee || 0) > 0
-        ? '<span class="broker-loan-tag" title="This loan has a broker fee. See Broker Info below.">Broker Loan</span>'
+      // Broker Loan tag — Deploy 236.17 — now shows whenever the loan
+      // is linked to a broker entity OR has any broker contact info,
+      // not just when a non-zero broker fee was entered. Broker-app
+      // submissions land here with no fee yet (LO sets it on sizer).
+      ((parseFloat(l.brokerFee || 0) > 0)
+        || (l.brokerId && String(l.brokerId).trim())
+        || (l.brokerName && String(l.brokerName).trim())
+        || (l.brokerEmail && String(l.brokerEmail).trim())
+        ? '<span class="broker-loan-tag" title="This loan has a broker attached. See Broker Info below.">Broker Loan</span>'
         : '') +
       (c.firstName ? '<span style="color:var(--muted)">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</span>' : '') +
     '</div>' +
@@ -1353,16 +1357,31 @@ function render() {
   // flows. The submitLoan() helper is still defined below in case
   // anything else calls it externally; harmless if unused.
 
-  // Broker Info section — only renders for loans with a broker fee.
-  // Name/company/email/phone are editable inline (save via saveAppFields,
-  // same as the other application-side fields). Broker Fee itself is
-  // NOT editable here — that's set on the sizer; changing the fee mid-
-  // flight would require pricing recompute which we don't do at this layer.
-  if (parseFloat(l.brokerFee || 0) > 0) {
-    var brokerFeePts = parseFloat(l.brokerFee).toFixed(2);
+  // Broker Info section — Deploy 236.17 — now also renders for loans
+  // that have a broker entity link OR any inline broker contact info,
+  // not just when a non-zero broker fee was set. Apply.html broker-mode
+  // submissions (Phase 3c) attach broker contact info but no fee until
+  // the LO sets one in the sizer, so the prior `brokerFee > 0` gate
+  // hid the broker from view immediately after the application landed.
+  // Name/company/email/phone are editable inline (save via saveAppFields).
+  // Broker Fee remains read-only here — set on the sizer.
+  var hasBrokerInfo = parseFloat(l.brokerFee || 0) > 0
+                   || (l.brokerId && String(l.brokerId).trim())
+                   || (l.brokerName && String(l.brokerName).trim())
+                   || (l.brokerEmail && String(l.brokerEmail).trim());
+  if (hasBrokerInfo) {
+    var brokerFeePts = parseFloat(l.brokerFee || 0) > 0 ? parseFloat(l.brokerFee).toFixed(2) : '';
+    // Source badge — flag broker-app submissions visually.
+    var sourceBadge = (l.fromApplication && (l.brokerEmail || l.brokerName))
+      ? '<span class="section-tag" style="background:rgba(200,129,58,0.10);color:var(--gold-mid, #b5712d);border:1px solid rgba(200,129,58,0.28)">Submitted via Broker</span>'
+      : '';
+    // Link to broker book entry if we have a brokerId.
+    var brokerBookLink = l.brokerId
+      ? '<a href="brokers.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book">View in Broker Book →</a>'
+      : '';
     html +=
     '<div class="section">' +
-      '<div class="section-head"><h2>Broker Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-head"><h2>Broker Info</h2>' + sourceBadge + '<span class="section-tag tag-editable">Editable</span>' + brokerBookLink + '</div>' +
       '<div class="section-body">' +
         '<div class="app-grid">' +
           '<div class="field"><label>Broker Name</label>' +
@@ -1377,9 +1396,9 @@ function render() {
           '<div class="field"><label>Broker Phone</label>' +
             '<input type="tel" id="af-brokerPhone" value="'+escAttr(l.brokerPhone||'')+'" placeholder="(555) 123-4567" />' +
           '</div>' +
-          // Broker Fee: read-only, set on the sizer. Shown for reference.
+          // Broker Fee: read-only, set on the sizer. Empty when no fee yet.
           '<div class="field" style="grid-column:1/-1"><label>Broker Fee <span style="font-size:11px;color:var(--muted);font-weight:400">· Set on sizer</span></label>' +
-            '<input type="text" value="'+brokerFeePts+' pts" readonly style="background:rgba(120,116,136,0.08);cursor:not-allowed" />' +
+            '<input type="text" value="'+(brokerFeePts ? brokerFeePts+' pts' : 'Not set — open sizer to add')+'" readonly style="background:rgba(120,116,136,0.08);cursor:not-allowed" />' +
           '</div>' +
         '</div>' +
         '<div style="margin-top:14px;display:flex;align-items:center;gap:10px">' +
