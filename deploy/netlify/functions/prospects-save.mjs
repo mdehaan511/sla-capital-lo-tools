@@ -178,6 +178,14 @@ async function upsertClientFromProspect(prospect, loEmail) {
   // 'fix_flip', 'rtl', 'dscr' all leave loanType blank
   const loan = {
     id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    // Deploy 236.22 — stamp prospectId on the loan so the pipeline
+    // dedup can match prospect→loan deterministically instead of by
+    // (ownerKey, address). Address-based dedup silently breaks when
+    // the LO corrects the address on the sizer: the loan/quote update
+    // but the prospect's propAddress stays at the original value, so
+    // it resurfaces as a duplicate tile in "New Application". The
+    // prospectId reference doesn't drift on address edits.
+    prospectId:  prospect.id || '',
     toolType:    isRtl ? 'rtl' : 'dscr',
     address:     prospect.propAddress || '',
     savedAt:     new Date().toISOString(),

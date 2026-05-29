@@ -831,12 +831,35 @@ function loadAll() {
     function _normAddr(s) {
       return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
     }
-    var _workedByOwner = {}; // ownerKey -> Set of normalized addresses
+    // Deploy 236.22 — dedup prospects by BOTH address AND prospectId.
+    // Address dedup silently breaks when the LO corrects the address
+    // on the sizer (the loan/quote update, the prospect's propAddress
+    // stays at the original). prospectId-based dedup is deterministic
+    // because the loan record now carries the originating prospect.id
+    // (stamped at upsertClientFromProspect time). Pre-236.22 loans
+    // won't have prospectId yet — they still depend on the address
+    // dedup until the LO touches them, but new applications going
+    // forward are immune to the address-rename break.
+    var _workedByOwner = {};         // ownerKey -> normAddr -> true
+    var _workedProspectIds = {};      // ownerKey -> prospectId -> true
     quotes.forEach(function(item) {
       var addr = _normAddr(item.quote.address);
       if (!addr) return;
       if (!_workedByOwner[item.owner]) _workedByOwner[item.owner] = {};
       _workedByOwner[item.owner][addr] = true;
+    });
+    // Walk every loan on every client and add (ownerKey, prospectId)
+    // to the worked set. _clientById was built above from clientsResp.
+    Object.keys(_clientById).forEach(function(k) {
+      var bar = k.indexOf('|');
+      if (bar < 0) return;
+      var owner = k.slice(0, bar);
+      var c = _clientById[k];
+      (c.loans || []).forEach(function(l) {
+        if (!l.prospectId) return;
+        if (!_workedProspectIds[owner]) _workedProspectIds[owner] = {};
+        _workedProspectIds[owner][l.prospectId] = true;
+      });
     });
 
     // Prospects without a quote → New Application
@@ -854,7 +877,9 @@ function loadAll() {
       });
     }
     prospects.forEach(function(item) {
-      // Skip if a quote already exists for this owner+address combination
+      // Deploy 236.22 — prospectId dedup first (deterministic), then
+      // address dedup (legacy fallback for pre-236.22 loans).
+      if (_workedProspectIds[item.owner] && _workedProspectIds[item.owner][item.prospect.id]) return;
       var addr = _normAddr(item.prospect.propAddress);
       if (addr && _workedByOwner[item.owner] && _workedByOwner[item.owner][addr]) return;
       _items.newApp.push({
