@@ -2577,8 +2577,43 @@ function prefillFromProspect(p) {
       }
     }
   }
+  // Deploy 236.19 — broker hydration on the prospect-claim path.
+  // Same fix as RTL: broker-mode apply.html submissions come through
+  // here when the LO claims the prospect from the pipeline.
+  var _bHasInfo = p.brokerName || p.brokerEmail || p.brokerId;
+  if (_bHasInfo) {
+    var bnInp = document.getElementById('brokerName');
+    var bcInp = document.getElementById('brokerCompany');
+    var beInp = document.getElementById('brokerEmail');
+    var bpInp = document.getElementById('brokerPhone');
+    var biInp = document.getElementById('brokerId');   // hidden, created by BrokerPicker.init
+    var bfInp = document.getElementById('brokerFee');
+    if (bnInp) bnInp.value = p.brokerName    || '';
+    if (bcInp) bcInp.value = p.brokerCompany || '';
+    if (beInp) beInp.value = p.brokerEmail   || '';
+    if (bpInp) {
+      bpInp.value = p.brokerPhone || '';
+      if (bpInp.value && typeof applyPhoneMask === 'function') applyPhoneMask(bpInp);
+    }
+    if (biInp && p.brokerId) biInp.value = p.brokerId;
+    if (bfInp && (!bfInp.value || parseFloat(bfInp.value) <= 0)) bfInp.value = '1';
+    var advT = document.getElementById('advToggle');
+    var advB = document.getElementById('advBody');
+    if (advT && !advT.classList.contains('open')) {
+      advT.classList.add('open');
+      if (advB) advB.style.display = 'block';
+    }
+    var bf = document.getElementById('brokerFields');
+    if (bf) bf.style.display = 'grid';
+    if (typeof onBrokerFeeChange === 'function') {
+      try { onBrokerFeeChange(); } catch (_) {}
+    }
+    if (p.brokerId && window.BrokerPicker && BrokerPicker.restore) {
+      try { BrokerPicker.restore(p.brokerId); } catch (_) {}
+    }
+  }
+
   // Store prospect reference for client promotion on save
-  window._currentProspect = p;
   window._currentProspect = p;
   // Recalculate and re-render now that all fields are populated
   try { run(); } catch(e) { /* ignore */ }

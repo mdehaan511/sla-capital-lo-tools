@@ -642,7 +642,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <!-- Advanced -->
       <div class="adv-toggle span2" id="advToggle" onclick="toggleAdv()">
         <span class="adv-arrow">▶</span>
-        <span>Advanced — Broker Fee & ZHVI Override</span>
+        <span>Advanced — Broker Fee</span>
       </div>
       <div class="adv-body span2" id="advBody">
         <!-- Broker fee block. Entering a non-zero fee:
@@ -685,16 +685,14 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
             </div>
           </div>
         </div>
-        <div class="field">
-          <div class="wrap">
-            <label>Property Value vs ZIP ZHVI</label>
-            <select id="zhvi">
-              <option value="normal">Under 200% ZHVI (standard)</option>
-              <option value="200">200–300% ZHVI (−5% leverage)</option>
-              <option value="300">Over 300% ZHVI (−10% leverage)</option>
-            </select>
-          </div>
-        </div>
+        <!-- Deploy 236.19 — ZHVI override UI removed (Mike: "we haven't
+             been using it"). The hidden #zhvi input below keeps the
+             calculate() flow + adjustment chain working with a permanent
+             'normal' value, so we don't have to touch every code path
+             that reads `document.getElementById('zhvi').value`. Hidden
+             so saved quotes with a non-normal value still parse without
+             error if they round-trip through the sizer. -->
+        <input type="hidden" id="zhvi" value="normal" />
       </div>
 
     </div><!-- /form-body -->
@@ -2460,6 +2458,50 @@ function prefillRTLFromProspect(p) {
   // pattern as the email field.
   var bpEl = document.getElementById('borrowerPhone');
   if (bpEl && p.phone) { bpEl.value = p.phone; applyPhoneMask(bpEl); }
+  // Deploy 236.19 — broker hydration on the prospect-claim path. The
+  // earlier Deploy 236.18 fix went into loadFromClientLoan, but
+  // broker-app prospects come through THIS function instead (pipeline
+  // tile → fromProspect URL → prefillRTLFromProspect). Pull broker
+  // fields directly from the prospect, default brokerFee to 1pt (SLA
+  // standard for broker deals), reveal the Advanced section, and
+  // restore the BrokerPicker chip if there's already a brokerId.
+  var _bHasInfo = p.brokerName || p.brokerEmail || p.brokerId;
+  if (_bHasInfo) {
+    var bnInp = document.getElementById('brokerName');
+    var bcInp = document.getElementById('brokerCompany');
+    var beInp = document.getElementById('brokerEmail');
+    var bpInp = document.getElementById('brokerPhone');
+    var biInp = document.getElementById('brokerId');   // hidden, created by BrokerPicker.init
+    var bfInp = document.getElementById('brokerFee');
+    if (bnInp) bnInp.value = p.brokerName    || '';
+    if (bcInp) bcInp.value = p.brokerCompany || '';
+    if (beInp) beInp.value = p.brokerEmail   || '';
+    if (bpInp) {
+      bpInp.value = p.brokerPhone || '';
+      if (bpInp.value && typeof applyPhoneMask === 'function') applyPhoneMask(bpInp);
+    }
+    if (biInp && p.brokerId) biInp.value = p.brokerId;
+    // Default fee to 1 point when not already set — SLA standard.
+    if (bfInp && (!bfInp.value || parseFloat(bfInp.value) <= 0)) bfInp.value = '1';
+    // Open the Advanced section + reveal the broker fields div so the
+    // LO sees the prefilled state. onBrokerFeeChange does the reveal.
+    var advT = document.getElementById('advToggle');
+    var advB = document.getElementById('advBody');
+    if (advT && !advT.classList.contains('open')) {
+      advT.classList.add('open');
+      if (advB) advB.style.display = 'block';
+    }
+    var bf = document.getElementById('brokerFields');
+    if (bf) bf.style.display = 'grid';
+    if (typeof onBrokerFeeChange === 'function') {
+      try { onBrokerFeeChange(); } catch (_) {}
+    }
+    // Restore the BrokerPicker chip if we have a brokerId. Async — the
+    // picker pulls the broker record from the LO's book by id.
+    if (p.brokerId && window.BrokerPicker && BrokerPicker.restore) {
+      try { BrokerPicker.restore(p.brokerId); } catch (_) {}
+    }
+  }
   window._currentProspect = p;
   // Force calculation since the form is now ready to price
   try {
