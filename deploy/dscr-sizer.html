@@ -3377,6 +3377,28 @@ netlifyIdentity.on('init', function(user) {
           if (!fd.borrowerPhone && clientRec && clientRec.phone) {
             fd = Object.assign({}, fd, { borrowerPhone: clientRec.phone });
           }
+          // Deploy 236.18 — explicit broker-field hydration + 1pt fee
+          // default for fresh broker apps. Same rationale as RTL sizer:
+          // apply.html broker-mode lands broker fields at the loan's
+          // top level, and DSCR's loadQuoteIntoForm reads broker fields
+          // by formData[id] || '' — so for an apply-sourced loan with
+          // no formData yet, the broker fields ARE in fd (because fd =
+          // found in that case), but a SAVED quote without broker keys
+          // would mask them. Pull them explicitly + default fee to 1.
+          var _bN = found.brokerName    || fd.brokerName    || '';
+          var _bC = found.brokerCompany || fd.brokerCompany || '';
+          var _bE = found.brokerEmail   || fd.brokerEmail   || '';
+          var _bP = found.brokerPhone   || fd.brokerPhone   || '';
+          var _bI = found.brokerId      || fd.brokerId      || '';
+          var _bF = fd.brokerFee        || found.brokerFee  || '';
+          var _hasBroker = _bN || _bE || _bI;
+          if (_hasBroker && (!_bF || parseFloat(_bF) <= 0)) _bF = '1';
+          fd = Object.assign({}, fd, {
+            brokerName:    _bN, brokerCompany: _bC,
+            brokerEmail:   _bE, brokerPhone:   _bP,
+            brokerId:      _bI, brokerFee:     _bF,
+          });
+
           window._originalAddress = found.address || '';
           window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
           // Lock onto the existing loan's ID so save updates this record
