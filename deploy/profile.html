@@ -6,6 +6,7 @@
   <title>Profile — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
   <script src="sla-search.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
@@ -143,22 +144,7 @@
 
 <div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
 
-<nav class="nav">
-  <div class="nav-left">
-    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
-    <a href="index.html" class="nav-tools-btn">Tools</a>
-  </div>
-  <div class="nav-right">
-    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" href="brokers.html">Brokers</a>
-    <a class="nav-tool-link" href="loans.html">Loans</a>
-    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link current" href="profile.html">Profile</a>
-
-    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
-  </div>
-</nav>
+<nav class="nav" id="slaNav"></nav>
 
 <div class="page">
   <div class="page-header">

@@ -6,6 +6,7 @@
   <title>Admin — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -139,22 +140,7 @@
     </div>
   </div>
 
-  <nav class="nav">
-    
-  <div class="nav-left">
-    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a></div>
-    <div class="nav-right">
-    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="decisions.html">Decisions</a>
-    <a class="nav-tool-link" href="closed.html">Closed</a>
-    <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" href="brokers.html">Brokers</a>
-    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a>
-
-      <button class="logout-btn" id="logoutBtn">Sign out</button>
-    </div>
-  </nav>
+  <nav class="nav" id="slaNav"></nav>
 
   <div class="page">
     <div class="page-header">
@@ -421,42 +407,70 @@ netlifyIdentity.on('init', function(user) {
     var container = document.getElementById('userStatsContainer');
     var users   = (resp && resp.users)   || [];
     var orphans = (resp && resp.orphans) || [];
+    var identityFetchOk = !!(resp && resp.identityFetchOk);
 
     if (!users.length) {
       container.innerHTML = '<div class="empty-state">No users found.</div>';
       return;
     }
 
-    // Aggregate totals across all users
+    // Deploy 236.23 — split active vs deleted users. A user is
+    // "deleted" when they have a profile but no longer exist in
+    // Netlify Identity, OR they're an orphan storage prefix. Active
+    // users render in the main table. Deleted users render under a
+    // collapsible "Deleted Users" section to preserve their stats
+    // without polluting the active roster.
+    var activeUsers  = users.filter(function(u) { return !u.deleted; });
+    var deletedUsers = users.filter(function(u) { return  u.deleted; });
+
+    // Aggregate totals across ACTIVE users only (active business view)
     var totalClients = 0, totalQuotes = 0, totalLoan = 0;
-    users.forEach(function(u) {
+    activeUsers.forEach(function(u) {
       totalClients += u.clientCount || 0;
       totalQuotes  += u.quoteCount  || 0;
       totalLoan    += u.totalLoanAmount || 0;
     });
 
-    // Summary strip
     var summary = '<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border)">' +
-      statPill(users.length, 'Users')          +
-      statPill(totalClients, 'Clients')        +
-      statPill(totalQuotes,  'Quotes')         +
+      statPill(activeUsers.length, 'Active Users')   +
+      statPill(totalClients, 'Clients')              +
+      statPill(totalQuotes,  'Quotes')               +
       statPill(fmtMoney(totalLoan), 'Total Loan Volume', true) +
     '</div>';
+    if (!identityFetchOk) {
+      summary += '<div style="margin-bottom:14px;padding:10px 14px;background:#fff7e6;border:1px solid #f4d47a;border-radius:var(--r-xs);font-size:12px;color:#7a5218">' +
+        '<strong>Note:</strong> Couldn\'t reach the Netlify Identity admin API on this request, so users that may have been deleted from Identity aren\'t flagged below. Refresh in a moment to retry.' +
+      '</div>';
+    }
 
     var origin = location.origin;
-    var rows = users.map(function(u) {
+    function rowHtml(u, isDeleted) {
       var role = (u.roles[0] || 'user');
       var roleLabel = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
       var roleClass = role;
       var name = u.fullName || humanizeEmail(u.email);
       var lastActive = formatLastActive(u.last_seen_at);
-      var applyUrl = u.email ? (origin + '/apply.html?lo=' + encodeURIComponent(u.email)) : '';
-      var applyCell = applyUrl
-        ? '<button type="button" class="apply-copy-btn" data-url="' + escHtml(applyUrl) + '" onclick="copyApplyLink(this)" title="Copy ' + escHtml(applyUrl) + '">Copy link</button>'
-        : '<span style="color:var(--muted);font-size:11px">—</span>';
+      // Deleted users don't get a working apply link (their LO slug
+      // would still resolve server-side, but it's confusing to copy a
+      // link belonging to someone no longer with the company).
+      var applyCell;
+      if (isDeleted) {
+        applyCell = '<span style="color:var(--muted);font-size:11px;font-style:italic">deleted</span>';
+      } else {
+        var applyUrl = u.email ? (origin + '/apply.html?lo=' + encodeURIComponent(u.email)) : '';
+        applyCell = applyUrl
+          ? '<button type="button" class="apply-copy-btn" data-url="' + escHtml(applyUrl) + '" onclick="copyApplyLink(this)" title="Copy ' + escHtml(applyUrl) + '">Copy link</button>'
+          : '<span style="color:var(--muted);font-size:11px">—</span>';
+      }
+      // Subtle muted styling for deleted user rows
+      var rowStyle = isDeleted ? ' style="opacity:0.7"' : '';
+      var nameStyle = isDeleted ? 'color:var(--muted)' : 'color:var(--text)';
+      var deletedTag = isDeleted
+        ? '<span style="display:inline-block;margin-left:8px;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:8px;background:rgba(124,31,31,.08);color:var(--danger)">Deleted</span>'
+        : '';
       return (
-        '<tr>' +
-          '<td style="padding:10px 12px"><div style="font-weight:600;color:var(--text)">' + escHtml(name) + '</div>' +
+        '<tr' + rowStyle + '>' +
+          '<td style="padding:10px 12px"><div style="font-weight:600;' + nameStyle + '">' + escHtml(name) + deletedTag + '</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + escHtml(u.email) + '</div></td>' +
           '<td style="padding:10px 12px"><span class="role-badge ' + roleClass + '" style="font-size:10px">' + roleLabel + '</span></td>' +
           '<td style="padding:10px 12px;color:var(--muted);font-size:12px">' + lastActive + '</td>' +
@@ -466,21 +480,44 @@ netlifyIdentity.on('init', function(user) {
           '<td style="padding:10px 12px;text-align:right;font-family:\'DM Mono\',monospace">' + fmtMoney(u.totalLoanAmount || 0) + '</td>' +
         '</tr>'
       );
-    }).join('');
+    }
+    var rows = activeUsers.map(function(u) { return rowHtml(u, false); }).join('');
+
+    var theadHtml =
+      '<thead><tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--border)">' +
+        '<th style="padding:10px 12px;font-weight:600">User</th>' +
+        '<th style="padding:10px 12px;font-weight:600">Role</th>' +
+        '<th style="padding:10px 12px;font-weight:600">Last Active</th>' +
+        '<th style="padding:10px 12px;font-weight:600">Apply Link</th>' +
+        '<th style="padding:10px 12px;font-weight:600;text-align:right">Clients</th>' +
+        '<th style="padding:10px 12px;font-weight:600;text-align:right">Quotes</th>' +
+        '<th style="padding:10px 12px;font-weight:600;text-align:right">Loan Volume</th>' +
+      '</tr></thead>';
 
     var table =
       '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
-        '<thead><tr style="text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--border)">' +
-          '<th style="padding:10px 12px;font-weight:600">User</th>' +
-          '<th style="padding:10px 12px;font-weight:600">Role</th>' +
-          '<th style="padding:10px 12px;font-weight:600">Last Active</th>' +
-          '<th style="padding:10px 12px;font-weight:600">Apply Link</th>' +
-          '<th style="padding:10px 12px;font-weight:600;text-align:right">Clients</th>' +
-          '<th style="padding:10px 12px;font-weight:600;text-align:right">Quotes</th>' +
-          '<th style="padding:10px 12px;font-weight:600;text-align:right">Loan Volume</th>' +
-        '</tr></thead>' +
+        theadHtml +
         '<tbody>' + rows + '</tbody>' +
       '</table></div>';
+
+    // Deploy 236.23 — collapsible Deleted Users section. Stats are
+    // preserved but the section is closed by default so the roster
+    // stays clean. Click to expand.
+    var deletedHtml = '';
+    if (deletedUsers.length) {
+      var deletedRows = deletedUsers.map(function(u) { return rowHtml(u, true); }).join('');
+      deletedHtml =
+        '<details style="margin-top:18px;border:1px solid var(--border);border-radius:var(--r-xs);background:#faf8f5">' +
+          '<summary style="padding:10px 14px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);user-select:none">' +
+            'Deleted Users (' + deletedUsers.length + ')' +
+            '<span style="font-weight:400;color:var(--muted);font-size:12px;margin-left:8px">— stats preserved · no longer in Netlify Identity</span>' +
+          '</summary>' +
+          '<div style="overflow-x:auto;padding:0 12px 12px"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+            theadHtml +
+            '<tbody>' + deletedRows + '</tbody>' +
+          '</table></div>' +
+        '</details>';
+    }
 
     // Orphan data (data belonging to deleted users) — only show if any
     var orphanHtml = '';
@@ -492,7 +529,7 @@ netlifyIdentity.on('init', function(user) {
         '</div>';
     }
 
-    container.innerHTML = summary + table + orphanHtml;
+    container.innerHTML = summary + table + deletedHtml + orphanHtml;
   }
 
   function statPill(value, label, isWide) {

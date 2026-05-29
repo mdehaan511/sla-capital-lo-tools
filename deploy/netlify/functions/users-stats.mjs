@@ -41,6 +41,34 @@ export default async (req, context) => {
     console.warn('users-stats profiles list failed:', e);
   }
 
+  // 1b) Deploy 236.23 — fetch live Netlify Identity user emails so we
+  // can flag profiles whose Identity record has been deleted. Profiles
+  // for deleted users still carry historical stats, but the UI hides
+  // them from active LO dropdowns and groups them under a collapsible
+  // "Deleted Users" section in User Activity.
+  const liveIdentityEmails = new Set();
+  let identityFetchOk = false;
+  try {
+    const identity = context && context.clientContext && context.clientContext.identity;
+    if (identity && identity.url && identity.token) {
+      let page = 1;
+      for (;;) {
+        const url = `${identity.url}/admin/users?per_page=50&page=${page}`;
+        const resp = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` } });
+        if (!resp.ok) break;
+        const data = await resp.json();
+        const users = Array.isArray(data.users) ? data.users : [];
+        users.forEach((u) => { if (u.email) liveIdentityEmails.add(String(u.email).toLowerCase().trim()); });
+        if (users.length < 50) break;
+        page += 1;
+        if (page > 20) break; // safety cap (1000 users)
+      }
+      identityFetchOk = true;
+    }
+  } catch (e) {
+    console.warn('users-stats identity fetch failed (deleted-user flag unavailable):', e);
+  }
+
   // 2) Walk clients store for counts per owner-key
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const clientCounts = {};
@@ -143,9 +171,16 @@ export default async (req, context) => {
     const approvedCount  = approvedCounts[ownerKey]  || 0;
     const closedCount    = closedCounts[ownerKey]    || 0;
     const closedVolume   = closedVolumes[ownerKey]   || 0;
+    // Deploy 236.23 — `deleted` is true when the profile's email is NOT
+    // in the live Netlify Identity user set. Only meaningful when the
+    // identity fetch succeeded; if it didn't, default to false so the
+    // UI doesn't accidentally hide everyone.
+    const normEmail = String(p.email || '').toLowerCase().trim();
+    const deleted = identityFetchOk && normEmail && !liveIdentityEmails.has(normEmail);
     return {
       id: p.id || null,
       email: p.email,
+      deleted,
       fullName: p.fullName || '',
       confirmed_at: p.confirmed_at || null,
       last_seen_at: p.last_seen_at || null,
@@ -188,9 +223,15 @@ export default async (req, context) => {
     const approvedCount  = approvedCounts[k]  || 0;
     const closedCount    = closedCounts[k]    || 0;
     const closedVolume   = closedVolumes[k]   || 0;
+    // Deploy 236.23 — an orphan ALWAYS counts as deleted from an
+    // Identity standpoint (we have data but no profile and no Identity
+    // record). Even if the identity fetch failed we treat orphans as
+    // deleted; their absence from Identity is a stronger signal than a
+    // network blip on the listing.
     annotated.push({
       id: null,
       email: k.replace(/_/g, '.'),
+      deleted: true,
       fullName: '',
       confirmed_at: null,
       last_seen_at: null,
@@ -230,6 +271,10 @@ export default async (req, context) => {
   return json(200, {
     users: annotated,
     profileCount: profiles.length,
+    // Deploy 236.23 — when identityFetchOk is false the `deleted` flag
+    // on profiles falls back to false (only orphans get flagged). The
+    // UI can show a warning if needed.
+    identityFetchOk,
     note: profiles.length === 0
       ? 'No profiles stored yet. Log in once to populate your profile, then existing users will need to log in too.'
       : undefined,

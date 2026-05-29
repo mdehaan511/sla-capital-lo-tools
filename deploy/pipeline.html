@@ -6,6 +6,7 @@
   <title>Pipeline — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
   <script src="sla-search.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
@@ -389,23 +390,7 @@
 
 <div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
 
-<nav class="nav">
-  <div class="nav-left">
-    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
-    <a href="index.html" class="nav-tools-btn">Tools</a>
-  </div>
-  <div class="nav-right">
-    <a class="nav-tool-link current" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" href="brokers.html">Brokers</a>
-    <a class="nav-tool-link" href="loans.html">Loans</a>
-    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" id="navDashboardLink" href="dashboard.html" style="display:none">Dashboard</a>
-    <a class="nav-tool-link" href="profile.html">Profile</a>
-
-    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
-  </div>
-</nav>
+<nav class="nav" id="slaNav"></nav>
 
 <div class="page">
   <div class="page-header">
@@ -754,10 +739,13 @@ function loadAll() {
     });
 
     // Profile lookup
+    // Deploy 236.23 — carry the `deleted` flag through from users-stats so
+    // dropdowns can hide LOs no longer in Netlify Identity while loDisplay()
+    // can still resolve names for historical rows.
     _profileMap = {};
     (statsResp.users || []).forEach(function(p) {
       if (!p.email) return;
-      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '' };
+      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '', deleted: !!p.deleted };
     });
 
     // Populate LO filter dropdown (admins only, when viewing All LOs)
@@ -1898,8 +1886,12 @@ function openAssignProspectModal(prospectId, ownerKey, displayName) {
   var sel = document.getElementById('assignProspectLO');
   if (sel) {
     // Populate from _profileMap (set during pipeline load)
+    // Deploy 236.23 \u2014 exclude users flagged `deleted` (no longer in
+    // Netlify Identity) so they can't be assigned to.
     sel.innerHTML = '<option value="">\u2014 Select an LO \u2014</option>';
-    var emails = Object.keys(_profileMap).sort(function(a, b) {
+    var emails = Object.keys(_profileMap).filter(function(em) {
+      return !_profileMap[em].deleted;
+    }).sort(function(a, b) {
       var aName = (_profileMap[a].fullName || a).toLowerCase();
       var bName = (_profileMap[b].fullName || b).toLowerCase();
       return aName < bName ? -1 : aName > bName ? 1 : 0;
@@ -2572,7 +2564,10 @@ function populateLoFilter() {
   // owners who happen to have pipeline items right now. An LO with an empty
   // pipeline still needs to be selectable so an admin can confirm "yep,
   // this person has nothing in flight."
-  var owners = Object.keys(_profileMap).sort(function(a, b) {
+  // Deploy 236.23 — hide deleted LOs (no longer in Netlify Identity).
+  var owners = Object.keys(_profileMap).filter(function(o) {
+    return !_profileMap[o].deleted;
+  }).sort(function(a, b) {
     return loDisplay(a).localeCompare(loDisplay(b));
   });
 

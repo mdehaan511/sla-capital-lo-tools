@@ -6,6 +6,7 @@
   <title>Saved Quotes — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
   <script src="quotes.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -199,18 +200,7 @@
   </div>
 </div>
 
-<nav class="nav">
-  
-  <div class="nav-left">
-    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a></div>
-  <div class="nav-right"><a class="nav-tool-link current" href="saved-quotes.html">Saved Quotes</a>
-    <a class="nav-tool-link" href="prospects.html">Prospects</a>
-    <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" href="brokers.html">Brokers</a>
-    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" id="navAdminLink" href="admin.html" style="display:none">Admin</a><button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
-  </div>
-</nav>
+<nav class="nav" id="slaNav"></nav>
 
 <div class="page">
   <div class="page-header">
