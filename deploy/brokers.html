@@ -58,6 +58,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .view-tab.active{background:var(--dark);color:#fff}
 
 .summary-bar{display:flex;gap:12px;margin-bottom:1.25rem;flex-wrap:wrap}
+/* Deploy 236.16 — Top Brokers leaderboard card */
+.leaderboard-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 22px;margin-bottom:1.25rem}
+.leaderboard-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.leaderboard-head h2{font-size:14px;font-weight:600;color:var(--text);margin:0}
+.leaderboard-sub{font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-top:4px}
+.leaderboard-table{width:100%;border-collapse:collapse;font-size:13px}
+.leaderboard-table th{padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)}
+.leaderboard-table td{padding:10px;border-bottom:1px solid #f0ece6;vertical-align:middle}
+.leaderboard-table tr:last-child td{border-bottom:none}
+.leaderboard-table tr.row-link{cursor:pointer;transition:background .1s}
+.leaderboard-table tr.row-link:hover{background:#faf8f5}
+.leaderboard-table .lb-rank{width:30px;font-weight:700;color:var(--gold-mid);font-family:'DM Mono',monospace}
+.leaderboard-table .lb-name{font-weight:600}
+.leaderboard-table .lb-company{font-size:12px;color:var(--muted)}
+.leaderboard-table .lb-num{text-align:right;font-family:'DM Mono',monospace;font-size:12.5px}
+.leaderboard-table .lb-volume{text-align:right;font-weight:600;color:var(--gold-mid);font-family:'DM Mono',monospace}
+.leaderboard-empty{padding:18px;text-align:center;font-size:13px;color:var(--muted);font-style:italic}
 .summary-pill{font-size:12px;padding:5px 14px;border-radius:20px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
 .summary-pill strong{color:var(--text)}
 .summary-pill.gold{background:var(--gold-light);color:var(--gold-mid);border-color:var(--gold-border)}
@@ -259,6 +276,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- My Brokers -->
   <div id="myView">
     <div class="summary-bar" id="summaryBar"></div>
+
+    <!-- Deploy 236.16 (Brokers Phase 4) — Top Brokers leaderboard.
+         Mirrors the dashboard widget so the brokers page has the
+         same at-a-glance ranking at the top. The full broker list
+         below supports sorting/filtering separately; this stays
+         pinned as a snapshot of "who are my best closers". -->
+    <div class="leaderboard-card" id="leaderboardCard">
+      <div class="leaderboard-head">
+        <div>
+          <h2>Top Brokers by Volume Closed</h2>
+          <div class="leaderboard-sub">RANKED BY SUM OF LOAN AMOUNT WHERE STATUS=CLOSED · TOP 5</div>
+        </div>
+      </div>
+      <div id="leaderboardBody"></div>
+    </div>
+
     <div class="toolbar">
       <div class="search-wrap">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--muted)" stroke-width="1.4"/><path d="M10 10l2.5 2.5" stroke="var(--muted)" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -472,6 +505,8 @@ function renderBrokers() {
     '<span class="summary-pill gold"><strong>' + fmt$(totalVolumeClosed) + '</strong> loan volume closed</span>' +
     (_orphanedInline.length ? '<span class="summary-pill" style="background:rgba(124,31,31,.06);color:var(--danger);border-color:rgba(124,31,31,.2)"><strong>' + _orphanedInline.length + '</strong> legacy loans not linked to a broker entity</span>' : '');
 
+  renderLeaderboard();
+
   // Empty state
   if (!items.length) {
     list.innerHTML = !_brokers.length
@@ -522,6 +557,66 @@ function renderBrokers() {
         '</div>' +
       '</div>';
   }).join('');
+}
+
+// Deploy 236.16 — Top Brokers leaderboard rendered at the top of the
+// page (mirrors the dashboard widget so this page has the same at-a-
+// glance ranking). Reuses _aggregates which is computed once per data
+// load, so this is free of additional API calls.
+function renderLeaderboard() {
+  var body = document.getElementById('leaderboardBody');
+  if (!body) return;
+  var entries = _brokers.map(function (b) {
+    var agg = _aggregates[b.id] || { dealCount:0, totalVolumeClosed:0 };
+    return { broker: b, agg: agg };
+  }).filter(function (e) {
+    // Only brokers that have actually closed something
+    return (e.agg.totalVolumeClosed || 0) > 0;
+  });
+  if (!entries.length) {
+    body.innerHTML = '<div class="leaderboard-empty">No closed loans bound to a broker yet. Once a broker-linked loan is marked Closed in Loan Details, the broker shows up here.</div>';
+    return;
+  }
+  entries.sort(function (a, b) { return b.agg.totalVolumeClosed - a.agg.totalVolumeClosed; });
+  var top = entries.slice(0, 5);
+  var html = '<table class="leaderboard-table">' +
+    '<thead><tr>' +
+      '<th></th>' +
+      '<th>Broker</th>' +
+      '<th>Company</th>' +
+      '<th class="lb-num">Deals</th>' +
+      '<th class="lb-num">Volume Closed</th>' +
+    '</tr></thead><tbody>' +
+    top.map(function (e, i) {
+      var b = e.broker;
+      // Clicking a leaderboard row expands the matching broker in the
+      // full list below and scrolls it into view. Uses the same
+      // _expandedRows + scrollToBroker plumbing already on the page.
+      return '<tr class="row-link" onclick="scrollToBroker(\'' + b.id + '\')">' +
+        '<td class="lb-rank">' + (i + 1) + '</td>' +
+        '<td><div class="lb-name">' + escapeHtml(b.name || '(unnamed)') + '</div>' +
+          (b.email ? '<div class="lb-company">' + escapeHtml(b.email) + '</div>' : '') + '</td>' +
+        '<td class="lb-company">' + escapeHtml(b.company || '—') + '</td>' +
+        '<td class="lb-num">' + e.agg.dealCount + '</td>' +
+        '<td class="lb-volume">' + fmt$(e.agg.totalVolumeClosed) + '</td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table>';
+  body.innerHTML = html;
+}
+
+// Helper used by the leaderboard row click — expand the matching
+// broker in the main list and scroll it into view.
+function scrollToBroker(brokerId) {
+  _expandedRows[brokerId] = true;
+  renderBrokers();
+  // After re-render, find the card and scroll it into view.
+  setTimeout(function () {
+    var card = document.querySelector('.broker-card[data-id="' + brokerId + '"]');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 30);
 }
 
 function renderBrokerDetail(broker, agg) {
