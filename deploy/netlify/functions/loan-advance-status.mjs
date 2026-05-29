@@ -173,15 +173,21 @@ async function handle(req, context) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.13 — STRICT loanId match. When we know the target
-      // loan (we always do here — body.loanId is required), only sync
-      // quotes that explicitly carry that loanId. Legacy quotes
-      // without loanId are skipped from this sync (they'd otherwise
-      // address-match and walk into quotes for a different loan at
-      // the same property). The LO can re-stamp a legacy quote by
-      // opening it in the sizer and Save Quote, which writes the
-      // current loanId onto it (per Deploy 236.7+).
-      if (q.loanId !== body.loanId) continue;
+      // Deploy 236.21 — loanId match with safe legacy fallback. Same
+      // pattern as borrower-info-sync.mjs (Deploy 236.20). Strict
+      // loanId-only (236.13) was too aggressive for pre-Deploy-236.7
+      // quotes which don't carry loanId — manual status moves from
+      // Loan Details would flip loan.status but never update quote.
+      // status, leaving Pipeline (reads quote.status) and Loan Details
+      // (reads loan.status) out of sync. Same-address two-loan
+      // contamination is impossible here because that requires both
+      // quotes to be post-236.7 (and so both already have loanId).
+      const matchById     = q.loanId === body.loanId;
+      const matchByLegacy = !q.loanId && aggrNorm(q.address || '') === targetAddr;
+      if (!matchById && !matchByLegacy) continue;
+      // Opportunistic loanId stamp on the legacy quote so future
+      // transitions hit the strict-loanId path directly.
+      if (matchByLegacy && !q.loanId) q.loanId = body.loanId;
       // Update — but don't downgrade. If the quote is already at a
       // "further along" status (e.g. closed), leave it alone.
       const RANK = { active: 0, submitted: 1, awaiting_app: 2, approved: 3, closed: 4 };

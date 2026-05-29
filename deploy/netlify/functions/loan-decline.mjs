@@ -170,9 +170,13 @@ async function handle(req, context) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.13 — STRICT loanId match (no address fallback).
-      // See loan-advance-status.mjs for rationale.
-      if (q.loanId !== body.loanId) continue;
+      // Deploy 236.21 — loanId match with safe legacy-address fallback
+      // (see loan-advance-status.mjs / borrower-info-sync.mjs for the
+      // full rationale).
+      const matchById     = q.loanId === body.loanId;
+      const matchByLegacy = !q.loanId && aggrNorm(q.address || '') === targetAddr;
+      if (!matchById && !matchByLegacy) continue;
+      if (matchByLegacy && !q.loanId) q.loanId = body.loanId;
       q.status = newStatus;
       q.updatedAt = now;
       if (isRestore) {
