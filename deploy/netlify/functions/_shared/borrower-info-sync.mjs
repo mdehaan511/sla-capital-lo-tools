@@ -298,17 +298,33 @@ export async function advanceQuoteToInProcessing(record) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.13 — STRICT loanId match. Address fallback removed
-      // to prevent cross-loan contamination at the same property.
-      // Legacy quotes without loanId must be re-saved in the sizer to
-      // adopt the loanId before they'll auto-advance on long-app
-      // completion.
-      if (!targetLoanId || q.loanId !== targetLoanId) continue;
+      // Deploy 236.20 — loanId match with safe legacy fallback. Strict
+      // loanId-only (236.13) was too aggressive: quotes saved before
+      // Deploy 236.7 don't have a loanId stamped, so completing the
+      // long app would flip the LOAN status but NEVER find a matching
+      // quote — the Pipeline tile (reads quote.status) would stay in
+      // Awaiting Application even though Loan Details (reads loan.
+      // status) shows In Processing. Same-address two-loan
+      // contamination is avoided here because we ONLY fall back to
+      // address match when the quote has NO loanId at all (cross-loan
+      // collisions require both quotes to be post-236.7, which means
+      // they both already have loanId stamped — and so wouldn't hit
+      // this branch). When we DO match a legacy quote by address, we
+      // also stamp the loanId on it so future actions stay clean.
+      const matchByLoanId = targetLoanId && q.loanId === targetLoanId;
+      const matchByLegacyAddr = !q.loanId && aggrNorm(q.address) === target;
+      if (!matchByLoanId && !matchByLegacyAddr) continue;
       quotesMatched += 1;
       if (q.status === 'awaiting_app') {
         q.status = 'approved';
         q.updatedAt = new Date().toISOString();
         q.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
+        if (matchByLegacyAddr && targetLoanId && !q.loanId) {
+          // Stamp loanId on the legacy quote so subsequent status
+          // transitions (cancel / decline / advance) lock onto it
+          // via the strict-loanId path instead of falling here again.
+          q.loanId = targetLoanId;
+        }
         await quotesStore.setJSON(key, q);
         quotesUpdated += 1;
       }
