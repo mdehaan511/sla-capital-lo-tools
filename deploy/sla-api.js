@@ -893,6 +893,19 @@
       if (opts.owner) qs.push('owner=' + encodeURIComponent(opts.owner));
       return api('GET', '/api/brokers-find?' + qs.join('&'));
     },
+    // Deploy 236.27 (Brokers Phase 5). One-time migration that links
+    // legacy inline broker data on loans to proper broker records.
+    // Admin-only. Pass {dry:true} to preview without writing.
+    migrateInline: function (opts) {
+      opts = opts || {};
+      var qs = [];
+      if (opts.dry) qs.push('dry=1');
+      var url = '/api/brokers-migrate-inline' + (qs.length ? '?' + qs.join('&') : '');
+      return api('POST', url, {}).then(function (r) {
+        if (!opts.dry) cache.clear('brokers');
+        return r;
+      });
+    },
   };
 
   // ── Reminders ───────────────────────────────────────────────────

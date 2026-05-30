@@ -305,8 +305,35 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <select id="adminLoFilter" class="admin-lo-filter" onchange="renderAdminBrokers()">
         <option value="">All LOs</option>
       </select>
+      <!-- Deploy 236.27 (Brokers Phase 5). One-time migration. Two-step
+           flow: click runs a dry-run (no writes), shows a summary, then
+           a "Run migration" button commits. Idempotent on the backend
+           so accidental double-clicks are safe. -->
+      <button type="button" class="btn" id="btnMigrateInline" onclick="openMigrateInlineModal()" style="margin-left:auto" title="Link legacy inline broker data to Broker records">
+        Migrate inline brokers
+      </button>
     </div>
     <div id="adminBrokersList"></div>
+  </div>
+
+  <!-- Migration modal -->
+  <div id="migrateModal" class="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:center;justify-content:center">
+    <div style="background:#fff;max-width:640px;width:92%;max-height:84vh;overflow:auto;border-radius:14px;padding:1.5rem;box-shadow:0 12px 40px rgba(0,0,0,0.18)">
+      <h2 style="font-family:'Lora',serif;font-size:20px;margin-bottom:6px">Migrate inline broker data</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:1rem">
+        Sweeps every loan, finds inline broker fields (name/email/phone) that
+        haven't been linked to a Broker record, dedupes them, and stamps a
+        <code>brokerId</code> back on the loan. After this runs, the Brokers
+        admin view will correctly aggregate historical deal flow per broker.
+      </p>
+      <div id="migrateStatus" style="font-size:13px;margin-bottom:1rem"></div>
+      <div id="migrateBody" style="font-size:12px;font-family:'DM Mono',monospace;background:#f6f3ee;border:1px solid var(--border);border-radius:8px;padding:10px;max-height:300px;overflow:auto;display:none"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:1rem">
+        <button type="button" class="btn" onclick="closeMigrateInlineModal()" id="migrateCloseBtn">Close</button>
+        <button type="button" class="btn primary" onclick="runMigrateInline(true)"  id="migrateDryBtn">Dry run</button>
+        <button type="button" class="btn primary" onclick="runMigrateInline(false)" id="migrateLiveBtn" style="display:none">Run migration</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -824,6 +851,84 @@ function loadAdminData() {
     renderAdminBrokers();
   }).catch(function(e) {
     listEl.innerHTML = '<div class="empty-state"><h3>Failed to load</h3><p>' + escapeHtml(e.message || 'unknown') + '</p></div>';
+  });
+}
+
+// ── Deploy 236.27 (Brokers Phase 5): one-time inline-broker migration ──
+// Modal flow: dry-run first (no writes), shows audit numbers + sample
+// actions, then user can click "Run migration" to actually link the
+// loans. The backend endpoint is idempotent so re-running after the
+// live commit is safe — but the UI hides the Live button by default
+// to force the dry-run preview.
+function openMigrateInlineModal() {
+  var modal = document.getElementById('migrateModal');
+  modal.style.display = 'flex';
+  document.getElementById('migrateStatus').textContent = 'Click "Dry run" to preview. Nothing is written yet.';
+  document.getElementById('migrateBody').style.display = 'none';
+  document.getElementById('migrateBody').textContent = '';
+  document.getElementById('migrateDryBtn').style.display = '';
+  document.getElementById('migrateDryBtn').disabled = false;
+  document.getElementById('migrateDryBtn').textContent = 'Dry run';
+  document.getElementById('migrateLiveBtn').style.display = 'none';
+  document.getElementById('migrateLiveBtn').disabled = false;
+  document.getElementById('migrateLiveBtn').textContent = 'Run migration';
+}
+
+function closeMigrateInlineModal() {
+  document.getElementById('migrateModal').style.display = 'none';
+}
+
+function _renderMigrateAudit(audit) {
+  var lines = [];
+  lines.push((audit.dryRun ? '[DRY RUN] ' : '[LIVE] ') + 'Summary:');
+  lines.push('  Owners scanned:       ' + audit.ownersScanned);
+  lines.push('  Loans scanned:        ' + audit.loansScanned);
+  lines.push('  Already linked:       ' + audit.loansAlreadyLinked + '  (had brokerId — skipped)');
+  lines.push('  No inline broker data: ' + audit.loansNoBrokerData + '  (nothing to migrate)');
+  lines.push('  Loans LINKED:         ' + audit.loansLinked);
+  lines.push('    via existing match: ' + audit.brokersMatched);
+  lines.push('    via NEW broker:     ' + audit.brokersCreated);
+  if (audit.samples && audit.samples.length) {
+    lines.push('');
+    lines.push('First ' + audit.samples.length + ' actions:');
+    audit.samples.forEach(function(s) {
+      var by = s.matchedBy ? (' [' + s.matchedBy + ']') : '';
+      lines.push('  ' + s.action.toUpperCase() + by + '  ' + s.ownerKey + ' / ' + s.loanId +
+                 ' → ' + s.brokerName + (s.brokerEmail ? ' <' + s.brokerEmail + '>' : ''));
+    });
+  }
+  return lines.join('\n');
+}
+
+function runMigrateInline(dry) {
+  var statusEl = document.getElementById('migrateStatus');
+  var bodyEl   = document.getElementById('migrateBody');
+  var dryBtn   = document.getElementById('migrateDryBtn');
+  var liveBtn  = document.getElementById('migrateLiveBtn');
+  dryBtn.disabled = true; liveBtn.disabled = true;
+  statusEl.textContent = dry ? 'Running dry-run…' : 'Running migration…';
+  SLA.Brokers.migrateInline({ dry: !!dry }).then(function(audit) {
+    bodyEl.textContent = _renderMigrateAudit(audit);
+    bodyEl.style.display = 'block';
+    if (dry) {
+      statusEl.innerHTML = '<strong>Dry run complete.</strong> Review the numbers above. If they look right, click "Run migration".';
+      dryBtn.disabled = false;
+      dryBtn.textContent = 'Re-run dry';
+      liveBtn.style.display = '';
+      liveBtn.disabled = audit.loansLinked === 0;
+    } else {
+      statusEl.innerHTML = '<strong>Migration complete.</strong> ' + audit.loansLinked + ' loan(s) linked, ' + audit.brokersCreated + ' broker(s) created. Reloading data…';
+      dryBtn.style.display = 'none';
+      liveBtn.disabled = true;
+      liveBtn.textContent = 'Done';
+      // Refresh the admin data so newly linked brokers show their deals
+      _adminData = null;
+      loadAdminData();
+    }
+  }).catch(function(err) {
+    statusEl.innerHTML = '<span style="color:var(--danger)">Migration failed: ' + escapeHtml(err && err.message || 'unknown') + '</span>';
+    dryBtn.disabled = false;
+    liveBtn.disabled = false;
   });
 }
 

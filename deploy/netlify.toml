@@ -348,6 +348,11 @@
   to = "/.netlify/functions/brokers-find"
   status = 200
   force = true
+[[redirects]]
+  from = "/api/brokers-migrate-inline"
+  to = "/.netlify/functions/brokers-migrate-inline"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/api/prequal-send"
