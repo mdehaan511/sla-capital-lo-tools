@@ -278,6 +278,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 var _user = null, _isAdmin = false, _clients = [], _tf = 'all', _view = 'my';
 var _adminData = null;
+// Deploy 236.26 — keySafed owner keys for LOs flagged deleted by
+// users-stats. Used to hide them from the admin LO filter.
+var _deletedOwners = {};
+function _keySafe(e) { return String(e || '').toLowerCase().replace(/[^a-z0-9]/g, '_'); }
 
 // _clients is an in-memory cache of the current user's clients, loaded once
 // from the backend. Mutations go through the backend and update the cache.
@@ -736,7 +740,20 @@ function loadAdminClients(forceRefresh) {
   var wrap = document.getElementById('adminClientsList');
   wrap.innerHTML = '<div style="padding:3rem;text-align:center;color:var(--muted);font-size:13px">Loading…</div>';
   if (!_user) return;
-  SLA.Clients.list({ all: true }).then(function(resp) {
+  // Deploy 236.26 — fetch user-stats alongside the client roster so we
+  // can drop deleted LOs from the filter dropdown. Stats failure is
+  // silent (we just don't filter); client-list failure shows the
+  // empty-state error like before.
+  var statsP = SLA.Admin
+    ? SLA.Admin.userStats().catch(function() { return { users: [] }; })
+    : Promise.resolve({ users: [] });
+  Promise.all([SLA.Clients.list({ all: true }), statsP]).then(function(results) {
+    var resp = results[0];
+    var statsResp = results[1] || { users: [] };
+    _deletedOwners = {};
+    (statsResp.users || []).forEach(function(u) {
+      if (u && u.deleted && u.email) _deletedOwners[_keySafe(u.email)] = true;
+    });
     var byOwner = (resp && resp.byOwner) || {};
     _adminData = Object.keys(byOwner).map(function(owner) {
       return {
@@ -765,9 +782,14 @@ function renderAdminClients() {
   // Populate LO filter dropdown lazily — every render rebuilds it from
   // _adminData so it always reflects the freshest set of LOs we know about.
   // Kept stable (alphabetical) so the order doesn't jitter as data refreshes.
+  // Deploy 236.26 — deleted LOs (no longer in Netlify Identity) are
+  // dropped from the dropdown so admins can't filter to a ghost account.
+  // Their clients still appear in the unfiltered list.
   if (loFilterEl) {
     var currentVal = loFilterEl.value;
-    var sortedLos = _adminData.slice().sort(function(a, b) {
+    var sortedLos = _adminData.slice().filter(function(u) {
+      return !_deletedOwners[_keySafe(u.email)];
+    }).sort(function(a, b) {
       return humanizeEmail(a.email).localeCompare(humanizeEmail(b.email));
     });
     var html = '<option value="">All LOs</option>';

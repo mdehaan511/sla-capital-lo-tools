@@ -774,15 +774,32 @@ function setView(v) {
   if (v === 'admin' && !_adminData) loadAdminData();
 }
 
+// Deploy 236.26 — keySafe + deleted-owner set used to hide LOs no
+// longer in Netlify Identity from the admin LO filter.
+function _keySafe(e) { return String(e || '').toLowerCase().replace(/[^a-z0-9]/g, '_'); }
+var _deletedOwners = {};
+
 function loadAdminData() {
   var listEl = document.getElementById('adminBrokersList');
   listEl.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
+  // Deploy 236.26 — third parallel fetch for user-stats so we can drop
+  // deleted LOs from the dropdown. Stats failure is silent so a flaky
+  // Identity admin API doesn't block the broker view.
+  var statsP = SLA.Admin
+    ? SLA.Admin.userStats().catch(function() { return { users: [] }; })
+    : Promise.resolve({ users: [] });
   Promise.all([
     SLA.Brokers.list({ all: true }),
     SLA.Clients.list({ all: true }),
+    statsP,
   ]).then(function(results) {
     var brokersByOwner = (results[0] && results[0].byOwner) || {};
     var clientsByOwner = (results[1] && results[1].byOwner) || {};
+    var statsResp = results[2] || { users: [] };
+    _deletedOwners = {};
+    (statsResp.users || []).forEach(function(u) {
+      if (u && u.deleted && u.email) _deletedOwners[_keySafe(u.email)] = true;
+    });
     var ownerKeys = Object.keys(brokersByOwner).sort();
     var data = {};
     ownerKeys.forEach(function(owner) {
@@ -796,10 +813,11 @@ function loadAdminData() {
       };
     });
     _adminData = data;
-    // Populate LO filter
+    // Populate LO filter — skip deleted owners
+    var visibleKeys = ownerKeys.filter(function(o) { return !_deletedOwners[String(o).toLowerCase()]; });
     var sel = document.getElementById('adminLoFilter');
     var current = sel.value;
-    sel.innerHTML = '<option value="">All LOs</option>' + ownerKeys.map(function(o) {
+    sel.innerHTML = '<option value="">All LOs</option>' + visibleKeys.map(function(o) {
       return '<option value="' + escapeHtml(o) + '">' + escapeHtml(o) + ' (' + (data[o].brokers.length) + ')</option>';
     }).join('');
     if (current) sel.value = current;

@@ -199,6 +199,13 @@ var _sortDir = 'asc';       // 'asc' or 'desc' — asc = "most advanced" for sta
 var _statusFilters = { active: true, submitted: true, awaiting_app: true, approved: true, on_hold: false, denied: false };
 var _search = '';
 var _loFilter = '';
+// Deploy 236.26 — keySafed owner keys for LOs flagged as deleted by
+// users-stats (no longer in Netlify Identity). Used to hide them from
+// the LO filter dropdown so admins can't filter to a ghost account.
+// Loans they previously owned still appear in the data — we just
+// suppress the dropdown entry.
+var _deletedOwners = {};
+function _keySafe(e) { return String(e || '').toLowerCase().replace(/[^a-z0-9]/g, '_'); }
 
 // Status rank — higher number = "more advanced" in the loan lifecycle. We
 // invert this in the sort so "asc" displays approved → awaiting_app →
@@ -268,7 +275,23 @@ netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 // ── Data load ──────────────────────────────────────────────────────
 function loadAll() {
   var listOpts = (_isAdmin && _view === 'all') ? { all: true } : {};
-  SLA.Clients.list(listOpts).then(function(r) {
+  // Deploy 236.26 — admins also fetch user-stats so we know which LOs
+  // have been removed from Netlify Identity. Skipped for non-admins
+  // because (a) they don't see the LO filter dropdown anyway and (b)
+  // users-stats is admin-gated. Both fetches go through Promise.all
+  // so populateLoFilter() runs after _deletedOwners is populated —
+  // racing them would let deleted LOs flash in the dropdown briefly.
+  // Failure is silent — deleted-user filtering is a polish feature.
+  var statsPromise = (_isAdmin && SLA.Admin)
+    ? SLA.Admin.userStats().catch(function() { return { users: [] }; })
+    : Promise.resolve({ users: [] });
+  Promise.all([SLA.Clients.list(listOpts), statsPromise]).then(function(results) {
+    var r = results[0];
+    var statsResp = results[1] || { users: [] };
+    _deletedOwners = {};
+    (statsResp.users || []).forEach(function(u) {
+      if (u && u.deleted && u.email) _deletedOwners[_keySafe(u.email)] = true;
+    });
     var flat = [];
     if (_isAdmin && _view === 'all') {
       // byOwner shape
@@ -345,7 +368,11 @@ function populateLoFilter() {
   }
   var owners = {};
   _allLoans.forEach(function(l) { if (l._ownerKey) owners[l._ownerKey] = true; });
-  var keys = Object.keys(owners).sort();
+  // Deploy 236.26 — drop owners whose Identity account is gone so the
+  // dropdown only lists active LOs. Loans still surface in the table.
+  var keys = Object.keys(owners).filter(function(k) {
+    return !_deletedOwners[String(k).toLowerCase()];
+  }).sort();
   var sel = document.getElementById('loFilter');
   var current = sel.value;
   sel.innerHTML = '<option value="">All</option>' + keys.map(function(k) {
