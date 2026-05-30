@@ -6,6 +6,7 @@
   <title>SLA Capital — Internal Tools</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
   <script src="sla-chat.js" defer></script>
   <script src="sla-notifications.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -67,12 +68,17 @@
 
     .page { max-width: 860px; margin: 0 auto; padding: 3rem 0 4rem; }
 
-    .header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding-bottom: 0.75rem;
-    }
-    .header-left { display: flex; align-items: center; gap: 16px; }
-    .header img { height: 52px; width: auto; }
+    /* Standard shared-nav layout (matches every other page so sla-nav.js
+       renders into #slaNav without per-page glue). */
+    .nav { display: flex; align-items: center; justify-content: space-between;
+           flex-wrap: wrap; gap: 1rem; padding-bottom: 0.75rem; }
+    .nav-left { display: flex; align-items: center; gap: 16px; }
+    .nav-left img { height: 52px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border);
+                     background: var(--gold-light); color: var(--gold-mid); border-radius: 20px;
+                     font-size: 12px; font-weight: 600; text-decoration: none; transition: all .15s; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
     .header-tagline {
       font-family: 'Lora', serif;
       font-size: 12px;
@@ -83,7 +89,6 @@
       margin-bottom: 2.5rem;
     }
 
-    .header-right { display: flex; align-items: center; gap: 10px; }
     .user-pill {
       font-size: 12px; color: var(--muted);
       background: var(--gold-light); border: 1px solid var(--gold-border);
@@ -174,21 +179,12 @@
 
     <div class="page">
 
-      <div class="header">
-        <div class="header-left">
-          <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
-        </div>
-        <div class="header-right">
-    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" href="brokers.html">Brokers</a>
-    <a class="nav-tool-link" href="loans.html">Loans</a>
-    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" href="profile.html">Profile</a>
-
-          <button class="logout-btn" id="logoutBtn">Sign out</button>
-        </div>
-      </div>
+      <!-- Deploy 236.25: home page now uses the shared sla-nav.js navbar
+           like every other page so Profile/Sign-out dropdown + Clients
+           dropdown + admin-only links stay in sync automatically. The
+           old inline header (logo + hand-listed links + standalone Sign
+           out button) is gone. -->
+      <nav class="nav" id="slaNav"></nav>
       <div class="header-tagline">Internal tools &middot; Team resources &middot; not for external distribution</div>
 
       <div class="tools-grid">
@@ -263,10 +259,9 @@
     function showApp(user) {
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
-      if (isAdmin(user)) {
-        var navSub = document.getElementById('navSubmissionsLink');
-        if (navSub) navSub.style.display = 'inline-block';
-      }
+      // Deploy 236.25: admin-link visibility is now driven by sla-nav.js
+      // (Submissions / Dashboard / etc. are role-gated inside the LINKS
+      // array). The old #navSubmissionsLink toggle is no longer needed.
       // Show notification banner if active (from backend Settings)
       SLA.Settings.getBanner().then(function(banner) {
         var bannerEl = document.getElementById('notifBanner');
@@ -304,9 +299,9 @@ netlifyIdentity.on('init', function(user) {
       netlifyIdentity.open('login');
     });
 
-    document.getElementById('logoutBtn').addEventListener('click', function() {
-      netlifyIdentity.logout();
-    });
+    // Deploy 236.25: standalone Sign-out button on the home page is gone.
+    // Sign out lives in the Profile dropdown that sla-nav.js renders into
+    // #slaNav, which calls netlifyIdentity.logout() directly.
   </script>
 
 </body>
