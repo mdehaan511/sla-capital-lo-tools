@@ -8,6 +8,10 @@
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
   <script src="sla-nav.js"></script>
+  <!-- Deploy 236.29: shared submission-tape builder. Lazy-loads SheetJS
+       from CDN on first export. Used by the "Export Submission Template"
+       action when 1+ closed loans are selected. -->
+  <script src="loan-submissions.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -172,6 +176,25 @@
         <option value="">All</option>
       </select>
     </div>
+    <!-- Deploy 236.29: Select Multiple toggle. When on, a checkbox
+         column appears on the table and the selection action bar
+         (below) slides in when 1+ rows are checked. -->
+    <button type="button" class="btn" id="selectModeBtn" onclick="toggleSelectMode()" style="margin-left:auto;font-size:12px;padding:7px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:inherit">
+      Select Multiple
+    </button>
+  </div>
+
+  <!-- Selection action bar — only shows in select mode AND when
+       1+ rows are selected. Lists count + the available actions. -->
+  <div id="selectActionBar" style="display:none;background:var(--gold-light);border:1px solid var(--gold-border);border-radius:var(--r);padding:10px 14px;margin:0 0 1rem 0;align-items:center;gap:14px;flex-wrap:wrap">
+    <span id="selectCount" style="font-size:13px;font-weight:600;color:var(--gold-mid)"></span>
+    <button type="button" class="btn" onclick="selectAllFiltered()" style="font-size:12px">Select all visible</button>
+    <button type="button" class="btn" onclick="clearSelections()" style="font-size:12px">Clear</button>
+    <span style="flex:1"></span>
+    <button type="button" class="btn primary" id="exportRtlBtn" onclick="exportRtlSubmission()" style="font-size:12px">
+      Export RTL Submission Template (XLSX)
+    </button>
+    <span id="exportStatus" style="font-size:12px;color:var(--muted)"></span>
   </div>
 
   <div class="table-wrap">
@@ -181,6 +204,8 @@
           <tr id="thead"></tr>
         </thead>
         <tbody id="tbody">
+          <!-- colspan starts at 9 (column count); renderTable rewrites this
+               using _totalColumns() so it tracks select mode. -->
           <tr><td colspan="9"><div class="loading">Loading loans…</div></td></tr>
         </tbody>
       </table>
@@ -196,9 +221,21 @@ var _allLoans = [];        // every loan we loaded
 var _view = 'my';           // 'my' or 'all' for admins
 var _sortBy = '_status';    // current sort key
 var _sortDir = 'asc';       // 'asc' or 'desc' — asc = "most advanced" for status
-var _statusFilters = { active: true, submitted: true, awaiting_app: true, approved: true, on_hold: false, denied: false };
+// Deploy 236.29: `closed` is now a togglable status (default off) so
+// closed loans can be surfaced here for bulk submission-tape export.
+// Previously closed lived only on closed.html and was hard-filtered
+// out of this view's getFiltered().
+var _statusFilters = { active: true, submitted: true, awaiting_app: true, approved: true, on_hold: false, denied: false, closed: false };
 var _search = '';
 var _loFilter = '';
+// Deploy 236.29 — Select Multiple mode + selection set keyed by the
+// (ownerKey, clientId, loanId) triple. When _selectMode is on, the
+// table grows a checkbox column and an action bar appears once 1+
+// rows are checked.
+var _selectMode = false;
+var _selected = {};
+function _selKey(l) { return (l._ownerKey || '') + '|' + (l._client && l._client.id || '') + '|' + (l.id || ''); }
+function _selectedCount() { var n = 0; for (var k in _selected) if (_selected[k]) n++; return n; }
 // Deploy 236.26 — keySafed owner keys for LOs flagged as deleted by
 // users-stats (no longer in Netlify Identity). Used to hide them from
 // the LO filter dropdown so admins can't filter to a ghost account.
@@ -213,6 +250,7 @@ function _keySafe(e) { return String(e || '').toLowerCase().replace(/[^a-z0-9]/g
 // Terminal statuses (on_hold, denied) get the lowest ranks so when toggled
 // on they appear at the bottom of the table.
 var STATUS_RANK = {
+  closed:       6,   // Deploy 236.29 — Closed now sortable here
   approved:     5,
   awaiting_app: 4,
   submitted:    3,
@@ -343,7 +381,10 @@ function decorateLoan(loan, client, ownerKey) {
 function renderFilterChips() {
   // Order chips by lifecycle stage; defaults match _statusFilters above.
   // Click toggles, multi-select.
-  var order = ['active', 'submitted', 'awaiting_app', 'approved', 'on_hold', 'denied'];
+  // Deploy 236.29 — 'closed' added at the end so the user can opt in
+  // when they're prepping a submission tape. Default off (closed loans
+  // still primarily live on closed.html).
+  var order = ['active', 'submitted', 'awaiting_app', 'approved', 'on_hold', 'denied', 'closed'];
   var html = order.map(function(s) {
     var on = _statusFilters[s];
     return '<span class="chip ' + (on ? 'active' : '') + '" data-status="' + s + '" onclick="toggleStatusFilter(\'' + s + '\')">' +
@@ -394,8 +435,25 @@ function onSearchInput() {
 }
 
 // ── Sort + render ──────────────────────────────────────────────────
+// Deploy 236.29 — totalColumns + checkbox-cell helpers shared between
+// header, body rows, and empty-state colspan so flipping select mode
+// on/off only requires re-rendering.
+function _totalColumns() { return COLUMNS.length + (_selectMode ? 1 : 0); }
+function _checkboxHeaderHtml() {
+  if (!_selectMode) return '';
+  return '<th style="width:30px;padding:0 6px"><input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAllFromHeader(this)" title="Select / clear all visible" /></th>';
+}
+function _checkboxRowHtml(l) {
+  if (!_selectMode) return '';
+  var k = _selKey(l);
+  var checked = !!_selected[k];
+  return '<td style="text-align:center;padding:0 6px" onclick="event.stopPropagation()">' +
+    '<input type="checkbox" data-selkey="' + escAttr(k) + '"' + (checked ? ' checked' : '') + ' onchange="toggleRowSelect(this)" />' +
+  '</td>';
+}
+
 function renderHead() {
-  var html = COLUMNS.map(function(col) {
+  var html = _checkboxHeaderHtml() + COLUMNS.map(function(col) {
     var isSorted = (_sortBy === col.id);
     var arrow = isSorted ? (_sortDir === 'asc' ? '▲' : '▼') : '▲';
     return '<th class="' + (col.numeric ? 'numeric ' : '') + (isSorted ? 'sorted' : '') + '" onclick="setSort(\'' + col.id + '\')">' +
@@ -420,9 +478,10 @@ function setSort(colId) {
 function getFiltered() {
   var loFilter = document.getElementById('loFilter') ? document.getElementById('loFilter').value : '';
   return _allLoans.filter(function(l) {
-    // Hide closed always (separate page)
-    if (l.status === 'closed') return false;
-    // Default-OFF statuses must be explicitly toggled
+    // Deploy 236.29 — closed loans now show when the Closed chip is on.
+    // The chip defaults off, so behavior is unchanged unless an admin
+    // explicitly enables it (typically to prep a submission tape).
+    // Default-OFF statuses must be explicitly toggled.
     if (!_statusFilters[l.status || 'active']) return false;
     if (loFilter && l._ownerKey !== loFilter) return false;
     if (_search) {
@@ -469,11 +528,14 @@ function renderTable() {
     var msg = _allLoans.length === 0
       ? '<strong>No loans yet.</strong> Quote a deal from the <a href="dscr-sizer.html">DSCR</a> or <a href="rtl-sizer.html">RTL</a> sizer to get started.'
       : '<strong>No loans match the current filters.</strong> Try clearing your search or toggling more status chips on.';
-    document.getElementById('tbody').innerHTML = '<tr><td colspan="9"><div class="empty">' + msg + '</div></td></tr>';
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="' + _totalColumns() + '"><div class="empty">' + msg + '</div></td></tr>';
     return;
   }
 
   document.getElementById('tbody').innerHTML = rows.map(renderRow).join('');
+  // Deploy 236.29 — sync the "select all visible" header checkbox so it
+  // reflects whether every currently-visible row is in the selection.
+  syncSelectAllHeader(rows);
 }
 
 function renderRow(l) {
@@ -491,6 +553,7 @@ function renderRow(l) {
   var subDate = fmtDate(submissionDate(l));
 
   return '<tr>' +
+    _checkboxRowHtml(l) +
     '<td><a class="addr" href="' + escAttr(loanUrl) + '">' +
       '<span class="tool-tag ' + escAttr(l.toolType || 'dscr') + '">' + escH((l.toolType || 'dscr').toUpperCase()) + '</span>' +
       escH(l.address || '—') +
@@ -504,6 +567,181 @@ function renderRow(l) {
     '<td class="mono">' + escH(subDate) + '</td>' +
     '<td class="mono">' + escH(l._ownerKey || '—') + '</td>' +
   '</tr>';
+}
+
+// ── Deploy 236.29: Select-Multiple mode + Submission export ──────
+// Mirrors the Pipeline page's bulk-select UX. Selections persist via
+// _selected (keyed by ownerKey|clientId|loanId) so re-renders triggered
+// by sort/search/filter don't lose them — a loan that scrolls off the
+// filtered set retains its checked state and counts toward the action
+// bar.
+function toggleSelectMode() {
+  _selectMode = !_selectMode;
+  var btn = document.getElementById('selectModeBtn');
+  if (btn) {
+    btn.textContent = _selectMode ? 'Done' : 'Select Multiple';
+    btn.style.background = _selectMode ? 'var(--dark)' : 'transparent';
+    btn.style.color = _selectMode ? '#fff' : 'var(--muted)';
+    btn.style.borderColor = _selectMode ? 'var(--dark)' : 'var(--border)';
+  }
+  if (!_selectMode) {
+    _selected = {}; // exiting clears the bag — don't carry stale state
+  }
+  renderHead();
+  renderTable();
+  refreshSelectionBar();
+}
+
+function toggleRowSelect(checkboxEl) {
+  var k = checkboxEl.getAttribute('data-selkey');
+  if (!k) return;
+  if (checkboxEl.checked) _selected[k] = true;
+  else delete _selected[k];
+  refreshSelectionBar();
+  // Sync the header "select all" indicator
+  var rows = getFiltered();
+  syncSelectAllHeader(rows);
+}
+
+function toggleSelectAllFromHeader(checkboxEl) {
+  var rows = getFiltered();
+  if (checkboxEl.checked) {
+    rows.forEach(function(l) { _selected[_selKey(l)] = true; });
+  } else {
+    rows.forEach(function(l) { delete _selected[_selKey(l)]; });
+  }
+  renderTable(); // re-render row checkboxes
+  refreshSelectionBar();
+}
+
+function selectAllFiltered() {
+  var rows = getFiltered();
+  rows.forEach(function(l) { _selected[_selKey(l)] = true; });
+  renderTable();
+  refreshSelectionBar();
+}
+
+function clearSelections() {
+  _selected = {};
+  renderTable();
+  refreshSelectionBar();
+}
+
+function syncSelectAllHeader(filteredRows) {
+  var hdr = document.getElementById('selectAllCheckbox');
+  if (!hdr) return;
+  if (!filteredRows.length) {
+    hdr.checked = false;
+    hdr.indeterminate = false;
+    return;
+  }
+  var selectedCount = filteredRows.reduce(function(n, l) {
+    return n + (_selected[_selKey(l)] ? 1 : 0);
+  }, 0);
+  if (selectedCount === 0) {
+    hdr.checked = false; hdr.indeterminate = false;
+  } else if (selectedCount === filteredRows.length) {
+    hdr.checked = true; hdr.indeterminate = false;
+  } else {
+    hdr.checked = false; hdr.indeterminate = true;
+  }
+}
+
+function refreshSelectionBar() {
+  var bar  = document.getElementById('selectActionBar');
+  var lbl  = document.getElementById('selectCount');
+  var rtl  = document.getElementById('exportRtlBtn');
+  var status = document.getElementById('exportStatus');
+  if (!bar || !lbl) return;
+  var n = _selectedCount();
+  var visible = _selectMode && n > 0;
+  bar.style.display = visible ? 'flex' : 'none';
+  if (!visible) { if (status) status.textContent = ''; return; }
+  // Count how many of the selected are RTL — only those are exportable
+  // to the current template (Mike said this template is RTL-only;
+  // other tape formats coming later will register as additional
+  // formats in loan-submissions.js).
+  var rtlCount = 0, otherCount = 0;
+  Object.keys(_selected).forEach(function(k) {
+    if (!_selected[k]) return;
+    var l = _findLoanByKey(k);
+    if (!l) return;
+    if ((l.toolType || '').toLowerCase() === 'rtl') rtlCount += 1;
+    else otherCount += 1;
+  });
+  var summary = '<strong>' + n + '</strong> selected';
+  if (otherCount && rtlCount) summary += '  ·  ' + rtlCount + ' RTL · ' + otherCount + ' DSCR (DSCR skipped on RTL export)';
+  else if (otherCount && !rtlCount) summary += '  ·  all DSCR — no RTL to export';
+  else if (rtlCount && !otherCount) summary += '  ·  all RTL';
+  lbl.innerHTML = summary;
+  if (rtl) {
+    rtl.disabled = rtlCount === 0;
+    rtl.style.opacity = rtlCount === 0 ? '0.4' : '1';
+    rtl.style.cursor  = rtlCount === 0 ? 'not-allowed' : 'pointer';
+  }
+}
+
+function _findLoanByKey(key) {
+  for (var i = 0; i < _allLoans.length; i++) {
+    if (_selKey(_allLoans[i]) === key) return _allLoans[i];
+  }
+  return null;
+}
+
+// Build a payloads array for the submission export. For each selected
+// RTL loan, we fetch its borrower-info (the long-app record) in
+// parallel — that's where TIN, guarantor FICO/DOB, foreign-national
+// flag, etc. live. Missing borrower-info isn't fatal; the row exports
+// with those columns blank.
+function _gatherSubmissionPayloads(loans) {
+  var promises = loans.map(function(l) {
+    var c = l._client || {};
+    if (!c.id || !l.id) return Promise.resolve({ loan: l, client: c, borrowerInfo: null });
+    return SLA.BorrowerInfo.loadAuth(c.id, { loanId: l.id, owner: l._ownerKey })
+      .then(function(r) { return { loan: l, client: c, borrowerInfo: r || null }; })
+      .catch(function() { return { loan: l, client: c, borrowerInfo: null }; });
+  });
+  return Promise.all(promises);
+}
+
+function exportRtlSubmission() {
+  if (!window.LoanSubmissions) {
+    showExportStatus('Submission module not loaded. Refresh the page.', true);
+    return;
+  }
+  var selectedLoans = [];
+  Object.keys(_selected).forEach(function(k) {
+    if (!_selected[k]) return;
+    var l = _findLoanByKey(k);
+    if (!l) return;
+    if ((l.toolType || '').toLowerCase() === 'rtl') selectedLoans.push(l);
+  });
+  if (!selectedLoans.length) {
+    showExportStatus('No RTL loans selected. (Current template is RTL-only.)', true);
+    return;
+  }
+  var btn = document.getElementById('exportRtlBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  showExportStatus('Fetching borrower-info for ' + selectedLoans.length + ' loan(s)…', false);
+  _gatherSubmissionPayloads(selectedLoans).then(function(payloads) {
+    showExportStatus('Building workbook…', false);
+    return LoanSubmissions.export('rtl-v2025', payloads);
+  }).then(function() {
+    showExportStatus('Downloaded.', false);
+    if (btn) { btn.disabled = false; btn.textContent = 'Export RTL Submission Template (XLSX)'; }
+    // Clear status after a few seconds
+    setTimeout(function() { showExportStatus('', false); }, 4000);
+  }).catch(function(err) {
+    showExportStatus('Export failed: ' + (err && err.message || 'unknown'), true);
+    if (btn) { btn.disabled = false; btn.textContent = 'Export RTL Submission Template (XLSX)'; }
+  });
+}
+
+function showExportStatus(msg, isErr) {
+  var el = document.getElementById('exportStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isErr ? 'var(--danger)' : 'var(--muted)';
 }
 
 function renderStats(rows) {
