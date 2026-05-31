@@ -173,30 +173,33 @@
     <div id="perfStatsWrap"></div>
   </div>
 
-  <!-- Loans by State + Upcoming Closings side-by-side. Both halves. -->
+  <!-- Loans by State — own row, full width (was paired with Upcoming
+       Closings in 233.7; 236.28 broke them apart so Upcoming Closings
+       can take the full row for its expanded weekly grid). -->
   <div class="chart-row">
     <div class="chart-card">
       <h2>Loans by State</h2>
       <div class="chart-sub">PIPELINE + CLOSED · COUNT · TOTAL $</div>
       <div id="stateTableWrap" style="max-height:360px;overflow-y:auto"></div>
     </div>
-    <div class="chart-card">
-      <h2>Upcoming Closings by Date</h2>
-      <div class="chart-sub">PIPELINE LOANS WITH A FUTURE CLOSE DATE · NEAREST AT TOP</div>
-      <div id="upcomingWrap" style="max-height:360px;overflow-y:auto"></div>
+  </div>
+
+  <!-- Upcoming Closings — full-width with weekly grouping. Click a
+       week row to expand into Mon-Fri detail. Each day shows DSCR
+       and RTL counts/volume separately. Far-right column = weekly
+       totals. Deploy 236.28. -->
+  <div class="chart-row">
+    <div class="chart-card" style="flex:1 1 100%">
+      <h2>Upcoming Closings by Week</h2>
+      <div class="chart-sub">PIPELINE LOANS WITH A FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND TO MON-FRI</div>
+      <div id="upcomingWrap"></div>
     </div>
   </div>
 
-  <!-- Deploy 236.15 (Brokers Phase 4) — Top Brokers by closed volume.
-       Reads from the SLA clients store (which carries brokerId per loan)
-       not the Baseline mirror, so the figures match brokers.html exactly. -->
-  <div class="chart-row">
-    <div class="chart-card">
-      <h2>Top Brokers by Volume Closed</h2>
-      <div class="chart-sub">RANKED BY SUM OF LOAN AMOUNT WHERE STATUS=CLOSED · CLICK A ROW FOR FULL DEAL HISTORY</div>
-      <div id="topBrokersWrap" style="max-height:360px;overflow-y:auto"></div>
-    </div>
-  </div>
+  <!-- Deploy 236.28 — "Top Brokers by Volume Closed" moved off the
+       dashboard. Same data already lives on brokers.html so keeping
+       it here was duplicate surface. -->
+
 
   <!-- Debug Panel (hidden unless ?debug=1 or the checkbox is on) -->
   <div id="debugPanel" class="chart-card" style="display:none">
@@ -545,174 +548,188 @@ function renderAll() {
   renderPerformanceStats();
   renderStateTable();
   renderUpcomingClosings();
-  renderTopBrokers();
+  // Deploy 236.28 — renderTopBrokers() removed; same data lives on brokers.html.
   renderTable();
   renderDebugPanel();
 }
 
-// Deploy 236.15 (Brokers Phase 4) — Top Brokers by Volume Closed.
-// Reads from the SLA clients store (not the Baseline mirror) because
-// brokerId lives on the SLA loan record, not on Baseline. Volume
-// closed = sum(loan.loanAmt) where loan.status === 'closed', grouped
-// by loan.brokerId. Names come from the brokers store.
-//
-// We lazy-load these two stores the first time this widget renders to
-// keep dashboard load time low for users who never scroll down. The
-// fetched data is cached on window for subsequent renders.
-function renderTopBrokers() {
-  var wrap = document.getElementById('topBrokersWrap');
-  if (!wrap) return;
-  if (window._topBrokersData) { _renderTopBrokersFromData(wrap, window._topBrokersData); return; }
-  wrap.innerHTML = '<div class="loading">Loading broker data…</div>';
-  // Dashboard is admin-only (enforced at netlifyIdentity.on('init') —
-  // non-admins get bounced before we even render). So always use the
-  // all=1 path to aggregate every LO's brokers + clients.
-  Promise.all([
-    SLA.Clients.list({ all: true }),
-    SLA.Brokers.list({ all: true }),
-  ]).then(function(results) {
-    var clientsResp = results[0] || {};
-    var brokersResp = results[1] || {};
-    // Flatten across owners (admin) or use the LO's own list.
-    var clients = [];
-    if (clientsResp.byOwner) {
-      Object.keys(clientsResp.byOwner).forEach(function(k) {
-        (clientsResp.byOwner[k] || []).forEach(function(c) { c._ownerKey = k; clients.push(c); });
-      });
-    } else {
-      clients = clientsResp.clients || [];
-    }
-    var brokersByOwnerId = {}; // 'ownerKey|brokerId' -> broker record
-    if (brokersResp.byOwner) {
-      Object.keys(brokersResp.byOwner).forEach(function(k) {
-        (brokersResp.byOwner[k] || []).forEach(function(b) {
-          brokersByOwnerId[k + '|' + b.id] = b;
-        });
-      });
-    } else {
-      var myKey = (_user && _user.email || '').toLowerCase();
-      (brokersResp.brokers || []).forEach(function(b) { brokersByOwnerId[myKey + '|' + b.id] = b; });
-    }
-    // Aggregate per broker: deals, total closed volume.
-    var byBroker = {}; // 'ownerKey|brokerId' -> { broker, dealCount, volumeClosed }
-    clients.forEach(function(c) {
-      var ownerKey = (c._ownerKey || (c.createdBy || '').toLowerCase());
-      (c.loans || []).forEach(function(l) {
-        var bid = (l.brokerId || '').trim();
-        if (!bid) return;
-        var key = ownerKey + '|' + bid;
-        if (!byBroker[key]) {
-          byBroker[key] = {
-            broker: brokersByOwnerId[key] || { id: bid, name: l.brokerName || '(deleted broker)', company: l.brokerCompany || '' },
-            ownerKey: ownerKey,
-            dealCount: 0,
-            volumeClosed: 0,
-          };
-        }
-        byBroker[key].dealCount += 1;
-        if (l.status === 'closed') {
-          var amt = Number(l.loanAmt || 0) || 0;
-          byBroker[key].volumeClosed += amt;
-        }
-      });
-    });
-    var rows = Object.keys(byBroker).map(function(k) { return byBroker[k]; });
-    rows.sort(function(a, b) { return b.volumeClosed - a.volumeClosed; });
-    window._topBrokersData = rows;
-    _renderTopBrokersFromData(wrap, rows);
-  }).catch(function(err) {
-    wrap.innerHTML = '<div class="loading" style="color:var(--danger)">Failed to load: ' + ((err && err.message) || 'unknown') + '</div>';
-  });
-}
+// Deploy 236.28 — Top Brokers widget removed. Same data lives on
+// brokers.html admin view (always has, now without the duplicate).
 
-function _renderTopBrokersFromData(wrap, rows) {
-  if (!rows.length) {
-    wrap.innerHTML = '<div class="loading">No broker-linked loans yet. Bind a loan to a broker in the sizer to start tracking.</div>';
-    return;
-  }
-  // Show top 10, then a "View all" link to brokers.html.
-  var top = rows.slice(0, 10);
-  var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-    '<thead><tr>' +
-      '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Broker</th>' +
-      '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Company</th>' +
-      '<th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Deals</th>' +
-      '<th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Volume Closed</th>' +
-    '</tr></thead><tbody>' +
-    top.map(function(r) {
-      var b = r.broker || {};
-      var bname = b.name || '(unnamed)';
-      var company = b.company || '—';
-      return '<tr style="cursor:pointer" onclick="window.location.href=\'brokers.html\'" title="Open Broker Book">' +
-        '<td style="padding:9px 10px;border-bottom:1px solid #f0ece6">' + _escH(bname) + '</td>' +
-        '<td style="padding:9px 10px;border-bottom:1px solid #f0ece6;color:var(--muted)">' + _escH(company) + '</td>' +
-        '<td style="padding:9px 10px;text-align:right;border-bottom:1px solid #f0ece6">' + r.dealCount + '</td>' +
-        '<td style="padding:9px 10px;text-align:right;border-bottom:1px solid #f0ece6;font-weight:600">' + fmtMoney(r.volumeClosed) + '</td>' +
-      '</tr>';
-    }).join('') +
-    '</tbody></table>';
-  if (rows.length > 10) {
-    html += '<div style="padding:10px;text-align:center"><a href="brokers.html" style="font-size:12px;color:var(--gold-mid);text-decoration:none">View all ' + rows.length + ' brokers →</a></div>';
-  }
-  wrap.innerHTML = html;
-}
 function _escH(s) {
   return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Deploy 233.7 — Upcoming Closings list. Walks the mirror for pipeline
-// loans (open / on hold — not closed and not archived) that have an
-// Origination date in the future, groups by date, and lists nearest
-// first with closing count + total dollar volume per date. Rendered
-// as: "May 29th 2026   —   6 Closings   —   $2,300,000".
+// Deploy 236.28 — Upcoming Closings, weekly grouping.
+//
+// Walks the mirror for pipeline loans (open / on hold) with a future
+// Origination date, buckets them by Monday-of-week, then within each
+// week buckets by day (Mon-Fri only — closings rarely happen on a
+// weekend so we hide Sat/Sun rather than show empty columns).
+//
+// Each day bucket is split DSCR vs RTL (via inferLoanType). Each week
+// row collapses to a single header showing the date range + weekly
+// totals; clicking expands the day-by-day grid below it.
+//
+// Layout (one row per week):
+//
+//   ▸ Jun 9 – Jun 13   [DSCR pill]      [RTL pill]                 5 closings · $1.2M
+//   ▾ Jun 9 – Jun 13   ...
+//        Monday Jun 9      DSCR 1 · $300k     RTL 1 · $250k         2 · $550k
+//        Tuesday Jun 10    —                  RTL 2 · $400k         2 · $400k
+//        ...
 function renderUpcomingClosings() {
   var wrap = document.getElementById('upcomingWrap');
   if (!wrap) return;
   var todayMs = new Date(); todayMs.setHours(0,0,0,0); todayMs = todayMs.getTime();
-  var byDate = {};
+
+  // Bucket every qualifying loan by its day key, splitting DSCR / RTL.
+  // dayBucket: { ms, dscrCount, dscrTotal, rtlCount, rtlTotal, unkCount, unkTotal }
+  var byDay = {};
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
     if (!isOpen(l) && !isOnHold(l)) continue;
-    var d = l.Origination;
-    if (!d) continue;
-    var parsed = parseLoanDate(d);
+    var parsed = parseLoanDate(l.Origination);
     if (!parsed) continue;
-    // Deploy 233.8 — build the local-time Date from parsed components
-    // so a YYYY-MM-DD string doesn't get UTC-interpreted (which would
-    // show "May 29" as "May 28" in US timezones).
     var dateObj = new Date(parsed.year, parsed.month - 1, parsed.day);
     var ms = dateObj.getTime();
     if (ms < todayMs) continue;
     var key = parsed.year + '-' +
               String(parsed.month).padStart(2, '0') + '-' +
               String(parsed.day).padStart(2, '0');
-    if (!byDate[key]) byDate[key] = { count: 0, total: 0, ms: ms };
-    byDate[key].count += 1;
-    byDate[key].total += numAmt(l.Loan_Amount);
+    if (!byDay[key]) {
+      byDay[key] = { ms: ms, dscrCount: 0, dscrTotal: 0, rtlCount: 0, rtlTotal: 0, unkCount: 0, unkTotal: 0 };
+    }
+    var amt = numAmt(l.Loan_Amount);
+    var type = inferLoanType(l);
+    if (type === 'DSCR') {
+      byDay[key].dscrCount += 1; byDay[key].dscrTotal += amt;
+    } else if (type === 'RTL') {
+      byDay[key].rtlCount  += 1; byDay[key].rtlTotal  += amt;
+    } else {
+      byDay[key].unkCount  += 1; byDay[key].unkTotal  += amt;
+    }
   }
-  var rows = Object.keys(byDate).map(function(k) {
-    return { date: k, count: byDate[k].count, total: byDate[k].total, ms: byDate[k].ms };
-  }).sort(function(a, b) { return a.ms - b.ms; });
 
-  if (!rows.length) {
+  // Group day buckets by the Monday of their week. Mon-Fri only; any
+  // Sat/Sun closings fall into the Friday-anchored week's *previous*
+  // Monday but get rendered alongside Fri so they don't disappear.
+  // weekBucket: { mondayMs, days: { 0:Mon, 1:Tue, ... 4:Fri }, totals }
+  function mondayOf(ms) {
+    var d = new Date(ms);
+    var dow = d.getDay();           // 0=Sun, 1=Mon, ..., 6=Sat
+    var diff = (dow === 0 ? -6 : 1 - dow); // shift back to Mon
+    d.setDate(d.getDate() + diff);
+    d.setHours(0,0,0,0);
+    return d.getTime();
+  }
+  var byWeek = {};
+  Object.keys(byDay).forEach(function(k) {
+    var bucket = byDay[k];
+    var monMs = mondayOf(bucket.ms);
+    if (!byWeek[monMs]) {
+      byWeek[monMs] = { mondayMs: monMs, days: {}, dscrCount: 0, dscrTotal: 0, rtlCount: 0, rtlTotal: 0, unkCount: 0, unkTotal: 0 };
+    }
+    // Day-of-week relative to Monday (0..4 for Mon..Fri). Weekend
+    // dates (which shouldn't happen for closings but might) fold into
+    // Fri so they still show up in the totals.
+    var dow = new Date(bucket.ms).getDay();
+    var dayIdx = (dow === 0 || dow === 6) ? 4 : (dow - 1); // Sun→Fri, Sat→Fri
+    byWeek[monMs].days[dayIdx] = bucket;
+    byWeek[monMs].dscrCount += bucket.dscrCount;
+    byWeek[monMs].dscrTotal += bucket.dscrTotal;
+    byWeek[monMs].rtlCount  += bucket.rtlCount;
+    byWeek[monMs].rtlTotal  += bucket.rtlTotal;
+    byWeek[monMs].unkCount  += bucket.unkCount;
+    byWeek[monMs].unkTotal  += bucket.unkTotal;
+  });
+  var weeks = Object.keys(byWeek).map(function(k) { return byWeek[k]; })
+    .sort(function(a, b) { return a.mondayMs - b.mondayMs; });
+
+  if (!weeks.length) {
     wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">No upcoming closings in the pipeline.</div>';
     return;
   }
-  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse">';
-  html += '<thead><tr>' +
-    '<th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Date</th>' +
-    '<th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Closings</th>' +
-    '<th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Volume</th>' +
-  '</tr></thead><tbody>';
-  rows.forEach(function(r) {
-    html += '<tr>' +
-      '<td style="padding:8px 10px;border-top:1px solid var(--border);font-weight:500">' + escH(fmtClosingDate(r.date)) + '</td>' +
-      '<td style="padding:8px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + r.count + '</td>' +
-      '<td style="padding:8px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.total > 0 ? fmtMoney(r.total) : '—') + '</td>' +
-    '</tr>';
+
+  function fmtRange(mondayMs) {
+    var mon = new Date(mondayMs);
+    var fri = new Date(mondayMs); fri.setDate(fri.getDate() + 4);
+    var m  = mon.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+    var f  = fri.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+    return m + ' – ' + f;
+  }
+  function dayLabel(mondayMs, dayIdx) {
+    var d = new Date(mondayMs); d.setDate(d.getDate() + dayIdx);
+    return d.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  }
+  function pill(count, total, label, color) {
+    if (!count) return '<span style="font-size:12px;color:var(--muted)">—</span>';
+    return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;border-radius:14px;background:' + color.bg + ';border:1px solid ' + color.border + ';color:' + color.fg + ';font-weight:600">' +
+      '<span style="font-size:10px;letter-spacing:0.05em;text-transform:uppercase;opacity:0.8">' + label + '</span>' +
+      count + ' · ' + fmtMoney(total) +
+    '</span>';
+  }
+  var DSCR_COLOR = { bg: 'rgba(38,26,54,0.08)',  border: 'rgba(38,26,54,0.22)',  fg: '#261a36' };
+  var RTL_COLOR  = { bg: 'rgba(200,129,58,0.12)', border: 'rgba(200,129,58,0.32)', fg: '#9a5f20' };
+
+  var rowHeaderStyle =
+    'cursor:pointer;display:grid;grid-template-columns:24px 220px 1fr 1fr 220px;gap:14px;' +
+    'align-items:center;padding:11px 14px;border-top:1px solid var(--border);' +
+    'transition:background 0.12s;font-size:13px';
+  var html = '';
+  html += '<div style="display:grid;grid-template-columns:24px 220px 1fr 1fr 220px;gap:14px;padding:8px 14px;' +
+    'font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);font-weight:600">' +
+    '<div></div>' +
+    '<div>Week</div>' +
+    '<div>DSCR</div>' +
+    '<div>RTL</div>' +
+    '<div style="text-align:right">Week Total</div>' +
+  '</div>';
+
+  weeks.forEach(function(w, weekIdx) {
+    var rowId = 'wkrow_' + weekIdx;
+    var weekCount = w.dscrCount + w.rtlCount + w.unkCount;
+    var weekTotal = w.dscrTotal + w.rtlTotal + w.unkTotal;
+
+    html += '<div style="' + rowHeaderStyle + '" onclick="toggleWeekRow(\'' + rowId + '\')" onmouseover="this.style.background=\'rgba(200,129,58,0.04)\'" onmouseout="this.style.background=\'transparent\'">' +
+      '<div id="' + rowId + '_caret" style="font-size:11px;color:var(--muted);transition:transform 0.15s">▸</div>' +
+      '<div style="font-weight:600">' + escH(fmtRange(w.mondayMs)) + '</div>' +
+      '<div>' + pill(w.dscrCount, w.dscrTotal, 'DSCR', DSCR_COLOR) + '</div>' +
+      '<div>' + pill(w.rtlCount,  w.rtlTotal,  'RTL',  RTL_COLOR)  + '</div>' +
+      '<div style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' +
+        weekCount + ' · ' + fmtMoney(weekTotal) +
+      '</div>' +
+    '</div>';
+
+    // Expanded day grid — hidden by default
+    html += '<div id="' + rowId + '" style="display:none;background:#faf7f1;border-top:1px solid var(--border)">';
+    for (var dIdx = 0; dIdx < 5; dIdx++) {
+      var day = w.days[dIdx];
+      var dCount = day ? (day.dscrCount + day.rtlCount + day.unkCount) : 0;
+      var dTotal = day ? (day.dscrTotal + day.rtlTotal + day.unkTotal) : 0;
+      html += '<div style="display:grid;grid-template-columns:24px 220px 1fr 1fr 220px;gap:14px;padding:9px 14px;font-size:12px;border-top:1px solid #ece7dc">' +
+        '<div></div>' +
+        '<div style="color:var(--muted);padding-left:16px">' + escH(dayLabel(w.mondayMs, dIdx)) + '</div>' +
+        '<div>' + (day ? pill(day.dscrCount, day.dscrTotal, 'DSCR', DSCR_COLOR) : '<span style="color:var(--muted)">—</span>') + '</div>' +
+        '<div>' + (day ? pill(day.rtlCount,  day.rtlTotal,  'RTL',  RTL_COLOR)  : '<span style="color:var(--muted)">—</span>') + '</div>' +
+        '<div style="text-align:right;font-variant-numeric:tabular-nums">' +
+          (dCount ? (dCount + ' · ' + fmtMoney(dTotal)) : '<span style="color:var(--muted)">—</span>') +
+        '</div>' +
+      '</div>';
+    }
+    html += '</div>';
   });
-  html += '</tbody></table>';
   wrap.innerHTML = html;
+}
+
+// Toggle a week row's expanded day grid. Caret rotates 90° when open.
+function toggleWeekRow(rowId) {
+  var body = document.getElementById(rowId);
+  var caret = document.getElementById(rowId + '_caret');
+  if (!body) return;
+  var open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (caret) caret.style.transform = open ? '' : 'rotate(90deg)';
 }
 
 // Format an ISO date as "May 29th, 2026" with the correct ordinal
