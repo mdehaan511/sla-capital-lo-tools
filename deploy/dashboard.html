@@ -249,6 +249,42 @@
   </div>
 </div>
 
+<!-- Deploy 236.33: chart drilldown modal. Opens when a Revenue or
+     Volume chart bar is clicked. Lists every loan that contributed
+     to that bucket (Won / Open / On Hold) for that month, with
+     count + value totals at the top. Inspired by Pipedrive's
+     period-detail modal. -->
+<div id="chartDrilldownModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this) closeChartDrilldown()">
+  <div style="background:#fff;border-radius:10px;width:96vw;max-width:1100px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,0.22);font-family:'DM Sans',sans-serif">
+    <!-- Header -->
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <h3 id="cdmTitle" style="font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark);margin:0">Loans</h3>
+      <button type="button" onclick="closeChartDrilldown()" style="background:transparent;border:0;font-size:24px;color:var(--muted);cursor:pointer;padding:0;line-height:1;width:32px;height:32px">×</button>
+    </div>
+    <!-- Totals row -->
+    <div id="cdmTotals" style="padding:14px 22px;background:#faf7f1;border-bottom:1px solid var(--border);font-size:13px;display:flex;gap:24px;flex-wrap:wrap;flex-shrink:0"></div>
+    <!-- Scrollable table -->
+    <div style="overflow:auto;flex:1;padding:0">
+      <table id="cdmTable" style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#fbf8f2;position:sticky;top:0;z-index:1">
+            <th onclick="cdmSort('address')"    style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Address <span id="cdmSortArrow_address"  style="font-size:10px;opacity:0.5">↕</span></th>
+            <th onclick="cdmSort('amount')"     style="text-align:right;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Loan Amount <span id="cdmSortArrow_amount"   style="font-size:10px;opacity:0.5">↕</span></th>
+            <th onclick="cdmSort('status')"     style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Current Status <span id="cdmSortArrow_status"  style="font-size:10px;opacity:0.5">↕</span></th>
+            <th onclick="cdmSort('close')"      style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Expected Close Date <span id="cdmSortArrow_close" style="font-size:10px;opacity:0.5">↕</span></th>
+            <th onclick="cdmSort('revenue')"    style="text-align:right;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Expected Revenue <span id="cdmSortArrow_revenue" style="font-size:10px;opacity:0.5">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="cdmBody"></tbody>
+      </table>
+    </div>
+    <!-- Footer -->
+    <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;flex-shrink:0">
+      <button type="button" class="btn" onclick="closeChartDrilldown()" style="font-size:13px;padding:7px 18px">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ─────────────────────────────────────────────────────────
 var _user = null;
@@ -1031,9 +1067,12 @@ function statCard(label, value, sub) {
 }
 
 // ── Revenue chart (stacked: Open + Won per month) ────────────────
+// Deploy 236.33 — chart id passed through to monthlyAggregates so the
+// per-cell loan list gets stashed in _aggByChart[chartId] for the
+// click-to-drilldown modal.
 function renderRevenueChart() {
   var year = selectedYear();
-  var data = monthlyAggregates(year, function(l) { return estimatedRevenue(l); });
+  var data = monthlyAggregates(year, function(l) { return estimatedRevenue(l); }, 'revenueChart');
   drawStackedBar('revenueChart', data, year, 'revenue', function(v) {
     return v >= 1000 ? Math.round(v / 1000) + 'K' : Math.round(v);
   });
@@ -1041,7 +1080,7 @@ function renderRevenueChart() {
 
 function renderVolumeChart() {
   var year = selectedYear();
-  var data = monthlyAggregates(year, function(l) { return numAmt(l.Loan_Amount); });
+  var data = monthlyAggregates(year, function(l) { return numAmt(l.Loan_Amount); }, 'volumeChart');
   drawStackedBar('volumeChart', data, year, 'volume', function(v) {
     if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
     if (v >= 1000)    return Math.round(v / 1000) + 'K';
@@ -1058,13 +1097,21 @@ function renderVolumeChart() {
 // (archived always; liquidated only when the "Hide liquidated" toggle
 // is on). Returns rich diagnostics so the debug panel can show which
 // loans landed where and why others were excluded.
-function monthlyAggregates(year, metricFn) {
+function monthlyAggregates(year, metricFn, chartId) {
   var hideLiq = document.getElementById('hideLiquidated');
   hideLiq = hideLiq ? hideLiq.checked : false;
   var won    = new Array(12).fill(0);
   var open   = new Array(12).fill(0);
   var onHold = new Array(12).fill(0);
   var includedByBucket = { won: [], open: [], onHold: [] };
+  // Deploy 236.33 — per-cell loan grid for click-to-drilldown modal.
+  // cells[bucket][monthIdx] = [loan, loan, ...] (raw mirror records).
+  var cells = {
+    won:    new Array(12),
+    open:   new Array(12),
+    onHold: new Array(12),
+  };
+  for (var k = 0; k < 12; k++) { cells.won[k] = []; cells.open[k] = []; cells.onHold[k] = []; }
   var excluded = [];  // { id, name, reason }
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
@@ -1092,28 +1139,41 @@ function monthlyAggregates(year, metricFn) {
       continue;
     }
     var bucket;
+    var mIdx = parsed.month - 1;
     // Liquidated counts as Won (paid-off loans had a real close-month
     // revenue event — same bucket as Sold). Mike's prior request to
     // "hide liquidated from chart" is now driven by the toggle above;
     // when the toggle is OFF (default) we include them.
     if (isWon(l) || isLiquidated(l)) {
-      won[parsed.month - 1] += v;
+      won[mIdx] += v;
       includedByBucket.won.push({ id: l.Id, name: l.Name, month: parsed.month, status: l.Status, v: v });
+      cells.won[mIdx].push(l);
       bucket = 'won';
     } else if (isOnHold(l)) {
-      onHold[parsed.month - 1] += v;
+      onHold[mIdx] += v;
       includedByBucket.onHold.push({ id: l.Id, name: l.Name, month: parsed.month, status: l.Status, v: v });
+      cells.onHold[mIdx].push(l);
       bucket = 'onHold';
     } else {
-      open[parsed.month - 1] += v;
+      open[mIdx] += v;
       includedByBucket.open.push({ id: l.Id, name: l.Name, month: parsed.month, status: l.Status, v: v });
+      cells.open[mIdx].push(l);
       bucket = 'open';
     }
   }
   // Stash for debug panel
   _lastAgg = { year: year, included: includedByBucket, excluded: excluded };
+  // Deploy 236.33 — per-chart cache so the click handler can map a
+  // bar click back to a specific list of loans without re-aggregating.
+  if (chartId) {
+    _aggByChart[chartId] = { year: year, cells: cells };
+  }
   return { won: won, open: open, onHold: onHold };
 }
+
+// Deploy 236.33 — per-chart aggregation cache. Keys: 'revenueChart' /
+// 'volumeChart' → { year, cells: { won/open/onHold: [12 arrays of loans] } }
+var _aggByChart = {};
 
 // Deploy 233.4/233.8 — robust date parser. Most Baseline records
 // return YYYY-MM-DD, but older imports / manual entries may use ISO
@@ -1178,6 +1238,27 @@ function drawStackedBar(canvasId, data, year, kind, fmtTick) {
       // Deploy 233.3 — index mode so hovering any part of a column
       // shows all three stack segments + the footer total.
       interaction: { mode: 'index', intersect: false },
+      // Deploy 236.33 — pointer cursor + click handler for drilldown.
+      // `intersect: true` on the onHover hit test makes the cursor
+      // only switch over actual bar segments (not the whole chart).
+      onHover: function(evt, elements, chart) {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
+      onClick: function(evt, elements, chart) {
+        if (!elements.length) return;
+        // Chart.js delivers all stack segments at the clicked X
+        // because of interaction.mode = 'index'. Pick the topmost
+        // bar with non-zero height so a click on the "Won" segment
+        // opens the Won drilldown, etc. Falls back to the first.
+        var picked = null;
+        for (var i = 0; i < elements.length; i++) {
+          var el = elements[i];
+          var v = chart.data.datasets[el.datasetIndex].data[el.index];
+          if (v > 0) { picked = el; break; }
+        }
+        if (!picked) picked = elements[0];
+        openChartDrilldown(canvasId, picked.datasetIndex, picked.index);
+      },
       plugins: {
         legend: { position: 'bottom', labels: { font: { family: 'DM Sans', size: 12 } } },
         tooltip: {
@@ -1191,7 +1272,7 @@ function drawStackedBar(canvasId, data, year, kind, fmtTick) {
             footer: function(items) {
               var total = 0;
               items.forEach(function(it) { total += it.parsed.y; });
-              return 'Total: $' + Number(total).toLocaleString();
+              return 'Total: $' + Number(total).toLocaleString() + '  ·  click for details';
             },
           },
         },
@@ -1202,6 +1283,139 @@ function drawStackedBar(canvasId, data, year, kind, fmtTick) {
       },
     },
   });
+}
+
+// ── Deploy 236.33: Chart drilldown modal ─────────────────────────
+// Click a Revenue or Volume bar → modal shows every loan that
+// contributed to that (Won/Open/On Hold, month) bucket with
+// address, loan amount, current status, expected close date, and
+// expected revenue. Totals (deals count, deal value, revenue) at
+// the top. Sortable columns. Click-outside or X to close.
+var _cdmState = {
+  loans:  [],        // array of mirror loan refs for the clicked cell
+  sortBy: 'amount',  // 'address' | 'amount' | 'status' | 'close' | 'revenue'
+  sortDir: 'desc',
+};
+var BUCKET_LABEL = ['Won', 'Open', 'On Hold']; // matches dataset index
+
+function openChartDrilldown(chartId, datasetIdx, monthIdx) {
+  var agg = _aggByChart[chartId];
+  if (!agg) return;
+  var bucketKey = ['won', 'open', 'onHold'][datasetIdx];
+  if (!bucketKey || !agg.cells[bucketKey]) return;
+  var loans = agg.cells[bucketKey][monthIdx] || [];
+  if (!loans.length) return; // nothing to show
+
+  _cdmState.loans = loans.slice();
+  // Default sort: amount desc (biggest deals first) — predictable
+  // and most useful for the "Total deal value" view.
+  _cdmState.sortBy  = 'amount';
+  _cdmState.sortDir = 'desc';
+
+  var monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][monthIdx];
+  var chartLabel = chartId === 'revenueChart' ? 'Revenue' : 'Volume';
+  document.getElementById('cdmTitle').textContent =
+    BUCKET_LABEL[datasetIdx] + ' · ' + chartLabel + ' · ' + monthName + ' ' + agg.year;
+
+  _cdmRender();
+  document.getElementById('chartDrilldownModal').style.display = 'flex';
+  // ESC key to close
+  document.addEventListener('keydown', _cdmKeyHandler);
+}
+
+function closeChartDrilldown() {
+  document.getElementById('chartDrilldownModal').style.display = 'none';
+  document.removeEventListener('keydown', _cdmKeyHandler);
+}
+
+function _cdmKeyHandler(e) { if (e.key === 'Escape') closeChartDrilldown(); }
+
+function cdmSort(col) {
+  if (_cdmState.sortBy === col) {
+    _cdmState.sortDir = _cdmState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _cdmState.sortBy = col;
+    // Numeric cols default to desc (biggest first), text cols asc
+    _cdmState.sortDir = (col === 'amount' || col === 'revenue' || col === 'close') ? 'desc' : 'asc';
+  }
+  _cdmRender();
+}
+
+function _cdmRender() {
+  var loans = _cdmState.loans.slice();
+  // Compute per-row derived fields once so sort comparisons are cheap
+  var rows = loans.map(function(l) {
+    return {
+      loan:    l,
+      address: l.Name || '(no address)',
+      amount:  numAmt(l.Loan_Amount),
+      status:  l.Status || '—',
+      sub:     l.Substatus || '',
+      close:   loanCloseDate(l) || '',
+      revenue: estimatedRevenue(l),
+    };
+  });
+
+  // Sort
+  var dir = _cdmState.sortDir === 'asc' ? 1 : -1;
+  rows.sort(function(a, b) {
+    var av, bv;
+    switch (_cdmState.sortBy) {
+      case 'amount':  av = a.amount;  bv = b.amount;  break;
+      case 'revenue': av = a.revenue; bv = b.revenue; break;
+      case 'address': av = String(a.address).toLowerCase(); bv = String(b.address).toLowerCase(); break;
+      case 'status':  av = String(a.status).toLowerCase();  bv = String(b.status).toLowerCase();  break;
+      case 'close':   av = a.close || ''; bv = b.close || ''; break;
+      default:        av = a.amount; bv = b.amount;
+    }
+    if (av < bv) return -1 * dir;
+    if (av > bv) return  1 * dir;
+    return 0;
+  });
+
+  // Totals
+  var totalDeals   = rows.length;
+  var totalValue   = rows.reduce(function(s, r) { return s + (r.amount  || 0); }, 0);
+  var totalRevenue = rows.reduce(function(s, r) { return s + (r.revenue || 0); }, 0);
+
+  document.getElementById('cdmTotals').innerHTML =
+    '<div><span style="color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:0.06em;font-weight:600">Deals</span> · <strong style="font-size:14px">' + totalDeals + '</strong></div>' +
+    '<div><span style="color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:0.06em;font-weight:600">Total Deal Value</span> · <strong style="font-size:14px">' + fmtMoney(totalValue) + '</strong></div>' +
+    '<div><span style="color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:0.06em;font-weight:600">Total Expected Revenue</span> · <strong style="font-size:14px">' + fmtMoney(totalRevenue) + '</strong></div>';
+
+  // Sort arrows
+  ['address','amount','status','close','revenue'].forEach(function(col) {
+    var el = document.getElementById('cdmSortArrow_' + col);
+    if (!el) return;
+    if (_cdmState.sortBy === col) {
+      el.textContent = _cdmState.sortDir === 'asc' ? '▲' : '▼';
+      el.style.opacity = '1';
+    } else {
+      el.textContent = '↕';
+      el.style.opacity = '0.4';
+    }
+  });
+
+  // Body
+  var html = rows.map(function(r) {
+    var statusHtml = '<span class="pill ' + statusPillClass(r.status) + '">' + escH(r.status) + '</span>' +
+                     (r.sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(r.sub) + '</div>' : '');
+    return '<tr>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde">' +
+        escH(r.address) + (r.loan.Id ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(r.loan.Id) + '</div>' : '') +
+      '</td>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' +
+        (r.amount > 0 ? fmtMoney(r.amount) : '—') +
+      '</td>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde">' + statusHtml + '</td>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde;font-variant-numeric:tabular-nums">' + escH(r.close || '—') + '</td>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' +
+        (r.revenue > 0 ? fmtMoney(r.revenue) : '—') +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('cdmBody').innerHTML = html ||
+    '<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--muted)">No loans in this bucket.</td></tr>';
 }
 
 // ── Performance Stats table (split by RTL / DSCR) ────────────────
