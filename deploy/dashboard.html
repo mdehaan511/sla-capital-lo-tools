@@ -478,6 +478,12 @@ function pointsAsPercent(v) {
 function loanCloseDate(loan) {
   // Origination = when the loan closed (or is projected to close).
   // Fall back to Created_Date when Origination isn't set.
+  // Deploy 236.34: Mike noticed some loans show stale Origination
+  // dates (SLA-20260302-1930 showed Jun 1 here, Jun 25 in Baseline).
+  // Investigate via the row inspector in the chart drilldown modal --
+  // click any row to see every field on that loan record. If
+  // Baseline keeps a fresher projection in a different field name,
+  // tell me which and we'll wire a fallback chain here.
   return (loan && (loan.Origination || loan.Created_Date)) || '';
 }
 
@@ -1397,12 +1403,19 @@ function _cdmRender() {
   });
 
   // Body
-  var html = rows.map(function(r) {
+  // Deploy 236.34 — each row is clickable to expand into a field
+  // inspector beneath it. Mike's two open bugs (extra loans in the
+  // Open bar; SLA-20260302-1930 showing wrong close date) both need
+  // raw-field visibility to diagnose. Click any row → all fields on
+  // that loan's mirror record render in a sub-row.
+  var html = rows.map(function(r, idx) {
     var statusHtml = '<span class="pill ' + statusPillClass(r.status) + '">' + escH(r.status) + '</span>' +
                      (r.sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(r.sub) + '</div>' : '');
-    return '<tr>' +
+    var inspectId = 'cdmInspect_' + idx;
+    return '<tr style="cursor:pointer" onclick="cdmToggleInspect(' + idx + ')" onmouseover="this.style.background=\'rgba(200,129,58,0.04)\'" onmouseout="this.style.background=\'transparent\'">' +
       '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde">' +
-        escH(r.address) + (r.loan.Id ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(r.loan.Id) + '</div>' : '') +
+        '<span style="display:inline-block;width:14px;color:var(--muted);font-size:10px" id="' + inspectId + '_caret">▸</span>' +
+        escH(r.address) + (r.loan.Id ? '<div style="font-size:10px;color:var(--muted);margin-top:2px;margin-left:14px">' + escH(r.loan.Id) + '</div>' : '') +
       '</td>' +
       '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' +
         (r.amount > 0 ? fmtMoney(r.amount) : '—') +
@@ -1412,10 +1425,99 @@ function _cdmRender() {
       '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' +
         (r.revenue > 0 ? fmtMoney(r.revenue) : '—') +
       '</td>' +
-    '</tr>';
+    '</tr>' +
+    // Hidden inspector row — empty until cdmToggleInspect() lazily fills it.
+    '<tr id="' + inspectId + '" style="display:none"><td colspan="5" style="padding:0;background:#faf7f1;border-bottom:1px solid #ece7dc"></td></tr>';
   }).join('');
   document.getElementById('cdmBody').innerHTML = html ||
     '<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--muted)">No loans in this bucket.</td></tr>';
+}
+
+// Deploy 236.34 — Toggle the field-inspector sub-row for a single
+// drilldown row. Lazily builds the field dump on first open so a
+// big modal doesn't pay the cost upfront.
+function cdmToggleInspect(idx) {
+  var rowId = 'cdmInspect_' + idx;
+  var row = document.getElementById(rowId);
+  var caret = document.getElementById(rowId + '_caret');
+  if (!row) return;
+  var open = row.style.display !== 'none';
+  if (open) {
+    row.style.display = 'none';
+    if (caret) caret.textContent = '▸';
+    return;
+  }
+  // Build the inspector content lazily
+  var cell = row.firstElementChild;
+  if (cell && !cell.dataset.built) {
+    var loans = _cdmState.loans;
+    // _cdmState.loans is the unsorted set; the rendered table is
+    // sorted, so we have to map the rendered idx to the actual loan.
+    // We rebuild the sorted view here too. (Acceptable for a small
+    // modal; if perf ever matters, stash the sorted list on render.)
+    var sortedRows = (function() {
+      var rows = loans.slice().map(function(l) {
+        return {
+          loan: l,
+          address: l.Name || '(no address)',
+          amount:  numAmt(l.Loan_Amount),
+          status:  l.Status || '—',
+          close:   loanCloseDate(l) || '',
+          revenue: estimatedRevenue(l),
+        };
+      });
+      var dir = _cdmState.sortDir === 'asc' ? 1 : -1;
+      rows.sort(function(a, b) {
+        var av, bv;
+        switch (_cdmState.sortBy) {
+          case 'amount':  av = a.amount;  bv = b.amount;  break;
+          case 'revenue': av = a.revenue; bv = b.revenue; break;
+          case 'address': av = String(a.address).toLowerCase(); bv = String(b.address).toLowerCase(); break;
+          case 'status':  av = String(a.status).toLowerCase();  bv = String(b.status).toLowerCase();  break;
+          case 'close':   av = a.close || ''; bv = b.close || ''; break;
+          default:        av = a.amount; bv = b.amount;
+        }
+        if (av < bv) return -1 * dir;
+        if (av > bv) return  1 * dir;
+        return 0;
+      });
+      return rows;
+    })();
+    var loan = sortedRows[idx] && sortedRows[idx].loan;
+    if (loan) {
+      var keys = Object.keys(loan).sort();
+      // Highlight any field that looks date-ish so Mike can spot a
+      // stale Origination vs a fresh Estimated_Close_Date at a glance.
+      var dateKeyRe = /(date|origin|maturity|funding|closing|expected|projected|anticipated|estimated)/i;
+      var html = '<div style="padding:14px 22px 18px 36px">' +
+        '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:8px">' +
+          'All fields on this loan record · ' + (loan.Id ? escH(loan.Id) : '(no id)') +
+          ' · <span style="text-transform:none;letter-spacing:0;color:var(--gold-mid)">date-related fields highlighted</span>' +
+        '</div>' +
+        '<table style="width:100%;font-size:11.5px;border-collapse:collapse;background:#fff;border:1px solid #ece7dc;border-radius:6px"><tbody>';
+      keys.forEach(function(k) {
+        var raw = loan[k];
+        var disp;
+        if (raw === null) disp = '<em style="color:var(--muted)">null</em>';
+        else if (raw === '') disp = '<em style="color:var(--muted)">(empty)</em>';
+        else if (typeof raw === 'object') disp = '<code>' + escH(JSON.stringify(raw).slice(0, 160)) + '</code>';
+        else disp = escH(String(raw).slice(0, 160));
+        var isDateish = dateKeyRe.test(k);
+        var rowStyle = isDateish
+          ? 'background:rgba(200,129,58,0.08)'
+          : '';
+        html += '<tr style="' + rowStyle + '">' +
+          '<td style="padding:4px 10px;font-family:monospace;font-size:11px;color:' + (isDateish ? '#9a5f20' : '#1a1520') + ';font-weight:' + (isDateish ? '600' : '400') + ';border-bottom:1px solid #f4efe2;width:40%">' + escH(k) + '</td>' +
+          '<td style="padding:4px 10px;border-bottom:1px solid #f4efe2">' + disp + '</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+      cell.innerHTML = html;
+      cell.dataset.built = '1';
+    }
+  }
+  row.style.display = '';
+  if (caret) caret.textContent = '▾';
 }
 
 // ── Performance Stats table (split by RTL / DSCR) ────────────────
