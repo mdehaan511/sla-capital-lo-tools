@@ -173,27 +173,23 @@
     <div id="perfStatsWrap"></div>
   </div>
 
-  <!-- Loans by State — own row, full width (was paired with Upcoming
-       Closings in 233.7; 236.28 broke them apart so Upcoming Closings
-       can take the full row for its expanded weekly grid). -->
-  <div class="chart-row">
-    <div class="chart-card">
-      <h2>Loans by State</h2>
-      <div class="chart-sub">PIPELINE + CLOSED · COUNT · TOTAL $</div>
-      <div id="stateTableWrap" style="max-height:360px;overflow-y:auto"></div>
-    </div>
+  <!-- Deploy 236.30 — Upcoming Closings moved ABOVE Loans by State
+       and is now genuinely full-width. The previous wrapper used
+       .chart-row which is a 2-column grid; we render the card
+       directly (no row wrapper) so it spans the page. -->
+  <div class="chart-card">
+    <h2>Upcoming Closings by Week</h2>
+    <div class="chart-sub">PIPELINE LOANS WITH A FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND TO MON-FRI</div>
+    <div id="upcomingWrap"></div>
   </div>
 
-  <!-- Upcoming Closings — full-width with weekly grouping. Click a
-       week row to expand into Mon-Fri detail. Each day shows DSCR
-       and RTL counts/volume separately. Far-right column = weekly
-       totals. Deploy 236.28. -->
-  <div class="chart-row">
-    <div class="chart-card" style="flex:1 1 100%">
-      <h2>Upcoming Closings by Week</h2>
-      <div class="chart-sub">PIPELINE LOANS WITH A FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND TO MON-FRI</div>
-      <div id="upcomingWrap"></div>
-    </div>
+  <!-- Loans by State — also full-width. Columns updated in 236.30 to
+       Total / RTL Count / RTL Volume / DSCR Count / DSCR Volume per
+       state so admins can see the product mix per market at a glance. -->
+  <div class="chart-card">
+    <h2>Loans by State</h2>
+    <div class="chart-sub">PIPELINE + CLOSED · TOTAL · RTL COUNT / VOLUME · DSCR COUNT / VOLUME</div>
+    <div id="stateTableWrap" style="max-height:480px;overflow-y:auto"></div>
   </div>
 
   <!-- Deploy 236.28 — "Top Brokers by Volume Closed" moved off the
@@ -1215,38 +1211,78 @@ function renderPerformanceStats() {
 // Deploy 233.2 — include active pipeline + closed loans (Sold,
 // Liquidated, In Servicing). Archived excluded. Matches Mike's ask:
 // "active pipeline loans or Liquidated, Sold, or In Servicing loans".
+// Deploy 236.30 — Loans by State now splits RTL vs DSCR per state.
+// Columns: State | Total Loans | RTL Count | RTL Volume | DSCR Count |
+// DSCR Volume. Sorted by total loans desc (then state code asc as
+// stable tiebreak). Footer row totals the whole table so admins
+// don't have to mentally sum a long column.
 function renderStateTable() {
-  var byState = {};   // key: state → { count, total }
+  var byState = {};
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
     if (isArchived(l)) continue;
     var st = (l.Address_State || extractStateFromName(l.Name) || '').trim() || '(unknown)';
-    if (!byState[st]) byState[st] = { count: 0, total: 0 };
-    byState[st].count += 1;
-    byState[st].total += numAmt(l.Loan_Amount);
+    if (!byState[st]) byState[st] = { rtlCount: 0, rtlTotal: 0, dscrCount: 0, dscrTotal: 0, unkCount: 0, unkTotal: 0 };
+    var amt = numAmt(l.Loan_Amount);
+    var type = inferLoanType(l);
+    if (type === 'RTL')       { byState[st].rtlCount  += 1; byState[st].rtlTotal  += amt; }
+    else if (type === 'DSCR') { byState[st].dscrCount += 1; byState[st].dscrTotal += amt; }
+    else                      { byState[st].unkCount  += 1; byState[st].unkTotal  += amt; }
   }
-  var rows = Object.keys(byState)
-    .map(function(k) { return { state: k, count: byState[k].count, total: byState[k].total }; })
-    .sort(function(a, b) { return b.count - a.count; });
+  var rows = Object.keys(byState).map(function(k) {
+    var b = byState[k];
+    return {
+      state:     k,
+      total:     b.rtlCount + b.dscrCount + b.unkCount,
+      rtlCount:  b.rtlCount,  rtlTotal:  b.rtlTotal,
+      dscrCount: b.dscrCount, dscrTotal: b.dscrTotal,
+      unkCount:  b.unkCount,  unkTotal:  b.unkTotal,
+    };
+  }).sort(function(a, b) {
+    if (b.total !== a.total) return b.total - a.total;
+    return a.state.localeCompare(b.state);
+  });
 
   if (!rows.length) {
     document.getElementById('stateTableWrap').innerHTML =
       '<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">No active loans to break out by state.</div>';
     return;
   }
+  var thStyle = 'text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em';
+  var thStyleL = thStyle.replace('right', 'left');
   var html = '<table style="width:100%;font-size:13px;border-collapse:collapse">';
   html += '<thead><tr>' +
-    '<th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">State</th>' +
-    '<th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Loans</th>' +
-    '<th style="text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">Total $</th>' +
+    '<th style="' + thStyleL + '">State</th>' +
+    '<th style="' + thStyle  + '">Total Loans</th>' +
+    '<th style="' + thStyle  + '">RTL Count</th>' +
+    '<th style="' + thStyle  + '">RTL Volume</th>' +
+    '<th style="' + thStyle  + '">DSCR Count</th>' +
+    '<th style="' + thStyle  + '">DSCR Volume</th>' +
   '</tr></thead><tbody>';
+
+  var totRtlC = 0, totRtlV = 0, totDscrC = 0, totDscrV = 0, totLoans = 0;
   rows.forEach(function(r) {
+    totLoans += r.total;
+    totRtlC  += r.rtlCount;  totRtlV  += r.rtlTotal;
+    totDscrC += r.dscrCount; totDscrV += r.dscrTotal;
     html += '<tr>' +
-      '<td style="padding:7px 10px;border-top:1px solid var(--border)">' + escH(r.state) + '</td>' +
-      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + r.count + '</td>' +
-      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.total > 0 ? fmtMoney(r.total) : '—') + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);font-weight:500">' + escH(r.state) + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + r.total + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.rtlCount  || '—') + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.rtlTotal  > 0 ? fmtMoney(r.rtlTotal)  : '—') + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.dscrCount || '—') + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.dscrTotal > 0 ? fmtMoney(r.dscrTotal) : '—') + '</td>' +
     '</tr>';
   });
+  // Footer totals row
+  html += '<tr style="background:rgba(38,26,54,0.04);font-weight:600">' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark)">Total</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + totLoans + '</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totRtlC  || '—') + '</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totRtlV  > 0 ? fmtMoney(totRtlV)  : '—') + '</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totDscrC || '—') + '</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totDscrV > 0 ? fmtMoney(totDscrV) : '—') + '</td>' +
+  '</tr>';
   html += '</tbody></table>';
   document.getElementById('stateTableWrap').innerHTML = html;
 }
