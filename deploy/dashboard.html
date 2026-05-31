@@ -612,6 +612,11 @@ function renderUpcomingClosings() {
   var byDay = {};
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
+    // Deploy 236.32 — explicit archived skip. isOpen already excludes
+    // archived but isOnHold doesn't, so an archived+on-hold loan would
+    // otherwise sneak in. Mike: archived loans should not appear in
+    // Upcoming Closings.
+    if (isArchived(l)) continue;
     if (!isOpen(l) && !isOnHold(l)) continue;
     var parsed = parseLoanDate(l.Origination);
     if (!parsed) continue;
@@ -1001,11 +1006,19 @@ function renderStats() {
     var d = loanCloseDate(l); return d && d.indexOf(String(thisYear)) === 0;
   }).reduce(function(s, l) { return s + estimatedRevenue(l); }, 0);
 
+  // Deploy 236.32 — exclude archived from the "Total Mirrored" count
+  // so it stays consistent with the rest of the dashboard (which now
+  // ignores archived everywhere except Performance Stats).
+  var nonArchivedCount = 0;
+  for (var i = 0; i < _loans.length; i++) {
+    if (!isArchived(_loans[i])) nonArchivedCount += 1;
+  }
+
   var html = '';
   html += statCard('Active Pipeline', fmtMoney(openAmount, true), openLoans.length + ' loans');
   html += statCard('Won (' + thisYear + ')', fmtMoney(wonThisYr, true), wonLoans.length + ' total sold');
   html += statCard('Est. Revenue YTD', fmtMoney(revYTD, true), 'closing-day fees + points');
-  html += statCard('Total Mirrored', _loans.length, 'loans synced from Baseline');
+  html += statCard('Total Mirrored', nonArchivedCount, 'loans synced (excl. archived)');
   document.getElementById('statRow').innerHTML = html;
 }
 
@@ -1443,7 +1456,11 @@ function _dashGetFiltered() {
   return _loans.filter(function(l) {
     if (_tab === 'active' && !isOpen(l))   return false;
     if (_tab === 'sold'   && !isWon(l))    return false;
-    if (_tab === 'closed' && !isClosed(l)) return false;
+    // Deploy 236.32 — Closed tab now means LITERAL Status === 'Closed'
+    // only, not the broader isClosed() (which also included Sold /
+    // Funded / In Servicing / Liquidated). Mike: "When CLOSED is
+    // selected only show the CLOSED status loans."
+    if (_tab === 'closed' && String(l.Status || '').toLowerCase() !== 'closed') return false;
     if (q) {
       var hay = ((l.Name || '') + ' ' + (l.Id || '') + ' ' + (l.Substatus || '') + ' ' + (l.Address_State || '')).toLowerCase();
       if (hay.indexOf(q) < 0) return false;
