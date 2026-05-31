@@ -21,6 +21,10 @@
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
   <script src="sla-nav.js"></script>
+  <!-- Deploy 236.31: submission-tape builder (factory pattern). Used
+       by the "Export RTL Submission Template" action when 1+ closed
+       loans are selected in the Loans table. -->
+  <script src="loan-submissions.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     :root {
@@ -212,10 +216,32 @@
         <input type="text" id="loanSearch" class="search-box" placeholder="Search address, borrower, ID…" oninput="renderTable()" />
         <div class="tabs">
           <button class="tab active" id="tabActive" onclick="setTab('active')">Active</button>
-          <button class="tab" id="tabSold" onclick="setTab('sold')">Sold</button>
-          <button class="tab" id="tabAll" onclick="setTab('all')">All</button>
+          <button class="tab" id="tabSold"   onclick="setTab('sold')">Sold</button>
+          <!-- Deploy 236.31 — Closed tab: loans that closed successfully
+               (sold / funded / in-servicing / liquidated). Same scope as
+               isClosed() in the Performance Stats section. -->
+          <button class="tab" id="tabClosed" onclick="setTab('closed')">Closed</button>
+          <button class="tab" id="tabAll"    onclick="setTab('all')">All</button>
         </div>
+        <!-- Deploy 236.31 — Select Multiple toggle. Same UX as loans.html
+             (Pipeline pattern): turning it on adds a checkbox column to
+             the table and reveals the export action bar below when 1+
+             closed RTL loans are selected. -->
+        <button type="button" class="btn" id="dashSelectModeBtn" onclick="toggleDashSelectMode()" style="font-size:12px;padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:inherit">
+          Select Multiple
+        </button>
       </div>
+    </div>
+    <!-- Action bar: only visible in select mode AND 1+ rows selected. -->
+    <div id="dashSelectActionBar" style="display:none;background:var(--gold-light);border:1px solid var(--gold-border);border-radius:8px;padding:10px 14px;margin:10px 0;align-items:center;gap:14px;flex-wrap:wrap">
+      <span id="dashSelectCount" style="font-size:13px;font-weight:600;color:var(--gold-mid)"></span>
+      <button type="button" class="btn" onclick="dashSelectAllFiltered()" style="font-size:12px">Select all visible</button>
+      <button type="button" class="btn" onclick="dashClearSelections()" style="font-size:12px">Clear</button>
+      <span style="flex:1"></span>
+      <button type="button" class="btn primary" id="dashExportRtlBtn" onclick="dashExportRtlSubmission()" style="font-size:12px">
+        Export RTL Submission Template (XLSX)
+      </button>
+      <span id="dashExportStatus" style="font-size:12px;color:var(--muted)"></span>
     </div>
     <div id="loansTableWrap">
       <div class="loading">Loading…</div>
@@ -580,7 +606,9 @@ function renderUpcomingClosings() {
   var todayMs = new Date(); todayMs.setHours(0,0,0,0); todayMs = todayMs.getTime();
 
   // Bucket every qualifying loan by its day key, splitting DSCR / RTL.
-  // dayBucket: { ms, dscrCount, dscrTotal, rtlCount, rtlTotal, unkCount, unkTotal }
+  // dayBucket: { ms, dscrCount, dscrTotal, rtlCount, rtlTotal, unkCount,
+  // unkTotal, loans: [...] } — loans[] retained so the day row can
+  // expand to list addresses + amounts (Deploy 236.31).
   var byDay = {};
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
@@ -594,7 +622,7 @@ function renderUpcomingClosings() {
               String(parsed.month).padStart(2, '0') + '-' +
               String(parsed.day).padStart(2, '0');
     if (!byDay[key]) {
-      byDay[key] = { ms: ms, dscrCount: 0, dscrTotal: 0, rtlCount: 0, rtlTotal: 0, unkCount: 0, unkTotal: 0 };
+      byDay[key] = { ms: ms, dscrCount: 0, dscrTotal: 0, rtlCount: 0, rtlTotal: 0, unkCount: 0, unkTotal: 0, loans: [] };
     }
     var amt = numAmt(l.Loan_Amount);
     var type = inferLoanType(l);
@@ -605,6 +633,7 @@ function renderUpcomingClosings() {
     } else {
       byDay[key].unkCount  += 1; byDay[key].unkTotal  += amt;
     }
+    byDay[key].loans.push({ name: l.Name || '', id: l.Id || '', amt: amt, type: type });
   }
 
   // Group day buckets by the Monday of their week. Mon-Fri only; any
@@ -697,21 +726,50 @@ function renderUpcomingClosings() {
       '</div>' +
     '</div>';
 
-    // Expanded day grid — hidden by default
+    // Expanded day grid — hidden by default. Each day row is itself
+    // clickable when it has loans, expanding into a list of loan
+    // addresses + amounts below it (Deploy 236.31).
     html += '<div id="' + rowId + '" style="display:none;background:#faf7f1;border-top:1px solid var(--border)">';
     for (var dIdx = 0; dIdx < 5; dIdx++) {
       var day = w.days[dIdx];
       var dCount = day ? (day.dscrCount + day.rtlCount + day.unkCount) : 0;
       var dTotal = day ? (day.dscrTotal + day.rtlTotal + day.unkTotal) : 0;
-      html += '<div style="display:grid;grid-template-columns:24px 220px 1fr 1fr 220px;gap:14px;padding:9px 14px;font-size:12px;border-top:1px solid #ece7dc">' +
-        '<div></div>' +
-        '<div style="color:var(--muted);padding-left:16px">' + escH(dayLabel(w.mondayMs, dIdx)) + '</div>' +
+      var dayRowId  = rowId + '_d' + dIdx;
+      var dayClickable = dCount > 0;
+      var dayClickAttr = dayClickable
+        ? ' onclick="toggleDayRow(\'' + dayRowId + '\')" style="cursor:pointer;display:grid;grid-template-columns:24px 220px 1fr 1fr 220px;gap:14px;padding:9px 14px;font-size:12px;border-top:1px solid #ece7dc"'
+        : ' style="display:grid;grid-template-columns:24px 220px 1fr 1fr 220px;gap:14px;padding:9px 14px;font-size:12px;border-top:1px solid #ece7dc"';
+      html += '<div' + dayClickAttr + '>' +
+        '<div id="' + dayRowId + '_caret" style="font-size:11px;color:var(--muted);transition:transform 0.15s;text-align:center">' + (dayClickable ? '▸' : '') + '</div>' +
+        '<div style="color:var(--muted)">' + escH(dayLabel(w.mondayMs, dIdx)) + '</div>' +
         '<div>' + (day ? pill(day.dscrCount, day.dscrTotal, 'DSCR', DSCR_COLOR) : '<span style="color:var(--muted)">—</span>') + '</div>' +
         '<div>' + (day ? pill(day.rtlCount,  day.rtlTotal,  'RTL',  RTL_COLOR)  : '<span style="color:var(--muted)">—</span>') + '</div>' +
         '<div style="text-align:right;font-variant-numeric:tabular-nums">' +
           (dCount ? (dCount + ' · ' + fmtMoney(dTotal)) : '<span style="color:var(--muted)">—</span>') +
         '</div>' +
       '</div>';
+      // Per-day loan list — hidden by default, revealed by clicking the
+      // day row. Skips render entirely if there are no loans for the day.
+      if (day && day.loans && day.loans.length) {
+        var loanRows = day.loans.slice().sort(function(a, b) {
+          // Sort by loan type then amount desc — RTL above DSCR, biggest at top of each
+          if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+          return (b.amt || 0) - (a.amt || 0);
+        }).map(function(L) {
+          var typeChip = L.type === 'RTL'
+            ? '<span style="font-size:9px;background:rgba(200,129,58,0.16);color:#9a5f20;padding:2px 6px;border-radius:8px;font-weight:600">RTL</span>'
+            : L.type === 'DSCR'
+            ? '<span style="font-size:9px;background:rgba(38,26,54,0.10);color:#261a36;padding:2px 6px;border-radius:8px;font-weight:600">DSCR</span>'
+            : '';
+          return '<div style="display:grid;grid-template-columns:24px 220px 1fr 220px;gap:14px;padding:6px 14px;font-size:12px;border-top:1px solid #f0ebde;background:#fbf8f2">' +
+            '<div></div>' +
+            '<div style="color:var(--muted);padding-left:32px;display:flex;gap:6px;align-items:center">' + typeChip + '</div>' +
+            '<div>' + escH(L.name || '(no address)') + (L.id ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(L.id) + '</div>' : '') + '</div>' +
+            '<div style="text-align:right;font-variant-numeric:tabular-nums">' + (L.amt > 0 ? fmtMoney(L.amt) : '—') + '</div>' +
+          '</div>';
+        }).join('');
+        html += '<div id="' + dayRowId + '" style="display:none">' + loanRows + '</div>';
+      }
     }
     html += '</div>';
   });
@@ -720,6 +778,17 @@ function renderUpcomingClosings() {
 
 // Toggle a week row's expanded day grid. Caret rotates 90° when open.
 function toggleWeekRow(rowId) {
+  var body = document.getElementById(rowId);
+  var caret = document.getElementById(rowId + '_caret');
+  if (!body) return;
+  var open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (caret) caret.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+// Deploy 236.31 — toggle a single day's loan list. Same expand pattern
+// as toggleWeekRow but tracks its own caret rotation.
+function toggleDayRow(rowId) {
   var body = document.getElementById(rowId);
   var caret = document.getElementById(rowId + '_caret');
   if (!body) return;
@@ -1254,20 +1323,24 @@ function renderStateTable() {
   html += '<thead><tr>' +
     '<th style="' + thStyleL + '">State</th>' +
     '<th style="' + thStyle  + '">Total Loans</th>' +
+    '<th style="' + thStyle  + '">Total Volume</th>' +
     '<th style="' + thStyle  + '">RTL Count</th>' +
     '<th style="' + thStyle  + '">RTL Volume</th>' +
     '<th style="' + thStyle  + '">DSCR Count</th>' +
     '<th style="' + thStyle  + '">DSCR Volume</th>' +
   '</tr></thead><tbody>';
 
-  var totRtlC = 0, totRtlV = 0, totDscrC = 0, totDscrV = 0, totLoans = 0;
+  var totRtlC = 0, totRtlV = 0, totDscrC = 0, totDscrV = 0, totLoans = 0, totVolume = 0;
   rows.forEach(function(r) {
-    totLoans += r.total;
-    totRtlC  += r.rtlCount;  totRtlV  += r.rtlTotal;
-    totDscrC += r.dscrCount; totDscrV += r.dscrTotal;
+    var rowVolume = r.rtlTotal + r.dscrTotal + r.unkTotal;
+    totLoans  += r.total;
+    totVolume += rowVolume;
+    totRtlC   += r.rtlCount;  totRtlV  += r.rtlTotal;
+    totDscrC  += r.dscrCount; totDscrV += r.dscrTotal;
     html += '<tr>' +
       '<td style="padding:7px 10px;border-top:1px solid var(--border);font-weight:500">' + escH(r.state) + '</td>' +
       '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + r.total + '</td>' +
+      '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + (rowVolume > 0 ? fmtMoney(rowVolume) : '—') + '</td>' +
       '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.rtlCount  || '—') + '</td>' +
       '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.rtlTotal  > 0 ? fmtMoney(r.rtlTotal)  : '—') + '</td>' +
       '<td style="padding:7px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + (r.dscrCount || '—') + '</td>' +
@@ -1278,6 +1351,7 @@ function renderStateTable() {
   html += '<tr style="background:rgba(38,26,54,0.04);font-weight:600">' +
     '<td style="padding:9px 10px;border-top:2px solid var(--dark)">Total</td>' +
     '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + totLoans + '</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totVolume > 0 ? fmtMoney(totVolume) : '—') + '</td>' +
     '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totRtlC  || '—') + '</td>' +
     '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totRtlV  > 0 ? fmtMoney(totRtlV)  : '—') + '</td>' +
     '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + (totDscrC || '—') + '</td>' +
@@ -1299,9 +1373,205 @@ function extractStateFromName(name) {
 function setTab(t) {
   _tab = t;
   document.getElementById('tabActive').classList.toggle('active', t === 'active');
-  document.getElementById('tabSold').classList.toggle('active', t === 'sold');
-  document.getElementById('tabAll').classList.toggle('active', t === 'all');
+  document.getElementById('tabSold').classList.toggle('active',   t === 'sold');
+  // Deploy 236.31 — Closed tab handled in renderTable filter chain.
+  var tabClosed = document.getElementById('tabClosed');
+  if (tabClosed) tabClosed.classList.toggle('active', t === 'closed');
+  document.getElementById('tabAll').classList.toggle('active',    t === 'all');
   renderTable();
+}
+
+// ── Deploy 236.31: Select Multiple + RTL submission export ─────
+// Mirrors the loans.html implementation. Selection state keyed by
+// the Baseline mirror loan Id (string like "SLA-20260227-0175")
+// since the dashboard table is built from mirror data.
+var _dashSelectMode = false;
+var _dashSelected = {};
+function _dashSelectedCount() { var n = 0; for (var k in _dashSelected) if (_dashSelected[k]) n++; return n; }
+function _dashTotalColumns() { return 8 + (_dashSelectMode ? 1 : 0); }
+
+function toggleDashSelectMode() {
+  _dashSelectMode = !_dashSelectMode;
+  var btn = document.getElementById('dashSelectModeBtn');
+  if (btn) {
+    btn.textContent = _dashSelectMode ? 'Done' : 'Select Multiple';
+    btn.style.background = _dashSelectMode ? 'var(--dark)' : 'transparent';
+    btn.style.color      = _dashSelectMode ? '#fff' : 'var(--muted)';
+    btn.style.borderColor = _dashSelectMode ? 'var(--dark)' : 'var(--border)';
+  }
+  if (!_dashSelectMode) _dashSelected = {};
+  renderTable();
+  refreshDashSelectionBar();
+}
+
+function dashToggleRowSelect(checkboxEl) {
+  var k = checkboxEl.getAttribute('data-selkey');
+  if (!k) return;
+  if (checkboxEl.checked) _dashSelected[k] = true;
+  else delete _dashSelected[k];
+  refreshDashSelectionBar();
+}
+
+function dashToggleSelectAllFromHeader(checkboxEl) {
+  // Reuse the same filter logic renderTable uses
+  var visible = _dashGetFiltered();
+  if (checkboxEl.checked) {
+    visible.forEach(function(l) { _dashSelected[String(l.Id || '')] = true; });
+  } else {
+    visible.forEach(function(l) { delete _dashSelected[String(l.Id || '')]; });
+  }
+  renderTable();
+  refreshDashSelectionBar();
+}
+
+function dashSelectAllFiltered() {
+  _dashGetFiltered().forEach(function(l) { _dashSelected[String(l.Id || '')] = true; });
+  renderTable();
+  refreshDashSelectionBar();
+}
+
+function dashClearSelections() {
+  _dashSelected = {};
+  renderTable();
+  refreshDashSelectionBar();
+}
+
+// Pulled out of renderTable so the Select Multiple handlers can
+// recompute the visible set without rebuilding the DOM.
+function _dashGetFiltered() {
+  var q = (document.getElementById('loanSearch') && document.getElementById('loanSearch').value || '').toLowerCase();
+  return _loans.filter(function(l) {
+    if (_tab === 'active' && !isOpen(l))   return false;
+    if (_tab === 'sold'   && !isWon(l))    return false;
+    if (_tab === 'closed' && !isClosed(l)) return false;
+    if (q) {
+      var hay = ((l.Name || '') + ' ' + (l.Id || '') + ' ' + (l.Substatus || '') + ' ' + (l.Address_State || '')).toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  });
+}
+
+function refreshDashSelectionBar() {
+  var bar = document.getElementById('dashSelectActionBar');
+  var lbl = document.getElementById('dashSelectCount');
+  var rtl = document.getElementById('dashExportRtlBtn');
+  var status = document.getElementById('dashExportStatus');
+  if (!bar || !lbl) return;
+  var n = _dashSelectedCount();
+  var visible = _dashSelectMode && n > 0;
+  bar.style.display = visible ? 'flex' : 'none';
+  if (!visible) { if (status) status.textContent = ''; return; }
+  var rtlCount = 0, dscrCount = 0;
+  Object.keys(_dashSelected).forEach(function(k) {
+    if (!_dashSelected[k]) return;
+    var l = _dashFindLoanById(k);
+    if (!l) return;
+    var t = inferLoanType(l);
+    if (t === 'RTL') rtlCount += 1;
+    else if (t === 'DSCR') dscrCount += 1;
+  });
+  var summary = '<strong>' + n + '</strong> selected';
+  if (rtlCount && dscrCount)        summary += '  ·  ' + rtlCount + ' RTL · ' + dscrCount + ' DSCR (DSCR skipped on RTL export)';
+  else if (dscrCount && !rtlCount)  summary += '  ·  all DSCR — no RTL to export';
+  else if (rtlCount && !dscrCount)  summary += '  ·  all RTL';
+  lbl.innerHTML = summary;
+  if (rtl) {
+    rtl.disabled = rtlCount === 0;
+    rtl.style.opacity = rtlCount === 0 ? '0.4' : '1';
+    rtl.style.cursor  = rtlCount === 0 ? 'not-allowed' : 'pointer';
+  }
+}
+
+function _dashFindLoanById(id) {
+  for (var i = 0; i < _loans.length; i++) {
+    if (String(_loans[i].Id || '') === String(id)) return _loans[i];
+  }
+  return null;
+}
+
+// Build the loan-submissions.js payload from a Baseline mirror record.
+// The mirror's field names differ from the SLA clients store, so we
+// translate into the {loan, client, borrowerInfo} shape the RTL v2025
+// format builder expects. Many fields don't exist in the mirror (we
+// pull what we have, leave gaps blank — same policy as the loans.html
+// export). Mirror is read-only — if Mike needs the long-app fields
+// populated too, we'd add a cross-store fetch in a follow-up.
+function _mirrorToSubmissionPayload(m) {
+  if (!m) return null;
+  var amt = parseFloat(String(m.Loan_Amount || 0).replace(/[$,]/g, '')) || 0;
+  var rate = parseFloat(m.Rate || 0);
+  var pts  = parseFloat(m.Origination_Points || 0);
+  return {
+    loan: {
+      id: m.Id || '',
+      address: m.Name || m.Property_Address || '',
+      propertyStreet: m.Property_Address || '',
+      propertyCity:   m.Property_City    || '',
+      propertyState:  m.Address_State    || '',
+      propertyZip:    m.Property_ZIP     || '',
+      sqft: m.Sqft || m.Square_Footage || '',
+      purchasePrice: m.Purchase_Price || m.Property_Purchase_Price || '',
+      rehabBudget:   m.Holdback || m.Initial_Rehab_Holdback || '',
+      asIsValue:     m.AIV || m.As_Is_Value || '',
+      arv:           m.ARV || m.After_Repair_Value || '',
+      loanAmt:       amt,
+      initialAdvance: m.Initial_Advance || amt,
+      term:          m.Term || '',
+      // Rate already-percent or decimal — submission builder
+      // normalizes. Pass through as we have it.
+      rate:          rate,
+      points:        pts,
+      loanPurpose:   m.Loan_Purpose || '',
+      loanType:      m.Loan_Strategy || m.Substatus || '',
+      closeDate:     m.Origination || '',
+      dutch:         String(m.Dutch || '').toLowerCase() === 'dutch' || m.Dutch === true,
+      toolType:      'rtl', // we filter to RTL before getting here
+    },
+    client: {
+      firstName: '',
+      lastName:  m.Borrower_Name || m.Mortgagor_Name || '',
+      address:   m.Borrower_Address || '',
+    },
+    borrowerInfo: null, // mirror has no long-app — gaps stay blank
+  };
+}
+
+function dashExportRtlSubmission() {
+  if (!window.LoanSubmissions) {
+    _dashShowExportStatus('Submission module not loaded. Refresh the page.', true);
+    return;
+  }
+  var rtlLoans = [];
+  Object.keys(_dashSelected).forEach(function(k) {
+    if (!_dashSelected[k]) return;
+    var l = _dashFindLoanById(k);
+    if (!l) return;
+    if (inferLoanType(l) === 'RTL') rtlLoans.push(l);
+  });
+  if (!rtlLoans.length) {
+    _dashShowExportStatus('No RTL loans selected. (Current template is RTL-only.)', true);
+    return;
+  }
+  var btn = document.getElementById('dashExportRtlBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  _dashShowExportStatus('Building workbook for ' + rtlLoans.length + ' loan(s)…', false);
+  var payloads = rtlLoans.map(_mirrorToSubmissionPayload).filter(Boolean);
+  LoanSubmissions.export('rtl-v2025', payloads).then(function() {
+    _dashShowExportStatus('Downloaded.', false);
+    if (btn) { btn.disabled = false; btn.textContent = 'Export RTL Submission Template (XLSX)'; }
+    setTimeout(function() { _dashShowExportStatus('', false); }, 4000);
+  }).catch(function(err) {
+    _dashShowExportStatus('Export failed: ' + (err && err.message || 'unknown'), true);
+    if (btn) { btn.disabled = false; btn.textContent = 'Export RTL Submission Template (XLSX)'; }
+  });
+}
+
+function _dashShowExportStatus(msg, isErr) {
+  var el = document.getElementById('dashExportStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isErr ? 'var(--danger)' : 'var(--muted)';
 }
 
 function sortBy(col) {
@@ -1315,16 +1585,9 @@ function sortBy(col) {
 }
 
 function renderTable() {
-  var q = (document.getElementById('loanSearch').value || '').toLowerCase();
-  var rows = _loans.filter(function(l) {
-    if (_tab === 'active' && !isOpen(l)) return false;
-    if (_tab === 'sold'   && !isWon(l))  return false;
-    if (q) {
-      var hay = ((l.Name || '') + ' ' + (l.Id || '') + ' ' + (l.Substatus || '') + ' ' + (l.Address_State || '')).toLowerCase();
-      if (hay.indexOf(q) < 0) return false;
-    }
-    return true;
-  });
+  // Deploy 236.31 — _dashGetFiltered() owns the filter chain so the
+  // Select-Multiple helpers can ask the same question.
+  var rows = _dashGetFiltered();
   rows.sort(function(a, b) {
     var av, bv;
     switch (_sortBy) {
@@ -1356,7 +1619,13 @@ function renderTable() {
       '<div class="empty">No loans match this view.</div>';
     return;
   }
+  // Deploy 236.31 — when Select Multiple is on, prepend a checkbox
+  // column to header + every row.
+  var checkboxHeader = _dashSelectMode
+    ? '<th style="width:30px;padding:0 6px"><input type="checkbox" id="dashSelectAllCheckbox" onclick="dashToggleSelectAllFromHeader(this)" title="Select / clear all visible" /></th>'
+    : '';
   var html = '<table><thead><tr>' +
+    checkboxHeader +
     '<th onclick="sortBy(\'address\')">Address ' + sortArrow('address') + '</th>' +
     '<th onclick="sortBy(\'state\')">State ' + sortArrow('state') + '</th>' +
     '<th onclick="sortBy(\'status\')">Status ' + sortArrow('status') + '</th>' +
@@ -1368,7 +1637,13 @@ function renderTable() {
   '</tr></thead><tbody>';
 
   rows.forEach(function(l) {
+    var selKey = String(l.Id || '');
+    var checked = !!_dashSelected[selKey];
+    var checkboxCell = _dashSelectMode
+      ? '<td style="text-align:center;padding:0 6px" onclick="event.stopPropagation()"><input type="checkbox" data-selkey="' + escH(selKey) + '"' + (checked ? ' checked' : '') + ' onchange="dashToggleRowSelect(this)" /></td>'
+      : '';
     html += '<tr>' +
+      checkboxCell +
       '<td class="addr">' + escH(l.Name || '—') + '<div style="font-size:11px;color:var(--muted)">' + escH(l.Id || '') + '</div></td>' +
       '<td>' + escH(l.Address_State || extractStateFromName(l.Name) || '—') + '</td>' +
       '<td><span class="pill ' + statusPillClass(l.Status) + '">' + escH(l.Status || '—') + '</span></td>' +
@@ -1381,6 +1656,18 @@ function renderTable() {
   });
   html += '</tbody></table>';
   document.getElementById('loansTableWrap').innerHTML = html;
+  // Deploy 236.31 — keep header tri-state checkbox in sync after each
+  // render (full / none / partial of visible rows selected).
+  if (_dashSelectMode) {
+    var hdr = document.getElementById('dashSelectAllCheckbox');
+    if (hdr) {
+      var sel = rows.reduce(function(n, l) { return n + (_dashSelected[String(l.Id || '')] ? 1 : 0); }, 0);
+      if (rows.length === 0)     { hdr.checked = false; hdr.indeterminate = false; }
+      else if (sel === rows.length) { hdr.checked = true;  hdr.indeterminate = false; }
+      else if (sel === 0)        { hdr.checked = false; hdr.indeterminate = false; }
+      else                       { hdr.checked = false; hdr.indeterminate = true;  }
+    }
+  }
 }
 
 function statusPillClass(s) {
