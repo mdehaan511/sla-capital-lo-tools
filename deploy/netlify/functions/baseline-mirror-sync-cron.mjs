@@ -39,6 +39,25 @@ export const config = { schedule: '*/15 * * * *' };
 const TIME_BUDGET_MS = 24_000;
 const CHUNK_SIZE     = 50;   // per-iteration slice of the list
 
+// Deploy 236.35 — loans in a TERMINAL state rarely have data changes
+// that we care about (they've already closed / been archived). For
+// those, we keep the Status+Substatus skip optimization. But any loan
+// still in pipeline can have its dates (Origination, etc.) shift in
+// Baseline without a status change — Mike noticed SLA-20260302-1930
+// showing a stale Origination because of exactly this. Pipeline loans
+// now get a forced detail refresh every cron run so date fields stay
+// fresh. Typical pipeline = ~50 loans × ~300ms = ~15s, well within
+// the 24s budget; terminal loans (~200) are blob-read skips.
+const TERMINAL_STATUSES = new Set([
+  'closed', 'sold', 'funded',
+  'in_servicing', 'servicing',
+  'liquidated',
+  'archived', 'lost', 'declined', 'denied', 'withdrawn', 'cancelled',
+]);
+function isTerminalStatus(s) {
+  return TERMINAL_STATUSES.has(String(s || '').toLowerCase());
+}
+
 export default async (req) => {
   const startedAt = Date.now();
   const log = {
@@ -73,8 +92,12 @@ export default async (req) => {
         // Incremental skip: if mirror already has this loan AND
         // Status+Substatus match the list view, there's no need to
         // hit /loan/{Id}. Most cron runs short-circuit here.
+        // Deploy 236.35 — only skip TERMINAL loans this way. Pipeline
+        // loans always get a fresh detail fetch so silent date-field
+        // updates (Origination, etc.) propagate.
         const existing = await loadMirroredLoan(id);
         if (existing
+            && isTerminalStatus(stub.Status)
             && existing.Status    === stub.Status
             && existing.Substatus === stub.Substatus) {
           log.skipped += 1;

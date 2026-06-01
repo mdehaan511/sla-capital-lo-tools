@@ -38,6 +38,19 @@ import {
 const DEFAULT_CHUNK_LIMIT = 25;   // ~25 × 300ms = 7.5s, leaves headroom
 const MAX_CHUNK_LIMIT     = 50;   // sane upper bound
 
+// Deploy 236.35 — pipeline loans always get a forced detail refresh
+// (date fields can shift without a Status change). Terminal loans
+// keep the Status+Substatus skip optimization.
+const TERMINAL_STATUSES = new Set([
+  'closed', 'sold', 'funded',
+  'in_servicing', 'servicing',
+  'liquidated',
+  'archived', 'lost', 'declined', 'denied', 'withdrawn', 'cancelled',
+]);
+function isTerminalStatus(s) {
+  return TERMINAL_STATUSES.has(String(s || '').toLowerCase());
+}
+
 export default async (req, context) => {
   try { return await handle(req, context); }
   catch (e) {
@@ -81,9 +94,13 @@ async function handle(req, context) {
     if (!id) continue;
 
     // Skip detail fetch when nothing's changed since last mirror.
+    // Deploy 236.35 — only skip TERMINAL loans this way. Pipeline
+    // loans always get a fresh detail fetch so silent date-field
+    // updates (Origination, etc.) propagate.
     if (!qForce) {
       const existing = await loadMirroredLoan(id);
       if (existing
+          && isTerminalStatus(stub.Status)
           && existing.Status    === stub.Status
           && existing.Substatus === stub.Substatus) {
         skipped += 1;
