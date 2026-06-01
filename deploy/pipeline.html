@@ -829,14 +829,34 @@ function loadAll() {
     // forward are immune to the address-rename break.
     var _workedByOwner = {};         // ownerKey -> normAddr -> true
     var _workedProspectIds = {};      // ownerKey -> prospectId -> true
+    // Deploy 236.36 — track which loans have an associated quote, by
+    // (ownerKey, loanId). The prospectId dedup must only fire when a
+    // QUOTE exists for the loan (i.e. the LO has actively worked it).
+    // Without this, apply.html submissions auto-create a loan record
+    // stamped with the prospect's id, which triggered the dedup
+    // immediately and hid the prospect from New Application even
+    // though the LO hadn't touched it yet. Net: the loan vanished
+    // from the pipeline entirely (the Quoted column reads from
+    // quotes, not loans, so the auto-created loan never appeared).
+    var _quotedLoanIds = {};         // ownerKey -> loanId -> true
     quotes.forEach(function(item) {
       var addr = _normAddr(item.quote.address);
-      if (!addr) return;
-      if (!_workedByOwner[item.owner]) _workedByOwner[item.owner] = {};
-      _workedByOwner[item.owner][addr] = true;
+      if (addr) {
+        if (!_workedByOwner[item.owner]) _workedByOwner[item.owner] = {};
+        _workedByOwner[item.owner][addr] = true;
+      }
+      var lid = item.quote.loanId;
+      if (lid) {
+        if (!_quotedLoanIds[item.owner]) _quotedLoanIds[item.owner] = {};
+        _quotedLoanIds[item.owner][lid] = true;
+      }
     });
-    // Walk every loan on every client and add (ownerKey, prospectId)
-    // to the worked set. _clientById was built above from clientsResp.
+    // Walk every loan on every client. Mark the prospectId as
+    // "worked" only when a quote exists for the loan — this is what
+    // the 236.22 dedup was reaching for (post-rename: quote address
+    // differs from prospect's propAddress, but quote.loanId still
+    // points at the original loan with prospectId stamped).
+    // _clientById was built above from clientsResp.
     Object.keys(_clientById).forEach(function(k) {
       var bar = k.indexOf('|');
       if (bar < 0) return;
@@ -844,6 +864,11 @@ function loadAll() {
       var c = _clientById[k];
       (c.loans || []).forEach(function(l) {
         if (!l.prospectId) return;
+        // Skip if no quote exists for this loan — i.e. it's a fresh
+        // apply.html auto-create that the LO hasn't quoted yet.
+        // Leaving prospectId out of the worked set keeps the prospect
+        // visible in the New Application column.
+        if (!_quotedLoanIds[owner] || !_quotedLoanIds[owner][l.id]) return;
         if (!_workedProspectIds[owner]) _workedProspectIds[owner] = {};
         _workedProspectIds[owner][l.prospectId] = true;
       });
