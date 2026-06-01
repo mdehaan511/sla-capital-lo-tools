@@ -194,11 +194,13 @@ function loadSubmissions(force) {
     var clientsResp = results[2] || { byOwner: {} };
 
     // Build profile map for friendly LO names
+    // Deploy 236.37 — also carry the `deleted` flag so we can hide
+    // rows owned by users no longer in Netlify Identity.
     _profileMap = {};
     stats.forEach(function(p) {
       if (!p.email) return;
       var key = p.email.toLowerCase();
-      _profileMap[key] = { email: p.email, fullName: p.fullName || '' };
+      _profileMap[key] = { email: p.email, fullName: p.fullName || '', deleted: !!p.deleted };
     });
 
     // Build address-to-loan map for "View loan" links
@@ -244,7 +246,14 @@ function render() {
   var strip = document.getElementById('statStrip');
   var content = document.getElementById('content');
 
-  if (!_rows.length) {
+  // Deploy 236.37 — hide submissions owned by users no longer in
+  // Netlify Identity. _profileMap.deleted is set from users-stats.
+  var rows = _rows.filter(function(r) {
+    var p = _profileMap[String(r.ownerKey || '').toLowerCase()];
+    return !(p && p.deleted);
+  });
+
+  if (!rows.length) {
     strip.innerHTML = '<div class="stat-pill"><span class="num">0</span><span class="lbl">awaiting decision</span></div>';
     content.innerHTML = '<div class="empty-state"><h3>Inbox zero</h3><p>No loans are currently awaiting your decision.</p></div>';
     return;
@@ -254,7 +263,7 @@ function render() {
   var totalAmt = 0;
   var oldestDays = 0;
   var now = Date.now();
-  _rows.forEach(function(r) {
+  rows.forEach(function(r) {
     var fd = r.quote.formData || {};
     var amt = parseFloat(String(fd.loanAmt || fd.purchasePrice || r.quote.loanAmt || '').replace(/[^0-9.]/g, '')) || 0;
     totalAmt += amt;
@@ -262,12 +271,12 @@ function render() {
     if (ageDays > oldestDays) oldestDays = ageDays;
   });
   strip.innerHTML =
-    '<div class="stat-pill"><span class="num">' + _rows.length + '</span><span class="lbl">awaiting decision</span></div>' +
+    '<div class="stat-pill"><span class="num">' + rows.length + '</span><span class="lbl">awaiting decision</span></div>' +
     '<div class="stat-pill"><span class="num">' + fmtMoney(totalAmt) + '</span><span class="lbl">total volume</span></div>' +
     '<div class="stat-pill"><span class="num">' + oldestDays + 'd</span><span class="lbl">oldest in queue</span></div>';
 
   var html = '<div class="card-list">';
-  _rows.forEach(function(r, i) { html += buildCard(r, i); });
+  rows.forEach(function(r, i) { html += buildCard(r, i); });
   html += '</div>';
   content.innerHTML = html;
 }

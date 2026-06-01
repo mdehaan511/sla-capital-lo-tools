@@ -187,10 +187,12 @@ function loadAll() {
     var clientsResp = results[1] || {};
     var statsResp   = results[2] || { users: [] };
 
+    // Deploy 236.37 — carry the `deleted` flag through so rows owned
+    // by users no longer in Netlify Identity can be hidden.
     _profileMap = {};
     (statsResp.users || []).forEach(function(p) {
       if (!p.email) return;
-      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '' };
+      _profileMap[p.email.toLowerCase()] = { email: p.email, fullName: p.fullName || '', deleted: !!p.deleted };
     });
 
     _loanLookup = {};
@@ -241,7 +243,14 @@ function loadAll() {
 
 function render() {
   var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  // Deploy 236.37 — hide rows owned by users no longer in Identity.
+  function isDeletedOwner(ownerKey) {
+    if (!ownerKey) return false;
+    var p = _profileMap[String(ownerKey).toLowerCase()];
+    return !!(p && p.deleted);
+  }
   var rows = _items.filter(function(it) {
+    if (isDeletedOwner(it.ownerKey)) return false;
     if (_filter !== 'all' && it.quote.status !== _filter) return false;
     if (!search) return true;
     var hay = ((it.quote.borrower||'') + ' ' + (it.quote.address||'')).toLowerCase();

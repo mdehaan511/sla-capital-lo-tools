@@ -941,6 +941,8 @@ function renderAdminBrokers() {
   sel.classList.toggle('has-value', !!loFilter);
 
   var owners = Object.keys(_adminData).sort();
+  // Deploy 236.37 — hide brokers owned by LOs no longer in Identity.
+  owners = owners.filter(function(o) { return !_deletedOwners[String(o).toLowerCase()]; });
   if (loFilter) owners = owners.filter(function(o){ return o === loFilter; });
 
   var totalBrokers = 0, totalDeals = 0;

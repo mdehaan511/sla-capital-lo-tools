@@ -42,31 +42,58 @@ export default async (req, context) => {
   }
 
   // 1b) Deploy 236.23 — fetch live Netlify Identity user emails so we
-  // can flag profiles whose Identity record has been deleted. Profiles
-  // for deleted users still carry historical stats, but the UI hides
-  // them from active LO dropdowns and groups them under a collapsible
-  // "Deleted Users" section in User Activity.
+  // can flag profiles whose Identity record has been deleted.
+  // Deploy 236.37 — diagnostics added. The previous version silently
+  // swallowed every failure mode (no identity context, non-OK fetch,
+  // bad JSON, etc.) which meant Mike couldn't tell why `deleted` flags
+  // were never being set. We now return identityFetchError describing
+  // what went wrong so admin.html can show it.
   const liveIdentityEmails = new Set();
   let identityFetchOk = false;
+  let identityFetchError = null;
+  let identityFetchPages = 0;
+  let identityFetchUserCount = 0;
   try {
     const identity = context && context.clientContext && context.clientContext.identity;
-    if (identity && identity.url && identity.token) {
+    if (!identity) {
+      identityFetchError = 'context.clientContext.identity is undefined (Netlify Identity may not be enabled on this site, or the function was invoked without an Identity-issued token)';
+    } else if (!identity.url) {
+      identityFetchError = 'identity.url is missing';
+    } else if (!identity.token) {
+      identityFetchError = 'identity.token is missing';
+    } else {
       let page = 1;
+      let lastStatus = null;
+      let lastBody = '';
       for (;;) {
         const url = `${identity.url}/admin/users?per_page=50&page=${page}`;
         const resp = await fetch(url, { headers: { Authorization: `Bearer ${identity.token}` } });
-        if (!resp.ok) break;
-        const data = await resp.json();
-        const users = Array.isArray(data.users) ? data.users : [];
-        users.forEach((u) => { if (u.email) liveIdentityEmails.add(String(u.email).toLowerCase().trim()); });
+        lastStatus = resp.status;
+        if (!resp.ok) {
+          try { lastBody = (await resp.text()).slice(0, 300); } catch (_) {}
+          identityFetchError = `Identity admin API returned HTTP ${resp.status}` +
+            (lastBody ? ` — ${lastBody}` : '');
+          break;
+        }
+        const data = await resp.json().catch((e) => {
+          identityFetchError = 'Identity admin API returned non-JSON: ' + (e && e.message);
+          return null;
+        });
+        if (!data) break;
+        const users = Array.isArray(data.users) ? data.users : (Array.isArray(data) ? data : []);
+        users.forEach((u) => { if (u && u.email) liveIdentityEmails.add(String(u.email).toLowerCase().trim()); });
+        identityFetchUserCount += users.length;
+        identityFetchPages = page;
         if (users.length < 50) break;
         page += 1;
         if (page > 20) break; // safety cap (1000 users)
       }
-      identityFetchOk = true;
+      // Only mark as OK if we didn't bail out with an error mid-loop
+      if (!identityFetchError) identityFetchOk = true;
     }
   } catch (e) {
-    console.warn('users-stats identity fetch failed (deleted-user flag unavailable):', e);
+    identityFetchError = 'Exception during identity fetch: ' + (e && e.message);
+    console.warn('users-stats identity fetch failed:', e);
   }
 
   // 2) Walk clients store for counts per owner-key
@@ -275,6 +302,13 @@ export default async (req, context) => {
     // on profiles falls back to false (only orphans get flagged). The
     // UI can show a warning if needed.
     identityFetchOk,
+    // Deploy 236.37 — diagnostics for the deleted-user flag.
+    identityFetchError,                          // string or null
+    identityFetchPages,                          // pages successfully fetched
+    identityFetchUserCount,                     // total users found in Identity
+    liveIdentityEmailsSample: identityFetchOk
+      ? Array.from(liveIdentityEmails).slice(0, 5)
+      : [],
     note: profiles.length === 0
       ? 'No profiles stored yet. Log in once to populate your profile, then existing users will need to log in too.'
       : undefined,

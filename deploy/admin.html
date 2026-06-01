@@ -438,8 +438,20 @@ netlifyIdentity.on('init', function(user) {
       statPill(fmtMoney(totalLoan), 'Total Loan Volume', true) +
     '</div>';
     if (!identityFetchOk) {
+      // Deploy 236.37 — surface the actual failure reason so we can
+      // see WHY the deleted-user flag isn't being set. The server-side
+      // diagnostic returns identityFetchError + identityFetchUserCount.
+      var diagErr  = (resp && resp.identityFetchError)  || '(no error reported — Identity fetch silently returned empty)';
+      var diagPages = (resp && resp.identityFetchPages) || 0;
       summary += '<div style="margin-bottom:14px;padding:10px 14px;background:#fff7e6;border:1px solid #f4d47a;border-radius:var(--r-xs);font-size:12px;color:#7a5218">' +
-        '<strong>Note:</strong> Couldn\'t reach the Netlify Identity admin API on this request, so users that may have been deleted from Identity aren\'t flagged below. Refresh in a moment to retry.' +
+        '<strong>Note:</strong> Couldn\'t reach the Netlify Identity admin API on this request, so deleted-user flagging is disabled.' +
+        '<div style="margin-top:6px;font-family:monospace;font-size:11px;color:#7a5218;opacity:0.8">Reason: ' + (diagErr.replace(/</g,'&lt;')) + '</div>' +
+      '</div>';
+    } else if (resp && resp.identityFetchUserCount != null) {
+      // Successful path: small badge confirming how many live Identity
+      // users we matched against, so it's obvious the check ran.
+      summary += '<div style="margin-bottom:14px;padding:8px 12px;background:rgba(38,26,54,0.04);border:1px solid var(--border);border-radius:var(--r-xs);font-size:11px;color:var(--muted)">' +
+        'Identity check: <strong>' + resp.identityFetchUserCount + '</strong> live users in Netlify Identity. Profiles for accounts no longer in Identity are flagged below.' +
       '</div>';
     }
 

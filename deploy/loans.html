@@ -483,6 +483,11 @@ function getFiltered() {
     // explicitly enables it (typically to prep a submission tape).
     // Default-OFF statuses must be explicitly toggled.
     if (!_statusFilters[l.status || 'active']) return false;
+    // Deploy 236.37 — hide rows owned by users who are no longer in
+    // Netlify Identity. _deletedOwners is populated by loadAll() from
+    // users-stats. Empty set (Identity admin API unreachable) falls
+    // back to showing everything — never hide everyone.
+    if (l._ownerKey && _deletedOwners[String(l._ownerKey).toLowerCase()]) return false;
     if (loFilter && l._ownerKey !== loFilter) return false;
     if (_search) {
       var hay = [

@@ -945,6 +945,17 @@ function render() {
   var loFilter = (_loFilterValue || '').toLowerCase();
   function filtered(items) {
     var arr = items;
+    // Deploy 236.37 — also hide tiles owned by users who have been
+    // removed from Netlify Identity. Without this, pipeline tiles
+    // attributed to deleted accounts still rendered in "All LOs" mode.
+    // _profileMap[ownerKey].deleted is set by the loadAll() pass from
+    // users-stats. Falls back gracefully when the deleted set is
+    // empty (e.g. Identity admin API unreachable -> show everything).
+    arr = arr.filter(function(it) {
+      var ok = (it.ownerKey || '').toLowerCase();
+      var p = _profileMap[ok];
+      return !(p && p.deleted);
+    });
     // LO ownership filter (admin-only, when "All LOs" scope)
     if (loFilter) {
       arr = arr.filter(function(it) { return (it.ownerKey || '').toLowerCase() === loFilter; });

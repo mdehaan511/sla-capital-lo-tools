@@ -804,6 +804,11 @@ function renderAdminClients() {
   // alphabetically by last name (matching the My Clients view's behavior).
   var flat = [];
   _adminData.forEach(function(userData) {
+    // Deploy 236.37 — drop clients whose owning LO has been removed
+    // from Netlify Identity. _deletedOwners is populated by
+    // loadAdminClients() from users-stats. Empty set falls back to
+    // showing every owner (never hide everyone on a transient failure).
+    if (_deletedOwners[_keySafe(userData.email)]) return;
     (userData.clients || []).forEach(function(c) {
       // Owner-filter applies before search so the search count is accurate
       if (loFilter && userData.email.toLowerCase() !== loFilter) return;
