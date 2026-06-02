@@ -120,6 +120,25 @@ async function handle(req, context) {
     status: (prior.status && prior.status !== 'active' && prior.status !== 'on_hold')
       ? prior.status
       : (incoming.status || prior.status || 'active'),
+    // Deploy 236.38 \u2014 PRESERVE notesLog. The sizer's incoming payload
+    // never includes notesLog (it's built fresh from form data), so
+    // every sizer save was overwriting it with `undefined` and wiping
+    // the entire audit history. The reprice entry that this endpoint
+    // appends below then became the only surviving entry.
+    // Same pattern as the app-section preservation above: take the
+    // prior value when incoming doesn't carry one.
+    notesLog: (Array.isArray(prior.notesLog) ? prior.notesLog : []).slice(),
+    // Deploy 236.38 \u2014 audit-log metadata fields also live on the
+    // loan record (prospectId, baselineId, borrowerInfoCompletedAt,
+    // _manualAdvanceAt/By/From). All would be wiped by the same
+    // overwrite-from-incoming bug. Preserve from prior unless the
+    // sizer explicitly sends one.
+    prospectId:                 incoming.prospectId                 || prior.prospectId                 || '',
+    baselineId:                 incoming.baselineId                 || prior.baselineId                 || '',
+    borrowerInfoCompletedAt:    incoming.borrowerInfoCompletedAt    || prior.borrowerInfoCompletedAt    || '',
+    _manualAdvanceAt:           incoming._manualAdvanceAt           || prior._manualAdvanceAt           || '',
+    _manualAdvanceBy:           incoming._manualAdvanceBy           || prior._manualAdvanceBy           || '',
+    _manualAdvanceFrom:         incoming._manualAdvanceFrom         || prior._manualAdvanceFrom         || '',
   });
 
   // Strip transient meta fields that shouldn\u2019t persist.
