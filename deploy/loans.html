@@ -552,7 +552,11 @@ function renderRow(l) {
   // Rates may be stored as decimal (.085) or already-percent (8.5).
   // Threshold-detect: anything >1 is treated as already-percent.
   var ratePct = l._rateNum > 1 ? l._rateNum : l._rateNum * 100;
-  var rateDisp = l._rateNum ? ratePct.toFixed(3).replace(/\.?0+$/, '') + '%' : '—';
+  // Deploy 236.40 — always show 3 decimals (was stripping trailing
+  // zeros via /\.?0+$/, which rendered 6.350% as 6.35%). Mike: we
+  // need to preserve full precision on the rate so 6.350 stays 6.350,
+  // not get rounded to a shorter form.
+  var rateDisp = l._rateNum ? ratePct.toFixed(3) + '%' : '—';
   var pointsDisp = l._pointsNum ? l._pointsNum.toFixed(2) + ' pts' : '—';
   var amtDisp = l._loanAmtNum ? '$' + Math.round(l._loanAmtNum).toLocaleString() : '—';
   var subDate = fmtDate(submissionDate(l));

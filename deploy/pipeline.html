@@ -1119,7 +1119,11 @@ function buildQuoteCard(it, colKey) {
     }
   }
   var amt  = fmtMoney(num((loanRec && loanRec.loanAmt) || fd.loanAmt || fd.purchasePrice || q.loanAmt));
-  var rate = fd._finalRate ? fd._finalRate + '%' : '';
+  // Deploy 236.40 — normalize rate display to 3 decimals so 6.350
+  // doesn't render as 6.35 (parseFloat drops the trailing zero on
+  // older saves; the toFixed(3) round-trip restores it).
+  var _rateN = parseFloat(fd._finalRate);
+  var rate = (fd._finalRate && isFinite(_rateN)) ? _rateN.toFixed(3) + '%' : '';
   var tool = q.toolType === 'rtl' ? 'rtl' : 'dscr';
   var loName = loDisplay(it.ownerKey);
   var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
@@ -2246,7 +2250,10 @@ function postSlackPreDiscussed(webhookUrl, q, text) {
   var address  = q.address  || fd.address  || '';
   var loanAmt  = (fd.loanAmt || fd.purchasePrice || q.loanAmt);
   var amtFmt   = loanAmt ? '$'+Number(loanAmt).toLocaleString() : '-';
-  var rate     = q.finalRate || fd._finalRate ? ((q.finalRate || fd._finalRate)+'%') : '-';
+  // Deploy 236.40 — preserve 3 decimals on the rate (Slack notification).
+  var _rateRawPd = q.finalRate || fd._finalRate;
+  var _rateNumPd = parseFloat(_rateRawPd);
+  var rate     = (_rateRawPd && isFinite(_rateNumPd)) ? (_rateNumPd.toFixed(3)+'%') : '-';
   var dateStr  = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
   var blocks = [
     { type:'header', text:{ type:'plain_text', text:':handshake: Pre-Discussed Loan - SLA Capital', emoji:true } },

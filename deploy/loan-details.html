@@ -725,7 +725,13 @@ function render() {
   var loanAmt   = l.loanAmt    || fd.loanAmt    || '';
   var propVal   = l.propValue  || fd.propValue  || '';
   var loanType  = l.loanType   || fd.loanType   || '';
-  var rate      = l.rate       || fd._finalRate || '';
+  // Deploy 236.40 — always render rate with 3 decimals to preserve
+  // trailing zeros (6.350 instead of 6.35). The stored value can be
+  // either a string like "6.350" (modern saves) or a number 6.35
+  // (older records); normalize both paths through toFixed(3).
+  var _rateRaw  = l.rate       || fd._finalRate || '';
+  var _rateNum  = parseFloat(_rateRaw);
+  var rate      = (_rateRaw && isFinite(_rateNum)) ? _rateNum.toFixed(3) : '';
   var buydown   = parseFloat(l.buydown  != null ? l.buydown  : (fd.buydown  != null ? fd.buydown  : 0)) || 0;
   // Points: use stored value, or compute from buydown (1 base + buydown)
   var rawPoints = l.points || fd._points || '';
@@ -2766,7 +2772,9 @@ function postSlackNotification(webhookUrl, notes) {
   var isDscr = (l.toolType||'') !== 'rtl';
   var loanAmt = l.loanAmt || l.purchasePrice || '';
   var amtFmt  = loanAmt ? '$'+Number(loanAmt).toLocaleString() : '-';
-  var rate    = l.rate   ? l.rate+'%' : '-';
+  // Deploy 236.40 — show 3 decimals on the rate to preserve trailing zeros.
+  var _rateNumSlack = parseFloat(l.rate);
+  var rate    = (l.rate && isFinite(_rateNumSlack)) ? _rateNumSlack.toFixed(3)+'%' : '-';
   var points  = l.points || '-';
   var dateStr = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
   var loLine  = [loName, loPhone, loEmail].filter(Boolean).join(' | ');

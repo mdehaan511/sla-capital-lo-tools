@@ -1478,11 +1478,17 @@ function _openOverrideInput(fieldKey) {
   // Both rate and ltv display as percentages — parse to decimal
   var rawNum = parseFloat(currentText.replace(/[^\d.]/g, ''));
   if (!isFinite(rawNum)) rawNum = 0;
+  // Deploy 236.40 — preload the input with the full-precision string
+  // matching the display. parseFloat strips trailing zeros (6.350 →
+  // 6.35 as a number), so without explicit toFixed the input shows
+  // "6.35" and the LO loses the third decimal. Rate gets 3 decimals;
+  // LTV gets 1.
+  var rawNumStr = fieldKey === 'rate' ? rawNum.toFixed(3) : rawNum.toFixed(1);
   var inputId = 'override-input-' + fieldKey;
   // Inline input style depends on whether parent is on dark (rate hero)
   var inputClass = fieldKey === 'rate' ? 'override-input on-dark' : 'override-input';
   el.innerHTML =
-    '<input type="number" id="' + inputId + '" class="' + inputClass + '" value="' + rawNum +
+    '<input type="number" id="' + inputId + '" class="' + inputClass + '" value="' + rawNumStr +
       '" step="' + (fieldKey === 'rate' ? '0.001' : '0.5') +
       '" min="0" max="' + (fieldKey === 'ltv' ? '100' : '25') + '" />' +
     '<span class="override-suffix"' + (fieldKey === 'rate' ? ' style="color:rgba(255,255,255,0.55)"' : '') + '>%</span>';
