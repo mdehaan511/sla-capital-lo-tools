@@ -709,16 +709,25 @@ function loadAll() {
     (biResp.records || []).forEach(function(r) {
       if (!r || !r.clientId) return;
       if (r.loanId) {
+        // Per-loan record (Deploy 168+). ONLY index under the precise
+        // key — don't also fill the per-client legacy slots, or sibling
+        // loans on the same client falsely inherit this record's status.
+        // Deploy 236.43 bug: a borrower with 3 awaiting_app loans had
+        // the app sent for ONE; the per-loan record's "pending" status
+        // bled into the per-client slot, so the other two loans showed
+        // "Loan App Pending" on the pipeline even though no app had
+        // been sent for them.
         _borrowerInfoByClient[r.ownerKey + '|' + r.clientId + '|' + r.loanId] = r;
-      }
-      // Legacy fallback indexes — only set if no entry yet, so the first
-      // record encountered for a given (owner, client) "wins" the fallback
-      // slot. The per-loan key above is always the right thing to read.
-      if (!_borrowerInfoByClient[r.ownerKey + '|' + r.clientId]) {
-        _borrowerInfoByClient[r.ownerKey + '|' + r.clientId] = r;
-      }
-      if (!_borrowerInfoByClient[r.clientId]) {
-        _borrowerInfoByClient[r.clientId] = r;
+      } else {
+        // Legacy record (pre-Deploy 168) — no loanId, so it really is
+        // a per-client record and belongs in the legacy slots. First
+        // record wins.
+        if (!_borrowerInfoByClient[r.ownerKey + '|' + r.clientId]) {
+          _borrowerInfoByClient[r.ownerKey + '|' + r.clientId] = r;
+        }
+        if (!_borrowerInfoByClient[r.clientId]) {
+          _borrowerInfoByClient[r.clientId] = r;
+        }
       }
     });
 
