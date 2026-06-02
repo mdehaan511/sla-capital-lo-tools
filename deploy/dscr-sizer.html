@@ -322,38 +322,49 @@
 
 <!-- ════════════════════════════════════════════════════════
   PRICING CONFIG — DIYA CAPITAL
-  Source: Diya_Rate_Sheet_Effective_4_9_26.xlsx  |  Updated: 2026-04-09
+  Source: Diya 1-4 Unit Rate Sheet — Effective 6.2.26  |  Updated: 2026-06-02
 
-  BUY-DOWN LOGIC:
-  - HIDDEN_TPO (1.00% = 0.260 rate adj) is always added, never shown to borrower
-  - User selects buy-down points (0 to 1.00% in 0.25% steps)
-  - Each 0.25% buy-down reduces the HIDDEN_TPO by 0.25%, lowering the rate
-  - Net: borrower pays points upfront, gets a lower rate
-  - Example: 0.50% buy-down -> hidden TPO becomes 0.50% (0.130 adj) instead of 1.00% (0.260 adj)
-    Rate drops by 0.130, borrower pays 0.50% of loan amount as additional points
+  BUY-DOWN LOGIC (Deploy 236.39 model):
+  - HIDDEN_TPO (1.00% = 0.280 rate adj) is always added, never shown to borrower.
+    Locked at 1.00% regardless of buy-down -- the rate ADD never changes.
+  - User selects buy-down points (0 to 2.00% in 0.25% steps).
+  - Buy-down applies as a SEPARATE negative rate adjustment from
+    DIYA.rateBuydown, mirroring the Rate Buydown table on the sheet:
+        0.25% buy-down -> -0.045 rate adj
+        0.50% buy-down -> -0.090 rate adj
+        ...
+        2.00% buy-down -> -0.360 rate adj
+  - Net: borrower pays points upfront AND the rate stack reflects
+    +0.280 (TPO) + (negative buy-down adj). Borrower's effective
+    delta vs no-buy-down is the buy-down line only.
+  - Supersedes the pre-236.39 "buy-down reduces hidden TPO" model.
 
   TO UPDATE RATES: find "const DIYA = {" below, edit, save, redeploy.
 ════════════════════════════════════════════════════════ -->
 <script>
 const DIYA = {
-  // Deploy 234 — Diya 1-4 Unit Rate Sheet effective 5.27.26. Only
-  // base rates changed vs the 5.20.26 sheet (-0.225 across both pairs).
-  // All adjustment tables (FICO/LTV, IO, cash-out, condo, multi-unit,
-  // portfolio, UPB, DSCR, PPP, TPO Premium) are unchanged.
+  // Deploy 236.39 — Diya 1-4 Unit Rate Sheet effective 6.2.26. Two
+  // pricing changes vs the 5.27.26 sheet:
+  //   1. UPB 100k-149k band flattened to 0.625 across all LTV cols
+  //      (was 0.650 / 0.675 split before).
+  //   2. NEW PRICING MODEL FOR BUY-DOWN -- see "STANDING RULE" below.
   //
-  // STANDING RULE — Rate Buydown: IGNORE any explicit Rate Buydown
-  // table Diya publishes on their sheets. SLA's internal model is the
-  // "buydown reduces the hidden 1% TPO" approach already implemented
-  // here (see HIDDEN_TPO_PCT + HIDDEN_TPO_ADJ + the netHiddenTpoPct
-  // math in calculate()). Per Mike (5.28.26), this is how SLA prices
-  // buydowns internally and it should not change when Diya's sheets
-  // start showing a separate Rate Buydown table. Only update the base
-  // rates and any adjustment values that actually changed on each
-  // new sheet — leave the buydown logic alone.
+  // STANDING RULE -- supersedes Deploy 234.1 rule (which said to
+  // IGNORE Diya's Rate Buydown table). As of Deploy 236.39 (Mike,
+  // 6.2.26), we now mirror the Rate Buydown table from the rate
+  // sheet, AND we lock the TPO Premium at 1.00% (rate adj = 0.280)
+  // regardless of buy-down. Two separate adjustments on the rate:
+  //   + 0.280 from hidden 1% TPO (always)
+  //   + entry from DIYA.rateBuydown[buydownPts] (negative; <= 0)
+  // Net: 0.25% buy-down reduces rate by 0.045 (was 0.070 under the
+  // old "buydown reduces TPO" model). Borrower pays the same fee,
+  // gets a smaller rate reduction; extra spread accrues to SLA.
   //
-  // TPO Premium / Rate Buydown caps by UPB band on the 5.27.26 sheet
-  // also intentionally NOT wired into sizer math.
-  effectiveDate: "May 27, 2026",
+  // TPO Premium / Rate Buydown caps by UPB band on the 6.2.26 sheet
+  // are still intentionally NOT wired into sizer math. If Mike wants
+  // those enforced later, the caps live at the bottom of the sheet
+  // under "TPO Premium Caps" + "Rate Buydown Caps".
+  effectiveDate: "June 2, 2026",
   baseRate: { "30Y Fixed": 6.350, "10/6 ARM": 6.350, "7/6 ARM": 6.250, "5/6 ARM": 6.250 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
@@ -372,7 +383,9 @@ const DIYA = {
   portfolio: [0.250, 0.250, 0.250, 0.250, 0.250, 0.250, 0.250],
   upb: [
     { min:  75000, max:  99999, adj:[0.700,0.700,0.700,0.750,0.750,0.750,0.750] },
-    { min: 100000, max: 149999, adj:[0.650,0.650,0.650,0.675,0.675,0.675,0.675] },
+    // Deploy 236.39 -- UPB 100k-149k flattened from 0.650/0.675 split
+    // to 0.625 across all LTV cols on the 6.2.26 sheet.
+    { min: 100000, max: 149999, adj:[0.625,0.625,0.625,0.625,0.625,0.625,0.625] },
     { min: 150000, max: 199999, adj:[0.200,0.200,0.200,0.225,0.225,0.225,0.225] },
     { min: 600000, max:1499999, adj:[-0.050,-0.050,-0.050,-0.050,-0.050,-0.050,-0.050] },
   ],
@@ -382,18 +395,40 @@ const DIYA = {
   },
   ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.150, "320":0.200, "300":0.300 },
 
-  // TPO rate adjustments by premium percentage (per 5/20/26 sheet \u2014 values
-  // unchanged from prior sheet, only base rates and FICO grid moved)
+  // TPO rate adjustments by premium percentage. Deploy 236.39 -- this
+  // table is no longer consulted by calculate() for the buy-down
+  // math. TPO is locked at 1.00% (rate adj 0.280) and buy-down has
+  // its own DIYA.rateBuydown table below. Kept here for reference
+  // / future use should the pricing model change again.
   tpo: {
     "0":0, "0.25":0.070, "0.50":0.140, "0.75":0.210,
     "1.00":0.280, "1.25":0.340, "1.50":0.410, "1.75":0.470,
     "2.00":0.550, "2.25":0.630, "2.50":0.710,
   },
 
-  // Hidden 1% TPO always applied (rate adj = 0.280 per 5/20/26 sheet)
-  // Buy-down reduces this: each 0.25% buy-down reduces hidden TPO by 0.25%
+  // Deploy 236.39 -- Rate Buydown table mirrored from the 6.2.26
+  // sheet. Buy-down is now a separate additive rate adjustment
+  // (negative) ON TOP of the always-on 1% TPO premium. Keys match
+  // the buy-down dropdown values; values are the rate adjustment
+  // contribution from that buy-down level.
+  rateBuydown: {
+    "0":    0,
+    "0.25": -0.045,
+    "0.50": -0.090,
+    "0.75": -0.135,
+    "1.00": -0.180,
+    "1.25": -0.225,
+    "1.50": -0.270,
+    "1.75": -0.315,
+    "2.00": -0.360,
+  },
+
+  // Hidden 1% TPO always applied (rate adj = 0.280 per 6.2.26 sheet).
+  // Deploy 236.39 -- buy-down NO LONGER touches this. The TPO premium
+  // is locked at 1.00%; buy-down is a separate adjustment via the
+  // rateBuydown table above.
   HIDDEN_TPO_PCT: 1.00,   // percentage (1.00 = 1%)
-  HIDDEN_TPO_ADJ: 0.280,  // rate adjustment for 1.00% TPO
+  HIDDEN_TPO_ADJ: 0.280,  // rate adjustment for 1.00% TPO (always applied)
 };
 
 // Fixed fees (always shown on term sheet)
@@ -742,21 +777,28 @@ function getFICOMin(ficoStr) {
       </div>
       <div class="field">
         <div class="wrap">
-          <!-- Buy-down reduces the visible hidden TPO in the rate
-               math, so the borrower sees a lower rate. The TPO premium
-               table values (DIYA.tpo) are used as the lookup: 0.25%
-               buy-down → -0.070% rate, 0.50% → -0.140%, 0.75% → -0.210%,
-               1.00% → -0.280%. The points the borrower pays for the
-               buy-down become our profit on top of the regular spread
-               (we don't actually reduce the rate to DIYA, just to the
-               borrower). Keeps our 1% TPO spread intact. -->
+          <!-- Deploy 236.39 — buy-down is a SEPARATE negative rate
+               adjustment now, mirrored from the 6.2.26 sheet's Rate
+               Buydown table. The 1% TPO premium is locked in
+               (HIDDEN_TPO_ADJ = +0.280 always). Each 0.25% buy-down
+               costs the borrower 0.25% of loan amount in points and
+               reduces the rate by 0.045% (lookup in DIYA.rateBuydown).
+               1.00% buy-down → -0.180%. 2.00% (max) → -0.360%. -->
           <label>Buy-Down Points <span class="req">*</span></label>
+          <!-- Deploy 236.39 — buy-down options + rate-reduction labels
+               updated to match the 6.2.26 sheet's Rate Buydown table.
+               Each 0.25% buy-down reduces rate by 0.045%; extended
+               from 1.00% max to 2.00% max per the new sheet. -->
           <select id="buydown">
             <option value="0" selected>No buy-down (1 pt total)</option>
-            <option value="0.25">+0.25 pts &#8594; 1.25 pts total, rate &#8595; 0.065</option>
-            <option value="0.50">+0.50 pts &#8594; 1.50 pts total, rate &#8595; 0.130</option>
-            <option value="0.75">+0.75 pts &#8594; 1.75 pts total, rate &#8595; 0.195</option>
-            <option value="1.00">+1.00 pt &#8594; 2.00 pts total, rate &#8595; 0.260</option>
+            <option value="0.25">+0.25 pts &#8594; 1.25 pts total, rate &#8595; 0.045</option>
+            <option value="0.50">+0.50 pts &#8594; 1.50 pts total, rate &#8595; 0.090</option>
+            <option value="0.75">+0.75 pts &#8594; 1.75 pts total, rate &#8595; 0.135</option>
+            <option value="1.00">+1.00 pt  &#8594; 2.00 pts total, rate &#8595; 0.180</option>
+            <option value="1.25">+1.25 pts &#8594; 2.25 pts total, rate &#8595; 0.225</option>
+            <option value="1.50">+1.50 pts &#8594; 2.50 pts total, rate &#8595; 0.270</option>
+            <option value="1.75">+1.75 pts &#8594; 2.75 pts total, rate &#8595; 0.315</option>
+            <option value="2.00">+2.00 pts &#8594; 3.00 pts total, rate &#8595; 0.360</option>
           </select>
         </div>
       </div>
@@ -851,8 +893,8 @@ function getFICOMin(ficoStr) {
 
 <div class="config-tip" style="display:none">
   <strong>Updating rates:</strong> find <strong>const DIYA = {</strong> &rarr; edit values &rarr; update effectiveDate &rarr; save &rarr; redeploy. &nbsp;|&nbsp;
-  <strong>Hidden TPO:</strong> <strong>HIDDEN_TPO_ADJ: 0.260</strong> (= 1.00%). &nbsp;|&nbsp;
-  <strong>Buy-down</strong> reduces hidden TPO proportionally, lowering the rate.
+  <strong>Hidden TPO:</strong> <strong>HIDDEN_TPO_ADJ: 0.280</strong> (= 1.00%, locked). &nbsp;|&nbsp;
+  <strong>Buy-down</strong> applies as a separate adjustment from <code>DIYA.rateBuydown</code> (Deploy 236.39).
 </div>
 
 <script>
@@ -1001,20 +1043,20 @@ function calculate() {
   var pppA = DIYA.ppp[prepay]!==undefined?DIYA.ppp[prepay]:0;
   adjs.push({label:'Prepay penalty ('+prepay+')', value:pppA});
 
-  // Hidden TPO reduced by buy-down. Each 0.25% the borrower pays in
-  // buy-down reduces the hidden 1% TPO by the same 0.25%, and the rate
-  // adjustment moves accordingly from DIYA.tpo. So a 0.25% buy-down
-  // gives a 0.070% rate reduction (1.00% TPO adj 0.280 → 0.75% adj
-  // 0.210), 1.00% buy-down gives 0.280% reduction (TPO fully eliminated
-  // from rate display, although the LO still keeps the spread to DIYA
-  // since on our end the hidden TPO remains intact — borrower-side
-  // discount comes from our profit, not from changing the DIYA price).
-  // Hidden — not in adjs, applied silently so the borrower's rate
-  // breakdown shows only the legitimate adjustments.
-  var netHiddenTpoPct = DIYA.HIDDEN_TPO_PCT - buydown;  // e.g. 1.00 - 0.50 = 0.50
-  var netHiddenTpoAdj = DIYA.tpo[netHiddenTpoPct.toFixed(2)] || 0;
+  // Deploy 236.39 — new pricing model. TPO is locked at 1.00% so
+  // the hidden TPO adjustment is always DIYA.HIDDEN_TPO_ADJ (0.280),
+  // regardless of buy-down. Buy-down is its own separate negative
+  // rate adjustment, looked up in DIYA.rateBuydown. Both are
+  // applied silently (not in adjs[]) so the borrower's breakdown
+  // shows only the legitimate adjustments.
+  var hiddenTpoAdj  = DIYA.HIDDEN_TPO_ADJ;                   // always 0.280
+  var buydownAdj    = DIYA.rateBuydown[buydown.toFixed(2)] || 0; // negative
+  // netHiddenTpoPct kept in the return value for legacy callers /
+  // PDFs that surface "TPO retained" info. With the new model it's
+  // always = HIDDEN_TPO_PCT (no longer flexes with buy-down).
+  var netHiddenTpoPct = DIYA.HIDDEN_TPO_PCT;
   var baseAdj = adjs.reduce(function(s,a){return s+(a.value||0);},0);
-  var ratePass1 = baseRate + baseAdj + netHiddenTpoAdj;
+  var ratePass1 = baseRate + baseAdj + hiddenTpoAdj + buydownAdj;
 
   // PI at pass-1 rate
   var pi1 = calcPI(loan, ratePass1/100, isIO);
@@ -1089,7 +1131,7 @@ function renderResult(r) {
   var totalPts   = 1 + (r.buydown || 0);
   var totalPtsFee = r.loan * totalPts / 100;
   var buydownNote = r.buydown>0
-    ? '<div style="margin-top:8px;padding:8px 10px;background:var(--gold-light);border-radius:var(--r-xs);font-size:12px;color:var(--gold-mid)">&#8599; '+r.buydown.toFixed(2)+' buy-down pts added &mdash; '+totalPts.toFixed(2)+' pts total ('+fmtD(totalPtsFee)+') &mdash; rate reduced by '+DIYA.tpo[(r.buydown).toFixed(2)].toFixed(3)+'%</div>'
+    ? '<div style="margin-top:8px;padding:8px 10px;background:var(--gold-light);border-radius:var(--r-xs);font-size:12px;color:var(--gold-mid)">&#8599; '+r.buydown.toFixed(2)+' buy-down pts added &mdash; '+totalPts.toFixed(2)+' pts total ('+fmtD(totalPtsFee)+') &mdash; rate reduced by '+Math.abs(DIYA.rateBuydown[(r.buydown).toFixed(2)]||0).toFixed(3)+'%</div>'
     : '';
 
   return glBanners+'<div class="rate-card">'+
@@ -1280,8 +1322,10 @@ function updatePills() {
     var adj=0;
     if (ci!==null){var fr=DIYA.fico[fico];if(fr&&fr[ci]!=null)adj+=fr[ci];}
     adj+=(DIYA.ppp[prepay]||0);
-    var netTpoPct=DIYA.HIDDEN_TPO_PCT-buydown;
-    adj+=DIYA.tpo[netTpoPct.toFixed(2)]||0;
+    // Deploy 236.39 — TPO locked at 1.00% (always 0.280 rate adj);
+    // buy-down applied separately from DIYA.rateBuydown table.
+    adj+=DIYA.HIDDEN_TPO_ADJ;
+    adj+=(DIYA.rateBuydown[buydown.toFixed(2)]||0);
     var pi=calcPI(loan,(br+adj)/100,isIO);
     var pmt=pi+taxes+ins+hoa;
     if (pmt>0){var d=rent/pmt;dv.textContent=d.toFixed(2)+'x';dv.className='computed-val '+(d>=1.20?'good':d>=1.0?'warn':'bad');}
@@ -2071,9 +2115,12 @@ function _generateRateSheetPDF(opts) {
   ];
 
   // Calculate the adjusted final rate for each option:
-  // finalRate already baked in the selected buydown, so we derive
-  // each alternative by adding/subtracting the TPO difference.
-  var selectedBdAdj = DIYA.tpo[(r.buydown).toFixed(2)] || 0;  // rate reduction already applied
+  // finalRate already baked in the selected buydown adjustment
+  // (negative number in DIYA.rateBuydown). To derive each
+  // alternative we strip the current buydown adj then re-add the
+  // option's adj.  Deploy 236.39 — switched the source table from
+  // DIYA.tpo to DIYA.rateBuydown to match the new pricing model.
+  var selectedBdAdj = Math.abs(DIYA.rateBuydown[(r.buydown).toFixed(2)] || 0);
   var rateWithoutBd = r.finalRate + selectedBdAdj;              // base rate before any buydown
 
   var numOpts = bdOptions.length;
@@ -2115,7 +2162,10 @@ function _generateRateSheetPDF(opts) {
 
   bdOptions.forEach(function(opt, i) {
     var isSelected = Math.abs(opt.bd - (r.buydown||0)) < 0.001;
-    var bdAdj  = DIYA.tpo[opt.bd.toFixed(2)] || 0;
+    // Deploy 236.39 — buy-down rate reduction comes from
+    // DIYA.rateBuydown (negative values). Math.abs to convert to
+    // a positive subtraction below.
+    var bdAdj  = Math.abs(DIYA.rateBuydown[opt.bd.toFixed(2)] || 0);
     var optRate = rateWithoutBd - bdAdj;
     var ptsCost = r.loan * opt.pts / 100;
     var rowB = ry + ROW_C * 0.72;
