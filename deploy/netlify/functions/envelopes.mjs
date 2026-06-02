@@ -115,21 +115,19 @@ async function handleCreate(req, context, user) {
     return json(400, { error: 'clientId and loanId required' });
   }
 
-  // Defense-in-depth: enforce the "In Processing only" gate the UI shows.
+  // Deploy 236.42 — status gate dropped per Mike. Rate sheets are now
+  // sendable in any loan status (previously required 'approved' / In
+  // Processing). The verification still loads the client + loan to
+  // make sure the IDs are real; we just no longer reject on status.
   try {
     const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
     const client = await clientsStore.get(`${ownerKey}/${body.clientId}`, { type: 'json' });
     if (!client) return json(404, { error: 'Client not found' });
     const loan = (client.loans || []).find((l) => l.id === body.loanId);
     if (!loan) return json(404, { error: 'Loan not found' });
-    if (loan.status !== 'approved') {
-      return json(400, {
-        error: 'Loan must be in In Processing status to send for signature. Current status: ' + (loan.status || 'unknown'),
-      });
-    }
   } catch (e) {
-    console.error('envelopes-create status check failed:', e);
-    return json(500, { error: 'Could not verify loan status' });
+    console.error('envelopes-create loan lookup failed:', e);
+    return json(500, { error: 'Could not load loan record' });
   }
 
   const now = new Date().toISOString();

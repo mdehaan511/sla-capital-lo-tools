@@ -977,16 +977,12 @@ function render() {
     'Download Rate Sheet' +
   '</a>';
 
-  // Deploy 227 — Send Rate Sheet for Signature moved here, immediately
-  // below Download Rate Sheet (the two are functionally paired — LO
-  // either downloads to share manually OR sends through eSign). Label
-  // is now always "Send Rate Sheet for Signature" regardless of status,
-  // since the rate sheet remains what gets sent even past Quoted.
-  // Eligibility unchanged: active / submitted / awaiting_app / approved
-  // (locked at terminal statuses cancelled / denied / closed / on_hold).
-  var _esignActiveStatusesEarly = ['active', 'submitted', 'awaiting_app', 'approved'];
-  var _loanStatusEarly = (_loan && _loan.status) || 'active';
-  if (_esignActiveStatusesEarly.indexOf(_loanStatusEarly) >= 0 && eSignVisible()) {
+  // Deploy 236.42 — status gate dropped per Mike. Rate sheet is now
+  // sendable in any loan status (previously gated to active /
+  // submitted / awaiting_app / approved; terminal statuses were
+  // hidden). Backend envelopes.mjs also dropped its status check so
+  // the request actually goes through.
+  if (eSignVisible()) {
     html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()">' +
       '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
       'Send Rate Sheet for Signature' +
