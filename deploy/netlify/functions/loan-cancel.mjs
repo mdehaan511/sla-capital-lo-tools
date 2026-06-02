@@ -146,20 +146,22 @@ async function handle(req, context) {
     return x.trim();
   };
   const targetAddr = aggrNorm(targetLoan.address || '');
+  // Deploy 236.41 — see loan-advance-status.mjs for the rationale.
+  const validLoanIds = new Set((client.loans || []).map((l) => l && l.id).filter(Boolean));
 
   try {
     const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.21 — loanId match with safe legacy-address fallback
-      // (see loan-advance-status.mjs / borrower-info-sync.mjs for the
-      // full rationale). Cancel from Loan Details would otherwise leave
-      // pre-Deploy-236.7 quotes stuck at their old status.
-      const matchById     = q.loanId === body.loanId;
-      const matchByLegacy = !q.loanId && aggrNorm(q.address || '') === targetAddr;
+      // Deploy 236.21 / 236.41 — loanId match plus legacy + stale
+      // loanId fallback. Same logic as loan-advance-status.
+      const matchById         = q.loanId === body.loanId;
+      const quoteLoanIdIsStale = q.loanId && !validLoanIds.has(q.loanId);
+      const addrMatches        = aggrNorm(q.address || '') === targetAddr;
+      const matchByLegacy     = (!q.loanId || quoteLoanIdIsStale) && addrMatches;
       if (!matchById && !matchByLegacy) continue;
-      if (matchByLegacy && !q.loanId) q.loanId = body.loanId;
+      if (matchByLegacy) q.loanId = body.loanId;
       q.status = newStatus;
       q.updatedAt = now;
       if (isRestore) {

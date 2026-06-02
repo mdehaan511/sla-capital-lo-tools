@@ -167,27 +167,37 @@ async function handle(req, context) {
     return x.trim();
   };
   const targetAddr = aggrNorm(targetLoan.address || '');
+  // Deploy 236.41 — set of every loanId that exists on this client right
+  // now. Used to detect quotes whose loanId is STALE (points at a loan
+  // that no longer exists on the record). Same-address two-loan
+  // contamination is still impossible: that case has two valid loanIds,
+  // both in this set, so neither quote falls through to the address
+  // fallback.
+  const validLoanIds = new Set((client.loans || []).map((l) => l && l.id).filter(Boolean));
 
   try {
     const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.21 — loanId match with safe legacy fallback. Same
-      // pattern as borrower-info-sync.mjs (Deploy 236.20). Strict
-      // loanId-only (236.13) was too aggressive for pre-Deploy-236.7
-      // quotes which don't carry loanId — manual status moves from
-      // Loan Details would flip loan.status but never update quote.
-      // status, leaving Pipeline (reads quote.status) and Loan Details
-      // (reads loan.status) out of sync. Same-address two-loan
-      // contamination is impossible here because that requires both
-      // quotes to be post-236.7 (and so both already have loanId).
-      const matchById     = q.loanId === body.loanId;
-      const matchByLegacy = !q.loanId && aggrNorm(q.address || '') === targetAddr;
+      // Deploy 236.21 / 236.41 — loanId match with safe legacy +
+      // stale-loanId fallback. Strict loanId-only (236.13) was too
+      // aggressive: it missed (a) pre-Deploy-236.7 quotes which had no
+      // loanId at all, and (b) quotes whose stored loanId was stamped
+      // incorrectly or pointed at a loan that no longer exists.
+      // Mike: changed a declined loan back to active, pipeline briefly
+      // showed it then reverted to declined — root cause was the
+      // matching quote had a stale loanId so this sync silently
+      // skipped it. The quote stayed at 'denied' and pipeline
+      // (reading quote.status) kept showing it as declined.
+      const matchById         = q.loanId === body.loanId;
+      const quoteLoanIdIsStale = q.loanId && !validLoanIds.has(q.loanId);
+      const addrMatches        = aggrNorm(q.address || '') === targetAddr;
+      const matchByLegacy     = (!q.loanId || quoteLoanIdIsStale) && addrMatches;
       if (!matchById && !matchByLegacy) continue;
-      // Opportunistic loanId stamp on the legacy quote so future
-      // transitions hit the strict-loanId path directly.
-      if (matchByLegacy && !q.loanId) q.loanId = body.loanId;
+      // Opportunistic loanId stamp (or refresh) so future transitions
+      // hit the strict-loanId path directly.
+      if (matchByLegacy) q.loanId = body.loanId;
       // Update — but don't downgrade. If the quote is already at a
       // "further along" status (e.g. closed), leave it alone.
       const RANK = { active: 0, submitted: 1, awaiting_app: 2, approved: 3, closed: 4 };

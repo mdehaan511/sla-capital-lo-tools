@@ -291,6 +291,10 @@ export async function advanceQuoteToInProcessing(record) {
   const targetLoanId = targetLoan.id || '';
 
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+  // Deploy 236.41 — set of every loanId on this client, hoisted out of
+  // the per-quote loop. Used to detect quotes whose loanId is stale
+  // (see the match logic below).
+  const validLoanIds = new Set((client.loans || []).map((l) => l && l.id).filter(Boolean));
   let quotesUpdated = 0;
   let quotesMatched = 0;
   try {
@@ -298,31 +302,30 @@ export async function advanceQuoteToInProcessing(record) {
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
       if (!q) continue;
-      // Deploy 236.20 — loanId match with safe legacy fallback. Strict
-      // loanId-only (236.13) was too aggressive: quotes saved before
-      // Deploy 236.7 don't have a loanId stamped, so completing the
-      // long app would flip the LOAN status but NEVER find a matching
-      // quote — the Pipeline tile (reads quote.status) would stay in
-      // Awaiting Application even though Loan Details (reads loan.
-      // status) shows In Processing. Same-address two-loan
-      // contamination is avoided here because we ONLY fall back to
-      // address match when the quote has NO loanId at all (cross-loan
-      // collisions require both quotes to be post-236.7, which means
-      // they both already have loanId stamped — and so wouldn't hit
-      // this branch). When we DO match a legacy quote by address, we
-      // also stamp the loanId on it so future actions stay clean.
-      const matchByLoanId = targetLoanId && q.loanId === targetLoanId;
-      const matchByLegacyAddr = !q.loanId && aggrNorm(q.address) === target;
+      // Deploy 236.20 / 236.41 — loanId match plus legacy + stale
+      // loanId address fallback. Strict loanId-only (236.13) was too
+      // aggressive: it missed (a) pre-Deploy-236.7 quotes which have
+      // no loanId at all and (b) quotes whose stored loanId is stale
+      // (points at a loan that no longer exists on the client). When
+      // either of those is true, fall back to address match. Same-
+      // address two-loan contamination is still avoided because that
+      // case has two valid loanIds, both present in validLoanIds, so
+      // quoteLoanIdIsStale is false for both and the address fallback
+      // never fires.
+      const matchByLoanId      = targetLoanId && q.loanId === targetLoanId;
+      const quoteLoanIdIsStale = q.loanId && !validLoanIds.has(q.loanId);
+      const addrMatches        = aggrNorm(q.address) === target;
+      const matchByLegacyAddr  = (!q.loanId || quoteLoanIdIsStale) && addrMatches;
       if (!matchByLoanId && !matchByLegacyAddr) continue;
       quotesMatched += 1;
       if (q.status === 'awaiting_app') {
         q.status = 'approved';
         q.updatedAt = new Date().toISOString();
         q.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
-        if (matchByLegacyAddr && targetLoanId && !q.loanId) {
-          // Stamp loanId on the legacy quote so subsequent status
-          // transitions (cancel / decline / advance) lock onto it
-          // via the strict-loanId path instead of falling here again.
+        if (matchByLegacyAddr && targetLoanId) {
+          // Stamp / refresh loanId on the legacy or stale-id quote so
+          // subsequent status transitions (cancel / decline / advance)
+          // lock onto it via the strict-loanId path.
           q.loanId = targetLoanId;
         }
         await quotesStore.setJSON(key, q);
