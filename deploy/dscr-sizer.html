@@ -928,6 +928,12 @@ function fmtD(n) {
 }
 function fmtX(n) { return n!=null?n.toFixed(2)+'x':'&mdash;'; }
 
+// Deploy 236.48 — single source of truth for the FICO / LTV / pricing-
+// eligibility error suffix. Same string in RTL sizer. Replaces the
+// older product-routing suggestions ("Try an RTL or Bridge") with a
+// manager-exception escalation invitation.
+var EXCEPTION_HINT = ' Reach out to a manager to submit an exception request.';
+
 function calculate() {
   var loan      = parseFloat($('loanAmt').value)    || 0;
   var propVal   = parseFloat($('propValue').value)  || 0;
@@ -954,12 +960,16 @@ function calculate() {
   // 550-619) for parity, but DSCR can't actually be priced for those
   // borrowers. Bail with a clear message instead of letting the calc
   // fall through to "no row matched" or a misleading default.
+  // Deploy 236.48 — standardized exception-request wording. All FICO /
+  // LTV / pricing-eligibility errors now invite the LO to escalate to a
+  // manager instead of suggesting an alternate product. EXCEPTION_HINT
+  // is defined as a module-level constant at the top of the file (see
+  // RTL sizer for the matching string).
   var SUB660 = ['640-659', '620-639', '550-619'];
   if (SUB660.indexOf(fico) >= 0) {
     return {
       error: 'No DSCR pricing available for FICO ' + fico + '. ' +
-        'DIYA\'s minimum credit score is 660. Consider quoting this borrower ' +
-        'as an RTL (Bridge or Fix &amp; Flip) loan instead.',
+        'DIYA\'s minimum credit score is 660.' + EXCEPTION_HINT,
     };
   }
 
@@ -975,20 +985,20 @@ function calculate() {
 
   if (ltv<=0||ltv>80) {
     if (ltv > 80) {
-      return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80)};
+      return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80) + EXCEPTION_HINT};
     }
     return {error:'Enter property value'};
   }
 
   var ci = ltvCol(ltv);
-  if (ci===null) return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80)};
+  if (ci===null) return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80) + EXCEPTION_HINT};
 
   var baseRate = DIYA.baseRate[loanType]||DIYA.baseRate['30Y Fixed'];
   var adjs = [];
 
   // FICO
   var fRow = DIYA.fico[fico];
-  if (!fRow) return {error:'FICO not supported'};
+  if (!fRow) return {error:'FICO not supported.' + EXCEPTION_HINT};
   var fAdj = fRow[ci];
   if (fAdj===null||fAdj===undefined) {
     // Find the highest LTV column that's not null for this FICO
@@ -998,7 +1008,7 @@ function calculate() {
     }
     var ficoMaxMsg = maxFicoLTV ? maxLoanMsg(maxFicoLTV) : '';
     var ficoMaxStr = maxFicoLTV ? ' Maximum LTV for FICO ' + fico + ' is ' + maxFicoLTV + '%.' + ficoMaxMsg : '';
-    return {error:'FICO '+fico+' is not available at '+ltv.toFixed(1)+'% LTV.' + ficoMaxStr};
+    return {error:'FICO '+fico+' is not available at '+ltv.toFixed(1)+'% LTV.' + ficoMaxStr + EXCEPTION_HINT};
   }
   adjs.push({label:'FICO adjustment', value:fAdj});
 
@@ -1011,7 +1021,7 @@ function calculate() {
         if (DIYA.io[i] !== null && DIYA.io[i] !== undefined) { ioMaxLTV = DIYA.ltvCols[i]; break; }
       }
       var ioMaxStr = ioMaxLTV ? ' Maximum LTV for Interest Only is ' + ioMaxLTV + '%.' + maxLoanMsg(ioMaxLTV) : '';
-      return {error:'Interest Only is not available at '+ltv.toFixed(1)+'% LTV.' + ioMaxStr};
+      return {error:'Interest Only is not available at '+ltv.toFixed(1)+'% LTV.' + ioMaxStr + EXCEPTION_HINT};
     }
     adjs.push({label:'Interest Only', value:ioA});
   }
@@ -1025,7 +1035,7 @@ function calculate() {
         if (DIYA.cashOut[j] !== null && DIYA.cashOut[j] !== undefined) { coMaxLTV = DIYA.ltvCols[j]; break; }
       }
       var coMaxStr = coMaxLTV ? ' Maximum LTV for cash-out refi is ' + coMaxLTV + '%.' + maxLoanMsg(coMaxLTV) : '';
-      return {error:'LTV '+ltv.toFixed(1)+'% is not available for cash-out refi.' + coMaxStr};
+      return {error:'LTV '+ltv.toFixed(1)+'% is not available for cash-out refi.' + coMaxStr + EXCEPTION_HINT};
     }
     adjs.push({label:'Cash-Out Refi', value:coA});
   }
@@ -1063,7 +1073,7 @@ function calculate() {
   var pmt1 = pi1+taxes+ins+hoa;
   var dscr1 = pmt1>0&&rent>0?rent/pmt1:null;
 
-  if (dscr1!==null&&dscr1<1.0) return {error:'DSCR '+dscr1.toFixed(2)+'x is below minimum 1.00x'};
+  if (dscr1!==null&&dscr1<1.0) return {error:'DSCR '+dscr1.toFixed(2)+'x is below minimum 1.00x.' + EXCEPTION_HINT};
 
   // DSCR adj
   var dscrAdj = 0;
@@ -1150,6 +1160,15 @@ function renderResult(r) {
         adjRows+
       '</tbody></table>'+
       '<div class="total-row"><span class="tl">Final note rate</span><span class="tv">'+r.finalRate.toFixed(3)+'%</span></div>'+
+      // Deploy 236.48 — Origination Points row with override pencil.
+      // Default = 1.00 base + buydown. When window._dscrOverrides.points
+      // is set the value below reflects the override; applyOverrides
+      // AndRender keeps the cash-to-close fees + rate sheet in sync.
+      (function(){
+        var ovP = (window._dscrOverrides && window._dscrOverrides.points);
+        var eff = (typeof ovP === 'number' && isFinite(ovP)) ? ovP : (1 + (r.buydown||0));
+        return '<div class="total-row"><span class="tl">Origination Points <span class="override-pencil" onclick="enableOverrideEdit(\'points\')" title="Override Origination Points (requires manager approval)">&#x270e;</span></span><span class="tv ov-meta" data-metric="points">'+eff.toFixed(2)+' pts</span></div>';
+      })()+
       buydownNote+
     '</div>'+
   '</div>'+
@@ -1206,7 +1225,14 @@ function renderResult(r) {
 function renderCashToCloseCard(r, effLoan) {
   var purpose = $('loanPurpose') && $('loanPurpose').value;
   if (!purpose) return '';
-  var pts = (1 + (r.buydown || 0)) / 100; // origination + buy-down
+  // Deploy 236.48 — when a points override is active, the borrower-
+  // facing Origination Points value drives the origination fee (and
+  // all cash-to-close math derived from it). Otherwise default to
+  // 1.00 base + buy-down.
+  var _ovP = (window._dscrOverrides && window._dscrOverrides.points);
+  var pts = (typeof _ovP === 'number' && isFinite(_ovP))
+    ? _ovP / 100
+    : (1 + (r.buydown || 0)) / 100; // origination + buy-down
   var ptsFee = effLoan * pts;
   var flatFees = 995 + 700 + 500 + 120; // DSCR schedule = $2,315
   var brokerPts = (typeof r.brokerPts === 'number' ? r.brokerPts : (parseFloat(($('brokerFee')||{}).value) || 0));
@@ -1412,6 +1438,12 @@ function renderBrokerFeesCardRows() {
 window._dscrOverrides = {
   rate: null,                  // overridden rate (decimal, e.g. 0.075)
   ltv: null,                   // overridden LTV (decimal fraction, e.g. 0.80)
+  points: null,                // Deploy 236.48 — overridden TOTAL origination
+                               // points (e.g. 0.75 = 0.75 pts). Independent of
+                               // the buy-down dropdown: the LO sets the
+                               // borrower-facing points directly, and the
+                               // origination fee / rate sheet labels follow.
+                               // Does NOT change the rate.
   warningAcknowledged: false,
   _pendingField: null,
 };
@@ -1428,7 +1460,7 @@ var DSCR_OVERRIDE_LOCK_IDS = [
 
 function hasActiveOverride() {
   var o = window._dscrOverrides || {};
-  return o.rate !== null || o.ltv !== null;
+  return o.rate !== null || o.ltv !== null || o.points !== null;
 }
 
 // Pencil click entry — fires modal (first time) then opens input. If
@@ -1472,26 +1504,39 @@ function _openOverrideInput(fieldKey) {
     el = document.querySelector('.rate-big .rv[data-metric="rate"]');
   } else if (fieldKey === 'ltv') {
     el = document.querySelector('.ov-meta[data-metric="ltv"]');
+  } else if (fieldKey === 'points') {
+    // Deploy 236.48 — total Origination Points display in the rate card.
+    el = document.querySelector('.ov-meta[data-metric="points"]');
   }
   if (!el) return;
   var currentText = el.textContent.replace(/[A-Z·\s]+OVERRIDE/i, '').trim();
-  // Both rate and ltv display as percentages — parse to decimal
+  // Rate / LTV display as percentages; Points displays as "X.XX pts".
+  // Parse to a number for either case — interpretation differs below.
   var rawNum = parseFloat(currentText.replace(/[^\d.]/g, ''));
   if (!isFinite(rawNum)) rawNum = 0;
   // Deploy 236.40 — preload the input with the full-precision string
   // matching the display. parseFloat strips trailing zeros (6.350 →
   // 6.35 as a number), so without explicit toFixed the input shows
   // "6.35" and the LO loses the third decimal. Rate gets 3 decimals;
-  // LTV gets 1.
-  var rawNumStr = fieldKey === 'rate' ? rawNum.toFixed(3) : rawNum.toFixed(1);
+  // LTV gets 1; Points gets 2 (matches "1.00 pts" / "2.50 pts" style).
+  var rawNumStr = fieldKey === 'rate' ? rawNum.toFixed(3)
+                : fieldKey === 'points' ? rawNum.toFixed(2)
+                : rawNum.toFixed(1);
   var inputId = 'override-input-' + fieldKey;
   // Inline input style depends on whether parent is on dark (rate hero)
   var inputClass = fieldKey === 'rate' ? 'override-input on-dark' : 'override-input';
+  var suffixLabel = fieldKey === 'points' ? 'pts' : '%';
+  var inputStep = fieldKey === 'rate' ? '0.001'
+                : fieldKey === 'points' ? '0.25'
+                : '0.5';
+  var inputMax = fieldKey === 'ltv' ? '100'
+               : fieldKey === 'points' ? '10'
+               : '25';
   el.innerHTML =
     '<input type="number" id="' + inputId + '" class="' + inputClass + '" value="' + rawNumStr +
-      '" step="' + (fieldKey === 'rate' ? '0.001' : '0.5') +
-      '" min="0" max="' + (fieldKey === 'ltv' ? '100' : '25') + '" />' +
-    '<span class="override-suffix"' + (fieldKey === 'rate' ? ' style="color:rgba(255,255,255,0.55)"' : '') + '>%</span>';
+      '" step="' + inputStep +
+      '" min="0" max="' + inputMax + '" />' +
+    '<span class="override-suffix"' + (fieldKey === 'rate' ? ' style="color:rgba(255,255,255,0.55)"' : '') + '>' + suffixLabel + '</span>';
   var input = document.getElementById(inputId);
   input.focus();
   input.select();
@@ -1501,8 +1546,9 @@ function _openOverrideInput(fieldKey) {
       applyOverridesAndRender();
       return;
     }
-    // Both rate and LTV input are in %; store as decimal for math
-    v = v / 100;
+    // Rate and LTV input are in %; store as decimal for math.
+    // Points input is already in "pts" units; store as-is.
+    if (fieldKey !== 'points') v = v / 100;
     window._dscrOverrides[fieldKey] = v;
     applyOverridesAndRender();
     lockLoanFinancialFields(true);
@@ -1517,7 +1563,7 @@ function restoreOverridesToDefault() {
   if (!hasActiveOverride()) return;
   if (!confirm('Restore pricing to the calculator default? This clears all manual overrides for this loan.')) return;
   window._dscrOverrides = {
-    rate: null, ltv: null,
+    rate: null, ltv: null, points: null,
     warningAcknowledged: false,
     _pendingField: null,
   };
@@ -1565,8 +1611,9 @@ function refreshOverrideNotice() {
   }
   var o = window._dscrOverrides;
   var parts = [];
-  if (o.rate !== null) parts.push('rate');
-  if (o.ltv  !== null) parts.push('LTV');
+  if (o.rate   !== null) parts.push('rate');
+  if (o.ltv    !== null) parts.push('LTV');
+  if (o.points !== null) parts.push('points');
   var detail = 'Overridden: ' + parts.join(', ') + '. Click Restore to revert.';
   var detailEl = document.getElementById('overrideNoticeDetail');
   if (detailEl) detailEl.textContent = detail;
@@ -1596,6 +1643,8 @@ function applyOverridesAndRender() {
   // ── Update the rendered displays ────────────────────────────
   var rateEl = document.querySelector('.rate-big .rv[data-metric="rate"]');
   var ltvEl  = document.querySelector('.ov-meta[data-metric="ltv"]');
+  // Deploy 236.48 — points display (Origination Points row in rate card).
+  var ptsEl  = document.querySelector('.ov-meta[data-metric="points"]');
   if (rateEl && isFinite(effRate)) {
     rateEl.textContent = effRate.toFixed(3) + '%';
     rateEl.classList.toggle('overridden', o.rate !== null);
@@ -1603,6 +1652,13 @@ function applyOverridesAndRender() {
   if (ltvEl && isFinite(effLtv)) {
     ltvEl.textContent = effLtv.toFixed(1) + '%';
     ltvEl.classList.toggle('overridden', o.ltv !== null);
+  }
+  if (ptsEl) {
+    var effPts = (o.points !== null) ? o.points : (1 + (calc.buydown||0));
+    if (isFinite(effPts)) {
+      ptsEl.textContent = effPts.toFixed(2) + ' pts';
+      ptsEl.classList.toggle('overridden', o.points !== null);
+    }
   }
   // Also update the "Final note rate" total-row at the bottom of the
   // rate card. There's only one .total-row .tv on the rate card.
@@ -1834,6 +1890,12 @@ function _generateRateSheetPDF(opts) {
     if (snap.buydownFee   != null) r.buydownFee   = snap.buydownFee;
     if (Array.isArray(snap.adjs))  r.adjs         = snap.adjs;
     if (snap.baseRate     != null) r.baseRate     = snap.baseRate;
+    // Deploy 236.48 — note: snap.points is NOT applied here. The load
+    // code (loadQuoteIntoForm) already restored window._dscrOverrides.
+    // points from formData._pointsOverride, and that's the canonical
+    // override flag. The snapshot's points field is metadata for
+    // server-side rate-sheet generation; for the client PDF the
+    // downstream code reads the override directly.
     window._snapshotConsumed = true;
   }
 
@@ -2048,18 +2110,28 @@ function _generateRateSheetPDF(opts) {
   // Property Address now lives in the dark hero band above — no longer
   // included in the two-column details grid where it was getting truncated.
   var details = [
+    // Deploy 236.48 \u2014 Origination Points reflects an active points override
+    // (window._dscrOverrides.points) when present. Assumed DSCR added so
+    // brokers / borrowers can see the qualifying ratio at a glance.
     ['Borrower Name',       r.borrower||'\u2014'],
     ['Borrower Email',      r.borrowerEmail||'\u2014'],
     ['Loan Amount',         fmtDplain(r.loan)],
     ['Estimated Value',     fmtDplain(r.propVal)],
     ['LTV',                 r.ltv.toFixed(1)+'%'],
+    ['Assumed DSCR',        (typeof r.dscr === 'number' && isFinite(r.dscr)) ? r.dscr.toFixed(2)+'x' : '\u2014'],
     ['Loan Type',           r.loanType==='30Y Fixed'?'30-Year Fixed':r.loanType],
     ['Interest Only',       r.isIO?'Yes':'No'],
     ['Loan Purpose',        purposeLabel[r.purpose]||r.purpose],
     ['Property Type',       ptLabel[r.propType]||r.propType],
     ['Stated FICO',         r.fico],
     ['Prepayment Penalty',  ppLabel[r.prepay]||r.prepay],
-    ['Origination Points',   (1 + (r.buydown||0)).toFixed(2)+' pts (1.00 base'+(r.buydown>0?' + '+r.buydown.toFixed(2)+' buy-down':'')+')'],
+    ['Origination Points',  (function(){
+      var ovP = (window._dscrOverrides && window._dscrOverrides.points);
+      var t = (typeof ovP === 'number' && isFinite(ovP)) ? ovP : (1 + (r.buydown||0));
+      return (typeof ovP === 'number' && isFinite(ovP))
+        ? t.toFixed(2)+' pts (manager-approved override)'
+        : t.toFixed(2)+' pts (1.00 base'+(r.buydown>0?' + '+r.buydown.toFixed(2)+' buy-down':'')+')';
+    })()],
   ];
 
   var half = Math.ceil(details.length/2);
@@ -2123,7 +2195,13 @@ function _generateRateSheetPDF(opts) {
   // Now the breakdown shows only the base rate \u2192 final rate, with
   // the buy-down options below. LOs can still see line-item
   // breakdowns in the sizer\u2019s on-screen results card.
-  var rateRows = [[r.loanType+' base rate', r.baseRate.toFixed(3)+'%', TEXT, false]];
+  // Deploy 236.48 — hide the base-rate row too. Borrowers were getting
+  // hung up on the gap between the displayed base rate and the final
+  // rate, and the adjustment math behind that gap is exactly what 191
+  // already decided to keep off the sheet. The block now jumps straight
+  // to the Final Note Rate; the rate-options-by-points table below
+  // gives the LO room to walk through buy-down choices.
+  var rateRows = [];
 
   var ROW_C = 18;  // compact row height for comparison table (defined early for rateBlockH)
   var rateBlockH = rateRows.length*ROW_H + ROW_H + 12 + 14 + ROW_C + 5*ROW_C + 8;
@@ -2142,11 +2220,25 @@ function _generateRateSheetPDF(opts) {
     });
   });
 
-  // Final rate total row — heavier line above, larger text
-  doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
-  doc.line(lm+8, ry, lm+cw-8, ry);
-  ry += 4;
-  var totalPtsLabel = (1 + (r.buydown||0)).toFixed(2)+' pts origination';
+  // Final rate total row — heavier line above (only when there were
+  // breakdown rows above it), larger text.
+  // Deploy 236.48 — with the base-rate row removed there's nothing for
+  // the divider to separate from, so skip the line when rateRows is
+  // empty. Otherwise the borrower sees an orphaned horizontal rule at
+  // the very top of the block.
+  if (rateRows.length > 0) {
+    doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
+    doc.line(lm+8, ry, lm+cw-8, ry);
+    ry += 4;
+  }
+  // Deploy 236.48 — Final Note Rate row labels honor the points override
+  // (window._dscrOverrides.points) when active, same as the LOAN
+  // DETAILS table. Without this the borrower sees "1.00 pts" on the
+  // details line but "1.00 pts origination" on the rate block, which
+  // is confusing once a manager-approved override is in play.
+  var __ovP = (window._dscrOverrides && window._dscrOverrides.points);
+  var __effPts = (typeof __ovP === 'number' && isFinite(__ovP)) ? __ovP : (1 + (r.buydown||0));
+  var totalPtsLabel = __effPts.toFixed(2)+' pts origination';
   ry = trow('Final Note Rate ('+totalPtsLabel+')', r.finalRate.toFixed(3)+'%', ry, {
     labelColor: TEXT, labelBold: true,
     valueColor: TEXT, valueBold: true,
@@ -2322,15 +2414,24 @@ function _generateRateSheetPDF(opts) {
   checkPage(200);
 
   // ── ESTIMATED CLOSING COSTS TABLE ────────────────────────────
-  var totalPtsAmt = r.loan * (1 + (r.buydown||0)) / 100;
-  var feeRows = [
-    ['Origination Points (' + (1 + (r.buydown||0)).toFixed(2) + ' pts)', totalPtsAmt],
-    ['Underwriting Fee',                                                   995],
-    ['Doc Prep Fee',                                                       700],
-    ['Legal / Document Review',                                            500],
-    ['Desktop Analysis',                                                   120],
-  ];
-  if (r.buydown > 0) {
+  // Deploy 236.48 — points override collapses the breakdown into a
+  // single Origination line at the override value. Without the
+  // override the existing base + buy-down split renders as before.
+  var __ovPtsFee = (window._dscrOverrides && window._dscrOverrides.points);
+  var __effPtsFee = (typeof __ovPtsFee === 'number' && isFinite(__ovPtsFee))
+    ? __ovPtsFee
+    : (1 + (r.buydown||0));
+  var totalPtsAmt = r.loan * __effPtsFee / 100;
+  var feeRows;
+  if (typeof __ovPtsFee === 'number' && isFinite(__ovPtsFee)) {
+    feeRows = [
+      ['Origination Points (' + __effPtsFee.toFixed(2) + ' pts — override)', totalPtsAmt],
+      ['Underwriting Fee',                                                   995],
+      ['Doc Prep Fee',                                                       700],
+      ['Legal / Document Review',                                            500],
+      ['Desktop Analysis',                                                   120],
+    ];
+  } else if (r.buydown > 0) {
     // Break out the buydown separately under origination
     feeRows = [
       ['Origination — 1.00 pt (base)',       r.loan * 1 / 100],
@@ -2339,6 +2440,14 @@ function _generateRateSheetPDF(opts) {
       ['Doc Prep Fee',                        700],
       ['Legal / Document Review',             500],
       ['Desktop Analysis',                    120],
+    ];
+  } else {
+    feeRows = [
+      ['Origination Points (' + __effPtsFee.toFixed(2) + ' pts)', totalPtsAmt],
+      ['Underwriting Fee',                                          995],
+      ['Doc Prep Fee',                                              700],
+      ['Legal / Document Review',                                   500],
+      ['Desktop Analysis',                                          120],
     ];
   }
   // Broker fee line on the rate-sheet PDF. Per policy the broker's
@@ -2861,7 +2970,15 @@ function saveCurrentQuote() {
     _finalRate:    r.finalRate ? r.finalRate.toFixed(3) : '',
     _dscr:         r.dscr ? r.dscr.toFixed(2) : '',
     _totalPayment: r.totalPayment ? r.totalPayment.toFixed(2) : '',
-    _points:       (1 + (parseFloat(r.buydown) || 0)).toFixed(2) + ' pts',
+    // Deploy 236.48 — _points honors the override when active so Loan
+    // Details + Pipeline cards reflect the manager-approved value.
+    _points: (function(){
+      var ov = window._dscrOverrides || {};
+      var eff = (typeof ov.points === 'number' && isFinite(ov.points))
+        ? ov.points
+        : (1 + (parseFloat(r.buydown) || 0));
+      return eff.toFixed(2) + ' pts';
+    })(),
     // Deploy 164: pricing override state. Empty strings when no
     // override is active. On reload these restore the override
     // display + lock state WITHOUT re-firing the warning modal.
@@ -2873,12 +2990,24 @@ function saveCurrentQuote() {
       var ov = window._dscrOverrides || {};
       return (ov.ltv !== null && ov.ltv !== undefined) ? String(ov.ltv) : '';
     })(),
+    // Deploy 236.48 — points override persistence. Empty when no override.
+    _pointsOverride: (function() {
+      var ov = window._dscrOverrides || {};
+      return (ov.points !== null && ov.points !== undefined) ? String(ov.points) : '';
+    })(),
     // ── Full pricing snapshot for server-side rate sheet generation ──
     _pricingSnapshot: {
       tool: 'dscr',
       finalRate: r.finalRate,
       baseRate: r.baseRate,
-      points: 1 + (parseFloat(r.buydown) || 0),
+      // Deploy 236.48 — snapshot's points reflects the override when active
+      // so reprint-with-snapshot prints the manager-approved value.
+      points: (function(){
+        var ov = window._dscrOverrides || {};
+        return (typeof ov.points === 'number' && isFinite(ov.points))
+          ? ov.points
+          : (1 + (parseFloat(r.buydown) || 0));
+      })(),
       pi: r.pi,
       monthlyTaxes: r.taxes,
       monthlyInsurance: r.ins,
@@ -2906,16 +3035,19 @@ function saveCurrentQuote() {
   // Deploy 164: pricing-override audit trail. Only stamp when an
   // override is actually active. Captures who applied the override,
   // when, and the algorithmic defaults at the time of override.
-  if (formData._rateOverride || formData._ltvOverride) {
+  // Deploy 236.48 — also fires when ONLY a points override is set.
+  if (formData._rateOverride || formData._ltvOverride || formData._pointsOverride) {
     formData._pricingOverrideAt = new Date().toISOString();
     try {
       var _u = (window._user && window._user.email) || '';
       if (_u) formData._pricingOverrideBy = _u;
     } catch (_) {}
     formData._pricingOverrideOriginal = {
-      rate: (typeof r.finalRate === 'number') ? r.finalRate : null,
-      ltv:  (typeof r.ltv       === 'number') ? r.ltv       : null,
-      loan: (typeof r.loan      === 'number') ? r.loan      : null,
+      rate:   (typeof r.finalRate === 'number') ? r.finalRate : null,
+      ltv:    (typeof r.ltv       === 'number') ? r.ltv       : null,
+      loan:   (typeof r.loan      === 'number') ? r.loan      : null,
+      // Deploy 236.48 — capture original points for audit.
+      points: (1 + (parseFloat(r.buydown) || 0)),
     };
     // Deploy 166: when LTV is overridden, the loan amount derives from
     // propVal × ltv. Save that derived loan amount (and recomputed
@@ -2936,16 +3068,31 @@ function saveCurrentQuote() {
     var effRateForSave = (formData._rateOverride && !isNaN(parseFloat(formData._rateOverride)))
       ? parseFloat(formData._rateOverride) * 100  // stored as decimal; snapshot is %
       : r.finalRate;
-    // Recompute fees on the effective loan
-    var buydownFor = parseFloat(formData.buydown) || 0;
-    var origPct    = 1 + buydownFor;
-    var origFeeEff = effLoanForSave * origPct / 100;
+    // Recompute fees on the effective loan + effective points.
+    // Deploy 236.48 — points override replaces the (1 + buydown) total
+    // for the origination fee. The buydown rate adjustment still
+    // applies separately as before; only the borrower-facing
+    // origination POINTS value changes when overridden.
+    var buydownFor   = parseFloat(formData.buydown) || 0;
+    var ovPointsNum  = parseFloat(formData._pointsOverride);
+    var effOrigPts   = (formData._pointsOverride && isFinite(ovPointsNum))
+      ? ovPointsNum
+      : (1 + buydownFor);
+    var origPct      = effOrigPts;
+    var origFeeEff   = effLoanForSave * origPct / 100;
+    // Buy-down dollars stay tied to the matrix selection (separate from
+    // the borrower-facing points display). If the LO overrides points
+    // BELOW the matrix selection, the matrix buy-down dollars are no
+    // longer collected — so this line becomes additive only when the
+    // override doesn't already capture the buy-down upfront. To keep
+    // the math simple: total fees = origination (using effective pts)
+    // + flat fees. The buy-down line is folded into the override.
     var totalFeesEff = origFeeEff
-      + (FEES ? (FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis) : (995+700+500+120))
-      + (effLoanForSave * buydownFor / 100);
+      + (FEES ? (FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis) : (995+700+500+120));
     // Surface human-readable totals (used by Pipeline cards + Loans page)
     formData._finalRate = effRateForSave.toFixed(3);
     formData._maxLoan   = String(effLoanForSave);
+    formData._points    = effOrigPts.toFixed(2) + ' pts';
     // Update the snapshot so server-side rate sheet generation uses
     // the override-effective numbers
     if (formData._pricingSnapshot) {
@@ -2954,6 +3101,7 @@ function saveCurrentQuote() {
       formData._pricingSnapshot.ltv       = formData._ltvOverride
         ? parseFloat(formData._ltvOverride) * 100
         : r.ltv;
+      formData._pricingSnapshot.points    = effOrigPts;
       formData._pricingSnapshot.origFee   = origFeeEff;
       formData._pricingSnapshot.totalFees = totalFeesEff;
     }
@@ -3149,17 +3297,21 @@ function loadQuoteIntoForm(formData) {
   // greyed/disabled state on the form inputs. applyOverridesAndRender
   // (called after run() in the init flow) paints the overridden values
   // over the calc defaults.
-  var hasOv = (formData._rateOverride && formData._rateOverride !== '') ||
-              (formData._ltvOverride  && formData._ltvOverride  !== '');
+  var hasOv = (formData._rateOverride   && formData._rateOverride   !== '') ||
+              (formData._ltvOverride    && formData._ltvOverride    !== '') ||
+              // Deploy 236.48 — also restore points override.
+              (formData._pointsOverride && formData._pointsOverride !== '');
   if (hasOv) {
     window._dscrOverrides = {
-      rate: (formData._rateOverride && formData._rateOverride !== '') ? parseFloat(formData._rateOverride) : null,
-      ltv:  (formData._ltvOverride  && formData._ltvOverride  !== '') ? parseFloat(formData._ltvOverride)  : null,
+      rate:   (formData._rateOverride   && formData._rateOverride   !== '') ? parseFloat(formData._rateOverride)   : null,
+      ltv:    (formData._ltvOverride    && formData._ltvOverride    !== '') ? parseFloat(formData._ltvOverride)    : null,
+      points: (formData._pointsOverride && formData._pointsOverride !== '') ? parseFloat(formData._pointsOverride) : null,
       warningAcknowledged: true,
       _pendingField: null,
     };
-    if (isNaN(window._dscrOverrides.rate)) window._dscrOverrides.rate = null;
-    if (isNaN(window._dscrOverrides.ltv))  window._dscrOverrides.ltv  = null;
+    if (isNaN(window._dscrOverrides.rate))   window._dscrOverrides.rate   = null;
+    if (isNaN(window._dscrOverrides.ltv))    window._dscrOverrides.ltv    = null;
+    if (isNaN(window._dscrOverrides.points)) window._dscrOverrides.points = null;
     if (typeof lockLoanFinancialFields === 'function') {
       try { lockLoanFinancialFields(true); } catch (_) {}
     }

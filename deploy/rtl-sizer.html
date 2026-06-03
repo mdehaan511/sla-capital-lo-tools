@@ -759,6 +759,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 // only matter when wholesale + spread + adjustments would otherwise undercut
 // them (rare, mostly seen on high-LTV heavy/construction deals).
 var FLOOR = 0.0825; // Bridge / Light program minimum 8.250%
+// Deploy 236.48 — single source of truth for FICO / LTV / pricing-
+// eligibility error suffix. Mirror of EXCEPTION_HINT in DSCR sizer.
+var EXCEPTION_HINT = ' Reach out to a manager to submit an exception request.';
 var LABELS = { bridge:'Bridge', light:'Light Rehab', heavy:'Heavy Rehab', construction:'Construction' };
 var SPREAD = { 740:.0175, 720:.02, 700:.0225, 680:.025 };
 // LTV columns: <=70, <=75, <=80, <=85, <=90, <=95
@@ -1677,11 +1680,13 @@ function calculate(){
   // Refi minimum credit: 680 per Colchis doc (660-679 row is empty in all
   // refi tables). The sub-680 SLA-funded pricing (12/13/14%) is for
   // Purchases only — refis at sub-680 are blocked entirely.
+  // Deploy 236.48 — standardized exception-request wording. See EXCEPTION_HINT
+  // at the top of this file (mirror of DSCR sizer).
   if (isRefi && fr < 680) {
     // Display label kept around for future use — current rErr message uses
     // the raw FICO number, not this label. Updated to reflect new buckets.
     var ficoLabel = (fr<620?'<620':fr<640?'620-639':fr<660?'640-659':fr<680?'660-679':String(fr)+'+');
-    rErr = 'Refinance not supported (' + fr + ' FICO). Minimum 680 FICO required for any RTL refinance.';
+    rErr = 'Refinance not supported (' + fr + ' FICO). Minimum 680 FICO required for any RTL refinance.' + EXCEPTION_HINT;
     // Bypass all leverage / rate math — render only the error
   }
 
@@ -1771,13 +1776,13 @@ function calculate(){
   if (rErr) {
     // already set — skip rate path
   } else if (fr < 550) {
-    rErr = 'FICO below 550 is outside all program guidelines.';
+    rErr = 'FICO below 550 is outside all program guidelines.' + EXCEPTION_HINT;
   } else if (fr < 620) { rate = .14; }
   else if (fr < 640) { rate = .13; }
   else if (fr < 660) { rate = .125; }
   else if (fr < 680) { rate = .12; }
   else {
-    if(!bMax){ rErr='No eligible loan amount for this combination.'; }
+    if(!bMax){ rErr='No eligible loan amount for this combination.' + EXCEPTION_HINT; }
     else {
       var ltpF=isR?Math.round(pp*mLtp):bMax;
       var ltvF=ltpF/pp;
@@ -1793,7 +1798,7 @@ function calculate(){
         adjs.push({l:'SLA Sub-680 program ('+bandLabel+')',v:rate,c:'pos'});
       } else {
         var cbResult = colchisRate(lt,pt,fkey,ltvF);
-        if(!cbResult){ rErr='No pricing available for this FICO/LTV combination.'; }
+        if(!cbResult){ rErr='No pricing available for this FICO/LTV combination.' + EXCEPTION_HINT; }
         else {
           var cb = cbResult.rate;
           var ltvIdx = cbResult.ltvIdx;
