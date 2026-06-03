@@ -1784,6 +1784,22 @@ function getRateSheetForSignature(signerCount) {
   return _generateRateSheetPDF({ mode: 'base64', embedAnchors: true });
 }
 
+// Deploy 236.47 — synthesize a partial pricing snapshot from a saved
+// quote/loan when no full _pricingSnapshot is present (older records).
+// _finalRate is what Loan Details renders ("7.205"), so it's the
+// canonical source for what the rate sheet should print. Returns null
+// when there's no usable rate on the record so the caller falls through
+// to live-calc behavior.
+function _synthDscrSnapFromFD(fd) {
+  if (!fd) return null;
+  var ratePct = parseFloat(fd._finalRate || fd.rate || '');
+  if (!isFinite(ratePct) || ratePct <= 0) return null;
+  var snap = { _synthFallback: true, finalRate: ratePct };
+  var amt = parseFloat(fd.loanAmt || '');
+  if (isFinite(amt) && amt > 0) snap.loanAmt = amt;
+  return snap;
+}
+
 function _generateRateSheetPDF(opts) {
   opts = opts || {};
   var r = calculate();
@@ -1793,15 +1809,19 @@ function _generateRateSheetPDF(opts) {
     return;
   }
 
-  // Deploy 236.46 — when the page was opened via the "Download Rate
-  // Sheet" button on Loan Details (URL ?download=1) AND the loaded
-  // loan has a saved pricingSnapshot, prefer the snapshot values
-  // over the freshly-computed calc. Otherwise an updated DIYA sheet
-  // or a sizer pricing-model change between save and print would
-  // make the printed rate sheet diverge from what's on file. Only
-  // consume the snapshot ONCE: subsequent manual downloads (after
-  // the LO has tweaked an input) use the live calc as expected.
-  if (!window._snapshotConsumed && window._loadedLoanPricingSnapshot) {
+  // Deploy 236.46 / 236.47 — when the page was opened via the
+  // "Download Rate Sheet" button on Loan Details (URL ?download=1) or
+  // "Send Rate Sheet for Signature" (signatureMode), AND the loaded
+  // loan has a saved pricingSnapshot, prefer the snapshot values over
+  // the freshly-computed calc. Otherwise an updated DIYA sheet or a
+  // sizer pricing-model change between save and print would make the
+  // printed rate sheet diverge from what's on file.
+  // Deploy 236.47 — gate on window._autoDownloadActive so the override
+  // ONLY fires for those auto-fired flows. If the LO opens the sizer
+  // to modify financials and then prints, that's a live-calc download
+  // and the snapshot must NOT win. The flag is set by tryAutoDownload
+  // / trySignatureHandoff and cleared in their finally blocks.
+  if (window._autoDownloadActive && !window._snapshotConsumed && window._loadedLoanPricingSnapshot) {
     var snap = window._loadedLoanPricingSnapshot;
     if (snap.finalRate    != null) r.finalRate    = snap.finalRate;
     if (snap.loanAmt      != null) r.loan         = snap.loanAmt;
@@ -3250,8 +3270,15 @@ netlifyIdentity.on('init', function(user) {
 
       function tryAutoDownload() {
         if (!autoDownload) return;
+        // Deploy 236.47 — flag the auto-download so the snapshot-
+        // consumption shim in _generateRateSheetPDF knows to override
+        // the live calc. Cleared in the timeout so manual sizer-button
+        // downloads later in the session use the live calc.
+        window._autoDownloadActive = true;
         setTimeout(function() {
-          try { downloadPDF(); } catch(e) { console.warn('Auto-download failed:', e); }
+          try { downloadPDF(); }
+          catch(e) { console.warn('Auto-download failed:', e); }
+          finally { window._autoDownloadActive = false; }
         }, 500);
       }
 
@@ -3263,6 +3290,9 @@ netlifyIdentity.on('init', function(user) {
         console.log('[SLA esign] trySignatureHandoff scheduled (DSCR), 800ms');
         setTimeout(function() {
           console.log('[SLA esign] generating rate sheet PDF (DSCR)');
+          // Deploy 236.47 — Send Rate Sheet for Signature from Loan
+          // Details should also use the saved snapshot, not a fresh calc.
+          window._autoDownloadActive = true;
           try {
             var result = getRateSheetForSignature(1);
             if (!result || !result.pdfBase64) {
@@ -3280,6 +3310,10 @@ netlifyIdentity.on('init', function(user) {
             var err = (e && e.message) || 'unknown';
             window.parent.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: err }, '*');
             if (window.opener) window.opener.postMessage({ type: 'sla_rate_sheet_pdf', ok: false, error: err }, '*');
+          } finally {
+            // Deploy 236.47 — clear the auto flag so any subsequent
+            // sizer-button download in this session uses live calc.
+            window._autoDownloadActive = false;
           }
         }, 800);
       }
@@ -3337,6 +3371,16 @@ netlifyIdentity.on('init', function(user) {
             // and save) inherits the right pipeline column instead of
             // defaulting to Quoted.
             window._editingLoanStatus = hit.status || '';
+            // Deploy 236.47 — stash pricing snapshot from the saved
+            // quote so the auto-download rate sheet honors what was
+            // saved. See loadFromClientLoan + _generateRateSheetPDF for
+            // the full rationale on why this matters (sizer constants
+            // can drift between save and reprint).
+            window._loadedLoanPricingSnapshot =
+              (hit.formData && hit.formData._pricingSnapshot) ||
+              hit.pricingSnapshot ||
+              _synthDscrSnapFromFD(hit.formData) || null;
+            window._snapshotConsumed = false;
             return applyLockedOverrideIfAnyDSCR(hit.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
               tryAutoDownload(); trySignatureHandoff();
@@ -3364,6 +3408,13 @@ netlifyIdentity.on('init', function(user) {
             // Deploy 236.10 — stash quote status (same rationale as the
             // cross-LO branch above).
             window._editingLoanStatus = q.status || '';
+            // Deploy 236.47 — stash pricing snapshot (same rationale as
+            // cross-LO branch).
+            window._loadedLoanPricingSnapshot =
+              (q.formData && q.formData._pricingSnapshot) ||
+              q.pricingSnapshot ||
+              _synthDscrSnapFromFD(q.formData) || null;
+            window._snapshotConsumed = false;
             // Item #2: apply LO override from loan record if present
             return applyLockedOverrideIfAnyDSCR(q.formData).then(function(fd) {
               loadQuoteIntoForm(fd);
@@ -3520,8 +3571,15 @@ netlifyIdentity.on('init', function(user) {
           // current sizer constants would freshly compute. Without
           // this, an updated DIYA sheet or override drift would print
           // a different rate than what's on the loan record.
+          // Deploy 236.47 — fall back to a synthesized partial snapshot
+          // for older loans saved before the full snapshot mechanism.
+          // _finalRate is what Loan Details renders; using it here keeps
+          // the printed rate sheet in lock-step with what the LO sees.
           window._loadedLoanPricingSnapshot = found.pricingSnapshot
-            || (fd && fd._pricingSnapshot) || null;
+            || (fd && fd._pricingSnapshot)
+            || _synthDscrSnapFromFD(fd)
+            || _synthDscrSnapFromFD(found)
+            || null;
           window._snapshotConsumed = false;
           window._originalAddress = found.address || '';
           window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
