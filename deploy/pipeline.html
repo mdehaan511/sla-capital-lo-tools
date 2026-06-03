@@ -269,6 +269,13 @@
     }
     .card-meta .tag.dscr { background: var(--gold-light); color: var(--gold-mid); }
     .card-meta .tag.rtl  { background: rgba(38,26,54,0.08); color: var(--dark); }
+    /* Deploy 236.50 — property-type tag. Neutral grey by default so it
+       lives quietly next to the DSCR/RTL tool tag. Portfolio gets a
+       distinct accent because it's the new comparison case that 236.49
+       made possible — quickly distinguishes a Portfolio loan from an
+       individual SFR loan at the same address. */
+    .card-meta .tag.proptype { background: rgba(0,0,0,0.05); color: var(--muted); }
+    .card-meta .tag.proptype.portfolio { background: rgba(200,129,58,0.12); color: var(--gold-mid); font-weight: 600; }
     .card-amt {
       font-size: 14px; font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace;
       margin-bottom: 8px;
@@ -1110,6 +1117,20 @@ function buildProspectCard(it) {
       '<div class="card-amt">' + amt + '</div>' +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + tool.toUpperCase() + '</span>' +
+        // Deploy 236.50 — property type tag. Reads propTypeLabel
+        // (human-readable, set by the sizer at save) first, falls
+        // back to the raw propType code. Empty when no propType is
+        // recorded (older prospects, raw applications). Portfolio
+        // gets a gold accent — it's the key disambiguator for the
+        // same-address single-vs-portfolio scenarios that 236.49
+        // enabled.
+        (function(){
+          var ptCode  = String(p.propType || '').toLowerCase().trim();
+          var ptLabel = (p.propTypeLabel || ptCode || '').toString().trim();
+          if (!ptLabel) return '';
+          var cls = 'tag proptype' + (ptCode === 'portfolio' ? ' portfolio' : '');
+          return '<span class="' + cls + '">' + escH(ptLabel) + '</span>';
+        })() +
         '<span>' + escH(p.creditScore || '—') + ' FICO</span>' +
         '<span>' + relDate(it.date) + '</span>' +
       '</div>' +
@@ -1293,6 +1314,24 @@ function buildQuoteCard(it, colKey) {
       orphanHint +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + tool.toUpperCase() + '</span>' +
+        // Deploy 236.50 — property type tag. fd = quote.formData; the
+        // sizer save persists propType + propTypeLabel directly there.
+        // Falls back to the linked loan record (loanRec, resolved
+        // above) for older quotes that never wrote propType onto the
+        // quote payload. Portfolio gets a gold accent so the same-
+        // address single-vs-portfolio comparison case (the discriminator
+        // that 236.49 made possible) is visually obvious at a glance.
+        (function(){
+          var ptCode  = String(fd.propType
+                            || (loanRec && loanRec.propType)
+                            || '').toLowerCase().trim();
+          var ptLabel = (fd.propTypeLabel
+                       || (loanRec && loanRec.propTypeLabel)
+                       || ptCode || '').toString().trim();
+          if (!ptLabel) return '';
+          var cls = 'tag proptype' + (ptCode === 'portfolio' ? ' portfolio' : '');
+          return '<span class="' + cls + '">' + escH(ptLabel) + '</span>';
+        })() +
         '<span>' + relDate(it.date) + '</span>' +
       '</div>' +
       '<div class="card-actions">' + actions + '</div>' +
