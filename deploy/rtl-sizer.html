@@ -2836,6 +2836,32 @@ function saveCurrentQuote() {
 
     function handleSaveSuccess(resp) {
       window._originalAddress = formData.address;
+      // Deploy 236.51 — backfill the newly created loanId onto the
+      // QuoteStore quote so Pipeline canonical dedup resolves correctly
+      // (see dscr-sizer.html for the full rationale — same fix shape).
+      try {
+        if (resp && resp.client && Array.isArray(resp.client.loans) && !window._editingLoanId) {
+          var _addrLower = (formData.address || '').toLowerCase().trim();
+          var _ptLower   = String(formData.propType || '').toLowerCase().trim();
+          var _newLoan = null;
+          for (var _i = 0; _i < resp.client.loans.length; _i++) {
+            var _l = resp.client.loans[_i];
+            var _la = String(_l.address || '').toLowerCase().trim();
+            var _lp = String(_l.propType || '').toLowerCase().trim();
+            if (_la === _addrLower && (!_ptLower || !_lp || _lp === _ptLower)) {
+              _newLoan = _l; break;
+            }
+          }
+          if (_newLoan && QuoteStore.stampLoanIdOnQuote) {
+            var _savedQ = QuoteStore.getQuote(_quoteUser, 'rtl', formData.address, { propType: _ptLower });
+            if (_savedQ) QuoteStore.stampLoanIdOnQuote(_savedQ.id, _newLoan.id, resp.client.id, ownerOvr);
+            window._editingLoanId   = _newLoan.id;
+            window._editingClientId = resp.client.id;
+          }
+        }
+      } catch (e) {
+        console.warn('[SLA] RTL save: loanId backfill failed (non-fatal):', e);
+      }
     }
     function handleSaveFailure(err) {
       console.error('[SLA] RTL save failed:', err);
@@ -3093,6 +3119,9 @@ netlifyIdentity.on('init', function(user) {
     var loadAddr     = urlParams.get('loadQuote');
     var clientIdP    = urlParams.get('clientId');
     var loanIdP      = urlParams.get('loanId');
+    // Deploy 236.51 — propType disambiguator (see dscr-sizer.html for
+    // full rationale; same fix shape).
+    var propTypeP    = String(urlParams.get('propType') || '').toLowerCase().trim();
     var ownerParam   = urlParams.get('owner');
     var autoDownload = urlParams.get('download') === '1';
     // prefillContact=1 — created from Client Details "Create New Loan".
@@ -3173,6 +3202,11 @@ netlifyIdentity.on('init', function(user) {
                 return false;
               }
               if ((q.address || '').toLowerCase().trim() !== targetAddr) return false;
+              // Deploy 236.51 — propType disambiguator (see dscr-sizer.html).
+              if (propTypeP) {
+                var qPtX = String((q.formData && q.formData.propType) || '').toLowerCase().trim();
+                if (qPtX && qPtX !== propTypeP) return false;
+              }
               hit = q;
               return true;
             });
@@ -3209,7 +3243,7 @@ netlifyIdentity.on('init', function(user) {
         // the same property collide on the address lookup and the
         // sizer can load the wrong borrower's quote. Same fix as
         // dscr-sizer.html.
-        var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr), { loanId: loanIdP });
+        var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr), { loanId: loanIdP, propType: propTypeP });
         if (q && q.formData) {
           window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
           window._originalBorrowerEmail = q.formData.borrowerEmail || '';

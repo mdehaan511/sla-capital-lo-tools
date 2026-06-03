@@ -467,6 +467,35 @@ var QuoteStore = (function () {
     return panel;
   }
 
+  // Deploy 236.51 — backfill the resolved loanId/clientId onto a cached
+  // quote after Clients.upsert creates a new loan. The save flow in the
+  // sizers calls QuoteStore.saveQuote BEFORE ClientBook.upsert resolves,
+  // so the quote always lands with empty loanId/clientId on a brand-new
+  // save. Without this stamp, the Pipeline canonical dedup (236.45)
+  // falls back to address-lookup, which is ambiguous when two loans
+  // share an address (the Portfolio-vs-SFR case from 236.49) — and the
+  // new quote collapses into the older quote's tile.
+  function stampLoanIdOnQuote(quoteId, loanId, clientId, ownerOverride) {
+    if (!quoteId || !loanId) return null;
+    var idx = _cache.findIndex(function (q) { return q.id === quoteId; });
+    if (idx < 0) return null;
+    var q = _cache[idx];
+    if (q.loanId === loanId && q.clientId === (clientId || q.clientId)) return q; // already stamped
+    q.loanId = loanId;
+    if (clientId) q.clientId = clientId;
+    if (q.formData) {
+      q.formData._editingLoanId   = loanId;
+      if (clientId) q.formData._editingClientId = clientId;
+    }
+    q.updatedAt = new Date().toISOString();
+    _cache[idx] = q;
+    var payload = ownerOverride ? Object.assign({}, q, { _owner: ownerOverride }) : q;
+    SLA.Quotes.save(payload).catch(function (err) {
+      console.warn('QuoteStore.stampLoanIdOnQuote persist failed:', err);
+    });
+    return q;
+  }
+
   // ── Public API ──────────────────────────────────────────────────
   return {
     init:            init,
@@ -482,5 +511,6 @@ var QuoteStore = (function () {
     buildPanel:      buildPanel,
     formatDate:      formatDate,
     formatDateShort: formatDateShort,
+    stampLoanIdOnQuote: stampLoanIdOnQuote,
   };
 })();

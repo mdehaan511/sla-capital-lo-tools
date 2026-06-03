@@ -790,6 +790,15 @@ function loadAll() {
               _loanLookup[ownerKey + '|' + norm(l.address)] = rec;
               var st = streetOf(l.address);
               if (st) _loanLookup[ownerKey + '|street|' + st] = rec;
+              // Deploy 236.51 — propType-aware index so two loans at
+              // the same address (Portfolio vs. SFR from 236.49) each
+              // resolve to their own record instead of overwriting
+              // each other in the last-wins address key.
+              var ptC = String(l.propType || '').toLowerCase().trim();
+              if (ptC) {
+                _loanLookup[ownerKey + '|' + norm(l.address) + '|pt:' + ptC] = rec;
+                if (st) _loanLookup[ownerKey + '|street|' + st + '|pt:' + ptC] = rec;
+              }
             }
           });
         });
@@ -807,6 +816,12 @@ function loadAll() {
             _loanLookup[myKey + '|' + norm(l.address)] = rec2;
             var st2 = streetOf(l.address);
             if (st2) _loanLookup[myKey + '|street|' + st2] = rec2;
+            // Deploy 236.51 — propType-aware index (see byOwner branch).
+            var ptC2 = String(l.propType || '').toLowerCase().trim();
+            if (ptC2) {
+              _loanLookup[myKey + '|' + norm(l.address) + '|pt:' + ptC2] = rec2;
+              if (st2) _loanLookup[myKey + '|street|' + st2 + '|pt:' + ptC2] = rec2;
+            }
           }
         });
       });
@@ -940,12 +955,27 @@ function loadAll() {
     quotes.forEach(function(item) {
       var q = item.quote;
       var addrNormDdp = _normAddr(q.address || '');
-      var addrLookup  = addrNormDdp ? _loanLookup[item.owner + '|' + addrNormDdp] : null;
-      var canonical   = q.loanId || (addrLookup && addrLookup.loanId) || q.id;
-      var groupKey    = item.owner + '|' + canonical;
-      var existing    = _quoteByCanonical[groupKey];
-      var thisTs      = new Date(q.updatedAt || q.savedAt || 0).getTime();
-      var prevTs      = existing ? new Date(existing.quote.updatedAt || existing.quote.savedAt || 0).getTime() : -1;
+      // Deploy 236.51 — propType-aware canonical resolution. When a
+      // quote has no loanId of its own, prefer the propType-discriminated
+      // loan-record lookup over the bare address lookup so the
+      // canonical ID actually points at the right loan. Then ALWAYS
+      // include propType in the group key as belt-and-suspenders so two
+      // quotes at the same address with different propTypes can't
+      // collapse onto each other even if both resolve to the same
+      // canonical (e.g. if the propType-aware loan index missed).
+      var qPtDdp     = String((q.formData && q.formData.propType) || '').toLowerCase().trim();
+      var ptLookup   = (qPtDdp && addrNormDdp)
+        ? _loanLookup[item.owner + '|' + addrNormDdp + '|pt:' + qPtDdp]
+        : null;
+      var addrLookup = addrNormDdp ? _loanLookup[item.owner + '|' + addrNormDdp] : null;
+      var canonical  = q.loanId
+                    || (ptLookup && ptLookup.loanId)
+                    || (addrLookup && addrLookup.loanId)
+                    || q.id;
+      var groupKey   = item.owner + '|' + canonical + (qPtDdp ? '|pt:' + qPtDdp : '');
+      var existing   = _quoteByCanonical[groupKey];
+      var thisTs     = new Date(q.updatedAt || q.savedAt || 0).getTime();
+      var prevTs     = existing ? new Date(existing.quote.updatedAt || existing.quote.savedAt || 0).getTime() : -1;
       if (!existing || thisTs >= prevTs) _quoteByCanonical[groupKey] = item;
     });
     var dedupedQuotes = Object.keys(_quoteByCanonical).map(function(k) { return _quoteByCanonical[k]; });
@@ -1164,9 +1194,17 @@ function buildQuoteCard(it, colKey) {
   // their own loanId/clientId; legacy quotes fall through to address.
   var quoteLoanId   = q.loanId   || (fd && fd._editingLoanId)   || '';
   var quoteClientId = q.clientId || (fd && fd._editingClientId) || '';
+  // Deploy 236.51 — propType-aware lookup for quotes that don't carry
+  // their own loanId (legacy + brand-new pre-stamp quotes). Without
+  // this, two same-address loans collapse onto whichever was indexed
+  // last in _loanLookup, and the wrong card resolves to the wrong
+  // loan-details page.
+  var _qPt = String((fd && fd.propType) || '').toLowerCase().trim();
   var lookup = (quoteLoanId && quoteClientId)
     ? { clientId: quoteClientId, loanId: quoteLoanId, ownerKey: it.ownerKey }
     : (_loanLookup[it.ownerKey + '|id|'   + quoteLoanId]
+       || (_qPt && _loanLookup[it.ownerKey + '|' + addrNorm   + '|pt:' + _qPt])
+       || (_qPt && _loanLookup[it.ownerKey + '|street|' + addrStreet + '|pt:' + _qPt])
        || _loanLookup[it.ownerKey + '|' + addrNorm]
        || _loanLookup[it.ownerKey + '|street|' + addrStreet]);
   // Item #3: prefer the loan record's loanAmt (which carries any LO override)
@@ -1189,6 +1227,17 @@ function buildQuoteCard(it, colKey) {
   var loName = loDisplay(it.ownerKey);
   var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
   var sizerUrl  = sizerPage + '?loadQuote=' + encodeURIComponent(addr);
+  // Deploy 236.51 — when we've resolved a deterministic loan record
+  // for this card, pass its IDs through so the sizer load skips the
+  // address-based quote scan (which can pick the wrong quote when
+  // two coexist at the same address with different propTypes). Also
+  // pass propType as a final disambiguator for sizers loading by
+  // address-only when no clientId/loanId resolved.
+  if (lookup) {
+    sizerUrl += '&clientId=' + encodeURIComponent(lookup.clientId)
+              + '&loanId='   + encodeURIComponent(lookup.loanId);
+  }
+  if (_qPt) sizerUrl += '&propType=' + encodeURIComponent(_qPt);
   if (_scope === 'all' && _isAdmin && it.ownerKey !== (_user.email||'').toLowerCase()) {
     sizerUrl += '&owner=' + encodeURIComponent(it.ownerKey);
   }
