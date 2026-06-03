@@ -1793,6 +1793,30 @@ function _generateRateSheetPDF(opts) {
     return;
   }
 
+  // Deploy 236.46 — when the page was opened via the "Download Rate
+  // Sheet" button on Loan Details (URL ?download=1) AND the loaded
+  // loan has a saved pricingSnapshot, prefer the snapshot values
+  // over the freshly-computed calc. Otherwise an updated DIYA sheet
+  // or a sizer pricing-model change between save and print would
+  // make the printed rate sheet diverge from what's on file. Only
+  // consume the snapshot ONCE: subsequent manual downloads (after
+  // the LO has tweaked an input) use the live calc as expected.
+  if (!window._snapshotConsumed && window._loadedLoanPricingSnapshot) {
+    var snap = window._loadedLoanPricingSnapshot;
+    if (snap.finalRate    != null) r.finalRate    = snap.finalRate;
+    if (snap.loanAmt      != null) r.loan         = snap.loanAmt;
+    if (snap.ltv          != null) r.ltv          = snap.ltv;
+    if (snap.pi           != null) r.pi           = snap.pi;
+    if (snap.totalPayment != null) r.totalPayment = snap.totalPayment;
+    if (snap.dscr         != null) r.dscr         = snap.dscr;
+    if (snap.origFee      != null) r.origFee      = snap.origFee;
+    if (snap.totalFees    != null) r.totalFees    = snap.totalFees;
+    if (snap.buydownFee   != null) r.buydownFee   = snap.buydownFee;
+    if (Array.isArray(snap.adjs))  r.adjs         = snap.adjs;
+    if (snap.baseRate     != null) r.baseRate     = snap.baseRate;
+    window._snapshotConsumed = true;
+  }
+
   // Deploy 166: apply any active pricing overrides to the calc result
   // before generating the PDF. Without this, the rate sheet would print
   // the algorithmic default rate/LTV/loan even though the LO has
@@ -3489,6 +3513,16 @@ netlifyIdentity.on('init', function(user) {
             brokerId:      _bI, brokerFee:     _bF,
           });
 
+          // Deploy 236.46 — stash the saved pricing snapshot. The
+          // auto-download path (download=1, fires when an LO clicks
+          // "Download Rate Sheet" on Loan Details) consumes this so
+          // the PDF reflects what was SAVED on the loan, not what the
+          // current sizer constants would freshly compute. Without
+          // this, an updated DIYA sheet or override drift would print
+          // a different rate than what's on the loan record.
+          window._loadedLoanPricingSnapshot = found.pricingSnapshot
+            || (fd && fd._pricingSnapshot) || null;
+          window._snapshotConsumed = false;
           window._originalAddress = found.address || '';
           window._originalBorrowerEmail = (clientRec && clientRec.email) || '';
           // Lock onto the existing loan's ID so save updates this record
