@@ -912,8 +912,39 @@ function loadAll() {
       });
     });
 
-    // Quotes split by status (quotes already collected above)
+    // Deploy 236.45 — dedup quotes by canonical loan identity BEFORE
+    // bucket-filling. Mike: a loan from the same-address two-borrower
+    // scenario is appearing 3x in Awaiting Application. Cause: that
+    // scenario can leave multiple quote records pointing at the same
+    // loan (pre-236.7 address-keyed quote + post-236.7 loanId-keyed
+    // quote, or two quotes opportunistically stamped with the same
+    // loanId via legacy fallbacks). The render path had no dedup so
+    // each quote became its own tile.
+    //
+    // Strategy: compute a canonical key per quote
+    //   = quote.loanId
+    //   || _loanLookup[ownerKey|<normAddr>].loanId
+    //   || quote.id           (last-resort: dedup the quote vs itself)
+    // Group by (ownerKey, canonicalKey); keep the most recently
+    // updated quote in each group. Legit different-loans-at-same-
+    // address stays multi-tile because each loan has its own loanId
+    // -> different canonical keys -> different groups.
+    var _quoteByCanonical = {};
     quotes.forEach(function(item) {
+      var q = item.quote;
+      var addrNormDdp = _normAddr(q.address || '');
+      var addrLookup  = addrNormDdp ? _loanLookup[item.owner + '|' + addrNormDdp] : null;
+      var canonical   = q.loanId || (addrLookup && addrLookup.loanId) || q.id;
+      var groupKey    = item.owner + '|' + canonical;
+      var existing    = _quoteByCanonical[groupKey];
+      var thisTs      = new Date(q.updatedAt || q.savedAt || 0).getTime();
+      var prevTs      = existing ? new Date(existing.quote.updatedAt || existing.quote.savedAt || 0).getTime() : -1;
+      if (!existing || thisTs >= prevTs) _quoteByCanonical[groupKey] = item;
+    });
+    var dedupedQuotes = Object.keys(_quoteByCanonical).map(function(k) { return _quoteByCanonical[k]; });
+
+    // Quotes split by status (quotes already collected above)
+    dedupedQuotes.forEach(function(item) {
       var s = item.quote.status || 'active';
       // Deploy 236.13 — cancelled is now also filtered out of the
       // active pipeline (was previously falling into the 'quoted' else
