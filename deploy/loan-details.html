@@ -3045,11 +3045,27 @@ function refreshSignedApplicationStatus() {
     if (!meta || !meta.audit) {
       btn.style.display = 'none';
       pane.style.display = 'none';
+      _setStaleSignedAppBtn(false);
       return;
     }
-    btn.style.display = '';
-    pane.style.display = '';
     var a = meta.audit;
+    // Deploy 236.44 — stale-signed-app detection. If the loan has been
+    // re-priced (rate/loanAmt/points/term change → 'reprice' note entry)
+    // after the borrower signed, the on-file signed PDF no longer
+    // matches the current loan terms. Hide the download button entirely
+    // and surface a "Send Updated App for Signature" button instead so
+    // the LO doesn't accidentally share a stale signed app with Diya.
+    // The status pane (signer name, signedAt, IP, seal) still renders
+    // so the audit history is visible.
+    var staleSince = _findStaleRepriceAfter(a.signedAt);
+    if (staleSince) {
+      btn.style.display = 'none';
+      _setStaleSignedAppBtn(true, staleSince);
+    } else {
+      btn.style.display = '';
+      _setStaleSignedAppBtn(false);
+    }
+    pane.style.display = '';
     var when = a.signedAt ? new Date(a.signedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'unknown';
     var sealOK = meta.sealValid;
 
@@ -3104,7 +3120,79 @@ function refreshSignedApplicationStatus() {
   }).catch(function() {
     btn.style.display = 'none';
     pane.style.display = 'none';
+    _setStaleSignedAppBtn(false);
   });
+}
+
+// Deploy 236.44 — return the timestamp of the most recent 'reprice'
+// audit-log entry on the current loan that's NEWER than the signed
+// date, or null if none. The loan's notesLog is built by the various
+// status-change endpoints; the 'reprice' kind specifically fires from
+// loan-update-from-sizer when rate / loanAmt / points / term changes.
+function _findStaleRepriceAfter(signedIso) {
+  if (!_loan || !signedIso) return null;
+  var signedMs = new Date(signedIso).getTime();
+  if (!isFinite(signedMs)) return null;
+  var entries = (_loan.notesLog || []).filter(function(e) {
+    return e && e.kind === 'reprice' && e.ts;
+  });
+  var newest = null;
+  for (var i = 0; i < entries.length; i++) {
+    var t = new Date(entries[i].ts).getTime();
+    if (isFinite(t) && t > signedMs && (!newest || t > newest)) newest = t;
+  }
+  return newest ? new Date(newest).toISOString() : null;
+}
+
+// Deploy 236.44 — show/hide the "Send Updated App for Signature"
+// replacement button when the on-file signed PDF no longer matches
+// the current loan terms. Inserted right after the (now-hidden)
+// downloadSignedAppBtn. Clicking it opens borrower-info.html in
+// generate-link mode for this loan.
+function _setStaleSignedAppBtn(show, staleSince) {
+  var existingBtn = document.getElementById('staleSignedAppBtn');
+  if (!show) {
+    if (existingBtn) existingBtn.style.display = 'none';
+    return;
+  }
+  if (!existingBtn) {
+    var downloadBtn = document.getElementById('downloadSignedAppBtn');
+    if (!downloadBtn || !downloadBtn.parentNode) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'staleSignedAppBtn';
+    btn.className = 'open-sizer-btn esign-btn';
+    btn.style.marginTop = '8px';
+    btn.onclick = function() { sendUpdatedAppForSignature(); };
+    btn.innerHTML =
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none">' +
+        '<path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+        '<path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>' +
+      '</svg>' +
+      'Send Updated App for Signature';
+    // Insert immediately after the (hidden) download button so it
+    // takes the same slot in the action stack.
+    downloadBtn.parentNode.insertBefore(btn, downloadBtn.nextSibling);
+    existingBtn = btn;
+  }
+  existingBtn.style.display = '';
+  // Update title to expose the reason on hover.
+  if (staleSince) {
+    existingBtn.title = 'Loan terms were updated after the borrower signed (last reprice: ' +
+      new Date(staleSince).toLocaleString() + '). The signed PDF on file is stale.';
+  }
+}
+
+// Deploy 236.44 — open borrower-info.html in LO-driven generate-link
+// flow for this loan. Reuses the borrower-info-request endpoint which
+// rotates the token (invalidating the stale link) so the borrower
+// resigns against the updated terms.
+function sendUpdatedAppForSignature() {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  var url = 'borrower-info.html?clientId=' + encodeURIComponent(_client.id) +
+            '&loanId=' + encodeURIComponent(_loanId);
+  if (_loEmail) url += '&owner=' + encodeURIComponent(_loEmail);
+  window.open(url, '_blank');
 }
 
 function downloadSignedApp() {

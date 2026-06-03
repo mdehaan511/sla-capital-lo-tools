@@ -65,6 +65,15 @@ async function handleGet(req, user) {
   if (!record) return json(200, { exists: false });
 
   const data = record.data ? unmaskOrMask(record.data, wantFull && isAdmin(user)) : {};
+  // Deploy 236.44 — surface the existing borrower-facing link so the
+  // LO can copy it without having to regenerate (and invalidate) the
+  // token. Caller is already LO-authed via requireAuth, so exposing
+  // the token to them is no different from emailing it out in the
+  // first place.
+  const siteUrl = String(process.env.URL || '').replace(/\/$/, '');
+  const link = (siteUrl && record.token)
+    ? `${siteUrl}/borrower-info.html?t=${encodeURIComponent(record.token)}`
+    : null;
   return json(200, {
     exists: true,
     status: record.status || 'pending',
@@ -76,6 +85,8 @@ async function handleGet(req, user) {
     requestedBy: record.requestedBy,
     prefill: record.prefill || {},
     loanId: record.loanId,
+    token: record.token || null,
+    link,
     data,
   });
 }
