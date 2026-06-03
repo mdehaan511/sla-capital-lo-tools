@@ -76,10 +76,27 @@ var QuoteStore = (function () {
     // Then by address. Prefer quotes that DON'T already have a loanId —
     // those are legacy quotes that can still adopt this loan's identity
     // on save without trampling another loan's record.
+    //
+    // Deploy 236.49 — propType joins address as a fallback discriminator.
+    // Without this, a borrower's Portfolio-DSCR quote at 456 Oak would
+    // collide with their individual SFR-DSCR quote at the same address.
+    // We only enforce propType when BOTH sides have one set (legacy
+    // quotes without propType fall through to address-only matching, so
+    // the fix is fully backwards-compatible).
     if (opts.address) {
       var norm = normalizeAddress(opts.address);
+      var incomingPt = String((opts && opts.propType) || '').toLowerCase().trim();
+      function _qPtOK(q) {
+        if (!incomingPt) return true;
+        var qPt = String((q.formData && q.formData.propType) || q.propType || '').toLowerCase().trim();
+        if (!qPt) return true;
+        return qPt === incomingPt;
+      }
       var iA1 = _cache.findIndex(function (q) {
-        return q.toolType === toolType && normalizeAddress(q.address) === norm && !q.loanId;
+        return q.toolType === toolType
+            && normalizeAddress(q.address) === norm
+            && !q.loanId
+            && _qPtOK(q);
       });
       if (iA1 >= 0) return iA1;
       // Last-resort: any quote at this address. Deploy 236.9 — ONLY fire
@@ -92,7 +109,9 @@ var QuoteStore = (function () {
       // collision survived in this fallback).
       if (!opts.loanId) {
         return _cache.findIndex(function (q) {
-          return q.toolType === toolType && normalizeAddress(q.address) === norm;
+          return q.toolType === toolType
+              && normalizeAddress(q.address) === norm
+              && _qPtOK(q);
         });
       }
     }
@@ -166,8 +185,12 @@ var QuoteStore = (function () {
     // represents and overrides address as the dedupe key.
     var loanId   = String((formData && formData._editingLoanId)   || '').trim() || null;
     var clientId = String((formData && formData._editingClientId) || '').trim() || null;
+    // Deploy 236.49 — propType joins the dedup key so a portfolio quote
+    // at 456 Oak coexists with an SFR quote at the same address. See
+    // findIdxBy for full rationale.
+    var propType = String((formData && formData.propType) || '').toLowerCase().trim() || null;
 
-    var idx = findIdxBy(toolType, { loanId: loanId, address: formData.address });
+    var idx = findIdxBy(toolType, { loanId: loanId, address: formData.address, propType: propType });
 
     var quote;
     if (idx >= 0) {
@@ -189,9 +212,17 @@ var QuoteStore = (function () {
       // as a legacy fallback. Standalone quotes (no _editingLoanId yet)
       // still get the old address-keyed id so existing single-loan flows
       // work unchanged.
+      // Deploy 236.49 — when there's no loanId, include propType in the
+      // suffix so a portfolio quote at 456 Oak gets a different ID than
+      // a sfr quote at the same address. Without this, the brand-new
+      // saves collide on the storage key even though findIdxBy now
+      // distinguishes them. Existing single-property flows still produce
+      // the same id (most loans have propType=sfr which appends "_sfr"
+      // — old quotes saved without this suffix continue to round-trip
+      // unchanged since we never look up by the synthetic id).
       var idSuffix = loanId
         ? String(loanId).replace(/[^a-z0-9]+/gi, '_').toLowerCase()
-        : String(addrKey || Date.now()).replace(/[^a-z0-9]+/g, '_');
+        : (String(addrKey || Date.now()) + (propType ? '_' + propType : '')).replace(/[^a-z0-9]+/g, '_');
       // Deploy 236.9 — when a fresh quote is being created for an
       // already-existing loan (the most common case after the 236.7
       // bug-rescue flow), inherit the loan's current status from

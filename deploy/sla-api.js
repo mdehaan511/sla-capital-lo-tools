@@ -231,12 +231,27 @@
             // and collapsing whitespace. Then take the first 25 chars
             // (street part) so we match even if the rest of the address
             // (city/state/zip) changed format between saves.
+            //
+            // Deploy 236.49 — propType is now part of the dedup. Without
+            // this, a borrower's Portfolio-DSCR scenario at 456 Oak Ave
+            // would overwrite their individual SFR-DSCR loan at the same
+            // address (or vice versa). With propType in the key, both
+            // coexist as distinct loans. When EITHER side has no propType
+            // (legacy data) we fall back to address-only — matches the
+            // pre-fix behavior for anything saved before this deploy.
             var normAddrFull = (loanData.address || '').toLowerCase().trim();
             var normAddrStreet = normAddrFull.split(',')[0].trim().replace(/\s+/g, ' ');
+            var incomingPropType = String(loanData.propType || '').toLowerCase().trim();
+            function _propTypeOK(existingPropType) {
+              if (!incomingPropType || !existingPropType) return true; // legacy
+              return incomingPropType === existingPropType;
+            }
             if (lIdx < 0) {
               for (var k = 0; k < existing.loans.length; k++) {
                 var existAddrFull = (existing.loans[k].address || '').toLowerCase().trim();
                 var existAddrStreet = existAddrFull.split(',')[0].trim().replace(/\s+/g, ' ');
+                var existPt = String(existing.loans[k].propType || '').toLowerCase().trim();
+                if (!_propTypeOK(existPt)) continue;
                 // Match if full address matches OR street parts match
                 if (existAddrFull === normAddrFull
                     || (normAddrStreet && existAddrStreet && existAddrStreet === normAddrStreet)) {
@@ -250,6 +265,8 @@
               for (var m = 0; m < existing.loans.length; m++) {
                 var ea = (existing.loans[m].address || '').toLowerCase().trim();
                 var eas = ea.split(',')[0].trim().replace(/\s+/g, ' ');
+                var origPt = String(existing.loans[m].propType || '').toLowerCase().trim();
+                if (!_propTypeOK(origPt)) continue;
                 if (ea === normOrig || (normOrigStreet && eas === normOrigStreet)) {
                   lIdx = m; break;
                 }
