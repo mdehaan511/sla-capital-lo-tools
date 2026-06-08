@@ -343,29 +343,31 @@
 ════════════════════════════════════════════════════════ -->
 <script>
 const DIYA = {
-  // Deploy 236.39 — Diya 1-4 Unit Rate Sheet effective 6.2.26. Two
-  // pricing changes vs the 5.27.26 sheet:
-  //   1. UPB 100k-149k band flattened to 0.625 across all LTV cols
-  //      (was 0.650 / 0.675 split before).
-  //   2. NEW PRICING MODEL FOR BUY-DOWN -- see "STANDING RULE" below.
+  // Deploy 236.52 — Diya 1-4 Unit Rate Sheet effective 6.8.26. Only
+  // change vs the 6.2.26 sheet is base rates +0.100% across the board:
+  //   30Y Fixed / 10/6 ARM: 6.350 -> 6.450
+  //   7/6 ARM   / 5/6  ARM: 6.250 -> 6.350
+  // FICO/LTV grid, IO, Cash-Out, Property Type, UPB, DSCR, PPP, TPO
+  // Premium, and Rate Buydown tables verified unchanged cell-by-cell
+  // against the 6.8.26 PDF.
   //
-  // STANDING RULE -- supersedes Deploy 234.1 rule (which said to
-  // IGNORE Diya's Rate Buydown table). As of Deploy 236.39 (Mike,
-  // 6.2.26), we now mirror the Rate Buydown table from the rate
-  // sheet, AND we lock the TPO Premium at 1.00% (rate adj = 0.280)
-  // regardless of buy-down. Two separate adjustments on the rate:
+  // STANDING RULE (from Deploy 236.39, unchanged) -- supersedes Deploy
+  // 234.1 (which said to IGNORE Diya's Rate Buydown table). We mirror
+  // the Rate Buydown table from the rate sheet AND lock the TPO
+  // Premium at 1.00% (rate adj = 0.280) regardless of buy-down. Two
+  // separate adjustments on the rate:
   //   + 0.280 from hidden 1% TPO (always)
   //   + entry from DIYA.rateBuydown[buydownPts] (negative; <= 0)
   // Net: 0.25% buy-down reduces rate by 0.045 (was 0.070 under the
   // old "buydown reduces TPO" model). Borrower pays the same fee,
   // gets a smaller rate reduction; extra spread accrues to SLA.
   //
-  // TPO Premium / Rate Buydown caps by UPB band on the 6.2.26 sheet
+  // TPO Premium / Rate Buydown caps by UPB band on the 6.8.26 sheet
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "June 2, 2026",
-  baseRate: { "30Y Fixed": 6.350, "10/6 ARM": 6.350, "7/6 ARM": 6.250, "5/6 ARM": 6.250 },
+  effectiveDate: "June 8, 2026",
+  baseRate: { "30Y Fixed": 6.450, "10/6 ARM": 6.450, "7/6 ARM": 6.350, "5/6 ARM": 6.350 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050, 0.250],
