@@ -315,7 +315,15 @@ function applyPrefillToData() {
   // Loan type from existing loan record
   if (pf.loan && !d.loanType) {
     var lt = pf.loan.toolType || '';
-    if (lt === 'rtl') d.loanType = 'fix_flip';
+    var loanProductHint = pf.loan.loanProduct || '';
+    // Deploy 236.53 — Transactional Funding is its own loan-product
+    // value from apply.html and rides through on the loan record's
+    // loanProduct field. Map it through so a prospect who picked
+    // "Transactional Funding" on the short form lands on the right
+    // long-app block without having to re-select.
+    if (lt === 'transactional' || loanProductHint === 'transactional') {
+      d.loanType = 'transactional';
+    } else if (lt === 'rtl') d.loanType = 'fix_flip';
     else if (lt === 'dscr') d.loanType = 'dscr';
   }
   // Loan purpose: derive purchase-vs-refi for DSCR (item #4 + #14)
@@ -345,8 +353,10 @@ function applyPrefillToData() {
     // even if the borrower previously typed something. The override is
     // authoritative once set.
     if (pf.loan.loanAmtLocked && pf.loan.loanAmt) {
-      if (d.loanType === 'fix_flip')   d.requestedLoanFF   = pf.loan.loanAmt;
-      if (d.loanType === 'dscr')       d.requestedLoanDSCR = pf.loan.loanAmt;
+      if (d.loanType === 'fix_flip')      d.requestedLoanFF            = pf.loan.loanAmt;
+      if (d.loanType === 'dscr')          d.requestedLoanDSCR          = pf.loan.loanAmt;
+      // Deploy 236.53 — transactional uses its own requested-loan key.
+      if (d.loanType === 'transactional') d.requestedLoanTransactional = pf.loan.loanAmt;
     } else {
       // No override: only fill if empty
       if (!d.requestedLoanFF && d.loanType === 'fix_flip') {
@@ -356,6 +366,14 @@ function applyPrefillToData() {
       if (!d.requestedLoanDSCR && pf.loan.loanAmt && d.loanType === 'dscr') {
         d.requestedLoanDSCR = pf.loan.loanAmt;
       }
+      // Deploy 236.53 — transactional prefill from short-app loanAmt
+      // (or the transactional amount captured by the RTL sizer if the
+      // LO pre-priced it). loanAmt is the canonical field on the loan
+      // record after a transactional sizer save.
+      if (!d.requestedLoanTransactional && d.loanType === 'transactional') {
+        if (pf.loan.loanAmt)              d.requestedLoanTransactional = pf.loan.loanAmt;
+        else if (pf.loan.transactionalAmt) d.requestedLoanTransactional = pf.loan.transactionalAmt;
+      }
     }
     // Item #9: project description from short app → long app
     if (!d.planDescription && pf.loan.projectDescription) d.planDescription = pf.loan.projectDescription;
@@ -363,6 +381,8 @@ function applyPrefillToData() {
     if (!d.currentRent && pf.loan.rent)       d.currentRent = pf.loan.rent;
     if (!d.dscrCloseDate && pf.loan.fundingDate) d.dscrCloseDate = pf.loan.fundingDate;
     if (!d.ffCloseDate && pf.loan.fundingDate)   d.ffCloseDate = pf.loan.fundingDate;
+    // Deploy 236.53 — transactional close date prefill from short app.
+    if (!d.transactionalCloseDate && pf.loan.fundingDate) d.transactionalCloseDate = pf.loan.fundingDate;
     // Item #4: current loan amount for refinances (matches field name `currentLoanAmount`)
     if (!d.currentLoanAmount && pf.loan.currentLoanAmt) d.currentLoanAmount = pf.loan.currentLoanAmt;
     // Item #15: rental type — short app uses 'rentalType' (ltr/str/other),
@@ -612,6 +632,11 @@ function renderPage1() {
         { v: 'dscr',         l: 'DSCR (Rental Purchase or Refi)' },
         { v: 'construction', l: 'New Construction' },
         { v: 'dscr_2nd',     l: 'DSCR 2nd Position' },
+        // Deploy 236.53 — Transactional Funding is a same-day-close /
+        // same-day-repay short-term loan. No fix-flip rehab block, no
+        // DSCR rental block — handled by the dedicated 'transactional'
+        // block in renderPage3 (loan amount + close date + purpose).
+        { v: 'transactional', l: 'Transactional Funding (1-day)' },
       ],
       onchange: 'render()',
     });
@@ -837,6 +862,24 @@ function renderPage3() {
           { v: 'no',   l: 'No' },
           { v: 'some', l: 'Have some but not all' },
         ],
+      });
+  }
+
+  // Deploy 236.53 — Transactional Funding block. Same-day-close /
+  // same-day-repay short-term loan, so the long-form questionnaire
+  // skips fix-flip / DSCR rental / construction sections (none fire
+  // because the showFlips / showRentals guards key off other lt
+  // values). We collect just the loan amount, planned close date,
+  // and a brief purpose so the LO has enough context to underwrite.
+  if (lt === 'transactional') {
+    html += '<h4>Transactional funding details</h4>' +
+      '<div class="field-row">' +
+        field('requestedLoanTransactional', 'Requested Loan Amount', 'number', { required: true, money: true }) +
+        field('transactionalCloseDate',     'Desired Close Date',    'date',   { required: true }) +
+      '</div>' +
+      field('transactionalPurpose', 'Briefly describe the purpose of the transactional funding', 'textarea', {
+        required: true,
+        hint: 'For example: "Same-day double-close on a wholesale assignment" or "Bridge funds for a 1-day rehab purchase before refinance."',
       });
   }
 
@@ -1122,9 +1165,9 @@ function renderPage5() {
 
   html += summarySection('Loan', [
     row('Loan Type',              d.loanType),
-    row('Purpose',                d.dscrPurchaseRefi || d.purchaseOrRefi || d.loanPurpose),
-    row('Requested Loan Amount',  d.requestedLoanFF || d.requestedLoanDSCR || d.requestedLoanNC || d.requestedLoanAmt || d.loanAmt),
-    row('Required Close Date',    d.dscrCloseDate || d.ffCloseDate || d.ncCloseDate),
+    row('Purpose',                d.dscrPurchaseRefi || d.purchaseOrRefi || d.loanPurpose || d.transactionalPurpose),
+    row('Requested Loan Amount',  d.requestedLoanFF || d.requestedLoanDSCR || d.requestedLoanNC || d.requestedLoanTransactional || d.requestedLoanAmt || d.loanAmt),
+    row('Required Close Date',    d.dscrCloseDate || d.ffCloseDate || d.ncCloseDate || d.transactionalCloseDate),
     row('Purchase Price',         d.purchasePrice),
     row('After-Repair Value',     d.arv),
     row('Rehab Budget',           d.renoCost),

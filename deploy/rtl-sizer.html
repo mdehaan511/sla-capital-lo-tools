@@ -252,6 +252,8 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .override-pencil:hover { opacity: 1; color: var(--gold); }
 .override-input { font-family: 'DM Mono', monospace; font-size: inherit; font-weight: inherit; color: inherit; background: var(--gold-light); border: 1.5px solid var(--gold-border); border-radius: 4px; padding: 2px 8px; width: 120px; outline: none; }
 .override-input:focus { border-color: var(--gold); }
+/* Deploy 236.53 — on-dark variant for the Transactional rate-big band */
+.override-input.on-dark { background: rgba(255,255,255,0.95); color: var(--text); }
 .override-suffix { font-size: 0.8em; color: var(--muted); margin-left: 4px; }
 .metric-value.overridden { color: var(--gold-mid); }
 .metric-value.overridden::after { content: 'OVERRIDE'; display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--gold); margin-top: 2px; }
@@ -1239,7 +1241,12 @@ function enableOverrideEdit(fieldKey) {
 // value is committed straight into window._rtlOverrides and the calc
 // re-renders — no second modal pass.
 function _openOverrideInput(fieldKey) {
-  var el = document.querySelector('.metric-value[data-metric="' + fieldKey + '"]');
+  // Deploy 236.53 — also accept .rv-targeted elements so the
+  // Transactional renderer's rate-big band (which uses .rv instead of
+  // .metric-value) is editable. Both selectors carry data-metric so
+  // either form resolves to the right node.
+  var el = document.querySelector('.metric-value[data-metric="' + fieldKey + '"]')
+        || document.querySelector('.rv[data-metric="' + fieldKey + '"]');
   if (!el) return;
   var currentText = el.textContent.replace('OVERRIDE', '').trim();
   // Strip $/% suffix to get a clean number for editing
@@ -1257,12 +1264,21 @@ function _openOverrideInput(fieldKey) {
   if (!isFinite(rawNum)) rawNum = 0;
   var suffix = fieldKey === 'rate' ? '%' : fieldKey === 'points' ? 'pts' : '$';
   var inputId = 'override-input-' + fieldKey;
+  // Deploy 236.53 — when the target element is the rate-big .rv on the
+  // dark hero band (Transactional Funding), use the on-dark variant of
+  // the override input so it remains visible against the dark background.
+  var inputCls = el.classList && el.classList.contains('rv')
+    ? 'override-input on-dark'
+    : 'override-input';
+  var suffixStyle = el.classList && el.classList.contains('rv')
+    ? ' style="color:rgba(255,255,255,0.55)"'
+    : '';
   el.innerHTML =
     (fieldKey === 'dp' ? '<span class="override-suffix">$</span>' : '') +
-    '<input type="number" id="' + inputId + '" class="override-input" value="' + rawNum +
+    '<input type="number" id="' + inputId + '" class="' + inputCls + '" value="' + rawNum +
       '" step="' + (fieldKey === 'rate' ? '0.001' : fieldKey === 'points' ? '0.1' : '1000') +
       '" min="0" />' +
-    (fieldKey !== 'dp' ? '<span class="override-suffix">' + suffix + '</span>' : '');
+    (fieldKey !== 'dp' ? '<span class="override-suffix"' + suffixStyle + '>' + suffix + '</span>' : '');
   var input = document.getElementById(inputId);
   input.focus();
   input.select();
@@ -1380,6 +1396,83 @@ function applyOverridesAndRender() {
   // Resolve effective values: override if set, else calc default.
   var effRate   = (o.rate   !== null) ? o.rate   : calc.rate;
   var effPoints = (o.points !== null) ? o.points : calc.points;
+
+  // Deploy 236.53 — Transactional Funding has no purchase-price /
+  // rehab / DP math. Treat the transactionalAmt input as the canonical
+  // loan amount, recompute the points fee + daily interest, and update
+  // the metric cards + breakdown table directly. The rest of this
+  // function (LTV / max-loan / DP / cashout) is purchase-loan logic
+  // that doesn't apply, so we bail after the transactional branch.
+  if (calc.isTransactional) {
+    var txAmt = parseFloat((document.getElementById('transactionalAmt')||{}).value) || 0;
+    var txPtsFee = txAmt * effPoints / 100;
+    var txDaily  = txAmt * effRate / 365;
+
+    window._rtlLastCalcEffective = {
+      rate: effRate, points: effPoints, bMax: txAmt,
+      dp: null, pp: 0, rb: 0, isRehab: false,
+      isTransactional: true,
+      ptsFee: txPtsFee, dailyInterest: txDaily,
+    };
+
+    // Big rate hero
+    var bigRateT = document.querySelector('.rate-big .rv[data-metric="rate"]');
+    if (bigRateT) {
+      bigRateT.textContent = (effRate * 100).toFixed(3) + '%';
+      bigRateT.classList.toggle('overridden', o.rate !== null);
+    }
+    // Origination Points card
+    var ptsElT = document.querySelector('.metric-value[data-metric="points"]');
+    if (ptsElT) {
+      ptsElT.textContent = effPoints.toFixed(1) + ' pts';
+      ptsElT.classList.toggle('overridden', o.points !== null);
+      var ptsCardT = ptsElT.closest('.metric-card');
+      var ptsSubT  = ptsCardT ? ptsCardT.querySelector('.metric-sub') : null;
+      if (ptsSubT) ptsSubT.textContent = '$' + Math.round(txPtsFee).toLocaleString() + ' on loan';
+    }
+    // Daily Interest card (label-match on "Daily Interest")
+    var allCardsT = document.querySelectorAll('.metric-card');
+    allCardsT.forEach(function(card) {
+      var lbl = card.querySelector('.metric-label');
+      if (!lbl) return;
+      var t = lbl.textContent.trim();
+      if (t.indexOf('Daily Interest') === 0) {
+        var v = card.querySelector('.metric-value');
+        if (v) v.textContent = '$' + Math.round(txDaily).toLocaleString();
+        var s = card.querySelector('.metric-sub');
+        if (s) s.textContent = 'at ' + (effRate * 100).toFixed(3) + '% APR';
+      }
+    });
+    // Breakdown table — Origination row (first <tr> in .rate-tbl)
+    var tbl = document.querySelector('.rate-tbl');
+    if (tbl) {
+      var firstTr = tbl.querySelector('tbody tr');
+      if (firstTr) {
+        var cells = firstTr.querySelectorAll('td');
+        if (cells.length >= 2) {
+          cells[0].textContent = 'Origination (' + effPoints.toFixed(2) + ' pt' + (Math.abs(effPoints - 1) < 0.0001 ? '' : 's') + ')';
+          cells[1].textContent = '$' + Math.round(txPtsFee).toLocaleString();
+        }
+      }
+    }
+    // Total Estimated Closing Costs (broker fee + processing fee + ptsFee)
+    var brkPtsT = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+    var brkDolT = txAmt * brkPtsT / 100;
+    var totalT  = txPtsFee + 1000 + brkDolT;
+    var totalSpansT = document.querySelectorAll('.rate-card span[style*="DM Mono"]');
+    totalSpansT.forEach(function(sp) {
+      if (sp.textContent.indexOf('$') === 0) {
+        var parentText = (sp.parentNode && sp.parentNode.textContent) || '';
+        if (parentText.indexOf('Total Estimated Closing Costs') >= 0) {
+          sp.textContent = '$' + Math.round(totalT).toLocaleString();
+        }
+      }
+    });
+
+    refreshOverrideNotice();
+    return;
+  }
+
   // DP & loan amount derive interactively. Pick up purchase price + rehab
   // budget from the form (the canonical inputs); for fix/flip the loan
   // amount = price - DP + rehab. For bridge / transactional / refi, the
@@ -2099,9 +2192,16 @@ function renderTransactional(street, city, state, zip) {
   var amt = parseFloat(document.getElementById('transactionalAmt').value) || 0;
   var addrFull = (street + ', ' + city + ', ' + state + (zip ? ' ' + zip : '')).replace(/^,\s*|,\s*$/g, '');
 
-  // Hardcoded values for transactional funding
-  var rate = 0.12;     // 12.000%
-  var pts  = 1.0;      // 1.0 points
+  // Defaults for transactional funding. Deploy 236.53 — rate + points
+  // are now overridable on transactional the same way as Bridge/Rehab.
+  // window._rtlOverrides.{rate,points} wins when set; otherwise the
+  // hardcoded defaults below apply. (DP override doesn't surface here
+  // because transactional has no purchase-price math.)
+  var defaultRate = 0.12;     // 12.000%
+  var defaultPts  = 1.0;      // 1.0 points
+  var _ovTx = window._rtlOverrides || {};
+  var rate = (_ovTx.rate   !== null && _ovTx.rate   !== undefined && !isNaN(_ovTx.rate))   ? _ovTx.rate   : defaultRate;
+  var pts  = (_ovTx.points !== null && _ovTx.points !== undefined && !isNaN(_ovTx.points)) ? _ovTx.points : defaultPts;
   var ptsFee = amt * (pts / 100);
 
   // Deploy 196: transactional funding uses a single flat $1,000 loan
@@ -2121,12 +2221,28 @@ function renderTransactional(street, city, state, zip) {
   // Daily interest is more relevant for transactional
   var dailyInterest = amt * rate / 365;
 
+  // Deploy 236.53 — stash canonical transactional snapshot so
+  // applyOverridesAndRender, the save flow, and the PDF generator can
+  // all branch on it. isTransactional is the discriminator that tells
+  // applyOverridesAndRender to skip the bMax/dp purchase-price math.
+  window._rtlLastCalc = {
+    isTransactional: true,
+    rate:   rate,
+    points: pts,
+    bMax:   amt,
+    ptsFee: ptsFee,
+    dailyInterest:   dailyInterest,
+    monthlyInterest: monthlyInterest,
+  };
+
+  var rateOvrClass = (_ovTx.rate   !== null && _ovTx.rate   !== undefined) ? ' overridden' : '';
+  var ptsOvrClass  = (_ovTx.points !== null && _ovTx.points !== undefined) ? ' overridden' : '';
   var safeAddr = String(addrFull || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   var html = '<div class="rate-card">';
   html += '<div class="rate-header">';
   html += '<div class="rate-header-left"><div class="lender">SLA Capital · ' + safeAddr + '</div><div class="prog">Transactional Funding · 1-day</div></div>';
   if (amt > 0) {
-    html += '<div class="rate-big"><div class="rl">Interest Rate</div><div class="rv">' + (rate * 100).toFixed(3) + '%</div></div>';
+    html += '<div class="rate-big"><div class="rl">Interest Rate <span class="override-pencil on-dark" onclick="enableOverrideEdit(\'rate\')" title="Override rate (requires manager approval)">✎</span></div><div class="rv' + rateOvrClass + '" data-metric="rate">' + (rate * 100).toFixed(3) + '%</div></div>';
   } else {
     html += '<div class="rate-big"><div class="rl">Interest Rate</div><div class="rv" style="font-size:18px;color:rgba(200,129,58,0.5)">N/A</div></div>';
   }
@@ -2136,16 +2252,24 @@ function renderTransactional(street, city, state, zip) {
   if (amt <= 0) {
     html += '<div class="flag-box show">Enter a loan amount above to see pricing.</div>';
   } else {
-    // Metrics row
+    // Metrics row. Deploy 236.53 — Origination Points gets an override
+    // pencil + data-metric="points". The Interest Rate display in the
+    // dark rate-big band above is also overridable; this card is a
+    // secondary echo of it so we don't repeat the pencil here.
     html += '<div class="metric-grid">';
     html += '<div class="metric-card"><div class="metric-label">Loan Amount</div><div class="metric-value xl">$' + Math.round(amt).toLocaleString() + '</div><div class="metric-sub">Direct entry · 1-day term</div></div>';
-    html += '<div class="metric-card"><div class="metric-label">Origination Points</div><div class="metric-value xl">' + pts.toFixed(1) + ' pts</div><div class="metric-sub">$' + Math.round(ptsFee).toLocaleString() + ' on loan</div></div>';
-    html += '<div class="metric-card"><div class="metric-label">Daily Interest</div><div class="metric-value xl">$' + Math.round(dailyInterest).toLocaleString() + '</div><div class="metric-sub">at 12.000% APR</div></div>';
+    html += '<div class="metric-card">';
+    html += '<div class="metric-label">Origination Points <span class="override-pencil" onclick="enableOverrideEdit(\'points\')" title="Override points (requires manager approval)">✎</span></div>';
+    html += '<div class="metric-value xl' + ptsOvrClass + '" data-metric="points">' + pts.toFixed(1) + ' pts</div>';
+    html += '<div class="metric-sub">$' + Math.round(ptsFee).toLocaleString() + ' on loan</div>';
+    html += '</div>';
+    html += '<div class="metric-card"><div class="metric-label">Daily Interest</div><div class="metric-value xl">$' + Math.round(dailyInterest).toLocaleString() + '</div><div class="metric-sub">at ' + (rate * 100).toFixed(3) + '% APR</div></div>';
     html += '</div>';
 
-    // Closing cost breakdown
+    // Closing cost breakdown. Deploy 236.53 — Origination line shows
+    // the effective points value (override or default).
     html += '<table class="rate-tbl" style="margin-top:14px"><tbody>' +
-      '<tr><td>Origination (1.00 pt)</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
+      '<tr><td>Origination (' + pts.toFixed(2) + ' pt' + (Math.abs(pts - 1) < 0.0001 ? '' : 's') + ')</td><td class="bv neg">$' + Math.round(ptsFee).toLocaleString() + '</td></tr>' +
       '<tr><td>Loan Processing Fee</td><td class="bv neg">$1,000</td></tr>' +
       (brokerPts > 0
         ? '<tr><td>Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
@@ -2775,14 +2899,22 @@ function saveCurrentQuote() {
   // 1pt origination, and the directly-entered loan amount. Most other fields
   // are intentionally left blank so reports/long-app prefill don't pull
   // misleading data (FICO, experience, purchase price are all N/A).
+  // Deploy 236.53 — when a rate / points override is active on a
+  // transactional save, use those values instead of the hardcoded
+  // defaults. Effective values get baked into _finalRate / _points
+  // (display) AND into snapshot.finalRate / snapshot.points so Loan
+  // Details + rate sheet regenerate at the override-effective values.
   if (formData.loanType === 'transactional') {
     var txAmt = parseFloat(formData.transactionalAmt || 0) || 0;
-    formData._finalRate = '12.000';
-    formData._points    = '1.0 pts';
+    var _ovSv = window._rtlOverrides || {};
+    var _effRateSv = (_ovSv.rate   !== null && _ovSv.rate   !== undefined && !isNaN(_ovSv.rate))   ? _ovSv.rate   : 0.12;
+    var _effPtsSv  = (_ovSv.points !== null && _ovSv.points !== undefined && !isNaN(_ovSv.points)) ? _ovSv.points : 1.0;
+    formData._finalRate = (_effRateSv * 100).toFixed(3);
+    formData._points    = _effPtsSv.toFixed(1) + ' pts';
     formData._maxLoan   = String(txAmt);
     formData.loanAmt    = String(txAmt);
-    snapshot.finalRate  = 0.12;
-    snapshot.points     = 1.0;
+    snapshot.finalRate  = _effRateSv;
+    snapshot.points     = _effPtsSv;
     snapshot.maxLoan    = txAmt;
     snapshot.loanAmt    = txAmt;
     snapshot.purpose    = 'transactional';
@@ -3655,8 +3787,14 @@ function _generateRTLTransactionalPDF(opts) {
   var brwPhone = gv('borrowerPhone').trim();
 
   var amt = parseFloat(gv('transactionalAmt')) || 0;
-  var rate = 0.12;          // 12.000% — same hardcode as renderTransactional
-  var pts  = 1.0;           // 1pt origination
+  // Deploy 236.53 — honor active rate / points overrides on the
+  // Transactional PDF. The on-screen renderTransactional already
+  // reads from window._rtlOverrides; the PDF must match what the LO
+  // is showing the borrower. Falls back to the 12% / 1pt defaults
+  // when no override is active.
+  var _ovTxPdf = window._rtlOverrides || {};
+  var rate = (_ovTxPdf.rate   !== null && _ovTxPdf.rate   !== undefined && !isNaN(_ovTxPdf.rate))   ? _ovTxPdf.rate   : 0.12;
+  var pts  = (_ovTxPdf.points !== null && _ovTxPdf.points !== undefined && !isNaN(_ovTxPdf.points)) ? _ovTxPdf.points : 1.0;
   var ptsFee = amt * (pts / 100);
   var brokerPts = parseFloat(gv('brokerFee')) || 0;
   var brokerDol = amt * (brokerPts / 100);
