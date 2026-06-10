@@ -226,6 +226,10 @@ function loadFromServerAuthed() {
       // Hydrate g0_/g1_ fields from the guarantors array so the form's
       // STATE.data has the per-prefix fields the renderers expect.
       hydrateGuarantorFields(STATE.data);
+      // Deploy 236.54 — backfill structured city/state/zip from any
+      // legacy single-line addresses so the new explicit fields render
+      // with the right values for older saves.
+      backfillStructuredAddresses(STATE.data);
       STATE.prefill = resp.prefill || {};
       STATE.propAddress = (resp.prefill && resp.prefill.property && resp.prefill.property.address) || '';
       STATE.loName = (resp.prefill && resp.prefill.lo && resp.prefill.lo.name) || '';
@@ -275,6 +279,39 @@ function hydrateGuarantorFields(data) {
   });
 }
 
+// Deploy 236.54 — backfill structured address fields from any saved
+// single-line addresses ("123 Main St, Spokane, WA 99224"). Pre-236.54
+// long-app saves stored the full formatted address into g.address /
+// llcAddress alone, with no city/state/zip companions. The form now
+// renders city/state/zip as explicit required fields; without this
+// backfill an LO reviewing an older submission would see those fields
+// empty and have to refill them. We parse cautiously: only split when
+// the string clearly matches "street, city, ST zip" (with state as a
+// 2-letter abbreviation and ZIP as 5 or 9 digits) AND city is empty.
+function backfillStructuredAddresses(data) {
+  if (!data) return;
+  // Matches "123 Main St, Spokane, WA 99224" or "..., WA 99224-1234"
+  var ADDR_RE = /^(.+?),\s*([^,]+?),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i;
+  function splitInto(streetKey, cityKey, stateKey, zipKey) {
+    var raw = String(data[streetKey] || '').trim();
+    if (!raw) return;
+    if (data[cityKey]) return;          // already split
+    var m = raw.match(ADDR_RE);
+    if (!m) return;
+    data[streetKey] = m[1].trim();
+    data[cityKey]   = m[2].trim();
+    data[stateKey]  = String(m[3]).toUpperCase();
+    data[zipKey]    = m[4];
+  }
+  ['0', '1'].forEach(function(i) {
+    var p = 'g' + i + '_';
+    splitInto(p + 'address',        p + 'city',        p + 'state',        p + 'zip');
+    splitInto(p + 'prevAddress',    p + 'prevCity',    p + 'prevState',    p + 'prevZip');
+    splitInto(p + 'mailingAddress', p + 'mailingCity', p + 'mailingState', p + 'mailingZip');
+  });
+  splitInto('llcAddress', 'llcCity', 'llcAddrState', 'llcZip');
+}
+
 function loadFromServer() {
   fetch('/api/borrower-info-load?t=' + encodeURIComponent(TOKEN))
     .then(function(r) { return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
@@ -295,6 +332,11 @@ function loadFromServer() {
       }
       // Apply prefill into data if data is empty for those keys
       applyPrefillToData();
+      // Deploy 236.54 — backfill structured city/state/zip from any
+      // legacy single-line addresses saved before structured fields
+      // existed. Runs after applyPrefillToData so we backfill anything
+      // hydrated from prefill too.
+      backfillStructuredAddresses(STATE.data);
       renderApp();
     })
     .catch(function(e) {
@@ -924,10 +966,23 @@ function renderPage4() {
       field('llcState', 'State LLC is registered in', 'select', { required: true, options: stateOptions() }) +
       '</div>' +
       field('llcEIN', 'Vesting Entity EIN', 'text', { placeholder: 'XX-XXXXXXX', mask: 'ein' }) +
-      field('llcAddress', 'Entity registered address', 'text', {
+      // Deploy 236.54 — entity address now collects street + city +
+      // state + zip as explicit separate fields. Companion-mode
+      // autocomplete on the street input fills the others when the
+      // borrower picks from the Google dropdown; when they type
+      // manually each field is independently required so we can't
+      // accept a partial address. Note: the entity-address state field
+      // is `llcAddrState` to distinguish from `llcState` above (which
+      // is the state of LLC REGISTRATION, not the registered address).
+      addressBlock({
+        streetName:  'llcAddress',
+        streetLabel: 'Entity registered street address',
+        streetPlaceholder: '500 Main St',
+        cityName:    'llcCity',
+        stateName:   'llcAddrState',
+        zipName:     'llcZip',
         autocomplete: 'llc',
-        placeholder: '500 Main St, Spokane, WA 99201',
-        hint: 'Start typing and pick a suggestion from the dropdown — the address must include city, state, and ZIP.',
+        required: true,
       });
   }
 
@@ -986,26 +1041,37 @@ function renderGuarantor(idx, label) {
           hint: 'Securely encrypted at rest. Used only for the loan application document.',
         })
     ) +
-    field(prefix + 'address', 'Home address', 'text', {
-      required: true,
-      placeholder: '123 Main St, Spokane, WA 99224',
+    // Deploy 236.54 — home address is now street + city + state + zip
+    // as explicit fields. See addressBlock + Deploy 236.54 comment in
+    // the LLC block for the full rationale.
+    addressBlock({
+      streetName:  prefix + 'address',
+      streetLabel: 'Home street address',
+      streetPlaceholder: '123 Main St',
+      cityName:    prefix + 'city',
+      stateName:   prefix + 'state',
+      zipName:     prefix + 'zip',
       autocomplete: 'guarantor:' + idx,
-      hint: 'Start typing and pick a suggestion from the dropdown — the address must include city, state, and ZIP.',
+      required: true,
     }) +
     // Deploy 182: 2-year address residency question. If "no", capture
-    // the previous address. The "Address must include city, state, ZIP"
-    // hint applies here too since we'll need it for the loan app.
+    // the previous address using the same companion-field block.
     field(prefix + 'twoYearAddress', 'Have you lived at this address for 2 or more years?', 'radio', {
       required: true,
       onchange: 'render()',
       options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
     }) +
     (d[prefix + 'twoYearAddress'] === 'no'
-      ? field(prefix + 'prevAddress', 'Previous home address', 'text', {
-          required: true,
-          placeholder: '456 Old St, Spokane, WA 99224',
+      ? addressBlock({
+          streetName:  prefix + 'prevAddress',
+          streetLabel: 'Previous home street address',
+          streetPlaceholder: '456 Old St',
+          cityName:    prefix + 'prevCity',
+          stateName:   prefix + 'prevState',
+          zipName:     prefix + 'prevZip',
           autocomplete: 'guarantor:' + idx + ':prev',
-          hint: 'Where you lived before your current address. Pick from the autocomplete dropdown so we capture city, state, and ZIP.',
+          required: true,
+          streetHint: 'Where you lived before your current address. Pick from the dropdown so City / State / ZIP auto-fill.',
         })
       : '') +
     // Mailing address (if different from home).
@@ -1015,11 +1081,15 @@ function renderGuarantor(idx, label) {
       options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
     }) +
     (d[prefix + 'mailingSameAsHome'] === 'no'
-      ? field(prefix + 'mailingAddress', 'Mailing address', 'text', {
-          required: true,
-          placeholder: '789 PO Box, Spokane, WA 99224',
+      ? addressBlock({
+          streetName:  prefix + 'mailingAddress',
+          streetLabel: 'Mailing street address',
+          streetPlaceholder: '789 PO Box',
+          cityName:    prefix + 'mailingCity',
+          stateName:   prefix + 'mailingState',
+          zipName:     prefix + 'mailingZip',
           autocomplete: 'guarantor:' + idx + ':mail',
-          hint: 'Pick from the autocomplete dropdown so we capture city, state, and ZIP.',
+          required: true,
         })
       : '') +
     '<div class="field-row">' +
@@ -1427,40 +1497,96 @@ function signApplication() {
     errEl.style.display = 'block';
     return;
   }
+  // Deploy 236.54 \u2014 validation against explicit street + city + state +
+  // zip companion fields. Previously this called looksLikeFullAddress()
+  // on a single concatenated address string, which broke when the
+  // borrower typed manually and skipped the autocomplete dropdown.
+  // Now each component is required separately.
+  function _gv(g, i, key) {
+    return (g && g[key]) || d['g' + i + '_' + key] || '';
+  }
+  function _addrIncomplete(g, i, prefix) {
+    // prefix is '' for home, 'prev' for previous, 'mailing' for mailing.
+    // The street key is 'address' / 'prevAddress' / 'mailingAddress';
+    // city/state/zip follow the same convention.
+    var streetKey = prefix ? (prefix + 'Address') : 'address';
+    var cityKey   = prefix ? (prefix + 'City')    : 'city';
+    var stateKey  = prefix ? (prefix + 'State')   : 'state';
+    var zipKey    = prefix ? (prefix + 'Zip')     : 'zip';
+    var s = String(_gv(g, i, streetKey) || '').trim();
+    var c = String(_gv(g, i, cityKey)   || '').trim();
+    var st = String(_gv(g, i, stateKey) || '').trim();
+    var z = String(_gv(g, i, zipKey)    || '').trim();
+    if (!s && !c && !st && !z) return null;   // entirely empty \u2014 let the per-field required check handle it
+    var missing = [];
+    if (!s) missing.push('street');
+    if (!c) missing.push('city');
+    if (!st) missing.push('state');
+    if (!z) missing.push('ZIP');
+    return missing.length ? missing : null;
+  }
   var guarantors = (d.guarantors || []);
   for (var i = 0; i < guarantors.length; i++) {
     var g = guarantors[i] || {};
-    if (!g.address && !d['g' + i + '_address']) continue; // skip empty (validation elsewhere)
-    var addr = g.address || d['g' + i + '_address'];
-    if (!looksLikeFullAddress(addr)) {
-      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s home address</strong> is missing the city, state, or ZIP. ' +
-        'We have: <em>' + _escAddrShow(addr) + '</em>. ' +
-        'Tap the field and pick a complete address from the autocomplete dropdown.' +
+    if (!g.address && !d['g' + i + '_address']
+        && !g.city && !d['g' + i + '_city']) continue; // empty guarantor
+    var miss = _addrIncomplete(g, i, '');
+    if (miss) {
+      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s home address</strong> is missing: ' +
+        '<em>' + miss.join(', ') + '</em>. ' +
+        'Open Page 4 and fill in each field.' +
         _fixBtn(4, 'f_g' + i + '_address');
       errEl.style.display = 'block';
       return;
     }
-    // Deploy 182: validate previous address (when < 2 years at current)
-    // and mailing address (when different from home).
-    var prev = g.prevAddress || d['g' + i + '_prevAddress'];
+    // Deploy 182: previous address required when < 2 years at current.
     var twoYr = g.twoYearAddress || d['g' + i + '_twoYearAddress'];
-    if (twoYr === 'no' && prev && !looksLikeFullAddress(prev)) {
-      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s previous address</strong> is missing the city, state, or ZIP. ' +
-        'We have: <em>' + _escAddrShow(prev) + '</em>. ' +
-        'Pick a full address from the autocomplete dropdown.' +
-        _fixBtn(4, 'f_g' + i + '_prevAddress');
-      errEl.style.display = 'block';
-      return;
+    if (twoYr === 'no') {
+      var missPrev = _addrIncomplete(g, i, 'prev');
+      if (missPrev) {
+        errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s previous address</strong> is missing: ' +
+          '<em>' + missPrev.join(', ') + '</em>. ' +
+          'Open Page 4 and fill in each field.' +
+          _fixBtn(4, 'f_g' + i + '_prevAddress');
+        errEl.style.display = 'block';
+        return;
+      }
     }
-    var mail = g.mailingAddress || d['g' + i + '_mailingAddress'];
+    // Mailing address required when different from home.
     var mailSame = g.mailingSameAsHome || d['g' + i + '_mailingSameAsHome'];
-    if (mailSame === 'no' && mail && !looksLikeFullAddress(mail)) {
-      errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s mailing address</strong> is missing the city, state, or ZIP. ' +
-        'We have: <em>' + _escAddrShow(mail) + '</em>. ' +
-        'Pick a full address from the autocomplete dropdown.' +
-        _fixBtn(4, 'f_g' + i + '_mailingAddress');
-      errEl.style.display = 'block';
-      return;
+    if (mailSame === 'no') {
+      var missMail = _addrIncomplete(g, i, 'mailing');
+      if (missMail) {
+        errEl.innerHTML = '<strong>Guarantor ' + (i + 1) + '\u2019s mailing address</strong> is missing: ' +
+          '<em>' + missMail.join(', ') + '</em>. ' +
+          'Open Page 4 and fill in each field.' +
+          _fixBtn(4, 'f_g' + i + '_mailingAddress');
+        errEl.style.display = 'block';
+        return;
+      }
+    }
+  }
+  // Deploy 236.54 \u2014 also validate the LLC address when the borrower
+  // indicated an entity. Same component check as guarantor addresses.
+  if (d.hasLLC === 'yes') {
+    var llcStreet = String(d.llcAddress  || '').trim();
+    var llcCity   = String(d.llcCity     || '').trim();
+    var llcAddrSt = String(d.llcAddrState|| '').trim();
+    var llcZip    = String(d.llcZip      || '').trim();
+    if (llcStreet || llcCity || llcAddrSt || llcZip) {
+      var llcMiss = [];
+      if (!llcStreet) llcMiss.push('street');
+      if (!llcCity)   llcMiss.push('city');
+      if (!llcAddrSt) llcMiss.push('state');
+      if (!llcZip)    llcMiss.push('ZIP');
+      if (llcMiss.length) {
+        errEl.innerHTML = '<strong>Entity registered address</strong> is missing: ' +
+          '<em>' + llcMiss.join(', ') + '</em>. ' +
+          'Open Page 4 and fill in each field.' +
+          _fixBtn(4, 'f_llcAddress');
+        errEl.style.display = 'block';
+        return;
+      }
     }
   }
 
@@ -1565,10 +1691,23 @@ function field(name, label, type, opts) {
     // 'guarantor:1', 'llc'. Each maps to a set of companion field IDs.
     var autoAttr = '';
     if (opts.autocomplete) {
-      // Single-line address mode: just emit the autocomplete attribute and
-      // let sla-forms.js fall back to formatted_address (no city/state/zip
-      // companion fields exist on the long form anymore).
       autoAttr = ' data-sla-autocomplete';
+      // Deploy 236.54 — companion-field mode. When opts.companions = {
+      // city, state, zip } is set, emit data-sla-ac-* attributes so
+      // sla-forms.js writes street into THIS input and city/state/zip
+      // into the named companion fields. Without this, the form falls
+      // back to single-line formatted_address mode and borrowers who
+      // type manually (instead of picking from the dropdown) save a
+      // partial address that the PDF + Baseline sync can't break apart.
+      // Each companion key must match the underlying field's name
+      // (without the 'f_' prefix that the field() helper adds when
+      // building the input id).
+      if (opts.companions) {
+        var co = opts.companions;
+        if (co.city)  autoAttr += ' data-sla-ac-city="f_'  + escAttr(co.city)  + '"';
+        if (co.state) autoAttr += ' data-sla-ac-state="f_' + escAttr(co.state) + '"';
+        if (co.zip)   autoAttr += ' data-sla-ac-zip="f_'   + escAttr(co.zip)   + '"';
+      }
     }
     // Money fields render as text+inputmode=decimal so we can format with $ and commas
     if (opts.money) {
@@ -1585,6 +1724,43 @@ function field(name, label, type, opts) {
   html += '<div class="err" id="err_' + escAttr(name) + '"></div>';
   html += hint + '</div>';
   return html;
+}
+
+// Deploy 236.54 — addressBlock helper renders a full street/city/state
+// /zip row with companion-mode Google Places autocomplete. Replaces the
+// single-line address inputs that depended on the borrower picking from
+// the dropdown to capture city/state/zip via formatted_address. With
+// explicit companion fields:
+//   - Picking from the Google dropdown auto-fills street/city/state/zip
+//   - Typing manually requires each field to be filled (each is
+//     required:true), so we can't accept a partial address
+//   - PDF + Baseline sync get clean structured fields directly
+//
+// opts:
+//   streetName        - field key for the street input (e.g. 'g0_address')
+//   streetLabel       - label shown above the street input
+//   streetPlaceholder - placeholder for the street input
+//   streetHint        - optional hint line under the street input
+//   cityName, stateName, zipName - field keys for the companion fields
+//   autocomplete      - autocomplete bucket name (e.g. 'guarantor:0', 'llc')
+//   required          - when true, all four fields are required:true
+function addressBlock(opts) {
+  opts = opts || {};
+  var req = !!opts.required;
+  var streetHint = opts.streetHint
+    || 'Start typing and pick a suggestion from the dropdown so City / State / ZIP auto-fill. If you type the address manually, fill in each field below.';
+  return field(opts.streetName, opts.streetLabel || 'Street address', 'text', {
+    required: req,
+    placeholder: opts.streetPlaceholder || '123 Main St',
+    autocomplete: opts.autocomplete,
+    companions: { city: opts.cityName, state: opts.stateName, zip: opts.zipName },
+    hint: streetHint,
+  }) +
+  '<div class="field-row">' +
+    field(opts.cityName,  'City',  'text',   { required: req, placeholder: 'City' }) +
+    field(opts.stateName, 'State', 'select', { required: req, options: stateOptions() }) +
+    field(opts.zipName,   'ZIP',   'text',   { required: req, placeholder: '99201' }) +
+  '</div>';
 }
 
 function rowFields() {
