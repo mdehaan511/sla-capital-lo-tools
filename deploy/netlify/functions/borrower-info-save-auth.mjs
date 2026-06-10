@@ -23,7 +23,9 @@ import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/
 // the printed application without forcing the borrower to e-sign again.
 import { regenerateSignedApplicationPDF } from './_shared/signed-app-regenerate.mjs';
 // Audit-log helper for stamping the regen on the loan's notesLog.
-import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.56 — use the coalesced variant so back-to-back autosaves
+// don't bury Notes & Activity in duplicate entries.
+import { appendCoalescedNoteEntry } from './_shared/notes-log.mjs';
 
 export default async (req, context) => {
   try {
@@ -138,7 +140,11 @@ async function handle(req, context) {
           if (clientForLog && Array.isArray(clientForLog.loans)) {
             const loan = clientForLog.loans.find((l) => l.id === targetLoanId);
             if (loan) {
-              appendNoteEntry(loan, {
+              // Deploy 236.56 — coalesce repeated autosaves into a single
+              // entry per ~5min editing session. The PDF is still
+              // regenerated on every save; the notesLog just doesn't
+              // get flooded.
+              const added = appendCoalescedNoteEntry(loan, {
                 kind:        'system',
                 text:        'Signed application regenerated with corrected data (no re-signature required)',
                 author:      user.email || '',
@@ -149,8 +155,10 @@ async function handle(req, context) {
                   signedStatus: regenResult.status,
                 },
               });
-              clientForLog.updatedAt = new Date().toISOString();
-              await clientsStore2.setJSON(clientKey, clientForLog);
+              if (added) {
+                clientForLog.updatedAt = new Date().toISOString();
+                await clientsStore2.setJSON(clientKey, clientForLog);
+              }
             }
           }
         } catch (e) {
