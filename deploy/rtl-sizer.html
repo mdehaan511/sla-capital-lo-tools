@@ -749,7 +749,13 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 </div><!-- /page -->
 
 <script>
-// ── Pricing data — Colchis RTL Pricing Sheet (May 05, 2026) ──
+// ── Pricing data — Colchis RTL Pricing Sheet (Jun 09, 2026) ──
+// Deploy 236.57 — refresh wholesale matrix per new Colchis sheet.
+// Net rate movement: +0.125% across most cells, with +0.250% jumps on
+// the lowest-LTV columns of Light Rehab (740+/700-739) and on 740+ Heavy
+// Rehab ≤70. Pricing-adjustment line items (NY/NJ/CT, CA, ZHVI, cash-
+// out, term, $3M) unchanged. Per-product Minimum Rate floors also bumped
+// — see the program-min branch in colchisRate() (~line 1921).
 // PRICING values are Colchis's WHOLESALE base rate. Final borrower note
 // rate = PRICING + SPREAD[fico] + adjustments. Tier 1 (8+) gets -0.25%
 // reduction, Tier 2 baseline, Tier 3 +0.25%. MFR adjustment is per-LTV.
@@ -779,38 +785,38 @@ var SUB680_RATE = { 660: .12, 640: .125, 620: .13, 550: .14 };
 var PRICING = {
   bridge: {
     sfr: {
-      740: [.0825,  .0825,  null,   null,   null,   null  ],
-      720: [.0825,  .0825,  null,   null,   null,   null  ],
-      700: [.0825,  .0825,  null,   null,   null,   null  ],
-      680: [.08375, null,   null,   null,   null,   null  ],
+      740: [.08375, .08375, null,   null,   null,   null  ],
+      720: [.08375, .08375, null,   null,   null,   null  ],
+      700: [.08375, .08375, null,   null,   null,   null  ],
+      680: [.085,   null,   null,   null,   null,   null  ],
     },
     mfr: {
-      740: [.0825,  .0825,  null,   null,   null,   null  ],
-      720: [.0825,  .0825,  null,   null,   null,   null  ],
-      700: [.0825,  .0825,  null,   null,   null,   null  ],
-      680: [.08375, null,   null,   null,   null,   null  ],
+      740: [.08375, .08375, null,   null,   null,   null  ],
+      720: [.08375, .08375, null,   null,   null,   null  ],
+      700: [.08375, .08375, null,   null,   null,   null  ],
+      680: [.085,   null,   null,   null,   null,   null  ],
     },
   },
   light: {
     sfr: {
-      740: [.0825,  .0825,  .0825,  .08375, .085,   .08875],
-      720: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
-      700: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
-      680: [.08375, .085,   .08625, .0875,  .08875, null  ],
+      740: [.085,   .085,   .085,   .085,   .08625, .09   ],
+      720: [.085,   .085,   .085,   .08625, .0875,  .09125],
+      700: [.085,   .085,   .085,   .08625, .0875,  .09125],
+      680: [.085,   .08625, .0875,  .08875, .09,    null  ],
     },
     mfr: {
-      740: [.0825,  .0825,  .0825,  .08375, .085,   .08875],
-      720: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
-      700: [.0825,  .0825,  .08375, .085,   .08625, .09   ],
-      680: [.08375, .085,   .08625, .0875,  .08875, null  ],
+      740: [.085,   .085,   .085,   .085,   .08625, .09   ],
+      720: [.085,   .085,   .085,   .08625, .0875,  .09125],
+      700: [.085,   .085,   .085,   .08625, .0875,  .09125],
+      680: [.085,   .08625, .0875,  .08875, .09,    null  ],
     },
   },
   heavy: {
     sfr: {
-      740: [.08875, .09,    .09125, .0925,  null,   null  ],
-      720: [.09,    .09125, .0925,  .09375, null,   null  ],
-      700: [.09,    .09125, .0925,  .09375, null,   null  ],
-      680: [.0925,  .09375, .095,   .09625, null,   null  ],
+      740: [.09125, .09125, .0925,  .09375, null,   null  ],
+      720: [.09125, .0925,  .09375, .095,   null,   null  ],
+      700: [.09125, .0925,  .09375, .095,   null,   null  ],
+      680: [.09375, .095,   .09625, .0975,  null,   null  ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -821,10 +827,10 @@ var PRICING = {
   },
   construction: {
     sfr: {
-      740: [.0875,  .08875, .09,    .09125, .095,   null  ],
-      720: [.08875, .09,    .09125, .0925,  .09625, null  ],
-      700: [.08875, .09,    .09125, .0925,  .09625, null  ],
-      680: [.09125, .0925,  .09375, .095,   null,   null  ],
+      740: [.08875, .09,    .09125, .0925,  .09625, null  ],
+      720: [.09,    .09125, .0925,  .09375, .0975,  null  ],
+      700: [.09,    .09125, .0925,  .09375, .0975,  null  ],
+      680: [.0925,  .09375, .095,   .09625, null,   null  ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -863,13 +869,18 @@ var MAX_LTP = {
   },
   light:{
     sfr:{
-      740:[.90,.90,.90], 720:[.90,.90,.875], 700:[.90,.90,.85], 680:[.875,.85,.80],
+      // Deploy 236.57 — Jun 09 sheet merged the 720-739 + 700-719 buckets
+      // into one "700-739" row; bumped 700 to match 720's 0-3 (.875)
+      // and loosened the 680 0-3 column from .80 to .85.
+      740:[.90,.90,.90], 720:[.90,.90,.875], 700:[.90,.90,.875], 680:[.875,.85,.85],
       660:[.80,.80,.80], 640:[.75,.75,.75], 620:[.75,.75,.75], 550:[.70,.70,.70],
     },
     mfr:{
       // 0-3 experience column is empty in the Colchis doc for MFR Light
       // at all FICO bands — not funded. Tier-3 cells are 0 here.
-      740:[.80,.80,0], 720:[.80,.80,0], 700:[.80,.75,0], 680:[.75,.75,0],
+      // Deploy 236.57 — bumped 700 4-7 from .75 to .80 (matches the new
+      // merged "700-739" cell).
+      740:[.80,.80,0], 720:[.80,.80,0], 700:[.80,.80,0], 680:[.75,.75,0],
       660:[.70,.70,0], 640:[.65,.65,0], 620:[.65,.65,0], 550:[.60,.60,0],
     },
   },
@@ -891,7 +902,10 @@ var MAX_LTP = {
 var MAX_LTC = {
   light:{
     sfr:{
-      740:[.925,.925,.90], 720:[.925,.925,.90], 700:[.925,.90,.875], 680:[.90,.875,.80],
+      // Deploy 236.57 — Jun 09 sheet merged 720-739 + 700-719 into
+      // "700-739"; bumped 700 to [.925, .925, .90] to match 720, and
+      // loosened 680 0-3 column from .80 to .85.
+      740:[.925,.925,.90], 720:[.925,.925,.90], 700:[.925,.925,.90], 680:[.90,.875,.85],
       660:[.85,.85,.80], 640:[.80,.80,.75], 620:[.80,.80,.75], 550:[.75,.75,.70],
     },
     mfr:{
@@ -904,7 +918,9 @@ var MAX_LTC = {
   },
   heavy:{
     sfr:{
-      740:[.85,.85,0], 720:[.85,.85,0], 700:[.85,.825,0], 680:[.825,.80,0],
+      // Deploy 236.57 — Jun 09 sheet bumped 700-739 4-7 column LTC from
+      // .825 to .85 (now matches the 720 row that was already at .85).
+      740:[.85,.85,0], 720:[.85,.85,0], 700:[.85,.85,0], 680:[.825,.80,0],
       660:[.80,.75,0], 640:[.75,.70,0], 620:[.75,.70,0], 550:[.70,.65,0],
     },
     mfr:{ 740:[0,0,0], 720:[0,0,0], 700:[0,0,0], 680:[0,0,0], 660:[0,0,0], 640:[0,0,0], 620:[0,0,0], 550:[0,0,0] },
@@ -920,7 +936,9 @@ var MAX_LTC = {
 var MAX_LTARV = {
   light:{
     sfr:{
-      740:[.75,.75,.75], 720:[.75,.75,.75], 700:[.75,.75,.70], 680:[.75,.70,.70],
+      // Deploy 236.57 — Jun 09 sheet bumped 700 0-3 column to .75 (matches
+      // merged "700-739" cell), and loosened 680 4-7 column from .70 to .75.
+      740:[.75,.75,.75], 720:[.75,.75,.75], 700:[.75,.75,.75], 680:[.75,.75,.70],
       660:[.70,.70,.65], 640:[.65,.65,.60], 620:[.65,.65,.60], 550:[.60,.60,.55],
     },
     mfr:{
@@ -967,9 +985,11 @@ var REFI_LTV = {
       550: [0,   0,   0  ],
     },
     mfr: {
+      // Deploy 236.57 — Jun 09 sheet merged 720-739 + 700-719 into one
+      // "700-739" row; bumped 700 4-7 from .65 to .70 (matches 720 row).
       740: [.70, .70, .65],
       720: [.70, .70, .60],
-      700: [.70, .65, .60],
+      700: [.70, .70, .60],
       680: [.65, .60, 0  ],
       660: [0,   0,   0  ],
       640: [0,   0,   0  ],
@@ -989,9 +1009,11 @@ var REFI_LTV = {
       550: [0,   0,   0  ],
     },
     mfr: {
+      // Deploy 236.57 — Jun 09 sheet bumped 700 8+ from .60 to .65 and
+      // 4-7 from .55 to .60 (now matches the merged "700-739" cells).
       740: [.65, .60, .60],
       720: [.65, .60, .55],
-      700: [.60, .55, .55],
+      700: [.65, .60, .55],
       680: [.55, .55, 0  ],
       660: [0,   0,   0  ],
       640: [0,   0,   0  ],
@@ -1914,15 +1936,21 @@ function calculate(){
           if(sz==='3m'){ adj+=.0025; adjs.push({l:'Loan amount >$3M',v:.0025,c:'pos'}); }
           // Tier-1 baseline = wholesale + adjustments + spread − 0.25% (Tier 1 reduction)
           var tier1Base = cb + adj + SPREAD[fkey] - .0025;
-          // Apply program-minimum floors per the PDF (May 5, 2026 sheet):
-          //   Bridge / Light Rehab: 8.250%
-          //   Construction:         8.750%
-          //   Heavy Rehab:          8.875%
+          // Apply program-minimum floors per the PDF (Jun 09, 2026 sheet).
+          // Deploy 236.57 — bumped from May 5 values:
+          //   Bridge:        8.250% -> 8.375%
+          //   Light Rehab:   8.250% -> 8.500%
+          //   Heavy Rehab:   8.875% -> 9.125%
+          //   Construction:  8.750% -> 8.875%
+          // In practice the SLA 10% policy floor below dominates for most
+          // Tier-1 deals, but the program-min still binds at high-LTV
+          // Tier-1 cells where the policy floor wouldn't otherwise apply.
           var progMin =
-            (lt === 'bridge' || lt === 'light') ? 0.0825 :
-            (lt === 'construction')             ? 0.0875 :
-            (lt === 'heavy')                    ? 0.08875 :
-                                                  0.0825;
+            (lt === 'bridge')       ? 0.08375  :
+            (lt === 'light')        ? 0.085    :
+            (lt === 'heavy')        ? 0.09125  :
+            (lt === 'construction') ? 0.08875  :
+                                      0.08375;
           if(tier1Base < progMin){ tier1Base = progMin; floor = true; }
           // SLA policy floor: Tier 1 baseline never below 10.000%.
           // (Tier 2 will be at least 10.250%; Tier 3 at least 10.500%.)
