@@ -1069,19 +1069,75 @@ function colchisRate(lt,pt,fk,ltv){
 
 var detectedState='other';
 var geoWarning='';
+// Deploy 236.58 — geographic -5% leverage reduction trigger. Empty string
+// = no reduction; non-empty = label to surface in the result-card flags
+// row AND signal to calculate() to subtract 0.05 from each LTV/LTC/LTARV
+// cap before computing bMax. Per June 2026 Colchis Purchase Guidelines:
+// Lee County FL, Baltimore MD, Indianapolis IN.
+var geoReductionLabel = '';
+
+// Deploy 236.58 — city lookup tables for guideline-specified geographies.
+// Lee County, FL: incorporated + census-designated cities/places that fall
+// within the county. Caller normalizes city to uppercase before comparing.
+var LEE_COUNTY_FL_CITIES = [
+  'FORT MYERS','CAPE CORAL','BONITA SPRINGS','ESTERO','SANIBEL',
+  'FORT MYERS BEACH','LEHIGH ACRES','NORTH FORT MYERS','SAN CARLOS PARK',
+  'TICE','BUCKINGHAM','MATLACHA','MATLACHA ISLES','PINE ISLAND',
+  'PINE ISLAND CENTER','PUNTA RASSA','SUNCOAST ESTATES','VILLAS',
+  'WHISKEY CREEK',
+];
+// Orange County, NY: incorporated cities/villages + main towns. Excluded
+// per June 2026 guidelines. Not exhaustive of every hamlet — covers the
+// cities and villages where loans actually originate.
+var ORANGE_COUNTY_NY_CITIES = [
+  'NEWBURGH','MIDDLETOWN','PORT JERVIS','GOSHEN','MONROE','WALLKILL',
+  'WARWICK','CORNWALL','CORNWALL-ON-HUDSON','HIGHLAND FALLS','CHESTER',
+  'GREENVILLE','TUXEDO PARK','TUXEDO','HARRIMAN','WOODBURY','FLORIDA',
+  'MAYBROOK','MOUNTAINVILLE','MONTGOMERY','BLOOMING GROVE',
+  'WASHINGTONVILLE','SOUTH BLOOMING GROVE','HAMPTONBURGH','NEW WINDSOR',
+  'WALDEN','UNIONVILLE','WEST POINT',
+];
 
 function updateRegion(){
   var st=document.getElementById('propState').value;
   var city=document.getElementById('propCity').value.trim().toUpperCase();
   var zip=document.getElementById('propZip').value.trim();
   var tag=document.getElementById('region-tag');
-  geoWarning=''; detectedState='other';
+  geoWarning=''; detectedState='other'; geoReductionLabel='';
   if(!st){ tag.classList.remove('show'); return; }
   var rl='';
   if(['NY','NJ','CT'].includes(st)){ detectedState='nynj'; rl='NY/NJ/CT (+0.250%)'; }
   else if(st==='CA'){ detectedState='ca'; rl='California (−0.125%)'; }
-  if(st==='IL') geoWarning='⚠ Illinois is excluded from this program.';
-  if(st==='NJ'&&city.includes('NEWARK')) geoWarning='⚠ Newark, NJ is excluded from this program.';
+
+  // Deploy 236.58 — guideline exclusions (June 2026):
+  //   States:   Illinois
+  //   Counties: Orange County, NY
+  //   Cities:   Lakewood, NJ; Monsey, NY; Newark, NJ
+  // Exclusion is a SOFT block (warning surfaced as a flag) rather than a
+  // hard math abort. The LO can still complete the sizer and submit for
+  // an exception request; the borrower-facing rate sheet shouldn't go
+  // out without manager review.
+  if (st === 'IL') geoWarning = '⚠ Illinois is excluded from this program.';
+  else if (st === 'NJ' && city.indexOf('NEWARK') >= 0)   geoWarning = '⚠ Newark, NJ is excluded from this program.';
+  else if (st === 'NJ' && city.indexOf('LAKEWOOD') >= 0) geoWarning = '⚠ Lakewood, NJ is excluded from this program.';
+  else if (st === 'NY' && city.indexOf('MONSEY') >= 0)   geoWarning = '⚠ Monsey, NY is excluded from this program.';
+  else if (st === 'NY' && ORANGE_COUNTY_NY_CITIES.indexOf(city) >= 0) {
+    geoWarning = '⚠ Orange County, NY is excluded from this program.';
+  }
+
+  // Deploy 236.58 — guideline -5% leverage reductions (June 2026):
+  //   Lee County, FL; Baltimore, MD; Indianapolis, IN
+  // Applied INSIDE calculate() to mLtp / mLtc / mLarv (and refiLtv on the
+  // refi path). geoReductionLabel is non-empty when a reduction fires;
+  // the result card flags row surfaces the reason to the LO + borrower.
+  if (st === 'MD' && city.indexOf('BALTIMORE') >= 0) {
+    geoReductionLabel = 'Baltimore, MD — leverage reduced 5% per guidelines.';
+  } else if (st === 'IN' && city.indexOf('INDIANAPOLIS') >= 0) {
+    geoReductionLabel = 'Indianapolis, IN — leverage reduced 5% per guidelines.';
+  } else if (st === 'FL' && LEE_COUNTY_FL_CITIES.indexOf(city) >= 0) {
+    geoReductionLabel = 'Lee County, FL — leverage reduced 5% per guidelines.';
+  }
+
   var parts=[];
   var cd=document.getElementById('propCity').value.trim();
   if(cd)parts.push(cd); if(st)parts.push(st); if(zip)parts.push(zip);
@@ -1820,6 +1876,13 @@ function calculate(){
       refiLtv = Math.max(0, refiLtv - .10);
       flags.push('ZHVI override: >300% of ZIP median — LTV reduced 10%.');
     }
+    // Deploy 236.58 — guideline geographic -5% LTV reduction (Lee County
+    // FL, Baltimore MD, Indianapolis IN). Detected upstream in
+    // updateRegion(); applied here on the refi path.
+    if (geoReductionLabel) {
+      refiLtv = Math.max(0, refiLtv - .05);
+      flags.push(geoReductionLabel);
+    }
     mLtp = refiLtv;
     mLtc = 0;   // not applicable on refis
     mLarv = 0;  // not applicable on refis
@@ -1833,6 +1896,16 @@ function calculate(){
     mLtc  = ltcT  ? ltcT[eidx]  : 0;
     mLarv = larvT ? larvT[eidx] : 0;
 
+    // Deploy 236.58 — Construction 90% LTC requires rehab budget under
+    // $500,000 per June 2026 Colchis guidelines (footnote on Construction
+    // LTC column). Otherwise capped at 85%. Applied BEFORE the ZHVI /
+    // geographic reductions so the cap is on the BASE rate, not on an
+    // already-reduced number.
+    if (lt === 'construction' && mLtc >= 0.899 && rb >= 500000) {
+      mLtc = 0.85;
+      flags.push('Construction 90% LTC requires rehab budget under $500,000 — capped at 85%.');
+    }
+
     if (zhvi === '200') {
       mLtp = Math.max(0, mLtp - .05);
       mLtc = Math.max(0, mLtc - .05);
@@ -1843,6 +1916,15 @@ function calculate(){
       mLtc = Math.max(0, mLtc - .10);
       mLarv = Math.max(0, mLarv - .10);
       flags.push('ZHVI override: >300% of ZIP median — leverage reduced 10%.');
+    }
+    // Deploy 236.58 — guideline geographic -5% reduction on the purchase
+    // path. Stacks on top of ZHVI when both apply (rare). Math.max guards
+    // against the cap going negative.
+    if (geoReductionLabel) {
+      mLtp  = Math.max(0, mLtp  - .05);
+      mLtc  = Math.max(0, mLtc  - .05);
+      mLarv = Math.max(0, mLarv - .05);
+      flags.push(geoReductionLabel);
     }
   }
 
