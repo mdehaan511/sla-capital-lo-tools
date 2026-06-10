@@ -18,6 +18,12 @@ import {
 import { encryptField } from './_shared/crypto.mjs';
 import { loadRecord, saveRecord } from './_shared/borrower-info-keys.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
+// Deploy 236.55 — re-render the stored signed-application PDF after an
+// LO edit so corrections (typos, address fixes, etc.) flow through to
+// the printed application without forcing the borrower to e-sign again.
+import { regenerateSignedApplicationPDF } from './_shared/signed-app-regenerate.mjs';
+// Audit-log helper for stamping the regen on the loan's notesLog.
+import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 export default async (req, context) => {
   try {
@@ -107,6 +113,60 @@ async function handle(req, context) {
     console.warn('borrower-info-save-auth: client sync failed:', e);
   }
 
+  // Deploy 236.55 — if the application has already been e-signed,
+  // regenerate the stored signed PDF using the corrected data. The
+  // original signer audit blocks (name, email, signed-at, IP, dataHash
+  // seal) are preserved verbatim — we are NOT re-signing, just
+  // re-rendering with the LO's corrections so the printed application
+  // shows the right text. The helper returns { ok: false, reason:
+  // 'no_signed_record' } if nothing's signed yet; non-fatal in any case.
+  // Skip on the submit-on-behalf path because that flips status to
+  // complete BUT the actual signing happens after via the borrower-
+  // info-sign endpoint, which generates the initial PDF itself.
+  let regenResult = null;
+  if (!submittingOnBehalf) {
+    try {
+      regenResult = await regenerateSignedApplicationPDF(record, user.email || '');
+      if (regenResult && regenResult.ok) {
+        // Audit on the loan's notesLog so the LO sees who corrected the
+        // signed app and when. Wrapped in its own try so a notesLog
+        // failure can't fail the response.
+        try {
+          const clientsStore2 = getStore({ name: 'clients', consistency: 'strong' });
+          const clientKey = `${ownerKey}/${(body.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          const clientForLog = await clientsStore2.get(clientKey, { type: 'json' });
+          if (clientForLog && Array.isArray(clientForLog.loans)) {
+            const loan = clientForLog.loans.find((l) => l.id === targetLoanId);
+            if (loan) {
+              appendNoteEntry(loan, {
+                kind:        'system',
+                text:        'Signed application regenerated with corrected data (no re-signature required)',
+                author:      user.email || '',
+                authorEmail: user.email || '',
+                meta:        {
+                  signedKey:    regenResult.signedKey,
+                  corrections:  regenResult.corrections,
+                  signedStatus: regenResult.status,
+                },
+              });
+              clientForLog.updatedAt = new Date().toISOString();
+              await clientsStore2.setJSON(clientKey, clientForLog);
+            }
+          }
+        } catch (e) {
+          console.warn('borrower-info-save-auth: signed-app regen audit log failed:', e);
+        }
+      } else if (regenResult && regenResult.reason && regenResult.reason !== 'no_signed_record') {
+        // Real failure (vs. the no-op-because-not-signed case). Log so we
+        // can investigate, but don't bubble up — the data save succeeded
+        // and the LO shouldn't get an error for a downstream regen miss.
+        console.warn('borrower-info-save-auth: signed-app regen returned not ok:', regenResult);
+      }
+    } catch (e) {
+      console.warn('borrower-info-save-auth: signed-app regen threw (non-fatal):', e);
+    }
+  }
+
   // On final submission, fire the full sync + auto-advance — same
   // post-completion handling the borrower path runs.
   if (submittingOnBehalf) {
@@ -132,10 +192,17 @@ async function handle(req, context) {
     // Stamp the advance result for audit (same pattern as borrower path)
     record.advanceResult = advanceResult;
     try { await saveRecord(store, ownerKey, body.clientId, targetLoanId, record); } catch (_) {}
-    return json(200, { ok: true, status: 'complete', advanceResult });
+    return json(200, { ok: true, status: 'complete', advanceResult, signedAppRegenerated: false });
   }
 
-  return json(200, { ok: true, status: record.status });
+  // Deploy 236.55 — surface regen outcome so the frontend can show a
+  // confirmation toast ("Signed application updated"). false when there's
+  // no signed PDF to refresh; true only on a successful regen.
+  return json(200, {
+    ok: true,
+    status: record.status,
+    signedAppRegenerated: !!(regenResult && regenResult.ok),
+  });
 }
 
 function mergeData(existing, incoming) {

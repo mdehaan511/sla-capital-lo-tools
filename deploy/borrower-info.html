@@ -1951,9 +1951,15 @@ function autoSave() {
 
   if (REVIEW_MODE) {
     var opts = {}; if (STATE.reviewOwner) opts.owner = STATE.reviewOwner; if (STATE.reviewLoanId) opts.loanId = STATE.reviewLoanId;
-    SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function() {
+    SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function(resp) {
       SAVING = false;
-      setSaveStatus('Saved ' + nowTime() + ' (LO edit)', 'ok');
+      // Deploy 236.55 — surface signed-PDF regeneration in the status
+      // line so the LO sees a clear confirmation that their correction
+      // also flowed through to the printed application.
+      var suffix = (resp && resp.signedAppRegenerated)
+        ? ' (LO edit · signed application updated)'
+        : ' (LO edit)';
+      setSaveStatus('Saved ' + nowTime() + suffix, 'ok');
     }).catch(function(err) {
       SAVING = false;
       setSaveStatus((err && err.message) || 'Save failed', 'err');
@@ -2109,8 +2115,13 @@ function submitFinal() {
   if (REVIEW_MODE) {
     // LO review: this is the final "Save & Close" — no completion event
     var opts = {}; if (STATE.reviewOwner) opts.owner = STATE.reviewOwner; if (STATE.reviewLoanId) opts.loanId = STATE.reviewLoanId;
-    SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function() {
-      showToast('Edits saved');
+    SLA.BorrowerInfo.saveAuth(STATE.reviewClientId, dataToSave, opts).then(function(resp) {
+      // Deploy 236.55 — if the borrower has already signed, the server
+      // regenerated the printed PDF with the LO's corrections. Confirm
+      // explicitly so the LO knows the signed application is fresh.
+      showToast(resp && resp.signedAppRegenerated
+        ? 'Edits saved · signed application updated'
+        : 'Edits saved');
       btn.disabled = false; btn.textContent = 'Save edits';
     }).catch(function(err) {
       btn.disabled = false; btn.textContent = 'Save edits';
