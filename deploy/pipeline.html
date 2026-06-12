@@ -634,6 +634,13 @@ var _clientById = {};    // ownerKey|clientId → client record
 // buildQuoteCard's closeDateLine. Stays empty (falls back to local
 // fundingDate) if the mirror is empty or the endpoint errors.
 var _baselineCloseDates = {};  // normAddr → { closeDate, baselineId, status }
+// Module-level mirror of the closure-scoped _normAddr() helper inside
+// loadAll(). buildQuoteCard is defined at module scope and can't see
+// the inner one, so this is what it calls. Mirrors the backend's
+// normAddr() in baseline-close-dates.mjs so straight equality works.
+function _normAddrMod(s) {
+  return String(s || '').toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+}
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedItems = new Set();   // unified bulk-select set
                                   // keys: "prospect|<ownerKey>|<prospectId>"
@@ -1395,7 +1402,7 @@ function buildQuoteCard(it, colKey) {
   // Tooltip distinguishes the two sources.
   var closeDateLine = '';
   if (colKey === 'approved') {
-    var addrNorm61 = _normAddr(addr || '');
+    var addrNorm61 = _normAddrMod(addr || '');
     var baselineEntry = addrNorm61 ? _baselineCloseDates[addrNorm61] : null;
     var baselineCd = baselineEntry && baselineEntry.closeDate || '';
     var localCd = (loanRec && loanRec.fundingDate) || fd.fundingDate || '';
