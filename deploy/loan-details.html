@@ -2874,22 +2874,44 @@ function openBorrowerInfoModal() {
   document.getElementById('biSendBtn').disabled = false;
   document.getElementById('biTitle').textContent = 'Send Full Loan Application — ' + ((_client.firstName||'') + ' ' + (_client.lastName||'')).trim();
 
-  // Show existing-info notice if borrower already started/completed
+  // Show existing-info notice if borrower already started/completed.
+  // Deploy 236.59 — also surface the EXISTING link in the copy-row when
+  // the application is pending or in_progress, mirroring the same fix
+  // that pipeline.html got in 236.44. Lets the LO grab the link the
+  // borrower already received without rotating their token (which
+  // would invalidate any in-flight sign-in attempt the borrower had
+  // open from the original email). Borrower-info-status.mjs has been
+  // returning `token` + `link` on the GET since 236.44; we just
+  // weren't consuming them on this modal.
   var info = document.getElementById('biExistingInfo');
   info.style.display = 'none';
   info.innerHTML = '';
   if (window.SLA && SLA.BorrowerInfo && SLA.BorrowerInfo.status) {
-    SLA.BorrowerInfo.status(_client.id, { loanId: _loanId }).then(function(r) {
+    // Capture the loanId at request time. The LO might navigate between
+    // loans while the fetch is in flight; we only want to populate the
+    // modal if it's still showing the same loan.
+    var statusLoanId = _loanId;
+    SLA.BorrowerInfo.status(_client.id, { loanId: statusLoanId }).then(function(r) {
       if (!r) return;
+      // Drop the response if the modal is gone OR the loan changed.
+      if (_loanId !== statusLoanId) return;
       var s = r.status;
       var msg = '';
-      if (s === 'in_progress') msg = '<strong>In progress.</strong> Borrower has started but not finished. Generating a new link will replace the old one.';
+      if (s === 'in_progress') msg = '<strong>In progress.</strong> Borrower has started but not finished. Generating a new link will replace the old one — copy the existing link below to share it again without invalidating it.';
       else if (s === 'complete') msg = '<strong>Already complete.</strong> Generating a new link will reset their data and require them to fill it in again.';
-      else if (s === 'pending') msg = '<strong>Link already sent.</strong> Generating a new link will invalidate the previous one.';
+      else if (s === 'pending')  msg = '<strong>Link already sent.</strong> Generating a new link will invalidate the previous one — copy the existing link below to share it again without rotating the token.';
       if (msg) {
         info.innerHTML = msg;
         info.style.display = 'block';
         document.getElementById('biSendBtn').textContent = 'Replace Link';
+      }
+      // Populate the existing link when it's still safe to reuse
+      // (pending / in_progress only — complete means the borrower has
+      // already signed and the token is no longer interesting).
+      if ((s === 'pending' || s === 'in_progress') && r.link) {
+        _biLatestUrl = r.link;
+        document.getElementById('biLinkInput').value = r.link;
+        document.getElementById('biLinkRow').style.display = 'flex';
       }
     }).catch(function(){});
   }
