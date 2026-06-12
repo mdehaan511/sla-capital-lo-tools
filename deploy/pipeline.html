@@ -291,6 +291,21 @@
       margin-bottom: 6px; margin-top: 2px; max-width: 100%;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    /* Deploy 236.60 — closing-date indicator on In Processing tiles.
+       Neutral grey by default so it sits quietly under the amount line;
+       turns gold when the close date is within the next 7 days so LOs
+       see the urgent deals at a glance. */
+    .card-close {
+      font-size: 11px; font-weight: 500; color: var(--muted);
+      margin-bottom: 6px; margin-top: -4px;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .card-close.due-soon {
+      color: var(--gold-mid, #b5712d); font-weight: 600;
+    }
+    .card-close.overdue {
+      color: var(--danger, #7C1F1F); font-weight: 600;
+    }
     /* Visible-but-subtle warning when a card has no matching loan record.
        Triggers when sizer save skipped client creation. Fix: LO opens the
        sizer (link is already on the card), fills in missing borrower info
@@ -1351,6 +1366,38 @@ function buildQuoteCard(it, colKey) {
     ? '<div class="card-broker" title="Broker on this loan — see Broker Book"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="display:inline-block;vertical-align:-1px;margin-right:4px"><path d="M6 6.5a2 2 0 100-4 2 2 0 000 4zM2 10.5c0-1.7 1.8-3 4-3s4 1.3 4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>via ' + escH(brokerName) + '</div>'
     : '';
 
+  // Deploy 236.60 — surface the desired close date on In Processing
+  // tiles so LOs see at a glance when each deal is targeted to fund.
+  // fundingDate lives on the loan record (also called "Desired Close
+  // Date" in the UI); falls back to the formData stash for newer
+  // quotes that haven't synced to the loan record yet. Date string
+  // format is YYYY-MM-DD; parse with a noon-local anchor to avoid
+  // the UTC-parsing off-by-one trap fixed in Deploy 233.8 for
+  // Upcoming Closings.
+  var closeDateLine = '';
+  if (colKey === 'approved') {
+    var fundingDate = (loanRec && loanRec.fundingDate) || fd.fundingDate || '';
+    var ymd = String(fundingDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (ymd) {
+      var fy = parseInt(ymd[1], 10);
+      var fm = parseInt(ymd[2], 10) - 1;
+      var fdd = parseInt(ymd[3], 10);
+      var fdate = new Date(fy, fm, fdd, 12, 0, 0);
+      if (!isNaN(fdate.getTime())) {
+        var disp = fdate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        // Urgency styling: due in <=7 days = gold, past-due = red.
+        var today = new Date(); today.setHours(12, 0, 0, 0);
+        var diffDays = Math.round((fdate - today) / (24 * 60 * 60 * 1000));
+        var urgencyClass = '';
+        if (diffDays < 0)       urgencyClass = ' overdue';
+        else if (diffDays <= 7) urgencyClass = ' due-soon';
+        var icon = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="display:inline-block;vertical-align:-1px"><rect x="1.5" y="2.5" width="9" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 1v2M8.5 1v2M1.5 5h9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
+        var prefix = diffDays < 0 ? 'Closed ' : 'Closes ';
+        closeDateLine = '<div class="card-close' + urgencyClass + '" title="Desired close date">' + icon + prefix + escH(disp) + '</div>';
+      }
+    }
+  }
+
   return (
     '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + bulkClass + '">' +
       bulkCb +
@@ -1360,6 +1407,7 @@ function buildQuoteCard(it, colKey) {
       '<div class="card-sub">' + addrHtml + '</div>' +
       brokerLine +
       '<div class="card-amt">' + amt + (rate ? ' <span style="font-size:11px;color:var(--muted);font-weight:500">@ ' + rate + '</span>' : '') + '</div>' +
+      closeDateLine +
       orphanHint +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + tool.toUpperCase() + '</span>' +
