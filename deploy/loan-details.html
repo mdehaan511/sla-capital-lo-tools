@@ -640,6 +640,15 @@ function _baselineLookupLD(addr) {
   return null;
 }
 function getBaselineCloseDateForLoan() {
+  // Deploy 236.64 — temporarily disabled. The Baseline address matcher
+  // is still missing for a chunk of loans, so the annotation under
+  // the Desired Close Date input was showing the wrong value. The
+  // lookup helpers (_normAddrLD, _streetKeyLD, _baselineLookupLD) and
+  // the parallel fetch in onUser() all stay in place; flip this return
+  // back to the real lookup once /api/baseline-close-dates?debug=<addr>
+  // confirms the matcher is hitting reliably.
+  return null;
+  // eslint-disable-next-line no-unreachable
   if (!_baselineCloseDates || !_loan || !_loan.address) return null;
   var entry = _baselineLookupLD(_loan.address);
   return (entry && entry.closeDate) || null;

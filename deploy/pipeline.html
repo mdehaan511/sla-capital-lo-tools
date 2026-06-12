@@ -1448,17 +1448,16 @@ function buildQuoteCard(it, colKey) {
   // to avoid the UTC-parsing off-by-one trap fixed in Deploy 233.8
   // for Upcoming Closings.
   //
-  // Deploy 236.61 — source priority changed. Baseline's
-  // Estimated_Close_Date is authoritative now (LOs maintain it as part
-  // of normal Baseline workflow + it stays accurate as the deal moves).
-  // Fall back to the local loanRec.fundingDate / fd.fundingDate for
-  // loans that haven't synced to Baseline yet (no mirror entry).
-  // Tooltip distinguishes the two sources.
+  // Deploy 236.64 — close-date line temporarily HIDDEN end-to-end.
+  // 236.61-63 wired Baseline as the source but the address-matching
+  // pipeline still misses for a chunk of loans, so the tile was
+  // showing wrong / stale dates. Hiding for now until we can verify
+  // the matcher against real address samples. The endpoint, lookup,
+  // and CSS all stay in place so re-enabling is one early-return
+  // flip below. Use ?debug=<addr-substring> on /api/baseline-close-
+  // dates to inspect what's actually in the mirror.
   var closeDateLine = '';
-  if (colKey === 'approved') {
-    // Deploy 236.63 — try multiple normalization keys (full / street-key /
-    // street1-only) so Baseline's "123 Main Street, Springfield, IL 62704"
-    // matches SLA's "123 Main St, Springfield, IL 62704, USA".
+  if (false && colKey === 'approved') {
     var baselineEntry = _baselineLookup(addr || '');
     var baselineCd = baselineEntry && baselineEntry.closeDate || '';
     var localCd = (loanRec && loanRec.fundingDate) || fd.fundingDate || '';
