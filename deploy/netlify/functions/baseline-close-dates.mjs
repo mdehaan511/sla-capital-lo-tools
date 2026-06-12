@@ -36,21 +36,68 @@ import {
 } from './_shared/auth.mjs';
 import { listMirroredLoans } from './_shared/baseline-mirror.mjs';
 
-// Normalize an address string for use as a lookup key. Mirrors the
-// normalizer used on Pipeline + Loan Details: lowercase, collapse all
-// whitespace runs to single spaces, strip commas, trim.
+// Street-suffix abbreviations. Baseline tends to spell these out
+// ("Main Street"); SLA-side via Google Places usually abbreviates
+// ("Main St"). Without folding them to a canonical form the address
+// lookup misses on otherwise-identical loans. Keys are the long form,
+// values the abbreviation we fold TO.
+const SUFFIX_MAP = {
+  'street': 'st', 'st.': 'st',
+  'avenue': 'ave', 'ave.': 'ave', 'av': 'ave',
+  'road': 'rd', 'rd.': 'rd',
+  'drive': 'dr', 'dr.': 'dr',
+  'boulevard': 'blvd', 'blvd.': 'blvd',
+  'lane': 'ln', 'ln.': 'ln',
+  'court': 'ct', 'ct.': 'ct',
+  'circle': 'cir', 'cir.': 'cir',
+  'place': 'pl', 'pl.': 'pl',
+  'terrace': 'ter', 'ter.': 'ter',
+  'parkway': 'pkwy', 'pkwy.': 'pkwy',
+  'highway': 'hwy', 'hwy.': 'hwy',
+  'square': 'sq', 'sq.': 'sq',
+  'trail': 'trl', 'trl.': 'trl',
+  'way': 'way',
+  'north': 'n', 'south': 's', 'east': 'e', 'west': 'w',
+  'northeast': 'ne', 'northwest': 'nw',
+  'southeast': 'se', 'southwest': 'sw',
+};
+
+// Normalize an address string for use as a lookup key.
+// Lowercase, comma->space, whitespace-collapse, trim, then fold each
+// token through SUFFIX_MAP so "Main Street" and "Main St" land at the
+// same key. Also strips a trailing ", USA" because Google Places
+// returns those sometimes.
 function normAddr(s) {
-  return String(s || '')
+  let v = String(s || '')
     .toLowerCase()
-    .replace(/,/g, ' ')
+    .replace(/,?\s*usa\s*$/i, '')
+    .replace(/[,.#]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  const toks = v.split(' ').map((t) => SUFFIX_MAP[t] || t);
+  return toks.join(' ');
 }
 
-// Build the full address string Baseline-side as Street1, City, State,
-// Zip — same shape the loan record's `address` field uses on the SLA
-// side. Either part can be missing; we only need the combined string
-// to normalize reliably.
+// Extract just street number + first three "house" words. Strips
+// directionals and suffixes so "1234 N Main St" and "1234 Main St" and
+// "1234 Main Street #4B" all collide.
+function streetKey(s) {
+  const norm = normAddr(s);
+  const m = norm.match(/^(\d+)\s+(.+)$/);
+  if (!m) return '';
+  let num = m[1];
+  let rest = m[2]
+    // Drop leading directional
+    .replace(/^(n|s|e|w|ne|nw|se|sw)\b\s*/i, '')
+    // Drop trailing apt/unit/suite markers
+    .replace(/\b(apt|unit|suite|ste|fl|floor|bldg|#)\b.*/i, '')
+    .trim();
+  // Keep at most 3 words for the street name body
+  const tail = rest.split(/\s+/).slice(0, 3).join(' ');
+  return num + ' ' + tail;
+}
+
+// Build the full Baseline address string — Street1, City, State, Zip.
 function buildBaselineAddress(loan) {
   if (!loan) return '';
   var parts = [];
@@ -104,34 +151,80 @@ async function handle(req, context) {
     return json(200, { ok: true, count: 0, byAddress: {}, lastMirroredAt: '' });
   }
 
+  const url = new URL(req.url);
+  const debugAddr = url.searchParams.get('debug') || '';
+
   const byAddress = {};
   let lastMirroredAt = '';
+  const debugMatches = [];
   for (const loan of all) {
     if (!loan) continue;
     if (loan._mirroredAt && loan._mirroredAt > lastMirroredAt) lastMirroredAt = loan._mirroredAt;
-    const addr = buildBaselineAddress(loan);
-    const key = normAddr(addr);
-    if (!key) continue;
+    const fullAddr = buildBaselineAddress(loan);
     const closeDate = pickCloseDate(loan);
-    if (!closeDate) continue;
     const status = String(loan.Status || '').toLowerCase().trim();
     const baselineId = String(loan.Id || '').trim();
-    // If a duplicate address exists (rare — same property funded twice),
-    // prefer the entry with a status other than already-closed so the
-    // active loan's close date wins. Otherwise the later iteration wins.
-    const existing = byAddress[key];
-    if (existing) {
-      const existingActive = existing.status && existing.status !== 'closed' && existing.status !== 'cancelled';
-      const incomingActive = status && status !== 'closed' && status !== 'cancelled';
-      if (existingActive && !incomingActive) continue;
+
+    // Write THREE keys per loan so the frontend can match on whichever
+    // normalization actually agrees with the SLA-side address. Tried in
+    // priority order on the frontend (most-specific first):
+    //   1. Full normalized address (street + city + state + zip)
+    //   2. Street number + first 3 words of street name (drops dir + unit)
+    //   3. Just the street1 portion normalized
+    // If a duplicate address exists, prefer the entry with status !=
+    // closed/cancelled so the active loan's close date wins.
+    const keys = [
+      normAddr(fullAddr),
+      streetKey(loan.Address_Street1 || fullAddr),
+      normAddr(loan.Address_Street1 || ''),
+    ].filter((k, i, arr) => k && arr.indexOf(k) === i);
+
+    // Debug mode — collect candidate loans whose address matches the
+    // probe string (substring, case-insensitive) so Mike can verify
+    // what's actually in the mirror without exposing the full payload.
+    if (debugAddr) {
+      const probe = String(debugAddr).toLowerCase();
+      const fullLower = String(fullAddr).toLowerCase();
+      const street1Lower = String(loan.Address_Street1 || '').toLowerCase();
+      if (fullLower.includes(probe) || street1Lower.includes(probe)) {
+        debugMatches.push({
+          Id: baselineId,
+          fullAddr,
+          normalizedKeys: keys,
+          status,
+          dateFields: {
+            Estimated_Close_Date:   loan.Estimated_Close_Date   || null,
+            Expected_Close_Date:    loan.Expected_Close_Date    || null,
+            Projected_Close_Date:   loan.Projected_Close_Date   || null,
+            Anticipated_Close_Date: loan.Anticipated_Close_Date || null,
+            Close_Date:             loan.Close_Date             || null,
+            Origination:            loan.Origination            || null,
+            Maturity:               loan.Maturity               || null,
+            Created_Date:           loan.Created_Date           || null,
+          },
+          pickedCloseDate: closeDate,
+        });
+      }
     }
-    byAddress[key] = { closeDate, baselineId, status };
+
+    if (!closeDate) continue;
+    for (const key of keys) {
+      const existing = byAddress[key];
+      if (existing) {
+        const existingActive = existing.status && existing.status !== 'closed' && existing.status !== 'cancelled';
+        const incomingActive = status && status !== 'closed' && status !== 'cancelled';
+        if (existingActive && !incomingActive) continue;
+      }
+      byAddress[key] = { closeDate, baselineId, status };
+    }
   }
 
-  return json(200, {
+  const payload = {
     ok: true,
     count: Object.keys(byAddress).length,
     byAddress,
     lastMirroredAt,
-  });
+  };
+  if (debugAddr) payload.debug = { probe: debugAddr, matches: debugMatches };
+  return json(200, payload);
 }

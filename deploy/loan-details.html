@@ -583,15 +583,66 @@ function clientsKey(email) { return 'sla_clients_' + (email||''); }
 // fetch in onUser(); consumed when the Application Form section
 // renders the "Desired Close Date" input. Stays null on fetch failure
 // so the page falls back to local-only behavior.
+// Deploy 236.63 — normalization upgraded to fold street suffixes /
+// directionals / ", USA" so Baseline-typed and SLA Google-Places-
+// formatted addresses agree. Mirrors baseline-close-dates.mjs +
+// pipeline.html. Lookup tries three progressively looser keys.
 var _baselineCloseDates = null;  // { byAddress: { <normAddr>: {closeDate, ...} } } or null
+var _SUFFIX_MAP_LDX = {
+  'street':'st','st.':'st',
+  'avenue':'ave','ave.':'ave','av':'ave',
+  'road':'rd','rd.':'rd',
+  'drive':'dr','dr.':'dr',
+  'boulevard':'blvd','blvd.':'blvd',
+  'lane':'ln','ln.':'ln',
+  'court':'ct','ct.':'ct',
+  'circle':'cir','cir.':'cir',
+  'place':'pl','pl.':'pl',
+  'terrace':'ter','ter.':'ter',
+  'parkway':'pkwy','pkwy.':'pkwy',
+  'highway':'hwy','hwy.':'hwy',
+  'square':'sq','sq.':'sq',
+  'trail':'trl','trl.':'trl',
+  'north':'n','south':'s','east':'e','west':'w',
+  'northeast':'ne','northwest':'nw','southeast':'se','southwest':'sw',
+};
 function _normAddrLD(s) {
-  return String(s || '').toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  var v = String(s || '')
+    .toLowerCase()
+    .replace(/,?\s*usa\s*$/i, '')
+    .replace(/[,.#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  var toks = v.split(' ').map(function(t){ return _SUFFIX_MAP_LDX[t] || t; });
+  return toks.join(' ');
+}
+function _streetKeyLD(s) {
+  var norm = _normAddrLD(s);
+  var m = norm.match(/^(\d+)\s+(.+)$/);
+  if (!m) return '';
+  var num = m[1];
+  var rest = m[2]
+    .replace(/^(n|s|e|w|ne|nw|se|sw)\b\s*/i, '')
+    .replace(/\b(apt|unit|suite|ste|fl|floor|bldg)\b.*/i, '')
+    .trim();
+  var tail = rest.split(/\s+/).slice(0, 3).join(' ');
+  return num + ' ' + tail;
+}
+function _baselineLookupLD(addr) {
+  if (!addr || !_baselineCloseDates) return null;
+  var k1 = _normAddrLD(addr);
+  if (k1 && _baselineCloseDates[k1]) return _baselineCloseDates[k1];
+  var k2 = _streetKeyLD(addr);
+  if (k2 && _baselineCloseDates[k2]) return _baselineCloseDates[k2];
+  var street1 = String(addr).split(',')[0].trim();
+  var k3 = _normAddrLD(street1);
+  if (k3 && _baselineCloseDates[k3]) return _baselineCloseDates[k3];
+  return null;
 }
 function getBaselineCloseDateForLoan() {
   if (!_baselineCloseDates || !_loan || !_loan.address) return null;
-  var key = _normAddrLD(_loan.address);
-  if (!key) return null;
-  return (_baselineCloseDates[key] && _baselineCloseDates[key].closeDate) || null;
+  var entry = _baselineLookupLD(_loan.address);
+  return (entry && entry.closeDate) || null;
 }
 
 function init() {

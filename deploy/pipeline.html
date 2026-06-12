@@ -634,12 +634,66 @@ var _clientById = {};    // ownerKey|clientId → client record
 // buildQuoteCard's closeDateLine. Stays empty (falls back to local
 // fundingDate) if the mirror is empty or the endpoint errors.
 var _baselineCloseDates = {};  // normAddr → { closeDate, baselineId, status }
-// Module-level mirror of the closure-scoped _normAddr() helper inside
-// loadAll(). buildQuoteCard is defined at module scope and can't see
-// the inner one, so this is what it calls. Mirrors the backend's
-// normAddr() in baseline-close-dates.mjs so straight equality works.
+// Deploy 236.63 — address normalization moved to use the SAME logic as
+// baseline-close-dates.mjs. Folding street suffixes ("Main Street" <->
+// "Main St"), directionals ("N" <-> "North"), and trailing ", USA" so
+// SLA-side Google-Places-formatted addresses agree with whatever
+// Baseline-side LOs typed when creating the loan.
+var _SUFFIX_MAP_LD = {
+  'street':'st','st.':'st',
+  'avenue':'ave','ave.':'ave','av':'ave',
+  'road':'rd','rd.':'rd',
+  'drive':'dr','dr.':'dr',
+  'boulevard':'blvd','blvd.':'blvd',
+  'lane':'ln','ln.':'ln',
+  'court':'ct','ct.':'ct',
+  'circle':'cir','cir.':'cir',
+  'place':'pl','pl.':'pl',
+  'terrace':'ter','ter.':'ter',
+  'parkway':'pkwy','pkwy.':'pkwy',
+  'highway':'hwy','hwy.':'hwy',
+  'square':'sq','sq.':'sq',
+  'trail':'trl','trl.':'trl',
+  'north':'n','south':'s','east':'e','west':'w',
+  'northeast':'ne','northwest':'nw','southeast':'se','southwest':'sw',
+};
 function _normAddrMod(s) {
-  return String(s || '').toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  var v = String(s || '')
+    .toLowerCase()
+    .replace(/,?\s*usa\s*$/i, '')
+    .replace(/[,.#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  var toks = v.split(' ').map(function(t){ return _SUFFIX_MAP_LD[t] || t; });
+  return toks.join(' ');
+}
+// Just the street-number + first 3 words of the street name. Drops
+// leading directional + trailing apt/unit markers. Catches cases where
+// the cities or zips disagree but the street identity matches.
+function _streetKeyMod(s) {
+  var norm = _normAddrMod(s);
+  var m = norm.match(/^(\d+)\s+(.+)$/);
+  if (!m) return '';
+  var num = m[1];
+  var rest = m[2]
+    .replace(/^(n|s|e|w|ne|nw|se|sw)\b\s*/i, '')
+    .replace(/\b(apt|unit|suite|ste|fl|floor|bldg)\b.*/i, '')
+    .trim();
+  var tail = rest.split(/\s+/).slice(0, 3).join(' ');
+  return num + ' ' + tail;
+}
+// Try the lookup with progressively looser keys until one hits.
+function _baselineLookup(addr) {
+  if (!addr || !_baselineCloseDates) return null;
+  var k1 = _normAddrMod(addr);
+  if (k1 && _baselineCloseDates[k1]) return _baselineCloseDates[k1];
+  var k2 = _streetKeyMod(addr);
+  if (k2 && _baselineCloseDates[k2]) return _baselineCloseDates[k2];
+  // Last try: just the street1 portion (everything before the first comma)
+  var street1 = String(addr).split(',')[0].trim();
+  var k3 = _normAddrMod(street1);
+  if (k3 && _baselineCloseDates[k3]) return _baselineCloseDates[k3];
+  return null;
 }
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedItems = new Set();   // unified bulk-select set
@@ -1402,8 +1456,10 @@ function buildQuoteCard(it, colKey) {
   // Tooltip distinguishes the two sources.
   var closeDateLine = '';
   if (colKey === 'approved') {
-    var addrNorm61 = _normAddrMod(addr || '');
-    var baselineEntry = addrNorm61 ? _baselineCloseDates[addrNorm61] : null;
+    // Deploy 236.63 — try multiple normalization keys (full / street-key /
+    // street1-only) so Baseline's "123 Main Street, Springfield, IL 62704"
+    // matches SLA's "123 Main St, Springfield, IL 62704, USA".
+    var baselineEntry = _baselineLookup(addr || '');
     var baselineCd = baselineEntry && baselineEntry.closeDate || '';
     var localCd = (loanRec && loanRec.fundingDate) || fd.fundingDate || '';
     var cdRaw = baselineCd || localCd;
