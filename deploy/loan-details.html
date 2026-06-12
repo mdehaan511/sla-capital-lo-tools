@@ -579,6 +579,21 @@ function showToast(msg) {
 
 function clientsKey(email) { return 'sla_clients_' + (email||''); }
 
+// Deploy 236.61 — Baseline close-date lookup. Populated by a parallel
+// fetch in onUser(); consumed when the Application Form section
+// renders the "Desired Close Date" input. Stays null on fetch failure
+// so the page falls back to local-only behavior.
+var _baselineCloseDates = null;  // { byAddress: { <normAddr>: {closeDate, ...} } } or null
+function _normAddrLD(s) {
+  return String(s || '').toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function getBaselineCloseDateForLoan() {
+  if (!_baselineCloseDates || !_loan || !_loan.address) return null;
+  var key = _normAddrLD(_loan.address);
+  if (!key) return null;
+  return (_baselineCloseDates[key] && _baselineCloseDates[key].closeDate) || null;
+}
+
 function init() {
   var params = new URLSearchParams(window.location.search);
   _clientId = params.get('clientId');
@@ -599,6 +614,20 @@ function onUser(user) {
   if (navAdmin && window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
     navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
   }
+  // Deploy 236.61 — fire the Baseline close-date lookup in parallel
+  // with the loan fetch. Non-fatal on failure: a missing _baselineClose
+  // Dates just means the "Desired Close Date" field renders without
+  // its Baseline annotation. Calls render() again when the lookup
+  // resolves so the annotation appears even on the cached first paint.
+  if (window.SLA && SLA.Baseline && SLA.Baseline.Mirror && SLA.Baseline.Mirror.closeDates) {
+    SLA.Baseline.Mirror.closeDates().then(function(r) {
+      _baselineCloseDates = (r && r.byAddress) || {};
+      if (_loan) { try { render(); } catch (_) {} }
+    }).catch(function(){ _baselineCloseDates = {}; });
+  } else {
+    _baselineCloseDates = {};
+  }
+
   // Deploy 194 (perf): stale-while-revalidate. First try the local
   // cache for instant paint. The cache is populated by any prior page
   // load (Clients page, Pipeline, etc.) within the last 5 minutes.
@@ -1296,7 +1325,32 @@ function render() {
           '<option value="mtr"'+(l.rentalType==='mtr'?' selected':'')+'>Mid-Term Rental</option>' +
         '</select>' +
       '</div>' +
-      '<div class="field"><label>Desired Close Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" /></div>' +
+      // Deploy 236.61 — annotate the Desired Close Date input with
+      // Baseline's Estimated_Close_Date when the address is known to
+      // the mirror. Shown as a small line under the input so the LO
+      // sees both the local value (editable, ahead of sync) and what
+      // Baseline currently has on file. Defaults to nothing when the
+      // lookup hasn't resolved yet or the loan isn't in the mirror.
+      '<div class="field"><label>Desired Close Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" />' +
+        (function(){
+          var bcd = getBaselineCloseDateForLoan();
+          if (!bcd) return '';
+          var ymd = String(bcd).match(/^(\d{4})-(\d{2})-(\d{2})/);
+          var disp = bcd;
+          if (ymd) {
+            var d = new Date(parseInt(ymd[1],10), parseInt(ymd[2],10)-1, parseInt(ymd[3],10), 12, 0, 0);
+            if (!isNaN(d.getTime())) {
+              disp = d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+            }
+          }
+          var matchesLocal = (l.fundingDate && String(l.fundingDate).slice(0,10) === String(bcd).slice(0,10));
+          var pillStyle = matchesLocal
+            ? 'color:var(--muted)'
+            : 'color:var(--gold-mid,#b5712d);font-weight:600';
+          var note = matchesLocal ? ' (in sync)' : ' (Baseline value differs from local)';
+          return '<div style="font-size:11px;margin-top:4px;' + pillStyle + '" title="Baseline Estimated Close Date">Baseline: ' + escH(disp) + escH(note) + '</div>';
+        })() +
+      '</div>' +
       '<div class="field span2"><label>Description of Project</label><textarea id="af-projectDescription" placeholder="Briefly describe the work the borrower plans to complete (F&amp;F loans only)">'+escH(l.projectDescription||'')+'</textarea></div>' +
       // Deploy 226 — Notes moved out of the Application Form section
       // and into a dedicated Notes audit log section rendered below.

@@ -629,6 +629,11 @@ var _profileMap = {};   // ownerKey → {email, fullName}
 var _loanLookup = {};   // ownerKey|normAddr → {clientId, loanId}
 var _contactLookup = {}; // ownerKey|email → {clientId}
 var _clientById = {};    // ownerKey|clientId → client record
+// Deploy 236.61 — Baseline close-date lookup keyed by normalized address.
+// Populated alongside the clients/quotes loads in loadAll(); consumed by
+// buildQuoteCard's closeDateLine. Stays empty (falls back to local
+// fundingDate) if the mirror is empty or the endpoint errors.
+var _baselineCloseDates = {};  // normAddr → { closeDate, baselineId, status }
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedItems = new Set();   // unified bulk-select set
                                   // keys: "prospect|<ownerKey>|<prospectId>"
@@ -712,14 +717,24 @@ function loadAll() {
   var fetchBorrowerInfo = SLA.BorrowerInfo
     ? SLA.BorrowerInfo.list({ all: _scope === 'all' && _isAdmin }).catch(function(){ return { records: [] }; })
     : Promise.resolve({ records: [] });
+  // Deploy 236.61 — pull Baseline's close-date-by-address map alongside
+  // the rest of the loads so In Processing tiles can prefer Baseline's
+  // Estimated_Close_Date over the locally-saved fundingDate. Failure is
+  // non-fatal: the lookup stays empty and tiles fall back to the local
+  // value (the pre-236.61 source).
+  var fetchCloseDates = (SLA.Baseline && SLA.Baseline.Mirror && SLA.Baseline.Mirror.closeDates)
+    ? SLA.Baseline.Mirror.closeDates().catch(function(){ return { byAddress: {} }; })
+    : Promise.resolve({ byAddress: {} });
 
-  Promise.all([fetchProspects, fetchQuotes, fetchClients, fetchStats, fetchReminders, fetchBorrowerInfo]).then(function(results) {
+  Promise.all([fetchProspects, fetchQuotes, fetchClients, fetchStats, fetchReminders, fetchBorrowerInfo, fetchCloseDates]).then(function(results) {
     var prospectsResp = results[0] || {};
     var quotesResp    = results[1] || {};
     var clientsResp   = results[2] || {};
     var statsResp     = results[3] || { users: [] };
     var remindersResp = results[4] || {};
     var biResp        = results[5] || { records: [] };
+    var closeDatesResp = results[6] || { byAddress: {} };
+    _baselineCloseDates = (closeDatesResp && closeDatesResp.byAddress) || {};
 
     // Build borrower-info lookup. Since Deploy 168 borrower-info is
     // per-loan: records are keyed by (ownerKey, clientId, loanId). We
@@ -1368,16 +1383,25 @@ function buildQuoteCard(it, colKey) {
 
   // Deploy 236.60 — surface the desired close date on In Processing
   // tiles so LOs see at a glance when each deal is targeted to fund.
-  // fundingDate lives on the loan record (also called "Desired Close
-  // Date" in the UI); falls back to the formData stash for newer
-  // quotes that haven't synced to the loan record yet. Date string
-  // format is YYYY-MM-DD; parse with a noon-local anchor to avoid
-  // the UTC-parsing off-by-one trap fixed in Deploy 233.8 for
-  // Upcoming Closings.
+  // Date string format is YYYY-MM-DD; parse with a noon-local anchor
+  // to avoid the UTC-parsing off-by-one trap fixed in Deploy 233.8
+  // for Upcoming Closings.
+  //
+  // Deploy 236.61 — source priority changed. Baseline's
+  // Estimated_Close_Date is authoritative now (LOs maintain it as part
+  // of normal Baseline workflow + it stays accurate as the deal moves).
+  // Fall back to the local loanRec.fundingDate / fd.fundingDate for
+  // loans that haven't synced to Baseline yet (no mirror entry).
+  // Tooltip distinguishes the two sources.
   var closeDateLine = '';
   if (colKey === 'approved') {
-    var fundingDate = (loanRec && loanRec.fundingDate) || fd.fundingDate || '';
-    var ymd = String(fundingDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    var addrNorm61 = _normAddr(addr || '');
+    var baselineEntry = addrNorm61 ? _baselineCloseDates[addrNorm61] : null;
+    var baselineCd = baselineEntry && baselineEntry.closeDate || '';
+    var localCd = (loanRec && loanRec.fundingDate) || fd.fundingDate || '';
+    var cdRaw = baselineCd || localCd;
+    var cdSource = baselineCd ? 'Baseline Estimated Close Date' : 'Desired close date';
+    var ymd = String(cdRaw).match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (ymd) {
       var fy = parseInt(ymd[1], 10);
       var fm = parseInt(ymd[2], 10) - 1;
@@ -1393,7 +1417,7 @@ function buildQuoteCard(it, colKey) {
         else if (diffDays <= 7) urgencyClass = ' due-soon';
         var icon = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="display:inline-block;vertical-align:-1px"><rect x="1.5" y="2.5" width="9" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 1v2M8.5 1v2M1.5 5h9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
         var prefix = diffDays < 0 ? 'Closed ' : 'Closes ';
-        closeDateLine = '<div class="card-close' + urgencyClass + '" title="Desired close date">' + icon + prefix + escH(disp) + '</div>';
+        closeDateLine = '<div class="card-close' + urgencyClass + '" title="' + escAttr(cdSource) + '">' + icon + prefix + escH(disp) + '</div>';
       }
     }
   }

@@ -324,6 +324,16 @@
   status = 200
   force = true
 
+# Deploy 236.61 — lightweight close-date lookup for Pipeline + Loan
+# Details. Authed (any LO), returns only normalized-address -> close-date
+# from the Baseline mirror so the full mirror doesn't have to be opened
+# up to non-admins.
+[[redirects]]
+  from = "/api/baseline-close-dates"
+  to = "/.netlify/functions/baseline-close-dates"
+  status = 200
+  force = true
+
 # Deploy 236 (Brokers Phase 1): brokers as a first-class entity.
 # Owner-scoped blob store (each LO has their own broker book; admins
 # see all via ?all=1). Phase 2 wires the sizer's broker fields to pick

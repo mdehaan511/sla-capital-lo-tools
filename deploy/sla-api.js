@@ -549,6 +549,13 @@
         var path = '/api/baseline-mirror-list' + (qs.length ? '?' + qs.join('&') : '');
         return api('GET', path);
       },
+      // Deploy 236.61 — lightweight close-date lookup. Authed (any LO),
+      // returns { ok, count, byAddress: { <normAddr>: {closeDate, ...} },
+      // lastMirroredAt }. Used by Pipeline + Loan Details to surface
+      // Baseline's Estimated_Close_Date alongside the local fundingDate.
+      closeDates: function () {
+        return api('GET', '/api/baseline-close-dates');
+      },
     },
   };
 
