@@ -29,6 +29,9 @@
     body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem; }
     .page { max-width: 920px; margin: 0 auto; padding: 2rem 0 4rem; }
     .nav { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-bottom: 0.75rem; }
+    .nav-left { display: flex; align-items: center; gap: 16px; }
+    .nav-left img { height: 52px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
     .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
     .nav-tool-link.current { background:var(--gold-light); color:var(--gold-mid); border-color:var(--gold-border); }
@@ -191,9 +194,20 @@ function loadAllLoans() {
   });
 }
 
+// Deploy 236.72 — hide terminal-state loans from the picker so the
+// processor doesn't accidentally start a review on a loan that's
+// already off-pipeline. These statuses match the ones the main
+// Pipeline page filters out as side-tracks. `c.deleted` covers
+// soft-deleted client records.
+var SKIP_STATUSES = { on_hold: 1, cancelled: 1, closed: 1, deleted: 1, denied: 1, declined: 1 };
+
 function collectLoans(c, ownerKey, out) {
+  if (c && c.deleted) return;
   (c.loans || []).forEach(function(l) {
     if (!l.id) return;
+    var st = String(l.status || '').toLowerCase().trim();
+    if (SKIP_STATUSES[st]) return;
+    if (l.deleted) return;
     out.push({
       clientId: c.id,
       loanId: l.id,
@@ -204,7 +218,7 @@ function collectLoans(c, ownerKey, out) {
       loanAmount: Number(l.loanAmt || l.loanAmount || 0),
       expectedCloseDate: l.fundingDate || l.expectedCloseDate || '',
       loEmail: ownerKey || '',
-      status: l.status || '',
+      status: st,
     });
   });
 }
