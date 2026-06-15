@@ -875,7 +875,13 @@ function loadAll() {
           if (c.email) _contactLookup[ownerKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: ownerKey };
           (c.loans || []).forEach(function(l) {
             if (!l.id) return;
-            var rec = { clientId: c.id, loanId: l.id, ownerKey: ownerKey };
+            // Deploy 236.67 — stamp loanStatus so the bucket logic can
+            // cross-check the LOAN status (source of truth) against
+            // the quote status (what column-mapping reads). If the
+            // quote-side sync silently misses (rank guard bug, store
+            // write fail, etc.) the loan-side check still removes
+            // the tile from the pipeline.
+            var rec = { clientId: c.id, loanId: l.id, ownerKey: ownerKey, loanStatus: String(l.status || '').toLowerCase().trim() };
             _loanLookup[ownerKey + '|id|' + l.id] = rec;
             if (l.address) {
               _loanLookup[ownerKey + '|' + norm(l.address)] = rec;
@@ -901,7 +907,8 @@ function loadAll() {
         if (c.email) _contactLookup[myKey + '|' + ne(c.email)] = { clientId: c.id, ownerKey: myKey };
         (c.loans || []).forEach(function(l) {
           if (!l.id) return;
-          var rec2 = { clientId: c.id, loanId: l.id, ownerKey: myKey };
+          // Deploy 236.67 — see byOwner branch above.
+          var rec2 = { clientId: c.id, loanId: l.id, ownerKey: myKey, loanStatus: String(l.status || '').toLowerCase().trim() };
           _loanLookup[myKey + '|id|' + l.id] = rec2;
           if (l.address) {
             _loanLookup[myKey + '|' + norm(l.address)] = rec2;
@@ -1074,6 +1081,21 @@ function loadAll() {
     // Quotes split by status (quotes already collected above)
     dedupedQuotes.forEach(function(item) {
       var s = item.quote.status || 'active';
+      // Deploy 236.67 — defense in depth. The LOAN record is the source
+      // of truth for status (the admin Move Status panel writes loan-
+      // side first, quotes are synced after). If the loan-side write
+      // succeeds but the quote-side sync silently misses for any
+      // reason (rank-guard regression, blob write error, address
+      // mismatch on legacy quotes, etc.) the tile would otherwise stay
+      // in the wrong column. Check the loan status BEFORE the quote
+      // status: if the loan is on_hold/denied/closed/cancelled, hide
+      // the tile from the active pipeline regardless of what the
+      // stale quote.status says.
+      var loanRec = item.quote.loanId
+        ? _loanLookup[item.owner + '|id|' + item.quote.loanId]
+        : null;
+      var loanStatus = (loanRec && loanRec.loanStatus) || '';
+      if (loanStatus === 'on_hold' || loanStatus === 'denied' || loanStatus === 'closed' || loanStatus === 'cancelled') return;
       // Deploy 236.13 — cancelled is now also filtered out of the
       // active pipeline (was previously falling into the 'quoted' else
       // branch which made cancelled tiles linger in the Quoted column).
