@@ -462,11 +462,21 @@ const GUIDELINES = {
   minPropertyValue: 125000,   // $125,000 single property
   maxPropertyValue_1unit: 3000000,   // $3,000,000 for 1-unit
   maxPropertyValue_24unit: 5000000,  // $5,000,000 for 2-4 unit
+  // Deploy 236.65 — portfolio loans are aggregate-of-properties, so the
+  // "property value" field represents combined value. $6.25M caps the
+  // pool at the level that supports a $5M portfolio loan at 80% LTV.
+  maxPropertyValue_portfolio: 6250000,
 
   // Loan amount limits (1-4 Unit SFR)
   minLoanAmount: 100000,       // $100,000 single property
   maxLoanAmount_1unit: 1500000,  // $1,500,000 single-unit SFR/condo
   maxLoanAmount_24unit: 2500000, // $2,500,000 for 2-4 unit
+  // Deploy 236.65 — portfolio loans cap at $5M in the sizer, but
+  // anything above the $3M "standard" threshold surfaces a warning
+  // (not a hard error) noting that the deal requires final approval.
+  // Lets the LO size the deal end-to-end before escalating.
+  maxLoanAmount_portfolio: 5000000,
+  portfolioSoftCap: 3000000,
 
   // FICO minimums
   minFICO: 660,               // 660 min (< 680 requires pre-approval)
@@ -517,9 +527,21 @@ function validateGuidelines(params) {
     if (propVal < GUIDELINES.minPropertyValue) {
       msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' is below the $125,000 minimum.'});
     }
-    var maxPV = propType === '2-4' ? GUIDELINES.maxPropertyValue_24unit : GUIDELINES.maxPropertyValue_1unit;
+    // Deploy 236.65 — portfolio gets its own property-value cap
+    // (aggregate of pool, sized to support a $5M loan at 80% LTV).
+    var maxPV, maxPVLabel;
+    if (propType === 'portfolio') {
+      maxPV = GUIDELINES.maxPropertyValue_portfolio;
+      maxPVLabel = '$6,250,000';
+    } else if (propType === '2-4') {
+      maxPV = GUIDELINES.maxPropertyValue_24unit;
+      maxPVLabel = '$5,000,000';
+    } else {
+      maxPV = GUIDELINES.maxPropertyValue_1unit;
+      maxPVLabel = '$3,000,000';
+    }
     if (propVal > maxPV) {
-      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' exceeds the '+(propType==='2-4'?'$5,000,000':'$3,000,000')+' maximum for this property type.'});
+      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' exceeds the '+maxPVLabel+' maximum for this property type.'});
     }
   }
 
@@ -528,9 +550,22 @@ function validateGuidelines(params) {
     if (loan < GUIDELINES.minLoanAmount) {
       msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' is below the $100,000 minimum.'});
     }
-    var maxLoan = propType === '2-4' ? GUIDELINES.maxLoanAmount_24unit : GUIDELINES.maxLoanAmount_1unit;
-    if (loan > maxLoan) {
-      msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' exceeds the '+(propType==='2-4'?'$2,500,000':'$1,500,000')+' maximum. Exceeding these limits requires pre-approval.'});
+    // Deploy 236.65 — portfolio loans size up to $5M in the sizer;
+    // anything above the $3M "standard" threshold passes through with a
+    // soft warning ("requires final approval") rather than a hard error
+    // so the LO can complete the sizer and escalate. > $5M hard-errors
+    // as before.
+    if (propType === 'portfolio') {
+      if (loan > GUIDELINES.maxLoanAmount_portfolio) {
+        msgs.push({level:'error', msg:'Portfolio loan amount $'+loan.toLocaleString()+' exceeds the $5,000,000 maximum supported by the sizer. Loans above this require manual underwriting outside the platform.'});
+      } else if (loan > GUIDELINES.portfolioSoftCap) {
+        msgs.push({level:'warn', msg:'Portfolio loan amount $'+loan.toLocaleString()+' is above the $3,000,000 standard limit. Eligible up to $5,000,000 but requires final approval from a manager before closing.'});
+      }
+    } else {
+      var maxLoan = propType === '2-4' ? GUIDELINES.maxLoanAmount_24unit : GUIDELINES.maxLoanAmount_1unit;
+      if (loan > maxLoan) {
+        msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' exceeds the '+(propType==='2-4'?'$2,500,000':'$1,500,000')+' maximum. Exceeding these limits requires pre-approval.'});
+      }
     }
   }
 
