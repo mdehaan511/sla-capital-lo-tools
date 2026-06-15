@@ -1091,9 +1091,20 @@ function loadAll() {
       // status: if the loan is on_hold/denied/closed/cancelled, hide
       // the tile from the active pipeline regardless of what the
       // stale quote.status says.
-      var loanRec = item.quote.loanId
-        ? _loanLookup[item.owner + '|id|' + item.quote.loanId]
-        : null;
+      //
+      // Deploy 236.68 — fall back to address / street lookup when
+      // quote.loanId is missing or stale. Pre-Deploy-236.7 quotes
+      // have no loanId at all, and same-address two-loan scenarios
+      // can leave a quote's loanId pointing at a since-deleted loan.
+      // Without these fallbacks the cross-check silently misses
+      // exactly the cases it was added to catch.
+      var addrLookKey = item.quote.address ? _normAddr(item.quote.address) : '';
+      var streetLookKey = '';
+      if (addrLookKey) streetLookKey = addrLookKey.split(',')[0].trim();
+      var loanRec = (item.quote.loanId && _loanLookup[item.owner + '|id|' + item.quote.loanId])
+                 || (addrLookKey && _loanLookup[item.owner + '|' + addrLookKey])
+                 || (streetLookKey && _loanLookup[item.owner + '|street|' + streetLookKey])
+                 || null;
       var loanStatus = (loanRec && loanRec.loanStatus) || '';
       if (loanStatus === 'on_hold' || loanStatus === 'denied' || loanStatus === 'closed' || loanStatus === 'cancelled') return;
       // Deploy 236.13 — cancelled is now also filtered out of the
