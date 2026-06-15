@@ -227,6 +227,22 @@
           <span class="tool-arrow">Open tool →</span>
         </a>
 
+        <!-- Deploy 236.71 — Loan Doc Review (Processor + Admin only). The
+             card stays hidden in markup until showApp() confirms the
+             user has the processor or admin role. -->
+        <a class="tool-card" href="loan-review.html" data-role-required="processor" style="display:none">
+          <div class="badge">Processing</div>
+          <div class="tool-icon">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 3h9l3 3v11a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="#C8813A" stroke-width="1.5"/>
+              <path d="M13 3v3h3M6 10l2 2 4-4" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <p class="tool-name">Loan Doc Review</p>
+          <p class="tool-desc">AI-assisted review of borrower, collateral, and closing docs against investor standards.</p>
+          <span class="tool-arrow">Open tool →</span>
+        </a>
+
       </div>
 
       <p class="footer">SLA Capital &middot; Sir Lends A Lot LLC &middot; Internal use only</p>
@@ -255,10 +271,26 @@
     function isAdmin(user) {
       return getRoles(user).some(function(r){ return r === 'admin' || r === 'super_admin'; });
     }
+    // Deploy 236.71 — processor tier (admins implicitly count).
+    function isProcessor(user) {
+      return getRoles(user).some(function(r){ return r === 'processor' || r === 'admin' || r === 'super_admin'; });
+    }
 
     function showApp(user) {
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
+      // Deploy 236.71 — reveal role-gated tool cards based on the
+      // current user's roles. Tiles in the markup carry
+      // data-role-required="processor" (or "admin" / "super_admin")
+      // and are hidden by default. We walk the grid here and unhide
+      // each one the user qualifies for.
+      var roleChecks = { processor: isProcessor, admin: isAdmin, super_admin: isSuperAdmin };
+      var gated = document.querySelectorAll('.tool-card[data-role-required]');
+      for (var i = 0; i < gated.length; i++) {
+        var req = gated[i].getAttribute('data-role-required');
+        var check = roleChecks[req];
+        if (check && check(user)) gated[i].style.display = '';
+      }
       // Deploy 236.25: admin-link visibility is now driven by sla-nav.js
       // (Submissions / Dashboard / etc. are role-gated inside the LINKS
       // array). The old #navSubmissionsLink toggle is no longer needed.

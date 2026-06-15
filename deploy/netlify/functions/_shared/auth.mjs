@@ -107,6 +107,16 @@ export function isSuperAdmin(user) {
 }
 
 /**
+ * Deploy 236.71 — Loan Doc Review tool.
+ * A "processor" is a user with extra access to the Loan Doc Review
+ * pages and the loan-reviews-* endpoints. Admins implicitly count as
+ * processors (admins can do anything a processor can do).
+ */
+export function isProcessor(user) {
+  return getRoles(user).some((r) => r === 'processor' || r === 'admin' || r === 'super_admin');
+}
+
+/**
  * Parse a JSON body from a Request, returning {} on failure.
  */
 export async function readJsonBody(req) {

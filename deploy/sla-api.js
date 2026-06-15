@@ -989,6 +989,8 @@
   }
   function isAdmin(user) { return getRoles(user).some(function (r) { return r === 'admin' || r === 'super_admin'; }); }
   function isSuperAdmin(user) { return getRoles(user).some(function (r) { return r === 'super_admin'; }); }
+  // Deploy 236.71 — "processor" is a User+Extras tier. Admins implicitly count.
+  function isProcessor(user) { return getRoles(user).some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin'; }); }
 
   // The LO's apply-link slug is simply their email address.
   // URLs are like apply.html?lo=mike@slacapital.com (URL-encoded).
@@ -1080,6 +1082,65 @@
     },
   };
 
+  // ── Loan Doc Review (Deploy 236.71) ─────────────────────────────
+  // Phase 1 of the Loan Doc Review tool — processor-tier workflow for
+  // reviewing the doc package on a loan before it ships to the
+  // investor. Read/Write goes through this namespace.
+  var LoanReviews = {
+    list: function (opts) {
+      var q = '';
+      if (opts && opts.status) q = '?status=' + encodeURIComponent(opts.status);
+      return api('GET', '/api/loan-reviews' + q);
+    },
+    get: function (id) {
+      return api('GET', '/api/loan-reviews-get?id=' + encodeURIComponent(id));
+    },
+    create: function (payload) {
+      return api('POST', '/api/loan-reviews-save', payload);
+    },
+    patch: function (id, patch) {
+      return api('POST', '/api/loan-reviews-save', { id: id, patch: patch });
+    },
+    remove: function (id) {
+      return api('POST', '/api/loan-reviews-delete', { id: id });
+    },
+    /**
+     * Upload a single doc. `file` is a File/Blob from a <input type=file>
+     * or a drag-drop event. We base64-encode it client-side so the
+     * function endpoint can stay JSON-only (no multipart parsing).
+     */
+    uploadDoc: function (reviewId, slug, file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () {
+          var dataUrl = reader.result || '';
+          var commaIdx = String(dataUrl).indexOf(',');
+          var b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+          if (!b64) return reject(new Error('Failed to read file'));
+          api('POST', '/api/loan-review-doc-upload', {
+            reviewId: reviewId,
+            slug: slug,
+            filename: file.name || 'upload.pdf',
+            mimeType: file.type || 'application/pdf',
+            sizeBytes: file.size || 0,
+            contentBase64: b64,
+          }).then(resolve, reject);
+        };
+        reader.onerror = function () { reject(new Error('Failed to read file')); };
+        reader.readAsDataURL(file);
+      });
+    },
+    deleteDoc: function (reviewId, slug, docId) {
+      return api('POST', '/api/loan-review-doc-delete', {
+        reviewId: reviewId, slug: slug, docId: docId,
+      });
+    },
+    docUrl: function (reviewId, docId) {
+      return '/api/loan-review-doc-get?reviewId=' + encodeURIComponent(reviewId)
+           + '&docId=' + encodeURIComponent(docId);
+    },
+  };
+
   // ── Public namespace ────────────────────────────────────────────
   window.SLA = {
     api: api,
@@ -1100,10 +1161,12 @@
     Reminders: Reminders,
     Brokers: Brokers,
     Loans: Loans,
+    LoanReviews: LoanReviews,
     Search: Search,
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
+    isProcessor: isProcessor,
     slugFromUser: slugFromUser,
   };
 

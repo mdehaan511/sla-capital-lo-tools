@@ -39,6 +39,9 @@
         { label: 'Loans',   href: 'loans.html'  },
       ],
     },
+    // Deploy 236.71 — Loan Doc Review tool. Visible to processors and
+    // admins (admins implicitly have processor access).
+    { label: 'Doc Review', href: 'loan-review.html', requires: 'processor' },
     { label: 'Submissions', href: 'submissions.html', requires: 'admin' },
     { label: 'Dashboard',   href: 'dashboard.html',   requires: 'admin' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile
@@ -76,6 +79,8 @@
     }
     if (role === 'admin') return roles.some(function (r) { return r === 'admin' || r === 'super_admin'; });
     if (role === 'super_admin') return roles.some(function (r) { return r === 'super_admin'; });
+    // Deploy 236.71 — processor tier (admins implicitly count).
+    if (role === 'processor') return roles.some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin'; });
     return true;
   }
 
@@ -91,6 +96,7 @@
   function visibleForUser(link, user) {
     if (link.requires === 'admin') return hasRole(user, 'admin');
     if (link.requires === 'super_admin') return hasRole(user, 'super_admin');
+    if (link.requires === 'processor') return hasRole(user, 'processor');
     return true;
   }
 

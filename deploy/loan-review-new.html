@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New Loan Review — SLA Capital</title>
+  <!-- Deploy 236.71 — Loan Doc Review tool, "+ New Loan Review" wizard.
+       Step 1: choose Existing-Loan or New-Stub.
+         - Existing: pick a loan already in the SLA system. Pulls
+           address / borrower / LO / loanType / loan amount /
+           expected close date from the loan record.
+         - Stub: brand-new loan not yet in the system. Processor
+           enters the basics manually. Phase 3 will replace this
+           step with an AI-extracted version (upload Loan App +
+           Rate Sheet to populate). -->
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js" defer></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem; }
+    .page { max-width: 920px; margin: 0 auto; padding: 2rem 0 4rem; }
+    .nav { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-bottom: 0.75rem; }
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .nav-tool-link.current { background:var(--gold-light); color:var(--gold-mid); border-color:var(--gold-border); }
+    .header-tagline { font-family: 'Lora', serif; font-size: 12px; color: var(--muted); letter-spacing: 0.02em; padding-bottom: 1.5rem; border-bottom: 1px solid var(--gold-border); margin-bottom: 2rem; }
+    .breadcrumb { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .breadcrumb a { color: var(--muted); text-decoration: none; }
+    .breadcrumb a:hover { color: var(--gold-mid); }
+    .page-title { font-size: 22px; font-weight: 600; color: var(--text); margin-bottom: 1.5rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.25rem; }
+    .card h3 { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+
+    .choice-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 1rem; }
+    @media (max-width: 700px) { .choice-row { grid-template-columns: 1fr; } }
+    .choice-card { padding: 18px; border: 2px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.15s; background: var(--surface); }
+    .choice-card:hover { border-color: var(--gold-border); background: var(--gold-light); }
+    .choice-card.active { border-color: var(--gold); background: var(--gold-light); }
+    .choice-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .choice-card p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    @media (max-width: 700px) { .form-row { grid-template-columns: 1fr; } }
+    label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+    input, select { width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: 'DM Sans', sans-serif; background: var(--surface); }
+    input:focus, select:focus { outline: none; border-color: var(--gold); }
+
+    .search-results { max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+    .result-row { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+    .result-row:last-child { border-bottom: none; }
+    .result-row:hover { background: var(--gold-light); }
+    .result-row.selected { background: var(--gold-light); border-left: 3px solid var(--gold); padding-left: 11px; }
+    .result-row .addr { font-weight: 500; font-size: 13px; color: var(--text); }
+    .result-row .meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; }
+    .empty-results { padding: 1.5rem; text-align: center; color: var(--muted); font-size: 13px; }
+
+    .actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 1rem; }
+    .btn-primary { padding: 10px 20px; background: var(--gold); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; font-family: 'DM Sans', sans-serif; }
+    .btn-primary:hover:not(:disabled) { background: var(--gold-mid); }
+    .btn-primary:disabled { background: #c5b9a1; cursor: not-allowed; }
+    .btn-ghost { padding: 10px 20px; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
+    .btn-ghost:hover { border-color: var(--gold); color: var(--gold-mid); }
+    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); z-index: 1000; max-width: 360px; display: none; }
+    .toast.success { border-color: rgba(21,128,61,0.4); color: #15803d; }
+    .toast.error { border-color: rgba(185,28,28,0.4); color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav class="nav" id="slaNav"></nav>
+    <div class="header-tagline">Internal tools &middot; Processing &middot; New doc review</div>
+
+    <div class="breadcrumb"><a href="loan-review.html">← Loan Doc Review</a></div>
+    <div class="page-title">New Loan Review</div>
+
+    <div class="card">
+      <h3>Where does the loan come from?</h3>
+      <div class="choice-row">
+        <div class="choice-card active" data-choice="existing" id="choiceExisting">
+          <h4>Existing loan</h4>
+          <p>Pick a loan already in SLA's system. Address, borrower, loan type, and amount are pulled from the loan record.</p>
+        </div>
+        <div class="choice-card" data-choice="stub" id="choiceStub">
+          <h4>New loan (not yet in system)</h4>
+          <p>Enter the loan basics manually. Useful for backfilling reviews on loans that originated outside the sales pipeline.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Existing loan picker -->
+    <div class="card" id="cardExisting">
+      <h3>Find the loan</h3>
+      <input type="text" class="search-input" id="loanSearch" placeholder="Search by address, borrower name, or loan ID…" style="height:38px;padding:0 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;margin-bottom:12px;" />
+      <div class="search-results" id="searchResults">
+        <div class="empty-results">Loading loans…</div>
+      </div>
+    </div>
+
+    <!-- New stub form -->
+    <div class="card" id="cardStub" style="display:none">
+      <h3>Loan details</h3>
+      <div class="form-row">
+        <div>
+          <label>Loan type</label>
+          <select id="stubLoanType">
+            <option value="dscr">DSCR</option>
+            <option value="rtl">RTL (Bridge / Fix &amp; Flip)</option>
+          </select>
+        </div>
+        <div>
+          <label>Loan amount ($)</label>
+          <input type="number" id="stubLoanAmount" placeholder="450000" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div style="grid-column: 1 / -1">
+          <label>Property address</label>
+          <input type="text" id="stubAddress" placeholder="123 Main St, Atlanta, GA 30301" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Borrower name</label>
+          <input type="text" id="stubBorrower" placeholder="John Smith / ABC LLC" />
+        </div>
+        <div>
+          <label>LO email (optional)</label>
+          <input type="email" id="stubLoEmail" placeholder="lo@slacapital.com" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Expected close date</label>
+          <input type="date" id="stubCloseDate" />
+        </div>
+        <div></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a href="loan-review.html" class="btn-ghost" style="text-decoration:none;display:inline-flex;align-items:center;">Cancel</a>
+      <button class="btn-primary" id="startBtn" disabled onclick="startReview()">Start Review →</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+var _user = null;
+var _choice = 'existing';
+var _allLoans = [];     // flattened {clientId, loanId, ownerKey, address, borrowerName, loanType, loanAmount, expectedCloseDate, loEmail}
+var _selectedLoan = null;
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!SLA.isProcessor(user)) {
+    document.body.innerHTML = '<div style="max-width:600px;margin:4rem auto;padding:2rem;text-align:center;font-family:DM Sans,sans-serif;"><h2>Access denied</h2><p style="color:#7a7488;margin-top:1rem;">The Loan Doc Review tool is available to processors and admins.</p><p style="margin-top:2rem;"><a href="/" style="color:#C8813A;">← Back to home</a></p></div>';
+    return;
+  }
+  _user = user;
+  loadAllLoans();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function loadAllLoans() {
+  // Admins get all LOs; non-admin processors get their own clients only.
+  // (Processors who need to review across LOs are admins per Mike's spec.)
+  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  p.then(function(r) {
+    var flat = [];
+    if (r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(ownerKey) {
+        (r.byOwner[ownerKey] || []).forEach(function(c) { collectLoans(c, ownerKey, flat); });
+      });
+    } else {
+      (r.clients || []).forEach(function(c) { collectLoans(c, (_user.email || '').toLowerCase(), flat); });
+    }
+    _allLoans = flat;
+    renderSearchResults();
+  }).catch(function(err) {
+    document.getElementById('searchResults').innerHTML = '<div class="empty-results">Failed to load loans: ' + escHtml(err.message || 'Unknown') + '</div>';
+  });
+}
+
+function collectLoans(c, ownerKey, out) {
+  (c.loans || []).forEach(function(l) {
+    if (!l.id) return;
+    out.push({
+      clientId: c.id,
+      loanId: l.id,
+      ownerKey: ownerKey,
+      address: l.address || '',
+      borrowerName: ((c.firstName || '') + ' ' + (c.lastName || '')).trim(),
+      loanType: detectLoanType(l),
+      loanAmount: Number(l.loanAmt || l.loanAmount || 0),
+      expectedCloseDate: l.fundingDate || l.expectedCloseDate || '',
+      loEmail: ownerKey || '',
+      status: l.status || '',
+    });
+  });
+}
+
+function detectLoanType(l) {
+  // Existing loan records use product='dscr' or product='rtl' (et al).
+  // Fall back to a guess based on field presence.
+  var prod = String(l.product || l.loanType || '').toLowerCase();
+  if (prod.indexOf('dscr') >= 0) return 'dscr';
+  if (prod.indexOf('rtl') >= 0 || prod.indexOf('bridge') >= 0 || prod.indexOf('fix') >= 0 || prod.indexOf('flip') >= 0) return 'rtl';
+  if (l.rentalType || l.dscr) return 'dscr';
+  return 'rtl';
+}
+
+function renderSearchResults() {
+  var q = (document.getElementById('loanSearch').value || '').toLowerCase().trim();
+  var container = document.getElementById('searchResults');
+  var filtered = _allLoans.filter(function(l) {
+    if (!q) return true;
+    return (l.address + ' ' + l.borrowerName + ' ' + l.loanId).toLowerCase().indexOf(q) >= 0;
+  }).slice(0, 50); // cap at 50 for perf
+
+  if (!filtered.length) {
+    container.innerHTML = '<div class="empty-results">' + (q ? 'No loans match your search.' : 'No loans available.') + '</div>';
+    return;
+  }
+  container.innerHTML = filtered.map(function(l) {
+    var sel = (_selectedLoan && _selectedLoan.loanId === l.loanId) ? ' selected' : '';
+    var amt = l.loanAmount ? '$' + Number(l.loanAmount).toLocaleString() : '';
+    return '<div class="result-row' + sel + '" onclick="selectLoan(\'' + escAttr(l.loanId) + '\')">' +
+      '<div class="addr">' + escHtml(l.address || '(no address)') + '</div>' +
+      '<div class="meta">' + escHtml(l.borrowerName) + ' &middot; ' + escHtml(l.loanType.toUpperCase()) + (amt ? ' &middot; ' + amt : '') + ' &middot; LO: ' + escHtml(l.loEmail) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function selectLoan(loanId) {
+  _selectedLoan = _allLoans.find(function(l) { return l.loanId === loanId; }) || null;
+  renderSearchResults();
+  updateStartBtn();
+}
+
+function updateStartBtn() {
+  var btn = document.getElementById('startBtn');
+  if (_choice === 'existing') {
+    btn.disabled = !_selectedLoan;
+  } else {
+    var hasAddr = !!document.getElementById('stubAddress').value.trim();
+    var hasAmt  = Number(document.getElementById('stubLoanAmount').value) > 0;
+    btn.disabled = !(hasAddr && hasAmt);
+  }
+}
+
+function startReview() {
+  var btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+
+  var payload;
+  if (_choice === 'existing') {
+    if (!_selectedLoan) return;
+    payload = {
+      loanType: _selectedLoan.loanType,
+      source: {
+        kind: 'existing',
+        clientId: _selectedLoan.clientId,
+        loanId: _selectedLoan.loanId,
+        ownerKey: _selectedLoan.ownerKey,
+      },
+      address: _selectedLoan.address,
+      borrowerName: _selectedLoan.borrowerName,
+      loanAmount: _selectedLoan.loanAmount,
+      loEmail: _selectedLoan.loEmail,
+      expectedCloseDate: _selectedLoan.expectedCloseDate,
+    };
+  } else {
+    payload = {
+      loanType: document.getElementById('stubLoanType').value,
+      source: { kind: 'stub' },
+      address: document.getElementById('stubAddress').value.trim(),
+      borrowerName: document.getElementById('stubBorrower').value.trim(),
+      loanAmount: Number(document.getElementById('stubLoanAmount').value),
+      loEmail: document.getElementById('stubLoEmail').value.trim(),
+      expectedCloseDate: document.getElementById('stubCloseDate').value,
+    };
+  }
+
+  SLA.LoanReviews.create(payload).then(function(r) {
+    if (r && r.review && r.review.id) {
+      window.location.href = 'loan-review-detail.html?id=' + encodeURIComponent(r.review.id);
+    } else {
+      throw new Error('Server did not return a review id');
+    }
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Start Review →';
+    showToast('Failed to create review: ' + (err.message || 'Unknown error'), 'error');
+  });
+}
+
+// Choice card toggle
+document.querySelectorAll('.choice-card').forEach(function(el) {
+  el.addEventListener('click', function() {
+    document.querySelectorAll('.choice-card').forEach(function(e2){ e2.classList.remove('active'); });
+    el.classList.add('active');
+    _choice = el.getAttribute('data-choice');
+    document.getElementById('cardExisting').style.display = _choice === 'existing' ? '' : 'none';
+    document.getElementById('cardStub').style.display     = _choice === 'stub' ? '' : 'none';
+    updateStartBtn();
+  });
+});
+
+// Search input wiring
+document.getElementById('loanSearch').addEventListener('input', renderSearchResults);
+
+// Stub-form field changes
+['stubAddress', 'stubLoanAmount', 'stubBorrower', 'stubLoanType', 'stubLoEmail', 'stubCloseDate'].forEach(function(id) {
+  document.getElementById(id).addEventListener('input', updateStartBtn);
+});
+
+// Helpers
+function escHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return escHtml(s).replace(/"/g,'&quot;'); }
+function showToast(text, kind) {
+  var t = document.getElementById('toast');
+  t.className = 'toast ' + (kind || '');
+  t.textContent = text;
+  t.style.display = 'block';
+  setTimeout(function() { t.style.display = 'none'; }, 4500);
+}
+</script>
+</body>
+</html>
