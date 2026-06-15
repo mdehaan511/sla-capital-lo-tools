@@ -200,10 +200,26 @@ async function handle(req, context) {
       if (matchByLegacy) q.loanId = body.loanId;
       // Update — but don't downgrade. If the quote is already at a
       // "further along" status (e.g. closed), leave it alone.
-      const RANK = { active: 0, submitted: 1, awaiting_app: 2, approved: 3, closed: 4 };
-      const currentRank = RANK[q.status] || 0;
-      const newRank     = RANK[body.newStatus] || 0;
-      if (newRank < currentRank) continue;
+      //
+      // Deploy 236.66 (bug fix) — rank guard now ONLY applies to
+      // non-admin callers (who can only target 'approved' anyway,
+      // making the guard mostly a safety net against
+      // re-advancing already-closed loans). Admins explicitly pick
+      // the target status from the Move Status dropdown and need to
+      // be able to send a loan to side-track statuses (on_hold,
+      // denied, cancelled) which aren't in the linear rank map.
+      // The original code treated on_hold / denied / cancelled as
+      // rank 0 because they weren't in the map, so any move from a
+      // higher rank silently skipped the quote-side sync — leaving
+      // the loan record correctly on_hold but the quote stuck on the
+      // prior status, which is what the pipeline reads from for
+      // column placement.
+      if (!isAdmin(user)) {
+        const RANK = { active: 0, submitted: 1, awaiting_app: 2, approved: 3, closed: 4 };
+        const currentRank = RANK[q.status] || 0;
+        const newRank     = RANK[body.newStatus] || 0;
+        if (newRank < currentRank) continue;
+      }
       q.status = body.newStatus;
       q.updatedAt = now;
       q._manualAdvanceAt   = now;
