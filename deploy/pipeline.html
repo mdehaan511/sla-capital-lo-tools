@@ -739,6 +739,15 @@ netlifyIdentity.on('init', function(user) {
       });
     }
   }
+  // Deploy 236.69 — opt-in cross-check diagnostic. Add ?pipeDebug=1
+  // to the URL to dump every quote's loan-lookup result to the
+  // console, so we can see why a tile that should be hidden isn't.
+  try {
+    if (new URLSearchParams(window.location.search).get('pipeDebug') === '1') {
+      window._SLA_PIPE_DEBUG = true;
+      console.log('[SLA] Pipeline cross-check debug enabled. Look for "[SLA] pipe-debug:" log lines.');
+    }
+  } catch (e) {}
   loadAll();
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
@@ -1106,6 +1115,23 @@ function loadAll() {
                  || (streetLookKey && _loanLookup[item.owner + '|street|' + streetLookKey])
                  || null;
       var loanStatus = (loanRec && loanRec.loanStatus) || '';
+      // Deploy 236.69 — diagnostic log toggled by ?pipeDebug=1. Dumps
+      // every quote's owner/address/loanId/loanRec/loanStatus to the
+      // console so we can see why the cross-check isn't matching.
+      if (window._SLA_PIPE_DEBUG) {
+        console.log('[SLA] pipe-debug:', {
+          address:    item.quote.address || '',
+          quoteId:    item.quote.id || '',
+          quoteLoanId:item.quote.loanId || '',
+          quoteStatus:s,
+          owner:      item.owner,
+          idKey:      item.quote.loanId ? (item.owner + '|id|' + item.quote.loanId) : '',
+          addrKey:    addrLookKey ? (item.owner + '|' + addrLookKey) : '',
+          streetKey:  streetLookKey ? (item.owner + '|street|' + streetLookKey) : '',
+          loanRecFound: !!loanRec,
+          loanRecStatus: loanStatus,
+        });
+      }
       if (loanStatus === 'on_hold' || loanStatus === 'denied' || loanStatus === 'closed' || loanStatus === 'cancelled') return;
       // Deploy 236.13 — cancelled is now also filtered out of the
       // active pipeline (was previously falling into the 'quoted' else
