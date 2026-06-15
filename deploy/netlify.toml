@@ -537,6 +537,20 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
+# Deploy 236.70 — HTML pages must NOT be cached aggressively. Without
+# explicit headers, browsers (especially Chrome) sometimes hold a
+# stale copy across deploys, which makes bug fixes appear to "not
+# work" until the user does a hard refresh. no-cache + must-revalidate
+# tells the browser it MAY keep the file but MUST check ETag with
+# origin before serving — typically a 304 round-trip (fast) until
+# we deploy, then a full re-download of the new content. Pages with
+# auth content already aren't fit for shared caches, so 'private'
+# stops upstream proxies from caching too.
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "private, no-cache, must-revalidate"
+
 # Deploy 194 (perf): cache static JS/CSS aggressively in the browser.
 # These files change on each deploy (Netlify serves the latest build's
 # content for the same URL), but within a session they should not be
