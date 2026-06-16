@@ -870,7 +870,19 @@ function render() {
       '<span>Loan Details</span>' +
     '</div>' +
     '<div style="margin-bottom:12px"><a href="'+escAttr(backUrl)+'" class="back-btn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> '+escH((c.firstName||'')+' '+(c.lastName||''))+'</a></div>' +
-    '<div class="page-title">'+escH(l.address||'No address')+'</div>' +
+    // Deploy 236.73 — page-title row is a flex container so the Loan
+    // Doc Review button (processor + admin only) can sit pushed-right
+    // alongside the address. Regular LOs see just the address.
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">' +
+      '<div class="page-title">'+escH(l.address||'No address')+'</div>' +
+      (window.SLA && SLA.isProcessor && SLA.isProcessor(_user)
+        ? '<button type="button" id="docReviewBtn" onclick="openOrCreateDocReview()" disabled ' +
+            'style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--gold, #C8813A);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif;opacity:0.55;transition:opacity 0.15s">' +
+            '<svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 9l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+            '<span id="docReviewBtnLabel">Loan Doc Review…</span>' +
+          '</button>'
+        : '') +
+    '</div>' +
     '<div class="page-subtitle">' +
       '<span class="badge '+(l.toolType||'dscr')+'">'+((l.toolType||'dscr').toUpperCase())+'</span>' +
       '<span class="status-badge '+status+'">'+escH(STATUS_LABELS[status]||status)+'</span>' +
@@ -1522,6 +1534,83 @@ function render() {
   // emitted. Pulled into its own function so we can re-render after each
   // manual Add Note without bouncing through the whole page render.
   renderNotesLog();
+
+  // Deploy 236.73 — async-check whether a loan review already exists
+  // for this clientId+loanId, then label the button accordingly.
+  refreshDocReviewButton();
+}
+
+// ── Loan Doc Review entrypoint (Deploy 236.73) ────────────────────
+// Two-state button on Loan Details for processors + admins. Looks
+// up the in-progress reviews list and matches against (clientId,
+// loanId) to decide whether to "Open" the existing review or
+// "Start" a new one. Cached at module scope so openOrCreateDocReview()
+// doesn't have to re-fetch on click.
+var _existingReviewId = null;
+
+function refreshDocReviewButton() {
+  var btn = document.getElementById('docReviewBtn');
+  var label = document.getElementById('docReviewBtnLabel');
+  if (!btn || !label) return; // not rendered for this user (not a processor)
+
+  SLA.LoanReviews.list({ status: 'in_progress' }).then(function(r) {
+    var match = (r.reviews || []).find(function(rv) {
+      return rv.source && rv.source.kind === 'existing'
+          && rv.source.clientId === _clientId
+          && rv.source.loanId === _loanId;
+    });
+    _existingReviewId = match ? match.id : null;
+    label.textContent = match ? 'Open Loan Doc Review →' : 'Start Loan Doc Review';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }).catch(function(err) {
+    label.textContent = 'Loan Doc Review (error)';
+    btn.disabled = true;
+    btn.style.opacity = '0.55';
+    console.warn('refreshDocReviewButton failed:', err && err.message);
+  });
+}
+
+function openOrCreateDocReview() {
+  if (_existingReviewId) {
+    window.location.href = 'loan-review-detail.html?id=' + encodeURIComponent(_existingReviewId);
+    return;
+  }
+  // No existing review — create one and navigate.
+  if (!_client || !_loan) { alert('Loan not loaded yet.'); return; }
+  // Map the loan's product into the review's loanType. RTL covers
+  // bridge / fix-flip / transactional — anything that's not DSCR.
+  var prod = String(_loan.product || _loan.loanType || '').toLowerCase();
+  var loanType = prod.indexOf('dscr') >= 0 ? 'dscr' : 'rtl';
+  var borrowerName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim();
+  var btn = document.getElementById('docReviewBtn');
+  var label = document.getElementById('docReviewBtnLabel');
+  if (btn) btn.disabled = true;
+  if (label) label.textContent = 'Creating…';
+  // _loEmail is the owning LO for this loan. For non-admins it equals
+  // user.email; for admins viewing a cross-LO loan it's the other
+  // LO's address (set by the load path that read the loan from
+  // byOwner). Either way it's the right ownerKey for snapshotting.
+  var ownerKey = _loEmail || (_user && _user.email) || '';
+  SLA.LoanReviews.create({
+    loanType: loanType,
+    source: { kind: 'existing', clientId: _clientId, loanId: _loanId, ownerKey: ownerKey },
+    address: _loan.address || '',
+    borrowerName: borrowerName,
+    loanAmount: Number(_loan.loanAmt || 0),
+    loEmail: ownerKey,
+    expectedCloseDate: _loan.fundingDate || '',
+  }).then(function(r) {
+    if (r && r.review && r.review.id) {
+      window.location.href = 'loan-review-detail.html?id=' + encodeURIComponent(r.review.id);
+    } else {
+      throw new Error('Server did not return a review id');
+    }
+  }).catch(function(err) {
+    if (btn) btn.disabled = false;
+    if (label) label.textContent = 'Start Loan Doc Review';
+    alert('Failed to start review: ' + (err.message || 'Unknown error'));
+  });
 }
 
 // ── Notes audit log (Deploy 226) ────────────────────────────────────

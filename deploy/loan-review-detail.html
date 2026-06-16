@@ -54,13 +54,38 @@
     .type-pill.rtl  { background: rgba(200,129,58,0.18); color: var(--gold-mid); }
     .investor-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; background: var(--gold-light); color: var(--gold-mid); margin-left: 4px; }
 
+    .summary-link { color: var(--text); text-decoration: none; transition: color 0.15s; }
+    .summary-link:hover { color: var(--gold-mid); text-decoration: underline; }
+
     /* Tab nav */
-    .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--border); margin-bottom: 1.25rem; }
+    .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--border); margin-bottom: 1rem; }
     .tab { padding: 10px 18px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
     .tab:hover { color: var(--gold-mid); }
     .tab.active { color: var(--gold-mid); border-bottom-color: var(--gold); }
     .tab-count { display: inline-block; font-size: 11px; color: var(--muted); margin-left: 4px; background: var(--border); padding: 1px 7px; border-radius: 10px; font-family: 'DM Mono', monospace; }
     .tab.active .tab-count { background: var(--gold-light); color: var(--gold-mid); }
+
+    /* Doc search + expand controls */
+    .doc-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .doc-search { flex: 1; min-width: 240px; height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: 'DM Sans', sans-serif; background: var(--surface); }
+    .doc-search:focus { outline: none; border-color: var(--gold); }
+    .expand-btn { padding: 8px 12px; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
+    .expand-btn:hover { border-color: var(--gold); color: var(--gold-mid); }
+
+    /* Source data panel — collapsible */
+    .source-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 1.25rem; overflow: hidden; }
+    .source-panel-head { padding: 12px 18px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text); transition: background 0.1s; }
+    .source-panel-head:hover { background: var(--gold-light); }
+    .source-panel-head .caret { color: var(--muted); font-size: 12px; transition: transform 0.15s; }
+    .source-panel-head.open .caret { transform: rotate(90deg); }
+    .source-panel-body { padding: 14px 22px 20px; border-top: 1px solid var(--border); background: #fcfaf6; display: none; }
+    .source-panel-body.open { display: block; }
+    .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 22px; }
+    .source-grid .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+    .source-grid .v { font-size: 13px; color: var(--text); font-family: 'DM Mono', monospace; word-break: break-word; }
+    .source-section-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .source-section-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+    .source-empty { padding: 1rem; color: var(--muted); font-size: 13px; text-align: center; font-style: italic; }
 
     /* Section + tray */
     .section { margin-bottom: 1.5rem; }
@@ -270,9 +295,11 @@ var DOC_META = {
 var _user = null;
 var _review = null;
 var _activeTab = 'pending';      // 'pending' | 'reviewed'
-var _expanded = {};               // slug -> bool
+var _expanded = {};               // slug -> bool (DEFAULT COLLAPSED in 236.73)
 var _pendingOverride = null;      // slug currently in override modal
 var _pendingNa = null;            // slug currently in N/A modal
+var _docSearch = '';              // text filter on tray labels (236.73)
+var _sourceOpen = false;          // source data panel toggle (236.73)
 
 // ── Lifecycle ─────────────────────────────────────────────────────
 netlifyIdentity.on('init', function(user) {
@@ -312,11 +339,23 @@ function render() {
   var proc = _review.processorEmail || '—';
   var closeDate = formatDateOnly(_review.expectedCloseDate);
 
-  // Header: address, borrower, loan type, amount, LO, processor, expected close
+  // Header: address, borrower, loan type, amount, LO, processor, expected close.
+  // Deploy 236.73 — address links to Loan Details page when source is
+  // an existing loan; stays plain text for stub-source reviews.
+  var addressHtml;
+  if (_review.source && _review.source.kind === 'existing' && _review.source.clientId && _review.source.loanId) {
+    var ldHref = 'loan-details.html?clientId=' + encodeURIComponent(_review.source.clientId)
+               + '&loanId=' + encodeURIComponent(_review.source.loanId)
+               + (_review.source.ownerKey ? '&owner=' + encodeURIComponent(_review.source.ownerKey) : '');
+    addressHtml = '<a class="summary-link" href="' + escAttr(ldHref) + '" title="Open Loan Details">' + escHtml(_review.address || '(no address)') + ' ↗</a>';
+  } else {
+    addressHtml = escHtml(_review.address || '(no address)');
+  }
+
   var summary =
     '<div class="summary">' +
       '<div class="summary-left">' +
-        '<h2>' + escHtml(_review.address || '(no address)') + '</h2>' +
+        '<h2>' + addressHtml + '</h2>' +
         '<div class="meta-line">' +
           escHtml(_review.borrowerName || '—') + ' &middot; ' +
           '<span class="type-pill ' + escAttr((_review.loanType||'').toLowerCase()) + '">' + escHtml((_review.loanType||'').toUpperCase()) + '</span>' +
@@ -333,6 +372,12 @@ function render() {
       '</div>' +
     '</div>';
 
+  // Deploy 236.73 — source data panel (collapsed by default). Shows
+  // the Rate Sheet + Loan Application data the review is judged
+  // against. Snapshotted at create time so subsequent LO edits to
+  // the loan record don't change the reviewed baseline.
+  var sourcePanel = renderSourcePanel();
+
   var tabs =
     '<div class="tabs">' +
       '<div class="tab ' + (_activeTab === 'pending' ? 'active' : '') + '" onclick="switchTab(\'pending\')">' +
@@ -341,7 +386,23 @@ function render() {
         'Reviewed Docs <span class="tab-count">' + reviewedSlugs.length + '</span></div>' +
     '</div>';
 
+  // Deploy 236.73 — doc-search toolbar + Expand/Collapse all controls.
+  var toolbar =
+    '<div class="doc-toolbar">' +
+      '<input type="text" class="doc-search" id="docSearch" placeholder="Search documents by name…" value="' + escAttr(_docSearch) + '" oninput="onDocSearch(this.value)" />' +
+      '<button class="expand-btn" onclick="expandAll(true)">Expand all</button>' +
+      '<button class="expand-btn" onclick="expandAll(false)">Collapse all</button>' +
+    '</div>';
+
   var activeSlugs = _activeTab === 'pending' ? pendingSlugs : reviewedSlugs;
+  // Apply doc-search filter (substring match against label OR slug).
+  if (_docSearch) {
+    var q = _docSearch.toLowerCase();
+    activeSlugs = activeSlugs.filter(function(slug) {
+      var meta = DOC_META[slug] || { label: slug };
+      return (meta.label + ' ' + slug).toLowerCase().indexOf(q) >= 0;
+    });
+  }
   var traysHtml = renderSections(activeSlugs);
 
   // Cross-doc consistency + finalize at bottom
@@ -354,7 +415,85 @@ function render() {
       '<button class="small-btn danger" onclick="openFinalizeModal()">Finalize &amp; Purge Docs</button>' +
     '</div>';
 
-  document.getElementById('container').innerHTML = summary + tabs + traysHtml + bottom;
+  document.getElementById('container').innerHTML = summary + sourcePanel + tabs + toolbar + traysHtml + bottom;
+
+  // Deploy 236.73 — restore search input focus + caret position after
+  // re-render. Without this, typing in the search box loses focus
+  // after every keystroke because we re-render the whole container.
+  if (_docSearch) {
+    var input = document.getElementById('docSearch');
+    if (input) {
+      input.focus();
+      var len = input.value.length;
+      try { input.setSelectionRange(len, len); } catch (e) {}
+    }
+  }
+}
+
+// Deploy 236.73 — Source Data panel. Renders the snapshotted loan
+// fields (Rate Sheet + Loan App data) so the processor can see what
+// the review is being judged against without leaving the page.
+function renderSourcePanel() {
+  var loan = _review.sourceLoanSnapshot;
+  var client = _review.sourceClientSnapshot;
+  var headOpen = _sourceOpen ? ' open' : '';
+
+  // Body content
+  var bodyContent;
+  if (!loan && !client) {
+    bodyContent = '<div class="source-empty">No source data — this review was started from a manual loan stub. Add the loan application + rate sheet manually for now.</div>';
+  } else {
+    // Group: Loan terms (rate sheet), Loan application (property + borrower fields)
+    var loanRows = loan ? [
+      { k: 'Loan amount',     v: loan.loanAmt ? '$' + Number(loan.loanAmt).toLocaleString() : '—' },
+      { k: 'Note rate',       v: loan.rate ? Number(loan.rate).toFixed(3) + '%' : '—' },
+      { k: 'Points',          v: loan.points != null ? Number(loan.points).toFixed(2) + ' pts' : '—' },
+      { k: 'Loan type',       v: (loan.product || _review.loanType || '').toString().toUpperCase() },
+      { k: 'Loan term',       v: loan.loanTerm || loan.term || '—' },
+      { k: 'Loan purpose',    v: loan.loanPurpose || '—' },
+      { k: 'Prepay penalty',  v: loan.prepayPenalty || loan.prepay || '—' },
+      { k: 'Funding date',    v: loan.fundingDate || '—' },
+    ] : [];
+    var propertyRows = loan ? [
+      { k: 'Property type',   v: loan.propType || '—' },
+      { k: 'Property value',  v: loan.propValue ? '$' + Number(loan.propValue).toLocaleString() : '—' },
+      { k: 'Bedrooms',        v: loan.bedrooms != null ? String(loan.bedrooms) : '—' },
+      { k: 'Bathrooms',       v: loan.bathrooms != null ? String(loan.bathrooms) : '—' },
+      { k: 'Sq ft',           v: loan.sqft != null ? Number(loan.sqft).toLocaleString() : '—' },
+      { k: 'Existing loan',   v: loan.existingLoanAmount ? '$' + Number(loan.existingLoanAmount).toLocaleString() : '—' },
+      { k: 'Monthly rent',    v: loan.monthlyRent ? '$' + Number(loan.monthlyRent).toLocaleString() : '—' },
+      { k: 'Monthly taxes',   v: loan.monthlyTaxes ? '$' + Number(loan.monthlyTaxes).toLocaleString() : '—' },
+      { k: 'Monthly insurance', v: loan.monthlyInsurance ? '$' + Number(loan.monthlyInsurance).toLocaleString() : '—' },
+      { k: 'Monthly HOA',     v: loan.monthlyHoa ? '$' + Number(loan.monthlyHoa).toLocaleString() : '—' },
+      { k: 'FICO',            v: loan.fico || '—' },
+      { k: 'DSCR',            v: loan.dscr ? Number(loan.dscr).toFixed(2) + 'x' : '—' },
+      { k: 'Rental type',     v: loan.rentalType || '—' },
+    ] : [];
+    var borrowerRows = client ? [
+      { k: 'Borrower',        v: ((client.firstName||'') + ' ' + (client.lastName||'')).trim() || '—' },
+      { k: 'Email',           v: client.email || '—' },
+      { k: 'Phone',           v: client.phone || '—' },
+      { k: 'Entity',          v: client.entityName || '—' },
+    ] : [];
+
+    function gridFor(rows) {
+      return '<div class="source-grid">' + rows.map(function(r){
+        return '<div><div class="k">' + escHtml(r.k) + '</div><div class="v">' + escHtml(r.v) + '</div></div>';
+      }).join('') + '</div>';
+    }
+    bodyContent =
+      (loanRows.length ? '<div class="source-section-title">Loan Terms (Rate Sheet)</div>' + gridFor(loanRows) : '') +
+      (propertyRows.length ? '<div class="source-section-title">Property + Loan Application</div>' + gridFor(propertyRows) : '') +
+      (borrowerRows.length ? '<div class="source-section-title">Borrower</div>' + gridFor(borrowerRows) : '');
+  }
+
+  return '<div class="source-panel">' +
+    '<div class="source-panel-head' + headOpen + '" onclick="toggleSourcePanel()">' +
+      '<span>📋 Source Data — Rate Sheet + Loan Application</span>' +
+      '<span class="caret">▶</span>' +
+    '</div>' +
+    '<div class="source-panel-body' + (_sourceOpen ? ' open' : '') + '">' + bodyContent + '</div>' +
+  '</div>';
 }
 
 function renderSections(slugs) {
@@ -389,7 +528,10 @@ function renderTray(slug) {
                    : verdict === 'issues'   ? 'Issues'
                    : verdict === 'na'       ? 'N/A'
                    : 'Pending';
-  var expanded = _expanded[slug] !== false; // default open
+  // Deploy 236.73 — default COLLAPSED so the page isn't ~38 trays
+  // long on first paint. Processor expands the ones they're working
+  // on (or hits Expand all).
+  var expanded = _expanded[slug] === true;
 
   // Current upload, if any
   var currentHtml = '';
@@ -478,11 +620,29 @@ function renderTray(slug) {
 
 // ── Actions ───────────────────────────────────────────────────────
 function toggleExpand(slug) {
-  _expanded[slug] = !(_expanded[slug] !== false); // default open, toggle
+  // Deploy 236.73 — default collapsed; toggle flips.
+  _expanded[slug] = !(_expanded[slug] === true);
   render();
 }
 function switchTab(tab) {
   _activeTab = tab;
+  render();
+}
+// Deploy 236.73 — Expand/Collapse all
+function expandAll(open) {
+  var docs = _review && _review.docs ? Object.keys(_review.docs) : [];
+  if (open) docs.forEach(function(s) { _expanded[s] = true; });
+  else _expanded = {};
+  render();
+}
+// Deploy 236.73 — source panel toggle
+function toggleSourcePanel() {
+  _sourceOpen = !_sourceOpen;
+  render();
+}
+// Deploy 236.73 — doc search debounce
+function onDocSearch(value) {
+  _docSearch = String(value || '');
   render();
 }
 

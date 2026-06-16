@@ -138,7 +138,53 @@ async function handle(req, context) {
     createdBy: selfEmail,
     lastEditedBy: selfEmail,
     lastEditedAt: now,
+    // Deploy 236.73 — snapshot of the full client + loan record at
+    // review-create time. The review uses this as its source of
+    // truth (per Mike's spec: "data on the back end that is used
+    // to generate the Rate Sheet and Loan Application become the
+    // source of truth"). Subsequent LO edits to the underlying
+    // loan record DON'T change what's being reviewed.
+    sourceLoanSnapshot: null,
+    sourceClientSnapshot: null,
   };
+
+  // For existing-loan sources, fetch + snapshot now. Best-effort —
+  // failure here doesn't block review creation (the processor can
+  // still mark docs against the basic header fields).
+  if (review.source && review.source.kind === 'existing' && review.source.clientId && review.source.loanId && review.source.ownerKey) {
+    try {
+      const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+      const ownerKey = keySafe(review.source.ownerKey);
+      const clientKey = ownerKey + '/' + keySafe(review.source.clientId);
+      const client = await clientsStore.get(clientKey, { type: 'json' });
+      if (client) {
+        const loan = (client.loans || []).find((l) => l.id === review.source.loanId);
+        if (loan) {
+          review.sourceLoanSnapshot = loan;
+          // Strip the heavy fields from the client snapshot — we only
+          // need contact / identity. Trim out the full loans array
+          // since the targeted loan is already on sourceLoanSnapshot.
+          review.sourceClientSnapshot = {
+            id: client.id,
+            firstName: client.firstName || '',
+            lastName: client.lastName || '',
+            email: client.email || '',
+            phone: client.phone || '',
+            entityName: client.entityName || '',
+            createdAt: client.createdAt || '',
+          };
+          // Backfill missing display fields from the loan record so
+          // the review header isn't blank if the caller didn't pass
+          // them in.
+          if (!review.address && loan.address) review.address = loan.address;
+          if (!review.loanAmount && loan.loanAmt) review.loanAmount = Number(loan.loanAmt || 0);
+          if (!review.expectedCloseDate && loan.fundingDate) review.expectedCloseDate = loan.fundingDate;
+        }
+      }
+    } catch (e) {
+      console.warn('loan-reviews-save: snapshot fetch failed (non-fatal):', e && e.message);
+    }
+  }
 
   await store.setJSON(keySafe(id), review);
   return json(200, { ok: true, review });
