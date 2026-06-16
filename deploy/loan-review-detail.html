@@ -673,7 +673,10 @@ function renderTray(slug) {
   var currentHtml = '';
   if (d.currentDocId) {
     var sizeKb = Math.round((d.currentSize || 0) / 1024);
-    var viewUrl = SLA.LoanReviews.docUrl(_review.id, d.currentDocId);
+    // Deploy 236.79 — View now goes through SLA.LoanReviews.viewDoc()
+    // so the authed fetch + blob-URL pattern works. Plain <a href>
+    // target=_blank doesn't pass the Netlify Identity JWT and the
+    // endpoint 401'd.
     currentHtml =
       '<div class="current-doc">' +
         '<div>' +
@@ -681,7 +684,7 @@ function renderTray(slug) {
           '<div class="doc-meta">' + sizeKb + ' KB &middot; uploaded ' + formatDate(d.currentUploadedAt) + '</div>' +
         '</div>' +
         '<div class="doc-actions">' +
-          '<a class="small-btn" href="' + escAttr(viewUrl) + '" target="_blank">View</a>' +
+          '<button class="small-btn" onclick="viewDoc(\'' + escAttr(d.currentDocId) + '\')">View</button>' +
           '<button class="small-btn danger" onclick="removeDoc(\'' + escAttr(slug) + '\',\'' + escAttr(d.currentDocId) + '\')">Remove</button>' +
         '</div>' +
       '</div>';
@@ -738,12 +741,11 @@ function renderTray(slug) {
   if (Array.isArray(d.history) && d.history.length) {
     historyHtml = '<details class="history-accordion"><summary>Prior reviews (' + d.history.length + ')</summary>' +
       d.history.map(function(h) {
-        var hViewUrl = SLA.LoanReviews.docUrl(_review.id, h.docId);
         return '<div class="history-row">' +
           '<div class="h-filename">' + escHtml(h.filename || '(unnamed)') + '</div>' +
           '<div class="h-meta">' + formatDate(h.uploadedAt) + ' &middot; verdict: ' + escHtml(h.verdict || 'pending') + '</div>' +
           (h.processorNotes ? '<div class="h-notes">Notes: ' + escHtml(h.processorNotes) + '</div>' : '') +
-          '<div style="margin-top:6px;"><a class="small-btn" href="' + escAttr(hViewUrl) + '" target="_blank">View</a></div>' +
+          '<div style="margin-top:6px;"><button class="small-btn" onclick="viewDoc(\'' + escAttr(h.docId) + '\')">View</button></div>' +
         '</div>';
       }).join('') +
     '</details>';
@@ -895,6 +897,15 @@ function removeDoc(slug, docId) {
     render();
   }).catch(function(err) {
     showToast('Failed to remove: ' + (err.message || 'Unknown'), 'error');
+  });
+}
+
+// Deploy 236.79 — open a stored doc in a new tab via authed fetch +
+// blob URL (the API endpoint requires bearer auth so a plain
+// <a target=_blank> 401'd before this fix).
+function viewDoc(docId) {
+  SLA.LoanReviews.viewDoc(_review.id, docId).catch(function(err) {
+    showToast('Could not open doc: ' + (err.message || 'Unknown'), 'error');
   });
 }
 

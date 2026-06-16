@@ -1139,6 +1139,37 @@
       return '/api/loan-review-doc-get?reviewId=' + encodeURIComponent(reviewId)
            + '&docId=' + encodeURIComponent(docId);
     },
+    /**
+     * Deploy 236.79 — open a stored review doc inline in a new tab.
+     * The /api/loan-review-doc-get endpoint requires bearer auth, so
+     * a plain <a href target=_blank> would 401. Same pattern the
+     * SignedApplication.download uses: fetch with the JWT, convert
+     * to a Blob URL, open in a new tab.
+     */
+    viewDoc: function (reviewId, docId) {
+      var url = '/api/loan-review-doc-get?reviewId=' + encodeURIComponent(reviewId)
+              + '&docId=' + encodeURIComponent(docId);
+      return getToken().then(function (token) {
+        return fetch(url, { headers: { 'Authorization': 'Bearer ' + token } }).then(function (r) {
+          if (!r.ok) {
+            return r.text().then(function (t) {
+              var msg;
+              try { msg = (JSON.parse(t) || {}).error || ('HTTP ' + r.status); }
+              catch (e) { msg = 'HTTP ' + r.status; }
+              throw new Error(msg);
+            });
+          }
+          return r.blob().then(function (blob) {
+            var blobUrl = URL.createObjectURL(blob);
+            // Pop a new tab; revoke after a delay so the new tab has
+            // time to read the URL.
+            var w = window.open(blobUrl, '_blank');
+            if (!w) throw new Error('Popup blocked — allow popups for this site to view documents.');
+            setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 60 * 1000);
+          });
+        });
+      });
+    },
     // Deploy 236.77 — investor guidelines management (super-admin).
     // The uploaded PDFs are attached to every AI doc review on the
     // matching investor so verdicts are judged against the actual
