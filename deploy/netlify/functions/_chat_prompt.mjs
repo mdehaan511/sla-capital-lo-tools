@@ -145,6 +145,36 @@ DSCR = monthly rent ÷ monthly PITIA (Principal + Interest + Taxes + Insurance +
 
 Everywhere else, DSCR pricing is comparable and the conversation is about relationship and service, not rate.
 
+## DSCR Portfolio Loans (yes, we offer them)
+
+**We DO offer DSCR portfolio loans.** Common chatbot mistake is to say we don't — that's wrong. A portfolio loan is one DSCR loan secured by 2+ properties cross-collateralized. The investor (Diya) supports portfolios as a first-class product. The "individual loan per property" pattern is the default, but portfolio is an explicit option when the borrower wants it (or when it sizes the deal better).
+
+**When portfolio loans make sense for the borrower:**
+- Several properties to refi together with one closing instead of multiple
+- Total deal size pushes past the $100k single-asset minimum on per-property loans that would otherwise be too small individually
+- Borrower wants one monthly payment instead of N
+- Borrower owns a blanket loan with another lender and wants to refinance with us as a portfolio
+
+**Key portfolio rules vs. single-asset:**
+- **FICO floor:** 700 minimum (vs. 660 single-asset). Sub-700 requires preapproval.
+- **DSCR minimum:** 1.10x (vs. 1.00x single-asset).
+- **Same county:** all properties must be in the same county unless the title company can cover cross-county.
+- **Cross-collateralization:** required. All properties secure the same loan; substitution not allowed.
+- **Property values:** $90k average per property minimum (LTV capped at 70% if average is under $100k). Per-property cap: $3M for 1-unit, $5M for 2-4 unit.
+- **Loan size minimums:** 2-4 properties = $150k; 5+ properties = $250k. Loans down to $75k per property are sometimes considered if the package is broken into single-asset loans submitted together — ask Mike.
+- **Occupancy:** 1-9 units must show 80% physical occupancy; 10+ units must show 90%. Enforced across the borrower's whole Diya pipeline, not just this loan.
+- **Portfolios of 10+ properties:** Special Purpose Entity (SPE) required, guarantors must show net worth ≥25% of total loan, signed PFS from each guarantor, NCF DSCR (not PITIA) — NCF mins are 1.20x top/standard market, 1.30x small market, 1.40x very small market.
+- **11+ units total (across SFR portfolio or any MF):** assignment of property management agreement required prior to close.
+- **Subordinate financing:** not permitted. Loan is not assumable.
+
+**Partial Releases (the LO's most common portfolio question).** Yes, partial releases are built into portfolio loans by design. The borrower can release one property from the cross-collateral pool by paying down the loan by **120% of that property's par value**. Par = (this property's appraised as-is value ÷ total portfolio value) × original loan principal. Worked example: $1M loan secured by 5 properties at $400k each = $2M total portfolio value. Par for one property = $400k/$2M × $1M = $200k. Release price = $200k × 120% = $240k. Par is calculated prior to closing — it doesn't shift with later market changes. So the LO's answer to "can I sell one property and release it from the loan?" is yes, but it costs them 120% of par to do it, by design.
+
+**Portfolio refis of blanket loans at OTHER lenders.** Common scenario: borrower has a blanket from Kiavi/Lima/etc. and wants to peel one property off OR refi the whole thing to us. Two paths:
+- Refi the WHOLE blanket as a Diya portfolio loan with us — straightforward if it meets the portfolio rules above.
+- Pay the release price to their current lender on the one property they want out, then refi just that one as a standalone DSCR with us.
+
+Don't tell borrowers we "only do individual property loans" — that's the chatbot's incorrect default. Run the portfolio numbers in the sizer (it supports the portfolio property type) and quote accordingly.
+
 ## Partnerships and credit (>2 guarantors)
 
 This comes up regularly and trips up new LOs. The rule: **the personal guarantors of the loan must collectively own more than 50% of the LLC.** Not exactly 50% — 51%+. Investors price the deal off the **lowest FICO among all guarantors**.
