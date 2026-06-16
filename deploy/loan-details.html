@@ -1578,10 +1578,12 @@ function openOrCreateDocReview() {
   }
   // No existing review — create one and navigate.
   if (!_client || !_loan) { alert('Loan not loaded yet.'); return; }
-  // Map the loan's product into the review's loanType. RTL covers
-  // bridge / fix-flip / transactional — anything that's not DSCR.
-  var prod = String(_loan.product || _loan.loanType || '').toLowerCase();
-  var loanType = prod.indexOf('dscr') >= 0 ? 'dscr' : 'rtl';
+  // Deploy 236.74 — loan-type detection uses `toolType` (the actual
+  // field set by the sizers — see line ~786 `isDscr = toolType !== 'rtl'`),
+  // not `product` (which doesn't exist on the loan record). Without
+  // this fix every loan picked from Loan Details was being created
+  // as RTL since `_loan.product` was always undefined.
+  var loanType = (String(_loan.toolType || '').toLowerCase() === 'rtl') ? 'rtl' : 'dscr';
   var borrowerName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim();
   var btn = document.getElementById('docReviewBtn');
   var label = document.getElementById('docReviewBtnLabel');

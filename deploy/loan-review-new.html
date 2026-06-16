@@ -224,13 +224,11 @@ function collectLoans(c, ownerKey, out) {
 }
 
 function detectLoanType(l) {
-  // Existing loan records use product='dscr' or product='rtl' (et al).
-  // Fall back to a guess based on field presence.
-  var prod = String(l.product || l.loanType || '').toLowerCase();
-  if (prod.indexOf('dscr') >= 0) return 'dscr';
-  if (prod.indexOf('rtl') >= 0 || prod.indexOf('bridge') >= 0 || prod.indexOf('fix') >= 0 || prod.indexOf('flip') >= 0) return 'rtl';
-  if (l.rentalType || l.dscr) return 'dscr';
-  return 'rtl';
+  // Deploy 236.74 — `toolType` is the authoritative field set by the
+  // sizers (the same one used by loan-details.html's isDscr check).
+  // Earlier impl checked `product`/`loanType` which don't exist on
+  // the loan record, so every loan came through as RTL.
+  return (String(l.toolType || '').toLowerCase() === 'rtl') ? 'rtl' : 'dscr';
 }
 
 function renderSearchResults() {

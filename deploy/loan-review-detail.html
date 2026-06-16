@@ -430,61 +430,157 @@ function render() {
   }
 }
 
-// Deploy 236.73 — Source Data panel. Renders the snapshotted loan
-// fields (Rate Sheet + Loan App data) so the processor can see what
-// the review is being judged against without leaving the page.
+// Deploy 236.73/74 — Source Data panel. Renders the snapshotted
+// loan fields (Rate Sheet + Loan App data) so the processor can see
+// what the review is being judged against without leaving the page.
+//
+// 236.74: most loan fields live on `loan.formData` (a copy of the
+// sizer form state), NOT at the top level of the loan record. Each
+// row now falls back: `loan[k] OR loan.formData[k]`. Also added
+// proper labels for enum fields (propType: sfr -> Single Family,
+// loanPurpose: refi_rt -> Rate/Term Refi, rentalType: ltr ->
+// Long-Term Rental), broker section, RTL-specific fields, and a
+// "Show all raw fields" accordion so nothing on the loan record is
+// ever silently dropped.
+var PROP_TYPE_LABELS = {
+  sfr: 'Single Family (1 Unit)', '2-4': '2–4 Unit', condo: 'Condo',
+  nw_condo: 'Non-Warrantable Condo', multi: 'Multifamily', portfolio: 'Portfolio',
+};
+var LOAN_PURPOSE_LABELS = {
+  purchase: 'Purchase', refi_rt: 'Rate/Term Refi', refi_co: 'Cash-Out Refi',
+  refinance: 'Refinance', refi: 'Refinance', cashout: 'Cash-Out Refi',
+};
+var RENTAL_TYPE_LABELS = { ltr: 'Long-Term Rental', str: 'Short-Term / Airbnb', mtr: 'Mid-Term Rental' };
+
 function renderSourcePanel() {
   var loan = _review.sourceLoanSnapshot;
   var client = _review.sourceClientSnapshot;
   var headOpen = _sourceOpen ? ' open' : '';
 
-  // Body content
   var bodyContent;
   if (!loan && !client) {
-    bodyContent = '<div class="source-empty">No source data — this review was started from a manual loan stub. Add the loan application + rate sheet manually for now.</div>';
+    bodyContent = '<div class="source-empty">No source data — this review was started from a manual loan stub, or it was created before snapshots were enabled. Delete this review and start a fresh one from Loan Details to populate.</div>';
   } else {
-    // Group: Loan terms (rate sheet), Loan application (property + borrower fields)
-    var loanRows = loan ? [
-      { k: 'Loan amount',     v: loan.loanAmt ? '$' + Number(loan.loanAmt).toLocaleString() : '—' },
-      { k: 'Note rate',       v: loan.rate ? Number(loan.rate).toFixed(3) + '%' : '—' },
-      { k: 'Points',          v: loan.points != null ? Number(loan.points).toFixed(2) + ' pts' : '—' },
-      { k: 'Loan type',       v: (loan.product || _review.loanType || '').toString().toUpperCase() },
-      { k: 'Loan term',       v: loan.loanTerm || loan.term || '—' },
-      { k: 'Loan purpose',    v: loan.loanPurpose || '—' },
-      { k: 'Prepay penalty',  v: loan.prepayPenalty || loan.prepay || '—' },
-      { k: 'Funding date',    v: loan.fundingDate || '—' },
-    ] : [];
-    var propertyRows = loan ? [
-      { k: 'Property type',   v: loan.propType || '—' },
-      { k: 'Property value',  v: loan.propValue ? '$' + Number(loan.propValue).toLocaleString() : '—' },
-      { k: 'Bedrooms',        v: loan.bedrooms != null ? String(loan.bedrooms) : '—' },
-      { k: 'Bathrooms',       v: loan.bathrooms != null ? String(loan.bathrooms) : '—' },
-      { k: 'Sq ft',           v: loan.sqft != null ? Number(loan.sqft).toLocaleString() : '—' },
-      { k: 'Existing loan',   v: loan.existingLoanAmount ? '$' + Number(loan.existingLoanAmount).toLocaleString() : '—' },
-      { k: 'Monthly rent',    v: loan.monthlyRent ? '$' + Number(loan.monthlyRent).toLocaleString() : '—' },
-      { k: 'Monthly taxes',   v: loan.monthlyTaxes ? '$' + Number(loan.monthlyTaxes).toLocaleString() : '—' },
-      { k: 'Monthly insurance', v: loan.monthlyInsurance ? '$' + Number(loan.monthlyInsurance).toLocaleString() : '—' },
-      { k: 'Monthly HOA',     v: loan.monthlyHoa ? '$' + Number(loan.monthlyHoa).toLocaleString() : '—' },
-      { k: 'FICO',            v: loan.fico || '—' },
-      { k: 'DSCR',            v: loan.dscr ? Number(loan.dscr).toFixed(2) + 'x' : '—' },
-      { k: 'Rental type',     v: loan.rentalType || '—' },
-    ] : [];
-    var borrowerRows = client ? [
-      { k: 'Borrower',        v: ((client.firstName||'') + ' ' + (client.lastName||'')).trim() || '—' },
-      { k: 'Email',           v: client.email || '—' },
-      { k: 'Phone',           v: client.phone || '—' },
-      { k: 'Entity',          v: client.entityName || '—' },
-    ] : [];
-
+    var fd = (loan && loan.formData) || {};
+    // Pick a field from the loan record, falling back to formData,
+    // then to a default. Number/string-coerce in the caller.
+    function f(key, dflt) {
+      if (loan && loan[key] != null && loan[key] !== '') return loan[key];
+      if (fd[key] != null && fd[key] !== '') return fd[key];
+      return dflt != null ? dflt : '';
+    }
+    function money(v) { return (v != null && v !== '') ? '$' + Number(v).toLocaleString() : '—'; }
+    function num(v, decimals)   {
+      if (v == null || v === '') return '—';
+      var n = Number(v); if (!isFinite(n)) return String(v);
+      return decimals != null ? n.toFixed(decimals) : String(n);
+    }
+    function pct(v, decimals)   {
+      if (v == null || v === '') return '—';
+      var n = Number(v); if (!isFinite(n)) return String(v) + '%';
+      return n.toFixed(decimals != null ? decimals : 3) + '%';
+    }
+    function txt(v) { return (v != null && v !== '') ? String(v) : '—'; }
+    function label(map, v) { return v && map[v] ? map[v] : (v ? String(v) : '—'); }
     function gridFor(rows) {
-      return '<div class="source-grid">' + rows.map(function(r){
+      // Drop empty rows so the grid stays tight.
+      var nonEmpty = rows.filter(function(r){ return r.v && r.v !== '—'; });
+      if (!nonEmpty.length) return '';
+      return '<div class="source-grid">' + nonEmpty.map(function(r){
         return '<div><div class="k">' + escHtml(r.k) + '</div><div class="v">' + escHtml(r.v) + '</div></div>';
       }).join('') + '</div>';
     }
+
+    var isDscr = String(loan && loan.toolType || _review.loanType || '').toLowerCase() !== 'rtl';
+
+    // ── Loan Terms (Rate Sheet) ────────────────────────────────
+    var loanRows = [
+      { k: 'Loan type',       v: (isDscr ? 'DSCR' : 'RTL') + ' (' + ((loan && loan.toolType) ? String(loan.toolType).toUpperCase() : '—') + ')' },
+      { k: 'Loan purpose',    v: label(LOAN_PURPOSE_LABELS, f('loanPurpose', '')) },
+      { k: 'Loan amount',     v: money(f('loanAmt', '')) },
+      { k: 'Note rate',       v: pct(f('rate', ''), 3) },
+      { k: 'Points',          v: f('points', '') !== '' ? num(f('points', ''), 2) + ' pts' : '—' },
+      { k: 'Prepay penalty',  v: txt(f('prepay', '') || f('prepayPenalty', '')) },
+      { k: 'Loan term',       v: txt(f('loanTerm', '') || f('term', '')) },
+      { k: 'Funding date',    v: txt(f('fundingDate', '')) },
+      { k: 'LTV',             v: f('ltv', '') !== '' ? num(f('ltv', ''), 1) + '%' : '—' },
+      { k: 'Origination fee', v: f('originationFee', '') !== '' ? num(f('originationFee', ''), 2) + ' pts' : '—' },
+      { k: 'Rate buydown',    v: f('rateBuydown', '') !== '' ? num(f('rateBuydown', ''), 2) + ' pts' : '—' },
+    ];
+
+    // ── Property + Application ─────────────────────────────────
+    var propRows = [
+      { k: 'Property address', v: txt(f('address', '') || (loan && loan.address)) },
+      { k: 'Property type',    v: label(PROP_TYPE_LABELS, f('propType', '')) },
+      { k: 'Property value',   v: money(f('propValue', '')) },
+      { k: 'Bedrooms',         v: f('bedrooms', '') !== '' ? String(f('bedrooms', '')) : '—' },
+      { k: 'Bathrooms',        v: f('bathrooms', '') !== '' ? String(f('bathrooms', '')) : '—' },
+      { k: 'Sq ft',            v: f('sqft', '') !== '' ? Number(f('sqft', '')).toLocaleString() : '—' },
+      { k: 'Existing loan',    v: money(f('existingLoanAmount', '') || f('existingLoanAmt', '')) },
+      { k: 'Monthly rent',     v: money(f('monthlyRent', '')) },
+      { k: 'Monthly taxes',    v: money(f('monthlyTaxes', '')) },
+      { k: 'Monthly insurance',v: money(f('monthlyInsurance', '')) },
+      { k: 'Monthly HOA',      v: money(f('monthlyHoa', '')) },
+      { k: 'FICO',             v: txt(f('fico', '')) },
+      { k: 'DSCR',             v: f('dscr', '') !== '' ? num(f('dscr', ''), 2) + 'x' : '—' },
+      { k: 'Rental type',      v: label(RENTAL_TYPE_LABELS, f('rentalType', '')) },
+    ];
+
+    // ── RTL-specific fields ────────────────────────────────────
+    var rtlRows = !isDscr ? [
+      { k: 'Purchase price',   v: money(f('purchasePrice', '')) },
+      { k: 'As-is value',      v: money(f('asIsValue', '') || f('propValue', '')) },
+      { k: 'After-repair value', v: money(f('arv', '') || f('afterRepairValue', '')) },
+      { k: 'Rehab cost',       v: money(f('rehabCost', '') || f('constructionCost', '') || f('rehabBudget', '')) },
+      { k: 'Holding months',   v: txt(f('holdMonths', '') || f('holdingPeriod', '')) },
+      { k: 'Experience',       v: txt(f('experience', '') || f('numFlips', '')) },
+      { k: 'Loan to ARV',      v: f('ltarv', '') !== '' ? num(f('ltarv', ''), 1) + '%' : '—' },
+      { k: 'Loan to cost',     v: f('ltc', '') !== '' ? num(f('ltc', ''), 1) + '%' : '—' },
+      { k: 'Dutch / Non-Dutch', v: txt(f('dutch', '') || f('dutchToggle', '')) },
+    ] : [];
+
+    // ── Borrower ────────────────────────────────────────────────
+    var borrowerRows = [
+      { k: 'Borrower',  v: client ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim() : '—' },
+      { k: 'Email',     v: client ? txt(client.email) : '—' },
+      { k: 'Phone',     v: client ? txt(client.phone) : '—' },
+      { k: 'Entity',    v: client ? txt(client.entityName) : '—' },
+    ];
+
+    // ── Broker (if attached) ────────────────────────────────────
+    var hasBroker = loan && (loan.brokerId || loan.brokerName || loan.brokerEmail || (parseFloat(loan.brokerFee || 0) > 0));
+    var brokerRows = hasBroker ? [
+      { k: 'Broker',       v: txt(loan.brokerName || loan.brokerCompany) },
+      { k: 'Broker email', v: txt(loan.brokerEmail) },
+      { k: 'Broker phone', v: txt(loan.brokerPhone) },
+      { k: 'Broker fee',   v: f('brokerFee', '') !== '' ? num(loan.brokerFee, 2) + ' pts' : '—' },
+    ] : [];
+
+    // ── Raw fields accordion (for anything not shown above) ────
+    // Dump every leaf field on loan + formData so the processor
+    // can see anything we didn't categorize. Skips internal /
+    // bookkeeping fields and anything already shown.
+    var SKIP_RAW = {
+      id:1, createdAt:1, updatedAt:1, _editingLoanId:1, _editingClientId:1,
+      notesLog:1, formData:1, pricingSnapshot:1, _pricingSnapshot:1,
+    };
+    var allFields = {};
+    if (loan) Object.keys(loan).forEach(function(k){ if (!SKIP_RAW[k]) allFields[k] = loan[k]; });
+    if (fd)   Object.keys(fd).forEach(function(k){ if (!SKIP_RAW[k] && allFields[k] == null) allFields[k] = fd[k]; });
+    var rawRows = Object.keys(allFields).sort().map(function(k){
+      var v = allFields[k];
+      if (v == null || v === '') return null;
+      if (typeof v === 'object') return null; // skip nested
+      return { k: k, v: String(v) };
+    }).filter(Boolean);
+
     bodyContent =
-      (loanRows.length ? '<div class="source-section-title">Loan Terms (Rate Sheet)</div>' + gridFor(loanRows) : '') +
-      (propertyRows.length ? '<div class="source-section-title">Property + Loan Application</div>' + gridFor(propertyRows) : '') +
-      (borrowerRows.length ? '<div class="source-section-title">Borrower</div>' + gridFor(borrowerRows) : '');
+      '<div class="source-section-title">Loan Terms (Rate Sheet)</div>' + gridFor(loanRows) +
+      '<div class="source-section-title">Property + Loan Application</div>' + gridFor(propRows) +
+      (rtlRows.length ? '<div class="source-section-title">RTL Details</div>' + gridFor(rtlRows) : '') +
+      '<div class="source-section-title">Borrower</div>' + gridFor(borrowerRows) +
+      (brokerRows.length ? '<div class="source-section-title">Broker</div>' + gridFor(brokerRows) : '') +
+      (rawRows.length ? '<details style="margin-top:18px"><summary style="cursor:pointer;font-size:11px;color:var(--muted);padding:6px 0;">Show all raw loan-record fields (' + rawRows.length + ')</summary>' + gridFor(rawRows) + '</details>' : '');
   }
 
   return '<div class="source-panel">' +
