@@ -1139,6 +1139,34 @@
       return '/api/loan-review-doc-get?reviewId=' + encodeURIComponent(reviewId)
            + '&docId=' + encodeURIComponent(docId);
     },
+    // Deploy 236.77 — investor guidelines management (super-admin).
+    // The uploaded PDFs are attached to every AI doc review on the
+    // matching investor so verdicts are judged against the actual
+    // investor rules, not just the per-doc checklist text.
+    Guidelines: {
+      list: function () { return api('GET', '/api/loan-review-guidelines'); },
+      remove: function (investor) {
+        return api('POST', '/api/loan-review-guidelines-delete', { investor: investor });
+      },
+      upload: function (investor, file) {
+        return new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            var dataUrl = reader.result || '';
+            var commaIdx = String(dataUrl).indexOf(',');
+            var b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+            if (!b64) return reject(new Error('Failed to read file'));
+            api('POST', '/api/loan-review-guidelines-upload', {
+              investor: investor,
+              filename: file.name || (investor + '-guidelines.pdf'),
+              contentBase64: b64,
+            }).then(resolve, reject);
+          };
+          reader.onerror = function () { reject(new Error('Failed to read file')); };
+          reader.readAsDataURL(file);
+        });
+      },
+    },
   };
 
   // ── Public namespace ────────────────────────────────────────────

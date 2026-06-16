@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Investor Guidelines — SLA Capital</title>
+  <!-- Deploy 236.77 — Super-admin page for managing the investor
+       underwriting-guidelines PDFs that get attached to every AI
+       doc review (loan-review-doc-upload -> Anthropic vision). Upload
+       a new PDF per investor (diya / colchis / etc.) and the AI
+       starts judging docs against it on the next upload. -->
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js" defer></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --green: #15803d; --green-light: rgba(21,128,61,0.10);
+      --red: #b91c1c; --red-light: rgba(185,28,28,0.10); --red-border: rgba(185,28,28,0.40);
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem; }
+    .page { max-width: 900px; margin: 0 auto; padding: 2rem 0 4rem; }
+    .nav { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-bottom: 0.75rem; }
+    .nav-left { display: flex; align-items: center; gap: 16px; }
+    .nav-left img { height: 52px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
+    .header-tagline { font-family: 'Lora', serif; font-size: 12px; color: var(--muted); letter-spacing: 0.02em; padding-bottom: 1.5rem; border-bottom: 1px solid var(--gold-border); margin-bottom: 1.5rem; }
+    .breadcrumb { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .breadcrumb a { color: var(--muted); text-decoration: none; }
+    .breadcrumb a:hover { color: var(--gold-mid); }
+    .page-title { font-size: 22px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .page-sub { font-size: 13px; color: var(--muted); margin-bottom: 2rem; line-height: 1.55; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+    .card h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+    .form-row { display: grid; grid-template-columns: 180px 1fr; gap: 14px; align-items: center; margin-bottom: 12px; }
+    label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    select, input[type=text], input[type=file] { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: 'DM Sans', sans-serif; background: var(--surface); }
+    select:focus, input:focus { outline: none; border-color: var(--gold); }
+    .btn-primary { padding: 10px 18px; background: var(--gold); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; font-family: 'DM Sans', sans-serif; }
+    .btn-primary:hover:not(:disabled) { background: var(--gold-mid); }
+    .btn-primary:disabled { background: #c5b9a1; cursor: not-allowed; }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: #faf7f2; }
+    th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: 1px solid var(--border); }
+    td { padding: 12px 14px; font-size: 13px; border-bottom: 1px solid var(--border); }
+    tbody tr:last-child td { border-bottom: none; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; background: var(--gold-light); color: var(--gold-mid); }
+    .meta { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .actions { text-align: right; }
+    .small-btn { padding: 5px 10px; font-size: 11px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; text-decoration: none; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
+    .small-btn:hover { border-color: var(--gold); color: var(--gold-mid); }
+    .small-btn.danger:hover { border-color: var(--red); color: var(--red); }
+    .empty { padding: 1.5rem; text-align: center; color: var(--muted); font-size: 13px; }
+
+    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); z-index: 1000; max-width: 360px; display: none; }
+    .toast.success { border-color: rgba(21,128,61,0.4); color: var(--green); }
+    .toast.error { border-color: var(--red-border); color: var(--red); }
+    .toast.info { border-color: var(--gold-border); color: var(--gold-mid); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav class="nav" id="slaNav"></nav>
+    <div class="header-tagline">Internal tools &middot; Processing &middot; Investor underwriting guidelines</div>
+
+    <div class="breadcrumb"><a href="loan-review.html">← Loan Doc Review</a></div>
+    <div class="page-title">Investor Underwriting Guidelines</div>
+    <div class="page-sub">Upload each investor's underwriting guidelines PDF here. The AI doc-review attaches the matching investor's guidelines on every Claude vision call so verdicts are judged against the actual investor rules — not just the per-doc checklist text. Anthropic prompt caching keeps the per-call cost low even on long guideline PDFs.</div>
+
+    <div class="card">
+      <h3>Upload / Replace</h3>
+      <div class="form-row">
+        <label for="investorSel">Investor</label>
+        <select id="investorSel">
+          <option value="diya">Diya (DSCR default)</option>
+          <option value="colchis">Colchis (RTL default)</option>
+          <option value="corrfirst">CorrFirst</option>
+          <option value="other">— Other (type below) —</option>
+        </select>
+      </div>
+      <div class="form-row" id="otherRow" style="display:none">
+        <label for="investorTxt">Investor name</label>
+        <input type="text" id="investorTxt" placeholder="e.g. example-fund" />
+      </div>
+      <div class="form-row">
+        <label for="pdfFile">PDF file</label>
+        <input type="file" id="pdfFile" accept="application/pdf,.pdf" />
+      </div>
+      <div style="text-align:right;margin-top:12px">
+        <button type="button" class="btn-primary" id="uploadBtn" onclick="doUpload()">Upload Guidelines</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Currently active</h3>
+      <div id="listContainer"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+var _user = null;
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!SLA.isSuperAdmin(user)) {
+    document.body.innerHTML = '<div style="max-width:600px;margin:4rem auto;padding:2rem;text-align:center;font-family:DM Sans,sans-serif;"><h2>Access denied</h2><p style="color:#7a7488;margin-top:1rem;">This page is super-admin only.</p><p style="margin-top:2rem;"><a href="/" style="color:#C8813A;">← Back to home</a></p></div>';
+    return;
+  }
+  _user = user;
+  loadList();
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+document.getElementById('investorSel').addEventListener('change', function() {
+  document.getElementById('otherRow').style.display = this.value === 'other' ? '' : 'none';
+});
+
+function loadList() {
+  var c = document.getElementById('listContainer');
+  c.innerHTML = '<div class="empty">Loading…</div>';
+  SLA.LoanReviews.Guidelines.list().then(function(r) {
+    var g = r.guidelines || [];
+    if (!g.length) {
+      c.innerHTML = '<div class="empty">No investor guidelines uploaded yet. Add the Diya PDF above and it will be attached to every DSCR doc review.</div>';
+      return;
+    }
+    c.innerHTML =
+      '<table><thead><tr><th>Investor</th><th>Filename</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>' +
+      g.map(function(row) {
+        var kb = Math.round((row.sizeBytes || 0) / 1024);
+        return '<tr>' +
+          '<td><span class="pill">' + esc(row.investor) + '</span></td>' +
+          '<td>' + esc(row.filename) + '</td>' +
+          '<td class="meta">' + kb.toLocaleString() + ' KB</td>' +
+          '<td class="meta">' + esc(formatDate(row.uploadedAt)) + (row.uploadedBy ? '<br>by ' + esc(row.uploadedBy.replace(/@.*$/, '')) : '') + '</td>' +
+          '<td class="actions">' +
+            '<a class="small-btn" target="_blank" href="/api/loan-review-guidelines-get?investor=' + encodeURIComponent(row.investor) + '">View</a> ' +
+            '<button class="small-btn danger" onclick="doDelete(\'' + escAttr(row.investor) + '\')">Delete</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table>';
+  }).catch(function(err) {
+    c.innerHTML = '<div class="empty">Failed to load: ' + esc(err.message || 'Unknown') + '</div>';
+  });
+}
+
+function chosenInvestor() {
+  var v = document.getElementById('investorSel').value;
+  if (v === 'other') v = document.getElementById('investorTxt').value.trim().toLowerCase();
+  return v;
+}
+
+function doUpload() {
+  var investor = chosenInvestor();
+  var file = (document.getElementById('pdfFile').files || [])[0];
+  if (!investor) { showToast('Pick an investor first.', 'error'); return; }
+  if (!file) { showToast('Pick a PDF file first.', 'error'); return; }
+  var btn = document.getElementById('uploadBtn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  SLA.LoanReviews.Guidelines.upload(investor, file).then(function() {
+    showToast('Uploaded ' + investor + ' guidelines.', 'success');
+    document.getElementById('pdfFile').value = '';
+    btn.disabled = false; btn.textContent = 'Upload Guidelines';
+    loadList();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Upload Guidelines';
+    showToast('Upload failed: ' + (err.message || 'Unknown'), 'error');
+  });
+}
+
+function doDelete(investor) {
+  if (!confirm('Delete the guidelines for ' + investor + '? AI doc reviews will fall back to per-doc checklist only.')) return;
+  SLA.LoanReviews.Guidelines.remove(investor).then(function() {
+    showToast('Deleted.', 'success');
+    loadList();
+  }).catch(function(err) {
+    showToast('Delete failed: ' + (err.message || 'Unknown'), 'error');
+  });
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, "\\'"); }
+function formatDate(iso) {
+  if (!iso) return '—';
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  } catch (e) { return iso; }
+}
+function showToast(text, kind) {
+  var t = document.getElementById('toast');
+  t.className = 'toast ' + (kind || '');
+  t.textContent = text;
+  t.style.display = 'block';
+  setTimeout(function() { t.style.display = 'none'; }, 3500);
+}
+</script>
+</body>
+</html>

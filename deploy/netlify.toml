@@ -568,6 +568,31 @@
   status = 200
   force = true
 
+# Deploy 236.77 — investor underwriting-guidelines management. The
+# uploaded PDFs are attached to every AI doc review on the matching
+# investor (with prompt caching) so verdicts are judged against the
+# actual investor rules, not just the per-doc checklist text.
+[[redirects]]
+  from = "/api/loan-review-guidelines"
+  to = "/.netlify/functions/loan-review-guidelines-list"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-review-guidelines-upload"
+  to = "/.netlify/functions/loan-review-guidelines-upload"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-review-guidelines-delete"
+  to = "/.netlify/functions/loan-review-guidelines-delete"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-review-guidelines-get"
+  to = "/.netlify/functions/loan-review-guidelines-get"
+  status = 200
+  force = true
+
 # ── Security headers ───────────────────────────────────────
 [[headers]]
   for = "/*"

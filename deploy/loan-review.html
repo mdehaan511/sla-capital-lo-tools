@@ -98,7 +98,13 @@
         <div class="page-title">Loan Doc Review</div>
         <div class="page-subtitle">Review borrower, collateral, and closing documents against SLA + investor requirements.</div>
       </div>
-      <a class="new-btn" href="loan-review-new.html">+ New Loan Review</a>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <!-- Deploy 236.77 — super-admin link to manage the investor
+             guidelines PDFs the AI judges docs against. Hidden by
+             default; revealed for super-admins in netlifyIdentity.init. -->
+        <a class="nav-tool-link" id="guidelinesAdminLink" href="loan-review-guidelines-admin.html" style="display:none">Investor Guidelines ⚙</a>
+        <a class="new-btn" href="loan-review-new.html">+ New Loan Review</a>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -139,6 +145,13 @@ netlifyIdentity.on('init', function(user) {
     return;
   }
   _user = user;
+  // Deploy 236.77 — reveal the Investor Guidelines admin link for
+  // super-admins. The PDFs uploaded there get attached to every AI
+  // doc review on the matching investor.
+  if (SLA.isSuperAdmin(user)) {
+    var a = document.getElementById('guidelinesAdminLink');
+    if (a) a.style.display = '';
+  }
   loadReviews();
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });

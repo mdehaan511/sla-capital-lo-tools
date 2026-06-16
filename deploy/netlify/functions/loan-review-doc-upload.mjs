@@ -150,6 +150,22 @@ async function handle(req, context) {
   const checklist = getChecklist(review.loanType || '');
   const docMeta = checklist.find(function (d) { return d.slug === body.slug; }) || { label: body.slug, conditions: '' };
   const ctx = buildLoanContext(review);
+  // Deploy 236.77 — attach the investor's underwriting guidelines PDF
+  // (if uploaded by an admin via the guidelines-admin page). The
+  // Anthropic helper marks it cache_control: ephemeral so subsequent
+  // calls in the same 5-min window only pay ~10% of the guidelines
+  // input cost. Failure to fetch is non-fatal — review still runs
+  // against the per-doc rubric alone.
+  let guidelinesBytes = null;
+  if (review.investor) {
+    try {
+      const guidelinesStore = getStore({ name: 'loan-review-guidelines', consistency: 'eventual' });
+      const g = await guidelinesStore.get(String(review.investor).toLowerCase().trim(), { type: 'arrayBuffer' });
+      if (g) guidelinesBytes = Buffer.from(g);
+    } catch (e) {
+      console.warn('loan-review-doc-upload: guidelines fetch failed:', e && e.message);
+    }
+  }
   try {
     const aiResult = await reviewDocument({
       bytes,
@@ -158,6 +174,7 @@ async function handle(req, context) {
       docConditions: docMeta.conditions,
       loanContext: ctx,
       investor: review.investor || '',
+      guidelinesBytes,
     });
     docState.aiVerdict = aiResult.verdict;
     docState.aiNotes = aiResult.summary;
