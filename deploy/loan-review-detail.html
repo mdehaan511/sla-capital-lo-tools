@@ -138,6 +138,31 @@
     .v-btn.unapprove { color: var(--muted); }
     .v-btn.unapprove:hover { border-color: var(--gold); color: var(--gold-mid); }
 
+    /* Deploy 236.76 — AI review block */
+    .ai-block { margin-top: 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); }
+    .ai-block.approved { border-color: var(--green-border); background: var(--green-light); }
+    .ai-block.issues   { border-color: var(--red-border);   background: var(--red-light); }
+    .ai-block.pending  { border-color: var(--gold-border);  background: var(--gold-light); }
+    .ai-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .ai-label { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .ai-label.approved { color: var(--green); }
+    .ai-label.issues   { color: var(--red); }
+    .ai-label.pending  { color: var(--gold-mid); }
+    .ai-cost { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .ai-summary { font-size: 12px; color: var(--text); margin-top: 6px; line-height: 1.5; }
+    .ai-findings { margin-top: 8px; }
+    .ai-finding { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; padding: 4px 0; line-height: 1.5; border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 6px; }
+    .ai-finding:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+    .ai-finding .f-icon { flex-shrink: 0; font-weight: 700; width: 14px; }
+    .ai-finding.met     .f-icon { color: var(--green); }
+    .ai-finding.not_met .f-icon { color: var(--red); }
+    .ai-finding.unclear .f-icon { color: var(--amber); }
+    .ai-finding .f-text { flex: 1; }
+    .ai-finding .f-cond { font-weight: 600; color: var(--text); }
+    .ai-finding .f-detail { color: var(--muted); margin-top: 2px; }
+    .ai-spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--gold-light); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 4px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     .history-accordion { margin-top: 14px; }
     .history-accordion summary { font-size: 11px; color: var(--muted); cursor: pointer; padding: 6px 0; user-select: none; }
     .history-accordion summary:hover { color: var(--gold-mid); }
@@ -313,6 +338,7 @@ var _pendingOverride = null;      // slug currently in override modal
 var _pendingNa = null;            // slug currently in N/A modal
 var _docSearch = '';              // text filter on tray labels (236.73)
 var _sourceOpen = false;          // source data panel toggle (236.73)
+var _uploadingSlug = null;        // slug currently being uploaded (236.76 — spinner UI)
 
 // ── Lifecycle ─────────────────────────────────────────────────────
 netlifyIdentity.on('init', function(user) {
@@ -661,6 +687,13 @@ function renderTray(slug) {
       '</div>';
   }
 
+  // Deploy 236.76 — AI review block. Renders below the current-doc
+  // panel. Three states:
+  //   - currentDocId present + aiVerdict set -> show verdict + findings
+  //   - currentDocId present + aiVerdict empty + no aiError -> "Reviewing…"
+  //   - no upload yet -> nothing rendered
+  var aiHtml = renderAiBlock(d);
+
   // Dropzone (always visible — processor can re-upload at any time)
   var dz =
     '<label class="dropzone" id="dz_' + escAttr(slug) + '" ondragover="dzOver(event,\'' + escAttr(slug) + '\')" ondragleave="dzLeave(event,\'' + escAttr(slug) + '\')" ondrop="dzDrop(event,\'' + escAttr(slug) + '\')">' +
@@ -681,8 +714,16 @@ function renderTray(slug) {
     verdictBtns =
       '<button class="v-btn unapprove" onclick="setVerdict(\'' + escAttr(slug) + '\',\'pending\')">↶ Reopen for editing</button>';
   } else {
+    // Deploy 236.76 — when AI flagged issues but processor wants to
+    // approve anyway, route through the override modal to capture
+    // a "why the AI was wrong" reason. Saved as processorOverrideReason
+    // for admin retraining per Mike's spec.
+    var approveOnclick = (d.aiVerdict === 'issues')
+      ? "openOverrideModal('" + escAttr(slug) + "')"
+      : "setVerdict('" + escAttr(slug) + "','approved')";
+    var approveLabel = (d.aiVerdict === 'issues') ? '✓ Override AI &amp; Approve' : '✓ Approve';
     verdictBtns =
-      '<button class="v-btn approve" onclick="setVerdict(\'' + escAttr(slug) + '\',\'approved\')"' + (d.currentDocId ? '' : ' disabled title="Upload a doc first"') + '>✓ Approve</button>' +
+      '<button class="v-btn approve" onclick="' + approveOnclick + '"' + (d.currentDocId ? '' : ' disabled title="Upload a doc first"') + '>' + approveLabel + '</button>' +
       '<button class="v-btn issues" onclick="setVerdict(\'' + escAttr(slug) + '\',\'issues\')">⚠ Flag Issues</button>' +
       '<button class="v-btn na" onclick="openNaModal(\'' + escAttr(slug) + '\')">○ Mark N/A</button>';
   }
@@ -719,12 +760,67 @@ function renderTray(slug) {
     '</div>' +
     '<div class="tray-body' + (expanded ? '' : ' collapsed') + '">' +
       currentHtml +
+      aiHtml +
       dz +
       notes +
       naBlock +
       '<div class="verdict-actions">' + verdictBtns + '</div>' +
       historyHtml +
     '</div>' +
+  '</div>';
+}
+
+// Deploy 236.76 — Render the AI verdict block for a single doc tray.
+// State machine:
+//   - no current upload         -> nothing
+//   - upload in progress        -> "Reviewing with AI…" spinner
+//                                  (driven by _uploadingSlug, set by doUpload)
+//   - upload done + no AI yet   -> "AI did not return a verdict"
+//   - AI verdict present        -> verdict badge + summary + findings
+function renderAiBlock(d) {
+  if (!d.currentDocId && _uploadingSlug !== d.slug) return '';
+  // Upload-in-flight indicator
+  if (_uploadingSlug === d.slug) {
+    return '<div class="ai-block pending">' +
+      '<div class="ai-head">' +
+        '<span class="ai-label pending"><span class="ai-spinner"></span> AI is reviewing this document…</span>' +
+      '</div>' +
+      '<div class="ai-summary">This usually takes 5–15 seconds. The verdict is advisory — you still confirm with Approve / Flag / N/A.</div>' +
+    '</div>';
+  }
+  if (!d.aiVerdict) {
+    if (d.aiError) {
+      return '<div class="ai-block issues">' +
+        '<div class="ai-head"><span class="ai-label issues">⚠ AI review failed</span></div>' +
+        '<div class="ai-summary">' + escHtml(d.aiNotes || 'No details.') + '</div>' +
+      '</div>';
+    }
+    return '';
+  }
+  var cls = d.aiVerdict === 'approved' ? 'approved' : 'issues';
+  var icon = d.aiVerdict === 'approved' ? '✓ AI verdict: looks good' : '⚠ AI verdict: issues found';
+  var cost = d.aiCostCents ? '$' + (Number(d.aiCostCents) / 100).toFixed(4) : '';
+  var findingsHtml = '';
+  if (Array.isArray(d.aiFindings) && d.aiFindings.length) {
+    findingsHtml = '<div class="ai-findings">' + d.aiFindings.map(function(f) {
+      var st = f.status === 'met' ? 'met' : (f.status === 'not_met' ? 'not_met' : 'unclear');
+      var ico = st === 'met' ? '✓' : (st === 'not_met' ? '✗' : '?');
+      return '<div class="ai-finding ' + st + '">' +
+        '<span class="f-icon">' + ico + '</span>' +
+        '<div class="f-text">' +
+          '<div class="f-cond">' + escHtml(f.condition || '') + '</div>' +
+          (f.detail ? '<div class="f-detail">' + escHtml(f.detail) + '</div>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+  return '<div class="ai-block ' + cls + '">' +
+    '<div class="ai-head">' +
+      '<span class="ai-label ' + cls + '">' + icon + '</span>' +
+      (cost ? '<span class="ai-cost">' + cost + ' • ' + formatDate(d.aiReviewedAt) + '</span>' : '') +
+    '</div>' +
+    (d.aiNotes ? '<div class="ai-summary">' + escHtml(d.aiNotes) + '</div>' : '') +
+    findingsHtml +
   '</div>';
 }
 
@@ -770,13 +866,25 @@ function dzPick(e, slug) {
   if (f) doUpload(slug, f);
 }
 function doUpload(slug, file) {
+  // Deploy 236.76 — auto-expand the tray + show AI spinner state
+  // while the upload + AI review are in flight (Claude vision takes
+  // ~5-15s on a typical loan doc).
+  _uploadingSlug = slug;
+  _expanded[slug] = true;
+  render();
   showToast('Uploading ' + file.name + '…', 'info');
   SLA.LoanReviews.uploadDoc(_review.id, slug, file).then(function(r) {
     _review = r.review;
-    showToast('Uploaded.', 'success');
+    _uploadingSlug = null;
+    var verdict = (r.review.docs[slug] && r.review.docs[slug].aiVerdict) || '';
+    if (verdict === 'approved') showToast('Uploaded — AI says looks good.', 'success');
+    else if (verdict === 'issues') showToast('Uploaded — AI flagged issues. Review below.', 'info');
+    else showToast('Uploaded.', 'success');
     render();
   }).catch(function(err) {
+    _uploadingSlug = null;
     showToast('Upload failed: ' + (err.message || 'Unknown'), 'error');
+    render();
   });
 }
 function removeDoc(slug, docId) {

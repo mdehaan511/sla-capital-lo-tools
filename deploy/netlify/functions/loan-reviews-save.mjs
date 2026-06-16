@@ -110,6 +110,10 @@ async function handle(req, context) {
       // Phase 2 fields — initialized for forward-compat.
       aiVerdict: '',
       aiNotes: '',
+      aiFindings: [],
+      aiExtractedEntities: {},
+      aiReviewedAt: '',
+      aiError: '',
       aiCostCents: 0,
       processorOverrideReason: '',
       approvedAt: '',

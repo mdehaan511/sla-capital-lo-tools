@@ -29,6 +29,8 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { getChecklist } from './_shared/loan-review-checklists.mjs';
+import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
 // are < 5MB; appraisals can run larger. If this becomes a problem we'll
@@ -127,9 +129,51 @@ async function handle(req, context) {
   docState.processorNotes = '';
   docState.aiVerdict = '';
   docState.aiNotes = '';
+  docState.aiFindings = [];
+  docState.aiExtractedEntities = {};
+  docState.aiReviewedAt = '';
+  docState.aiError = '';
   docState.processorOverrideReason = '';
   docState.approvedAt = '';
   docState.approvedBy = '';
+
+  // Deploy 236.76 (Phase 2a) — auto-run Claude vision against the new
+  // upload before responding. Per Mike's spec the default behavior is
+  // auto-review on every upload (no manual trigger button). The
+  // verdict comes back as advisory — the processor still has to
+  // click Approve / Override / Flag Issues to finalize.
+  //
+  // Looks up the doc's conditions from the checklist by slug so the
+  // rubric is server-side source of truth (not whatever the client
+  // happened to send). Loan context comes from the review's
+  // snapshotted client + loan record.
+  const checklist = getChecklist(review.loanType || '');
+  const docMeta = checklist.find(function (d) { return d.slug === body.slug; }) || { label: body.slug, conditions: '' };
+  const ctx = buildLoanContext(review);
+  try {
+    const aiResult = await reviewDocument({
+      bytes,
+      mimeType: docState.currentMimeType,
+      docLabel: docMeta.label,
+      docConditions: docMeta.conditions,
+      loanContext: ctx,
+      investor: review.investor || '',
+    });
+    docState.aiVerdict = aiResult.verdict;
+    docState.aiNotes = aiResult.summary;
+    docState.aiFindings = aiResult.findings || [];
+    docState.aiExtractedEntities = aiResult.extractedEntities || {};
+    docState.aiReviewedAt = now;
+    docState.aiError = aiResult.error || '';
+    docState.aiCostCents = (Number(docState.aiCostCents || 0) + Number(aiResult.costCents || 0));
+    review.aiCostCents = Number(review.aiCostCents || 0) + Number(aiResult.costCents || 0);
+  } catch (e) {
+    console.error('loan-review-doc-upload: AI review threw, continuing:', e && e.message);
+    docState.aiVerdict = 'issues';
+    docState.aiNotes = 'AI review threw an exception: ' + (e && e.message || 'unknown');
+    docState.aiError = 'exception';
+    docState.aiReviewedAt = now;
+  }
 
   review.docs[body.slug] = docState;
   review.updatedAt = now;
@@ -139,4 +183,29 @@ async function handle(req, context) {
   await reviewStore.setJSON(keySafe(body.reviewId), review);
 
   return json(200, { ok: true, review, docId });
+}
+
+// Build the loan-context object sent to Claude. Pulls from the
+// review's snapshot (set at create time by loan-reviews-save.mjs)
+// so the AI is judging against the underwritten loan, not whatever
+// the LO has since changed on the underlying record.
+function buildLoanContext(review) {
+  const loan = review.sourceLoanSnapshot || {};
+  const fd   = loan.formData || {};
+  const client = review.sourceClientSnapshot || {};
+  function pick(k) {
+    if (loan[k] != null && loan[k] !== '') return loan[k];
+    if (fd[k]   != null && fd[k]   !== '') return fd[k];
+    return '';
+  }
+  const borrowerName = ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || review.borrowerName || '';
+  return {
+    loanAmount:    pick('loanAmt') || review.loanAmount || '',
+    address:       pick('address') || review.address || '',
+    borrowerName:  borrowerName,
+    borrowerEmail: client.email || '',
+    entityName:    client.entityName || '',
+    loanType:      review.loanType || '',
+    fundingDate:   pick('fundingDate') || review.expectedCloseDate || '',
+  };
 }
