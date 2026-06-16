@@ -69,6 +69,23 @@
     .empty-state p { font-size: 13px; max-width: 460px; margin: 0 auto 1.5rem; line-height: 1.6; }
     .loading { padding: 3rem; text-align: center; color: var(--muted); font-size: 13px; }
     .small-muted { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    /* Deploy 236.75 — per-row Delete button */
+    .row-actions { text-align: right; }
+    .row-del-btn { background: transparent; border: 1px solid transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 4px 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
+    .row-del-btn:hover { background: var(--red-light); border-color: var(--red-border); color: var(--red); }
+    /* Confirmation modal */
+    .modal-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.45); display: none; align-items: center; justify-content: center; z-index: 900; }
+    .modal-bg.open { display: flex; }
+    .modal { background: var(--surface); border-radius: 10px; padding: 1.5rem 1.75rem; max-width: 480px; width: 90%; box-shadow: 0 16px 48px rgba(0,0,0,0.25); }
+    .modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+    .modal p { font-size: 13px; color: var(--muted); margin-bottom: 12px; line-height: 1.55; }
+    .modal .target { background: var(--gold-light); border: 1px solid var(--gold-border); border-radius: 6px; padding: 10px 12px; font-size: 12px; margin: 12px 0; font-family: 'DM Mono', monospace; word-break: break-word; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.25rem; }
+    .btn-cancel { padding: 8px 16px; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .btn-cancel:hover { border-color: var(--gold); color: var(--gold-mid); }
+    .btn-danger { padding: 8px 16px; background: var(--red); color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .btn-danger:hover { background: #931616; }
+    .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -93,6 +110,20 @@
 
     <div class="table-wrap">
       <div id="tableContainer" class="loading">Loading reviews…</div>
+    </div>
+  </div>
+
+  <!-- Deploy 236.75 — Delete confirmation modal -->
+  <div class="modal-bg" id="delModal">
+    <div class="modal">
+      <h3>Delete loan review?</h3>
+      <p>This permanently removes the review record, every uploaded document, and the entire audit trail of verdicts and notes. <strong>This cannot be undone.</strong></p>
+      <div class="target" id="delTarget"></div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:0">If you only want to wrap up a finished review while keeping the verdict history, use Finalize on the review detail page instead.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeDelModal()">Cancel</button>
+        <button type="button" class="btn-danger" id="delConfirmBtn" onclick="confirmDelete()">Delete review</button>
+      </div>
     </div>
   </div>
 
@@ -168,6 +199,10 @@ function render() {
       '<td>' + pill + '</td>' +
       '<td>' + escHtml(lastWorked) + '</td>' +
       '<td>' + escHtml(closeDate) + '</td>' +
+      // Deploy 236.75 — per-row Delete button. stopPropagation so the
+      // tr-level click doesn't fire and try to open the review.
+      '<td class="row-actions"><button type="button" class="row-del-btn" title="Delete review" ' +
+        'onclick="event.stopPropagation();askDelete(\'' + escAttr(r.id) + '\',\'' + escAttr(address) + '\')">×</button></td>' +
     '</tr>';
   }).join('');
 
@@ -181,6 +216,7 @@ function render() {
         '<th>Docs</th>' +
         '<th>Last Worked</th>' +
         '<th>Close</th>' +
+        '<th></th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
     '</table>';
@@ -188,6 +224,38 @@ function render() {
 
 function openReview(id) {
   window.location.href = 'loan-review-detail.html?id=' + encodeURIComponent(id);
+}
+
+// ── Delete (Deploy 236.75) ─────────────────────────────────────────
+var _pendingDelete = null;
+function askDelete(id, label) {
+  _pendingDelete = id;
+  document.getElementById('delTarget').textContent = label || '(no address)';
+  document.getElementById('delModal').classList.add('open');
+}
+function closeDelModal() {
+  _pendingDelete = null;
+  document.getElementById('delModal').classList.remove('open');
+  var btn = document.getElementById('delConfirmBtn');
+  btn.disabled = false;
+  btn.textContent = 'Delete review';
+}
+function confirmDelete() {
+  if (!_pendingDelete) return;
+  var btn = document.getElementById('delConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  SLA.LoanReviews.remove(_pendingDelete).then(function() {
+    // Drop the deleted row locally so the table re-renders immediately
+    // without waiting for the list endpoint.
+    _all = _all.filter(function(r) { return r.id !== _pendingDelete; });
+    closeDelModal();
+    render();
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Delete review';
+    alert('Failed to delete: ' + (err.message || 'Unknown error'));
+  });
 }
 
 // Filter chips

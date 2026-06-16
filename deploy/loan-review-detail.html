@@ -217,6 +217,19 @@
     </div>
   </div>
 
+  <!-- Deploy 236.75 — Delete confirmation modal -->
+  <div class="modal-bg" id="deleteModal">
+    <div class="modal">
+      <h3>Delete this review?</h3>
+      <p>This permanently removes the review record, every uploaded document, and the entire audit trail of verdicts and notes. <strong>This cannot be undone.</strong></p>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:0">If you only want to wrap up a finished review while keeping the verdict history, use Finalize instead.</p>
+      <div class="modal-actions">
+        <button class="small-btn" onclick="closeDeleteModal()">Cancel</button>
+        <button class="v-btn issues" id="deleteConfirmBtn" onclick="confirmDeleteReview()">Delete Review</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
 <script>
@@ -412,6 +425,7 @@ function render() {
       '<p>Once Phase 2 ships, this section will use AI to cross-check the LLC name, borrower name, property address, and loan amount across the Articles of Organization, Operating Agreement, OFAC reports, Loan Application, and Title Commitment to surface any inconsistencies before closing.</p>' +
     '</div>' +
     '<div style="margin-top:1.5rem;display:flex;justify-content:flex-end;gap:8px;">' +
+      '<button class="small-btn danger" onclick="openDeleteModal()" style="color:var(--red);border-color:var(--red-border)">🗑 Delete Review</button>' +
       '<button class="small-btn danger" onclick="openFinalizeModal()">Finalize &amp; Purge Docs</button>' +
     '</div>';
 
@@ -869,6 +883,29 @@ function confirmOverride() {
 // Finalize
 function openFinalizeModal() { document.getElementById('finalizeModal').style.display = 'flex'; }
 function closeFinalizeModal() { document.getElementById('finalizeModal').style.display = 'none'; }
+
+// Deploy 236.75 — Delete review (separate from Finalize, with explicit
+// "cannot be undone" copy in the modal).
+function openDeleteModal() { document.getElementById('deleteModal').style.display = 'flex'; }
+function closeDeleteModal() {
+  document.getElementById('deleteModal').style.display = 'none';
+  var btn = document.getElementById('deleteConfirmBtn');
+  btn.disabled = false;
+  btn.textContent = 'Delete Review';
+}
+function confirmDeleteReview() {
+  var btn = document.getElementById('deleteConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  SLA.LoanReviews.remove(_review.id).then(function() {
+    showToast('Review deleted.', 'success');
+    setTimeout(function() { window.location.href = 'loan-review.html'; }, 500);
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Delete Review';
+    showToast('Delete failed: ' + (err.message || 'Unknown'), 'error');
+  });
+}
 function confirmFinalize() {
   SLA.LoanReviews.patch(_review.id, { status: 'finalized', finalizedAt: new Date().toISOString() }).then(function() {
     return SLA.LoanReviews.remove(_review.id);
