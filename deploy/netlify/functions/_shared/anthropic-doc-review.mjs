@@ -95,18 +95,33 @@ export async function reviewDocument(opts) {
   const b64 = bytes.toString('base64');
   const userPrompt = buildPrompt(opts);
 
-  // Deploy 236.77 — investor guidelines PDF attached as a cached
-  // content block when present. The cache_control marker tells
-  // Anthropic to keep this block in its prompt cache (~5 min TTL)
-  // so subsequent reviews on the same loan pay ~10% of normal
-  // input cost for the guidelines portion. The order matters: the
-  // guidelines doc goes FIRST so it appears before the doc being
-  // reviewed (cache_control breakpoints are positional).
+  // Deploy 236.77/78 — investor guidelines PDF + signed loan
+  // application PDF both attached as cached content blocks when
+  // available. The cache_control marker tells Anthropic to keep
+  // these blocks in its prompt cache (~5 min TTL) so subsequent
+  // reviews on the same loan pay ~10% of normal input cost for
+  // the cached portions. The order matters: cached docs go FIRST,
+  // then the doc being reviewed. Anthropic caches everything
+  // before the LAST cache_control breakpoint, so we put it on the
+  // last cacheable block (the loan app, or the guidelines if no
+  // loan app).
   const content = [];
   if (opts.guidelinesBytes && opts.guidelinesBytes.length) {
-    content.push({
+    const block = {
       type: 'document',
       source: { type: 'base64', media_type: 'application/pdf', data: opts.guidelinesBytes.toString('base64') },
+    };
+    // Only mark this as the cache breakpoint if there's no loan app
+    // to take that role.
+    if (!opts.loanAppBytes || !opts.loanAppBytes.length) {
+      block.cache_control = { type: 'ephemeral' };
+    }
+    content.push(block);
+  }
+  if (opts.loanAppBytes && opts.loanAppBytes.length) {
+    content.push({
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: opts.loanAppBytes.toString('base64') },
       cache_control: { type: 'ephemeral' },
     });
   }
@@ -216,50 +231,74 @@ export async function reviewDocument(opts) {
 }
 
 function buildSystemPrompt(opts) {
-  // Deploy 236.77 — system prompt notes whether investor guidelines
-  // are attached so the model knows to consult them.
-  const base =
-    "You are an expert loan-document underwriter at SLA Capital. " +
-    "Given a document and a list of conditions it must meet, you read the document carefully and decide whether each condition is met. " +
-    "You always respond with valid JSON matching the schema the user provides — no commentary, no markdown code fences, just the JSON object.";
+  // Deploy 236.78 — system prompt now lists ALL attached docs so the
+  // model knows what's available for cross-reference. Also tightened
+  // to stop the model from inventing checks (property address on an
+  // entity doc, etc.) that aren't in the per-doc rubric.
+  const lines = [
+    "You are an expert loan-document underwriter at SLA Capital.",
+    "Given a specific loan document and the conditions it must meet, you read it carefully and decide whether each condition is met.",
+    "You always respond with valid JSON matching the schema the user provides — no commentary, no markdown code fences, just the JSON object.",
+    "",
+    "Documents attached in the user message (in order):",
+  ];
+  let idx = 1;
   if (opts.guidelinesBytes && opts.guidelinesBytes.length) {
-    return base +
-      " The user message will include TWO documents: (1) the investor's underwriting guidelines PDF (treat as authoritative reference — the document being reviewed must comply with these), and (2) the specific loan document being reviewed. " +
-      "Cross-check the doc against BOTH the per-doc conditions listed in the prompt AND the relevant sections of the investor guidelines.";
+    lines.push(`  ${idx}. INVESTOR UNDERWRITING GUIDELINES PDF — authoritative reference for what the investor requires. Cross-check the doc being reviewed against the relevant sections (entity / borrower / appraisal / title / insurance / etc.).`);
+    idx += 1;
   }
-  return base;
+  if (opts.loanAppBytes && opts.loanAppBytes.length) {
+    lines.push(`  ${idx}. LOAN APPLICATION PDF (SLA's signed loan application for this loan) — source of truth for borrower name, LLC / entity name, property address, loan amount, and other application-level fields. When the per-doc rubric says "match X to the loan application", you MUST cross-reference the loan application PDF directly rather than guessing or claiming the data is unavailable.`);
+    idx += 1;
+  }
+  lines.push(`  ${idx}. THE DOCUMENT BEING REVIEWED — the focus of your review. The conditions in the user prompt apply to THIS document.`);
+  lines.push('');
+  lines.push("CRITICAL RULES — these prevent the most common AI verdict mistakes:");
+  lines.push("• ONLY evaluate the conditions listed in the per-doc rubric. Do NOT invent additional checks.");
+  lines.push("• Many borrower/entity/guarantor documents (Articles of Organization, OFAC reports, ID, credit reports, etc.) do NOT contain the property address or loan amount — that's normal. Do NOT flag missing property address or missing loan amount as an issue UNLESS the per-doc rubric explicitly says to verify it.");
+  lines.push("• When the rubric says 'matches loan application' or 'matches the loan' — LOOK in the attached Loan Application PDF. Do not claim the data is unavailable when the PDF is right there.");
+  lines.push("• A finding's `condition` field should paraphrase one of the explicit rubric conditions you actually checked — not a check you made up.");
+  lines.push("• `verdict: 'approved'` requires every applicable rubric condition to be met. Issues elsewhere in the doc that aren't part of the rubric do NOT downgrade the verdict.");
+  return lines.join('\n');
 }
 
 function buildPrompt(opts) {
+  // Deploy 236.78 — replaced the LOAN CONTEXT text block with a
+  // pointer to the attached Loan Application PDF for any
+  // cross-reference. Also dropped from the rules the "mismatches
+  // with the loan context" clause that was causing the model to
+  // flag missing property address on documents (Articles of Org,
+  // etc.) where the field doesn't normally appear.
   const ctx = opts.loanContext || {};
-  const ctxLines = [];
-  if (ctx.loanAmount)       ctxLines.push('- Loan amount: $' + Number(ctx.loanAmount).toLocaleString());
-  if (ctx.borrowerName)     ctxLines.push('- Borrower name: ' + ctx.borrowerName);
-  if (ctx.entityName)       ctxLines.push('- Borrowing entity / LLC: ' + ctx.entityName);
-  if (ctx.address)          ctxLines.push('- Property address: ' + ctx.address);
-  if (ctx.borrowerEmail)    ctxLines.push('- Borrower email: ' + ctx.borrowerEmail);
   const investor = opts.investor ? String(opts.investor).toUpperCase() : 'investor';
+  // Keep a compact text snapshot of the key loan fields as a
+  // FALLBACK for cases where the loan app PDF isn't attached
+  // (stub-source reviews). When the PDF IS attached, prefer it.
+  const ctxLines = [];
+  if (ctx.loanAmount)    ctxLines.push('- Loan amount: $' + Number(ctx.loanAmount).toLocaleString());
+  if (ctx.borrowerName)  ctxLines.push('- Borrower name: ' + ctx.borrowerName);
+  if (ctx.entityName)    ctxLines.push('- Borrowing entity / LLC: ' + ctx.entityName);
+  if (ctx.address)       ctxLines.push('- Property address: ' + ctx.address);
+  const hasLoanApp = !!(opts.loanAppBytes && opts.loanAppBytes.length);
 
   return [
     'You are reviewing a loan document for SLA Capital.',
     '',
     'DOCUMENT TYPE: ' + (opts.docLabel || '(unspecified)'),
     'INVESTOR: ' + investor,
-    (opts.guidelinesBytes && opts.guidelinesBytes.length)
-      ? '(The investor\'s underwriting guidelines PDF is attached as the FIRST document. The doc being reviewed is the SECOND document.)'
-      : '',
     '',
     'REQUIRED CONDITIONS for approval (per-doc rubric):',
     opts.docConditions || '(no conditions specified)',
     '',
-    ctxLines.length
-      ? 'LOAN CONTEXT (the document must match these where applicable):\n' + ctxLines.join('\n')
-      : 'LOAN CONTEXT: not provided.',
+    hasLoanApp
+      ? 'CROSS-REFERENCE: when the rubric says "match X to the loan application" or similar, look it up directly in the attached Loan Application PDF. That PDF is the source of truth for borrower name, entity / LLC name, property address, and loan amount.'
+      : (ctxLines.length
+          ? 'LOAN APPLICATION NOT ATTACHED — fall back to this text snapshot for cross-references:\n' + ctxLines.join('\n')
+          : 'LOAN APPLICATION NOT ATTACHED — limit your review to the per-doc rubric.'),
     '',
-    'Carefully read the document and assess whether it meets every required condition.',
-    (opts.guidelinesBytes && opts.guidelinesBytes.length)
-      ? 'Also cross-check against the investor guidelines PDF — flag any guideline violations as additional findings.'
-      : '',
+    'Reminders:',
+    '- Only flag findings that come from the per-doc rubric above. Do not invent extra checks.',
+    '- This document is "' + (opts.docLabel || 'unknown') + '" — it may not contain every loan field. That is normal. Do not flag missing property address / missing loan amount unless the rubric for THIS document explicitly says to verify it.',
     '',
     'Respond ONLY with valid JSON in this exact schema (no markdown, no commentary):',
     '{',
@@ -267,7 +306,7 @@ function buildPrompt(opts) {
     '  "summary": "<one-sentence overall conclusion>",',
     '  "findings": [',
     '    {',
-    '      "condition": "<the specific condition you checked, paraphrased>",',
+    '      "condition": "<paraphrase of one rubric condition you actually checked>",',
     '      "status":    "met" | "not_met" | "unclear",',
     '      "detail":    "<what you found in the doc, with page or section reference if possible>"',
     '    }',
@@ -280,11 +319,10 @@ function buildPrompt(opts) {
     '  }',
     '}',
     '',
-    'Rules:',
-    '- "verdict" MUST be "approved" only when every required condition is fully met.',
-    '- If ANY condition is "not_met" or "unclear" with material concern, verdict MUST be "issues".',
-    '- For mismatches with the loan context (e.g. LLC name on doc does not match the entity above), include a finding with status "not_met" and the mismatch in the detail.',
-    '- Extracted entities are used downstream to cross-check consistency across documents. Be precise — strings exactly as written.',
+    'Verdict rules:',
+    '- "approved" only when every applicable rubric condition is fully met.',
+    '- If a rubric condition is "not_met" with material concern, verdict MUST be "issues".',
+    '- Extracted entities are used downstream to cross-check consistency. Use null if the field is not naturally present on this doc — that is normal and not an issue on its own.',
   ].join('\n');
 }
 

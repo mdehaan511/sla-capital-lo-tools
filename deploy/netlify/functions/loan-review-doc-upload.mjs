@@ -166,6 +166,28 @@ async function handle(req, context) {
       console.warn('loan-review-doc-upload: guidelines fetch failed:', e && e.message);
     }
   }
+  // Deploy 236.78 — also attach the signed Loan Application PDF as
+  // a third cached document so the AI has the source-of-truth for
+  // cross-references like "LLC name on this AOO must match the loan
+  // app". Without this, the AI was only getting borrower / entity /
+  // address from a short text context block and would say things
+  // like "the loan application does not specify this LLC name" —
+  // because it couldn't actually SEE the app.
+  // Best-effort: stub-source reviews and loans without a signed app
+  // gracefully fall back to per-doc-rubric + guidelines + text ctx.
+  let loanAppBytes = null;
+  if (review.source && review.source.kind === 'existing' && review.source.clientId && review.source.loanId && review.source.ownerKey) {
+    try {
+      const appStore = getStore({ name: 'signed_applications', consistency: 'eventual' });
+      const appKey = keySafe(review.source.ownerKey) + '/' + keySafe(review.source.clientId) + '/' + keySafe(review.source.loanId);
+      const appRec = await appStore.get(appKey, { type: 'json' });
+      if (appRec && appRec.pdfBase64) {
+        loanAppBytes = Buffer.from(appRec.pdfBase64, 'base64');
+      }
+    } catch (e) {
+      console.warn('loan-review-doc-upload: loan app fetch failed:', e && e.message);
+    }
+  }
   try {
     const aiResult = await reviewDocument({
       bytes,
@@ -175,6 +197,7 @@ async function handle(req, context) {
       loanContext: ctx,
       investor: review.investor || '',
       guidelinesBytes,
+      loanAppBytes,
     });
     docState.aiVerdict = aiResult.verdict;
     docState.aiNotes = aiResult.summary;
