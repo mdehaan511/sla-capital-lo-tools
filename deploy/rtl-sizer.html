@@ -427,14 +427,14 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="section-label">Borrower</div>
       <div class="field">
         <div class="wrap" id="borrowerNameWrap">
-          <label>Borrower Name <span class="req">*</span></label>
+          <label>Guarantor Name <span class="req">*</span></label>
           <input type="text" id="borrowerName" placeholder="John Smith" oninput="_clearNameError();autoCalc()" />
         </div>
         <div class="email-err" id="borrowerNameErr" style="display:none">Borrower name is required to save a quote.</div>
       </div>
       <div class="field">
         <div class="wrap" id="borrowerEmailWrap">
-          <label>Borrower Email <span class="req">*</span></label>
+          <label>Guarantor Email <span class="req">*</span></label>
           <input type="email" id="borrowerEmail" placeholder="borrower@email.com" oninput="_clearEmailError()" />
         </div>
         <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
@@ -3990,9 +3990,12 @@ function _generateRTLTransactionalPDF(opts) {
 
   // ── Loan summary ─────────────────────────────────────────────
   var summaryRows = [
-    ['Borrower Name',       brwName||'\u2014'],
-    ['Borrower Email',      brwEmail||'\u2014'],
-    ['Borrower Phone',      brwPhone||'\u2014'],
+    // Deploy 236.86 \u2014 relabeled per Mike. RTL rate sheets address
+    // the guarantor (the warm-body human signing personally), not a
+    // generic "borrower" \u2014 the borrowing LLC is the entity.
+    ['Guarantor Name',      brwName||'\u2014'],
+    ['Guarantor Email',     brwEmail||'\u2014'],
+    ['Guarantor Phone',     brwPhone||'\u2014'],
     ['Loan Type',           'Transactional Funding'],
     ['Loan Amount',         fmtD(amt)],
     ['Loan Term',           '1 day (same-day repayment)'],
@@ -4383,8 +4386,10 @@ function _generateRTLRateSheetPDF(opts) {
   // above (full width, no truncation), so it's removed from this grid.
   var ptLabelMap={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–10 Units'};
   var details=[
-    ['Borrower Name',       brwName||'\u2014'],
-    ['Borrower Email',      brwEmail||'\u2014'],
+    // Deploy 236.86 \u2014 relabeled per Mike. See note on the
+    // transactional rate sheet's summaryRows.
+    ['Guarantor Name',      brwName||'\u2014'],
+    ['Guarantor Email',     brwEmail||'\u2014'],
     ['Loan Type',           progLabel],
     ['Purchase Price',      fmtD(pp)],
     ['Rehab Budget',        isR?fmtD(rb):'\u2014'],

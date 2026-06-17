@@ -470,12 +470,22 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
 
       // Render only when we have something meaningful (any priced loan
       // will, but pre-sizer records may not).
+      // Deploy 236.86 — Mike's RTL relabel + fee restructure:
+      //   - RTL: "Loan Processing Fee" $1,650 (combines $600 UW +
+      //     $900 Doc Prep + $150 Credit/BG from the RTL rate sheet)
+      //   - DSCR: unchanged ($1,695 Underwriting Fee)
+      //   - Both: "Legal/Doc Fee" -> "Legal/Doc Review" (same $500)
+      const isRtl = !!(loanRec && String(loanRec.toolType || '').toLowerCase() === 'rtl');
       if (hasAnyLoanDetail) {
         section('Estimated Fees & Other Details *');
         row('Rate Buydown',  buydownStr);
         row('Origination Fee', origPointsStr || '—');
-        row('Underwriting Fee', '$1,695');
-        row('Legal/Doc Fee', '$500');
+        if (isRtl) {
+          row('Loan Processing Fee', '$1,650');
+        } else {
+          row('Underwriting Fee', '$1,695');
+        }
+        row('Legal/Doc Review', '$500');
         // Appraisals row — long descriptive paragraph; render full-width.
         if (doc.y > doc.page.height - 100) doc.addPage();
         const apprStartY = doc.y;
