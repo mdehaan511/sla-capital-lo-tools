@@ -55,36 +55,44 @@ async function handle(req) {
   }
 
   // ── 1. Look up the signed_applications record by token ─────────
+  // Deploy 236.83 — token can belong to borrower 2, 3, or 4. The
+  // index entry carries `pos` (defaults to 2 for legacy entries).
+  // We find the matching `borrower<pos>` field and operate on that.
   const idx = getStore({ name: 'borrower2_token_idx', consistency: 'strong' });
   const store = getStore({ name: 'signed_applications', consistency: 'strong' });
   let signedKey = null;
   let rec = null;
+  let pos = 2;
   try {
     const idxRec = await idx.get(body.t, { type: 'json' });
     if (idxRec && idxRec.signedKey) {
       signedKey = idxRec.signedKey;
+      if (idxRec.pos && [2, 3, 4].includes(idxRec.pos)) pos = idxRec.pos;
       rec = await store.get(signedKey, { type: 'json' });
-      if (rec && rec.borrower2 && rec.borrower2.token !== body.t) {
-        // Token was rotated or doesn't match — fall through to walk
-        rec = null;
-      }
+      const b = rec && rec['borrower' + pos];
+      if (rec && (!b || b.token !== body.t)) rec = null;
     }
   } catch (_) {}
   if (!rec) {
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
+    outer: for (const { key } of blobs) {
       const r = await store.get(key, { type: 'json' });
-      if (r && r.borrower2 && r.borrower2.token === body.t) {
-        rec = r; signedKey = key; break;
+      if (!r) continue;
+      for (const tryPos of [2, 3, 4]) {
+        const b = r['borrower' + tryPos];
+        if (b && b.token === body.t) {
+          rec = r; signedKey = key; pos = tryPos; break outer;
+        }
       }
     }
   }
-  if (!rec || !rec.borrower2) return json(404, { error: 'Link not found' });
+  const bSelf = rec && rec['borrower' + pos];
+  if (!rec || !bSelf) return json(404, { error: 'Link not found' });
 
-  if (rec.borrower2.tokenExpiresAt && new Date(rec.borrower2.tokenExpiresAt) < new Date()) {
+  if (bSelf.tokenExpiresAt && new Date(bSelf.tokenExpiresAt) < new Date()) {
     return json(410, { error: 'This signing link has expired. Ask your loan officer to send a new one.' });
   }
-  if (rec.borrower2.audit && rec.borrower2.audit.signedAt) {
+  if (bSelf.audit && bSelf.audit.signedAt) {
     return json(409, { error: 'This authorization has already been signed.' });
   }
 
@@ -106,13 +114,13 @@ async function handle(req) {
     client = await clientsStore.get(ckey, { type: 'json' });
   } catch (_) {}
 
-  // ── 3. Build borrower-2 audit ──────────────────────────────────
+  // ── 3. Build this borrower's audit ─────────────────────────────
   const signedAt = new Date().toISOString();
   const dataHash = hashFormData(biRecord.data);
   const auditPre = {
-    recordId: `${rec.ownerKey}/${rec.clientId}/${rec.loanId || ''}#b2`,
+    recordId: `${rec.ownerKey}/${rec.clientId}/${rec.loanId || ''}#b${pos}`,
     signerName: body.signerName.trim().slice(0, 200),
-    signerEmail: rec.borrower2.email,
+    signerEmail: bSelf.email,
     dataHash,
     signedAt,
     consentVersion: ESIGN_CONSENT_VERSION,
@@ -129,36 +137,67 @@ async function handle(req) {
   }
   const b2Audit = Object.assign({}, auditPre, { seal });
 
-  // ── 4. Regenerate the final PDF with both signatures ───────────
+  // ── 4. Determine if any OTHER secondary borrowers still pending ─
+  // Deploy 236.83 — when this is the last secondary signer the PDF
+  // gets rendered as final; otherwise it's an interim with this
+  // signer's signature added but the remaining secondaries still
+  // pending.
+  function isPending(b) { return b && b.token && !(b.audit && b.audit.signedAt); }
+  const remainingPending = [2, 3, 4].filter(function (p) {
+    if (p === pos) return false;  // we just signed this one
+    return isPending(rec['borrower' + p]);
+  });
+  const willBeComplete = remainingPending.length === 0;
+  const newStatus = willBeComplete ? 'complete' : 'awaiting_borrower2';
+
+  // ── 5. Regenerate the PDF with the signatures we have so far ───
   let pdfBuffer;
   try {
-    pdfBuffer = await renderSignedApplicationPDF({
-      record: biRecord,
-      client,
-      status: 'complete',
-      signers: [
-        rec.borrower1,
-        {
-          role: 'borrower2',
+    // Build the signers list dynamically — b1 always, then each
+    // secondary position that exists on the record. The one we just
+    // signed gets its fresh audit; already-signed positions keep
+    // theirs; pending positions stay audit:null so the PDF renders
+    // their signature line as empty.
+    const signers = [rec.borrower1];
+    for (const p of [2, 3, 4]) {
+      const b = rec['borrower' + p];
+      if (!b) continue;
+      if (p === pos) {
+        signers.push({
+          role: 'borrower' + p,
           name: b2Audit.signerName,
           email: b2Audit.signerEmail,
           audit: b2Audit,
           signedAuths: B2_SIGNED_AUTHS,
-        },
-      ],
+        });
+      } else {
+        signers.push({
+          role: 'borrower' + p,
+          name: b.name,
+          email: b.email,
+          audit: b.audit || null,
+          signedAuths: b.signedAuths || [],
+        });
+      }
+    }
+    pdfBuffer = await renderSignedApplicationPDF({
+      record: biRecord,
+      client,
+      status: newStatus,
+      signers,
     });
   } catch (e) {
     console.error('borrower2-auth-sign: PDF render failed:', e);
     return json(500, { error: 'Failed to generate signed PDF: ' + (e.message || 'unknown') });
   }
 
-  // ── 5. Update signed_applications record ───────────────────────
-  rec.status = 'complete';
-  rec.borrower2.audit = b2Audit;
-  rec.borrower2.name = b2Audit.signerName;          // they may have entered a slightly different legal name
-  rec.borrower2.signedAuths = B2_SIGNED_AUTHS;
-  // Clear the token so it can't be replayed
-  rec.borrower2.token = null;
+  // ── 6. Update signed_applications record ───────────────────────
+  rec.status = newStatus;
+  bSelf.audit = b2Audit;
+  bSelf.name = b2Audit.signerName;          // they may have entered a slightly different legal name
+  bSelf.signedAuths = B2_SIGNED_AUTHS;
+  bSelf.token = null;                        // can't be replayed
+  rec['borrower' + pos] = bSelf;
   rec.pdfBase64 = pdfBuffer.toString('base64');
   rec.pdfSize = pdfBuffer.length;
   rec.updatedAt = signedAt;
@@ -172,13 +211,18 @@ async function handle(req) {
   // Drop the token index entry — it's spent
   try { await idx.delete(body.t); } catch (_) {}
 
-  // ── 6. Mark borrower-info as complete ──────────────────────────
-  biRecord.status = 'complete';
-  biRecord.completedAt = signedAt;
-  biRecord.signedAt = signedAt;            // the full-app "signed" timestamp = when B2 finished
-  biRecord.b2SignedAt = signedAt;
-  biRecord.b2SignedBy = b2Audit.signerName;
-  biRecord.b2Token = null;
+  // ── 7. Update borrower-info status ─────────────────────────────
+  // Mark complete ONLY when every secondary has signed (or when
+  // this is the only secondary). Otherwise stamp this borrower's
+  // signed timestamp but leave the overall status pending.
+  biRecord['b' + pos + 'SignedAt'] = signedAt;
+  biRecord['b' + pos + 'SignedBy'] = b2Audit.signerName;
+  biRecord['b' + pos + 'Token'] = null;
+  if (willBeComplete) {
+    biRecord.status = 'complete';
+    biRecord.completedAt = signedAt;
+    biRecord.signedAt = signedAt;
+  }
   biRecord.updatedAt = signedAt;
   try {
     await biStore.setJSON(biKey, biRecord);
@@ -186,35 +230,61 @@ async function handle(req) {
     console.warn('borrower2-auth-sign: borrower-info update failed:', e);
   }
 
-  // ── 7. Sync + auto-advance ─────────────────────────────────────
-  try { await syncPropertyFieldsToLoan(biRecord); }
-  catch (e) { console.warn('borrower2-auth-sign: property sync failed:', e); }
+  // ── 8. Sync + auto-advance (only when fully complete) ──────────
   let advanceResult = null;
-  try {
-    advanceResult = await advanceQuoteToInProcessing(biRecord);
-  } catch (e) {
-    console.warn('borrower2-auth-sign: advance threw:', e);
-    advanceResult = { ok: false, reason: 'exception' };
+  if (willBeComplete) {
+    try { await syncPropertyFieldsToLoan(biRecord); }
+    catch (e) { console.warn('borrower2-auth-sign: property sync failed:', e); }
+    try {
+      advanceResult = await advanceQuoteToInProcessing(biRecord);
+    } catch (e) {
+      console.warn('borrower2-auth-sign: advance threw:', e);
+      advanceResult = { ok: false, reason: 'exception' };
+    }
   }
 
-  // ── 8. Email both borrowers the final signed PDF ───────────────
+  // ── 9. Email the final signed PDF ──────────────────────────────
+  // If complete: every borrower (1 + every signed secondary) gets
+  // the fully-signed PDF. If still pending: just email the borrower
+  // who just signed a confirmation that their auth was recorded.
   let emailedB1 = false;
   let emailedB2 = false;
   try {
-    emailedB1 = await emailFinalSignedCopy({
-      toEmail: rec.borrower1.email,
-      toName: rec.borrower1.name,
-      propertyAddress: rec.propertyAddress,
-      pdfBuffer,
-      ownerKey: rec.ownerKey,
-    });
-    emailedB2 = await emailFinalSignedCopy({
-      toEmail: rec.borrower2.email,
-      toName: rec.borrower2.name,
-      propertyAddress: rec.propertyAddress,
-      pdfBuffer,
-      ownerKey: rec.ownerKey,
-    });
+    if (willBeComplete) {
+      emailedB1 = await emailFinalSignedCopy({
+        toEmail: rec.borrower1.email,
+        toName: rec.borrower1.name,
+        propertyAddress: rec.propertyAddress,
+        pdfBuffer,
+        ownerKey: rec.ownerKey,
+      });
+      // Send the final PDF to every secondary borrower who exists on
+      // the record. Track if at least one was sent for the legacy
+      // emailedB2 response flag.
+      for (const p of [2, 3, 4]) {
+        const b = rec['borrower' + p];
+        if (!b || !b.email) continue;
+        const sent = await emailFinalSignedCopy({
+          toEmail: b.email,
+          toName: b.name,
+          propertyAddress: rec.propertyAddress,
+          pdfBuffer,
+          ownerKey: rec.ownerKey,
+        });
+        if (sent && !emailedB2) emailedB2 = sent;
+      }
+    } else {
+      // Just this borrower's confirmation — they signed but we're
+      // still waiting on others. The final PDF goes out to everyone
+      // when the last secondary signs.
+      emailedB2 = await emailFinalSignedCopy({
+        toEmail: bSelf.email,
+        toName: bSelf.name,
+        propertyAddress: rec.propertyAddress,
+        pdfBuffer,
+        ownerKey: rec.ownerKey,
+      });
+    }
   } catch (e) {
     console.warn('borrower2-auth-sign: email failed:', e && e.message);
   }

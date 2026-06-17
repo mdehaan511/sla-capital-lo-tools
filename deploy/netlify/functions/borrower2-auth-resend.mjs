@@ -51,6 +51,9 @@ async function handle(req, context) {
   if (body === null)   return json(400, { error: 'Invalid JSON' });
   if (!body.clientId)  return json(400, { error: 'clientId required' });
   if (!body.loanId)    return json(400, { error: 'loanId required' });
+  // Deploy 236.83 — pos defaults to 2 for back-compat with existing
+  // UI / API callers that don't yet know about borrower 3 / 4.
+  const pos = body.borrowerPos && [2, 3, 4].includes(body.borrowerPos) ? body.borrowerPos : 2;
 
   let owner = normalizeEmail(user.email);
   if (body.owner && isAdmin(user)) owner = normalizeEmail(body.owner);
@@ -62,29 +65,30 @@ async function handle(req, context) {
   try { rec = await store.get(key, { type: 'json' }); } catch (_) {}
   if (!rec) return json(404, { error: 'No signed application on file for this loan.' });
 
-  if (rec.status !== 'awaiting_borrower2') {
-    return json(409, {
-      error: rec.status === 'complete'
-        ? 'Borrower 2 has already signed — no resend needed.'
-        : 'This loan is not awaiting a borrower 2 signature.',
-    });
+  // The status name 'awaiting_borrower2' is kept for legacy reasons —
+  // it now means "awaiting any secondary signature". Block resends
+  // when the overall application is already complete.
+  if (rec.status === 'complete') {
+    return json(409, { error: 'Application already fully signed — no resend needed.' });
   }
-  if (!rec.borrower2) return json(409, { error: 'No borrower 2 on this application.' });
-  if (rec.borrower2.audit && rec.borrower2.audit.signedAt) {
-    return json(409, { error: 'Borrower 2 has already signed this authorization.' });
+  const bField = rec['borrower' + pos];
+  if (!bField) return json(409, { error: 'No borrower ' + pos + ' on this application.' });
+  if (bField.audit && bField.audit.signedAt) {
+    return json(409, { error: 'Borrower ' + pos + ' has already signed this authorization.' });
   }
 
   // ── Rotate the token ───────────────────────────────────────────
   const idx = getStore({ name: 'borrower2_token_idx', consistency: 'strong' });
-  const oldToken = rec.borrower2.token;
+  const oldToken = bField.token;
   const newToken = generateBorrower2Token();
   const newExpiresAt = new Date(Date.now() + B2_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  rec.borrower2.token = newToken;
-  rec.borrower2.tokenExpiresAt = newExpiresAt;
-  rec.borrower2.invitedAt = new Date().toISOString();
-  rec.borrower2.resendCount = (rec.borrower2.resendCount || 0) + 1;
-  rec.borrower2.lastResentBy = user.email || '';
+  bField.token = newToken;
+  bField.tokenExpiresAt = newExpiresAt;
+  bField.invitedAt = new Date().toISOString();
+  bField.resendCount = (bField.resendCount || 0) + 1;
+  bField.lastResentBy = user.email || '';
+  rec['borrower' + pos] = bField;
   rec.updatedAt = new Date().toISOString();
 
   try { await store.setJSON(key, rec); }
@@ -93,12 +97,12 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to save updated record' });
   }
 
-  try { await idx.setJSON(newToken, { signedKey: key, expiresAt: newExpiresAt }); }
+  try { await idx.setJSON(newToken, { signedKey: key, pos, expiresAt: newExpiresAt }); }
   catch (e) { console.warn('b2 idx write failed (lookup will walk):', e); }
   // Best-effort: drop the old token. If this fails the old token is
   // still valid against the lookup index but will fail the
-  // token-match check in the sign endpoint (since rec.borrower2.token
-  // has been rotated), so replay is still prevented.
+  // token-match check in the sign endpoint (since the borrower's
+  // token has been rotated), so replay is still prevented.
   if (oldToken) {
     try { await idx.delete(oldToken); }
     catch (e) { console.warn('b2 idx delete old token failed:', e); }
@@ -107,7 +111,7 @@ async function handle(req, context) {
   // ── Email the new link ─────────────────────────────────────────
   const apiKey = process.env.RESEND_API_KEY;
   let emailedAt = null;
-  if (apiKey && rec.borrower2.email) {
+  if (apiKey && bField.email) {
     // Build link with the request host so preview deploys stay self-
     // contained. Same pattern used in borrower-info-sign.mjs.
     const proto = (req.headers.get ? req.headers.get('x-forwarded-proto') : req.headers['x-forwarded-proto']) || 'https';
@@ -121,7 +125,7 @@ async function handle(req, context) {
     const propertyAddress = rec.propertyAddress || '';
 
     const text = [
-      `Hi ${rec.borrower2.name},`,
+      `Hi ${bField.name},`,
       '',
       `This is a reminder that ${b1Name} is waiting on your authorization to move forward with their loan application at SLA Capital.`,
       '',
@@ -146,7 +150,7 @@ async function handle(req, context) {
           '<h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital \u2014 Reminder: Co-Borrower Authorization</h1>' +
         '</div>' +
         '<div style="padding:24px;color:#1A1520">' +
-          `<p style="font-size:14px;line-height:1.6">Hi ${escH(rec.borrower2.name)},</p>` +
+          `<p style="font-size:14px;line-height:1.6">Hi ${escH(bField.name)},</p>` +
           `<p style="font-size:14px;line-height:1.6">This is a reminder that <strong>${escH(b1Name)}</strong> is waiting on your authorization to move forward with their loan application at SLA Capital.</p>` +
           '<p style="font-size:14px;line-height:1.6">Federal law (Fair Credit Reporting Act) requires your own authorization for the credit pull and background check \u2014 your co-borrower can\u2019t do it for you.</p>' +
           (propertyAddress
@@ -166,7 +170,7 @@ async function handle(req, context) {
         headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           from: 'SLA Capital <noreply@leads.slacapital.com>',
-          to: [rec.borrower2.email],
+          to: [bField.email],
           subject, text, html,
           ...(replyTo ? { reply_to: replyTo } : {}),
         }),
@@ -185,7 +189,8 @@ async function handle(req, context) {
     ok: true,
     expiresAt: newExpiresAt,
     emailedAt,
-    b2Email: rec.borrower2.email,
-    resendCount: rec.borrower2.resendCount,
+    b2Email: bField.email,
+    pos,
+    resendCount: bField.resendCount,
   });
 }

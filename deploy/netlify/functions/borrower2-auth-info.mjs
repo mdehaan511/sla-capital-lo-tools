@@ -34,45 +34,65 @@ async function handle(req) {
   const token = url.searchParams.get('t');
   if (!token) return json(400, { error: 'Missing token' });
 
-  // Fast path: token → signedKey via index
+  // Deploy 236.83 — generalized from "borrower 2 only" to any
+  // secondary borrower (2/3/4). The token index now carries `pos`
+  // alongside `signedKey` so we know which borrowerN field on the
+  // record this token belongs to. Tokens written before 236.83 don't
+  // have `pos` — we default those to 2 (the only position that
+  // existed at the time).
   const idx = getStore({ name: 'borrower2_token_idx', consistency: 'strong' });
   let signedKey = null;
+  let pos = 2;
   try {
     const idxRec = await idx.get(token, { type: 'json' });
-    if (idxRec && idxRec.signedKey) signedKey = idxRec.signedKey;
+    if (idxRec && idxRec.signedKey) {
+      signedKey = idxRec.signedKey;
+      if (idxRec.pos && [2, 3, 4].includes(idxRec.pos)) pos = idxRec.pos;
+    }
   } catch (_) {}
 
   // Fallback: walk the signed_applications store. Slow but works for
-  // legacy/lost-index tokens.
+  // legacy/lost-index tokens. Checks borrower2/3/4 fields.
   const store = getStore({ name: 'signed_applications', consistency: 'strong' });
   let rec = null;
   if (signedKey) {
     try { rec = await store.get(signedKey, { type: 'json' }); } catch (_) {}
-    if (rec && rec.borrower2 && rec.borrower2.token !== token) rec = null;
+    const bField = rec && rec['borrower' + pos];
+    if (rec && (!bField || bField.token !== token)) rec = null;
   }
   if (!rec) {
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
+    outer: for (const { key } of blobs) {
       const r = await store.get(key, { type: 'json' });
-      if (r && r.borrower2 && r.borrower2.token === token) {
-        rec = r; signedKey = key;
-        // Backfill the index for next time
-        try { await idx.setJSON(token, { signedKey, expiresAt: r.borrower2.tokenExpiresAt }); } catch (_) {}
-        break;
+      if (!r) continue;
+      for (const tryPos of [2, 3, 4]) {
+        const b = r['borrower' + tryPos];
+        if (b && b.token === token) {
+          rec = r; signedKey = key; pos = tryPos;
+          try { await idx.setJSON(token, { signedKey, pos, expiresAt: b.tokenExpiresAt }); } catch (_) {}
+          break outer;
+        }
       }
     }
   }
 
-  if (!rec || !rec.borrower2) return json(404, { error: 'Link not found' });
+  const bField = rec && rec['borrower' + pos];
+  if (!rec || !bField) return json(404, { error: 'Link not found' });
 
-  const expired = rec.borrower2.tokenExpiresAt && new Date(rec.borrower2.tokenExpiresAt) < new Date();
-  const alreadySigned = !!(rec.borrower2.audit && rec.borrower2.audit.signedAt);
+  const expired = bField.tokenExpiresAt && new Date(bField.tokenExpiresAt) < new Date();
+  const alreadySigned = !!(bField.audit && bField.audit.signedAt);
 
   return json(200, {
     propertyAddress: rec.propertyAddress || '',
     b1Name: (rec.borrower1 && rec.borrower1.name) || '',
-    b2Name: rec.borrower2.name || '',
-    b2Email: rec.borrower2.email || '',
+    // Borrower-pos-aware fields. b2Name / b2Email kept for back-compat
+    // with the existing borrower2-auth.html page; new code can read
+    // borrowerPos + name/email directly.
+    b2Name: bField.name || '',
+    b2Email: bField.email || '',
+    name: bField.name || '',
+    email: bField.email || '',
+    borrowerPos: pos,
     alreadySigned,
     expired,
   });

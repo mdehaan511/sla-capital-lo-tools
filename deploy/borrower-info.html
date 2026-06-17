@@ -991,17 +991,21 @@ function renderPage4() {
     field('numGuarantors', 'How many guarantors are there?', 'radio', {
       required: true,
       onchange: 'render()',
-      options: [{ v: '1', l: '1' }, { v: '2', l: '2' }],
+      // Deploy 236.83 — 3 and 4 added. Each secondary guarantor
+      // gets their own signing link (mirrors the 2-borrower flow).
+      options: [{ v: '1', l: '1' }, { v: '2', l: '2' }, { v: '3', l: '3' }, { v: '4', l: '4' }],
       hint: 'Note: all individuals with more than 20% ownership of an LLC must be a guarantor.',
     });
 
-  // Guarantor 1
+  // Guarantor 1 — always rendered.
   html += renderGuarantor(0, 'Guarantor #1');
 
-  // Guarantor 2
-  if (numGuarantors === '2') {
-    html += renderGuarantor(1, 'Guarantor #2');
-  }
+  // Guarantors 2-4 — conditional on the radio. renderGuarantor(idx)
+  // is generic, so we just include more sections as the count grows.
+  var n = parseInt(numGuarantors, 10) || 1;
+  if (n >= 2) html += renderGuarantor(1, 'Guarantor #2');
+  if (n >= 3) html += renderGuarantor(2, 'Guarantor #3');
+  if (n >= 4) html += renderGuarantor(3, 'Guarantor #4');
 
   return html;
 }
@@ -1320,18 +1324,37 @@ function renderPage5() {
   html += consentSection('infoRel', 'infoRelLabel', 'infoRelBox', 'Authorization to Release Information');
   html += consentSection('esign',   'esignLabel',   'esignBox',   'Electronic Signature Consent (ESIGN / UETA)');
 
-  // Co-borrower notice
-  var hasCoBorrower = String(d.numGuarantors || '1') === '2'
-    && d.guarantors && d.guarantors[1] && (d.guarantors[1].email || '').trim();
-  if (hasCoBorrower) {
-    var g2 = d.guarantors[1];
-    var g2Name = ((g2.firstName || '') + ' ' + (g2.lastName || '')).trim() || 'your co-borrower';
+  // Co-borrower notice \u2014 Deploy 236.83 generalized to 2/3/4 signers.
+  // Lists every secondary guarantor that has at least an email so
+  // the borrower knows who's getting a signing link after they sign.
+  var nG = parseInt(d.numGuarantors || '1', 10) || 1;
+  var secondarySigners = [];
+  for (var si = 1; si < nG; si++) {
+    var gi = (d.guarantors || [])[si];
+    if (gi && (gi.email || '').trim()) {
+      var giName = ((gi.firstName || '') + ' ' + (gi.lastName || '')).trim() || ('Co-Guarantor #' + (si + 1));
+      secondarySigners.push({ idx: si, name: giName, email: (gi.email || '').trim() });
+    }
+  }
+  if (secondarySigners.length) {
+    var lineHtml = secondarySigners.map(function(s) {
+      return '<strong>' + escH(s.name) + '</strong> at <strong>' + escH(s.email) + '</strong>';
+    }).join(secondarySigners.length === 2 ? ' and ' : ', ');
+    // Oxford comma when 3+
+    if (secondarySigners.length >= 3) {
+      lineHtml = secondarySigners.slice(0, -1).map(function(s) {
+        return '<strong>' + escH(s.name) + '</strong> at <strong>' + escH(s.email) + '</strong>';
+      }).join(', ') + ', and ' + '<strong>' + escH(secondarySigners[secondarySigners.length - 1].name) + '</strong> at <strong>' + escH(secondarySigners[secondarySigners.length - 1].email) + '</strong>';
+    }
+    var label = secondarySigners.length === 1 ? 'Co-borrower signature required.' : 'Co-borrower signatures required.';
     html += '<div style="background:var(--gold-light,#F5E9D8);border:1px solid var(--gold-border,#D4A572);border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13px;line-height:1.55;color:#1A1520">' +
-      '<strong>Co-borrower signature required.</strong><br>' +
-      'After you sign, we\u2019ll email <strong>' + escH(g2Name) + '</strong> at <strong>' + escH(g2.email) + '</strong> a link to sign their own credit & background check authorization. ' +
-      'The loan application won\u2019t finalize until they sign. Both of you will then receive the fully-signed PDF.' +
+      '<strong>' + escH(label) + '</strong><br>' +
+      'After you sign, we\u2019ll email ' + lineHtml + ' a link to sign their own credit &amp; background check authorization. ' +
+      'The loan application won\u2019t finalize until ' + (secondarySigners.length === 1 ? 'they sign' : 'they all sign') + '. ' +
+      'Everyone will then receive the fully-signed PDF.' +
     '</div>';
   }
+  var hasCoBorrower = secondarySigners.length > 0;
 
   html += '<div class="signature-block">' +
     '<label for="signerNameInput">Type your full legal name to sign</label>' +
@@ -1344,7 +1367,9 @@ function renderPage5() {
   '</div>';
 
   html += '<button type="button" class="sign-submit-btn" id="signSubmitBtn" onclick="signApplication()" disabled>' +
-    (hasCoBorrower ? 'Sign Application & Notify Co-Borrower' : 'Sign Application') +
+    (hasCoBorrower
+      ? (secondarySigners.length === 1 ? 'Sign Application & Notify Co-Borrower' : 'Sign Application & Notify Co-Borrowers')
+      : 'Sign Application') +
   '</button>';
 
   html += '<div id="signError" style="color:#9b1d20;font-size:13px;margin-top:14px;text-align:center;display:none"></div>';

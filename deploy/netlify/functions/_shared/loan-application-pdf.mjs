@@ -40,6 +40,19 @@ const TEXT       = '#1A1520';
 const MUTED      = '#7A7488';
 const BORDER     = '#E4DFD4';
 
+// Deploy 236.83 — map a signer's role string to the display label used
+// in the PDF. Generalized from the prior borrower1/borrower2 ternary
+// so we can render up to 4 borrowers without code duplication.
+function roleLabelFor(role) {
+  switch (role) {
+    case 'borrower1': return 'Borrower / Guarantor 1';
+    case 'borrower2': return 'Co-Borrower / Guarantor 2';
+    case 'borrower3': return 'Co-Borrower / Guarantor 3';
+    case 'borrower4': return 'Co-Borrower / Guarantor 4';
+    default:          return 'Borrower / Guarantor 1';
+  }
+}
+
 /**
  * Render the signed loan application PDF.
  *
@@ -47,7 +60,7 @@ const BORDER     = '#E4DFD4';
  * @param {object} params.record    - The borrower_info blob record
  * @param {object} params.client    - The client blob record (for entity fallback)
  * @param {Array<object>} params.signers - Array of signers. Each entry:
- *     { role: 'borrower1' | 'borrower2',
+ *     { role: 'borrower1' | 'borrower2' | 'borrower3' | 'borrower4',
  *       name: string,
  *       email: string,
  *       audit: object | null,         // null if hasn\u2019t signed yet
@@ -786,7 +799,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       doc.moveDown(0.6);
       subHeader('Signatures');
       signers.forEach((signer) => {
-        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        const role = roleLabelFor(signer.role);
         sigBlock(signer, role);
         doc.moveDown(0.3);
       });
@@ -798,7 +811,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       doc.moveDown(0.8);
       subHeader('Signatures');
       signers.forEach((signer) => {
-        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        const role = roleLabelFor(signer.role);
         sigBlock(signer, role);
         doc.moveDown(0.3);
       });
@@ -810,7 +823,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       // are visually self-contained per borrower.
       signers.forEach((signer) => {
         doc.addPage();
-        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        const role = roleLabelFor(signer.role);
         section(`Authorization to Conduct Prequal Credit & Background Checks — ${role}`);
         paragraph(PREQUAL_CREDIT_AUTH_TEXT);
         doc.moveDown(0.8);
@@ -824,7 +837,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       doc.moveDown(0.8);
       subHeader('Signatures');
       signers.forEach((signer) => {
-        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        const role = roleLabelFor(signer.role);
         sigBlock(signer, role);
         doc.moveDown(0.3);
       });
@@ -861,7 +874,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
             .text('Application Pertains To', 54, doc.y, { width: doc.page.width - 108 });
           doc.moveDown(0.3);
           signers.forEach((s) => {
-            const r = s.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+            const r = roleLabelFor(s.role);
             row(r, (s.name || '') + (s.email ? '  —  ' + s.email : ''));
           });
         }
@@ -885,7 +898,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       signers.forEach((signer, idx) => {
         if (idx > 0) doc.moveDown(0.6);
         const a = signer.audit;
-        const role = signer.role === 'borrower2' ? 'Co-Borrower / Guarantor 2' : 'Borrower / Guarantor 1';
+        const role = roleLabelFor(signer.role);
         doc.font('Helvetica-Bold').fontSize(10).fillColor(PLUM)
           .text(role + ' \u2014 ' + (signer.name || ''), 54, doc.y, { width: doc.page.width - 108 });
         doc.moveDown(0.2);

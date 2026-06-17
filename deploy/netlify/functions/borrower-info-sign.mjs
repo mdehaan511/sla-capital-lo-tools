@@ -149,38 +149,53 @@ async function handle(req) {
     client = await clientsStore.get(ckey, { type: 'json' });
   } catch (_) {}
 
-  // ── 4. Determine if borrower 2 needs to sign ───────────────────
-  // numGuarantors comes from the form data. If "2" and the second
-  // guarantor has at least an email, we need to route to them after
-  // borrower 1 signs.
+  // ── 4. Determine which secondary borrowers need to sign ────────
+  // Deploy 236.83 — generalized from "1 or 2 borrowers" to up to 4.
+  // For each guarantor index 1..3 (guarantor 2, 3, 4 in 1-based
+  // labeling) that has an email, build a signing block with its own
+  // token. Each gets emailed an individual link to sign their own
+  // prequal credit auth — same flow as the original 2-borrower path,
+  // just N times.
   const data = record.data || {};
   const guarantors = Array.isArray(data.guarantors) ? data.guarantors : [];
-  const g1 = guarantors[1] || null;
-  const numGuarantors = String(data.numGuarantors || '1');
-  const hasB2 = numGuarantors === '2' && g1 && (g1.email || '').trim().length > 0;
+  const numGuarantors = parseInt(String(data.numGuarantors || '1'), 10) || 1;
 
-  let b2Block = null;
-  let b2Token = null;
-  if (hasB2) {
-    b2Token = generateBorrower2Token();
-    const tokenExpiresAt = new Date(Date.now() + B2_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-    b2Block = {
-      role: 'borrower2',
-      name: ((g1.firstName || '') + ' ' + (g1.lastName || '')).trim() || 'Co-Borrower',
-      email: (g1.email || '').toLowerCase().trim(),
-      phone: g1.phone || '',
-      token: b2Token,
-      tokenExpiresAt,
-      invitedAt: signedAt,
-      audit: null,         // populated when they sign
-      signedAuths: [],
-    };
+  const secondaryBlocks = []; // [{ pos:2|3|4, token, block }]
+  const tokenExpiresAt = new Date(Date.now() + B2_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  for (let pos = 2; pos <= 4 && pos <= numGuarantors; pos++) {
+    const gIdx = pos - 1; // guarantor array is 0-based
+    const g = guarantors[gIdx] || null;
+    if (!g || !(g.email || '').trim()) continue;
+    const tok = generateBorrower2Token();
+    secondaryBlocks.push({
+      pos,
+      token: tok,
+      block: {
+        role: 'borrower' + pos,
+        name: ((g.firstName || '') + ' ' + (g.lastName || '')).trim() || ('Co-Borrower #' + pos),
+        email: (g.email || '').toLowerCase().trim(),
+        phone: g.phone || '',
+        token: tok,
+        tokenExpiresAt,
+        invitedAt: signedAt,
+        audit: null,         // populated when they sign
+        signedAuths: [],
+      },
+    });
   }
+  // Keep the b2-named locals for backwards-compatible code paths
+  // below (PDF render, signed record shape, email branch, etc.).
+  const hasB2 = secondaryBlocks.length > 0;
+  const b2Block = (secondaryBlocks[0] && secondaryBlocks[0].block) || null;
+  const b2Token = b2Block ? b2Block.token : null;
 
   // ── 5. Build the signed PDF ────────────────────────────────────
-  // The PDF rendered now is the INTERIM copy if borrower 2 is
-  // expected to sign — it will be regenerated when borrower 2 signs
-  // their auth. If single borrower, this is the final copy.
+  // Interim copy if any secondary borrower is still pending — it
+  // will be re-rendered when the last secondary signer signs. If
+  // single borrower, this is the final copy.
+  // Deploy 236.83 — status name kept as 'awaiting_borrower2' for
+  // backward compat with existing records and the borrower2-auth
+  // page; in practice it now means "awaiting any secondary signer".
   const pdfStatus = hasB2 ? 'awaiting_borrower2' : 'complete';
   let pdfBuffer;
   try {
@@ -196,13 +211,13 @@ async function handle(req) {
           audit: b1Audit,
           signedAuths: B1_SIGNED_AUTHS,
         },
-        ...(b2Block ? [{
-          role: 'borrower2',
-          name: b2Block.name,
-          email: b2Block.email,
+        ...secondaryBlocks.map(function (sb) { return {
+          role: sb.block.role,
+          name: sb.block.name,
+          email: sb.block.email,
           audit: null,
           signedAuths: [],
-        }] : []),
+        }; }),
       ],
     });
   } catch (e) {
@@ -211,6 +226,10 @@ async function handle(req) {
   }
 
   // ── 6. Store the signed record ─────────────────────────────────
+  // Deploy 236.83 — signed record now carries borrower2, borrower3,
+  // borrower4 as parallel fields. Older code that reads only
+  // record.borrower2 keeps working for 1/2-borrower loans. Newer
+  // code can iterate borrower2..borrower4.
   const signedStore = getStore({ name: 'signed_applications', consistency: 'strong' });
   const signedKey = `${record.ownerKey}/${(record.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}/${(record.loanId || '_no_loan').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const signedRecord = {
@@ -219,7 +238,7 @@ async function handle(req) {
     ownerKey: record.ownerKey,
     propertyAddress: (record.prefill && record.prefill.propertyAddress) || (record.data && record.data.propertyAddress) || '',
     status: pdfStatus,
-    numBorrowers: hasB2 ? 2 : 1,
+    numBorrowers: 1 + secondaryBlocks.length,
     borrower1: {
       role: 'borrower1',
       name: b1Audit.signerName,
@@ -227,7 +246,9 @@ async function handle(req) {
       audit: b1Audit,
       signedAuths: B1_SIGNED_AUTHS,
     },
-    borrower2: b2Block,
+    borrower2: getSecondaryBlock(secondaryBlocks, 2),
+    borrower3: getSecondaryBlock(secondaryBlocks, 3),
+    borrower4: getSecondaryBlock(secondaryBlocks, 4),
     pdfBase64: pdfBuffer.toString('base64'),
     pdfSize: pdfBuffer.length,
     createdAt: signedAt,
@@ -240,14 +261,25 @@ async function handle(req) {
     return json(500, { error: 'Failed to save signed application' });
   }
 
-  // Index the borrower-2 token (if any) for O(1) lookups in the
-  // borrower2-auth endpoints. Keyed by token → signedKey.
-  if (b2Token) {
+  // Index every secondary token for O(1) lookups in the
+  // borrower-secondary-auth endpoints. Keyed by token. Value
+  // includes the borrower position (2/3/4) so the auth endpoint
+  // knows which borrowerN field to read/write on the record.
+  // Deploy 236.83: same store name borrower2_token_idx is kept
+  // for back-compat; existing tokens stay readable as a special
+  // case of "pos: 2".
+  if (secondaryBlocks.length) {
     try {
       const idx = getStore({ name: 'borrower2_token_idx', consistency: 'strong' });
-      await idx.setJSON(b2Token, { signedKey, expiresAt: b2Block.tokenExpiresAt });
+      for (const sb of secondaryBlocks) {
+        await idx.setJSON(sb.token, {
+          signedKey,
+          pos: sb.pos,
+          expiresAt: sb.block.tokenExpiresAt,
+        });
+      }
     } catch (e) {
-      console.warn('borrower-info-sign: b2 token index write failed (lookup will fall back to walk):', e);
+      console.warn('borrower-info-sign: secondary token index write failed (lookup will fall back to walk):', e);
     }
   }
 
@@ -263,6 +295,14 @@ async function handle(req) {
     record.b1SignedBy = b1Audit.signerName;
     record.b2Token = b2Token;
     record.b2InvitedAt = signedAt;
+    // Deploy 236.83 — also stamp b3 / b4 tokens when present so the
+    // borrower-info record carries the full set of pending invites.
+    record.b3Token = (secondaryBlocks[1] && secondaryBlocks[1].pos === 3) ? secondaryBlocks[1].token
+                  : (secondaryBlocks[2] && secondaryBlocks[2].pos === 3) ? secondaryBlocks[2].token : '';
+    record.b4Token = (secondaryBlocks[1] && secondaryBlocks[1].pos === 4) ? secondaryBlocks[1].token
+                  : (secondaryBlocks[2] && secondaryBlocks[2].pos === 4) ? secondaryBlocks[2].token : '';
+    if (record.b3Token) record.b3InvitedAt = signedAt;
+    if (record.b4Token) record.b4InvitedAt = signedAt;
   } else {
     record.status = 'complete';
     record.completedAt = signedAt;
@@ -305,26 +345,40 @@ async function handle(req) {
   //     link to sign their own prequal credit auth
   let emailedB1 = false;
   let emailedB2 = false;
+  let emailedSecondaryCount = 0;
   try {
     if (hasB2) {
+      // The interim notice to b1 lists every secondary signer they're
+      // waiting on so they understand which links are out.
+      const coNames = secondaryBlocks.map(function (sb) { return sb.block.name; });
       emailedB1 = await emailSignedCopy({
         toEmail: b1Audit.signerEmail,
         toName: b1Audit.signerName,
         propertyAddress: signedRecord.propertyAddress,
         pdfBuffer,
         isInterim: true,
-        coBorrowerName: b2Block.name,
+        coBorrowerName: coNames.length === 1
+          ? coNames[0]
+          : (coNames.slice(0, -1).join(', ') + (coNames.length >= 3 ? ',' : '') + ' and ' + coNames[coNames.length - 1]),
         ownerKey: record.ownerKey,
       });
-      emailedB2 = await emailBorrower2AuthLink({
-        toEmail: b2Block.email,
-        toName: b2Block.name,
-        b1Name: b1Audit.signerName,
-        propertyAddress: signedRecord.propertyAddress,
-        token: b2Token,
-        req,
-        ownerKey: record.ownerKey,
-      });
+      // Send each secondary borrower their own signing link. Same
+      // helper as before — works for b2, b3, b4 since the token is
+      // the only routing key (the auth endpoints find the right
+      // borrowerN field from the token index).
+      for (const sb of secondaryBlocks) {
+        const sent = await emailBorrower2AuthLink({
+          toEmail: sb.block.email,
+          toName: sb.block.name,
+          b1Name: b1Audit.signerName,
+          propertyAddress: signedRecord.propertyAddress,
+          token: sb.token,
+          req,
+          ownerKey: record.ownerKey,
+        });
+        if (sent) emailedSecondaryCount += 1;
+      }
+      emailedB2 = emailedSecondaryCount > 0;
     } else {
       emailedB1 = await emailSignedCopy({
         toEmail: b1Audit.signerEmail,
@@ -361,10 +415,24 @@ async function handle(req) {
     status: pdfStatus,
     emailedBorrower: emailedB1,
     emailedCoBorrower: emailedB2,
+    emailedCoBorrowerCount: emailedSecondaryCount,
+    secondaryCount: secondaryBlocks.length,
     emailedLO: loNotified,
     awaitingBorrower2: hasB2,
+    awaitingSecondaries: hasB2,
     advanceResult,
   });
+}
+
+// Deploy 236.83 — pick a secondary block by 1-based borrower position
+// (2, 3, or 4). Returns null when that position isn't being used so
+// the signed_applications record fields are explicitly null instead
+// of undefined.
+function getSecondaryBlock(secondaryBlocks, pos) {
+  for (let i = 0; i < secondaryBlocks.length; i++) {
+    if (secondaryBlocks[i].pos === pos) return secondaryBlocks[i].block;
+  }
+  return null;
 }
 
 async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, isInterim, coBorrowerName, ownerKey }) {
