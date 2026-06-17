@@ -412,7 +412,27 @@ function render() {
   }
   html += '</div>';
 
+  // Deploy 236.85 — Loans where this client is listed as a guarantor
+  // (not the primary borrower). Populated when the borrower-info-sign
+  // endpoint auto-creates / links this client during the long-app
+  // signing flow with 2+ guarantors. Renders a placeholder row that
+  // refreshGuarantorOnLoans() fills in post-paint by walking the full
+  // client list to resolve each backref into a concrete loan row.
+  var guarantorBackrefs = Array.isArray(c._guarantorOnLoans) ? c._guarantorOnLoans : [];
+  if (guarantorBackrefs.length) {
+    html +=
+      '<div class="section">' +
+        '<div class="section-head">' +
+          '<h2>Guarantor on these loans <span style="font-size:13px;font-weight:400;color:var(--muted);margin-left:6px">' + guarantorBackrefs.length + '</span></h2>' +
+        '</div>' +
+        '<div style="overflow-x:auto"><div id="guarantorOnLoansList">' +
+          '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading…</div>' +
+        '</div></div>' +
+      '</div>';
+  }
+
   document.getElementById('pageContent').innerHTML = html;
+  if (guarantorBackrefs.length) refreshGuarantorOnLoans(guarantorBackrefs);
   // Re-bind sla-forms behaviors (autocomplete, masks, money) on the rendered subtree
   if (window.SLAForms && SLAForms.reformatExisting) {
     SLAForms.reformatExisting(document.getElementById('pageContent'));
@@ -501,6 +521,70 @@ function saveProfile() {
     document.querySelector('.page-subtitle').textContent = _client.email + (_client.phone ? ' · '+_client.phone : '');
   }).catch(function(err) {
     showToast('Save failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+// Deploy 236.85 — Populate the "Guarantor on these loans" section.
+// `backrefs` is the client's _guarantorOnLoans array — entries shape:
+//   { primaryClientId, loanId }
+// We fetch the full client list (this LO scope, or all-LO for admins
+// viewing a cross-LO client), index it by client id, look each loan
+// up on its primary client, and render the same row format the Loans
+// section uses.
+function refreshGuarantorOnLoans(backrefs) {
+  var container = document.getElementById('guarantorOnLoansList');
+  if (!container) return;
+  var listOpts = SLA.isAdmin && SLA.isAdmin(_user) ? { all: true } : {};
+  SLA.Clients.list(listOpts).then(function(r) {
+    var allClients = [];
+    if (r && r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(k) {
+        (r.byOwner[k] || []).forEach(function(cc) { allClients.push({ owner: k, c: cc }); });
+      });
+    } else {
+      (r && r.clients ? r.clients : []).forEach(function(cc) { allClients.push({ owner: '', c: cc }); });
+    }
+    var byClientId = {};
+    allClients.forEach(function(x) { byClientId[x.c.id] = x; });
+
+    var rows = backrefs.map(function(b) {
+      var primary = byClientId[b.primaryClientId];
+      if (!primary) {
+        return '<tr><td colspan="6" style="padding:10px 14px;color:var(--muted);font-size:12px">Loan ' + escH(b.loanId || '?') + ' — primary client not in your scope.</td></tr>';
+      }
+      var loan = (primary.c.loans || []).find(function(l) { return l && l.id === b.loanId; });
+      if (!loan) {
+        return '<tr><td colspan="6" style="padding:10px 14px;color:var(--muted);font-size:12px">Loan ' + escH(b.loanId) + ' no longer on ' + escH(((primary.c.firstName || '') + ' ' + (primary.c.lastName || '')).trim() || primary.c.email || primary.c.id) + ' (may have been moved or deleted).</td></tr>';
+      }
+      var fd = loan.formData || {};
+      var rawAmt = loan.loanAmt || fd.loanAmt || loan.purchasePrice || fd.purchasePrice;
+      var amt = rawAmt ? '$' + Number(rawAmt).toLocaleString() : '—';
+      var status = loan.status || 'active';
+      var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied', closed:'Closed', cancelled:'Cancelled' };
+      var statusLabel = STATUS_LABELS[status] || status;
+      var statusStyle = status==='approved'?'color:var(--success);font-weight:600':status==='denied'?'color:var(--danger);font-weight:600':status==='submitted'?'color:var(--dark);font-weight:600':'color:var(--muted)';
+      var primaryName = ((primary.c.firstName || '') + ' ' + (primary.c.lastName || '')).trim() || primary.c.email || primary.c.id;
+      var detailsUrl = 'loan-details.html?clientId=' + encodeURIComponent(primary.c.id) + '&loanId=' + encodeURIComponent(loan.id);
+      if (primary.owner && _user && primary.owner !== (_user.email || '').toLowerCase()) {
+        detailsUrl += '&owner=' + encodeURIComponent(primary.owner);
+      }
+      var addrCell = '<a href="' + detailsUrl + '" class="address-link" style="color:var(--gold-mid);text-decoration:none;border-bottom:1px dotted var(--gold-border)">' + escH(loan.address || '—') + '</a>';
+      return '<tr>' +
+        '<td class="td-mono" style="max-width:220px;overflow:hidden;white-space:nowrap"><div style="overflow:hidden;text-overflow:ellipsis">' + addrCell + '</div></td>' +
+        '<td>' + escH(primaryName) + '</td>' +
+        '<td><span class="badge ' + (loan.toolType || 'dscr') + '">' + ((loan.toolType || 'dscr').toUpperCase()) + '</span></td>' +
+        '<td style="font-size:12px;' + statusStyle + '">' + escH(statusLabel) + '</td>' +
+        '<td class="td-mono">' + escH(amt) + '</td>' +
+        '<td style="white-space:nowrap"><a href="' + detailsUrl + '" style="color:var(--gold-mid);font-size:11px;font-weight:600;text-decoration:none">Open →</a></td>' +
+      '</tr>';
+    }).join('');
+
+    container.innerHTML =
+      '<table class="loans-table"><thead><tr>' +
+        '<th>Address</th><th>Primary Borrower</th><th>Tool</th><th>Status</th><th>Amount</th><th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }).catch(function(err) {
+    container.innerHTML = '<div style="padding:1rem;text-align:center;color:#7C1F1F;font-size:13px">Failed to load guarantor loans: ' + escH(err.message || 'Unknown') + '</div>';
   });
 }
 

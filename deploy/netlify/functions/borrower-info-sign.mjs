@@ -242,40 +242,84 @@ async function handle(req) {
         const c = await clientsStore.get(key, { type: 'json' });
         if (c && c.email) existingByEmail.set(String(c.email).toLowerCase().trim(), { key, client: c });
       }
+      // Deploy 236.85 — copy the FULL guarantor field set onto each
+      // client (DOB, FICO, home address, marital status, US citizen,
+      // flips, rentals, etc.) so the client record matches what the
+      // primary borrower would have populated about themselves.
+      // Anything the form captures per guarantor lands here.
+      function guarantorToClientFields(g) {
+        return {
+          firstName:     String(g.firstName     || '').trim(),
+          lastName:      String(g.lastName      || '').trim(),
+          phone:         String(g.phone         || '').trim(),
+          dob:           String(g.dob           || '').trim(),
+          fico:          String(g.fico          || '').trim(),
+          maritalStatus: String(g.marital       || '').trim(),
+          usCitizen:     String(g.usCitizen     || '').trim(),
+          flips:         g.flips != null ? String(g.flips) : '',
+          rentals:       g.rentals != null ? String(g.rentals) : '',
+          homeAddress: {
+            street: String(g.address || '').trim(),
+            city:   String(g.city    || '').trim(),
+            state:  String(g.state   || '').trim(),
+            zip:    String(g.zip     || '').trim(),
+          },
+        };
+      }
+
       for (const sb of secondaryBlocks) {
         const guarantorIdx = sb.pos - 1; // 0-based into the array
         const g = (data.guarantors || [])[guarantorIdx] || {};
         const email = String(g.email || sb.block.email || '').toLowerCase().trim();
         if (!email) continue; // can't dedupe or link without one
+        const fields = guarantorToClientFields(g);
+        const backref = { primaryClientId: record.clientId, loanId: record.loanId };
         let existing = existingByEmail.get(email);
         if (existing) {
-          guarantorClientIds.push(existing.client.id);
+          // Fill in any blanks on the existing client and append the
+          // back-reference so this loan shows up on their Client
+          // Details "Guarantor on" list. Don't overwrite values the
+          // LO has already curated.
+          const c = existing.client;
+          Object.keys(fields).forEach(function (k) {
+            if (k === 'homeAddress') {
+              c.homeAddress = c.homeAddress || {};
+              Object.keys(fields.homeAddress).forEach(function (h) {
+                if (!c.homeAddress[h] && fields.homeAddress[h]) c.homeAddress[h] = fields.homeAddress[h];
+              });
+            } else if (!c[k] && fields[k]) {
+              c[k] = fields[k];
+            }
+          });
+          c._guarantorOnLoans = Array.isArray(c._guarantorOnLoans) ? c._guarantorOnLoans : [];
+          const alreadyLinked = c._guarantorOnLoans.some(function (b) {
+            return b && b.primaryClientId === backref.primaryClientId && b.loanId === backref.loanId;
+          });
+          if (!alreadyLinked) c._guarantorOnLoans.push(backref);
+          c.updatedAt = signedAt;
+          guarantorClientChanges.push({ id: c.id, key: existing.key, client: c });
+          guarantorClientIds.push(c.id);
         } else {
-          const newClient = {
+          const newClient = Object.assign({
             id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-            firstName: String(g.firstName || '').trim(),
-            lastName:  String(g.lastName  || '').trim(),
             email,
-            phone: String(g.phone || '').trim(),
             entityName: '',
             createdAt: signedAt,
             updatedAt: signedAt,
             loans: [],
             _createdViaGuarantorLink: true,
-            _guarantorOnLoans: [{ primaryClientId: record.clientId, loanId: record.loanId }],
-          };
+            _guarantorOnLoans: [backref],
+          }, fields);
           const newKey = record.ownerKey + '/' + (newClient.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
           guarantorClientChanges.push({ id: newClient.id, key: newKey, client: newClient });
           guarantorClientIds.push(newClient.id);
           existingByEmail.set(email, { key: newKey, client: newClient });
         }
       }
-      // Write any new guarantor clients we built. Existing matched
-      // clients don't get re-written (avoids race with their own LO
-      // edits in-flight).
+      // Persist every client we touched — new and updated.
       for (const ch of guarantorClientChanges) {
         try { await clientsStore.setJSON(ch.key, ch.client); }
-        catch (e) { console.warn('borrower-info-sign: guarantor client create failed:', e && e.message); }
+        catch (e) { console.warn('borrower-info-sign: guarantor client write failed:', e && e.message); }
       }
     } catch (e) {
       console.warn('borrower-info-sign: guarantor client linkage failed (non-fatal):', e && e.message);
