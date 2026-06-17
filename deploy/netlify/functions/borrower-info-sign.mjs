@@ -225,6 +225,84 @@ async function handle(req) {
     return json(500, { error: 'Failed to generate signed PDF: ' + (e.message || 'unknown') });
   }
 
+  // ── 5.5. Create / reuse client records for each secondary guarantor ─
+  // Deploy 236.84 — each additional guarantor (positions 2/3/4) gets
+  // a real client record under the same owner. We dedupe by email so
+  // a returning guarantor doesn't get N copies. The created or matched
+  // client ids land on the loan record as `guarantorClientIds`.
+  // Failure here is non-fatal — the signing flow proceeds; missing
+  // guarantor clients can be added later if Mike adds a backfill.
+  const guarantorClientIds = [];
+  const guarantorClientChanges = []; // { id, isNew, client } for downstream writes
+  if (secondaryBlocks.length) {
+    try {
+      const { blobs } = await clientsStore.list({ prefix: record.ownerKey + '/' });
+      const existingByEmail = new Map();
+      for (const { key } of blobs) {
+        const c = await clientsStore.get(key, { type: 'json' });
+        if (c && c.email) existingByEmail.set(String(c.email).toLowerCase().trim(), { key, client: c });
+      }
+      for (const sb of secondaryBlocks) {
+        const guarantorIdx = sb.pos - 1; // 0-based into the array
+        const g = (data.guarantors || [])[guarantorIdx] || {};
+        const email = String(g.email || sb.block.email || '').toLowerCase().trim();
+        if (!email) continue; // can't dedupe or link without one
+        let existing = existingByEmail.get(email);
+        if (existing) {
+          guarantorClientIds.push(existing.client.id);
+        } else {
+          const newClient = {
+            id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+            firstName: String(g.firstName || '').trim(),
+            lastName:  String(g.lastName  || '').trim(),
+            email,
+            phone: String(g.phone || '').trim(),
+            entityName: '',
+            createdAt: signedAt,
+            updatedAt: signedAt,
+            loans: [],
+            _createdViaGuarantorLink: true,
+            _guarantorOnLoans: [{ primaryClientId: record.clientId, loanId: record.loanId }],
+          };
+          const newKey = record.ownerKey + '/' + (newClient.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+          guarantorClientChanges.push({ id: newClient.id, key: newKey, client: newClient });
+          guarantorClientIds.push(newClient.id);
+          existingByEmail.set(email, { key: newKey, client: newClient });
+        }
+      }
+      // Write any new guarantor clients we built. Existing matched
+      // clients don't get re-written (avoids race with their own LO
+      // edits in-flight).
+      for (const ch of guarantorClientChanges) {
+        try { await clientsStore.setJSON(ch.key, ch.client); }
+        catch (e) { console.warn('borrower-info-sign: guarantor client create failed:', e && e.message); }
+      }
+    } catch (e) {
+      console.warn('borrower-info-sign: guarantor client linkage failed (non-fatal):', e && e.message);
+    }
+  }
+
+  // Update the primary client's loan record with guarantorClientIds.
+  // We re-read the client to avoid clobbering any concurrent edits
+  // that landed between the earlier read and now.
+  if (guarantorClientIds.length && record.clientId && record.loanId) {
+    try {
+      const primaryKey = record.ownerKey + '/' + (record.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const primaryClient = await clientsStore.get(primaryKey, { type: 'json' });
+      if (primaryClient && Array.isArray(primaryClient.loans)) {
+        const ln = primaryClient.loans.find(function (l) { return l && l.id === record.loanId; });
+        if (ln) {
+          ln.guarantorClientIds = guarantorClientIds;
+          ln.updatedAt = signedAt;
+          primaryClient.updatedAt = signedAt;
+          await clientsStore.setJSON(primaryKey, primaryClient);
+        }
+      }
+    } catch (e) {
+      console.warn('borrower-info-sign: loan.guarantorClientIds write failed (non-fatal):', e && e.message);
+    }
+  }
+
   // ── 6. Store the signed record ─────────────────────────────────
   // Deploy 236.83 — signed record now carries borrower2, borrower3,
   // borrower4 as parallel fields. Older code that reads only

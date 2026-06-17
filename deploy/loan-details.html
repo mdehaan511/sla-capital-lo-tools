@@ -1570,6 +1570,30 @@ function render() {
   // flows. The submitLoan() helper is still defined below in case
   // anything else calls it externally; harmless if unused.
 
+  // Deploy 236.84 — Linked Guarantor Clients section. Renders the
+  // list of clients that were auto-created (or matched) when borrower 1
+  // signed the long-app with numGuarantors >= 2. Each row shows the
+  // guarantor's name + email + an "Open client" link so the LO can
+  // jump to that client's page. Hidden when the loan has no linked
+  // guarantor clients (single-guarantor loans, or loans created
+  // before 236.84 that never auto-linked).
+  var guarantorIds = Array.isArray(l.guarantorClientIds) ? l.guarantorClientIds : [];
+  if (guarantorIds.length) {
+    html +=
+      '<div class="section">' +
+        '<div class="section-head">' +
+          '<h2>Linked Guarantor Clients</h2>' +
+          '<span class="section-tag tag-readonly">Auto-linked at signing</span>' +
+        '</div>' +
+        '<div class="section-body">' +
+          '<div id="linkedGuarantorsList" style="display:flex;flex-direction:column;gap:8px">' +
+            '<div style="padding:1rem;text-align:center;color:var(--muted);font-size:13px">Loading…</div>' +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">These clients were created (or matched by email) when the borrower submitted the long application with multiple guarantors. They are full client records — open one to update their contact info or see other loans they are attached to.</div>' +
+        '</div>' +
+      '</div>';
+  }
+
   // Broker Info section — Deploy 236.17 — now also renders for loans
   // that have a broker entity link OR any inline broker contact info,
   // not just when a non-zero broker fee was set. Apply.html broker-mode
@@ -1638,6 +1662,63 @@ function render() {
   // Deploy 236.73 — async-check whether a loan review already exists
   // for this clientId+loanId, then label the button accordingly.
   refreshDocReviewButton();
+
+  // Deploy 236.84 — populate the Linked Guarantor Clients section
+  // (if rendered). Fetches each linked client via the existing
+  // clients list and renders name + email + a link to the client
+  // page. Non-blocking — the rest of the page is already painted.
+  refreshLinkedGuarantors();
+}
+
+// Deploy 236.84 — Linked Guarantor Clients section populator.
+// Reads _loan.guarantorClientIds (set by borrower-info-sign when the
+// long-app is signed with 2+ guarantors), looks each one up via
+// SLA.Clients.list, and renders a row per linked guarantor.
+function refreshLinkedGuarantors() {
+  var listEl = document.getElementById('linkedGuarantorsList');
+  if (!listEl || !_loan) return;
+  var ids = Array.isArray(_loan.guarantorClientIds) ? _loan.guarantorClientIds : [];
+  if (!ids.length) return; // section won't be rendered
+
+  // Admin viewing a cross-LO loan needs the all=true list.
+  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  p.then(function(r) {
+    var pool = [];
+    if (r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(k) {
+        (r.byOwner[k] || []).forEach(function(c) { pool.push(c); });
+      });
+    } else {
+      pool = r.clients || [];
+    }
+    var byId = {};
+    pool.forEach(function(c) { if (c && c.id) byId[c.id] = c; });
+    var rows = ids.map(function(id) {
+      var c = byId[id];
+      if (!c) {
+        return '<div style="padding:10px 12px;background:#fff;border:1px solid var(--border, #E4DFD4);border-radius:6px;font-size:12px;color:var(--muted)">' +
+          'Client ' + escH(id) + ' not found in your client list (may belong to another LO).' +
+          '</div>';
+      }
+      var fullName = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || c.id;
+      var loanCount = Array.isArray(c.loans) ? c.loans.length : 0;
+      var cdUrl = 'client-details.html?clientId=' + encodeURIComponent(c.id);
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#fff;border:1px solid var(--border, #E4DFD4);border-radius:6px;gap:1rem">' +
+        '<div>' +
+          '<div style="font-weight:600;font-size:13px;color:var(--text, #1a1520)">' + escH(fullName) + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);font-family:DM Mono,monospace;margin-top:2px">' +
+            (c.email ? escH(c.email) : '(no email)') +
+            (c.phone ? ' &middot; ' + escH(c.phone) : '') +
+            (loanCount ? ' &middot; ' + loanCount + ' loan' + (loanCount === 1 ? '' : 's') + ' on this client' : '') +
+          '</div>' +
+        '</div>' +
+        '<a href="' + escAttr(cdUrl) + '" class="small-btn" style="padding:6px 12px;font-size:11px;font-weight:600;color:var(--gold, #C8813A);background:transparent;border:1px solid var(--gold-border, rgba(200,129,58,0.28));border-radius:5px;text-decoration:none;white-space:nowrap">Open Client →</a>' +
+      '</div>';
+    }).join('');
+    listEl.innerHTML = rows;
+  }).catch(function(err) {
+    listEl.innerHTML = '<div style="padding:1rem;text-align:center;color:#7C1F1F;font-size:13px">Failed to load linked guarantors: ' + escH(err.message || 'Unknown') + '</div>';
+  });
 }
 
 // ── Loan Doc Review entrypoint (Deploy 236.73) ────────────────────
