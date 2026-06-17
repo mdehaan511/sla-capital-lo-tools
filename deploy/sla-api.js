@@ -1080,6 +1080,27 @@
         return r;
       });
     },
+    /**
+     * Deploy 236.81 — move a loan from one client to another. Backend
+     * also moves borrower_info + signed_application + quotes +
+     * loan_reviews so cross-store records keyed by clientId don't
+     * orphan. Returns { ok, destClientId, loanId, ... }.
+     *
+     * @param {Object} body
+     *   srcClientId  required
+     *   loanId       required
+     *   destClientId EITHER this (move to an existing client)
+     *   newClient    OR this    (create + move to a new client;
+     *                            { firstName, lastName, email, phone?, entityName? })
+     *   owner?       admin cross-LO
+     */
+    reassign: function (body) {
+      return api('POST', '/api/loan-reassign', body).then(function (r) {
+        cache.clear('clients');
+        cache.clear('quotes');
+        return r;
+      });
+    },
   };
 
   // ── Loan Doc Review (Deploy 236.71) ─────────────────────────────

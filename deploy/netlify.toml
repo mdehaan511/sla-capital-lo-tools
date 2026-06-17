@@ -272,6 +272,16 @@
   status = 200
   force = true
 
+# Deploy 236.81 — move a loan record from one client to another.
+# Common case: the apply-link was filled by someone who isn't the
+# actual guarantor; LO reassigns to the right person without
+# losing the loan history.
+[[redirects]]
+  from = "/api/loan-reassign"
+  to = "/.netlify/functions/loan-reassign"
+  status = 200
+  force = true
+
 # Deploy 196: loan-decline — LO-initiated decline of a loan. SLA's "we
 # won't lend on this" decision, distinct from loan-cancel (which is the
 # borrower's / deal's drop-off).

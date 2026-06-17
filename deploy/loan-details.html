@@ -503,6 +503,102 @@
   </div>
 </div>
 
+<!-- Deploy 236.81 — Reassign Loan modal. Moves a loan record from one
+     client to another. Two paths via tabs: pick an existing client
+     OR create a new one inline. Backend also moves borrower_info /
+     signed_application / quotes / loan_reviews so cross-store records
+     don't orphan. -->
+<div class="bi-modal-bg" id="reassignLoanModal">
+  <div class="bi-modal" style="max-width:560px">
+    <h3>Reassign Loan to a Different Client</h3>
+    <p class="bi-sub">Move this loan to a different borrower's client record. Useful when the person who filled out the apply-link wasn't the actual guarantor. The loan keeps its history (status, notes, eSign envelopes, doc reviews) — only the parent client changes.</p>
+
+    <div style="display:flex;gap:4px;border-bottom:1.5px solid var(--border, #E4DFD4);margin-top:14px;margin-bottom:14px">
+      <button type="button" id="reassignTabExisting" class="reassign-tab reassign-tab-active" onclick="reassignSwitchTab('existing')">Existing Client</button>
+      <button type="button" id="reassignTabNew" class="reassign-tab" onclick="reassignSwitchTab('new')">New Client</button>
+    </div>
+
+    <div id="reassignPaneExisting">
+      <input type="text" id="reassignSearch" placeholder="Search by name or email…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;margin-bottom:10px" />
+      <div id="reassignClientList" style="max-height:280px;overflow-y:auto;border:1px solid var(--border, #E4DFD4);border-radius:6px;background:#fff">
+        <div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading clients…</div>
+      </div>
+    </div>
+
+    <div id="reassignPaneNew" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600">First name</label>
+          <input type="text" id="reassignNewFirstName" style="width:100%;padding:9px 12px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:4px" />
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Last name</label>
+          <input type="text" id="reassignNewLastName" style="width:100%;padding:9px 12px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:4px" />
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Email</label>
+        <input type="email" id="reassignNewEmail" style="width:100%;padding:9px 12px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:4px" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+        <div>
+          <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Phone</label>
+          <input type="tel" id="reassignNewPhone" style="width:100%;padding:9px 12px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:4px" />
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Entity / LLC</label>
+          <input type="text" id="reassignNewEntity" style="width:100%;padding:9px 12px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:4px" />
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">At least a first/last name OR email is required.</div>
+    </div>
+
+    <div class="bi-status" id="reassignStatus"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeReassignLoanModal()">Cancel</button>
+      <button class="bi-btn primary" id="reassignConfirmBtn" onclick="confirmReassignLoan()" disabled>Reassign loan</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.reassign-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 9px 16px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: -1.5px;
+  transition: all 0.15s;
+}
+.reassign-tab:hover { color: var(--accent, #C8813A); }
+.reassign-tab.reassign-tab-active {
+  color: var(--accent, #C8813A);
+  border-bottom-color: var(--accent, #C8813A);
+}
+.reassign-client-row {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border, #E4DFD4);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.reassign-client-row:last-child { border-bottom: none; }
+.reassign-client-row:hover { background: rgba(200,129,58,0.08); }
+.reassign-client-row.selected {
+  background: rgba(200,129,58,0.12);
+  border-left: 3px solid var(--accent, #C8813A);
+  padding-left: 11px;
+}
+.reassign-client-row .rc-name { font-weight: 600; font-size: 13px; color: var(--text, #1a1520); }
+.reassign-client-row .rc-meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; }
+.reassign-client-row .rc-current { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 3px; background: rgba(0,0,0,0.05); margin-left: 6px; }
+</style>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1321,6 +1417,15 @@ function render() {
             'Decline Loan' +
           '</button>'
         : '') +
+      // Deploy 236.81 — Reassign loan to a different client. The
+      // common LO scenario: someone other than the actual guarantor
+      // filled out the apply-link, so the loan is attached to the
+      // wrong borrower. Open to anyone who owns the loan — admins
+      // implicitly count via the owner-override path on the backend.
+      '<button type="button" class="open-sizer-btn" onclick="openReassignLoanModal()" style="margin-top:8px">' +
+        '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h4l2 2h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8h4l2 2h3M11 6l-1.5-1.5M11 6l-1.5 1.5M11 10l-1.5-1.5M11 10l-1.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        'Reassign Loan to Different Client' +
+      '</button>' +
       // Admin-only: manual move to any status. The selected status is
       // sent to /api/loan-advance-status which (Deploy 227) accepts any
       // status when the caller is admin / super-admin. Audit-logged on
@@ -2182,6 +2287,179 @@ function confirmDeclineLoan() {
 function closeCancelLoanModal() {
   document.getElementById('cancelLoanModal').classList.remove('show');
 }
+
+// ── Reassign Loan (Deploy 236.81) ─────────────────────────────────
+// Move the current loan from its current client to a different one.
+// Two paths: pick an existing client or create one inline. Backend
+// also moves borrower_info / signed_application / quotes /
+// loan_reviews so cross-store records don't orphan.
+var _reassignTab = 'existing';
+var _reassignClients = [];
+var _reassignSelectedId = null;
+
+function openReassignLoanModal() {
+  if (!_client || !_loan) { showToast('Loan not loaded'); return; }
+  // Reset state
+  _reassignTab = 'existing';
+  _reassignSelectedId = null;
+  document.getElementById('reassignSearch').value = '';
+  ['reassignNewFirstName','reassignNewLastName','reassignNewEmail','reassignNewPhone','reassignNewEntity'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('reassignStatus').className = 'bi-status';
+  document.getElementById('reassignStatus').textContent = '';
+  reassignSwitchTab('existing');
+  document.getElementById('reassignLoanModal').classList.add('show');
+  // Load this LO's clients (fresh fetch — small enough that we
+  // don't need to share with the cache layer).
+  document.getElementById('reassignClientList').innerHTML =
+    '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading clients…</div>';
+  var p = SLA.isAdmin(_user)
+    ? SLA.Clients.list({ all: true })
+    : SLA.Clients.list();
+  p.then(function(r) {
+    var clients = [];
+    if (r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(ownerKey) {
+        (r.byOwner[ownerKey] || []).forEach(function(c) { clients.push(c); });
+      });
+    } else {
+      clients = r.clients || [];
+    }
+    _reassignClients = clients.filter(function(c) { return c && !c.deleted; });
+    renderReassignClientList();
+  }).catch(function(err) {
+    document.getElementById('reassignClientList').innerHTML =
+      '<div style="padding:1.25rem;text-align:center;color:#7C1F1F;font-size:13px">Failed to load clients: ' + escH(err.message || 'Unknown') + '</div>';
+  });
+}
+
+function closeReassignLoanModal() {
+  document.getElementById('reassignLoanModal').classList.remove('show');
+  var btn = document.getElementById('reassignConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Reassign loan';
+}
+
+function reassignSwitchTab(tab) {
+  _reassignTab = tab;
+  document.getElementById('reassignTabExisting').classList.toggle('reassign-tab-active', tab === 'existing');
+  document.getElementById('reassignTabNew').classList.toggle('reassign-tab-active', tab === 'new');
+  document.getElementById('reassignPaneExisting').style.display = tab === 'existing' ? '' : 'none';
+  document.getElementById('reassignPaneNew').style.display      = tab === 'new'      ? '' : 'none';
+  updateReassignBtn();
+}
+
+function renderReassignClientList() {
+  var q = (document.getElementById('reassignSearch').value || '').toLowerCase().trim();
+  var container = document.getElementById('reassignClientList');
+  var filtered = _reassignClients.filter(function(c) {
+    if (!q) return true;
+    var hay = ((c.firstName || '') + ' ' + (c.lastName || '') + ' ' + (c.email || '') + ' ' + (c.entityName || '')).toLowerCase();
+    return hay.indexOf(q) >= 0;
+  });
+  if (!filtered.length) {
+    container.innerHTML = '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">' +
+      (q ? 'No clients match your search.' : 'No other clients yet.') + '</div>';
+    return;
+  }
+  container.innerHTML = filtered.slice(0, 100).map(function(c) {
+    var sel = (_reassignSelectedId === c.id) ? ' selected' : '';
+    var isCurrent = (c.id === _client.id);
+    var nm = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || (c.email || '(unnamed)');
+    var meta = [];
+    if (c.email) meta.push(c.email);
+    if (c.entityName) meta.push(c.entityName);
+    if (Array.isArray(c.loans) && c.loans.length) meta.push(c.loans.length + ' loan' + (c.loans.length === 1 ? '' : 's'));
+    return '<div class="reassign-client-row' + sel + '" onclick="' +
+      (isCurrent ? "showToast('That is the current client for this loan.')" : "reassignSelectClient('" + escAttr(c.id) + "')") +
+      '">' +
+      '<div class="rc-name">' + escH(nm) +
+      (isCurrent ? '<span class="rc-current">current</span>' : '') +
+      '</div>' +
+      (meta.length ? '<div class="rc-meta">' + escH(meta.join(' · ')) + '</div>' : '') +
+      '</div>';
+  }).join('');
+}
+
+function reassignSelectClient(id) {
+  _reassignSelectedId = id;
+  renderReassignClientList();
+  updateReassignBtn();
+}
+
+function updateReassignBtn() {
+  var btn = document.getElementById('reassignConfirmBtn');
+  if (_reassignTab === 'existing') {
+    btn.disabled = !_reassignSelectedId;
+  } else {
+    var fn = (document.getElementById('reassignNewFirstName').value || '').trim();
+    var ln = (document.getElementById('reassignNewLastName').value || '').trim();
+    var em = (document.getElementById('reassignNewEmail').value || '').trim();
+    btn.disabled = !(fn || ln || em);
+  }
+}
+
+function confirmReassignLoan() {
+  if (!_client || !_loan) return;
+  var statusEl = document.getElementById('reassignStatus');
+  var btn = document.getElementById('reassignConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Reassigning…';
+  statusEl.className = 'bi-status';
+  statusEl.textContent = '';
+
+  var body = { srcClientId: _client.id, loanId: _loanId };
+  if (_reassignTab === 'existing') {
+    body.destClientId = _reassignSelectedId;
+  } else {
+    body.newClient = {
+      firstName: (document.getElementById('reassignNewFirstName').value || '').trim(),
+      lastName:  (document.getElementById('reassignNewLastName').value || '').trim(),
+      email:     (document.getElementById('reassignNewEmail').value || '').trim(),
+      phone:     (document.getElementById('reassignNewPhone').value || '').trim(),
+      entityName:(document.getElementById('reassignNewEntity').value || '').trim(),
+    };
+  }
+  var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  if (ownerOvr) body.owner = ownerOvr;
+
+  SLA.Loans.reassign(body).then(function(resp) {
+    statusEl.className = 'bi-status ok';
+    var bits = [];
+    if (resp.destClientCreated) bits.push('new client created');
+    if (resp.movedBorrowerInfo) bits.push('long-app moved');
+    if (resp.movedSignedApp)    bits.push('signed app moved');
+    if (resp.movedQuotes)       bits.push(resp.movedQuotes + ' quote' + (resp.movedQuotes === 1 ? '' : 's') + ' updated');
+    if (resp.movedReviews)      bits.push(resp.movedReviews + ' doc review' + (resp.movedReviews === 1 ? '' : 's') + ' updated');
+    statusEl.textContent = '✓ Loan reassigned' + (bits.length ? ' (' + bits.join(', ') + ')' : '') + '. Loading the loan under the new client…';
+    // Navigate to the loan-details URL under the new client. We need
+    // the loan to still be the same loanId, just under a different
+    // parent client.
+    setTimeout(function() {
+      var url = 'loan-details.html?clientId=' + encodeURIComponent(resp.destClientId)
+              + '&loanId=' + encodeURIComponent(resp.loanId);
+      if (ownerOvr) url += '&owner=' + encodeURIComponent(ownerOvr);
+      window.location.href = url;
+    }, 800);
+  }).catch(function(err) {
+    statusEl.className = 'bi-status err';
+    statusEl.textContent = '⚠ ' + (err && err.message || 'Reassign failed');
+    btn.disabled = false;
+    btn.textContent = 'Reassign loan';
+  });
+}
+
+// Wire search + new-form input listeners once the page is loaded.
+document.addEventListener('DOMContentLoaded', function() {
+  var s = document.getElementById('reassignSearch');
+  if (s) s.addEventListener('input', renderReassignClientList);
+  ['reassignNewFirstName','reassignNewLastName','reassignNewEmail','reassignNewPhone','reassignNewEntity'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateReassignBtn);
+  });
+});
 
 function confirmCancelLoan() {
   if (!_loan || !_client) return;
