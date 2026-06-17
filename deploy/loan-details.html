@@ -1186,15 +1186,9 @@ function render() {
     '</button>';
   }
 
-  // Deploy 227 — Term Sheet button is admin / super-admin only.
-  // Cavalry LOs don't issue term sheets directly; that's an admin
-  // hand-off step. Hiding from non-admins prevents accidental sends.
-  if (window.SLA && SLA.isAdmin && SLA.isAdmin(_user)) {
-    html += '<button type="button" class="open-sizer-btn term-sheet-btn" onclick="downloadTermSheet()">' +
-      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 8h5M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-      'Generate Term Sheet' +
-    '</button>';
-  }
+  // Deploy 236.82 — Generate Term Sheet button removed per Mike.
+  // Functionality preserved in downloadTermSheet() for potential
+  // future re-add; the button itself is no longer rendered.
 
   // Item #11: Gate the "Send Full Loan Application" button.
   // Enabled only after the loan has been submitted for review (status
@@ -1382,6 +1376,16 @@ function render() {
     '</div>';
   }
 
+  // Deploy 236.82 — Reassign Loan to Different Client is now a
+  // top-level action (was previously inside the collapsed advanced
+  // actions panel where LOs couldn't find it). Open to every user
+  // who can see this page since the common scenario is an LO
+  // fixing a loan attached to the wrong client.
+  html += '<button type="button" class="open-sizer-btn" onclick="openReassignLoanModal()" style="margin-top:8px">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h4l2 2h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8h4l2 2h3M11 6l-1.5-1.5M11 6l-1.5 1.5M11 10l-1.5-1.5M11 10l-1.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    'Reassign Loan to Different Client' +
+  '</button>';
+
   // Deploy 227 — Change-Type, Cancel, Decline, Delete buttons are now
   // tucked inside a collapsible "Change Loan Status" section so they
   // don't compete for visual attention with the everyday actions
@@ -1417,15 +1421,6 @@ function render() {
             'Decline Loan' +
           '</button>'
         : '') +
-      // Deploy 236.81 — Reassign loan to a different client. The
-      // common LO scenario: someone other than the actual guarantor
-      // filled out the apply-link, so the loan is attached to the
-      // wrong borrower. Open to anyone who owns the loan — admins
-      // implicitly count via the owner-override path on the backend.
-      '<button type="button" class="open-sizer-btn" onclick="openReassignLoanModal()" style="margin-top:8px">' +
-        '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h4l2 2h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8h4l2 2h3M11 6l-1.5-1.5M11 6l-1.5 1.5M11 10l-1.5-1.5M11 10l-1.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-        'Reassign Loan to Different Client' +
-      '</button>' +
       // Admin-only: manual move to any status. The selected status is
       // sent to /api/loan-advance-status which (Deploy 227) accepts any
       // status when the caller is admin / super-admin. Audit-logged on
