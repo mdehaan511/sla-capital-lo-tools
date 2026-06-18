@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GUC Sizer — SLA Capital</title>
+<!-- Deploy 236.87 — Ground Up Construction sizer (Eastview product).
+     Admin / super-admin only. Mirrors the RTL sizer's input + output
+     pattern but with the Eastview leverage matrix, GUC-specific
+     reductions, and the EV Buy Rate ladder for pricing.
+     Guidelines: Eastview Underwriting Credit Guidelines v1.1 (April 2025). -->
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="sla-api.js"></script>
+<script src="sla-notifications.js"></script>
+<script src="sla-chat.js"></script>
+<script src="quotes.js"></script>
+<script src="broker-picker.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+    --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+    --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+    --green: #15803d; --green-light: rgba(21,128,61,0.10); --green-border: rgba(21,128,61,0.40);
+    --red: #b91c1c; --red-light: rgba(185,28,28,0.10); --red-border: rgba(185,28,28,0.40);
+    --amber: #b45309; --amber-light: rgba(180,83,9,0.10);
+    --guc: #2563eb; --guc-light: rgba(37,99,235,0.10); --guc-border: rgba(37,99,235,0.30);
+  }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem; }
+  .page { max-width: 1180px; margin: 0 auto; padding: 2rem 0 4rem; }
+  .nav { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-bottom: 0.75rem; }
+  .nav-left { display: flex; align-items: center; gap: 16px; }
+  .nav-left img { height: 52px; width: auto; }
+  .nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+  .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+  .nav-tool-link.current { background: var(--gold-light); color: var(--gold-mid); border-color: var(--gold-border); }
+  .header-tagline { font-family: 'Lora', serif; font-size: 12px; color: var(--muted); letter-spacing: 0.02em; padding-bottom: 1.5rem; border-bottom: 1px solid var(--gold-border); margin-bottom: 2rem; }
+
+  .page-title { font-size: 22px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; }
+  .page-title .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 4px; background: var(--guc); color: #fff; vertical-align: 4px; }
+  .page-sub { font-size: 13px; color: var(--muted); margin-bottom: 2rem; line-height: 1.55; }
+  .admin-note { background: var(--amber-light); border: 1px solid var(--amber); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--amber); margin-bottom: 1.25rem; }
+
+  .layout { display: grid; grid-template-columns: 1fr 380px; gap: 1.5rem; align-items: flex-start; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+
+  .section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+  .section h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--guc); margin-bottom: 0.85rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .row.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  @media (max-width: 700px) { .row, .row.cols-3, .row.cols-4 { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+  input, select, textarea { width: 100%; height: 36px; padding: 0 11px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: 'DM Sans', sans-serif; background: var(--surface); }
+  textarea { height: auto; min-height: 60px; padding: 8px 11px; resize: vertical; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--guc); }
+  .radio-group { display: flex; gap: 14px; padding: 4px 0; flex-wrap: wrap; }
+  .radio-group label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 13px; margin: 0; cursor: pointer; }
+  .radio-group input[type=radio] { width: 15px; height: 15px; margin: 0; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic; }
+
+  .guarantor-block { background: #fafafa; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+  .guarantor-block-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .guarantor-block-head h4 { font-size: 12px; font-weight: 700; color: var(--text); }
+  .guarantor-block-head .remove-btn { font-size: 11px; color: var(--red); background: transparent; border: 1px solid var(--red-border); border-radius: 4px; padding: 3px 9px; cursor: pointer; font-weight: 600; }
+  .add-guarantor { background: transparent; border: 1px dashed var(--guc-border); color: var(--guc); padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+  .add-guarantor:hover { background: var(--guc-light); }
+  .add-guarantor:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .results-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; position: sticky; top: 1rem; }
+  .results-card h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--guc); margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+  .results-class { font-size: 18px; font-weight: 700; padding: 12px 14px; border-radius: 8px; text-align: center; margin-bottom: 1rem; background: var(--guc-light); color: var(--guc); border: 1px solid var(--guc-border); }
+  .results-class.warn { background: var(--amber-light); color: var(--amber); border-color: var(--amber); }
+  .results-class.fail { background: var(--red-light); color: var(--red); border-color: var(--red-border); }
+  .metric { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .metric:last-child { border-bottom: none; }
+  .metric .l { color: var(--muted); }
+  .metric .v { font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace; }
+  .metric.big .v { color: var(--guc); font-size: 14px; }
+  .check { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; }
+  .check .l { color: var(--muted); }
+  .check .v { font-weight: 600; }
+  .check .v.pass { color: var(--green); }
+  .check .v.fail { color: var(--red); }
+  .calc-btn { background: var(--guc); color: #fff; border: none; padding: 13px 20px; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: 'DM Sans', sans-serif; width: 100%; margin-bottom: 12px; transition: background 0.15s; }
+  .calc-btn:hover { background: #1d4ed8; }
+  .action-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 0.5rem; }
+  .action-row button, .action-row a { flex: 1; min-width: 140px; padding: 10px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: 'DM Sans', sans-serif; }
+  .action-row button:hover, .action-row a:hover { border-color: var(--guc); color: var(--guc); }
+  .action-row button.primary { background: var(--guc); color: #fff; border-color: var(--guc); }
+  .action-row button.primary:hover { background: #1d4ed8; }
+  .action-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); z-index: 1000; max-width: 360px; display: none; }
+  .toast.success { border-color: var(--green-border); color: var(--green); }
+  .toast.error { border-color: var(--red-border); color: var(--red); }
+  .toast.info { border-color: var(--gold-border); color: var(--gold-mid); }
+
+  .denied { max-width: 600px; margin: 4rem auto; padding: 2rem; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  .denied h2 { color: var(--red); margin-bottom: 1rem; }
+  .denied p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div id="loading" style="padding:4rem;text-align:center;color:var(--muted)">Loading…</div>
+
+  <div id="accessDenied" class="denied" style="display:none">
+    <h2>Admin Only</h2>
+    <p>The GUC (Ground Up Construction) sizer is currently restricted to admin and super-admin users. If you need access, contact your admin.</p>
+    <p style="margin-top:2rem"><a href="/" style="color:var(--guc)">← Back to home</a></p>
+  </div>
+
+  <div id="app" class="page" style="display:none">
+    <nav class="nav" id="slaNav"></nav>
+    <div class="header-tagline">Internal tools &middot; Eastview Ground Up Construction &middot; Admin Only</div>
+
+    <div class="page-title">GUC Sizer <span class="badge">GUC</span></div>
+    <div class="page-sub">Ground Up Construction loans — Eastview product. Sizes the loan against the Eastview leverage matrix, applies stacked reductions (HPA decline, ZHVI multiplier, FICO band, no permits), and returns the EV Buy Rate from the coupon ladder.</div>
+
+    <div class="admin-note">⚠ <strong>Admin only.</strong> This is a new product offering. Run any GUC quote past Mike before sending the term sheet to a borrower.</div>
+
+    <div class="layout">
+      <!-- LEFT: input form -->
+      <div>
+        <!-- Property Information -->
+        <div class="section">
+          <h3>Property Information</h3>
+          <div class="row"><div>
+            <label>Property Address</label>
+            <input type="text" id="address" placeholder="123 Main St" />
+          </div><div>
+            <label>City</label>
+            <input type="text" id="city" />
+          </div></div>
+          <div class="row cols-3"><div>
+            <label>State</label>
+            <select id="state"><option value="">—</option><option>AL</option><option>AZ</option><option>AR</option><option>CA</option><option>CO</option><option>CT</option><option>DE</option><option>FL</option><option>GA</option><option>ID</option><option>IL</option><option>IN</option><option>IA</option><option>KS</option><option>KY</option><option>LA</option><option>ME</option><option>MD</option><option>MA</option><option>MI</option><option>MN</option><option>MS</option><option>MO</option><option>MT</option><option>NE</option><option>NV</option><option>NH</option><option>NJ</option><option>NM</option><option>NY</option><option>NC</option><option>OH</option><option>OK</option><option>OR</option><option>PA</option><option>RI</option><option>SC</option><option>TN</option><option>TX</option><option>UT</option><option>VT</option><option>VA</option><option>WA</option><option>WV</option><option>WI</option><option>WY</option></select>
+            <div class="hint">Not eligible: ND, SD, HI, AK</div>
+          </div><div>
+            <label>Zip Code</label>
+            <input type="text" id="zip" placeholder="11211" maxlength="5" />
+          </div><div>
+            <label>Number of Units</label>
+            <input type="number" id="numUnits" min="1" max="4" value="1" />
+          </div></div>
+          <div class="row"><div>
+            <label>Zillow Home Value Index (ZHVI)</label>
+            <input type="text" id="zhvi" placeholder="$ for the zip" data-money />
+            <div class="hint">From Zillow research page for this ZIP — median home value.</div>
+          </div><div>
+            <label>HPA — Home Price Appreciation (%)</label>
+            <input type="number" id="hpa" step="0.01" placeholder="2.58" />
+            <div class="hint">YoY % change. Negative = declining market (triggers reduction).</div>
+          </div></div>
+        </div>
+
+        <!-- Loan Information -->
+        <div class="section">
+          <h3>Loan Information</h3>
+          <div class="row cols-3"><div>
+            <label>Loan Purpose</label>
+            <select id="loanPurpose" onchange="updatePurpose()">
+              <option value="purchase">Purchase</option>
+              <option value="refi_rt">Refinance (Rate &amp; Term)</option>
+              <option value="refi_co">Refinance (Cash Out)</option>
+            </select>
+          </div><div>
+            <label>Loan Term (months)</label>
+            <input type="number" id="loanTerm" min="12" max="24" value="12" />
+            <div class="hint">12–24 months</div>
+          </div><div>
+            <label>Expected Closing Date</label>
+            <input type="date" id="closingDate" />
+          </div></div>
+        </div>
+
+        <!-- Borrower / Entity -->
+        <div class="section">
+          <h3>Borrower / Entity</h3>
+          <div class="row"><div>
+            <label>Entity Name</label>
+            <input type="text" id="entityName" placeholder="Example LLC" />
+          </div><div>
+            <label>Borrower Email (primary contact)</label>
+            <input type="email" id="brwEmail" placeholder="contact@example.com" />
+          </div></div>
+          <div id="guarantorList"></div>
+          <button type="button" class="add-guarantor" id="addGuarantorBtn" onclick="addGuarantor()">+ Add Guarantor (up to 4)</button>
+        </div>
+
+        <!-- Property Valuation & Rehab -->
+        <div class="section">
+          <h3>Property Valuation &amp; Rehab</h3>
+          <div class="row"><div>
+            <label>Purchase Price</label>
+            <input type="text" id="purchasePrice" placeholder="$1,250,000" data-money />
+          </div><div>
+            <label>Purchase Date</label>
+            <input type="date" id="purchaseDate" />
+            <div class="hint">Less than 6 months ago = treated as Purchase loan.</div>
+          </div></div>
+          <div class="row"><div>
+            <label>Appraisal As-Is Value</label>
+            <input type="text" id="asIsValue" placeholder="$1,300,000" data-money />
+          </div><div>
+            <label>Appraisal After-Repair Value (ARV)</label>
+            <input type="text" id="arv" placeholder="$2,000,000" data-money />
+          </div></div>
+          <div class="row"><div>
+            <label>Previously Completed Rehab (refi only)</label>
+            <input type="text" id="prevRehab" placeholder="$0" data-money />
+          </div><div>
+            <label>Total Construction Budget</label>
+            <input type="text" id="rehabBudget" placeholder="$500,000" data-money />
+          </div></div>
+          <div class="row"><div>
+            <label>Post-Completion Square Footage</label>
+            <input type="number" id="postSqft" placeholder="4500" />
+            <div class="hint">Min: SFR/Townhome 600 / Condo or 2-4 Unit 500 per unit</div>
+          </div><div>
+            <label>Appraisal Date</label>
+            <input type="date" id="apprDate" />
+            <div class="hint">Must be within 120 days of Note date.</div>
+          </div></div>
+        </div>
+
+        <!-- Toggles -->
+        <div class="section">
+          <h3>Underwriting Toggles</h3>
+          <div class="row cols-3"><div>
+            <label>Entitled Land?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="entitled" value="yes" checked /> Yes</label>
+              <label><input type="radio" name="entitled" value="no" /> No</label>
+            </div>
+            <div class="hint">No = ineligible (-100%, hard kill).</div>
+          </div><div>
+            <label>Approved Permits &amp; Plans?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="permits" value="yes" checked /> Yes</label>
+              <label><input type="radio" name="permits" value="no" /> No</label>
+            </div>
+            <div class="hint">No = -10% front-end holdback.</div>
+          </div><div>
+            <label>Interest Reserves?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="ir" value="yes" checked /> Yes</label>
+              <label><input type="radio" name="ir" value="no" /> No</label>
+            </div>
+            <div class="hint">Yes required to qualify for 90% TLTC.</div>
+          </div></div>
+          <div class="row cols-3"><div>
+            <label>Borrower 1 Foreign National?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="foreignNational" value="no" checked /> No</label>
+              <label><input type="radio" name="foreignNational" value="yes" /> Yes</label>
+            </div>
+            <div class="hint">Yes = 65% leverage cap (same as 660–679 FICO).</div>
+          </div><div></div><div></div></div>
+        </div>
+
+        <!-- HUD / Closing -->
+        <div class="section">
+          <h3>HUD / Closing</h3>
+          <div class="row"><div>
+            <label>Loan Interest Rate (Borrower Coupon)</label>
+            <input type="number" id="loanRate" step="0.001" placeholder="9.250" />
+            <div class="hint">Borrower coupon range: 8.50% – 13.25%+. Higher coupon → larger SLA spread over the EV Buy Rate.</div>
+          </div><div>
+            <label>Lender Origination Points (%)</label>
+            <input type="number" id="origPts" step="0.01" placeholder="2.00" />
+            <div class="hint">Max 5% of loan amount.</div>
+          </div></div>
+          <div class="row"><div>
+            <label>Broker Origination Points (%) <span style="font-weight:400;text-transform:none">— optional</span></label>
+            <input type="number" id="brokerPts" step="0.01" placeholder="0.00" />
+          </div><div>
+            <label>Verified Borrower Liquidity at Closing</label>
+            <input type="text" id="liquidity" placeholder="$100,000" data-money />
+            <div class="hint">Required minimum is computed in the results panel.</div>
+          </div></div>
+        </div>
+
+        <!-- Notes -->
+        <div class="section">
+          <h3>Notes &amp; Internal Comments</h3>
+          <textarea id="notes" placeholder="Anything Mike or the credit committee should know about this deal…"></textarea>
+        </div>
+      </div>
+
+      <!-- RIGHT: results card -->
+      <div>
+        <div class="results-card">
+          <h3>Sizing Results</h3>
+
+          <button type="button" class="calc-btn" onclick="calculate()">Calculate</button>
+
+          <div id="results">
+            <div style="padding:1.5rem;text-align:center;color:var(--muted);font-size:13px">Fill in the form and click Calculate.</div>
+          </div>
+
+          <div id="actionRow" class="action-row" style="display:none">
+            <button type="button" class="primary" onclick="saveQuote()" id="saveBtn">💾 Save Quote</button>
+            <button type="button" onclick="downloadRateSheet()" id="rsBtn">📄 Rate Sheet</button>
+            <button type="button" onclick="downloadTermSheet()" id="tsBtn">📋 Term Sheet</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+// ── ClientBook (inlined — same pattern as RTL/DSCR sizers) ─────────
+// Minimal local copy: just upsert (delegates to SLA.Clients) and
+// buildLoanFromSizer (builds the loan record stored under the
+// client). RTL/DSCR each have their own copy too — we keep this
+// per-page so changes to one sizer never silently change another.
+window.ClientBook = {
+  upsert: function(loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride) {
+    if (!borrowerEmail) return Promise.resolve(null);
+    if (!(window.SLA && SLA.Clients && SLA.Clients.upsert)) return Promise.resolve(null);
+    return SLA.Clients.upsert(loEmail, borrowerEmail, firstName, lastName, phone, loanData, ownerOverride);
+  },
+  buildLoanFromSizer: function(toolType, address, formData, quoteStatus) {
+    return {
+      id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+      toolType:    toolType,
+      address:     address || formData.address || '',
+      savedAt:     new Date().toISOString(),
+      updatedAt:   new Date().toISOString(),
+      status:      quoteStatus || 'active',
+      loanAmt:     formData._maxLoan || formData.loanAmt || formData.purchasePrice || '',
+      loanType:    formData.loanType    || '',
+      fico:        formData.fico        || '',
+      rate:        formData._finalRate  || '',
+      points:      formData._points     || '',
+      propValue:   formData.propValue   || formData.arv || '',
+      // GUC-specific (mirrors RTL pattern for purchase-price / rehab / ARV).
+      purchasePrice: formData.purchasePrice || '',
+      rehabBudget:   formData.rehabBudget   || '',
+      arv:           formData.arv           || '',
+      maxLoan:       formData._maxLoan       || '',
+      // App fields prefilled by sizer formData (editable on Loan Details).
+      bedrooms:    formData.bedrooms    || '',
+      bathrooms:   formData.bathrooms   || '',
+      sqft:        formData.sqft        || '',
+      propType:    formData.propType    || '',
+      loanPurpose: formData.loanPurpose || '',
+      rentalType:  formData.rentalType  || '',
+      fundingDate: formData.fundingDate || '',
+      notes:       formData.notes       || '',
+      pricingSnapshot: formData._pricingSnapshot || null,
+    };
+  },
+};
+
+// ── Auth gate ──────────────────────────────────────────────────────
+var _user = null;
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('accessDenied').style.display = '';
+    return;
+  }
+  _user = user;
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  // Default closing date = 30 days out
+  var d = new Date(); d.setDate(d.getDate() + 30);
+  var iso = d.toISOString().slice(0, 10);
+  if (!document.getElementById('closingDate').value) document.getElementById('closingDate').value = iso;
+  // Seed one guarantor row
+  addGuarantor();
+  wireMoneyInputs();
+  // Detect ?loadQuote=<address> for quote-reload flow (RTL/DSCR sizers
+  // pass the address as the loadQuote value, not an id — keep parity).
+  var params = new URLSearchParams(window.location.search);
+  var loadAddr = params.get('loadQuote');
+  if (loadAddr && window.QuoteStore && QuoteStore.init) {
+    QuoteStore.init().then(function() {
+      loadQuoteByAddress(decodeURIComponent(loadAddr));
+    }).catch(function() { /* non-fatal */ });
+  }
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+// ── Helpers ────────────────────────────────────────────────────────
+function $(id) { return document.getElementById(id); }
+function fmtMoney(n) { if (n == null || n === '' || isNaN(n)) return '—'; return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+function fmtPct(n, decimals) { if (n == null || isNaN(n)) return '—'; return (Number(n) * 100).toFixed(decimals || 2) + '%'; }
+function fmtPctNum(n, decimals) { if (n == null || isNaN(n)) return '—'; return Number(n).toFixed(decimals || 2) + '%'; }
+function parseMoney(s) { if (!s) return 0; return Number(String(s).replace(/[^0-9.\-]/g, '')) || 0; }
+function parseNum(s) { if (s === '' || s == null) return 0; var v = Number(s); return isNaN(v) ? 0 : v; }
+function showToast(text, kind) {
+  var t = $('toast');
+  t.className = 'toast ' + (kind || '');
+  t.textContent = text;
+  t.style.display = 'block';
+  setTimeout(function() { t.style.display = 'none'; }, 3500);
+}
+function escH(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function escAttr(s) { return escH(s).replace(/"/g, '&quot;'); }
+function wireMoneyInputs() {
+  document.querySelectorAll('input[data-money]').forEach(function(el) {
+    el.addEventListener('blur', function() {
+      var v = parseMoney(el.value);
+      if (v) el.value = '$' + v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    });
+    el.addEventListener('focus', function() {
+      el.value = String(parseMoney(el.value) || '');
+    });
+  });
+}
+
+// ── Guarantors (up to 4) ───────────────────────────────────────────
+var _guarantorCount = 0;
+function addGuarantor() {
+  if (_guarantorCount >= 4) return;
+  _guarantorCount += 1;
+  var idx = _guarantorCount;
+  var el = document.createElement('div');
+  el.className = 'guarantor-block';
+  el.id = 'g_block_' + idx;
+  el.innerHTML =
+    '<div class="guarantor-block-head">' +
+      '<h4>Guarantor #' + idx + '</h4>' +
+      (idx > 1 ? '<button type="button" class="remove-btn" onclick="removeGuarantor(' + idx + ')">Remove</button>' : '') +
+    '</div>' +
+    '<div class="row"><div>' +
+      '<label>Full Name</label>' +
+      '<input type="text" id="g' + idx + '_name" />' +
+    '</div><div>' +
+      '<label>% of Ownership</label>' +
+      '<input type="number" id="g' + idx + '_pct" min="0" max="100" step="0.01" />' +
+    '</div></div>' +
+    '<div class="row cols-3"><div>' +
+      '<label>FICO (Credit Decision Score)</label>' +
+      '<input type="number" id="g' + idx + '_fico" min="300" max="850" />' +
+      '<div class="hint">Min 660. Use lower of 2 / median of 3.</div>' +
+    '</div><div>' +
+      '<label># Completed &amp; Sold/Refi (Owner)</label>' +
+      '<input type="number" id="g' + idx + '_owner" min="0" value="0" />' +
+      '<div class="hint">1.00 pt each.</div>' +
+    '</div><div>' +
+      '<label># Completed as GC (not Owner)</label>' +
+      '<input type="number" id="g' + idx + '_gc" min="0" value="0" />' +
+      '<div class="hint">0.50 pt each.</div>' +
+    '</div></div>';
+  $('guarantorList').appendChild(el);
+  $('addGuarantorBtn').disabled = _guarantorCount >= 4;
+}
+function removeGuarantor(idx) {
+  var el = $('g_block_' + idx);
+  if (el) el.remove();
+  _guarantorCount -= 1;
+  $('addGuarantorBtn').disabled = false;
+}
+
+// ── Eastview leverage matrix (Loan Purpose × Classification) ───────
+// From the Eastview GUC Guidelines v1.1 (April 2025), page 5.
+// Values are: { asIsLTV, ltc, tltc, ltarv } — N/A entries use null.
+var LEVERAGE_MATRIX = {
+  purchase: {
+    'A+': { asIsLTV: 0.75, ltc: 0.75, tltc: 0.90, ltarv: 0.70 },
+    'A':  { asIsLTV: 0.70, ltc: 0.70, tltc: 0.85, ltarv: 0.70 },
+    'B':  { asIsLTV: 0.65, ltc: 0.65, tltc: 0.80, ltarv: 0.65 },
+  },
+  refi_rt: {
+    'A+': { asIsLTV: 0.70, ltc: null, tltc: null, ltarv: 0.70 },
+    'A':  { asIsLTV: 0.65, ltc: null, tltc: null, ltarv: 0.70 },
+    'B':  { asIsLTV: 0.60, ltc: null, tltc: null, ltarv: 0.65 },
+  },
+  refi_co: {
+    'A+': { asIsLTV: 0.65, ltc: null, tltc: null, ltarv: 0.65 },
+    'A':  { asIsLTV: 0.60, ltc: null, tltc: null, ltarv: 0.65 },
+    'B':  { asIsLTV: 0.55, ltc: null, tltc: null, ltarv: 0.60 },
+  },
+};
+
+// EV Buy Rate ladder — page 12 of the sizer PDF.
+// Maps borrower coupon (Loan Interest Rate) → Eastview's buy rate.
+// SLA earns the spread over the loan term + lender origination points.
+// Min coupon = 8.50% (anything below is not pricable through Eastview).
+function evBuyRateFor(coupon) {
+  if (coupon == null || coupon <= 0) return null;
+  if (coupon <  8.50) return null;
+  if (coupon <  9.25) return 8.25;
+  if (coupon <  9.75) return 8.50;
+  if (coupon < 10.25) return 8.75;
+  if (coupon < 10.75) return 9.00;
+  if (coupon < 12.00) return 9.25;
+  if (coupon < 13.25) return 9.75;
+  return 10.25;
+}
+
+// ── Borrower classification ────────────────────────────────────────
+// From experience points: ≥4 = A+, 2–3 = A, ≥1 = B (B needs 700+ FICO).
+function classifyBorrower(totalExperience, minFico) {
+  if (totalExperience >= 4) return 'A+';
+  if (totalExperience >= 2) return 'A';
+  if (totalExperience >= 1 && minFico >= 700) return 'B';
+  return null; // not classifiable
+}
+
+// ── HPA / ZHVI reductions ──────────────────────────────────────────
+function hpaReductionFor(hpaPct) {
+  // HPA is YoY % change. Negative = declining.
+  if (hpaPct >= 0) return 0;
+  if (hpaPct < -10) return 0.10;
+  return 0.05;
+}
+function zhviMultiplier(arv, zhvi) {
+  if (!zhvi || zhvi <= 0) return null;
+  return arv / zhvi;
+}
+function zhviReductionFor(multiplier) {
+  if (multiplier == null) return 0;
+  var pct = multiplier * 100; // express as pct of zhvi
+  if (pct > 300) return 0.10;
+  if (pct > 200) return 0.05;
+  return 0;
+}
+
+// ── Min sqft check ────────────────────────────────────────────────
+function minSqftRequired(numUnits) {
+  // SFR / Townhome (1 unit): 600. Condo or 2-4 unit: 500/unit.
+  if (numUnits <= 1) return 600;
+  return 500 * numUnits;
+}
+
+// ── State eligibility ─────────────────────────────────────────────
+var INELIGIBLE_STATES = ['ND', 'SD', 'HI', 'AK'];
+
+// ── Loan purpose seasoning ────────────────────────────────────────
+function determineSeasoning(purchaseDate, closingDate) {
+  if (!purchaseDate || !closingDate) return null;
+  var d1 = new Date(purchaseDate); var d2 = new Date(closingDate);
+  if (isNaN(d1) || isNaN(d2)) return null;
+  return Math.floor((d2 - d1) / (1000 * 60 * 60 * 24));
+}
+
+// ── The big calc ──────────────────────────────────────────────────
+var _lastResult = null;
+
+function readForm() {
+  var guarantors = [];
+  for (var i = 1; i <= _guarantorCount; i++) {
+    if (!$('g' + i + '_name')) continue;
+    guarantors.push({
+      name:   ($('g' + i + '_name').value || '').trim(),
+      pct:    parseNum($('g' + i + '_pct').value),
+      fico:   parseNum($('g' + i + '_fico').value),
+      owner:  parseNum($('g' + i + '_owner').value),
+      gc:     parseNum($('g' + i + '_gc').value),
+    });
+  }
+  return {
+    address:        ($('address').value || '').trim(),
+    city:           ($('city').value || '').trim(),
+    state:          ($('state').value || '').trim().toUpperCase(),
+    zip:            ($('zip').value || '').trim(),
+    numUnits:       parseNum($('numUnits').value) || 1,
+    zhvi:           parseMoney($('zhvi').value),
+    hpa:            parseNum($('hpa').value),
+    loanPurpose:    $('loanPurpose').value,
+    loanTerm:       parseNum($('loanTerm').value) || 12,
+    closingDate:    $('closingDate').value,
+    entityName:     ($('entityName').value || '').trim(),
+    brwEmail:       ($('brwEmail').value || '').trim(),
+    guarantors:     guarantors,
+    purchasePrice:  parseMoney($('purchasePrice').value),
+    purchaseDate:   $('purchaseDate').value,
+    asIsValue:      parseMoney($('asIsValue').value),
+    arv:            parseMoney($('arv').value),
+    prevRehab:      parseMoney($('prevRehab').value),
+    rehabBudget:    parseMoney($('rehabBudget').value),
+    postSqft:       parseNum($('postSqft').value),
+    apprDate:       $('apprDate').value,
+    entitled:       (document.querySelector('input[name=entitled]:checked') || {}).value || 'yes',
+    permits:        (document.querySelector('input[name=permits]:checked') || {}).value || 'yes',
+    ir:             (document.querySelector('input[name=ir]:checked') || {}).value || 'yes',
+    foreignNat:     (document.querySelector('input[name=foreignNational]:checked') || {}).value || 'no',
+    loanRate:       parseNum($('loanRate').value),
+    origPts:        parseNum($('origPts').value),
+    brokerPts:      parseNum($('brokerPts').value),
+    liquidity:      parseMoney($('liquidity').value),
+    notes:          ($('notes').value || '').trim(),
+  };
+}
+
+function calculate() {
+  var f = readForm();
+  var errs = [];
+
+  // ── 1. Hard gates first ─────────────────────────────────────────
+  if (INELIGIBLE_STATES.indexOf(f.state) >= 0) {
+    errs.push('State ' + f.state + ' is not eligible for Eastview GUC.');
+  }
+  if (f.entitled === 'no') {
+    errs.push('Non-entitled land — Eastview does NOT lend on non-entitled land (-100% leverage).');
+  }
+  if (!f.guarantors.length) errs.push('At least one guarantor is required.');
+  var totalExp = 0;
+  var minFico = Infinity;
+  f.guarantors.forEach(function(g) {
+    totalExp += g.owner * 1.0 + g.gc * 0.5;
+    if (g.fico > 0) minFico = Math.min(minFico, g.fico);
+  });
+  if (!isFinite(minFico)) minFico = 0;
+  var classification = classifyBorrower(totalExp, minFico);
+  if (!classification) {
+    errs.push('Borrower does not qualify for A+, A, or B (need ≥1 verified GUC project + 700 FICO for B, ≥2 for A, ≥4 for A+).');
+  }
+  if (minFico > 0 && minFico < 660) {
+    errs.push('Min guarantor FICO of ' + minFico + ' is below the 660 floor.');
+  }
+
+  // ── 2. Property checks ─────────────────────────────────────────
+  if (f.postSqft && f.postSqft < minSqftRequired(f.numUnits)) {
+    errs.push('Post-completion square footage (' + f.postSqft + ') below minimum (' + minSqftRequired(f.numUnits) + ' for ' + f.numUnits + '-unit).');
+  }
+  // Appraisal age check (120 days from closing date — Note date proxy).
+  if (f.apprDate && f.closingDate) {
+    var ageDays = Math.floor((new Date(f.closingDate) - new Date(f.apprDate)) / (1000 * 60 * 60 * 24));
+    if (ageDays > 120) errs.push('Appraisal age ' + ageDays + ' days > 120-day cap.');
+  }
+  if (f.loanTerm < 12 || f.loanTerm > 24) errs.push('Loan term must be 12–24 months.');
+
+  // ── 3. Loan-purpose seasoning sanity check ─────────────────────
+  // Per guidelines: <6mo from purchase = treat as Purchase; >6mo
+  // with proceeds <= max($2k, 2% of loan) = Rate&Term; otherwise
+  // Cash Out. We don't auto-flip the LO's selection — just warn if
+  // their choice doesn't match the seasoning.
+  var seasoning = determineSeasoning(f.purchaseDate, f.closingDate);
+  if (seasoning != null && f.loanPurpose === 'purchase' && seasoning > 180) {
+    errs.push('Purchase Date is more than 6 months before Closing — loan should be Refi (Rate & Term or Cash Out).');
+  }
+
+  // If hard errors, abort early.
+  if (errs.length) {
+    _lastResult = null;
+    renderResults({ errs: errs });
+    document.getElementById('actionRow').style.display = 'none';
+    return;
+  }
+
+  // ── 4. Compute leverage caps ───────────────────────────────────
+  var caps = LEVERAGE_MATRIX[f.loanPurpose][classification];
+
+  // FICO 660–679 OR foreign-national 65% hard cap.
+  var hardLevCap = (minFico >= 660 && minFico <= 679) || f.foreignNat === 'yes' ? 0.65 : null;
+  function capDown(v) { return hardLevCap != null ? Math.min(v, hardLevCap) : v; }
+
+  // Reductions stack additively.
+  var hpaRed = hpaReductionFor(f.hpa);
+  var zhviMult = zhviMultiplier(f.arv, f.zhvi);
+  var zhviRed = zhviReductionFor(zhviMult);
+  var permitsRed = f.permits === 'no' ? 0.10 : 0;
+  // Note: permits reduction only applies to FRONT-END caps (Initial loan).
+  var backEndReductions = hpaRed + zhviRed;
+  var frontEndReductions = backEndReductions + permitsRed;
+
+  // Apply caps + reductions.
+  var asIsLTV_eff = Math.max(0, capDown(caps.asIsLTV) - frontEndReductions);
+  var ltc_eff    = caps.ltc != null ? Math.max(0, capDown(caps.ltc) - frontEndReductions) : null;
+  var tltc_eff   = caps.tltc != null ? Math.max(0, caps.tltc - backEndReductions) : null;
+  var ltarv_eff  = Math.max(0, caps.ltarv - backEndReductions);
+
+  // ── 5. Compute max loan amounts ────────────────────────────────
+  // Cost Basis = purchase price (+ previously completed rehab on refi).
+  var costBasis = f.purchasePrice + (f.loanPurpose !== 'purchase' ? f.prevRehab : 0);
+  var totalCostBasis = costBasis + f.rehabBudget;
+
+  // Initial Loan Amount (front end) — bound by:
+  //   - As-Is LTV * As-Is value
+  //   - LTC * Cost Basis (purchase only)
+  var initialLoanCaps = [asIsLTV_eff * f.asIsValue];
+  if (f.loanPurpose === 'purchase' && ltc_eff != null) initialLoanCaps.push(ltc_eff * costBasis);
+  var maxInitialLoan = Math.min.apply(null, initialLoanCaps);
+
+  // Loan Amount (back end) — bound by:
+  //   - TLTC * Total Cost Basis (purchase only)
+  //   - LTARV * ARV
+  var loanCaps = [ltarv_eff * f.arv];
+  if (f.loanPurpose === 'purchase' && tltc_eff != null) loanCaps.push(tltc_eff * totalCostBasis);
+  var maxLoanAmount = Math.min.apply(null, loanCaps);
+
+  // Interest Reserve at 5% of Loan Amount when toggled on (required
+  // to qualify for 90% TLTC per guidelines).
+  var interestReserve = f.ir === 'yes' ? Math.round(maxLoanAmount * 0.05) : 0;
+
+  // Financed Rehab Budget = Loan Amount − Initial Loan − Interest Reserve
+  var financedRehab = Math.max(0, maxLoanAmount - maxInitialLoan - interestReserve);
+
+  // ── 6. Hard floor / ceiling on loan amount ─────────────────────
+  if (maxLoanAmount < 150000) errs.push('Calculated Loan Amount ($' + Math.round(maxLoanAmount).toLocaleString() + ') below the $150,000 minimum.');
+  if (maxLoanAmount > 2000000) errs.push('Calculated Loan Amount ($' + Math.round(maxLoanAmount).toLocaleString() + ') exceeds the $2,000,000 ceiling (max $1.5M standard, $2M by exception).');
+
+  // ── 7. Pricing ─────────────────────────────────────────────────
+  var buyRate = evBuyRateFor(f.loanRate);
+  var spread = (buyRate != null && f.loanRate > 0) ? (f.loanRate - buyRate) : null;
+  // Monthly interest payments (simple monthly = rate/12 * principal).
+  var monthlyInitial = f.loanRate > 0 ? Math.round(maxInitialLoan * (f.loanRate / 100) / 12) : 0;
+  var monthlyTotal   = f.loanRate > 0 ? Math.round(maxLoanAmount * (f.loanRate / 100) / 12) : 0;
+
+  // Origination points cap.
+  if (f.origPts > 5) errs.push('Lender Origination Points ' + f.origPts + '% exceeds 5% cap.');
+
+  // ── 8. Liquidity requirement ──────────────────────────────────
+  var nMonths = classification === 'B' ? 6 : 3;
+  // Non-financed construction cost: portion of rehab budget NOT financed
+  // by the loan (i.e. rehabBudget − financedRehab).
+  var nonFinancedRehab = Math.max(0, f.rehabBudget - financedRehab);
+  var downPayment = 0;
+  if (f.loanPurpose === 'purchase') {
+    downPayment = Math.max(0, f.purchasePrice - maxInitialLoan);
+  }
+  // 1.5% closing cost approximation when missing.
+  var closingCosts = Math.round(maxLoanAmount * 0.015);
+  var liquidityReq = (nMonths * monthlyTotal) + nonFinancedRehab + downPayment + (f.loanPurpose === 'purchase' ? closingCosts : 0);
+
+  // ── 9. GC requirement ─────────────────────────────────────────
+  var gcRequired = false;
+  if (classification === 'B') gcRequired = true;
+  if (classification === 'A' && f.rehabBudget >= 1000000) gcRequired = true;
+
+  // ── 10. SLA P&L ──────────────────────────────────────────────
+  var spreadIncome = (spread != null && spread > 0) ? Math.round(maxLoanAmount * (spread / 100) * (f.loanTerm / 12)) : 0;
+  var origIncome = Math.round(maxLoanAmount * (f.origPts / 100));
+  var slaGross = spreadIncome + origIncome;
+
+  _lastResult = {
+    formData: f,
+    classification: classification,
+    totalExp: totalExp,
+    minFico: minFico,
+    caps: caps,
+    hardLevCap: hardLevCap,
+    hpaRed: hpaRed,
+    zhviMult: zhviMult,
+    zhviRed: zhviRed,
+    permitsRed: permitsRed,
+    asIsLTV_eff: asIsLTV_eff,
+    ltc_eff: ltc_eff,
+    tltc_eff: tltc_eff,
+    ltarv_eff: ltarv_eff,
+    costBasis: costBasis,
+    totalCostBasis: totalCostBasis,
+    maxInitialLoan: Math.round(maxInitialLoan),
+    maxLoanAmount: Math.round(maxLoanAmount),
+    interestReserve: interestReserve,
+    financedRehab: Math.round(financedRehab),
+    buyRate: buyRate,
+    spread: spread,
+    monthlyInitial: monthlyInitial,
+    monthlyTotal: monthlyTotal,
+    nMonths: nMonths,
+    liquidityReq: Math.round(liquidityReq),
+    downPayment: Math.round(downPayment),
+    nonFinancedRehab: Math.round(nonFinancedRehab),
+    closingCosts: closingCosts,
+    gcRequired: gcRequired,
+    spreadIncome: spreadIncome,
+    origIncome: origIncome,
+    slaGross: slaGross,
+    errs: errs,
+  };
+  renderResults(_lastResult);
+  document.getElementById('actionRow').style.display = errs.length ? 'none' : 'flex';
+}
+
+function renderResults(r) {
+  var c = $('results');
+  if (r.errs && r.errs.length) {
+    c.innerHTML =
+      '<div class="results-class fail">⚠ Not eligible</div>' +
+      '<ul style="font-size:12px;color:var(--red);padding-left:1.2rem;line-height:1.7">' +
+      r.errs.map(function(e) { return '<li>' + escH(e) + '</li>'; }).join('') +
+      '</ul>';
+    return;
+  }
+  var classCls = r.classification === 'A+' ? '' : (r.classification === 'B' ? 'warn' : '');
+  var liquidityOk = r.formData.liquidity > 0 && r.formData.liquidity >= r.liquidityReq;
+  c.innerHTML =
+    '<div class="results-class ' + classCls + '">Classification ' + r.classification + ' · ' + r.totalExp.toFixed(2) + ' exp pts</div>' +
+    '<div class="metric big"><span class="l">Max Initial Loan</span><span class="v">' + fmtMoney(r.maxInitialLoan) + '</span></div>' +
+    '<div class="metric big"><span class="l">Max Loan Amount</span><span class="v">' + fmtMoney(r.maxLoanAmount) + '</span></div>' +
+    '<div class="metric"><span class="l">Interest Reserve (5%)</span><span class="v">' + fmtMoney(r.interestReserve) + '</span></div>' +
+    '<div class="metric"><span class="l">Financed Rehab Budget</span><span class="v">' + fmtMoney(r.financedRehab) + '</span></div>' +
+    '<div class="metric"><span class="l">As-Is LTV (effective)</span><span class="v">' + fmtPct(r.asIsLTV_eff) + '</span></div>' +
+    (r.ltarv_eff != null ? '<div class="metric"><span class="l">LTARV (effective)</span><span class="v">' + fmtPct(r.ltarv_eff) + '</span></div>' : '') +
+    (r.tltc_eff != null ? '<div class="metric"><span class="l">TLTC (effective)</span><span class="v">' + fmtPct(r.tltc_eff) + '</span></div>' : '') +
+    '<div class="metric"><span class="l">Reductions stacked</span><span class="v">' + fmtPctNum((r.hpaRed + r.zhviRed + r.permitsRed) * 100) + '</span></div>' +
+    '<div style="height:1px;background:var(--border);margin:10px 0"></div>' +
+    '<div class="metric"><span class="l">Borrower Coupon</span><span class="v">' + fmtPctNum(r.formData.loanRate, 3) + '</span></div>' +
+    (r.buyRate != null
+      ? '<div class="metric"><span class="l">Eastview Buy Rate</span><span class="v">' + fmtPctNum(r.buyRate, 3) + '</span></div>' +
+        '<div class="metric"><span class="l">SLA Spread</span><span class="v">' + fmtPctNum(r.spread, 3) + '</span></div>'
+      : '<div class="metric"><span class="l">EV Buy Rate</span><span class="v" style="color:var(--red)">below 8.50% min</span></div>') +
+    '<div class="metric"><span class="l">Monthly Interest (Initial)</span><span class="v">' + fmtMoney(r.monthlyInitial) + '</span></div>' +
+    '<div class="metric"><span class="l">Monthly Interest (Full Loan)</span><span class="v">' + fmtMoney(r.monthlyTotal) + '</span></div>' +
+    '<div style="height:1px;background:var(--border);margin:10px 0"></div>' +
+    '<div class="metric"><span class="l">Liquidity Required</span><span class="v">' + fmtMoney(r.liquidityReq) + '</span></div>' +
+    '<div class="metric"><span class="l">Liquidity Verified</span><span class="v" style="color:' + (liquidityOk ? 'var(--green)' : 'var(--red)') + '">' + fmtMoney(r.formData.liquidity) + (liquidityOk ? ' ✓' : ' ✗') + '</span></div>' +
+    '<div class="metric"><span class="l">GC Required?</span><span class="v" style="color:' + (r.gcRequired ? 'var(--amber)' : 'var(--green)') + '">' + (r.gcRequired ? 'Yes' : 'No') + '</span></div>' +
+    '<div style="height:1px;background:var(--border);margin:10px 0"></div>' +
+    '<div class="metric"><span class="l">SLA Spread Income</span><span class="v">' + fmtMoney(r.spreadIncome) + '</span></div>' +
+    '<div class="metric"><span class="l">SLA Origination Income</span><span class="v">' + fmtMoney(r.origIncome) + '</span></div>' +
+    '<div class="metric big"><span class="l">SLA Gross (Est.)</span><span class="v">' + fmtMoney(r.slaGross) + '</span></div>';
+}
+
+// ── PDF generation ────────────────────────────────────────────────
+function pdfHeader(doc, title) {
+  var lm = 54;
+  doc.setFillColor(38, 26, 54);
+  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 60, 'F');
+  doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(200, 129, 58);
+  doc.text('SLA Capital', lm, 30);
+  doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(255, 255, 255);
+  doc.text(title, lm, 48);
+  // GUC badge on the right
+  doc.setFillColor(37, 99, 235);
+  doc.rect(doc.internal.pageSize.getWidth() - lm - 60, 18, 60, 22, 'F');
+  doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(255, 255, 255);
+  doc.text('GUC', doc.internal.pageSize.getWidth() - lm - 30, 33, { align: 'center' });
+}
+
+function downloadRateSheet() {
+  if (!_lastResult) { showToast('Run Calculate first.', 'error'); return; }
+  var r = _lastResult;
+  var f = r.formData;
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  var lm = 54;
+  pdfHeader(doc, 'Ground Up Construction — Rate Sheet');
+  var y = 90;
+
+  // Property header band
+  doc.setFillColor(245, 233, 216);
+  doc.rect(lm, y, doc.internal.pageSize.getWidth() - 2 * lm, 32, 'F');
+  doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 26, 54);
+  doc.text('Property', lm + 10, y + 14);
+  doc.setFont('helvetica', 'normal').setFontSize(10);
+  var fullAddr = [f.address, f.city, f.state, f.zip].filter(Boolean).join(', ');
+  doc.text(fullAddr || '—', lm + 10, y + 26);
+  y += 48;
+
+  // Summary rows
+  var rows = [
+    ['Guarantor Name', f.guarantors[0] ? f.guarantors[0].name || '—' : '—'],
+    ['Guarantor Email', f.brwEmail || '—'],
+    ['Borrowing Entity', f.entityName || '—'],
+    ['Loan Purpose', f.loanPurpose === 'purchase' ? 'Purchase' : f.loanPurpose === 'refi_rt' ? 'Refinance (Rate & Term)' : 'Refinance (Cash Out)'],
+    ['Loan Term', f.loanTerm + ' Months'],
+    ['Borrower Classification', r.classification + ' (' + r.totalExp.toFixed(2) + ' exp pts)'],
+    ['Min Guarantor FICO', r.minFico || '—'],
+    ['Number of Units', f.numUnits],
+    ['Post-Completion Sqft', f.postSqft ? f.postSqft.toLocaleString() : '—'],
+    ['Purchase Price', fmtMoney(f.purchasePrice)],
+    ['As-Is Value', fmtMoney(f.asIsValue)],
+    ['After-Repair Value (ARV)', fmtMoney(f.arv)],
+    ['Construction Budget', fmtMoney(f.rehabBudget)],
+    ['Total Cost Basis', fmtMoney(r.totalCostBasis)],
+    ['Initial Loan Amount', fmtMoney(r.maxInitialLoan)],
+    ['Interest Reserve (5%)', fmtMoney(r.interestReserve)],
+    ['Financed Rehab Budget', fmtMoney(r.financedRehab)],
+    ['Loan Amount', fmtMoney(r.maxLoanAmount)],
+    ['Loan Interest Rate (Coupon)', fmtPctNum(f.loanRate, 3)],
+    ['Monthly Interest (Loan Amt)', fmtMoney(r.monthlyTotal)],
+    ['Lender Origination Points', fmtPctNum(f.origPts) + ' (' + fmtMoney(Math.round(r.maxLoanAmount * f.origPts / 100)) + ')'],
+    ['Broker Origination Points', fmtPctNum(f.brokerPts) + ' (' + fmtMoney(Math.round(r.maxLoanAmount * f.brokerPts / 100)) + ')'],
+    ['Interest Accrual', f.ir === 'yes' ? 'Dutch / Single Funding (with Construction Escrow)' : 'Non-Dutch / Multiple Draws'],
+    ['Entitled Land', f.entitled === 'yes' ? 'Yes' : 'No'],
+    ['Permits & Plans Approved', f.permits === 'yes' ? 'Yes' : 'No (front-end -10%)'],
+  ];
+
+  doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 26, 54);
+  doc.text('Loan Summary', lm, y); y += 14;
+  doc.setFont('helvetica', 'normal').setFontSize(9.5);
+  rows.forEach(function(row) {
+    if (y > doc.internal.pageSize.getHeight() - 100) { doc.addPage(); y = 60; }
+    doc.setTextColor(122, 116, 136);
+    doc.text(row[0], lm, y);
+    doc.setTextColor(26, 21, 32);
+    doc.text(String(row[1]), lm + 220, y);
+    y += 14;
+  });
+
+  // SLA fees footer (mirrors RTL — $1,650 Loan Processing + $500 Legal/Doc Review)
+  y += 8;
+  doc.setFillColor(245, 233, 216);
+  doc.rect(lm, y, doc.internal.pageSize.getWidth() - 2 * lm, 16, 'F');
+  doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(38, 26, 54);
+  doc.text('SLA Capital Fees', lm + 8, y + 11);
+  y += 24;
+  doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(122, 116, 136);
+  var feeRows = [
+    ['Loan Processing Fee', '$1,650'],
+    ['Legal/Doc Review',    '$500'],
+    ['Total',               '$2,150'],
+  ];
+  feeRows.forEach(function(row, i) {
+    doc.setTextColor(122, 116, 136);
+    doc.text(row[0], lm, y);
+    doc.setTextColor(26, 21, 32);
+    if (i === feeRows.length - 1) doc.setFont('helvetica', 'bold');
+    doc.text(row[1], lm + 220, y);
+    if (i === feeRows.length - 1) doc.setFont('helvetica', 'normal');
+    y += 14;
+  });
+
+  // Footer disclaimer
+  y = doc.internal.pageSize.getHeight() - 50;
+  doc.setFont('helvetica', 'italic').setFontSize(7.5).setTextColor(122, 116, 136);
+  doc.text('Quotes are subject to underwriting and may change. This rate sheet is not a commitment to lend. Eastview product — admin-issued.', lm, y);
+  doc.text('Sir Lends A Lot LLC dba SLA Capital  ·  ' + new Date().toLocaleDateString('en-US'), lm, y + 14);
+
+  var fname = (fullAddr || 'GUC_Rate_Sheet').replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 80) + '_GUC_Rate_Sheet.pdf';
+  doc.save(fname);
+}
+
+function downloadTermSheet() {
+  if (!_lastResult) { showToast('Run Calculate first.', 'error'); return; }
+  var r = _lastResult;
+  var f = r.formData;
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  var lm = 54;
+  pdfHeader(doc, 'Ground Up Construction — Term Sheet');
+  var y = 90;
+
+  var fullAddr = [f.address, f.city, f.state, f.zip].filter(Boolean).join(', ');
+  doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(38, 26, 54);
+  doc.text(fullAddr || 'Project', lm, y);
+  y += 8;
+  doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(122, 116, 136);
+  doc.text((f.entityName || 'Borrower') + ' · GUC · ' + f.loanTerm + ' months', lm, y + 10);
+  y += 28;
+
+  function section(title) {
+    if (y > doc.internal.pageSize.getHeight() - 80) { doc.addPage(); y = 60; }
+    doc.setFillColor(37, 99, 235);
+    doc.rect(lm, y, doc.internal.pageSize.getWidth() - 2 * lm, 16, 'F');
+    doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(255, 255, 255);
+    doc.text(title, lm + 8, y + 11);
+    y += 24;
+  }
+  function row(k, v) {
+    if (y > doc.internal.pageSize.getHeight() - 60) { doc.addPage(); y = 60; }
+    doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(122, 116, 136);
+    doc.text(k, lm, y);
+    doc.setTextColor(26, 21, 32);
+    doc.text(String(v), lm + 220, y);
+    y += 14;
+  }
+
+  section('Loan Terms');
+  row('Loan Purpose', f.loanPurpose === 'purchase' ? 'Purchase' : f.loanPurpose === 'refi_rt' ? 'Refinance (Rate & Term)' : 'Refinance (Cash Out)');
+  row('Loan Amount', fmtMoney(r.maxLoanAmount));
+  row('Initial Loan Amount', fmtMoney(r.maxInitialLoan));
+  row('Interest Reserve', fmtMoney(r.interestReserve));
+  row('Financed Rehab', fmtMoney(r.financedRehab));
+  row('Loan Term', f.loanTerm + ' months');
+  row('Interest Rate', fmtPctNum(f.loanRate, 3) + ' fixed, interest-only');
+  row('Monthly Interest', fmtMoney(r.monthlyTotal));
+  row('Interest Accrual', f.ir === 'yes' ? 'Dutch / Single Funding' : 'Non-Dutch / Multiple Draws');
+  row('Origination Fee', fmtPctNum(f.origPts) + ' (' + fmtMoney(Math.round(r.maxLoanAmount * f.origPts / 100)) + ')');
+  if (f.brokerPts > 0) row('Broker Fee', fmtPctNum(f.brokerPts) + ' (' + fmtMoney(Math.round(r.maxLoanAmount * f.brokerPts / 100)) + ')');
+  row('Prepayment', 'No prepayment penalty');
+
+  section('Project');
+  row('Property Type', f.numUnits + '-unit residential');
+  row('Post-Completion Sqft', f.postSqft ? f.postSqft.toLocaleString() : '—');
+  row('Purchase Price', fmtMoney(f.purchasePrice));
+  row('As-Is Value', fmtMoney(f.asIsValue));
+  row('After-Repair Value (ARV)', fmtMoney(f.arv));
+  row('Total Construction Budget', fmtMoney(f.rehabBudget));
+  row('Total Cost Basis', fmtMoney(r.totalCostBasis));
+
+  section('Borrower');
+  row('Borrowing Entity', f.entityName || '—');
+  row('Classification', r.classification + ' (' + r.totalExp.toFixed(2) + ' verified exp pts)');
+  row('Min Guarantor FICO', r.minFico || '—');
+  row('Personal Guarantee', '51%+ ownership required');
+  row('Liquidity Required', fmtMoney(r.liquidityReq));
+  if (r.gcRequired) row('General Contractor', 'REQUIRED — contractor review by 3rd-party vendor');
+
+  section('Leverage');
+  row('Initial Loan As-Is LTV', fmtPct(r.asIsLTV_eff));
+  if (r.ltc_eff != null) row('Initial Loan LTC', fmtPct(r.ltc_eff));
+  if (r.tltc_eff != null) row('Loan Amount TLTC', fmtPct(r.tltc_eff));
+  row('Loan Amount LTARV', fmtPct(r.ltarv_eff));
+  var redTxt = [];
+  if (r.hpaRed > 0) redTxt.push(fmtPctNum(r.hpaRed * 100) + ' (HPA decline)');
+  if (r.zhviRed > 0) redTxt.push(fmtPctNum(r.zhviRed * 100) + ' (ZHVI ' + (r.zhviMult * 100).toFixed(0) + '%)');
+  if (r.permitsRed > 0) redTxt.push(fmtPctNum(r.permitsRed * 100) + ' (no permits, front-end)');
+  if (r.hardLevCap != null) redTxt.push('FICO/Foreign Nat ' + fmtPctNum(r.hardLevCap * 100) + ' cap');
+  if (redTxt.length) row('Reductions Applied', redTxt.join('; '));
+
+  section('SLA Fees (Borrower Pays)');
+  row('Loan Processing Fee', '$1,650');
+  row('Legal/Doc Review',    '$500');
+  row('Total SLA Fees',      '$2,150');
+
+  // Footer disclaimer
+  y = doc.internal.pageSize.getHeight() - 60;
+  doc.setFont('helvetica', 'italic').setFontSize(7.5).setTextColor(122, 116, 136);
+  doc.text('This term sheet is subject to underwriting, third-party appraisal and feasibility review,', lm, y);
+  doc.text('and final approval. Not a commitment to lend. Eastview product — admin-issued.', lm, y + 11);
+  doc.text('Sir Lends A Lot LLC dba SLA Capital  ·  ' + new Date().toLocaleDateString('en-US'), lm, y + 26);
+
+  var fname = (fullAddr || 'GUC_Term_Sheet').replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 80) + '_GUC_Term_Sheet.pdf';
+  doc.save(fname);
+}
+
+// ── Save quote → Pipeline ─────────────────────────────────────────
+function saveQuote() {
+  if (!_lastResult) { showToast('Run Calculate first.', 'error'); return; }
+  var r = _lastResult;
+  var f = r.formData;
+  if (!f.brwEmail) { showToast('Borrower email required to save quote.', 'error'); return; }
+
+  // Build formData blob for the loan record (mirrors RTL pattern so
+  // Loan Details / Pipeline can read GUC quotes via the same fields).
+  var formData = {
+    address: f.address,
+    city: f.city,
+    state: f.state,
+    zip: f.zip,
+    propType: f.numUnits >= 2 ? '2-4' : 'sfr',
+    bedrooms: '',
+    bathrooms: '',
+    sqft: f.postSqft,
+    loanType: 'guc',
+    loanPurpose: f.loanPurpose,
+    loanAmt: r.maxLoanAmount,
+    purchasePrice: f.purchasePrice,
+    propValue: f.asIsValue,
+    arv: f.arv,
+    rehabBudget: f.rehabBudget,
+    rentalType: '',
+    fundingDate: f.closingDate,
+    notes: f.notes,
+    fico: r.minFico,
+    _maxLoan: r.maxLoanAmount,
+    _finalRate: f.loanRate,
+    _points: (f.origPts + f.brokerPts).toFixed(2) + ' pts',
+    _pricingSnapshot: {
+      classification: r.classification,
+      totalExp: r.totalExp,
+      asIsLTV_eff: r.asIsLTV_eff,
+      ltc_eff: r.ltc_eff,
+      tltc_eff: r.tltc_eff,
+      ltarv_eff: r.ltarv_eff,
+      buyRate: r.buyRate,
+      spread: r.spread,
+      interestReserve: r.interestReserve,
+      financedRehab: r.financedRehab,
+      maxInitialLoan: r.maxInitialLoan,
+      liquidityReq: r.liquidityReq,
+      gcRequired: r.gcRequired,
+      reductions: { hpa: r.hpaRed, zhvi: r.zhviRed, permits: r.permitsRed, hardCap: r.hardLevCap },
+    },
+  };
+
+  var loan = ClientBook.buildLoanFromSizer('guc', f.address, formData, 'active');
+  // Tag GUC-specific fields the buildLoanFromSizer doesn't know about.
+  loan.entityName       = f.entityName;
+  loan.guarantorsCount  = f.guarantors.length;
+  loan.gucClassification = r.classification;
+  loan.gucExpPts        = r.totalExp;
+  loan.gucInterestReserve = r.interestReserve;
+  loan.gucMaxInitialLoan = r.maxInitialLoan;
+  loan.gucBuyRate       = r.buyRate;
+  loan.gucEntitled      = f.entitled;
+  loan.gucPermits       = f.permits;
+  loan.gucIR            = f.ir;
+  loan.gucZHVI          = f.zhvi;
+  loan.gucHPA           = f.hpa;
+  loan.gucPostSqft      = f.postSqft;
+  loan.gucPrevRehab     = f.prevRehab;
+
+  var firstG = f.guarantors[0] || {};
+  var nameParts = (firstG.name || '').split(' ');
+  var firstName = nameParts.shift() || '';
+  var lastName = nameParts.join(' ') || '';
+
+  var btn = $('saveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  // Save to sizer's own Quotes panel (mirrors RTL pattern — QuoteStore
+  // handles its own dedupe by loanId/address/propType under the hood).
+  // Fire-and-forget the panel write so a flaky panel save doesn't block
+  // the loan record from landing in Pipeline (the user-facing place).
+  if (window.QuoteStore && QuoteStore.saveQuote) {
+    try {
+      formData.borrower      = firstG.name || '';
+      formData.borrowerEmail = f.brwEmail;
+      QuoteStore.saveQuote((_user.email || '').toLowerCase(), 'guc', formData);
+    } catch (e) { /* non-fatal */ }
+  }
+
+  ClientBook.upsert((_user.email || '').toLowerCase(), f.brwEmail.toLowerCase(), firstName, lastName, '', loan)
+    .then(function() {
+      btn.disabled = false; btn.textContent = '✓ Saved';
+      showToast('Quote saved → Pipeline (New App column).', 'success');
+      setTimeout(function() { btn.textContent = '💾 Save Quote'; }, 2500);
+    })
+    .catch(function(err) {
+      btn.disabled = false; btn.textContent = '💾 Save Quote';
+      showToast('Save failed: ' + (err.message || 'Unknown'), 'error');
+    });
+}
+
+// ── Quote reload (?loadQuote=<address>) ───────────────────────────
+function loadQuoteByAddress(addr) {
+  if (!window.QuoteStore || !QuoteStore.getQuote) return;
+  var q = QuoteStore.getQuote((_user.email || '').toLowerCase(), 'guc', addr);
+  if (!q) { showToast('Quote not found for ' + addr + '.', 'error'); return; }
+  var f = q.formData || {};
+  function set(id, val) { var el = $(id); if (el && val != null) el.value = val; }
+  set('address', f.address);
+  set('city', f.city);
+  set('state', f.state);
+  set('zip', f.zip);
+  set('numUnits', f.propType === '2-4' ? 2 : 1);
+  set('loanPurpose', f.loanPurpose);
+  set('loanTerm', 12);
+  set('purchasePrice', f.purchasePrice ? '$' + Number(f.purchasePrice).toLocaleString() : '');
+  set('asIsValue', f.propValue ? '$' + Number(f.propValue).toLocaleString() : '');
+  set('arv', f.arv ? '$' + Number(f.arv).toLocaleString() : '');
+  set('rehabBudget', f.rehabBudget ? '$' + Number(f.rehabBudget).toLocaleString() : '');
+  set('postSqft', f.sqft);
+  set('loanRate', f._finalRate);
+  set('notes', f.notes);
+  set('brwEmail', q.borrowerEmail);
+  if (f._pricingSnapshot) {
+    // restore guarantor 1 stub if needed
+    if (q.borrowerName) {
+      var parts = String(q.borrowerName).split(' ');
+      if ($('g1_name')) $('g1_name').value = q.borrowerName;
+    }
+  }
+  showToast('Quote reloaded. Re-fill any missing fields and re-Calculate.', 'info');
+}
+
+function updatePurpose() {
+  // Hide purchase-only fields when refi.
+  var isPurchase = $('loanPurpose').value === 'purchase';
+  // (Purchase Price field stays visible regardless — used for both
+  // purchase and as the historical-purchase-price input for refi.)
+  $('prevRehab').parentElement.style.display = isPurchase ? 'none' : '';
+}
+</script>
+</body>
+</html>

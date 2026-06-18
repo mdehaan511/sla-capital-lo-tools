@@ -662,7 +662,9 @@ function buildLoansTable(loans, client, userEmail, readOnly) {
 
 function openLoanInSizer(loanJson) {
   var l = typeof loanJson === 'string' ? JSON.parse(loanJson) : loanJson;
-  var tool = l.toolType==='rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  // Deploy 236.87 — GUC routing.
+  var _tt = String(l.toolType || '').toLowerCase();
+  var tool = _tt === 'rtl' ? 'rtl-sizer.html' : _tt === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
   window.location.href = tool + '?loadQuote=' + encodeURIComponent(l.address||'');
 }
 

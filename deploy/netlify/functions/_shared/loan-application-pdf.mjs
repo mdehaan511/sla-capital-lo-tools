@@ -475,12 +475,15 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       //     $900 Doc Prep + $150 Credit/BG from the RTL rate sheet)
       //   - DSCR: unchanged ($1,695 Underwriting Fee)
       //   - Both: "Legal/Doc Fee" -> "Legal/Doc Review" (same $500)
-      const isRtl = !!(loanRec && String(loanRec.toolType || '').toLowerCase() === 'rtl');
+      // Deploy 236.87 — GUC inherits the RTL fee structure (same
+      // $1,650 Loan Processing Fee + $500 Legal/Doc Review).
+      const _toolType = String((loanRec && loanRec.toolType) || '').toLowerCase();
+      const isRtlOrGuc = (_toolType === 'rtl' || _toolType === 'guc');
       if (hasAnyLoanDetail) {
         section('Estimated Fees & Other Details *');
         row('Rate Buydown',  buydownStr);
         row('Origination Fee', origPointsStr || '—');
-        if (isRtl) {
+        if (isRtlOrGuc) {
           row('Loan Processing Fee', '$1,650');
         } else {
           row('Underwriting Fee', '$1,695');

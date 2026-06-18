@@ -373,7 +373,9 @@ function decorateLoan(loan, client, ownerKey) {
   // (the underlying loanType — bridge / light / heavy / construction /
   // transactional — is an RTL implementation detail, not a separate
   // product line for reporting purposes). DSCR loans always show "DSCR".
-  loan._loanTypeLabel = (loan.toolType === 'rtl') ? 'RTL' : 'DSCR';
+  // Deploy 236.87 — show 'GUC' label for Eastview Ground Up Construction loans.
+  var _tt = String(loan.toolType || '').toLowerCase();
+  loan._loanTypeLabel = _tt === 'rtl' ? 'RTL' : _tt === 'guc' ? 'GUC' : 'DSCR';
   return loan;
 }
 

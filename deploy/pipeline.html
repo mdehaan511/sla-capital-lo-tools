@@ -269,6 +269,8 @@
     }
     .card-meta .tag.dscr { background: var(--gold-light); color: var(--gold-mid); }
     .card-meta .tag.rtl  { background: rgba(38,26,54,0.08); color: var(--dark); }
+    /* Deploy 236.87 — GUC tag (Ground Up Construction, Eastview product). */
+    .card-meta .tag.guc  { background: rgba(37,99,235,0.10); color: #2563eb; border: 1px solid rgba(37,99,235,0.30); }
     /* Deploy 236.50 — property-type tag. Neutral grey by default so it
        lives quietly next to the DSCR/RTL tool tag. Portfolio gets a
        distinct accent because it's the new comparison case that 236.49
@@ -1373,9 +1375,11 @@ function buildQuoteCard(it, colKey) {
   // older saves; the toFixed(3) round-trip restores it).
   var _rateN = parseFloat(fd._finalRate);
   var rate = (fd._finalRate && isFinite(_rateN)) ? _rateN.toFixed(3) + '%' : '';
-  var tool = q.toolType === 'rtl' ? 'rtl' : 'dscr';
+  // Deploy 236.87 — GUC routing.
+  var _tt = String(q.toolType || '').toLowerCase();
+  var tool = _tt === 'rtl' ? 'rtl' : _tt === 'guc' ? 'guc' : 'dscr';
   var loName = loDisplay(it.ownerKey);
-  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : tool === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
   var sizerUrl  = sizerPage + '?loadQuote=' + encodeURIComponent(addr);
   // Deploy 236.51 — when we've resolved a deterministic loan record
   // for this card, pass its IDs through so the sizer load skips the
@@ -2713,7 +2717,9 @@ function postSlackSubmission(webhookUrl, q, notes) {
   var loName = (_user.user_metadata && _user.user_metadata.full_name) || _user.email;
   var loanAmt = num(fd.loanAmt || fd.purchasePrice || q.loanAmt);
   var amtFmt = loanAmt ? '$' + Math.round(loanAmt).toLocaleString() : '-';
-  var tool = q.toolType === 'rtl' ? 'RTL / Fix & Flip' : 'DSCR';
+  // Deploy 236.87 — GUC display label for Slack submission alerts.
+  var _tt = String(q.toolType || '').toLowerCase();
+  var tool = _tt === 'rtl' ? 'RTL / Fix & Flip' : _tt === 'guc' ? 'GUC (Ground Up Construction)' : 'DSCR';
   var blocks = [
     { type:'header', text:{ type:'plain_text', text:'New Loan Submitted - SLA Capital', emoji:true } },
     { type:'section', fields:[

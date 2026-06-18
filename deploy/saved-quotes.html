@@ -471,7 +471,10 @@ function buildRow(q) {
     '<td class="td-date">'+QuoteStore.formatDateShort(q.updatedAt)+'</td>'+
     '<td class="action-cell" onclick="event.stopPropagation()">'+buildActionBtns(q)+'</td>';
   tr.addEventListener('click',function(){
-    window.location.href=(q.toolType==='rtl'?'rtl-sizer.html':'dscr-sizer.html')+'?loadQuote='+encodeURIComponent(q.address);
+    // Deploy 236.87 — GUC routing.
+    var _tt=String(q.toolType||'').toLowerCase();
+    var _page=_tt==='rtl'?'rtl-sizer.html':_tt==='guc'?'guc-sizer.html':'dscr-sizer.html';
+    window.location.href=_page+'?loadQuote='+encodeURIComponent(q.address);
   });
   return tr;
 }

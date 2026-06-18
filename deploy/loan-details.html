@@ -2970,7 +2970,9 @@ function esSubmit() {
   // state propagates), which means the postMessage never fires and we time
   // out. A real popup shares storage with the parent same-origin and
   // authenticates reliably.
-  var sizerPage = (_loan.toolType === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  // Deploy 236.87 — GUC routing: a saved GUC loan must reopen in the GUC sizer.
+  var _tt = String(_loan.toolType || '').toLowerCase();
+  var sizerPage = _tt === 'rtl' ? 'rtl-sizer.html' : _tt === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(_clientId) +
                     '&loanId=' + encodeURIComponent(_loanId) +
                     '&signatureMode=1';

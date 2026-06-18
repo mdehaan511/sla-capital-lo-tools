@@ -766,7 +766,8 @@ function closeCreateLoanModal() {
 function createLoanOfType(toolType) {
   closeCreateLoanModal();
   if (!_client) return;
-  var page = toolType === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  // Deploy 236.87 — GUC routing.
+  var page = toolType === 'rtl' ? 'rtl-sizer.html' : toolType === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
   var url = page + '?clientId=' + encodeURIComponent(_client.id) + '&prefillContact=1';
   // Thread owner through if admin is viewing another LO's client.
   if (_loEmail && _user && _loEmail !== _user.email) {
