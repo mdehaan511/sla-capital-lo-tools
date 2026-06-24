@@ -1153,6 +1153,121 @@ function loadAll() {
       });
     });
 
+    // Deploy 236.89 — surface orphan loans (loans that exist on the
+    // client record but have no corresponding quote AND no visible
+    // prospect tile representing them). The recurring cause is the
+    // apply.html → prospects-save flow: it creates a client + loan
+    // with prospectId but never writes a quote. If the LO then opens
+    // the sizer for that prospect, the address-matching in
+    // Clients.upsert can miss the apply-created loan (canonicalized
+    // address vs borrower-typed address) and create a SECOND loan
+    // with a quote. The original loan becomes an orphan — the
+    // prospect tile gets hidden by the address-dedup at
+    // ~line 1036 (the new quote's address marks the address as
+    // "worked"), and the orphan loan never appears anywhere on the
+    // pipeline. Only loans.html and client-details.html show it.
+    //
+    // Fix: walk every loan on every client AFTER the quote pass.
+    // For any non-terminal loan that isn't already represented by a
+    // quote (via _representedLoanIds, see below) or by a visible
+    // prospect tile (matched on prospectId), synthesize a quote-
+    // shaped tile from the loan record. The card render code at
+    // ~line 1300 reads `it.quote` so the shape matches what it
+    // expects.
+    function _orphanBucketFor(s) {
+      var st = String(s || '').toLowerCase().trim();
+      if (st === 'submitted')    return 'submitted';
+      if (st === 'awaiting_app') return 'awaitingApp';
+      if (st === 'approved')     return 'approved';
+      if (st === 'on_hold' || st === 'denied' || st === 'closed' || st === 'cancelled' || st === 'liquidated') return null;
+      // '', 'active', 'quoted' and anything unrecognized → Quoted column.
+      return 'quoted';
+    }
+    var _visibleProspectIds = {}; // ownerKey -> prospectId -> true
+    _items.newApp.forEach(function(t) {
+      if (t.kind === 'prospect' && t.prospect && t.prospect.id) {
+        if (!_visibleProspectIds[t.ownerKey]) _visibleProspectIds[t.ownerKey] = {};
+        _visibleProspectIds[t.ownerKey][t.prospect.id] = true;
+      }
+    });
+    // Build the set of loanIds ALREADY represented by a quote tile.
+    // _quotedLoanIds only tracks quotes with q.loanId stamped, but the
+    // 236.45 dedup also resolves canonicals via addrLookup/ptLookup for
+    // legacy quotes that lack q.loanId. Walk the rendered tiles and
+    // pick up whatever loan each one actually points at, so we don't
+    // double-tile a loan that's already represented by a no-loanId
+    // legacy quote.
+    var _representedLoanIds = {};
+    ['quoted','submitted','awaitingApp','approved'].forEach(function(bucketKey) {
+      (_items[bucketKey] || []).forEach(function(t) {
+        if (t.kind !== 'quote') return;
+        var lid = t.quote && t.quote.loanId;
+        if (!lid && t.quote && t.quote.address) {
+          var addrK = _normAddr(t.quote.address);
+          var pt = String((t.quote.formData && t.quote.formData.propType) || '').toLowerCase().trim();
+          var lk = (pt && _loanLookup[t.ownerKey + '|' + addrK + '|pt:' + pt])
+                || _loanLookup[t.ownerKey + '|' + addrK];
+          if (lk) lid = lk.loanId;
+        }
+        if (lid) {
+          if (!_representedLoanIds[t.ownerKey]) _representedLoanIds[t.ownerKey] = {};
+          _representedLoanIds[t.ownerKey][lid] = true;
+        }
+      });
+    });
+    Object.keys(_clientById).forEach(function(k) {
+      var bar = k.indexOf('|');
+      if (bar < 0) return;
+      var owner = k.slice(0, bar);
+      var c = _clientById[k];
+      (c.loans || []).forEach(function(l) {
+        if (!l.id) return;
+        var bucket = _orphanBucketFor(l.status);
+        if (!bucket) return;
+        // Already represented by a quote tile (either by q.loanId or
+        // by addrLookup-resolved canonical from the 236.45 dedup)?
+        if (_representedLoanIds[owner] && _representedLoanIds[owner][l.id]) return;
+        // Represented by a visible prospect tile (apply.html submission
+        // the LO hasn't quoted yet — DON'T double-up)?
+        if (l.prospectId && _visibleProspectIds[owner] && _visibleProspectIds[owner][l.prospectId]) return;
+        // Build a quote-shaped object from the loan record so the
+        // existing card render handles it. loanId is the key field
+        // — the card uses it for the deep-link to loan-details.
+        var pseudoQuote = {
+          id:            'orphan-' + l.id,
+          toolType:      l.toolType || 'dscr',
+          address:       l.address || '',
+          borrower:      ((c.firstName || '') + ' ' + (c.lastName || '')).trim(),
+          borrowerEmail: c.email || '',
+          loanId:        l.id,
+          clientId:      c.id,
+          loanAmt:       l.loanAmt || '',
+          rate:          l.rate || '',
+          points:        l.points || '',
+          fico:          l.fico || '',
+          status:        l.status || 'active',
+          updatedAt:     l.updatedAt || l.savedAt,
+          savedAt:       l.savedAt,
+          formData: {
+            propType:      l.propType   || '',
+            loanType:      l.loanType   || '',
+            loanAmt:       l.loanAmt    || '',
+            purchasePrice: l.purchasePrice || '',
+            _finalRate:    l.rate       || '',
+            _points:       l.points     || '',
+          },
+          _isOrphanLoan: true,
+        };
+        _items[bucket].push({
+          kind:     'quote',
+          ownerKey: owner,
+          id:       pseudoQuote.id,
+          date:     pseudoQuote.updatedAt || pseudoQuote.savedAt,
+          quote:    pseudoQuote,
+        });
+      });
+    });
+
     // Sort each column most-recent first
     Object.keys(_items).forEach(function(k) {
       _items[k].sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
