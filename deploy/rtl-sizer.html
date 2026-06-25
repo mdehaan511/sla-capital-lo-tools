@@ -2932,6 +2932,28 @@ function saveCurrentQuote() {
     var ptsEl_ = document.querySelectorAll('.metric-value.xl');
     formData._points = (ptsEl_.length >= 2) ? ptsEl_[1].textContent : '';
   }
+  // Deploy 236.91 \u2014 apply the manual override AFTER the algorithmic
+  // values are captured. Without this, calcSrc.rate / .points (which
+  // are always the algorithmic results \u2014 calculate() doesn't honor
+  // window._rtlOverrides) silently overwrote any manual override the
+  // LO set via the pencil. The override fields (_rateOverride,
+  // _pointsOverride) DID save correctly via buildLoanFromSizer so the
+  // "Overridden" badge appeared on Loan Details \u2014 but the rate/points
+  // display values themselves stayed at the algorithmic numbers,
+  // making it look like the save silently failed. Mike: this surfaced
+  // on an In Processing loan as Note Rate stuck at 10.125% with an
+  // Overridden tag even though the saved _rateOverride was 0.12 (12%).
+  // The transactional branch at line ~3017 already applies its own
+  // override; skip here for transactional to avoid double-application.
+  if (formData.loanType !== 'transactional') {
+    var _ovRtl = window._rtlOverrides || {};
+    if (_ovRtl.rate !== null && _ovRtl.rate !== undefined && isFinite(_ovRtl.rate) && _ovRtl.rate > 0) {
+      formData._finalRate = (_ovRtl.rate * 100).toFixed(3);
+    }
+    if (_ovRtl.points !== null && _ovRtl.points !== undefined && isFinite(_ovRtl.points)) {
+      formData._points = _ovRtl.points.toFixed(2) + ' pts';
+    }
+  }
   if (typeof calcSrc.bMax === 'number' && isFinite(calcSrc.bMax) && calcSrc.bMax > 0) {
     formData._maxLoan = String(Math.round(calcSrc.bMax));
   }
