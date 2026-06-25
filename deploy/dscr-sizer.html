@@ -3829,7 +3829,19 @@ netlifyIdentity.on('init', function(user) {
           // edits don't show up in loan details" — without it, a sizer
           // save with a slightly different address string would create a
           // duplicate loan and orphan the loan-details page.
-          window._editingLoanId = found.id || loanIdP || null;
+          window._editingLoanId   = found.id || loanIdP || null;
+          // Deploy 236.90 — also set _editingClientId so the save uses the
+          // deterministic updateLoanDirect path. Prior to this, only
+          // _editingLoanId was set here, so hasDirectIds at saveCurrentQuote
+          // line ~3256 evaluated false and the save fell back to legacy
+          // Clients.upsert (email→address match). For loans loaded directly
+          // from the client record (no QuoteStore quote — common for
+          // apply.html submissions and loans whose addresses got
+          // canonicalized after save), the address-match silently missed
+          // and the override-laden save landed in the wrong place. Most
+          // visible on In Processing loans because that's where admins
+          // open the sizer to apply a manual-override rate change.
+          window._editingClientId = (clientRec && clientRec.id) || clientIdP || null;
           // Deploy 236.9 — stash the loan's current status so that when
           // the LO saves the sizer (creating a fresh per-loan quote
           // record), QuoteStore.saveQuote can inherit the real loan
