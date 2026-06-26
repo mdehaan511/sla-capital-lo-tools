@@ -343,13 +343,13 @@
 ════════════════════════════════════════════════════════ -->
 <script>
 const DIYA = {
-  // Deploy 236.88 — Diya 1-4 Unit Rate Sheet effective 6.18.26. Only
-  // change vs the 6.12.26 sheet is base rates +0.075% across the board:
-  //   30Y Fixed / 10/6 ARM: 6.400 -> 6.475
-  //   7/6 ARM   / 5/6  ARM: 6.300 -> 6.375
+  // Deploy 236.64 — Diya 1-4 Unit Rate Sheet effective 6.12.26. Only
+  // change vs the 6.8.26 sheet is base rates -0.050% across the board:
+  //   30Y Fixed / 10/6 ARM: 6.450 -> 6.400
+  //   7/6 ARM   / 5/6  ARM: 6.350 -> 6.300
   // FICO/LTV grid, IO, Cash-Out, Property Type, UPB, DSCR, PPP, TPO
   // Premium, and Rate Buydown tables verified unchanged cell-by-cell
-  // against the 6.18.26 source.
+  // against the 6.12.26 source.
   //
   // STANDING RULE (from Deploy 236.39, unchanged) -- supersedes Deploy
   // 234.1 (which said to IGNORE Diya's Rate Buydown table). We mirror
@@ -366,8 +366,8 @@ const DIYA = {
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "June 18, 2026",
-  baseRate: { "30Y Fixed": 6.475, "10/6 ARM": 6.475, "7/6 ARM": 6.375, "5/6 ARM": 6.375 },
+  effectiveDate: "June 12, 2026",
+  baseRate: { "30Y Fixed": 6.400, "10/6 ARM": 6.400, "7/6 ARM": 6.300, "5/6 ARM": 6.300 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050, 0.250],
@@ -1371,29 +1371,37 @@ function updatePills() {
 
   var dv = $('dscrVal');
   var rent=parseFloat($('rent').value)||0;
-  var taxes=parseFloat($('taxes').value)||0;
-  var ins=parseFloat($('insurance').value)||0;
-  var hoa=parseFloat($('hoa').value)||0;
-  var isIO=$('isIO').value==='yes';
-  var loanType=$('loanType').value;
-  var fico=$('fico').value;
-  var buydown=parseFloat($('buydown').value)||0;
-  var prepay=$('prepay').value;
+  // Deploy 236.92 — route the live preview through calculate() so the
+  // DSCR in the form matches the DSCR in the result card after Calc.
+  // The prior implementation here only summed FICO + PPP + hidden TPO +
+  // buydown adjustments — it silently omitted Property Type (Portfolio
+  // +0.25, NW Condo +0.15, 2-4 Unit up to +0.10), Cash-Out (+0.05),
+  // Interest Only (up to +0.35), and UPB band adjustments. For a vanilla
+  // SFR Purchase the gap was negligible, but a Portfolio Cash-Out with
+  // FICO 780+ at 73% LTV understated the rate by 0.30% and overstated
+  // the DSCR by ~0.02 — Mike saw 1.03 live vs. 1.00 in the result card
+  // and reasonably assumed the result card had a bug.
+  //
+  // calculate() is a pure function (reads form inputs, returns object);
+  // safe to invoke from the live keystroke path. Errors (FICO below 660,
+  // LTV > 80, DSCR below 1.0) come back as { error: '...' } — we fall
+  // through to the dash display in that case rather than surface them
+  // here (the run() → renderResult() path is where errors get rendered).
   if (loan>0&&rent>0) {
-    var br=DIYA.baseRate[loanType]||DIYA.baseRate['30Y Fixed'];
-    var ci=ltvCol(ltv);
-    var adj=0;
-    if (ci!==null){var fr=DIYA.fico[fico];if(fr&&fr[ci]!=null)adj+=fr[ci];}
-    adj+=(DIYA.ppp[prepay]||0);
-    // Deploy 236.39 — TPO locked at 1.00% (always 0.280 rate adj);
-    // buy-down applied separately from DIYA.rateBuydown table.
-    adj+=DIYA.HIDDEN_TPO_ADJ;
-    adj+=(DIYA.rateBuydown[buydown.toFixed(2)]||0);
-    var pi=calcPI(loan,(br+adj)/100,isIO);
-    var pmt=pi+taxes+ins+hoa;
-    if (pmt>0){var d=rent/pmt;dv.textContent=d.toFixed(2)+'x';dv.className='computed-val '+(d>=1.20?'good':d>=1.0?'warn':'bad');}
-    else{dv.innerHTML='&mdash;';dv.className='computed-val';}
-  } else {dv.innerHTML='&mdash;';dv.className='computed-val';}
+    var rcLive = null;
+    try { rcLive = calculate(); } catch (_) { rcLive = null; }
+    if (rcLive && !rcLive.error && typeof rcLive.dscr === 'number' && isFinite(rcLive.dscr) && rcLive.dscr > 0) {
+      var d = rcLive.dscr;
+      dv.textContent = d.toFixed(2) + 'x';
+      dv.className = 'computed-val ' + (d >= 1.20 ? 'good' : d >= 1.0 ? 'warn' : 'bad');
+    } else {
+      dv.innerHTML = '&mdash;';
+      dv.className = 'computed-val';
+    }
+  } else {
+    dv.innerHTML = '&mdash;';
+    dv.className = 'computed-val';
+  }
 }
 
 // Show Current Loan Amount input only for refis (#8); rerun pricing
@@ -3829,19 +3837,7 @@ netlifyIdentity.on('init', function(user) {
           // edits don't show up in loan details" — without it, a sizer
           // save with a slightly different address string would create a
           // duplicate loan and orphan the loan-details page.
-          window._editingLoanId   = found.id || loanIdP || null;
-          // Deploy 236.90 — also set _editingClientId so the save uses the
-          // deterministic updateLoanDirect path. Prior to this, only
-          // _editingLoanId was set here, so hasDirectIds at saveCurrentQuote
-          // line ~3256 evaluated false and the save fell back to legacy
-          // Clients.upsert (email→address match). For loans loaded directly
-          // from the client record (no QuoteStore quote — common for
-          // apply.html submissions and loans whose addresses got
-          // canonicalized after save), the address-match silently missed
-          // and the override-laden save landed in the wrong place. Most
-          // visible on In Processing loans because that's where admins
-          // open the sizer to apply a manual-override rate change.
-          window._editingClientId = (clientRec && clientRec.id) || clientIdP || null;
+          window._editingLoanId = found.id || loanIdP || null;
           // Deploy 236.9 — stash the loan's current status so that when
           // the LO saves the sizer (creating a fresh per-loan quote
           // record), QuoteStore.saveQuote can inherit the real loan
