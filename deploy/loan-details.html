@@ -634,10 +634,21 @@
 .ld-actions-menu .ld-actions-empty { padding: 14px 16px; font-size: 12px; color: var(--muted); font-style: italic; text-align: center; }
 /* Override button styles when buttons are moved into the menu so
    they render as flat menu items instead of full-width primaries. */
-.ld-actions-menu .ld-action-menu-item { display: flex !important; align-items: center; gap: 8px; width: 100%; margin: 0 !important; padding: 9px 16px !important; background: transparent !important; color: var(--text, #1a1520) !important; border: none !important; border-left: 3px solid transparent !important; border-radius: 0 !important; font-size: 13px !important; font-weight: 500 !important; text-align: left !important; cursor: pointer; box-shadow: none !important; text-decoration: none !important; min-height: auto !important; font-family: 'DM Sans', sans-serif !important; transition: background 0.10s, border-left-color 0.10s; }
+.ld-actions-menu .ld-action-menu-item { display: flex !important; align-items: center; justify-content: flex-start !important; gap: 8px; width: 100%; margin: 0 !important; padding: 9px 16px !important; background: transparent !important; color: var(--text, #1a1520) !important; border: none !important; border-left: 3px solid transparent !important; border-radius: 0 !important; font-size: 13px !important; font-weight: 500 !important; text-align: left !important; cursor: pointer; box-shadow: none !important; text-decoration: none !important; min-height: auto !important; font-family: 'DM Sans', sans-serif !important; transition: background 0.10s, border-left-color 0.10s; }
+/* Deploy 236.103 — also span all children left so the SVG sits at
+   the start and the label flows immediately after. The Send Loan
+   App button has an inner <span id="borrowerInfoBtnLabel"> that
+   was being center-flexed inside the original primary button. */
+.ld-actions-menu .ld-action-menu-item > * { margin: 0 !important; flex: 0 0 auto; }
+.ld-actions-menu .ld-action-menu-item > span:not(.caret) { text-align: left; }
 .ld-actions-menu .ld-action-menu-item:hover:not(:disabled) { background: rgba(200,129,58,0.08) !important; border-left-color: var(--gold, #C8813A) !important; color: var(--text, #1a1520) !important; }
 .ld-actions-menu .ld-action-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .ld-actions-menu .ld-action-menu-item svg { flex-shrink: 0; opacity: 0.7; }
+
+/* Deploy 236.103 — past-due Closing Date highlight on Loan Details.
+   Mirrors the past-due styling on the Processing Pipeline tile. */
+.field input.past-due { color: var(--danger, #7c1f1f) !important; background: rgba(124,31,31,0.06) !important; border-color: var(--danger, #7c1f1f) !important; font-weight: 600; }
+.field .past-due-label { color: var(--danger, #7c1f1f); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-left: 6px; }
 
 /* Deploy 236.98 (Phase B.1) — embedded Processing Pipeline section. */
 .pp-section { background: var(--surface, #fff); border: 1px solid var(--border, #ddd8d0); border-radius: 12px; margin-bottom: 20px; overflow: hidden; }
@@ -874,6 +885,84 @@ function onUser(user) {
   });
 }
 
+// Deploy 236.103 \u2014 Processing-Pipeline badge content for the page
+// subtitle. Prefers the new processingStage/processingSubstatus
+// fields (set by the Kanban in 236.95 / auto-flow in 236.96); falls
+// back to the legacy pipelineCol mapping when no stage is set yet.
+// Returns { lbl, val, title } for rendering, or null when the loan
+// isn't tracked in any pipeline column.
+var _LD_STAGE_LABELS = {
+  'new_loan':     'New Loan',
+  'processing':   'Processing',
+  'underwriting': 'Underwriting',
+  'pp_approved':  'Approved',
+  'pp_closed':    'Closed',
+};
+function _pipelineBadgeContent(loan, pipelineColFallback) {
+  var stage = String(loan && loan.processingStage || '').toLowerCase().trim();
+  var sub   = String(loan && loan.processingSubstatus || '').trim();
+  if (stage && _LD_STAGE_LABELS[stage]) {
+    var label = _LD_STAGE_LABELS[stage];
+    var val   = sub ? (label + ' \u00b7 ' + sub) : label;
+    return {
+      lbl:   'Processing:',
+      val:   val,
+      title: 'Processing Pipeline: ' + val,
+    };
+  }
+  if (pipelineColFallback) {
+    return {
+      lbl:   'In Pipeline:',
+      val:   pipelineColFallback,
+      title: 'This loan is currently in the ' + pipelineColFallback + ' column of the Pipeline',
+    };
+  }
+  return null;
+}
+
+// Deploy 236.103 \u2014 past-due Closing Date helpers. Past-due = the
+// stored fundingDate is before today AND the loan isn't terminally
+// closed (status !== 'closed' AND processingStage !== 'pp_closed').
+// Used both on render and live as the LO edits the date input.
+function _ldParseLocalDate(s) {
+  if (!s) return null;
+  var str = String(s).trim();
+  var m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    var d = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  var d2 = new Date(str);
+  return isNaN(d2.getTime()) ? null : d2;
+}
+function _ldIsLoanClosed(loan) {
+  var st = String(loan && loan.status || '').toLowerCase();
+  var stage = String(loan && loan.processingStage || '').toLowerCase();
+  return st === 'closed' || st === 'liquidated' || stage === 'pp_closed';
+}
+function _ldIsCloseDatePastDueByDate(dateStr, loan) {
+  if (_ldIsLoanClosed(loan)) return false;
+  var d = _ldParseLocalDate(dateStr);
+  if (!d) return false;
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return d.getTime() < today.getTime();
+}
+function _ldIsCloseDatePastDue(loan) {
+  return _ldIsCloseDatePastDueByDate(loan && loan.fundingDate, loan);
+}
+function _ldCloseDateClass(loan) {
+  return _ldIsCloseDatePastDue(loan) ? 'past-due' : '';
+}
+function updateCloseDateClass() {
+  var input = document.getElementById('af-fundingDate');
+  var label = document.getElementById('ld-closeDateLabel');
+  if (!input) return;
+  var past = _ldIsCloseDatePastDueByDate(input.value, _loan);
+  input.classList.toggle('past-due', past);
+  if (label) label.style.display = past ? 'inline' : 'none';
+}
+
 // Deploy 194 (perf): synchronous lookup against localStorage cache so
 // loan-details can paint without waiting on the network. Returns null
 // if the cache is empty or the loan isn\u2019t in it; the caller then
@@ -1015,7 +1104,11 @@ function render() {
     downPayment = fd._pricingSnapshot.downPayment;
   }
 
-  var html = '<div class="page-header">' +
+  // Deploy 236.103 — page-header now built into its own variable so
+  // the post-render wrap can place it ABOVE the 2-column ld-layout
+  // (instead of inside ld-main). That makes the Notes sidebar top
+  // align with the Loan Financials top, not with the breadcrumb.
+  var pageHeaderHtml = '<div class="page-header">' +
     '<div class="breadcrumb">' +
       '<a href="clients.html">Clients</a>' +
       '<span class="breadcrumb-sep">›</span>' +
@@ -1057,11 +1150,19 @@ function render() {
     '<div class="page-subtitle">' +
       '<span class="badge '+(l.toolType||'dscr')+'">'+((l.toolType||'dscr').toUpperCase())+'</span>' +
       '<span class="status-badge '+status+'">'+escH(STATUS_LABELS[status]||status)+'</span>' +
-      (pipelineCol
-        ? '<span class="pipeline-badge" title="This loan is currently in the '+escAttr(pipelineCol)+' column of the Pipeline">'+
-            '<span class="lbl">In Pipeline:</span>'+escH(pipelineCol)+
-          '</span>'
-        : '') +
+      // Deploy 236.103 — Processing Pipeline stage + substatus
+      // replaces the static "In Pipeline" label. Pulls from
+      // l.processingStage (set by the Kanban drag/drop in 236.95
+      // and the auto-flow in 236.96); falls back to the old
+      // pipelineCol mapping for loans that haven't been touched
+      // since A.3 (so their processingStage is still empty).
+      (function(){
+        var pp = _pipelineBadgeContent(l, pipelineCol);
+        if (!pp) return '';
+        return '<span class="pipeline-badge" title="' + escAttr(pp.title) + '">' +
+                 '<span class="lbl">' + escH(pp.lbl) + '</span>' + escH(pp.val) +
+               '</span>';
+      })() +
       // Broker Loan tag — Deploy 236.17 — now shows whenever the loan
       // is linked to a broker entity OR has any broker contact info,
       // not just when a non-zero broker fee was entered. Broker-app
@@ -1075,6 +1176,10 @@ function render() {
       (c.firstName ? '<span style="color:var(--muted)">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</span>' : '') +
     '</div>' +
   '</div>';
+
+  // Deploy 236.103 — body starts fresh; header is assembled
+  // separately above and re-stitched at the wrap step below.
+  var html = '';
 
   // Deploy 236.102 — Processing Pipeline section removed per Mike.
   // Stage + substatus already live on the Processing Pipeline tile;
@@ -1583,7 +1688,13 @@ function render() {
       // sees both the local value (editable, ahead of sync) and what
       // Baseline currently has on file. Defaults to nothing when the
       // lookup hasn't resolved yet or the loan isn't in the mirror.
-      '<div class="field"><label>Closing Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" />' +
+      // Deploy 236.103 — past-due Closing Date highlight. Goes red
+       // when the date is in the past AND the loan isn't closed
+       // (status !== closed AND processingStage !== pp_closed).
+       // _ldCloseDateClass and updateCloseDateClass keep it in sync
+       // when the LO edits the date.
+      '<div class="field"><label>Closing Date<span class="past-due-label" id="ld-closeDateLabel" style="display:' + (_ldIsCloseDatePastDue(l) ? 'inline' : 'none') + '">Past Due</span></label>' +
+        '<input type="date" id="af-fundingDate" class="' + _ldCloseDateClass(l) + '" value="'+escAttr(l.fundingDate||'')+'" oninput="updateCloseDateClass()" />' +
         (function(){
           var bcd = getBaselineCloseDateForLoan();
           if (!bcd) return '';
@@ -1738,12 +1849,15 @@ function render() {
   html += '</div>'; // close right col
   html += '</div>'; // close two-col
 
-  // Deploy 236.101 — wrap the whole rendered body in a 2-column
-  // layout. The notes section gets moved into the right sidebar
-  // immediately after innerHTML write (below). Pre-render wrap keeps
-  // the header at the top spanning both columns, then main content
-  // flows left, notes pinned right.
-  html = '<div class="ld-layout">' +
+  // Deploy 236.101 — wrap the rendered body in a 2-column layout
+  // with the Notes sidebar pinned right.
+  // Deploy 236.103 — page-header (pageHeaderHtml) now sits ABOVE
+  // ld-layout so the sidebar's top aligns with the Loan Financials
+  // top, not with the breadcrumb. Sidebar's `position: sticky`
+  // anchors at top:16px from its own offset parent which is now
+  // the ld-layout grid — so it pins to the same line as Financials.
+  html = pageHeaderHtml +
+         '<div class="ld-layout">' +
            '<div class="ld-main">' + html + '</div>' +
            '<aside class="ld-notes-sidebar" id="ldNotesSidebar"></aside>' +
          '</div>';
@@ -1813,14 +1927,14 @@ function render() {
 
   // Deploy 236.102 — move the E-Signature envelopes panel into the
   // right sidebar BELOW the Notes section, per Mike's spec.
+  // Deploy 236.103 — also pulls the Signature Confirmations pane
+  // (#signedAppStatus) into the same box so signed-app audit info
+  // sits with the other e-signature evidence instead of next to
+  // the Download button (which now lives in the Actions menu).
   (function relocateEnvelopes() {
     var panel = document.getElementById('envelopesPanel');
     var bar   = document.getElementById('ldNotesSidebar');
     if (!panel || !bar) return;
-    // Wrap the existing panel in a .section shell so it visually
-    // matches the Notes section in the sidebar (border, padding,
-    // header). The panel itself stays intact (envelope cards
-    // render into #envelopesList as before).
     var wrap = document.createElement('div');
     wrap.className = 'section';
     wrap.id = 'ldEnvelopesSection';
@@ -1833,11 +1947,25 @@ function render() {
       '<div class="section-body" id="ldEnvelopesBody"></div>';
     bar.appendChild(wrap);
     var body = document.getElementById('ldEnvelopesBody');
-    // Move the panel's existing children into the sidebar shell so
-    // refreshEnvelopes() (which targets #envelopesList by ID) keeps
-    // working without a code change.
     while (panel.firstChild) body.appendChild(panel.firstChild);
     panel.remove();
+
+    // Relocate the signedAppStatus pane (Signature Confirmations)
+    // into the SAME box, just above the envelope cards list so the
+    // pane reads as a summary line for the most recent signed app.
+    // refreshSignedApplicationStatus() still finds the element by
+    // ID after the move; only the visual position changes.
+    var sigPane = document.getElementById('signedAppStatus');
+    if (sigPane) {
+      // Strip the inline border/margin that made sense when it sat
+      // next to the (now-relocated) download button — the section
+      // wrapper provides its own framing now.
+      sigPane.style.marginTop = '';
+      sigPane.style.border = '1px solid var(--border, #ddd8d0)';
+      sigPane.style.borderRadius = '6px';
+      // Insert at the TOP of the body so it sits above #envelopesList.
+      body.insertBefore(sigPane, body.firstChild);
+    }
   })();
 
   // Async-load the envelope history for this loan. Doesn't block render.
