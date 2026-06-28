@@ -645,6 +645,34 @@
 .ld-actions-menu .ld-action-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .ld-actions-menu .ld-action-menu-item svg { flex-shrink: 0; opacity: 0.7; }
 
+/* Deploy 236.105 (Phase C — Tasks) — per-loan task list. */
+.tasks-add-row { display: grid; grid-template-columns: 2fr 130px 1fr auto; gap: 8px; margin-bottom: 14px; }
+@media (max-width: 800px) { .tasks-add-row { grid-template-columns: 1fr; } }
+.tasks-add-row input { padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; }
+.tasks-add-row input:focus { outline: none; border-color: var(--gold, #C8813A); }
+.tasks-add-row .btn-add-task { padding: 8px 16px; border: none; border-radius: 6px; background: var(--dark, #261a36); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; white-space: nowrap; }
+.tasks-add-row .btn-add-task:hover { background: #1c1227; }
+.tasks-add-row .btn-add-task:disabled { opacity: 0.5; cursor: wait; }
+.tasks-list { display: flex; flex-direction: column; gap: 6px; }
+.tasks-empty { font-size: 12px; color: rgba(122,116,136,0.7); font-style: italic; padding: 14px 6px; text-align: center; }
+.task-row { display: grid; grid-template-columns: 24px 1fr 100px 180px 30px; gap: 10px; align-items: center; padding: 9px 12px; background: var(--bg, #f0ece5); border: 1px solid var(--border, #ddd8d0); border-radius: 6px; transition: background 0.10s, border-color 0.10s; }
+.task-row:hover { border-color: var(--gold, #C8813A); }
+.task-row.done { opacity: 0.55; background: rgba(0,0,0,0.02); }
+.task-row.done .task-title { text-decoration: line-through; }
+.task-row.past-due:not(.done) { background: rgba(124,31,31,0.06); border-color: var(--danger, #7c1f1f); }
+.task-row.past-due:not(.done):hover { border-color: var(--danger, #7c1f1f); }
+.task-check { width: 18px; height: 18px; cursor: pointer; accent-color: var(--gold, #C8813A); margin: 0; }
+.task-title { font-size: 13px; color: var(--text, #1a1520); word-break: break-word; }
+.task-due { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted, #7a7488); text-align: right; }
+.task-row.past-due:not(.done) .task-due { color: var(--danger, #7c1f1f); font-weight: 700; }
+.task-assignee { font-size: 11px; color: var(--muted, #7a7488); word-break: break-word; }
+.task-action { background: transparent; border: none; color: rgba(122,116,136,0.5); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; transition: color 0.10s, background 0.10s; }
+.task-action:hover { color: var(--danger, #7c1f1f); background: rgba(124,31,31,0.08); }
+@media (max-width: 800px) {
+  .task-row { grid-template-columns: 24px 1fr 30px; }
+  .task-due, .task-assignee { grid-column: 1 / -1; padding-left: 34px; text-align: left; }
+}
+
 /* Deploy 236.103 — past-due Closing Date highlight on Loan Details.
    Mirrors the past-due styling on the Processing Pipeline tile. */
 .field input.past-due { color: var(--danger, #7c1f1f) !important; background: rgba(124,31,31,0.06) !important; border-color: var(--danger, #7c1f1f) !important; font-weight: 600; }
@@ -1849,6 +1877,23 @@ function render() {
   html += '</div>'; // close right col
   html += '</div>'; // close two-col
 
+  // Deploy 236.105 (Phase C — Tasks) — per-loan task list. Renders
+  // a shell here; the list itself is populated by loadTasksList()
+  // after the page paints (mirrors the notesLog pattern).
+  html +=
+    '<div class="section" id="tasksSection">' +
+      '<div class="section-head"><h2>Tasks</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+        '<div class="tasks-add-row">' +
+          '<input type="text"  id="taskTitleInput"    placeholder="New task — e.g. Order title insurance" onkeydown="handleTaskKeydown(event)" />' +
+          '<input type="date"  id="taskDueInput"      title="Due date" />' +
+          '<input type="email" id="taskAssigneeInput" placeholder="Assignee email (optional)" />' +
+          '<button class="btn-add-task" id="taskAddBtn" onclick="addTaskFromUI()">Add Task</button>' +
+        '</div>' +
+        '<div class="tasks-list" id="tasksList"><div class="tasks-empty">Loading tasks…</div></div>' +
+      '</div>' +
+    '</div>';
+
   // Deploy 236.101 — wrap the rendered body in a 2-column layout
   // with the Notes sidebar pinned right.
   // Deploy 236.103 — page-header (pageHeaderHtml) now sits ABOVE
@@ -1975,6 +2020,11 @@ function render() {
   // emitted. Pulled into its own function so we can re-render after each
   // manual Add Note without bouncing through the whole page render.
   renderNotesLog();
+
+  // Deploy 236.105 (Phase C — Tasks) — fetch + render this loan's
+  // tasks. Async; the section shell already shows "Loading tasks…"
+  // until the response lands.
+  loadTasksList();
 
   // Deploy 236.73 — async-check whether a loan review already exists
   // for this clientId+loanId, then label the button accordingly.
@@ -2227,6 +2277,171 @@ function setNoteFilter(which) {
     if (b) b.classList.toggle('active', k === which);
   });
   renderNotesLog();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Deploy 236.105 (Phase C — Tasks) — per-loan tasks
+// ════════════════════════════════════════════════════════════════════
+var _tasks = []; // tasks for the currently-viewed loan
+function _taskOwnerParam() {
+  if (_loEmail && _user && _loEmail.toLowerCase() !== _user.email.toLowerCase()) return _loEmail;
+  return undefined;
+}
+function _taskIsPastDue(t) {
+  if (t && t.completed) return false;
+  var d = t && t.dueDate ? _ldParseLocalDate(t.dueDate) : null;
+  if (!d) return false;
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return d.getTime() < today.getTime();
+}
+function _formatTaskDate(s) {
+  var d = _ldParseLocalDate(s);
+  if (!d) return s || '';
+  var mo = d.getMonth() + 1, day = d.getDate(), yr = String(d.getFullYear()).slice(-2);
+  return mo + '/' + day + '/' + yr;
+}
+
+function loadTasksList() {
+  if (!_client || !_loanId) return;
+  var inner = document.getElementById('tasksList');
+  if (!inner) return;
+  inner.innerHTML = '<div class="tasks-empty">Loading tasks…</div>';
+  var url = '/api/tasks-list?loanId=' + encodeURIComponent(_loanId) + '&clientId=' + encodeURIComponent(_client.id);
+  var owner = _taskOwnerParam();
+  if (owner) url += '&owner=' + encodeURIComponent(owner);
+  SLA.api('GET', url).then(function(resp) {
+    _tasks = (resp && resp.tasks) || [];
+    renderTasksList();
+  }).catch(function(err) {
+    inner.innerHTML = '<div class="tasks-empty" style="color:var(--danger)">Failed to load tasks: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+
+function renderTasksList() {
+  var inner = document.getElementById('tasksList');
+  if (!inner) return;
+  var sorted = (_tasks || []).slice().sort(function(a, b) {
+    // Incomplete to top; within each group sort by due date ascending,
+    // then by createdAt descending as tiebreaker.
+    if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1;
+    var ad = String(a.dueDate || ''), bd = String(b.dueDate || '');
+    if (ad && bd) { if (ad < bd) return -1; if (ad > bd) return 1; }
+    else if (ad) return -1;
+    else if (bd) return 1;
+    var ac = String(a.createdAt || ''), bc = String(b.createdAt || '');
+    if (ac > bc) return -1;
+    if (ac < bc) return 1;
+    return 0;
+  });
+  if (!sorted.length) {
+    inner.innerHTML = '<div class="tasks-empty">No tasks yet. Add the first one above. Use tasks to track docs to order, calls to make, follow-ups, etc.</div>';
+    return;
+  }
+  inner.innerHTML = sorted.map(_renderTaskRow).join('');
+}
+
+function _renderTaskRow(t) {
+  var past = _taskIsPastDue(t);
+  var dueStr = t.dueDate ? _formatTaskDate(t.dueDate) : '';
+  var assigneeStr = t.assignedToName || t.assignedTo || '—';
+  return '<div class="task-row' + (t.completed ? ' done' : '') + (past ? ' past-due' : '') + '" data-task-id="' + escAttr(t.id) + '">' +
+    '<input type="checkbox" class="task-check"' + (t.completed ? ' checked' : '') + ' onchange="toggleTaskComplete(\'' + escAttr(t.id) + '\', this.checked)" title="Mark complete" />' +
+    '<div class="task-title" title="' + escAttr((t.description || '') + (t.createdByName ? '\nAdded by ' + t.createdByName : '')) + '">' + escH(t.title) + '</div>' +
+    '<div class="task-due">' + (dueStr ? escH(dueStr) : '—') + '</div>' +
+    '<div class="task-assignee" title="' + escAttr(t.assignedTo || '') + '">' + escH(assigneeStr) + '</div>' +
+    '<button class="task-action" onclick="deleteTask(\'' + escAttr(t.id) + '\')" title="Delete task">✕</button>' +
+  '</div>';
+}
+
+function handleTaskKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addTaskFromUI();
+  }
+}
+
+function addTaskFromUI() {
+  var titleEl = document.getElementById('taskTitleInput');
+  var dueEl   = document.getElementById('taskDueInput');
+  var asnEl   = document.getElementById('taskAssigneeInput');
+  var btn     = document.getElementById('taskAddBtn');
+  if (!titleEl || !btn) return;
+  var title = (titleEl.value || '').trim();
+  if (!title) { titleEl.focus(); return; }
+  var due = (dueEl && dueEl.value || '').trim();
+  var asn = (asnEl && asnEl.value || '').trim().toLowerCase();
+
+  btn.disabled = true;
+  var body = {
+    clientId: _client.id,
+    loanId:   _loanId,
+    title:    title,
+    dueDate:  due,
+    assignedTo: asn,
+  };
+  var owner = _taskOwnerParam();
+  if (owner) body.owner = owner;
+
+  SLA.api('POST', '/api/tasks-save', body).then(function(resp) {
+    btn.disabled = false;
+    if (resp && resp.task) {
+      _tasks.push(resp.task);
+      renderTasksList();
+      titleEl.value = '';
+      if (dueEl) dueEl.value = '';
+      if (asnEl) asnEl.value = '';
+      titleEl.focus();
+    }
+  }).catch(function(err) {
+    btn.disabled = false;
+    alert('Failed to add task: ' + (err && err.message || 'unknown'));
+  });
+}
+
+function toggleTaskComplete(taskId, completed) {
+  var idx = _tasks.findIndex(function(t) { return t.id === taskId; });
+  if (idx < 0) return;
+  var task = _tasks[idx];
+  // Optimistic flip in local state so the row updates immediately.
+  var prevCompleted = task.completed;
+  task.completed = !!completed;
+  renderTasksList();
+  var body = {
+    clientId: _client.id,
+    loanId:   _loanId,
+    taskId:   taskId,
+    completed: !!completed,
+  };
+  var owner = _taskOwnerParam();
+  if (owner) body.owner = owner;
+  SLA.api('POST', '/api/tasks-save', body).then(function(resp) {
+    if (resp && resp.task) {
+      _tasks[idx] = resp.task;
+      renderTasksList();
+    }
+  }).catch(function(err) {
+    task.completed = prevCompleted;
+    renderTasksList();
+    alert('Failed to update task: ' + (err && err.message || 'unknown'));
+  });
+}
+
+function deleteTask(taskId) {
+  if (!confirm('Delete this task? This cannot be undone.')) return;
+  var idx = _tasks.findIndex(function(t) { return t.id === taskId; });
+  if (idx < 0) return;
+  var removed = _tasks.splice(idx, 1)[0];
+  renderTasksList();
+  var body = { taskId: taskId };
+  var owner = _taskOwnerParam();
+  if (owner) body.owner = owner;
+  SLA.api('POST', '/api/tasks-delete', body).catch(function(err) {
+    // Revert on failure.
+    _tasks.splice(idx, 0, removed);
+    renderTasksList();
+    alert('Failed to delete task: ' + (err && err.message || 'unknown'));
+  });
 }
 
 // Deploy 227 — two-button Top/Bottom toggle. List is sorted newest-first

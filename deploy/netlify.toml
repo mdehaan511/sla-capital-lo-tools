@@ -282,6 +282,23 @@
   status = 200
   force = true
 
+# Deploy 236.105 (Phase C — Tasks) — task CRUD endpoints
+[[redirects]]
+  from = "/api/tasks-save"
+  to = "/.netlify/functions/tasks-save"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/tasks-list"
+  to = "/.netlify/functions/tasks-list"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/tasks-delete"
+  to = "/.netlify/functions/tasks-delete"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/loan-cancel"
   to = "/.netlify/functions/loan-cancel"
