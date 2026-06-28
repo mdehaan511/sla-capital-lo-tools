@@ -25,7 +25,11 @@
     }
     body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 5rem; }
 
-    .nav { max-width: 960px; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    /* Deploy 236.101 — Loan Details widened to ~full screen so the
+       2-column layout below (main content + sticky Notes sidebar)
+       has room to breathe. Old 960px max was a holdover from when
+       this was a single column. */
+    .nav { max-width: 1680px; margin: 0 auto; padding: 1.5rem 1rem 0; display: flex; align-items: center; justify-content: space-between; }
     .nav img { height: 44px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 10px; }
     .nav-left { display: flex; align-items: center; gap: 12px; }
@@ -55,9 +59,25 @@
     .back-btn svg { transition: transform 0.15s; }
     .back-btn:hover svg { transform: translateX(-2px); }
 
-    .page { max-width: 960px; margin: 0 auto; padding-top: 2rem; }
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+    .page { max-width: 1680px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+    /* Deploy 236.101 — full-width main flow. Mike: "full screen
+       instead of columned to accommodate more variables that will
+       be added soon." Previously the children stacked side-by-side. */
+    .two-col { display: block; }
+    /* Layout: 2-column grid with main content on left, sticky Notes
+       sidebar pinned to the right. The Notes section moves into
+       #ldNotesSidebar via post-render JS so the existing render path
+       doesn't have to know about the split. */
+    .ld-layout { display: grid; grid-template-columns: minmax(0,1fr) 400px; gap: 24px; align-items: start; }
+    .ld-main { min-width: 0; } /* min-width:0 lets flex/grid children shrink */
+    .ld-notes-sidebar { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+    .ld-notes-sidebar .section { margin-bottom: 0; height: 100%; display: flex; flex-direction: column; }
+    .ld-notes-sidebar .section-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .ld-notes-sidebar .notes-list { flex: 1; min-height: 0; }
+    @media (max-width: 1100px) {
+      .ld-layout { grid-template-columns: 1fr; }
+      .ld-notes-sidebar { position: static; max-height: none; }
+    }
 
     .page-header { margin-bottom: 2rem; }
     .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
@@ -1564,8 +1584,10 @@ function render() {
   // Application Form section. Manual notes append via /api/loan-note-add;
   // status changes / reprices / decisions auto-write entries from their
   // respective backend endpoints.
+  // Deploy 236.101 — ID on the outer div so post-render JS can move
+  // this section into the right-side sticky sidebar.
   html +=
-    '<div class="section">' +
+    '<div class="section" id="ldNotesSection">' +
       '<div class="section-head">' +
         '<h2>Notes &amp; Activity</h2>' +
         '<span class="section-tag tag-editable">Audit Log</span>' +
@@ -1679,7 +1701,29 @@ function render() {
   html += '</div>'; // close right col
   html += '</div>'; // close two-col
 
+  // Deploy 236.101 — wrap the whole rendered body in a 2-column
+  // layout. The notes section gets moved into the right sidebar
+  // immediately after innerHTML write (below). Pre-render wrap keeps
+  // the header at the top spanning both columns, then main content
+  // flows left, notes pinned right.
+  html = '<div class="ld-layout">' +
+           '<div class="ld-main">' + html + '</div>' +
+           '<aside class="ld-notes-sidebar" id="ldNotesSidebar"></aside>' +
+         '</div>';
+
   document.getElementById('pageContent').innerHTML = html;
+
+  // Move the notes section out of ld-main and into the sidebar.
+  // The render() function builds notes inline with all other
+  // sections (line ~1568) so existing init / event-wiring stays
+  // unchanged; only the visual position moves. Run before
+  // renderNotesLog() so the inner list renders in its final
+  // location and scroll/sizing math is correct.
+  (function relocateNotes() {
+    var sect = document.getElementById('ldNotesSection');
+    var bar  = document.getElementById('ldNotesSidebar');
+    if (sect && bar && sect.parentNode !== bar) bar.appendChild(sect);
+  })();
 
   // Async-load the envelope history for this loan. Doesn't block render.
   refreshEnvelopes();

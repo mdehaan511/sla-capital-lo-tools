@@ -70,46 +70,59 @@
     .col[data-col="pp_approved"] .col-head { border-color: var(--col-approved); }   .col[data-col="pp_approved"] .col-head h3 { color: var(--col-approved); }
     .col[data-col="pp_closed"]   .col-head { border-color: var(--col-closed); }     .col[data-col="pp_closed"]   .col-head h3 { color: var(--col-closed); }
 
-    .cards { display: flex; flex-direction: column; gap: 10px; }
-    .card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 12px; text-decoration: none; color: var(--text); display: block; transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s; cursor: pointer; }
+    .cards { display: flex; flex-direction: column; gap: 10px; min-height: 40px; }
+    /* Deploy 236.100 — card is now a div (not <a>) so HTML5 drag/drop
+       works without fighting native link-drag behavior. Click handler
+       on the card opens loan-details. */
+    .card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 12px; color: var(--text); display: block; transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s, opacity 0.12s; cursor: grab; user-select: none; }
     .card:hover { border-color: var(--gold); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    .card:active { cursor: grabbing; }
+    .card.dragging { opacity: 0.5; cursor: grabbing; }
     .card.closing-soon { background: var(--closing-soon-bg); border-color: var(--closing-soon); }
     .card.closing-soon:hover { border-color: var(--gold); }
-    /* Deploy 236.94 — past-due closing date AND not in the Closed
-       column. Funded loans rightly sit in Closed regardless of how
-       far past their original target — only loans still in motion
-       get the red flag. */
     .card.past-due { background: rgba(124,31,31,0.06); border-color: var(--danger); }
     .card.past-due:hover { border-color: var(--danger); }
+    /* Drop target highlight on the column the user is hovering. */
+    .col.drop-target { background: rgba(200,129,58,0.06); border-color: var(--gold); box-shadow: inset 0 0 0 2px rgba(200,129,58,0.20); }
 
     .card-addr { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.35; margin-bottom: 8px; word-break: break-word; }
+    /* Deploy 236.100 — substatus pill IS the picker. When the column
+       has substatuses configured, the pill becomes a native <select>
+       styled to look like a small pill; click opens the dropdown. */
     .card-substatus { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--muted); display: inline-block; margin-bottom: 8px; }
     .card-substatus.empty { color: rgba(122,116,136,0.5); font-style: italic; }
+    .card-substatus-sel { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 22px 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--muted); border: 1px solid transparent; margin-bottom: 8px; font-family: 'DM Sans', sans-serif; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path fill='%23766f80' d='M0 0l4 5 4-5z'/></svg>"); background-repeat: no-repeat; background-position: right 6px center; max-width: 100%; }
+    .card-substatus-sel:hover { border-color: var(--gold); color: var(--gold); }
+    .card-substatus-sel:focus { outline: none; border-color: var(--gold); }
+    .card-substatus-sel.has-value { background: rgba(200,129,58,0.10); color: var(--gold-mid); }
+    .card-substatus-sel:disabled { opacity: 0.5; cursor: wait; }
     .card-amt { font-size: 14px; font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace; margin-bottom: 6px; }
     .card-borrower { font-size: 12px; color: var(--muted); margin-bottom: 6px; word-break: break-word; }
-    .card-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .card-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .card-meta .tag { padding: 2px 7px; border-radius: 10px; background: rgba(0,0,0,0.05); }
     .card-meta .tag.dscr { background: var(--gold-light); color: var(--gold-mid); }
     .card-meta .tag.rtl  { background: rgba(38,26,54,0.08); color: var(--dark); }
     .card-meta .tag.guc  { background: rgba(37,99,235,0.10); color: #2563eb; border: 1px solid rgba(37,99,235,0.30); }
-    .card-meta .tag.close-date { background: rgba(0,0,0,0.05); }
-    .card-meta .tag.close-date.soon { background: var(--closing-soon-bg); color: var(--closing-soon); font-weight: 600; }
-    .card-meta .tag.close-date.past { background: rgba(124,31,31,0.10); color: var(--danger); font-weight: 600; }
+    /* Deploy 236.100 — close-date is now an editable date input
+       styled to match the tag look. Click → native date picker. */
+    .card-close-input { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: rgba(0,0,0,0.05); border: 1px solid transparent; color: var(--muted); font-family: 'DM Mono', monospace; cursor: pointer; max-width: 130px; }
+    .card-close-input:hover { border-color: var(--gold); color: var(--gold); }
+    .card-close-input:focus { outline: none; border-color: var(--gold); }
+    .card-close-input.soon { background: var(--closing-soon-bg); color: var(--closing-soon); font-weight: 600; }
+    .card-close-input.past { background: rgba(124,31,31,0.10); color: var(--danger); font-weight: 600; }
+    .card-close-input:disabled { opacity: 0.5; cursor: wait; }
+    .card-close-empty { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: rgba(0,0,0,0.03); color: rgba(122,116,136,0.6); font-family: 'DM Mono', monospace; cursor: pointer; border: 1px dashed var(--border); }
+    .card-close-empty:hover { border-color: var(--gold); color: var(--gold); }
 
     .lo-tag { font-size: 10px; font-weight: 600; color: var(--muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.04em; }
 
     .empty-col { font-size: 11px; color: rgba(122,116,136,0.55); text-align: center; padding: 18px 8px; font-style: italic; }
     .loading { font-size: 13px; color: var(--muted); padding: 2rem; text-align: center; }
 
-    /* Deploy 236.95 (Phase A.2) — stage-move dropdown on each tile.
-       Deploy 236.97 (Phase F) — substatus picker shares the same row
-       when the current column has configured substatuses. */
-    .card-actions { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .card-actions label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-    .stage-move, .substatus-pick { flex: 1; min-width: 90px; padding: 5px 26px 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 11px; font-family: 'DM Sans', sans-serif; color: var(--text); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path fill='%23766f80' d='M0 0l4 5 4-5z'/></svg>"); background-repeat: no-repeat; background-position: right 8px center; }
-    .stage-move:hover, .substatus-pick:hover { border-color: var(--gold); color: var(--gold); }
-    .stage-move:focus, .substatus-pick:focus { outline: none; border-color: var(--gold); }
-    .stage-move:disabled, .substatus-pick:disabled { opacity: 0.5; cursor: wait; }
+    /* Deploy 236.100 — dropped the Move/substatus dropdown footer on
+       tiles. Drag-and-drop replaces stage moves; the substatus pill
+       is now the picker (see .card-substatus-sel above); close date
+       is now an inline editable date input (.card-close-input). */
 
     /* Deploy 236.97 (Phase F) — admin gear + substatus editor modal. */
     .gear-btn { padding: 7px 12px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--muted); font-size: 13px; cursor: pointer; font-family: inherit; }
@@ -426,14 +439,22 @@ function render() {
     { key: 'pp_closed',    label: 'Closed' },
   ];
 
+  // Deploy 236.100 — column gets drag/drop attributes so tiles can
+  // be dropped anywhere inside (including the empty area below the
+  // last card). Drop handlers live on the .col itself, not the
+  // .cards inner div, so the entire column area accepts the drop.
   var html = '<div class="board">';
   cols.forEach(function(col) {
     var items = (_items[col.key] || []).filter(visible);
-    html += '<div class="col" data-col="' + col.key + '">' +
+    html += '<div class="col" data-col="' + col.key + '"' +
+      ' ondragover="onColDragOver(event)"' +
+      ' ondragenter="onColDragEnter(event)"' +
+      ' ondragleave="onColDragLeave(event)"' +
+      ' ondrop="onColDrop(event)">' +
       '<div class="col-head"><h3>' + escH(col.label) + '</h3><span class="cnt">' + items.length + '</span></div>' +
       '<div class="cards">';
     if (items.length === 0) {
-      html += '<div class="empty-col">No loans</div>';
+      html += '<div class="empty-col">Drop here</div>';
     } else {
       items.forEach(function(it) { html += renderCard(it); });
     }
@@ -461,13 +482,37 @@ function renderCard(it) {
   var isPastDue   = daysOut != null && daysOut < 0 && col !== 'pp_closed';
   var isClosingSn = daysOut != null && daysOut >= 0 && daysOut <= 5;
 
-  // Substatus pill — shows the current substatus or "No substatus"
-  // placeholder. The picker (Phase F) lives in card-actions below so
-  // anyone with edit access can change it without leaving the board.
+  // Deploy 236.100 — substatus PILL is the picker. When the column
+  // has configured substatuses, render a styled native <select> that
+  // looks like the pill but pops a dropdown on click. Empty column =
+  // static "No substatus" placeholder.
   var substatus = loan.processingSubstatus || '';
-  var substatusHtml = substatus
-    ? '<div class="card-substatus">' + escH(substatus) + '</div>'
-    : '<div class="card-substatus empty">No substatus</div>';
+  var subs = (_substatuses[col] || []);
+  var substatusHtml;
+  if (subs.length > 0) {
+    var subOpts = '<option value="">— substatus —</option>' +
+      subs.map(function(s) {
+        var sel = s === substatus ? ' selected' : '';
+        return '<option value="' + escAttr(s) + '"' + sel + '>' + escH(s) + '</option>';
+      }).join('');
+    var hasVal = substatus ? ' has-value' : '';
+    substatusHtml =
+      '<select class="card-substatus-sel' + hasVal + '"' +
+        ' data-client-id="' + escAttr(client.id) + '"' +
+        ' data-loan-id="'   + escAttr(loan.id)   + '"' +
+        ' data-owner="'     + escAttr(it.ownerKey) + '"' +
+        ' data-stage="'     + escAttr(col || '') + '"' +
+        ' data-current="'   + escAttr(substatus) + '"' +
+        ' onclick="event.stopPropagation()"' +
+        ' onmousedown="event.stopPropagation()"' +
+        ' onchange="moveLoanSubstatus(this)">' +
+        subOpts +
+      '</select>';
+  } else {
+    substatusHtml = substatus
+      ? '<div class="card-substatus">' + escH(substatus) + '</div>'
+      : '<div class="card-substatus empty">No substatus</div>';
+  }
 
   // Deep-link to loan-details with the full triple-key including
   // owner. _isAdmin && cross-owner is the only case where ?owner=
@@ -480,88 +525,62 @@ function renderCard(it) {
   // per Mike's feedback. The LO filter at the top of the page covers
   // attribution when admins need it.
 
-  var closeTagClass = isPastDue ? ' past' : (isClosingSn ? ' soon' : '');
-  var closeTag = closeStr
-    ? '<span class="tag close-date' + closeTagClass + '">Close ' + escH(closeStr) + '</span>'
-    : '';
+  // Deploy 236.100 — close-date is an inline editable date input
+  // styled as the old tag. Click → native date picker. Empty value
+  // renders the same input (just blank) so the click target is
+  // always present and consistent.
+  var closeCls = isPastDue ? ' past' : (isClosingSn ? ' soon' : '');
+  var closeInput =
+    '<input type="date" class="card-close-input' + closeCls + '"' +
+      ' value="' + escAttr(closeDate) + '"' +
+      ' data-client-id="' + escAttr(client.id) + '"' +
+      ' data-loan-id="'   + escAttr(loan.id)   + '"' +
+      ' data-owner="'     + escAttr(it.ownerKey) + '"' +
+      ' data-current="'   + escAttr(closeDate) + '"' +
+      ' title="Click to edit close date"' +
+      ' onclick="event.stopPropagation()"' +
+      ' onmousedown="event.stopPropagation()"' +
+      ' onchange="editCloseDate(this)" />';
+
   var cardClass = isPastDue ? ' past-due' : (isClosingSn ? ' closing-soon' : '');
 
-  // Deploy 236.95 (Phase A.2) — Move dropdown. Native <select> so it
-  // works on mobile without a popover library and keyboard-navigates
-  // for free. The current column is selected by default so the user
-  // sees where the loan sits; picking a different column triggers
-  // moveLoanStage(). The select is wrapped in .card-actions which
-  // stops propagation so a click on the select doesn't trigger the
-  // parent <a>'s navigation to loan-details.
-  var stages = [
-    { v: 'new_loan',     l: 'New Loan' },
-    { v: 'processing',   l: 'Processing' },
-    { v: 'underwriting', l: 'Underwriting' },
-    { v: 'pp_approved',  l: 'Approved' },
-    { v: 'pp_closed',    l: 'Closed' },
-  ];
-  var stageOptions = stages.map(function(s) {
-    var sel = s.v === col ? ' selected' : '';
-    return '<option value="' + s.v + '"' + sel + '>' + escH(s.l) + '</option>';
-  }).join('');
-  // Deploy 236.97 (Phase F) — substatus picker. Only renders when
-  // the current column has substatuses configured by an admin. The
-  // current loan's substatus is pre-selected; picking a different
-  // one POSTs to the same stage endpoint with substatus + the loan's
-  // CURRENT stage (no stage change).
-  var subs = (_substatuses[col] || []);
-  var substatusPickerHtml = '';
-  if (subs.length > 0) {
-    var subOpts = '<option value="">— substatus —</option>' +
-      subs.map(function(s) {
-        var sel = s === substatus ? ' selected' : '';
-        return '<option value="' + escAttr(s) + '"' + sel + '>' + escH(s) + '</option>';
-      }).join('');
-    substatusPickerHtml =
-      '<select class="substatus-pick"' +
-        ' data-client-id="' + escAttr(client.id) + '"' +
-        ' data-loan-id="'   + escAttr(loan.id)   + '"' +
-        ' data-owner="'     + escAttr(it.ownerKey) + '"' +
-        ' data-stage="'     + escAttr(col || '') + '"' +
-        ' data-current="'   + escAttr(substatus) + '"' +
-        ' onchange="moveLoanSubstatus(this)">' +
-        subOpts +
-      '</select>';
-  }
-
-  var moveControls =
-    '<div class="card-actions" onclick="event.stopPropagation(); event.preventDefault();">' +
-      '<label>Move</label>' +
-      '<select class="stage-move"' +
-        ' data-client-id="' + escAttr(client.id) + '"' +
-        ' data-loan-id="'   + escAttr(loan.id)   + '"' +
-        ' data-owner="'     + escAttr(it.ownerKey) + '"' +
-        ' data-current="'   + escAttr(col || '') + '"' +
-        ' onchange="moveLoanStage(this)">' +
-        stageOptions +
-      '</select>' +
-      substatusPickerHtml +
-    '</div>';
-
+  // Deploy 236.100 — card is a <div> (not <a>) so HTML5 drag/drop
+  // works without fighting native link-drag behavior. Click handler
+  // navigates to loan-details unless we just finished dragging.
   return (
-    '<a class="card' + cardClass + '" href="' + escAttr(href) + '">' +
+    '<div class="card' + cardClass + '"' +
+      ' draggable="true"' +
+      ' data-loan-key="' + escAttr(client.id + '|' + loan.id + '|' + it.ownerKey) + '"' +
+      ' data-stage="' + escAttr(col || '') + '"' +
+      ' ondragstart="onCardDragStart(event)"' +
+      ' ondragend="onCardDragEnd(event)"' +
+      ' onclick="openLoanDetails(this, \'' + escAttr(href) + '\')">' +
       '<div class="card-addr">' + escH(addr) + '</div>' +
       substatusHtml +
       '<div class="card-amt">' + escH(amt) + '</div>' +
       '<div class="card-borrower">' + escH(name) + '</div>' +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
-        closeTag +
+        closeInput +
       '</div>' +
-      moveControls +
-    '</a>'
+    '</div>'
   );
 }
 
-// Stage-move action — POST the new stage to the backend, then reload
-// the board. Confirm on regressive moves (toward earlier stages) so a
-// fat-fingered pick of "New Loan" on a loan that's already in
-// Underwriting doesn't silently lose track of where the loan was.
+// Deploy 236.100 — open loan-details on tile click. Guarded by
+// _justDragged to ignore the click that fires immediately after a
+// successful drop (the source tile re-receives focus and would
+// otherwise route the user away from the board).
+var _justDragged = false;
+function openLoanDetails(card, href) {
+  if (_justDragged) { _justDragged = false; return; }
+  window.location.href = href;
+}
+
+// Deploy 236.100 — drag-and-drop stage moves. Replaces the prior
+// Move-dropdown UX. Native HTML5 drag/drop, no library needed.
+// Stage order + labels are still here for the regressive-move
+// confirm prompt below.
 var STAGE_ORDER = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 var STAGE_LABEL = {
   'new_loan':     'New Loan',
@@ -570,43 +589,123 @@ var STAGE_LABEL = {
   'pp_approved':  'Approved',
   'pp_closed':    'Closed',
 };
-function moveLoanStage(sel) {
-  var newStage = sel.value;
-  var current  = sel.dataset.current || '';
-  if (!newStage || newStage === current) return;
 
+var _draggingLoanKey = null;
+var _draggingFromStage = null;
+
+function onCardDragStart(e) {
+  var card = e.target.closest && e.target.closest('.card');
+  if (!card) return;
+  _draggingLoanKey = card.dataset.loanKey || '';
+  _draggingFromStage = card.dataset.stage || '';
+  try {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _draggingLoanKey);
+  } catch (_) {}
+  card.classList.add('dragging');
+}
+function onCardDragEnd(e) {
+  var card = e.target.closest && e.target.closest('.card');
+  if (card) card.classList.remove('dragging');
+  // Brief flag so the source tile's click handler skips the
+  // navigation that would otherwise fire when the user releases.
+  _justDragged = true;
+  setTimeout(function() { _justDragged = false; }, 100);
+  _draggingLoanKey = null;
+  _draggingFromStage = null;
+  document.querySelectorAll('.col.drop-target').forEach(function(c) {
+    c.classList.remove('drop-target');
+  });
+}
+function onColDragOver(e) {
+  // dragover firing with preventDefault is what makes drop legal.
+  e.preventDefault();
+  try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+}
+function onColDragEnter(e) {
+  var col = e.target.closest && e.target.closest('.col');
+  if (col) col.classList.add('drop-target');
+}
+function onColDragLeave(e) {
+  // dragleave fires when entering child elements too. Only clear
+  // the highlight if we've actually left the column boundary.
+  var col = e.target.closest && e.target.closest('.col');
+  if (!col) return;
+  var to = e.relatedTarget;
+  if (!to || !col.contains(to)) col.classList.remove('drop-target');
+}
+function onColDrop(e) {
+  e.preventDefault();
+  var col = e.target.closest && e.target.closest('.col');
+  if (col) col.classList.remove('drop-target');
+  if (!col) return;
+  var newStage = col.dataset.col;
+  var loanKey = (function() {
+    try { return e.dataTransfer.getData('text/plain'); } catch (_) { return null; }
+  })() || _draggingLoanKey;
+  if (!loanKey || !newStage) return;
+  moveLoanByDrop(loanKey, newStage, _draggingFromStage);
+}
+
+function moveLoanByDrop(loanKey, newStage, currentStage) {
+  if (newStage === currentStage) return;
+
+  // Regressive move confirm — preserves the prior dropdown's safety
+  // check now that drag-drop is the only path. Easy to fat-finger a
+  // drop onto the wrong column.
   var newIdx = STAGE_ORDER.indexOf(newStage);
-  var curIdx = STAGE_ORDER.indexOf(current);
-  var regressive = curIdx >= 0 && newIdx >= 0 && newIdx < curIdx;
-  if (regressive) {
-    if (!confirm('Move this loan BACK to "' + STAGE_LABEL[newStage] + '"? It is currently in "' + STAGE_LABEL[current] + '".')) {
-      sel.value = current;
+  var curIdx = STAGE_ORDER.indexOf(currentStage);
+  if (curIdx >= 0 && newIdx >= 0 && newIdx < curIdx) {
+    if (!confirm('Move this loan BACK to "' + STAGE_LABEL[newStage] + '"? It is currently in "' + STAGE_LABEL[currentStage] + '".')) {
       return;
     }
   }
 
-  // Compute self vs other-owner. Self = no owner param (lets the
-  // backend default to the auth user). Other = pass the ownerKey
-  // through — the endpoint requires admin for cross-LO writes.
-  var selfKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
-  var ownerParam = (sel.dataset.owner && sel.dataset.owner !== selfKey) ? sel.dataset.owner : undefined;
+  var parts = String(loanKey).split('|');
+  if (parts.length < 3) return;
+  var clientId = parts[0], loanId = parts[1], owner = parts[2];
 
-  sel.disabled = true;
-  var body = {
-    clientId: sel.dataset.clientId,
-    loanId:   sel.dataset.loanId,
-    newStage: newStage,
-  };
+  var selfKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+  var ownerParam = (owner && owner !== selfKey) ? owner : undefined;
+
+  var body = { clientId: clientId, loanId: loanId, newStage: newStage };
   if (ownerParam) body.owner = ownerParam;
 
   SLA.api('POST', '/api/loan-processing-stage', body).then(function() {
-    // Clear cache so loadAll picks up the new stage immediately.
     if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
     return loadAll();
   }).catch(function(err) {
-    sel.disabled = false;
-    sel.value = current;
-    alert('Failed to move loan: ' + (err && err.message ? err.message : 'unknown error'));
+    alert('Failed to move loan: ' + (err && err.message ? err.message : 'unknown'));
+    loadAll(); // reload to revert any optimistic visual state
+  });
+}
+
+// Deploy 236.100 — close-date inline editor on each tile. Posts
+// the new value to /api/loan-field-edit and reloads the board so
+// the past-due/closing-soon styling refreshes.
+function editCloseDate(input) {
+  var newDate = input.value || '';
+  var current = input.dataset.current || '';
+  if (newDate === current) return;
+
+  var selfKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+  var ownerParam = (input.dataset.owner && input.dataset.owner !== selfKey) ? input.dataset.owner : undefined;
+
+  input.disabled = true;
+  var body = {
+    clientId: input.dataset.clientId,
+    loanId:   input.dataset.loanId,
+    fields:   { fundingDate: newDate },
+  };
+  if (ownerParam) body.owner = ownerParam;
+
+  SLA.api('POST', '/api/loan-field-edit', body).then(function() {
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    return loadAll();
+  }).catch(function(err) {
+    input.disabled = false;
+    input.value = current;
+    alert('Failed to save close date: ' + (err && err.message ? err.message : 'unknown'));
   });
 }
 
