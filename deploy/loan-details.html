@@ -652,7 +652,13 @@
 .user-picker { position: relative; }
 .user-picker-input { width: 100%; padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: #fff; }
 .user-picker-input:focus { outline: none; border-color: var(--gold, #C8813A); }
-.user-picker-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; overflow-y: auto; background: #fff; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.10); z-index: 200; }
+/* Deploy 236.111 — position:fixed so the dropdown escapes any
+   ancestor with overflow:hidden/auto (the .section wrapper does
+   this) and isn't clipped. Coordinates are set inline by
+   _positionUserPickerList based on the input's bounding rect.
+   Closes on scroll because a fixed-position element would
+   otherwise float over the wrong spot once the page moves. */
+.user-picker-list { position: fixed; max-height: 280px; overflow-y: auto; background: #fff; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.12); z-index: 9000; }
 .user-picker-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(0,0,0,0.04); transition: background 0.08s; }
 .user-picker-item:last-child { border-bottom: none; }
 .user-picker-item:hover, .user-picker-item.active { background: rgba(200,129,58,0.08); }
@@ -2493,6 +2499,19 @@ function _showUserPickerLoading(input) {
   }
   listEl.innerHTML = '<div class="user-picker-empty">Loading users…</div>';
   listEl.style.display = 'block';
+  _positionUserPickerList(input, listEl);
+}
+
+// Deploy 236.111 — pin the dropdown to the input's bottom edge
+// in viewport coordinates. position:fixed escapes the .section
+// overflow that was clipping the list, but it also means CSS can't
+// auto-align — we set top/left/width inline based on the input's
+// bounding rect.
+function _positionUserPickerList(input, listEl) {
+  var r = input.getBoundingClientRect();
+  listEl.style.top   = (r.bottom + 4) + 'px';
+  listEl.style.left  = r.left + 'px';
+  listEl.style.width = r.width + 'px';
 }
 function filterUserPicker(input) {
   // Typing in the search box clears any previously-picked value
@@ -2539,6 +2558,7 @@ function _renderUserPicker(input, query) {
   }
   listEl.innerHTML = html;
   listEl.style.display = 'block';
+  _positionUserPickerList(input, listEl);
 }
 function pickUser(itemEl, email, name) {
   var wrap = itemEl.closest('.user-picker');
@@ -2569,15 +2589,25 @@ function userPickerKeydown(e, input) {
     if (listEl) listEl.style.display = 'none';
   }
 }
-// Close any open user-picker dropdown when clicking outside.
-// Bound once at script load via event delegation.
+// Close any open user-picker dropdown when clicking outside or
+// when the page scrolls. Bound once at script load via event
+// delegation so re-renders don't need to re-wire.
+// Deploy 236.111 — scroll close is necessary now that the list
+// is position:fixed; without it the dropdown would float over
+// the wrong spot after the user scrolls. Capture-phase scroll
+// listener catches nested scrollers (Notes sidebar, etc.) too.
 (function bindUserPickerOutsideClose() {
   if (window._userPickerOutsideBound) return;
   window._userPickerOutsideBound = true;
+  function closeAll() {
+    document.querySelectorAll('.user-picker-list').forEach(function(el) { el.style.display = 'none'; });
+  }
   document.addEventListener('click', function(e) {
     if (e.target && e.target.closest && e.target.closest('.user-picker')) return;
-    document.querySelectorAll('.user-picker-list').forEach(function(el) { el.style.display = 'none'; });
+    closeAll();
   });
+  window.addEventListener('scroll', closeAll, true);
+  window.addEventListener('resize', closeAll);
 })();
 
 function toggleTaskComplete(taskId, completed) {
