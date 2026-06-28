@@ -1579,6 +1579,13 @@ function render() {
         '</div>' +
         '<div class="notes-status" id="noteStatus"></div>' +
         '<div class="notes-jumpbar">' +
+          // Deploy 236.99 — Phase C filter chips. Reuses .btn-jump
+          // styling so the row stays visually unified.
+          '<span style="font-size:11px;color:var(--muted);align-self:center;margin-right:4px">Show:</span>' +
+          '<button class="btn-jump active" id="noteFilterBtn_all"    onclick="setNoteFilter(\'all\')"    title="All entries">All</button>' +
+          '<button class="btn-jump"        id="noteFilterBtn_status" onclick="setNoteFilter(\'status\')" title="Status changes, decisions, edits — anything the platform stamped">Status</button>' +
+          '<button class="btn-jump"        id="noteFilterBtn_user"   onclick="setNoteFilter(\'user\')"   title="Free-form notes left by users">Notes</button>' +
+          '<span style="flex:1"></span>' +
           '<button class="btn-jump active" id="noteJumpTopBtn" onclick="jumpNotesTo(\'top\')" title="Newest entries">↑ Top</button>' +
           '<button class="btn-jump" id="noteJumpBottomBtn" onclick="jumpNotesTo(\'bottom\')" title="Oldest entries">↓ Bottom</button>' +
         '</div>' +
@@ -1825,6 +1832,13 @@ function renderNotesLog() {
   var inner = document.getElementById('notesListInner');
   if (!inner) return;
   var entries = (_loan && Array.isArray(_loan.notesLog)) ? _loan.notesLog.slice() : [];
+  // Deploy 236.99 — apply the active note filter (All / Status / User).
+  if (_noteFilter && _noteFilter !== 'all') {
+    var allowed = NOTE_KIND_BUCKETS[_noteFilter] || [];
+    entries = entries.filter(function(e) {
+      return allowed.indexOf(String(e && e.kind || 'manual')) >= 0;
+    });
+  }
   // Newest first — sort by ISO timestamp descending.
   entries.sort(function(a, b) {
     var ta = String(a && a.ts || ''); var tb = String(b && b.ts || '');
@@ -1896,10 +1910,36 @@ function noteKindLabel(k) {
     case 'app_sent':      return 'App sent';
     case 'app_received':  return 'App received';
     case 'status':        return 'Status';
+    // Deploy 236.95/98 — new kinds from the Processing Pipeline
+    // work (loan-processing-stage + loan-field-edit endpoints).
+    case 'stage_change':  return 'Stage';
+    case 'field_edit':    return 'Edit';
     case 'system':        return 'System';
     case 'legacy':        return 'Pre-audit-log';
     default:              return String(k || 'Note');
   }
+}
+
+// Deploy 236.99 (Phase C, partial) — notes filter. Mike asked for
+// "All / Status Notes / User Notes" filtering. Kinds bucket into:
+//   * status-side: 'status', 'stage_change', 'decision', 'app_sent',
+//     'app_received', 'submit', 'pre_discussed', 'decline', 'reprice',
+//     'field_edit', 'system' — anything the platform stamps
+//   * user-side: 'manual', 'legacy' — the actual free-form notes
+// `all` shows everything (default).
+var NOTE_KIND_BUCKETS = {
+  status: ['status','stage_change','decision','app_sent','app_received','submit','pre_discussed','decline','reprice','field_edit','system'],
+  user:   ['manual','legacy'],
+};
+var _noteFilter = 'all';
+function setNoteFilter(which) {
+  _noteFilter = which;
+  // Update button active states.
+  ['all','status','user'].forEach(function(k) {
+    var b = document.getElementById('noteFilterBtn_' + k);
+    if (b) b.classList.toggle('active', k === which);
+  });
+  renderNotesLog();
 }
 
 // Deploy 227 — two-button Top/Bottom toggle. List is sorted newest-first
