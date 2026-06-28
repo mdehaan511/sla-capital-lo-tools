@@ -1911,7 +1911,7 @@ function render() {
           // LO types to filter.
           '<div class="user-picker" id="taskAssigneePicker">' +
             '<input type="text" class="user-picker-input" id="taskAssigneeSearch" placeholder="Assignee (optional)" autocomplete="off"' +
-              ' onfocus="openUserPicker(this)" oninput="filterUserPicker(this)" onkeydown="userPickerKeydown(event,this)" />' +
+              ' onfocus="openUserPicker(this)" onclick="openUserPicker(this)" oninput="filterUserPicker(this)" onkeydown="userPickerKeydown(event,this)" />' +
             '<input type="hidden" id="taskAssigneeInput" data-name="" />' +
           '</div>' +
           '<button class="btn-add-task" id="taskAddBtn" onclick="addTaskFromUI()">Add Task</button>' +
@@ -2051,6 +2051,13 @@ function render() {
   // tasks. Async; the section shell already shows "Loading tasks…"
   // until the response lands.
   loadTasksList();
+
+  // Deploy 236.108 — eagerly preload the user directory so the
+  // assignee picker is instant on first click. No-op if already
+  // cached for the session. The fetch is small (a few KB) and
+  // fire-and-forget; any failure quietly leaves the picker to
+  // load lazily on focus.
+  if (typeof loadUserDirectory === 'function') loadUserDirectory();
 
   // Deploy 236.73 — async-check whether a loan review already exists
   // for this clientId+loanId, then label the button accordingly.
@@ -2458,7 +2465,29 @@ function loadUserDirectory(cb) {
   });
 }
 function openUserPicker(input) {
-  loadUserDirectory(function() { _renderUserPicker(input, input.value || ''); });
+  // Deploy 236.108 — show the dropdown IMMEDIATELY so the LO sees
+  // something happen on focus, even if the directory fetch is
+  // still in flight. If we already have the directory cached
+  // (from a prior open or the eager preload at render time), the
+  // full list paints right away.
+  if (_userDirectory) {
+    _renderUserPicker(input, input.value || '');
+  } else {
+    _showUserPickerLoading(input);
+    loadUserDirectory(function() { _renderUserPicker(input, input.value || ''); });
+  }
+}
+function _showUserPickerLoading(input) {
+  var wrap = input.closest('.user-picker');
+  if (!wrap) return;
+  var listEl = wrap.querySelector('.user-picker-list');
+  if (!listEl) {
+    listEl = document.createElement('div');
+    listEl.className = 'user-picker-list';
+    wrap.appendChild(listEl);
+  }
+  listEl.innerHTML = '<div class="user-picker-empty">Loading users…</div>';
+  listEl.style.display = 'block';
 }
 function filterUserPicker(input) {
   // Typing in the search box clears any previously-picked value
