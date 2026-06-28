@@ -645,6 +645,17 @@
 .ld-actions-menu .ld-action-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .ld-actions-menu .ld-action-menu-item svg { flex-shrink: 0; opacity: 0.7; }
 
+/* Deploy 236.112 — Borrower Info section with multi-borrower tabs. */
+.bw-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border, #ddd8d0); margin: -4px -4px 14px; padding: 0 4px; flex-wrap: wrap; }
+.bw-tab { padding: 8px 14px; background: transparent; border: none; border-bottom: 2px solid transparent; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; color: var(--muted, #7a7488); cursor: pointer; margin-bottom: -1px; transition: color 0.10s, border-color 0.10s; }
+.bw-tab:hover { color: var(--text, #1a1520); }
+.bw-tab.active { color: var(--gold, #C8813A); border-bottom-color: var(--gold, #C8813A); }
+.bw-tab .bw-tab-label { font-weight: 600; }
+.bw-tab .bw-tab-sub { display: block; font-size: 10px; font-weight: 500; color: rgba(122,116,136,0.7); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+.bw-pane { display: none; }
+.bw-pane.active { display: block; }
+.bw-pane.loading { padding: 14px 4px; font-size: 12px; color: var(--muted); font-style: italic; }
+
 /* Deploy 236.107 — searchable user picker (combobox). Reusable
    element with a text input + dropdown list. Used for the task
    assignee field today; future contacts / @-mention pickers can
@@ -1845,6 +1856,58 @@ function render() {
       '</div>';
   }
 
+  // Deploy 236.112 — Borrower Info section. Always renders (every
+  // loan has a primary borrower = _client). When the loan has
+  // linked guarantor clients (loan.guarantorClientIds, set when a
+  // multi-borrower long-app is signed), tabs at the top of the
+  // section let the LO switch between borrowers. Primary borrower
+  // tab renders immediately from _client; guarantor tabs are
+  // populated async by refreshBorrowerInfoPanes() (mirrors the
+  // Linked Guarantor Clients fetch pattern).
+  var _bwGuarantorIds = Array.isArray(l.guarantorClientIds) ? l.guarantorClientIds : [];
+  var _bwHasMultiple  = _bwGuarantorIds.length > 0;
+  var _bwPrimaryName  = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Borrower';
+  var _bwPrimaryHtml  =
+    '<div class="app-grid">' +
+      '<div class="field"><label>Borrower Name</label>' +
+        '<input type="text"  id="bw-0-name"   value="' + escAttr(_bwPrimaryName) + '" readonly /></div>' +
+      '<div class="field"><label>Borrower LLC</label>' +
+        '<input type="text"  id="bw-0-entity" value="' + escAttr(c.entityName || '') + '" readonly placeholder="No entity on file" /></div>' +
+      '<div class="field"><label>Email</label>' +
+        '<input type="email" id="bw-0-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
+      '<div class="field"><label>Phone</label>' +
+        '<input type="tel"   id="bw-0-phone"  value="' + escAttr(c.phone || '') + '" readonly /></div>' +
+    '</div>';
+  var _bwTabsHtml = '';
+  if (_bwHasMultiple) {
+    _bwTabsHtml = '<div class="bw-tabs" id="bwTabs">' +
+      '<button type="button" class="bw-tab active" onclick="switchBorrowerTab(0)" data-bw-idx="0">' +
+        '<span class="bw-tab-label">' + escH(_bwPrimaryName) + '</span>' +
+        '<span class="bw-tab-sub">Primary</span>' +
+      '</button>';
+    _bwGuarantorIds.forEach(function(gid, i) {
+      _bwTabsHtml +=
+        '<button type="button" class="bw-tab" onclick="switchBorrowerTab(' + (i + 1) + ')" data-bw-idx="' + (i + 1) + '" id="bw-tab-' + (i + 1) + '">' +
+          '<span class="bw-tab-label">Guarantor ' + (i + 1) + '</span>' +
+          '<span class="bw-tab-sub">Loading…</span>' +
+        '</button>';
+    });
+    _bwTabsHtml += '</div>';
+  }
+  var _bwPanesHtml = '<div class="bw-pane active" id="bw-pane-0">' + _bwPrimaryHtml + '</div>';
+  _bwGuarantorIds.forEach(function(gid, i) {
+    _bwPanesHtml +=
+      '<div class="bw-pane loading" id="bw-pane-' + (i + 1) + '" data-client-id="' + escAttr(gid) + '">Loading borrower info…</div>';
+  });
+  html +=
+    '<div class="section" id="borrowerInfoSection">' +
+      '<div class="section-head"><h2>Borrower Info</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
+      '<div class="section-body">' +
+        _bwTabsHtml +
+        _bwPanesHtml +
+      '</div>' +
+    '</div>';
+
   // Broker Info section — Deploy 236.17 — now also renders for loans
   // that have a broker entity link OR any inline broker contact info,
   // not just when a non-zero broker fee was set. Apply.html broker-mode
@@ -2058,6 +2121,11 @@ function render() {
   // until the response lands.
   loadTasksList();
 
+  // Deploy 236.112 — populate the guarantor borrower tabs. No-op
+  // when the loan has no linked guarantors (single-borrower case
+  // renders entirely from _client inline above, no fetch needed).
+  refreshBorrowerInfoPanes();
+
   // Deploy 236.108 — eagerly preload the user directory so the
   // assignee picker is instant on first click. Deploy 236.109 —
   // added a console.log so we can see in Mike's dev tools whether
@@ -2078,6 +2146,87 @@ function render() {
   // clients list and renders name + email + a link to the client
   // page. Non-blocking — the rest of the page is already painted.
   refreshLinkedGuarantors();
+}
+
+// Deploy 236.112 — Borrower Info pane populator. The primary
+// borrower tab paints inline at render time from _client. Guarantor
+// tabs render as "Loading…" placeholders that this function fills
+// once SLA.Clients.list resolves. Same fetch pattern as
+// refreshLinkedGuarantors (which loads its own pool from the same
+// list) — could share if we cared, but the duplication is cheap.
+function refreshBorrowerInfoPanes() {
+  if (!_loan) return;
+  var ids = Array.isArray(_loan.guarantorClientIds) ? _loan.guarantorClientIds : [];
+  if (!ids.length) return; // single-borrower case; nothing to fetch
+
+  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  p.then(function(r) {
+    var pool = [];
+    if (r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(k) {
+        (r.byOwner[k] || []).forEach(function(c) { pool.push(c); });
+      });
+    } else {
+      pool = r.clients || [];
+    }
+    var byId = {};
+    pool.forEach(function(c) { if (c && c.id) byId[c.id] = c; });
+    ids.forEach(function(id, i) {
+      var idx = i + 1;
+      var pane = document.getElementById('bw-pane-' + idx);
+      var tab  = document.getElementById('bw-tab-'  + idx);
+      if (!pane) return;
+      var c = byId[id];
+      if (!c) {
+        pane.classList.remove('loading');
+        pane.innerHTML = '<div style="padding:10px 12px;background:#fff;border:1px solid var(--border, #ddd8d0);border-radius:6px;font-size:12px;color:var(--muted)">Borrower record ' + escH(id) + ' not found (may belong to another LO).</div>';
+        if (tab) {
+          var sub = tab.querySelector('.bw-tab-sub');
+          if (sub) sub.textContent = 'Not found';
+        }
+        return;
+      }
+      var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Guarantor ' + idx;
+      pane.classList.remove('loading');
+      pane.innerHTML =
+        '<div class="app-grid">' +
+          '<div class="field"><label>Borrower Name</label>' +
+            '<input type="text"  id="bw-' + idx + '-name"   value="' + escAttr(name) + '" readonly /></div>' +
+          '<div class="field"><label>Borrower LLC</label>' +
+            '<input type="text"  id="bw-' + idx + '-entity" value="' + escAttr(c.entityName || '') + '" readonly placeholder="No entity on file" /></div>' +
+          '<div class="field"><label>Email</label>' +
+            '<input type="email" id="bw-' + idx + '-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
+          '<div class="field"><label>Phone</label>' +
+            '<input type="tel"   id="bw-' + idx + '-phone"  value="' + escAttr(c.phone || '') + '" readonly /></div>' +
+          '<div class="field span2" style="font-size:11px;color:var(--muted);font-style:italic;padding-top:4px">' +
+            'Edit this borrower\'s info on their <a href="client-details.html?clientId=' + encodeURIComponent(c.id) + '" style="color:var(--gold-mid, #b5712d);text-decoration:none">Client Details page →</a>' +
+          '</div>' +
+        '</div>';
+      if (tab) {
+        var lbl = tab.querySelector('.bw-tab-label');
+        var sub2 = tab.querySelector('.bw-tab-sub');
+        if (lbl) lbl.textContent = name;
+        if (sub2) sub2.textContent = 'Guarantor';
+      }
+    });
+  }).catch(function(err) {
+    ids.forEach(function(_, i) {
+      var pane = document.getElementById('bw-pane-' + (i + 1));
+      if (pane) {
+        pane.classList.remove('loading');
+        pane.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
+      }
+    });
+  });
+}
+
+function switchBorrowerTab(idx) {
+  document.querySelectorAll('#borrowerInfoSection .bw-tab').forEach(function(t) {
+    t.classList.toggle('active', parseInt(t.dataset.bwIdx, 10) === idx);
+  });
+  document.querySelectorAll('#borrowerInfoSection .bw-pane').forEach(function(p) {
+    p.classList.toggle('active', p.id === 'bw-pane-' + idx);
+  });
 }
 
 // Deploy 236.84 — Linked Guarantor Clients section populator.
@@ -2606,7 +2755,18 @@ function userPickerKeydown(e, input) {
     if (e.target && e.target.closest && e.target.closest('.user-picker')) return;
     closeAll();
   });
-  window.addEventListener('scroll', closeAll, true);
+  // Deploy 236.112 — scroll close MUST skip scrolls originating
+  // inside the dropdown itself, otherwise the wheel scrolling the
+  // user list collapses the menu. The capture phase saw every
+  // scroll, including the internal one. Filter by target.
+  window.addEventListener('scroll', function(e) {
+    var t = e.target;
+    if (t && t.nodeType === 1) {
+      if (t.classList && t.classList.contains('user-picker-list')) return;
+      if (t.closest && t.closest('.user-picker-list')) return;
+    }
+    closeAll();
+  }, true);
   window.addEventListener('resize', closeAll);
 })();
 
