@@ -101,13 +101,37 @@
     .empty-col { font-size: 11px; color: rgba(122,116,136,0.55); text-align: center; padding: 18px 8px; font-style: italic; }
     .loading { font-size: 13px; color: var(--muted); padding: 2rem; text-align: center; }
 
-    /* Deploy 236.95 (Phase A.2) — stage-move dropdown on each tile. */
-    .card-actions { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); display: flex; align-items: center; gap: 6px; }
+    /* Deploy 236.95 (Phase A.2) — stage-move dropdown on each tile.
+       Deploy 236.97 (Phase F) — substatus picker shares the same row
+       when the current column has configured substatuses. */
+    .card-actions { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .card-actions label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-    .stage-move { flex: 1; padding: 5px 26px 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 11px; font-family: 'DM Sans', sans-serif; color: var(--text); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path fill='%23766f80' d='M0 0l4 5 4-5z'/></svg>"); background-repeat: no-repeat; background-position: right 8px center; }
-    .stage-move:hover { border-color: var(--gold); color: var(--gold); }
-    .stage-move:focus { outline: none; border-color: var(--gold); }
-    .stage-move:disabled { opacity: 0.5; cursor: wait; }
+    .stage-move, .substatus-pick { flex: 1; min-width: 90px; padding: 5px 26px 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 11px; font-family: 'DM Sans', sans-serif; color: var(--text); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path fill='%23766f80' d='M0 0l4 5 4-5z'/></svg>"); background-repeat: no-repeat; background-position: right 8px center; }
+    .stage-move:hover, .substatus-pick:hover { border-color: var(--gold); color: var(--gold); }
+    .stage-move:focus, .substatus-pick:focus { outline: none; border-color: var(--gold); }
+    .stage-move:disabled, .substatus-pick:disabled { opacity: 0.5; cursor: wait; }
+
+    /* Deploy 236.97 (Phase F) — admin gear + substatus editor modal. */
+    .gear-btn { padding: 7px 12px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--muted); font-size: 13px; cursor: pointer; font-family: inherit; }
+    .gear-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .ss-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .ss-bg.show { display: flex; }
+    .ss-modal { background: var(--surface); border-radius: var(--r); max-width: 720px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 1.75rem; }
+    .ss-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 4px; }
+    .ss-modal .ss-sub { font-size: 12px; color: var(--muted); margin-bottom: 1.25rem; }
+    .ss-col { margin-bottom: 1.25rem; padding: 12px; background: var(--bg); border-radius: var(--r-xs); }
+    .ss-col h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; color: var(--text); }
+    .ss-col textarea { width: 100%; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Mono', monospace; font-size: 12px; resize: vertical; }
+    .ss-col textarea:focus { outline: none; border-color: var(--gold); }
+    .ss-col .hint { font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic; }
+    .ss-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1rem; }
+    .ss-btn { font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: 18px; cursor: pointer; font-family: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+    .ss-btn.primary { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .ss-btn.primary:hover { background: #1c1227; }
+    .ss-btn:disabled { opacity: 0.5; cursor: wait; }
+    .ss-status { font-size: 12px; min-height: 18px; margin-right: auto; align-self: center; }
+    .ss-status.err { color: var(--danger); }
+    .ss-status.ok { color: var(--success); }
   </style>
 </head>
 <body>
@@ -126,9 +150,24 @@
         <select class="lo-filter" id="loFilter" style="display:none">
           <option value="">All Loan Officers</option>
         </select>
+        <button type="button" class="gear-btn" id="ssGearBtn" style="display:none" onclick="openSubstatusEditor()" title="Edit substatuses (admin)">⚙ Substatuses</button>
       </div>
     </div>
     <div id="boardWrap"><div class="loading">Loading pipeline…</div></div>
+  </div>
+
+  <!-- Deploy 236.97 (Phase F) — admin substatus editor modal. -->
+  <div class="ss-bg" id="ssBg">
+    <div class="ss-modal">
+      <h3>Processing Pipeline — Substatuses</h3>
+      <p class="ss-sub">One substatus per line. These appear as a pill on each tile and become the substatus picker dropdown for loans in that column.</p>
+      <div id="ssCols"></div>
+      <div class="ss-actions">
+        <div class="ss-status" id="ssStatus"></div>
+        <button type="button" class="ss-btn" onclick="closeSubstatusEditor()">Cancel</button>
+        <button type="button" class="ss-btn primary" id="ssSaveBtn" onclick="saveSubstatusEditor()">Save</button>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -140,6 +179,11 @@ var _isAdmin = false;
 var _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
 var _loDisplayMap = {}; // ownerKey -> display name
 var _loFilterValue = '';
+// Deploy 236.97 (Phase F) — admin-configurable substatuses per column.
+// Shape: { new_loan: ['Awaiting docs', ...], processing: [...], ... }
+// Loaded from /api/settings on page init. Empty arrays / missing keys
+// = column has no substatuses (no picker rendered).
+var _substatuses = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
 
 // ── Auth gate ──────────────────────────────────────────────────────
 // Per Phase A scope: any authenticated user can view the Processing
@@ -156,9 +200,26 @@ window.netlifyIdentity.on('init', function(user) {
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
-  if (_isAdmin) document.getElementById('loFilter').style.display = '';
-  loadAll();
+  if (_isAdmin) {
+    document.getElementById('loFilter').style.display = '';
+    document.getElementById('ssGearBtn').style.display = '';
+  }
+  // Load substatuses first (non-blocking), then the board. Settings
+  // failure is non-fatal — tiles just don't get a substatus picker.
+  loadSubstatuses().then(loadAll, loadAll);
 });
+
+// ── Substatus settings ────────────────────────────────────────────
+function loadSubstatuses() {
+  return SLA.api('GET', '/api/settings').then(function(s) {
+    var raw = s && s.processing_substatuses;
+    if (raw && typeof raw === 'object') {
+      ['new_loan','processing','underwriting','pp_approved','pp_closed'].forEach(function(col) {
+        if (Array.isArray(raw[col])) _substatuses[col] = raw[col].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return String(x).trim(); });
+      });
+    }
+  }).catch(function() { /* non-fatal */ });
+}
 
 // ── Helpers ────────────────────────────────────────────────────────
 function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -400,9 +461,9 @@ function renderCard(it) {
   var isPastDue   = daysOut != null && daysOut < 0 && col !== 'pp_closed';
   var isClosingSn = daysOut != null && daysOut >= 0 && daysOut <= 5;
 
-  // Substatus is a Phase A.2 / F field — render an empty pill so the
-  // tile layout doesn't jump when substatuses ship. Once admins can
-  // configure substatuses per column, this slot gets the picked value.
+  // Substatus pill — shows the current substatus or "No substatus"
+  // placeholder. The picker (Phase F) lives in card-actions below so
+  // anyone with edit access can change it without leaving the board.
   var substatus = loan.processingSubstatus || '';
   var substatusHtml = substatus
     ? '<div class="card-substatus">' + escH(substatus) + '</div>'
@@ -443,6 +504,31 @@ function renderCard(it) {
     var sel = s.v === col ? ' selected' : '';
     return '<option value="' + s.v + '"' + sel + '>' + escH(s.l) + '</option>';
   }).join('');
+  // Deploy 236.97 (Phase F) — substatus picker. Only renders when
+  // the current column has substatuses configured by an admin. The
+  // current loan's substatus is pre-selected; picking a different
+  // one POSTs to the same stage endpoint with substatus + the loan's
+  // CURRENT stage (no stage change).
+  var subs = (_substatuses[col] || []);
+  var substatusPickerHtml = '';
+  if (subs.length > 0) {
+    var subOpts = '<option value="">— substatus —</option>' +
+      subs.map(function(s) {
+        var sel = s === substatus ? ' selected' : '';
+        return '<option value="' + escAttr(s) + '"' + sel + '>' + escH(s) + '</option>';
+      }).join('');
+    substatusPickerHtml =
+      '<select class="substatus-pick"' +
+        ' data-client-id="' + escAttr(client.id) + '"' +
+        ' data-loan-id="'   + escAttr(loan.id)   + '"' +
+        ' data-owner="'     + escAttr(it.ownerKey) + '"' +
+        ' data-stage="'     + escAttr(col || '') + '"' +
+        ' data-current="'   + escAttr(substatus) + '"' +
+        ' onchange="moveLoanSubstatus(this)">' +
+        subOpts +
+      '</select>';
+  }
+
   var moveControls =
     '<div class="card-actions" onclick="event.stopPropagation(); event.preventDefault();">' +
       '<label>Move</label>' +
@@ -454,6 +540,7 @@ function renderCard(it) {
         ' onchange="moveLoanStage(this)">' +
         stageOptions +
       '</select>' +
+      substatusPickerHtml +
     '</div>';
 
   return (
@@ -520,6 +607,91 @@ function moveLoanStage(sel) {
     sel.disabled = false;
     sel.value = current;
     alert('Failed to move loan: ' + (err && err.message ? err.message : 'unknown error'));
+  });
+}
+
+// Deploy 236.97 (Phase F) — substatus picker handler. Posts the new
+// substatus alongside the loan's CURRENT stage so the endpoint treats
+// it as a substatus-only change (no stage transition).
+function moveLoanSubstatus(sel) {
+  var newSub  = sel.value || '';
+  var current = sel.dataset.current || '';
+  if (newSub === current) return;
+
+  var selfKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+  var ownerParam = (sel.dataset.owner && sel.dataset.owner !== selfKey) ? sel.dataset.owner : undefined;
+
+  sel.disabled = true;
+  var body = {
+    clientId:  sel.dataset.clientId,
+    loanId:    sel.dataset.loanId,
+    newStage:  sel.dataset.stage || '',
+    substatus: newSub,
+  };
+  if (ownerParam) body.owner = ownerParam;
+
+  SLA.api('POST', '/api/loan-processing-stage', body).then(function() {
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    return loadAll();
+  }).catch(function(err) {
+    sel.disabled = false;
+    sel.value = current;
+    alert('Failed to update substatus: ' + (err && err.message ? err.message : 'unknown error'));
+  });
+}
+
+// ── Substatus editor (admin only) ─────────────────────────────────
+var SS_COL_LABELS = {
+  'new_loan':     'New Loan',
+  'processing':   'Processing',
+  'underwriting': 'Underwriting',
+  'pp_approved':  'Approved',
+  'pp_closed':    'Closed',
+};
+function openSubstatusEditor() {
+  var html = '';
+  ['new_loan','processing','underwriting','pp_approved','pp_closed'].forEach(function(col) {
+    var current = (_substatuses[col] || []).join('\n');
+    html +=
+      '<div class="ss-col">' +
+        '<h4>' + escH(SS_COL_LABELS[col]) + '</h4>' +
+        '<textarea id="ss-ta-' + col + '" placeholder="One substatus per line — e.g.\nAwaiting docs\nTitle ordered\nAppraisal in">' + escH(current) + '</textarea>' +
+        '<div class="hint">Blank lines are ignored. Leave the box empty if this column has no substatuses.</div>' +
+      '</div>';
+  });
+  document.getElementById('ssCols').innerHTML = html;
+  document.getElementById('ssStatus').textContent = '';
+  document.getElementById('ssStatus').className = 'ss-status';
+  document.getElementById('ssBg').classList.add('show');
+}
+function closeSubstatusEditor() {
+  document.getElementById('ssBg').classList.remove('show');
+}
+function saveSubstatusEditor() {
+  var out = {};
+  ['new_loan','processing','underwriting','pp_approved','pp_closed'].forEach(function(col) {
+    var ta = document.getElementById('ss-ta-' + col);
+    var lines = String(ta && ta.value || '').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+    out[col] = lines;
+  });
+  var btn = document.getElementById('ssSaveBtn');
+  var statusEl = document.getElementById('ssStatus');
+  btn.disabled = true;
+  statusEl.textContent = 'Saving…';
+  statusEl.className = 'ss-status';
+  SLA.api('POST', '/api/settings', { key: 'processing_substatuses', value: out }).then(function() {
+    _substatuses = out;
+    statusEl.textContent = 'Saved.';
+    statusEl.className = 'ss-status ok';
+    btn.disabled = false;
+    setTimeout(function() {
+      closeSubstatusEditor();
+      render(); // re-render to pick up the new substatus options
+    }, 500);
+  }).catch(function(err) {
+    btn.disabled = false;
+    statusEl.textContent = 'Failed: ' + (err && err.message ? err.message : 'unknown');
+    statusEl.className = 'ss-status err';
   });
 }
 

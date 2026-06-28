@@ -17,7 +17,11 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
 } from './_shared/auth.mjs';
 
-const ALLOWED_KEYS = new Set(['banner', 'submit_email', 'slack_webhook']);
+// Deploy 236.97 (Phase F) — processing_substatuses holds the per-
+// column substatus lists for the Processing Pipeline. Shape:
+//   { new_loan: ['Awaiting docs', 'Title ordered'], processing: [...], ... }
+// Edited via the admin gear on processing-pipeline.html.
+const ALLOWED_KEYS = new Set(['banner', 'submit_email', 'slack_webhook', 'processing_substatuses']);
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
