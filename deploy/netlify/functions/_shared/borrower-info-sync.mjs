@@ -346,6 +346,12 @@ export async function advanceQuoteToInProcessing(record) {
       l.status = 'approved';
       l.updatedAt = new Date().toISOString();
       l.borrowerInfoCompletedAt = record.completedAt || new Date().toISOString();
+      // Deploy 236.96 (Phase A.3) — auto-flow into the Processing
+      // Pipeline. When a loan reaches 'approved' it should appear in
+      // the New Loan column. Don't overwrite if a processor has
+      // already moved it forward (defensive — if someone hits the
+      // approval path twice, the second pass shouldn't reset stage).
+      if (!l.processingStage) l.processingStage = 'new_loan';
       // Deploy 226 — audit log entries: app_received + status flip.
       // System-authored because this fires on the borrower's submit, not
       // an LO action.

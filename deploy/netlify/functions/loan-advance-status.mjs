@@ -125,6 +125,14 @@ async function handle(req, context) {
   if (body.newStatus === 'approved' && !targetLoan.borrowerInfoCompletedAt) {
     targetLoan.borrowerInfoCompletedAt = now;
   }
+  // Deploy 236.96 (Phase A.3) — auto-flow into the Processing Pipeline
+  // on manual advance to 'approved'. Same defensive guard as the
+  // borrower-info-sync auto-advance path: only stamp if processingStage
+  // is empty, so a processor who has already moved the loan forward
+  // doesn't lose their column.
+  if (body.newStatus === 'approved' && !targetLoan.processingStage) {
+    targetLoan.processingStage = 'new_loan';
+  }
 
   // Deploy 222 (Phase 3) — auto-fire Baseline sync when this manual
   // advance lands at 'approved'. Same helper as the borrower-info
