@@ -273,6 +273,15 @@
   status = 200
   force = true
 
+# Deploy 236.98 (Phase B.1) — narrow field-edit endpoint for Loan
+# Details inline editors (close date today; rate/points/etc. added
+# as the unification work continues).
+[[redirects]]
+  from = "/api/loan-field-edit"
+  to = "/.netlify/functions/loan-field-edit"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/loan-cancel"
   to = "/.netlify/functions/loan-cancel"
