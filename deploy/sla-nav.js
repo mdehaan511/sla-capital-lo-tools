@@ -28,6 +28,12 @@
   // ── Single source of truth for the navbar links ────────────────
   var LINKS = [
     { label: 'Pipeline', href: 'pipeline.html' },
+    // Deploy 236.93 — Processing Pipeline (Phase A.1). Visible to all
+    // authenticated users for now (LOs, processors, admins). The
+    // separate "hide LO Pipeline from processors" rule comes in a
+    // later phase once there are real processor accounts to test
+    // against.
+    { label: 'Processing', href: 'processing-pipeline.html' },
     {
       label: 'Clients',
       // Grouped to declutter the navbar. Default label is "Clients" since

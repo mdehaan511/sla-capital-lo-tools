@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Processing Pipeline — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+      /* Processing Pipeline column accents — distinct from LO Pipeline so
+         the two pages feel related but not interchangeable. Cool blues +
+         purple + green progression from intake to close. */
+      --col-new:        #5a6f8a;  --col-new-bg:        rgba(90,111,138,0.08);
+      --col-processing: #4a7a8a;  --col-processing-bg: rgba(74,122,138,0.08);
+      --col-uw:         #6a4a8a;  --col-uw-bg:         rgba(106,74,138,0.08);
+      --col-approved:   #256940;  --col-approved-bg:   rgba(37,105,64,0.08);
+      --col-closed:     #4a4a4a;  --col-closed-bg:     rgba(74,74,74,0.08);
+      --closing-soon:   #c98e1a;  --closing-soon-bg:   rgba(201,142,26,0.10);
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+
+    .page { max-width: 100%; margin: 0 auto; padding-top: 1.25rem; }
+    .page-header { margin-bottom: 1.25rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+
+    .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
+    .search-box:focus { outline: none; border-color: var(--gold); }
+    .lo-filter { padding: 7px 28px 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23766f80' d='M0 0l5 6 5-6z'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; }
+    .lo-filter:focus { outline: none; border-color: var(--gold); }
+    .lo-filter.has-value { border-color: var(--gold); background-color: rgba(200,129,58,0.06); color: var(--gold); font-weight: 600; }
+
+    .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; min-height: 60vh; }
+    @media (max-width: 1400px) { .board { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 900px)  { .board { grid-template-columns: 1fr; } }
+
+    .col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; min-height: 50vh; }
+    .col-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 2px solid; }
+    .col-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+    .col-head .cnt { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,0.05); color: var(--muted); }
+    .col[data-col="new_loan"]    .col-head { border-color: var(--col-new); }        .col[data-col="new_loan"]    .col-head h3 { color: var(--col-new); }
+    .col[data-col="processing"]  .col-head { border-color: var(--col-processing); } .col[data-col="processing"]  .col-head h3 { color: var(--col-processing); }
+    .col[data-col="underwriting"].col-head { border-color: var(--col-uw); }         .col[data-col="underwriting"].col-head h3 { color: var(--col-uw); }
+    .col[data-col="pp_approved"] .col-head { border-color: var(--col-approved); }   .col[data-col="pp_approved"] .col-head h3 { color: var(--col-approved); }
+    .col[data-col="pp_closed"]   .col-head { border-color: var(--col-closed); }     .col[data-col="pp_closed"]   .col-head h3 { color: var(--col-closed); }
+
+    .cards { display: flex; flex-direction: column; gap: 10px; }
+    .card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 12px; text-decoration: none; color: var(--text); display: block; transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s; cursor: pointer; }
+    .card:hover { border-color: var(--gold); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    .card.closing-soon { background: var(--closing-soon-bg); border-color: var(--closing-soon); }
+    .card.closing-soon:hover { border-color: var(--gold); }
+
+    .card-addr { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.35; margin-bottom: 8px; word-break: break-word; }
+    .card-substatus { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--muted); display: inline-block; margin-bottom: 8px; }
+    .card-substatus.empty { color: rgba(122,116,136,0.5); font-style: italic; }
+    .card-amt { font-size: 14px; font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace; margin-bottom: 6px; }
+    .card-borrower { font-size: 12px; color: var(--muted); margin-bottom: 6px; word-break: break-word; }
+    .card-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .card-meta .tag { padding: 2px 7px; border-radius: 10px; background: rgba(0,0,0,0.05); }
+    .card-meta .tag.dscr { background: var(--gold-light); color: var(--gold-mid); }
+    .card-meta .tag.rtl  { background: rgba(38,26,54,0.08); color: var(--dark); }
+    .card-meta .tag.guc  { background: rgba(37,99,235,0.10); color: #2563eb; border: 1px solid rgba(37,99,235,0.30); }
+    .card-meta .tag.close-date { background: rgba(0,0,0,0.05); }
+    .card-meta .tag.close-date.soon { background: var(--closing-soon-bg); color: var(--closing-soon); font-weight: 600; }
+
+    .lo-tag { font-size: 10px; font-weight: 600; color: var(--muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.04em; }
+
+    .empty-col { font-size: 11px; color: rgba(122,116,136,0.55); text-align: center; padding: 18px 8px; font-style: italic; }
+    .loading { font-size: 13px; color: var(--muted); padding: 2rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Processing Pipeline</h1>
+        <p>Loans in processing — from LO approval through underwriting to close.</p>
+      </div>
+      <div class="ctrl-row">
+        <input type="text" class="search-box" id="searchBox" placeholder="Search address, borrower…" />
+        <select class="lo-filter" id="loFilter" style="display:none">
+          <option value="">All Loan Officers</option>
+        </select>
+      </div>
+    </div>
+    <div id="boardWrap"><div class="loading">Loading pipeline…</div></div>
+  </div>
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────────────
+var _user = null;
+var _isAdmin = false;
+var _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
+var _loDisplayMap = {}; // ownerKey -> display name
+var _loFilterValue = '';
+
+// ── Auth gate ──────────────────────────────────────────────────────
+// Per Phase A scope: any authenticated user can view the Processing
+// Pipeline (LOs, processors, admins). The LO Pipeline hide-from-
+// processors logic is a separate change — when there's an actual
+// processor user, we'll wire that into sla-nav.js. For now this page
+// is visible to everyone who can log in.
+window.netlifyIdentity.on('init', function(user) {
+  if (!user) {
+    window.location.replace('/');
+    return;
+  }
+  _user = user;
+  _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  if (_isAdmin) document.getElementById('loFilter').style.display = '';
+  loadAll();
+});
+
+// ── Helpers ────────────────────────────────────────────────────────
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function num(v) { var n = parseFloat(String(v||'').replace(/[$,]/g,'')); return isFinite(n) ? n : 0; }
+function fmtMoney(v) { var n = num(v); return n > 0 ? '$' + Math.round(n).toLocaleString() : '—'; }
+function loDisplay(ownerKey) {
+  if (!ownerKey) return '';
+  if (_loDisplayMap[ownerKey]) return _loDisplayMap[ownerKey];
+  // Fallback: turn keysafe email back into something readable.
+  return String(ownerKey).replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
+}
+
+// Parse a date string (YYYY-MM-DD or ISO) as LOCAL date — not UTC —
+// to avoid the same off-by-one-day trap dashboard.html hit in 233.8.
+// Returns Date or null.
+function parseLocalDate(s) {
+  if (!s) return null;
+  var str = String(s).trim();
+  // YYYY-MM-DD → local midnight
+  var m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    var d = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  var d2 = new Date(str);
+  return isNaN(d2.getTime()) ? null : d2;
+}
+
+// Closing-soon rule (Mike): within next 5 days from today turns the
+// tile yellow. Includes "today" and excludes the past — past-due
+// closings still render but without the urgency styling, since by
+// that point the deal is either funded (and should be in the Closed
+// column) or genuinely late and deserves a different signal.
+function daysUntilClose(closeDateStr) {
+  var d = parseLocalDate(closeDateStr);
+  if (!d) return null;
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var diffMs = d.getTime() - today.getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+function isClosingSoon(closeDateStr) {
+  var d = daysUntilClose(closeDateStr);
+  return d != null && d >= 0 && d <= 5;
+}
+function fmtCloseDate(closeDateStr) {
+  var d = parseLocalDate(closeDateStr);
+  if (!d) return '';
+  var mo = d.getMonth() + 1, day = d.getDate(), yr = String(d.getFullYear()).slice(-2);
+  return mo + '/' + day + '/' + yr;
+}
+
+// ── Status → Column mapping ────────────────────────────────────────
+// Phase A.1: column placement is derived from the existing fields.
+// `processingStage` (Phase A.2) will be the authoritative field once
+// we add it; for now we fall back to inferring from `status`:
+//   status === 'approved' (= "In Processing")         → New Loan
+//   status === 'closed' / 'liquidated'                 → Closed
+//   anything else with processingStage set explicitly  → that column
+// Loans not in this set (active, on_hold, submitted, denied,
+// cancelled, awaiting_app) don't belong here — they're still in the
+// LO Pipeline. Once stage transitions ship in A.2, processingStage
+// alone will drive placement.
+function columnFor(loan) {
+  var stage = String(loan.processingStage || '').toLowerCase().trim();
+  if (stage === 'processing')   return 'processing';
+  if (stage === 'underwriting') return 'underwriting';
+  if (stage === 'pp_approved')  return 'pp_approved';
+  if (stage === 'pp_closed')    return 'pp_closed';
+  if (stage === 'new_loan')     return 'new_loan';
+  var status = String(loan.status || '').toLowerCase().trim();
+  if (status === 'closed' || status === 'liquidated') return 'pp_closed';
+  if (status === 'approved') return 'new_loan';
+  return null; // not in this pipeline
+}
+
+// ── Data load ──────────────────────────────────────────────────────
+function loadAll() {
+  // Admins see all owners; everyone else sees only their own loans.
+  // (Processors will need broader visibility once that role is in
+  // active use — handled in a later phase along with the LO-pipeline
+  // hide. For now everyone-but-admin is treated as an LO.)
+  var clientsP  = _isAdmin
+    ? SLA.Clients.list({ all: true })
+    : SLA.Clients.list();
+  var profilesP = (SLA.Profile && SLA.Profile.listAll)
+    ? SLA.Profile.listAll().catch(function() { return { profiles: [] }; })
+    : Promise.resolve({ profiles: [] });
+
+  Promise.all([clientsP, profilesP]).then(function(results) {
+    var clientsResp = results[0];
+    var profilesResp = results[1] || { profiles: [] };
+
+    // Build LO display map from profiles (for admin-mode tile attribution).
+    (profilesResp.profiles || []).forEach(function(p) {
+      if (!p || !p.email) return;
+      var key = String(p.email).toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+      _loDisplayMap[key] = p.fullName || p.email;
+    });
+
+    // Walk every client → every loan, slot into the right column.
+    _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
+    if (clientsResp.byOwner) {
+      Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
+        (clientsResp.byOwner[ownerKey] || []).forEach(function(client) {
+          (client.loans || []).forEach(function(loan) {
+            var col = columnFor(loan);
+            if (!col) return;
+            _items[col].push({
+              ownerKey: ownerKey,
+              client: client,
+              loan: loan,
+            });
+          });
+        });
+      });
+    } else if (clientsResp.clients) {
+      var myKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+      clientsResp.clients.forEach(function(client) {
+        (client.loans || []).forEach(function(loan) {
+          var col = columnFor(loan);
+          if (!col) return;
+          _items[col].push({
+            ownerKey: myKey,
+            client: client,
+            loan: loan,
+          });
+        });
+      });
+    }
+
+    // Sort each column: closing-soon first (urgency to top), then by
+    // closing date ascending (sooner = higher), then most-recently-
+    // updated last as a tiebreaker for loans with no close date.
+    Object.keys(_items).forEach(function(col) {
+      _items[col].sort(function(a, b) {
+        var aSoon = isClosingSoon(a.loan.fundingDate) ? 0 : 1;
+        var bSoon = isClosingSoon(b.loan.fundingDate) ? 0 : 1;
+        if (aSoon !== bSoon) return aSoon - bSoon;
+        var aDays = daysUntilClose(a.loan.fundingDate);
+        var bDays = daysUntilClose(b.loan.fundingDate);
+        if (aDays != null && bDays != null) return aDays - bDays;
+        if (aDays != null) return -1;
+        if (bDays != null) return 1;
+        var aU = new Date(a.loan.updatedAt || 0).getTime();
+        var bU = new Date(b.loan.updatedAt || 0).getTime();
+        return bU - aU;
+      });
+    });
+
+    // Populate the LO filter (admins only).
+    if (_isAdmin) {
+      var sel = document.getElementById('loFilter');
+      var seen = {};
+      Object.keys(_items).forEach(function(col) {
+        _items[col].forEach(function(it) {
+          if (!it.ownerKey || seen[it.ownerKey]) return;
+          seen[it.ownerKey] = true;
+        });
+      });
+      Object.keys(seen).sort().forEach(function(ownerKey) {
+        var opt = document.createElement('option');
+        opt.value = ownerKey;
+        opt.textContent = loDisplay(ownerKey);
+        sel.appendChild(opt);
+      });
+    }
+
+    render();
+  }).catch(function(err) {
+    document.getElementById('boardWrap').innerHTML =
+      '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err.message || 'unknown error') + '</div>';
+  });
+}
+
+// ── Render ─────────────────────────────────────────────────────────
+function render() {
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var loFilter = (_loFilterValue || '').toLowerCase();
+
+  function visible(it) {
+    if (loFilter && (it.ownerKey || '').toLowerCase() !== loFilter) return false;
+    if (search) {
+      var hay = (
+        (it.loan.address || '') + ' ' +
+        ((it.client.firstName || '') + ' ' + (it.client.lastName || '')) + ' ' +
+        (it.client.email || '')
+      ).toLowerCase();
+      if (hay.indexOf(search) < 0) return false;
+    }
+    return true;
+  }
+
+  var cols = [
+    { key: 'new_loan',     label: 'New Loan' },
+    { key: 'processing',   label: 'Processing' },
+    { key: 'underwriting', label: 'Underwriting' },
+    { key: 'pp_approved',  label: 'Approved' },
+    { key: 'pp_closed',    label: 'Closed' },
+  ];
+
+  var html = '<div class="board">';
+  cols.forEach(function(col) {
+    var items = (_items[col.key] || []).filter(visible);
+    html += '<div class="col" data-col="' + col.key + '">' +
+      '<div class="col-head"><h3>' + escH(col.label) + '</h3><span class="cnt">' + items.length + '</span></div>' +
+      '<div class="cards">';
+    if (items.length === 0) {
+      html += '<div class="empty-col">No loans</div>';
+    } else {
+      items.forEach(function(it) { html += renderCard(it); });
+    }
+    html += '</div></div>';
+  });
+  html += '</div>';
+  document.getElementById('boardWrap').innerHTML = html;
+}
+
+function renderCard(it) {
+  var loan = it.loan, client = it.client;
+  var addr = loan.address || '(no address)';
+  var amt  = fmtMoney(loan.loanAmt);
+  var name = ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || client.email || '(unknown)';
+  var tool = String(loan.toolType || 'dscr').toLowerCase();
+  var toolLabel = tool === 'rtl' ? 'RTL' : tool === 'guc' ? 'GUC' : 'DSCR';
+  var closeDate = loan.fundingDate || '';
+  var closingSoon = isClosingSoon(closeDate);
+  var closeStr = fmtCloseDate(closeDate);
+
+  // Substatus is a Phase A.2 / F field — render an empty pill so the
+  // tile layout doesn't jump when substatuses ship. Once admins can
+  // configure substatuses per column, this slot gets the picked value.
+  var substatus = loan.processingSubstatus || '';
+  var substatusHtml = substatus
+    ? '<div class="card-substatus">' + escH(substatus) + '</div>'
+    : '<div class="card-substatus empty">No substatus</div>';
+
+  // Deep-link to loan-details with the full triple-key including
+  // owner. _isAdmin && cross-owner is the only case where ?owner=
+  // matters; for an LO's own loan it's redundant but harmless.
+  var href = 'loan-details.html?clientId=' + encodeURIComponent(client.id) +
+             '&loanId=' + encodeURIComponent(loan.id) +
+             '&owner=' + encodeURIComponent(it.ownerKey);
+
+  var loRow = (_isAdmin)
+    ? '<div class="lo-tag">' + escH(loDisplay(it.ownerKey)) + '</div>'
+    : '';
+
+  var closeTag = closeStr
+    ? '<span class="tag close-date' + (closingSoon ? ' soon' : '') + '">Close ' + escH(closeStr) + '</span>'
+    : '';
+
+  return (
+    '<a class="card' + (closingSoon ? ' closing-soon' : '') + '" href="' + escAttr(href) + '">' +
+      loRow +
+      '<div class="card-addr">' + escH(addr) + '</div>' +
+      substatusHtml +
+      '<div class="card-amt">' + escH(amt) + '</div>' +
+      '<div class="card-borrower">' + escH(name) + '</div>' +
+      '<div class="card-meta">' +
+        '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
+        closeTag +
+      '</div>' +
+    '</a>'
+  );
+}
+
+// ── Event wiring ───────────────────────────────────────────────────
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.id === 'searchBox') render();
+});
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'loFilter') {
+    _loFilterValue = e.target.value || '';
+    e.target.classList.toggle('has-value', !!_loFilterValue);
+    render();
+  }
+});
+</script>
+</body>
+</html>
