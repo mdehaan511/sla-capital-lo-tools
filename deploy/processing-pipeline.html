@@ -75,6 +75,12 @@
     .card:hover { border-color: var(--gold); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
     .card.closing-soon { background: var(--closing-soon-bg); border-color: var(--closing-soon); }
     .card.closing-soon:hover { border-color: var(--gold); }
+    /* Deploy 236.94 — past-due closing date AND not in the Closed
+       column. Funded loans rightly sit in Closed regardless of how
+       far past their original target — only loans still in motion
+       get the red flag. */
+    .card.past-due { background: rgba(124,31,31,0.06); border-color: var(--danger); }
+    .card.past-due:hover { border-color: var(--danger); }
 
     .card-addr { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.35; margin-bottom: 8px; word-break: break-word; }
     .card-substatus { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--muted); display: inline-block; margin-bottom: 8px; }
@@ -88,6 +94,7 @@
     .card-meta .tag.guc  { background: rgba(37,99,235,0.10); color: #2563eb; border: 1px solid rgba(37,99,235,0.30); }
     .card-meta .tag.close-date { background: rgba(0,0,0,0.05); }
     .card-meta .tag.close-date.soon { background: var(--closing-soon-bg); color: var(--closing-soon); font-weight: 600; }
+    .card-meta .tag.close-date.past { background: rgba(124,31,31,0.10); color: var(--danger); font-weight: 600; }
 
     .lo-tag { font-size: 10px; font-weight: 600; color: var(--muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.04em; }
 
@@ -276,22 +283,26 @@ function loadAll() {
       });
     }
 
-    // Sort each column: closing-soon first (urgency to top), then by
-    // closing date ascending (sooner = higher), then most-recently-
-    // updated last as a tiebreaker for loans with no close date.
+    // Sort each column by daysUntilClose ascending — past-due
+    // (negative) sorts above closing-soon (0-5), which sorts above
+    // future dates, which sorts above no-date. Loans without a
+    // close date fall to the bottom, ordered by most-recently-
+    // updated. Deploy 236.94 simplified this from the prior
+    // "isClosingSoon first" comparator since past-due is more
+    // urgent than closing-soon and the date arithmetic already
+    // expresses that ordering when read ascending.
     Object.keys(_items).forEach(function(col) {
       _items[col].sort(function(a, b) {
-        var aSoon = isClosingSoon(a.loan.fundingDate) ? 0 : 1;
-        var bSoon = isClosingSoon(b.loan.fundingDate) ? 0 : 1;
-        if (aSoon !== bSoon) return aSoon - bSoon;
         var aDays = daysUntilClose(a.loan.fundingDate);
         var bDays = daysUntilClose(b.loan.fundingDate);
-        if (aDays != null && bDays != null) return aDays - bDays;
-        if (aDays != null) return -1;
-        if (bDays != null) return 1;
-        var aU = new Date(a.loan.updatedAt || 0).getTime();
-        var bU = new Date(b.loan.updatedAt || 0).getTime();
-        return bU - aU;
+        if (aDays == null && bDays == null) {
+          var aU = new Date(a.loan.updatedAt || 0).getTime();
+          var bU = new Date(b.loan.updatedAt || 0).getTime();
+          return bU - aU;
+        }
+        if (aDays == null) return 1;
+        if (bDays == null) return -1;
+        return aDays - bDays;
       });
     });
 
@@ -371,8 +382,15 @@ function renderCard(it) {
   var tool = String(loan.toolType || 'dscr').toLowerCase();
   var toolLabel = tool === 'rtl' ? 'RTL' : tool === 'guc' ? 'GUC' : 'DSCR';
   var closeDate = loan.fundingDate || '';
-  var closingSoon = isClosingSoon(closeDate);
+  var daysOut  = daysUntilClose(closeDate);
   var closeStr = fmtCloseDate(closeDate);
+  // Deploy 236.94 — past-due rule: close date in the past AND the
+  // loan is still in flight (any column other than Closed). Funded
+  // loans in Closed shouldn't get a red flag just because their
+  // original target slipped — the deal is done.
+  var col = columnFor(loan);
+  var isPastDue   = daysOut != null && daysOut < 0 && col !== 'pp_closed';
+  var isClosingSn = daysOut != null && daysOut >= 0 && daysOut <= 5;
 
   // Substatus is a Phase A.2 / F field — render an empty pill so the
   // tile layout doesn't jump when substatuses ship. Once admins can
@@ -389,17 +407,18 @@ function renderCard(it) {
              '&loanId=' + encodeURIComponent(loan.id) +
              '&owner=' + encodeURIComponent(it.ownerKey);
 
-  var loRow = (_isAdmin)
-    ? '<div class="lo-tag">' + escH(loDisplay(it.ownerKey)) + '</div>'
-    : '';
+  // Deploy 236.94 — LO email/name row removed from the tile header
+  // per Mike's feedback. The LO filter at the top of the page covers
+  // attribution when admins need it.
 
+  var closeTagClass = isPastDue ? ' past' : (isClosingSn ? ' soon' : '');
   var closeTag = closeStr
-    ? '<span class="tag close-date' + (closingSoon ? ' soon' : '') + '">Close ' + escH(closeStr) + '</span>'
+    ? '<span class="tag close-date' + closeTagClass + '">Close ' + escH(closeStr) + '</span>'
     : '';
+  var cardClass = isPastDue ? ' past-due' : (isClosingSn ? ' closing-soon' : '');
 
   return (
-    '<a class="card' + (closingSoon ? ' closing-soon' : '') + '" href="' + escAttr(href) + '">' +
-      loRow +
+    '<a class="card' + cardClass + '" href="' + escAttr(href) + '">' +
       '<div class="card-addr">' + escH(addr) + '</div>' +
       substatusHtml +
       '<div class="card-amt">' + escH(amt) + '</div>' +
