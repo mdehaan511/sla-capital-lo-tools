@@ -671,12 +671,57 @@ function moveLoanByDrop(loanKey, newStage, currentStage) {
   var body = { clientId: clientId, loanId: loanId, newStage: newStage };
   if (ownerParam) body.owner = ownerParam;
 
+  // Deploy 236.104 — OPTIMISTIC drop. Move the card DOM into the
+  // target column immediately so the user sees the result the
+  // instant they release the mouse. Network round-trip + cache
+  // refresh continue in the background. On failure we reload to
+  // revert. Updates column count badges live; clears "Drop here"
+  // placeholder in the target if it was empty; adds one back to the
+  // source if it just became empty.
+  var card = (function() {
+    var nodes = document.querySelectorAll('.card[data-loan-key]');
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].getAttribute('data-loan-key') === loanKey) return nodes[i];
+    }
+    return null;
+  })();
+  var targetCards = document.querySelector('.col[data-col="' + newStage + '"] .cards');
+  var sourceCards = card && card.parentNode;
+  if (card && targetCards && sourceCards !== targetCards) {
+    var srcEmpty = targetCards.querySelector('.empty-col');
+    if (srcEmpty) srcEmpty.remove();
+    targetCards.appendChild(card);
+    card.setAttribute('data-stage', newStage);
+    if (sourceCards && !sourceCards.querySelector('.card')) {
+      var placeholder = document.createElement('div');
+      placeholder.className = 'empty-col';
+      placeholder.textContent = 'Drop here';
+      sourceCards.appendChild(placeholder);
+    }
+    _updateColumnCounts();
+  }
+
   SLA.api('POST', '/api/loan-processing-stage', body).then(function() {
+    // Quiet background sync — DOM already reflects the move, so this
+    // is just to pull updated substatus options, sort order, and the
+    // notesLog stage_change entry. Failures here mean the next manual
+    // refresh will reconcile; no alert needed.
     if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
-    return loadAll();
+    loadAll();
   }).catch(function(err) {
     alert('Failed to move loan: ' + (err && err.message ? err.message : 'unknown'));
-    loadAll(); // reload to revert any optimistic visual state
+    loadAll(); // server didn't update — reload to undo the optimistic move
+  });
+}
+
+// Recompute and write the count badges on each column header. Cheap
+// (just counts .card descendants per column) so safe to call after
+// every optimistic move.
+function _updateColumnCounts() {
+  document.querySelectorAll('.col').forEach(function(col) {
+    var cnt = col.querySelector('.col-head .cnt');
+    if (!cnt) return;
+    cnt.textContent = col.querySelectorAll('.cards .card').length;
   });
 }
 
