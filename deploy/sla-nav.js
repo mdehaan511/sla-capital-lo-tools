@@ -48,6 +48,9 @@
     // Deploy 236.71 — Loan Doc Review tool. Visible to processors and
     // admins (admins implicitly have processor access).
     { label: 'Doc Review', href: 'loan-review.html', requires: 'processor' },
+    // Deploy 236.106 (Phase C) — cross-loan Tasks view. Visible to
+    // everyone authenticated; admins see a "All users" toggle.
+    { label: 'Tasks', href: 'tasks.html' },
     { label: 'Submissions', href: 'submissions.html', requires: 'admin' },
     { label: 'Dashboard',   href: 'dashboard.html',   requires: 'admin' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile

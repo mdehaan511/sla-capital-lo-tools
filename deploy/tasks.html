@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tasks — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+
+    .page { max-width: 1280px; margin: 0 auto; padding-top: 1.5rem; }
+    .page-header { margin-bottom: 1.5rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 26px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+    .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
+    .scope-toggle button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .scope-toggle button.active { background: var(--dark); color: #fff; }
+
+    .filter-pill { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .filter-pill.active { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .filter-pill:hover:not(.active) { border-color: var(--gold); color: var(--gold); }
+
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+    @media (max-width: 700px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 14px 16px; }
+    .stat-card .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+    .stat-card .val { font-size: 24px; font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace; }
+    .stat-card.past-due .val { color: var(--danger); }
+    .stat-card.due-soon .val { color: var(--warn); }
+    .stat-card.complete .val { color: var(--success); }
+
+    .tasks-table { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .tasks-table-head { display: grid; grid-template-columns: 30px 1.5fr 1fr 110px 130px 130px 30px; gap: 12px; padding: 12px 16px; background: rgba(38,26,54,0.04); border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: var(--muted); }
+    .tasks-table-row { display: grid; grid-template-columns: 30px 1.5fr 1fr 110px 130px 130px 30px; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--border); align-items: center; font-size: 13px; transition: background 0.10s; }
+    .tasks-table-row:last-child { border-bottom: none; }
+    .tasks-table-row:hover { background: var(--bg); }
+    .tasks-table-row.done { opacity: 0.55; }
+    .tasks-table-row.done .t-title { text-decoration: line-through; }
+    .tasks-table-row.past-due:not(.done) { background: rgba(124,31,31,0.04); }
+    .tasks-table-row.past-due:not(.done) .t-due { color: var(--danger); font-weight: 700; }
+    .t-check { width: 18px; height: 18px; cursor: pointer; accent-color: var(--gold); margin: 0; }
+    .t-title { font-weight: 500; word-break: break-word; }
+    .t-loan a { color: var(--gold-mid); text-decoration: none; font-size: 12px; word-break: break-word; }
+    .t-loan a:hover { color: var(--gold); text-decoration: underline; }
+    .t-due { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
+    .t-assignee { font-size: 12px; color: var(--muted); word-break: break-word; }
+    .t-creator { font-size: 11px; color: var(--muted); word-break: break-word; }
+    .t-delete { background: transparent; border: none; color: rgba(122,116,136,0.5); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; }
+    .t-delete:hover { color: var(--danger); background: rgba(124,31,31,0.08); }
+    .empty-state { padding: 3rem 1rem; text-align: center; color: var(--muted); font-style: italic; font-size: 13px; }
+    .loading { padding: 3rem 1rem; text-align: center; color: var(--muted); font-size: 13px; }
+    @media (max-width: 900px) {
+      .tasks-table-head, .tasks-table-row { grid-template-columns: 30px 1fr 90px 30px; }
+      .tasks-table-head .h-loan, .tasks-table-head .h-assignee, .tasks-table-head .h-creator { display: none; }
+      .tasks-table-row .t-loan, .tasks-table-row .t-assignee, .tasks-table-row .t-creator { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Tasks</h1>
+        <p>Your pending tasks across all loans. Past-due items show in red.</p>
+      </div>
+      <div class="ctrl-row">
+        <div class="scope-toggle" id="scopeToggle" style="display:none">
+          <button id="scopeMyBtn"  class="active" onclick="setScope('me')">My tasks</button>
+          <button id="scopeAllBtn"             onclick="setScope('all')">All users</button>
+        </div>
+        <button class="filter-pill active" id="fltOpenBtn" onclick="setFilter('open')">Open</button>
+        <button class="filter-pill"        id="fltDoneBtn" onclick="setFilter('done')">Completed</button>
+        <button class="filter-pill"        id="fltAllBtn"  onclick="setFilter('all')">All</button>
+      </div>
+    </div>
+
+    <div class="stats-row" id="statsRow"></div>
+    <div class="tasks-table" id="tasksTable"><div class="loading">Loading tasks…</div></div>
+  </div>
+
+<script>
+'use strict';
+
+var _user = null;
+var _isAdmin = false;
+var _tasks = [];
+var _scope  = 'me';   // 'me' | 'all' (admin only)
+var _filter = 'open'; // 'open' | 'done' | 'all'
+
+window.netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  if (_isAdmin) document.getElementById('scopeToggle').style.display = '';
+  loadTasks();
+});
+
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function parseLocalDate(s) {
+  if (!s) return null;
+  var m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) { var d2 = new Date(s); return isNaN(d2.getTime()) ? null : d2; }
+  var d = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+  return isNaN(d.getTime()) ? null : d;
+}
+function daysUntil(s) {
+  var d = parseLocalDate(s); if (!d) return null;
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.floor((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+function isPastDue(t) {
+  if (t.completed) return false;
+  var dn = daysUntil(t.dueDate);
+  return dn != null && dn < 0;
+}
+function isDueSoon(t) {
+  if (t.completed) return false;
+  var dn = daysUntil(t.dueDate);
+  return dn != null && dn >= 0 && dn <= 7;
+}
+function fmtDate(s) {
+  var d = parseLocalDate(s); if (!d) return s || '';
+  var mo = d.getMonth() + 1, day = d.getDate(), yr = String(d.getFullYear()).slice(-2);
+  return mo + '/' + day + '/' + yr;
+}
+
+function loadTasks() {
+  var url;
+  if (_scope === 'all' && _isAdmin) url = '/api/tasks-list?all=1';
+  else                               url = '/api/tasks-list?assignedTo=me';
+  document.getElementById('tasksTable').innerHTML = '<div class="loading">Loading tasks…</div>';
+  SLA.api('GET', url).then(function(resp) {
+    _tasks = (resp && resp.tasks) || [];
+    render();
+  }).catch(function(err) {
+    document.getElementById('tasksTable').innerHTML =
+      '<div class="loading" style="color:var(--danger)">Failed to load tasks: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+
+function setScope(s) {
+  _scope = s;
+  document.getElementById('scopeMyBtn').classList.toggle('active',  s === 'me');
+  document.getElementById('scopeAllBtn').classList.toggle('active', s === 'all');
+  loadTasks();
+}
+function setFilter(f) {
+  _filter = f;
+  ['open','done','all'].forEach(function(k) {
+    var b = document.getElementById('flt' + (k.charAt(0).toUpperCase()+k.slice(1)) + 'Btn');
+    if (b) b.classList.toggle('active', k === f);
+  });
+  render();
+}
+
+function render() {
+  // Stats compute over the FULL loaded set (not the filter view) so
+  // the cards reflect the true picture regardless of which filter is
+  // active.
+  var stats = {
+    total: _tasks.length,
+    open:    _tasks.filter(function(t){ return !t.completed; }).length,
+    pastDue: _tasks.filter(isPastDue).length,
+    dueSoon: _tasks.filter(isDueSoon).length,
+    done:    _tasks.filter(function(t){ return t.completed; }).length,
+  };
+  document.getElementById('statsRow').innerHTML =
+    '<div class="stat-card"><div class="lbl">Open</div><div class="val">' + stats.open + '</div></div>' +
+    '<div class="stat-card past-due"><div class="lbl">Past Due</div><div class="val">' + stats.pastDue + '</div></div>' +
+    '<div class="stat-card due-soon"><div class="lbl">Due in 7 Days</div><div class="val">' + stats.dueSoon + '</div></div>' +
+    '<div class="stat-card complete"><div class="lbl">Completed</div><div class="val">' + stats.done + '</div></div>';
+
+  var rows = _tasks.slice();
+  if (_filter === 'open') rows = rows.filter(function(t){ return !t.completed; });
+  else if (_filter === 'done') rows = rows.filter(function(t){ return  t.completed; });
+
+  rows.sort(function(a, b) {
+    if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1;
+    var ad = String(a.dueDate || ''), bd = String(b.dueDate || '');
+    if (ad && bd) { if (ad < bd) return -1; if (ad > bd) return 1; }
+    else if (ad) return -1;
+    else if (bd) return 1;
+    return String(b.createdAt || '') > String(a.createdAt || '') ? 1 : -1;
+  });
+
+  if (rows.length === 0) {
+    document.getElementById('tasksTable').innerHTML =
+      '<div class="empty-state">' +
+        (_filter === 'open' ? 'No open tasks. Nice work.' :
+         _filter === 'done' ? 'No completed tasks yet.' :
+         'No tasks yet. Add the first one from a loan\'s Details page.') +
+      '</div>';
+    return;
+  }
+
+  var html =
+    '<div class="tasks-table-head">' +
+      '<div></div>' +
+      '<div>Task</div>' +
+      '<div class="h-loan">Loan</div>' +
+      '<div>Due</div>' +
+      '<div class="h-assignee">Assignee</div>' +
+      '<div class="h-creator">Added by</div>' +
+      '<div></div>' +
+    '</div>';
+  html += rows.map(renderRow).join('');
+  document.getElementById('tasksTable').innerHTML = html;
+}
+
+function renderRow(t) {
+  var past = isPastDue(t);
+  var due  = t.dueDate ? fmtDate(t.dueDate) : '—';
+  // Loan deep-link — reconstruct from clientId/loanId/ownerKey.
+  var ownerEmail = (t.ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
+  var loanHref = 'loan-details.html?clientId=' + encodeURIComponent(t.clientId) +
+                 '&loanId='   + encodeURIComponent(t.loanId) +
+                 '&owner='    + encodeURIComponent(ownerEmail);
+  return '<div class="tasks-table-row' + (t.completed ? ' done' : '') + (past ? ' past-due' : '') + '" data-task-id="' + escAttr(t.id) + '">' +
+    '<input type="checkbox" class="t-check"' + (t.completed ? ' checked' : '') + ' onchange="toggleComplete(\'' + escAttr(t.id) + '\', this.checked)" />' +
+    '<div class="t-title">' + escH(t.title) + '</div>' +
+    '<div class="t-loan"><a href="' + escAttr(loanHref) + '">' + escH(t.clientId || '') + ' · ' + escH((t.loanId || '').slice(-6)) + '</a></div>' +
+    '<div class="t-due">' + escH(due) + '</div>' +
+    '<div class="t-assignee">' + escH(t.assignedToName || t.assignedTo || '—') + '</div>' +
+    '<div class="t-creator">' + escH(t.createdByName || t.createdBy || '') + '</div>' +
+    '<button class="t-delete" onclick="del(\'' + escAttr(t.id) + '\', \'' + escAttr(t.ownerKey || '') + '\')" title="Delete">✕</button>' +
+  '</div>';
+}
+
+function toggleComplete(taskId, checked) {
+  var t = _tasks.find(function(x) { return x.id === taskId; });
+  if (!t) return;
+  var prev = t.completed;
+  t.completed = !!checked;
+  render();
+  // For cross-LO admin all-view, thread the owner via the loan's
+  // ownerKey. Convert keysafe back to email — only the helpful
+  // back-mapping the API endpoint accepts (it re-keySafes anyway).
+  var ownerEmail = (t.ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
+  var body = { clientId: t.clientId, loanId: t.loanId, taskId: taskId, completed: !!checked, owner: ownerEmail };
+  SLA.api('POST', '/api/tasks-save', body).then(function(resp) {
+    if (resp && resp.task) {
+      var idx = _tasks.findIndex(function(x){ return x.id === taskId; });
+      if (idx >= 0) _tasks[idx] = resp.task;
+      render();
+    }
+  }).catch(function(err) {
+    t.completed = prev; render();
+    alert('Failed to update: ' + (err && err.message || 'unknown'));
+  });
+}
+
+function del(taskId, ownerKey) {
+  if (!confirm('Delete this task? This cannot be undone.')) return;
+  var idx = _tasks.findIndex(function(t) { return t.id === taskId; });
+  if (idx < 0) return;
+  var removed = _tasks.splice(idx, 1)[0];
+  render();
+  var ownerEmail = (ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
+  SLA.api('POST', '/api/tasks-delete', { taskId: taskId, owner: ownerEmail }).catch(function(err) {
+    _tasks.splice(idx, 0, removed); render();
+    alert('Failed to delete: ' + (err && err.message || 'unknown'));
+  });
+}
+</script>
+</body>
+</html>
