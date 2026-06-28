@@ -28,12 +28,16 @@
   // ── Single source of truth for the navbar links ────────────────
   var LINKS = [
     { label: 'Pipeline', href: 'pipeline.html' },
-    // Deploy 236.93 — Processing Pipeline (Phase A.1). Visible to all
-    // authenticated users for now (LOs, processors, admins). The
-    // separate "hide LO Pipeline from processors" rule comes in a
-    // later phase once there are real processor accounts to test
-    // against.
-    { label: 'Processing', href: 'processing-pipeline.html' },
+    // Deploy 236.93 / 236.107 — Processing menu. Pipeline (the
+    // Kanban) and Tasks live under one parent so the navbar
+    // stays compact and "process-side" tools are grouped.
+    {
+      label: 'Processing',
+      children: [
+        { label: 'Pipeline', href: 'processing-pipeline.html' },
+        { label: 'Tasks',    href: 'tasks.html' },
+      ],
+    },
     {
       label: 'Clients',
       // Grouped to declutter the navbar. Default label is "Clients" since
@@ -48,9 +52,6 @@
     // Deploy 236.71 — Loan Doc Review tool. Visible to processors and
     // admins (admins implicitly have processor access).
     { label: 'Doc Review', href: 'loan-review.html', requires: 'processor' },
-    // Deploy 236.106 (Phase C) — cross-loan Tasks view. Visible to
-    // everyone authenticated; admins see a "All users" toggle.
-    { label: 'Tasks', href: 'tasks.html' },
     { label: 'Submissions', href: 'submissions.html', requires: 'admin' },
     { label: 'Dashboard',   href: 'dashboard.html',   requires: 'admin' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile

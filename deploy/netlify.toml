@@ -282,6 +282,14 @@
   status = 200
   force = true
 
+# Deploy 236.107 — minimal user directory for in-app pickers
+# (task assignee, @-mention, contacts). Any authenticated user.
+[[redirects]]
+  from = "/api/users-directory"
+  to = "/.netlify/functions/users-directory"
+  status = 200
+  force = true
+
 # Deploy 236.105 (Phase C — Tasks) — task CRUD endpoints
 [[redirects]]
   from = "/api/tasks-save"

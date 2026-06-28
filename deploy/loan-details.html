@@ -645,6 +645,23 @@
 .ld-actions-menu .ld-action-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .ld-actions-menu .ld-action-menu-item svg { flex-shrink: 0; opacity: 0.7; }
 
+/* Deploy 236.107 — searchable user picker (combobox). Reusable
+   element with a text input + dropdown list. Used for the task
+   assignee field today; future contacts / @-mention pickers can
+   share the same component. */
+.user-picker { position: relative; }
+.user-picker-input { width: 100%; padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: #fff; }
+.user-picker-input:focus { outline: none; border-color: var(--gold, #C8813A); }
+.user-picker-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; overflow-y: auto; background: #fff; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.10); z-index: 200; }
+.user-picker-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(0,0,0,0.04); transition: background 0.08s; }
+.user-picker-item:last-child { border-bottom: none; }
+.user-picker-item:hover, .user-picker-item.active { background: rgba(200,129,58,0.08); }
+.user-picker-item .up-name { font-size: 13px; color: var(--text, #1a1520); font-weight: 500; }
+.user-picker-item .up-email { font-size: 11px; color: var(--muted, #7a7488); font-family: 'DM Mono', monospace; margin-top: 1px; }
+.user-picker-item.picker-clear { color: var(--muted); font-style: italic; }
+.user-picker-empty { padding: 10px 12px; font-size: 12px; color: var(--muted); font-style: italic; }
+.user-picker-input.picker-set { background: var(--gold-light, rgba(200,129,58,0.10)); border-color: var(--gold-border, rgba(200,129,58,0.28)); color: var(--gold-mid, #b5712d); font-weight: 600; }
+
 /* Deploy 236.105 (Phase C — Tasks) — per-loan task list. */
 .tasks-add-row { display: grid; grid-template-columns: 2fr 130px 1fr auto; gap: 8px; margin-bottom: 14px; }
 @media (max-width: 800px) { .tasks-add-row { grid-template-columns: 1fr; } }
@@ -1887,7 +1904,16 @@ function render() {
         '<div class="tasks-add-row">' +
           '<input type="text"  id="taskTitleInput"    placeholder="New task — e.g. Order title insurance" onkeydown="handleTaskKeydown(event)" />' +
           '<input type="date"  id="taskDueInput"      title="Due date" />' +
-          '<input type="email" id="taskAssigneeInput" placeholder="Assignee email (optional)" />' +
+          // Deploy 236.107 — assignee is a searchable user picker
+          // (combobox) instead of a raw email input. Hidden inputs
+          // hold the canonical email + display name that
+          // addTaskFromUI submits; the visible input is what the
+          // LO types to filter.
+          '<div class="user-picker" id="taskAssigneePicker">' +
+            '<input type="text" class="user-picker-input" id="taskAssigneeSearch" placeholder="Assignee (optional)" autocomplete="off"' +
+              ' onfocus="openUserPicker(this)" oninput="filterUserPicker(this)" onkeydown="userPickerKeydown(event,this)" />' +
+            '<input type="hidden" id="taskAssigneeInput" data-name="" />' +
+          '</div>' +
           '<button class="btn-add-task" id="taskAddBtn" onclick="addTaskFromUI()">Add Task</button>' +
         '</div>' +
         '<div class="tasks-list" id="tasksList"><div class="tasks-empty">Loading tasks…</div></div>' +
@@ -2364,21 +2390,27 @@ function handleTaskKeydown(e) {
 function addTaskFromUI() {
   var titleEl = document.getElementById('taskTitleInput');
   var dueEl   = document.getElementById('taskDueInput');
-  var asnEl   = document.getElementById('taskAssigneeInput');
+  var asnEl   = document.getElementById('taskAssigneeInput');     // hidden, holds picked email
+  var asnSrch = document.getElementById('taskAssigneeSearch');    // visible text input
   var btn     = document.getElementById('taskAddBtn');
   if (!titleEl || !btn) return;
   var title = (titleEl.value || '').trim();
   if (!title) { titleEl.focus(); return; }
   var due = (dueEl && dueEl.value || '').trim();
-  var asn = (asnEl && asnEl.value || '').trim().toLowerCase();
+  // Deploy 236.107 — pull canonical email from the hidden field
+  // (set by pickUser when the LO chose someone from the dropdown).
+  // The visible text input is a search box, not a value source.
+  var asn      = (asnEl && asnEl.value || '').trim().toLowerCase();
+  var asnName  = (asnEl && asnEl.dataset.name) || '';
 
   btn.disabled = true;
   var body = {
-    clientId: _client.id,
-    loanId:   _loanId,
-    title:    title,
-    dueDate:  due,
-    assignedTo: asn,
+    clientId:       _client.id,
+    loanId:         _loanId,
+    title:          title,
+    dueDate:        due,
+    assignedTo:     asn,
+    assignedToName: asnName,
   };
   var owner = _taskOwnerParam();
   if (owner) body.owner = owner;
@@ -2390,7 +2422,8 @@ function addTaskFromUI() {
       renderTasksList();
       titleEl.value = '';
       if (dueEl) dueEl.value = '';
-      if (asnEl) asnEl.value = '';
+      if (asnEl)  { asnEl.value = ''; asnEl.dataset.name = ''; }
+      if (asnSrch) { asnSrch.value = ''; asnSrch.classList.remove('picker-set'); }
       titleEl.focus();
     }
   }).catch(function(err) {
@@ -2398,6 +2431,120 @@ function addTaskFromUI() {
     alert('Failed to add task: ' + (err && err.message || 'unknown'));
   });
 }
+
+// ── Deploy 236.107 — Searchable user picker (combobox) ────────────
+// Reusable on any page that loads sla-api.js. The picker structure
+// is:
+//   <div class="user-picker">
+//     <input class="user-picker-input" ...>  (search text)
+//     <input type="hidden" data-name="">      (canonical email + name)
+//   </div>
+// pickUser() writes to the hidden input; consumers read from it.
+var _userDirectory   = null;
+var _userDirLoading  = false;
+function loadUserDirectory(cb) {
+  if (_userDirectory) { cb && cb(_userDirectory); return; }
+  if (_userDirLoading) { setTimeout(function(){ loadUserDirectory(cb); }, 80); return; }
+  _userDirLoading = true;
+  SLA.api('GET', '/api/users-directory').then(function(r) {
+    _userDirectory = (r && r.users) || [];
+    _userDirLoading = false;
+    cb && cb(_userDirectory);
+  }).catch(function(err) {
+    console.warn('users-directory load failed:', err && err.message);
+    _userDirectory = [];
+    _userDirLoading = false;
+    cb && cb([]);
+  });
+}
+function openUserPicker(input) {
+  loadUserDirectory(function() { _renderUserPicker(input, input.value || ''); });
+}
+function filterUserPicker(input) {
+  // Typing in the search box clears any previously-picked value
+  // so the hidden field doesn't lie about what's currently shown.
+  var wrap = input.closest('.user-picker');
+  var hidden = wrap && wrap.querySelector('input[type="hidden"]');
+  if (hidden && hidden.value) {
+    hidden.value = '';
+    hidden.dataset.name = '';
+    input.classList.remove('picker-set');
+  }
+  loadUserDirectory(function() { _renderUserPicker(input, input.value || ''); });
+}
+function _renderUserPicker(input, query) {
+  var wrap = input.closest('.user-picker');
+  if (!wrap) return;
+  // Remove old list if present, then re-create.
+  var listEl = wrap.querySelector('.user-picker-list');
+  if (!listEl) {
+    listEl = document.createElement('div');
+    listEl.className = 'user-picker-list';
+    wrap.appendChild(listEl);
+  }
+  var q = String(query || '').toLowerCase().trim();
+  var matches = (_userDirectory || []).filter(function(u) {
+    if (!q) return true;
+    return (u.email || '').toLowerCase().indexOf(q) >= 0 ||
+           (u.name  || '').toLowerCase().indexOf(q) >= 0;
+  });
+  var html = '';
+  // Always offer "Clear" so the LO can unassign.
+  html += '<div class="user-picker-item picker-clear" onmousedown="event.preventDefault();pickUser(this,\'\',\'\')">Unassigned</div>';
+  if (!matches.length) {
+    html += '<div class="user-picker-empty">No matches for "' + escH(q) + '"</div>';
+  } else {
+    html += matches.map(function(u) {
+      var safeEmail = escAttr(u.email);
+      var safeName  = escAttr(u.name || '');
+      return '<div class="user-picker-item" onmousedown="event.preventDefault();pickUser(this,\'' + safeEmail + '\',\'' + safeName + '\')">' +
+        '<div class="up-name">' + escH(u.name || u.email) + '</div>' +
+        (u.name ? '<div class="up-email">' + escH(u.email) + '</div>' : '') +
+      '</div>';
+    }).join('');
+  }
+  listEl.innerHTML = html;
+  listEl.style.display = 'block';
+}
+function pickUser(itemEl, email, name) {
+  var wrap = itemEl.closest('.user-picker');
+  if (!wrap) return;
+  var input  = wrap.querySelector('.user-picker-input');
+  var hidden = wrap.querySelector('input[type="hidden"]');
+  var listEl = wrap.querySelector('.user-picker-list');
+  if (email) {
+    input.value = name || email;
+    hidden.value = email;
+    hidden.dataset.name = name || '';
+    input.classList.add('picker-set');
+  } else {
+    input.value = '';
+    hidden.value = '';
+    hidden.dataset.name = '';
+    input.classList.remove('picker-set');
+  }
+  if (listEl) listEl.style.display = 'none';
+}
+function userPickerKeydown(e, input) {
+  // Escape closes the dropdown; Enter on a focused list item picks
+  // it. For a simple v1 we let the native focus/blur drive — the
+  // outside-click handler below closes on blur.
+  if (e.key === 'Escape') {
+    var wrap = input.closest('.user-picker');
+    var listEl = wrap && wrap.querySelector('.user-picker-list');
+    if (listEl) listEl.style.display = 'none';
+  }
+}
+// Close any open user-picker dropdown when clicking outside.
+// Bound once at script load via event delegation.
+(function bindUserPickerOutsideClose() {
+  if (window._userPickerOutsideBound) return;
+  window._userPickerOutsideBound = true;
+  document.addEventListener('click', function(e) {
+    if (e.target && e.target.closest && e.target.closest('.user-picker')) return;
+    document.querySelectorAll('.user-picker-list').forEach(function(el) { el.style.display = 'none'; });
+  });
+})();
 
 function toggleTaskComplete(taskId, completed) {
   var idx = _tasks.findIndex(function(t) { return t.id === taskId; });
