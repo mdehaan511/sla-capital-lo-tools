@@ -100,6 +100,14 @@
 
     .empty-col { font-size: 11px; color: rgba(122,116,136,0.55); text-align: center; padding: 18px 8px; font-style: italic; }
     .loading { font-size: 13px; color: var(--muted); padding: 2rem; text-align: center; }
+
+    /* Deploy 236.95 (Phase A.2) — stage-move dropdown on each tile. */
+    .card-actions { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); display: flex; align-items: center; gap: 6px; }
+    .card-actions label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .stage-move { flex: 1; padding: 5px 26px 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 11px; font-family: 'DM Sans', sans-serif; color: var(--text); cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path fill='%23766f80' d='M0 0l4 5 4-5z'/></svg>"); background-repeat: no-repeat; background-position: right 8px center; }
+    .stage-move:hover { border-color: var(--gold); color: var(--gold); }
+    .stage-move:focus { outline: none; border-color: var(--gold); }
+    .stage-move:disabled { opacity: 0.5; cursor: wait; }
   </style>
 </head>
 <body>
@@ -417,6 +425,37 @@ function renderCard(it) {
     : '';
   var cardClass = isPastDue ? ' past-due' : (isClosingSn ? ' closing-soon' : '');
 
+  // Deploy 236.95 (Phase A.2) — Move dropdown. Native <select> so it
+  // works on mobile without a popover library and keyboard-navigates
+  // for free. The current column is selected by default so the user
+  // sees where the loan sits; picking a different column triggers
+  // moveLoanStage(). The select is wrapped in .card-actions which
+  // stops propagation so a click on the select doesn't trigger the
+  // parent <a>'s navigation to loan-details.
+  var stages = [
+    { v: 'new_loan',     l: 'New Loan' },
+    { v: 'processing',   l: 'Processing' },
+    { v: 'underwriting', l: 'Underwriting' },
+    { v: 'pp_approved',  l: 'Approved' },
+    { v: 'pp_closed',    l: 'Closed' },
+  ];
+  var stageOptions = stages.map(function(s) {
+    var sel = s.v === col ? ' selected' : '';
+    return '<option value="' + s.v + '"' + sel + '>' + escH(s.l) + '</option>';
+  }).join('');
+  var moveControls =
+    '<div class="card-actions" onclick="event.stopPropagation(); event.preventDefault();">' +
+      '<label>Move</label>' +
+      '<select class="stage-move"' +
+        ' data-client-id="' + escAttr(client.id) + '"' +
+        ' data-loan-id="'   + escAttr(loan.id)   + '"' +
+        ' data-owner="'     + escAttr(it.ownerKey) + '"' +
+        ' data-current="'   + escAttr(col || '') + '"' +
+        ' onchange="moveLoanStage(this)">' +
+        stageOptions +
+      '</select>' +
+    '</div>';
+
   return (
     '<a class="card' + cardClass + '" href="' + escAttr(href) + '">' +
       '<div class="card-addr">' + escH(addr) + '</div>' +
@@ -427,8 +466,61 @@ function renderCard(it) {
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
         closeTag +
       '</div>' +
+      moveControls +
     '</a>'
   );
+}
+
+// Stage-move action — POST the new stage to the backend, then reload
+// the board. Confirm on regressive moves (toward earlier stages) so a
+// fat-fingered pick of "New Loan" on a loan that's already in
+// Underwriting doesn't silently lose track of where the loan was.
+var STAGE_ORDER = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
+var STAGE_LABEL = {
+  'new_loan':     'New Loan',
+  'processing':   'Processing',
+  'underwriting': 'Underwriting',
+  'pp_approved':  'Approved',
+  'pp_closed':    'Closed',
+};
+function moveLoanStage(sel) {
+  var newStage = sel.value;
+  var current  = sel.dataset.current || '';
+  if (!newStage || newStage === current) return;
+
+  var newIdx = STAGE_ORDER.indexOf(newStage);
+  var curIdx = STAGE_ORDER.indexOf(current);
+  var regressive = curIdx >= 0 && newIdx >= 0 && newIdx < curIdx;
+  if (regressive) {
+    if (!confirm('Move this loan BACK to "' + STAGE_LABEL[newStage] + '"? It is currently in "' + STAGE_LABEL[current] + '".')) {
+      sel.value = current;
+      return;
+    }
+  }
+
+  // Compute self vs other-owner. Self = no owner param (lets the
+  // backend default to the auth user). Other = pass the ownerKey
+  // through — the endpoint requires admin for cross-LO writes.
+  var selfKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+  var ownerParam = (sel.dataset.owner && sel.dataset.owner !== selfKey) ? sel.dataset.owner : undefined;
+
+  sel.disabled = true;
+  var body = {
+    clientId: sel.dataset.clientId,
+    loanId:   sel.dataset.loanId,
+    newStage: newStage,
+  };
+  if (ownerParam) body.owner = ownerParam;
+
+  SLA.api('POST', '/api/loan-processing-stage', body).then(function() {
+    // Clear cache so loadAll picks up the new stage immediately.
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    return loadAll();
+  }).catch(function(err) {
+    sel.disabled = false;
+    sel.value = current;
+    alert('Failed to move loan: ' + (err && err.message ? err.message : 'unknown error'));
+  });
 }
 
 // ── Event wiring ───────────────────────────────────────────────────

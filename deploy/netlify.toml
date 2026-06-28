@@ -266,6 +266,13 @@
   status = 200
   force = true
 
+# Deploy 236.95 (Phase A.2) — Processing Pipeline stage transitions
+[[redirects]]
+  from = "/api/loan-processing-stage"
+  to = "/.netlify/functions/loan-processing-stage"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/loan-cancel"
   to = "/.netlify/functions/loan-cancel"
