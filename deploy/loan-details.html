@@ -60,10 +60,12 @@
     .back-btn:hover svg { transform: translateX(-2px); }
 
     .page { max-width: 1680px; margin: 0 auto; padding: 2rem 1rem 4rem; }
-    /* Deploy 236.101 — full-width main flow. Mike: "full screen
-       instead of columned to accommodate more variables that will
-       be added soon." Previously the children stacked side-by-side. */
-    .two-col { display: block; }
+    /* Deploy 236.102 — restored 2-column grid so Financials sits
+       next to Property & Application at the top. Mike asked to put
+       the boxes side-by-side again now that the page is wide
+       enough; the earlier full-width block was overcorrected. */
+    .two-col { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start; }
+    @media (max-width: 1000px) { .two-col { grid-template-columns: 1fr; } }
     /* Layout: 2-column grid with main content on left, sticky Notes
        sidebar pinned to the right. The Notes section moves into
        #ldNotesSidebar via post-render JS so the existing render path
@@ -618,6 +620,25 @@
 .reassign-client-row .rc-meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; }
 .reassign-client-row .rc-current { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 3px; background: rgba(0,0,0,0.05); margin-left: 6px; }
 
+/* Deploy 236.102 — Actions dropdown in the page-title row. Aggregates
+   the Rate Sheet + Loan App buttons that used to live inside the
+   Financials section. Pure CSS toggle via .open class managed by
+   a small click-outside handler. */
+.ld-actions { position: relative; display: inline-block; }
+.ld-actions-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: var(--dark, #261a36); color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background 0.15s; }
+.ld-actions-btn:hover { background: #1c1227; }
+.ld-actions-btn .caret { font-size: 9px; opacity: 0.8; transition: transform 0.15s; }
+.ld-actions.open .ld-actions-btn .caret { transform: rotate(180deg); }
+.ld-actions-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 280px; background: #fff; border: 1px solid var(--border, #ddd8d0); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); padding: 6px 0; z-index: 80; display: none; }
+.ld-actions.open .ld-actions-menu { display: block; }
+.ld-actions-menu .ld-actions-empty { padding: 14px 16px; font-size: 12px; color: var(--muted); font-style: italic; text-align: center; }
+/* Override button styles when buttons are moved into the menu so
+   they render as flat menu items instead of full-width primaries. */
+.ld-actions-menu .ld-action-menu-item { display: flex !important; align-items: center; gap: 8px; width: 100%; margin: 0 !important; padding: 9px 16px !important; background: transparent !important; color: var(--text, #1a1520) !important; border: none !important; border-left: 3px solid transparent !important; border-radius: 0 !important; font-size: 13px !important; font-weight: 500 !important; text-align: left !important; cursor: pointer; box-shadow: none !important; text-decoration: none !important; min-height: auto !important; font-family: 'DM Sans', sans-serif !important; transition: background 0.10s, border-left-color 0.10s; }
+.ld-actions-menu .ld-action-menu-item:hover:not(:disabled) { background: rgba(200,129,58,0.08) !important; border-left-color: var(--gold, #C8813A) !important; color: var(--text, #1a1520) !important; }
+.ld-actions-menu .ld-action-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.ld-actions-menu .ld-action-menu-item svg { flex-shrink: 0; opacity: 0.7; }
+
 /* Deploy 236.98 (Phase B.1) — embedded Processing Pipeline section. */
 .pp-section { background: var(--surface, #fff); border: 1px solid var(--border, #ddd8d0); border-radius: 12px; margin-bottom: 20px; overflow: hidden; }
 .pp-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: rgba(74,122,138,0.05); }
@@ -1008,13 +1029,30 @@ function render() {
     // alongside the address. Regular LOs see just the address.
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">' +
       '<div class="page-title">'+escH(l.address||'No address')+'</div>' +
-      (window.SLA && SLA.isProcessor && SLA.isProcessor(_user)
-        ? '<button type="button" id="docReviewBtn" onclick="openOrCreateDocReview()" disabled ' +
-            'style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--gold, #C8813A);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif;opacity:0.55;transition:opacity 0.15s">' +
-            '<svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 9l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-            '<span id="docReviewBtnLabel">Loan Doc Review…</span>' +
-          '</button>'
-        : '') +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        // Deploy 236.102 — Actions dropdown aggregates the Rate Sheet
+        // + Loan App buttons that used to clutter the Financials box.
+        // The 6 buttons get moved into #ldActionsMenu by JS after
+        // render so the menu reflects whatever the existing render
+        // path produced (including conditional visibility).
+        '<div class="ld-actions" id="ldActions">' +
+          '<button type="button" class="ld-actions-btn" onclick="toggleLdActions(event)">' +
+            '<svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.5L9 5h3.5l-2.8 2.5L10.5 11 7.5 9 4.5 11l0.8-3.5L2.5 5H6L7.5 1.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>' +
+            'Actions' +
+            '<span class="caret">▾</span>' +
+          '</button>' +
+          '<div class="ld-actions-menu" id="ldActionsMenu">' +
+            '<div class="ld-actions-empty">No actions available.</div>' +
+          '</div>' +
+        '</div>' +
+        (window.SLA && SLA.isProcessor && SLA.isProcessor(_user)
+          ? '<button type="button" id="docReviewBtn" onclick="openOrCreateDocReview()" disabled ' +
+              'style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--gold, #C8813A);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif;opacity:0.55;transition:opacity 0.15s">' +
+              '<svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 9l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+              '<span id="docReviewBtnLabel">Loan Doc Review…</span>' +
+            '</button>'
+          : '') +
+      '</div>' +
     '</div>' +
     '<div class="page-subtitle">' +
       '<span class="badge '+(l.toolType||'dscr')+'">'+((l.toolType||'dscr').toUpperCase())+'</span>' +
@@ -1038,11 +1076,10 @@ function render() {
     '</div>' +
   '</div>';
 
-  // Deploy 236.98 (Phase B.1) — Processing Pipeline section. Renders
-  // when the loan is in processing (status='approved' OR a stage is
-  // set). Embeds the same Move stage + substatus picker UX from the
-  // processing-pipeline.html tile, plus an inline close-date editor.
-  html += renderProcessingPipelineSection(l, c);
+  // Deploy 236.102 — Processing Pipeline section removed per Mike.
+  // Stage + substatus already live on the Processing Pipeline tile;
+  // Close Date is captured in the Property & Application section
+  // below. No need for a duplicate panel here.
 
   html += '<div class="two-col">';
 
@@ -1212,7 +1249,7 @@ function render() {
     'Open in '+(isDscr?'DSCR':'RTL')+' Sizer to Modify Financials' +
   '</a>';
 
-  html += '<a href="'+escAttr(sizerUrl + '&download=1')+'" class="open-sizer-btn term-sheet-btn">' +
+  html += '<a id="ldDownloadRateSheetBtn" href="'+escAttr(sizerUrl + '&download=1')+'" class="open-sizer-btn term-sheet-btn">' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2v8M3.5 7l4 4 4-4M2 13h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
     'Download Rate Sheet' +
   '</a>';
@@ -1223,7 +1260,7 @@ function render() {
   // hidden). Backend envelopes.mjs also dropped its status check so
   // the request actually goes through.
   if (eSignVisible()) {
-    html += '<button type="button" class="open-sizer-btn esign-btn" onclick="openSendForSignature()">' +
+    html += '<button type="button" id="ldSendRateSheetBtn" class="open-sizer-btn esign-btn" onclick="openSendForSignature()">' +
       '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 11s2-2 5.5-2 5.5 2 5.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 8c1-1 2-2 3-3l1 1c-1 1-2 2-3 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>' +
       'Send Rate Sheet for Signature' +
     '</button>';
@@ -1546,7 +1583,7 @@ function render() {
       // sees both the local value (editable, ahead of sync) and what
       // Baseline currently has on file. Defaults to nothing when the
       // lookup hasn't resolved yet or the loan isn't in the mirror.
-      '<div class="field"><label>Desired Close Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" />' +
+      '<div class="field"><label>Closing Date</label><input type="date" id="af-fundingDate" value="'+escAttr(l.fundingDate||'')+'" />' +
         (function(){
           var bcd = getBaselineCloseDateForLoan();
           if (!bcd) return '';
@@ -1723,6 +1760,84 @@ function render() {
     var sect = document.getElementById('ldNotesSection');
     var bar  = document.getElementById('ldNotesSidebar');
     if (sect && bar && sect.parentNode !== bar) bar.appendChild(sect);
+  })();
+
+  // Deploy 236.102 — move the 6 action buttons into the Actions
+  // dropdown menu at the top of the page. Buttons are rendered in
+  // their natural location by the existing render path (which keeps
+  // conditional visibility intact); we just relocate them. Each
+  // moved button gets the .ld-action-menu-item class so the CSS
+  // overrides the full-width primary styling for the menu.
+  (function relocateActions() {
+    var menu = document.getElementById('ldActionsMenu');
+    if (!menu) return;
+    var ids = [
+      'ldDownloadRateSheetBtn',
+      'ldSendRateSheetBtn',
+      'borrowerInfoBtn',          // Send Full Loan Application
+      'reviewAppBtn',             // Review Submitted Application
+      'downloadSignedAppBtn',     // Download Signed App (PDF)
+      'downloadUnsignedAppBtn',   // Generate Application PDF (Unsigned)
+    ];
+    var moved = 0;
+    ids.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.classList.add('ld-action-menu-item');
+      // Clear any inline margin-top / display:none-suppressing-CSS
+      // that was needed when the button lived inline.
+      el.style.marginTop = '';
+      el.style.display = ''; // CSS .ld-action-menu-item handles display
+      menu.appendChild(el);
+      moved++;
+    });
+    // Also relocate the status hint that lived under the borrower
+    // info button (it carries the "Submit the loan first" message).
+    var statusHint = document.getElementById('borrowerInfoStatus');
+    if (statusHint && statusHint.textContent && statusHint.textContent.trim()) {
+      statusHint.style.padding = '6px 16px 10px';
+      statusHint.style.margin = '0';
+      statusHint.style.textAlign = 'left';
+      statusHint.style.fontSize = '11px';
+      statusHint.style.color = 'var(--muted)';
+      menu.appendChild(statusHint);
+    } else if (statusHint) {
+      // Empty hint — just hide so it doesn't add a blank line.
+      statusHint.style.display = 'none';
+    }
+    if (moved > 0) {
+      var empty = menu.querySelector('.ld-actions-empty');
+      if (empty) empty.remove();
+    }
+  })();
+
+  // Deploy 236.102 — move the E-Signature envelopes panel into the
+  // right sidebar BELOW the Notes section, per Mike's spec.
+  (function relocateEnvelopes() {
+    var panel = document.getElementById('envelopesPanel');
+    var bar   = document.getElementById('ldNotesSidebar');
+    if (!panel || !bar) return;
+    // Wrap the existing panel in a .section shell so it visually
+    // matches the Notes section in the sidebar (border, padding,
+    // header). The panel itself stays intact (envelope cards
+    // render into #envelopesList as before).
+    var wrap = document.createElement('div');
+    wrap.className = 'section';
+    wrap.id = 'ldEnvelopesSection';
+    wrap.style.marginTop = '20px';
+    wrap.innerHTML =
+      '<div class="section-head">' +
+        '<h2>E-Signature Envelopes</h2>' +
+        '<span class="section-tag tag-readonly">Audit trail</span>' +
+      '</div>' +
+      '<div class="section-body" id="ldEnvelopesBody"></div>';
+    bar.appendChild(wrap);
+    var body = document.getElementById('ldEnvelopesBody');
+    // Move the panel's existing children into the sidebar shell so
+    // refreshEnvelopes() (which targets #envelopesList by ID) keeps
+    // working without a code change.
+    while (panel.firstChild) body.appendChild(panel.firstChild);
+    panel.remove();
   })();
 
   // Async-load the envelope history for this loan. Doesn't block render.
@@ -3963,6 +4078,34 @@ if (_origRender) {
 }
 
 init();
+
+// Deploy 236.102 — Actions dropdown toggle + click-outside close.
+// Bound once at script load via event delegation so re-renders don't
+// need to re-wire. The .open class on .ld-actions drives CSS.
+function toggleLdActions(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  var wrap = document.getElementById('ldActions');
+  if (!wrap) return;
+  wrap.classList.toggle('open');
+}
+document.addEventListener('click', function(e) {
+  var wrap = document.getElementById('ldActions');
+  if (!wrap || !wrap.classList.contains('open')) return;
+  if (e.target && e.target.closest && e.target.closest('#ldActions')) {
+    // Click inside the menu — if it's on a menu item, close after the
+    // action fires so the user sees the result without lingering UI.
+    if (e.target.closest('.ld-action-menu-item')) {
+      wrap.classList.remove('open');
+    }
+    return;
+  }
+  wrap.classList.remove('open');
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  var wrap = document.getElementById('ldActions');
+  if (wrap && wrap.classList.contains('open')) wrap.classList.remove('open');
+});
 
 // ════════════════════════════════════════════════════════════════════
 // Deploy 236.98 (Phase B.1) — Processing Pipeline section on Loan
