@@ -309,6 +309,33 @@
   status = 200
   force = true
 
+# Deploy 236.119 (Phase D.1) — per-loan Documents tab CRUD
+[[redirects]]
+  from = "/api/loan-docs-upload"
+  to = "/.netlify/functions/loan-docs-upload"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-docs-list"
+  to = "/.netlify/functions/loan-docs-list"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-docs-get"
+  to = "/.netlify/functions/loan-docs-get"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-docs-save"
+  to = "/.netlify/functions/loan-docs-save"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-docs-delete"
+  to = "/.netlify/functions/loan-docs-delete"
+  status = 200
+  force = true
+
 # Deploy 236.105 (Phase C — Tasks) — task CRUD endpoints
 [[redirects]]
   from = "/api/tasks-save"

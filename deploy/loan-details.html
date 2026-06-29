@@ -2562,27 +2562,178 @@ function _buildTeamMembersSection() {
   return section;
 }
 
-// Documents tab placeholder. Real implementation is Phase D —
-// moving / embedding the existing Loan Doc Review system into
-// the Loan Details flow. For now, a deep link so processors can
-// jump there in one click without leaving the loan context.
+// Deploy 236.119 (Phase D.1) — Documents tab. Live upload/list/
+// download/delete tied to the new loan-docs blob store.
+// Categories are hardcoded for D.1; admin-configurable categories
+// + per-doc notes editing + ZIP export + auto-attach come in D.2.
+var DOC_CATEGORIES = [
+  { key: 'borrower',   label: 'Borrower Documents' },
+  { key: 'property',   label: 'Property Documents' },
+  { key: 'title',      label: 'Title' },
+  { key: 'insurance',  label: 'Insurance' },
+  { key: 'loan-app',   label: 'Loan Application' },
+  { key: 'rate-sheet', label: 'Rate Sheet' },
+  { key: 'closing',    label: 'Closing Documents' },
+  { key: 'other',      label: 'Other' },
+];
+var _docs = [];
+
 function _buildDocumentsPlaceholder() {
+  // Name preserved from Phase D.0 (the placeholder) so the call
+  // site in relocateSectionsToTabs() keeps working without edit.
   var wrap = document.createElement('div');
-  wrap.className = 'ld-pane-empty';
-  // Loan Doc Review takes a loan via URL params similar to the
-  // sizer load path. Pass clientId/loanId/owner so it lands on
-  // this loan's review (creating one if needed).
-  var url = 'loan-review.html?clientId=' + encodeURIComponent(_client.id) +
-            '&loanId='   + encodeURIComponent(_loanId) +
+  wrap.id = 'documentsRoot';
+  var aiLink = _docReviewHref();
+  var acceptList = 'application/pdf,image/*,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain';
+  wrap.innerHTML =
+    '<div class="section">' +
+      '<div class="section-head">' +
+        '<h2>Loan Documents</h2>' +
+        '<span class="section-tag tag-editable">Editable</span>' +
+        '<a href="' + escAttr(aiLink) + '" style="margin-left:auto;font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none" title="Open the AI-assisted Loan Doc Review for this loan">AI Doc Review →</a>' +
+      '</div>' +
+      '<div class="section-body">' +
+        '<div id="docsUploadBar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px;background:var(--bg,#f0ece5);border:1px dashed var(--border,#ddd8d0);border-radius:var(--r-xs,8px);margin-bottom:18px">' +
+          '<label style="font-size:11px;font-weight:700;color:var(--muted,#7a7488);text-transform:uppercase;letter-spacing:0.05em">Add document:</label>' +
+          '<select id="docCategorySelect" style="padding:7px 12px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:DM Sans,sans-serif;font-size:13px;background:#fff">' +
+            DOC_CATEGORIES.map(function(c) { return '<option value="' + escAttr(c.key) + '">' + escH(c.label) + '</option>'; }).join('') +
+          '</select>' +
+          '<input type="file" id="docFileInput" style="display:none" accept="' + escAttr(acceptList) + '" onchange="onDocFileChosen(this)" />' +
+          '<button type="button" class="btn-icon" onclick="document.getElementById(\'docFileInput\').click()">Choose File &amp; Upload</button>' +
+          '<span id="docUploadStatus" style="font-size:12px;color:var(--muted)"></span>' +
+        '</div>' +
+        '<div id="docsListWrap"><div style="padding:2rem;text-align:center;color:var(--muted);font-style:italic;font-size:13px">Loading documents…</div></div>' +
+      '</div>' +
+    '</div>';
+  setTimeout(loadDocsList, 0); // fetch after the pane mounts
+  return wrap;
+}
+
+function _docReviewHref() {
+  return 'loan-review.html?clientId=' + encodeURIComponent(_client.id) +
+         '&loanId='   + encodeURIComponent(_loanId) +
+         (_loEmail && _user && _loEmail !== _user.email
+           ? '&owner=' + encodeURIComponent(_loEmail) : '');
+}
+
+function loadDocsList() {
+  var url = '/api/loan-docs-list?loanId=' + encodeURIComponent(_loanId) +
             (_loEmail && _user && _loEmail !== _user.email
               ? '&owner=' + encodeURIComponent(_loEmail) : '');
-  wrap.innerHTML =
-    '<span class="empty-title">Documents will live here</span>' +
-    'Phase D will bring the full document review experience into the Loan Details tab —<br>' +
-    'category management, per-document notes, ZIP export with investor naming.<br>' +
-    'For now, the existing Loan Doc Review tool handles this on its own page.' +
-    '<a class="empty-link" href="' + escAttr(url) + '">Open Loan Doc Review →</a>';
-  return wrap;
+  SLA.api('GET', url).then(function(r) {
+    _docs = (r && r.docs) || [];
+    renderDocsList();
+  }).catch(function(err) {
+    var w = document.getElementById('docsListWrap');
+    if (w) w.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--danger,#7c1f1f);font-size:13px">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+
+function renderDocsList() {
+  var w = document.getElementById('docsListWrap');
+  if (!w) return;
+  if (!_docs.length) {
+    w.innerHTML = '<div style="padding:2.5rem;text-align:center;color:var(--muted);font-style:italic;font-size:13px">No documents uploaded yet. Pick a category and click Choose File above.</div>';
+    return;
+  }
+  var byCat = {};
+  _docs.forEach(function(d) {
+    var k = String(d.category || 'other');
+    (byCat[k] = byCat[k] || []).push(d);
+  });
+  var html = '';
+  DOC_CATEGORIES.forEach(function(c) {
+    var arr = byCat[c.key] || [];
+    if (!arr.length) return;
+    html += '<div style="margin-bottom:22px">' +
+      '<h3 style="font-family:Lora,serif;font-size:15px;font-weight:600;margin-bottom:8px;color:var(--dark,#261a36)">' + escH(c.label) +
+      ' <span style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted);font-weight:500">(' + arr.length + ')</span></h3>' +
+      arr.map(_renderDocRow).join('') +
+    '</div>';
+  });
+  // Forward-compat for any custom category keys.
+  Object.keys(byCat).forEach(function(k) {
+    if (DOC_CATEGORIES.some(function(c) { return c.key === k; })) return;
+    html += '<div style="margin-bottom:22px"><h3 style="font-family:Lora,serif;font-size:15px;font-weight:600;margin-bottom:8px">' + escH(k) + '</h3>' + byCat[k].map(_renderDocRow).join('') + '</div>';
+  });
+  w.innerHTML = html;
+}
+
+function _renderDocRow(d) {
+  var sizeKb = Math.max(1, Math.round((d.sizeBytes || 0) / 1024));
+  var when = d.uploadedAt ? new Date(d.uploadedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  var ownerQuery = (_loEmail && _user && _loEmail !== _user.email)
+    ? '&owner=' + encodeURIComponent(_loEmail) : '';
+  var viewUrl = '/api/loan-docs-get?id=' + encodeURIComponent(d.id) + ownerQuery;
+  var dlUrl   = viewUrl + '&download=1';
+  return '<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;padding:10px 14px;border:1px solid var(--border,#ddd8d0);border-radius:6px;margin-bottom:6px;background:#fff">' +
+    '<div style="min-width:0">' +
+      '<div style="font-weight:500;font-size:13px;word-break:break-all">' + escH(d.filename) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);font-family:DM Mono,monospace;margin-top:2px">' + sizeKb.toLocaleString() + ' KB · ' + escH(d.mimeType || '') + ' · ' + escH(when) + ' by ' + escH(d.uploadedByName || d.uploadedBy || '?') + '</div>' +
+      (d.notes ? '<div style="font-size:12px;color:var(--text);margin-top:4px;font-style:italic">' + escH(d.notes) + '</div>' : '') +
+    '</div>' +
+    '<a href="' + escAttr(viewUrl) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold-mid,#b5712d);text-decoration:none;padding:5px 10px;border:1px solid var(--gold-border,rgba(200,129,58,0.28));border-radius:4px" title="Open in new tab">View</a>' +
+    '<a href="' + escAttr(dlUrl) + '" style="font-size:11px;color:var(--gold-mid,#b5712d);text-decoration:none;padding:5px 10px;border:1px solid var(--gold-border,rgba(200,129,58,0.28));border-radius:4px" title="Download">Download</a>' +
+    '<button type="button" onclick="deleteDoc(\'' + escAttr(d.id) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 9px;cursor:pointer" title="Delete">✕</button>' +
+  '</div>';
+}
+
+function onDocFileChosen(input) {
+  var file = input && input.files && input.files[0];
+  if (!file) return;
+  var category = (document.getElementById('docCategorySelect') || {}).value || 'other';
+  var status = document.getElementById('docUploadStatus');
+  status.textContent = 'Encoding ' + file.name + '…';
+  status.style.color = 'var(--muted)';
+  var reader = new FileReader();
+  reader.onload = function() {
+    var b64 = String(reader.result || '');
+    var comma = b64.indexOf(',');
+    if (comma >= 0) b64 = b64.slice(comma + 1);
+    status.textContent = 'Uploading ' + file.name + '…';
+    SLA.api('POST', '/api/loan-docs-upload', {
+      clientId: _client.id,
+      loanId:   _loanId,
+      category: category,
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      sizeBytes: file.size,
+      contentBase64: b64,
+      owner: (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : undefined,
+    }).then(function(r) {
+      status.textContent = 'Uploaded ✓';
+      status.style.color = 'var(--success, #256940)';
+      if (r && r.doc) _docs.unshift(r.doc);
+      renderDocsList();
+      input.value = '';
+      setTimeout(function() { status.textContent = ''; }, 2500);
+    }).catch(function(err) {
+      status.textContent = 'Upload failed: ' + (err && err.message || 'unknown');
+      status.style.color = 'var(--danger, #7c1f1f)';
+      input.value = '';
+    });
+  };
+  reader.onerror = function() {
+    status.textContent = 'Could not read file.';
+    status.style.color = 'var(--danger, #7c1f1f)';
+  };
+  reader.readAsDataURL(file);
+}
+
+function deleteDoc(id) {
+  if (!confirm('Delete this document? This cannot be undone.')) return;
+  var idx = _docs.findIndex(function(d) { return d.id === id; });
+  if (idx < 0) return;
+  var removed = _docs.splice(idx, 1)[0];
+  renderDocsList();
+  SLA.api('POST', '/api/loan-docs-delete', {
+    id: id,
+    owner: (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : undefined,
+  }).catch(function(err) {
+    _docs.splice(idx, 0, removed);
+    renderDocsList();
+    alert('Failed to delete: ' + (err && err.message || 'unknown'));
+  });
 }
 
 function _syncTasksTabCount() {
