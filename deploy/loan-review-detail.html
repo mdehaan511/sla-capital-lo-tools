@@ -29,6 +29,17 @@
     }
     body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem; }
     .page { max-width: 1100px; margin: 0 auto; padding: 2rem 0 4rem; }
+    /* Deploy 236.120 — embed mode. When loaded via ?embed=1
+       inside an iframe on the Loan Details Documents tab the
+       chrome (nav, tagline, breadcrumb) gets stripped so the
+       iframe shows only the review workspace. The wrapping
+       Loan Details page already gives the loan its frame. */
+    body.embedded { padding: 0; background: transparent; }
+    body.embedded .page { max-width: none; padding: 0; }
+    body.embedded .nav,
+    body.embedded .header-tagline,
+    body.embedded .breadcrumb { display: none; }
+    body.embedded .summary { margin-top: 0; box-shadow: none; }
     .nav { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-bottom: 0.75rem; }
     .nav-left { display: flex; align-items: center; gap: 16px; }
     .nav-left img { height: 52px; width: auto; }
@@ -341,6 +352,18 @@ var _sourceOpen = false;          // source data panel toggle (236.73)
 var _uploadingSlug = null;        // slug currently being uploaded (236.76 — spinner UI)
 
 // ── Lifecycle ─────────────────────────────────────────────────────
+// Deploy 236.120 — embed mode toggle. When the page is iframe-
+// embedded on the Loan Details Documents tab (?embed=1) we strip
+// the navbar/tagline/breadcrumb chrome via the .embedded class.
+// CSS handles the actual hiding; this just flips the flag early
+// so the chrome never paints, avoiding a layout flash.
+(function() {
+  try {
+    var p = new URLSearchParams(window.location.search);
+    if (p.get('embed') === '1') document.body.classList.add('embedded');
+  } catch (_) {}
+})();
+
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   if (!SLA.isProcessor(user)) {

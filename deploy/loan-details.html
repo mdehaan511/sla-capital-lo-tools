@@ -2562,58 +2562,144 @@ function _buildTeamMembersSection() {
   return section;
 }
 
-// Deploy 236.119 (Phase D.1) — Documents tab. Live upload/list/
-// download/delete tied to the new loan-docs blob store.
-// Categories are hardcoded for D.1; admin-configurable categories
-// + per-doc notes editing + ZIP export + auto-attach come in D.2.
-var DOC_CATEGORIES = [
-  { key: 'borrower',   label: 'Borrower Documents' },
-  { key: 'property',   label: 'Property Documents' },
-  { key: 'title',      label: 'Title' },
-  { key: 'insurance',  label: 'Insurance' },
-  { key: 'loan-app',   label: 'Loan Application' },
-  { key: 'rate-sheet', label: 'Rate Sheet' },
-  { key: 'closing',    label: 'Closing Documents' },
-  { key: 'other',      label: 'Other' },
-];
-var _docs = [];
+// Deploy 236.120 — Documents tab now embeds the AI Loan Doc
+// Review (loan-review-detail.html) via iframe in ?embed=1 mode.
+// The legacy simple loan-docs system (categories + upload bar)
+// from 236.119 stays in the codebase / backend but is no longer
+// the primary Documents UI. Mike's call: "The whole AI Doc Review
+// functionality should be moved into that Doc Review tab on the
+// loan details page."
+//
+// Flow:
+//   1. On Documents tab mount, fetch /api/loan-reviews
+//   2. Find the review whose source.loanId matches this loan
+//   3. If found: render an iframe to loan-review-detail.html?id=...&embed=1
+//   4. If not: render "Start Document Review" CTA that calls
+//      /api/loan-reviews-save to create one, then refreshes.
+//   5. Non-processor users get a friendly message instead of the
+//      403 propagating up — loan-reviews-list requires processor
+//      or admin role.
 
 function _buildDocumentsPlaceholder() {
   // Name preserved from Phase D.0 (the placeholder) so the call
   // site in relocateSectionsToTabs() keeps working without edit.
   var wrap = document.createElement('div');
   wrap.id = 'documentsRoot';
-  var aiLink = _docReviewHref();
-  var acceptList = 'application/pdf,image/*,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain';
   wrap.innerHTML =
-    '<div class="section">' +
-      '<div class="section-head">' +
-        '<h2>Loan Documents</h2>' +
-        '<span class="section-tag tag-editable">Editable</span>' +
-        '<a href="' + escAttr(aiLink) + '" style="margin-left:auto;font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none" title="Open the AI-assisted Loan Doc Review for this loan">AI Doc Review →</a>' +
-      '</div>' +
-      '<div class="section-body">' +
-        '<div id="docsUploadBar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px;background:var(--bg,#f0ece5);border:1px dashed var(--border,#ddd8d0);border-radius:var(--r-xs,8px);margin-bottom:18px">' +
-          '<label style="font-size:11px;font-weight:700;color:var(--muted,#7a7488);text-transform:uppercase;letter-spacing:0.05em">Add document:</label>' +
-          '<select id="docCategorySelect" style="padding:7px 12px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:DM Sans,sans-serif;font-size:13px;background:#fff">' +
-            DOC_CATEGORIES.map(function(c) { return '<option value="' + escAttr(c.key) + '">' + escH(c.label) + '</option>'; }).join('') +
-          '</select>' +
-          '<input type="file" id="docFileInput" style="display:none" accept="' + escAttr(acceptList) + '" onchange="onDocFileChosen(this)" />' +
-          '<button type="button" class="btn-icon" onclick="document.getElementById(\'docFileInput\').click()">Choose File &amp; Upload</button>' +
-          '<span id="docUploadStatus" style="font-size:12px;color:var(--muted)"></span>' +
-        '</div>' +
-        '<div id="docsListWrap"><div style="padding:2rem;text-align:center;color:var(--muted);font-style:italic;font-size:13px">Loading documents…</div></div>' +
-      '</div>' +
-    '</div>';
-  setTimeout(loadDocsList, 0); // fetch after the pane mounts
+    '<div id="docsLoading" style="padding:2.5rem;text-align:center;color:var(--muted);font-style:italic;font-size:13px">Loading document review…</div>';
+  setTimeout(_initDocReviewPane, 0); // run after the pane mounts
   return wrap;
 }
 
-function _docReviewHref() {
-  return 'loan-review.html?clientId=' + encodeURIComponent(_client.id) +
-         '&loanId='   + encodeURIComponent(_loanId) +
-         (_loEmail && _user && _loEmail !== _user.email
-           ? '&owner=' + encodeURIComponent(_loEmail) : '');
+function _initDocReviewPane() {
+  // Role gate: loan-reviews-list requires processor or admin.
+  // For LOs/other users, show a friendly message + open-in-new-tab
+  // link to the standalone AI Doc Review page (which has its own
+  // role gate and will show the same denial there).
+  if (!(SLA && SLA.isProcessor && SLA.isProcessor(_user))) {
+    _renderDocsPaneMessage(
+      'Document Review is processor / admin only',
+      'Ask a processor to open this loan’s Document Review. They’ll see the checklist of pending items here.',
+      null
+    );
+    return;
+  }
+  // Find an existing review for this loan.
+  SLA.api('GET', '/api/loan-reviews').then(function(resp) {
+    var reviews = (resp && resp.reviews) || [];
+    // loan-reviews-list trims the source field via summarize() — to
+    // match by loanId we need to either include source in the list
+    // response or fall back to filtering by address/loanAmount.
+    // Phase 1 fix: just match by loanId or address.
+    var match = reviews.find(function(r) {
+      if (r.source && r.source.loanId === _loanId) return true;
+      // Address match (case-insensitive, normalized whitespace).
+      var a = String(r.address || '').trim().toLowerCase();
+      var b = String((_loan && _loan.address) || '').trim().toLowerCase();
+      return a && a === b;
+    });
+    if (match) {
+      _renderDocReviewIframe(match.id);
+    } else {
+      _renderDocReviewStarter();
+    }
+  }).catch(function(err) {
+    _renderDocsPaneMessage(
+      'Failed to load Document Review',
+      escH(err && err.message || 'unknown'),
+      null
+    );
+  });
+}
+
+function _renderDocReviewIframe(reviewId) {
+  var root = document.getElementById('documentsRoot');
+  if (!root) return;
+  var src = 'loan-review-detail.html?id=' + encodeURIComponent(reviewId) + '&embed=1';
+  // min-height 1500px is enough for most reviews + scrolls
+  // internally when longer. Toolbar at the top with an "Open in
+  // full page" link lets the processor escape the iframe if they
+  // want to use the standalone view.
+  root.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
+      '<div style="font-size:12px;color:var(--muted);font-family:DM Mono,monospace">Review ID: ' + escH(reviewId) + '</div>' +
+      '<a href="loan-review-detail.html?id=' + encodeURIComponent(reviewId) + '" target="_blank" rel="noopener" style="font-size:12px;color:var(--gold-mid,#b5712d);text-decoration:none">Open full page ↗</a>' +
+    '</div>' +
+    '<iframe src="' + escAttr(src) + '" style="width:100%;min-height:1500px;border:1px solid var(--border,#ddd8d0);border-radius:var(--r,12px);background:var(--surface,#fff)" title="Loan Document Review"></iframe>';
+}
+
+function _renderDocReviewStarter() {
+  // No review exists yet — let the processor create one with one click.
+  // Map GUC → 'rtl' since the checklist system only supports
+  // 'dscr' and 'rtl' as of 236.119.
+  var product = String((_loan && _loan.product) || '').toLowerCase();
+  var loanType = (product === 'dscr') ? 'dscr' : 'rtl';
+  var root = document.getElementById('documentsRoot');
+  if (!root) return;
+  root.innerHTML =
+    '<div class="ld-pane-empty">' +
+      '<span class="empty-title">No Document Review yet</span>' +
+      'Start a Document Review to see the checklist of items needed for this loan.<br>' +
+      'Each item gets its own upload tray and AI-assisted verdict.' +
+      '<button type="button" class="empty-link" id="startReviewBtn" style="cursor:pointer;border:none">Start Document Review</button>' +
+    '</div>';
+  document.getElementById('startReviewBtn').onclick = function() {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    SLA.api('POST', '/api/loan-reviews-save', {
+      loanType: loanType,
+      source: {
+        kind:     'existing',
+        clientId: _client.id,
+        loanId:   _loanId,
+        ownerKey: _loEmail || (_user && _user.email) || '',
+      },
+      address:           (_loan && _loan.address) || '',
+      borrowerName:      ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim(),
+      loanAmount:        (_loan && _loan.loanAmt) || 0,
+      loEmail:           _loEmail || (_user && _user.email) || '',
+      expectedCloseDate: (_loan && _loan.expectedCloseDate) || '',
+    }).then(function(resp) {
+      var newId = resp && resp.review && resp.review.id;
+      if (!newId) throw new Error('Server did not return a review id');
+      _renderDocReviewIframe(newId);
+    }).catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'Start Document Review';
+      alert('Could not start review: ' + (err && err.message || 'unknown'));
+    });
+  };
+}
+
+function _renderDocsPaneMessage(title, body, button) {
+  var root = document.getElementById('documentsRoot');
+  if (!root) return;
+  root.innerHTML =
+    '<div class="ld-pane-empty">' +
+      '<span class="empty-title">' + escH(title) + '</span>' + body +
+      (button ? button : '') +
+    '</div>';
 }
 
 function loadDocsList() {
