@@ -749,13 +749,15 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 </div><!-- /page -->
 
 <script>
-// ── Pricing data — Colchis RTL Pricing Sheet (Jun 09, 2026) ──
-// Deploy 236.57 — refresh wholesale matrix per new Colchis sheet.
-// Net rate movement: +0.125% across most cells, with +0.250% jumps on
-// the lowest-LTV columns of Light Rehab (740+/700-739) and on 740+ Heavy
-// Rehab ≤70. Pricing-adjustment line items (NY/NJ/CT, CA, ZHVI, cash-
-// out, term, $3M) unchanged. Per-product Minimum Rate floors also bumped
-// — see the program-min branch in colchisRate() (~line 1921).
+// ── Pricing data — Colchis RTL Pricing Sheet (Jun 29, 2026) ──
+// Deploy 236.122 — refresh wholesale matrix per new Colchis sheet.
+// Net rate movement vs Jun 09 sheet: +0.250% across the board on Bridge
+// (8.375 → 8.625, 8.500 → 8.750) and Light Rehab top cells (8.500 → 8.750).
+// Heavy Rehab and Construction also bumped +0.250% at the top end. Some
+// Heavy/Construction 90% / 95% cells reopened or shifted. Pricing
+// adjustments (NY/NJ/CT, CA, ZHVI, cash-out, term, $2M/$3M tiers, tier
+// 1/3 experience) unchanged from prior sheet. Per-product Minimum Rate
+// floors bumped — see the progMin branch in calculate() (~line 2030).
 // PRICING values are Colchis's WHOLESALE base rate. Final borrower note
 // rate = PRICING + SPREAD[fico] + adjustments. Tier 1 (8+) gets -0.25%
 // reduction, Tier 2 baseline, Tier 3 +0.25%. MFR adjustment is per-LTV.
@@ -766,7 +768,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 // Colchis program minimums for normal-leverage deals. The Colchis minimums
 // only matter when wholesale + spread + adjustments would otherwise undercut
 // them (rare, mostly seen on high-LTV heavy/construction deals).
-var FLOOR = 0.0825; // Bridge / Light program minimum 8.250%
+var FLOOR = 0.08625; // Bridge program minimum 8.625% (Jun 29, 2026)
 // Deploy 236.48 — single source of truth for FICO / LTV / pricing-
 // eligibility error suffix. Mirror of EXCEPTION_HINT in DSCR sizer.
 var EXCEPTION_HINT = ' Reach out to a manager to submit an exception request.';
@@ -782,41 +784,45 @@ var LTV_COLS = [.70, .75, .80, .85, .90, .95];
 // 620 (.13) buckets to reflect its in-between risk profile.
 var SUB680_RATE = { 660: .12, 640: .125, 620: .13, 550: .14 };
 
+// Deploy 236.122 — Jun 29, 2026 Colchis sheet. Buckets in the code
+// (740/720/700/680) map to sheet bands as: 740 → "740+", 720+700
+// → "700-739", 680 → "680-699". The 660-679 row stays blank on the
+// sheet, so sub-680 routes through SUB680_RATE below.
 var PRICING = {
   bridge: {
     sfr: {
-      740: [.08375, .08375, null,   null,   null,   null  ],
-      720: [.08375, .08375, null,   null,   null,   null  ],
-      700: [.08375, .08375, null,   null,   null,   null  ],
-      680: [.085,   null,   null,   null,   null,   null  ],
+      740: [.08625, .08625, null,   null,   null,   null  ],
+      720: [.08625, .08625, null,   null,   null,   null  ],
+      700: [.08625, .08625, null,   null,   null,   null  ],
+      680: [.0875,  null,   null,   null,   null,   null  ],
     },
     mfr: {
-      740: [.08375, .08375, null,   null,   null,   null  ],
-      720: [.08375, .08375, null,   null,   null,   null  ],
-      700: [.08375, .08375, null,   null,   null,   null  ],
-      680: [.085,   null,   null,   null,   null,   null  ],
+      740: [.08625, .08625, null,   null,   null,   null  ],
+      720: [.08625, .08625, null,   null,   null,   null  ],
+      700: [.08625, .08625, null,   null,   null,   null  ],
+      680: [.0875,  null,   null,   null,   null,   null  ],
     },
   },
   light: {
     sfr: {
-      740: [.085,   .085,   .085,   .085,   .08625, .09   ],
-      720: [.085,   .085,   .085,   .08625, .0875,  .09125],
-      700: [.085,   .085,   .085,   .08625, .0875,  .09125],
-      680: [.085,   .08625, .0875,  .08875, .09,    null  ],
+      740: [.0875,  .0875,  .0875,  .0875,  .08875, .0925 ],
+      720: [.0875,  .0875,  .0875,  .08875, .09,    .09375],
+      700: [.0875,  .0875,  .0875,  .08875, .09,    .09375],
+      680: [.0875,  .08875, .09,    .09125, .0925,  null  ],
     },
     mfr: {
-      740: [.085,   .085,   .085,   .085,   .08625, .09   ],
-      720: [.085,   .085,   .085,   .08625, .0875,  .09125],
-      700: [.085,   .085,   .085,   .08625, .0875,  .09125],
-      680: [.085,   .08625, .0875,  .08875, .09,    null  ],
+      740: [.0875,  .0875,  .0875,  .0875,  .08875, .0925 ],
+      720: [.0875,  .0875,  .0875,  .08875, .09,    .09375],
+      700: [.0875,  .0875,  .0875,  .08875, .09,    .09375],
+      680: [.0875,  .08875, .09,    .09125, .0925,  null  ],
     },
   },
   heavy: {
     sfr: {
-      740: [.09125, .09125, .0925,  .09375, null,   null  ],
-      720: [.09125, .0925,  .09375, .095,   null,   null  ],
-      700: [.09125, .0925,  .09375, .095,   null,   null  ],
-      680: [.09375, .095,   .09625, .0975,  null,   null  ],
+      740: [.09375, .09375, .095,   .09625, null,   null  ],
+      720: [.09375, .095,   .09625, .0975,  null,   null  ],
+      700: [.09375, .095,   .09625, .0975,  null,   null  ],
+      680: [.09625, .0975,  .09875, .1,     null,   null  ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -827,10 +833,10 @@ var PRICING = {
   },
   construction: {
     sfr: {
-      740: [.08875, .09,    .09125, .0925,  .09625, null  ],
-      720: [.09,    .09125, .0925,  .09375, .0975,  null  ],
-      700: [.09,    .09125, .0925,  .09375, .0975,  null  ],
-      680: [.0925,  .09375, .095,   .09625, null,   null  ],
+      740: [.09125, .0925,  .09375, .095,   .09875, null  ],
+      720: [.0925,  .09375, .095,   .09625, .1,     null  ],
+      700: [.0925,  .09375, .095,   .09625, .1,     null  ],
+      680: [.095,   .09625, .0975,  .09875, null,   null  ],
     },
     mfr: {
       740: [null, null, null, null, null, null],
@@ -2018,21 +2024,21 @@ function calculate(){
           if(sz==='3m'){ adj+=.0025; adjs.push({l:'Loan amount >$3M',v:.0025,c:'pos'}); }
           // Tier-1 baseline = wholesale + adjustments + spread − 0.25% (Tier 1 reduction)
           var tier1Base = cb + adj + SPREAD[fkey] - .0025;
-          // Apply program-minimum floors per the PDF (Jun 09, 2026 sheet).
-          // Deploy 236.57 — bumped from May 5 values:
-          //   Bridge:        8.250% -> 8.375%
-          //   Light Rehab:   8.250% -> 8.500%
-          //   Heavy Rehab:   8.875% -> 9.125%
-          //   Construction:  8.750% -> 8.875%
+          // Apply program-minimum floors per the PDF (Jun 29, 2026 sheet).
+          // Deploy 236.122 — bumped from Jun 09 values:
+          //   Bridge:        8.375% -> 8.625%
+          //   Light Rehab:   8.500% -> 8.750%
+          //   Heavy Rehab:   9.125% -> 9.375%
+          //   Construction:  8.875% -> 9.125%
           // In practice the SLA 10% policy floor below dominates for most
           // Tier-1 deals, but the program-min still binds at high-LTV
           // Tier-1 cells where the policy floor wouldn't otherwise apply.
           var progMin =
-            (lt === 'bridge')       ? 0.08375  :
-            (lt === 'light')        ? 0.085    :
-            (lt === 'heavy')        ? 0.09125  :
-            (lt === 'construction') ? 0.08875  :
-                                      0.08375;
+            (lt === 'bridge')       ? 0.08625  :
+            (lt === 'light')        ? 0.0875   :
+            (lt === 'heavy')        ? 0.09375  :
+            (lt === 'construction') ? 0.09125  :
+                                      0.08625;
           if(tier1Base < progMin){ tier1Base = progMin; floor = true; }
           // SLA policy floor: Tier 1 baseline never below 10.000%.
           // (Tier 2 will be at least 10.250%; Tier 3 at least 10.500%.)
