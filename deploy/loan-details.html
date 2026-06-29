@@ -799,6 +799,48 @@
   .task-due, .task-assignee { grid-column: 1 / -1; padding-left: 34px; text-align: left; }
 }
 
+/* Deploy 236.118 — Loan Details tabs (Loan / Contacts / Documents / Tasks).
+   Existing sections still render in their natural order; post-render
+   JS moves each into the appropriate pane. The pane shell + tab nav
+   live in the layout wrap so the right-sidebar Notes/Envelopes stay
+   visible across all tabs. */
+.ld-tabs { display: flex; gap: 2px; border-bottom: 2px solid var(--border, #ddd8d0); margin-bottom: 20px; flex-wrap: wrap; }
+.ld-tab { padding: 11px 22px; background: transparent; border: none; border-bottom: 3px solid transparent; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; color: var(--muted, #7a7488); cursor: pointer; margin-bottom: -2px; transition: color 0.12s, border-color 0.12s, background 0.12s; display: inline-flex; align-items: center; gap: 8px; border-radius: 6px 6px 0 0; }
+.ld-tab:hover:not(.active) { color: var(--text, #1a1520); background: rgba(0,0,0,0.02); }
+.ld-tab.active { color: var(--gold, #C8813A); border-bottom-color: var(--gold, #C8813A); background: rgba(200,129,58,0.04); }
+.ld-tab .ld-tab-icon { font-size: 14px; opacity: 0.9; }
+.ld-tab .ld-tab-count { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 9px; background: rgba(0,0,0,0.06); color: var(--muted); }
+.ld-tab.active .ld-tab-count { background: rgba(200,129,58,0.16); color: var(--gold-mid, #b5712d); }
+.ld-pane { display: none; }
+.ld-pane.active { display: block; }
+.ld-pane-empty { padding: 3rem 1rem; text-align: center; color: var(--muted); font-style: italic; font-size: 13px; background: var(--surface); border: 1px dashed var(--border); border-radius: var(--r); }
+.ld-pane-empty .empty-title { display: block; font-size: 15px; font-style: normal; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.ld-pane-empty .empty-link { display: inline-block; margin-top: 14px; padding: 8px 18px; background: var(--gold, #C8813A); color: #fff; text-decoration: none; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.ld-pane-empty .empty-link:hover { background: var(--gold-mid, #b5712d); }
+
+/* Deploy 236.118 — Loan ID chip on the page header. Click to copy. */
+.ld-loan-id { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 14px; background: rgba(0,0,0,0.04); font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); cursor: pointer; transition: background 0.12s, color 0.12s; user-select: all; }
+.ld-loan-id:hover { background: rgba(200,129,58,0.10); color: var(--gold-mid, #b5712d); }
+.ld-loan-id .ld-loan-id-label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 9px; }
+.ld-loan-id.copied { background: rgba(37,105,64,0.10); color: var(--success, #256940); }
+
+/* Deploy 236.118 — small icons inside the existing .badge / .status-badge. */
+.page-subtitle .badge,
+.page-subtitle .status-badge { display: inline-flex; align-items: center; gap: 5px; }
+.page-subtitle .badge::before { font-size: 11px; opacity: 0.9; }
+.page-subtitle .badge.dscr::before { content: '\1F4CA'; } /* 📊 */
+.page-subtitle .badge.rtl::before  { content: '\1F528'; } /* 🔨 */
+.page-subtitle .badge.guc::before  { content: '\1F3D7'; } /* 🏗 */
+.page-subtitle .status-badge::before { content: '\25CF'; font-size: 9px; opacity: 0.75; }
+
+/* Deploy 236.118 — Team Members block inside Contacts tab. */
+.team-members-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.team-member { padding: 12px 14px; background: var(--bg, #f0ece5); border: 1px solid var(--border, #ddd8d0); border-radius: var(--r-xs); }
+.team-member .tm-role { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+.team-member .tm-name { font-size: 13px; font-weight: 600; color: var(--text); word-break: break-word; }
+.team-member .tm-email { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: 'DM Mono', monospace; word-break: break-word; }
+.team-member.unassigned .tm-name { color: rgba(122,116,136,0.6); font-style: italic; font-weight: 500; }
+
 /* Deploy 236.103 — past-due Closing Date highlight on Loan Details.
    Mirrors the past-due styling on the Processing Pipeline tile. */
 .field input.past-due { color: var(--danger, #7c1f1f) !important; background: rgba(124,31,31,0.06) !important; border-color: var(--danger, #7c1f1f) !important; font-weight: 600; }
@@ -1275,7 +1317,14 @@ function render() {
     // Doc Review button (processor + admin only) can sit pushed-right
     // alongside the address. Regular LOs see just the address.
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">' +
-      '<div class="page-title">'+escH(l.address||'No address')+'</div>' +
+      '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
+        '<div class="page-title">'+escH(l.address||'No address')+'</div>' +
+        // Deploy 236.118 — Loan ID chip. Click to copy to clipboard.
+        '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escAttr(l.id || '') + '\')" title="Click to copy loan ID">' +
+          '<span class="ld-loan-id-label">Loan ID</span>' +
+          '<span>' + escH(l.id || '(none)') + '</span>' +
+        '</span>' +
+      '</div>' +
       '<div style="display:flex;align-items:center;gap:10px">' +
         // Deploy 236.102 — Actions dropdown aggregates the Rate Sheet
         // + Loan App buttons that used to clutter the Financials box.
@@ -1344,7 +1393,9 @@ function render() {
 
   // LEFT COL — Financial details (read-only)
   html += '<div>';
-  html += '<div class="section">' +
+  // Deploy 236.118 — id="loanFinancialsSection" so the tab restructure
+  // can move this section into the Loan tab post-render.
+  html += '<div class="section" id="loanFinancialsSection">' +
     '<div class="section-head"><h2>Loan Financials</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
     '<div class="section-body">';
 
@@ -1800,7 +1851,8 @@ function render() {
 
   // RIGHT COL — Editable application fields
   html += '<div>';
-  html += '<div class="section">' +
+  // Deploy 236.118 — id="propertyAppSection" for tab relocation.
+  html += '<div class="section" id="propertyAppSection">' +
     '<div class="section-head"><h2>Property &amp; Application</h2><span class="section-tag tag-editable">Editable</span></div>' +
     '<div class="section-body">' +
     '<div class="app-grid">' +
@@ -1934,7 +1986,7 @@ function render() {
   var guarantorIds = Array.isArray(l.guarantorClientIds) ? l.guarantorClientIds : [];
   if (guarantorIds.length) {
     html +=
-      '<div class="section">' +
+      '<div class="section" id="linkedGuarantorsSection">' +
         '<div class="section-head">' +
           '<h2>Linked Guarantor Clients</h2>' +
           '<span class="section-tag tag-readonly">Auto-linked at signing</span>' +
@@ -2040,7 +2092,7 @@ function render() {
       ? '<a href="brokers.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book">View in Broker Book →</a>'
       : '';
     html +=
-    '<div class="section">' +
+    '<div class="section" id="brokerInfoSection">' +
       '<div class="section-head"><h2>Broker Info</h2>' + sourceBadge + '<span class="section-tag tag-editable">Editable</span>' + brokerBookLink + '</div>' +
       '<div class="section-body">' +
         '<div class="app-grid">' +
@@ -2100,14 +2152,29 @@ function render() {
 
   // Deploy 236.101 — wrap the rendered body in a 2-column layout
   // with the Notes sidebar pinned right.
-  // Deploy 236.103 — page-header (pageHeaderHtml) now sits ABOVE
-  // ld-layout so the sidebar's top aligns with the Loan Financials
-  // top, not with the breadcrumb. Sidebar's `position: sticky`
-  // anchors at top:16px from its own offset parent which is now
-  // the ld-layout grid — so it pins to the same line as Financials.
+  // Deploy 236.118 — tab nav (Loan / Contacts / Documents / Tasks)
+  // inside ld-main, BEFORE the section content. Sections render in
+  // their natural order from the existing render path; post-render
+  // JS (relocateSectionsToTabs) physically moves each into the
+  // appropriate pane. Notes & Envelopes stay in the right sidebar
+  // and are visible across all tabs.
+  var tabsHtml =
+    '<div class="ld-tabs" role="tablist">' +
+      '<button type="button" class="ld-tab active" data-ld-tab="loan"      onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
+      '<button type="button" class="ld-tab"        data-ld-tab="contacts"  onclick="switchLdTab(\'contacts\')"><span class="ld-tab-icon">\u{1F465}</span>Contacts</button>' +
+      '<button type="button" class="ld-tab"        data-ld-tab="documents" onclick="switchLdTab(\'documents\')"><span class="ld-tab-icon">\u{1F4C4}</span>Documents</button>' +
+      '<button type="button" class="ld-tab"        data-ld-tab="tasks"     onclick="switchLdTab(\'tasks\')"><span class="ld-tab-icon">\u{2705}</span>Tasks<span class="ld-tab-count" id="ldTabTasksCount" hidden></span></button>' +
+    '</div>' +
+    '<div class="ld-pane active" data-ld-pane="loan"      id="ldPaneLoan"></div>' +
+    '<div class="ld-pane"        data-ld-pane="contacts"  id="ldPaneContacts"></div>' +
+    '<div class="ld-pane"        data-ld-pane="documents" id="ldPaneDocuments"></div>' +
+    '<div class="ld-pane"        data-ld-pane="tasks"     id="ldPaneTasks"></div>';
   html = pageHeaderHtml +
          '<div class="ld-layout">' +
-           '<div class="ld-main">' + html + '</div>' +
+           '<div class="ld-main">' +
+             tabsHtml +
+             '<div class="ld-stage">' + html + '</div>' +
+           '</div>' +
            '<aside class="ld-notes-sidebar" id="ldNotesSidebar"></aside>' +
          '</div>';
 
@@ -2214,6 +2281,89 @@ function render() {
       sigPane.style.borderRadius = '6px';
       // Insert at the TOP of the body so it sits above #envelopesList.
       body.insertBefore(sigPane, body.firstChild);
+    }
+  })();
+
+  // Deploy 236.118 — Loan Details TABS. Move existing sections out
+  // of the inline two-col / stack and into the appropriate pane.
+  // Each section keeps its existing event wiring, IDs, and any
+  // already-attached refreshers; only the visual position moves.
+  (function relocateSectionsToTabs() {
+    var paneLoan      = document.getElementById('ldPaneLoan');
+    var paneContacts  = document.getElementById('ldPaneContacts');
+    var paneDocuments = document.getElementById('ldPaneDocuments');
+    var paneTasks     = document.getElementById('ldPaneTasks');
+    if (!paneLoan || !paneContacts || !paneDocuments || !paneTasks) return;
+
+    // LOAN tab: the existing .two-col (Financials + Property/App
+    // side-by-side) goes here intact. Any "left col" buttons
+    // (Cancel/Decline/Delete/etc.) hang off the Financials section
+    // and ride along.
+    var stage = document.querySelector('.ld-stage');
+    var twoCol = stage && stage.querySelector('.two-col');
+    if (twoCol) paneLoan.appendChild(twoCol);
+
+    // CONTACTS tab: borrower / broker / additional contacts /
+    // linked guarantors. Plus a new Team Members block we inject
+    // below.
+    [
+      'borrowerInfoSection',
+      'linkedGuarantorsSection',
+      'loanContactsSection',
+      'brokerInfoSection',
+    ].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) paneContacts.appendChild(el);
+    });
+    // Team Members card (new). Sources: LO from ownerKey (and the
+    // _loEmail / profile lookup the page already does); Processor
+    // placeholder until admin reassignment ships.
+    paneContacts.appendChild(_buildTeamMembersSection());
+
+    // DOCUMENTS tab: placeholder. Real implementation is Phase D
+    // (the Loan Doc Review system already exists as its own page;
+    // moving/embedding it is the next phase). For now surface a
+    // deep link so processors can jump there in one click.
+    paneDocuments.appendChild(_buildDocumentsPlaceholder());
+
+    // TASKS tab: the existing #tasksSection moves over wholesale.
+    var tasksSect = document.getElementById('tasksSection');
+    if (tasksSect) paneTasks.appendChild(tasksSect);
+    // Sync the tasks count badge on the tab once tasks load. The
+    // loadTasksList() called below will trigger a render; hook the
+    // existing _tasks state via setTimeout (cheap, no listener
+    // required).
+    setTimeout(_syncTasksTabCount, 800);
+
+    // Anything left over in .ld-stage that didn't match a section
+    // ID stays put (will render below the tabs). Empty in practice
+    // because we accounted for every emitted section above.
+
+    // Tab from URL hash if present (#loan / #contacts / #documents
+    // / #tasks). Default = loan.
+    var hash = String(window.location.hash || '').replace('#', '').toLowerCase();
+    var initial = ['loan','contacts','documents','tasks'].indexOf(hash) >= 0 ? hash : 'loan';
+    if (initial !== 'loan') switchLdTab(initial, true);
+    // If the hash pointed to one of our LEGACY section IDs (e.g.
+    // contacts.html's row-click writes #loanContactsSection), jump
+    // to the right tab and scroll to the section.
+    var sectionToTabHash = {
+      'loanfinancialssection':    'loan',
+      'propertyappsection':       'loan',
+      'borrowerinfosection':      'contacts',
+      'linkedguarantorssection':  'contacts',
+      'loancontactssection':      'contacts',
+      'brokerinfosection':        'contacts',
+      'tasksection':              'tasks',
+      'tasksesection':            'tasks',
+    };
+    var lowerHash = hash.toLowerCase();
+    if (sectionToTabHash[lowerHash]) {
+      switchLdTab(sectionToTabHash[lowerHash], true);
+      setTimeout(function() {
+        var t = document.getElementById(hash);
+        if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
     }
   })();
 
@@ -2339,6 +2489,114 @@ function switchBorrowerTab(idx) {
   document.querySelectorAll('#borrowerInfoSection .bw-pane').forEach(function(p) {
     p.classList.toggle('active', p.id === 'bw-pane-' + idx);
   });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Deploy 236.118 — Loan Details TABS: switcher, hash sync, helpers
+// ════════════════════════════════════════════════════════════════════
+function switchLdTab(name, skipHash) {
+  document.querySelectorAll('.ld-tab').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.ldTab === name);
+  });
+  document.querySelectorAll('.ld-pane').forEach(function(p) {
+    p.classList.toggle('active', p.dataset.ldPane === name);
+  });
+  if (!skipHash) {
+    try {
+      var url = new URL(window.location.href);
+      url.hash = name;
+      history.replaceState(null, '', url.toString());
+    } catch (_) { /* IE/older — ignore */ }
+  }
+}
+
+function copyLoanId(el, id) {
+  if (!id) return;
+  function flash() {
+    el.classList.add('copied');
+    var lbl = el.querySelector('.ld-loan-id-label');
+    var orig = lbl ? lbl.textContent : '';
+    if (lbl) lbl.textContent = 'Copied';
+    setTimeout(function() {
+      el.classList.remove('copied');
+      if (lbl) lbl.textContent = orig || 'Loan ID';
+    }, 1200);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(id).then(flash).catch(flash);
+  } else {
+    flash(); // user-select:all makes the chip already easy to copy
+  }
+}
+
+// Build the Team Members section that appears at the bottom of
+// the Contacts tab. For now: LO (always), Processor (placeholder
+// until admin reassignment ships in Phase C). Future iterations
+// could add Underwriter / Closing Coordinator / etc. once those
+// roles are first-class on the loan record.
+function _buildTeamMembersSection() {
+  var lo = _loEmail || '';
+  var section = document.createElement('div');
+  section.className = 'section';
+  section.id = 'teamMembersSection';
+  var loCard =
+    '<div class="team-member' + (lo ? '' : ' unassigned') + '">' +
+      '<div class="tm-role">Loan Officer</div>' +
+      '<div class="tm-name">' + escH(lo || 'Unassigned') + '</div>' +
+    '</div>';
+  // Processor — sourced from loan.assignedProcessor (not yet set
+  // by any UI; future loan-assign endpoint will populate). Renders
+  // as "Not assigned" until then so the slot is visible.
+  var processor = _loan && _loan.assignedProcessor || '';
+  var procCard =
+    '<div class="team-member' + (processor ? '' : ' unassigned') + '">' +
+      '<div class="tm-role">Processor</div>' +
+      '<div class="tm-name">' + escH(processor || 'Not assigned') + '</div>' +
+    '</div>';
+  section.innerHTML =
+    '<div class="section-head"><h2>Team Members</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
+    '<div class="section-body">' +
+      '<div class="team-members-grid">' + loCard + procCard + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:10px;font-style:italic">Processor assignment is coming in a future deploy (admin-only loan reassignment).</div>' +
+    '</div>';
+  return section;
+}
+
+// Documents tab placeholder. Real implementation is Phase D —
+// moving / embedding the existing Loan Doc Review system into
+// the Loan Details flow. For now, a deep link so processors can
+// jump there in one click without leaving the loan context.
+function _buildDocumentsPlaceholder() {
+  var wrap = document.createElement('div');
+  wrap.className = 'ld-pane-empty';
+  // Loan Doc Review takes a loan via URL params similar to the
+  // sizer load path. Pass clientId/loanId/owner so it lands on
+  // this loan's review (creating one if needed).
+  var url = 'loan-review.html?clientId=' + encodeURIComponent(_client.id) +
+            '&loanId='   + encodeURIComponent(_loanId) +
+            (_loEmail && _user && _loEmail !== _user.email
+              ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  wrap.innerHTML =
+    '<span class="empty-title">Documents will live here</span>' +
+    'Phase D will bring the full document review experience into the Loan Details tab —<br>' +
+    'category management, per-document notes, ZIP export with investor naming.<br>' +
+    'For now, the existing Loan Doc Review tool handles this on its own page.' +
+    '<a class="empty-link" href="' + escAttr(url) + '">Open Loan Doc Review →</a>';
+  return wrap;
+}
+
+function _syncTasksTabCount() {
+  var badge = document.getElementById('ldTabTasksCount');
+  if (!badge) return;
+  var arr = Array.isArray(_tasks) ? _tasks : [];
+  var open = arr.filter(function(t) { return t && !t.completed; }).length;
+  if (open <= 0) {
+    badge.hidden = true;
+    badge.textContent = '';
+  } else {
+    badge.hidden = false;
+    badge.textContent = String(open);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2790,6 +3048,10 @@ function loadTasksList() {
 
 function renderTasksList() {
   var inner = document.getElementById('tasksList');
+  // Deploy 236.118 — keep the tasks-tab count in sync with the
+  // local _tasks state on every render. Cheap; safe to call even
+  // when the tab badge element doesn't exist yet.
+  if (typeof _syncTasksTabCount === 'function') _syncTasksTabCount();
   if (!inner) return;
   var sorted = (_tasks || []).slice().sort(function(a, b) {
     // Incomplete to top; within each group sort by due date ascending,
