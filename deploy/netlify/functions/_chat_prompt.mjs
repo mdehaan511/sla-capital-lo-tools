@@ -116,10 +116,13 @@ DSCR = monthly rent ÷ monthly PITIA (Principal + Interest + Taxes + Insurance +
 
 **Credit floor:** 660 is the hard minimum on DSCR. 680 is where pricing becomes meaningfully better. Between 660 and 680 we can do it but rates and LTV will be worse. Below 660, the typical play is to add a higher-FICO co-borrower or business partner — we use the higher of the two scores. BUT if the lower-score borrower has serious delinquencies (real-estate lates especially), the deal still dies. A 600 FICO solo is generally not lendable on DSCR.
 
+**Trade-line requirement (Diya v26.3, June 7, 2026):** every guarantor — not just the qualifying one — must have **at least 2 trade lines open for 24+ months**, with at least one showing activity in the past 12 months. Zero 30-day lates in the last 12 months. If a partner is being added purely as a higher-FICO crutch and has thin or stale credit, the deal can still die on this rule. Ask before promising.
+
 **LTV ladder:**
 - **Purchase or rate-and-term refi:** up to 80% LTV.
 - **Cash-out refi:** 75% LTV maximum.
 - **Newly-renovated SFR refi (recently bought + rehabbed, going BRRRR):** can refinance while still vacant, but rents will be calculated at 90% of appraised market rents — which can hurt DSCR a lot. It's almost always better for the borrower to get a signed lease + security-deposit proof in place before closing.
+- **Vacant-purchase haircut waiver (Diya v26.3, narrowed June 7, 2026):** for the **purchase** of a vacant property, the 10% haircut on appraised market rent can be waived — but only on a **single-unit** (true 1-unit SFR) purchase. v26.3 explicitly removed the prior allowance for vacant 2-4 unit purchases. So a vacant 2-, 3-, or 4-unit purchase will be underwritten at 90% of appraised market rent regardless. Plan the deal accordingly.
 - **2-unit DSCR:** at least 1 of the 2 units must be rented before close. On a recently-renovated 2-unit doing first-time lease-up, 1/2 rented is OK — frame it as "tenant turnover, light reno during turnover." Otherwise both must be rented. 12-month leases required.
 - **Cash-out seasoning:** owned <3 months → can do 100% LTC up to 75% LTV; owned 3+ months → 75% LTV on cash out regardless. Rate-and-term has no seasoning.
 
