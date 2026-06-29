@@ -375,6 +375,50 @@
   <div class="loading">Loading loan details…</div>
 </div>
 
+<!-- Deploy 236.114 — Additional Contacts modal (add + edit). -->
+<div class="ct-modal-bg" id="ctAddModal">
+  <div class="ct-modal">
+    <h3 id="ctModalTitle">Add Contact</h3>
+    <p class="ct-modal-sub" id="ctModalSub">Use this for Title Co, Insurance Agent, Inspector, etc. The LO, Borrower, Guarantors, and Broker each have their own sections above.</p>
+    <input type="hidden" id="ctModalEditId" value="" />
+    <div class="ct-modal-field">
+      <label for="ctModalRole">Role</label>
+      <select id="ctModalRole">
+        <option value="title">Title Company</option>
+        <option value="insurance">Insurance Agent</option>
+        <option value="inspector">Inspector</option>
+        <option value="appraiser">Appraiser</option>
+        <option value="surveyor">Surveyor</option>
+        <option value="attorney">Attorney</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="ct-modal-grid">
+      <div class="ct-modal-field">
+        <label for="ctModalName">Contact Name</label>
+        <input type="text" id="ctModalName" placeholder="e.g. Janet Smith" />
+      </div>
+      <div class="ct-modal-field">
+        <label for="ctModalCompany">Company</label>
+        <input type="text" id="ctModalCompany" placeholder="e.g. First American Title" />
+      </div>
+      <div class="ct-modal-field">
+        <label for="ctModalEmail">Email</label>
+        <input type="email" id="ctModalEmail" placeholder="janet@firstam.com" />
+      </div>
+      <div class="ct-modal-field">
+        <label for="ctModalPhone">Phone</label>
+        <input type="tel" id="ctModalPhone" placeholder="(555) 123-4567" />
+      </div>
+    </div>
+    <div class="ct-modal-actions">
+      <div class="ct-modal-status" id="ctModalStatus"></div>
+      <button type="button" class="ct-modal-btn" onclick="closeAddContactModal()">Cancel</button>
+      <button type="button" class="ct-modal-btn primary" id="ctModalSaveBtn" onclick="submitContactModal()">Save Contact</button>
+    </div>
+  </div>
+</div>
+
 <!-- Borrower-Info Request modal -->
 <div class="bi-modal-bg" id="biModal">
   <div class="bi-modal">
@@ -645,14 +689,31 @@
 .ld-actions-menu .ld-action-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .ld-actions-menu .ld-action-menu-item svg { flex-shrink: 0; opacity: 0.7; }
 
-/* Deploy 236.113 (Phase E) — Additional Contacts section. */
-.contacts-add-row { display: grid; grid-template-columns: 130px 1fr 1fr 150px 130px auto; gap: 8px; margin-bottom: 14px; align-items: center; }
-@media (max-width: 1100px) { .contacts-add-row { grid-template-columns: 1fr 1fr; } }
-.contacts-add-row input, .contacts-add-row select { padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: #fff; min-width: 0; }
-.contacts-add-row input:focus, .contacts-add-row select:focus { outline: none; border-color: var(--gold, #C8813A); }
-.contacts-add-row .btn-add-contact { padding: 8px 16px; border: none; border-radius: 6px; background: var(--dark, #261a36); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; white-space: nowrap; }
-.contacts-add-row .btn-add-contact:hover { background: #1c1227; }
-.contacts-add-row .btn-add-contact:disabled { opacity: 0.5; cursor: wait; }
+/* Deploy 236.113 (Phase E) — Additional Contacts section.
+   Deploy 236.114 — cramped inline-row replaced with an "+ Add"
+   button that opens a modal with full-width fields. */
+.contacts-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.btn-add-contact { padding: 8px 16px; border: none; border-radius: 6px; background: var(--dark, #261a36); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.btn-add-contact:hover { background: #1c1227; }
+.btn-add-contact:disabled { opacity: 0.5; cursor: wait; }
+/* Contact modal (matches bi-modal-bg pattern used elsewhere). */
+.ct-modal-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+.ct-modal-bg.show { display: flex; }
+.ct-modal { background: var(--surface, #fff); border-radius: 12px; max-width: 520px; width: 100%; padding: 1.75rem; box-shadow: 0 12px 40px rgba(0,0,0,0.18); font-family: 'DM Sans', sans-serif; }
+.ct-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 4px; color: var(--text, #1a1520); }
+.ct-modal .ct-modal-sub { font-size: 12px; color: var(--muted, #7a7488); margin-bottom: 1.25rem; }
+.ct-modal-field { margin-bottom: 12px; }
+.ct-modal-field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+.ct-modal-field input, .ct-modal-field select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 13px; background: #fff; }
+.ct-modal-field input:focus, .ct-modal-field select:focus { outline: none; border-color: var(--gold, #C8813A); }
+.ct-modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ct-modal-status { font-size: 12px; min-height: 18px; margin-right: auto; align-self: center; }
+.ct-modal-status.err { color: var(--danger); }
+.ct-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1rem; align-items: center; }
+.ct-modal-btn { font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 22px; cursor: pointer; font-family: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.ct-modal-btn:disabled { opacity: 0.5; cursor: wait; }
+.ct-modal-btn.primary { background: var(--dark, #261a36); border-color: var(--dark, #261a36); color: #fff; }
+.ct-modal-btn.primary:hover:not(:disabled) { background: #1c1227; }
 .contacts-empty { font-size: 12px; color: rgba(122,116,136,0.7); font-style: italic; padding: 14px 6px; text-align: center; }
 .contacts-list { display: flex; flex-direction: column; gap: 6px; }
 .contact-row { display: grid; grid-template-columns: 130px 1.4fr 1fr 150px 130px 30px; gap: 10px; align-items: center; padding: 10px 12px; background: var(--bg, #f0ece5); border: 1px solid var(--border, #ddd8d0); border-radius: 6px; transition: border-color 0.10s; }
@@ -1949,21 +2010,8 @@ function render() {
     '<div class="section" id="loanContactsSection">' +
       '<div class="section-head"><h2>Additional Contacts</h2><span class="section-tag tag-editable">Editable</span></div>' +
       '<div class="section-body">' +
-        '<div class="contacts-add-row">' +
-          '<select id="ctNewRole" title="Role">' +
-            '<option value="title">Title Company</option>' +
-            '<option value="insurance">Insurance Agent</option>' +
-            '<option value="inspector">Inspector</option>' +
-            '<option value="appraiser">Appraiser</option>' +
-            '<option value="surveyor">Surveyor</option>' +
-            '<option value="attorney">Attorney</option>' +
-            '<option value="other">Other</option>' +
-          '</select>' +
-          '<input type="text"  id="ctNewName"    placeholder="Contact name" />' +
-          '<input type="text"  id="ctNewCompany" placeholder="Company (optional)" />' +
-          '<input type="email" id="ctNewEmail"   placeholder="Email" />' +
-          '<input type="tel"   id="ctNewPhone"   placeholder="Phone" />' +
-          '<button class="btn-add-contact" id="ctAddBtn" onclick="addLoanContact()">Add</button>' +
+        '<div class="contacts-toolbar">' +
+          '<button class="btn-add-contact" onclick="openAddContactModal()">+ Add Contact</button>' +
         '</div>' +
         '<div class="contacts-list" id="loanContactsList"><div class="contacts-empty">Loading contacts…</div></div>' +
       '</div>' +
@@ -2347,11 +2395,15 @@ function _renderLoanContactRow(c) {
   var role = String(c.role || 'other').toLowerCase();
   var roleLabel = c.roleLabel || ROLE_LABELS[role] || role;
   var name = c.name || '(no name)';
-  var emailHtml = c.email ? '<a href="mailto:' + escAttr(c.email) + '">' + escH(c.email) + '</a>' : '<span class="muted">—</span>';
-  var phoneHtml = c.phone
-    ? '<a href="tel:' + escAttr(c.phone.replace(/[^\d+]/g, '')) + '">' + escH(c.phone) + '</a>'
+  var emailHtml = c.email
+    ? '<a href="mailto:' + escAttr(c.email) + '" onclick="event.stopPropagation()">' + escH(c.email) + '</a>'
     : '<span class="muted">—</span>';
-  return '<div class="contact-row" data-contact-id="' + escAttr(c.id) + '">' +
+  var phoneHtml = c.phone
+    ? '<a href="tel:' + escAttr(c.phone.replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(c.phone) + '</a>'
+    : '<span class="muted">—</span>';
+  // Deploy 236.114 — row is clickable to edit; the delete button
+  // stops propagation so clicking the X doesn't also open the modal.
+  return '<div class="contact-row" data-contact-id="' + escAttr(c.id) + '" onclick="openEditContactModal(\'' + escAttr(c.id) + '\')" style="cursor:pointer" title="Click to edit">' +
     '<div><span class="ct-role ' + escAttr(role) + '">' + escH(roleLabel) + '</span></div>' +
     '<div class="ct-name">' +
       '<span class="ct-name-name">' + escH(name) + '</span>' +
@@ -2360,42 +2412,85 @@ function _renderLoanContactRow(c) {
     '<div class="ct-info">' + (c.company && !c.name ? escH(c.company) : '<span class="muted">&nbsp;</span>') + '</div>' +
     '<div class="ct-info">' + emailHtml + '</div>' +
     '<div class="ct-info">' + phoneHtml + '</div>' +
-    '<button class="ct-delete" onclick="deleteLoanContact(\'' + escAttr(c.id) + '\')" title="Delete contact">✕</button>' +
+    '<button class="ct-delete" onclick="event.stopPropagation();deleteLoanContact(\'' + escAttr(c.id) + '\')" title="Delete contact">✕</button>' +
   '</div>';
 }
-function addLoanContact() {
-  var role    = (document.getElementById('ctNewRole')    || {}).value || 'other';
-  var name    = ((document.getElementById('ctNewName')    || {}).value || '').trim();
-  var company = ((document.getElementById('ctNewCompany') || {}).value || '').trim();
-  var email   = ((document.getElementById('ctNewEmail')   || {}).value || '').trim().toLowerCase();
-  var phone   = ((document.getElementById('ctNewPhone')   || {}).value || '').trim();
+
+// Deploy 236.114 — modal-based add/edit. Replaces the inline grid
+// that was too cramped to read.
+function openAddContactModal() {
+  document.getElementById('ctModalEditId').value = '';
+  document.getElementById('ctModalTitle').textContent = 'Add Contact';
+  document.getElementById('ctModalSaveBtn').textContent = 'Save Contact';
+  document.getElementById('ctModalRole').value = 'title';
+  ['ctModalName','ctModalCompany','ctModalEmail','ctModalPhone'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  _resetContactModalStatus();
+  document.getElementById('ctAddModal').classList.add('show');
+  setTimeout(function(){ var n = document.getElementById('ctModalName'); if (n) n.focus(); }, 30);
+}
+function openEditContactModal(contactId) {
+  var c = _loanContacts.find(function(x) { return x.id === contactId; });
+  if (!c) return;
+  document.getElementById('ctModalEditId').value = contactId;
+  document.getElementById('ctModalTitle').textContent = 'Edit Contact';
+  document.getElementById('ctModalSaveBtn').textContent = 'Save Changes';
+  document.getElementById('ctModalRole').value    = String(c.role || 'other').toLowerCase();
+  document.getElementById('ctModalName').value    = c.name    || '';
+  document.getElementById('ctModalCompany').value = c.company || '';
+  document.getElementById('ctModalEmail').value   = c.email   || '';
+  document.getElementById('ctModalPhone').value   = c.phone   || '';
+  _resetContactModalStatus();
+  document.getElementById('ctAddModal').classList.add('show');
+}
+function closeAddContactModal() {
+  document.getElementById('ctAddModal').classList.remove('show');
+}
+function _resetContactModalStatus() {
+  var s = document.getElementById('ctModalStatus');
+  s.textContent = ''; s.className = 'ct-modal-status';
+}
+function submitContactModal() {
+  var editId  = (document.getElementById('ctModalEditId') || {}).value || '';
+  var role    = (document.getElementById('ctModalRole')   || {}).value || 'other';
+  var name    = ((document.getElementById('ctModalName')    || {}).value || '').trim();
+  var company = ((document.getElementById('ctModalCompany') || {}).value || '').trim();
+  var email   = ((document.getElementById('ctModalEmail')   || {}).value || '').trim().toLowerCase();
+  var phone   = ((document.getElementById('ctModalPhone')   || {}).value || '').trim();
   if (!name && !company && !email && !phone) {
-    alert('Add at least a name, company, email, or phone.');
+    var s = document.getElementById('ctModalStatus');
+    s.textContent = 'Add at least a name, company, email, or phone.';
+    s.className = 'ct-modal-status err';
     return;
   }
-  var btn = document.getElementById('ctAddBtn');
+  var btn = document.getElementById('ctModalSaveBtn');
   btn.disabled = true;
   var body = { clientId: _client.id, loanId: _loanId, role: role, name: name, company: company, email: email, phone: phone };
+  if (editId) body.contactId = editId;
   var owner = _contactOwnerParam();
   if (owner) body.owner = owner;
   SLA.api('POST', '/api/loan-contacts-save', body).then(function(resp) {
     btn.disabled = false;
     if (resp && resp.contact) {
-      _loanContacts.push(resp.contact);
+      if (editId) {
+        var i = _loanContacts.findIndex(function(c) { return c.id === editId; });
+        if (i >= 0) _loanContacts[i] = resp.contact;
+      } else {
+        _loanContacts.push(resp.contact);
+      }
       renderLoanContactsList();
-      // Clear inputs (leave role on whatever they had selected — likely
-      // they're adding multiple of the same role in a row).
-      ['ctNewName','ctNewCompany','ctNewEmail','ctNewPhone'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-      document.getElementById('ctNewName').focus();
+      closeAddContactModal();
     }
   }).catch(function(err) {
     btn.disabled = false;
-    alert('Failed to add contact: ' + (err && err.message || 'unknown'));
+    var s = document.getElementById('ctModalStatus');
+    s.textContent = 'Failed: ' + (err && err.message || 'unknown');
+    s.className = 'ct-modal-status err';
   });
 }
+
 function deleteLoanContact(contactId) {
   if (!confirm('Delete this contact? This cannot be undone.')) return;
   var idx = _loanContacts.findIndex(function(c) { return c.id === contactId; });
