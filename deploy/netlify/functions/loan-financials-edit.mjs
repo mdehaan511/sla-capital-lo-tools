@@ -41,16 +41,24 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 // Whitelist of fields the inline editor can patch + how to coerce them.
 // Values not on the list are silently dropped.
+// `modifiable: false` means the field rides along (FICO + Experience
+// display labels) but doesn't itself trigger snapshot / modified-
+// tracking — it's metadata mirroring the primary value.
+// Also: fico is `toStr` (not `toInt`) because the DSCR sizer stores
+// fico as a string range like "740-759"; RTL stores it as a numeric
+// string like "740". Either round-trips fine as a string.
 const FIELDS = {
-  rate:          { label: 'Rate',           coerce: toNumber, format: (v) => (v * 1).toFixed(3) + '%' },
-  points:        { label: 'Points',         coerce: toNumber, format: (v) => (v * 1).toFixed(3) + ' pts' },
-  purchasePrice: { label: 'Purchase Price', coerce: toNumber, format: (v) => '$' + Math.round(v).toLocaleString() },
-  rehabBudget:   { label: 'Rehab Budget',   coerce: toNumber, format: (v) => '$' + Math.round(v).toLocaleString() },
-  arv:           { label: 'ARV',            coerce: toNumber, format: (v) => '$' + Math.round(v).toLocaleString() },
-  fico:          { label: 'FICO',           coerce: toInt,    format: (v) => String(v) },
-  loanType:      { label: 'Loan Type',      coerce: toStr,    format: (v) => String(v) },
-  experience:    { label: 'Experience',     coerce: toInt,    format: (v) => String(v) },
-  brokerFee:     { label: 'Broker Fee',     coerce: toNumber, format: (v) => (v * 1).toFixed(3) + ' pts' },
+  rate:             { label: 'Rate',           coerce: toNumber, modifiable: true,  format: (v) => (v * 1).toFixed(3) + '%' },
+  points:           { label: 'Points',         coerce: toNumber, modifiable: true,  format: (v) => (v * 1).toFixed(3) + ' pts' },
+  purchasePrice:    { label: 'Purchase Price', coerce: toNumber, modifiable: true,  format: (v) => '$' + Math.round(v).toLocaleString() },
+  rehabBudget:      { label: 'Rehab Budget',   coerce: toNumber, modifiable: true,  format: (v) => '$' + Math.round(v).toLocaleString() },
+  arv:              { label: 'ARV',            coerce: toNumber, modifiable: true,  format: (v) => '$' + Math.round(v).toLocaleString() },
+  fico:             { label: 'FICO',           coerce: toStr,    modifiable: true,  format: (v) => String(v) },
+  ficoLabel:        { label: 'FICO',           coerce: toStr,    modifiable: false, format: (v) => String(v) },
+  loanType:         { label: 'Loan Type',      coerce: toStr,    modifiable: true,  format: (v) => String(v) },
+  experience:       { label: 'Experience',     coerce: toStr,    modifiable: true,  format: (v) => String(v) },
+  experienceLabel:  { label: 'Experience',     coerce: toStr,    modifiable: false, format: (v) => String(v) },
+  brokerFee:        { label: 'Broker Fee',     coerce: toNumber, modifiable: true,  format: (v) => (v * 1).toFixed(3) + ' pts' },
 };
 
 function toNumber(v) {
@@ -120,7 +128,8 @@ async function handle(req, context) {
   // so "restore" always returns to the calculator-generated baseline.
   loan._originalValues = loan._originalValues || {};
 
-  const applied = [];
+  const applied = [];           // every field actually written (primary + label mirrors)
+  const modifiableApplied = [];  // only the primary fields that count toward _modifiedFields
   const changeRows = [];
   for (const key of Object.keys(fields)) {
     const spec = FIELDS[key];
@@ -134,12 +143,16 @@ async function handle(req, context) {
     loan.formData = loan.formData || {};
     // Skip no-ops so we don't churn _modifiedFields with same value.
     if (String(prior) === String(next)) continue;
-    if (!(key in loan._originalValues)) {
+    // Only PRIMARY (modifiable) fields get snapshotted. Mirror
+    // labels (ficoLabel / experienceLabel) ride along with their
+    // primary write and are never used for restore.
+    if (spec.modifiable && !(key in loan._originalValues)) {
       loan._originalValues[key] = prior;
     }
     loan[key] = next;
     loan.formData[key] = next;
     applied.push(key);
+    if (spec.modifiable) modifiableApplied.push(key);
     changeRows.push({ key, label: spec.label, from: prior, to: next });
   }
 
@@ -147,13 +160,13 @@ async function handle(req, context) {
     return json(200, { ok: true, loan, applied: [], note: 'no whitelisted fields with changes' });
   }
 
-  // Compute current _modifiedFields = fields that still differ from
-  // their snapshot. If an edit RESTORES a field to its original
-  // value, drop it from the modified list (and drop the snapshot
-  // entry too, so a second cycle of edit-restore-edit still works
-  // cleanly).
+  // Compute current _modifiedFields = primary fields that still
+  // differ from their snapshot. If an edit RESTORES a field to its
+  // original value, drop it from the modified list (and drop the
+  // snapshot entry too, so a second cycle of edit-restore-edit
+  // still works cleanly).
   loan._modifiedFields = loan._modifiedFields || [];
-  applied.forEach((k) => {
+  modifiableApplied.forEach((k) => {
     const snap = loan._originalValues[k];
     const curr = loan[k];
     if (String(snap) === String(curr)) {

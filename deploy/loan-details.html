@@ -808,7 +808,8 @@
 .fin-cell-editable:hover { background: var(--gold-light, rgba(200,129,58,0.10)); }
 .fin-cell-editable::after { content: '\270E'; position: absolute; top: 6px; right: 8px; font-size: 11px; color: var(--muted, #7a7488); opacity: 0; transition: opacity 0.10s; }
 .fin-cell-editable:hover::after { opacity: 0.7; }
-.fin-cell-calculated { background: rgba(0,0,0,0.02); }
+/* Calculated cells share the same white bg as editable cells — only
+   distinguished by the 🔒 next to their label (per Mike). */
 .fin-cell-calculated .fin-label::after { content: ' \1F512'; font-size: 9px; opacity: 0.45; }
 .fin-modified-badge { display: inline-block; margin-left: 6px; font-size: 9px; color: var(--warn, #7a5218); background: rgba(180,83,9,0.12); padding: 1px 6px; border-radius: 8px; font-weight: 600; text-transform: none; letter-spacing: 0; vertical-align: middle; }
 .fin-val.fin-warn { color: var(--danger, #7c1f1f); font-weight: 700; }
@@ -1427,7 +1428,7 @@ function render() {
   // Deploy 236.118 — id="loanFinancialsSection" so the tab restructure
   // can move this section into the Loan tab post-render.
   html += '<div class="section" id="loanFinancialsSection">' +
-    '<div class="section-head"><h2>Loan Financials</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
+    '<div class="section-head"><h2>Loan Financials</h2></div>' +
     '<div class="section-body">';
 
   if (isDscr) {
@@ -2902,17 +2903,76 @@ function _syncTasksTabCount() {
 // line wrappers — keeps the existing fin-grid emit code untouched
 // and centralizes the editable/readonly policy in one place.
 
+// Deploy 236.125 — FICO / Loan Type / Experience now render as
+// selects that mirror the originating sizer's dropdowns. Options
+// resolved per-modal-open from _loan.toolType so a DSCR loan sees
+// DSCR option lists and an RTL loan sees RTL ones.
+var FIN_DROPDOWNS = {
+  // FICO buckets — sizer-matched. DSCR sizer uses string ranges
+  // ("740-759"); RTL sizer uses bucket floor numbers ("740").
+  // We mirror each verbatim so the value round-trips into the
+  // sizer's pricing matrix correctly.
+  fico_dscr: [
+    { value: '780+',     label: '780+' },
+    { value: '760-779',  label: '760–779' },
+    { value: '740-759',  label: '740–759' },
+    { value: '720-739',  label: '720–739' },
+    { value: '700-719',  label: '700–719' },
+    { value: '680-699',  label: '680–699' },
+    { value: '660-679',  label: '660–679' },
+    { value: '640-659',  label: '640–659' },
+    { value: '620-639',  label: '620–639' },
+    { value: '550-619',  label: '550–619' },
+  ],
+  fico_rtl: [
+    { value: '740',  label: '740+' },
+    { value: '720',  label: '720 – 739' },
+    { value: '700',  label: '700 – 719' },
+    { value: '680',  label: '680 – 699' },
+    { value: '660',  label: '660 – 679' },
+    { value: '640',  label: '640 – 659' },
+    { value: '620',  label: '620 – 639' },
+    { value: '550',  label: '550 – 619' },
+  ],
+  loanType_dscr: [
+    { value: '30Y Fixed', label: '30-Year Fixed' },
+    { value: '10/6 ARM',  label: '10/6 ARM' },
+    { value: '7/6 ARM',   label: '7/6 ARM' },
+    { value: '5/6 ARM',   label: '5/6 ARM' },
+  ],
+  loanType_rtl: [
+    { value: 'light',         label: 'Light Rehab (<50% of Loan)' },
+    { value: 'heavy',         label: 'Heavy Rehab (>50% of Loan)' },
+    { value: 'bridge',        label: 'Bridge (No Rehab)' },
+    { value: 'transactional', label: 'Transactional Funding (1-day)' },
+  ],
+  // Experience — RTL only (DSCR has no Experience cell). Sizer
+  // stores the bucket floor (8/5/1); display label spells out the
+  // tier so the LO knows what they're picking.
+  experience_rtl: [
+    { value: '8', label: '8+ projects (Tier 1)' },
+    { value: '5', label: '4 – 7 projects (Tier 2)' },
+    { value: '1', label: '0 – 3 projects (Tier 3)' },
+  ],
+};
+
 var FIN_EDITABLE = [
   { label: 'Note Rate',      key: 'rate',          kind: 'number', step: '0.001', hint: 'Percent (e.g. 8.625)' },
   { label: 'Points',         key: 'points',        kind: 'number', step: '0.001', hint: 'Origination points (e.g. 1.5)' },
   { label: 'Purchase Price', key: 'purchasePrice', kind: 'money',  hint: 'Dollars' },
   { label: 'Rehab Budget',   key: 'rehabBudget',   kind: 'money',  hint: 'Dollars' },
   { label: 'ARV',            key: 'arv',           kind: 'money',  hint: 'After-repair value, dollars' },
-  { label: 'FICO',           key: 'fico',          kind: 'int',    min: 500, max: 900, hint: 'Middle credit score' },
-  { label: 'Loan Type',      key: 'loanType',      kind: 'text',   hint: 'Product label (Bridge / Light Rehab / Heavy Rehab / Construction / DSCR / etc.)' },
-  { label: 'Experience',     key: 'experience',    kind: 'int',    min: 0, max: 100, hint: 'Completed deals' },
+  { label: 'FICO',           key: 'fico',          kind: 'select', dropdownBase: 'fico',       labelKey: 'ficoLabel',       hint: 'Middle credit score (matches sizer buckets)' },
+  { label: 'Loan Type',      key: 'loanType',      kind: 'select', dropdownBase: 'loanType',                                hint: 'Product type — matches the originating sizer' },
+  { label: 'Experience',     key: 'experience',    kind: 'select', dropdownBase: 'experience', labelKey: 'experienceLabel', hint: 'Investor experience tier' },
   { label: 'Broker Fee',     key: 'brokerFee',     kind: 'number', step: '0.001', hint: 'Points (e.g. 1.0)' },
 ];
+
+function _resolveFinDropdownOptions(field) {
+  var toolType = String((_loan && _loan.toolType) || '').toLowerCase() === 'rtl' ? 'rtl' : 'dscr';
+  var key = field.dropdownBase + '_' + toolType;
+  return FIN_DROPDOWNS[key] || FIN_DROPDOWNS[field.dropdownBase + '_rtl'] || [];
+}
 // Calculated fields the LO cannot inline-edit. Note: "LTV" matches
 // the DSCR grid; "LTP" matches the RTL "Loan to Price" cell that
 // some sizers emit. Both lock the same way.
@@ -3050,7 +3110,13 @@ function openLoanFinInlineEdit(field) {
   }
 
   var inputHtml;
-  if (field.kind === 'money') {
+  if (field.kind === 'select') {
+    var opts = _resolveFinDropdownOptions(field);
+    inputHtml = '<select id="finEditInput">' + opts.map(function(o) {
+      var sel = String(o.value) === String(current) ? ' selected' : '';
+      return '<option value="' + escAttr(o.value) + '"' + sel + '>' + escH(o.label) + '</option>';
+    }).join('') + '</select>';
+  } else if (field.kind === 'money') {
     inputHtml = '<input id="finEditInput" type="number" step="1000" value="' + escAttr(current) + '" />';
   } else if (field.kind === 'int') {
     var minAttr = (field.min != null) ? ' min="' + field.min + '"' : '';
@@ -3095,6 +3161,15 @@ function saveLoanFinInlineEdit(field, newVal, bg, btn) {
   btn.disabled = true; btn.textContent = 'Saving…';
   var payload = { clientId: _clientId, loanId: _loanId, fields: {} };
   payload.fields[field.key] = newVal;
+  // Deploy 236.125 — dropdown fields with a display label (FICO,
+  // Experience) round-trip BOTH the value and the human-readable
+  // label so Loan Details renders cleanly without rebuilding the
+  // label from the value.
+  if (field.kind === 'select' && field.labelKey) {
+    var opts = _resolveFinDropdownOptions(field);
+    var match = opts.find(function(o) { return String(o.value) === String(newVal); });
+    if (match) payload.fields[field.labelKey] = match.label;
+  }
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   SLA.api('POST', '/api/loan-financials-edit', payload).then(function(r) {
     if (!r || !r.loan) {
