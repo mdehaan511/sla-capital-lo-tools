@@ -803,6 +803,21 @@
   .task-due, .task-assignee { grid-column: 1 / -1; padding-left: 34px; text-align: left; }
 }
 
+/* Deploy 236.128 — additional-guarantor sub-form link card. */
+.subform-card { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--gold-border, rgba(200,129,58,0.28)); background: var(--gold-light, rgba(200,129,58,0.06)); border-radius: 6px; }
+.subform-card .sf-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.subform-card .sf-label { font-size: 11px; font-weight: 700; color: var(--muted, #7a7488); text-transform: uppercase; letter-spacing: 0.05em; }
+.subform-card .sf-pill { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.subform-card .sf-pill.pending { background: rgba(180,83,9,0.12); color: var(--warn, #7a5218); }
+.subform-card .sf-pill.in_progress { background: rgba(200,129,58,0.18); color: var(--gold-mid, #b5712d); }
+.subform-card .sf-pill.completed, .subform-card .sf-pill.completed_by_primary { background: rgba(37,105,64,0.12); color: var(--success, #256940); }
+.subform-card .sf-url-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.subform-card .sf-url-input { flex: 1; min-width: 200px; padding: 6px 10px; border: 1px solid var(--border, #ddd8d0); border-radius: 4px; font-family: 'DM Mono', monospace; font-size: 11px; background: #fff; }
+.subform-card .sf-btn { padding: 6px 12px; background: #fff; border: 1px solid var(--border, #ddd8d0); border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--muted, #7a7488); cursor: pointer; font-family: 'DM Sans', sans-serif; }
+.subform-card .sf-btn:hover { border-color: var(--gold, #C8813A); color: var(--gold-mid, #b5712d); }
+.subform-card .sf-btn.copied { background: rgba(37,105,64,0.10); color: var(--success, #256940); border-color: rgba(37,105,64,0.40); }
+.subform-card .sf-hint { font-size: 11px; color: var(--muted, #7a7488); font-style: italic; margin-top: 8px; line-height: 1.4; }
+
 /* Deploy 236.126 — Vesting LLC Info + Guarantor % Ownership + top warning. */
 .ld-warning-banner { background: rgba(180,83,9,0.10); border: 1px solid rgba(180,83,9,0.30); border-radius: 8px; padding: 12px 18px; margin: 0 0 14px; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--warn, #7a5218); }
 .ld-warning-banner .ld-warning-icon { font-size: 18px; line-height: 1; }
@@ -2564,6 +2579,16 @@ function refreshBorrowerInfoPanes() {
       // loan.guarantorOwnership map keyed by the guarantor's client id).
       var ownerships = (_loan && _loan.guarantorOwnership && typeof _loan.guarantorOwnership === 'object') ? _loan.guarantorOwnership : {};
       var pct = ownerships[c.id] != null ? ownerships[c.id] : '';
+      // Deploy 236.128 — sub-form invite link card. Each additional
+      // guarantor's client record carries _subFormTokensByLoan
+      // keyed by the loanId we're viewing, with { token, status,
+      // completedAt }. Surface a copy-to-clipboard + status pill
+      // here so the LO has a single click to send the link.
+      var subFormHtml = '';
+      var tokenEntry = c._subFormTokensByLoan && c._subFormTokensByLoan[_loanId];
+      if (tokenEntry && tokenEntry.token) {
+        subFormHtml = _renderSubFormLinkCard(tokenEntry, c);
+      }
       pane.classList.remove('loading');
       pane.innerHTML =
         '<div class="app-grid">' +
@@ -2579,7 +2604,8 @@ function refreshBorrowerInfoPanes() {
             'Edit this guarantor\'s contact info on their <a href="client-details.html?clientId=' + encodeURIComponent(c.id) + '" style="color:var(--gold-mid, #b5712d);text-decoration:none">Client Details page →</a>' +
           '</div>' +
         '</div>' +
-        _renderOwnershipField(c.id, pct, idx);
+        _renderOwnershipField(c.id, pct, idx) +
+        subFormHtml;
       if (tab) {
         var lbl = tab.querySelector('.bw-tab-label');
         var sub2 = tab.querySelector('.bw-tab-sub');
@@ -2721,6 +2747,65 @@ function saveGuarantorOwnership(input) {
   }).catch(function(err) {
     if (status) { status.className = 'ow-status err'; status.textContent = 'Save failed'; }
   });
+}
+
+// Deploy 236.128 — sub-form invite link card (rendered inside each
+// additional-guarantor pane). Shows the URL the LO sends to the
+// guarantor + a status pill (Pending / In Progress / Completed).
+// The token is generated server-side by borrower-info-sign when
+// the additional guarantor's client record is created. URL points
+// at the public guarantor-subform.html page (token IS the auth).
+function _renderSubFormLinkCard(tokenEntry, c) {
+  var status = String(tokenEntry.status || 'pending').toLowerCase();
+  var statusLabel = status === 'completed' ? 'Completed' :
+                    status === 'in_progress' ? 'In Progress' :
+                    status === 'completed_by_primary' ? 'Completed (by primary borrower)' :
+                    'Pending — send the link';
+  var url = window.location.origin + '/guarantor-subform.html?t=' + encodeURIComponent(tokenEntry.token);
+  var emailBody = encodeURIComponent(
+    'Hi ' + (c.firstName || '') + ',\n\n' +
+    'You\'re listed as a guarantor on a loan we\'re working on. To complete your part of the application, please fill out the secure sub-form at this link:\n\n' +
+    url + '\n\n' +
+    'It collects your date of birth, credit, SSN (encrypted), addresses, citizenship, and the standard declarations. Should take 5-10 minutes.\n\n' +
+    'Thanks!');
+  var mailto = 'mailto:' + encodeURIComponent(c.email || '') +
+               '?subject=' + encodeURIComponent('Complete your guarantor profile') +
+               '&body=' + emailBody;
+  return '<div class="subform-card">' +
+    '<div class="sf-row">' +
+      '<span class="sf-label">Sub-Form Link</span>' +
+      '<span class="sf-pill ' + escAttr(status) + '">' + escH(statusLabel) + '</span>' +
+      (tokenEntry.completedAt ? '<span style="font-size:11px;color:var(--muted);font-family:DM Mono,monospace">— ' + escH(new Date(tokenEntry.completedAt).toLocaleString()) + '</span>' : '') +
+    '</div>' +
+    '<div class="sf-url-row">' +
+      '<input type="text" class="sf-url-input" readonly value="' + escAttr(url) + '" onclick="this.select()" />' +
+      '<button type="button" class="sf-btn" onclick="copySubFormLink(this, \'' + escAttr(tokenEntry.token) + '\')">Copy</button>' +
+      '<a class="sf-btn" href="' + escAttr(mailto) + '" style="text-decoration:none">Email</a>' +
+    '</div>' +
+    '<div class="sf-hint">' +
+      (status === 'completed' || status === 'completed_by_primary'
+        ? 'This guarantor has completed their profile. You can re-share the link if they need to update anything.'
+        : 'Send this link to the guarantor — they\'ll provide DOB, credit, SSN (encrypted), addresses, citizenship, and declarations. The link doesn\'t expire; status updates here when they save or submit.') +
+    '</div>' +
+  '</div>';
+}
+
+function copySubFormLink(btn, token) {
+  var url = window.location.origin + '/guarantor-subform.html?t=' + encodeURIComponent(token);
+  var done = function() {
+    var orig = btn.textContent;
+    btn.classList.add('copied');
+    btn.textContent = 'Copied ✓';
+    setTimeout(function() { btn.classList.remove('copied'); btn.textContent = orig; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(done);
+  } else {
+    // Fallback — select the adjacent input + execCommand.
+    var input = btn.parentElement.querySelector('.sf-url-input');
+    if (input) { input.select(); try { document.execCommand('copy'); } catch (_) {} }
+    done();
+  }
 }
 
 // Sum every guarantor's recorded ownership. Returns { total, count,

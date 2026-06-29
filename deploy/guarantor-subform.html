@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guarantor Sub-Form — SLA Capital</title>
+  <!-- Deploy 236.128 — public, token-keyed sub-form for additional
+       guarantors on a loan. Collects the fields the borrower
+       deferred at application time (DOB/credit/SSN/addresses/
+       2yr/mailing/marital/citizenship/experience/declarations).
+       Credit Authorization + the e-sign step + bundling into the
+       main application PDF land in 236.129. -->
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px 16px 48px; }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    .hdr { text-align: center; margin-bottom: 28px; }
+    .hdr img { height: 60px; margin-bottom: 12px; }
+    .hdr h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; color: var(--dark); }
+    .hdr p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 28px; margin-bottom: 18px; }
+    .context { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 8px; }
+    .context strong { color: var(--text); }
+    .status-pill { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; }
+    .status-pill.pending { background: rgba(180,83,9,0.12); color: var(--warn); }
+    .status-pill.completed { background: rgba(37,105,64,0.12); color: var(--success); }
+    .status-pill.in_progress { background: var(--gold-light); color: var(--gold-mid); }
+    h2 { font-family: 'Lora', serif; font-size: 17px; font-weight: 600; color: var(--dark); margin: 6px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+    .field .req { color: var(--danger); }
+    .field input, .field select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 5px; font-family: inherit; font-size: 14px; box-sizing: border-box; background: #fff; }
+    .field input:focus, .field select:focus { outline: none; border-color: var(--gold); }
+    .field .hint { font-size: 11px; color: var(--muted); margin-top: 3px; font-style: italic; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .radio-group { display: flex; gap: 12px; flex-wrap: wrap; }
+    .radio-group label { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; background: #fff; }
+    .radio-group label:has(input:checked) { background: var(--gold-light); border-color: var(--gold); color: var(--gold-mid); font-weight: 600; }
+    .radio-group input { width: auto; }
+    .addr-block { background: var(--bg); padding: 12px 14px; border-radius: 6px; margin-bottom: 14px; }
+    .actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+    .btn { padding: 10px 22px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; border: 1px solid var(--border); background: #fff; color: var(--muted); }
+    .btn.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .btn.primary:hover { background: var(--gold-mid); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .save-status { font-size: 11px; color: var(--muted); font-style: italic; align-self: center; }
+    .save-status.ok { color: var(--success); font-style: normal; font-weight: 600; }
+    .save-status.err { color: var(--danger); font-style: normal; font-weight: 600; }
+    .loading, .err-page { padding: 64px 1rem; text-align: center; color: var(--muted); font-size: 14px; font-style: italic; }
+    .err-page { color: var(--danger); font-style: normal; }
+    .completed-banner { background: rgba(37,105,64,0.10); border: 1px solid rgba(37,105,64,0.40); padding: 14px 18px; border-radius: 8px; color: var(--success); font-size: 13px; line-height: 1.5; margin-bottom: 18px; }
+    .deferred-doc-note { background: var(--gold-light); border: 1px solid var(--gold-border); padding: 12px 16px; border-radius: 6px; color: var(--gold-mid); font-size: 12px; line-height: 1.5; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hdr">
+      <h1>Guarantor Sub-Form</h1>
+      <p>Complete your guarantor profile for this loan.</p>
+    </div>
+    <div id="root">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+var TOKEN = new URLSearchParams(window.location.search).get('t') || '';
+var STATE = { data: null, dirty: false };
+
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escA(s) { return escH(s).replace(/"/g,'&quot;'); }
+
+function load() {
+  if (!TOKEN) {
+    document.getElementById('root').innerHTML = '<div class="err-page">No token in URL. The link you received should look like: /guarantor-subform.html?t=...</div>';
+    return;
+  }
+  fetch('/api/guarantor-subform-info?t=' + encodeURIComponent(TOKEN))
+    .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+    .then(function(x) {
+      if (!x.ok) {
+        document.getElementById('root').innerHTML = '<div class="err-page">' + escH(x.body.error || 'Could not load.') + '</div>';
+        return;
+      }
+      STATE.data = x.body;
+      render();
+    })
+    .catch(function(err) {
+      document.getElementById('root').innerHTML = '<div class="err-page">Failed to load: ' + escH(err && err.message || 'network error') + '</div>';
+    });
+}
+
+function render() {
+  var d = STATE.data;
+  var g = d.guarantor;
+  var loan = d.loan;
+  var statusPill = '<span class="status-pill ' + escA(d.status) + '">' + escH(d.status === 'completed' ? 'Completed' : d.status === 'in_progress' ? 'In Progress' : 'Pending') + '</span>';
+
+  var completedBanner = '';
+  if (d.status === 'completed') {
+    completedBanner =
+      '<div class="completed-banner">' +
+        '<strong>Thanks — your guarantor info has been submitted.</strong><br>' +
+        'Submitted ' + escH(d.completedAt ? new Date(d.completedAt).toLocaleString() : '') + '. You can re-open this link to update any field; your changes save as you go.' +
+      '</div>';
+  }
+
+  var html =
+    '<div class="card">' +
+      '<div class="context">' +
+        'You\'re completing your guarantor profile for the loan' +
+        (loan && loan.address ? ' on <strong>' + escH(loan.address) + '</strong>' : '') +
+        (d.primaryClientName ? ', primary borrower <strong>' + escH(d.primaryClientName) + '</strong>' : '') +
+        '.' +
+        ' Status: ' + statusPill +
+      '</div>' +
+    '</div>' +
+    completedBanner +
+
+    // ── Contact ────────────────────────────────────────────────
+    '<div class="card">' +
+      '<h2>Your contact info</h2>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>First Name <span class="req">*</span></label>' +
+          '<input type="text" id="f_firstName" value="' + escA(g.firstName) + '" required /></div>' +
+        '<div class="field"><label>Last Name <span class="req">*</span></label>' +
+          '<input type="text" id="f_lastName" value="' + escA(g.lastName) + '" required /></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>Email <span class="req">*</span></label>' +
+          '<input type="email" id="f_email" value="' + escA(g.email) + '" required /></div>' +
+        '<div class="field"><label>Phone <span class="req">*</span></label>' +
+          '<input type="tel" id="f_phone" value="' + escA(g.phone) + '" required /></div>' +
+      '</div>' +
+    '</div>' +
+
+    // ── Personal ───────────────────────────────────────────────
+    '<div class="card">' +
+      '<h2>Personal details</h2>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>Date of Birth <span class="req">*</span></label>' +
+          '<input type="date" id="f_dob" value="' + escA(g.dob) + '" required /></div>' +
+        '<div class="field"><label>Estimated Credit Score <span class="req">*</span></label>' +
+          '<input type="text" id="f_fico" value="' + escA(g.fico) + '" placeholder="e.g. 740" required /></div>' +
+      '</div>' +
+      '<div class="field"><label>Social Security Number <span class="req">*</span></label>' +
+        '<input type="text" id="f_ssn" placeholder="XXX-XX-XXXX" />' +
+        '<div class="hint">Securely encrypted at rest. Used only on your loan application document.</div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>Marital Status <span class="req">*</span></label>' +
+          '<div class="radio-group">' +
+            '<label><input type="radio" name="marital" value="married"' + (g.maritalStatus === 'married' ? ' checked' : '') + '><span>Married</span></label>' +
+            '<label><input type="radio" name="marital" value="single"' + (g.maritalStatus === 'single' ? ' checked' : '') + '><span>Not Married</span></label>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field"><label>US Citizen <span class="req">*</span></label>' +
+          '<div class="radio-group">' +
+            '<label><input type="radio" name="usCitizen" value="yes"' + (g.usCitizen === 'yes' ? ' checked' : '') + '><span>Yes</span></label>' +
+            '<label><input type="radio" name="usCitizen" value="no"' + (g.usCitizen === 'no' ? ' checked' : '') + '><span>No</span></label>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    // ── Home Address ───────────────────────────────────────────
+    '<div class="card">' +
+      '<h2>Home address</h2>' +
+      _renderAddrBlock('home', g.homeAddress || {}) +
+      '<div class="field"><label>Have you lived at this address for 2 or more years? <span class="req">*</span></label>' +
+        '<div class="radio-group">' +
+          '<label><input type="radio" name="twoYear" value="yes"' + (g.twoYearAddress === 'yes' ? ' checked' : '') + ' onchange="render()"><span>Yes</span></label>' +
+          '<label><input type="radio" name="twoYear" value="no"'  + (g.twoYearAddress === 'no'  ? ' checked' : '') + ' onchange="render()"><span>No</span></label>' +
+        '</div>' +
+      '</div>' +
+      (g.twoYearAddress === 'no' ? '<div class="addr-block"><div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Previous address</div>' + _renderAddrBlock('prev', g.prevAddress || {}) + '</div>' : '') +
+      '<div class="field"><label>Mailing address same as home? <span class="req">*</span></label>' +
+        '<div class="radio-group">' +
+          '<label><input type="radio" name="mailSame" value="yes"' + (g.mailingSameAsHome === 'yes' ? ' checked' : '') + ' onchange="render()"><span>Yes</span></label>' +
+          '<label><input type="radio" name="mailSame" value="no"'  + (g.mailingSameAsHome === 'no'  ? ' checked' : '') + ' onchange="render()"><span>No</span></label>' +
+        '</div>' +
+      '</div>' +
+      (g.mailingSameAsHome === 'no' ? '<div class="addr-block"><div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Mailing address</div>' + _renderAddrBlock('mail', g.mailingAddress || {}) + '</div>' : '') +
+    '</div>' +
+
+    // ── Experience ─────────────────────────────────────────────
+    '<div class="card">' +
+      '<h2>Experience</h2>' +
+      '<div class="field-row">' +
+        '<div class="field"><label># of flips completed in last 36 months</label>' +
+          '<input type="number" id="f_flips" min="0" value="' + escA(g.flips) + '" /></div>' +
+        '<div class="field"><label># of rental properties currently owned</label>' +
+          '<input type="number" id="f_rentals" min="0" value="' + escA(g.rentals) + '" /></div>' +
+      '</div>' +
+    '</div>' +
+
+    // ── Declarations ───────────────────────────────────────────
+    _renderDeclarations(g.declarations || {}) +
+
+    '<div class="deferred-doc-note">' +
+      '<strong>Credit Authorization &amp; signing:</strong> the Credit Authorization and the consent signing step will be added to this sub-form in the next deploy (236.129). For now your data saves as you go and the LO can collect signatures separately.' +
+    '</div>' +
+
+    '<div class="actions">' +
+      '<span class="save-status" id="saveStatus"></span>' +
+      '<button type="button" class="btn" onclick="saveDraft()" id="saveDraftBtn">Save Progress</button>' +
+      '<button type="button" class="btn primary" onclick="submitFinal()" id="submitBtn">Submit Sub-Form</button>' +
+    '</div>';
+
+  document.getElementById('root').innerHTML = html;
+}
+
+function _renderAddrBlock(prefix, a) {
+  return '<div class="field"><label>Street</label>' +
+    '<input type="text" id="f_' + prefix + 'Street" value="' + escA(a.street) + '" /></div>' +
+  '<div class="field-row">' +
+    '<div class="field"><label>City</label><input type="text" id="f_' + prefix + 'City" value="' + escA(a.city) + '" /></div>' +
+    '<div class="field"><label>State</label><input type="text" id="f_' + prefix + 'State" value="' + escA(a.state) + '" /></div>' +
+  '</div>' +
+  '<div class="field"><label>ZIP</label><input type="text" id="f_' + prefix + 'Zip" value="' + escA(a.zip) + '" /></div>';
+}
+
+function _renderDeclarations(decl) {
+  var rows = [
+    ['bankruptcy7yr',        'Have you been declared bankrupt in the past 7 years?'],
+    ['foreclosure7yr',       'Have you had a property foreclosed upon or given title or deed lieu thereof in the last 7 years?'],
+    ['partyToLawsuit',       'Are you a party to a lawsuit?'],
+    ['delinquentFederalDebt','Are you presently delinquent or in default on any Federal debt or any other loan, mortgage, financial obligation, bond, or loan guarantee?'],
+    ['obligatedToForeclosed','Have you directly or indirectly been obligated on any loan which resulted in foreclosure?'],
+    ['outstandingJudgments', 'Are there any outstanding judgments against you?'],
+    ['intendToOccupy',       'Do you intend to occupy the subject property?'],
+  ];
+  return '<div class="card">' +
+    '<h2>Declarations</h2>' +
+    '<p style="font-size:12px;color:var(--muted);margin-bottom:10px">All declarations are required. Answer truthfully — these statements form part of your loan application.</p>' +
+    rows.map(function(r) {
+      var k = r[0], q = r[1];
+      return '<div class="field"><label>' + escH(q) + ' <span class="req">*</span></label>' +
+        '<div class="radio-group">' +
+          '<label><input type="radio" name="decl_' + k + '" value="yes"' + (decl[k] === 'yes' ? ' checked' : '') + '><span>Yes</span></label>' +
+          '<label><input type="radio" name="decl_' + k + '" value="no"'  + (decl[k] === 'no'  ? ' checked' : '') + '><span>No</span></label>' +
+        '</div>' +
+      '</div>';
+    }).join('') +
+  '</div>';
+}
+
+function _collect() {
+  function v(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  function r(name) { var el = document.querySelector('input[name="' + name + '"]:checked'); return el ? el.value : ''; }
+  var fields = {
+    firstName: v('f_firstName'),
+    lastName:  v('f_lastName'),
+    email:     v('f_email'),
+    phone:     v('f_phone'),
+    dob:       v('f_dob'),
+    fico:      v('f_fico'),
+    ssn_enc:   v('f_ssn'),     // server should encrypt; placeholder for now
+    flips:     v('f_flips'),
+    rentals:   v('f_rentals'),
+    maritalStatus: r('marital'),
+    usCitizen: r('usCitizen'),
+    twoYearAddress: r('twoYear'),
+    mailingSameAsHome: r('mailSame'),
+    homeAddress: {
+      street: v('f_homeStreet'), city: v('f_homeCity'),
+      state:  v('f_homeState'),  zip:  v('f_homeZip'),
+    },
+    declarations: {},
+  };
+  if (r('twoYear') === 'no') {
+    fields.prevAddress = {
+      street: v('f_prevStreet'), city: v('f_prevCity'),
+      state:  v('f_prevState'),  zip:  v('f_prevZip'),
+    };
+  }
+  if (r('mailSame') === 'no') {
+    fields.mailingAddress = {
+      street: v('f_mailStreet'), city: v('f_mailCity'),
+      state:  v('f_mailState'),  zip:  v('f_mailZip'),
+    };
+  }
+  ['bankruptcy7yr','foreclosure7yr','partyToLawsuit','delinquentFederalDebt',
+   'obligatedToForeclosed','outstandingJudgments','intendToOccupy']
+    .forEach(function(k) { fields.declarations[k] = r('decl_' + k); });
+  return fields;
+}
+
+function _post(fields, markComplete) {
+  return fetch('/api/guarantor-subform-save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ t: TOKEN, fields: fields, markComplete: !!markComplete }),
+  }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); });
+}
+
+function saveDraft() {
+  var btn = document.getElementById('saveDraftBtn');
+  var st  = document.getElementById('saveStatus');
+  btn.disabled = true;
+  st.className = 'save-status'; st.textContent = 'Saving…';
+  _post(_collect(), false).then(function(x) {
+    btn.disabled = false;
+    if (x.ok) {
+      st.className = 'save-status ok'; st.textContent = 'Progress saved ✓';
+      setTimeout(function() { st.textContent = ''; }, 2500);
+    } else {
+      st.className = 'save-status err'; st.textContent = 'Save failed: ' + (x.body && x.body.error || 'unknown');
+    }
+  });
+}
+
+function submitFinal() {
+  var btn = document.getElementById('submitBtn');
+  var st  = document.getElementById('saveStatus');
+  btn.disabled = true; btn.textContent = 'Submitting…';
+  st.className = 'save-status'; st.textContent = '';
+  _post(_collect(), true).then(function(x) {
+    if (x.ok) {
+      // Refresh from server so the completed banner appears.
+      load();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      btn.disabled = false; btn.textContent = 'Submit Sub-Form';
+      st.className = 'save-status err'; st.textContent = 'Submit failed: ' + (x.body && x.body.error || 'unknown');
+    }
+  });
+}
+
+load();
+</script>
+</body>
+</html>

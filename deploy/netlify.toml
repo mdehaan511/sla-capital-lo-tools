@@ -282,6 +282,22 @@
   status = 200
   force = true
 
+# Deploy 236.128 — additional-guarantor sub-form (public, token-keyed).
+# Powers the per-guarantor link that the LO sends out to collect
+# DOB / credit / SSN / addresses / declarations from each additional
+# guarantor when the primary borrower only filled name/email/phone/
+# ownership at application time.
+[[redirects]]
+  from = "/api/guarantor-subform-info"
+  to = "/.netlify/functions/guarantor-subform-info"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/guarantor-subform-save"
+  to = "/.netlify/functions/guarantor-subform-save"
+  status = 200
+  force = true
+
 # Deploy 236.124 (Phase B.2/B.3) — Loan Financials inline editor +
 # restore. Patches a narrow whitelist (rate/points/purchasePrice/
 # rehabBudget/arv/fico/loanType/experience/brokerFee), snapshots

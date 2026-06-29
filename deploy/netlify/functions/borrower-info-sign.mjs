@@ -234,6 +234,11 @@ async function handle(req) {
   // guarantor clients can be added later if Mike adds a backfill.
   const guarantorClientIds = [];
   const guarantorClientChanges = []; // { id, isNew, client } for downstream writes
+  // Deploy 236.128 — additional guarantor ownership % map, flushed
+  // into the loan record alongside guarantorClientIds below so the
+  // "Check Guarantor Ownership %" banner on Loan Details totals
+  // correctly across primary + every additional guarantor.
+  let _pendingGuarantorOwnership = {};
   if (secondaryBlocks.length) {
     try {
       const { blobs } = await clientsStore.list({ prefix: record.ownerKey + '/' });
@@ -267,6 +272,17 @@ async function handle(req) {
         };
       }
 
+      // Deploy 236.128 — per-additional-guarantor sub-form token.
+      // Generated alongside the client record so the LO has a link
+      // to send if the guarantor's full data wasn't collected at
+      // application time (the 236.127 light-required flow). Stored
+      // on the client (._subFormToken/._subFormStatus) AND in the
+      // guarantor-subform-token-idx blob store for token→record
+      // lookup by the public sub-form page.
+      const subFormIndexEntries = []; // collected, then flushed at the end
+      // Deploy 236.128 — per-guarantor ownership map. Same shape
+      // the Loan Details "Check Guarantor Ownership %" banner reads.
+      const ownershipFromGuarantors = {};
       for (const sb of secondaryBlocks) {
         const guarantorIdx = sb.pos - 1; // 0-based into the array
         const g = (data.guarantors || [])[guarantorIdx] || {};
@@ -274,12 +290,16 @@ async function handle(req) {
         if (!email) continue; // can't dedupe or link without one
         const fields = guarantorToClientFields(g);
         const backref = { primaryClientId: record.clientId, loanId: record.loanId };
+        // Compute completeness — if the borrower already collected
+        // everything, status='completed' and the LO never has to
+        // send the link. Otherwise status='pending', LO sends link.
+        const _hasFull =
+          (fields.dob && fields.fico && fields.usCitizen) &&
+          fields.homeAddress && fields.homeAddress.street && fields.homeAddress.city &&
+          fields.homeAddress.state && fields.homeAddress.zip;
+        const subFormToken = 'gsf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
         let existing = existingByEmail.get(email);
         if (existing) {
-          // Fill in any blanks on the existing client and append the
-          // back-reference so this loan shows up on their Client
-          // Details "Guarantor on" list. Don't overwrite values the
-          // LO has already curated.
           const c = existing.client;
           Object.keys(fields).forEach(function (k) {
             if (k === 'homeAddress') {
@@ -296,6 +316,28 @@ async function handle(req) {
             return b && b.primaryClientId === backref.primaryClientId && b.loanId === backref.loanId;
           });
           if (!alreadyLinked) c._guarantorOnLoans.push(backref);
+          // Only create a sub-form token for THIS loan when one
+          // doesn't already exist (a returning guarantor with prior
+          // loans keeps their original token; status reset to
+          // pending if data is still incomplete).
+          c._subFormTokensByLoan = c._subFormTokensByLoan || {};
+          if (!c._subFormTokensByLoan[record.loanId]) {
+            c._subFormTokensByLoan[record.loanId] = {
+              token:        subFormToken,
+              createdAt:    signedAt,
+              status:       _hasFull ? 'completed_by_primary' : 'pending',
+              ownerKey:     record.ownerKey,
+              primaryClientId: record.clientId,
+              loanId:       record.loanId,
+            };
+            subFormIndexEntries.push({
+              token:    subFormToken,
+              ownerKey: record.ownerKey,
+              clientId: c.id,
+              primaryClientId: record.clientId,
+              loanId:   record.loanId,
+            });
+          }
           c.updatedAt = signedAt;
           guarantorClientChanges.push({ id: c.id, key: existing.key, client: c });
           guarantorClientIds.push(c.id);
@@ -310,17 +352,55 @@ async function handle(req) {
             _createdViaGuarantorLink: true,
             _guarantorOnLoans: [backref],
           }, fields);
+          newClient._subFormTokensByLoan = {};
+          newClient._subFormTokensByLoan[record.loanId] = {
+            token:        subFormToken,
+            createdAt:    signedAt,
+            status:       _hasFull ? 'completed_by_primary' : 'pending',
+            ownerKey:     record.ownerKey,
+            primaryClientId: record.clientId,
+            loanId:       record.loanId,
+          };
+          subFormIndexEntries.push({
+            token:    subFormToken,
+            ownerKey: record.ownerKey,
+            clientId: newClient.id,
+            primaryClientId: record.clientId,
+            loanId:   record.loanId,
+          });
           const newKey = record.ownerKey + '/' + (newClient.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
           guarantorClientChanges.push({ id: newClient.id, key: newKey, client: newClient });
           guarantorClientIds.push(newClient.id);
           existingByEmail.set(email, { key: newKey, client: newClient });
         }
+        // Stamp this guarantor's ownership into the loan map (looked
+        // up by the Loan Details banner). The client.id was set
+        // either above (existing branch) or just now (new branch),
+        // so the latest guarantorClientChanges entry has it.
+        const justAddedId = guarantorClientChanges[guarantorClientChanges.length - 1].id;
+        const ownPct = parseFloat(g.ownership);
+        if (isFinite(ownPct)) ownershipFromGuarantors[justAddedId] = ownPct;
       }
       // Persist every client we touched — new and updated.
       for (const ch of guarantorClientChanges) {
         try { await clientsStore.setJSON(ch.key, ch.client); }
         catch (e) { console.warn('borrower-info-sign: guarantor client write failed:', e && e.message); }
       }
+      // Flush sub-form token index entries to the lookup store.
+      if (subFormIndexEntries.length) {
+        try {
+          const idxStore = getStore({ name: 'guarantor-subform-token-idx', consistency: 'strong' });
+          for (const e of subFormIndexEntries) {
+            await idxStore.setJSON(e.token, e);
+          }
+        } catch (e) {
+          console.warn('borrower-info-sign: subform token index write failed (non-fatal):', e && e.message);
+        }
+      }
+      // Stash the ownership map on the function-scoped var so the
+      // loan-update block below can merge it into the loan record
+      // alongside guarantorClientIds.
+      _pendingGuarantorOwnership = ownershipFromGuarantors;
     } catch (e) {
       console.warn('borrower-info-sign: guarantor client linkage failed (non-fatal):', e && e.message);
     }
@@ -337,6 +417,13 @@ async function handle(req) {
         const ln = primaryClient.loans.find(function (l) { return l && l.id === record.loanId; });
         if (ln) {
           ln.guarantorClientIds = guarantorClientIds;
+          // Deploy 236.128 — merge per-guarantor ownership entries
+          // into the same guarantorOwnership map that the long-app
+          // sync wrote the primary's % to. MERGE — never replace —
+          // so the primary's entry survives.
+          if (Object.keys(_pendingGuarantorOwnership).length) {
+            ln.guarantorOwnership = Object.assign({}, ln.guarantorOwnership || {}, _pendingGuarantorOwnership);
+          }
           ln.updatedAt = signedAt;
           primaryClient.updatedAt = signedAt;
           await clientsStore.setJSON(primaryKey, primaryClient);
