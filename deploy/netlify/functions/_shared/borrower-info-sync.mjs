@@ -89,6 +89,34 @@ export async function syncPropertyFieldsToLoan(record) {
   if (data.dscrCloseDate) loanUpdates.fundingDate = String(data.dscrCloseDate);
   if (data.ffCloseDate)   loanUpdates.fundingDate = String(data.ffCloseDate);
 
+  // Deploy 236.127 — guarantor ownership propagation. The long
+  // app's % ownership field per guarantor (g0_ownership /
+  // g1_ownership / etc.) → loan.guarantorOwnership map keyed by
+  // client id. Loan Details (236.126) sums this map for the
+  // "Check Guarantor Ownership %" banner.
+  //
+  // At this sync point only the PRIMARY borrower has a known
+  // client id (record.clientId). Additional guarantors get their
+  // client records created by the invite-link flow shipping in
+  // 236.128/129; their ownerships are stamped into this same map
+  // when those guarantor records are created.
+  const ownershipMap = {};
+  if (record.clientId) {
+    const g0 = (Array.isArray(data.guarantors) && data.guarantors[0]) || {};
+    const primaryOwn = g0.ownership != null ? g0.ownership : data.g0_ownership;
+    if (primaryOwn != null && primaryOwn !== '') {
+      const n = Number(primaryOwn);
+      if (isFinite(n)) ownershipMap[record.clientId] = n;
+    }
+  }
+  if (Object.keys(ownershipMap).length) loanUpdates.guarantorOwnership = ownershipMap;
+  // Surface the "submitted with ownership < 51%" decision so Loan
+  // Details (236.126 banner already handles math; this flag is the
+  // audit/why for the banner).
+  if (data._checkOwnershipFlag && typeof data._checkOwnershipFlag === 'object') {
+    loanUpdates._checkOwnership = data._checkOwnershipFlag;
+  }
+
   // Borrower-level fields (live on the CLIENT record, reused across loans).
   // The form packs these into data.guarantors[0] for the primary borrower.
   const g0 = (Array.isArray(data.guarantors) && data.guarantors[0]) || {};
@@ -235,8 +263,29 @@ export async function syncPropertyFieldsToLoan(record) {
     }
     if (targetLoan) {
       Object.keys(loanUpdates).forEach((k) => {
-        if (targetLoan[k] !== loanUpdates[k]) {
-          targetLoan[k] = loanUpdates[k];
+        const incoming = loanUpdates[k];
+        // Deploy 236.127 — merge (not replace) for object-valued
+        // fields like guarantorOwnership. Without this, syncing the
+        // primary's ownership entry would clobber any additional-
+        // guarantor entries the 236.128/129 invite flow has added.
+        if (k === 'guarantorOwnership' && incoming && typeof incoming === 'object') {
+          const existing = (targetLoan[k] && typeof targetLoan[k] === 'object') ? targetLoan[k] : {};
+          const merged = Object.assign({}, existing, incoming);
+          if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+            targetLoan[k] = merged;
+            changed = true;
+          }
+          return;
+        }
+        if (typeof incoming === 'object' && incoming !== null) {
+          if (JSON.stringify(targetLoan[k] || null) !== JSON.stringify(incoming)) {
+            targetLoan[k] = incoming;
+            changed = true;
+          }
+          return;
+        }
+        if (targetLoan[k] !== incoming) {
+          targetLoan[k] = incoming;
           changed = true;
         }
       });

@@ -1023,23 +1023,43 @@ function renderGuarantor(idx, label) {
   var showFlips   = lt === 'fix_flip' || lt === 'construction';
   var showRentals = lt === 'dscr' || lt === 'dscr_2nd';
 
+  // Deploy 236.127 — additional guarantors (idx >= 1) only need
+  // name / email / phone / ownership at application time. The rest
+  // (DOB / credit / SSN / address / 2yr / mailing / marital /
+  // citizenship / experience / declarations) is collected later via
+  // an emailed sub-form link (per-guarantor invite system shipping
+  // in 236.128/129). Primary guarantor (idx === 0) keeps all fields
+  // required as before.
+  var isAdditional = idx >= 1;
+  var subFormHintHtml = isAdditional
+    ? '<div class="hint" style="margin:-4px 0 14px;padding:10px 14px;background:rgba(200,129,58,0.08);border:1px solid rgba(200,129,58,0.28);border-radius:6px;color:#7a5218;font-size:12px">' +
+        '<strong>Additional guarantors only need name, email, phone, and % ownership at this step.</strong> ' +
+        'A secure link will be emailed to each additional guarantor to collect their DOB, credit, SSN, addresses, citizenship, experience, and declarations. Fields below the divider are optional now and can be left blank.' +
+      '</div>'
+    : '';
+  // The rule of thumb below: required for primary, optional for
+  // additional. Phone keeps its prior behavior (already idx === 0).
+  var reqIfPrimary = !isAdditional;
+
   var html = '<h4>' + escH(label) + '</h4>' +
+    subFormHintHtml +
     '<div class="field-row">' +
       field(prefix + 'firstName', 'First Name', 'text', { required: true }) +
       field(prefix + 'lastName',  'Last Name',  'text', { required: true }) +
     '</div>' +
     '<div class="field-row">' +
       field(prefix + 'email', 'Email', 'email', { required: true }) +
-      field(prefix + 'phone', 'Phone', 'tel',   { required: idx === 0, mask: 'phone', placeholder: '(XXX) XXX-XXXX' }) +
+      field(prefix + 'phone', 'Phone', 'tel',   { required: true, mask: 'phone', placeholder: '(XXX) XXX-XXXX' }) +
     '</div>' +
+    (isAdditional ? '<div style="border-top:1px dashed var(--border, #ddd8d0);margin:14px 0 14px;padding-top:6px;font-size:11px;color:var(--muted);font-style:italic">↓ Optional now — collected from this guarantor via emailed sub-form link</div>' : '') +
     '<div class="field-row">' +
-      field(prefix + 'dob',  'Date of Birth', 'date', { required: true }) +
-      field(prefix + 'fico', 'Estimated Credit Score', 'text', { required: true, placeholder: 'e.g. 740' }) +
+      field(prefix + 'dob',  'Date of Birth', 'date', { required: reqIfPrimary }) +
+      field(prefix + 'fico', 'Estimated Credit Score', 'text', { required: reqIfPrimary, placeholder: 'e.g. 740' }) +
     '</div>' +
     (REVIEW_MODE
       ? renderSSNReviewField(prefix, idx)
       : field(prefix + 'ssn', 'Social Security Number', 'text', {
-          required: true,
+          required: reqIfPrimary,
           placeholder: 'XXX-XX-XXXX',
           mask: 'ssn',
           hint: 'Securely encrypted at rest. Used only for the loan application document.',
@@ -1056,12 +1076,12 @@ function renderGuarantor(idx, label) {
       stateName:   prefix + 'state',
       zipName:     prefix + 'zip',
       autocomplete: 'guarantor:' + idx,
-      required: true,
+      required: reqIfPrimary,
     }) +
     // Deploy 182: 2-year address residency question. If "no", capture
     // the previous address using the same companion-field block.
     field(prefix + 'twoYearAddress', 'Have you lived at this address for 2 or more years?', 'radio', {
-      required: true,
+      required: reqIfPrimary,
       onchange: 'render()',
       options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
     }) +
@@ -1074,13 +1094,13 @@ function renderGuarantor(idx, label) {
           stateName:   prefix + 'prevState',
           zipName:     prefix + 'prevZip',
           autocomplete: 'guarantor:' + idx + ':prev',
-          required: true,
+          required: reqIfPrimary,
           streetHint: 'Where you lived before your current address. Pick from the dropdown so City / State / ZIP auto-fill.',
         })
       : '') +
     // Mailing address (if different from home).
     field(prefix + 'mailingSameAsHome', 'Mailing address same as home address?', 'radio', {
-      required: true,
+      required: reqIfPrimary,
       onchange: 'render()',
       options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
     }) +
@@ -1093,25 +1113,25 @@ function renderGuarantor(idx, label) {
           stateName:   prefix + 'mailingState',
           zipName:     prefix + 'mailingZip',
           autocomplete: 'guarantor:' + idx + ':mail',
-          required: true,
+          required: reqIfPrimary,
         })
       : '') +
     '<div class="field-row">' +
       field(prefix + 'marital', 'Marital Status', 'radio', {
-        required: true,
+        required: reqIfPrimary,
         options: [{ v: 'married', l: 'Married' }, { v: 'single', l: 'Not Married' }],
       }) +
       field(prefix + 'usCitizen', 'Is this guarantor a US Citizen?', 'radio', {
-        required: true,
+        required: reqIfPrimary,
         options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
       }) +
       '</div>';
 
   if (showFlips) {
-    html += field(prefix + 'flips', '# of flips completed in last 36 months', 'number', { required: true });
+    html += field(prefix + 'flips', '# of flips completed in last 36 months', 'number', { required: reqIfPrimary });
   }
   if (showRentals) {
-    html += field(prefix + 'rentals', '# of rental properties currently owned', 'number', { required: true });
+    html += field(prefix + 'rentals', '# of rental properties currently owned', 'number', { required: reqIfPrimary });
   }
 
   // Declarations — these answers populate the Declarations table on the
@@ -1127,14 +1147,18 @@ function renderGuarantor(idx, label) {
   //   g{i}.intendToOccupy       → [Decl IntendToOccupy ...]
   var yesNo = [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }];
   html += '<h5 style="margin-top:18px;margin-bottom:8px;font-size:14px;color:var(--dark)">Declarations</h5>' +
-    '<p class="hint" style="margin-top:-4px;margin-bottom:10px">All declarations are required. Answer truthfully — these statements form part of your loan application.</p>' +
-    field(prefix + 'bankruptcy7yr',         'Have you been declared bankrupt in the past 7 years?',                                                                                          'radio', { required: true, options: yesNo }) +
-    field(prefix + 'foreclosure7yr',        'Have you had a property foreclosed upon or given title or deed lieu thereof in the last 7 years?',                                              'radio', { required: true, options: yesNo }) +
-    field(prefix + 'partyToLawsuit',        'Are you a party to a lawsuit?',                                                                                                                 'radio', { required: true, options: yesNo }) +
-    field(prefix + 'delinquentFederalDebt', 'Are you presently delinquent or in default on any Federal debt or any other loan, mortgage, financial obligation, bond, or loan guarantee?',  'radio', { required: true, options: yesNo }) +
-    field(prefix + 'obligatedToForeclosed', 'Have you directly or indirectly been obligated on any loan which resulted in foreclosure?',                                                    'radio', { required: true, options: yesNo }) +
-    field(prefix + 'outstandingJudgments',  'Are there any outstanding judgments against you?',                                                                                              'radio', { required: true, options: yesNo }) +
-    field(prefix + 'intendToOccupy',        'Do you intend to occupy the subject property?',                                                                                                 'radio', { required: true, options: yesNo });
+    '<p class="hint" style="margin-top:-4px;margin-bottom:10px">' +
+      (reqIfPrimary
+        ? 'All declarations are required. Answer truthfully — these statements form part of your loan application.'
+        : 'These declarations will be collected from this guarantor via the emailed sub-form link; optional to fill in now.') +
+    '</p>' +
+    field(prefix + 'bankruptcy7yr',         'Have you been declared bankrupt in the past 7 years?',                                                                                          'radio', { required: reqIfPrimary, options: yesNo }) +
+    field(prefix + 'foreclosure7yr',        'Have you had a property foreclosed upon or given title or deed lieu thereof in the last 7 years?',                                              'radio', { required: reqIfPrimary, options: yesNo }) +
+    field(prefix + 'partyToLawsuit',        'Are you a party to a lawsuit?',                                                                                                                 'radio', { required: reqIfPrimary, options: yesNo }) +
+    field(prefix + 'delinquentFederalDebt', 'Are you presently delinquent or in default on any Federal debt or any other loan, mortgage, financial obligation, bond, or loan guarantee?',  'radio', { required: reqIfPrimary, options: yesNo }) +
+    field(prefix + 'obligatedToForeclosed', 'Have you directly or indirectly been obligated on any loan which resulted in foreclosure?',                                                    'radio', { required: reqIfPrimary, options: yesNo }) +
+    field(prefix + 'outstandingJudgments',  'Are there any outstanding judgments against you?',                                                                                              'radio', { required: reqIfPrimary, options: yesNo }) +
+    field(prefix + 'intendToOccupy',        'Do you intend to occupy the subject property?',                                                                                                 'radio', { required: reqIfPrimary, options: yesNo });
 
   // Deploy 182: % ownership of the vesting LLC. Shown only if hasLLC.
   // Stored as a plain number (no % suffix); displayed in the PDF
@@ -1464,6 +1488,22 @@ function signApplication() {
     errEl.textContent = 'Consent text failed to load. Please refresh the page.';
     errEl.style.display = 'block';
     return;
+  }
+
+  // Deploy 236.127 — pre-submit guarantor-ownership total check.
+  // If the LLC's combined recorded guarantor ownership is < 51%,
+  // Diya requires more guarantors before the loan can fund. Give
+  // the borrower a clean choice: add the additional guarantors now
+  // (lightweight name/email/phone/% only; rest collected later via
+  // emailed sub-form link), or submit now and address the gap with
+  // their LO before close (Loan Details flags this with a
+  // "Check Guarantor Ownership %" banner).
+  if (STATE.data.hasLLC === 'yes' && !STATE.data._ownershipDeferAcknowledged) {
+    var oTotal = _computeGuarantorOwnershipTotal();
+    if (oTotal.any && oTotal.total < 51) {
+      _openOwnershipDecisionModal(oTotal, signApplication);
+      return; // user picks Now or Later; either resumes the flow
+    }
   }
 
   // Deploy 181: address completeness check. Both the property address
@@ -2129,6 +2169,122 @@ function goToPageAndFocus(pageNum, fieldId) {
       try { el.focus(); el.select && el.select(); } catch (_) {}
     }, 350);
   }, 60);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Deploy 236.127 — Guarantor ownership-total pre-submit gate
+// ════════════════════════════════════════════════════════════════════
+// Mike's spec: if the recorded combined ownership of all guarantors
+// is under Diya's 51% requirement, give the borrower a choice on
+// submit:
+//   • "Add now"   — drop them on Page 4 with the # of guarantors
+//                    radio highlighted green so they can bump the
+//                    count and fill in the new guarantor's required
+//                    fields (only first/last/email/phone/ownership
+//                    are required at app time per renderGuarantor).
+//   • "Submit anyway" — set _ownershipDeferAcknowledged on data so
+//                    we don't re-prompt, mark the data with
+//                    _checkOwnershipFlag, and continue the existing
+//                    signApplication flow.
+
+function _computeGuarantorOwnershipTotal() {
+  var d = STATE.data;
+  var n = parseInt(d.numGuarantors || '1', 10) || 1;
+  var total = 0;
+  var any = false;
+  for (var i = 0; i < n; i++) {
+    var raw = d['g' + i + '_ownership'];
+    if (raw === undefined || raw === null || raw === '') continue;
+    var pct = parseFloat(raw);
+    if (!isFinite(pct)) continue;
+    any = true;
+    total += pct;
+  }
+  return { total: total, count: n, any: any };
+}
+
+function _openOwnershipDecisionModal(info, resumeFn) {
+  // Build overlay + modal once per invocation (no leftover state).
+  var existing = document.getElementById('ownershipDecisionBg');
+  if (existing) existing.remove();
+  var bg = document.createElement('div');
+  bg.id = 'ownershipDecisionBg';
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(38,26,54,0.55);display:flex;align-items:center;justify-content:center;z-index:9000;padding:1rem';
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:#fff;border-radius:10px;padding:24px 28px;max-width:520px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.18);font-family:"DM Sans",sans-serif';
+  modal.innerHTML =
+    '<h3 style="font-family:\'Lora\',serif;font-size:18px;color:#7a5218;margin:0 0 8px">⚠ Guarantor ownership is below 51%</h3>' +
+    '<p style="font-size:13px;color:#1a1520;line-height:1.55;margin:0 0 10px">' +
+      'Recorded total is <strong>' + info.total.toFixed(2) + '%</strong> across <strong>' + info.count +
+      ' guarantor' + (info.count === 1 ? '' : 's') + '</strong>. ' +
+      'Diya requires guarantors to combined own at least <strong>51%</strong> of the vesting LLC.' +
+    '</p>' +
+    '<p style="font-size:13px;color:#1a1520;line-height:1.55;margin:0 0 18px">' +
+      'You can add the additional guarantors now, or submit this application now and have your loan officer add them before close.' +
+    '</p>' +
+    '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+      '<button type="button" id="ownDecisionLater" style="padding:9px 18px;background:#fff;border:1px solid #ddd8d0;border-radius:5px;font-size:13px;font-weight:600;color:#7a7488;cursor:pointer;font-family:inherit">Submit now, add later</button>' +
+      '<button type="button" id="ownDecisionNow"   style="padding:9px 18px;background:#C8813A;border:1px solid #C8813A;border-radius:5px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:inherit">Add additional guarantors now</button>' +
+    '</div>';
+  bg.appendChild(modal);
+  document.body.appendChild(bg);
+
+  document.getElementById('ownDecisionLater').onclick = function() {
+    // Acknowledge and flag — Loan Details surfaces it as a banner
+    // (the 236.126 ownership banner already fires when the synced
+    // loan.guarantorOwnership map totals < 51%).
+    STATE.data._ownershipDeferAcknowledged = true;
+    STATE.data._checkOwnershipFlag = {
+      acknowledgedAt: new Date().toISOString(),
+      total: info.total,
+      count: info.count,
+    };
+    bg.remove();
+    // Persist the flag, then resume the original signApplication
+    // call. The check above on _ownershipDeferAcknowledged keeps
+    // it from re-prompting.
+    if (window.SLA && SLA.BorrowerInfo && SLA.BorrowerInfo.save) {
+      SLA.BorrowerInfo.save(TOKEN, packDataForSave()).then(function() {
+        if (typeof resumeFn === 'function') resumeFn();
+      }).catch(function() {
+        if (typeof resumeFn === 'function') resumeFn();
+      });
+    } else if (typeof resumeFn === 'function') {
+      resumeFn();
+    }
+  };
+  document.getElementById('ownDecisionNow').onclick = function() {
+    bg.remove();
+    _highlightNumGuarantors();
+  };
+}
+
+function _highlightNumGuarantors() {
+  // Jump to Page 4 (Vesting & Guarantors) and flash a green ring
+  // around the # of guarantors radio group so it's unmistakable.
+  STATE.page = 4;
+  renderApp();
+  setTimeout(function() {
+    var fieldWrap = document.querySelector('[data-name="numGuarantors"]');
+    if (!fieldWrap) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    fieldWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    fieldWrap.style.transition = 'box-shadow 0.25s, background 0.25s, border-radius 0.25s';
+    fieldWrap.style.background = 'rgba(34,139,34,0.10)';
+    fieldWrap.style.boxShadow = '0 0 0 3px rgba(34,139,34,0.55)';
+    fieldWrap.style.borderRadius = '8px';
+    fieldWrap.style.padding = '10px';
+    // Pulse a second highlight after 1.2s so the borrower's eye
+    // catches it even if they just glanced away mid-scroll.
+    setTimeout(function() {
+      fieldWrap.style.boxShadow = '0 0 0 6px rgba(34,139,34,0.30)';
+      setTimeout(function() {
+        fieldWrap.style.boxShadow = '0 0 0 3px rgba(34,139,34,0.55)';
+      }, 350);
+    }, 1200);
+  }, 80);
 }
 
 function submitFinal() {
