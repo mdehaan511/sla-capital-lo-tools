@@ -282,6 +282,21 @@
   status = 200
   force = true
 
+# Deploy 236.124 (Phase B.2/B.3) — Loan Financials inline editor +
+# restore. Patches a narrow whitelist (rate/points/purchasePrice/
+# rehabBudget/arv/fico/loanType/experience/brokerFee), snapshots
+# originals, flags signed docs as stale.
+[[redirects]]
+  from = "/api/loan-financials-edit"
+  to = "/.netlify/functions/loan-financials-edit"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-financials-restore"
+  to = "/.netlify/functions/loan-financials-restore"
+  status = 200
+  force = true
+
 # Deploy 236.107 — minimal user directory for in-app pickers
 # (task assignee, @-mention, contacts). Any authenticated user.
 [[redirects]]

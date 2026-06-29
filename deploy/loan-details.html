@@ -803,6 +803,33 @@
   .task-due, .task-assignee { grid-column: 1 / -1; padding-left: 34px; text-align: left; }
 }
 
+/* Deploy 236.124 — Loan Financials inline editor (Phase B.2/B.3). */
+.fin-cell-editable { cursor: pointer; position: relative; transition: background 0.10s; }
+.fin-cell-editable:hover { background: var(--gold-light, rgba(200,129,58,0.10)); }
+.fin-cell-editable::after { content: '\270E'; position: absolute; top: 6px; right: 8px; font-size: 11px; color: var(--muted, #7a7488); opacity: 0; transition: opacity 0.10s; }
+.fin-cell-editable:hover::after { opacity: 0.7; }
+.fin-cell-calculated { background: rgba(0,0,0,0.02); }
+.fin-cell-calculated .fin-label::after { content: ' \1F512'; font-size: 9px; opacity: 0.45; }
+.fin-modified-badge { display: inline-block; margin-left: 6px; font-size: 9px; color: var(--warn, #7a5218); background: rgba(180,83,9,0.12); padding: 1px 6px; border-radius: 8px; font-weight: 600; text-transform: none; letter-spacing: 0; vertical-align: middle; }
+.fin-val.fin-warn { color: var(--danger, #7c1f1f); font-weight: 700; }
+.fin-val.fin-warn::after { content: ' \26A0'; font-size: 11px; }
+.fin-banner { background: rgba(180,83,9,0.10); border: 1px solid rgba(180,83,9,0.30); padding: 12px 16px; border-radius: 6px; margin: 0 0 14px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.fin-banner-msg { flex: 1; min-width: 240px; font-size: 13px; color: var(--warn, #7a5218); line-height: 1.45; }
+.fin-banner-msg strong { font-weight: 700; }
+.fin-banner-restore { padding: 6px 14px; background: #fff; color: var(--text, #1a1520); border: 1px solid var(--border, #ddd8d0); border-radius: 5px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.fin-banner-restore:hover { border-color: var(--warn, #7a5218); color: var(--warn, #7a5218); }
+.fin-edit-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.50); display: flex; align-items: center; justify-content: center; z-index: 9000; }
+.fin-edit-modal { background: #fff; border-radius: 8px; padding: 20px 24px; min-width: 340px; max-width: 92vw; box-shadow: 0 8px 32px rgba(0,0,0,0.15); font-family: 'DM Sans', sans-serif; }
+.fin-edit-modal h3 { font-family: 'Lora', serif; font-size: 16px; font-weight: 600; margin: 0 0 4px; color: var(--dark, #261a36); }
+.fin-edit-modal .hint { font-size: 11px; color: var(--muted, #7a7488); margin-bottom: 10px; }
+.fin-edit-modal input, .fin-edit-modal select { width: 100%; padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 5px; font-family: 'DM Mono', monospace; font-size: 14px; box-sizing: border-box; }
+.fin-edit-modal input:focus, .fin-edit-modal select:focus { outline: none; border-color: var(--gold, #C8813A); }
+.fin-stale-warning { padding: 8px 12px; background: rgba(180,83,9,0.08); border: 1px solid rgba(180,83,9,0.25); border-radius: 5px; margin: 10px 0; font-size: 11px; color: var(--warn, #7a5218); line-height: 1.45; }
+.fin-edit-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.fin-edit-actions button { padding: 7px 16px; border: 1px solid var(--border, #ddd8d0); background: #fff; color: var(--muted, #7a7488); border-radius: 5px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.fin-edit-actions button.primary { background: var(--gold, #C8813A); color: #fff; border-color: var(--gold, #C8813A); }
+.fin-edit-actions button.primary:hover { background: var(--gold-mid, #b5712d); border-color: var(--gold-mid, #b5712d); }
+
 /* Deploy 236.118 — Loan Details tabs (Loan / Contacts / Documents / Tasks).
    Existing sections still render in their natural order; post-render
    JS moves each into the appropriate pane. The pane shell + tab nav
@@ -2371,6 +2398,13 @@ function render() {
     }
   })();
 
+  // Deploy 236.124 — Loan Financials inline editor enhancement.
+  // Runs after the section has been moved into the Loan tab. Adds
+  // click-to-edit handlers to whitelisted fin-cells, lock icons +
+  // threshold warnings to calculated cells, and the modified-fields
+  // banner with Restore button at the top of the section.
+  enhanceLoanFinancialsInlineEdit();
+
   // Async-load the envelope history for this loan. Doesn't block render.
   refreshEnvelopes();
 
@@ -2845,6 +2879,259 @@ function _syncTasksTabCount() {
     badge.hidden = false;
     badge.textContent = String(open);
   }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Deploy 236.124 — Loan Financials inline editor (Phase B.2/B.3)
+// ════════════════════════════════════════════════════════════════════
+// Mike's spec:
+//   1) Edits snapshot the prior value → can be restored to default
+//      with a button + a banner shows the loan was manually modified.
+//   2) Editing also flags the Rate Sheet + Loan App as needing
+//      re-signing (via _signedDocsStale on the loan).
+//   3) Downstream calcs (Down / Monthly Payment / LTV / LTC / LTARV)
+//      recompute from the edited values on the next render. LTC /
+//      LTARV / LTV that exceed program max highlight red with a
+//      tooltip naming the violated threshold.
+//   4) EDITABLE: Rate, Points, Purchase Price, Rehab Budget, ARV,
+//      FICO, Loan Type, Experience, Broker Fee.
+//      READ-ONLY (calculated): Down Payment, Monthly Payment,
+//      LTV/LTP, LTC, LTARV.
+//
+// The enhancer is a post-render DOM walker rather than per-render-
+// line wrappers — keeps the existing fin-grid emit code untouched
+// and centralizes the editable/readonly policy in one place.
+
+var FIN_EDITABLE = [
+  { label: 'Note Rate',      key: 'rate',          kind: 'number', step: '0.001', hint: 'Percent (e.g. 8.625)' },
+  { label: 'Points',         key: 'points',        kind: 'number', step: '0.001', hint: 'Origination points (e.g. 1.5)' },
+  { label: 'Purchase Price', key: 'purchasePrice', kind: 'money',  hint: 'Dollars' },
+  { label: 'Rehab Budget',   key: 'rehabBudget',   kind: 'money',  hint: 'Dollars' },
+  { label: 'ARV',            key: 'arv',           kind: 'money',  hint: 'After-repair value, dollars' },
+  { label: 'FICO',           key: 'fico',          kind: 'int',    min: 500, max: 900, hint: 'Middle credit score' },
+  { label: 'Loan Type',      key: 'loanType',      kind: 'text',   hint: 'Product label (Bridge / Light Rehab / Heavy Rehab / Construction / DSCR / etc.)' },
+  { label: 'Experience',     key: 'experience',    kind: 'int',    min: 0, max: 100, hint: 'Completed deals' },
+  { label: 'Broker Fee',     key: 'brokerFee',     kind: 'number', step: '0.001', hint: 'Points (e.g. 1.0)' },
+];
+// Calculated fields the LO cannot inline-edit. Note: "LTV" matches
+// the DSCR grid; "LTP" matches the RTL "Loan to Price" cell that
+// some sizers emit. Both lock the same way.
+var FIN_READONLY = ['Down Payment', 'Monthly Payment', 'LTV', 'LTP', 'LTC', 'LTARV'];
+
+// Strip any trailing "Overridden" / "modified" / lock badge text
+// the existing renderers tack onto the label so the match is exact.
+function _finLabelClean(text) {
+  return String(text || '')
+    .replace(/\s*✎.*$/g, '')
+    .replace(/\s*✨\s*modified\s*$/i, '')
+    .replace(/\s*✅\s*$/g, '')
+    .replace(/\s*Overridden\s*$/i, '')
+    .replace(/\s*ὑ2.*$/g, '')
+    .trim();
+}
+
+function enhanceLoanFinancialsInlineEdit() {
+  var section = document.getElementById('loanFinancialsSection');
+  if (!section) return;
+  // body container — fall back to section itself if no inner wrapper
+  var body = section.querySelector('.section-body') || section;
+
+  // Remove any stale banner / classes left from the prior render so
+  // we don't double-stack things on re-render.
+  var oldBanner = body.querySelector('.fin-banner');
+  if (oldBanner) oldBanner.remove();
+
+  var modified = (_loan && Array.isArray(_loan._modifiedFields)) ? _loan._modifiedFields.slice() : [];
+  var hasMods = modified.length > 0;
+
+  // ── Top-of-section warning banner + Restore button ─────────────
+  if (hasMods) {
+    var labels = modified.map(function(k) {
+      var f = FIN_EDITABLE.find(function(x){ return x.key === k; });
+      return f ? f.label : k;
+    });
+    var banner = document.createElement('div');
+    banner.className = 'fin-banner';
+    banner.innerHTML =
+      '<div class="fin-banner-msg">' +
+        '<strong>⚠ ' + modified.length + ' field' + (modified.length === 1 ? '' : 's') +
+        ' manually modified:</strong> ' + escH(labels.join(', ')) +
+        '. The Rate Sheet and Loan Application may need to be re-signed to reflect the new values.' +
+      '</div>' +
+      '<button type="button" class="fin-banner-restore" onclick="restoreLoanFinancials()">↶ Restore to Original</button>';
+    // Insert at the top of the section body — before fin-grid + any
+    // button row.
+    var sectionHead = body.querySelector('.section-head');
+    if (sectionHead && sectionHead.nextSibling) {
+      body.insertBefore(banner, sectionHead.nextSibling);
+    } else {
+      body.insertBefore(banner, body.firstChild);
+    }
+  }
+
+  // ── Walk every fin-cell and decorate ───────────────────────────
+  section.querySelectorAll('.fin-cell').forEach(function(cell) {
+    // Wipe any modified badges from a prior render before adding
+    // new ones (idempotent on re-render).
+    var oldBadge = cell.querySelector('.fin-modified-badge');
+    if (oldBadge) oldBadge.remove();
+    cell.classList.remove('fin-cell-editable', 'fin-cell-calculated');
+    var valEl = cell.querySelector('.fin-val');
+    if (valEl) valEl.classList.remove('fin-warn');
+
+    var labelEl = cell.querySelector('.fin-label');
+    if (!labelEl) return;
+    var labelText = _finLabelClean(labelEl.textContent);
+
+    // EDITABLE?
+    var editable = FIN_EDITABLE.find(function(f) { return labelText === f.label; });
+    if (editable) {
+      cell.classList.add('fin-cell-editable');
+      cell.title = 'Click to edit ' + editable.label;
+      cell.onclick = function(e) { e.stopPropagation(); openLoanFinInlineEdit(editable); };
+      if (modified.indexOf(editable.key) >= 0) {
+        var badge = document.createElement('span');
+        badge.className = 'fin-modified-badge';
+        badge.textContent = '✨ modified';
+        var orig = _loan && _loan._originalValues && _loan._originalValues[editable.key];
+        if (orig != null && orig !== '') badge.title = 'Original (calculator-generated): ' + orig;
+        labelEl.appendChild(badge);
+      }
+      return;
+    }
+
+    // READ-ONLY (calculated)?
+    if (FIN_READONLY.indexOf(labelText) >= 0) {
+      cell.classList.add('fin-cell-calculated');
+      cell.title = labelText + ' is calculated from the other fields and cannot be edited directly.';
+      // Threshold warning — pull the rendered % from the val cell.
+      if (valEl) {
+        var pct = parseFloat(String(valEl.textContent || '').replace(/[^0-9.\-]/g, ''));
+        if (isFinite(pct)) {
+          var warn = false, msg = '';
+          if (labelText === 'LTC' && pct > 95) {
+            warn = true; msg = 'LTC ' + pct.toFixed(1) + '% exceeds the 95% program max — exception required.';
+          } else if (labelText === 'LTARV' && pct > 75) {
+            warn = true; msg = 'LTARV ' + pct.toFixed(1) + '% exceeds the 75% program max — exception required.';
+          } else if ((labelText === 'LTV' || labelText === 'LTP') && pct > 80) {
+            warn = true; msg = labelText + ' ' + pct.toFixed(1) + '% exceeds the 80% program max — exception required.';
+          }
+          if (warn) {
+            valEl.classList.add('fin-warn');
+            valEl.title = msg;
+          }
+        }
+      }
+    }
+  });
+}
+
+function openLoanFinInlineEdit(field) {
+  // Resolve current value from loan (with formData fallback — same
+  // precedence the renderers use).
+  var current = (_loan && _loan[field.key] != null && _loan[field.key] !== '')
+    ? _loan[field.key]
+    : (_loan && _loan.formData && _loan.formData[field.key] != null
+        ? _loan.formData[field.key]
+        : '');
+
+  var bg = document.createElement('div');
+  bg.className = 'fin-edit-bg';
+  bg.onclick = function(e) { if (e.target === bg) bg.remove(); };
+
+  var modal = document.createElement('div');
+  modal.className = 'fin-edit-modal';
+
+  var staleMsg;
+  if (_loan && _loan._signedDocsStale) {
+    staleMsg = 'Note: this loan\'s Rate Sheet / Loan App are already flagged as needing re-signing. Editing again keeps the flag set.';
+  } else {
+    staleMsg = 'Heads up: editing this field will flag the Rate Sheet and Loan App as needing re-signing.';
+  }
+
+  var inputHtml;
+  if (field.kind === 'money') {
+    inputHtml = '<input id="finEditInput" type="number" step="1000" value="' + escAttr(current) + '" />';
+  } else if (field.kind === 'int') {
+    var minAttr = (field.min != null) ? ' min="' + field.min + '"' : '';
+    var maxAttr = (field.max != null) ? ' max="' + field.max + '"' : '';
+    inputHtml = '<input id="finEditInput" type="number" step="1"' + minAttr + maxAttr + ' value="' + escAttr(current) + '" />';
+  } else if (field.kind === 'number') {
+    inputHtml = '<input id="finEditInput" type="number" step="' + escAttr(field.step || '0.01') + '" value="' + escAttr(current) + '" />';
+  } else {
+    inputHtml = '<input id="finEditInput" type="text" value="' + escAttr(current) + '" />';
+  }
+
+  modal.innerHTML =
+    '<h3>Edit ' + escH(field.label) + '</h3>' +
+    '<div class="hint">Current value: <strong>' + escH(String(current || '(none)')) + '</strong>' +
+      (field.hint ? ' · ' + escH(field.hint) : '') + '</div>' +
+    '<div class="fin-stale-warning">' + escH(staleMsg) + '</div>' +
+    inputHtml +
+    '<div class="fin-edit-actions">' +
+      '<button type="button" id="finEditCancelBtn">Cancel</button>' +
+      '<button type="button" class="primary" id="finEditSaveBtn">Save</button>' +
+    '</div>';
+
+  bg.appendChild(modal);
+  document.body.appendChild(bg);
+
+  var input = document.getElementById('finEditInput');
+  if (input) { try { input.focus(); input.select && input.select(); } catch (_) {} }
+
+  document.getElementById('finEditCancelBtn').onclick = function() { bg.remove(); };
+  document.getElementById('finEditSaveBtn').onclick = function() {
+    saveLoanFinInlineEdit(field, input.value, bg, this);
+  };
+  if (input) {
+    input.onkeydown = function(e) {
+      if (e.key === 'Enter') { document.getElementById('finEditSaveBtn').click(); }
+      else if (e.key === 'Escape') { bg.remove(); }
+    };
+  }
+}
+
+function saveLoanFinInlineEdit(field, newVal, bg, btn) {
+  btn.disabled = true; btn.textContent = 'Saving…';
+  var payload = { clientId: _clientId, loanId: _loanId, fields: {} };
+  payload.fields[field.key] = newVal;
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.api('POST', '/api/loan-financials-edit', payload).then(function(r) {
+    if (!r || !r.loan) {
+      btn.disabled = false; btn.textContent = 'Save';
+      alert('Save failed: server returned no loan.');
+      return;
+    }
+    _loan = r.loan;
+    var lidx = (_client && _client.loans || []).findIndex(function(l) { return l && l.id === _loanId; });
+    if (lidx >= 0) _client.loans[lidx] = r.loan;
+    bg.remove();
+    // Re-render Loan Details — the existing render() pipeline rebuilds
+    // every section from the new loan state. tabs / hash / sidebar
+    // are all re-emitted; URL hash keeps the active tab.
+    render();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Save';
+    alert('Save failed: ' + (err && err.message || 'unknown'));
+  });
+}
+
+function restoreLoanFinancials() {
+  var modCount = (_loan && _loan._modifiedFields || []).length;
+  if (!confirm('Restore ' + modCount + ' manually-modified field' + (modCount === 1 ? '' : 's') +
+               ' to the original calculator-generated values?\n\n' +
+               'This will also flag the Rate Sheet and Loan App as needing re-signing.')) return;
+  var payload = { clientId: _clientId, loanId: _loanId };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.api('POST', '/api/loan-financials-restore', payload).then(function(r) {
+    if (!r || !r.loan) { alert('Restore failed: server returned no loan.'); return; }
+    _loan = r.loan;
+    var lidx = (_client && _client.loans || []).findIndex(function(l) { return l && l.id === _loanId; });
+    if (lidx >= 0) _client.loans[lidx] = r.loan;
+    render();
+  }).catch(function(err) {
+    alert('Restore failed: ' + (err && err.message || 'unknown'));
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════
