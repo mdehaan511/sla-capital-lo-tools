@@ -41,12 +41,16 @@
     {
       label: 'Clients',
       // Grouped to declutter the navbar. Default label is "Clients" since
-      // it's the most-visited of the three. The dropdown lists all three
-      // including Clients itself so the user always has a one-click path.
+      // it's the most-visited of the four. The dropdown lists all of
+      // them including Clients itself so the user always has a
+      // one-click path.
+      // Deploy 236.115 (Phase E.2) — added Contacts: the cross-loan
+      // view of additional contacts (Title Co / Insurance / etc.).
       children: [
-        { label: 'Clients', href: 'clients.html' },
-        { label: 'Brokers', href: 'brokers.html' },
-        { label: 'Loans',   href: 'loans.html'  },
+        { label: 'Clients',  href: 'clients.html'  },
+        { label: 'Brokers',  href: 'brokers.html'  },
+        { label: 'Contacts', href: 'contacts.html' },
+        { label: 'Loans',    href: 'loans.html'    },
       ],
     },
     // Deploy 236.71 — Loan Doc Review tool. Visible to processors and

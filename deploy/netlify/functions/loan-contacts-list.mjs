@@ -29,16 +29,38 @@ async function handle(req, context) {
   const url = new URL(req.url);
   const loanId     = String(url.searchParams.get('loanId') || '').trim();
   const ownerParam = String(url.searchParams.get('owner') || '').trim();
+  // Deploy 236.115 (Phase E.2) — ?all=1 for admin cross-LO scans
+  // used by contacts.html central view.
+  const all        = url.searchParams.get('all') === '1';
 
   const selfEmail = normalizeEmail(user.email);
   const selfKey   = keySafe(selfEmail);
+
+  const store = getStore({ name: 'loan-contacts', consistency: 'strong' });
+
+  if (all) {
+    if (!isAdmin(user)) return json(403, { error: 'Admin only' });
+    try {
+      const { blobs } = await store.list();
+      const contacts = [];
+      await Promise.all(blobs.map(async ({ key }) => {
+        const c = await store.get(key, { type: 'json' });
+        if (!c) return;
+        if (loanId && String(c.loanId || '') !== loanId) return;
+        contacts.push(c);
+      }));
+      return json(200, { contacts });
+    } catch (e) {
+      return json(500, { error: 'Failed to list contacts: ' + (e.message || 'unknown') });
+    }
+  }
+
   let ownerKey = selfKey;
   if (ownerParam && ownerParam !== selfEmail && ownerParam !== selfKey) {
     if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
     ownerKey = keySafe(normalizeEmail(ownerParam));
   }
 
-  const store = getStore({ name: 'loan-contacts', consistency: 'strong' });
   try {
     const { blobs } = await store.list({ prefix: ownerKey + '/' });
     const contacts = [];

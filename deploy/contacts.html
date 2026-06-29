@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contacts — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+
+    .page { max-width: 1280px; margin: 0 auto; padding-top: 1.5rem; }
+    .page-header { margin-bottom: 1.5rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 26px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+    .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    .scope-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: var(--surface); }
+    .scope-toggle button { padding: 7px 14px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .scope-toggle button.active { background: var(--dark); color: #fff; }
+
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
+    .search-box:focus { outline: none; border-color: var(--gold); }
+
+    .role-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .role-filter { padding: 6px 12px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .role-filter:hover:not(.active) { border-color: var(--gold); color: var(--gold); }
+    .role-filter.active { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .role-filter .role-count { background: rgba(255,255,255,0.25); padding: 1px 6px; border-radius: 9px; margin-left: 4px; font-size: 10px; }
+    .role-filter:not(.active) .role-count { background: rgba(0,0,0,0.05); color: var(--muted); }
+
+    .contacts-table { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .contacts-table-head { display: grid; grid-template-columns: 110px 1.4fr 1fr 1.2fr 130px 1fr 30px; gap: 12px; padding: 12px 16px; background: rgba(38,26,54,0.04); border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: var(--muted); }
+    .contacts-table-row { display: grid; grid-template-columns: 110px 1.4fr 1fr 1.2fr 130px 1fr 30px; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--border); align-items: center; font-size: 13px; transition: background 0.10s; cursor: pointer; }
+    .contacts-table-row:last-child { border-bottom: none; }
+    .contacts-table-row:hover { background: var(--bg); }
+    .ct-role-pill { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; display: inline-block; text-align: center; }
+    .ct-role-pill.title     { background: rgba(200,129,58,0.10); color: var(--gold-mid); }
+    .ct-role-pill.insurance { background: rgba(37,105,64,0.10);  color: var(--success); }
+    .ct-role-pill.inspector { background: rgba(106,74,138,0.10); color: #6a4a8a; }
+    .ct-role-pill.appraiser { background: rgba(122,82,24,0.10);  color: var(--warn); }
+    .ct-role-pill.surveyor  { background: rgba(74,122,138,0.10); color: #4a7a8a; }
+    .ct-role-pill.attorney  { background: rgba(124,31,31,0.10);  color: var(--danger); }
+    .ct-role-pill.other     { background: rgba(122,116,136,0.10); color: var(--muted); }
+    .c-name { font-weight: 500; word-break: break-word; }
+    .c-company { font-size: 12px; color: var(--muted); word-break: break-word; }
+    .c-info { font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; word-break: break-word; }
+    .c-info a { color: var(--gold-mid); text-decoration: none; }
+    .c-info a:hover { color: var(--gold); }
+    .c-info.muted { color: var(--muted); }
+    .c-loan a { color: var(--gold-mid); font-size: 12px; text-decoration: none; word-break: break-word; }
+    .c-loan a:hover { color: var(--gold); text-decoration: underline; }
+    .c-loan-addr { display: block; }
+    .c-loan-meta { display: block; font-size: 10px; color: var(--muted); margin-top: 1px; font-family: 'DM Mono', monospace; }
+    .c-creator { font-size: 11px; color: var(--muted); word-break: break-word; }
+    .c-delete { background: transparent; border: none; color: rgba(122,116,136,0.5); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; }
+    .c-delete:hover { color: var(--danger); background: rgba(124,31,31,0.08); }
+    .empty-state { padding: 3rem 1rem; text-align: center; color: var(--muted); font-style: italic; font-size: 13px; }
+    .loading { padding: 3rem 1rem; text-align: center; color: var(--muted); font-size: 13px; }
+    @media (max-width: 1000px) {
+      .contacts-table-head, .contacts-table-row { grid-template-columns: 100px 1fr 30px; }
+      .contacts-table-head .h-company, .contacts-table-head .h-email, .contacts-table-head .h-phone,
+      .contacts-table-head .h-loan, .contacts-table-head .h-creator { display: none; }
+      .contacts-table-row .c-company, .contacts-table-row .c-info, .contacts-table-row .c-loan, .contacts-table-row .c-creator { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Contacts</h1>
+        <p>Title companies, insurance agents, inspectors, and other contacts across all your loans.</p>
+      </div>
+      <div class="ctrl-row">
+        <input type="text" class="search-box" id="searchBox" placeholder="Search name, company, email, phone…" oninput="render()" />
+        <div class="scope-toggle" id="scopeToggle" style="display:none">
+          <button id="scopeMyBtn"  class="active" onclick="setScope('me')">My loans</button>
+          <button id="scopeAllBtn"             onclick="setScope('all')">All users</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="role-filters" id="roleFilters"></div>
+    <div class="contacts-table" id="contactsTable"><div class="loading">Loading contacts…</div></div>
+  </div>
+
+<script>
+'use strict';
+
+var _user = null;
+var _isAdmin = false;
+var _contacts = [];
+var _loansById = {}; // contactId → loan summary for display
+var _scope = 'me';
+var _roleFilter = 'all';
+
+var ROLE_LABELS = {
+  title: 'Title Co', insurance: 'Insurance', inspector: 'Inspector',
+  appraiser: 'Appraiser', surveyor: 'Surveyor', attorney: 'Attorney', other: 'Other',
+};
+var ROLES = ['title','insurance','inspector','appraiser','surveyor','attorney','other'];
+
+window.netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  if (_isAdmin) document.getElementById('scopeToggle').style.display = '';
+  loadAll();
+});
+
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function setScope(s) {
+  _scope = s;
+  document.getElementById('scopeMyBtn').classList.toggle('active',  s === 'me');
+  document.getElementById('scopeAllBtn').classList.toggle('active', s === 'all');
+  loadAll();
+}
+function setRoleFilter(r) {
+  _roleFilter = r;
+  render();
+}
+
+function loadAll() {
+  document.getElementById('contactsTable').innerHTML = '<div class="loading">Loading contacts…</div>';
+  // Load contacts + clients in parallel — we need clients to render
+  // the loan link (address) for each contact's row.
+  var contactsUrl = (_scope === 'all' && _isAdmin) ? '/api/loan-contacts-list?all=1' : '/api/loan-contacts-list';
+  var clientsP = _isAdmin ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  Promise.all([
+    SLA.api('GET', contactsUrl),
+    clientsP,
+  ]).then(function(results) {
+    _contacts = (results[0] && results[0].contacts) || [];
+    var clientsResp = results[1];
+    var byClientId = {};
+    var pool = [];
+    if (clientsResp.byOwner) {
+      Object.keys(clientsResp.byOwner).forEach(function(k) {
+        (clientsResp.byOwner[k] || []).forEach(function(c) { pool.push({ client: c, ownerKey: k }); });
+      });
+    } else {
+      var myKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+      (clientsResp.clients || []).forEach(function(c) { pool.push({ client: c, ownerKey: myKey }); });
+    }
+    pool.forEach(function(p) {
+      var clientObj = p.client;
+      if (!clientObj || !clientObj.id) return;
+      (clientObj.loans || []).forEach(function(l) {
+        if (!l || !l.id) return;
+        _loansById[clientObj.id + '|' + l.id] = {
+          address:  l.address || '(no address)',
+          status:   l.status || '',
+          ownerKey: p.ownerKey,
+          clientId: clientObj.id,
+          loanId:   l.id,
+          borrowerName: ((clientObj.firstName || '') + ' ' + (clientObj.lastName || '')).trim() || clientObj.email || '',
+        };
+      });
+    });
+    render();
+  }).catch(function(err) {
+    document.getElementById('contactsTable').innerHTML =
+      '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+
+function render() {
+  // Role filter chips show counts based on the full set.
+  var roleCounts = { all: _contacts.length };
+  ROLES.forEach(function(r) { roleCounts[r] = 0; });
+  _contacts.forEach(function(c) {
+    var r = String(c.role || 'other').toLowerCase();
+    if (roleCounts[r] === undefined) r = 'other';
+    roleCounts[r] += 1;
+  });
+  var chips = '<button class="role-filter' + (_roleFilter === 'all' ? ' active' : '') + '" onclick="setRoleFilter(\'all\')">All<span class="role-count">' + roleCounts.all + '</span></button>';
+  ROLES.forEach(function(r) {
+    if (!roleCounts[r]) return;
+    chips += '<button class="role-filter' + (_roleFilter === r ? ' active' : '') + '" onclick="setRoleFilter(\'' + r + '\')">' + escH(ROLE_LABELS[r]) + '<span class="role-count">' + roleCounts[r] + '</span></button>';
+  });
+  document.getElementById('roleFilters').innerHTML = chips;
+
+  var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var rows = _contacts.slice();
+  if (_roleFilter !== 'all') rows = rows.filter(function(c) { return String(c.role || 'other').toLowerCase() === _roleFilter; });
+  if (search) {
+    rows = rows.filter(function(c) {
+      var hay = ((c.name || '') + ' ' + (c.company || '') + ' ' + (c.email || '') + ' ' + (c.phone || '')).toLowerCase();
+      var loan = _loansById[c.clientId + '|' + c.loanId];
+      if (loan) hay += ' ' + (loan.address || '').toLowerCase() + ' ' + (loan.borrowerName || '').toLowerCase();
+      return hay.indexOf(search) >= 0;
+    });
+  }
+  // Sort: role then name
+  rows.sort(function(a, b) {
+    var ar = String(a.role || 'other'), br = String(b.role || 'other');
+    if (ar < br) return -1; if (ar > br) return 1;
+    var an = String(a.name || a.company || '').toLowerCase();
+    var bn = String(b.name || b.company || '').toLowerCase();
+    if (an < bn) return -1; if (an > bn) return 1;
+    return 0;
+  });
+
+  if (!rows.length) {
+    document.getElementById('contactsTable').innerHTML =
+      '<div class="empty-state">' +
+        (search || _roleFilter !== 'all'
+          ? 'No contacts match the current filter.'
+          : 'No additional contacts yet. Open any loan\'s Details page → Additional Contacts → + Add Contact.') +
+      '</div>';
+    return;
+  }
+
+  var html =
+    '<div class="contacts-table-head">' +
+      '<div>Role</div>' +
+      '<div>Name</div>' +
+      '<div class="h-company">Company</div>' +
+      '<div class="h-email">Email</div>' +
+      '<div class="h-phone">Phone</div>' +
+      '<div class="h-loan">Loan</div>' +
+      '<div></div>' +
+    '</div>';
+  html += rows.map(renderRow).join('');
+  document.getElementById('contactsTable').innerHTML = html;
+}
+
+function renderRow(c) {
+  var role = String(c.role || 'other').toLowerCase();
+  var roleLabel = c.roleLabel || ROLE_LABELS[role] || role;
+  var loan = _loansById[c.clientId + '|' + c.loanId];
+  var loanCell = loan
+    ? '<div class="c-loan">' +
+        '<a href="' + escAttr(_loanHref(loan)) + '">' +
+          '<span class="c-loan-addr">' + escH(loan.address) + '</span>' +
+          '<span class="c-loan-meta">' + escH(loan.borrowerName || '') + (loan.status ? ' · ' + escH(loan.status) : '') + '</span>' +
+        '</a>' +
+      '</div>'
+    : '<div class="c-loan"><span class="c-info muted">(loan not found)</span></div>';
+  var emailHtml = c.email ? '<a href="mailto:' + escAttr(c.email) + '" onclick="event.stopPropagation()">' + escH(c.email) + '</a>' : '<span class="muted">—</span>';
+  var phoneHtml = c.phone ? '<a href="tel:' + escAttr(String(c.phone).replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(c.phone) + '</a>' : '<span class="muted">—</span>';
+  return '<div class="contacts-table-row" data-contact-id="' + escAttr(c.id) + '" onclick="openContactLoan(\'' + escAttr(c.clientId) + '\',\'' + escAttr(c.loanId) + '\',\'' + escAttr(c.ownerKey || '') + '\')" title="Open the loan to edit this contact">' +
+    '<div><span class="ct-role-pill ' + escAttr(role) + '">' + escH(roleLabel) + '</span></div>' +
+    '<div class="c-name">' + escH(c.name || '(no name)') + '</div>' +
+    '<div class="c-company">' + escH(c.company || '') + '</div>' +
+    '<div class="c-info">' + emailHtml + '</div>' +
+    '<div class="c-info">' + phoneHtml + '</div>' +
+    loanCell +
+    '<button class="c-delete" onclick="event.stopPropagation();del(\'' + escAttr(c.id) + '\',\'' + escAttr(c.ownerKey || '') + '\')" title="Delete">✕</button>' +
+  '</div>';
+}
+
+function _loanHref(loan) {
+  var ownerEmail = (loan.ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
+  return 'loan-details.html?clientId=' + encodeURIComponent(loan.clientId) +
+         '&loanId='   + encodeURIComponent(loan.loanId) +
+         '&owner='    + encodeURIComponent(ownerEmail);
+}
+function openContactLoan(clientId, loanId, ownerKey) {
+  var ownerEmail = (ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
+  var href = 'loan-details.html?clientId=' + encodeURIComponent(clientId) +
+             '&loanId='   + encodeURIComponent(loanId) +
+             '&owner='    + encodeURIComponent(ownerEmail) +
+             '#loanContactsSection';
+  window.location.href = href;
+}
+function del(contactId, ownerKey) {
+  if (!confirm('Delete this contact? This cannot be undone.')) return;
+  var idx = _contacts.findIndex(function(c) { return c.id === contactId; });
+  if (idx < 0) return;
+  var removed = _contacts.splice(idx, 1)[0];
+  render();
+  var ownerEmail = (ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
+  SLA.api('POST', '/api/loan-contacts-delete', { contactId: contactId, owner: ownerEmail }).catch(function(err) {
+    _contacts.splice(idx, 0, removed);
+    render();
+    alert('Failed to delete: ' + (err && err.message || 'unknown'));
+  });
+}
+</script>
+</body>
+</html>
