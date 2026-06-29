@@ -803,6 +803,33 @@
   .task-due, .task-assignee { grid-column: 1 / -1; padding-left: 34px; text-align: left; }
 }
 
+/* Deploy 236.126 — Vesting LLC Info + Guarantor % Ownership + top warning. */
+.ld-warning-banner { background: rgba(180,83,9,0.10); border: 1px solid rgba(180,83,9,0.30); border-radius: 8px; padding: 12px 18px; margin: 0 0 14px; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--warn, #7a5218); }
+.ld-warning-banner .ld-warning-icon { font-size: 18px; line-height: 1; }
+.ld-warning-banner strong { font-weight: 700; }
+.vesting-llc-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 8px; align-items: center; }
+.vesting-llc-row input { padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 5px; font-family: 'DM Sans', sans-serif; font-size: 13px; }
+.vesting-llc-row input:focus { outline: none; border-color: var(--gold, #C8813A); }
+.vesting-llc-remove { padding: 6px 10px; background: transparent; border: 1px solid var(--border, #ddd8d0); border-radius: 4px; color: var(--muted, #7a7488); cursor: pointer; font-size: 11px; font-weight: 600; font-family: 'DM Sans', sans-serif; }
+.vesting-llc-remove:hover { border-color: var(--danger, #7c1f1f); color: var(--danger, #7c1f1f); }
+.vesting-llc-add { padding: 7px 14px; background: var(--surface, #fff); border: 1px dashed var(--gold-border, rgba(200,129,58,0.28)); border-radius: 5px; color: var(--gold-mid, #b5712d); cursor: pointer; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; margin-top: 6px; }
+.vesting-llc-add:hover { border-color: var(--gold, #C8813A); background: var(--gold-light, rgba(200,129,58,0.10)); }
+.vesting-llc-save-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+.vesting-llc-save-btn { padding: 8px 18px; background: var(--gold, #C8813A); color: #fff; border: 1px solid var(--gold, #C8813A); border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; }
+.vesting-llc-save-btn:hover { background: var(--gold-mid, #b5712d); }
+.vesting-llc-save-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.vesting-llc-status { font-size: 11px; color: var(--muted, #7a7488); font-style: italic; }
+.vesting-llc-status.ok { color: var(--success, #256940); font-style: normal; font-weight: 600; }
+.vesting-llc-status.err { color: var(--danger, #7c1f1f); font-style: normal; font-weight: 600; }
+.bw-ownership-field { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border, #ddd8d0); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.bw-ownership-field label { font-size: 11px; font-weight: 700; color: var(--muted, #7a7488); text-transform: uppercase; letter-spacing: 0.05em; min-width: 160px; }
+.bw-ownership-field input { padding: 6px 10px; border: 1px solid var(--border, #ddd8d0); border-radius: 5px; font-family: 'DM Mono', monospace; font-size: 13px; width: 90px; text-align: right; }
+.bw-ownership-field input:focus { outline: none; border-color: var(--gold, #C8813A); }
+.bw-ownership-field .ow-suffix { font-size: 13px; color: var(--muted, #7a7488); }
+.bw-ownership-field .ow-status { font-size: 11px; color: var(--muted, #7a7488); margin-left: 4px; }
+.bw-ownership-field .ow-status.ok { color: var(--success, #256940); }
+.bw-ownership-field .ow-status.err { color: var(--danger, #7c1f1f); }
+
 /* Deploy 236.124 — Loan Financials inline editor (Phase B.2/B.3). */
 .fin-cell-editable { cursor: pointer; position: relative; transition: background 0.10s; }
 .fin-cell-editable:hover { background: var(--gold-light, rgba(200,129,58,0.10)); }
@@ -2042,10 +2069,43 @@ function render() {
   // Linked Guarantor Clients fetch pattern).
   var _bwGuarantorIds = Array.isArray(l.guarantorClientIds) ? l.guarantorClientIds : [];
   var _bwHasMultiple  = _bwGuarantorIds.length > 0;
-  var _bwPrimaryName  = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Borrower';
+  var _bwPrimaryName  = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Guarantor 1';
+
+  // Deploy 236.126 — Vesting LLC Info section (above Guarantor Info).
+  // Auto-populates with the primary client's entityName on first
+  // render; supports multiple LLCs (rare but happens with sub-entities
+  // / pass-throughs). Saved per-loan as loan.vestingLLCs (array of
+  // { name } objects so future deploys can layer EIN / address etc.).
+  var _vestingLLCsInitial = Array.isArray(l.vestingLLCs) && l.vestingLLCs.length
+    ? l.vestingLLCs
+    : (c.entityName ? [{ name: c.entityName }] : [{ name: '' }]);
+  html +=
+    '<div class="section" id="vestingLLCSection">' +
+      '<div class="section-head"><h2>Vesting LLC Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">The LLC(s) on title for this loan. Auto-filled from the primary guarantor\'s entity. Edit or add additional LLCs if title is held by multiple entities (sub-entity / pass-through structures).</div>' +
+        '<div id="vestingLLCList">' +
+          _vestingLLCsInitial.map(function(v, i) {
+            return _renderVestingLLCRow(v, i, _vestingLLCsInitial.length);
+          }).join('') +
+        '</div>' +
+        '<button type="button" class="vesting-llc-add" onclick="addVestingLLCRow()">+ Add Another LLC</button>' +
+        '<div class="vesting-llc-save-row">' +
+          '<button type="button" class="vesting-llc-save-btn" id="vestingLLCSaveBtn" onclick="saveVestingLLCs()">Save Vesting LLCs</button>' +
+          '<span class="vesting-llc-status" id="vestingLLCStatus"></span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  // Deploy 236.126 — ownership map: { clientId: pct } for the primary
+  // and every linked guarantor. Used by the per-pane % ownership input
+  // and the "Check Guarantor Ownership %" banner.
+  var _ownerships = (l.guarantorOwnership && typeof l.guarantorOwnership === 'object') ? l.guarantorOwnership : {};
+  var _primaryOwnership = _ownerships[c.id] != null ? _ownerships[c.id] : '';
+
   var _bwPrimaryHtml  =
     '<div class="app-grid">' +
-      '<div class="field"><label>Borrower Name</label>' +
+      '<div class="field"><label>Guarantor Name</label>' +
         '<input type="text"  id="bw-0-name"   value="' + escAttr(_bwPrimaryName) + '" readonly /></div>' +
       '<div class="field"><label>Borrower LLC</label>' +
         '<input type="text"  id="bw-0-entity" value="' + escAttr(c.entityName || '') + '" readonly placeholder="No entity on file" /></div>' +
@@ -2053,18 +2113,20 @@ function render() {
         '<input type="email" id="bw-0-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
       '<div class="field"><label>Phone</label>' +
         '<input type="tel"   id="bw-0-phone"  value="' + escAttr(c.phone || '') + '" readonly /></div>' +
-    '</div>';
+    '</div>' +
+    _renderOwnershipField(c.id, _primaryOwnership, 0);
+
   var _bwTabsHtml = '';
   if (_bwHasMultiple) {
     _bwTabsHtml = '<div class="bw-tabs" id="bwTabs">' +
       '<button type="button" class="bw-tab active" onclick="switchBorrowerTab(0)" data-bw-idx="0">' +
         '<span class="bw-tab-label">' + escH(_bwPrimaryName) + '</span>' +
-        '<span class="bw-tab-sub">Primary</span>' +
+        '<span class="bw-tab-sub">Guarantor 1 (Primary)</span>' +
       '</button>';
     _bwGuarantorIds.forEach(function(gid, i) {
       _bwTabsHtml +=
         '<button type="button" class="bw-tab" onclick="switchBorrowerTab(' + (i + 1) + ')" data-bw-idx="' + (i + 1) + '" id="bw-tab-' + (i + 1) + '">' +
-          '<span class="bw-tab-label">Guarantor ' + (i + 1) + '</span>' +
+          '<span class="bw-tab-label">Guarantor ' + (i + 2) + '</span>' +
           '<span class="bw-tab-sub">Loading…</span>' +
         '</button>';
     });
@@ -2073,11 +2135,11 @@ function render() {
   var _bwPanesHtml = '<div class="bw-pane active" id="bw-pane-0">' + _bwPrimaryHtml + '</div>';
   _bwGuarantorIds.forEach(function(gid, i) {
     _bwPanesHtml +=
-      '<div class="bw-pane loading" id="bw-pane-' + (i + 1) + '" data-client-id="' + escAttr(gid) + '">Loading borrower info…</div>';
+      '<div class="bw-pane loading" id="bw-pane-' + (i + 1) + '" data-client-id="' + escAttr(gid) + '">Loading guarantor info…</div>';
   });
   html +=
     '<div class="section" id="borrowerInfoSection">' +
-      '<div class="section-head"><h2>Borrower Info</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
+      '<div class="section-head"><h2>Guarantor Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
       '<div class="section-body">' +
         _bwTabsHtml +
         _bwPanesHtml +
@@ -2201,7 +2263,12 @@ function render() {
     '<div class="ld-pane"        data-ld-pane="contacts"  id="ldPaneContacts"></div>' +
     '<div class="ld-pane"        data-ld-pane="documents" id="ldPaneDocuments"></div>' +
     '<div class="ld-pane"        data-ld-pane="tasks"     id="ldPaneTasks"></div>';
+  // Deploy 236.126 — top-of-page warning banner placeholder.
+  // computeGuarantorOwnershipBanner() fills this slot after render
+  // based on loan.guarantorOwnership values + linked guarantor count.
+  var topBannerSlot = '<div id="ldTopBanners"></div>';
   html = pageHeaderHtml +
+         topBannerSlot +
          '<div class="ld-layout">' +
            '<div class="ld-main">' +
              tabsHtml +
@@ -2335,10 +2402,12 @@ function render() {
     var twoCol = stage && stage.querySelector('.two-col');
     if (twoCol) paneLoan.appendChild(twoCol);
 
-    // CONTACTS tab: borrower / broker / additional contacts /
-    // linked guarantors. Plus a new Team Members block we inject
-    // below.
+    // CONTACTS tab: vesting LLC info (top) / guarantor info /
+    // linked guarantors / additional contacts / broker info. Plus a
+    // new Team Members block we inject below.
+    // Deploy 236.126 — vestingLLCSection added at the top.
     [
+      'vestingLLCSection',
       'borrowerInfoSection',
       'linkedGuarantorsSection',
       'loanContactsSection',
@@ -2405,6 +2474,9 @@ function render() {
   // threshold warnings to calculated cells, and the modified-fields
   // banner with Restore button at the top of the section.
   enhanceLoanFinancialsInlineEdit();
+
+  // Deploy 236.126 — top-of-page guarantor-ownership banner.
+  refreshOwnershipBanner();
 
   // Async-load the envelope history for this loan. Doesn't block render.
   refreshEnvelopes();
@@ -2488,10 +2560,14 @@ function refreshBorrowerInfoPanes() {
         return;
       }
       var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Guarantor ' + idx;
+      // Deploy 236.126 — ownership % for this guarantor (pulled from
+      // loan.guarantorOwnership map keyed by the guarantor's client id).
+      var ownerships = (_loan && _loan.guarantorOwnership && typeof _loan.guarantorOwnership === 'object') ? _loan.guarantorOwnership : {};
+      var pct = ownerships[c.id] != null ? ownerships[c.id] : '';
       pane.classList.remove('loading');
       pane.innerHTML =
         '<div class="app-grid">' +
-          '<div class="field"><label>Borrower Name</label>' +
+          '<div class="field"><label>Guarantor Name</label>' +
             '<input type="text"  id="bw-' + idx + '-name"   value="' + escAttr(name) + '" readonly /></div>' +
           '<div class="field"><label>Borrower LLC</label>' +
             '<input type="text"  id="bw-' + idx + '-entity" value="' + escAttr(c.entityName || '') + '" readonly placeholder="No entity on file" /></div>' +
@@ -2500,14 +2576,15 @@ function refreshBorrowerInfoPanes() {
           '<div class="field"><label>Phone</label>' +
             '<input type="tel"   id="bw-' + idx + '-phone"  value="' + escAttr(c.phone || '') + '" readonly /></div>' +
           '<div class="field span2" style="font-size:11px;color:var(--muted);font-style:italic;padding-top:4px">' +
-            'Edit this borrower\'s info on their <a href="client-details.html?clientId=' + encodeURIComponent(c.id) + '" style="color:var(--gold-mid, #b5712d);text-decoration:none">Client Details page →</a>' +
+            'Edit this guarantor\'s contact info on their <a href="client-details.html?clientId=' + encodeURIComponent(c.id) + '" style="color:var(--gold-mid, #b5712d);text-decoration:none">Client Details page →</a>' +
           '</div>' +
-        '</div>';
+        '</div>' +
+        _renderOwnershipField(c.id, pct, idx);
       if (tab) {
         var lbl = tab.querySelector('.bw-tab-label');
         var sub2 = tab.querySelector('.bw-tab-sub');
         if (lbl) lbl.textContent = name;
-        if (sub2) sub2.textContent = 'Guarantor';
+        if (sub2) sub2.textContent = 'Guarantor ' + (idx + 1);
       }
     });
   }).catch(function(err) {
@@ -2528,6 +2605,162 @@ function switchBorrowerTab(idx) {
   document.querySelectorAll('#borrowerInfoSection .bw-pane').forEach(function(p) {
     p.classList.toggle('active', p.id === 'bw-pane-' + idx);
   });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Deploy 236.126 — Vesting LLC Info + Guarantor % Ownership + banner
+// ════════════════════════════════════════════════════════════════════
+
+function _renderVestingLLCRow(entry, idx, total) {
+  var name = (entry && entry.name) || '';
+  var removeBtn = total > 1
+    ? '<button type="button" class="vesting-llc-remove" onclick="removeVestingLLCRow(' + idx + ')">Remove</button>'
+    : '<span></span>';
+  return '<div class="vesting-llc-row" data-llc-idx="' + idx + '">' +
+    '<input type="text" class="vesting-llc-name" value="' + escAttr(name) + '" placeholder="LLC name on title (e.g. 1234 Main St LLC)" />' +
+    removeBtn +
+  '</div>';
+}
+
+function addVestingLLCRow() {
+  var list = document.getElementById('vestingLLCList');
+  if (!list) return;
+  var current = _collectVestingLLCs();
+  current.push({ name: '' });
+  list.innerHTML = current.map(function(v, i) {
+    return _renderVestingLLCRow(v, i, current.length);
+  }).join('');
+}
+
+function removeVestingLLCRow(idx) {
+  var list = document.getElementById('vestingLLCList');
+  if (!list) return;
+  var current = _collectVestingLLCs();
+  current.splice(idx, 1);
+  if (!current.length) current.push({ name: '' }); // always keep at least one row
+  list.innerHTML = current.map(function(v, i) {
+    return _renderVestingLLCRow(v, i, current.length);
+  }).join('');
+}
+
+function _collectVestingLLCs() {
+  var out = [];
+  document.querySelectorAll('#vestingLLCList .vesting-llc-name').forEach(function(input) {
+    out.push({ name: input.value });
+  });
+  return out;
+}
+
+function saveVestingLLCs() {
+  var btn = document.getElementById('vestingLLCSaveBtn');
+  var status = document.getElementById('vestingLLCStatus');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (status) { status.className = 'vesting-llc-status'; status.textContent = ''; }
+  // Trim + drop empty rows on save (keep at least one even if blank).
+  var llcs = _collectVestingLLCs()
+    .map(function(v) { return { name: String(v.name || '').trim() }; })
+    .filter(function(v) { return v.name; });
+  var payload = { clientId: _clientId, loanId: _loanId, fields: { vestingLLCs: llcs } };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.api('POST', '/api/loan-field-edit', payload).then(function(r) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Vesting LLCs'; }
+    if (status) { status.className = 'vesting-llc-status ok'; status.textContent = 'Saved ✓'; }
+    if (r && r.loan) {
+      _loan = r.loan;
+      var lidx = (_client && _client.loans || []).findIndex(function(x) { return x && x.id === _loanId; });
+      if (lidx >= 0) _client.loans[lidx] = r.loan;
+    }
+    setTimeout(function() { if (status) { status.textContent = ''; status.className = 'vesting-llc-status'; } }, 2500);
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Vesting LLCs'; }
+    if (status) { status.className = 'vesting-llc-status err'; status.textContent = 'Save failed: ' + (err && err.message || 'unknown'); }
+  });
+}
+
+function _renderOwnershipField(clientId, pctValue, paneIdx) {
+  return '<div class="bw-ownership-field">' +
+    '<label for="bw-' + paneIdx + '-ownership">% Ownership of LLC</label>' +
+    '<input type="number" id="bw-' + paneIdx + '-ownership" min="0" max="100" step="0.01" value="' + escAttr(pctValue) + '" placeholder="e.g. 50" ' +
+      'data-client-id="' + escAttr(clientId) + '" onchange="saveGuarantorOwnership(this)" />' +
+    '<span class="ow-suffix">%</span>' +
+    '<span class="ow-status" data-status-for="' + escAttr(clientId) + '"></span>' +
+  '</div>';
+}
+
+function saveGuarantorOwnership(input) {
+  var clientId = input && input.dataset && input.dataset.clientId;
+  if (!clientId) return;
+  var raw = String(input.value || '').trim();
+  var status = document.querySelector('.ow-status[data-status-for="' + clientId + '"]');
+  if (status) { status.className = 'ow-status'; status.textContent = 'Saving…'; }
+  // Build updated ownership map from current loan state + override.
+  var ownerships = (_loan && _loan.guarantorOwnership && typeof _loan.guarantorOwnership === 'object')
+    ? Object.assign({}, _loan.guarantorOwnership)
+    : {};
+  if (raw === '') {
+    delete ownerships[clientId];
+  } else {
+    var n = parseFloat(raw);
+    if (!isFinite(n) || n < 0 || n > 100) {
+      if (status) { status.className = 'ow-status err'; status.textContent = 'Must be 0–100'; }
+      return;
+    }
+    ownerships[clientId] = n;
+  }
+  var payload = { clientId: _clientId, loanId: _loanId, fields: { guarantorOwnership: ownerships } };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.api('POST', '/api/loan-field-edit', payload).then(function(r) {
+    if (r && r.loan) {
+      _loan = r.loan;
+      var lidx = (_client && _client.loans || []).findIndex(function(x) { return x && x.id === _loanId; });
+      if (lidx >= 0) _client.loans[lidx] = r.loan;
+    }
+    if (status) { status.className = 'ow-status ok'; status.textContent = 'Saved ✓'; }
+    setTimeout(function() { if (status) { status.textContent = ''; status.className = 'ow-status'; } }, 1800);
+    refreshOwnershipBanner();
+  }).catch(function(err) {
+    if (status) { status.className = 'ow-status err'; status.textContent = 'Save failed'; }
+  });
+}
+
+// Sum every guarantor's recorded ownership. Returns { total, count,
+// any } so the banner logic can distinguish "no data yet" (don't
+// nag) from "data entered but doesn't add up to 51%".
+function _computeOwnershipTotal() {
+  var ownerships = (_loan && _loan.guarantorOwnership && typeof _loan.guarantorOwnership === 'object') ? _loan.guarantorOwnership : {};
+  var keys = Object.keys(ownerships);
+  var total = 0;
+  keys.forEach(function(k) {
+    var n = parseFloat(ownerships[k]);
+    if (isFinite(n)) total += n;
+  });
+  return { total: total, count: keys.length, any: keys.length > 0 };
+}
+
+function refreshOwnershipBanner() {
+  var slot = document.getElementById('ldTopBanners');
+  if (!slot) return;
+  // Remove just our banner — leaves any future banners other code
+  // might inject into the same slot alone.
+  var existing = slot.querySelector('.ld-warning-banner[data-banner="ownership"]');
+  if (existing) existing.remove();
+
+  var info = _computeOwnershipTotal();
+  if (!info.any) return;        // no data entered yet — don't nag
+  if (info.total >= 51) return; // healthy total
+
+  var banner = document.createElement('div');
+  banner.className = 'ld-warning-banner';
+  banner.setAttribute('data-banner', 'ownership');
+  banner.innerHTML =
+    '<span class="ld-warning-icon">⚠</span>' +
+    '<div>' +
+      '<strong>Check Guarantor Ownership %</strong> — recorded total is ' +
+      info.total.toFixed(2) + '% across ' + info.count + ' guarantor' + (info.count === 1 ? '' : 's') +
+      '. Diya requires combined ownership of <strong>51% or more</strong>. ' +
+      'Open the Contacts tab → Guarantor Info to add ownership for additional guarantors.' +
+    '</div>';
+  slot.appendChild(banner);
 }
 
 // ════════════════════════════════════════════════════════════════════

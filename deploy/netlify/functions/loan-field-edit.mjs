@@ -31,10 +31,55 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 // Whitelist of fields the Loan Details inline editors are allowed to
 // set. Expand as the unification work in Phase B continues.
+// Each value may be a string (= label, default string handling) or an
+// object with { label, type } where type controls coercion:
+//   'string'    (default) — string-stored, string-compared
+//   'array'     — array of plain values (e.g. vesting LLC strings or
+//                 { name, ein } objects); JSON-compared
+//   'object'    — bag of key/value (e.g. guarantorOwnership map);
+//                 JSON-compared
 const FIELD_LABELS = {
-  fundingDate: 'Close Date',
-  // Phase B.2/B.3 add: rate, points, loanAmt, ltc, ltarv, custom fees.
+  fundingDate:        'Close Date',
+  // Deploy 236.126 (Contacts tab restructure):
+  //   vestingLLCs        — [{ name, ein? }] of LLCs holding title.
+  //                        Auto-populated from the primary client's
+  //                        entityName on first render; editable for
+  //                        multi-LLC scenarios.
+  //   guarantorOwnership — { [clientId]: ownershipPct } map. Primary
+  //                        + each linked guarantor's % stake in the
+  //                        vesting LLC. Total < 51% triggers a
+  //                        "Check Guarantor Ownership %" banner.
+  vestingLLCs:        { label: 'Vesting LLCs',        type: 'array' },
+  guarantorOwnership: { label: 'Guarantor Ownership', type: 'object' },
 };
+
+function _specFor(key) {
+  const raw = FIELD_LABELS[key];
+  if (!raw) return null;
+  if (typeof raw === 'string') return { label: raw, type: 'string' };
+  return raw;
+}
+function _coerce(value, type) {
+  if (type === 'array')  return Array.isArray(value) ? value : null;
+  if (type === 'object') return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  return value == null ? '' : String(value);
+}
+function _serializeForCompare(value, type) {
+  if (type === 'array' || type === 'object') {
+    try { return JSON.stringify(value || (type === 'array' ? [] : {})); } catch (_) { return ''; }
+  }
+  return value == null ? '' : String(value);
+}
+function _renderForNote(value, type) {
+  if (type === 'array')  return Array.isArray(value) ? value.map((v) => typeof v === 'string' ? v : (v && (v.name || JSON.stringify(v)) || '')).join(', ') || '(empty)' : '(empty)';
+  if (type === 'object') {
+    if (!value || typeof value !== 'object') return '(empty)';
+    const keys = Object.keys(value);
+    if (!keys.length) return '(empty)';
+    return keys.map((k) => k.slice(0, 12) + ':' + value[k]).join(', ');
+  }
+  return value == null || value === '' ? '(blank)' : String(value);
+}
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -90,18 +135,25 @@ async function handle(req, context) {
 
   Object.keys(fields).forEach((rawKey) => {
     const key = String(rawKey || '').trim();
-    if (!FIELD_LABELS[key]) return; // silently ignore unknown fields
+    const spec = _specFor(key);
+    if (!spec) return; // silently ignore unknown fields
 
-    const newVal = fields[key];
+    const newVal = _coerce(fields[key], spec.type);
+    if (newVal === null) return; // invalid shape for this type — skip
     const oldVal = loan[key];
-    // Coerce to string for comparison + storage. Empty string means
-    // "clear the field". null/undefined are treated as empty too.
-    const newStr = newVal == null ? '' : String(newVal);
-    const oldStr = oldVal == null ? '' : String(oldVal);
-    if (newStr === oldStr) return;
 
-    loan[key] = newStr;
-    applied.push({ key, label: FIELD_LABELS[key], from: oldStr, to: newStr });
+    const newCmp = _serializeForCompare(newVal, spec.type);
+    const oldCmp = _serializeForCompare(oldVal, spec.type);
+    if (newCmp === oldCmp) return;
+
+    loan[key] = newVal;
+    applied.push({
+      key,
+      label:  spec.label,
+      type:   spec.type,
+      from:   _renderForNote(oldVal, spec.type),
+      to:     _renderForNote(newVal, spec.type),
+    });
   });
 
   if (applied.length === 0) {
@@ -109,8 +161,7 @@ async function handle(req, context) {
   }
 
   loan.updatedAt = new Date().toISOString();
-  const textParts = applied.map((c) =>
-    c.label + ': ' + (c.from || '(blank)') + ' → ' + (c.to || '(blank)'));
+  const textParts = applied.map((c) => c.label + ': ' + c.from + ' → ' + c.to);
   appendNoteEntry(loan, {
     kind:        'field_edit',
     text:        textParts.join('; '),
