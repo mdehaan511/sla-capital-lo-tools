@@ -75,6 +75,28 @@
 var TOKEN = new URLSearchParams(window.location.search).get('t') || '';
 var STATE = { data: null, dirty: false };
 
+// Deploy 236.129 — mirror of the server's CREDIT_AUTH_CONSENT_TEXT
+// in _shared/guarantor-credit-auth.mjs. Update BOTH if the legal
+// language changes. Version mismatch on submit forces a refresh.
+var CREDIT_AUTH_VERSION = 1;
+var CREDIT_AUTH_TEXT = [
+  'GUARANTOR CREDIT AUTHORIZATION AND ESIGN CONSENT',
+  '',
+  'I, the undersigned guarantor, hereby authorize SLA Capital, its assigns, and any third-party service providers acting on its behalf (collectively, "Lender"), to obtain consumer credit reports, business credit reports, background checks, OFAC/SDN screening reports, and verifications of employment, income, mortgages, deposits, and identity in connection with the loan application identified below. Lender may obtain these reports from any consumer reporting agency, employer, financial institution, or other third party at any time prior to, during, or for a reasonable period after the closing of the loan.',
+  '',
+  'I understand that:',
+  '',
+  '  (a) The information obtained will be used to evaluate my creditworthiness as a guarantor of the loan;',
+  '  (b) A consumer credit report may be obtained from Equifax, Experian, TransUnion, or any other consumer reporting agency;',
+  '  (c) I have the right under the Fair Credit Reporting Act (FCRA, 15 U.S.C. § 1681) to know whether a consumer report was obtained, the name of the reporting agency, and the information contained in it;',
+  '  (d) This authorization remains in effect for the duration of the loan application process and any related underwriting review;',
+  '  (e) A photocopy, facsimile, or electronic copy of this authorization is as valid as the original.',
+  '',
+  'I further consent to the use of electronic signatures and electronic records under the federal ESIGN Act (15 U.S.C. § 7001 et seq.) and the Uniform Electronic Transactions Act (UETA) as adopted in my state. My electronic signature below has the same legal effect as a handwritten signature.',
+].join('\n');
+var CREDIT_AUTH_LABEL =
+  'I have read the Credit Authorization above, authorize the credit and background checks described, and intend to sign electronically.';
+
 function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escA(s) { return escH(s).replace(/"/g,'&quot;'); }
 
@@ -205,17 +227,47 @@ function render() {
     // ── Declarations ───────────────────────────────────────────
     _renderDeclarations(g.declarations || {}) +
 
-    '<div class="deferred-doc-note">' +
-      '<strong>Credit Authorization &amp; signing:</strong> the Credit Authorization and the consent signing step will be added to this sub-form in the next deploy (236.129). For now your data saves as you go and the LO can collect signatures separately.' +
-    '</div>' +
+    // ── Deploy 236.129 — Credit Authorization + e-sign ─────────
+    (d.status === 'completed'
+      ? '<div class="completed-banner" style="margin-top:0">' +
+          '<strong>Credit Authorization on file.</strong> Your signed copy is available to your loan officer. ' +
+          '<a href="/api/guarantor-credit-auth-download?t=' + encodeURIComponent(TOKEN) + '&download=1" style="color:var(--success);text-decoration:underline;font-weight:600">Download signed PDF</a>' +
+        '</div>'
+      : '<div class="card" id="creditAuthCard">' +
+          '<h2>Credit Authorization</h2>' +
+          '<div style="max-height:240px;overflow:auto;padding:14px 16px;background:#fcfaf6;border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.55;white-space:pre-wrap;color:var(--text);margin-bottom:14px" id="caBody">Loading…</div>' +
+          '<label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;cursor:pointer;margin-bottom:12px">' +
+            '<input type="checkbox" id="caConsent" style="width:auto;margin-top:3px" />' +
+            '<span id="caConsentLabel" style="line-height:1.5">Loading consent…</span>' +
+          '</label>' +
+          '<div class="field"><label>Type your full legal name to sign <span class="req">*</span></label>' +
+            '<input type="text" id="caSignerName" placeholder="e.g. Jane M. Doe" />' +
+          '</div>' +
+          '<div class="hint" style="margin-top:-4px">Your typed name above will serve as your electronic signature on the Credit Authorization PDF stored with your loan file.</div>' +
+        '</div>') +
 
     '<div class="actions">' +
       '<span class="save-status" id="saveStatus"></span>' +
       '<button type="button" class="btn" onclick="saveDraft()" id="saveDraftBtn">Save Progress</button>' +
-      '<button type="button" class="btn primary" onclick="submitFinal()" id="submitBtn">Submit Sub-Form</button>' +
+      '<button type="button" class="btn primary" onclick="submitFinal()" id="submitBtn">' +
+        (d.status === 'completed' ? 'Re-Save Sub-Form' : 'Sign Credit Auth &amp; Submit') +
+      '</button>' +
     '</div>';
 
   document.getElementById('root').innerHTML = html;
+  // Populate Credit Auth body + label after the DOM mounts.
+  var caBody = document.getElementById('caBody');
+  if (caBody) caBody.textContent = CREDIT_AUTH_TEXT;
+  var caLbl = document.getElementById('caConsentLabel');
+  if (caLbl) caLbl.textContent = CREDIT_AUTH_LABEL;
+  // Pre-fill the signer-name field from the existing first/last
+  // values so re-opening a partial sub-form keeps the user's name.
+  var caSign = document.getElementById('caSignerName');
+  if (caSign && !caSign.value) {
+    var fn = (g.firstName || '').trim();
+    var ln = (g.lastName || '').trim();
+    if (fn || ln) caSign.value = (fn + ' ' + ln).trim();
+  }
 }
 
 function _renderAddrBlock(prefix, a) {
@@ -294,11 +346,13 @@ function _collect() {
   return fields;
 }
 
-function _post(fields, markComplete) {
+function _post(fields, markComplete, extras) {
+  var body = { t: TOKEN, fields: fields, markComplete: !!markComplete };
+  if (extras) Object.assign(body, extras);
   return fetch('/api/guarantor-subform-save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ t: TOKEN, fields: fields, markComplete: !!markComplete }),
+    body: JSON.stringify(body),
   }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); });
 }
 
@@ -321,15 +375,38 @@ function saveDraft() {
 function submitFinal() {
   var btn = document.getElementById('submitBtn');
   var st  = document.getElementById('saveStatus');
+  var caCheck   = document.getElementById('caConsent');
+  var caSign    = document.getElementById('caSignerName');
+  var extras = {};
+  // Credit Auth gate (only when the card is rendered — i.e. status
+  // !== 'completed'). Returning users re-saving don't re-sign.
+  if (caCheck && caSign) {
+    if (!caCheck.checked) {
+      st.className = 'save-status err'; st.textContent = 'Please accept the Credit Authorization to submit.';
+      caCheck.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    var signerName = String(caSign.value || '').trim();
+    if (signerName.length < 3) {
+      st.className = 'save-status err'; st.textContent = 'Please type your full legal name to sign.';
+      caSign.focus();
+      return;
+    }
+    extras = {
+      consentAccepted: true,
+      consentVersion:  CREDIT_AUTH_VERSION,
+      signerName:      signerName,
+    };
+  }
   btn.disabled = true; btn.textContent = 'Submitting…';
   st.className = 'save-status'; st.textContent = '';
-  _post(_collect(), true).then(function(x) {
+  _post(_collect(), true, extras).then(function(x) {
     if (x.ok) {
       // Refresh from server so the completed banner appears.
       load();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
-      btn.disabled = false; btn.textContent = 'Submit Sub-Form';
+      btn.disabled = false; btn.textContent = 'Sign Credit Auth & Submit';
       st.className = 'save-status err'; st.textContent = 'Submit failed: ' + (x.body && x.body.error || 'unknown');
     }
   });

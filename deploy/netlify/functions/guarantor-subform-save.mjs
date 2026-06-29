@@ -29,6 +29,12 @@
  */
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, readJsonBody } from './_shared/auth.mjs';
+import {
+  CREDIT_AUTH_CONSENT_VERSION,
+  generateCreditAuthPdf,
+  sealCreditAuthAudit,
+} from './_shared/guarantor-credit-auth.mjs';
+import { getClientIp, getUserAgent } from './_shared/native-esign.mjs';
 
 const ALLOWED_TOP = [
   'firstName', 'lastName', 'email', 'phone',
@@ -112,6 +118,82 @@ async function handle(req) {
     }
   }
 
+  // Deploy 236.129 — on final submit (markComplete), the guarantor
+  // must also accept the Credit Authorization + type their signature.
+  // We generate a signed Credit Auth PDF, store it in the new
+  // guarantor-credit-auth-pdfs blob store keyed by token, and write
+  // the audit record alongside the per-loan sub-form state.
+  let creditAuthAudit = null;
+  if (body.markComplete === true) {
+    const signerName = String(body.signerName || '').trim();
+    const consentAccepted = body.consentAccepted === true;
+    const consentVersion = parseInt(body.consentVersion, 10);
+    if (!signerName || signerName.length < 3) {
+      return json(400, { error: 'Please type your full legal name to sign.' });
+    }
+    if (!consentAccepted) {
+      return json(400, { error: 'You must accept the Credit Authorization to submit.' });
+    }
+    if (consentVersion !== CREDIT_AUTH_CONSENT_VERSION) {
+      return json(400, { error: 'Consent version mismatch — please refresh and re-accept.' });
+    }
+    // Resolve primary client + loan for the PDF context.
+    let primary = null, loan = null;
+    try {
+      const primaryKey = idx.ownerKey + '/' + idx.primaryClientId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      primary = await clientsStore.get(primaryKey, { type: 'json' });
+      loan = primary && Array.isArray(primary.loans)
+        ? primary.loans.find((l) => l && l.id === idx.loanId)
+        : null;
+    } catch (_) {}
+
+    creditAuthAudit = {
+      token,
+      guarantorClientId: guarantor.id,
+      loanId:            idx.loanId,
+      signerName,
+      signerEmail:       String(fields.email || guarantor.email || '').toLowerCase(),
+      signedAt:          now,
+      consentVersion:    CREDIT_AUTH_CONSENT_VERSION,
+      ipAddress:         getClientIp(req),
+      userAgent:         getUserAgent(req),
+      geolocation:       String(body.geolocation || ''),
+    };
+    creditAuthAudit.seal = sealCreditAuthAudit(creditAuthAudit) || '';
+
+    let pdfBytes;
+    try {
+      pdfBytes = await generateCreditAuthPdf({
+        guarantor: Object.assign({}, guarantor, {
+          firstName: fields.firstName || guarantor.firstName,
+          lastName:  fields.lastName  || guarantor.lastName,
+          email:     fields.email     || guarantor.email,
+        }),
+        primary,
+        loan,
+        audit: creditAuthAudit,
+      });
+    } catch (e) {
+      console.error('guarantor-subform-save: credit auth PDF render failed:', e);
+      return json(500, { error: 'Failed to render Credit Auth PDF: ' + (e.message || 'unknown') });
+    }
+    try {
+      const pdfStore = getStore({ name: 'guarantor-credit-auth-pdfs', consistency: 'strong' });
+      await pdfStore.set(token, pdfBytes, {
+        metadata: {
+          guarantorClientId: guarantor.id,
+          ownerKey:          idx.ownerKey,
+          loanId:             idx.loanId,
+          signedAt:           now,
+          signerName,
+        },
+      });
+    } catch (e) {
+      console.error('guarantor-subform-save: credit auth PDF store failed:', e);
+      return json(500, { error: 'Failed to store Credit Auth PDF: ' + (e.message || 'unknown') });
+    }
+  }
+
   // Per-loan sub-form state bookkeeping.
   guarantor._subFormTokensByLoan = guarantor._subFormTokensByLoan || {};
   const state = guarantor._subFormTokensByLoan[idx.loanId] || { token, createdAt: now };
@@ -119,6 +201,8 @@ async function handle(req) {
   if (body.markComplete === true) {
     state.status = 'completed';
     state.completedAt = now;
+    state.creditAuthAudit = creditAuthAudit;
+    state.creditAuthSignedAt = now;
   } else if (state.status !== 'completed') {
     state.status = 'in_progress';
   }
@@ -128,6 +212,28 @@ async function handle(req) {
 
   try { await clientsStore.setJSON(clientKey, guarantor); }
   catch (e) { return json(500, { error: 'Failed to save guarantor: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.129 — mark the loan as having freshly-arrived guarantor
+  // docs so Loan Details can surface a "Re-generate loan app to
+  // include updated guarantor info" banner. Failure is non-fatal.
+  if (body.markComplete === true) {
+    try {
+      const primaryKey = idx.ownerKey + '/' + idx.primaryClientId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const primary = await clientsStore.get(primaryKey, { type: 'json' });
+      if (primary && Array.isArray(primary.loans)) {
+        const ln = primary.loans.find((l) => l && l.id === idx.loanId);
+        if (ln) {
+          ln._guarantorDocsUpdatedAt = now;
+          ln._guarantorDocsUpdatedBy = guarantor.id;
+          ln.updatedAt = now;
+          primary.updatedAt = now;
+          await clientsStore.setJSON(primaryKey, primary);
+        }
+      }
+    } catch (e) {
+      console.warn('guarantor-subform-save: loan marker write failed (non-fatal):', e && e.message);
+    }
+  }
 
   return json(200, { ok: true, guarantor, status: state.status });
 }

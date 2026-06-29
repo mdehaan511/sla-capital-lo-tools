@@ -2492,6 +2492,11 @@ function render() {
 
   // Deploy 236.126 — top-of-page guarantor-ownership banner.
   refreshOwnershipBanner();
+  // Deploy 236.129 — top-of-page banner when a guarantor has
+  // submitted / updated their sub-form (incl. signed Credit Auth).
+  // Lets the LO know to re-bundle the main loan app if they want
+  // the updated guarantor data reflected there.
+  refreshGuarantorDocsBanner();
 
   // Async-load the envelope history for this loan. Doesn't block render.
   refreshEnvelopes();
@@ -2782,10 +2787,25 @@ function _renderSubFormLinkCard(tokenEntry, c) {
       '<button type="button" class="sf-btn" onclick="copySubFormLink(this, \'' + escAttr(tokenEntry.token) + '\')">Copy</button>' +
       '<a class="sf-btn" href="' + escAttr(mailto) + '" style="text-decoration:none">Email</a>' +
     '</div>' +
+    // Deploy 236.129 — Credit Auth download. Only shown when the
+    // guarantor has actually submitted (status='completed' from a
+    // sub-form submit; 'completed_by_primary' means the LO/borrower
+    // entered everything in the long app and no Credit Auth was
+    // captured separately).
+    (status === 'completed'
+      ? '<div class="sf-url-row" style="margin-top:6px">' +
+          '<a class="sf-btn" href="/api/guarantor-credit-auth-download?t=' + encodeURIComponent(tokenEntry.token) + '" target="_blank" rel="noopener" style="text-decoration:none">View Signed Credit Auth</a>' +
+          '<a class="sf-btn" href="/api/guarantor-credit-auth-download?t=' + encodeURIComponent(tokenEntry.token) + '&download=1" style="text-decoration:none">Download PDF</a>' +
+        '</div>'
+      : '') +
     '<div class="sf-hint">' +
-      (status === 'completed' || status === 'completed_by_primary'
-        ? 'This guarantor has completed their profile. You can re-share the link if they need to update anything.'
-        : 'Send this link to the guarantor — they\'ll provide DOB, credit, SSN (encrypted), addresses, citizenship, and declarations. The link doesn\'t expire; status updates here when they save or submit.') +
+      (status === 'completed'
+        ? 'Guarantor has submitted their profile + signed Credit Authorization. ' +
+          (tokenEntry.creditAuthSignedAt ? 'Signed ' + escH(new Date(tokenEntry.creditAuthSignedAt).toLocaleString()) + '.' : '') +
+          ' Re-sharing the link lets them update fields (no re-sign required).'
+        : status === 'completed_by_primary'
+          ? 'The primary borrower already filled this guarantor\'s info in the long app. A signed Credit Authorization was NOT captured separately — send the link if you need them to sign their own.'
+          : 'Send this link to the guarantor — they\'ll provide DOB, credit, SSN (encrypted), addresses, citizenship, declarations, AND sign the Credit Authorization. The link doesn\'t expire; status updates here when they save or submit.') +
     '</div>' +
   '</div>';
 }
@@ -2820,6 +2840,32 @@ function _computeOwnershipTotal() {
     if (isFinite(n)) total += n;
   });
   return { total: total, count: keys.length, any: keys.length > 0 };
+}
+
+function refreshGuarantorDocsBanner() {
+  var slot = document.getElementById('ldTopBanners');
+  if (!slot) return;
+  var existing = slot.querySelector('.ld-warning-banner[data-banner="gdocs"]');
+  if (existing) existing.remove();
+  var updatedAt = _loan && _loan._guarantorDocsUpdatedAt;
+  if (!updatedAt) return;
+  var banner = document.createElement('div');
+  banner.className = 'ld-warning-banner';
+  banner.setAttribute('data-banner', 'gdocs');
+  // Style as informational (gold) rather than warning (orange) so it
+  // doesn't look like an error — it's just a heads-up.
+  banner.style.background = 'rgba(200,129,58,0.08)';
+  banner.style.borderColor = 'rgba(200,129,58,0.30)';
+  banner.style.color = 'var(--gold-mid, #b5712d)';
+  banner.innerHTML =
+    '<span class="ld-warning-icon">📄</span>' +
+    '<div>' +
+      '<strong>Guarantor sub-form updated</strong> — a guarantor submitted (or updated) their sub-form on ' +
+      escH(new Date(updatedAt).toLocaleString()) +
+      '. Their signed Credit Authorization is in the Contacts tab. ' +
+      'If you\'ve already generated the main loan application, re-generate it to include the latest guarantor data.' +
+    '</div>';
+  slot.appendChild(banner);
 }
 
 function refreshOwnershipBanner() {

@@ -297,6 +297,12 @@
   to = "/.netlify/functions/guarantor-subform-save"
   status = 200
   force = true
+# Deploy 236.129 — signed Credit Authorization PDF download.
+[[redirects]]
+  from = "/api/guarantor-credit-auth-download"
+  to = "/.netlify/functions/guarantor-credit-auth-download"
+  status = 200
+  force = true
 
 # Deploy 236.124 (Phase B.2/B.3) — Loan Financials inline editor +
 # restore. Patches a narrow whitelist (rate/points/purchasePrice/
