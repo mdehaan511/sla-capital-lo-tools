@@ -128,11 +128,104 @@ async function handle(req, context) {
     });
   }
 
+  // Deploy 236.116 (Phase C) — auto-create tasks from the per-
+  // stage templates configured in settings.task_templates. Fires
+  // only on stage transitions (not substatus-only changes) and
+  // dedups via the _templatesAppliedFor marker so re-entering a
+  // stage doesn't pile on duplicate tasks. Failure is non-fatal:
+  // a missing settings store or bad template entry shouldn't
+  // block the stage move.
+  let autoTasks = [];
+  if (stageChanged && newStage) {
+    try {
+      autoTasks = await _autoCreateStageTasks({
+        loan, clientId: client.id, ownerKey, newStage,
+        actorEmail: user.email || '',
+        actorName:  (user && user.user_metadata && (user.user_metadata.full_name || user.user_metadata.fullName)) || user.email || '',
+      });
+    } catch (e) {
+      console.warn('loan-processing-stage: auto-task creation failed (non-fatal):', e && e.message);
+    }
+  }
+
   client.loans[idx] = loan;
   client.updatedAt = new Date().toISOString();
 
   try { await clientsStore.setJSON(clientKey, client); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
 
-  return json(200, { ok: true, loan, clientId: client.id });
+  return json(200, { ok: true, loan, clientId: client.id, autoTasks });
+}
+
+// Auto-task creator. Reads settings.task_templates[stage] and
+// creates one task per template entry on the loan. Mutates the loan
+// in place to stamp _templatesAppliedFor[stage] = ISO timestamp so
+// subsequent moves back into this stage skip re-creation. Returns
+// the array of created task records.
+async function _autoCreateStageTasks(args) {
+  const { loan, clientId, ownerKey, newStage, actorEmail, actorName } = args;
+
+  loan._templatesAppliedFor = loan._templatesAppliedFor || {};
+  if (loan._templatesAppliedFor[newStage]) return []; // already applied once
+
+  const settingsStore = getStore({ name: 'settings', consistency: 'strong' });
+  let templates = null;
+  try { templates = await settingsStore.get('task_templates', { type: 'json' }); }
+  catch (_) { return []; }
+  const stageTemplates = templates && Array.isArray(templates[newStage]) ? templates[newStage] : [];
+  if (!stageTemplates.length) return [];
+
+  const tasksStore = getStore({ name: 'tasks', consistency: 'strong' });
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const created = [];
+
+  for (const tpl of stageTemplates) {
+    if (!tpl || !tpl.title) continue;
+    const days = Number.isFinite(parseInt(tpl.daysFromStage, 10)) ? parseInt(tpl.daysFromStage, 10) : 0;
+    const due = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+    const ymd = due.getFullYear() + '-' +
+                String(due.getMonth() + 1).padStart(2, '0') + '-' +
+                String(due.getDate()).padStart(2, '0');
+    const task = {
+      id:              't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      clientId, loanId: loan.id, ownerKey,
+      title:           String(tpl.title).trim(),
+      dueDate:         days > 0 || days < 0 ? ymd : '',
+      assignedTo:      String(tpl.assignedTo || '').toLowerCase(),
+      assignedToName:  String(tpl.assignedToName || '').trim(),
+      description:     'Auto-created when loan entered ' + (STAGE_LABELS[newStage] || newStage) + ' stage.',
+      completed:       false,
+      completedAt:     '',
+      completedBy:     '',
+      completedByName: '',
+      createdAt:       nowIso,
+      createdBy:       'system@slacapital.com',
+      createdByName:   'SLA Platform (auto-task)',
+      updatedAt:       nowIso,
+      updatedBy:       actorEmail || 'system@slacapital.com',
+      autoFromStage:   newStage,
+    };
+    try {
+      await tasksStore.setJSON(ownerKey + '/' + task.id.replace(/[^a-zA-Z0-9_-]/g, '_'), task);
+      created.push(task);
+    } catch (e) {
+      console.warn('loan-processing-stage: failed to create auto-task:', e && e.message);
+    }
+  }
+
+  loan._templatesAppliedFor[newStage] = nowIso;
+  // Also log the auto-creation as a note entry so the audit trail
+  // shows what happened automatically.
+  if (created.length) {
+    appendNoteEntry(loan, {
+      kind:        'system',
+      text:        'Auto-created ' + created.length + ' task' + (created.length === 1 ? '' : 's') +
+                   ' from the ' + (STAGE_LABELS[newStage] || newStage) + ' template.',
+      author:      'SLA Platform',
+      authorEmail: 'system@slacapital.com',
+      meta:        { stage: newStage, taskIds: created.map((t) => t.id) },
+    });
+  }
+  return created;
 }

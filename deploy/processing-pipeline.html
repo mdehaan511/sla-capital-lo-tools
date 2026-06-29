@@ -164,6 +164,7 @@
           <option value="">All Loan Officers</option>
         </select>
         <button type="button" class="gear-btn" id="ssGearBtn" style="display:none" onclick="openSubstatusEditor()" title="Edit substatuses (admin)">⚙ Substatuses</button>
+        <button type="button" class="gear-btn" id="ttGearBtn" style="display:none" onclick="openTaskTemplatesEditor()" title="Edit per-stage task templates (admin)">⚙ Task Templates</button>
       </div>
     </div>
     <div id="boardWrap"><div class="loading">Loading pipeline…</div></div>
@@ -179,6 +180,21 @@
         <div class="ss-status" id="ssStatus"></div>
         <button type="button" class="ss-btn" onclick="closeSubstatusEditor()">Cancel</button>
         <button type="button" class="ss-btn primary" id="ssSaveBtn" onclick="saveSubstatusEditor()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy 236.116 (Phase C — auto-task templates) — admin editor.
+       Reuses the .ss-bg / .ss-modal styling pattern. -->
+  <div class="ss-bg" id="ttBg">
+    <div class="ss-modal">
+      <h3>Processing Pipeline — Auto-Task Templates</h3>
+      <p class="ss-sub">Tasks listed here are automatically created on each loan the moment it enters the corresponding stage. Once per stage per loan — re-entering a stage doesn't pile on duplicates. Format per line: <code>Title | days from stage</code>. Days are optional (default 0 = no due date). Example: <code>Order title insurance | 1</code> = create that task with due date 1 day after the loan hits this stage.</p>
+      <div id="ttCols"></div>
+      <div class="ss-actions">
+        <div class="ss-status" id="ttStatus"></div>
+        <button type="button" class="ss-btn" onclick="closeTaskTemplatesEditor()">Cancel</button>
+        <button type="button" class="ss-btn primary" id="ttSaveBtn" onclick="saveTaskTemplatesEditor()">Save</button>
       </div>
     </div>
   </div>
@@ -216,6 +232,7 @@ window.netlifyIdentity.on('init', function(user) {
   if (_isAdmin) {
     document.getElementById('loFilter').style.display = '';
     document.getElementById('ssGearBtn').style.display = '';
+    document.getElementById('ttGearBtn').style.display = '';
   }
   // Load substatuses first (non-blocking), then the board. Settings
   // failure is non-fatal — tiles just don't get a substatus picker.
@@ -832,6 +849,88 @@ function saveSubstatusEditor() {
       closeSubstatusEditor();
       render(); // re-render to pick up the new substatus options
     }, 500);
+  }).catch(function(err) {
+    btn.disabled = false;
+    statusEl.textContent = 'Failed: ' + (err && err.message ? err.message : 'unknown');
+    statusEl.className = 'ss-status err';
+  });
+}
+
+// ── Deploy 236.116 (Phase C) — Auto-Task Templates editor ─────────
+// Per-stage list of tasks that auto-create on first stage entry.
+// Stored as settings.task_templates (admin-only POST). Format per
+// row in the textarea: "Title | daysFromStage" (days optional).
+var _taskTemplates = null; // { stage: [{title, daysFromStage}] } or null
+function _parseTaskTemplateLines(text) {
+  return String(text || '').split(/\r?\n/).map(function(line) {
+    var raw = String(line || '').trim();
+    if (!raw) return null;
+    var parts = raw.split('|');
+    var title = String(parts[0] || '').trim();
+    if (!title) return null;
+    var days = parts.length > 1 ? parseInt(String(parts[1]).trim(), 10) : 0;
+    if (!isFinite(days)) days = 0;
+    return { title: title, daysFromStage: days };
+  }).filter(Boolean);
+}
+function _serializeTaskTemplateLines(entries) {
+  return (entries || []).map(function(t) {
+    var line = String(t && t.title || '').trim();
+    if (!line) return '';
+    var d = parseInt(t && t.daysFromStage, 10);
+    if (isFinite(d) && d !== 0) line += ' | ' + d;
+    return line;
+  }).filter(Boolean).join('\n');
+}
+function openTaskTemplatesEditor() {
+  // Load current templates first; cache for the session.
+  function paint() {
+    var html = '';
+    ['new_loan','processing','underwriting','pp_approved','pp_closed'].forEach(function(col) {
+      var current = _serializeTaskTemplateLines((_taskTemplates && _taskTemplates[col]) || []);
+      html +=
+        '<div class="ss-col">' +
+          '<h4>' + escH(SS_COL_LABELS[col]) + '</h4>' +
+          '<textarea id="tt-ta-' + col + '" placeholder="Title | days from stage&#10;e.g.&#10;Order title insurance | 1&#10;Request appraisal | 2">' + escH(current) + '</textarea>' +
+          '<div class="hint">One task per line. Format: <code>Title | days</code>. Days is optional and may be negative (created already past-due). Empty box = no auto-tasks for this stage.</div>' +
+        '</div>';
+    });
+    document.getElementById('ttCols').innerHTML = html;
+    document.getElementById('ttStatus').textContent = '';
+    document.getElementById('ttStatus').className = 'ss-status';
+    document.getElementById('ttBg').classList.add('show');
+  }
+  if (_taskTemplates) { paint(); return; }
+  SLA.api('GET', '/api/settings').then(function(s) {
+    _taskTemplates = (s && s.task_templates && typeof s.task_templates === 'object') ? s.task_templates : {};
+    paint();
+  }).catch(function(err) {
+    _taskTemplates = {};
+    paint();
+    document.getElementById('ttStatus').textContent = 'Could not load existing templates: ' + (err && err.message || 'unknown');
+    document.getElementById('ttStatus').className = 'ss-status err';
+  });
+}
+function closeTaskTemplatesEditor() {
+  document.getElementById('ttBg').classList.remove('show');
+}
+function saveTaskTemplatesEditor() {
+  var out = {};
+  ['new_loan','processing','underwriting','pp_approved','pp_closed'].forEach(function(col) {
+    var ta = document.getElementById('tt-ta-' + col);
+    out[col] = _parseTaskTemplateLines(ta && ta.value);
+  });
+  var btn = document.getElementById('ttSaveBtn');
+  var statusEl = document.getElementById('ttStatus');
+  btn.disabled = true;
+  statusEl.textContent = 'Saving…';
+  statusEl.className = 'ss-status';
+  SLA.api('POST', '/api/settings', { key: 'task_templates', value: out }).then(function() {
+    _taskTemplates = out;
+    statusEl.textContent = 'Saved.';
+    statusEl.className = 'ss-status ok';
+    btn.disabled = false;
+    setTimeout(closeTaskTemplatesEditor, 500);
   }).catch(function(err) {
     btn.disabled = false;
     statusEl.textContent = 'Failed: ' + (err && err.message ? err.message : 'unknown');

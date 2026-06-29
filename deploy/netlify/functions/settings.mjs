@@ -21,7 +21,17 @@ import {
 // column substatus lists for the Processing Pipeline. Shape:
 //   { new_loan: ['Awaiting docs', 'Title ordered'], processing: [...], ... }
 // Edited via the admin gear on processing-pipeline.html.
-const ALLOWED_KEYS = new Set(['banner', 'submit_email', 'slack_webhook', 'processing_substatuses']);
+// Deploy 236.116 (Phase C — auto-task templates) — task_templates
+// holds the per-stage task list that the Processing Pipeline auto-
+// creates when a loan transitions into a stage. Shape:
+//   { new_loan:    [{ title: 'Order title', daysFromStage: 1 }, ...],
+//     processing:  [{ title: 'Send to UW',  daysFromStage: 2 }, ...],
+//     ...
+//   }
+// Edited via the admin gear on processing-pipeline.html alongside
+// the substatuses. Applied by loan-processing-stage.mjs on stage
+// change (dedup via the _templatesAppliedFor marker on the loan).
+const ALLOWED_KEYS = new Set(['banner', 'submit_email', 'slack_webhook', 'processing_substatuses', 'task_templates']);
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
