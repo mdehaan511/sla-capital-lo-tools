@@ -645,6 +645,37 @@
 .ld-actions-menu .ld-action-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .ld-actions-menu .ld-action-menu-item svg { flex-shrink: 0; opacity: 0.7; }
 
+/* Deploy 236.113 (Phase E) — Additional Contacts section. */
+.contacts-add-row { display: grid; grid-template-columns: 130px 1fr 1fr 150px 130px auto; gap: 8px; margin-bottom: 14px; align-items: center; }
+@media (max-width: 1100px) { .contacts-add-row { grid-template-columns: 1fr 1fr; } }
+.contacts-add-row input, .contacts-add-row select { padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: #fff; min-width: 0; }
+.contacts-add-row input:focus, .contacts-add-row select:focus { outline: none; border-color: var(--gold, #C8813A); }
+.contacts-add-row .btn-add-contact { padding: 8px 16px; border: none; border-radius: 6px; background: var(--dark, #261a36); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; white-space: nowrap; }
+.contacts-add-row .btn-add-contact:hover { background: #1c1227; }
+.contacts-add-row .btn-add-contact:disabled { opacity: 0.5; cursor: wait; }
+.contacts-empty { font-size: 12px; color: rgba(122,116,136,0.7); font-style: italic; padding: 14px 6px; text-align: center; }
+.contacts-list { display: flex; flex-direction: column; gap: 6px; }
+.contact-row { display: grid; grid-template-columns: 130px 1.4fr 1fr 150px 130px 30px; gap: 10px; align-items: center; padding: 10px 12px; background: var(--bg, #f0ece5); border: 1px solid var(--border, #ddd8d0); border-radius: 6px; transition: border-color 0.10s; }
+.contact-row:hover { border-color: var(--gold, #C8813A); }
+@media (max-width: 1100px) { .contact-row { grid-template-columns: 1fr 30px; } .contact-row > div { grid-column: 1; } .contact-row .ct-delete { grid-column: 2; grid-row: 1; } }
+.ct-role { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; background: rgba(74,122,138,0.10); color: #4a7a8a; display: inline-block; text-align: center; }
+.ct-role.title     { background: rgba(200,129,58,0.10); color: var(--gold-mid); }
+.ct-role.insurance { background: rgba(37,105,64,0.10);  color: var(--success); }
+.ct-role.inspector { background: rgba(106,74,138,0.10); color: #6a4a8a; }
+.ct-role.appraiser { background: rgba(122,82,24,0.10);  color: var(--warn); }
+.ct-role.surveyor  { background: rgba(74,122,138,0.10); color: #4a7a8a; }
+.ct-role.attorney  { background: rgba(124,31,31,0.10);  color: var(--danger); }
+.ct-role.other     { background: rgba(122,116,136,0.10); color: var(--muted); }
+.ct-name { font-size: 13px; font-weight: 500; word-break: break-word; }
+.ct-name .ct-name-name { display: block; }
+.ct-name .ct-name-company { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+.ct-info { font-size: 12px; color: var(--text); word-break: break-word; font-family: 'DM Mono', monospace; }
+.ct-info a { color: var(--gold-mid); text-decoration: none; }
+.ct-info a:hover { color: var(--gold); }
+.ct-info.muted { color: var(--muted); }
+.ct-delete { background: transparent; border: none; color: rgba(122,116,136,0.5); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 4px; transition: color 0.10s, background 0.10s; }
+.ct-delete:hover { color: var(--danger); background: rgba(124,31,31,0.08); }
+
 /* Deploy 236.112 — Borrower Info section with multi-borrower tabs. */
 .bw-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border, #ddd8d0); margin: -4px -4px 14px; padding: 0 4px; flex-wrap: wrap; }
 .bw-tab { padding: 8px 14px; background: transparent; border: none; border-bottom: 2px solid transparent; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; color: var(--muted, #7a7488); cursor: pointer; margin-bottom: -1px; transition: color 0.10s, border-color 0.10s; }
@@ -1908,6 +1939,36 @@ function render() {
       '</div>' +
     '</div>';
 
+  // Deploy 236.113 (Phase E) — Additional Contacts. The implicit
+  // contacts (LO from ownerKey, Borrower from _client, Broker from
+  // loan.broker* fields, Guarantors from the Borrower Info tabs)
+  // each live in their own sections. This section is for everyone
+  // else — Title Co, Insurance Agent, Inspector, etc. Async-loaded
+  // by refreshLoanContacts() after the page paints.
+  html +=
+    '<div class="section" id="loanContactsSection">' +
+      '<div class="section-head"><h2>Additional Contacts</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+        '<div class="contacts-add-row">' +
+          '<select id="ctNewRole" title="Role">' +
+            '<option value="title">Title Company</option>' +
+            '<option value="insurance">Insurance Agent</option>' +
+            '<option value="inspector">Inspector</option>' +
+            '<option value="appraiser">Appraiser</option>' +
+            '<option value="surveyor">Surveyor</option>' +
+            '<option value="attorney">Attorney</option>' +
+            '<option value="other">Other</option>' +
+          '</select>' +
+          '<input type="text"  id="ctNewName"    placeholder="Contact name" />' +
+          '<input type="text"  id="ctNewCompany" placeholder="Company (optional)" />' +
+          '<input type="email" id="ctNewEmail"   placeholder="Email" />' +
+          '<input type="tel"   id="ctNewPhone"   placeholder="Phone" />' +
+          '<button class="btn-add-contact" id="ctAddBtn" onclick="addLoanContact()">Add</button>' +
+        '</div>' +
+        '<div class="contacts-list" id="loanContactsList"><div class="contacts-empty">Loading contacts…</div></div>' +
+      '</div>' +
+    '</div>';
+
   // Broker Info section — Deploy 236.17 — now also renders for loans
   // that have a broker entity link OR any inline broker contact info,
   // not just when a non-zero broker fee was set. Apply.html broker-mode
@@ -2126,6 +2187,9 @@ function render() {
   // renders entirely from _client inline above, no fetch needed).
   refreshBorrowerInfoPanes();
 
+  // Deploy 236.113 (Phase E) — populate the Additional Contacts list.
+  refreshLoanContacts();
+
   // Deploy 236.108 — eagerly preload the user directory so the
   // assignee picker is instant on first click. Deploy 236.109 —
   // added a console.log so we can see in Mike's dev tools whether
@@ -2226,6 +2290,125 @@ function switchBorrowerTab(idx) {
   });
   document.querySelectorAll('#borrowerInfoSection .bw-pane').forEach(function(p) {
     p.classList.toggle('active', p.id === 'bw-pane-' + idx);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Deploy 236.113 (Phase E — Contacts) — Additional Contacts on a loan
+// ════════════════════════════════════════════════════════════════════
+var _loanContacts = []; // contacts for the currently-viewed loan
+var ROLE_LABELS = {
+  title:     'Title Co',
+  insurance: 'Insurance',
+  inspector: 'Inspector',
+  appraiser: 'Appraiser',
+  surveyor:  'Surveyor',
+  attorney:  'Attorney',
+  other:     'Other',
+};
+function _contactOwnerParam() {
+  if (_loEmail && _user && _loEmail.toLowerCase() !== _user.email.toLowerCase()) return _loEmail;
+  return undefined;
+}
+function refreshLoanContacts() {
+  if (!_client || !_loanId) return;
+  var inner = document.getElementById('loanContactsList');
+  if (!inner) return;
+  inner.innerHTML = '<div class="contacts-empty">Loading contacts…</div>';
+  var url = '/api/loan-contacts-list?loanId=' + encodeURIComponent(_loanId) + '&clientId=' + encodeURIComponent(_client.id);
+  var owner = _contactOwnerParam();
+  if (owner) url += '&owner=' + encodeURIComponent(owner);
+  SLA.api('GET', url).then(function(resp) {
+    _loanContacts = (resp && resp.contacts) || [];
+    renderLoanContactsList();
+  }).catch(function(err) {
+    inner.innerHTML = '<div class="contacts-empty" style="color:var(--danger)">Failed to load contacts: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+function renderLoanContactsList() {
+  var inner = document.getElementById('loanContactsList');
+  if (!inner) return;
+  var rows = (_loanContacts || []).slice().sort(function(a, b) {
+    // Group by role then by name within group
+    var ar = String(a.role || 'other'), br = String(b.role || 'other');
+    if (ar < br) return -1; if (ar > br) return 1;
+    var an = String(a.name || a.company || '').toLowerCase();
+    var bn = String(b.name || b.company || '').toLowerCase();
+    if (an < bn) return -1; if (an > bn) return 1;
+    return 0;
+  });
+  if (!rows.length) {
+    inner.innerHTML = '<div class="contacts-empty">No additional contacts yet. Use the row above to add a Title Co, Insurance Agent, etc. — LO, Borrower, Guarantors, and Broker each have their own sections.</div>';
+    return;
+  }
+  inner.innerHTML = rows.map(_renderLoanContactRow).join('');
+}
+function _renderLoanContactRow(c) {
+  var role = String(c.role || 'other').toLowerCase();
+  var roleLabel = c.roleLabel || ROLE_LABELS[role] || role;
+  var name = c.name || '(no name)';
+  var emailHtml = c.email ? '<a href="mailto:' + escAttr(c.email) + '">' + escH(c.email) + '</a>' : '<span class="muted">—</span>';
+  var phoneHtml = c.phone
+    ? '<a href="tel:' + escAttr(c.phone.replace(/[^\d+]/g, '')) + '">' + escH(c.phone) + '</a>'
+    : '<span class="muted">—</span>';
+  return '<div class="contact-row" data-contact-id="' + escAttr(c.id) + '">' +
+    '<div><span class="ct-role ' + escAttr(role) + '">' + escH(roleLabel) + '</span></div>' +
+    '<div class="ct-name">' +
+      '<span class="ct-name-name">' + escH(name) + '</span>' +
+      (c.company ? '<span class="ct-name-company">' + escH(c.company) + '</span>' : '') +
+    '</div>' +
+    '<div class="ct-info">' + (c.company && !c.name ? escH(c.company) : '<span class="muted">&nbsp;</span>') + '</div>' +
+    '<div class="ct-info">' + emailHtml + '</div>' +
+    '<div class="ct-info">' + phoneHtml + '</div>' +
+    '<button class="ct-delete" onclick="deleteLoanContact(\'' + escAttr(c.id) + '\')" title="Delete contact">✕</button>' +
+  '</div>';
+}
+function addLoanContact() {
+  var role    = (document.getElementById('ctNewRole')    || {}).value || 'other';
+  var name    = ((document.getElementById('ctNewName')    || {}).value || '').trim();
+  var company = ((document.getElementById('ctNewCompany') || {}).value || '').trim();
+  var email   = ((document.getElementById('ctNewEmail')   || {}).value || '').trim().toLowerCase();
+  var phone   = ((document.getElementById('ctNewPhone')   || {}).value || '').trim();
+  if (!name && !company && !email && !phone) {
+    alert('Add at least a name, company, email, or phone.');
+    return;
+  }
+  var btn = document.getElementById('ctAddBtn');
+  btn.disabled = true;
+  var body = { clientId: _client.id, loanId: _loanId, role: role, name: name, company: company, email: email, phone: phone };
+  var owner = _contactOwnerParam();
+  if (owner) body.owner = owner;
+  SLA.api('POST', '/api/loan-contacts-save', body).then(function(resp) {
+    btn.disabled = false;
+    if (resp && resp.contact) {
+      _loanContacts.push(resp.contact);
+      renderLoanContactsList();
+      // Clear inputs (leave role on whatever they had selected — likely
+      // they're adding multiple of the same role in a row).
+      ['ctNewName','ctNewCompany','ctNewEmail','ctNewPhone'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('ctNewName').focus();
+    }
+  }).catch(function(err) {
+    btn.disabled = false;
+    alert('Failed to add contact: ' + (err && err.message || 'unknown'));
+  });
+}
+function deleteLoanContact(contactId) {
+  if (!confirm('Delete this contact? This cannot be undone.')) return;
+  var idx = _loanContacts.findIndex(function(c) { return c.id === contactId; });
+  if (idx < 0) return;
+  var removed = _loanContacts.splice(idx, 1)[0];
+  renderLoanContactsList();
+  var body = { contactId: contactId };
+  var owner = _contactOwnerParam();
+  if (owner) body.owner = owner;
+  SLA.api('POST', '/api/loan-contacts-delete', body).catch(function(err) {
+    _loanContacts.splice(idx, 0, removed);
+    renderLoanContactsList();
+    alert('Failed to delete contact: ' + (err && err.message || 'unknown'));
   });
 }
 
