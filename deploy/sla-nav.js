@@ -53,9 +53,9 @@
         { label: 'Loans',    href: 'loans.html'    },
       ],
     },
-    // Deploy 236.71 — Loan Doc Review tool. Visible to processors and
-    // admins (admins implicitly have processor access).
-    { label: 'Doc Review', href: 'loan-review.html', requires: 'processor' },
+    // Deploy 236.121 — standalone Doc Review pages deleted; the
+    // experience lives inside the Documents tab on Loan Details now.
+    // Processors get to a review by opening any loan → Documents.
     { label: 'Submissions', href: 'submissions.html', requires: 'admin' },
     { label: 'Dashboard',   href: 'dashboard.html',   requires: 'admin' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile

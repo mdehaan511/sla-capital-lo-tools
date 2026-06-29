@@ -9,6 +9,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <!-- Deploy 236.121 — Doc Review module (ported from the deleted
+       standalone loan-review-detail.html). Mounted into the
+       Documents tab via SLA.DocReview.mount(rootEl, opts). -->
+  <script src="loan-doc-review.js"></script>
   <script src="sla-nav.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
@@ -2633,19 +2637,26 @@ function _initDocReviewPane() {
 }
 
 function _renderDocReviewIframe(reviewId) {
+  // Deploy 236.121 — kept the function name for the call sites
+  // but it now mounts the loan-doc-review.js module directly into
+  // the Documents tab root (no iframe). The module brings its own
+  // styles, modals, and toast. onDeleted callback returns the tab
+  // to the "Start Document Review" empty state.
   var root = document.getElementById('documentsRoot');
   if (!root) return;
-  var src = 'loan-review-detail.html?id=' + encodeURIComponent(reviewId) + '&embed=1';
-  // min-height 1500px is enough for most reviews + scrolls
-  // internally when longer. Toolbar at the top with an "Open in
-  // full page" link lets the processor escape the iframe if they
-  // want to use the standalone view.
-  root.innerHTML =
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
-      '<div style="font-size:12px;color:var(--muted);font-family:DM Mono,monospace">Review ID: ' + escH(reviewId) + '</div>' +
-      '<a href="loan-review-detail.html?id=' + encodeURIComponent(reviewId) + '" target="_blank" rel="noopener" style="font-size:12px;color:var(--gold-mid,#b5712d);text-decoration:none">Open full page ↗</a>' +
-    '</div>' +
-    '<iframe src="' + escAttr(src) + '" style="width:100%;min-height:1500px;border:1px solid var(--border,#ddd8d0);border-radius:var(--r,12px);background:var(--surface,#fff)" title="Loan Document Review"></iframe>';
+  if (!(window.SLA && window.SLA.DocReview && window.SLA.DocReview.mount)) {
+    root.innerHTML = '<div class="ld-pane-empty"><span class="empty-title">Doc Review module didn\'t load</span>Check the network tab for loan-doc-review.js. Hard-refresh (Ctrl+Shift+R) usually fixes this.</div>';
+    return;
+  }
+  SLA.DocReview.mount(root, {
+    reviewId: reviewId,
+    user: _user,
+    onDeleted: function() {
+      // After delete/finalize, swap back to the "Start Document
+      // Review" empty state so the LO can create a fresh review.
+      _initDocReviewPane();
+    },
+  });
 }
 
 function _renderDocReviewStarter() {
@@ -3085,27 +3096,26 @@ function refreshDocReviewButton() {
 }
 
 function openOrCreateDocReview() {
+  // Deploy 236.121 — Doc Review now lives inside the Documents
+  // tab on this very page. The Actions-dropdown button just
+  // jumps to that tab; the tab handles existing-vs-create on its
+  // own via _initDocReviewPane() / _renderDocReviewStarter().
+  if (typeof switchLdTab === 'function') switchLdTab('documents');
+  // Old standalone-page flow kept below for reference but never
+  // runs now that the early-return above always fires.
+  return;
   if (_existingReviewId) {
     window.location.href = 'loan-review-detail.html?id=' + encodeURIComponent(_existingReviewId);
     return;
   }
   // No existing review — create one and navigate.
   if (!_client || !_loan) { alert('Loan not loaded yet.'); return; }
-  // Deploy 236.74 — loan-type detection uses `toolType` (the actual
-  // field set by the sizers — see line ~786 `isDscr = toolType !== 'rtl'`),
-  // not `product` (which doesn't exist on the loan record). Without
-  // this fix every loan picked from Loan Details was being created
-  // as RTL since `_loan.product` was always undefined.
   var loanType = (String(_loan.toolType || '').toLowerCase() === 'rtl') ? 'rtl' : 'dscr';
   var borrowerName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim();
   var btn = document.getElementById('docReviewBtn');
   var label = document.getElementById('docReviewBtnLabel');
   if (btn) btn.disabled = true;
   if (label) label.textContent = 'Creating…';
-  // _loEmail is the owning LO for this loan. For non-admins it equals
-  // user.email; for admins viewing a cross-LO loan it's the other
-  // LO's address (set by the load path that read the loan from
-  // byOwner). Either way it's the right ownerKey for snapshotting.
   var ownerKey = _loEmail || (_user && _user.email) || '';
   SLA.LoanReviews.create({
     loanType: loanType,
