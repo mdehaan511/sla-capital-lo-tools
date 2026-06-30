@@ -139,6 +139,28 @@ async function handle(req, context) {
     _manualAdvanceAt:           incoming._manualAdvanceAt           || prior._manualAdvanceAt           || '',
     _manualAdvanceBy:           incoming._manualAdvanceBy           || prior._manualAdvanceBy           || '',
     _manualAdvanceFrom:         incoming._manualAdvanceFrom         || prior._manualAdvanceFrom         || '',
+    // Deploy 236.141 — preserve guarantor / contacts / processing
+    // / test-fixture fields that the sizer never sends. Without
+    // these, every sizer save was wiping additional guarantors,
+    // ownership %, vesting LLCs, the Processing Pipeline stage +
+    // substatus, the auto-task-templates marker, etc. Same root
+    // cause as the 236.38 notesLog preservation — Object.assign
+    // copies `incoming` whole, so anything not in `incoming`
+    // (which is just sizer-form output) gets dropped from the
+    // merged record.
+    guarantorClientIds:         (Array.isArray(incoming.guarantorClientIds)         ? incoming.guarantorClientIds         : prior.guarantorClientIds         || []),
+    guarantorOwnership:         (incoming.guarantorOwnership && typeof incoming.guarantorOwnership === 'object' ? incoming.guarantorOwnership : prior.guarantorOwnership || {}),
+    vestingLLCs:                (Array.isArray(incoming.vestingLLCs)                ? incoming.vestingLLCs                : prior.vestingLLCs                || []),
+    _checkOwnership:            incoming._checkOwnership            || prior._checkOwnership            || null,
+    _guarantorDocsUpdatedAt:    incoming._guarantorDocsUpdatedAt    || prior._guarantorDocsUpdatedAt    || '',
+    _guarantorDocsUpdatedBy:    incoming._guarantorDocsUpdatedBy    || prior._guarantorDocsUpdatedBy    || '',
+    processingStage:            incoming.processingStage            || prior.processingStage            || '',
+    processingSubstatus:        incoming.processingSubstatus        || prior.processingSubstatus        || '',
+    _templatesAppliedFor:       (incoming._templatesAppliedFor && typeof incoming._templatesAppliedFor === 'object' ? incoming._templatesAppliedFor : prior._templatesAppliedFor || {}),
+    assignedProcessor:          incoming.assignedProcessor          || prior.assignedProcessor          || '',
+    _test:                      (incoming._test === true || prior._test === true) || undefined,
+    slaDisplayId:               incoming.slaDisplayId               || prior.slaDisplayId               || '',
+    appraisedValue:             incoming.appraisedValue             || prior.appraisedValue             || '',
   });
 
   // Strip transient meta fields that shouldn't persist.
