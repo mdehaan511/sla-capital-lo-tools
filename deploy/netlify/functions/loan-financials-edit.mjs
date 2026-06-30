@@ -245,10 +245,27 @@ function _mirrorForSizer(loan, key, next) {
       // Sizer reads _finalRate first, formats with .toFixed(3).
       // Inline editor passes percent (e.g. 8.625).
       loan.formData._finalRate = (next * 1).toFixed(3);
+      // Deploy 236.154 — also flag this as a manual override so
+      // the sizer's load path (loadQuoteIntoForm → window.
+      // _dscrOverrides) treats the Loan-Details-edited value as
+      // an override and applies it during rate-sheet rendering.
+      // Without this mirror, the sizer recomputed from defaults
+      // and the rate sheet PDF reverted to the pre-edit value.
+      // _rateOverride is stored as DECIMAL (e.g. 0.08625).
+      loan.formData._rateOverride = String(next / 100);
       return;
     case 'points':
       // Sizer reads _points first; saved as "1.50 pts" string.
       loan.formData._points = (next * 1).toFixed(2) + ' pts';
+      // Deploy 236.154 — same as rate above: mirror the value
+      // as a sizer override so the next rate-sheet print /
+      // signature-handoff honors it. Per Mike: "if the
+      // Origination points are edited in the Loan Details
+      // page then they should also change in the Sizer"
+      // (and "the Origination Points defaults back to 1 point"
+      // on print, which was the symptom of this exact gap).
+      // _pointsOverride is stored as raw points (e.g. 1.5).
+      loan.formData._pointsOverride = String(next);
       return;
     // Deploy 236.138 — monthly fields written under BOTH naming
     // schemes at the LOAN level AND in formData. The codebase has
