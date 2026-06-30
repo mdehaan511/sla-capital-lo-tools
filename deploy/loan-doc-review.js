@@ -865,7 +865,13 @@
         '<div class="dz-icon">📄</div>' +
         '<div class="dz-text">' + (d.currentDocId ? 'Replace document' : 'Drop a PDF here') + '</div>' +
         '<div class="dz-hint">' + (d.currentDocId ? 'A new upload will move the current doc into Prior Reviews' : 'or click to choose a file') + '</div>' +
-        '<input type="file" accept="application/pdf,.pdf" onchange="dr_dzPick(event,\'' + escAttr(slug) + '\')" />' +
+        // Deploy 236.166 — accept images alongside PDFs. Drivers
+        // licenses, voided checks, IDs commonly come in as JPEG /
+        // PNG / HEIC; the AI helper now routes them through the
+        // image block. The file picker still hides everything else
+        // by default but the LO can switch to "All files" if
+        // needed.
+        '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" onchange="dr_dzPick(event,\'' + escAttr(slug) + '\')" />' +
       '</label>';
 
     // Deploy 236.158 — notes save indicator. The textarea fires on
@@ -971,8 +977,16 @@
     }
     if (!d.aiVerdict) {
       if (d.aiError) {
+        // Deploy 236.166 — "Retry AI Review" button. Visible whenever
+        // the helper errored (Anthropic 400/500/timeout). Also
+        // appears at the bottom of the AI block on successful runs
+        // (below) so the LO can re-run after tweaking processor
+        // notes or replacing the doc.
         return '<div class="ai-block issues">' +
-          '<div class="ai-head"><span class="ai-label issues">⚠ AI review failed</span></div>' +
+          '<div class="ai-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
+            '<span class="ai-label issues">⚠ AI review failed</span>' +
+            '<button class="small-btn" onclick="dr_retryAi(\'' + escAttr(slug) + '\', this)" title="Re-run the AI against this document">↻ Retry AI Review</button>' +
+          '</div>' +
           '<div class="ai-summary">' + escHtml(d.aiNotes || 'No details.') + '</div>' +
         '</div>';
       }
@@ -996,9 +1010,14 @@
       }).join('') + '</div>';
     }
     return '<div class="ai-block ' + cls + '">' +
-      '<div class="ai-head">' +
+      '<div class="ai-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
         '<span class="ai-label ' + cls + '">' + icon + '</span>' +
-        (cost ? '<span class="ai-cost">' + cost + ' • ' + formatDate(d.aiReviewedAt) + '</span>' : '') +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          (cost ? '<span class="ai-cost">' + cost + ' • ' + formatDate(d.aiReviewedAt) + '</span>' : '') +
+          // Deploy 236.166 — re-run on demand. Useful after the
+          // processor uploads notes or wants a fresh take.
+          '<button class="small-btn" onclick="dr_retryAi(\'' + escAttr(slug) + '\', this)" title="Re-run the AI against this document">↻ Retry</button>' +
+        '</div>' +
       '</div>' +
       (d.aiNotes ? '<div class="ai-summary">' + escHtml(d.aiNotes) + '</div>' : '') +
       findingsHtml +
@@ -1188,6 +1207,28 @@
       showToast('Failed to remove: ' + (err.message || 'Unknown'), 'error');
     });
   };
+  // Deploy 236.166 — re-run Claude vision against the tray's
+  // current doc. Surfaces when the AI errored (per renderAiBlock
+  // branch above) AND on every successful AI block as a "fresh
+  // take" button. Updates the AI fields + the 236.165 date
+  // badges on success.
+  global.dr_retryAi = function(slug, btn) {
+    if (!_review || !_review.id) return;
+    var originalHTML = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Reviewing…'; }
+    global.SLA.LoanReviews.retryAi(_review.id, slug).then(function(r) {
+      _review = r.review || _review;
+      var v = (_review.docs[slug] && _review.docs[slug].aiVerdict) || '';
+      if (v === 'approved')    showToast('Re-reviewed — AI says looks good.', 'success');
+      else if (v === 'issues') showToast('Re-reviewed — AI flagged issues. See below.', 'info');
+      else                     showToast('Re-reviewed.', 'success');
+      render();
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+      showToast('Retry failed: ' + ((err && err.message) || 'unknown'), 'error');
+    });
+  };
+
   global.dr_unhideDoc = function(slug, docId) {
     var docState = _review.docs[slug] || {};
     var docs = (docState.documents || []).map(function(d) {

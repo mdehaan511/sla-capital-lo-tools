@@ -738,6 +738,12 @@
   to = "/.netlify/functions/loan-review-zip-download"
   status = 200
   force = true
+# Deploy 236.166 — re-run Claude vision against an already-uploaded doc.
+[[redirects]]
+  from = "/api/loan-review-ai-retry"
+  to = "/.netlify/functions/loan-review-ai-retry"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching

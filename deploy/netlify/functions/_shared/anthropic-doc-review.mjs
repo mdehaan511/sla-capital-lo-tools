@@ -125,7 +125,27 @@ export async function reviewDocument(opts) {
       cache_control: { type: 'ephemeral' },
     });
   }
-  content.push({ type: 'document', source: { type: 'base64', media_type: opts.mimeType || 'application/pdf', data: b64 } });
+  // Deploy 236.166 — Anthropic's API requires DIFFERENT block types
+  // for PDFs vs images. The previous code always wrapped uploads as
+  // `document`, which only accepts media_type=application/pdf — any
+  // image mime (JPEG / PNG / GIF / WEBP) tripped a 400 from the
+  // model endpoint. Now we detect the family and route accordingly:
+  //   image/*     -> { type: 'image',    source: { media_type, ... } }
+  //   anything    -> { type: 'document', source: { media_type: 'application/pdf', ... } }
+  // PDFs continue to use the document block (which preserves the
+  // multi-page citation + caching behavior).
+  const incomingMime = String(opts.mimeType || 'application/pdf').toLowerCase();
+  if (incomingMime.indexOf('image/') === 0) {
+    // Normalize to one of the four image types Anthropic supports.
+    // Anything else (HEIC, BMP, etc.) gets coerced to JPEG — the
+    // browser-side capture flow shouldn't produce those for us
+    // but the explicit fallback prevents another 400.
+    const supportedImage = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].indexOf(incomingMime) >= 0
+      ? incomingMime : 'image/jpeg';
+    content.push({ type: 'image', source: { type: 'base64', media_type: supportedImage, data: b64 } });
+  } else {
+    content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } });
+  }
   content.push({ type: 'text', text: userPrompt });
 
   // Claude API call. 22s timeout — Netlify Pro caps at 26s and we

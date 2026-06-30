@@ -1170,6 +1170,13 @@
         reviewId: reviewId, slug: slug, docId: docId,
       });
     },
+    // Deploy 236.166 — re-run Claude vision against the tray's
+    // current doc. Used by the per-tray "Retry AI Review" button.
+    retryAi: function (reviewId, slug) {
+      return api('POST', '/api/loan-review-ai-retry', {
+        reviewId: reviewId, slug: slug,
+      });
+    },
     docUrl: function (reviewId, docId) {
       return '/api/loan-review-doc-get?reviewId=' + encodeURIComponent(reviewId)
            + '&docId=' + encodeURIComponent(docId);
