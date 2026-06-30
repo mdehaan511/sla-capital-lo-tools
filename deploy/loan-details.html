@@ -803,6 +803,28 @@
   .task-due, .task-assignee { grid-column: 1 / -1; padding-left: 34px; text-align: left; }
 }
 
+/* Deploy 236.130 — Add Guarantor button + modal. */
+.add-guarantor-btn { padding: 7px 14px; background: var(--surface, #fff); border: 1px dashed var(--gold-border, rgba(200,129,58,0.28)); border-radius: 5px; color: var(--gold-mid, #b5712d); cursor: pointer; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; margin-left: auto; }
+.add-guarantor-btn:hover { border-color: var(--gold, #C8813A); background: var(--gold-light, rgba(200,129,58,0.10)); color: var(--gold, #C8813A); }
+.ag-modal-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: flex; align-items: center; justify-content: center; z-index: 9000; padding: 1rem; }
+.ag-modal { background: #fff; border-radius: 10px; padding: 22px 26px; max-width: 480px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,0.18); font-family: 'DM Sans', sans-serif; }
+.ag-modal h3 { font-family: 'Lora', serif; font-size: 17px; font-weight: 600; color: var(--dark, #261a36); margin: 0 0 4px; }
+.ag-modal .ag-hint { font-size: 12px; color: var(--muted, #7a7488); margin-bottom: 14px; line-height: 1.45; }
+.ag-modal .ag-field { margin-bottom: 12px; }
+.ag-modal .ag-field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted, #7a7488); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.ag-modal .ag-field input { width: 100%; padding: 8px 12px; border: 1px solid var(--border, #ddd8d0); border-radius: 5px; font-family: inherit; font-size: 14px; box-sizing: border-box; }
+.ag-modal .ag-field input:focus { outline: none; border-color: var(--gold, #C8813A); }
+.ag-modal .ag-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ag-modal .ag-match { padding: 10px 12px; background: rgba(37,105,64,0.08); border: 1px solid rgba(37,105,64,0.30); border-radius: 5px; font-size: 12px; color: var(--success, #256940); line-height: 1.4; margin-bottom: 12px; display: none; }
+.ag-modal .ag-match.show { display: block; }
+.ag-modal .ag-err { font-size: 12px; color: var(--danger, #7c1f1f); margin-top: 8px; display: none; }
+.ag-modal .ag-err.show { display: block; }
+.ag-modal .ag-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+.ag-modal .ag-actions button { padding: 8px 18px; border-radius: 5px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; border: 1px solid var(--border, #ddd8d0); background: #fff; color: var(--muted, #7a7488); }
+.ag-modal .ag-actions button.primary { background: var(--gold, #C8813A); border-color: var(--gold, #C8813A); color: #fff; }
+.ag-modal .ag-actions button.primary:hover { background: var(--gold-mid, #b5712d); border-color: var(--gold-mid, #b5712d); }
+.ag-modal .ag-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Deploy 236.128 — additional-guarantor sub-form link card. */
 .subform-card { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--gold-border, rgba(200,129,58,0.28)); background: var(--gold-light, rgba(200,129,58,0.06)); border-radius: 6px; }
 .subform-card .sf-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -2050,29 +2072,11 @@ function render() {
   // flows. The submitLoan() helper is still defined below in case
   // anything else calls it externally; harmless if unused.
 
-  // Deploy 236.84 — Linked Guarantor Clients section. Renders the
-  // list of clients that were auto-created (or matched) when borrower 1
-  // signed the long-app with numGuarantors >= 2. Each row shows the
-  // guarantor's name + email + an "Open client" link so the LO can
-  // jump to that client's page. Hidden when the loan has no linked
-  // guarantor clients (single-guarantor loans, or loans created
-  // before 236.84 that never auto-linked).
-  var guarantorIds = Array.isArray(l.guarantorClientIds) ? l.guarantorClientIds : [];
-  if (guarantorIds.length) {
-    html +=
-      '<div class="section" id="linkedGuarantorsSection">' +
-        '<div class="section-head">' +
-          '<h2>Linked Guarantor Clients</h2>' +
-          '<span class="section-tag tag-readonly">Auto-linked at signing</span>' +
-        '</div>' +
-        '<div class="section-body">' +
-          '<div id="linkedGuarantorsList" style="display:flex;flex-direction:column;gap:8px">' +
-            '<div style="padding:1rem;text-align:center;color:var(--muted);font-size:13px">Loading…</div>' +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">These clients were created (or matched by email) when the borrower submitted the long application with multiple guarantors. They are full client records — open one to update their contact info or see other loans they are attached to.</div>' +
-        '</div>' +
-      '</div>';
-  }
+  // Deploy 236.130 — "Linked Guarantor Clients" / "Auto-Linked at
+  // Signing" section removed per Mike. The Guarantor Info tabs
+  // already surface every linked guarantor (with their sub-form
+  // links + signed Credit Auth downloads), so the separate panel
+  // was redundant. The 236.84 block above this comment is gone.
 
   // Deploy 236.112 — Borrower Info section. Always renders (every
   // loan has a primary borrower = _client). When the loan has
@@ -2087,13 +2091,27 @@ function render() {
   var _bwPrimaryName  = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || 'Guarantor 1';
 
   // Deploy 236.126 — Vesting LLC Info section (above Guarantor Info).
-  // Auto-populates with the primary client's entityName on first
-  // render; supports multiple LLCs (rare but happens with sub-entities
-  // / pass-throughs). Saved per-loan as loan.vestingLLCs (array of
-  // { name } objects so future deploys can layer EIN / address etc.).
-  var _vestingLLCsInitial = Array.isArray(l.vestingLLCs) && l.vestingLLCs.length
-    ? l.vestingLLCs
-    : (c.entityName ? [{ name: c.entityName }] : [{ name: '' }]);
+  // Deploy 236.130 — auto-fill source widened to the long loan
+  // application's companies list (data.companies → client.companies,
+  // synced by borrower-info-sync). The long-app companies block is
+  // the borrower's own statement of which LLCs hold title, so it
+  // beats the older single-entityName field. Fallback chain:
+  //   1) loan.vestingLLCs (LO-edited override — always wins)
+  //   2) client.companies (long-app source of truth)
+  //   3) client.entityName (legacy single-LLC field)
+  //   4) empty row
+  function _initialVestingLLCs() {
+    if (Array.isArray(l.vestingLLCs) && l.vestingLLCs.length) return l.vestingLLCs;
+    if (Array.isArray(c.companies) && c.companies.length) {
+      var fromCos = c.companies
+        .filter(function(co) { return co && co.name; })
+        .map(function(co) { return { name: co.name, ein: co.ein || '' }; });
+      if (fromCos.length) return fromCos;
+    }
+    if (c.entityName) return [{ name: c.entityName }];
+    return [{ name: '' }];
+  }
+  var _vestingLLCsInitial = _initialVestingLLCs();
   html +=
     '<div class="section" id="vestingLLCSection">' +
       '<div class="section-head"><h2>Vesting LLC Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
@@ -2154,7 +2172,12 @@ function render() {
   });
   html +=
     '<div class="section" id="borrowerInfoSection">' +
-      '<div class="section-head"><h2>Guarantor Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-head">' +
+        '<h2>Guarantor Info</h2>' +
+        '<span class="section-tag tag-editable">Editable</span>' +
+        // Deploy 236.130 — manual Add Guarantor entry point.
+        '<button type="button" class="add-guarantor-btn" onclick="openAddGuarantorModal()">+ Add Guarantor</button>' +
+      '</div>' +
       '<div class="section-body">' +
         _bwTabsHtml +
         _bwPanesHtml +
@@ -2787,15 +2810,26 @@ function _renderSubFormLinkCard(tokenEntry, c) {
       '<button type="button" class="sf-btn" onclick="copySubFormLink(this, \'' + escAttr(tokenEntry.token) + '\')">Copy</button>' +
       '<a class="sf-btn" href="' + escAttr(mailto) + '" style="text-decoration:none">Email</a>' +
     '</div>' +
-    // Deploy 236.129 — Credit Auth download. Only shown when the
-    // guarantor has actually submitted (status='completed' from a
-    // sub-form submit; 'completed_by_primary' means the LO/borrower
-    // entered everything in the long app and no Credit Auth was
-    // captured separately).
+    // Deploy 236.130 — Signed Authorizations block. Lists every
+    // document this guarantor has signed via the sub-form. Currently
+    // that's just the Credit Authorization (added in 236.129); the
+    // shape is set up so future deploys can add more docs (e.g.
+    // separate FCRA disclosure, ESIGN-only consent, OFAC ack) by
+    // pushing another row into the list. Only renders when the
+    // guarantor's sub-form is actually 'completed' (a separately-
+    // captured signature, vs 'completed_by_primary' where the
+    // primary borrower entered the data in the long app with no
+    // standalone signature).
     (status === 'completed'
-      ? '<div class="sf-url-row" style="margin-top:6px">' +
-          '<a class="sf-btn" href="/api/guarantor-credit-auth-download?t=' + encodeURIComponent(tokenEntry.token) + '" target="_blank" rel="noopener" style="text-decoration:none">View Signed Credit Auth</a>' +
-          '<a class="sf-btn" href="/api/guarantor-credit-auth-download?t=' + encodeURIComponent(tokenEntry.token) + '&download=1" style="text-decoration:none">Download PDF</a>' +
+      ? '<div style="margin-top:10px;padding:10px 12px;background:rgba(37,105,64,0.05);border:1px solid rgba(37,105,64,0.20);border-radius:5px">' +
+          '<div style="font-size:11px;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Signed Authorizations</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px">' +
+            '<span style="flex:1;min-width:200px">📄 Credit Authorization' +
+              (tokenEntry.creditAuthSignedAt ? ' <span style="color:var(--muted);font-family:DM Mono,monospace;font-size:11px">— signed ' + escH(new Date(tokenEntry.creditAuthSignedAt).toLocaleString()) + '</span>' : '') +
+            '</span>' +
+            '<a class="sf-btn" href="/api/guarantor-credit-auth-download?t=' + encodeURIComponent(tokenEntry.token) + '" target="_blank" rel="noopener" style="text-decoration:none">View</a>' +
+            '<a class="sf-btn" href="/api/guarantor-credit-auth-download?t=' + encodeURIComponent(tokenEntry.token) + '&download=1" style="text-decoration:none">Download</a>' +
+          '</div>' +
         '</div>'
       : '') +
     '<div class="sf-hint">' +
@@ -2808,6 +2842,143 @@ function _renderSubFormLinkCard(tokenEntry, c) {
           : 'Send this link to the guarantor — they\'ll provide DOB, credit, SSN (encrypted), addresses, citizenship, declarations, AND sign the Credit Authorization. The link doesn\'t expire; status updates here when they save or submit.') +
     '</div>' +
   '</div>';
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Deploy 236.130 — Manual Add Guarantor modal
+// ════════════════════════════════════════════════════════════════════
+// LO clicks "+ Add Guarantor" in the Guarantor Info header → modal
+// asks for Email / First / Last / Phone / % Ownership. Email blur
+// scans the LO's existing clients locally; if a match is found, the
+// modal pre-fills the rest from that contact and surfaces a green
+// "Will link to existing contact" message. Save → POST → reload page.
+
+var _agExistingMatch = null; // { client } when an existing contact matches
+var _agAllClientsCache = null;
+
+function openAddGuarantorModal() {
+  var existing = document.getElementById('agModalBg');
+  if (existing) existing.remove();
+  var bg = document.createElement('div');
+  bg.className = 'ag-modal-bg';
+  bg.id = 'agModalBg';
+  bg.onclick = function(e) { if (e.target === bg) bg.remove(); };
+  bg.innerHTML =
+    '<div class="ag-modal">' +
+      '<h3>Add Guarantor</h3>' +
+      '<div class="ag-hint">Add an additional guarantor to this loan without re-routing through the long application. If their email matches an existing contact under you, we\'ll link to that contact and auto-fill the rest. The sub-form link is generated automatically.</div>' +
+      '<div class="ag-match" id="agMatch"></div>' +
+      '<div class="ag-field"><label>Email <span style="color:var(--danger)">*</span></label>' +
+        '<input type="email" id="agEmail" placeholder="guarantor@email.com" /></div>' +
+      '<div class="ag-row">' +
+        '<div class="ag-field"><label>First Name <span style="color:var(--danger)">*</span></label>' +
+          '<input type="text" id="agFirstName" /></div>' +
+        '<div class="ag-field"><label>Last Name <span style="color:var(--danger)">*</span></label>' +
+          '<input type="text" id="agLastName" /></div>' +
+      '</div>' +
+      '<div class="ag-row">' +
+        '<div class="ag-field"><label>Phone</label>' +
+          '<input type="tel" id="agPhone" placeholder="(555) 123-4567" /></div>' +
+        '<div class="ag-field"><label>% Ownership of LLC</label>' +
+          '<input type="number" id="agOwnership" min="0" max="100" step="0.01" placeholder="e.g. 25" /></div>' +
+      '</div>' +
+      '<div class="ag-err" id="agErr"></div>' +
+      '<div class="ag-actions">' +
+        '<button type="button" id="agCancel">Cancel</button>' +
+        '<button type="button" class="primary" id="agSave">Add Guarantor</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(bg);
+  document.getElementById('agCancel').onclick = function() { bg.remove(); };
+  document.getElementById('agSave').onclick = saveAddGuarantor;
+  // Email blur → existing-client lookup.
+  document.getElementById('agEmail').addEventListener('blur', _agLookupExisting);
+  setTimeout(function() { try { document.getElementById('agEmail').focus(); } catch (_) {} }, 50);
+}
+
+function _agLookupExisting() {
+  var emailEl = document.getElementById('agEmail');
+  var matchBox = document.getElementById('agMatch');
+  if (!emailEl || !matchBox) return;
+  var email = String(emailEl.value || '').toLowerCase().trim();
+  matchBox.classList.remove('show');
+  matchBox.innerHTML = '';
+  _agExistingMatch = null;
+  if (!email || email.indexOf('@') < 0) return;
+  function runMatch(pool) {
+    var match = pool.find(function(c) {
+      return c && String(c.email || '').toLowerCase().trim() === email;
+    });
+    if (!match) return;
+    _agExistingMatch = { client: match };
+    // Pre-fill the other fields (only if blank — don't overwrite LO typing).
+    function setIf(id, v) { var el = document.getElementById(id); if (el && !el.value && v) el.value = v; }
+    setIf('agFirstName', match.firstName);
+    setIf('agLastName',  match.lastName);
+    setIf('agPhone',     match.phone);
+    matchBox.innerHTML =
+      '✓ <strong>Existing contact found:</strong> ' +
+      escH(((match.firstName || '') + ' ' + (match.lastName || '')).trim() || match.email) +
+      '. This guarantor will be linked to that contact.';
+    matchBox.classList.add('show');
+  }
+  // Cached client list to avoid re-fetching on every blur.
+  if (_agAllClientsCache) { runMatch(_agAllClientsCache); return; }
+  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  p.then(function(r) {
+    var pool = [];
+    if (r && r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(k) { (r.byOwner[k] || []).forEach(function(c) { pool.push(c); }); });
+    } else {
+      pool = (r && r.clients) || [];
+    }
+    _agAllClientsCache = pool;
+    runMatch(pool);
+  }).catch(function() { /* silent — match is a UX nicety */ });
+}
+
+function saveAddGuarantor() {
+  var btn = document.getElementById('agSave');
+  var err = document.getElementById('agErr');
+  err.classList.remove('show'); err.textContent = '';
+  function v(id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
+  var email = v('agEmail').toLowerCase();
+  var firstName = v('agFirstName');
+  var lastName = v('agLastName');
+  var phone = v('agPhone');
+  var ownershipRaw = v('agOwnership');
+  if (!email)     { err.textContent = 'Email is required.'; err.classList.add('show'); return; }
+  if (!firstName) { err.textContent = 'First name is required.'; err.classList.add('show'); return; }
+  if (!lastName)  { err.textContent = 'Last name is required.'; err.classList.add('show'); return; }
+  var ownershipPct = null;
+  if (ownershipRaw !== '') {
+    var n = parseFloat(ownershipRaw);
+    if (!isFinite(n) || n < 0 || n > 100) { err.textContent = 'Ownership must be 0-100.'; err.classList.add('show'); return; }
+    ownershipPct = n;
+  }
+  btn.disabled = true; btn.textContent = 'Adding…';
+  var payload = {
+    clientId: _clientId,
+    loanId:   _loanId,
+    guarantor: { email, firstName, lastName, phone, ownershipPct },
+  };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.api('POST', '/api/loan-add-guarantor', payload).then(function(r) {
+    if (!r || !r.loan) {
+      btn.disabled = false; btn.textContent = 'Add Guarantor';
+      err.textContent = 'Server did not return the updated loan.'; err.classList.add('show'); return;
+    }
+    _loan = r.loan;
+    var lidx = (_client && _client.loans || []).findIndex(function(x) { return x && x.id === _loanId; });
+    if (lidx >= 0) _client.loans[lidx] = r.loan;
+    var bg = document.getElementById('agModalBg');
+    if (bg) bg.remove();
+    _agAllClientsCache = null; // invalidate so subsequent opens re-scan
+    render(); // re-render full page so the new tab + sub-form card appear
+  }).catch(function(e) {
+    btn.disabled = false; btn.textContent = 'Add Guarantor';
+    err.textContent = 'Failed: ' + (e && e.message || 'unknown'); err.classList.add('show');
+  });
 }
 
 function copySubFormLink(btn, token) {
@@ -2878,11 +3049,28 @@ function refreshOwnershipBanner() {
 
   var info = _computeOwnershipTotal();
   if (!info.any) return;        // no data entered yet — don't nag
-  if (info.total >= 51) return; // healthy total
-
+  // Deploy 236.130 — flag two states:
+  //   total < 51   → "Check Guarantor Ownership %" (incomplete; orange)
+  //   total > 100  → "Ownership exceeds 100%" (impossible; red, stronger)
+  // total in [51, 100] is healthy — no banner.
   var banner = document.createElement('div');
   banner.className = 'ld-warning-banner';
   banner.setAttribute('data-banner', 'ownership');
+  if (info.total > 100) {
+    banner.style.background  = 'rgba(124,31,31,0.10)';
+    banner.style.borderColor = 'rgba(124,31,31,0.40)';
+    banner.style.color       = 'var(--danger, #7c1f1f)';
+    banner.innerHTML =
+      '<span class="ld-warning-icon">⛔</span>' +
+      '<div>' +
+        '<strong>Guarantor ownership exceeds 100%</strong> — recorded total is ' +
+        info.total.toFixed(2) + '% across ' + info.count + ' guarantor' + (info.count === 1 ? '' : 's') +
+        '. This is impossible by definition; double-check each guarantor\'s % in the Contacts tab.' +
+      '</div>';
+    slot.appendChild(banner);
+    return;
+  }
+  if (info.total >= 51) return; // healthy
   banner.innerHTML =
     '<span class="ld-warning-icon">⚠</span>' +
     '<div>' +

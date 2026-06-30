@@ -303,6 +303,14 @@
   to = "/.netlify/functions/guarantor-credit-auth-download"
   status = 200
   force = true
+# Deploy 236.130 — manual add-guarantor from Loan Details (skips
+# the long-application route). Creates / links a guarantor client,
+# stamps ownership, generates the sub-form invite token.
+[[redirects]]
+  from = "/api/loan-add-guarantor"
+  to = "/.netlify/functions/loan-add-guarantor"
+  status = 200
+  force = true
 
 # Deploy 236.124 (Phase B.2/B.3) — Loan Financials inline editor +
 # restore. Patches a narrow whitelist (rate/points/purchasePrice/
