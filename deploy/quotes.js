@@ -345,7 +345,51 @@ var QuoteStore = (function () {
     denied:   { bg: 'rgba(124,31,31,0.1)',   color: '#7c1f1f',  label: '✕ Denied' },
   };
 
+  // Deploy 236.136 — per Mike: the multi-quote "Recent Quotes"
+  // accordion in the sizers is replaced with a single "Open Loan
+  // Details" button keyed off the URL's clientId+loanId. Older
+  // call sites (DSCR + RTL sizers) still call buildPanel() with
+  // onLoad/onDelete callbacks; those are now unused but kept in
+  // the signature so the sizer code doesn't have to change. The
+  // returned element exposes a no-op _renderBody() to satisfy the
+  // sizers' "re-render after save" hook.
   function buildPanel(userEmail, toolType, onLoad, onDelete) {
+    var params  = new URLSearchParams(window.location.search);
+    var cid     = params.get('clientId');
+    var lid     = params.get('loanId');
+    var owner   = params.get('owner');
+    var panel   = document.createElement('div');
+    panel.id    = 'quotesPanel';
+    panel._renderBody = function() {}; // no-op shim for sizer compat
+
+    // When the sizer is opened standalone (no clientId/loanId in
+    // the URL), there's no Loan Details page to jump to yet. Hide
+    // the panel entirely so the sizer's hero spacing stays clean.
+    if (!cid || !lid) {
+      panel.style.display = 'none';
+      return panel;
+    }
+
+    var url = 'loan-details.html?clientId=' + encodeURIComponent(cid) +
+              '&loanId='   + encodeURIComponent(lid) +
+              (owner ? '&owner=' + encodeURIComponent(owner) : '');
+    panel.style.cssText = 'background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:14px 18px;gap:12px';
+    panel.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">' +
+        '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0"><path d="M2 3h12M2 6h8M2 9h10M2 12h6" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+        '<span style="font-size:13px;font-weight:600;color:var(--text)">You\'re editing an existing loan</span>' +
+      '</div>' +
+      '<a href="' + url + '" style="font-size:12px;font-weight:600;padding:7px 14px;background:var(--gold,#C8813A);color:#fff;border-radius:20px;text-decoration:none;white-space:nowrap;transition:background 0.10s" ' +
+        'onmouseover="this.style.background=\'var(--gold-mid, #b5712d)\'" onmouseout="this.style.background=\'var(--gold, #C8813A)\'">' +
+        'Open Loan Details →' +
+      '</a>';
+    return panel;
+  }
+
+  // Deploy 236.136 — legacy buildPanel kept here in case a future
+  // page (e.g. saved-quotes.html) still wants the multi-row picker
+  // UI. Not currently called from the sizers.
+  function buildPanelLegacy(userEmail, toolType, onLoad, onDelete) {
     var panel = document.createElement('div');
     panel.id = 'quotesPanel';
     panel.style.cssText = 'background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden';
