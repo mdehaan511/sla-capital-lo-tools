@@ -11,6 +11,11 @@
        Credit Authorization + the e-sign step + bundling into the
        main application PDF land in 236.129. -->
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+  <!-- Deploy 236.132 — sla-forms.js powers the phone / SSN masks +
+       Google Places autocomplete on the address blocks. Pulls the
+       Maps key from the public /api/config and binds on attributes
+       data-sla-mask / data-sla-autocomplete. -->
+  <script src="sla-forms.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -160,7 +165,7 @@ function render() {
         '<div class="field"><label>Email <span class="req">*</span></label>' +
           '<input type="email" id="f_email" value="' + escA(g.email) + '" required /></div>' +
         '<div class="field"><label>Phone <span class="req">*</span></label>' +
-          '<input type="tel" id="f_phone" value="' + escA(g.phone) + '" required /></div>' +
+          '<input type="tel" id="f_phone" data-sla-mask="phone" placeholder="(XXX) XXX-XXXX" value="' + escA(g.phone) + '" required /></div>' +
       '</div>' +
     '</div>' +
 
@@ -174,7 +179,7 @@ function render() {
           '<input type="text" id="f_fico" value="' + escA(g.fico) + '" placeholder="e.g. 740" required /></div>' +
       '</div>' +
       '<div class="field"><label>Social Security Number <span class="req">*</span></label>' +
-        '<input type="text" id="f_ssn" placeholder="XXX-XX-XXXX" />' +
+        '<input type="text" id="f_ssn" data-sla-mask="ssn" placeholder="XXX-XX-XXXX" />' +
         '<div class="hint">Securely encrypted at rest. Used only on your loan application document.</div>' +
       '</div>' +
       '<div class="field-row">' +
@@ -199,15 +204,15 @@ function render() {
       _renderAddrBlock('home', g.homeAddress || {}) +
       '<div class="field"><label>Have you lived at this address for 2 or more years? <span class="req">*</span></label>' +
         '<div class="radio-group">' +
-          '<label><input type="radio" name="twoYear" value="yes"' + (g.twoYearAddress === 'yes' ? ' checked' : '') + ' onchange="render()"><span>Yes</span></label>' +
-          '<label><input type="radio" name="twoYear" value="no"'  + (g.twoYearAddress === 'no'  ? ' checked' : '') + ' onchange="render()"><span>No</span></label>' +
+          '<label><input type="radio" name="twoYear" value="yes"' + (g.twoYearAddress === 'yes' ? ' checked' : '') + ' onchange="_saveAndRender()"><span>Yes</span></label>' +
+          '<label><input type="radio" name="twoYear" value="no"'  + (g.twoYearAddress === 'no'  ? ' checked' : '') + ' onchange="_saveAndRender()"><span>No</span></label>' +
         '</div>' +
       '</div>' +
       (g.twoYearAddress === 'no' ? '<div class="addr-block"><div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Previous address</div>' + _renderAddrBlock('prev', g.prevAddress || {}) + '</div>' : '') +
       '<div class="field"><label>Mailing address same as home? <span class="req">*</span></label>' +
         '<div class="radio-group">' +
-          '<label><input type="radio" name="mailSame" value="yes"' + (g.mailingSameAsHome === 'yes' ? ' checked' : '') + ' onchange="render()"><span>Yes</span></label>' +
-          '<label><input type="radio" name="mailSame" value="no"'  + (g.mailingSameAsHome === 'no'  ? ' checked' : '') + ' onchange="render()"><span>No</span></label>' +
+          '<label><input type="radio" name="mailSame" value="yes"' + (g.mailingSameAsHome === 'yes' ? ' checked' : '') + ' onchange="_saveAndRender()"><span>Yes</span></label>' +
+          '<label><input type="radio" name="mailSame" value="no"'  + (g.mailingSameAsHome === 'no'  ? ' checked' : '') + ' onchange="_saveAndRender()"><span>No</span></label>' +
         '</div>' +
       '</div>' +
       (g.mailingSameAsHome === 'no' ? '<div class="addr-block"><div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Mailing address</div>' + _renderAddrBlock('mail', g.mailingAddress || {}) + '</div>' : '') +
@@ -268,16 +273,50 @@ function render() {
     var ln = (g.lastName || '').trim();
     if (fn || ln) caSign.value = (fn + ' ' + ln).trim();
   }
+  // Deploy 236.132 — re-bind sla-forms.js helpers (phone/SSN masks
+  // + Google Places autocomplete) onto the freshly-rendered DOM.
+  // sla-forms binds on attributes, so calling reformatExisting on
+  // each render is the equivalent of the borrower-info form's flow.
+  if (window.SLAForms && typeof SLAForms.reformatExisting === 'function') {
+    try { SLAForms.reformatExisting(document); } catch (_) {}
+  }
+}
+
+// Deploy 236.132 — capture every input's current value into
+// STATE.data.guarantor BEFORE re-rendering. Fixes the bug where
+// clicking the "Have you lived here 2+ years?" or "Mailing same
+// as home?" radio wiped Home Address (and every other typed
+// value) because render() rebuilt the form from STATE.data which
+// never received the typed values.
+function _saveAndRender() {
+  if (!STATE.data) { render(); return; }
+  var collected = _collect();
+  STATE.data.guarantor = Object.assign({}, STATE.data.guarantor, collected);
+  render();
 }
 
 function _renderAddrBlock(prefix, a) {
+  // Deploy 236.132 — Google Places autocomplete via sla-forms.js.
+  // data-sla-autocomplete on the street input + ac-city/state/zip
+  // pointing at the companion field IDs so the picked place fills
+  // all four cells at once.
+  var streetId = 'f_' + prefix + 'Street';
+  var cityId   = 'f_' + prefix + 'City';
+  var stateId  = 'f_' + prefix + 'State';
+  var zipId    = 'f_' + prefix + 'Zip';
   return '<div class="field"><label>Street</label>' +
-    '<input type="text" id="f_' + prefix + 'Street" value="' + escA(a.street) + '" /></div>' +
+    '<input type="text" id="' + streetId + '" value="' + escA(a.street) + '"' +
+      ' data-sla-autocomplete' +
+      ' data-sla-ac-city="' + cityId + '"' +
+      ' data-sla-ac-state="' + stateId + '"' +
+      ' data-sla-ac-zip="' + zipId + '"' +
+      ' autocomplete="off"' +
+    ' /></div>' +
   '<div class="field-row">' +
-    '<div class="field"><label>City</label><input type="text" id="f_' + prefix + 'City" value="' + escA(a.city) + '" /></div>' +
-    '<div class="field"><label>State</label><input type="text" id="f_' + prefix + 'State" value="' + escA(a.state) + '" /></div>' +
+    '<div class="field"><label>City</label><input type="text" id="' + cityId + '" value="' + escA(a.city) + '" /></div>' +
+    '<div class="field"><label>State</label><input type="text" id="' + stateId + '" value="' + escA(a.state) + '" /></div>' +
   '</div>' +
-  '<div class="field"><label>ZIP</label><input type="text" id="f_' + prefix + 'Zip" value="' + escA(a.zip) + '" /></div>';
+  '<div class="field"><label>ZIP</label><input type="text" id="' + zipId + '" value="' + escA(a.zip) + '" /></div>';
 }
 
 function _renderDeclarations(decl) {

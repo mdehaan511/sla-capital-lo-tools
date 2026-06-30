@@ -111,8 +111,18 @@ async function handle(req, context) {
   // Build the loan with sizer-flavored fields so Loan Details renders
   // both DSCR financials + property/app sections cleanly.
   const loanId = 'l_' + Date.now() + '_' + _testRand();
+  // Deploy 236.132 — SLA-YYYYMMDD-NNNN user-visible id, frozen at
+  // creation. Mirrors deriveBaselineLoanId() in baseline-sync.mjs so
+  // the displayed id matches what Baseline sees post-sync. Date is
+  // today (no fundingDate yet); hash suffix is djb2(loanId)%10000.
+  const _today = new Date();
+  const _stamp = _today.getFullYear() + String(_today.getMonth() + 1).padStart(2, '0') + String(_today.getDate()).padStart(2, '0');
+  let _h = 0;
+  for (let i = 0; i < loanId.length; i++) { _h = ((_h << 5) - _h + loanId.charCodeAt(i)) | 0; }
+  const slaDisplayId = 'SLA-' + _stamp + '-' + String(Math.abs(_h) % 10000).padStart(4, '0');
   const loan = {
     id:           loanId,
+    slaDisplayId,
     address:      street + ', ' + city + ', ' + state + ' ' + zip,
     propStreet:   street,
     propCity:     city,

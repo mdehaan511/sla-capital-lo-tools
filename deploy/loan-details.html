@@ -1426,10 +1426,18 @@ function render() {
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
         '<div class="page-title">'+escH(l.address||'No address')+'</div>' +
         // Deploy 236.118 — Loan ID chip. Click to copy to clipboard.
-        '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escAttr(l.id || '') + '\')" title="Click to copy loan ID">' +
-          '<span class="ld-loan-id-label">Loan ID</span>' +
-          '<span>' + escH(l.id || '(none)') + '</span>' +
-        '</span>' +
+        // Deploy 236.132 — display the SLA-YYYYMMDD-NNNN id (same
+        // shape we push to Baseline) instead of the raw l_<ts>_<rand>
+        // storage id. Stamped on the loan as slaDisplayId for new
+        // loans; derived deterministically from id + fundingDate for
+        // legacy loans so the displayed value stays stable.
+        (function() {
+          var displayId = (l.slaDisplayId && String(l.slaDisplayId).trim()) || _deriveSlaLoanIdClient(l);
+          return '<span class="ld-loan-id" onclick="copyLoanId(this,\'' + escAttr(displayId) + '\')" title="Click to copy SLA loan ID (storage id: ' + escAttr(l.id || '') + ')">' +
+            '<span class="ld-loan-id-label">Loan ID</span>' +
+            '<span>' + escH(displayId || '(none)') + '</span>' +
+          '</span>';
+        })() +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:10px">' +
         // Deploy 236.102 — Actions dropdown aggregates the Rate Sheet
@@ -3219,6 +3227,37 @@ function switchLdTab(name, skipHash) {
       history.replaceState(null, '', url.toString());
     } catch (_) { /* IE/older — ignore */ }
   }
+}
+
+// Deploy 236.132 — derive the SLA-YYYYMMDD-NNNN id for a loan.
+// Mirrors the server's deriveBaselineLoanId() in baseline-sync.mjs
+// so the displayed id matches what Baseline sees. Date portion uses
+// loan.fundingDate when set, else loan.createdAt, else today (so a
+// fresh loan still has a meaningful display id before the close
+// date is locked in). Suffix is a deterministic djb2 hash of the
+// internal id mod 10000, zero-padded — same SLA loan always shows
+// the same SLA-... value.
+function _deriveSlaLoanIdClient(loan) {
+  if (!loan) return '';
+  var stamp;
+  function compact(s) { return String(s || '').slice(0, 10).replace(/-/g, ''); }
+  if (loan.fundingDate)      stamp = compact(loan.fundingDate);
+  else if (loan.createdAt)   stamp = compact(loan.createdAt);
+  else {
+    var d = new Date();
+    stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  }
+  if (!/^\d{8}$/.test(stamp)) {
+    var d2 = new Date();
+    stamp = d2.getFullYear() + String(d2.getMonth() + 1).padStart(2, '0') + String(d2.getDate()).padStart(2, '0');
+  }
+  var s = String(loan.id || '');
+  var hash = 0;
+  for (var i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+  }
+  var num = Math.abs(hash) % 10000;
+  return 'SLA-' + stamp + '-' + String(num).padStart(4, '0');
 }
 
 function copyLoanId(el, id) {
