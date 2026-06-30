@@ -4202,8 +4202,11 @@ function _generateRTLTransactionalPDF(opts) {
     var b64 = idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
     return { pdfBase64: b64, sigCoords: sigCoords };
   }
-  var addrSlug=(addrFull||'Transactional_Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
-  doc.save(addrSlug+'_Transactional_Quote.pdf');
+  // Deploy 236.153 — filename uses just the street portion of
+  // the property address (everything before the first comma)
+  // followed by " - Rate Sheet". Matches the convention Mike
+  // set for the Loan Application bundle download (236.152).
+  doc.save(_rateSheetFilename(addrFull));
 }
 
 function _generateRTLRateSheetPDF(opts) {
@@ -4794,8 +4797,17 @@ function _generateRTLRateSheetPDF(opts) {
     var b64 = idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
     return { pdfBase64: b64, sigCoords: sigCoords };
   }
-  var addrSlug=(addrFull||'RTL_Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
-  doc.save(addrSlug+'_RTL_Quote.pdf');
+  // Deploy 236.153 — see _rateSheetFilename rationale above.
+  doc.save(_rateSheetFilename(addrFull));
+}
+function _rateSheetFilename(fullAddr) {
+  var street = String(fullAddr || '').split(',')[0].trim();
+  var safe = street
+    .replace(/[<>:"|?*\\\/\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return (safe ? safe + ' - Rate Sheet' : 'Rate Sheet') + '.pdf';
 }
 
 

@@ -2700,8 +2700,22 @@ function _generateRateSheetPDF(opts) {
     var b64 = idx >= 0 ? dataUri.slice(idx + 1) : dataUri;
     return { pdfBase64: b64, sigCoords: sigCoords };
   }
-  var addrSlug = (r.address||'Quote').replace(/[^a-zA-Z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
-  doc.save(addrSlug+'_SLA_Quote.pdf');
+  // Deploy 236.153 — filename uses just the street portion of
+  // the property address (everything before the first comma)
+  // followed by " - Rate Sheet". Matches the convention Mike
+  // set for the Loan Application bundle download (236.152).
+  // Strips only filesystem-illegal chars so spaces, ampersands,
+  // and ordinary punctuation survive in the suggested filename.
+  doc.save(_rateSheetFilename(r.address));
+}
+function _rateSheetFilename(fullAddr) {
+  var street = String(fullAddr || '').split(',')[0].trim();
+  var safe = street
+    .replace(/[<>:"|?*\\\/\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return (safe ? safe + ' - Rate Sheet' : 'Rate Sheet') + '.pdf';
 }
 
 // ── Google Places Autocomplete ──────────────────────────────────
