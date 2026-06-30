@@ -1554,8 +1554,12 @@ function render() {
     });
     var _liveDscrStr = (_liveDscr != null && isFinite(_liveDscr)) ? _liveDscr.toFixed(2) : '';
     var _snapDscr = parseFloat(dscr);
+    // Deploy 236.134 — alert wording per Mike: "DSCR has changed.
+    // Please reprice." Fires only when the live DSCR crosses a
+    // pricing-tier boundary vs the sizer's quoted snapshot
+    // (>=1.20 / 1.00-1.19 / <1.00).
     var _tierFlag = (isFinite(_snapDscr) && _liveDscr != null && _dscrTierOf(_snapDscr) !== _dscrTierOf(_liveDscr))
-      ? '<span style="display:inline-block;margin-left:6px;padding:2px 7px;border-radius:8px;background:rgba(180,83,9,0.14);color:var(--warn, #7a5218);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em" title="Quoted DSCR was ' + _snapDscr.toFixed(2) + ' (' + _dscrTierLabel(_snapDscr) + '); live is ' + _liveDscrStr + ' (' + _dscrTierLabel(_liveDscr) + ') — pricing tier changed">⚠ Tier Δ</span>'
+      ? '<span style="display:inline-block;margin-left:8px;padding:3px 9px;border-radius:10px;background:rgba(180,83,9,0.14);color:var(--warn, #7a5218);font-size:10px;font-weight:700;letter-spacing:0.02em;white-space:nowrap" title="Quoted: ' + _snapDscr.toFixed(2) + ' (' + _dscrTierLabel(_snapDscr) + ') · Live: ' + _liveDscrStr + ' (' + _dscrTierLabel(_liveDscr) + ')">⚠ DSCR has changed. Please reprice</span>'
       : '';
     // Appraised value drives LTV when set; falls back to propVal.
     var _ltvBaseVal = parseFloat(appraisedValue) || parseFloat(propVal);
