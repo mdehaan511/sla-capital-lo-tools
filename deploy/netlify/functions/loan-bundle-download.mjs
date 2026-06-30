@@ -215,7 +215,24 @@ async function handle(req, context) {
   // from Guarantor 1" issue.
   const outBytes = appPdfBytes;
 
-  const filename = 'loan-bundle-' + (loan.slaDisplayId || loanId) + '.pdf';
+  // Deploy 236.152 — filename uses the property's street portion
+  // (everything before the first comma in loan.address), per Mike:
+  // "Loan Application bundles download with the name of Loan
+  // Address (meaning Street number and name) then '- Loan
+  // Application'". Falls back to slaDisplayId / loanId only when
+  // no address is on file. Filesystem-illegal chars are stripped
+  // so the browser save dialog accepts the suggested name on
+  // every OS (Windows is the strict one).
+  const rawAddr = String(loan.address || '').trim();
+  const street = rawAddr ? rawAddr.split(',')[0].trim() : '';
+  const safeStreet = street
+    .replace(/[<>:"|?*\\\/\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  const filename = (safeStreet
+    ? safeStreet + ' - Loan Application'
+    : 'Loan Application - ' + (loan.slaDisplayId || loanId)) + '.pdf';
   const headers = Object.assign({}, corsHeaders(), {
     'Content-Type':        'application/pdf',
     'Content-Length':      String(outBytes.length),
