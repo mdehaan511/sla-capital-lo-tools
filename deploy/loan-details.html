@@ -1769,19 +1769,11 @@ function render() {
     'Download Signed Application (PDF)' +
   '</button>';
 
-  // Deploy 236.145 — one-click bundle download. Packages the signed
-  // loan app + every completed additional guarantor's signed Credit
-  // Auth + a per-guarantor sub-form data summary into a single
-  // combined PDF. Always visible — the endpoint is tolerant of
-  // missing pieces (notes them on the bundle cover page). The
-  // download has to go through authed fetch + blob URL because
-  // the endpoint requires LO auth; plain <a href> doesn't carry
-  // the Netlify Identity JWT and 401s. Same pattern as
-  // SLA.SignedApp.download() in sla-api.js (Deploy 179-era).
-  html += '<button type="button" class="open-sizer-btn term-sheet-btn" id="downloadBundleBtn" onclick="downloadFullApplicationBundle(this)" style="margin-top:8px">' +
-    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 7h5M5 10h5M5 13h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    'Download Full Application Bundle (PDF)' +
-  '</button>';
+  // Deploy 236.149 — separate bundle button removed; the existing
+  // "Download Signed Application" button now downloads the full
+  // regenerated bundle (signed app + all guarantor sections inline
+  // + each guarantor's Credit Auth in the long-app format). One
+  // entry point, one click.
 
   // Deploy 231 — Unsigned Loan Application PDF. Generated fresh from the
   // current borrower_info data, with [UNSIGNED — Filled by LO on behalf
@@ -6794,42 +6786,23 @@ function sendUpdatedAppForSignature() {
   window.open(url, '_blank');
 }
 
+// Deploy 236.149 \u2014 "Download Signed Application" now downloads
+// the full regenerated bundle (signed app + every guarantor's
+// data inline in long-app format + every Credit Auth inline).
+// Hits /api/loan-bundle-download via authed fetch + blob URL
+// (plain <a href> 401s \u2014 same pattern as
+// SLA.SignedApplication.download()). The separate "Download Full
+// Application Bundle" button is gone; one button, one click.
 function downloadSignedApp() {
   if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
   var btn = document.getElementById('downloadSignedAppBtn');
   var originalHTML = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = 'Downloading\u2026';
-  var opts = {};
-  if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
-  SLA.SignedApplication.download(_client.id, _loanId, opts).then(function() {
-    btn.disabled = false;
-    btn.innerHTML = originalHTML;
-  }).catch(function(err) {
-    btn.disabled = false;
-    btn.innerHTML = originalHTML;
-    showToast('Download failed: ' + ((err && err.message) || 'unknown'));
-  });
-}
-
-// Deploy 236.145 \u2014 Full Application Bundle download. Hits the
-// /api/loan-bundle-download endpoint with the Netlify Identity JWT
-// in the Authorization header (plain <a href> 401s \u2014 same reason
-// SLA.SignedApplication.download() uses fetch + blob URL). Server
-// merges the signed loan app PDF + every completed guarantor's
-// signed Credit Auth + per-guarantor sub-form data summary into
-// a single combined PDF.
-function downloadFullApplicationBundle(btn) {
-  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
-  var originalHTML = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = 'Building bundle\u2026';
-
+  btn.innerHTML = 'Building application\u2026';
   var qs = '?clientId=' + encodeURIComponent(_client.id) +
            '&loanId='   + encodeURIComponent(_loanId) +
            ((_loEmail && _user && _loEmail !== _user.email)
              ? '&owner=' + encodeURIComponent(_loEmail) : '');
-
   netlifyIdentity.currentUser().jwt().then(function(token) {
     return fetch('/api/loan-bundle-download' + qs, {
       headers: { 'Authorization': 'Bearer ' + token },
@@ -6846,19 +6819,17 @@ function downloadFullApplicationBundle(btn) {
       a.href = url;
       var cd = r.headers.get('Content-Disposition') || '';
       var m = /filename="([^"]+)"/.exec(cd);
-      a.download = m ? m[1] : 'loan-bundle.pdf';
+      a.download = m ? m[1] : 'loan-application.pdf';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
     });
   }).then(function() {
-    btn.disabled = false;
-    btn.innerHTML = originalHTML;
+    btn.disabled = false; btn.innerHTML = originalHTML;
   }).catch(function(err) {
-    btn.disabled = false;
-    btn.innerHTML = originalHTML;
-    showToast('Bundle download failed: ' + ((err && err.message) || 'unknown'));
+    btn.disabled = false; btn.innerHTML = originalHTML;
+    showToast('Download failed: ' + ((err && err.message) || 'unknown'));
   });
 }
 

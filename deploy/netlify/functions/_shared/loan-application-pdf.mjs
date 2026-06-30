@@ -702,12 +702,19 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         doc.y = headerY + 18;
 
         declarations.forEach((d, i) => {
-          if (doc.y > doc.page.height - 60) {
+          // Deploy 236.149 — measure first, page-break second.
+          // Previously the check was `doc.y > pageHeight - 60`
+          // which let a row START on this page but then pdfkit's
+          // text() auto-paginated mid-row, splitting the question
+          // (page N) from the Yes/No cell values (page N+1, N+2).
+          // Now we compute the row height up front and force a
+          // page break if the WHOLE row won't fit.
+          const questionH = doc.heightOfString(d[0], { width: colWidths[0] - 12, fontSize: 8 });
+          const rowH = Math.max(20, questionH + 8);
+          if (doc.y + rowH > doc.page.height - 54) {
             doc.addPage();
           }
           const rowY = doc.y;
-          const questionH = doc.heightOfString(d[0], { width: colWidths[0] - 12, fontSize: 8 });
-          const rowH = Math.max(20, questionH + 8);
           if (i % 2 === 0) {
             doc.rect(startX, rowY, tableW, rowH).fill('#FAF8F3');
           }
@@ -856,7 +863,16 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       paragraph(ESIGN_CONSENT_TEXT);
       doc.moveDown(0.6);
       subHeader('Signatures');
+      // Deploy 236.149 — signer.prequalOnly skips the ESIGN, Loan
+      // Acknowledgement, and Info-Release signature loops. Used by
+      // additional sub-form guarantors who signed their Credit
+      // Authorization separately but did NOT sign the loan app
+      // itself. They still get a full Prequal Credit & Background
+      // Check page (the Prequal loop below does NOT skip them) so
+      // their Credit Auth lands in the same long-app format as
+      // the primary's.
       signers.forEach((signer) => {
+        if (signer.prequalOnly) return;
         const role = roleLabelFor(signer.role);
         sigBlock(signer, role);
         doc.moveDown(0.3);
@@ -869,6 +885,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       doc.moveDown(0.8);
       subHeader('Signatures');
       signers.forEach((signer) => {
+        if (signer.prequalOnly) return;
         const role = roleLabelFor(signer.role);
         sigBlock(signer, role);
         doc.moveDown(0.3);
@@ -895,6 +912,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       doc.moveDown(0.8);
       subHeader('Signatures');
       signers.forEach((signer) => {
+        if (signer.prequalOnly) return;
         const role = roleLabelFor(signer.role);
         sigBlock(signer, role);
         doc.moveDown(0.3);

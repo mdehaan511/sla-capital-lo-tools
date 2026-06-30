@@ -41,7 +41,6 @@
  * Response: application/pdf
  */
 import { getStore } from '@netlify/blobs';
-import { PDFDocument } from 'pdf-lib';
 import {
   handleOptions, json, requireAuth, isAdmin,
   keySafe, normalizeEmail, corsHeaders,
@@ -85,7 +84,6 @@ async function handle(req, context) {
   const clientsStore   = getStore({ name: 'clients',                       consistency: 'strong' });
   const biStore        = getStore({ name: 'borrower_info',                 consistency: 'strong' });
   const signedAppStore = getStore({ name: 'signed_applications',           consistency: 'strong' });
-  const credAuthStore  = getStore({ name: 'guarantor-credit-auth-pdfs',    consistency: 'strong' });
 
   const primary = await clientsStore.get(ownerKey + '/' + keySafe(clientId), { type: 'json' });
   if (!primary) return json(404, { error: 'Primary client not found' });
@@ -139,10 +137,10 @@ async function handle(req, context) {
 
   // ── 3. Build signers list from the original signed record ──
   // Only include borrower1-4 entries that actually signed (have
-  // an audit block with signedAt). Additional sub-form
-  // guarantors are NOT added here — they didn't sign the loan
-  // app; their Credit Auth (signed separately) is attached at
-  // the end of the bundle.
+  // an audit block with signedAt). These signers participate in
+  // ALL the long-app signature sections (ESIGN consent, Loan
+  // Acknowledgement, Prequal Credit & Background Check, Info
+  // Release) and the audit trail.
   let signers = [];
   let signedAppRec = null;
   try {
@@ -161,6 +159,29 @@ async function handle(req, context) {
           signedAuths:   block.signedAuths || [],
         });
       }
+    });
+  }
+  // Deploy 236.149 — additional sub-form guarantors get appended
+  // to signers with prequalOnly: true. The renderer's ESIGN /
+  // Loan Acknowledgement / Info-Release loops skip them (they
+  // didn't sign those), but the Prequal Credit & Background
+  // Check loop INCLUDES them — so their Credit Authorization
+  // renders inline as a long-app-format page (matching the
+  // primary's) instead of being appended as a separate
+  // narrower-format PDF afterwards.
+  for (const entry of additionalRecords) {
+    const audit = entry.subState && entry.subState.creditAuthAudit;
+    if (!audit || !audit.signedAt) continue;
+    // Map the guarantor's slot in data.guarantors to the
+    // matching borrowerN role label.
+    const roleKey = 'borrower' + (entry.slotIdx + 1); // slot 1 → borrower2, etc.
+    signers.push({
+      role:        roleKey,
+      name:        audit.signerName || (((entry.guarantor.firstName || '') + ' ' + (entry.guarantor.lastName || '')).trim()),
+      email:       audit.signerEmail || entry.guarantor.email || '',
+      audit:       audit,
+      signedAuths: ['prequal_credit'],
+      prequalOnly: true,
     });
   }
 
@@ -185,22 +206,14 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to render application: ' + (e.message || 'unknown') });
   }
 
-  // ── 5. Append each additional guarantor's signed Credit Auth ──
-  const segments = [appPdfBytes];
-  for (const entry of additionalRecords) {
-    if (entry.subState && entry.subState.status === 'completed' && entry.subState.token) {
-      try {
-        const buf = await credAuthStore.get(entry.subState.token, { type: 'arrayBuffer' });
-        if (buf) segments.push(Buffer.from(buf));
-      } catch (e) {
-        console.warn('loan-bundle-download: credit auth fetch failed:', e && e.message);
-      }
-    }
-  }
-
-  const outBytes = segments.length > 1
-    ? await _concatPdfs(segments)
-    : appPdfBytes;
+  // Deploy 236.149 — sub-form Credit Auth PDFs are no longer
+  // appended separately. Additional guarantors are now passed
+  // as prequalOnly signers above, which causes the long-app
+  // renderer to inline a Prequal Credit & Background Check
+  // page for each of them in the exact same format as the
+  // primary's — eliminating the "Guarantor 2 looks different
+  // from Guarantor 1" issue.
+  const outBytes = appPdfBytes;
 
   const filename = 'loan-bundle-' + (loan.slaDisplayId || loanId) + '.pdf';
   const headers = Object.assign({}, corsHeaders(), {
@@ -264,17 +277,3 @@ function _flattenGuarantorForLongApp(g, loan) {
   };
 }
 
-async function _concatPdfs(buffers) {
-  const out = await PDFDocument.create();
-  for (const b of buffers) {
-    if (!b) continue;
-    try {
-      const src = await PDFDocument.load(b, { ignoreEncryption: true });
-      const pages = await out.copyPages(src, src.getPageIndices());
-      pages.forEach((p) => out.addPage(p));
-    } catch (e) {
-      console.warn('loan-bundle-download: skipped malformed PDF segment:', e && e.message);
-    }
-  }
-  return Buffer.from(await out.save());
-}
