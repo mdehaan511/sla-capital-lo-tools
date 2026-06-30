@@ -3779,7 +3779,24 @@ netlifyIdentity.on('init', function(user) {
             iterate((r && r.clients) || []);
           }
           if (!found) return false;
-          var fd = found.formData || found;
+          // Deploy 236.140 — systemic fix: hydrate from the UNION of
+          // loan.formData + loan top-level values, with top-level
+          // winning whenever it has a defined value. This guarantees
+          // every field shown on Loan Details flows into the sizer
+          // automatically — no per-field mapping required. Rationale:
+          //   • formData captures sizer-specific computed values that
+          //     never reach the top level (_finalRate, _points, etc.)
+          //   • Loan top-level is the canonical source of truth that
+          //     Loan Details renders from and inline edits write to
+          //   • Previous merge took formData OR top-level whole; this
+          //     fine-grained merge lets each field choose its source.
+          var fd = Object.assign({}, found.formData || {});
+          Object.keys(found).forEach(function(k) {
+            if (k === 'formData' || k === 'loans') return; // skip wrappers
+            if (found[k] !== undefined && found[k] !== null) {
+              fd[k] = found[k];
+            }
+          });
           if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
           if (!fd.borrowerName && clientRec) {
             fd = Object.assign({}, fd, {

@@ -3631,7 +3631,18 @@ netlifyIdentity.on('init', function(user) {
           iterate((r && r.clients) || []);
         }
         if (!found) return false;
-        var fd = found.formData || found;
+        // Deploy 236.140 — systemic union-merge (see dscr-sizer.html
+        // for full rationale). formData provides sizer-specific
+        // computed values (_finalRate, _points); top-level loan
+        // values override on a per-field basis whenever set so every
+        // field on Loan Details flows into the sizer.
+        var fd = Object.assign({}, found.formData || {});
+        Object.keys(found).forEach(function(k) {
+          if (k === 'formData' || k === 'loans') return;
+          if (found[k] !== undefined && found[k] !== null) {
+            fd[k] = found[k];
+          }
+        });
         if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
         if (!fd.borrowerName && clientRec) {
           fd = Object.assign({}, fd, {
