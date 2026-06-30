@@ -219,8 +219,25 @@
       '.dr-root .small-btn:hover { border-color:var(--gold); color:var(--gold-mid); }',
       '.dr-root .small-btn.danger:hover { border-color:var(--dr-red); color:var(--dr-red); }',
 
-      '.dr-root .notes-area { width:100%; min-height:60px; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:12px; font-family:"DM Sans", sans-serif; margin-top:10px; resize:vertical; }',
+      '.dr-root .notes-area { width:100%; min-height:60px; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:12px; font-family:"DM Sans", sans-serif; resize:vertical; }',
       '.dr-root .notes-area:focus { outline:none; border-color:var(--gold); }',
+      // Deploy 236.158 — notes header (label + autosave indicator).
+      '.dr-root .dr-notes-wrap { margin-top:10px; }',
+      '.dr-root .dr-notes-label { display:flex; justify-content:space-between; align-items:center; font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px; }',
+      '.dr-root .dr-notes-status { font-size:10px; font-weight:500; text-transform:none; letter-spacing:0; min-height:14px; transition:opacity 0.2s; }',
+      '.dr-root .dr-notes-status.saving { color:var(--muted); }',
+      '.dr-root .dr-notes-status.saved  { color:var(--dr-green); }',
+      '.dr-root .dr-notes-status.failed { color:var(--dr-red); }',
+      // Deploy 236.158 — inline rename UI on doc-name.
+      '.dr-root .doc-name { display:flex; align-items:center; gap:6px; min-width:0; }',
+      '.dr-root .doc-name-text { word-break:break-all; }',
+      '.dr-root .dr-rename-btn { background:transparent; border:none; cursor:pointer; padding:2px 4px; font-size:12px; color:var(--muted); border-radius:4px; opacity:0; transition:opacity 0.15s; }',
+      '.dr-root .current-doc:hover .dr-rename-btn { opacity:0.85; }',
+      '.dr-root .dr-rename-btn:hover { background:var(--gold-light, rgba(200,129,58,0.10)); color:var(--gold-mid); opacity:1; }',
+      '.dr-root .dr-rename-input { flex:1; min-width:0; padding:4px 8px; font-size:13px; font-family:"DM Sans", sans-serif; border:1.5px solid var(--gold); border-radius:5px; }',
+      '.dr-root .dr-rename-input:focus { outline:none; }',
+      '.dr-root .dr-rename-save  { color:var(--dr-green); border-color:var(--dr-green-border); }',
+      '.dr-root .dr-rename-cancel { color:var(--muted); }',
       '.dr-root .verdict-actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }',
       '.dr-root .v-btn { padding:7px 14px; font-size:12px; font-weight:600; border:1px solid var(--border); background:#fff; border-radius:6px; cursor:pointer; transition:all 0.15s; font-family:"DM Sans", sans-serif; }',
       '.dr-root .v-btn.approve  { color:var(--dr-green); border-color:var(--dr-green-border); }',
@@ -640,10 +657,16 @@
     var currentHtml = '';
     if (d.currentDocId) {
       var sizeKb = Math.round((d.currentSize || 0) / 1024);
+      // Deploy 236.158 — pencil opens an inline rename input. Saves
+      // via the same patch endpoint (currentFilename is just a per-
+      // doc field; loan-reviews-save merges it shallowly).
       currentHtml =
         '<div class="current-doc">' +
-          '<div>' +
-            '<div class="doc-name">' + escHtml(d.currentFilename || '(unnamed)') + '</div>' +
+          '<div style="min-width:0;flex:1">' +
+            '<div class="doc-name" id="dr-name_' + escAttr(slug) + '">' +
+              '<span class="doc-name-text">' + escHtml(d.currentFilename || '(unnamed)') + '</span>' +
+              '<button class="dr-rename-btn" title="Rename" onclick="dr_renameDoc(\'' + escAttr(slug) + '\')">&#x270e;</button>' +
+            '</div>' +
             '<div class="doc-meta">' + sizeKb + ' KB &middot; uploaded ' + formatDate(d.currentUploadedAt) + '</div>' +
           '</div>' +
           '<div class="doc-actions">' +
@@ -663,10 +686,19 @@
         '<input type="file" accept="application/pdf,.pdf" onchange="dr_dzPick(event,\'' + escAttr(slug) + '\')" />' +
       '</label>';
 
+    // Deploy 236.158 — notes save indicator. The textarea fires on
+    // blur (onchange) — the indicator next to the label flashes
+    // "Saving…" → "Saved ✓" so the LO can see the autosave landed.
     var notes =
-      '<textarea class="notes-area" placeholder="Processor notes (optional)…" data-slug="' + escAttr(slug) + '" onchange="dr_saveNotes(\'' + escAttr(slug) + '\', this.value)">' +
-        escHtml(d.processorNotes || '') +
-      '</textarea>';
+      '<div class="dr-notes-wrap">' +
+        '<div class="dr-notes-label">' +
+          '<span>Processor notes</span>' +
+          '<span class="dr-notes-status" id="dr-notes-status_' + escAttr(slug) + '"></span>' +
+        '</div>' +
+        '<textarea class="notes-area" placeholder="Processor notes (optional)…" data-slug="' + escAttr(slug) + '" onchange="dr_saveNotes(\'' + escAttr(slug) + '\', this.value)">' +
+          escHtml(d.processorNotes || '') +
+        '</textarea>' +
+      '</div>';
 
     var verdictBtns;
     if (verdict === 'approved' || verdict === 'na') {
@@ -835,9 +867,71 @@
   global.dr_saveNotes = function(slug, value) {
     var patch = { docs: {} };
     patch.docs[slug] = { processorNotes: value };
+    // Deploy 236.158 — visible per-tray save indicator. Toast spam
+    // every blur would be obnoxious; the inline indicator flashes
+    // "Saving…" then "Saved ✓" for ~2 seconds.
+    var statusEl = document.getElementById('dr-notes-status_' + slug);
+    if (statusEl) { statusEl.textContent = 'Saving…'; statusEl.className = 'dr-notes-status saving'; }
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
-    }).catch(function(err) { showToast('Notes save failed: ' + (err.message || 'Unknown'), 'error'); });
+      if (statusEl) {
+        statusEl.textContent = 'Saved ✓';
+        statusEl.className = 'dr-notes-status saved';
+        setTimeout(function() {
+          if (statusEl.textContent === 'Saved ✓') {
+            statusEl.textContent = '';
+            statusEl.className = 'dr-notes-status';
+          }
+        }, 2000);
+      }
+    }).catch(function(err) {
+      if (statusEl) { statusEl.textContent = 'Save failed'; statusEl.className = 'dr-notes-status failed'; }
+      showToast('Notes save failed: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+
+  // Deploy 236.158 — inline rename. Swaps the doc-name span for an
+  // input prefilled with the current filename. Enter/blur saves
+  // via the same patch endpoint (currentFilename is a per-doc
+  // field; loan-reviews-save merges shallowly). Esc cancels.
+  global.dr_renameDoc = function(slug) {
+    var nameEl = document.getElementById('dr-name_' + slug);
+    if (!nameEl) return;
+    var d = _review.docs[slug] || {};
+    var current = d.currentFilename || '';
+    nameEl.innerHTML =
+      '<input class="dr-rename-input" type="text" value="' + escAttr(current) + '" />' +
+      '<button class="small-btn dr-rename-save" onclick="dr_commitRename(\'' + escAttr(slug) + '\')">Save</button>' +
+      '<button class="small-btn dr-rename-cancel" onclick="dr_cancelRename(\'' + escAttr(slug) + '\')">Cancel</button>';
+    var input = nameEl.querySelector('.dr-rename-input');
+    if (input) {
+      input.focus();
+      input.select();
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter')  { e.preventDefault(); global.dr_commitRename(slug); }
+        if (e.key === 'Escape') { e.preventDefault(); global.dr_cancelRename(slug); }
+      });
+    }
+  };
+  global.dr_cancelRename = function(slug) { render(); };
+  global.dr_commitRename = function(slug) {
+    var nameEl = document.getElementById('dr-name_' + slug);
+    if (!nameEl) return;
+    var input = nameEl.querySelector('.dr-rename-input');
+    var next = (input && input.value || '').trim();
+    var d = _review.docs[slug] || {};
+    if (!next) { showToast('Filename can\'t be empty.', 'error'); return; }
+    if (next === (d.currentFilename || '')) { render(); return; }
+    var patch = { docs: {} };
+    patch.docs[slug] = { currentFilename: next };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast('Renamed.', 'success');
+      render();
+    }).catch(function(err) {
+      showToast('Rename failed: ' + (err.message || 'Unknown'), 'error');
+      render();
+    });
   };
 
   global.dr_setVerdict = function(slug, verdict) {
