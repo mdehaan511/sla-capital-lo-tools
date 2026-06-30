@@ -819,6 +819,16 @@
 .ag-modal .ag-match.show { display: block; }
 .ag-modal .ag-err { font-size: 12px; color: var(--danger, #7c1f1f); margin-top: 8px; display: none; }
 .ag-modal .ag-err.show { display: block; }
+/* Deploy 236.131 — type-ahead suggestions for the email field. */
+.ag-modal .ag-email-wrap { position: relative; }
+.ag-modal .ag-suggest { position: absolute; left: 0; right: 0; top: 100%; background: #fff; border: 1px solid var(--border, #ddd8d0); border-radius: 5px; box-shadow: 0 6px 24px rgba(0,0,0,0.08); margin-top: 2px; max-height: 220px; overflow-y: auto; z-index: 9100; display: none; }
+.ag-modal .ag-suggest.show { display: block; }
+.ag-modal .ag-suggest-row { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border, #ddd8d0); transition: background 0.10s; }
+.ag-modal .ag-suggest-row:last-child { border-bottom: none; }
+.ag-modal .ag-suggest-row:hover, .ag-modal .ag-suggest-row.focused { background: var(--gold-light, rgba(200,129,58,0.10)); }
+.ag-modal .ag-suggest-name { font-size: 13px; font-weight: 600; color: var(--text, #1a1520); }
+.ag-modal .ag-suggest-meta { font-size: 11px; color: var(--muted, #7a7488); font-family: 'DM Mono', monospace; margin-top: 2px; }
+.ag-modal .ag-suggest-empty { padding: 10px 12px; font-size: 12px; color: var(--muted, #7a7488); font-style: italic; }
 .ag-modal .ag-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
 .ag-modal .ag-actions button { padding: 8px 18px; border-radius: 5px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; border: 1px solid var(--border, #ddd8d0); background: #fff; color: var(--muted, #7a7488); }
 .ag-modal .ag-actions button.primary { background: var(--gold, #C8813A); border-color: var(--gold, #C8813A); color: #fff; }
@@ -2869,7 +2879,11 @@ function openAddGuarantorModal() {
       '<div class="ag-hint">Add an additional guarantor to this loan without re-routing through the long application. If their email matches an existing contact under you, we\'ll link to that contact and auto-fill the rest. The sub-form link is generated automatically.</div>' +
       '<div class="ag-match" id="agMatch"></div>' +
       '<div class="ag-field"><label>Email <span style="color:var(--danger)">*</span></label>' +
-        '<input type="email" id="agEmail" placeholder="guarantor@email.com" /></div>' +
+        '<div class="ag-email-wrap">' +
+          '<input type="email" id="agEmail" placeholder="guarantor@email.com" autocomplete="off" />' +
+          '<div class="ag-suggest" id="agSuggest" role="listbox"></div>' +
+        '</div>' +
+      '</div>' +
       '<div class="ag-row">' +
         '<div class="ag-field"><label>First Name <span style="color:var(--danger)">*</span></label>' +
           '<input type="text" id="agFirstName" /></div>' +
@@ -2891,39 +2905,27 @@ function openAddGuarantorModal() {
   document.body.appendChild(bg);
   document.getElementById('agCancel').onclick = function() { bg.remove(); };
   document.getElementById('agSave').onclick = saveAddGuarantor;
-  // Email blur → existing-client lookup.
-  document.getElementById('agEmail').addEventListener('blur', _agLookupExisting);
-  setTimeout(function() { try { document.getElementById('agEmail').focus(); } catch (_) {} }, 50);
+  // Deploy 236.131 — start fetching clients immediately so the
+  // suggestion dropdown can filter on the first keystroke (was
+  // 236.130: only on email blur).
+  _agPrimeClientsCache();
+  var emailEl = document.getElementById('agEmail');
+  emailEl.addEventListener('input', _agOnEmailInput);
+  emailEl.addEventListener('blur', function() {
+    // Delay so a click on a suggestion fires first.
+    setTimeout(_agHideSuggest, 180);
+    _agConfirmExactMatch();
+  });
+  emailEl.addEventListener('keydown', _agSuggestKeydown);
+  // Click-outside closes the dropdown (delegated on the modal bg).
+  bg.addEventListener('click', function(e) {
+    if (!e.target.closest('.ag-email-wrap')) _agHideSuggest();
+  }, true);
+  setTimeout(function() { try { emailEl.focus(); } catch (_) {} }, 50);
 }
 
-function _agLookupExisting() {
-  var emailEl = document.getElementById('agEmail');
-  var matchBox = document.getElementById('agMatch');
-  if (!emailEl || !matchBox) return;
-  var email = String(emailEl.value || '').toLowerCase().trim();
-  matchBox.classList.remove('show');
-  matchBox.innerHTML = '';
-  _agExistingMatch = null;
-  if (!email || email.indexOf('@') < 0) return;
-  function runMatch(pool) {
-    var match = pool.find(function(c) {
-      return c && String(c.email || '').toLowerCase().trim() === email;
-    });
-    if (!match) return;
-    _agExistingMatch = { client: match };
-    // Pre-fill the other fields (only if blank — don't overwrite LO typing).
-    function setIf(id, v) { var el = document.getElementById(id); if (el && !el.value && v) el.value = v; }
-    setIf('agFirstName', match.firstName);
-    setIf('agLastName',  match.lastName);
-    setIf('agPhone',     match.phone);
-    matchBox.innerHTML =
-      '✓ <strong>Existing contact found:</strong> ' +
-      escH(((match.firstName || '') + ' ' + (match.lastName || '')).trim() || match.email) +
-      '. This guarantor will be linked to that contact.';
-    matchBox.classList.add('show');
-  }
-  // Cached client list to avoid re-fetching on every blur.
-  if (_agAllClientsCache) { runMatch(_agAllClientsCache); return; }
+function _agPrimeClientsCache() {
+  if (_agAllClientsCache) return;
   var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
   p.then(function(r) {
     var pool = [];
@@ -2933,8 +2935,126 @@ function _agLookupExisting() {
       pool = (r && r.clients) || [];
     }
     _agAllClientsCache = pool;
-    runMatch(pool);
-  }).catch(function() { /* silent — match is a UX nicety */ });
+  }).catch(function() { /* silent */ });
+}
+
+// Filter the cached client list for the typed query (matches email,
+// first name, last name — case-insensitive substring). Renders up to
+// 5 rows in #agSuggest with click + keyboard handlers.
+function _agOnEmailInput(e) {
+  var q = String((e && e.target && e.target.value) || '').toLowerCase().trim();
+  var box = document.getElementById('agSuggest');
+  if (!box) return;
+  // Clear the prior "exact match" green pill if user is still typing.
+  var matchBox = document.getElementById('agMatch');
+  if (matchBox && _agExistingMatch && q !== String(_agExistingMatch.client.email || '').toLowerCase()) {
+    matchBox.classList.remove('show');
+    matchBox.innerHTML = '';
+    _agExistingMatch = null;
+  }
+  if (!q || q.length < 2 || !_agAllClientsCache) {
+    _agHideSuggest();
+    return;
+  }
+  var pool = _agAllClientsCache;
+  var matches = pool.filter(function(c) {
+    if (!c) return false;
+    var em = String(c.email || '').toLowerCase();
+    var nm = (String(c.firstName || '') + ' ' + String(c.lastName || '')).toLowerCase();
+    return em.indexOf(q) >= 0 || nm.indexOf(q) >= 0;
+  }).slice(0, 6);
+  if (!matches.length) {
+    box.innerHTML = '<div class="ag-suggest-empty">No matching contacts — this will create a new one on save.</div>';
+    box.classList.add('show');
+    return;
+  }
+  box.innerHTML = matches.map(function(c, i) {
+    var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email;
+    return '<div class="ag-suggest-row" data-i="' + i + '" data-cid="' + escAttr(c.id || '') + '">' +
+      '<div class="ag-suggest-name">' + escH(name) + '</div>' +
+      '<div class="ag-suggest-meta">' + escH(c.email || '') +
+        (c.phone ? ' · ' + escH(c.phone) : '') +
+        (c.entityName ? ' · ' + escH(c.entityName) : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+  // Wire click handlers — capture matches[i] by id since DOM-stored
+  // dataset only carries strings.
+  box.querySelectorAll('.ag-suggest-row').forEach(function(row) {
+    row.onclick = function() {
+      var idx = parseInt(row.dataset.i, 10);
+      var picked = matches[idx];
+      if (picked) _agPickContact(picked);
+    };
+  });
+  box.classList.add('show');
+}
+
+function _agSuggestKeydown(e) {
+  var box = document.getElementById('agSuggest');
+  if (!box || !box.classList.contains('show')) return;
+  var rows = Array.prototype.slice.call(box.querySelectorAll('.ag-suggest-row'));
+  if (!rows.length) return;
+  var focusedIdx = rows.findIndex(function(r) { return r.classList.contains('focused'); });
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (focusedIdx >= 0) rows[focusedIdx].classList.remove('focused');
+    var next = (focusedIdx + 1) % rows.length;
+    rows[next].classList.add('focused');
+    rows[next].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (focusedIdx >= 0) rows[focusedIdx].classList.remove('focused');
+    var prev = (focusedIdx <= 0 ? rows.length : focusedIdx) - 1;
+    rows[prev].classList.add('focused');
+    rows[prev].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && focusedIdx >= 0) {
+    e.preventDefault();
+    rows[focusedIdx].click();
+  } else if (e.key === 'Escape') {
+    _agHideSuggest();
+  }
+}
+
+function _agHideSuggest() {
+  var box = document.getElementById('agSuggest');
+  if (box) box.classList.remove('show');
+}
+
+function _agPickContact(c) {
+  function setVal(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
+  setVal('agEmail',     c.email);
+  setVal('agFirstName', c.firstName);
+  setVal('agLastName',  c.lastName);
+  setVal('agPhone',     c.phone);
+  _agExistingMatch = { client: c };
+  var matchBox = document.getElementById('agMatch');
+  if (matchBox) {
+    matchBox.innerHTML =
+      '✓ <strong>Linked to existing contact:</strong> ' +
+      escH(((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email) +
+      '. This guarantor will reuse that contact record.';
+    matchBox.classList.add('show');
+  }
+  _agHideSuggest();
+  // Move focus to ownership so the LO can finish.
+  var own = document.getElementById('agOwnership');
+  if (own) try { own.focus(); } catch (_) {}
+}
+
+// Called on blur — if the typed email is an exact match to a
+// cached client AND the user hasn't already picked a suggestion,
+// auto-confirm the match (mirrors the prior 236.130 behavior).
+function _agConfirmExactMatch() {
+  if (_agExistingMatch) return; // already picked
+  var emailEl = document.getElementById('agEmail');
+  if (!emailEl || !_agAllClientsCache) return;
+  var email = String(emailEl.value || '').toLowerCase().trim();
+  if (!email || email.indexOf('@') < 0) return;
+  var match = _agAllClientsCache.find(function(c) {
+    return c && String(c.email || '').toLowerCase().trim() === email;
+  });
+  if (match) _agPickContact(match);
 }
 
 function saveAddGuarantor() {

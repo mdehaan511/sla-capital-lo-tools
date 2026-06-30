@@ -187,6 +187,25 @@
     </div>
   </div>
 
+  <!-- Deploy 236.131 — admin test fixture. Creates a fully-formed
+       loan + guarantors + sub-form tokens so admins can iterate on
+       Loan Details / Contacts / sub-form UI without filling the
+       long application every time. Hidden for non-admins. -->
+  <div class="card" id="testFixturesCard" style="display:none">
+    <div class="card-header">
+      <div><h2>Test Loan Fixtures</h2><p>Generate fully-formed test loans (with guarantors, sub-form tokens, ownership) so you can iterate on UI without re-submitting the long application. Every entity created here is flagged with <code>_test: true</code>.</p></div>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <button type="button" class="btn" onclick="createTestLoan('multi_guarantor_pending')">+ Multi-Guarantor (3, ownership 60/30/10, sub-forms pending)</button>
+        <button type="button" class="btn" onclick="createTestLoan('single_guarantor')">+ Single Guarantor (100%)</button>
+        <button type="button" class="btn" onclick="createTestLoan('low_ownership')">+ Low Ownership (45% — triggers &lt;51 banner)</button>
+        <button type="button" class="btn" onclick="createTestLoan('over_ownership')">+ Over Ownership (150% — triggers &gt;100 banner)</button>
+      </div>
+      <div id="testFixtureStatus" style="font-size:13px;color:var(--muted);min-height:22px;line-height:1.5"></div>
+    </div>
+  </div>
+
   <!-- Super-admin: site settings -->
   <div class="card" id="settingsCard" style="display:none">
     <div class="card-header"><div><h2>Site Settings</h2><p>Notification banner, Slack webhook, and submission email — visible to super_admin only.</p></div></div>
@@ -344,6 +363,8 @@ netlifyIdentity.on('init', function(user) {
   document.getElementById('auth-gate').style.display = 'none';
   if (_isAdmin) {
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+    // Deploy 236.131 — surface the Test Loan Fixtures card for admins.
+    var tf = document.getElementById('testFixturesCard'); if (tf) tf.style.display = 'block';
   }
   initProfile();
   if (_isSuperAdmin) {
@@ -411,6 +432,39 @@ function copyApply() {
 }
 
 // ── Stats ────────────────────────────────────────────
+// Deploy 236.131 — Test Loan Fixture creator. Calls the admin-only
+// /api/test-create-loan endpoint and surfaces a clickable result
+// row with the generated loan + each guarantor's sub-form link.
+function createTestLoan(scenario) {
+  var status = document.getElementById('testFixtureStatus');
+  if (!status) return;
+  status.innerHTML = '⏳ Creating <strong>' + escH(scenario) + '</strong> test loan…';
+  SLA.api('POST', '/api/test-create-loan', { scenario: scenario || 'multi_guarantor_pending' }).then(function(r) {
+    if (!r || !r.ok) { status.innerHTML = '<span style="color:var(--danger)">Failed: server returned no loan.</span>'; return; }
+    var gLinks = '';
+    if (r.guarantors && r.guarantors.length) {
+      gLinks = '<div style="margin-top:8px;font-size:12px"><strong>Sub-form links (pending):</strong></div>' +
+        r.guarantors.map(function(g) {
+          var subUrl = window.location.origin + g.subFormUrl;
+          return '<div style="font-size:11px;margin-top:4px;font-family:DM Mono,monospace;color:var(--muted)">' +
+                 escH(g.name) + ' (' + escH(g.email) + ') → ' +
+                 '<a href="' + escAttr(subUrl) + '" target="_blank" rel="noopener" style="color:var(--gold-mid)">' + escAttr(subUrl) + '</a>' +
+                 '</div>';
+        }).join('');
+    }
+    status.innerHTML =
+      '<div style="padding:12px 14px;background:rgba(37,105,64,0.08);border:1px solid rgba(37,105,64,0.30);border-radius:6px;color:var(--success);line-height:1.5">' +
+        '✓ Created <strong>' + escH(r.primaryName) + '</strong> · ' +
+        'guarantors: ' + r.guarantorCount + ' · ' +
+        'ownership total: ' + r.ownershipTotal + '% · ' +
+        '<a href="' + escAttr(r.loanUrl) + '" target="_blank" rel="noopener" style="color:var(--success);text-decoration:underline;font-weight:600">Open Loan →</a>' +
+        gLinks +
+      '</div>';
+  }).catch(function(err) {
+    status.innerHTML = '<span style="color:var(--danger)">Failed: ' + escH(err && err.message || 'unknown') + '</span>';
+  });
+}
+
 function loadStats() {
   SLA.Admin.userStats().then(function(resp) {
     var users = (resp && resp.users) || [];

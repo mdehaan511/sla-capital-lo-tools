@@ -311,6 +311,14 @@
   to = "/.netlify/functions/loan-add-guarantor"
   status = 200
   force = true
+# Deploy 236.131 — admin test fixture: creates a fully-formed
+# test loan + guarantors so Mike can iterate on UI without
+# routing through the long application every time.
+[[redirects]]
+  from = "/api/test-create-loan"
+  to = "/.netlify/functions/test-create-loan"
+  status = 200
+  force = true
 
 # Deploy 236.124 (Phase B.2/B.3) — Loan Financials inline editor +
 # restore. Patches a narrow whitelist (rate/points/purchasePrice/
