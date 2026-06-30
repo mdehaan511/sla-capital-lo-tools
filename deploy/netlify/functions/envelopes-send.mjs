@@ -49,6 +49,13 @@ async function handle(req, context) {
   const body = await readJsonBody(req);
   if (!body || !body.envelopeId) return json(400, { error: 'envelopeId required' });
 
+  // Deploy 236.156 — skipEmail:true generates per-signer tokens
+  // and indexes them, then returns the signing URLs WITHOUT
+  // sending any invitation emails. Lets the LO copy the link
+  // and text it to the borrower instead. Same envelope record
+  // and same signing flow — only the delivery channel changes.
+  const skipEmail = body.skipEmail === true;
+
   const ownerKey = keySafe(normalizeEmail(body.owner || user.email));
   const store = getStore({ name: 'envelopes', consistency: 'strong' });
   const key = `${ownerKey}/${body.envelopeId}`;
@@ -116,6 +123,36 @@ async function handle(req, context) {
     if (loan) propertyAddress = loan.propertyAddress || '';
   } catch (_) {}
 
+  // Stamp the signing URL onto each signer in the response so
+  // the frontend can display a copy-able link without having to
+  // reassemble the URL itself. Used by both flows (email + link-
+  // only) but only critical for the link-only path.
+  const signingUrls = env.signers.map((s) =>
+    `${base}/term-sheet-sign.html?t=${encodeURIComponent(s.token)}`
+  );
+
+  // Deploy 236.156 \u2014 link-only flow: skip the email sends entirely,
+  // mark the envelope sent with a history note, and return the
+  // signing URLs so the LO can copy + text them.
+  if (skipEmail) {
+    env.status = 'sent';
+    env.statusUpdatedAt = now;
+    env.sendError = null;
+    env.history.push({
+      ts: now,
+      status: 'sent',
+      note: `Generated ${env.signers.length} signing link(s); no invitation email sent (link-only flow).`,
+    });
+    try { await store.setJSON(key, env); }
+    catch (e) { console.warn('envelope post-send (skipEmail) write failed:', e && e.message); }
+    return json(200, {
+      ok: true,
+      envelope: env,
+      signingUrls,
+      emailResults: env.signers.map((s) => ({ email: s.email, ok: null, skipped: true })),
+    });
+  }
+
   // Send invitation emails
   const emailResults = [];
   const apiKey = process.env.RESEND_API_KEY;
@@ -125,12 +162,12 @@ async function handle(req, context) {
     env.sendError = 'RESEND_API_KEY not configured \u2014 tokens generated but no emails sent.';
     env.history.push({ ts: now, status: 'sent', note: env.sendError });
     try { await store.setJSON(key, env); } catch (_) {}
-    return json(200, { ok: true, envelope: env, warning: env.sendError });
+    return json(200, { ok: true, envelope: env, signingUrls, warning: env.sendError });
   }
 
   for (let i = 0; i < env.signers.length; i++) {
     const s = env.signers[i];
-    const link = `${base}/term-sheet-sign.html?t=${encodeURIComponent(s.token)}`;
+    const link = signingUrls[i];
     try {
       const r = await sendInvitationEmail({
         apiKey, signer: s, envelope: env, link, loName, propertyAddress,
@@ -158,7 +195,7 @@ async function handle(req, context) {
   try { await store.setJSON(key, env); }
   catch (e) { console.warn('envelope post-send write failed:', e && e.message); }
 
-  return json(200, { ok: true, envelope: env, emailResults });
+  return json(200, { ok: true, envelope: env, signingUrls, emailResults });
 }
 
 async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress, ownerKey }) {

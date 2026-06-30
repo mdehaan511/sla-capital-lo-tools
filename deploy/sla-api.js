@@ -581,10 +581,16 @@
       var path = '/api/envelopes' + (owner ? '?owner=' + encodeURIComponent(owner) : '');
       return api('POST', path, data);
     },
-    send: function (envelopeId, owner) {
+    // Deploy 236.156 — opts.skipEmail bypasses invitation email
+    // sends and returns the per-signer signing URLs in the
+    // response. Used by the "Generate Link to Text" flow on
+    // the Send for Signature modal.
+    send: function (envelopeId, owner, opts) {
+      opts = opts || {};
       return api('POST', '/api/envelopes-send', {
         envelopeId: envelopeId,
         owner: owner || '',
+        skipEmail: !!opts.skipEmail,
       });
     },
     void: function (envelopeId, owner, reason) {

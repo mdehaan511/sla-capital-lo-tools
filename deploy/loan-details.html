@@ -458,47 +458,60 @@
   </div>
 </div>
 
-<!-- Send for Signature modal — native eSign. Same visual pattern as the
-     borrower-info modal so it feels like a familiar dialog to LOs. -->
+<!-- Send for Signature modal — Deploy 236.156 redesign. Mirrors
+     the Send Full Loan Application flow (biModal): single
+     borrower, "Email this link" toggle, copyable link display
+     post-generate. Multi-signer support removed per Mike — the
+     rate sheet always goes to the primary borrower on the loan.
+     Hidden inputs kept for backward-compat with existing JS that
+     reads them (esDocRateSheet checked, esDocLoanApp unchecked). -->
 <div class="bi-modal-bg" id="esignModal">
   <div class="bi-modal" style="max-width:560px">
-    <h3>Send for Signature</h3>
-    <p class="bi-sub" id="esModeNote">
-      <span class="es-mode-text">Each signer gets a unique secure link by email. They review the document(s) and electronically sign with their typed legal name. When all signers have signed, everyone receives the final signed PDF.</span>
-    </p>
+    <h3>Send Rate Sheet for Signature</h3>
+    <p class="bi-sub">Generates a secure link the borrower uses to review and electronically sign the rate sheet. Email it directly, or copy the link to text it from your phone.</p>
 
-    <div style="margin-top:14px">
-      <label class="bi-section-label">Documents to send</label>
-      <!-- Deploy 227 — DOCX Loan Application option removed. The long
-           loan application is collected through the borrower-info long
-           form + native eSign signature flow; there's no need for a
-           separate DOCX option here. Rate Sheet is the sole document
-           sent through this modal. The hidden #esDocLoanApp input is
-           kept in the DOM (disabled, off) so existing JS that reads it
-           via .checked doesn't throw. -->
-      <label class="bi-checkbox" style="margin-top:6px">
-        <input type="checkbox" id="esDocRateSheet" checked />
-        <span>Rate Sheet (PDF generated from sizer)</span>
-      </label>
-      <input type="checkbox" id="esDocLoanApp" style="display:none" />
+    <div id="esContent" style="margin-top:14px">
+      <div class="bi-link-row" id="esLinkRow" style="display:none">
+        <input type="text" id="esLinkInput" readonly />
+        <button type="button" id="esCopyBtn" onclick="esCopyLink()">Copy</button>
+      </div>
+
+      <div class="bi-options" id="esOptions">
+        <div style="display:flex;gap:10px;margin-bottom:10px">
+          <div style="flex:1">
+            <input type="text" id="esSignerFirst" placeholder="First name" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px" />
+          </div>
+          <div style="flex:1">
+            <input type="text" id="esSignerLast" placeholder="Last name" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px" />
+          </div>
+        </div>
+        <label class="bi-checkbox">
+          <input type="checkbox" id="esSendEmailCb" checked />
+          <span>Email this link to the borrower</span>
+        </label>
+        <div class="bi-email-row" id="esEmailRow">
+          <input type="email" id="esSignerEmail" placeholder="borrower@example.com" />
+          <span class="bi-email-hint">We'll send a secure signing link to this address.</span>
+        </div>
+      </div>
+
+      <div style="margin-top:14px">
+        <label class="bi-section-label">Optional message (included in the email; ignored for link-only)</label>
+        <textarea id="esMessage" placeholder="Hi! Please review and sign the attached rate sheet at your earliest convenience." style="width:100%;min-height:54px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px;resize:vertical"></textarea>
+      </div>
+
+      <div class="bi-status" id="esStatusMsg"></div>
     </div>
 
-    <div style="margin-top:18px">
-      <label class="bi-section-label">Signers</label>
-      <div id="esSignerList" style="margin-top:6px"></div>
-      <button type="button" class="bi-btn cancel" onclick="esAddSigner()" style="margin-top:6px;font-size:11px">+ Add another signer</button>
-    </div>
-
-    <div style="margin-top:14px">
-      <label class="bi-section-label">Optional message to signers</label>
-      <textarea id="esMessage" placeholder="Hi! Please review and sign the attached documents at your earliest convenience." style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:6px;resize:vertical"></textarea>
-    </div>
-
-    <div class="bi-status" id="esStatusMsg"></div>
+    <!-- Hidden inputs preserved so legacy refs (.checked / DOM lookups)
+         don't throw. Rate sheet is always the doc; loan app is never. -->
+    <input type="checkbox" id="esDocRateSheet" checked style="display:none" />
+    <input type="checkbox" id="esDocLoanApp" style="display:none" />
+    <div id="esSignerList" style="display:none"></div>
 
     <div class="bi-actions">
-      <button class="bi-btn cancel" onclick="closeEsignModal()">Cancel</button>
-      <button class="bi-btn primary" id="esSendBtn" onclick="esSubmit()">Queue Envelope</button>
+      <button class="bi-btn cancel" onclick="closeEsignModal()">Close</button>
+      <button class="bi-btn primary" id="esSendBtn" onclick="esSubmit()">Send for Signature</button>
     </div>
   </div>
 </div>
@@ -5762,27 +5775,75 @@ function confirmChangeType() {
 // State of the open modal — rebuilt each time the modal opens:
 var _esSignerCount = 0;
 
+// Deploy 236.156 — single-signer redesign that mirrors the Send
+// Loan Application flow. Pre-fills the primary borrower on the
+// loan, lets the LO either email the link or just generate it
+// to copy and text. Resets the link-display row + status on
+// every open so a re-open after a successful send shows a fresh
+// modal, not the stale "Copy" UI from last time.
 function openSendForSignature() {
-  // Reset modal state
   document.getElementById('esDocRateSheet').checked = true;
   document.getElementById('esDocLoanApp').checked = false;
   document.getElementById('esMessage').value = '';
   document.getElementById('esStatusMsg').textContent = '';
   document.getElementById('esStatusMsg').className = 'bi-status';
   document.getElementById('esSendBtn').disabled = false;
-  document.getElementById('esSendBtn').textContent = 'Queue Envelope';
+  _esLatestUrl = '';
+  document.getElementById('esLinkInput').value = '';
+  document.getElementById('esLinkRow').style.display = 'none';
 
-  // Pre-fill the first signer with the client we have on file. The LO can
-  // edit, add more, or remove — but we save them a typing step on the
-  // common case (single borrower).
-  document.getElementById('esSignerList').innerHTML = '';
-  _esSignerCount = 0;
-  var firstName = (_client && _client.firstName) || '';
-  var lastName  = (_client && _client.lastName)  || '';
-  var email     = (_client && _client.email)     || '';
-  esAddSigner(firstName, lastName, email);
+  document.getElementById('esSignerFirst').value = (_client && _client.firstName) || '';
+  document.getElementById('esSignerLast').value  = (_client && _client.lastName)  || '';
+  document.getElementById('esSignerEmail').value = (_client && _client.email)     || '';
+  var cb = document.getElementById('esSendEmailCb');
+  cb.checked = true;
+  if (!cb._esWired) {
+    cb._esWired = true;
+    cb.addEventListener('change', _esRefreshSubmitLabel);
+  }
+  _esRefreshSubmitLabel();
 
   document.getElementById('esignModal').classList.add('show');
+}
+
+var _esLatestUrl = '';
+
+// Toggle button label between "Send for Signature" / "Generate
+// Link" so the action matches the email-checkbox state.
+function _esRefreshSubmitLabel() {
+  var btn = document.getElementById('esSendBtn');
+  if (!btn) return;
+  var sendEmail = document.getElementById('esSendEmailCb').checked;
+  btn.textContent = sendEmail ? 'Send for Signature' : 'Generate Link';
+  // Hide / show the email input row to match the checkbox state.
+  var emailRow = document.getElementById('esEmailRow');
+  if (emailRow) emailRow.style.display = sendEmail ? 'block' : 'none';
+}
+
+// Wire the checkbox once the DOM is parsed. Falls through quietly
+// if the modal hasn't been injected yet (the listener is added on
+// first openSendForSignature() call as a safety net).
+document.addEventListener('DOMContentLoaded', function() {
+  var cb = document.getElementById('esSendEmailCb');
+  if (cb && !cb._esWired) {
+    cb._esWired = true;
+    cb.addEventListener('change', _esRefreshSubmitLabel);
+  }
+});
+
+function esCopyLink() {
+  var url = document.getElementById('esLinkInput').value;
+  if (!url) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function() {
+      var b = document.getElementById('esCopyBtn');
+      var orig = b.textContent;
+      b.textContent = 'Copied!';
+      setTimeout(function() { b.textContent = orig; }, 1500);
+    }).catch(function() { prompt('Copy this link:', url); });
+  } else {
+    prompt('Copy this link:', url);
+  }
 }
 
 function closeEsignModal() {
@@ -5835,49 +5896,53 @@ function esSubmit() {
   status.className = 'bi-status';
   status.textContent = '';
 
-  // Collect docs
-  var docs = [];
-  if (document.getElementById('esDocRateSheet').checked) {
-    docs.push({ kind: 'rate_sheet', name: 'Rate Sheet — ' + (_loan.address || 'No address') });
+  // Deploy 236.156 — single-signer flow. The signer is always
+  // the primary borrower on the loan; the LO can edit the name
+  // / email here before sending. Docs are hard-coded to the
+  // Rate Sheet (the multi-doc Loan App option was retired).
+  var docs = [{ kind: 'rate_sheet', name: 'Rate Sheet — ' + (_loan.address || 'No address') }];
+
+  var fnEl = document.getElementById('esSignerFirst');
+  var lnEl = document.getElementById('esSignerLast');
+  var emEl = document.getElementById('esSignerEmail');
+  var sendEmail = document.getElementById('esSendEmailCb').checked;
+  var fn = fnEl.value.trim();
+  var ln = lnEl.value.trim();
+  var em = emEl.value.trim().toLowerCase();
+  [fnEl, lnEl, emEl].forEach(function(el) { el.classList.remove('has-err'); });
+
+  var hasErr = false;
+  if (!fn) { fnEl.classList.add('has-err'); hasErr = true; }
+  if (!ln) { lnEl.classList.add('has-err'); hasErr = true; }
+  // Email is required when emailing; recommended even for link-only
+  // (we store it on the envelope for tracking + audit-trail). If
+  // link-only and the LO left it blank, fall back to a placeholder
+  // so the envelope record still has a contact email field.
+  if (sendEmail) {
+    if (!_esIsValidEmail(em)) { emEl.classList.add('has-err'); hasErr = true; }
+  } else if (em && !_esIsValidEmail(em)) {
+    emEl.classList.add('has-err'); hasErr = true;
   }
-  if (document.getElementById('esDocLoanApp').checked) {
-    docs.push({ kind: 'loan_app',  name: 'Loan Application — ' + (_loan.address || 'No address') });
-  }
-  if (docs.length === 0) {
+  if (hasErr) {
     status.className = 'bi-status err';
-    status.textContent = 'Pick at least one document to send.';
+    status.textContent = sendEmail
+      ? 'Enter first name, last name, and a valid email — or uncheck the email option to generate a link only.'
+      : 'Enter first name and last name. Email is optional when generating a link.';
     return;
   }
 
-  // Collect signers + validate
-  var rows = document.querySelectorAll('.es-signer-row');
-  var signers = [];
-  var hasErr = false;
-  var seenEmails = {};
-  rows.forEach(function(r) {
-    var fnEl = r.querySelector('.es-fn');
-    var lnEl = r.querySelector('.es-ln');
-    var emEl = r.querySelector('.es-email');
-    var fn = fnEl.value.trim();
-    var ln = lnEl.value.trim();
-    var em = emEl.value.trim().toLowerCase();
-    [fnEl, lnEl, emEl].forEach(function(el){ el.classList.remove('has-err'); });
-    if (!fn) { fnEl.classList.add('has-err'); hasErr = true; }
-    if (!ln) { lnEl.classList.add('has-err'); hasErr = true; }
-    if (!_esIsValidEmail(em)) { emEl.classList.add('has-err'); hasErr = true; }
-    else if (seenEmails[em])  { emEl.classList.add('has-err'); hasErr = true; }
-    seenEmails[em] = true;
-    signers.push({ firstName: fn, lastName: ln, email: em });
-  });
-  if (hasErr) {
-    status.className = 'bi-status err';
-    status.textContent = 'Fix the highlighted signer fields. Each signer needs first name, last name, and a unique valid email.';
-    return;
-  }
+  // Envelope record needs a contact email even on the link-only path
+  // (for the audit trail and the signer-list display). Stub one in
+  // from the loan ID if the LO didn't supply one.
+  var signers = [{
+    firstName: fn,
+    lastName:  ln,
+    email:     em || ('no-email-' + (_loanId || 'loan').slice(-8) + '@unspecified.sla'),
+  }];
 
   var btn = document.getElementById('esSendBtn');
   btn.disabled = true;
-  btn.textContent = 'Queueing…';
+  btn.textContent = sendEmail ? 'Sending…' : 'Generating…';
   status.className = 'bi-status';
   status.textContent = 'Generating rate sheet PDF…';
 
@@ -5896,7 +5961,7 @@ function esSubmit() {
     // Hard gate: Netlify functions reject request bodies over 6 MB at
     // the gateway level. Pre-flight check the PDF size.
     if (pdfBase64 && pdfBase64.length > 5_000_000) {
-      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      btn.disabled = false; _esRefreshSubmitLabel();
       status.className = 'bi-status err';
       status.textContent = 'Generated PDF is too large for direct send (' + Math.round(pdfBase64.length / 1024) + ' KB base64). Please contact support.';
       console.error('[SLA esign] PDF base64 too large:', pdfBase64.length);
@@ -5921,7 +5986,8 @@ function esSubmit() {
     }).filter(function(d) { return !!d.pdfBase64; });
 
     if (docsToSend.length === 0) {
-      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      btn.disabled = false;
+      _esRefreshSubmitLabel();
       status.className = 'bi-status err';
       status.textContent = 'No documents had PDF bytes to send. Please pick a Rate Sheet.';
       return;
@@ -5938,29 +6004,45 @@ function esSubmit() {
     }, ownerForCall).then(function(resp) {
       var env = resp && resp.envelope;
       if (!env) throw new Error('Envelope create returned no record');
-      // Kick off the second-phase send: tokens + invitation emails.
-      status.textContent = 'Sending invitations\u2026';
-      return SLA.Envelopes.send(env.id, ownerForCall).then(function(sendResp) {
+      // Deploy 236.156 \u2014 second-phase send respects the email
+      // checkbox. When unchecked, skipEmail:true tells the
+      // backend to generate signing tokens + return the URLs
+      // without sending any invitation emails. The LO copies
+      // the displayed link and texts it to the borrower.
+      status.textContent = sendEmail ? 'Sending invitation\u2026' : 'Generating signing link\u2026';
+      return SLA.Envelopes.send(env.id, ownerForCall, { skipEmail: !sendEmail }).then(function(sendResp) {
         var senv = (sendResp && sendResp.envelope) || env;
+        var signingUrl = (sendResp && Array.isArray(sendResp.signingUrls) && sendResp.signingUrls[0]) || '';
+        _esLatestUrl = signingUrl;
+
+        // Display the link (every flow surfaces it so the LO can
+        // re-share via text even after an email send).
+        if (signingUrl) {
+          document.getElementById('esLinkInput').value = signingUrl;
+          document.getElementById('esLinkRow').style.display = 'flex';
+        }
+
         status.className = 'bi-status ok';
-        if (senv.status === 'sent') {
-          var n = (senv.signers || []).length;
-          status.textContent = '\u2713 Sent invitations to ' + n + ' signer' + (n === 1 ? '' : 's') + '.';
+        if (!sendEmail) {
+          status.textContent = '\u2713 Link generated. Copy and text it to the borrower.';
+        } else if (senv.status === 'sent') {
+          status.textContent = '\u2713 Sent to ' + (signers[0].email) + '. Link is shown below to share again.';
         } else if (senv.status === 'partial_send_failure') {
-          status.textContent = '\u26A0 Sent, but some invitation emails failed. Use Resend on the envelope panel below.';
+          status.textContent = '\u26A0 Email send failed \u2014 copy the link below and share it manually.';
         } else {
           status.textContent = '\u2713 Envelope ' + senv.status + '.';
         }
         if (sendResp && sendResp.warning) {
           status.textContent += ' (' + sendResp.warning + ')';
         }
-        setTimeout(function() {
-          closeEsignModal();
-          refreshEnvelopes();
-        }, 1600);
+        // Flip the primary action so closing isn't the only path.
+        btn.disabled = false;
+        btn.textContent = sendEmail ? 'Resend' : 'Regenerate Link';
+        refreshEnvelopes();
       });
     }).catch(function(err) {
-      btn.disabled = false; btn.textContent = 'Queue Envelope';
+      btn.disabled = false;
+      _esRefreshSubmitLabel();
       status.className = 'bi-status err';
       status.textContent = 'Failed: ' + (err.message || 'unknown error');
     });
@@ -5995,7 +6077,7 @@ function esSubmit() {
     'width=900,height=700,scrollbars=yes,resizable=yes'
   );
   if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-    btn.disabled = false; btn.textContent = 'Queue Envelope';
+    btn.disabled = false; _esRefreshSubmitLabel();
     status.className = 'bi-status err';
     status.textContent = 'Popup blocked. Allow popups for this site, or open the sizer manually and try again.';
     return;
