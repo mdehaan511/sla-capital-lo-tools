@@ -1,27 +1,41 @@
 /**
  * loan-bundle-download.mjs — GET /api/loan-bundle-download
  *
- * Deploy 236.147 — bundled loan application PDF for a loan.
- * Replaces the 236.145 ZIP / cover-page version per Mike.
+ * Deploy 236.148 — single regenerated Loan Application PDF with
+ * ALL guarantors (primary + additional sub-form guarantors)
+ * merged into the same document, followed by each additional
+ * guarantor's signed Credit Authorization.
+ *
+ * Per Mike: "I want the whole Application PDF modified to insert
+ * the additional guarantor into the loan application. Should look
+ * just like this one after the other with guarantor 2, guarantor
+ * 3, etc..."
  *
  * Output PDF structure (no cover page):
- *   1. Original signed loan application PDF (preserves the
- *      e-signed legal artifact for the primary borrower and
- *      anyone who signed via the long-app flow).
- *   2. For each ADDITIONAL guarantor (slot 2, 3, 4...):
- *        a. A loan-application-format PDF rendered with this
- *           guarantor positioned as Guarantor 1 — same renderer
- *           and visual format as the original signed app.
- *           Includes their Guarantor Info (incl. decrypted SSN),
- *           Entity Information (vesting LLC + their ownership %),
- *           Declarations, and the lender-attestation block.
- *           Rendered in `unsigned` mode (these guarantors signed
- *           their Credit Authorization, not the loan app itself).
- *        b. Their signed Credit Authorization PDF pages.
+ *   - Regenerated Loan Application PDF rendered via
+ *     renderSignedApplicationPDF() with data.guarantors[] holding
+ *     positions 0/1/2/3 — so the Guarantor Info, Entity
+ *     Information (% ownership rows), and Declarations columns
+ *     all show up naturally in their long-app slots.
+ *   - Each additional sub-form guarantor's signed Credit
+ *     Authorization PDF pages, in guarantor order.
  *
- * Primary guarantor (Guarantor 1) is intentionally skipped in the
- * per-guarantor loop — their data already lives in the original
- * signed PDF.
+ * Data sources, in order of preference:
+ *   1. borrower_info record (the long-app submission) — has the
+ *      complete property/loan/borrower data shape natively.
+ *   2. Synthesized from the loan record + primary client when no
+ *      borrower_info exists yet (long-app hasn't been completed).
+ *
+ * Additional guarantors (loan.guarantorClientIds) are flattened
+ * into the long-app shape via synthRecordForGuarantor() and
+ * appended to data.guarantors[] in open slots (positions 1, 2, 3
+ * — whichever isn't already filled by the long-app data).
+ *
+ * The original signed PDF in signed_applications is NOT included
+ * in the bundle — Mike asked for the MODIFIED PDF, not a
+ * concatenation. The signed PDF remains in storage as the legal
+ * artifact and is downloadable separately via the existing
+ * "Download Signed Application (PDF)" button.
  *
  * Query: ?clientId=...&loanId=...&owner=...
  * Response: application/pdf
@@ -34,6 +48,7 @@ import {
 } from './_shared/auth.mjs';
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { synthRecordForGuarantor } from './_shared/guarantor-synth.mjs';
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -68,6 +83,7 @@ async function handle(req, context) {
   }
 
   const clientsStore   = getStore({ name: 'clients',                       consistency: 'strong' });
+  const biStore        = getStore({ name: 'borrower_info',                 consistency: 'strong' });
   const signedAppStore = getStore({ name: 'signed_applications',           consistency: 'strong' });
   const credAuthStore  = getStore({ name: 'guarantor-credit-auth-pdfs',    consistency: 'strong' });
 
@@ -76,88 +92,116 @@ async function handle(req, context) {
   const loan = Array.isArray(primary.loans) ? primary.loans.find((l) => l && l.id === loanId) : null;
   if (!loan) return json(404, { error: 'Loan not found on primary client' });
 
-  const segments = []; // PDF byte-buffers in order
-
-  // ── 1. Original signed loan application ──────────────────
+  // ── 1. Build the base record ────────────────────────────
+  // Prefer the long-app borrower_info record (full data shape).
+  // Fall back to a synthesized record from the loan + primary
+  // client data if the long-app hasn't been completed.
+  let record = null;
   try {
-    const signedKey = ownerKey + '/' + keySafe(clientId) + '/' + keySafe(loanId);
-    const rec = await signedAppStore.get(signedKey, { type: 'json' });
-    if (rec && rec.pdfBase64) {
-      segments.push(Buffer.from(rec.pdfBase64, 'base64'));
-    } else {
-      // Borrower has not signed the long app yet — fall back to
-      // a freshly rendered unsigned version of the primary's data
-      // so the bundle still leads with a loan-app PDF.
-      try {
-        const primaryRecord = synthRecordForGuarantor({
-          guarantor: primary, loan, primary, ownerKey, asGuarantorIndex: 0,
-        });
-        const pdf = await renderSignedApplicationPDF({
-          record: primaryRecord,
-          client: primary,
-          signers: [],
-          status: 'unsigned',
-          unsigned: true,
-          enteredBy: {
-            name:  (user.user_metadata && user.user_metadata.full_name) || selfEmail,
-            email: selfEmail,
-            at:    new Date().toISOString(),
-          },
-        });
-        segments.push(pdf);
-      } catch (e) {
-        console.warn('loan-bundle-download: primary-fallback render failed:', e && e.message);
-      }
-    }
+    record = await loadRecord(biStore, ownerKey, clientId, loanId, primary);
   } catch (e) {
-    console.warn('loan-bundle-download: signed-app read failed:', e && e.message);
+    console.warn('loan-bundle-download: borrower_info load failed:', e && e.message);
   }
+  if (!record) {
+    record = synthRecordForGuarantor({
+      guarantor: primary, loan, primary, ownerKey, asGuarantorIndex: 0,
+    });
+  }
+  // Defensive copy so we don't mutate the borrower_info record.
+  record = JSON.parse(JSON.stringify(record));
+  record.data = record.data || {};
+  record.data.guarantors = Array.isArray(record.data.guarantors) ? record.data.guarantors.slice() : [];
 
-  // ── 2. Each additional guarantor (skip the primary) ──────
-  const guarantorClientIds = (Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [])
+  // ── 2. Append additional sub-form guarantors ────────────
+  const additionalGids = (Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [])
     .filter((gid) => gid && gid !== clientId);
 
-  for (const gid of guarantorClientIds) {
+  // Cap at 4 guarantor slots total (renderer supports g0..g3).
+  const MAX_GUARANTORS = 4;
+
+  // Already-occupied slots: any non-empty entries from the
+  // long-app record. The primary's data is always in slot 0;
+  // a long-app co-borrower (if any) is in slot 1.
+  const additionalRecords = []; // { guarantor, subState, slotIdx }
+  for (let i = 0; i < additionalGids.length; i++) {
+    if (record.data.guarantors.length >= MAX_GUARANTORS) break;
+    const gid = additionalGids[i];
     let guarantor;
     try { guarantor = await clientsStore.get(ownerKey + '/' + keySafe(gid), { type: 'json' }); }
     catch (_) {}
     if (!guarantor) continue;
-
-    // 2a. Loan-app format for this guarantor.
-    try {
-      const gRecord = synthRecordForGuarantor({
-        guarantor, loan, primary, ownerKey, asGuarantorIndex: 0,
-      });
-      const gPdf = await renderSignedApplicationPDF({
-        record: gRecord,
-        client: primary,
-        signers: [],
-        status: 'unsigned',
-        unsigned: true,
-        enteredBy: {
-          name:  ((guarantor.firstName || '') + ' ' + (guarantor.lastName || '')).trim(),
-          email: guarantor.email || '',
-          at:    new Date().toISOString(),
-        },
-      });
-      segments.push(gPdf);
-    } catch (e) {
-      console.warn('loan-bundle-download: guarantor render failed for ' + gid + ':', e && e.message);
-    }
-
-    // 2b. Their signed Credit Authorization PDF (when on file).
+    const flat = _flattenGuarantorForLongApp(guarantor, loan);
+    const slotIdx = record.data.guarantors.length;
+    record.data.guarantors.push(flat);
     const subState = (guarantor._subFormTokensByLoan && guarantor._subFormTokensByLoan[loanId]) || {};
-    if (subState.status === 'completed' && subState.token) {
+    additionalRecords.push({ guarantor, subState, slotIdx });
+  }
+
+  // ── 3. Build signers list from the original signed record ──
+  // Only include borrower1-4 entries that actually signed (have
+  // an audit block with signedAt). Additional sub-form
+  // guarantors are NOT added here — they didn't sign the loan
+  // app; their Credit Auth (signed separately) is attached at
+  // the end of the bundle.
+  let signers = [];
+  let signedAppRec = null;
+  try {
+    const signedKey = ownerKey + '/' + keySafe(clientId) + '/' + keySafe(loanId);
+    signedAppRec = await signedAppStore.get(signedKey, { type: 'json' });
+  } catch (_) {}
+  if (signedAppRec) {
+    ['borrower1', 'borrower2', 'borrower3', 'borrower4'].forEach((roleKey) => {
+      const block = signedAppRec[roleKey];
+      if (block && block.audit && block.audit.signedAt) {
+        signers.push({
+          role:          block.role || roleKey,
+          name:          block.name || '',
+          email:         block.email || '',
+          audit:         block.audit,
+          signedAuths:   block.signedAuths || [],
+        });
+      }
+    });
+  }
+
+  // ── 4. Render the merged loan-application PDF ────────────
+  let appPdfBytes;
+  const unsigned = signers.length === 0;
+  try {
+    appPdfBytes = await renderSignedApplicationPDF({
+      record,
+      client: primary,
+      signers,
+      status: 'complete',
+      unsigned,
+      enteredBy: unsigned ? {
+        name:  (user.user_metadata && user.user_metadata.full_name) || selfEmail,
+        email: selfEmail,
+        at:    new Date().toISOString(),
+      } : {},
+    });
+  } catch (e) {
+    console.error('loan-bundle-download: render failed:', e);
+    return json(500, { error: 'Failed to render application: ' + (e.message || 'unknown') });
+  }
+
+  // ── 5. Append each additional guarantor's signed Credit Auth ──
+  const segments = [appPdfBytes];
+  for (const entry of additionalRecords) {
+    if (entry.subState && entry.subState.status === 'completed' && entry.subState.token) {
       try {
-        const buf = await credAuthStore.get(subState.token, { type: 'arrayBuffer' });
+        const buf = await credAuthStore.get(entry.subState.token, { type: 'arrayBuffer' });
         if (buf) segments.push(Buffer.from(buf));
       } catch (e) {
-        console.warn('loan-bundle-download: credit auth fetch failed for ' + gid + ':', e && e.message);
+        console.warn('loan-bundle-download: credit auth fetch failed:', e && e.message);
       }
     }
   }
 
-  const outBytes = await _concatPdfs(segments);
+  const outBytes = segments.length > 1
+    ? await _concatPdfs(segments)
+    : appPdfBytes;
+
   const filename = 'loan-bundle-' + (loan.slaDisplayId || loanId) + '.pdf';
   const headers = Object.assign({}, corsHeaders(), {
     'Content-Type':        'application/pdf',
@@ -166,6 +210,58 @@ async function handle(req, context) {
     'Cache-Control':       'private, no-store',
   });
   return new Response(outBytes, { status: 200, headers });
+}
+
+// Flatten a client record (with nested homeAddress, declarations,
+// etc.) into the flat shape the long-app PDF renderer reads from
+// data.guarantors[i]. Same field mapping as guarantor-synth's
+// internal flattener, but inlined here so we can pull per-loan
+// ownership from the loan record.
+function _flattenGuarantorForLongApp(g, loan) {
+  g = g || {};
+  const ha   = g.homeAddress    || {};
+  const pa   = g.prevAddress    || {};
+  const ma   = g.mailingAddress || {};
+  const decl = g.declarations   || {};
+  const ownership =
+    (loan && loan.guarantorOwnership && loan.guarantorOwnership[g.id]) ||
+    g.ownership || '';
+  return {
+    firstName:        g.firstName || '',
+    lastName:         g.lastName  || '',
+    email:            g.email     || '',
+    phone:            g.phone     || '',
+    dob:              g.dob       || '',
+    fico:             g.fico      || '',
+    ssn_enc:          g.ssn_enc   || '',
+    ssn:              g.ssn       || '',
+    marital:          g.maritalStatus || g.marital || '',
+    usCitizen:        g.usCitizen || '',
+    flips:            g.flips     || '',
+    rentals:          g.rentals   || '',
+    ownership,
+    address:          ha.street || '',
+    city:             ha.city   || '',
+    state:            ha.state  || '',
+    zip:              ha.zip    || '',
+    twoYearAddress:   g.twoYearAddress || '',
+    prevAddress:      pa.street || '',
+    prevCity:         pa.city   || '',
+    prevState:        pa.state  || '',
+    prevZip:          pa.zip    || '',
+    mailingSameAsHome: g.mailingSameAsHome || '',
+    mailingAddress:   ma.street || '',
+    mailingCity:      ma.city   || '',
+    mailingState:     ma.state  || '',
+    mailingZip:       ma.zip    || '',
+    bankruptcy7yr:         decl.bankruptcy7yr         || '',
+    foreclosure7yr:        decl.foreclosure7yr        || '',
+    partyToLawsuit:        decl.partyToLawsuit        || '',
+    delinquentFederalDebt: decl.delinquentFederalDebt || '',
+    obligatedToForeclosed: decl.obligatedToForeclosed || '',
+    outstandingJudgments:  decl.outstandingJudgments  || '',
+    intendToOccupy:        decl.intendToOccupy        || '',
+  };
 }
 
 async function _concatPdfs(buffers) {

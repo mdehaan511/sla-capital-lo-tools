@@ -104,9 +104,18 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
 
       // Helpers
       const data = record.data || {};
+      // Deploy 236.148 — extended to support up to 4 guarantors
+      // (g0..g3). The long-app sign flow still only collects g0+g1;
+      // g2/g3 land here via the bundle download (loan-bundle-
+      // download.mjs) which merges additional sub-form guarantors
+      // into the guarantors[] array as positions 2 and 3.
       const guarantors = Array.isArray(data.guarantors) ? data.guarantors : [];
       const g0 = guarantors[0] || {};
       const g1 = guarantors[1] || null;
+      const g2 = guarantors[2] || null;
+      const g3 = guarantors[3] || null;
+      // Truthy when at least one additional guarantor (G2-G4) exists.
+      const extraGuarantors = [g1, g2, g3].filter(Boolean);
       const companies = Array.isArray(data.companies) ? data.companies : [];
       const co0 = companies[0] || {};
 
@@ -138,6 +147,19 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         const digits = String(ssn).replace(/\D/g, '');
         if (digits.length !== 9) return ssn;
         return digits.slice(0, 3) + '-' + digits.slice(3, 5) + '-' + digits.slice(5);
+      };
+      // Deploy 236.148 — proper EIN formatter. The long-app form's
+      // EIN input was previously running through the generic phone
+      // mask, producing "(393) 565-836" for a raw 9-digit EIN.
+      // Stored values may still be in that broken format — strip
+      // all non-digits, reformat as the canonical NN-NNNNNNN at
+      // render time so existing records display correctly even
+      // before the input mask is fixed.
+      const fmtEIN = (ein) => {
+        if (!ein) return '';
+        const digits = String(ein).replace(/\D/g, '');
+        if (digits.length !== 9) return ein;
+        return digits.slice(0, 2) + '-' + digits.slice(2);
       };
       // Resolve a guarantor\u2019s SSN for display on the signed PDF.
       // The borrower form encrypts SSNs at rest: plaintext is stripped
@@ -587,6 +609,10 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       }
       renderGuarantorBlock(g0, 'Guarantor 1');
       if (g1) renderGuarantorBlock(g1, 'Guarantor 2');
+      // Deploy 236.148 — render Guarantor 3 and Guarantor 4 blocks
+      // when their data is present in guarantors[2] / guarantors[3].
+      if (g2) renderGuarantorBlock(g2, 'Guarantor 3');
+      if (g3) renderGuarantorBlock(g3, 'Guarantor 4');
 
       // ── SECTION E: Entity Information ────────────────────────────
       const llcName    = data.llcName    || (co0 && co0.name)     || '';
@@ -603,31 +629,54 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       if (llcName || llcEIN || llcState || llcAddress) {
         section('Entity Information');
         row('Vesting Entity Name', llcName);
-        row('Vesting Entity EIN', llcEIN);
+        // Deploy 236.148 — EIN formatter (was rendering as
+        // phone-formatted "(393) 565-836" for raw 9-digit values).
+        row('Vesting Entity EIN', fmtEIN(llcEIN));
         row('State Entity is Registered In', llcState);
         row('Vesting Entity Address', fmtFullAddress(llcAddress, llcCity, llcAddrSt, llcZip));
         // Deploy 182: ownership is now collected per-guarantor inside
         // their own block (g.ownership). Old code used g0Ownership/
         // g1Ownership at the top level — fall back to those for any
         // pre-Deploy-182 records.
+        // Deploy 236.148 — extended to all 4 guarantors.
         const g0Own = (g0 && g0.ownership) || data.g0Ownership || '';
         const g1Own = (g1 && g1.ownership) || data.g1Ownership || '';
+        const g2Own = (g2 && g2.ownership) || '';
+        const g3Own = (g3 && g3.ownership) || '';
         row('Guarantor 1 % Ownership', g0Own ? `${g0Own}%` : '');
         if (g1) row('Guarantor 2 % Ownership', g1Own ? `${g1Own}%` : '');
+        if (g2) row('Guarantor 3 % Ownership', g2Own ? `${g2Own}%` : '');
+        if (g3) row('Guarantor 4 % Ownership', g3Own ? `${g3Own}%` : '');
         doc.moveDown(0.5);
       }
 
       // ── SECTION F: Declarations ──────────────────────────────────
       // Mirrors the docx Declarations table: rows are questions,
       // columns are Guarantor 1 and Guarantor 2 (if present).
+      // Deploy 236.148 \u2014 generalized for 1-4 guarantors. Column
+      // widths shrink as more guarantors are added so the table
+      // stays within the 506pt printable width (Letter @ 54pt
+      // side margins). Question column compresses; per-guarantor
+      // columns stay fixed at 60-75pt.
       function declarationsTable() {
         if (doc.y > doc.page.height - 200) doc.addPage();
         section('Declarations');
 
-        const hasG2 = !!g1;
-        const colWidths = hasG2 ? [340, 75, 75] : [415, 75];
+        const activeGuarantors = [g0]
+          .concat(g1 ? [g1] : [])
+          .concat(g2 ? [g2] : [])
+          .concat(g3 ? [g3] : []);
+        const nGuarantors = activeGuarantors.length;
+        const tableW = 506; // 612 page width - 2 * 54 margin
+        const guarantorColW = nGuarantors >= 4 ? 60 :
+                              nGuarantors === 3 ? 70 :
+                              nGuarantors === 2 ? 75 : 75;
+        const questionColW = tableW - (guarantorColW * nGuarantors);
+        const colWidths = [questionColW].concat(
+          activeGuarantors.map(() => guarantorColW)
+        );
         const startX = 54;
-        const tableW = colWidths.reduce((a, b) => a + b, 0);
+
         const declarations = [
           ['Are you a US Citizen?',                                                                                  'usCitizen'],
           ['Have you been declared bankrupt in the past 7 years?',                                                   'bankruptcy7yr'],
@@ -644,11 +693,11 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         doc.rect(startX, headerY, tableW, 18).fill(GOLD_LIGHT);
         doc.fillColor(TEXT).font('Helvetica-Bold').fontSize(8.5)
           .text('', startX + 6, headerY + 5, { width: colWidths[0] - 12 });
-        doc.text('Guarantor 1', startX + colWidths[0] + 6, headerY + 5,
-                 { width: colWidths[1] - 12, align: 'center' });
-        if (hasG2) {
-          doc.text('Guarantor 2', startX + colWidths[0] + colWidths[1] + 6, headerY + 5,
-                   { width: colWidths[2] - 12, align: 'center' });
+        let xCursor = startX + colWidths[0];
+        for (let i = 0; i < nGuarantors; i++) {
+          doc.text('Guarantor ' + (i + 1), xCursor + 6, headerY + 5,
+                   { width: colWidths[i + 1] - 12, align: 'center' });
+          xCursor += colWidths[i + 1];
         }
         doc.y = headerY + 18;
 
@@ -657,30 +706,26 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
             doc.addPage();
           }
           const rowY = doc.y;
-          // Estimate row height based on question wrap
           const questionH = doc.heightOfString(d[0], { width: colWidths[0] - 12, fontSize: 8 });
           const rowH = Math.max(20, questionH + 8);
-          // Alternating background
           if (i % 2 === 0) {
             doc.rect(startX, rowY, tableW, rowH).fill('#FAF8F3');
           }
-          // Cell borders
-          doc.strokeColor(BORDER).lineWidth(0.4)
-            .rect(startX, rowY, colWidths[0], rowH).stroke()
-            .rect(startX + colWidths[0], rowY, colWidths[1], rowH).stroke();
-          if (hasG2) {
-            doc.rect(startX + colWidths[0] + colWidths[1], rowY, colWidths[2], rowH).stroke();
+          doc.strokeColor(BORDER).lineWidth(0.4).rect(startX, rowY, colWidths[0], rowH).stroke();
+          let cellX = startX + colWidths[0];
+          for (let gi = 0; gi < nGuarantors; gi++) {
+            doc.rect(cellX, rowY, colWidths[gi + 1], rowH).stroke();
+            cellX += colWidths[gi + 1];
           }
           doc.fillColor(TEXT).font('Helvetica').fontSize(8)
             .text(d[0], startX + 6, rowY + 5, { width: colWidths[0] - 12 });
-          doc.font('Helvetica-Bold').fontSize(9.5)
-            .text(YES_NO_LABEL(g0[d[1]]) || '\u2014',
-                  startX + colWidths[0], rowY + (rowH / 2) - 5,
-                  { width: colWidths[1], align: 'center' });
-          if (hasG2) {
-            doc.text(YES_NO_LABEL(g1[d[1]]) || '\u2014',
-                     startX + colWidths[0] + colWidths[1], rowY + (rowH / 2) - 5,
-                     { width: colWidths[2], align: 'center' });
+          doc.font('Helvetica-Bold').fontSize(9.5);
+          cellX = startX + colWidths[0];
+          for (let gi = 0; gi < nGuarantors; gi++) {
+            doc.text(YES_NO_LABEL(activeGuarantors[gi][d[1]]) || '\u2014',
+                     cellX, rowY + (rowH / 2) - 5,
+                     { width: colWidths[gi + 1], align: 'center' });
+            cellX += colWidths[gi + 1];
           }
           doc.y = rowY + rowH;
         });
