@@ -141,9 +141,21 @@ async function handle(req, context) {
     _manualAdvanceFrom:         incoming._manualAdvanceFrom         || prior._manualAdvanceFrom         || '',
   });
 
-  // Strip transient meta fields that shouldn\u2019t persist.
+  // Strip transient meta fields that shouldn't persist.
   delete merged._editingLoanId;
   delete merged._editingClientId;
+
+  // Deploy 236.138 \u2014 a sizer save IS the new accepted pricing
+  // baseline. Clear the Loan Details inline-editor's modification
+  // tracking so the "N field(s) manually modified \u2014 Restore to
+  // Original" banner disappears + Restore becomes a no-op until
+  // the next inline edit. Same logic for the signed-docs stale
+  // flag: re-pricing through the sizer naturally invalidates any
+  // earlier "stale" stamp, since the sizer save is what would
+  // need to be re-signed against anyway.
+  delete merged._originalValues;
+  delete merged._modifiedFields;
+  delete merged._signedDocsStale;
 
   // Deploy 236.5 \u2014 broker entity auto-link. Runs only if there's some
   // broker data on the merged record AND brokerId isn't already a

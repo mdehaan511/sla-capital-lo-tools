@@ -250,10 +250,25 @@ function _mirrorForSizer(loan, key, next) {
       // Sizer reads _points first; saved as "1.50 pts" string.
       loan.formData._points = (next * 1).toFixed(2) + ' pts';
       return;
-    case 'monthlyRent':      loan.formData.rent      = next; return;
-    case 'monthlyTaxes':     loan.formData.taxes     = next; return;
-    case 'monthlyInsurance': loan.formData.insurance = next; return;
-    case 'monthlyHoa':       loan.formData.hoa       = next; return;
+    // Deploy 236.138 — monthly fields written under BOTH naming
+    // schemes at the LOAN level AND in formData. The codebase has
+    // legacy field names (rent/taxes/insurance/hoa) that the
+    // sizer's save path uses + new names (monthlyRent/Taxes/
+    // Insurance/Hoa) that test-create-loan + Loan Details inline
+    // editor use. Mirroring both keeps every consumer in sync
+    // regardless of which schema they read from.
+    case 'monthlyRent':
+      loan.rent = next;
+      loan.formData.rent = next; return;
+    case 'monthlyTaxes':
+      loan.taxes = next;
+      loan.formData.taxes = next; return;
+    case 'monthlyInsurance':
+      loan.insurance = next;
+      loan.formData.insurance = next; return;
+    case 'monthlyHoa':
+      loan.hoa = next;
+      loan.formData.hoa = next; return;
     // purchasePrice / rehabBudget / arv / fico / loanType /
     // experience / brokerFee / appraisedValue already use the
     // canonical name the sizer reads — no mirror needed.
