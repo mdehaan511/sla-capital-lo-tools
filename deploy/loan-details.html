@@ -4370,9 +4370,23 @@ function formatNoteTime(iso) {
   try {
     var d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
+    // Deploy 236.142 — explicit local-timezone rendering with a
+    // TZ-abbrev label so the LO can see at a glance which zone
+    // they're looking at. Default toLocaleString already uses the
+    // browser's local TZ, but the previous output had no TZ
+    // indicator — so a 5 PM UTC timestamp displayed as "1 PM"
+    // looked like UTC to someone who expected ET. The explicit
+    // timeZone: <browser default> + timeZoneName: 'short' makes
+    // it unmistakable, e.g. "Oct 15, 2026, 1:00 PM EDT".
+    var tz;
+    try {
+      tz = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+    } catch (_) { tz = undefined; }
     return d.toLocaleString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: 'numeric', minute: '2-digit',
+      timeZone: tz,
+      timeZoneName: 'short',
     });
   } catch (e) { return iso; }
 }
