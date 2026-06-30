@@ -209,6 +209,13 @@
       // so it reads as a "safe positive action" at a glance.
       '.dr-root .dr-bulk-approve-btn { color:var(--dr-green); border-color:var(--dr-green-border); }',
       '.dr-root .dr-bulk-approve-btn:hover { background:var(--dr-green-light); }',
+      // Deploy 236.165 — expiration / staleness badge under the
+      // tray name. Severity colors mirror the verdict palette so
+      // the visual language is consistent.
+      '.dr-root .dr-exp-badge { display:inline-block; margin-top:6px; padding:2px 10px; border-radius:12px; font-size:10px; font-weight:600; font-family:"DM Mono", monospace; letter-spacing:0.02em; }',
+      '.dr-root .dr-exp-badge.expired         { background:var(--dr-red-light);   color:var(--dr-red);   border:1px solid var(--dr-red-border); }',
+      '.dr-root .dr-exp-badge.expiring-soon   { background:var(--gold-light);     color:var(--gold-mid); border:1px solid var(--gold-border, rgba(200,129,58,0.28)); }',
+      '.dr-root .dr-exp-badge.expiring-future { background:#f3f1ec;               color:var(--muted);    border:1px solid var(--border); }',
       // Deploy 236.163 — multi-doc-per-tray collapsible for hidden
       // (replaced) docs. Renders below the live docs in the tray
       // body, dimmer than the live list.
@@ -924,11 +931,19 @@
       trayNameHtml +=
         '<button class="dr-tray-rename-btn" title="Rename tray" onclick="event.stopPropagation();dr_renameTrayLabel(\'' + escAttr(slug) + '\')">&#x270e;</button>';
     }
+    // Deploy 236.165 — expiration badge. Surfaces when the AI
+    // extracted a document/expiration date or when per-slug rules
+    // computed a stale-by date. Red = past due; amber = within
+    // 14 days; gray = future, just informational. Click goes to
+    // the tray body so the LO can see the AI's dateNotes.
+    var expBadge = _expirationBadge(d);
+
     return '<div class="tray ' + effectiveVerdict + (d.hidden ? ' is-hidden' : '') + '" id="dr-tray_' + escAttr(slug) + '">' +
       '<div class="tray-head" onclick="dr_toggleExpand(\'' + escAttr(slug) + '\')">' +
         '<div style="min-width:0;flex:1">' +
           '<div class="tray-name" id="dr-tray-name_' + escAttr(slug) + '">' + trayNameHtml + '</div>' +
           '<div class="tray-conditions">' + escHtml(meta.conditions) + '</div>' +
+          expBadge +
         '</div>' +
         '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
       '</div>' +
@@ -1082,6 +1097,29 @@
       return d.documents.filter(function(x) { return x && x.hidden; });
     }
     return [];
+  }
+
+  // Deploy 236.165 — expiration badge for the tray head. Renders
+  // when the AI extracted a documentDate / expirationDate (or when
+  // the per-slug stale rule applied) on upload. Severity colors:
+  //   red    = past due (current date >= stale-by / expiration)
+  //   amber  = within 14 days (warning window)
+  //   gray   = future, informational
+  function _expirationBadge(d) {
+    var due = d && (d.expirationDate || d.staleByDate);
+    if (!due || !/^\d{4}-\d{2}-\d{2}$/.test(due)) return '';
+    var label = d.expirationDate ? 'Expires' : 'Stale after';
+    var today = new Date();
+    var todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+    var parts = due.split('-');
+    var dueUTC = Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    var deltaDays = Math.round((dueUTC - todayUTC) / 86400000);
+    var cls = deltaDays < 0 ? 'expired' : deltaDays <= 14 ? 'expiring-soon' : 'expiring-future';
+    var text = deltaDays < 0
+      ? 'EXPIRED ' + due + ' (' + Math.abs(deltaDays) + 'd ago)'
+      : (label + ' ' + due + ' (in ' + deltaDays + 'd)');
+    var titleAttr = d.dateNotes ? ' title="' + escAttr(d.dateNotes) + '"' : '';
+    return '<div class="dr-exp-badge ' + cls + '"' + titleAttr + '>📅 ' + escHtml(text) + '</div>';
   }
 
   // Deploy 236.163 — multi-doc-aware variants. Rename / remove

@@ -315,7 +315,21 @@ function buildPrompt(opts) {
     '    "llcName":         "<entity / LLC name on this doc, or null>",',
     '    "borrowerName":    "<personal borrower name on this doc, or null>",',
     '    "propertyAddress": "<full property address on this doc, or null>",',
-    '    "loanAmount":      <numeric loan amount on this doc, or null>',
+    '    "loanAmount":      <numeric loan amount on this doc, or null>,',
+    // Deploy 236.165 — expiration extraction. Two date fields:
+    //   documentDate  — the date the doc was printed / issued /
+    //                   covers (e.g. statement date on a bank
+    //                   statement, print date on a Certificate of
+    //                   Good Standing). Used by the frontend to
+    //                   compute a per-doc-type "stale by" date.
+    //   expirationDate — an explicit expiration printed on the doc
+    //                   (insurance, drivers license, passport).
+    //                   Use null if no explicit date appears.
+    // Both should be ISO YYYY-MM-DD. The frontend will show them
+    // on the tray and warn when stale / expired.
+    '    "documentDate":    "<YYYY-MM-DD of the doc\'s print / statement / issue date, or null>",',
+    '    "expirationDate":  "<YYYY-MM-DD of an explicit expiration printed on the doc, or null>",',
+    '    "dateNotes":       "<one-line explanation of where you found the date(s), or null>"',
     '  }',
     '}',
     '',
@@ -323,6 +337,7 @@ function buildPrompt(opts) {
     '- "approved" only when every applicable rubric condition is fully met.',
     '- If a rubric condition is "not_met" with material concern, verdict MUST be "issues".',
     '- Extracted entities are used downstream to cross-check consistency. Use null if the field is not naturally present on this doc — that is normal and not an issue on its own.',
+    '- For documentDate / expirationDate: only fill these in if the date is LITERALLY visible on the doc. Do not infer. Bank statements have a statement period (use the statement end date). Certificates of Good Standing typically have a "printed on" or "as of" date. Insurance / drivers licenses / passports have explicit expirations. If you cannot see a date, return null — that is not a finding by itself.',
   ].join('\n');
 }
 
