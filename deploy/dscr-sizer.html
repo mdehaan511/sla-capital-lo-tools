@@ -3896,14 +3896,28 @@ netlifyIdentity.on('init', function(user) {
       }
 
       if ((loadAddr || clientIdP) && window.QuoteStore) {
-        // Try the QuoteStore lookup first if we have an address;
-        // fall back to the client/loan lookup (handles application-sourced
-        // loans that have no quote yet). prefillContact=1 skips the loan
-        // lookup entirely and just fills borrower contact fields.
-        var loader = loadAddr ? loadFromQuote() : Promise.resolve(false);
+        // Deploy 236.139 — when both clientId AND loanId are
+        // present, prefer loadFromClientLoan over loadFromQuote.
+        // The CLIENTS store is the canonical source of truth that
+        // inline edits on Loan Details write to; the QUOTES store
+        // is the legacy "saved quotes" panel state, last touched
+        // when the sizer was saved — so loading from QUOTES first
+        // silently masked any Loan Details inline edits. clientId
+        // + loanId uniquely identify the loan; only fall back to
+        // address-keyed QuoteStore lookup when those aren't
+        // available (legacy / standalone sizer entry points).
+        var hasIds = clientIdP && loanIdP;
+        var loader = hasIds
+          ? loadFromClientLoan()
+          : (loadAddr ? loadFromQuote() : Promise.resolve(false));
         loader.then(function(loaded) {
           if (!loaded && clientIdP && loanIdP) {
             return loadFromClientLoan();
+          }
+          if (!loaded && loadAddr) {
+            // Reverse-fallback: client lookup didn't match, try the
+            // address-keyed QuoteStore as a last resort.
+            return loadFromQuote();
           }
           if (!loaded && clientIdP && prefillContactOnly) {
             return loadContactOnly();

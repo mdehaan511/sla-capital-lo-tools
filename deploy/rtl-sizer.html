@@ -3793,14 +3793,23 @@ netlifyIdentity.on('init', function(user) {
     }
 
     if ((loadAddr || clientIdP) && window.QuoteStore) {
-      var loader = loadAddr ? loadFromQuote() : Promise.resolve(false);
+      // Deploy 236.139 — prefer loadFromClientLoan when both
+      // clientId AND loanId are present. The CLIENTS store is the
+      // canonical source of truth that inline edits on Loan
+      // Details write to; the QUOTES store is the legacy
+      // "saved quotes" panel state which can lag behind. See
+      // matching comment in dscr-sizer.html.
+      var hasIds = clientIdP && loanIdP;
+      var loader = hasIds
+        ? loadFromClientLoan()
+        : (loadAddr ? loadFromQuote() : Promise.resolve(false));
       loader.then(function(loaded) {
         if (!loaded && clientIdP && loanIdP) {
           return loadFromClientLoan();
         }
-        // No existing loan to load — if prefillContact=1 was passed,
-        // just fill borrower contact fields and let the LO take it
-        // from there.
+        if (!loaded && loadAddr) {
+          return loadFromQuote();
+        }
         if (!loaded && clientIdP && prefillContactOnly) {
           return loadContactOnly();
         }
