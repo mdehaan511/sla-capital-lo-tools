@@ -1136,7 +1136,12 @@
      * or a drag-drop event. We base64-encode it client-side so the
      * function endpoint can stay JSON-only (no multipart parsing).
      */
-    uploadDoc: function (reviewId, slug, file) {
+    // Deploy 236.163 — opts.mode ('add' | 'replace') + opts.replaceDocIds
+    // wire the multi-doc-per-tray flow. Omitted opts keeps the legacy
+    // behavior (history push), so any caller that doesn't know about
+    // the new fields still works.
+    uploadDoc: function (reviewId, slug, file, opts) {
+      opts = opts || {};
       return new Promise(function (resolve, reject) {
         var reader = new FileReader();
         reader.onload = function () {
@@ -1144,14 +1149,17 @@
           var commaIdx = String(dataUrl).indexOf(',');
           var b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
           if (!b64) return reject(new Error('Failed to read file'));
-          api('POST', '/api/loan-review-doc-upload', {
+          var body = {
             reviewId: reviewId,
             slug: slug,
             filename: file.name || 'upload.pdf',
             mimeType: file.type || 'application/pdf',
             sizeBytes: file.size || 0,
             contentBase64: b64,
-          }).then(resolve, reject);
+          };
+          if (opts.mode) body.mode = opts.mode;
+          if (opts.replaceDocIds) body.replaceDocIds = opts.replaceDocIds;
+          api('POST', '/api/loan-review-doc-upload', body).then(resolve, reject);
         };
         reader.onerror = function () { reject(new Error('Failed to read file')); };
         reader.readAsDataURL(file);

@@ -86,14 +86,27 @@ async function handle(req, context) {
   const docKey = keySafe(body.reviewId) + '/' + docId;
   const now = new Date().toISOString();
 
+  // Deploy 236.163 — version the filename BEFORE the blob write
+  // when this is an "add" upload to a tray that already has a doc,
+  // so the blob metadata + the docState.documents[] entry agree.
+  // _autoVersionFilename strips any trailing " V<N>" from the
+  // existing primary's name to find the base, then appends
+  // " V<N+1>" derived from the total docs ever on the tray.
+  const _existingDocState = review.docs[body.slug];
+  const _incomingMode     = String(body.mode || '').toLowerCase();
+  const _incomingFilename = String(body.filename || '');
+  const computedFilename  = _incomingMode === 'add'
+    ? _autoVersionFilename(_existingDocState, _incomingFilename)
+    : _incomingFilename;
+
   // Store the raw bytes alongside metadata.
   const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
   await docsStore.set(docKey, bytes, {
     metadata: {
-      reviewId: body.reviewId,
-      slug: body.slug,
-      filename: String(body.filename || ''),
-      mimeType: String(body.mimeType || 'application/pdf'),
+      reviewId:   body.reviewId,
+      slug:       body.slug,
+      filename:   computedFilename,
+      mimeType:   String(body.mimeType || 'application/pdf'),
       uploadedAt: now,
       uploadedBy: normalizeEmail(user.email),
     },
@@ -102,26 +115,79 @@ async function handle(req, context) {
   // Update the review's per-doc state.
   const docState = review.docs[body.slug];
 
-  // If there was a prior upload, push it into history before overwriting.
-  if (docState.currentDocId) {
-    const histEntry = {
-      docId: docState.currentDocId,
-      filename: docState.currentFilename || '',
+  // Deploy 236.163 — multi-doc per tray. The legacy schema had a
+  // single currentDocId per tray and pushed prior uploads into
+  // history. Mike: we want multiple LIVE docs per tray with a
+  // "replace or add?" modal. The new schema keeps the legacy
+  // current* fields populated (= documents[0]) for backward-compat
+  // with any unmodified consumer, plus a documents[] array
+  // carrying every live (visible) doc on the tray with a per-
+  // entry `hidden` flag for replaced ones.
+  const incomingMode = _incomingMode;
+  const filename = computedFilename;
+
+  // Lift existing currentDocId into documents[] if not already present.
+  if (!Array.isArray(docState.documents)) docState.documents = [];
+  if (docState.currentDocId && !docState.documents.some((d) => d && d.docId === docState.currentDocId)) {
+    docState.documents.unshift({
+      docId:      docState.currentDocId,
+      filename:   docState.currentFilename || '',
+      size:       docState.currentSize || 0,
+      mimeType:   docState.currentMimeType || 'application/pdf',
       uploadedAt: docState.currentUploadedAt || '',
-      verdict: docState.verdict || 'pending',
-      processorNotes: docState.processorNotes || '',
-      aiVerdict: docState.aiVerdict || '',
-      aiNotes: docState.aiNotes || '',
-      approvedAt: docState.approvedAt || '',
-      approvedBy: docState.approvedBy || '',
-    };
-    docState.history = Array.isArray(docState.history) ? docState.history.concat([histEntry]) : [histEntry];
+      hidden:     false,
+    });
   }
 
-  docState.currentDocId = docId;
-  docState.currentFilename = String(body.filename || '');
-  docState.currentSize = bytes.length;
-  docState.currentMimeType = String(body.mimeType || 'application/pdf');
+  if (incomingMode === 'replace') {
+    // Hide the requested doc(s). 'ALL' or empty array means hide
+    // everything currently live. Hiding never deletes — the blob
+    // stays and the doc record stays in documents[] flagged hidden.
+    const targets = Array.isArray(body.replaceDocIds) ? body.replaceDocIds : [];
+    const hideAll = targets.length === 0 || targets.indexOf('ALL') >= 0;
+    docState.documents.forEach((d) => {
+      if (!d) return;
+      if (hideAll || targets.indexOf(d.docId) >= 0) d.hidden = true;
+    });
+  } else if (incomingMode === 'add') {
+    // No hiding — the existing docs stay visible alongside the new one.
+  } else {
+    // Legacy / no-mode upload: push prior into history (original behavior).
+    if (docState.currentDocId) {
+      const histEntry = {
+        docId:          docState.currentDocId,
+        filename:       docState.currentFilename || '',
+        uploadedAt:     docState.currentUploadedAt || '',
+        verdict:        docState.verdict || 'pending',
+        processorNotes: docState.processorNotes || '',
+        aiVerdict:      docState.aiVerdict || '',
+        aiNotes:        docState.aiNotes || '',
+        approvedAt:     docState.approvedAt || '',
+        approvedBy:     docState.approvedBy || '',
+      };
+      docState.history = Array.isArray(docState.history) ? docState.history.concat([histEntry]) : [histEntry];
+      // Also pop the old entry out of documents[] (we just lifted it
+      // there; legacy mode should preserve the original history-only
+      // shape for trays that haven't been touched by the new flow).
+      docState.documents = docState.documents.filter((d) => d && d.docId !== docState.currentDocId);
+    }
+  }
+
+  // Prepend the new doc as the "primary" (documents[0]) so it's
+  // also the legacy currentDocId.
+  docState.documents.unshift({
+    docId:      docId,
+    filename:   filename,
+    size:       bytes.length,
+    mimeType:   String(body.mimeType || 'application/pdf'),
+    uploadedAt: now,
+    hidden:     false,
+  });
+
+  docState.currentDocId      = docId;
+  docState.currentFilename   = filename;
+  docState.currentSize       = bytes.length;
+  docState.currentMimeType   = String(body.mimeType || 'application/pdf');
   docState.currentUploadedAt = now;
   // New upload resets verdict — even if AI re-runs auto-approve, the
   // processor still has to click Approve again on the new doc.
@@ -248,4 +314,31 @@ function buildLoanContext(review) {
     loanType:      review.loanType || '',
     fundingDate:   pick('fundingDate') || review.expectedCloseDate || '',
   };
+}
+
+// Deploy 236.163 — derive "<base> V<N>.<ext>" for an "in addition"
+// upload. The base is taken from the tray's primary doc (or the
+// incoming filename if the tray's empty), stripped of any trailing
+// " V<N>". N = total docs ever on the tray (live + hidden + history)
+// + 1, so version numbers never collide even after hides.
+function _autoVersionFilename(docState, incomingFilename) {
+  const ext = _extOf(incomingFilename) || _extOf(docState && docState.currentFilename) || 'pdf';
+  const primaryName = (docState && docState.currentFilename) || incomingFilename || '';
+  const baseFromPrimary = _stripExt(primaryName).replace(/\s+V\d+\s*$/i, '').trim();
+  const base = baseFromPrimary || _stripExt(incomingFilename) || 'Document';
+  // Count everything we've ever seen on this tray: documents[] +
+  // any history entries. This way V<N> stays unique even when the
+  // LO has hidden earlier versions.
+  const docsCount = Array.isArray(docState && docState.documents) ? docState.documents.length : 0;
+  const histCount = Array.isArray(docState && docState.history)   ? docState.history.length   : 0;
+  const totalSeen = docsCount + histCount + (docsCount === 0 && (docState && docState.currentDocId) ? 1 : 0);
+  const version = totalSeen + 1;
+  return base + ' V' + version + '.' + ext;
+}
+function _extOf(name) {
+  const m = String(name || '').match(/\.([a-z0-9]{1,8})$/i);
+  return m ? m[1].toLowerCase() : '';
+}
+function _stripExt(name) {
+  return String(name || '').replace(/\.[a-z0-9]{1,8}$/i, '');
 }

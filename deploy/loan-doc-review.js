@@ -118,6 +118,10 @@
   // the modal. Captured when the LO opens the modal so confirm
   // can route the new tray into the right section.
   var _pendingAddDoc = null;
+  // Deploy 236.163 — pending Replace-or-Add upload context. Stashes
+  // the slug + File + live-docs list so dr_confirmReplaceOrAdd can
+  // re-fire doUpload with the user's choice.
+  var _pendingUpload = null;
   var _modalsInjected = false;
 
   // ── Utils ────────────────────────────────────────────────────────
@@ -201,6 +205,13 @@
       // Deploy 236.162 — "+ Add Document" gets a slightly more
       // pronounced look so it doesn't blend with the hidden toggle.
       '.dr-root .dr-add-doc-btn { color:var(--gold-mid); border-color:var(--gold-border, rgba(200,129,58,0.28)); }',
+      // Deploy 236.163 — multi-doc-per-tray collapsible for hidden
+      // (replaced) docs. Renders below the live docs in the tray
+      // body, dimmer than the live list.
+      '.dr-root .dr-hidden-docs { margin-top:8px; padding:6px 0; border-top:1px dashed var(--border); }',
+      '.dr-root .dr-hidden-docs summary { font-size:11px; color:var(--muted); cursor:pointer; padding:4px 0; }',
+      '.dr-root .dr-hidden-docs summary:hover { color:var(--gold-mid); }',
+      '.dr-root .current-doc.is-hidden-doc { opacity:0.65; }',
       // Inline rename pencil on custom tray names.
       '.dr-root .tray-name { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }',
       '.dr-root .tray-name-text { word-break:break-word; }',
@@ -376,6 +387,19 @@
         '<div class="dr-modal-actions">',
           '<button class="dr-modal-btn" onclick="dr_closeAddDocModal()">Cancel</button>',
           '<button class="dr-modal-btn approve" onclick="dr_confirmAddDoc()">Add Document</button>',
+        '</div>',
+      '</div></div>',
+      // Deploy 236.163 — Replace-or-Add modal for multi-doc uploads.
+      // Body content (the existing-docs list + radios) is rebuilt
+      // per-open in dr_openReplaceOrAddModal so it reflects the
+      // current tray state.
+      '<div class="dr-modal-bg" id="dr-replaceOrAddModal"><div class="dr-modal" style="max-width:520px">',
+        '<h3>Is this replacing or in addition?</h3>',
+        '<p style="font-size:12px;color:#7a7488;margin-bottom:12px">This tray already has a document. Replacing hides the original (it stays on the record so you can unhide later). Adding keeps both visible side-by-side.</p>',
+        '<div id="dr-replaceOrAddBody"></div>',
+        '<div class="dr-modal-actions">',
+          '<button class="dr-modal-btn" onclick="dr_closeReplaceOrAddModal()">Cancel</button>',
+          '<button class="dr-modal-btn approve" onclick="dr_confirmReplaceOrAdd()">Continue</button>',
         '</div>',
       '</div></div>',
       // Finalize modal
@@ -762,26 +786,50 @@
     }
     var expanded = _expanded[slug] === true;
 
+    // Deploy 236.163 — render EVERY live (non-hidden) doc on the
+    // tray, not just the legacy currentDocId. Hidden docs (replaced
+    // via the replace flow) pile up under a per-tray "Show N hidden"
+    // toggle. Each doc has its own View / Remove / Rename — rename
+    // operates on documents[i].filename for multi-doc trays, or on
+    // currentFilename for legacy single-doc trays (unchanged path).
+    var liveDocsList = _liveDocs(slug);
+    var hiddenDocsList = _hiddenDocs(slug);
     var currentHtml = '';
-    if (d.currentDocId) {
-      var sizeKb = Math.round((d.currentSize || 0) / 1024);
-      // Deploy 236.158 — pencil opens an inline rename input. Saves
-      // via the same patch endpoint (currentFilename is just a per-
-      // doc field; loan-reviews-save merges it shallowly).
-      currentHtml =
+    liveDocsList.forEach(function(ld, idx) {
+      var sizeKb = Math.round((ld.size || 0) / 1024);
+      currentHtml +=
         '<div class="current-doc">' +
           '<div style="min-width:0;flex:1">' +
-            '<div class="doc-name" id="dr-name_' + escAttr(slug) + '">' +
-              '<span class="doc-name-text">' + escHtml(d.currentFilename || '(unnamed)') + '</span>' +
-              '<button class="dr-rename-btn" title="Rename" onclick="dr_renameDoc(\'' + escAttr(slug) + '\')">&#x270e;</button>' +
+            '<div class="doc-name" id="dr-docname_' + escAttr(slug) + '_' + idx + '">' +
+              '<span class="doc-name-text">' + escHtml(ld.filename || '(unnamed)') + '</span>' +
+              '<button class="dr-rename-btn" title="Rename" onclick="dr_renameDocAt(\'' + escAttr(slug) + '\',\'' + escAttr(ld.docId) + '\')">&#x270e;</button>' +
             '</div>' +
-            '<div class="doc-meta">' + sizeKb + ' KB &middot; uploaded ' + formatDate(d.currentUploadedAt) + '</div>' +
+            '<div class="doc-meta">' + sizeKb + ' KB &middot; uploaded ' + formatDate(ld.uploadedAt) + '</div>' +
           '</div>' +
           '<div class="doc-actions">' +
-            '<button class="small-btn" onclick="dr_viewDoc(\'' + escAttr(d.currentDocId) + '\')">View</button>' +
-            '<button class="small-btn danger" onclick="dr_removeDoc(\'' + escAttr(slug) + '\',\'' + escAttr(d.currentDocId) + '\')">Remove</button>' +
+            '<button class="small-btn" onclick="dr_viewDoc(\'' + escAttr(ld.docId) + '\')">View</button>' +
+            '<button class="small-btn" onclick="dr_downloadOneDoc(\'' + escAttr(ld.docId) + '\',\'' + escAttr(ld.filename || ld.docId) + '\')" title="Download this PDF">⬇</button>' +
+            '<button class="small-btn danger" onclick="dr_removeDocAt(\'' + escAttr(slug) + '\',\'' + escAttr(ld.docId) + '\')">Remove</button>' +
           '</div>' +
         '</div>';
+    });
+    if (hiddenDocsList.length) {
+      currentHtml += '<details class="dr-hidden-docs"><summary>Show ' + hiddenDocsList.length + ' hidden document' + (hiddenDocsList.length === 1 ? '' : 's') + '</summary>';
+      hiddenDocsList.forEach(function(hd) {
+        var sizeKb = Math.round((hd.size || 0) / 1024);
+        currentHtml +=
+          '<div class="current-doc is-hidden-doc">' +
+            '<div style="min-width:0;flex:1">' +
+              '<div class="doc-name"><span class="doc-name-text">' + escHtml(hd.filename || '(unnamed)') + '</span><span style="font-size:10px;color:#7a7488;font-weight:500;margin-left:6px">(hidden)</span></div>' +
+              '<div class="doc-meta">' + sizeKb + ' KB &middot; uploaded ' + formatDate(hd.uploadedAt) + '</div>' +
+            '</div>' +
+            '<div class="doc-actions">' +
+              '<button class="small-btn" onclick="dr_viewDoc(\'' + escAttr(hd.docId) + '\')">View</button>' +
+              '<button class="small-btn" onclick="dr_unhideDoc(\'' + escAttr(slug) + '\',\'' + escAttr(hd.docId) + '\')" title="Unhide this document">↩ Unhide</button>' +
+            '</div>' +
+          '</div>';
+      });
+      currentHtml += '</details>';
     }
 
     var aiHtml = renderAiBlock(d, slug);
@@ -951,12 +999,29 @@
     if (f) doUpload(slug, f);
   };
 
-  function doUpload(slug, file) {
+  function doUpload(slug, file, opts) {
+    opts = opts || {};
+    // Deploy 236.163 — when the tray already has 1+ LIVE (non-hidden)
+    // docs and the caller didn't pre-decide the mode, pop the
+    // "Replace or Add?" modal first. The modal captures the choice
+    // (replace which docs vs. add alongside) and re-fires doUpload
+    // with opts.mode + opts.replaceDocIds set.
+    if (!opts.mode) {
+      var live = _liveDocs(slug);
+      if (live.length >= 1) {
+        _openReplaceOrAddModal(slug, file, live);
+        return;
+      }
+    }
+
     _uploadingSlug = slug;
     _expanded[slug] = true;
     render();
     showToast('Uploading ' + file.name + '…', 'info');
-    global.SLA.LoanReviews.uploadDoc(_review.id, slug, file).then(function(r) {
+    var uploadOpts = {};
+    if (opts.mode)           uploadOpts.mode = opts.mode;
+    if (opts.replaceDocIds)  uploadOpts.replaceDocIds = opts.replaceDocIds;
+    global.SLA.LoanReviews.uploadDoc(_review.id, slug, file, uploadOpts).then(function(r) {
       _review = r.review;
       _uploadingSlug = null;
       var verdict = (r.review.docs[slug] && r.review.docs[slug].aiVerdict) || '';
@@ -970,6 +1035,141 @@
       render();
     });
   }
+
+  // Deploy 236.163 — list the LIVE (visible) docs on a tray. Handles
+  // both the legacy single-doc shape (currentDocId only) and the new
+  // documents[] array; legacy docs are synthesized into a single-
+  // entry list on the fly.
+  function _liveDocs(slug) {
+    var d = _review.docs[slug] || {};
+    if (Array.isArray(d.documents) && d.documents.length) {
+      return d.documents.filter(function(x) { return x && !x.hidden; });
+    }
+    if (d.currentDocId) {
+      return [{
+        docId:      d.currentDocId,
+        filename:   d.currentFilename || '',
+        size:       d.currentSize || 0,
+        mimeType:   d.currentMimeType || 'application/pdf',
+        uploadedAt: d.currentUploadedAt || '',
+        hidden:     false,
+      }];
+    }
+    return [];
+  }
+  function _hiddenDocs(slug) {
+    var d = _review.docs[slug] || {};
+    if (Array.isArray(d.documents) && d.documents.length) {
+      return d.documents.filter(function(x) { return x && x.hidden; });
+    }
+    return [];
+  }
+
+  // Deploy 236.163 — multi-doc-aware variants. Rename / remove
+  // now operate on a specific docId in documents[]. Backward-compat
+  // shims for the old single-doc helpers stay below.
+  global.dr_renameDocAt = function(slug, docId) {
+    var live = _liveDocs(slug);
+    var target = live.find(function(x) { return x.docId === docId; });
+    if (!target) return;
+    var next = prompt('New filename for this document:', target.filename || '');
+    if (next == null) return;
+    next = String(next).trim();
+    if (!next) { showToast('Filename can\'t be empty.', 'error'); return; }
+    if (next === (target.filename || '')) return;
+    // Patch: write new documents[] with the renamed entry.
+    var docState = _review.docs[slug] || {};
+    var docs = (docState.documents || []).map(function(d) {
+      if (!d) return d;
+      if (d.docId !== docId) return d;
+      return Object.assign({}, d, { filename: next });
+    });
+    var patch = { docs: {} };
+    patch.docs[slug] = { documents: docs };
+    // Keep legacy currentFilename in sync when this is documents[0].
+    if (docState.currentDocId === docId) patch.docs[slug].currentFilename = next;
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast('Renamed.', 'success');
+      render();
+    }).catch(function(err) {
+      showToast('Rename failed: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+  global.dr_removeDocAt = function(slug, docId) {
+    if (!confirm('Remove this document from the tray? (Deletes the file from storage.)')) return;
+    global.SLA.LoanReviews.deleteDoc(_review.id, slug, docId).then(function(r) {
+      _review = r.review;
+      // Belt-and-suspenders: also strip the entry from documents[]
+      // locally in case the backend doesn't (the delete endpoint
+      // historically only nulled current* fields).
+      var docState = _review.docs[slug] || {};
+      if (Array.isArray(docState.documents)) {
+        var next = docState.documents.filter(function(d) { return d && d.docId !== docId; });
+        if (next.length !== docState.documents.length) {
+          var patch = { docs: {} };
+          patch.docs[slug] = { documents: next };
+          // Promote a new primary if we just removed it.
+          if (docState.currentDocId === docId) {
+            var newPrimary = next.find(function(d) { return d && !d.hidden; });
+            if (newPrimary) {
+              patch.docs[slug].currentDocId      = newPrimary.docId;
+              patch.docs[slug].currentFilename   = newPrimary.filename || '';
+              patch.docs[slug].currentSize       = newPrimary.size || 0;
+              patch.docs[slug].currentMimeType   = newPrimary.mimeType || 'application/pdf';
+              patch.docs[slug].currentUploadedAt = newPrimary.uploadedAt || '';
+            }
+          }
+          global.SLA.LoanReviews.patch(_review.id, patch).then(function(r2) {
+            _review = r2.review;
+            render();
+          }).catch(function() { render(); });
+        } else { render(); }
+      } else { render(); }
+      showToast('Removed.', 'success');
+    }).catch(function(err) {
+      showToast('Failed to remove: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+  global.dr_unhideDoc = function(slug, docId) {
+    var docState = _review.docs[slug] || {};
+    var docs = (docState.documents || []).map(function(d) {
+      if (!d || d.docId !== docId) return d;
+      return Object.assign({}, d, { hidden: false });
+    });
+    var patch = { docs: {} };
+    patch.docs[slug] = { documents: docs };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast('Unhidden.', 'success');
+      render();
+    }).catch(function(err) { showToast('Unhide failed: ' + (err.message || 'Unknown'), 'error'); });
+  };
+  global.dr_downloadOneDoc = function(docId, filename) {
+    if (!_review || !_review.id) return;
+    var u = global.netlifyIdentity && global.netlifyIdentity.currentUser();
+    if (!u || !u.jwt) { showToast('Not signed in.', 'error'); return; }
+    u.jwt().then(function(token) {
+      return fetch('/api/loan-review-doc-get?reviewId=' + encodeURIComponent(_review.id) +
+                   '&docId=' + encodeURIComponent(docId), {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.blob().then(function(blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'document.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+      });
+    }).catch(function(err) {
+      showToast('Download failed: ' + ((err && err.message) || 'unknown'), 'error');
+    });
+  };
 
   global.dr_removeDoc = function(slug, docId) {
     if (!confirm('Remove this uploaded document?')) return;
@@ -1118,6 +1318,85 @@
       showToast('Rename failed: ' + (err.message || 'Unknown'), 'error');
       render();
     });
+  };
+
+  // Deploy 236.163 — Replace-or-Add modal. Built per-open so the
+  // list of existing docs reflects current state. When the LO
+  // confirms, dr_confirmReplaceOrAdd re-fires doUpload with the
+  // captured file + the chosen mode.
+  function _openReplaceOrAddModal(slug, file, liveDocs) {
+    _pendingUpload = { slug: slug, file: file, liveDocs: liveDocs };
+    var body = '';
+    body += '<div style="display:flex;gap:12px;margin-bottom:14px">';
+    body += '<label style="flex:1;padding:10px 12px;border:1.5px solid #ddd8d0;border-radius:6px;cursor:pointer;font-size:12px"><input type="radio" name="dr-mode" value="add" checked style="margin-right:6px" /><strong>Add alongside</strong><br><span style="color:#7a7488;font-size:11px">Both files stay visible. New one gets a V2 suffix.</span></label>';
+    body += '<label style="flex:1;padding:10px 12px;border:1.5px solid #ddd8d0;border-radius:6px;cursor:pointer;font-size:12px"><input type="radio" name="dr-mode" value="replace" style="margin-right:6px" /><strong>Replace</strong><br><span style="color:#7a7488;font-size:11px">Hides the original (stays on record, recoverable).</span></label>';
+    body += '</div>';
+    if (liveDocs.length > 1) {
+      body += '<div id="dr-replaceTargets" style="display:none;padding:10px 12px;background:#faf8f3;border-radius:6px">';
+      body += '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:#7a7488;margin-bottom:8px">Which one(s) to replace?</div>';
+      body += '<label style="display:block;padding:6px 0;font-size:12px"><input type="checkbox" id="dr-replaceAll" value="ALL" style="margin-right:6px" />Replace ALL current documents</label>';
+      liveDocs.forEach(function(ld) {
+        body += '<label style="display:block;padding:6px 0;font-size:12px;border-top:1px dashed #ddd8d0;margin-top:4px"><input type="checkbox" class="dr-replaceItem" value="' + escAttr(ld.docId) + '" style="margin-right:6px" />' + escHtml(ld.filename || ld.docId) + '</label>';
+      });
+      body += '</div>';
+    } else {
+      body += '<input type="hidden" id="dr-replaceTargets-single" value="' + escAttr(liveDocs[0].docId) + '" />';
+    }
+    var bodyEl = document.getElementById('dr-replaceOrAddBody');
+    if (bodyEl) bodyEl.innerHTML = body;
+    // Wire mode change so the targets list shows/hides.
+    var radios = document.querySelectorAll('input[name="dr-mode"]');
+    Array.prototype.forEach.call(radios, function(r) {
+      r.onchange = function() {
+        var t = document.getElementById('dr-replaceTargets');
+        if (t) t.style.display = (r.value === 'replace' && r.checked) ? 'block' : 'none';
+      };
+    });
+    // ALL checkbox disables the per-doc ones.
+    var allCb = document.getElementById('dr-replaceAll');
+    if (allCb) {
+      allCb.onchange = function() {
+        var items = document.querySelectorAll('.dr-replaceItem');
+        Array.prototype.forEach.call(items, function(i) {
+          i.disabled = allCb.checked;
+          if (allCb.checked) i.checked = false;
+        });
+      };
+    }
+    var modal = document.getElementById('dr-replaceOrAddModal');
+    if (modal) modal.classList.add('show');
+  }
+  global.dr_closeReplaceOrAddModal = function() {
+    _pendingUpload = null;
+    var modal = document.getElementById('dr-replaceOrAddModal');
+    if (modal) modal.classList.remove('show');
+  };
+  global.dr_confirmReplaceOrAdd = function() {
+    if (!_pendingUpload) return;
+    var modeEl = document.querySelector('input[name="dr-mode"]:checked');
+    var mode = modeEl ? modeEl.value : 'add';
+    var opts = { mode: mode };
+    if (mode === 'replace') {
+      var allCb = document.getElementById('dr-replaceAll');
+      var singleEl = document.getElementById('dr-replaceTargets-single');
+      if (allCb && allCb.checked) {
+        opts.replaceDocIds = ['ALL'];
+      } else if (singleEl) {
+        opts.replaceDocIds = [singleEl.value];
+      } else {
+        var ids = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.dr-replaceItem:checked'), function(i) {
+          ids.push(i.value);
+        });
+        if (!ids.length) { showToast('Pick at least one document to replace, or choose Replace ALL.', 'error'); return; }
+        opts.replaceDocIds = ids;
+      }
+    }
+    var p = _pendingUpload;
+    _pendingUpload = null;
+    var modal = document.getElementById('dr-replaceOrAddModal');
+    if (modal) modal.classList.remove('show');
+    doUpload(p.slug, p.file, opts);
   };
 
   // Deploy 236.159 — ZIP every uploaded doc on this review.

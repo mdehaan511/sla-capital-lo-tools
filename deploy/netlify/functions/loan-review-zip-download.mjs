@@ -57,11 +57,25 @@ async function handle(req, context) {
   const docMap = (review.docs && typeof review.docs === 'object') ? review.docs : {};
   for (const slug of Object.keys(docMap)) {
     const d = docMap[slug] || {};
+    if (d.hidden) continue; // Deploy 236.161 — skip hidden trays.
     const sectionLabel = _sectionLabelForSlug(slug);
-    if (d.currentDocId) {
+    // Deploy 236.163 — prefer the multi-doc documents[] array when
+    // present. Live (non-hidden) docs get bundled; hidden (replaced)
+    // docs are skipped by default. Legacy single-doc trays still
+    // surface via the currentDocId fallback below.
+    if (Array.isArray(d.documents) && d.documents.length) {
+      d.documents.forEach((entry) => {
+        if (!entry || !entry.docId || entry.hidden) return;
+        queue.push({
+          sectionLabel, slug,
+          docId:    entry.docId,
+          filename: entry.filename || (slug + '.pdf'),
+        });
+      });
+    } else if (d.currentDocId) {
       queue.push({
         sectionLabel, slug,
-        docId: d.currentDocId,
+        docId:    d.currentDocId,
         filename: d.currentFilename || (slug + '.pdf'),
       });
     }
@@ -70,7 +84,7 @@ async function handle(req, context) {
         if (!h || !h.docId) return;
         queue.push({
           sectionLabel, slug,
-          docId: h.docId,
+          docId:    h.docId,
           filename: 'prior-' + (hi + 1) + '-' + (h.filename || (slug + '.pdf')),
         });
       });
