@@ -205,6 +205,10 @@
       // Deploy 236.162 — "+ Add Document" gets a slightly more
       // pronounced look so it doesn't blend with the hidden toggle.
       '.dr-root .dr-add-doc-btn { color:var(--gold-mid); border-color:var(--gold-border, rgba(200,129,58,0.28)); }',
+      // Deploy 236.164 — bulk-approve button uses the green palette
+      // so it reads as a "safe positive action" at a glance.
+      '.dr-root .dr-bulk-approve-btn { color:var(--dr-green); border-color:var(--dr-green-border); }',
+      '.dr-root .dr-bulk-approve-btn:hover { background:var(--dr-green-light); }',
       // Deploy 236.163 — multi-doc-per-tray collapsible for hidden
       // (replaced) docs. Renders below the live docs in the tray
       // body, dimmer than the live list.
@@ -742,10 +746,25 @@
       // via a pencil next to it. Sub-note explains it's a manual
       // doc not in the standard checklist.
       var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escAttr(sec.key) + '\',\'' + escAttr(sec.label) + '\')">+ Add Document</button>';
+      // Deploy 236.164 — bulk "Approve all pending" per section.
+      // Counts trays in this section that have a doc uploaded AND
+      // verdict is still pending (i.e. awaiting processor click).
+      // Skips trays with no doc, hidden trays, already-approved /
+      // issues / na trays. Button only renders when there's
+      // something to bulk-approve.
+      var bulkable = slugsInSec.filter(function(s) {
+        var dd = docs[s] || {};
+        if (dd.hidden) return false;
+        if ((dd.verdict || 'pending') !== 'pending') return false;
+        return !!(dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; })));
+      });
+      var bulkBtn = bulkable.length
+        ? '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkApprove(\'' + escAttr(sec.key) + '\')" title="Approve every uploaded doc in this section that\'s still pending">✓ Approve ' + bulkable.length + ' pending</button>'
+        : '';
       return '<div class="dr-section">' +
         '<div class="section-title-row">' +
           '<div class="section-title">' + escHtml(sec.label) + '</div>' +
-          '<div style="display:flex;gap:8px;align-items:center">' + hiddenToggle + addBtn + '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + bulkBtn + hiddenToggle + addBtn + '</div>' +
         '</div>' +
         slugsInSec.map(renderTray).join('') +
         hiddenHtml +
@@ -1206,6 +1225,53 @@
   global.dr_toggleHiddenInSection = function(sectionKey) {
     _showHidden[sectionKey] = !_showHidden[sectionKey];
     render();
+  };
+
+  // Deploy 236.164 — bulk "Approve all pending" in a section.
+  // Walks the docs in this section, finds the ones with a doc
+  // uploaded but still pending, and patches them all to
+  // approved in a single round-trip. AI verdicts of "issues"
+  // are SKIPPED — those need a manual override-reason via the
+  // existing override modal, which we don't want to bypass
+  // silently.
+  global.dr_bulkApprove = function(sectionKey) {
+    var docs = _review.docs || {};
+    var targets = [];
+    var aiIssuesSkipped = 0;
+    Object.keys(docs).forEach(function(s) {
+      var dd = docs[s] || {};
+      if (dd.hidden) return;
+      var meta = DOC_META[s] || { section: dd.section || 'loan' };
+      if ((meta.section || dd.section || 'loan') !== sectionKey) return;
+      if ((dd.verdict || 'pending') !== 'pending') return;
+      var hasDoc = !!(dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; })));
+      if (!hasDoc) return;
+      if (dd.aiVerdict === 'issues') { aiIssuesSkipped++; return; }
+      targets.push(s);
+    });
+    if (!targets.length) {
+      showToast(aiIssuesSkipped
+        ? 'Nothing to bulk-approve. ' + aiIssuesSkipped + ' doc(s) need a manual AI-issues override.'
+        : 'Nothing to bulk-approve in this section.', 'info');
+      return;
+    }
+    var msg = 'Approve ' + targets.length + ' pending document' + (targets.length === 1 ? '' : 's') + ' in this section?';
+    if (aiIssuesSkipped) msg += '\n\n(' + aiIssuesSkipped + ' doc(s) with AI-flagged issues will be SKIPPED — open those individually to override.)';
+    if (!confirm(msg)) return;
+
+    var now = new Date().toISOString();
+    var actor = (_user && _user.email) || '';
+    var patch = { docs: {} };
+    targets.forEach(function(s) {
+      patch.docs[s] = { verdict: 'approved', approvedAt: now, approvedBy: actor };
+    });
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast('Approved ' + targets.length + ' document' + (targets.length === 1 ? '' : 's') + '.', 'success');
+      render();
+    }).catch(function(err) {
+      showToast('Bulk approve failed: ' + ((err && err.message) || 'unknown'), 'error');
+    });
   };
 
   // Deploy 236.162 — custom tray flow. Modal capture → patch
