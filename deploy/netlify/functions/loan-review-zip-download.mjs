@@ -141,7 +141,10 @@ async function handle(req, context) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80);
-  const filename = (safeStreet ? safeStreet + ' - Documents' : 'Loan Documents - ' + reviewId) + '.zip';
+  // Deploy 236.161 — renamed per Mike from " - Documents" to
+  // " - Full Loan File". The investor / closing-package context
+  // is what matters; "Documents" was too generic.
+  const filename = (safeStreet ? safeStreet + ' - Full Loan File' : 'Loan File - ' + reviewId) + '.zip';
 
   return new Response(out, {
     status: 200,

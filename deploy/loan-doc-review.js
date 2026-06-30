@@ -112,6 +112,8 @@
   var _sourceOpen = false;
   var _uploadingSlug = null;
   var _stylesInjected = false;
+  // Deploy 236.161 — per-section "Show N hidden" toggle state.
+  var _showHidden = {};
   var _modalsInjected = false;
 
   // ── Utils ────────────────────────────────────────────────────────
@@ -187,11 +189,24 @@
 
       // .section here would collide with the host page; use .dr-section.
       '.dr-root .dr-section { margin-bottom:1.5rem; }',
-      '.dr-root .section-title { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px; padding-left:4px; }',
+      '.dr-root .section-title { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; padding-left:4px; }',
+      // Deploy 236.161 — section header row (title + Show/Hide N hidden toggle).
+      '.dr-root .section-title-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }',
+      '.dr-root .dr-section-toggle { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; padding:3px 10px; color:var(--muted); background:transparent; border:1px solid var(--border); border-radius:20px; cursor:pointer; }',
+      '.dr-root .dr-section-toggle:hover { color:var(--gold-mid); border-color:var(--gold); }',
       '.dr-root .tray { background:#fff; border:1px solid var(--border, #ddd8d0); border-radius:8px; margin-bottom:10px; overflow:hidden; }',
       '.dr-root .tray.approved { border-color:var(--dr-green-border); }',
       '.dr-root .tray.issues   { border-color:var(--dr-red-border); }',
       '.dr-root .tray.na       { border-color:var(--dr-blue-border); }',
+      // Deploy 236.161 — Awaiting Review states. Tray border + badge
+      // match the AI verdict color so the LO sees the AI pre-screen
+      // at a glance, while the badge text makes clear it still
+      // needs processor confirmation.
+      '.dr-root .tray.awaiting-ok     { border-color:var(--dr-green-border); }',
+      '.dr-root .tray.awaiting-issues { border-color:var(--dr-red-border); }',
+      '.dr-root .tray.awaiting        { border-color:var(--gold-border, rgba(200,129,58,0.28)); }',
+      '.dr-root .tray.is-hidden { opacity:0.55; }',
+      '.dr-root .tray.is-hidden .tray-name::after { content:" (hidden)"; color:var(--muted); font-weight:500; font-size:11px; }',
       '.dr-root .tray-head { padding:14px 18px; display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; cursor:pointer; }',
       '.dr-root .tray-head:hover { background:var(--gold-light, rgba(200,129,58,0.10)); }',
       '.dr-root .tray-name { font-size:13px; font-weight:600; color:var(--text); }',
@@ -201,6 +216,10 @@
       '.dr-root .tray-verdict.approved { background:var(--dr-green-light); color:var(--dr-green); border:1px solid var(--dr-green-border); }',
       '.dr-root .tray-verdict.issues   { background:var(--dr-red-light); color:var(--dr-red); border:1px solid var(--dr-red-border); }',
       '.dr-root .tray-verdict.na       { background:var(--dr-blue-light); color:var(--dr-blue); border:1px solid var(--dr-blue-border); }',
+      // Deploy 236.161 — Awaiting Review badge variants.
+      '.dr-root .tray-verdict.awaiting-ok     { background:var(--dr-green-light); color:var(--dr-green); border:1px solid var(--dr-green-border); }',
+      '.dr-root .tray-verdict.awaiting-issues { background:var(--dr-red-light); color:var(--dr-red); border:1px solid var(--dr-red-border); }',
+      '.dr-root .tray-verdict.awaiting        { background:var(--gold-light); color:var(--gold-mid); border:1px solid var(--gold-border, rgba(200,129,58,0.28)); }',
       '.dr-root .tray-body { padding:4px 18px 18px; border-top:1px solid var(--border); background:#fcfaf6; }',
       '.dr-root .tray-body.collapsed { display:none; }',
 
@@ -413,7 +432,13 @@
   // ── Render ───────────────────────────────────────────────────────
   function render() {
     var docs = _review.docs || {};
-    var slugs = Object.keys(docs);
+    var allSlugs = Object.keys(docs);
+    // Deploy 236.161 — split hidden trays out of the main count.
+    // Hidden trays stay in the data, just don't render in the
+    // normal tabs / counters; a per-section "Show N hidden" toggle
+    // reveals them when the LO wants.
+    var slugs  = allSlugs.filter(function(s) { return !docs[s] || !docs[s].hidden; });
+    var hidden = allSlugs.filter(function(s) { return docs[s] && docs[s].hidden; });
     var pendingSlugs  = slugs.filter(function(s) { var v = docs[s].verdict; return v !== 'approved' && v !== 'na'; });
     var reviewedSlugs = slugs.filter(function(s) { var v = docs[s].verdict; return v === 'approved' || v === 'na'; });
 
@@ -478,11 +503,11 @@
       '<div class="consistency-card">' +
         '<h3>Cross-Document Consistency Check <span class="ai-soon">AI · Phase 2</span></h3>' +
         '<p>Once Phase 2 ships, this section will use AI to cross-check the LLC name, borrower name, property address, and loan amount across the Articles of Organization, Operating Agreement, OFAC reports, Loan Application, and Title Commitment to surface any inconsistencies before closing.</p>' +
-      '</div>' +
-      '<div style="margin-top:1.5rem;display:flex;justify-content:flex-end;gap:8px;">' +
-        '<button class="small-btn danger" onclick="dr_openDeleteModal()" style="color:#b91c1c;border-color:rgba(185,28,28,0.40)">🗑 Delete Review</button>' +
-        '<button class="small-btn danger" onclick="dr_openFinalizeModal()">Finalize &amp; Purge Docs</button>' +
       '</div>';
+    // Deploy 236.161 — removed Delete Review + Finalize buttons per
+    // Mike. The handlers + modals remain in the DOM (commented
+    // refs only) so a future re-add doesn't have to re-wire the
+    // backend path.
 
     _root.innerHTML = summary + sourcePanel + tabs + toolbar + traysHtml + bottom;
 
@@ -637,12 +662,38 @@
       if (!bySection[sec]) bySection[sec] = [];
       bySection[sec].push(slug);
     });
+    // Deploy 236.161 — section header now includes a "Show N hidden"
+    // toggle when this section has any hidden trays. Hidden trays
+    // are rendered below the visible ones, dimmed, with an "Unhide"
+    // button replacing the verdict actions.
+    var docs = _review.docs || {};
+    var hiddenBySection = {};
+    Object.keys(docs).forEach(function(s) {
+      if (!docs[s] || !docs[s].hidden) return;
+      var meta = DOC_META[s] || { section: 'loan' };
+      var sec = meta.section || 'loan';
+      (hiddenBySection[sec] = hiddenBySection[sec] || []).push(s);
+    });
     return SECTIONS.map(function(sec) {
       var slugsInSec = bySection[sec.key] || [];
-      if (!slugsInSec.length) return '';
+      var hiddenInSec = hiddenBySection[sec.key] || [];
+      if (!slugsInSec.length && !hiddenInSec.length) return '';
+      var showHidden = _showHidden[sec.key] === true;
+      var hiddenToggle = hiddenInSec.length
+        ? '<button class="dr-section-toggle" onclick="dr_toggleHiddenInSection(\'' + escAttr(sec.key) + '\')">' +
+            (showHidden ? 'Hide ' : 'Show ') + hiddenInSec.length + ' hidden' +
+          '</button>'
+        : '';
+      var hiddenHtml = (showHidden && hiddenInSec.length)
+        ? hiddenInSec.map(renderTray).join('')
+        : '';
       return '<div class="dr-section">' +
-        '<div class="section-title">' + escHtml(sec.label) + '</div>' +
+        '<div class="section-title-row">' +
+          '<div class="section-title">' + escHtml(sec.label) + '</div>' +
+          hiddenToggle +
+        '</div>' +
         slugsInSec.map(renderTray).join('') +
+        hiddenHtml +
       '</div>';
     }).join('');
   }
@@ -651,10 +702,26 @@
     var d = _review.docs[slug] || {};
     var meta = DOC_META[slug] || { label: slug, conditions: '' };
     var verdict = d.verdict || 'pending';
-    var verdictLabel = verdict === 'approved' ? 'Approved'
-                     : verdict === 'issues'   ? 'Issues'
-                     : verdict === 'na'       ? 'N/A'
-                     : 'Pending';
+    var hasDoc = !!d.currentDocId;
+    // Deploy 236.161 — Awaiting Review: when a doc has been uploaded
+    // but the processor hasn't acted yet, the tray takes the AI
+    // verdict's color (approved/issues/pending) and the badge reads
+    // "Awaiting Review" instead of "Pending". Mike's call — it
+    // makes the AI's pre-screen color signal at-a-glance, while
+    // making it clear the processor still has to confirm.
+    var effectiveVerdict = verdict;
+    var verdictLabel;
+    if (verdict === 'pending') {
+      verdictLabel = hasDoc ? 'Awaiting Review' : 'Pending';
+      if (hasDoc && d.aiVerdict === 'approved') effectiveVerdict = 'awaiting-ok';
+      else if (hasDoc && d.aiVerdict === 'issues') effectiveVerdict = 'awaiting-issues';
+      else if (hasDoc) effectiveVerdict = 'awaiting';
+    } else {
+      verdictLabel = verdict === 'approved' ? 'Approved'
+                   : verdict === 'issues'   ? 'Issues'
+                   : verdict === 'na'       ? 'N/A'
+                   : 'Pending';
+    }
     var expanded = _expanded[slug] === true;
 
     var currentHtml = '';
@@ -717,6 +784,13 @@
         '<button class="v-btn issues" onclick="dr_setVerdict(\'' + escAttr(slug) + '\',\'issues\')">⚠ Flag Issues</button>' +
         '<button class="v-btn na" onclick="dr_openNaModal(\'' + escAttr(slug) + '\')">○ Mark N/A</button>';
     }
+    // Deploy 236.161 — hide/unhide control. Trays the LO marks
+    // as not relevant disappear from the main flow and pile up
+    // under a per-section "Show N hidden" toggle (renderSections).
+    // Patches the per-doc hidden flag on the review record.
+    verdictBtns += d.hidden
+      ? '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escAttr(slug) + '\', false)" title="Unhide this tray">↩ Unhide</button>'
+      : '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escAttr(slug) + '\', true)" title="Hide this tray (not relevant to this loan)">⊘ Hide tray</button>';
 
     var naBlock = verdict === 'na' && d.naReason
       ? '<div style="margin-top:10px;padding:10px 14px;background:var(--dr-blue-light);border:1px solid var(--dr-blue-border);border-radius:6px;font-size:12px;color:var(--dr-blue);"><strong>N/A:</strong> ' + escHtml(d.naReason) + '</div>'
@@ -736,13 +810,13 @@
       '</details>';
     }
 
-    return '<div class="tray ' + verdict + '">' +
+    return '<div class="tray ' + effectiveVerdict + (d.hidden ? ' is-hidden' : '') + '">' +
       '<div class="tray-head" onclick="dr_toggleExpand(\'' + escAttr(slug) + '\')">' +
         '<div>' +
           '<div class="tray-name">' + escHtml(meta.label) + '</div>' +
           '<div class="tray-conditions">' + escHtml(meta.conditions) + '</div>' +
         '</div>' +
-        '<span class="tray-verdict ' + verdict + '">' + verdictLabel + '</span>' +
+        '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
       '</div>' +
       '<div class="tray-body' + (expanded ? '' : ' collapsed') + '">' +
         currentHtml +
@@ -865,6 +939,26 @@
     global.SLA.LoanReviews.viewDoc(_review.id, docId).catch(function(err) {
       showToast('Could not open doc: ' + (err.message || 'Unknown'), 'error');
     });
+  };
+
+  // Deploy 236.161 — hide / unhide a tray on the review record.
+  // Patches docs[slug].hidden = true|false; render() filters
+  // hidden trays out of the main flow and into a per-section
+  // collapsible.
+  global.dr_toggleHideTray = function(slug, hide) {
+    var patch = { docs: {} };
+    patch.docs[slug] = { hidden: !!hide };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast(hide ? 'Tray hidden.' : 'Tray unhidden.', 'success');
+      render();
+    }).catch(function(err) {
+      showToast('Hide/unhide failed: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+  global.dr_toggleHiddenInSection = function(sectionKey) {
+    _showHidden[sectionKey] = !_showHidden[sectionKey];
+    render();
   };
 
   // Deploy 236.159 — ZIP every uploaded doc on this review.
