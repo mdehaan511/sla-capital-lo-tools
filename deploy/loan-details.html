@@ -1371,8 +1371,16 @@ function render() {
   if (l.address) sizerParams += '&loadQuote=' + encodeURIComponent(l.address);
   if (_loEmail && _user && _loEmail !== _user.email) sizerParams += '&owner=' + encodeURIComponent(_loEmail);
   var sizerUrl  = sizerPage + '?' + sizerParams;
-  var backUrl   = 'client-details.html?clientId=' + encodeURIComponent(c.id);
-  if (_loEmail && _user && _loEmail !== _user.email) backUrl += '&owner=' + encodeURIComponent(_loEmail);
+  // Deploy 236.157 — Back now goes to the appropriate pipeline
+  // (the page the LO most often arrived from), not to the
+  // borrower's Client Details page. Closed loans route to
+  // closed.html; everything else routes to pipeline.html. The
+  // breadcrumb's middle link mirrors this; the borrower's
+  // name is still a click away via the Contacts tab.
+  var backPage  = (status === 'closed') ? 'closed.html' : 'pipeline.html';
+  var backLabel = (status === 'closed') ? 'Closed Loans' : 'Pipeline';
+  var backUrl   = backPage;
+  if (_loEmail && _user && _loEmail !== _user.email) backUrl += '?owner=' + encodeURIComponent(_loEmail);
 
   // Financial values — support flat or nested formData
   var loanAmt   = l.loanAmt    || fd.loanAmt    || '';
@@ -1436,13 +1444,11 @@ function render() {
   // align with the Loan Financials top, not with the breadcrumb.
   var pageHeaderHtml = '<div class="page-header">' +
     '<div class="breadcrumb">' +
-      '<a href="clients.html">Clients</a>' +
-      '<span class="breadcrumb-sep">›</span>' +
-      '<a href="'+escAttr(backUrl)+'">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</a>' +
+      '<a href="'+escAttr(backUrl)+'">'+escH(backLabel)+'</a>' +
       '<span class="breadcrumb-sep">›</span>' +
       '<span>Loan Details</span>' +
     '</div>' +
-    '<div style="margin-bottom:12px"><a href="'+escAttr(backUrl)+'" class="back-btn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> '+escH((c.firstName||'')+' '+(c.lastName||''))+'</a></div>' +
+    '<div style="margin-bottom:12px"><a href="'+escAttr(backUrl)+'" class="back-btn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> '+escH(backLabel)+'</a></div>' +
     // Deploy 236.73 — page-title row is a flex container so the Loan
     // Doc Review button (processor + admin only) can sit pushed-right
     // alongside the address. Regular LOs see just the address.
