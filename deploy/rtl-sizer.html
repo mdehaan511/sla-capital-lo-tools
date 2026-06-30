@@ -3196,20 +3196,35 @@ function parseAddressForLoad(s) {
   if (parts.length && /^USA$/i.test(parts[parts.length-1])) parts.pop();
   if (!parts.length) return out;
   out.propStreet = parts[0] || '';
-  if (parts.length > 1) {
-    var tail = parts[parts.length - 1];
-    var m = tail.match(/^([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i);
-    if (m) {
-      out.propState = m[1].toUpperCase();
-      out.propZip   = m[2];
-      if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
-    } else if (/^[A-Z]{2}$/i.test(tail)) {
-      out.propState = tail.toUpperCase();
-      if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
-    } else {
-      out.propCity = parts.slice(1).join(', ');
-    }
+  if (parts.length < 2) return out;
+  // Deploy 236.151 — handle the 4-segment shape "Street, City,
+  // ST, ZIP" first. See parseAddress() for full rationale.
+  var tail     = parts[parts.length - 1];
+  var prevTail = parts.length >= 3 ? parts[parts.length - 2] : '';
+  if (/^\d{5}(-\d{4})?$/.test(tail) && /^[A-Z]{2}$/i.test(prevTail)) {
+    out.propZip   = tail;
+    out.propState = prevTail.toUpperCase();
+    if (parts.length > 3) out.propCity = parts.slice(1, -2).join(', ');
+    return out;
   }
+  var m = tail.match(/^([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i);
+  if (m) {
+    out.propState = m[1].toUpperCase();
+    out.propZip   = m[2];
+    if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+    return out;
+  }
+  if (/^[A-Z]{2}$/i.test(tail)) {
+    out.propState = tail.toUpperCase();
+    if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+    return out;
+  }
+  if (/^\d{5}(-\d{4})?$/.test(tail)) {
+    out.propZip = tail;
+    if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+    return out;
+  }
+  out.propCity = parts.slice(1).join(', ');
   return out;
 }
 
@@ -3750,22 +3765,48 @@ netlifyIdentity.on('init', function(user) {
       if (parts.length && /^USA$/i.test(parts[parts.length-1])) parts.pop();
       if (!parts.length) return out;
       out.propStreet = parts[0] || '';
-      // Last part might be "ST 12345" or just "ST"
-      if (parts.length > 1) {
-        var tail = parts[parts.length - 1];
-        var m = tail.match(/^([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i);
-        if (m) {
-          out.propState = m[1].toUpperCase();
-          out.propZip   = m[2];
-          if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
-        } else if (/^[A-Z]{2}$/i.test(tail)) {
-          out.propState = tail.toUpperCase();
-          if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
-        } else {
-          // No state/zip recognised; treat everything after street as city
-          out.propCity = parts.slice(1).join(', ');
-        }
+      if (parts.length < 2) return out;
+
+      // Deploy 236.151 — handle the 4-segment shape
+      // "Street, City, ST, ZIP" first. This is how the long-app
+      // form + apply.html have been storing addresses since
+      // Google Places ships them comma-separated. The previous
+      // parser only matched 3-segment "Street, City, ST ZIP" or
+      // "Street, City, ST" and silently dumped "Milwaukee, WI,
+      // 53218" into the city field, which broke pricing on the
+      // RTL sizer (State + ZIP "Required" errors with no way to
+      // populate them).
+      var tail     = parts[parts.length - 1];
+      var prevTail = parts.length >= 3 ? parts[parts.length - 2] : '';
+      if (/^\d{5}(-\d{4})?$/.test(tail) && /^[A-Z]{2}$/i.test(prevTail)) {
+        out.propZip   = tail;
+        out.propState = prevTail.toUpperCase();
+        if (parts.length > 3) out.propCity = parts.slice(1, -2).join(', ');
+        return out;
       }
+
+      // "ST 12345" (state + zip squashed into one segment).
+      var m = tail.match(/^([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/i);
+      if (m) {
+        out.propState = m[1].toUpperCase();
+        out.propZip   = m[2];
+        if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+        return out;
+      }
+      // "ST" alone in the last segment.
+      if (/^[A-Z]{2}$/i.test(tail)) {
+        out.propState = tail.toUpperCase();
+        if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+        return out;
+      }
+      // "12345" alone in the last segment (zip but no state).
+      if (/^\d{5}(-\d{4})?$/.test(tail)) {
+        out.propZip = tail;
+        if (parts.length > 2) out.propCity = parts.slice(1, -1).join(', ');
+        return out;
+      }
+      // No state/zip recognised; treat everything after street as city.
+      out.propCity = parts.slice(1).join(', ');
       return out;
     }
 
