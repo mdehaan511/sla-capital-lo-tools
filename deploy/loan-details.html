@@ -2227,7 +2227,9 @@ function render() {
     // to every loan that client is tied to (primary or guarantor
     // backref). Opens in a new tab so the LO doesn't lose the
     // loan-context in their current tab.
-    _renderEditGuarantorButton(c.id);
+    // Deploy 236.147 — primary pane: skip the Download Application
+    // button; primary's data is in the main signed loan app.
+    _renderEditGuarantorButton(c.id, true);
 
   var _bwTabsHtml = '';
   if (_bwHasMultiple) {
@@ -2716,7 +2718,9 @@ function refreshBorrowerInfoPanes() {
         // this guarantor's contact info on their Client Details
         // page →" link. Changes on the client record propagate to
         // every loan this guarantor is tied to on next page load.
-        _renderEditGuarantorButton(c.id);
+        // Deploy 236.147 — additional guarantors ALSO get the
+        // Download Application button (isPrimary=false).
+        _renderEditGuarantorButton(c.id, false);
       if (tab) {
         var lbl = tab.querySelector('.bw-tab-label');
         var sub2 = tab.querySelector('.bw-tab-sub');
@@ -2824,16 +2828,23 @@ function saveVestingLLCs() {
 // Deploy 236.146 — adds a sibling "Download Application" button
 // that pulls a per-guarantor PDF (with decrypted SSN + signed
 // Credit Auth pages stitched on) via authed fetch + blob URL.
-function _renderEditGuarantorButton(clientId) {
+// Deploy 236.147 — Download Application is hidden for the primary
+// (Guarantor 1). Primary's data lives in the main signed loan app
+// — the "Download Signed Application (PDF)" button on Financials
+// is the right entry point. Only additional guarantors (2/3/4)
+// have a separate sub-application worth downloading.
+function _renderEditGuarantorButton(clientId, isPrimary) {
   if (!clientId) return '';
   var ownerSuffix = (_loEmail && _user && _loEmail !== _user.email)
     ? '&owner=' + encodeURIComponent(_loEmail) : '';
   var href = 'client-details.html?clientId=' + encodeURIComponent(clientId) + ownerSuffix;
-  return '<div class="bw-pane-footer" style="gap:8px">' +
+  var downloadBtn = isPrimary ? '' :
     '<button type="button" class="bw-edit-guarantor-btn" onclick="downloadGuarantorApplication(this, \'' + escAttr(clientId) + '\')" ' +
        'title="Download this guarantor\'s full application as PDF (includes decrypted SSN and signed Credit Authorization if on file).">' +
       '<span class="bw-edit-icon">⬇</span> Download Application' +
-    '</button>' +
+    '</button>';
+  return '<div class="bw-pane-footer" style="gap:8px">' +
+    downloadBtn +
     '<a class="bw-edit-guarantor-btn" href="' + escAttr(href) + '" target="_blank" rel="noopener" ' +
        'title="Open this guarantor\'s Client Details page in a new tab. Changes there sync to every loan this client is tied to.">' +
       '<span class="bw-edit-icon">✎</span> Edit Guarantor' +
