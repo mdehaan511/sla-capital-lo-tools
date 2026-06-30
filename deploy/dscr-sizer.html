@@ -3315,10 +3315,17 @@ function loadQuoteIntoForm(formData) {
     loanPurpose:  formData.loanPurpose|| 'purchase',
     propType:     formData.propType   || 'sfr',
     fico:         formData.fico       || '740-759',
-    rent:         formData.rent       || '',
-    taxes:        formData.taxes      || '',
-    insurance:    formData.insurance  || '',
-    hoa:          formData.hoa        || '',
+    // Deploy 236.137 — defensive fallback to the long-name keys
+    // (monthlyRent / monthlyTaxes / monthlyInsurance / monthlyHoa)
+    // that the inline editor on Loan Details writes as the canonical
+    // form. The 236.135 mirror writes the short names too, but this
+    // belt-and-suspenders pull guarantees the values surface even
+    // for loans that landed in formData via a different path
+    // (test-create-loan fixtures, future API saves, etc.).
+    rent:         formData.rent       || formData.monthlyRent      || '',
+    taxes:        formData.taxes      || formData.monthlyTaxes     || '',
+    insurance:    formData.insurance  || formData.monthlyInsurance || '',
+    hoa:          formData.hoa        || formData.monthlyHoa       || '',
     prepay:       formData.prepay     || '54321',
     buydown:      formData.buydown    || '0',
     currentLoanAmt: formData.currentLoanAmt || '',

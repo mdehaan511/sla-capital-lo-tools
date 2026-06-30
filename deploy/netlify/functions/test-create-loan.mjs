@@ -157,10 +157,23 @@ async function handle(req, context) {
     formData: {
       loanAmt: loanAmt,
       rate: '8.625', points: '1.500',
+      _finalRate: '8.625', _points: '1.50 pts',
       purchasePrice: Math.round(loanAmt * 1.35),
       propValue: Math.round(loanAmt * 1.35),
       fico: '740-759',
       loanType: '30Y Fixed',
+      // Deploy 236.137 — monthly fields included in formData under
+      // BOTH the canonical (monthly*) and sizer-side (short) names
+      // so the sizer hydrates them on open without needing the
+      // inline-editor mirror to run first.
+      monthlyRent:      Math.round(loanAmt * 0.0080),
+      monthlyTaxes:     Math.round(loanAmt * 0.0010),
+      monthlyInsurance: Math.round(loanAmt * 0.0004),
+      monthlyHoa:       0,
+      rent:             Math.round(loanAmt * 0.0080),
+      taxes:            Math.round(loanAmt * 0.0010),
+      insurance:        Math.round(loanAmt * 0.0004),
+      hoa:              0,
     },
     _test: true,
   };
