@@ -59,6 +59,12 @@ const FIELDS = {
   experience:       { label: 'Experience',     coerce: toStr,    modifiable: true,  format: (v) => String(v) },
   experienceLabel:  { label: 'Experience',     coerce: toStr,    modifiable: false, format: (v) => String(v) },
   brokerFee:        { label: 'Broker Fee',     coerce: toNumber, modifiable: true,  format: (v) => (v * 1).toFixed(3) + ' pts' },
+  // Deploy 236.133 — DSCR-specific inline editors.
+  monthlyRent:      { label: 'Monthly Rent',      coerce: toNumber, modifiable: true, format: (v) => '$' + Math.round(v).toLocaleString() },
+  monthlyTaxes:     { label: 'Monthly Taxes',     coerce: toNumber, modifiable: true, format: (v) => '$' + Math.round(v).toLocaleString() },
+  monthlyInsurance: { label: 'Monthly Insurance', coerce: toNumber, modifiable: true, format: (v) => '$' + Math.round(v).toLocaleString() },
+  monthlyHoa:       { label: 'Monthly HOA',       coerce: toNumber, modifiable: true, format: (v) => '$' + Math.round(v).toLocaleString() },
+  appraisedValue:   { label: 'Appraised Value',   coerce: toNumber, modifiable: true, format: (v) => '$' + Math.round(v).toLocaleString() },
 };
 
 function toNumber(v) {

@@ -1378,10 +1378,15 @@ function render() {
   var dscr      = l.dscr       || fd._dscr      || '';
   var loanPurpose = l.loanPurpose || fd.loanPurpose || '';
   var currentLoanAmt = l.currentLoanAmt || l.existingLoanAmt || fd.currentLoanAmt || fd.existingLoanAmt || '';
-  var rent      = l.rent       || fd.rent       || '';
-  var taxes     = l.taxes      || fd.taxes      || '';
-  var insurance = l.insurance  || fd.insurance  || '';
-  var hoa       = l.hoa        || fd.hoa        || '';
+  // Deploy 236.133 — read both new (monthly*) and legacy (rent/taxes/
+  // etc.) field names. Sizers + test-create-loan write monthlyRent,
+  // monthlyTaxes, monthlyInsurance, monthlyHoa; older quote saves
+  // and the inline editor flow now write those same names too.
+  var rent      = l.monthlyRent      || l.rent      || fd.monthlyRent      || fd.rent      || '';
+  var taxes     = l.monthlyTaxes     || l.taxes     || fd.monthlyTaxes     || fd.taxes     || '';
+  var insurance = l.monthlyInsurance || l.insurance || fd.monthlyInsurance || fd.insurance || '';
+  var hoa       = l.monthlyHoa       || l.hoa       || fd.monthlyHoa       || fd.hoa       || '';
+  var appraisedValue = l.appraisedValue || fd.appraisedValue || '';
   var prepay    = l.prepay     || fd.prepay     || '';
   var isIO      = l.isIO       || fd.isIO       || '';
   // RTL specific
@@ -1538,13 +1543,37 @@ function render() {
     var _hasDscrRateOv = (l._rateOverride && String(l._rateOverride) !== '');
     var _hasDscrLtvOv  = (l._ltvOverride  && String(l._ltvOverride)  !== '');
     var _dscrOvTag = '<span class="override-tag" title="Manual override — applied by ' + escAttr(l._pricingOverrideBy || 'LO') + '">Overridden</span>';
+    // Deploy 236.133 — live-recompute DSCR + LTV from the current
+    // editable values, then flag a tier change vs the snapshot DSCR
+    // saved by the sizer at quote time.
+    var _liveDscr = _computeLiveDscr({
+      loanAmt: parseFloat(loanAmt), rate: parseFloat(rate),
+      rent: parseFloat(rent), taxes: parseFloat(taxes),
+      insurance: parseFloat(insurance), hoa: parseFloat(hoa),
+      isIO: isIO === 'yes',
+    });
+    var _liveDscrStr = (_liveDscr != null && isFinite(_liveDscr)) ? _liveDscr.toFixed(2) : '';
+    var _snapDscr = parseFloat(dscr);
+    var _tierFlag = (isFinite(_snapDscr) && _liveDscr != null && _dscrTierOf(_snapDscr) !== _dscrTierOf(_liveDscr))
+      ? '<span style="display:inline-block;margin-left:6px;padding:2px 7px;border-radius:8px;background:rgba(180,83,9,0.14);color:var(--warn, #7a5218);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em" title="Quoted DSCR was ' + _snapDscr.toFixed(2) + ' (' + _dscrTierLabel(_snapDscr) + '); live is ' + _liveDscrStr + ' (' + _dscrTierLabel(_liveDscr) + ') — pricing tier changed">⚠ Tier Δ</span>'
+      : '';
+    // Appraised value drives LTV when set; falls back to propVal.
+    var _ltvBaseVal = parseFloat(appraisedValue) || parseFloat(propVal);
+    var _liveLtv = (isFinite(_ltvBaseVal) && _ltvBaseVal > 0 && parseFloat(loanAmt) > 0)
+      ? (parseFloat(loanAmt) / _ltvBaseVal * 100) : null;
+    var _liveLtvStr = (_liveLtv != null) ? _liveLtv.toFixed(1) + '%' : '';
     html += '<div class="fin-grid">' +
       '<div class="fin-cell"><div class="fin-label">Note Rate' + (_hasDscrRateOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
-      (_hasDscrLtvOv
-        ? '<div class="fin-cell"><div class="fin-label">LTV ' + _dscrOvTag + '</div><div class="fin-val">'+(parseFloat(l._ltvOverride)*100).toFixed(1)+'%</div></div>'
-        : '') +
+      // LTV — always shown on DSCR loans (per Mike). Calculated cell;
+      // FIN_READONLY entry already in place so the enhancer adds the
+      // 🔒 + > 80% threshold warning.
+      '<div class="fin-cell"><div class="fin-label">LTV' + (_hasDscrLtvOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val">' +
+        (_hasDscrLtvOv ? (parseFloat(l._ltvOverride) * 100).toFixed(1) + '%' :
+         (_liveLtvStr || '<span class="empty">—</span>')) +
+      '</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Appraised Value</div><div class="fin-val">'+(appraisedValue ? fmtM(appraisedValue) : '<span class="empty">— click to add</span>')+'</div></div>' +
       // Item #10: existing loan amount, shown when refi
       ((loanPurpose === 'refi_co' || loanPurpose === 'refi_rt') && currentLoanAmt
         ? '<div class="fin-cell"><div class="fin-label">Existing Loan Amount</div><div class="fin-val">'+fmtM(currentLoanAmt)+'</div></div>'
@@ -1552,11 +1581,13 @@ function render() {
       '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(loanType||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">DSCR</div><div class="fin-val'+(dscr?' green':'')+'">'+(dscr ? dscr+'x' : '<span class="empty">Not yet quoted</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Monthly Insurance</div><div class="fin-val">'+(insurance ? fmtM(insurance) : '<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Monthly HOA</div><div class="fin-val">'+(hoa ? fmtM(hoa) : '<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">' +
+        (_liveDscrStr ? _liveDscrStr + 'x' : (dscr ? dscr + 'x' : '<span class="empty">Not yet quoted</span>')) +
+      '</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly Insurance</div><div class="fin-val">'+(insurance ? fmtM(insurance) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Monthly HOA</div><div class="fin-val">'+(hoa ? fmtM(hoa) : '<span class="empty">— click to add</span>')+'</div></div>' +
       (isIO==='yes' ? '<div class="fin-cell"><div class="fin-label">Interest Only</div><div class="fin-val">Yes</div></div>' : '') +
       (prepay ? '<div class="fin-cell"><div class="fin-label">Prepay Penalty</div><div class="fin-val">'+(prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay)+'</div></div>' : '') +
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
@@ -3668,21 +3699,79 @@ var FIN_DROPDOWNS = {
 };
 
 var FIN_EDITABLE = [
-  { label: 'Note Rate',      key: 'rate',          kind: 'number', step: '0.001', hint: 'Percent (e.g. 8.625)' },
-  { label: 'Points',         key: 'points',        kind: 'number', step: '0.001', hint: 'Origination points (e.g. 1.5)' },
-  { label: 'Purchase Price', key: 'purchasePrice', kind: 'money',  hint: 'Dollars' },
-  { label: 'Rehab Budget',   key: 'rehabBudget',   kind: 'money',  hint: 'Dollars' },
-  { label: 'ARV',            key: 'arv',           kind: 'money',  hint: 'After-repair value, dollars' },
-  { label: 'FICO',           key: 'fico',          kind: 'select', dropdownBase: 'fico',       labelKey: 'ficoLabel',       hint: 'Middle credit score (matches sizer buckets)' },
-  { label: 'Loan Type',      key: 'loanType',      kind: 'select', dropdownBase: 'loanType',                                hint: 'Product type — matches the originating sizer' },
-  { label: 'Experience',     key: 'experience',    kind: 'select', dropdownBase: 'experience', labelKey: 'experienceLabel', hint: 'Investor experience tier' },
-  { label: 'Broker Fee',     key: 'brokerFee',     kind: 'number', step: '0.001', hint: 'Points (e.g. 1.0)' },
+  { label: 'Note Rate',         key: 'rate',             kind: 'number', step: '0.001', hint: 'Percent (e.g. 8.625)' },
+  { label: 'Points',            key: 'points',           kind: 'number', step: '0.001', hint: 'Origination points (e.g. 1.5)' },
+  { label: 'Purchase Price',    key: 'purchasePrice',    kind: 'money',  hint: 'Dollars' },
+  { label: 'Rehab Budget',      key: 'rehabBudget',      kind: 'money',  hint: 'Dollars' },
+  { label: 'ARV',               key: 'arv',              kind: 'money',  hint: 'After-repair value, dollars' },
+  { label: 'FICO',              key: 'fico',             kind: 'select', dropdownBase: 'fico',       labelKey: 'ficoLabel',       hint: 'Middle credit score (matches sizer buckets)' },
+  { label: 'Loan Type',         key: 'loanType',         kind: 'select', dropdownBase: 'loanType',                                hint: 'Product type — matches the originating sizer' },
+  { label: 'Experience',        key: 'experience',       kind: 'select', dropdownBase: 'experience', labelKey: 'experienceLabel', hint: 'Investor experience tier' },
+  { label: 'Broker Fee',        key: 'brokerFee',        kind: 'number', step: '0.001', hint: 'Points (e.g. 1.0)' },
+  // Deploy 236.133 — DSCR-only inline editors. Editing any of
+  // Rent / Taxes / Insurance / HOA recomputes DSCR live; the
+  // DSCR cell flags a tier change if the new value crosses a
+  // pricing-tier boundary vs the snapshot. Appraised Value drives
+  // the LTV cell (calculated).
+  { label: 'Monthly Rent',      key: 'monthlyRent',      kind: 'money',  hint: 'Dollars / month' },
+  { label: 'Monthly Taxes',     key: 'monthlyTaxes',     kind: 'money',  hint: 'Dollars / month' },
+  { label: 'Monthly Insurance', key: 'monthlyInsurance', kind: 'money',  hint: 'Dollars / month' },
+  { label: 'Monthly HOA',       key: 'monthlyHoa',       kind: 'money',  hint: 'Dollars / month' },
+  { label: 'Appraised Value',   key: 'appraisedValue',   kind: 'money',  hint: 'Dollars (post-appraisal)' },
 ];
 
 function _resolveFinDropdownOptions(field) {
   var toolType = String((_loan && _loan.toolType) || '').toLowerCase() === 'rtl' ? 'rtl' : 'dscr';
   var key = field.dropdownBase + '_' + toolType;
   return FIN_DROPDOWNS[key] || FIN_DROPDOWNS[field.dropdownBase + '_rtl'] || [];
+}
+
+// Deploy 236.133 — DSCR live-recompute + tier classification.
+// Used by the DSCR render to show a current DSCR derived from the
+// editable rent/taxes/insurance/HOA fields (so edits update the
+// display immediately on next render), and to flag tier changes
+// vs the sizer's quoted DSCR snapshot.
+//
+// Formula: DSCR = rent / (P&I + taxes + insurance + HOA).
+// P&I uses standard 30-year amortization unless IO is set, in
+// which case the periodic payment is just interest (rate/12 * P).
+// Returns null when inputs aren't sufficient to compute.
+function _computeLiveDscr(o) {
+  var p = o && o.loanAmt, r = o && o.rate, rent = o && o.rent;
+  var t = (o && o.taxes) || 0, ins = (o && o.insurance) || 0, hoa = (o && o.hoa) || 0;
+  if (!isFinite(p) || p <= 0) return null;
+  if (!isFinite(r) || r <= 0) return null;
+  if (!isFinite(rent) || rent <= 0) return null;
+  var rMonthly = (r / 100) / 12;          // rate stored as percent
+  var pi;
+  if (o.isIO) {
+    pi = p * rMonthly;
+  } else {
+    var n = 360;
+    var pow = Math.pow(1 + rMonthly, n);
+    pi = p * (rMonthly * pow) / (pow - 1);
+  }
+  var pitia = pi + (parseFloat(t) || 0) + (parseFloat(ins) || 0) + (parseFloat(hoa) || 0);
+  if (!isFinite(pitia) || pitia <= 0) return null;
+  return rent / pitia;
+}
+// DSCR tier classifier — matches the common Diya pricing
+// breakpoints. >=1.20 = top, 1.00-1.19 = mid, <1.00 = below
+// (exception territory). Crossing any boundary flips the cell's
+// "tier changed" badge in the DSCR render.
+function _dscrTierOf(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n) || n <= 0) return 'unknown';
+  if (n >= 1.20) return 'top';
+  if (n >= 1.00) return 'mid';
+  return 'below';
+}
+function _dscrTierLabel(v) {
+  var t = _dscrTierOf(v);
+  return t === 'top'   ? 'tier ≥1.20'
+       : t === 'mid'   ? 'tier 1.00–1.19'
+       : t === 'below' ? 'tier <1.00 (exception)'
+       :                 '(no quote)';
 }
 // Calculated fields the LO cannot inline-edit. Note: "LTV" matches
 // the DSCR grid; "LTP" matches the RTL "Loan to Price" cell that
