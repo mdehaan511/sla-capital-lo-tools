@@ -114,6 +114,10 @@
   var _stylesInjected = false;
   // Deploy 236.161 — per-section "Show N hidden" toggle state.
   var _showHidden = {};
+  // Deploy 236.162 — pending Add-Document section key + label for
+  // the modal. Captured when the LO opens the modal so confirm
+  // can route the new tray into the right section.
+  var _pendingAddDoc = null;
   var _modalsInjected = false;
 
   // ── Utils ────────────────────────────────────────────────────────
@@ -192,8 +196,16 @@
       '.dr-root .section-title { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; padding-left:4px; }',
       // Deploy 236.161 — section header row (title + Show/Hide N hidden toggle).
       '.dr-root .section-title-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }',
-      '.dr-root .dr-section-toggle { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; padding:3px 10px; color:var(--muted); background:transparent; border:1px solid var(--border); border-radius:20px; cursor:pointer; }',
+      '.dr-root .dr-section-toggle { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; padding:3px 10px; color:var(--muted); background:transparent; border:1px solid var(--border); border-radius:20px; cursor:pointer; font-family:"DM Sans", sans-serif; }',
       '.dr-root .dr-section-toggle:hover { color:var(--gold-mid); border-color:var(--gold); }',
+      // Deploy 236.162 — "+ Add Document" gets a slightly more
+      // pronounced look so it doesn't blend with the hidden toggle.
+      '.dr-root .dr-add-doc-btn { color:var(--gold-mid); border-color:var(--gold-border, rgba(200,129,58,0.28)); }',
+      // Inline rename pencil on custom tray names.
+      '.dr-root .tray-name { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }',
+      '.dr-root .tray-name-text { word-break:break-word; }',
+      '.dr-root .dr-tray-rename-btn { background:transparent; border:none; cursor:pointer; padding:1px 4px; font-size:11px; color:var(--muted); border-radius:4px; }',
+      '.dr-root .dr-tray-rename-btn:hover { background:var(--gold-light, rgba(200,129,58,0.10)); color:var(--gold-mid); }',
       '.dr-root .tray { background:#fff; border:1px solid var(--border, #ddd8d0); border-radius:8px; margin-bottom:10px; overflow:hidden; }',
       '.dr-root .tray.approved { border-color:var(--dr-green-border); }',
       '.dr-root .tray.issues   { border-color:var(--dr-red-border); }',
@@ -354,6 +366,16 @@
         '<div class="dr-modal-actions">',
           '<button class="dr-modal-btn" onclick="dr_closeNaModal()">Cancel</button>',
           '<button class="dr-modal-btn" style="color:#1e40af;border-color:rgba(30,64,175,0.40)" onclick="dr_confirmNa()">Mark N/A</button>',
+        '</div>',
+      '</div></div>',
+      // Deploy 236.162 — Add Custom Document modal.
+      '<div class="dr-modal-bg" id="dr-addDocModal"><div class="dr-modal">',
+        '<h3>Add a new document</h3>',
+        '<p style="font-size:12px;color:#7a7488;margin-bottom:14px">Creates a new tray in the <span id="dr-addDocSection" style="font-weight:600;color:#1a1520"></span> section. You can rename it later by clicking the pencil next to the tray name.</p>',
+        '<input type="text" id="dr-addDocName" class="notes-area" style="min-height:auto;font-size:13px" placeholder="e.g., Investor-specific addendum, Lien waiver, ..." />',
+        '<div class="dr-modal-actions">',
+          '<button class="dr-modal-btn" onclick="dr_closeAddDocModal()">Cancel</button>',
+          '<button class="dr-modal-btn approve" onclick="dr_confirmAddDoc()">Add Document</button>',
         '</div>',
       '</div></div>',
       // Finalize modal
@@ -657,8 +679,12 @@
     }
     var bySection = {};
     slugs.forEach(function(slug) {
-      var meta = DOC_META[slug] || { section: 'loan', label: slug, conditions: '' };
-      var sec = meta.section || 'loan';
+      // Deploy 236.162 — custom trays fall back to docs[slug].section
+      // (captured when the LO created the tray) so they land in the
+      // section they were added to.
+      var stored = (_review.docs && _review.docs[slug]) || {};
+      var meta = DOC_META[slug] || { section: stored.section || 'loan', label: stored.label || slug, conditions: stored.conditions || '' };
+      var sec = meta.section || stored.section || 'loan';
       if (!bySection[sec]) bySection[sec] = [];
       bySection[sec].push(slug);
     });
@@ -670,8 +696,8 @@
     var hiddenBySection = {};
     Object.keys(docs).forEach(function(s) {
       if (!docs[s] || !docs[s].hidden) return;
-      var meta = DOC_META[s] || { section: 'loan' };
-      var sec = meta.section || 'loan';
+      var meta = DOC_META[s] || { section: (docs[s] && docs[s].section) || 'loan' };
+      var sec = meta.section || (docs[s] && docs[s].section) || 'loan';
       (hiddenBySection[sec] = hiddenBySection[sec] || []).push(s);
     });
     return SECTIONS.map(function(sec) {
@@ -687,10 +713,15 @@
       var hiddenHtml = (showHidden && hiddenInSec.length)
         ? hiddenInSec.map(renderTray).join('')
         : '';
+      // Deploy 236.162 — "+ Add Document" creates a custom tray
+      // in this section. The new tray's name is editable later
+      // via a pencil next to it. Sub-note explains it's a manual
+      // doc not in the standard checklist.
+      var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escAttr(sec.key) + '\',\'' + escAttr(sec.label) + '\')">+ Add Document</button>';
       return '<div class="dr-section">' +
         '<div class="section-title-row">' +
           '<div class="section-title">' + escHtml(sec.label) + '</div>' +
-          hiddenToggle +
+          '<div style="display:flex;gap:8px;align-items:center">' + hiddenToggle + addBtn + '</div>' +
         '</div>' +
         slugsInSec.map(renderTray).join('') +
         hiddenHtml +
@@ -700,7 +731,14 @@
 
   function renderTray(slug) {
     var d = _review.docs[slug] || {};
-    var meta = DOC_META[slug] || { label: slug, conditions: '' };
+    // Deploy 236.162 — custom trays store label/conditions/section
+    // on the doc itself (no entry in DOC_META). Resolve from there
+    // when the slug isn't in the standard checklist.
+    var meta = DOC_META[slug] || {
+      label:      d.label      || slug,
+      conditions: d.conditions || '',
+      section:    d.section    || 'loan',
+    };
     var verdict = d.verdict || 'pending';
     var hasDoc = !!d.currentDocId;
     // Deploy 236.161 — Awaiting Review: when a doc has been uploaded
@@ -810,10 +848,19 @@
       '</details>';
     }
 
-    return '<div class="tray ' + effectiveVerdict + (d.hidden ? ' is-hidden' : '') + '">' +
+    // Deploy 236.162 — custom trays get a pencil next to the name
+    // for inline rename of the TRAY LABEL (separate from the file
+    // rename pencil on currentFilename below). Standard checklist
+    // trays don't show the pencil — their labels are spec'd.
+    var trayNameHtml = '<span class="tray-name-text">' + escHtml(meta.label) + '</span>';
+    if (d.isCustom) {
+      trayNameHtml +=
+        '<button class="dr-tray-rename-btn" title="Rename tray" onclick="event.stopPropagation();dr_renameTrayLabel(\'' + escAttr(slug) + '\')">&#x270e;</button>';
+    }
+    return '<div class="tray ' + effectiveVerdict + (d.hidden ? ' is-hidden' : '') + '" id="dr-tray_' + escAttr(slug) + '">' +
       '<div class="tray-head" onclick="dr_toggleExpand(\'' + escAttr(slug) + '\')">' +
-        '<div>' +
-          '<div class="tray-name">' + escHtml(meta.label) + '</div>' +
+        '<div style="min-width:0;flex:1">' +
+          '<div class="tray-name" id="dr-tray-name_' + escAttr(slug) + '">' + trayNameHtml + '</div>' +
           '<div class="tray-conditions">' + escHtml(meta.conditions) + '</div>' +
         '</div>' +
         '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
@@ -959,6 +1006,118 @@
   global.dr_toggleHiddenInSection = function(sectionKey) {
     _showHidden[sectionKey] = !_showHidden[sectionKey];
     render();
+  };
+
+  // Deploy 236.162 — custom tray flow. Modal capture → patch
+  // review.docs[custom_<ts>_<rand>] with label/section/conditions
+  // plus the standard doc fields the renderer + upload endpoint
+  // expect. The upload endpoint doesn't validate against the
+  // checklist — it just checks the slug exists in review.docs —
+  // so uploads to custom slugs work without backend changes.
+  global.dr_openAddDocModal = function(sectionKey, sectionLabel) {
+    _pendingAddDoc = { sectionKey: sectionKey, sectionLabel: sectionLabel };
+    var lbl = document.getElementById('dr-addDocSection');
+    if (lbl) lbl.textContent = sectionLabel;
+    var inp = document.getElementById('dr-addDocName');
+    if (inp) inp.value = '';
+    var modal = document.getElementById('dr-addDocModal');
+    if (modal) modal.classList.add('show');
+    setTimeout(function() { if (inp) inp.focus(); }, 50);
+  };
+  global.dr_closeAddDocModal = function() {
+    _pendingAddDoc = null;
+    var modal = document.getElementById('dr-addDocModal');
+    if (modal) modal.classList.remove('show');
+  };
+  global.dr_confirmAddDoc = function() {
+    if (!_pendingAddDoc) return;
+    var inp = document.getElementById('dr-addDocName');
+    var name = (inp && inp.value || '').trim();
+    if (!name) { showToast('Enter a document name.', 'error'); return; }
+    var section = _pendingAddDoc.sectionKey;
+    var slug = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    var patch = { docs: {} };
+    patch.docs[slug] = {
+      slug:             slug,
+      isCustom:         true,
+      label:            name,
+      section:          section,
+      conditions:       'This document was added and needs to be manually reviewed.',
+      required:         false,
+      verdict:          'pending',
+      processorNotes:   '',
+      naReason:         '',
+      currentDocId:     '',
+      currentFilename:  '',
+      currentSize:      0,
+      currentUploadedAt:'',
+      currentMimeType:  '',
+      aiVerdict:        '',
+      aiNotes:          '',
+      aiFindings:       [],
+      aiExtractedEntities: {},
+      aiReviewedAt:     '',
+      aiError:          '',
+      processorOverrideReason: '',
+      approvedAt:       '',
+      approvedBy:       '',
+      history:          [],
+    };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      global.dr_closeAddDocModal();
+      showToast('Added "' + name + '".', 'success');
+      // Auto-expand the new tray so the LO sees the dropzone.
+      _expanded[slug] = true;
+      render();
+    }).catch(function(err) {
+      showToast('Add failed: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+
+  // Deploy 236.162 — inline rename of a CUSTOM TRAY's label.
+  // Distinct from dr_renameDoc which renames the uploaded file's
+  // currentFilename. The tray's display name (meta.label) lives
+  // on docs[slug].label for custom trays; this swaps it inline
+  // and patches via SLA.LoanReviews.patch.
+  global.dr_renameTrayLabel = function(slug) {
+    var d = _review.docs[slug] || {};
+    var nameEl = document.getElementById('dr-tray-name_' + slug);
+    if (!nameEl) return;
+    var current = d.label || slug;
+    nameEl.innerHTML =
+      '<input class="dr-rename-input" type="text" value="' + escAttr(current) + '" onclick="event.stopPropagation()" />' +
+      '<button class="small-btn dr-rename-save" onclick="event.stopPropagation();dr_commitTrayRename(\'' + escAttr(slug) + '\')">Save</button>' +
+      '<button class="small-btn dr-rename-cancel" onclick="event.stopPropagation();dr_cancelTrayRename(\'' + escAttr(slug) + '\')">Cancel</button>';
+    var input = nameEl.querySelector('.dr-rename-input');
+    if (input) {
+      input.focus();
+      input.select();
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter')  { e.preventDefault(); global.dr_commitTrayRename(slug); }
+        if (e.key === 'Escape') { e.preventDefault(); global.dr_cancelTrayRename(slug); }
+      });
+    }
+  };
+  global.dr_cancelTrayRename = function(slug) { render(); };
+  global.dr_commitTrayRename = function(slug) {
+    var nameEl = document.getElementById('dr-tray-name_' + slug);
+    if (!nameEl) return;
+    var input = nameEl.querySelector('.dr-rename-input');
+    var next = (input && input.value || '').trim();
+    if (!next) { showToast('Tray name can\'t be empty.', 'error'); return; }
+    var d = _review.docs[slug] || {};
+    if (next === (d.label || '')) { render(); return; }
+    var patch = { docs: {} };
+    patch.docs[slug] = { label: next };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      showToast('Renamed.', 'success');
+      render();
+    }).catch(function(err) {
+      showToast('Rename failed: ' + (err.message || 'Unknown'), 'error');
+      render();
+    });
   };
 
   // Deploy 236.159 — ZIP every uploaded doc on this review.
