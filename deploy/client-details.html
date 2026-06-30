@@ -301,15 +301,29 @@ function render() {
             '<option value="no"'+(c.usCitizen==='no'?' selected':'')+'>No — Permanent Resident / Other</option>' +
           '</select>' +
         '</div>' +
-        // SSN row — only renders when an SSN is on file. Reveal-on-click.
-        (c.hasSSN
-          ? '<div class="field" style="grid-column:1/-1"><label>Social Security Number <span style="font-size:11px;font-weight:400;color:var(--muted);font-family:\'DM Mono\',monospace">(encrypted)</span></label>' +
-              '<div style="display:flex;gap:8px;align-items:stretch">' +
-                '<input type="text" id="pf-ssn" value="•••-••-••••" data-sla-mask="ssn" placeholder="XXX-XX-XXXX" />' +
-                '<button type="button" id="pf-ssn-reveal" onclick="revealClientSSN()" style="padding:8px 14px;font-size:12px;font-weight:600;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);border-radius:8px;cursor:pointer;font-family:inherit;white-space:nowrap">Reveal</button>' +
-              '</div>' +
-            '</div>'
-          : '') +
+        // Deploy 236.150 — SSN row is now ALWAYS rendered. Was
+        // previously conditional on c.hasSSN, which meant
+        // manually-created guarantors (via the Add Guarantor
+        // modal on Loan Details) had no place to enter an SSN
+        // and the field stayed missing forever. Now the field is
+        // always present:
+        //   - When SSN on file: shows masked •••-••-•••• with a
+        //     Reveal button. Typing a new value will overwrite.
+        //   - When no SSN: shows empty input with the
+        //     XXX-XX-XXXX placeholder. Typing a valid 9-digit
+        //     SSN + Save Profile encrypts + stores.
+        '<div class="field" style="grid-column:1/-1"><label>Social Security Number ' +
+          (c.hasSSN
+            ? '<span style="font-size:11px;font-weight:400;color:var(--muted);font-family:\'DM Mono\',monospace">(encrypted on file)</span>'
+            : '<span style="font-size:11px;font-weight:400;color:var(--muted);font-family:\'DM Mono\',monospace">(will be encrypted on save)</span>') +
+          '</label>' +
+          '<div style="display:flex;gap:8px;align-items:stretch">' +
+            '<input type="text" id="pf-ssn" value="' + (c.hasSSN ? '•••-••-••••' : '') + '" data-sla-mask="ssn" placeholder="XXX-XX-XXXX" autocomplete="off" />' +
+            (c.hasSSN
+              ? '<button type="button" id="pf-ssn-reveal" onclick="revealClientSSN()" style="padding:8px 14px;font-size:12px;font-weight:600;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);border-radius:8px;cursor:pointer;font-family:inherit;white-space:nowrap">Reveal</button>'
+              : '') +
+          '</div>' +
+        '</div>' +
       '</div>' +
 
       // Home address (item #1 — was missing entirely)
@@ -506,6 +520,21 @@ function saveProfile() {
     if (rec.name || rec.ein) companies.push(rec);
   });
   _client.companies = companies;
+
+  // Deploy 236.150 — pick up a freshly-typed SSN. The field
+  // ALWAYS renders now (so manually-created guarantors can
+  // enter one), but we only send it when the value is
+  // recognizably a 9-digit SSN. The •••-••-•••• mask shown
+  // for existing on-file SSNs has no digits, so a user who
+  // doesn't change anything won't accidentally clobber it.
+  // Backend (clients-save) handles encryptField + ssnLast4.
+  var ssnEl = document.getElementById('pf-ssn');
+  if (ssnEl) {
+    var ssnDigits = String(ssnEl.value || '').replace(/\D/g, '');
+    if (ssnDigits.length === 9) {
+      _client.ssn = ssnDigits;
+    }
+  }
 
   var saveOpts = _client;
   if (_loEmail && _user && _loEmail !== _user.email) {

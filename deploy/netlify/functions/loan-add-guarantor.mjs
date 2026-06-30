@@ -29,6 +29,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -128,10 +129,44 @@ async function handle(req, context) {
       createdAt:  now,
       updatedAt:  now,
       loans:      [],
+      companies:  [],
       _createdViaManualGuarantorAdd: true,
       _guarantorOnLoans: [backref],
     };
     guarantorKey = ownerKey + '/' + keySafe(guarantor.id);
+  }
+
+  // Deploy 236.150 — vesting-entity mapping. When a guarantor is
+  // added to a loan, the loan's vesting LLC (from the long-app
+  // borrower_info record if available, falling back to whatever
+  // the LO captured on the Loan Details Vesting LLC UI) should
+  // appear in their Client Details Companies section. Without
+  // this, manually-added guarantors had no entity on their
+  // client page even though they're a key principal of the LLC
+  // borrowing the loan.
+  try {
+    const vestingEntity = await _resolveLoanVestingEntity({
+      ownerKey, primaryClientId: clientId, loanId, loan, primary,
+    });
+    if (vestingEntity && vestingEntity.name) {
+      guarantor.companies = Array.isArray(guarantor.companies) ? guarantor.companies : [];
+      const lcName = vestingEntity.name.toLowerCase();
+      const exists = guarantor.companies.some((c) => c && String(c.name || '').toLowerCase() === lcName);
+      if (!exists) {
+        guarantor.companies.unshift({
+          id:        'co_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          name:      vestingEntity.name,
+          ein:       vestingEntity.ein       || '',
+          state:     vestingEntity.state     || '',
+          address:   vestingEntity.address   || '',
+          city:      vestingEntity.city      || '',
+          addrState: vestingEntity.addrState || '',
+          zip:       vestingEntity.zip       || '',
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('loan-add-guarantor: vesting-entity mapping failed (non-fatal):', e && e.message);
   }
 
   // ── Sub-form invite token (one per loan per guarantor).
@@ -206,4 +241,72 @@ async function handle(req, context) {
     tokenEntry,
     matchedExistingClient,
   });
+}
+
+// Deploy 236.150 — locate the loan's vesting entity, in this
+// priority order:
+//   1. The borrower_info long-app record's companies[0] / flat
+//      llcX fields (most complete — has EIN, address, state).
+//   2. The loan's vestingLLCs[0] from the Loan Details UI (name
+//      only — the UI doesn't capture EIN/address).
+//   3. The primary client's companies[0] (catch-all for older
+//      records that pre-date borrower_info per-loan keys).
+// Returns null if nothing matches.
+async function _resolveLoanVestingEntity({ ownerKey, primaryClientId, loanId, loan, primary }) {
+  // Source 1 — borrower_info long-app.
+  try {
+    const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+    const biRec = await loadRecord(biStore, ownerKey, primaryClientId, loanId, primary);
+    if (biRec && biRec.data) {
+      const co0 = Array.isArray(biRec.data.companies) ? biRec.data.companies[0] : null;
+      if (co0 && co0.name) {
+        return {
+          name:      co0.name,
+          ein:       co0.ein       || '',
+          state:     co0.state     || '',
+          address:   co0.address   || '',
+          city:      co0.city      || '',
+          addrState: co0.addrState || '',
+          zip:       co0.zip       || '',
+        };
+      }
+      if (biRec.data.llcName) {
+        return {
+          name:      biRec.data.llcName,
+          ein:       biRec.data.llcEIN     || '',
+          state:     biRec.data.llcState   || '',
+          address:   biRec.data.llcAddress || '',
+          city:      biRec.data.llcCity    || '',
+          addrState: biRec.data.llcAddrState || '',
+          zip:       biRec.data.llcZip     || '',
+        };
+      }
+    }
+  } catch (_) {}
+
+  // Source 2 — Loan Details Vesting LLC UI.
+  if (loan && Array.isArray(loan.vestingLLCs) && loan.vestingLLCs.length && loan.vestingLLCs[0].name) {
+    return {
+      name: loan.vestingLLCs[0].name,
+      ein:  loan.vestingLLCs[0].ein || '',
+    };
+  }
+
+  // Source 3 — primary client's companies (catch-all).
+  if (primary && Array.isArray(primary.companies) && primary.companies.length) {
+    const c = primary.companies[0];
+    if (c && c.name) {
+      return {
+        name:      c.name,
+        ein:       c.ein       || '',
+        state:     c.state     || '',
+        address:   c.address   || '',
+        city:      c.city      || '',
+        addrState: c.addrState || '',
+        zip:       c.zip       || '',
+      };
+    }
+  }
+
+  return null;
 }

@@ -18,6 +18,7 @@ import { syncClient as brevoSyncClient } from './_shared/brevo.mjs';
 // that has broker inline fields but no brokerId. Safe to run even on
 // loans that already have a brokerId (no-op fast path in the helper).
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
+import { encryptField } from './_shared/crypto.mjs';
 
 /**
  * Look up a profile by email and return a best-effort full name. Never throws.
@@ -75,6 +76,30 @@ export default async (req, context) => {
     // responses (so they aren't accidentally wiped by a UI save).
     if (existing && existing.ssn_enc && !record.ssn_enc) {
       record.ssn_enc = existing.ssn_enc;
+    }
+
+    // Deploy 236.150 — accept a freshly-typed SSN under
+    // record.ssn (raw digits from the Client Details page).
+    // Strip mask, encrypt with SSN_ENCRYPTION_KEY-derived key
+    // via _shared/crypto.mjs, store as ssn_enc. Always strip
+    // the plaintext field before persisting so it never lands
+    // in the blob.
+    if (record.ssn != null) {
+      const digits = String(record.ssn).replace(/\D/g, '');
+      if (digits.length === 9) {
+        const enc = encryptField(digits);
+        if (enc) {
+          record.ssn_enc = enc;
+          record.ssnLast4 = digits.slice(-4);
+        }
+      } else if (digits.length === 0 && record.ssn === '') {
+        // Explicit clear (user blanked the field intentionally).
+        delete record.ssn_enc;
+        delete record.ssnLast4;
+      }
+      // Partial digit counts (typo) are silently ignored — the
+      // existing ssn_enc carried forward above is preserved.
+      delete record.ssn;
     }
 
     // Deploy 228 — propagate first/last name changes. The Pipeline tile
