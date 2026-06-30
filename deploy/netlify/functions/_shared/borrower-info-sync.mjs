@@ -441,6 +441,21 @@ export async function advanceQuoteToInProcessing(record) {
     } catch (e) {
       console.error('advanceQuoteToInProcessing: baseline sync threw, ignoring:', e && e.message);
     }
+    // Deploy 236.160 — auto-attach signed Loan App + latest Rate
+    // Sheet to the loan's Doc Review (if one exists). Best-effort
+    // and zero-throw: the helper swallows + logs every failure so
+    // the approval itself never blocks on a doc-attach hiccup.
+    try {
+      const { autoAttachOnApproval } = await import('./loan-review-auto-attach.mjs');
+      await autoAttachOnApproval({
+        ownerKey:    record.ownerKey,
+        client,
+        loan:        advancedLoan,
+        actorEmail:  record.advancedBy || 'auto:borrower-info-complete',
+      });
+    } catch (e) {
+      console.warn('advanceQuoteToInProcessing: auto-attach threw, ignoring:', e && e.message);
+    }
     try {
       await clientsStore.setJSON(clientKey, client);
     } catch (e) {
