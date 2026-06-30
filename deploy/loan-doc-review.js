@@ -459,6 +459,9 @@
         '<input type="text" class="doc-search" id="dr-docSearch" placeholder="Search documents by name…" value="' + escAttr(_docSearch) + '" oninput="dr_onDocSearch(this.value)" />' +
         '<button class="expand-btn" onclick="dr_expandAll(true)">Expand all</button>' +
         '<button class="expand-btn" onclick="dr_expandAll(false)">Collapse all</button>' +
+        // Deploy 236.159 — one-click ZIP of every uploaded doc on
+        // this review. Server bundles current + history per tray.
+        '<button class="expand-btn" id="dr-zipBtn" onclick="dr_downloadZip(this)">⬇ Download all (ZIP)</button>' +
       '</div>';
 
     var activeSlugs = _activeTab === 'pending' ? pendingSlugs : reviewedSlugs;
@@ -861,6 +864,51 @@
   global.dr_viewDoc = function(docId) {
     global.SLA.LoanReviews.viewDoc(_review.id, docId).catch(function(err) {
       showToast('Could not open doc: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+
+  // Deploy 236.159 — ZIP every uploaded doc on this review.
+  // Authed fetch + blob URL (same pattern as SLA.LoanReviews.viewDoc;
+  // plain <a href> would 401 because /api/loan-review-zip-download
+  // requires the Netlify Identity JWT). Filename comes from the
+  // Content-Disposition header set by the backend.
+  global.dr_downloadZip = function(btn) {
+    if (!_review || !_review.id) return;
+    var originalHTML = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Building ZIP…'; }
+    var u = global.netlifyIdentity && global.netlifyIdentity.currentUser();
+    if (!u || !u.jwt) {
+      if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+      showToast('Not signed in.', 'error');
+      return;
+    }
+    u.jwt().then(function(token) {
+      return fetch('/api/loan-review-zip-download?reviewId=' + encodeURIComponent(_review.id), {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+    }).then(function(r) {
+      if (!r.ok) {
+        return r.json().catch(function() { return {}; }).then(function(d) {
+          throw new Error(d.error || 'Download failed (HTTP ' + r.status + ')');
+        });
+      }
+      return r.blob().then(function(blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        var cd = r.headers.get('Content-Disposition') || '';
+        var m = /filename="([^"]+)"/.exec(cd);
+        a.download = m ? m[1] : 'loan-documents.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+      });
+    }).then(function() {
+      if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+      showToast('ZIP download failed: ' + ((err && err.message) || 'unknown'), 'error');
     });
   };
 

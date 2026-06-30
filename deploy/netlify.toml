@@ -732,6 +732,12 @@
   to = "/.netlify/functions/loan-review-doc-delete"
   status = 200
   force = true
+# Deploy 236.159 — ZIP export of every uploaded doc on a review.
+[[redirects]]
+  from = "/api/loan-review-zip-download"
+  to = "/.netlify/functions/loan-review-zip-download"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
