@@ -157,6 +157,14 @@ async function handle(req, context) {
     }
     loan[key] = next;
     loan.formData[key] = next;
+    // Deploy 236.135 — also write sizer-side mirror fields so
+    // reopening the sizer after an inline edit picks up the new
+    // value. Without these mirrors the sizer's loadQuoteIntoForm
+    // reads from formData._finalRate / formData._points / formData
+    // .rent / formData.taxes / etc., NOT from the canonical names
+    // the inline editor writes — so edits looked like they had
+    // vanished the moment the LO clicked back into the sizer.
+    _mirrorForSizer(loan, key, next);
     applied.push(key);
     if (spec.modifiable) modifiableApplied.push(key);
     changeRows.push({ key, label: spec.label, from: prior, to: next });
@@ -220,4 +228,35 @@ function _fmtFromTo(c) {
   const f = c.from == null || c.from === '' ? '(empty)' : String(c.from);
   const t = c.to   == null || c.to   === '' ? '(empty)' : String(c.to);
   return f + ' → ' + t;
+}
+
+// Deploy 236.135 — sizer-side mirror writes. Both dscr-sizer.html
+// and rtl-sizer.html hydrate their forms from sizer-specific
+// formData keys (set by save flow): `_finalRate` for rate display,
+// `_points` for points display (with " pts" suffix), and the short
+// names `rent` / `taxes` / `insurance` / `hoa` for monthly
+// expenses. The inline editor writes the canonical names — the
+// mirrors below keep the sizer round-trip working without
+// touching the sizer code itself.
+function _mirrorForSizer(loan, key, next) {
+  loan.formData = loan.formData || {};
+  switch (key) {
+    case 'rate':
+      // Sizer reads _finalRate first, formats with .toFixed(3).
+      // Inline editor passes percent (e.g. 8.625).
+      loan.formData._finalRate = (next * 1).toFixed(3);
+      return;
+    case 'points':
+      // Sizer reads _points first; saved as "1.50 pts" string.
+      loan.formData._points = (next * 1).toFixed(2) + ' pts';
+      return;
+    case 'monthlyRent':      loan.formData.rent      = next; return;
+    case 'monthlyTaxes':     loan.formData.taxes     = next; return;
+    case 'monthlyInsurance': loan.formData.insurance = next; return;
+    case 'monthlyHoa':       loan.formData.hoa       = next; return;
+    // purchasePrice / rehabBudget / arv / fico / loanType /
+    // experience / brokerFee / appraisedValue already use the
+    // canonical name the sizer reads — no mirror needed.
+    default: return;
+  }
 }
