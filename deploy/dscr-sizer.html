@@ -89,6 +89,16 @@
       // state without re-firing the warning modal.
       _rateOverride:             formData._rateOverride            || '',
       _ltvOverride:              formData._ltvOverride             || '',
+      // Deploy 236.155 — _pointsOverride was missing here, so the
+      // Origination Points override (added in 236.48) NEVER
+      // persisted: the saved loan record had _rateOverride and
+      // _ltvOverride but not _pointsOverride. On reload the
+      // sizer's load path (loadQuoteIntoForm) found no override
+      // flag and the rate sheet PDF rendered the algorithmic
+      // default (1.00 pts + buydown). The RTL sizer's
+      // buildLoanFromSizer already had this field — DSCR
+      // forgot it.
+      _pointsOverride:           formData._pointsOverride          || '',
       _pricingOverrideAt:        formData._pricingOverrideAt       || '',
       _pricingOverrideBy:        formData._pricingOverrideBy       || '',
       _pricingOverrideOriginal:  formData._pricingOverrideOriginal || null,
