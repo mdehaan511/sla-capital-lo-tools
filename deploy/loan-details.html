@@ -1769,6 +1769,20 @@ function render() {
     'Download Signed Application (PDF)' +
   '</button>';
 
+  // Deploy 236.144 — one-click bundle download. Packages the signed
+  // loan app + every completed additional guarantor's signed Credit
+  // Auth + a per-guarantor sub-form data summary PDF into a single
+  // ZIP. Always visible (the endpoint is tolerant of missing pieces
+  // — it just notes them in the bundle-manifest.txt inside the ZIP).
+  html += '<a class="open-sizer-btn term-sheet-btn" id="downloadBundleBtn" href="' +
+    escAttr('/api/loan-bundle-download?clientId=' + encodeURIComponent(_clientId) +
+            '&loanId=' + encodeURIComponent(_loanId) +
+            ((_loEmail && _user && _loEmail !== _user.email) ? '&owner=' + encodeURIComponent(_loEmail) : '')) +
+    '" style="margin-top:8px">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 5l5-3 5 3M2 5v7l5 3M2 5l5 3m5-3v7l-5 3M12 5L7 8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>' +
+    'Download Full Application Bundle (ZIP)' +
+  '</a>';
+
   // Deploy 231 — Unsigned Loan Application PDF. Generated fresh from the
   // current borrower_info data, with [UNSIGNED — Filled by LO on behalf
   // of borrower] stamps replacing the signature glyphs. Useful when the

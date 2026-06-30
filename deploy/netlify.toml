@@ -311,6 +311,14 @@
   to = "/.netlify/functions/loan-add-guarantor"
   status = 200
   force = true
+# Deploy 236.144 — one-click bundle: signed loan app + every
+# completed additional guarantor's signed Credit Auth + per-
+# guarantor sub-form data summary, packaged as a single ZIP.
+[[redirects]]
+  from = "/api/loan-bundle-download"
+  to = "/.netlify/functions/loan-bundle-download"
+  status = 200
+  force = true
 # Deploy 236.131 — admin test fixture: creates a fully-formed
 # test loan + guarantors so Mike can iterate on UI without
 # routing through the long application every time.
