@@ -803,6 +803,12 @@
   .task-due, .task-assignee { grid-column: 1 / -1; padding-left: 34px; text-align: left; }
 }
 
+/* Deploy 236.143 — Edit Guarantor button (bottom right of each pane). */
+.bw-pane-footer { display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border, #ddd8d0); }
+.bw-edit-guarantor-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; background: var(--surface, #fff); border: 1px solid var(--gold-border, rgba(200,129,58,0.28)); border-radius: 5px; color: var(--gold-mid, #b5712d); cursor: pointer; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.10s; }
+.bw-edit-guarantor-btn:hover { background: var(--gold-light, rgba(200,129,58,0.10)); border-color: var(--gold, #C8813A); color: var(--gold, #C8813A); }
+.bw-edit-guarantor-btn .bw-edit-icon { font-size: 13px; line-height: 1; }
+
 /* Deploy 236.130 — Add Guarantor button + modal. */
 .add-guarantor-btn { padding: 7px 14px; background: var(--surface, #fff); border: 1px dashed var(--gold-border, rgba(200,129,58,0.28)); border-radius: 5px; color: var(--gold-mid, #b5712d); cursor: pointer; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; margin-left: auto; }
 .add-guarantor-btn:hover { border-color: var(--gold, #C8813A); background: var(--gold-light, rgba(200,129,58,0.10)); color: var(--gold, #C8813A); }
@@ -2200,7 +2206,14 @@ function render() {
       '<div class="field"><label>Phone</label>' +
         '<input type="tel"   id="bw-0-phone"  value="' + escAttr(c.phone || '') + '" readonly /></div>' +
     '</div>' +
-    _renderOwnershipField(c.id, _primaryOwnership, 0);
+    _renderOwnershipField(c.id, _primaryOwnership, 0) +
+    // Deploy 236.143 — Edit Guarantor button at bottom-right of
+    // the pane. Per Mike: name + contact info are read-only here;
+    // the LO edits on the Client Details page so changes propagate
+    // to every loan that client is tied to (primary or guarantor
+    // backref). Opens in a new tab so the LO doesn't lose the
+    // loan-context in their current tab.
+    _renderEditGuarantorButton(c.id);
 
   var _bwTabsHtml = '';
   if (_bwHasMultiple) {
@@ -2681,12 +2694,15 @@ function refreshBorrowerInfoPanes() {
             '<input type="email" id="bw-' + idx + '-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
           '<div class="field"><label>Phone</label>' +
             '<input type="tel"   id="bw-' + idx + '-phone"  value="' + escAttr(c.phone || '') + '" readonly /></div>' +
-          '<div class="field span2" style="font-size:11px;color:var(--muted);font-style:italic;padding-top:4px">' +
-            'Edit this guarantor\'s contact info on their <a href="client-details.html?clientId=' + encodeURIComponent(c.id) + '" style="color:var(--gold-mid, #b5712d);text-decoration:none">Client Details page →</a>' +
-          '</div>' +
         '</div>' +
         _renderOwnershipField(c.id, pct, idx) +
-        subFormHtml;
+        subFormHtml +
+        // Deploy 236.143 — same Edit Guarantor button as on the
+        // primary pane. Replaces the previous inline-italic "Edit
+        // this guarantor's contact info on their Client Details
+        // page →" link. Changes on the client record propagate to
+        // every loan this guarantor is tied to on next page load.
+        _renderEditGuarantorButton(c.id);
       if (tab) {
         var lbl = tab.querySelector('.bw-tab-label');
         var sub2 = tab.querySelector('.bw-tab-sub');
@@ -2782,6 +2798,26 @@ function saveVestingLLCs() {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Vesting LLCs'; }
     if (status) { status.className = 'vesting-llc-status err'; status.textContent = 'Save failed: ' + (err && err.message || 'unknown'); }
   });
+}
+
+// Deploy 236.143 — Edit Guarantor button. Per Mike: guarantor name
+// and contact info on Loan Details are read-only; this button drops
+// the LO into the Client Details page where the canonical edits
+// happen. Opens in a new tab so the LO doesn't lose loan context.
+// Since every loan reads guarantor data fresh from the client record
+// on render, edits made on Client Details propagate to every loan
+// that client is tied to on next page load — no extra sync needed.
+function _renderEditGuarantorButton(clientId) {
+  if (!clientId) return '';
+  var ownerSuffix = (_loEmail && _user && _loEmail !== _user.email)
+    ? '&owner=' + encodeURIComponent(_loEmail) : '';
+  var href = 'client-details.html?clientId=' + encodeURIComponent(clientId) + ownerSuffix;
+  return '<div class="bw-pane-footer">' +
+    '<a class="bw-edit-guarantor-btn" href="' + escAttr(href) + '" target="_blank" rel="noopener" ' +
+       'title="Open this guarantor\'s Client Details page in a new tab. Changes there sync to every loan this client is tied to.">' +
+      '<span class="bw-edit-icon">✎</span> Edit Guarantor' +
+    '</a>' +
+  '</div>';
 }
 
 function _renderOwnershipField(clientId, pctValue, paneIdx) {
