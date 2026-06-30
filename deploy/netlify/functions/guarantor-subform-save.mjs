@@ -35,10 +35,17 @@ import {
   sealCreditAuthAudit,
 } from './_shared/guarantor-credit-auth.mjs';
 import { getClientIp, getUserAgent } from './_shared/native-esign.mjs';
+import { encryptField } from './_shared/crypto.mjs';
 
+// Deploy 236.146 — `ssn_enc` removed from the generic top-level
+// whitelist. Frontend sends the raw SSN under `ssn_enc` (legacy
+// name) or `ssn`; either way we route it through encryptField()
+// below and store the AES-GCM ciphertext as ssn_enc on the client.
+// Earlier deploys were storing whatever the frontend posted as-is,
+// which meant plaintext SSNs sat on the client record.
 const ALLOWED_TOP = [
   'firstName', 'lastName', 'email', 'phone',
-  'dob', 'fico', 'ssn_enc',
+  'dob', 'fico',
   'twoYearAddress', 'mailingSameAsHome',
   'maritalStatus', 'usCitizen', 'flips', 'rentals',
 ];
@@ -87,6 +94,34 @@ async function handle(req) {
       }
     }
   });
+
+  // Deploy 236.146 — SSN encryption. Frontend sends the raw SSN
+  // under either `ssn` or the legacy `ssn_enc` key (the sub-form
+  // page predates this fix and still uses ssn_enc). Strip the
+  // mask formatting, encrypt with the SSN_ENCRYPTION_KEY-derived
+  // key, store as ciphertext on guarantor.ssn_enc.
+  const rawSsn = fields.ssn != null ? fields.ssn : fields.ssn_enc;
+  if (rawSsn != null) {
+    const digits = String(rawSsn).replace(/\D/g, '');
+    if (digits.length === 9) {
+      const enc = encryptField(digits);
+      if (enc && guarantor.ssn_enc !== enc) {
+        guarantor.ssn_enc = enc;
+        // Also stash the masked form for at-a-glance display.
+        guarantor.ssnLast4 = digits.slice(-4);
+        changed = true;
+      }
+    } else if (digits.length === 0) {
+      // Explicit clear.
+      if (guarantor.ssn_enc) {
+        delete guarantor.ssn_enc;
+        delete guarantor.ssnLast4;
+        changed = true;
+      }
+    }
+    // Partial digit count (e.g. user typed 5 of 9): silently
+    // ignore — sub-form will keep showing the input, no clobber.
+  }
 
   ALLOWED_ADDR_BLOCKS.forEach((k) => {
     const incoming = fields[k];

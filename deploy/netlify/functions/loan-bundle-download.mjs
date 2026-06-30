@@ -91,12 +91,16 @@ async function handle(req, context) {
     if (rec && rec.pdfBase64) {
       signedAppBytes = Buffer.from(rec.pdfBase64, 'base64');
       signedAppMeta = rec;
-      manifest.push({ line: '✓ Signed Loan Application — ' + (rec.createdAt || '?') });
+      // Deploy 236.146 — ASCII-only characters in PDF strings.
+      // pdf-lib's StandardFonts only support WinAnsi (Latin-1);
+      // checkmarks, em-dashes, etc. throw "WinAnsi cannot encode"
+      // at render time. Sticking to plain ASCII bullets fixes it.
+      manifest.push({ line: '[INCLUDED] Signed Loan Application - ' + (rec.createdAt || '?') });
     } else {
-      manifest.push({ line: '— Signed Loan Application: not on file yet (borrower has not signed the long app)' });
+      manifest.push({ line: '[MISSING ] Signed Loan Application - not on file yet (borrower has not signed the long app)' });
     }
   } catch (e) {
-    manifest.push({ line: '! Signed Loan Application: read failed (' + (e.message || 'unknown') + ')' });
+    manifest.push({ line: '[ERROR   ] Signed Loan Application: read failed (' + (e.message || 'unknown') + ')' });
   }
 
   const guarantorClientIds = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
@@ -132,8 +136,8 @@ async function handle(req, context) {
 
     guarantorEntries.push({ displayName, subState, summaryBytes, credAuthBytes });
     manifest.push({
-      line: (credAuthBytes ? '✓ ' : '— ') + 'Guarantor ' + (i + 2) + ': ' + displayName +
-        ' — sub-form ' + (subState.status || 'pending') +
+      line: (credAuthBytes ? '[INCLUDED] ' : '[MISSING ] ') + 'Guarantor ' + (i + 2) + ': ' + displayName +
+        ' - sub-form ' + (subState.status || 'pending') +
         (credAuthBytes ? ', Credit Auth signed ' + (subState.completedAt || '?') : ', Credit Auth NOT on file'),
     });
   }
@@ -169,7 +173,7 @@ async function handle(req, context) {
         g.credAuthBytes
           ? 'Credit Authorization signed ' + (g.subState.completedAt || '')
           : 'Credit Authorization NOT on file',
-      ],
+      ].map(_ascii),
     });
     if (g.summaryBytes) await _appendPdfBytes(out, g.summaryBytes);
     if (g.credAuthBytes) await _appendPdfBytes(out, g.credAuthBytes);
@@ -197,7 +201,7 @@ async function _appendPdfBytes(out, bytes) {
     // failure instead of aborting the whole bundle.
     const page = out.addPage([612, 792]);
     const helv = await out.embedFont(StandardFonts.Helvetica);
-    page.drawText('— PDF could not be merged: ' + (e && e.message || 'unknown') + ' —',
+    page.drawText('-- PDF could not be merged: ' + (e && e.message || 'unknown') + ' --',
       { x: 50, y: 750, size: 12, font: helv, color: rgb(0.7, 0.1, 0.1) });
   }
 }
@@ -209,11 +213,11 @@ async function _drawCoverPage(out, args) {
   let y = 730;
   page.drawText('SLA Capital', { x: 50, y, size: 13, font: helvB, color: PLUM });
   y -= 22;
-  page.drawText(args.title, { x: 50, y, size: 22, font: helvB, color: PLUM });
+  page.drawText(_ascii(args.title), { x: 50, y, size: 22, font: helvB, color: PLUM });
   y -= 8;
   page.drawLine({ start: { x: 50, y }, end: { x: 562, y }, thickness: 1, color: GOLD });
   y -= 24;
-  page.drawText(args.subtitle, { x: 50, y, size: 12, font: helv, color: MUTED });
+  page.drawText(_ascii(args.subtitle), { x: 50, y, size: 12, font: helv, color: MUTED });
   y -= 22;
   page.drawText('Generated ' + new Date().toISOString(), { x: 50, y, size: 9, font: helv, color: MUTED });
   y -= 28;
@@ -227,13 +231,13 @@ async function _drawCoverPage(out, args) {
       continue;
     }
     if (item.label) {
-      page.drawText(item.label, { x: 50, y, size: 10, font: helv, color: TEXT });
+      page.drawText(_ascii(item.label), { x: 50, y, size: 10, font: helv, color: TEXT });
       y -= 13;
       continue;
     }
     if (item.line) {
       // Wrap long lines at ~95 chars.
-      const wrapped = _wrap(item.line, 95);
+      const wrapped = _wrap(_ascii(item.line), 95);
       for (const w of wrapped) {
         if (y < 60) break;
         page.drawText(w, { x: 50, y, size: 9.5, font: helv, color: TEXT });
@@ -248,14 +252,14 @@ async function _drawDividerPage(out, args) {
   const helv  = await out.embedFont(StandardFonts.Helvetica);
   const helvB = await out.embedFont(StandardFonts.HelveticaBold);
   let y = 400;
-  page.drawText(args.title.toUpperCase(), { x: 50, y, size: 12, font: helvB, color: GOLD });
+  page.drawText(_ascii(args.title).toUpperCase(), { x: 50, y, size: 12, font: helvB, color: GOLD });
   y -= 26;
-  page.drawText(args.subtitle, { x: 50, y, size: 26, font: helvB, color: PLUM });
+  page.drawText(_ascii(args.subtitle), { x: 50, y, size: 26, font: helvB, color: PLUM });
   y -= 18;
   page.drawLine({ start: { x: 50, y }, end: { x: 562, y }, thickness: 1, color: GOLD });
   y -= 22;
   (args.lines || []).forEach((l) => {
-    page.drawText(l, { x: 50, y, size: 11, font: helv, color: TEXT });
+    page.drawText(_ascii(l), { x: 50, y, size: 11, font: helv, color: TEXT });
     y -= 16;
   });
 }
@@ -281,8 +285,8 @@ async function _renderSubformSummaryPdf({ guarantor, loan, primary, subState }) 
     'Loan: ' + (loan && (loan.slaDisplayId || loan.id) || '(unknown)'),
     'Property: ' + (loan && loan.address || '(no address)'),
     'Primary Borrower: ' + (primary && (((primary.firstName || '') + ' ' + (primary.lastName || '')).trim() || primary.email) || '(unknown)'),
-    'Sub-form status: ' + (subState && subState.status || 'pending') + (subState && subState.completedAt ? ' — completed ' + subState.completedAt : ''),
-  ].forEach((line) => { page.drawText(line, { x: 50, y, size: 10, font: helv, color: MUTED }); y -= 13; });
+    'Sub-form status: ' + (subState && subState.status || 'pending') + (subState && subState.completedAt ? ' - completed ' + subState.completedAt : ''),
+  ].forEach((line) => { page.drawText(_ascii(line), { x: 50, y, size: 10, font: helv, color: MUTED }); y -= 13; });
   y -= 10;
 
   const ha = guarantor.homeAddress    || {};
@@ -336,25 +340,45 @@ async function _renderSubformSummaryPdf({ guarantor, loan, primary, subState }) 
 
   for (const [heading, rows] of sections) {
     if (y < 110) {
-      page.drawText('(continued — see additional pages)', { x: 50, y, size: 9, font: helv, color: MUTED });
+      page.drawText('(continued - see additional pages)', { x: 50, y, size: 9, font: helv, color: MUTED });
       break;
     }
-    page.drawText(heading, { x: 50, y, size: 10, font: helvB, color: GOLD });
+    page.drawText(_ascii(heading), { x: 50, y, size: 10, font: helvB, color: GOLD });
     y -= 14;
     for (const [k, v] of rows) {
       if (y < 80) break;
-      page.drawText(k, { x: 50, y, size: 9, font: helv, color: MUTED });
-      page.drawText(String(v || '—'), { x: 200, y, size: 10, font: helv, color: TEXT });
+      page.drawText(_ascii(k), { x: 50, y, size: 9, font: helv, color: MUTED });
+      page.drawText(_ascii(v || '-'), { x: 200, y, size: 10, font: helv, color: TEXT });
       y -= 12;
     }
     y -= 6;
   }
 
   page.drawLine({ start: { x: 50, y: 60 }, end: { x: 562, y: 60 }, thickness: 0.4, color: MUTED });
-  page.drawText('Data summary only — see signed Credit Authorization for the e-signed legal artifact.',
+  page.drawText('Data summary only - see signed Credit Authorization for the e-signed legal artifact.',
     { x: 50, y: 46, size: 8, font: helv, color: MUTED });
 
   return Buffer.from(await pdf.save());
+}
+
+// Deploy 236.146 — strip / substitute characters that pdf-lib's
+// WinAnsi-encoded StandardFonts (Helvetica) can't render. The
+// embedded font set is limited to Latin-1 — anything outside that
+// throws "WinAnsi cannot encode" at draw time and aborts the
+// whole render. Map the common Unicode chars we use intentionally
+// (em-dash, en-dash, smart quotes, bullet, checkmark) to ASCII
+// equivalents, and drop anything else outside printable Latin-1.
+function _ascii(s) {
+  return String(s == null ? '' : s)
+    .replace(/[‘’‚]/g, "'")   // smart single quotes
+    .replace(/[“”„]/g, '"')   // smart double quotes
+    .replace(/[–—]/g, '-')         // en-dash / em-dash
+    .replace(/[•·]/g, '*')          // bullet / middle dot
+    .replace(/[✓✔]/g, '[OK]')       // check marks
+    .replace(/[✗✘]/g, '[X]')        // ballot X
+    .replace(/[…]/g, '...')              // ellipsis
+    .replace(/[ ]/g, ' ')                // nbsp -> space
+    .replace(/[^\x00-\xFF]/g, '?');           // catch-all for anything else
 }
 
 function _wrap(text, max) {

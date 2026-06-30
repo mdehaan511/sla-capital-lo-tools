@@ -319,6 +319,13 @@
   to = "/.netlify/functions/loan-bundle-download"
   status = 200
   force = true
+# Deploy 236.146 — per-guarantor application download (decrypts SSN,
+# requires LO/admin auth).
+[[redirects]]
+  from = "/api/guarantor-application-download"
+  to = "/.netlify/functions/guarantor-application-download"
+  status = 200
+  force = true
 # Deploy 236.131 — admin test fixture: creates a fully-formed
 # test loan + guarantors so Mike can iterate on UI without
 # routing through the long application every time.
