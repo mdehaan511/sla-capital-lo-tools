@@ -744,6 +744,12 @@
   to = "/.netlify/functions/loan-review-ai-retry"
   status = 200
   force = true
+# Deploy 236.167 — LO leaderboard for the redesigned home page.
+[[redirects]]
+  from = "/api/leaderboard"
+  to = "/.netlify/functions/leaderboard"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching

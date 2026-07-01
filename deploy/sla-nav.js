@@ -167,7 +167,11 @@
         '<a href="index.html" style="display:flex;align-items:center;text-decoration:none">' +
           '<img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display=\'none\'" />' +
         '</a>' +
-        '<a href="index.html" class="nav-tools-btn">Tools</a>' +
+        // Deploy 236.167 — renamed "Tools" to "Home" per Mike.
+        // The index page is now positioned as the home dashboard
+        // (leaderboard + sizers/guidelines shortcuts) rather than
+        // just a tool launcher.
+        '<a href="index.html" class="nav-tools-btn">Home</a>' +
       '</div>' +
       '<div class="nav-right">' +
         links +

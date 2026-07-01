@@ -3,19 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SLA Capital — Internal Tools</title>
+  <title>SLA Capital — Home</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
   <script src="sla-nav.js"></script>
   <script src="sla-chat.js" defer></script>
   <script src="sla-notifications.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=Lora:wght@600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
       --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
       --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --dr-green: #15803d; --dr-green-light: #dcfce7; --dr-green-border: rgba(21,128,61,0.28);
     }
 
     body {
@@ -44,32 +45,27 @@
       box-shadow: 0 24px 48px rgba(0,0,0,0.25);
     }
     .login-logo { height: 52px; width: auto; margin-bottom: 1.5rem; }
-    .login-card h1 {
-      font-size: 18px; font-weight: 600; color: var(--text);
-      margin-bottom: 6px;
-    }
-    .login-card p {
-      font-size: 13px; color: var(--muted); margin-bottom: 2rem; line-height: 1.5;
-    }
+    .login-card h1 { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .login-card p  { font-size: 13px; color: var(--muted); margin-bottom: 2rem; line-height: 1.5; }
     .login-btn {
       display: block; width: 100%; height: 46px;
-      background: var(--dark); color: #fff;
-      border: none; border-radius: 8px;
+      background: var(--dark); color: #fff; border: none; border-radius: 8px;
       font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
       cursor: pointer; transition: background 0.15s;
     }
     .login-btn:hover { background: var(--gold); }
-    .login-footer {
-      margin-top: 1.5rem; font-size: 11px; color: var(--muted);
-    }
+    .login-footer { margin-top: 1.5rem; font-size: 11px; color: var(--muted); }
 
-    /* ── APP SCREEN ───────────────────────────────────────────── */
+    /* ── APP SCREEN (full-width) ──────────────────────────────── */
     #app-screen { display: none; padding: 0 1rem; }
+    /* Deploy 236.167 — home is now full-width. Previous 860px cap
+       was appropriate when it was just a tool launcher; the new
+       two-column layout (Sizers/Guidelines left, Leaderboard right)
+       needs the extra room. */
+    .page { max-width: none; margin: 0; padding: 1.5rem 1.25rem 3rem; }
 
-    .page { max-width: 860px; margin: 0 auto; padding: 3rem 0 4rem; }
-
-    /* Standard shared-nav layout (matches every other page so sla-nav.js
-       renders into #slaNav without per-page glue). */
+    /* Nav styles — mirror every other page so sla-nav.js renders
+       cleanly. */
     .nav { display: flex; align-items: center; justify-content: space-between;
            flex-wrap: wrap; gap: 1rem; padding-bottom: 0.75rem; }
     .nav-left { display: flex; align-items: center; gap: 16px; }
@@ -80,76 +76,111 @@
                      font-size: 12px; font-weight: 600; text-decoration: none; transition: all .15s; }
     .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
     .header-tagline {
-      font-family: 'Lora', serif;
-      font-size: 12px;
-      color: var(--muted);
-      letter-spacing: 0.02em;
-      padding-bottom: 1.5rem;
-      border-bottom: 1px solid var(--gold-border);
-      margin-bottom: 2.5rem;
+      font-family: 'Lora', serif; font-size: 12px; color: var(--muted);
+      letter-spacing: 0.02em; padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--gold-border); margin-bottom: 2rem;
     }
-
-    .user-pill {
-      font-size: 12px; color: var(--muted);
-      background: var(--gold-light); border: 1px solid var(--gold-border);
-      padding: 4px 12px; border-radius: 20px;
-      font-family: 'DM Mono', monospace;
-    }
-    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:20px; border:1px solid var(--border); transition:all 0.15s; white-space:nowrap; }
+    .user-pill { font-size: 12px; color: var(--muted); background: var(--gold-light);
+                 border: 1px solid var(--gold-border); padding: 4px 12px; border-radius: 20px;
+                 font-family: 'DM Mono', monospace; }
+    .nav-tool-link { font-size:12px; font-weight:600; color:var(--muted); text-decoration:none;
+                     padding:5px 12px; border-radius:20px; border:1px solid var(--border);
+                     transition:all 0.15s; white-space:nowrap; }
     .nav-tool-link:hover { border-color:var(--gold); color:var(--gold); }
-    .logout-btn {
-      font-size: 12px; font-weight: 600; color: var(--muted);
-      background: transparent; -webkit-appearance: none; appearance: none; border: 1px solid var(--border);
-      padding: 5px 12px; border-radius: 20px; cursor: pointer;
-      font-family: 'DM Sans', sans-serif; transition: all 0.15s;
-    }
+    .logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent;
+                  border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px;
+                  cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
     .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
-    .admin-link {
-      font-size: 12px; font-weight: 600; color: var(--muted);
-      text-decoration: none; padding: 5px 12px; border-radius: 20px;
-      border: 1px solid var(--border); transition: all 0.15s;
-    }
+    .admin-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none;
+                  padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border);
+                  transition: all 0.15s; }
     .admin-link:hover { border-color: var(--gold); color: var(--gold); }
 
-    .tools-grid {
+    /* Deploy 236.167 — two-column home layout. Left column carries
+       the sizers + guidelines cards; right column carries the LO
+       leaderboard. Collapses to a single column below 900px. */
+    .home-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: 16px;
-      margin-bottom: 2.5rem;
+      grid-template-columns: minmax(300px, 420px) 1fr;
+      gap: 2rem;
+      align-items: start;
     }
+    @media (max-width: 900px) { .home-grid { grid-template-columns: 1fr; } }
+
+    .home-col-heading {
+      font-family: 'Lora', serif; font-size: 14px; font-weight: 600;
+      color: var(--dark); margin-bottom: 12px; letter-spacing: 0.01em;
+    }
+
+    /* Left column — vertical stack of tool tiles */
+    .tools-stack { display: flex; flex-direction: column; gap: 12px; }
     .tool-card {
-      background: var(--surface);
-      border: 1px solid var(--gold-border);
-      border-radius: 14px; padding: 1.5rem;
-      text-decoration: none; display: block;
+      background: var(--surface); border: 1px solid var(--gold-border);
+      border-radius: 14px; padding: 1.25rem 1.35rem;
+      text-decoration: none; display: flex; align-items: center; gap: 14px;
       transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
     }
-    .tool-card:hover {
-      border-color: var(--gold);
-      box-shadow: 0 4px 16px rgba(200,129,58,0.12);
-      transform: translateY(-1px);
-    }
-    .badge {
-      display: inline-block; font-size: 11px; font-weight: 600;
-      letter-spacing: 0.04em; text-transform: uppercase;
-      padding: 3px 9px; border-radius: 20px;
-      background: var(--gold-light); color: #9a5f20; margin-bottom: 1rem;
-    }
+    .tool-card:hover { border-color: var(--gold); box-shadow: 0 4px 16px rgba(200,129,58,0.12); transform: translateY(-1px); }
     .tool-icon {
-      width: 42px; height: 42px; border-radius: 10px;
-      background: var(--gold-light);
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 1rem;
+      width: 44px; height: 44px; border-radius: 10px; background: var(--gold-light);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
-    .tool-name { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
-    .tool-desc { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 1.25rem; }
-    .tool-arrow { font-size: 13px; font-weight: 600; color: var(--gold); }
+    .tool-body { flex: 1; min-width: 0; }
+    .tool-badge {
+      display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase; padding: 2px 8px; border-radius: 20px;
+      background: var(--gold-light); color: #9a5f20; margin-bottom: 4px;
+    }
+    .tool-name { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .tool-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .tool-arrow { font-size: 18px; color: var(--gold); font-weight: 300; flex-shrink: 0; }
 
-    .footer {
-      font-size: 12px; color: #aaa;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--gold-border);
+    /* Right column — leaderboard */
+    .leaderboard-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1rem 0 0.5rem;
+      overflow: hidden;
     }
+    .leaderboard-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1.25rem 0.75rem; border-bottom: 1px solid var(--border);
+    }
+    .leaderboard-title { font-family: 'Lora', serif; font-size: 15px; font-weight: 600; color: var(--dark); }
+    .leaderboard-meta  { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+    .lb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .lb-table thead th {
+      text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; color: var(--muted); padding: 12px 10px 8px;
+      border-bottom: 1px solid var(--border); user-select: none; cursor: pointer;
+      white-space: nowrap; background: var(--gold-light);
+    }
+    .lb-table thead th:hover { color: var(--gold-mid); }
+    .lb-table thead th.numeric { text-align: right; }
+    .lb-table thead th .sort-caret { display: inline-block; margin-left: 4px; opacity: 0.4; }
+    .lb-table thead th.sorted .sort-caret { opacity: 1; color: var(--gold); }
+    .lb-table tbody td {
+      padding: 10px; border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .lb-table tbody tr:last-child td { border-bottom: none; }
+    .lb-table tbody tr:hover td { background: var(--gold-light); }
+    .lb-table tbody td.numeric { text-align: right; font-family: 'DM Mono', monospace; font-size: 12px; }
+    .lb-name { font-weight: 600; color: var(--text); }
+    .lb-email { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 2px; }
+    .lb-rank {
+      display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center;
+      font-size: 10px; font-weight: 700; color: var(--muted); background: var(--gold-light);
+      border-radius: 50%; margin-right: 8px;
+    }
+    .lb-table tbody tr.top-rank td:first-child .lb-rank { background: var(--gold); color: #fff; }
+
+    .lb-empty { padding: 2rem 1.25rem; text-align: center; color: var(--muted); font-size: 13px; font-style: italic; }
+    .lb-loading { padding: 2rem 1.25rem; text-align: center; color: var(--muted); font-size: 13px; }
+    .lb-error   { padding: 1rem 1.25rem; text-align: center; color: #b91c1c; font-size: 13px; }
+
+    .footer { font-size: 12px; color: #aaa; padding-top: 1.5rem; border-top: 1px solid var(--gold-border); margin-top: 2rem; }
+
     /* ── Notification banner ── */
     #notifBanner { display: none; }
     .notif-banner { padding: 10px 24px; font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 8px; }
@@ -179,75 +210,93 @@
 
     <div class="page">
 
-      <!-- Deploy 236.25: home page now uses the shared sla-nav.js navbar
-           like every other page so Profile/Sign-out dropdown + Clients
-           dropdown + admin-only links stay in sync automatically. The
-           old inline header (logo + hand-listed links + standalone Sign
-           out button) is gone. -->
+      <!-- Shared sla-nav.js navbar. Deploy 236.167 — renamed the
+           "Tools" pill on the far-left to "Home" (matches every
+           other page's nav; the pill is defined in sla-nav.js). -->
       <nav class="nav" id="slaNav"></nav>
-      <div class="header-tagline">Internal tools &middot; Team resources &middot; not for external distribution</div>
+      <div class="header-tagline">Home &middot; Sizers &amp; guidelines on the left &middot; Team leaderboard on the right</div>
 
-      <div class="tools-grid">
+      <div class="home-grid">
+        <!-- ── LEFT: Sizers + Guidelines ─────────────────── -->
+        <div class="home-col home-col-left">
+          <div class="home-col-heading">Sizers &amp; Reference</div>
+          <div class="tools-stack">
 
-        <a class="tool-card" href="dscr-sizer.html">
-          <div class="badge">Loan sizing</div>
-          <div class="tool-icon">
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="5" width="16" height="10" rx="2" stroke="#C8813A" stroke-width="1.5"/>
-              <path d="M6 10h8M10 7v6" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
+            <a class="tool-card" href="dscr-sizer.html">
+              <div class="tool-icon">
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="2" y="5" width="16" height="10" rx="2" stroke="#C8813A" stroke-width="1.5"/>
+                  <path d="M6 10h8M10 7v6" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="tool-body">
+                <span class="tool-badge">Loan sizing</span>
+                <div class="tool-name">DSCR Sizer</div>
+                <div class="tool-desc">Price DSCR loans with live rate adjustments and guideline validation.</div>
+              </div>
+              <span class="tool-arrow">→</span>
+            </a>
+
+            <a class="tool-card" href="rtl-sizer.html">
+              <div class="tool-icon">
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M3 10h14M10 3l7 7-7 7" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="tool-body">
+                <span class="tool-badge">Loan sizing</span>
+                <div class="tool-name">RTL Sizer</div>
+                <div class="tool-desc">Size Fix &amp; Flip / Bridge / Transactional loans against Colchis and BASE_RATE.</div>
+              </div>
+              <span class="tool-arrow">→</span>
+            </a>
+
+            <!-- GUC Sizer (admin-gated; unhidden by role check below). -->
+            <a class="tool-card" href="guc-sizer.html" data-role-required="admin" style="display:none">
+              <div class="tool-icon">
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M3 17h14M5 17V9l5-4 5 4v8M9 17v-4h2v4" stroke="#C8813A" stroke-width="1.5" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="tool-body">
+                <span class="tool-badge">Loan sizing</span>
+                <div class="tool-name">GUC Sizer <span style="font-size:10px;font-weight:700;color:#2563eb;letter-spacing:0.05em;background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.30);padding:2px 6px;border-radius:4px;vertical-align:2px;margin-left:6px">ADMIN</span></div>
+                <div class="tool-desc">Size Ground Up Construction against the Eastview leverage matrix.</div>
+              </div>
+              <span class="tool-arrow">→</span>
+            </a>
+
+            <a class="tool-card" href="guidelines-hub.html">
+              <div class="tool-icon">
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M5 2h7l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="#C8813A" stroke-width="1.5"/>
+                  <path d="M12 2v4h4M7 9h6M7 12h4" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="tool-body">
+                <span class="tool-badge">Reference</span>
+                <div class="tool-name">Guidelines</div>
+                <div class="tool-desc">Loan program guidelines and underwriting requirements by product type.</div>
+              </div>
+              <span class="tool-arrow">→</span>
+            </a>
+
           </div>
-          <p class="tool-name">DSCR Sizer</p>
-          <p class="tool-desc">Instantly price DSCR loans with live rate adjustments and guideline validation.</p>
-          <span class="tool-arrow">Open tool →</span>
-        </a>
+        </div>
 
-        <a class="tool-card" href="rtl-sizer.html">
-          <div class="badge">Loan sizing</div>
-          <div class="tool-icon">
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 10h14M10 3l7 7-7 7" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+        <!-- ── RIGHT: LO Leaderboard ─────────────────────── -->
+        <div class="home-col home-col-right">
+          <div class="home-col-heading">Team Leaderboard</div>
+          <div class="leaderboard-card">
+            <div class="leaderboard-header">
+              <div class="leaderboard-title">Loan Officers</div>
+              <div class="leaderboard-meta" id="lbMeta">loading…</div>
+            </div>
+            <div id="lbBody">
+              <div class="lb-loading">Loading team stats…</div>
+            </div>
           </div>
-          <p class="tool-name">RTL Sizer</p>
-          <p class="tool-desc">Size rental transition loans based on property and borrower details.</p>
-          <span class="tool-arrow">Open tool →</span>
-        </a>
-
-        <!-- Deploy 236.87 — GUC (Ground Up Construction) sizer for the
-             Eastview product. Admin-gated for now; we'll widen access
-             once we've issued a few real quotes through it. -->
-        <a class="tool-card" href="guc-sizer.html" data-role-required="admin" style="display:none">
-          <div class="badge">Loan sizing</div>
-          <div class="tool-icon">
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 17h14M5 17V9l5-4 5 4v8M9 17v-4h2v4" stroke="#C8813A" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <p class="tool-name">GUC Sizer <span style="font-size:10px;font-weight:700;color:#2563eb;letter-spacing:0.05em;background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.30);padding:2px 6px;border-radius:4px;vertical-align:2px;margin-left:6px">ADMIN</span></p>
-          <p class="tool-desc">Size Ground Up Construction loans against the Eastview leverage matrix and EV buy-rate ladder.</p>
-          <span class="tool-arrow">Open tool →</span>
-        </a>
-
-        <a class="tool-card" href="guidelines-hub.html">
-          <div class="badge">Reference</div>
-          <div class="tool-icon">
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M5 2h7l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="#C8813A" stroke-width="1.5"/>
-              <path d="M12 2v4h4M7 9h6M7 12h4" stroke="#C8813A" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </div>
-          <p class="tool-name">Guidelines</p>
-          <p class="tool-desc">Loan program guidelines and underwriting requirements by product type.</p>
-          <span class="tool-arrow">Open tool →</span>
-        </a>
-
-        <!-- Deploy 236.121 — Loan Doc Review tool card removed.
-             The standalone loan-review.html / loan-review-detail.html
-             pages were deleted; Doc Review now lives inside the
-             Documents tab on Loan Details. Open any loan to reach it. -->
-
-
+        </div>
       </div>
 
       <p class="footer">SLA Capital &middot; Sir Lends A Lot LLC &middot; Internal use only</p>
@@ -258,37 +307,23 @@
     var loginScreen = document.getElementById('login-screen');
     var appScreen   = document.getElementById('app-screen');
 
-    // ── Role check: show Submissions link only for admin users ──────
     function getRoles(user) {
       if (!user) return [];
       var roles = [];
-      if (user.app_metadata && Array.isArray(user.app_metadata.roles))
-        roles = user.app_metadata.roles;
-      else if (user.app_metadata && typeof user.app_metadata.roles === 'string')
-        roles = [user.app_metadata.roles];
+      if (user.app_metadata && Array.isArray(user.app_metadata.roles)) roles = user.app_metadata.roles;
+      else if (user.app_metadata && typeof user.app_metadata.roles === 'string') roles = [user.app_metadata.roles];
       if (!roles.length && user.user_metadata && user.user_metadata.roles)
         roles = Array.isArray(user.user_metadata.roles) ? user.user_metadata.roles : [user.user_metadata.roles];
       return roles;
     }
-    function isSuperAdmin(user) {
-      return getRoles(user).some(function(r){ return r === 'super_admin'; });
-    }
-    function isAdmin(user) {
-      return getRoles(user).some(function(r){ return r === 'admin' || r === 'super_admin'; });
-    }
-    // Deploy 236.71 — processor tier (admins implicitly count).
-    function isProcessor(user) {
-      return getRoles(user).some(function(r){ return r === 'processor' || r === 'admin' || r === 'super_admin'; });
-    }
+    function isSuperAdmin(user) { return getRoles(user).some(function(r){ return r === 'super_admin'; }); }
+    function isAdmin(user)      { return getRoles(user).some(function(r){ return r === 'admin' || r === 'super_admin'; }); }
+    function isProcessor(user)  { return getRoles(user).some(function(r){ return r === 'processor' || r === 'admin' || r === 'super_admin'; }); }
 
     function showApp(user) {
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
-      // Deploy 236.71 — reveal role-gated tool cards based on the
-      // current user's roles. Tiles in the markup carry
-      // data-role-required="processor" (or "admin" / "super_admin")
-      // and are hidden by default. We walk the grid here and unhide
-      // each one the user qualifies for.
+      // Reveal role-gated tool cards.
       var roleChecks = { processor: isProcessor, admin: isAdmin, super_admin: isSuperAdmin };
       var gated = document.querySelectorAll('.tool-card[data-role-required]');
       for (var i = 0; i < gated.length; i++) {
@@ -296,49 +331,141 @@
         var check = roleChecks[req];
         if (check && check(user)) gated[i].style.display = '';
       }
-      // Deploy 236.25: admin-link visibility is now driven by sla-nav.js
-      // (Submissions / Dashboard / etc. are role-gated inside the LINKS
-      // array). The old #navSubmissionsLink toggle is no longer needed.
-      // Show notification banner if active (from backend Settings)
       SLA.Settings.getBanner().then(function(banner) {
         var bannerEl = document.getElementById('notifBanner');
         if (banner && banner.text && bannerEl) {
           bannerEl.className = 'notif-banner ' + (banner.type || 'info');
           bannerEl.innerHTML = '<span>' + banner.text.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
           bannerEl.style.display = 'flex';
-        } else if (bannerEl) {
-          bannerEl.style.display = 'none';
-        }
-      }).catch(function() { /* silent — banner is non-critical */ });
+        } else if (bannerEl) { bannerEl.style.display = 'none'; }
+      }).catch(function() {});
+      loadLeaderboard();
     }
-
     function showLogin() {
       loginScreen.style.display = 'flex';
       appScreen.style.display   = 'none';
     }
 
+    // ── Leaderboard ─────────────────────────────────────────────
+    var _lbRows = [];
+    var _lbSort = { key: 'closedVolume', dir: 'desc' };
+
+    var LB_COLS = [
+      { key: 'fullName',      label: 'Loan Officer',    numeric: false },
+      { key: 'clientCount',   label: 'Clients Added',   numeric: true },
+      { key: 'quoteCount',    label: 'Quoted Loans',    numeric: true },
+      { key: 'approvedCount', label: 'Approved Loans',  numeric: true },
+      { key: 'pendingVolume', label: 'Pending Volume',  numeric: true, money: true },
+      { key: 'closedVolume',  label: 'Closed Volume',   numeric: true, money: true },
+    ];
+
+    function loadLeaderboard() {
+      var meta = document.getElementById('lbMeta');
+      var body = document.getElementById('lbBody');
+      if (meta) meta.textContent = 'loading…';
+      if (body) body.innerHTML = '<div class="lb-loading">Loading team stats…</div>';
+      SLA.api('GET', '/api/leaderboard').then(function(resp) {
+        _lbRows = (resp && resp.rows) || [];
+        if (meta) meta.textContent = _lbRows.length + ' active LOs';
+        renderLeaderboard();
+      }).catch(function(err) {
+        if (meta) meta.textContent = 'error';
+        if (body) body.innerHTML = '<div class="lb-error">Failed to load leaderboard: ' + escapeHtml(err && err.message || 'unknown') + '</div>';
+      });
+    }
+
+    function renderLeaderboard() {
+      var body = document.getElementById('lbBody');
+      if (!body) return;
+      if (!_lbRows.length) {
+        body.innerHTML = '<div class="lb-empty">No LO activity yet.</div>';
+        return;
+      }
+      var sorted = _lbRows.slice().sort(function(a, b) {
+        var av = a[_lbSort.key], bv = b[_lbSort.key];
+        var typedA = typeof av === 'number' ? av : String(av || '').toLowerCase();
+        var typedB = typeof bv === 'number' ? bv : String(bv || '').toLowerCase();
+        if (typedA < typedB) return _lbSort.dir === 'asc' ? -1 : 1;
+        if (typedA > typedB) return _lbSort.dir === 'asc' ?  1 : -1;
+        return 0;
+      });
+
+      var headHtml = '<tr>';
+      LB_COLS.forEach(function(col) {
+        var cls  = col.numeric ? 'numeric' : '';
+        if (_lbSort.key === col.key) cls += ' sorted';
+        var caret = (_lbSort.key === col.key)
+          ? (_lbSort.dir === 'asc' ? '▲' : '▼')
+          : '↕';
+        headHtml += '<th class="' + cls + '" data-sort-key="' + col.key + '" onclick="lbSort(\'' + col.key + '\')">' +
+          escapeHtml(col.label) +
+          '<span class="sort-caret">' + caret + '</span>' +
+        '</th>';
+      });
+      headHtml += '</tr>';
+
+      var bodyHtml = '';
+      sorted.forEach(function(row, idx) {
+        var rankCls = (idx === 0 && _lbSort.key === 'closedVolume' && _lbSort.dir === 'desc') ? ' top-rank' : '';
+        bodyHtml += '<tr class="' + rankCls + '">';
+        LB_COLS.forEach(function(col) {
+          if (col.key === 'fullName') {
+            bodyHtml += '<td>' +
+              '<span class="lb-rank">' + (idx + 1) + '</span>' +
+              '<span class="lb-name">' + escapeHtml(row.fullName || row.email || 'Unknown') + '</span>' +
+              (row.email && row.email !== row.fullName ? '<div class="lb-email">' + escapeHtml(row.email) + '</div>' : '') +
+            '</td>';
+          } else if (col.money) {
+            bodyHtml += '<td class="numeric">' + formatMoney(row[col.key]) + '</td>';
+          } else if (col.numeric) {
+            bodyHtml += '<td class="numeric">' + formatCount(row[col.key]) + '</td>';
+          } else {
+            bodyHtml += '<td>' + escapeHtml(String(row[col.key] || '')) + '</td>';
+          }
+        });
+        bodyHtml += '</tr>';
+      });
+
+      body.innerHTML =
+        '<table class="lb-table">' +
+          '<thead>' + headHtml + '</thead>' +
+          '<tbody>' + bodyHtml + '</tbody>' +
+        '</table>';
+    }
+
+    window.lbSort = function(key) {
+      if (_lbSort.key === key) {
+        _lbSort.dir = _lbSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _lbSort.key = key;
+        // Numeric columns default to DESC (highest first); text asc.
+        var col = LB_COLS.find(function(c) { return c.key === key; });
+        _lbSort.dir = (col && col.numeric) ? 'desc' : 'asc';
+      }
+      renderLeaderboard();
+    };
+
+    function formatMoney(v) {
+      var n = Number(v) || 0;
+      if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+      if (n >= 1_000)     return '$' + (n / 1_000).toFixed(0) + 'K';
+      if (n > 0)          return '$' + n.toLocaleString();
+      return '—';
+    }
+    function formatCount(v) {
+      var n = Number(v) || 0;
+      return n > 0 ? n.toLocaleString() : '—';
+    }
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     // ── Netlify Identity events ───────────────────────────────
-    
-netlifyIdentity.on('init', function(user) {
-      if (user) { showApp(user); } else { showLogin(); }
-    });
-
-    netlifyIdentity.on('login', function(user) {
-      netlifyIdentity.close();
-      showApp(user);
-    });
-
-    netlifyIdentity.on('logout', function() {
-      showLogin();
-    });
-
-    document.getElementById('loginBtn').addEventListener('click', function() {
-      netlifyIdentity.open('login');
-    });
-
-    // Deploy 236.25: standalone Sign-out button on the home page is gone.
-    // Sign out lives in the Profile dropdown that sla-nav.js renders into
-    // #slaNav, which calls netlifyIdentity.logout() directly.
+    netlifyIdentity.on('init', function(user) { if (user) { showApp(user); } else { showLogin(); } });
+    netlifyIdentity.on('login', function(user) { netlifyIdentity.close(); showApp(user); });
+    netlifyIdentity.on('logout', function() { showLogin(); });
+    document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
   </script>
 
 </body>
