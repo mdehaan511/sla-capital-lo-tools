@@ -101,43 +101,39 @@ export default async (req, context) => {
       console.warn('leaderboard: quotes list failed:', e && e.message);
     }
 
-    // 4) Assemble rows. Profiles first (LO names), then promote any
-    // orphan owner-keys with activity but no profile (rare — usually
-    // deleted or never-logged-in users) so their totals don't
-    // vanish from the leaderboard.
+    // 4) Assemble rows. Deploy 236.168 — filter out LOs with no
+    // quoted loans OR who haven't logged in for 3+ weeks per Mike.
+    // Orphans (activity but no profile record) get dropped too,
+    // since we have no last_seen_at to test them against and they
+    // clutter the leaderboard.
+    const STALE_MS = 21 * 24 * 60 * 60 * 1000; // 3 weeks
+    const nowMs = Date.now();
     const rows = [];
     const seenKeys = new Set();
+    let hiddenNoQuotes = 0, hiddenStale = 0;
     profiles.forEach((p) => {
       const email = String(p.email || '').toLowerCase().trim();
       if (!email) return;
       const ownerKey = keySafe(normalizeEmail(email));
       seenKeys.add(ownerKey);
+      const quoteCount = quoteCounts[ownerKey] || 0;
+      if (quoteCount === 0) { hiddenNoQuotes++; return; }
+      const lastSeenAt = p.last_seen_at || p.confirmed_at || '';
+      const lastSeenMs = lastSeenAt ? Date.parse(lastSeenAt) : NaN;
+      if (!isFinite(lastSeenMs) || (nowMs - lastSeenMs) > STALE_MS) { hiddenStale++; return; }
       rows.push({
         fullName:      (p.fullName || p.full_name || '').trim() || _emailDisplay(email),
         email,
         clientCount:   clientCounts[ownerKey]    || 0,
-        quoteCount:    quoteCounts[ownerKey]     || 0,
+        quoteCount,
         approvedCount: approvedCounts[ownerKey]  || 0,
         pendingVolume: pendingVolumes[ownerKey]  || 0,
         closedVolume:  closedVolumes[ownerKey]   || 0,
       });
     });
-    // Orphan pass.
-    const orphanKeys = new Set();
-    Object.keys(clientCounts).forEach((k) => { if (!seenKeys.has(k)) orphanKeys.add(k); });
-    Object.keys(quoteCounts).forEach((k)  => { if (!seenKeys.has(k)) orphanKeys.add(k); });
-    for (const k of orphanKeys) {
-      rows.push({
-        fullName:      k.replace(/_/g, '.'),
-        email:         k.replace(/_/g, '.'),
-        clientCount:   clientCounts[k]   || 0,
-        quoteCount:    quoteCounts[k]    || 0,
-        approvedCount: approvedCounts[k] || 0,
-        pendingVolume: pendingVolumes[k] || 0,
-        closedVolume:  closedVolumes[k]  || 0,
-        isOrphan:      true,
-      });
-    }
+    // Orphans (activity without a profile) are intentionally
+    // excluded — no last_seen_at to gate them. Their totals still
+    // show up in the admin users-stats view.
 
     // Default sort: Closed Volume DESC (client can re-sort). Ties
     // break on Pending Volume then alphabetically by name.
@@ -147,7 +143,7 @@ export default async (req, context) => {
       return String(a.fullName || '').localeCompare(String(b.fullName || ''));
     });
 
-    return json(200, { rows });
+    return json(200, { rows, hiddenNoQuotes, hiddenStale });
   } catch (e) {
     console.error('leaderboard top-level error:', e);
     return json(500, { error: 'Server error: ' + ((e && e.message) || 'unknown') });
