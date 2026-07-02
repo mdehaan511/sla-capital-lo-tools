@@ -1,0 +1,99 @@
+/**
+ * borrower-portal-loans.mjs — GET /api/borrower-portal-loans
+ *
+ * Deploy 236.171 — Access Refactor PR #4. Returns the loans this
+ * borrower has been granted access to (from loan_access), joined
+ * with a sanitized view of each loan record.
+ *
+ * Auth: any authenticated user. The result is scoped to grants
+ * matching THEIR email — no way for a borrower to list someone
+ * else's loans. Admins get their own list too; if an admin needs
+ * to inspect a borrower's list on their behalf, they use
+ * /api/loan-access-list?email=... which is separately gated.
+ *
+ * Response: { loans: [{ loanId, address, status, propertyType,
+ *                       loanAmt, primaryClientId, ownerKey,
+ *                       grantedAt, grantedBy }] }
+ *
+ * Sanitization strips LO-side context that borrowers shouldn't
+ * see: commissions, notes log, processor fields, other guarantors'
+ * SSNs, etc. Anything on the loan the borrower doesn't need for
+ * "here's your loan" is dropped.
+ */
+import { getStore } from '@netlify/blobs';
+import {
+  handleOptions, json, requireAuth, normalizeEmail, keySafe,
+} from './_shared/auth.mjs';
+import { listAccessibleLoans } from './_shared/loan-access-store.mjs';
+
+export default async (req, context) => {
+  try { return await handle(req, context); }
+  catch (e) {
+    console.error('borrower-portal-loans error:', e);
+    return json(500, { error: 'Server error: ' + ((e && e.message) || 'unknown') });
+  }
+};
+
+async function handle(req, context) {
+  const pre = handleOptions(req); if (pre) return pre;
+  if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
+
+  const user = requireAuth(context, req);
+  if (!user) return json(401, { error: 'Not authenticated' });
+
+  const email = normalizeEmail(user.email);
+  const grants = await listAccessibleLoans(email);
+  if (!grants.length) return json(200, { loans: [] });
+
+  const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
+
+  const loans = await Promise.all(grants.map(async (g) => {
+    if (!g.ownerKey || !g.primaryClientId || !g.loanId) return null;
+    try {
+      const client = await clientsStore.get(g.ownerKey + '/' + keySafe(g.primaryClientId), { type: 'json' });
+      if (!client || !Array.isArray(client.loans)) return null;
+      const loan = client.loans.find((l) => l && l.id === g.loanId);
+      if (!loan) return null;
+      return _sanitize(loan, client, g);
+    } catch (e) {
+      console.warn('[borrower-portal-loans] loan fetch failed:', g.loanId, e && e.message);
+      return null;
+    }
+  }));
+
+  return json(200, { loans: loans.filter(Boolean) });
+}
+
+// Strip fields the borrower shouldn't see. Whitelist approach —
+// only fields listed here make it into the response.
+function _sanitize(loan, client, grant) {
+  return {
+    loanId:          loan.id,
+    slaDisplayId:    loan.slaDisplayId || '',
+    address:         loan.address || '',
+    propType:        loan.propType || '',
+    propTypeLabel:   loan.propTypeLabel || '',
+    loanType:        loan.loanType || '',
+    loanPurpose:     loan.loanPurpose || '',
+    status:          loan.status || 'active',
+    loanAmt:         loan.loanAmt || '',
+    rate:            loan.rate || '',
+    points:          loan.points || '',
+    fundingDate:     loan.fundingDate || '',
+    propValue:       loan.propValue || loan.appraisedValue || '',
+    createdAt:       loan.createdAt || '',
+    updatedAt:       loan.updatedAt || '',
+
+    // Borrower's-eye view of who this loan belongs to.
+    primaryClient:   client.firstName || client.lastName
+                       ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim()
+                       : client.email || '',
+    primaryClientId: client.id || grant.primaryClientId || '',
+    ownerKey:        grant.ownerKey || '',
+
+    // Grant metadata (so borrower can see when they were added
+    // and by whom).
+    grantedAt:       grant.grantedAt || '',
+    role:            grant.role || 'borrower',
+  };
+}

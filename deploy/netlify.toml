@@ -775,6 +775,17 @@
   to = "/.netlify/functions/borrower-invite"
   status = 200
   force = true
+# Deploy 236.171 — Access Refactor PR #4: borrower portal endpoints.
+[[redirects]]
+  from = "/api/borrower-portal-loans"
+  to = "/.netlify/functions/borrower-portal-loans"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/borrower-doc-upload"
+  to = "/.netlify/functions/borrower-doc-upload"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching

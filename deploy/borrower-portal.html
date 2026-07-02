@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLA Capital — Borrower Portal</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=Lora:wght@600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --success: #166534; --danger: #7c1f1f;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* Login screen — matches index.html so borrowers see the same
+       polished sign-in flow that LOs see. */
+    #login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh;
+                    padding: 2rem 1rem; background: var(--dark); }
+    .login-card { background: var(--surface); border-radius: 16px; padding: 2.5rem 2.75rem;
+                  width: 100%; max-width: 380px; text-align: center;
+                  box-shadow: 0 24px 48px rgba(0,0,0,0.25); }
+    .login-logo { height: 52px; width: auto; margin-bottom: 1.5rem; }
+    .login-card h1 { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .login-card p  { font-size: 13px; color: var(--muted); margin-bottom: 2rem; line-height: 1.5; }
+    .login-btn { display:block; width:100%; height:46px; background:var(--dark); color:#fff;
+                 border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px;
+                 font-weight:600; cursor:pointer; transition:background .15s; }
+    .login-btn:hover { background: var(--gold); }
+    .login-footer { margin-top: 1.5rem; font-size: 11px; color: var(--muted); }
+
+    /* App screen */
+    #app-screen { display: none; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.5rem;
+              background: var(--surface); border-bottom: 1px solid var(--gold-border); }
+    .topbar-left { display:flex; align-items:center; gap:14px; }
+    .topbar-left img { height: 44px; width: auto; }
+    .topbar-title { font-family:'Lora',serif; font-size:15px; font-weight:600; color:var(--dark); }
+    .topbar-user { font-size:12px; color:var(--muted); font-family:'DM Mono',monospace; }
+    .logout-btn { font-size:12px; font-weight:600; color:var(--muted); background:transparent;
+                  border:1px solid var(--border); padding:5px 12px; border-radius:20px;
+                  cursor:pointer; font-family:'DM Sans',sans-serif; margin-left:12px; }
+    .logout-btn:hover { border-color:var(--gold); color:var(--gold); }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+    .welcome { font-family:'Lora',serif; font-size:22px; font-weight:600; color:var(--dark); margin-bottom:6px; }
+    .welcome-sub { font-size:13px; color:var(--muted); margin-bottom:2rem; line-height:1.5; }
+
+    .section-heading { font-family:'Lora',serif; font-size:14px; font-weight:600; color:var(--dark);
+                       margin-bottom:12px; letter-spacing:0.01em; }
+    .loans-list { display:flex; flex-direction:column; gap:14px; }
+    .loan-card { background:var(--surface); border:1px solid var(--gold-border); border-radius:14px;
+                 padding: 1.5rem; transition: border-color .15s, box-shadow .15s; }
+    .loan-card:hover { border-color: var(--gold); box-shadow: 0 4px 16px rgba(200,129,58,0.10); }
+    .loan-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px; }
+    .loan-addr { font-size:15px; font-weight:600; color:var(--text); word-break:break-word; }
+    .loan-sub { font-size:12px; color:var(--muted); margin-top:2px; font-family:'DM Mono',monospace; }
+    .loan-status { display:inline-block; font-size:10px; font-weight:600; text-transform:uppercase;
+                   letter-spacing:0.04em; padding:3px 10px; border-radius:20px;
+                   background:var(--gold-light); color:var(--gold-mid); border:1px solid var(--gold-border);
+                   white-space:nowrap; }
+    .loan-status.approved  { background:#dcfce7; color:#166534; border-color:rgba(21,128,61,0.28); }
+    .loan-status.closed    { background:#dbeafe; color:#1e40af; border-color:rgba(30,64,175,0.28); }
+    .loan-status.denied    { background:#fee2e2; color:#991b1b; border-color:rgba(153,27,27,0.28); }
+
+    .loan-facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px 16px;
+                  padding:12px 14px; background:#faf8f3; border-radius:8px; margin-bottom:14px; }
+    .fact-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;
+                  color:var(--muted); }
+    .fact-value { font-size:13px; font-weight:600; color:var(--text); margin-top:2px; word-break:break-word; }
+
+    /* Upload area */
+    .upload-zone { border:2px dashed var(--gold-border); border-radius:10px; padding:1.5rem; text-align:center;
+                   background:#fff; transition: all .15s; cursor:pointer; position:relative; }
+    .upload-zone:hover, .upload-zone.dragover { border-color:var(--gold); background:var(--gold-light); }
+    .upload-zone input[type=file] { position:absolute; opacity:0; inset:0; cursor:pointer; }
+    .upload-icon { font-size:26px; line-height:1; margin-bottom:6px; }
+    .upload-text { font-size:13px; font-weight:600; color:var(--text); }
+    .upload-hint { font-size:11px; color:var(--muted); margin-top:4px; }
+    .upload-status { margin-top:10px; font-size:12px; min-height:14px; }
+    .upload-status.info    { color: var(--muted); }
+    .upload-status.success { color: var(--success); }
+    .upload-status.error   { color: var(--danger); }
+
+    .empty-state { padding:3rem 1rem; text-align:center; color:var(--muted); font-size:14px; font-style:italic;
+                   background:var(--surface); border:1px dashed var(--border); border-radius:14px; }
+    .loading    { padding:2rem; text-align:center; color:var(--muted); font-size:13px; }
+    .error-box  { padding:1rem 1.25rem; background:#fee2e2; color:#991b1b; border:1px solid rgba(153,27,27,0.28);
+                  border-radius:10px; font-size:13px; }
+
+    .footer { font-size:12px; color:#aaa; margin-top:3rem; text-align:center; }
+  </style>
+</head>
+<body>
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen">
+    <div class="login-card">
+      <img class="login-logo" src="SLA_Capital_Logo_2_1.png" alt="SLA Capital"
+           onerror="this.style.display='none'" />
+      <h1>SLA Capital — Borrower Portal</h1>
+      <p>Sign in to view your loan and upload requested documents.<br>Use the email your loan officer invited.</p>
+      <button class="login-btn" id="loginBtn">Sign In</button>
+      <p class="login-footer">SLA Capital · Sir Lends A Lot LLC</p>
+    </div>
+  </div>
+
+  <!-- APP SCREEN -->
+  <div id="app-screen">
+    <div class="topbar">
+      <div class="topbar-left">
+        <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
+        <div class="topbar-title">Borrower Portal</div>
+      </div>
+      <div style="display:flex;align-items:center">
+        <div class="topbar-user" id="topbarUser"></div>
+        <button class="logout-btn" onclick="doLogout()">Sign out</button>
+      </div>
+    </div>
+    <div class="container">
+      <div class="welcome" id="welcomeName">Welcome back</div>
+      <div class="welcome-sub">Below are the loans your loan officer has granted you access to. Upload requested documents directly to each loan; your loan officer receives them instantly.</div>
+      <div class="section-heading">Your Loans</div>
+      <div id="loansContainer">
+        <div class="loading">Loading your loans…</div>
+      </div>
+      <p class="footer">SLA Capital · Sir Lends A Lot LLC · Secure Borrower Portal</p>
+    </div>
+  </div>
+
+  <script>
+    var _user = null;
+    var _loans = [];
+
+    function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function escAttr(s) { return escH(s).replace(/"/g,'&quot;'); }
+    function fmtMoney(v) {
+      var n = Number(v) || 0;
+      if (n >= 1_000_000) return '$' + (n/1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+      if (n >= 1_000)     return '$' + Math.round(n).toLocaleString();
+      if (n > 0)          return '$' + n.toFixed(0);
+      return '—';
+    }
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      try { return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); }
+      catch (_) { return iso; }
+    }
+    function statusLabel(s) {
+      var m = { active:'Quoted', submitted:'Submitted', awaiting_app:'Awaiting App',
+                approved:'In Processing', closed:'Closed', denied:'Denied', on_hold:'On Hold' };
+      return m[s] || s || 'Active';
+    }
+    function statusClass(s) {
+      if (s === 'approved' || s === 'awaiting_app') return 'approved';
+      if (s === 'closed') return 'closed';
+      if (s === 'denied' || s === 'on_hold') return 'denied';
+      return '';
+    }
+
+    // ── Auth ──
+    function showApp(user) {
+      _user = user;
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app-screen').style.display = 'block';
+      var name = (user.user_metadata && user.user_metadata.full_name) || user.email || '';
+      document.getElementById('topbarUser').textContent = user.email || '';
+      document.getElementById('welcomeName').textContent = 'Welcome, ' + (name.split(' ')[0] || name || 'there') + '.';
+      loadLoans();
+    }
+    function showLogin() {
+      document.getElementById('login-screen').style.display = 'flex';
+      document.getElementById('app-screen').style.display = 'none';
+    }
+    function doLogout() { netlifyIdentity.logout(); }
+
+    // ── Loans ──
+    function loadLoans() {
+      var container = document.getElementById('loansContainer');
+      netlifyIdentity.currentUser().jwt().then(function(token) {
+        return fetch('/api/borrower-portal-loans', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+      }).then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }).then(function(data) {
+        _loans = (data && data.loans) || [];
+        if (!_loans.length) {
+          container.innerHTML =
+            '<div class="empty-state">' +
+              'You don\'t have access to any loans yet. Ask your loan officer to send you a portal invitation for the loan you need to upload documents on.' +
+            '</div>';
+          return;
+        }
+        container.innerHTML = _loans.map(renderLoanCard).join('');
+        _loans.forEach(function(l) { _wireUpload(l.loanId); });
+      }).catch(function(err) {
+        container.innerHTML = '<div class="error-box">Failed to load your loans: ' + escH(err && err.message || 'unknown') + '</div>';
+      });
+    }
+
+    function renderLoanCard(loan) {
+      var scls = statusClass(loan.status);
+      return '<div class="loan-card">' +
+        '<div class="loan-head">' +
+          '<div>' +
+            '<div class="loan-addr">' + escH(loan.address || 'No address on file') + '</div>' +
+            '<div class="loan-sub">Loan ID: ' + escH(loan.slaDisplayId || loan.loanId) + '</div>' +
+          '</div>' +
+          '<span class="loan-status ' + scls + '">' + escH(statusLabel(loan.status)) + '</span>' +
+        '</div>' +
+        '<div class="loan-facts">' +
+          '<div><div class="fact-label">Loan Type</div><div class="fact-value">' + escH(loan.loanType || '—') + '</div></div>' +
+          '<div><div class="fact-label">Loan Amount</div><div class="fact-value">' + fmtMoney(loan.loanAmt) + '</div></div>' +
+          '<div><div class="fact-label">Property Value</div><div class="fact-value">' + fmtMoney(loan.propValue) + '</div></div>' +
+          '<div><div class="fact-label">Target Close</div><div class="fact-value">' + fmtDate(loan.fundingDate) + '</div></div>' +
+        '</div>' +
+        _renderUploadZone(loan) +
+      '</div>';
+    }
+
+    function _renderUploadZone(loan) {
+      var id = 'up_' + loan.loanId.replace(/[^a-zA-Z0-9_]/g, '_');
+      return '<div class="section-heading" style="margin-bottom:8px;font-size:12px">Upload a document</div>' +
+        '<div class="upload-zone" id="' + id + '_zone" ondragover="_dragOver(event, \'' + id + '\')" ondragleave="_dragLeave(event, \'' + id + '\')" ondrop="_drop(event, \'' + escAttr(loan.loanId) + '\', \'' + id + '\')">' +
+          '<div class="upload-icon">⬆</div>' +
+          '<div class="upload-text">Drop a file here, or click to browse</div>' +
+          '<div class="upload-hint">PDF or image · max 25 MB · goes straight to your loan officer</div>' +
+          '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" data-loan-id="' + escAttr(loan.loanId) + '" data-zone-id="' + id + '" />' +
+        '</div>' +
+        '<div class="upload-status info" id="' + id + '_status"></div>';
+    }
+
+    function _wireUpload(loanId) {
+      var id = 'up_' + loanId.replace(/[^a-zA-Z0-9_]/g, '_');
+      var input = document.querySelector('#' + id + '_zone input[type=file]');
+      if (!input) return;
+      input.onchange = function(e) {
+        var f = e.target.files && e.target.files[0];
+        if (f) _uploadFile(loanId, f, id);
+        e.target.value = '';
+      };
+    }
+    window._dragOver = function(e, id) { e.preventDefault(); var z = document.getElementById(id + '_zone'); if (z) z.classList.add('dragover'); };
+    window._dragLeave = function(e, id) { var z = document.getElementById(id + '_zone'); if (z) z.classList.remove('dragover'); };
+    window._drop = function(e, loanId, id) {
+      e.preventDefault();
+      var z = document.getElementById(id + '_zone'); if (z) z.classList.remove('dragover');
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) _uploadFile(loanId, f, id);
+    };
+    function _uploadFile(loanId, file, statusIdPrefix) {
+      var status = document.getElementById(statusIdPrefix + '_status');
+      status.className = 'upload-status info';
+      status.textContent = 'Uploading ' + file.name + '…';
+      var loan = _loans.find(function(l) { return l.loanId === loanId; });
+      if (!loan) { status.className = 'upload-status error'; status.textContent = 'Loan not found.'; return; }
+
+      var reader = new FileReader();
+      reader.onload = function() {
+        var dataUrl = String(reader.result || '');
+        var idx = dataUrl.indexOf(',');
+        var b64 = idx >= 0 ? dataUrl.slice(idx + 1) : '';
+        netlifyIdentity.currentUser().jwt().then(function(token) {
+          return fetch('/api/borrower-doc-upload', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              loanId:          loan.loanId,
+              primaryClientId: loan.primaryClientId,
+              ownerKey:        loan.ownerKey,
+              filename:        file.name,
+              mimeType:        file.type || 'application/pdf',
+              sizeBytes:       file.size,
+              contentBase64:   b64,
+              label:           file.name.replace(/\.[a-z0-9]{1,8}$/i, ''),
+            }),
+          });
+        }).then(function(r) {
+          if (!r.ok) {
+            return r.json().catch(function() { return {}; }).then(function(d) {
+              throw new Error(d.error || ('HTTP ' + r.status));
+            });
+          }
+          return r.json();
+        }).then(function() {
+          status.className = 'upload-status success';
+          status.textContent = '✓ Uploaded ' + file.name + '. Your loan officer will review it shortly.';
+        }).catch(function(err) {
+          status.className = 'upload-status error';
+          status.textContent = 'Upload failed: ' + (err && err.message || 'unknown');
+        });
+      };
+      reader.onerror = function() { status.className = 'upload-status error'; status.textContent = 'Could not read file.'; };
+      reader.readAsDataURL(file);
+    }
+
+    // ── Identity events ──
+    netlifyIdentity.on('init',  function(u) { if (u) showApp(u); else showLogin(); });
+    netlifyIdentity.on('login', function(u) { netlifyIdentity.close(); showApp(u); });
+    netlifyIdentity.on('logout', showLogin);
+    document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
+  </script>
+</body>
+</html>

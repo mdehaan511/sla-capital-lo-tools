@@ -86,15 +86,41 @@
 
   function hasRole(user, role) {
     if (!user) return false;
+    var roles = _rawRoles(user);
+    if (role === 'admin') return roles.some(function (r) { return r === 'admin' || r === 'super_admin'; });
+    if (role === 'super_admin') return roles.some(function (r) { return r === 'super_admin'; });
+    // Deploy 236.71 — processor tier (admins implicitly count).
+    if (role === 'processor') return roles.some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin'; });
+    if (role === 'borrower')  return roles.indexOf('borrower') >= 0;
+    return true;
+  }
+  function _rawRoles(user) {
+    if (!user) return [];
     var meta = user.app_metadata || {};
     var roles = Array.isArray(meta.roles) ? meta.roles : (typeof meta.roles === 'string' ? [meta.roles] : []);
     if (!roles.length && user.user_metadata && user.user_metadata.roles) {
       roles = Array.isArray(user.user_metadata.roles) ? user.user_metadata.roles : [user.user_metadata.roles];
     }
-    if (role === 'admin') return roles.some(function (r) { return r === 'admin' || r === 'super_admin'; });
-    if (role === 'super_admin') return roles.some(function (r) { return r === 'super_admin'; });
-    // Deploy 236.71 — processor tier (admins implicitly count).
-    if (role === 'processor') return roles.some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin'; });
+    return roles;
+  }
+  // Deploy 236.171 — Access Refactor PR #4. Borrower-only accounts
+  // shouldn't see the LO tools at all. If the user is a borrower AND
+  // NOT any elevated role, redirect them to the portal on every LO
+  // page. Runs BEFORE the nav render so they never see the LO shell
+  // flash by.
+  function _redirectBorrowerIfNeeded(user) {
+    if (!user) return false;
+    var roles = _rawRoles(user);
+    var isBorrower = roles.indexOf('borrower') >= 0;
+    var isElevated = roles.some(function (r) {
+      return r === 'admin' || r === 'super_admin' || r === 'processor' || r === 'loan_officer';
+    });
+    if (!isBorrower || isElevated) return false;
+    var here = currentFile();
+    if (here === 'borrower-portal.html') return false;
+    // Blocking navigation — replace so the LO page can't be reached
+    // via back button either.
+    try { window.location.replace('borrower-portal.html'); } catch (_) {}
     return true;
   }
 
@@ -270,6 +296,13 @@
   }
 
   function render(opts) {
+    // Deploy 236.171 — Access Refactor PR #4. If this user is a
+    // borrower with no elevated role, don't paint the LO nav at
+    // all — kick them to the portal instead. The redirect helper
+    // no-ops on borrower-portal.html itself so the portal renders
+    // normally.
+    var user = opts && opts.user;
+    if (_redirectBorrowerIfNeeded(user)) return;
     var host = document.getElementById('slaNav');
     if (!host) return;
     injectStyles();
