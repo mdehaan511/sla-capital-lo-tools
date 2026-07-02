@@ -28,6 +28,11 @@
  * }
  */
 import { getStore } from '@netlify/blobs';
+// Deploy 236.169 — Access Refactor PR #1. The wantAll ('?all=1')
+// path is now gated by canListAllClients() so cross-LO listing
+// stays centralized. The ownerOverride cross-LO path still uses
+// isAdmin directly (it's an admin-only escape hatch, unchanged).
+import { canListAllClients } from './_shared/access.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
@@ -214,7 +219,8 @@ async function handleList(req, user) {
 
   let prefix;
   if (wantAll) {
-    if (!isAdmin(user)) return json(403, { error: 'Admin only for ?all=1' });
+    const perm = canListAllClients(user);
+    if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Admin only for ?all=1' });
     prefix = '';
   } else if (ownerOverride) {
     if (!isAdmin(user) && normalizeEmail(ownerOverride) !== normalizeEmail(user.email)) {

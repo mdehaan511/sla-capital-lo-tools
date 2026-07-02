@@ -10,8 +10,13 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isAdmin, normalizeEmail, keySafe,
+  handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+// Deploy 236.169 — Access Refactor PR #1: cross-LO listing is now
+// gated by canListAllClients() instead of hand-rolled isAdmin. Same
+// behavior for callers; centralizes the decision so PR #2+ can
+// evolve the rule without editing every endpoint.
+import { canListAllClients } from './_shared/access.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -25,7 +30,7 @@ export default async (req, context) => {
   const store = getStore({ name: 'clients', consistency: 'strong' });
 
   try {
-    if (wantAll && isAdmin(user)) {
+    if (wantAll && canListAllClients(user).ok) {
       const { blobs } = await store.list();
       const byOwner = {};
       await Promise.all(blobs.map(async ({ key }) => {

@@ -750,6 +750,23 @@
   to = "/.netlify/functions/leaderboard"
   status = 200
   force = true
+# Deploy 236.169 — Access Refactor PR #1: relationship-based grants
+# (borrowers linked to specific loans, external attorneys, etc.).
+[[redirects]]
+  from = "/api/loan-access-grant"
+  to = "/.netlify/functions/loan-access-grant"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-access-revoke"
+  to = "/.netlify/functions/loan-access-revoke"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-access-list"
+  to = "/.netlify/functions/loan-access-list"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching

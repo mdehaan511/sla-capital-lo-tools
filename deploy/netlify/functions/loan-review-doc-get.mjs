@@ -8,8 +8,12 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isProcessor, keySafe, corsHeaders,
+  handleOptions, json, requireAuth, keySafe, corsHeaders,
 } from './_shared/auth.mjs';
+// Deploy 236.169 — Access Refactor PR #1. canReadReviewDoc handles
+// the processor+ fast path today; the borrower path (view your own
+// signed docs) unlocks automatically when borrowers land in PR #3.
+import { canReadReviewDoc } from './_shared/access.mjs';
 
 export default async (req, context) => {
   try {
@@ -26,12 +30,23 @@ async function handle(req, context) {
 
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
 
   const url = new URL(req.url);
   const reviewId = url.searchParams.get('reviewId');
   const docId = url.searchParams.get('docId');
   if (!reviewId || !docId) return json(400, { error: 'reviewId and docId required' });
+
+  // Deploy 236.169 — permission check runs BEFORE the blob fetch.
+  // canReadReviewDoc needs the review record to consult the
+  // borrower path; grab it once and reuse. Processors + admins
+  // short-circuit before the review lookup.
+  let review = null;
+  try {
+    const reviewsStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
+    review = await reviewsStore.get(keySafe(reviewId), { type: 'json' });
+  } catch (_) {}
+  const perm = await canReadReviewDoc(user, review, docId);
+  if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
 
   const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
   const key = keySafe(reviewId) + '/' + keySafe(docId);

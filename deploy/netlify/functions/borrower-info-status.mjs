@@ -21,6 +21,12 @@ import {
 } from './_shared/auth.mjs';
 import { encryptField, decryptField, maskSSN } from './_shared/crypto.mjs';
 import { loadRecord, saveRecord } from './_shared/borrower-info-keys.mjs';
+// Deploy 236.169 — Access Refactor PR #1. Defensive check via
+// canReadLoan on GET path. Existing LOs / admins pass through the
+// short-circuit; the borrower path (loan_access grant) lights up
+// once PR #3 issues borrower Identity accounts. No behavior
+// change for current callers.
+import { canReadLoan } from './_shared/access.mjs';
 
 export default async (req, context) => {
   try {
@@ -63,6 +69,15 @@ async function handleGet(req, user) {
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
   const record = await loadRecord(store, ownerKey, clientId, loanId, client);
   if (!record) return json(200, { exists: false });
+
+  // Deploy 236.169 — layered access check. LOs / admins pass on
+  // the ownerKey fast path; borrowers pass via a loan_access grant.
+  // Fails closed for anyone else.
+  const loan = client && Array.isArray(client.loans)
+    ? client.loans.find((l) => l && l.id === loanId) || { id: loanId, ownerKey }
+    : { id: loanId, ownerKey };
+  const perm = await canReadLoan(user, loan, { ownerKey, loanId });
+  if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
 
   const data = record.data ? unmaskOrMask(record.data, wantFull && isAdmin(user)) : {};
   // Deploy 236.44 — surface the existing borrower-facing link so the
