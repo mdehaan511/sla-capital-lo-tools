@@ -767,6 +767,14 @@
   to = "/.netlify/functions/loan-access-list"
   status = 200
   force = true
+# Deploy 236.170 — Access Refactor PR #3: borrower portal invite.
+# Fires a Netlify Identity invite, stamps role='borrower', grants
+# loan_access on the specified loan.
+[[redirects]]
+  from = "/api/borrower-invite"
+  to = "/.netlify/functions/borrower-invite"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching

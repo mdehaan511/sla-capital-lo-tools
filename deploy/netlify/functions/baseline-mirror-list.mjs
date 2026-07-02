@@ -22,8 +22,9 @@
  * }
  */
 import {
-  handleOptions, json, requireAuth, isAdmin,
+  handleOptions, json, requireAuth,
 } from './_shared/auth.mjs';
+import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.170
 import { listMirroredLoans } from './_shared/baseline-mirror.mjs';
 
 export default async (req, context) => {
@@ -40,7 +41,7 @@ async function handle(req, context) {
 
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isAdmin(user)) return json(403, { error: 'Admin only' });
+  if (!canListAllClients(user).ok) return json(403, { error: 'Admin only' });
 
   const url = new URL(req.url);
   const summary = url.searchParams.get('summary') === '1';

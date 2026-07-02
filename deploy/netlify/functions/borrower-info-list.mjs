@@ -15,8 +15,10 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isAdmin, normalizeEmail, keySafe,
+  handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+// Deploy 236.170 — Access Refactor PR #2.
+import { canListAllClients } from './_shared/access.mjs';
 
 export default async (req, context) => {
   try {
@@ -35,7 +37,7 @@ async function handle(req, context) {
   if (!user) return json(401, { error: 'Not authenticated' });
 
   const url = new URL(req.url);
-  const wantAll = url.searchParams.get('all') === '1' && isAdmin(user);
+  const wantAll = url.searchParams.get('all') === '1' && canListAllClients(user).ok;
   const ownerKey = keySafe(normalizeEmail(user.email));
   const origin = url.origin;
 

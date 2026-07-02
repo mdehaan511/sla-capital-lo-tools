@@ -19,8 +19,9 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isAdmin, keySafe, normalizeEmail,
+  handleOptions, json, requireAuth, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.170
 
 const PER_CATEGORY = 8;
 
@@ -33,7 +34,7 @@ export default async (req, context) => {
 
   const url = new URL(req.url);
   const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-  const wantAll = url.searchParams.get('all') === '1' && isAdmin(user);
+  const wantAll = url.searchParams.get('all') === '1' && canListAllClients(user).ok;
 
   if (q.length < 2) {
     return json(200, { prospects: [], quotes: [], clients: [], q });

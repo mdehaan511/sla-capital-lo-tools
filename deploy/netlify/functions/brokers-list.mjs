@@ -12,8 +12,9 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isAdmin, normalizeEmail, keySafe,
+  handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.170
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -27,7 +28,7 @@ export default async (req, context) => {
   const store = getStore({ name: 'brokers', consistency: 'strong' });
 
   try {
-    if (wantAll && isAdmin(user)) {
+    if (wantAll && canListAllClients(user).ok) {
       const { blobs } = await store.list();
       const byOwner = {};
       await Promise.all(blobs.map(async ({ key }) => {

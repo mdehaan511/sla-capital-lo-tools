@@ -2552,6 +2552,13 @@ function render() {
     // placeholder until admin reassignment ships.
     paneContacts.appendChild(_buildTeamMembersSection());
 
+    // Deploy 236.170 — Access Refactor PR #3. Borrower Portal
+    // Access panel: invite a borrower email to view their loan +
+    // upload documents via the (upcoming) borrower portal. Powered
+    // by /api/borrower-invite (Netlify Identity invite + loan_access
+    // grant) and /api/loan-access-list.
+    paneContacts.appendChild(_buildBorrowerAccessSection());
+
     // DOCUMENTS tab: placeholder. Real implementation is Phase D
     // (the Loan Doc Review system already exists as its own page;
     // moving/embedding it is the next phase). For now surface a
@@ -3469,6 +3476,90 @@ function _buildTeamMembersSection() {
       '<div style="font-size:11px;color:var(--muted);margin-top:10px;font-style:italic">Processor assignment is coming in a future deploy (admin-only loan reassignment).</div>' +
     '</div>';
   return section;
+}
+
+// Deploy 236.170 — Access Refactor PR #3. Section renders the
+// current list of borrower emails granted portal access to this
+// loan + an inline form to invite a new one. Grants + revokes go
+// through SLA.BorrowerAccess (loan-access-grant / -revoke) which
+// itself gates on canEditLoan. Invite triggers a Netlify Identity
+// invitation email with role='borrower' pre-set.
+function _buildBorrowerAccessSection() {
+  var section = document.createElement('div');
+  section.className = 'section';
+  section.id = 'borrowerAccessSection';
+  section.innerHTML =
+    '<div class="section-head"><h2>Borrower Portal Access</h2><span class="section-tag tag-editable">Editable</span></div>' +
+    '<div class="section-body">' +
+      '<p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Invite the borrower (or a co-borrower) to log in to the SLA portal to view this loan and upload requested documents. They\'ll get an email invitation and see only the loans they\'re granted access to.</p>' +
+      '<div id="borrowerAccessList" style="margin-bottom:12px"><div style="font-size:12px;color:var(--muted);font-style:italic">Loading…</div></div>' +
+      '<div style="display:flex;gap:8px;align-items:stretch">' +
+        '<input type="email" id="borrowerAccessEmail" placeholder="borrower@example.com" style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:\'DM Sans\',sans-serif" />' +
+        '<button type="button" class="save-btn" onclick="inviteBorrowerAccess()" style="white-space:nowrap">Send Invite</button>' +
+      '</div>' +
+      '<div id="borrowerAccessStatus" style="margin-top:10px;font-size:12px;min-height:14px"></div>' +
+    '</div>';
+  setTimeout(refreshBorrowerAccessList, 0);
+  return section;
+}
+function refreshBorrowerAccessList() {
+  var listEl = document.getElementById('borrowerAccessList');
+  if (!listEl || !window.SLA || !SLA.BorrowerAccess) return;
+  SLA.BorrowerAccess.list({ loanId: _loanId }).then(function(r) {
+    var grants = (r && r.grants) || [];
+    if (!grants.length) {
+      listEl.innerHTML = '<div style="font-size:12px;color:var(--muted);font-style:italic">No borrowers have portal access yet.</div>';
+      return;
+    }
+    listEl.innerHTML = grants.map(function(g) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff">' +
+        '<div style="min-width:0">' +
+          '<div style="font-weight:500;font-size:13px;word-break:break-all">' + escH(g.email) + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);font-family:\'DM Mono\',monospace;margin-top:2px">' + escH(g.role || 'borrower') + ' · granted ' + (g.grantedAt ? new Date(g.grantedAt).toLocaleDateString() : 'unknown') + '</div>' +
+        '</div>' +
+        '<button type="button" onclick="revokeBorrowerAccess(\'' + escAttr(g.email) + '\')" style="font-size:11px;color:var(--danger,#7c1f1f);background:transparent;border:1px solid rgba(124,31,31,0.20);border-radius:4px;padding:5px 10px;cursor:pointer">Revoke</button>' +
+      '</div>';
+    }).join('');
+  }).catch(function(err) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--danger,#7c1f1f)">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+function inviteBorrowerAccess() {
+  var input = document.getElementById('borrowerAccessEmail');
+  var status = document.getElementById('borrowerAccessStatus');
+  if (!input || !_client || !_loanId) return;
+  var email = (input.value || '').trim().toLowerCase();
+  if (!email || email.indexOf('@') < 0) {
+    status.style.color = 'var(--danger,#7c1f1f)';
+    status.textContent = 'Enter a valid email address.';
+    return;
+  }
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Sending invite…';
+  var payload = { email: email, loanId: _loanId, primaryClientId: _client.id };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.BorrowerAccess.invite(payload).then(function(r) {
+    input.value = '';
+    status.style.color = 'var(--success,#166534)';
+    status.textContent = r.alreadyMember
+      ? '✓ ' + email + ' already has an account — access granted.'
+      : '✓ Invitation sent to ' + email + '. They\'ll get an email to set up their password.';
+    refreshBorrowerAccessList();
+  }).catch(function(err) {
+    status.style.color = 'var(--danger,#7c1f1f)';
+    status.textContent = 'Failed: ' + (err && err.message || 'unknown');
+  });
+}
+function revokeBorrowerAccess(email) {
+  if (!confirm('Revoke ' + email + '\'s access to this loan? They\'ll lose portal visibility immediately.')) return;
+  var payload = { email: email, loanId: _loanId, primaryClientId: _client && _client.id };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.BorrowerAccess.revoke(payload).then(function() {
+    refreshBorrowerAccessList();
+    showToast('Access revoked.');
+  }).catch(function(err) {
+    showToast('Revoke failed: ' + (err && err.message || 'unknown'));
+  });
 }
 
 // Deploy 236.120 — Documents tab now embeds the AI Loan Doc

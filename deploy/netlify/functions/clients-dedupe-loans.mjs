@@ -10,7 +10,8 @@
  * Body: { dryRun: true|false } — dryRun:true returns counts without writing
  */
 import { getStore } from '@netlify/blobs';
-import { handleOptions, json, requireAuth, isAdmin, readJsonBody } from './_shared/auth.mjs';
+import { handleOptions, json, requireAuth, readJsonBody } from './_shared/auth.mjs';
+import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.170
 
 export default async (req, context) => {
   try {
@@ -26,7 +27,7 @@ async function handle(req, context) {
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isAdmin(user)) return json(403, { error: 'Admin only' });
+  if (!canListAllClients(user).ok) return json(403, { error: 'Admin only' });
 
   const body = await readJsonBody(req) || {};
   const dryRun = !!body.dryRun;

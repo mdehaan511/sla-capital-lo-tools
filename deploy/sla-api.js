@@ -1264,6 +1264,27 @@
     Loans: Loans,
     LoanReviews: LoanReviews,
     Search: Search,
+    // Deploy 236.170 — Access Refactor PR #3. Borrower portal
+    // access lives in the loan_access blob store; these helpers
+    // are the frontend wrapper.
+    BorrowerAccess: {
+      invite: function (data) {
+        return api('POST', '/api/borrower-invite', data);
+      },
+      grant: function (data) {
+        return api('POST', '/api/loan-access-grant', data);
+      },
+      revoke: function (data) {
+        return api('POST', '/api/loan-access-revoke', data);
+      },
+      list: function (opts) {
+        opts = opts || {};
+        var qs = [];
+        if (opts.loanId) qs.push('loanId=' + encodeURIComponent(opts.loanId));
+        if (opts.email)  qs.push('email='  + encodeURIComponent(opts.email));
+        return api('GET', '/api/loan-access-list' + (qs.length ? '?' + qs.join('&') : ''));
+      },
+    },
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,

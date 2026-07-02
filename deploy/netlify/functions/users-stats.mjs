@@ -17,8 +17,9 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, isAdmin, normalizeEmail, keySafe,
+  handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.170
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -26,7 +27,7 @@ export default async (req, context) => {
 
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isAdmin(user)) return json(403, { error: 'Admin required' });
+  if (!canListAllClients(user).ok) return json(403, { error: 'Admin required' });
 
   // 1) Load all profiles from the `profiles` blobs store
   const profilesStore = getStore({ name: 'profiles', consistency: 'strong' });
