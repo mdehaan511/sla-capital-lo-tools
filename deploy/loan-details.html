@@ -2557,7 +2557,12 @@ function render() {
     // upload documents via the (upcoming) borrower portal. Powered
     // by /api/borrower-invite (Netlify Identity invite + loan_access
     // grant) and /api/loan-access-list.
-    paneContacts.appendChild(_buildBorrowerAccessSection());
+    // Deploy 236.172 — gated to admins-only per Mike while we're
+    // still tire-kicking the flow. LOs will see it once the portal
+    // is production-ready.
+    if (window.SLA && SLA.isAdmin && SLA.isAdmin(_user)) {
+      paneContacts.appendChild(_buildBorrowerAccessSection());
+    }
 
     // DOCUMENTS tab: placeholder. Real implementation is Phase D
     // (the Loan Doc Review system already exists as its own page;
