@@ -131,6 +131,20 @@
            Mike compare prior years to Pipedrive history. Hide Liquidated
            checkbox restores the original behavior if needed.
            Debug Mode unhides a per-loan diagnostic panel. -->
+      <!-- Deploy 236.173 — date-range filter applies to closed-loan
+           metrics: Performance Stats, Loans by State, Won ($ closed),
+           Est. Revenue. Active pipeline + Total Mirrored are always
+           the current snapshot regardless of range. -->
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+        Range
+        <select id="dateRangeSelect" onchange="_setDateRange(this.value)" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:12.5px">
+          <option value="all">All Time</option>
+          <option value="ytd">Year to Date</option>
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="last_12">Last 12 Months</option>
+        </select>
+      </label>
       <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
         Year
         <select id="yearSelect" onchange="renderAll()" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:12.5px"></select>
@@ -485,6 +499,43 @@ function loanCloseDate(loan) {
   // Baseline keeps a fresher projection in a different field name,
   // tell me which and we'll wire a fallback chain here.
   return (loan && (loan.Origination || loan.Created_Date)) || '';
+}
+
+// Deploy 236.173 — date-range filter. Applied to CLOSED metrics
+// only (Performance Stats, Loans by State, Won $, Est Revenue).
+// Active pipeline + Total Mirrored are always the current snapshot.
+var _dateRange = 'all';
+function _setDateRange(r) { _dateRange = r || 'all'; renderAll(); }
+function _rangeLabel() {
+  var m = { all: 'All Time', ytd: 'YTD', this_month: 'This Month',
+            last_month: 'Last Month', last_12: 'Last 12 Mo' };
+  return m[_dateRange] || 'All Time';
+}
+function isInDateRange(dateStr, range) {
+  range = range || _dateRange;
+  if (range === 'all') return true;
+  if (!dateStr) return false;
+  var d = new Date(dateStr);
+  if (!isFinite(d.getTime())) return false;
+  var now = new Date();
+  if (range === 'this_month') {
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }
+  if (range === 'last_month') {
+    var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return d.getFullYear() === lm.getFullYear() && d.getMonth() === lm.getMonth();
+  }
+  if (range === 'ytd') {
+    return d.getFullYear() === now.getFullYear();
+  }
+  if (range === 'last_12') {
+    var cutoff = new Date(now); cutoff.setMonth(cutoff.getMonth() - 12);
+    return d.getTime() >= cutoff.getTime();
+  }
+  return true;
+}
+function loanClosedInRange(loan) {
+  return isInDateRange(loanCloseDate(loan));
 }
 
 // ── Init ──────────────────────────────────────────────────────────
@@ -1037,20 +1088,18 @@ function debugBucket(label, items) {
 
 // ── Stat cards ───────────────────────────────────────────────────
 function renderStats() {
-  var thisYear = new Date().getFullYear();
   var openLoans  = _loans.filter(isOpen);
   var wonLoans   = _loans.filter(isWon);
   var openAmount = openLoans.reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
-  var wonThisYr  = wonLoans.filter(function(l) {
-    var d = loanCloseDate(l); return d && d.indexOf(String(thisYear)) === 0;
-  }).reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
-  var revYTD     = wonLoans.filter(function(l) {
-    var d = loanCloseDate(l); return d && d.indexOf(String(thisYear)) === 0;
-  }).reduce(function(s, l) { return s + estimatedRevenue(l); }, 0);
 
-  // Deploy 236.32 — exclude archived from the "Total Mirrored" count
-  // so it stays consistent with the rest of the dashboard (which now
-  // ignores archived everywhere except Performance Stats).
+  // Deploy 236.173 — Won $ and Est Revenue now honor the range
+  // selector. Active pipeline + Total Mirrored stay as current-
+  // snapshot (they're state-of-now metrics, not period metrics).
+  var wonInRange = wonLoans.filter(loanClosedInRange);
+  var wonSum    = wonInRange.reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
+  var revSum    = wonInRange.reduce(function(s, l) { return s + estimatedRevenue(l); }, 0);
+  var rangeLbl  = _rangeLabel();
+
   var nonArchivedCount = 0;
   for (var i = 0; i < _loans.length; i++) {
     if (!isArchived(_loans[i])) nonArchivedCount += 1;
@@ -1058,8 +1107,8 @@ function renderStats() {
 
   var html = '';
   html += statCard('Active Pipeline', fmtMoney(openAmount, true), openLoans.length + ' loans');
-  html += statCard('Won (' + thisYear + ')', fmtMoney(wonThisYr, true), wonLoans.length + ' total sold');
-  html += statCard('Est. Revenue YTD', fmtMoney(revYTD, true), 'closing-day fees + points');
+  html += statCard('Won (' + rangeLbl + ')', fmtMoney(wonSum, true), wonInRange.length + ' closed');
+  html += statCard('Est. Revenue (' + rangeLbl + ')', fmtMoney(revSum, true), 'closing-day fees + points');
   html += statCard('Total Mirrored', nonArchivedCount, 'loans synced (excl. archived)');
   document.getElementById('statRow').innerHTML = html;
 }
@@ -1543,6 +1592,13 @@ function renderPerformanceStats() {
       if (isArchived(l)) { arch += 1; continue; }
       if (isOpen(l) || isOnHold(l)) { active += 1; continue; }
       if (!isClosed(l)) continue;
+      // Deploy 236.173 — closed loans outside the selected date
+      // range don't count. Active pipeline stays unfiltered (it's
+      // a state-of-now number). Archived counts stay too (they're
+      // the denominator for close rate — we compute it against the
+      // same cohort as `closed`, so archived filtering happens
+      // below via the same range check to keep the ratio honest).
+      if (!loanClosedInRange(l)) continue;
       closed += 1;
       var amt = numAmt(l.Loan_Amount);
       if (amt > 0) amts.push(amt);
@@ -1550,6 +1606,20 @@ function renderPerformanceStats() {
       if (p != null && p > 0) pts.push(p);
       var r = parseFloat(l.Rate);
       if (isFinite(r) && r > 0) rts.push(r > 1 ? r : r * 100);
+    }
+    // Deploy 236.173 — recompute the archived-in-range cohort so
+    // Close Rate reflects the same window as `closed`. Skipping
+    // this would show a rate that includes lifetime archives
+    // against just this-period closes.
+    if (_dateRange !== 'all') {
+      arch = 0;
+      for (var j = 0; j < _loans.length; j++) {
+        var la = _loans[j];
+        if (!typeMatcher(la)) continue;
+        if (!isArchived(la)) continue;
+        var d = la.Archived_On || la.Lost_Date || la.Updated_On || la.Created_Date;
+        if (isInDateRange(d)) arch += 1;
+      }
     }
     var closeRate = (closed + arch) > 0 ? (closed / (closed + arch) * 100) : null;
     var avg = function(arr) { return arr.length ? (arr.reduce(function(s, v) { return s + v; }, 0) / arr.length) : null; };
@@ -1616,9 +1686,18 @@ function renderPerformanceStats() {
 // don't have to mentally sum a long column.
 function renderStateTable() {
   var byState = {};
+  // Deploy 236.173 — when a date range is active, restrict to
+  // CLOSED loans that closed in the range. All-Time mode retains
+  // the original behavior (active pipeline + closed, archived
+  // excluded) since "state distribution right now" is what the
+  // default table shows.
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
     if (isArchived(l)) continue;
+    if (_dateRange !== 'all') {
+      if (!isClosed(l)) continue;
+      if (!loanClosedInRange(l)) continue;
+    }
     var st = (l.Address_State || extractStateFromName(l.Name) || '').trim() || '(unknown)';
     if (!byState[st]) byState[st] = { rtlCount: 0, rtlTotal: 0, dscrCount: 0, dscrTotal: 0, unkCount: 0, unkTotal: 0 };
     var amt = numAmt(l.Loan_Amount);
