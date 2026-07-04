@@ -282,6 +282,7 @@
       <table id="cdmTable" style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr style="background:#fbf8f2;position:sticky;top:0;z-index:1">
+            <th onclick="cdmSort('bucket')"     style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Bucket <span id="cdmSortArrow_bucket"  style="font-size:10px;opacity:0.5">↕</span></th>
             <th onclick="cdmSort('address')"    style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Address <span id="cdmSortArrow_address"  style="font-size:10px;opacity:0.5">↕</span></th>
             <th onclick="cdmSort('amount')"     style="text-align:right;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Loan Amount <span id="cdmSortArrow_amount"   style="font-size:10px;opacity:0.5">↕</span></th>
             <th onclick="cdmSort('status')"     style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;border-bottom:1px solid var(--border);user-select:none">Current Status <span id="cdmSortArrow_status"  style="font-size:10px;opacity:0.5">↕</span></th>
@@ -553,12 +554,55 @@ netlifyIdentity.on('init', function(user) {
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
-function loadMirror() {
+// Deploy 236.174 — client-side cache so reloading the dashboard
+// paints from last-known data immediately instead of re-fetching
+// every time. Cache is per-user; refresh happens explicitly via
+// the Sync from Baseline button.
+var _MIRROR_CACHE_KEY = 'sla_dashboard_mirror_v1';
+function _cacheKey() {
+  var email = (_user && _user.email) || 'anon';
+  return _MIRROR_CACHE_KEY + '::' + email.toLowerCase();
+}
+function _saveCache(loans) {
+  try {
+    localStorage.setItem(_cacheKey(), JSON.stringify({
+      loans: loans, savedAt: new Date().toISOString(),
+    }));
+  } catch (e) {
+    // localStorage full or blocked — non-fatal, just skip caching.
+    console.warn('[dashboard] cache save failed:', e && e.message);
+  }
+}
+function _loadCache() {
+  try {
+    var raw = localStorage.getItem(_cacheKey());
+    if (!raw) return null;
+    var p = JSON.parse(raw);
+    if (!p || !Array.isArray(p.loans)) return null;
+    return p;
+  } catch (_) { return null; }
+}
+
+function loadMirror(opts) {
+  opts = opts || {};
   setErr('');
+  // Cache-first path (default). Skipped when the caller explicitly
+  // asked for a fresh fetch — right now that's just runMirrorSync
+  // after a successful Baseline sync.
+  if (!opts.forceFresh) {
+    var cache = _loadCache();
+    if (cache && cache.loans && cache.loans.length) {
+      _loans = cache.loans;
+      refreshLastSync(cache.savedAt);
+      renderAll();
+      return;
+    }
+  }
   document.getElementById('loansTableWrap').innerHTML = '<div class="loading">Loading mirror…</div>';
   SLA.Baseline.mirror.list().then(function(r) {
     if (r && r.error) { setErr(r.error); return; }
     _loans = (r && r.loans) || [];
+    _saveCache(_loans);
     refreshLastSync();
     renderAll();
   }).catch(function(err) {
@@ -566,14 +610,18 @@ function loadMirror() {
   });
 }
 
-function refreshLastSync() {
+function refreshLastSync(cacheSavedAt) {
   var latest = '';
   for (var i = 0; i < _loans.length; i++) {
     var t = _loans[i] && _loans[i]._mirroredAt;
     if (t && t > latest) latest = t;
   }
+  // Deploy 236.174 — cache marker so admins know when the on-screen
+  // data was last painted from a network fetch vs. hydrated from
+  // localStorage. Sync from Baseline forces a fresh fetch.
+  var cacheNote = cacheSavedAt ? ' · from cache · painted ' + fmtTime(cacheSavedAt) : '';
   document.getElementById('lastSyncLine').textContent = _loans.length
-    ? _loans.length + ' loan' + (_loans.length === 1 ? '' : 's') + ' in mirror · last sync ' + (latest ? fmtTime(latest) : 'never')
+    ? _loans.length + ' loan' + (_loans.length === 1 ? '' : 's') + ' in mirror · last sync ' + (latest ? fmtTime(latest) : 'never') + cacheNote
     : 'No mirror data yet — click "Sync from Baseline" to seed it.';
 }
 
@@ -646,7 +694,9 @@ function runMirrorSync() {
     prog.textContent = 'Done. ' + totalSynced + ' synced, ' + totalSkipped + ' unchanged, '
       + totalErrors.length + ' errors in ' + elapsed + 's.';
     btn.disabled = false; btn.textContent = label;
-    loadMirror();
+    // Deploy 236.174 — bypass cache after a real sync so we paint
+    // the fresh data. loadMirror rewrites the cache on success.
+    loadMirror({ forceFresh: true });
     setTimeout(function() { prog.textContent = ''; }, 8000);
   }).catch(function(err) {
     prog.textContent = 'Sync failed: ' + (err && err.message);
@@ -1356,25 +1406,35 @@ var BUCKET_LABEL = ['Won', 'Open', 'On Hold']; // matches dataset index
 function openChartDrilldown(chartId, datasetIdx, monthIdx) {
   var agg = _aggByChart[chartId];
   if (!agg) return;
-  var bucketKey = ['won', 'open', 'onHold'][datasetIdx];
-  if (!bucketKey || !agg.cells[bucketKey]) return;
-  var loans = agg.cells[bucketKey][monthIdx] || [];
-  if (!loans.length) return; // nothing to show
+  // Deploy 236.174 — modal shows the WHOLE MONTH per Mike: every
+  // Won + Open + On Hold loan that contributed to any bar in the
+  // clicked column, not just the clicked segment. datasetIdx is
+  // still used to seed the sort order (click Won -> won-first).
+  // Each loan is tagged with its bucket so the table can render a
+  // Bucket column.
+  var buckets = [
+    { key: 'won',    label: 'Won' },
+    { key: 'open',   label: 'Open' },
+    { key: 'onHold', label: 'On Hold' },
+  ];
+  var combined = [];
+  buckets.forEach(function(b) {
+    var arr = (agg.cells[b.key] && agg.cells[b.key][monthIdx]) || [];
+    arr.forEach(function(l) { combined.push({ loan: l, bucket: b.label }); });
+  });
+  if (!combined.length) return; // nothing to show
 
-  _cdmState.loans = loans.slice();
-  // Default sort: amount desc (biggest deals first) — predictable
-  // and most useful for the "Total deal value" view.
+  _cdmState.loans   = combined;
   _cdmState.sortBy  = 'amount';
   _cdmState.sortDir = 'desc';
 
   var monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][monthIdx];
   var chartLabel = chartId === 'revenueChart' ? 'Revenue' : 'Volume';
   document.getElementById('cdmTitle').textContent =
-    BUCKET_LABEL[datasetIdx] + ' · ' + chartLabel + ' · ' + monthName + ' ' + agg.year;
+    monthName + ' ' + agg.year + ' · ' + chartLabel + ' · All Loans (Won / Open / On Hold)';
 
   _cdmRender();
   document.getElementById('chartDrilldownModal').style.display = 'flex';
-  // ESC key to close
   document.addEventListener('keydown', _cdmKeyHandler);
 }
 
@@ -1397,11 +1457,18 @@ function cdmSort(col) {
 }
 
 function _cdmRender() {
-  var loans = _cdmState.loans.slice();
-  // Compute per-row derived fields once so sort comparisons are cheap
-  var rows = loans.map(function(l) {
+  // Deploy 236.174 — _cdmState.loans now carries {loan, bucket}
+  // objects (see openChartDrilldown). Old shape was raw loan
+  // records; we detect both forms and normalize so any legacy
+  // caller keeps working.
+  var entries = _cdmState.loans.map(function(x) {
+    return x && x.loan ? x : { loan: x, bucket: '' };
+  });
+  var rows = entries.map(function(e) {
+    var l = e.loan;
     return {
       loan:    l,
+      bucket:  e.bucket || '',
       address: l.Name || '(no address)',
       amount:  numAmt(l.Loan_Amount),
       status:  l.Status || '—',
@@ -1411,7 +1478,10 @@ function _cdmRender() {
     };
   });
 
-  // Sort
+  // Sort. Deploy 236.174 — new 'bucket' column joins the sortable set.
+  // Bucket order: Won, Open, On Hold (business priority for the LO
+  // eyeballing the modal).
+  var BUCKET_ORDER = { 'Won': 0, 'Open': 1, 'On Hold': 2, '': 3 };
   var dir = _cdmState.sortDir === 'asc' ? 1 : -1;
   rows.sort(function(a, b) {
     var av, bv;
@@ -1421,6 +1491,7 @@ function _cdmRender() {
       case 'address': av = String(a.address).toLowerCase(); bv = String(b.address).toLowerCase(); break;
       case 'status':  av = String(a.status).toLowerCase();  bv = String(b.status).toLowerCase();  break;
       case 'close':   av = a.close || ''; bv = b.close || ''; break;
+      case 'bucket':  av = BUCKET_ORDER[a.bucket] || 4; bv = BUCKET_ORDER[b.bucket] || 4; break;
       default:        av = a.amount; bv = b.amount;
     }
     if (av < bv) return -1 * dir;
@@ -1439,7 +1510,7 @@ function _cdmRender() {
     '<div><span style="color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:0.06em;font-weight:600">Total Expected Revenue</span> · <strong style="font-size:14px">' + fmtMoney(totalRevenue) + '</strong></div>';
 
   // Sort arrows
-  ['address','amount','status','close','revenue'].forEach(function(col) {
+  ['bucket','address','amount','status','close','revenue'].forEach(function(col) {
     var el = document.getElementById('cdmSortArrow_' + col);
     if (!el) return;
     if (_cdmState.sortBy === col) {
@@ -1460,8 +1531,18 @@ function _cdmRender() {
   var html = rows.map(function(r, idx) {
     var statusHtml = '<span class="pill ' + statusPillClass(r.status) + '">' + escH(r.status) + '</span>' +
                      (r.sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(r.sub) + '</div>' : '');
+    // Deploy 236.174 — bucket chip colored by bucket so Won / Open /
+    // On Hold pop visually inside a table that mixes all three.
+    var bucketColor = r.bucket === 'Won'    ? 'background:#dcfce7;color:#166534;border:1px solid rgba(21,128,61,0.28)'
+                    : r.bucket === 'Open'   ? 'background:rgba(200,129,58,0.12);color:#b5712d;border:1px solid rgba(200,129,58,0.28)'
+                    : r.bucket === 'On Hold'? 'background:#fef9c3;color:#854d0e;border:1px solid rgba(133,77,14,0.28)'
+                    : 'background:transparent;color:var(--muted);border:1px solid var(--border)';
+    var bucketHtml = r.bucket
+      ? '<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;letter-spacing:0.02em;' + bucketColor + '">' + escH(r.bucket) + '</span>'
+      : '<span style="color:var(--muted)">—</span>';
     var inspectId = 'cdmInspect_' + idx;
     return '<tr style="cursor:pointer" onclick="cdmToggleInspect(' + idx + ')" onmouseover="this.style.background=\'rgba(200,129,58,0.04)\'" onmouseout="this.style.background=\'transparent\'">' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde">' + bucketHtml + '</td>' +
       '<td style="padding:10px 14px;border-bottom:1px solid #f0ebde">' +
         '<span style="display:inline-block;width:14px;color:var(--muted);font-size:10px" id="' + inspectId + '_caret">▸</span>' +
         escH(r.address) + (r.loan.Id ? '<div style="font-size:10px;color:var(--muted);margin-top:2px;margin-left:14px">' + escH(r.loan.Id) + '</div>' : '') +
@@ -1476,10 +1557,11 @@ function _cdmRender() {
       '</td>' +
     '</tr>' +
     // Hidden inspector row — empty until cdmToggleInspect() lazily fills it.
-    '<tr id="' + inspectId + '" style="display:none"><td colspan="5" style="padding:0;background:#faf7f1;border-bottom:1px solid #ece7dc"></td></tr>';
+    // colspan matches the 6 visible columns (was 5 before 236.174).
+    '<tr id="' + inspectId + '" style="display:none"><td colspan="6" style="padding:0;background:#faf7f1;border-bottom:1px solid #ece7dc"></td></tr>';
   }).join('');
   document.getElementById('cdmBody').innerHTML = html ||
-    '<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--muted)">No loans in this bucket.</td></tr>';
+    '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--muted)">No loans in this bucket.</td></tr>';
 }
 
 // Deploy 236.34 — Toggle the field-inspector sub-row for a single
@@ -1499,15 +1581,19 @@ function cdmToggleInspect(idx) {
   // Build the inspector content lazily
   var cell = row.firstElementChild;
   if (cell && !cell.dataset.built) {
-    var loans = _cdmState.loans;
-    // _cdmState.loans is the unsorted set; the rendered table is
-    // sorted, so we have to map the rendered idx to the actual loan.
-    // We rebuild the sorted view here too. (Acceptable for a small
-    // modal; if perf ever matters, stash the sorted list on render.)
+    // Deploy 236.174 — _cdmState.loans is now `[{loan, bucket}]`.
+    // Normalize both shapes and rebuild the same sort the render
+    // used so idx picks the right loan.
+    var entries = _cdmState.loans.map(function(x) {
+      return x && x.loan ? x : { loan: x, bucket: '' };
+    });
+    var BUCKET_ORDER = { 'Won': 0, 'Open': 1, 'On Hold': 2, '': 3 };
     var sortedRows = (function() {
-      var rows = loans.slice().map(function(l) {
+      var rows = entries.map(function(e) {
+        var l = e.loan;
         return {
-          loan: l,
+          loan:    l,
+          bucket:  e.bucket || '',
           address: l.Name || '(no address)',
           amount:  numAmt(l.Loan_Amount),
           status:  l.Status || '—',
@@ -1524,6 +1610,7 @@ function cdmToggleInspect(idx) {
           case 'address': av = String(a.address).toLowerCase(); bv = String(b.address).toLowerCase(); break;
           case 'status':  av = String(a.status).toLowerCase();  bv = String(b.status).toLowerCase();  break;
           case 'close':   av = a.close || ''; bv = b.close || ''; break;
+          case 'bucket':  av = BUCKET_ORDER[a.bucket] || 4; bv = BUCKET_ORDER[b.bucket] || 4; break;
           default:        av = a.amount; bv = b.amount;
         }
         if (av < bv) return -1 * dir;
