@@ -806,6 +806,15 @@
   to = "/.netlify/functions/baseline-mirror-purge-ghosts"
   status = 200
   force = true
+# Deploy 236.177 — Baseline migration Stage 1. Upsert every mirrored
+# loan into the clients store under the pseudo-owner
+# baseline-migration@sla-import.local. Dry-run first; real run
+# after review.
+[[redirects]]
+  from = "/api/baseline-migrate"
+  to = "/.netlify/functions/baseline-migrate"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
