@@ -191,10 +191,60 @@
     <button type="button" class="btn" onclick="selectAllFiltered()" style="font-size:12px">Select all visible</button>
     <button type="button" class="btn" onclick="clearSelections()" style="font-size:12px">Clear</button>
     <span style="flex:1"></span>
+    <!-- Deploy 236.187 — admin-only manual merge (exactly 2 selected)
+         + assign to LO (1+ selected). Buttons only render for admins;
+         see refreshSelectionBar for the enable/disable state. -->
+    <button type="button" class="btn" id="mergeSelectedBtn" onclick="openMergeSelectedModal()" style="font-size:12px;display:none;background:rgba(133,77,14,0.10);color:#854d0e;border:1px solid rgba(133,77,14,0.40)">
+      Merge Selected (pick 2)
+    </button>
+    <button type="button" class="btn" id="assignSelectedBtn" onclick="openAssignSelectedModal()" style="font-size:12px;display:none;background:rgba(30,64,175,0.08);color:#1e40af;border:1px solid rgba(30,64,175,0.40)">
+      Assign to LO…
+    </button>
     <button type="button" class="btn primary" id="exportRtlBtn" onclick="exportRtlSubmission()" style="font-size:12px">
       Export RTL Submission Template (XLSX)
     </button>
     <span id="exportStatus" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+
+  <!-- Deploy 236.187 — Merge Selected modal. Admin picks which of the
+       two selected loans is the winner. Winner keeps its own data;
+       loser fills gaps + hands over Baseline metadata + gets deleted
+       from its client's loans[]. -->
+  <div id="mergeSelectedModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this) closeMergeSelectedModal()">
+    <div style="background:#fff;max-width:760px;width:100%;max-height:90vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark)">Merge Two Loans</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">Pick which loan is the winner. The other gets deleted; its Baseline data + any missing fields transfer to the winner.</div>
+        </div>
+        <button type="button" onclick="closeMergeSelectedModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>
+      </div>
+      <div id="mergeSelectedBody" style="padding:18px 22px;overflow:auto;flex:1"></div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">
+        <button type="button" onclick="closeMergeSelectedModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>
+        <button type="button" id="mergeSelectedCommitBtn" onclick="commitMergeSelected()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(133,77,14,0.40);background:rgba(133,77,14,0.10);color:#854d0e;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Merge</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy 236.187 — Assign to LO modal. Admin picks a destination
+       LO from the users list. Each selected loan gets moved (client
+       record duplicated under new owner, supporting data moved). -->
+  <div id="assignSelectedModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this) closeAssignSelectedModal()">
+    <div style="background:#fff;max-width:520px;width:100%;max-height:90vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark)">Assign to Loan Officer</div>
+          <div id="assignSubtitle" style="font-size:12px;color:var(--muted);margin-top:2px">Pick which LO takes ownership.</div>
+        </div>
+        <button type="button" onclick="closeAssignSelectedModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>
+      </div>
+      <div id="assignSelectedBody" style="padding:18px 22px;overflow:auto;flex:1"></div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">
+        <button type="button" onclick="closeAssignSelectedModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>
+        <button type="button" id="assignSelectedCommitBtn" onclick="commitAssignSelected()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(30,64,175,0.40);background:rgba(30,64,175,0.08);color:#1e40af;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Assign</button>
+      </div>
+    </div>
   </div>
 
   <div class="table-wrap">
@@ -695,6 +745,23 @@ function refreshSelectionBar() {
   var n = _selectedCount();
   var visible = _selectMode && n > 0;
   bar.style.display = visible ? 'flex' : 'none';
+  // Deploy 236.187 — admin buttons visibility. Merge requires exactly
+  // 2 selected; Assign works with 1+.
+  var mergeBtn  = document.getElementById('mergeSelectedBtn');
+  var assignBtn = document.getElementById('assignSelectedBtn');
+  if (mergeBtn) {
+    mergeBtn.style.display = (_isAdmin && visible) ? '' : 'none';
+    mergeBtn.disabled = n !== 2;
+    mergeBtn.style.opacity = n === 2 ? '1' : '0.4';
+    mergeBtn.style.cursor  = n === 2 ? 'pointer' : 'not-allowed';
+    mergeBtn.title = n === 2 ? 'Merge these 2 loans' : 'Select exactly 2 loans to merge';
+  }
+  if (assignBtn) {
+    assignBtn.style.display = (_isAdmin && visible) ? '' : 'none';
+    assignBtn.disabled = n < 1;
+    assignBtn.style.opacity = n >= 1 ? '1' : '0.4';
+    assignBtn.style.cursor  = n >= 1 ? 'pointer' : 'not-allowed';
+  }
   if (!visible) { if (status) status.textContent = ''; return; }
   // Count how many of the selected are RTL — only those are exportable
   // to the current template (Mike said this template is RTL-only;
@@ -832,6 +899,193 @@ function setView(view) {
   document.querySelectorAll('.view-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === view); });
   document.getElementById('tbody').innerHTML = '<tr><td colspan="9"><div class="loading">Loading…</div></td></tr>';
   loadAll();
+}
+
+// ── Deploy 236.187 — Merge Selected + Assign to LO ────────────────
+// Two admin actions surfaced on loans.html when Select Multiple is
+// on. Merge requires exactly 2 loans selected; Assign takes 1+.
+
+var _mergeWinnerKey = null;
+function openMergeSelectedModal() {
+  var loans = _selectedLoans();
+  if (loans.length !== 2) { alert('Select exactly 2 loans to merge.'); return; }
+  _mergeWinnerKey = null;
+  document.getElementById('mergeSelectedCommitBtn').disabled = true;
+  document.getElementById('mergeSelectedModal').style.display = 'flex';
+  _renderMergePicker(loans);
+}
+function closeMergeSelectedModal() {
+  document.getElementById('mergeSelectedModal').style.display = 'none';
+}
+function _selectedLoans() {
+  var out = [];
+  Object.keys(_selected).forEach(function(k) {
+    if (!_selected[k]) return;
+    var l = _findLoanByKey(k);
+    if (l) out.push(l);
+  });
+  return out;
+}
+function _renderMergePicker(loans) {
+  var body = document.getElementById('mergeSelectedBody');
+  body.innerHTML =
+    '<div style="font-size:13px;color:var(--text);margin-bottom:1rem;padding:8px 12px;background:#faf8f3;border-radius:6px">Both loans will be checked. The one you pick as <strong>Winner</strong> keeps its own data. The other loan is deleted; its Baseline metadata + any fields the winner is missing get pulled over.</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
+      loans.map(function(l, i) { return _mergeCardHtml(l, i); }).join('') +
+    '</div>';
+}
+function _mergeCardHtml(l, i) {
+  var c = l._client || {};
+  var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || '—';
+  var amt  = l._loanAmtNum ? '$' + Math.round(l._loanAmtNum).toLocaleString() : '—';
+  var isBaseline = l._ownerKey && l._ownerKey.indexOf('baseline_migration') === 0;
+  var badge = isBaseline
+    ? '<span style="background:rgba(30,64,175,0.10);color:#1e40af;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Baseline import</span>'
+    : '<span style="background:rgba(21,128,61,0.10);color:#166534;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Native LO</span>';
+  return '<div id="mergeCard_' + i + '" onclick="pickMergeWinner(' + i + ')" style="border:2px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;background:#fff;transition:all 0.15s">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' + badge + '<span id="mergeWinnerBadge_' + i + '" style="display:none;background:#166534;color:#fff;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Winner</span></div>' +
+    '<div style="font-size:14px;font-weight:600;color:var(--dark);margin-bottom:4px">' + escH(l.address || '—') + '</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">' + escH(name) + ' · ' + escH(amt) + ' · ' + escH(l._loanTypeLabel || '') + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);font-family:monospace">Owner: ' + escH(l._ownerKey || '—') + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);font-family:monospace">Client: ' + escH(c.id || '—') + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);font-family:monospace">Loan: ' + escH(l.id || '—') + '</div>' +
+  '</div>';
+}
+function pickMergeWinner(i) {
+  var loans = _selectedLoans();
+  if (loans.length !== 2) return;
+  var winner = loans[i];
+  _mergeWinnerKey = _selKey(winner);
+  for (var j = 0; j < 2; j++) {
+    var card  = document.getElementById('mergeCard_' + j);
+    var badge = document.getElementById('mergeWinnerBadge_' + j);
+    if (!card) continue;
+    if (j === i) {
+      card.style.borderColor = '#166534';
+      card.style.background  = 'rgba(21,128,61,0.06)';
+      if (badge) badge.style.display = '';
+    } else {
+      card.style.borderColor = 'var(--border)';
+      card.style.background  = '#fff';
+      if (badge) badge.style.display = 'none';
+    }
+  }
+  document.getElementById('mergeSelectedCommitBtn').disabled = false;
+}
+function commitMergeSelected() {
+  var loans = _selectedLoans();
+  if (loans.length !== 2 || !_mergeWinnerKey) return;
+  var winner = loans[0];
+  var loser  = loans[1];
+  if (_selKey(loans[1]) === _mergeWinnerKey) { winner = loans[1]; loser = loans[0]; }
+  if (!confirm('Merge loan on "' + (loser.address || '?') + '" INTO "' + (winner.address || '?') + '"? The loser record will be deleted. This cannot be undone.')) return;
+  var btn = document.getElementById('mergeSelectedCommitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Merging…';
+  SLA.api('POST', '/api/loans-merge-manual', {
+    winner: { ownerKey: winner._ownerKey, clientId: winner._client.id, loanId: winner.id },
+    loser:  { ownerKey: loser._ownerKey,  clientId: loser._client.id,  loanId: loser.id  },
+  }).then(function(r) {
+    if (!r || !r.ok) {
+      btn.disabled = false;
+      btn.textContent = 'Merge';
+      alert('Merge failed: ' + ((r && r.error) || 'unknown'));
+      return;
+    }
+    var summary = 'Merged.\n' +
+      (r.filledFields || []).length + ' winner field(s) gap-filled.\n' +
+      (r.overriddenBaselineFields || []).length + ' Baseline field(s) pulled.\n' +
+      (r.loserClientDeleted ? 'Loser client (Baseline import shell) deleted.\n' : '') +
+      (r.linkWritten ? 'Native-link written for future Migrate runs.' : '');
+    alert(summary);
+    closeMergeSelectedModal();
+    _selected = {};
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Merge';
+    alert('Merge failed: ' + (err && err.message || 'unknown'));
+  });
+}
+
+var _assignLoList = [];
+var _assignPicked = '';
+function openAssignSelectedModal() {
+  var loans = _selectedLoans();
+  if (!loans.length) { alert('Select at least 1 loan.'); return; }
+  _assignPicked = '';
+  document.getElementById('assignSelectedCommitBtn').disabled = true;
+  document.getElementById('assignSubtitle').textContent = 'Move ' + loans.length + ' loan' + (loans.length === 1 ? '' : 's') + ' to a new owner.';
+  document.getElementById('assignSelectedModal').style.display = 'flex';
+  var body = document.getElementById('assignSelectedBody');
+  body.innerHTML = '<div style="text-align:center;color:var(--muted);font-style:italic;padding:1rem">Loading LO list…</div>';
+  SLA.api('GET', '/api/users-list', null).then(function(r) {
+    _assignLoList = (r && r.users) || [];
+    _renderAssignPicker(loans);
+  }).catch(function(err) {
+    body.innerHTML = '<div style="color:#b91c1c;padding:10px 12px;background:#fee2e2;border-radius:6px">Failed to load LOs: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+function closeAssignSelectedModal() {
+  document.getElementById('assignSelectedModal').style.display = 'none';
+}
+function _renderAssignPicker(loans) {
+  var body = document.getElementById('assignSelectedBody');
+  // Sort LOs alphabetically by name / email
+  var los = _assignLoList.slice().sort(function(a, b) {
+    var an = (a.full_name || a.email || '').toLowerCase();
+    var bn = (b.full_name || b.email || '').toLowerCase();
+    return an < bn ? -1 : an > bn ? 1 : 0;
+  }).filter(function(u) { return u && u.email; });
+  var summary = '<div style="font-size:12px;color:var(--muted);margin-bottom:1rem">' + loans.length + ' loan' + (loans.length === 1 ? '' : 's') + ' selected. Each becomes a new client record under the destination LO; Baseline links + supporting data (borrower info, quotes, doc reviews) follow.</div>';
+  var picker =
+    '<label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:6px">Destination Loan Officer</label>' +
+    '<select id="assignLoSelect" onchange="_pickAssignLo(this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:14px;background:#fff">' +
+      '<option value="">— pick an LO —</option>' +
+      los.map(function(u) {
+        var label = (u.full_name || '').trim() || u.email;
+        return '<option value="' + escAttr(u.email) + '">' + escH(label) + ' &lt;' + escH(u.email) + '&gt;</option>';
+      }).join('') +
+    '</select>';
+  body.innerHTML = summary + picker;
+}
+function _pickAssignLo(email) {
+  _assignPicked = email || '';
+  document.getElementById('assignSelectedCommitBtn').disabled = !_assignPicked;
+}
+function commitAssignSelected() {
+  var loans = _selectedLoans();
+  if (!loans.length || !_assignPicked) return;
+  if (!confirm('Assign ' + loans.length + ' loan' + (loans.length === 1 ? '' : 's') + ' to ' + _assignPicked + '? Each loan becomes a new client under this LO. This cannot be undone.')) return;
+  var btn = document.getElementById('assignSelectedCommitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Assigning…';
+  var successCount = 0;
+  var errors = [];
+  var chain = Promise.resolve();
+  loans.forEach(function(l) {
+    chain = chain.then(function() {
+      return SLA.api('POST', '/api/loan-assign-lo', {
+        ownerKey:      l._ownerKey,
+        clientId:      l._client.id,
+        loanId:        l.id,
+        newOwnerEmail: _assignPicked,
+      }).then(function(r) {
+        if (r && r.ok) successCount++;
+        else errors.push((l.address || l.id) + ': ' + ((r && r.error) || 'unknown'));
+      }).catch(function(err) {
+        errors.push((l.address || l.id) + ': ' + (err && err.message || 'unknown'));
+      });
+    });
+  });
+  chain.then(function() {
+    var msg = 'Assigned ' + successCount + ' of ' + loans.length + '.';
+    if (errors.length) msg += '\n\nErrors:\n' + errors.slice(0, 5).join('\n');
+    alert(msg);
+    closeAssignSelectedModal();
+    _selected = {};
+    loadAll();
+  });
 }
 
 // ── CSV export ─────────────────────────────────────────────────────

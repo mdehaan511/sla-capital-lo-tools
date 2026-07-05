@@ -835,6 +835,19 @@
   status = 200
   force = true
 
+# Deploy 236.187 — admin manual loan merge (pick winner) + assign
+# loan to a specific LO (cross-owner move).
+[[redirects]]
+  from = "/api/loans-merge-manual"
+  to = "/.netlify/functions/loans-merge-manual"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/loan-assign-lo"
+  to = "/.netlify/functions/loan-assign-lo"
+  status = 200
+  force = true
+
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
 # investor (with prompt caching) so verdicts are judged against the
