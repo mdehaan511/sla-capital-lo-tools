@@ -1,30 +1,32 @@
 /**
  * baseline-dedupe-merge.mjs — POST /api/baseline-dedupe-merge
  *
- * Deploy 236.182 — merges Baseline-imported duplicates into their
- * SLA-native counterparts.
+ * Deploy 236.183 — merges Baseline-imported duplicates into their
+ * SLA-native counterparts. Two passes:
  *
- * The 236.177 migration created a synthetic client per Baseline
- * loan under the `baseline-migration@sla-import.local` pseudo-
- * owner. If a real LO already had that loan in SLA (same
- * slaDisplayId, since Baseline external Ids match the SLA
- * SLA-YYYYMMDD-NNNN format), both records now coexist — a
- * duplicate.
+ *   1. Match by slaDisplayId (SLA-YYYYMMDD-NNNN). Catches loans
+ *      where SLA generated the id first and pushed it to Baseline
+ *      (so both sides carry the same id).
  *
- * Dedupe strategy: for each slaDisplayId, if a non-import owner
- * has the loan AND the import owner has the loan, we treat the
- * non-import copy as authoritative:
- *   - Copy Baseline-only metadata onto the SLA-native loan
- *     (baselineStatus, baselineSubstatus, baselineOwnerName,
- *      _baselineRaw, _baselineImport*, _baselineMirroredAt).
- *   - Preserve every SLA-authored field on the native loan (id,
- *     ownerKey, LO's notes, guarantors, formData, status,
- *     processingStage, everything else).
- *   - Delete the entire import client record.
+ *   2. Match by normalized street address + loan amount within
+ *      ±5%. Catches loans where each side independently generated
+ *      its own SLA-YYYYMMDD-NNNN (e.g. Diana Faberman's 200
+ *      Marabou Circle showed twice — RTL in New Loan on the SLA
+ *      side, DSCR in Underwriting on the Baseline side — same
+ *      property, same $277,500, different ids).
  *
- * Ambiguous cases (slaDisplayId under 2+ non-import owners, or
- * present only under the import owner) are reported but NOT
- * modified.
+ * Merge rule (both passes identical):
+ *   - Pull Baseline-only metadata onto the SLA-native loan:
+ *     baselineStatus, baselineSubstatus, baselineOwnerName,
+ *     _baselineRaw, _baselineImport*, _baselineMirroredAt,
+ *     baselineArchivedAt, _baselineId.
+ *   - Preserve EVERY SLA-authored field on the native loan
+ *     (id, ownerKey, LO's notes, guarantors, formData, status,
+ *     processingStage — everything else).
+ *   - Delete the import-copy client record.
+ *
+ * Ambiguous cases (2+ non-import owners, or amount mismatch on
+ * address pass) are reported but NOT modified.
  *
  * Body: { dryRun?: bool (default TRUE) }
  * Auth: admin only.
@@ -35,13 +37,67 @@ import {
 } from './_shared/auth.mjs';
 import { IMPORT_OWNER_KEY } from './_shared/baseline-upsert.mjs';
 
-// Fields we PULL from the Baseline copy onto the native record.
-// Everything else on the native loan stays untouched.
 const BASELINE_METADATA_FIELDS = [
   'baselineStatus', 'baselineSubstatus', 'baselineOwnerName',
   'baselineArchivedAt', '_baselineRaw', '_baselineImport',
   '_baselineImportedAt', '_baselineMirroredAt', '_baselineId',
 ];
+
+// Address pass — loan amounts within this % count as the same
+// deal. Anything outside is reported as suspicious, not merged.
+const AMOUNT_TOLERANCE = 0.05;
+
+// Address pass — minimum normalized-address length. Below this we
+// don't trust address matching (a bare "123 Main" is too generic).
+const MIN_ADDR_LEN = 15;
+
+// Street-type abbreviations. Normalize both spellings to the same
+// canonical form so "Circle" and "Cir" collide.
+const ADDR_ABBREV = {
+  st: 'street', str: 'street',
+  ave: 'avenue', av: 'avenue',
+  rd: 'road',
+  dr: 'drive',
+  cir: 'circle',
+  ct: 'court',
+  ln: 'lane',
+  pl: 'place',
+  blvd: 'boulevard',
+  pkwy: 'parkway',
+  hwy: 'highway',
+  ter: 'terrace', terr: 'terrace',
+  sq: 'square',
+  trl: 'trail',
+  n: 'north', no: 'north',
+  s: 'south', so: 'south',
+  e: 'east',
+  w: 'west',
+  ne: 'northeast', nw: 'northwest',
+  se: 'southeast', sw: 'southwest',
+};
+
+function _normAddr(a) {
+  if (!a) return '';
+  const raw = String(a).toLowerCase();
+  // Everything non-alphanumeric becomes a space.
+  const cleaned = raw.replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!cleaned) return '';
+  const tokens = cleaned.split(/\s+/).map((t) => ADDR_ABBREV[t] || t);
+  return tokens.join(' ');
+}
+
+function _loanAmt(loan) {
+  const n = Number(loan && loan.loanAmt);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function _amountsMatch(a, b) {
+  if (!a && !b) return true;                    // both zero → no signal, allow
+  if (!a || !b) return false;                   // one zero → suspicious
+  const diff = Math.abs(a - b);
+  const base = Math.max(a, b);
+  return diff / base <= AMOUNT_TOLERANCE;
+}
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -64,65 +120,58 @@ async function handle(req, context) {
 
   const store = getStore({ name: 'clients', consistency: 'strong' });
 
-  // 1) Walk every client + build an index of slaDisplayId ->
-  //    [{ ownerKey, clientId, clientKey, loan, client }].
-  const index = new Map();
+  // 1) Walk the whole clients store, build two indexes.
+  const idIndex   = new Map();   // slaDisplayId  -> [entry, ...]
+  const addrIndex = new Map();   // normAddr      -> [entry, ...]
+  const allEntries = [];
   let clientCount = 0;
   try {
     const { blobs } = await store.list();
     for (const { key } of blobs) {
       clientCount++;
-      const idx = key.indexOf('/');
-      if (idx < 0) continue;
-      const ownerKey = key.slice(0, idx);
-      const clientId = key.slice(idx + 1);
+      const slash = key.indexOf('/');
+      if (slash < 0) continue;
+      const ownerKey = key.slice(0, slash);
+      const clientId = key.slice(slash + 1);
       const client   = await store.get(key, { type: 'json' });
       if (!client || !Array.isArray(client.loans)) continue;
       for (const loan of client.loans) {
+        const entry = { ownerKey, clientId, clientKey: key, loan, client };
+        allEntries.push(entry);
         const disp = loan && loan.slaDisplayId;
-        if (!disp) continue;
-        if (!index.has(disp)) index.set(disp, []);
-        index.get(disp).push({ ownerKey, clientId, clientKey: key, loan, client });
+        if (disp) {
+          if (!idIndex.has(disp)) idIndex.set(disp, []);
+          idIndex.get(disp).push(entry);
+        }
+        const norm = _normAddr(loan && loan.address);
+        if (norm && norm.length >= MIN_ADDR_LEN) {
+          if (!addrIndex.has(norm)) addrIndex.set(norm, []);
+          addrIndex.get(norm).push(entry);
+        }
       }
     }
   } catch (e) {
     return json(500, { error: 'clients store walk failed: ' + (e && e.message) });
   }
 
-  // 2) Find duplicates.
-  const duplicates = [];
-  const ambiguous  = [];
-  const importOnly = [];
-  for (const [disp, entries] of index.entries()) {
-    if (entries.length < 2) continue;
-    const importCopies = entries.filter((e) => e.ownerKey === IMPORT_OWNER_KEY);
-    const native       = entries.filter((e) => e.ownerKey !== IMPORT_OWNER_KEY);
-    if (!importCopies.length) continue; // no baseline copy — nothing to merge
-    if (native.length === 0)   { importOnly.push({ slaDisplayId: disp, entries }); continue; }
-    if (native.length > 1) {
-      ambiguous.push({ slaDisplayId: disp, nativeOwners: native.map((e) => e.ownerKey) });
-      continue;
-    }
-    duplicates.push({ slaDisplayId: disp, native: native[0], importCopies });
-  }
+  const handled = new Set();     // clientKeys we've written or deleted
+  const errors     = [];
+  const samplesId   = [];
+  const samplesAddr = [];
+  const ambiguousId    = [];
+  const ambiguousAddr  = [];
+  const importOnly     = [];
+  const sampleCap = 30;
 
-  // 3) Merge Baseline metadata onto native, delete import copies.
-  let merged = 0;
-  let deleted = 0;
-  const errors = [];
-  const samples = [];
-  const sampleCap = 20;
+  let mergedById = 0, deletedById = 0;
+  let mergedByAddr = 0, deletedByAddr = 0;
 
-  for (const d of duplicates) {
+  async function performMerge(nativeEntry, importCopies, matchKind, matchValue) {
     try {
-      const nativeClient = d.native.client;
-      const nativeLoan   = d.native.loan;
-      // Pick the freshest import copy (in case something weird
-      // happened and there are 2+ — should be exactly 1).
-      const importEntry = d.importCopies[0];
-      const importLoan  = importEntry.loan;
+      const nativeClient = nativeEntry.client;
+      const nativeLoan   = nativeEntry.loan;
+      const importLoan   = importCopies[0].loan;
 
-      // Merge Baseline metadata onto the native loan.
       const pulled = [];
       for (const f of BASELINE_METADATA_FIELDS) {
         if (importLoan[f] !== undefined && importLoan[f] !== null) {
@@ -132,28 +181,94 @@ async function handle(req, context) {
       }
       nativeLoan.updatedAt = new Date().toISOString();
 
-      // Persist the merged native client.
       if (!dryRun) {
-        await store.setJSON(d.native.clientKey, nativeClient);
-        // Delete all import copies (usually one, defensive).
-        for (const ic of d.importCopies) {
+        await store.setJSON(nativeEntry.clientKey, nativeClient);
+        for (const ic of importCopies) {
           await store.delete(ic.clientKey);
         }
       }
-
-      merged += 1;
-      deleted += d.importCopies.length;
-      if (samples.length < sampleCap) {
-        samples.push({
-          slaDisplayId:     d.slaDisplayId,
-          nativeOwner:      d.native.ownerKey,
-          importOwner:      IMPORT_OWNER_KEY,
-          deletedClientIds: d.importCopies.map((e) => e.clientId),
-          fieldsPulled:     pulled,
-        });
-      }
+      handled.add(nativeEntry.clientKey);
+      for (const ic of importCopies) handled.add(ic.clientKey);
+      return { ok: true, pulled };
     } catch (e) {
-      errors.push({ slaDisplayId: d.slaDisplayId, error: (e && e.message) || 'unknown' });
+      errors.push({ matchKind, matchValue, error: (e && e.message) || 'unknown' });
+      return { ok: false };
+    }
+  }
+
+  // ── Pass 1: match by slaDisplayId ─────────────────────────────
+  for (const [disp, entries] of idIndex.entries()) {
+    if (entries.length < 2) continue;
+    const importCopies = entries.filter((e) => e.ownerKey === IMPORT_OWNER_KEY);
+    const native       = entries.filter((e) => e.ownerKey !== IMPORT_OWNER_KEY);
+    if (!importCopies.length) continue;
+    if (!native.length) { importOnly.push({ slaDisplayId: disp }); continue; }
+    if (native.length > 1) {
+      ambiguousId.push({ slaDisplayId: disp, nativeOwners: native.map((e) => e.ownerKey) });
+      continue;
+    }
+    const r = await performMerge(native[0], importCopies, 'slaDisplayId', disp);
+    if (!r.ok) continue;
+    mergedById  += 1;
+    deletedById += importCopies.length;
+    if (samplesId.length < sampleCap) {
+      samplesId.push({
+        slaDisplayId:     disp,
+        nativeOwner:      native[0].ownerKey,
+        nativeAddress:    native[0].loan.address || '',
+        deletedClientIds: importCopies.map((e) => e.clientId),
+        fieldsPulled:     r.pulled,
+      });
+    }
+  }
+
+  // ── Pass 2: match by normalized address + loan amount ─────────
+  // Only look at entries NOT already handled by pass 1.
+  for (const [norm, entries] of addrIndex.entries()) {
+    if (entries.length < 2) continue;
+    const unhandled = entries.filter((e) => !handled.has(e.clientKey));
+    if (unhandled.length < 2) continue;
+
+    const importCopies = unhandled.filter((e) => e.ownerKey === IMPORT_OWNER_KEY);
+    const native       = unhandled.filter((e) => e.ownerKey !== IMPORT_OWNER_KEY);
+    if (!importCopies.length) continue;
+    if (!native.length) continue; // will fall through to importOnly listing below
+    if (native.length > 1) {
+      ambiguousAddr.push({
+        normAddr: norm,
+        addressSample: native[0].loan.address || '',
+        nativeOwners: native.map((e) => e.ownerKey),
+        reason: 'multiple native LOs claim this address',
+      });
+      continue;
+    }
+    // Amount check — same address, wildly different price = suspicious.
+    const nativeAmt = _loanAmt(native[0].loan);
+    const importAmt = _loanAmt(importCopies[0].loan);
+    if (!_amountsMatch(nativeAmt, importAmt)) {
+      ambiguousAddr.push({
+        normAddr: norm,
+        addressSample: native[0].loan.address || '',
+        nativeOwners: [native[0].ownerKey],
+        nativeAmt, importAmt,
+        reason: 'loan amounts differ >' + Math.round(AMOUNT_TOLERANCE * 100) + '%',
+      });
+      continue;
+    }
+    const r = await performMerge(native[0], importCopies, 'address', norm);
+    if (!r.ok) continue;
+    mergedByAddr  += 1;
+    deletedByAddr += importCopies.length;
+    if (samplesAddr.length < sampleCap) {
+      samplesAddr.push({
+        normAddr:         norm,
+        nativeAddress:    native[0].loan.address || '',
+        importAddress:    importCopies[0].loan.address || '',
+        nativeOwner:      native[0].ownerKey,
+        nativeAmt, importAmt,
+        deletedClientIds: importCopies.map((e) => e.clientId),
+        fieldsPulled:     r.pulled,
+      });
     }
   }
 
@@ -161,13 +276,14 @@ async function handle(req, context) {
     ok: true,
     dryRun,
     clientCount,
-    duplicateCount: duplicates.length,
-    merged, deleted,
+    // Aggregate totals for the header tiles.
+    merged:  mergedById + mergedByAddr,
+    deleted: deletedById + deletedByAddr,
+    // Per-pass breakdown.
+    byId:   { merged: mergedById,   deleted: deletedById,   ambiguousCount: ambiguousId.length,   ambiguous: ambiguousId.slice(0, 20),   samples: samplesId },
+    byAddr: { merged: mergedByAddr, deleted: deletedByAddr, ambiguousCount: ambiguousAddr.length, ambiguous: ambiguousAddr.slice(0, 20), samples: samplesAddr },
+    importOnlyCount: importOnly.length,
     errorCount: errors.length,
     errors: errors.slice(0, 20),
-    ambiguousCount: ambiguous.length,
-    ambiguous: ambiguous.slice(0, 20),
-    importOnlyCount: importOnly.length,
-    samples,
   });
 }
