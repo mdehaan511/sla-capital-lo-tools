@@ -35,12 +35,18 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, isAdmin, readJsonBody,
 } from './_shared/auth.mjs';
-import { IMPORT_OWNER_KEY } from './_shared/baseline-upsert.mjs';
+import { IMPORT_OWNER_KEY, setNativeLink, getNativeLink } from './_shared/baseline-upsert.mjs';
 
+// Deploy 236.184 — status + processingStage added. When we merge
+// an import copy into a native loan, Baseline is authoritative for
+// the loan's stage in the processing pipeline, so we pull those
+// values through. The LO's manual status advances still win via
+// the preservation clause in the upsert path on subsequent syncs.
 const BASELINE_METADATA_FIELDS = [
   'baselineStatus', 'baselineSubstatus', 'baselineOwnerName',
   'baselineArchivedAt', '_baselineRaw', '_baselineImport',
   '_baselineImportedAt', '_baselineMirroredAt', '_baselineId',
+  'status', 'processingStage',
 ];
 
 // Address pass — loan amounts within this % count as the same
@@ -179,6 +185,11 @@ async function handle(req, context) {
           nativeLoan[f] = importLoan[f];
         }
       }
+      // Stamp the Baseline extId separately from the native slaDisplayId
+      // (which we preserve for LO-visible references). The extId is what
+      // the link store and _upsertLinked look up.
+      const extId = _pickExternalId(importLoan);
+      if (extId) nativeLoan._baselineExternalId = extId;
       nativeLoan.updatedAt = new Date().toISOString();
 
       if (!dryRun) {
@@ -186,14 +197,36 @@ async function handle(req, context) {
         for (const ic of importCopies) {
           await store.delete(ic.clientKey);
         }
+        // Deploy 236.184 — write a native link so the NEXT Migrate
+        // routes updates to nativeLoan instead of re-forking an
+        // import copy. Without this we recreate every duplicate we
+        // just merged on the next sync.
+        if (extId) {
+          await setNativeLink(extId, {
+            ownerKey: nativeEntry.ownerKey,
+            clientId: nativeEntry.clientId,
+            loanId:   nativeLoan.id,
+            source:   matchKind,
+          });
+        }
       }
       handled.add(nativeEntry.clientKey);
       for (const ic of importCopies) handled.add(ic.clientKey);
-      return { ok: true, pulled };
+      return { ok: true, pulled, externalId: extId };
     } catch (e) {
       errors.push({ matchKind, matchValue, error: (e && e.message) || 'unknown' });
       return { ok: false };
     }
+  }
+
+  // Baseline external Id lives on the import copy as slaDisplayId
+  // (set by upsertBaselineLoan) and/or inside _baselineRaw.Id.
+  function _pickExternalId(loan) {
+    if (!loan) return '';
+    if (loan.slaDisplayId) return String(loan.slaDisplayId).trim();
+    const raw = loan._baselineRaw;
+    if (raw && raw.Id) return String(raw.Id).trim();
+    return '';
   }
 
   // ── Pass 1: match by slaDisplayId ─────────────────────────────
@@ -272,6 +305,58 @@ async function handle(req, context) {
     }
   }
 
+  // ── Pass 3: back-fill native links for previously-merged loans ──
+  // Any native loan carrying _baselineImport:true + an external Id
+  // (either _baselineExternalId set by 236.184 dedupe/upsert, or
+  // _baselineRaw.Id from the initial merge) is a loan we've already
+  // merged. Without a link, the next Migrate would recreate the
+  // import copy. This pass writes the link retroactively so re-runs
+  // stay clean.
+  let linksWritten = 0;
+  let linksAlreadyOk = 0;
+  const linkSamples = [];
+  for (const entry of allEntries) {
+    if (entry.ownerKey === IMPORT_OWNER_KEY) continue; // native only
+    if (handled.has(entry.clientKey)) continue;         // just merged this run — link already written above
+    const loan = entry.loan;
+    if (!loan || !loan._baselineImport) continue;
+    const extId = loan._baselineExternalId
+      || (loan._baselineRaw && loan._baselineRaw.Id)
+      || '';
+    const cleaned = String(extId || '').trim();
+    if (!cleaned) continue;
+
+    try {
+      const existing = await getNativeLink(cleaned);
+      const alreadyOk = existing
+        && existing.ownerKey === entry.ownerKey
+        && existing.clientId === entry.clientId
+        && existing.loanId   === loan.id;
+      if (alreadyOk) { linksAlreadyOk++; continue; }
+
+      if (!dryRun) {
+        await setNativeLink(cleaned, {
+          ownerKey: entry.ownerKey,
+          clientId: entry.clientId,
+          loanId:   loan.id,
+          source:   'backfill',
+        });
+      }
+      linksWritten++;
+      if (linkSamples.length < 30) {
+        linkSamples.push({
+          externalId: cleaned,
+          ownerKey:   entry.ownerKey,
+          clientId:   entry.clientId,
+          loanId:     loan.id,
+          address:    loan.address || '',
+        });
+      }
+    } catch (e) {
+      errors.push({ matchKind: 'link_backfill', matchValue: cleaned, error: (e && e.message) || 'unknown' });
+    }
+  }
+
   return json(200, {
     ok: true,
     dryRun,
@@ -282,6 +367,12 @@ async function handle(req, context) {
     // Per-pass breakdown.
     byId:   { merged: mergedById,   deleted: deletedById,   ambiguousCount: ambiguousId.length,   ambiguous: ambiguousId.slice(0, 20),   samples: samplesId },
     byAddr: { merged: mergedByAddr, deleted: deletedByAddr, ambiguousCount: ambiguousAddr.length, ambiguous: ambiguousAddr.slice(0, 20), samples: samplesAddr },
+    // Deploy 236.184 — link back-fill for previously-merged loans.
+    links: {
+      written:   linksWritten,
+      alreadyOk: linksAlreadyOk,
+      samples:   linkSamples,
+    },
     importOnlyCount: importOnly.length,
     errorCount: errors.length,
     errors: errors.slice(0, 20),

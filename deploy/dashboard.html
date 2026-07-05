@@ -1889,7 +1889,7 @@ function closeMergeDupesModal() {
 function runMergeDupesCommit() {
   var btn = document.getElementById('mergeDupesCommitBtn');
   if (btn.disabled) return;
-  if (!confirm('Merge every duplicate? For each slaDisplayId that exists under both a real LO AND the baseline-migration pseudo-owner, Baseline metadata will be pulled onto the LO\'s loan and the import copy will be deleted. This cannot be undone.')) return;
+  if (!confirm('Commit the merge? For each detected duplicate (matched by SLA Display Id or by address+amount), Baseline metadata will be pulled onto the LO\'s loan and the import copy will be deleted. Native-link records will also be written so the next Migrate updates the LO\'s loans directly instead of recreating import copies. This cannot be undone.')) return;
   document.getElementById('mergeDupesSubtitle').textContent = 'Running real merge…';
   document.getElementById('mergeDupesBody').innerHTML =
     '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Merging…</div>';
@@ -1920,6 +1920,7 @@ function _renderMergeDupesReport(r) {
 
   var byId   = r.byId   || { merged: 0, deleted: 0, ambiguousCount: 0, ambiguous: [], samples: [] };
   var byAddr = r.byAddr || { merged: 0, deleted: 0, ambiguousCount: 0, ambiguous: [], samples: [] };
+  var links  = r.links  || { written: 0, alreadyOk: 0, samples: [] };
 
   var summaryTiles =
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem">' +
@@ -1928,6 +1929,8 @@ function _renderMergeDupesReport(r) {
       _tile(dryRun ? 'Would delete (total)' : 'Deleted (total)', r.deleted, '', '#991b1b') +
       _tile('By SLA Display Id',    byId.merged   || 0, 'exact id match', '#166534') +
       _tile('By Address+Amount',    byAddr.merged || 0, 'norm addr + ±5%', '#166534') +
+      _tile(dryRun ? 'Would back-fill links' : 'Links back-filled', links.written || 0, 'prevents duplicate on re-Migrate', '#1e40af') +
+      _tile('Links already OK',     links.alreadyOk || 0, '', 'var(--muted)') +
       _tile('Import-only (untouched)', r.importOnlyCount || 0, 'no LO copy exists', 'var(--muted)') +
       _tile('Errors',               r.errorCount || 0, '', r.errorCount ? '#991b1b' : 'var(--muted)') +
     '</div>';
@@ -2005,14 +2008,23 @@ function _renderMergeDupesReport(r) {
     '</div>';
   }
 
-  var nextStep = dryRun
-    ? (r.merged
-        ? '<div style="padding:10px 12px;background:rgba(133,77,14,0.10);color:#854d0e;border-radius:6px;font-size:12px">Numbers look right? Click <strong>Commit Merge</strong> below to write. Baseline metadata pulls onto the LO\'s loan; the import-copy client record is deleted.</div>'
-        : '<div style="padding:10px 12px;background:#faf8f3;color:var(--muted);border-radius:6px;font-size:12px">No duplicates found. Nothing to merge.</div>')
-    : '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">✓ Done. Open <a href="loans.html" style="color:#166534;font-weight:600;text-decoration:underline">Loans</a> to verify.</div>';
+  var nextStep;
+  if (dryRun) {
+    if (r.merged || links.written) {
+      nextStep = '<div style="padding:10px 12px;background:rgba(133,77,14,0.10);color:#854d0e;border-radius:6px;font-size:12px">' +
+        'Numbers look right? Click <strong>Commit Merge</strong>. Then <strong>run Migrate from Baseline again</strong> — the new native-link store will route status updates onto the LO\'s loans (fixes the "wrong status" you saw) and stop Migrate from recreating the import copies.' +
+        '</div>';
+    } else {
+      nextStep = '<div style="padding:10px 12px;background:#faf8f3;color:var(--muted);border-radius:6px;font-size:12px">Nothing to merge or link.</div>';
+    }
+  } else {
+    nextStep = '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">' +
+      '✓ Done. <strong>Now run <a href="#" onclick="closeMergeDupesModal();openMigrateModal();return false" style="color:#166534;font-weight:700;text-decoration:underline">Migrate from Baseline</a></strong> once more — the links you just wrote will refresh status + processingStage on the merged loans, and no import copies will be recreated.' +
+      '</div>';
+  }
 
   body.innerHTML = summaryTiles + idSamplesHtml + addrSamplesHtml + ambigHtml + errorsHtml + nextStep;
-  commit.disabled = !(dryRun && r.merged > 0);
+  commit.disabled = !(dryRun && (r.merged > 0 || links.written > 0));
 }
 
 // Deploy 236.176 — single-loan delete from mirror. Called from

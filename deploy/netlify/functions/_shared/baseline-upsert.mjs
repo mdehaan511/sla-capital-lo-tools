@@ -32,6 +32,53 @@ import { keySafe, normalizeEmail } from './auth.mjs';
 export const IMPORT_OWNER_EMAIL = 'baseline-migration@sla-import.local';
 export const IMPORT_OWNER_KEY   = keySafe(normalizeEmail(IMPORT_OWNER_EMAIL));
 
+// Deploy 236.184 — native-link store. Maps Baseline external Ids
+// to the (ownerKey, clientId, loanId) of the SLA-native loan they
+// should update instead of forking a new import copy. Populated by
+// baseline-dedupe-merge (both live merges and a back-fill pass for
+// previously-merged loans). Read at the top of upsertBaselineLoan.
+// If a link exists → we route the update to the native record.
+// Without this, every Migrate run silently recreates the import
+// copies that dedupe deleted.
+const LINK_STORE_NAME = 'baseline_native_link';
+
+export async function getNativeLink(externalId) {
+  if (!externalId) return null;
+  try {
+    const store = getStore({ name: LINK_STORE_NAME, consistency: 'strong' });
+    return await store.get(_keySafeExt(externalId), { type: 'json' });
+  } catch (_) { return null; }
+}
+
+export async function setNativeLink(externalId, link) {
+  if (!externalId || !link || !link.ownerKey || !link.clientId || !link.loanId) return;
+  const store = getStore({ name: LINK_STORE_NAME, consistency: 'strong' });
+  await store.setJSON(_keySafeExt(externalId), Object.assign({}, link, {
+    updatedAt: new Date().toISOString(),
+  }));
+}
+
+export async function clearNativeLink(externalId) {
+  if (!externalId) return;
+  try {
+    const store = getStore({ name: LINK_STORE_NAME, consistency: 'strong' });
+    await store.delete(_keySafeExt(externalId));
+  } catch (_) {}
+}
+
+export async function listNativeLinks() {
+  try {
+    const store = getStore({ name: LINK_STORE_NAME, consistency: 'strong' });
+    const { blobs } = await store.list();
+    const out = [];
+    for (const { key } of blobs) {
+      const v = await store.get(key, { type: 'json' }).catch(() => null);
+      if (v) out.push({ externalIdKey: key, link: v });
+    }
+    return out;
+  } catch (_) { return []; }
+}
+
 // Baseline-authored fields on a loan record. These get overwritten
 // on every sync (Baseline stays authoritative until cutover). Any
 // field NOT listed here is SLA-authored and preserved verbatim.
@@ -71,6 +118,17 @@ export async function upsertBaselineLoan(baselineRecord, opts) {
   const externalId = baselineRecord && baselineRecord.Id ? String(baselineRecord.Id).trim() : '';
   if (!externalId) {
     return { action: 'skipped', reason: 'no external id', externalId: '', clientId: '', loanId: '', status: '', processingStage: '' };
+  }
+
+  // Deploy 236.184 — if a native link exists for this external Id,
+  // route the update to the LO's own loan record. Baseline metadata
+  // gets refreshed on the native loan (status, processingStage, etc.)
+  // and no import copy is created. This is what prevents Migrate from
+  // silently re-forking duplicates that dedupe already resolved.
+  const link = await getNativeLink(externalId);
+  if (link) {
+    const linked = await _upsertLinked(baselineRecord, externalId, link, opts);
+    if (linked) return linked; // fell through to normal path only if link was stale
   }
 
   const safeExt  = _keySafeExt(externalId);
@@ -151,6 +209,72 @@ export async function upsertBaselineLoan(baselineRecord, opts) {
     externalId,
     clientId,
     loanId,
+    status,
+    processingStage,
+    changes: opts.includeChanges ? changes : undefined,
+  };
+}
+
+// Deploy 236.184 — linked-upsert path. Routes an update to a
+// specific SLA-native loan (owner/client/loan discovered by the
+// dedupe endpoint). Same Baseline-authored / SLA-authored field
+// partition as the normal path, with two differences:
+//   1. The native loan's `id` and `slaDisplayId` are preserved
+//      verbatim — the LO knows the loan by their id, and downstream
+//      systems (envelopes, PDFs, borrower emails) reference the
+//      native slaDisplayId. Baseline's external Id is stashed on
+//      the loan as `_baselineExternalId` for future diagnostics.
+//   2. If the link is stale (client deleted, loan renamed), the
+//      link is cleared and we return null — caller falls through
+//      to the normal path so at least SOMETHING gets written.
+async function _upsertLinked(baselineRecord, externalId, link, opts) {
+  const now = new Date().toISOString();
+  const store = getStore({ name: 'clients', consistency: 'strong' });
+  const clientsKey = link.ownerKey + '/' + link.clientId;
+  const client = await store.get(clientsKey, { type: 'json' }).catch(() => null);
+
+  if (!client || !Array.isArray(client.loans)) {
+    await clearNativeLink(externalId);
+    return null; // caller falls through to create-import-copy path
+  }
+  const idx = client.loans.findIndex((l) => l && l.id === link.loanId);
+  if (idx < 0) {
+    await clearNativeLink(externalId);
+    return null;
+  }
+  const priorLoan = client.loans[idx];
+
+  const status         = _statusForSla(baselineRecord);
+  const processingStage = _processingStageForSla(baselineRecord, status);
+  const loanFields = _mapBaselineToLoanFields(baselineRecord, now);
+  loanFields.status         = status;
+  loanFields.processingStage = processingStage;
+  // Intentionally NOT setting loanFields.slaDisplayId — we preserve
+  // the LO's native slaDisplayId (LOs quote borrowers using that id).
+  // Baseline's extId is captured separately.
+  const mergedLoan = _mergeLoanPreservingSla(priorLoan, loanFields);
+  mergedLoan.id                  = priorLoan.id;                          // paranoia belt
+  mergedLoan.slaDisplayId        = priorLoan.slaDisplayId || externalId;  // native wins; fall back to Baseline if truly missing
+  mergedLoan._baselineExternalId = externalId;
+
+  const changes = _fieldChanges(priorLoan, mergedLoan, BASELINE_AUTHORED_FIELDS);
+  const action  = changes.length ? 'updated' : 'no_change';
+
+  if (!opts.dryRun && changes.length) {
+    const loans = client.loans.slice();
+    loans[idx] = mergedLoan;
+    await store.setJSON(clientsKey, Object.assign({}, client, {
+      loans,
+      updatedAt: now,
+      _baselineImport: true, // mark client too so future dedupe back-fills recognize it
+    }));
+  }
+  return {
+    action,
+    reason: 'linked to native loan',
+    externalId,
+    clientId: link.clientId,
+    loanId:   link.loanId,
     status,
     processingStage,
     changes: opts.includeChanges ? changes : undefined,
