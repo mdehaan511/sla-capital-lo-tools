@@ -201,39 +201,71 @@ function _mapBaselineToClientFields(b, externalId, now) {
 
 // ─── Status mapping ────────────────────────────────────────
 
+// Deploy 236.179 — normalize input by lowercasing + collapsing
+// spaces / underscores so Baseline's "In Servicing", "in_servicing",
+// "In  Servicing" all match the same bucket. Previously only the
+// snake_case form was recognized; loans with the display form
+// ("In Servicing") fell through to the "approved" catch-all and
+// landed in the Processing Pipeline.
+function _norm(s) {
+  return String(s || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+}
+
 // Baseline Status → SLA loan status.
 function _statusForSla(b) {
-  const s   = String((b && b.Status)    || '').toLowerCase().trim();
-  const sub = String((b && b.Substatus) || '').toLowerCase().trim();
+  const s   = _norm(b && b.Status);
+  const sub = _norm(b && b.Substatus);
+  const combined = (s + ' ' + sub).trim();
 
-  // Archived / lost / denied — record-keeping tier.
-  if (['archived', 'lost', 'declined', 'denied', 'withdrawn', 'cancelled'].includes(s)) {
-    return 'denied';
-  }
+  // Denied / lost tier — record-keeping.
+  const deniedSet = ['archived', 'lost', 'declined', 'denied', 'withdrawn', 'cancelled'];
+  if (deniedSet.includes(s)) return 'denied';
   if (b && (b.Archived === true || b.Is_Archived === true)) return 'denied';
 
-  // Closed tier (in SLA it's 'closed'; UI reads liquidation/servicing
-  // via the raw payload if needed).
-  if (['closed', 'sold', 'funded', 'in_servicing', 'servicing', 'liquidated'].includes(s)) {
-    return 'closed';
-  }
-  if (['in_servicing', 'servicing'].includes(sub)) return 'closed';
+  // Closed tier: fully-done loans that should NOT appear in the
+  // Processing Pipeline. Includes Sold / In Servicing / Liquidated
+  // / Funded per Mike. loans.html gets Sold + In Servicing filter
+  // chips so admins can find them.
+  const closedSet = ['closed', 'sold', 'funded', 'in servicing', 'servicing', 'liquidated'];
+  if (closedSet.includes(s))    return 'closed';
+  if (closedSet.includes(sub))  return 'closed';
+  // Combined-string fallback for values like "in-servicing" or
+  // multi-token substatuses.
+  if (/\b(sold|in servicing|liquidated|funded)\b/.test(combined)) return 'closed';
 
   // Hold.
   if (s.includes('hold') || sub.includes('hold')) return 'on_hold';
 
-  // Active processing tier — Baseline calls this variously.
-  if (s === 'lead') return 'active';
-  // Everything else (in_processing / processing / underwriting / etc.)
-  // → SLA 'approved' so it shows in the Processing Pipeline.
+  // Lead → the LO's main pipeline (Quoted column).
+  if (s === 'lead' || sub === 'lead') return 'active';
+
+  // Everything else in the loan lifecycle → SLA 'approved' so it
+  // shows in the Processing Pipeline. The column within the
+  // pipeline is decided by _processingStageForSla below.
   return 'approved';
 }
 
-// SLA processingStage when the loan is in the pipeline. New Baseline
-// loans start at 'new_loan'; downstream stages are set by SLA
-// processors and preserved on re-sync.
+// Deploy 236.179 — pick the Processing Pipeline column that best
+// matches the Baseline Status / Substatus, so a loan Baseline says
+// is "In Underwriting" lands in the Underwriting column instead of
+// New Loan. Falls back to 'new_loan' when no keyword hits — the
+// processor can drag the card to the right column and the SLA-
+// authored preservation in _mergeLoanPreservingSla keeps their
+// move stable across future syncs.
 function _processingStageForSla(b, slaStatus) {
   if (slaStatus !== 'approved') return '';
+  const s   = _norm(b && b.Status);
+  const sub = _norm(b && b.Substatus);
+  const combined = (s + ' ' + sub).trim();
+
+  // Order matters — check specific patterns first, broader last.
+  if (/\bunderwrit/.test(combined))                       return 'underwriting';
+  if (/\b(clear to close|cleared|closing|final review|ready to fund|ready to close)\b/.test(combined)) return 'pp_closed';
+  if (/\b(post uw|uw approved|approved)\b/.test(combined)) return 'pp_approved';
+  if (/\bprocess/.test(combined))                          return 'processing';
+  if (/\b(new|intake|received|new loan)\b/.test(combined)) return 'new_loan';
+
+  // No keyword — leave at new_loan so the processor can advance it.
   return 'new_loan';
 }
 

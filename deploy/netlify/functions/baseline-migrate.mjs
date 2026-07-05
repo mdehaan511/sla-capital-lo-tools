@@ -72,11 +72,17 @@ async function handle(req, context) {
       if (byStatus[r.status] !== undefined) byStatus[r.status]++;
       if (samples.length < sampleCap) {
         samples.push({
-          externalId:      r.externalId,
-          action:          r.action,
-          status:          r.status,
-          processingStage: r.processingStage,
-          changesCount:    r.changes ? r.changes.length : 0,
+          externalId:       r.externalId,
+          action:           r.action,
+          status:           r.status,
+          processingStage:  r.processingStage,
+          // Deploy 236.179 — echo Baseline's raw Status + Substatus
+          // in the sample so Mike can see WHICH Baseline label
+          // maps to WHICH SLA stage. Fastest way to iterate the
+          // mapper when something lands in the wrong column.
+          baselineStatus:    (rec && rec.Status)    || '',
+          baselineSubstatus: (rec && rec.Substatus) || '',
+          changesCount:     r.changes ? r.changes.length : 0,
         });
       }
     } catch (e) {

@@ -1787,15 +1787,20 @@ function _renderMigrateReport(r) {
       '<thead><tr style="background:#faf8f3">' +
         '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">External Id</th>' +
         '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Action</th>' +
-        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">SLA Status</th>' +
-        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Processing Stage</th>' +
+        // Deploy 236.179 — echo Baseline Status + Substatus so
+        // Mike can eyeball which Baseline label maps where.
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Baseline Status</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">→ SLA Status</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">→ Processing Stage</th>' +
         '<th style="text-align:right;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Changed Fields</th>' +
       '</tr></thead><tbody>' +
       r.samples.map(function(s) {
         var actionColor = s.action === 'created' ? '#166534' : s.action === 'updated' ? '#b5712d' : s.action === 'no_change' ? '#7a7488' : '#991b1b';
+        var blStatus = s.baselineStatus + (s.baselineSubstatus ? ' / ' + s.baselineSubstatus : '');
         return '<tr>' +
           '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px">' + escH(s.externalId) + '</td>' +
           '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;color:' + actionColor + ';font-weight:600">' + escH(s.action) + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px">' + escH(blStatus) + '</td>' +
           '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2">' + escH(s.status) + '</td>' +
           '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px;color:var(--muted)">' + escH(s.processingStage || '—') + '</td>' +
           '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;text-align:right;font-variant-numeric:tabular-nums">' + (s.changesCount || 0) + '</td>' +

@@ -226,6 +226,13 @@ var _sortDir = 'asc';       // 'asc' or 'desc' — asc = "most advanced" for sta
 // Previously closed lived only on closed.html and was hard-filtered
 // out of this view's getFiltered().
 var _statusFilters = { active: true, submitted: true, awaiting_app: true, approved: true, on_hold: false, denied: false, closed: false };
+// Deploy 236.179 — separate filter axis for Baseline-authored
+// "servicing" states (Sold, In Servicing, Liquidated). These land
+// in SLA as status='closed' so they never clutter the Pipeline;
+// this filter surfaces them when admins want to review the
+// servicing book. Independent of _statusFilters — turning either
+// on shows those loans regardless of the SLA status chips.
+var _baselineFilters = { sold: false, in_servicing: false };
 var _search = '';
 var _loFilter = '';
 // Deploy 236.29 — Select Multiple mode + selection set keyed by the
@@ -394,7 +401,21 @@ function renderFilterChips() {
       STATUS_LABELS[s] +
     '</span>';
   }).join('');
+  // Deploy 236.179 — Baseline "servicing" chips. Sit at the end
+  // with a subtle divider so they read as a separate axis (any
+  // active chip in either group shows the loan; think union).
+  html +=
+    '<span style="width:1px;height:20px;background:var(--border);margin:0 6px;align-self:center"></span>' +
+    '<span class="chip ' + (_baselineFilters.sold ? 'active' : '') + '" data-bl="sold" onclick="toggleBaselineFilter(\'sold\')">' +
+      '<span class="dot"></span>Sold</span>' +
+    '<span class="chip ' + (_baselineFilters.in_servicing ? 'active' : '') + '" data-bl="in_servicing" onclick="toggleBaselineFilter(\'in_servicing\')">' +
+      '<span class="dot"></span>In Servicing</span>';
   document.getElementById('filterChips').innerHTML = html;
+}
+function toggleBaselineFilter(key) {
+  _baselineFilters[key] = !_baselineFilters[key];
+  renderFilterChips();
+  renderTable();
 }
 
 function toggleStatusFilter(status) {
@@ -484,7 +505,14 @@ function getFiltered() {
     // The chip defaults off, so behavior is unchanged unless an admin
     // explicitly enables it (typically to prep a submission tape).
     // Default-OFF statuses must be explicitly toggled.
-    if (!_statusFilters[l.status || 'active']) return false;
+    // Deploy 236.179 — a loan passes if it matches SLA status filters
+    // OR any active Baseline (Sold / In Servicing) filter. Baseline
+    // chip acts as an override so admins can find servicing loans
+    // without having to also enable "closed".
+    var blStatus = String(l.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+    var soldPass = _baselineFilters.sold         && blStatus === 'sold';
+    var isInSvc  = _baselineFilters.in_servicing && (blStatus === 'in servicing' || blStatus === 'servicing');
+    if (!(_statusFilters[l.status || 'active'] || soldPass || isInSvc)) return false;
     // Deploy 236.37 — hide rows owned by users who are no longer in
     // Netlify Identity. _deletedOwners is populated by loadAll() from
     // users-stats. Empty set (Identity admin API unreachable) falls
