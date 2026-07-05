@@ -245,27 +245,66 @@ function _statusForSla(b) {
   return 'approved';
 }
 
-// Deploy 236.179 — pick the Processing Pipeline column that best
-// matches the Baseline Status / Substatus, so a loan Baseline says
-// is "In Underwriting" lands in the Underwriting column instead of
-// New Loan. Falls back to 'new_loan' when no keyword hits — the
-// processor can drag the card to the right column and the SLA-
-// authored preservation in _mergeLoanPreservingSla keeps their
-// move stable across future syncs.
+// Deploy 236.180 — explicit Baseline-substatus → SLA processing
+// column table, per Mike's mapping. Checked against normalized
+// Substatus (and Status, for safety) BEFORE the keyword fallback.
+// Anything not in this table falls through to the 236.179 regex
+// chain, then to 'new_loan' as the ultimate default. Adding a
+// new Baseline substatus later is a one-line edit here.
+const STAGE_LOOKUP = {
+  // New Loan
+  'dscr':                                    'new_loan',
+  'rtl':                                     'new_loan',
+  // Processing
+  'kick off email sent':                     'processing',
+  'appraisal paid':                          'processing',
+  'inspection scheduled':                    'processing',
+  'appraisal complete':                      'processing',
+  // Underwriting
+  'file review/underwriting':                'underwriting',
+  'file review underwriting':                'underwriting', // slash-stripped variant
+  'file submitted to investor':              'underwriting',
+  'conditions request':                      'underwriting',
+  'conditions cleared':                      'underwriting',
+  // Approved (pp_approved)
+  'final due diligence':                     'pp_approved',
+  'loan document prep':                      'pp_approved',
+  'loan docs sent':                          'pp_approved',
+  'clear to close':                          'pp_approved',
+  'funds wired':                             'pp_approved',
+  // Closed (pp_closed — last column IN the Processing Pipeline,
+  // not the SLA 'closed' status which is fully off-pipeline)
+  'post close review':                       'pp_closed',
+  'final doc verification':                  'pp_closed',
+  'submitted to investor awaiting approval': 'pp_closed',
+  'ready to board to servicer':              'pp_closed',
+  'boarded to servicer/awaiting close out':  'pp_closed',
+  'boarded to servicer awaiting close out':  'pp_closed', // slash-stripped variant
+};
+
+// Deploy 236.179/180 — pick the Processing Pipeline column that
+// best matches the Baseline Status / Substatus. Priority:
+//   1. Explicit table (Mike's mapping — deterministic).
+//   2. Keyword regex chain (permissive fallback).
+//   3. 'new_loan' default.
 function _processingStageForSla(b, slaStatus) {
   if (slaStatus !== 'approved') return '';
   const s   = _norm(b && b.Status);
   const sub = _norm(b && b.Substatus);
+
+  // 1. Exact lookup — check Substatus first (Mike stamps stage
+  //    names there), then Status as a safety net.
+  if (STAGE_LOOKUP[sub]) return STAGE_LOOKUP[sub];
+  if (STAGE_LOOKUP[s])   return STAGE_LOOKUP[s];
+
+  // 2. Keyword fallback for anything not in the table.
   const combined = (s + ' ' + sub).trim();
-
-  // Order matters — check specific patterns first, broader last.
   if (/\bunderwrit/.test(combined))                       return 'underwriting';
-  if (/\b(clear to close|cleared|closing|final review|ready to fund|ready to close)\b/.test(combined)) return 'pp_closed';
-  if (/\b(post uw|uw approved|approved)\b/.test(combined)) return 'pp_approved';
-  if (/\bprocess/.test(combined))                          return 'processing';
-  if (/\b(new|intake|received|new loan)\b/.test(combined)) return 'new_loan';
+  if (/\b(clear to close|cleared|closing|final review|ready to fund|ready to close|final doc|post close|boarded)\b/.test(combined)) return 'pp_closed';
+  if (/\b(post uw|uw approved|approved|clear to close|due diligence|doc prep|docs sent|funds wired)\b/.test(combined)) return 'pp_approved';
+  if (/\bprocess|appraisal|inspection|kick off/.test(combined)) return 'processing';
+  if (/\b(new|intake|received|new loan|dscr|rtl)\b/.test(combined)) return 'new_loan';
 
-  // No keyword — leave at new_loan so the processor can advance it.
   return 'new_loan';
 }
 
