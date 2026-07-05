@@ -119,6 +119,19 @@ export async function saveMirroredLoan(externalId, loan) {
   return record;
 }
 
+// Deploy 236.176 — remove a mirror entry. Used by the "delete
+// ghost" flow when Baseline 404s on the Id — meaning the loan no
+// longer exists in Baseline and the mirror row is a fossil.
+export async function deleteMirroredLoan(externalId) {
+  try {
+    await mirrorStore().delete(keyForLoan(externalId));
+    return true;
+  } catch (e) {
+    console.warn('deleteMirroredLoan error:', e && e.message);
+    return false;
+  }
+}
+
 /** Walk the entire mirror. Returns array of loan records. */
 export async function listMirroredLoans() {
   const out = [];

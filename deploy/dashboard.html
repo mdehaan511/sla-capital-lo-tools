@@ -159,6 +159,11 @@
         <input type="checkbox" id="mirrorForce" /> force re-fetch all
       </label>
       <button class="btn-primary" id="mirrorSyncBtn" onclick="runMirrorSync()">Sync from Baseline</button>
+      <!-- Deploy 236.176 — detect + purge mirror entries that no
+           longer exist in Baseline (404s on refetch). Two-step:
+           first click = dry-run report; second click on the
+           follow-up = actual purge. Uses confirm() dialogs. -->
+      <button class="btn-primary" id="mirrorPurgeBtn" onclick="runGhostPurge()" style="background:transparent;color:#991b1b;border:1px solid rgba(185,28,28,0.40)">Detect Ghosts</button>
     </div>
   </div>
 
@@ -1673,6 +1678,77 @@ function cdmToggleInspect(idx) {
   if (caret) caret.textContent = '▾';
 }
 
+// Deploy 236.176 — single-loan delete from mirror. Called from
+// the diagnostic panel when Baseline returns 404 (ghost row).
+function deleteMirrorEntry(id, idx) {
+  if (!confirm('Delete ' + id + ' from the mirror? This removes only our cached copy; if Baseline resurrects the loan, next sync will re-add it.')) return;
+  var panel = document.getElementById('cdmBaseline_' + idx);
+  if (panel) panel.innerHTML = '<span style="color:var(--muted)">Deleting…</span>';
+  SLA.api('POST', '/api/baseline-mirror-delete', { id: id }).then(function(r) {
+    if (!r || !r.ok) {
+      if (panel) panel.innerHTML = '<span style="color:#b91c1c">Delete failed: ' + escH(r && r.error || 'unknown') + '</span>';
+      return;
+    }
+    if (panel) panel.innerHTML = '<span style="color:#166534;font-weight:600">✓ Removed from mirror.</span>';
+    // Drop from in-memory _loans + cache + re-render so it vanishes
+    // from the charts immediately without a full reload.
+    for (var i = _loans.length - 1; i >= 0; i--) {
+      if (_loans[i] && _loans[i].Id === id) { _loans.splice(i, 1); break; }
+    }
+    _saveCache(_loans);
+    renderAll();
+  }).catch(function(err) {
+    if (panel) panel.innerHTML = '<span style="color:#b91c1c">Delete failed: ' + escH(err && err.message || 'unknown') + '</span>';
+  });
+}
+
+// Deploy 236.176 — bulk ghost detection + optional purge. Runs
+// as a two-step flow so admins see what would be removed BEFORE
+// anything gets deleted.
+function runGhostPurge() {
+  var btn = document.getElementById('mirrorPurgeBtn');
+  var prog = document.getElementById('syncProgress');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  var origLabel = btn.textContent;
+  btn.textContent = 'Detecting…';
+  prog.textContent = 'Comparing mirror to current Baseline list…';
+  SLA.api('POST', '/api/baseline-mirror-purge-ghosts', { dryRun: true }).then(function(r) {
+    btn.disabled = false; btn.textContent = origLabel;
+    if (!r || !r.ok) { prog.textContent = 'Detect failed: ' + (r && r.error || 'unknown'); return; }
+    prog.textContent = '';
+    if (!r.ghostCount) {
+      alert('No ghost entries found. Mirror (' + r.mirrorCount + ') matches Baseline list (' + r.baselineListCount + ').');
+      return;
+    }
+    // Summarize the ghosts and ask for a real purge confirmation.
+    var lines = r.ghosts.slice(0, 20).map(function(g) {
+      return '  · ' + g.id + '  ' + (g.status || '?') + (g.substatus ? ' / ' + g.substatus : '') + '  ' + (g.address || '');
+    });
+    if (r.ghosts.length > 20) lines.push('  · … and ' + (r.ghosts.length - 20) + ' more');
+    var msg = 'Found ' + r.ghostCount + ' ghost mirror entr' + (r.ghostCount === 1 ? 'y' : 'ies') + ' (in mirror but NOT in Baseline\'s current list):\n\n' +
+              lines.join('\n') + '\n\n' +
+              'Delete all ' + r.ghostCount + ' from the mirror now?\n\n' +
+              'Mirror total: ' + r.mirrorCount + '  ·  Baseline list: ' + r.baselineListCount;
+    if (!confirm(msg)) return;
+    btn.disabled = true; btn.textContent = 'Purging…';
+    prog.textContent = 'Purging ' + r.ghostCount + ' ghost entries…';
+    SLA.api('POST', '/api/baseline-mirror-purge-ghosts', { dryRun: false }).then(function(r2) {
+      btn.disabled = false; btn.textContent = origLabel;
+      if (!r2 || !r2.ok) { prog.textContent = 'Purge failed: ' + (r2 && r2.error || 'unknown'); return; }
+      prog.textContent = 'Purged ' + r2.purged + ' ghost entries. Refreshing…';
+      loadMirror({ forceFresh: true });
+      setTimeout(function() { prog.textContent = ''; }, 6000);
+    }).catch(function(err) {
+      btn.disabled = false; btn.textContent = origLabel;
+      prog.textContent = 'Purge failed: ' + (err && err.message || 'unknown');
+    });
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = origLabel;
+    prog.textContent = 'Detect failed: ' + (err && err.message || 'unknown');
+  });
+}
+
 // Deploy 236.175 — hits /api/baseline-refetch-loan, renders a
 // side-by-side diff panel inside the row's inspector. `save` flag
 // also overwrites the mirror with the fresh detail response.
@@ -1681,7 +1757,22 @@ function refetchFromBaseline(id, idx, save) {
   if (!panel) return;
   panel.innerHTML = '<span style="color:var(--muted)">' + (save ? 'Fetching + saving…' : 'Fetching from Baseline…') + '</span>';
   SLA.api('POST', '/api/baseline-refetch-loan', { id: id, save: !!save }).then(function(r) {
-    if (!r || !r.ok) { panel.innerHTML = '<span style="color:#b91c1c">' + escH(r && r.error || 'Unknown error') + '</span>'; return; }
+    if (!r || !r.ok) {
+      // Deploy 236.176 — a 404 from Baseline means this loan doesn't
+      // exist in Baseline anymore. The mirror row is a ghost (fossil
+      // from a prior sync). Offer a Delete From Mirror action so
+      // admins can clean it up individually.
+      var msg = r && r.error || 'Unknown error';
+      var is404 = /HTTP 404|status\s*404/i.test(msg);
+      if (is404) {
+        panel.innerHTML =
+          '<div style="color:#b91c1c;margin-bottom:8px"><strong>Ghost mirror entry.</strong> Baseline returned 404 — this loan no longer exists there. The mirror is holding a fossil from a previous sync.</div>' +
+          '<button onclick="event.stopPropagation();deleteMirrorEntry(\'' + escH(id) + '\', ' + idx + ')" style="font-size:11px;font-weight:600;padding:5px 11px;border:1px solid rgba(185,28,28,0.40);background:rgba(185,28,28,0.10);color:#991b1b;border-radius:6px;cursor:pointer;font-family:inherit">Delete From Mirror</button>';
+      } else {
+        panel.innerHTML = '<span style="color:#b91c1c">' + escH(msg) + '</span>';
+      }
+      return;
+    }
     var diffs = r.diffs || {};
     var rowsHtml = Object.keys(diffs).map(function(k) {
       var d = diffs[k];

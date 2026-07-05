@@ -794,6 +794,18 @@
   to = "/.netlify/functions/baseline-refetch-loan"
   status = 200
   force = true
+# Deploy 236.176 — ghost-mirror cleanup. Single-loan delete +
+# bulk detect/purge for loans that no longer exist in Baseline.
+[[redirects]]
+  from = "/api/baseline-mirror-delete"
+  to = "/.netlify/functions/baseline-mirror-delete"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/baseline-mirror-purge-ghosts"
+  to = "/.netlify/functions/baseline-mirror-purge-ghosts"
+  status = 200
+  force = true
 
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
