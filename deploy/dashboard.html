@@ -164,6 +164,11 @@
            first click = dry-run report; second click on the
            follow-up = actual purge. Uses confirm() dialogs. -->
       <button class="btn-primary" id="mirrorPurgeBtn" onclick="runGhostPurge()" style="background:transparent;color:#991b1b;border:1px solid rgba(185,28,28,0.40)">Detect Ghosts</button>
+      <!-- Deploy 236.178 (Baseline Migration Stage 2) — one-click
+           dry-run + review modal for importing every mirrored
+           Baseline loan into the SLA clients store. Second click
+           after review commits the real write. -->
+      <button class="btn-primary" id="migrateBaselineBtn" onclick="openMigrateModal()" style="background:rgba(21,128,61,0.10);color:#166534;border:1px solid rgba(21,128,61,0.40)">Migrate from Baseline</button>
     </div>
   </div>
 
@@ -301,6 +306,29 @@
     <!-- Footer -->
     <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;flex-shrink:0">
       <button type="button" class="btn" onclick="closeChartDrilldown()" style="font-size:13px;padding:7px 18px">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deploy 236.178 — Baseline migration review modal. Opened by
+     the "Migrate from Baseline" header button. Loads a dry-run
+     report on open; the Commit Import button re-runs with
+     dryRun:false and refreshes the report with real counts. -->
+<div id="migrateModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this) closeMigrateModal()">
+  <div style="background:#fff;max-width:900px;width:100%;max-height:90vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark)">Migrate Baseline → SLA</div>
+        <div id="migrateSubtitle" style="font-size:12px;color:var(--muted);margin-top:2px">Dry-run report — nothing has been written yet.</div>
+      </div>
+      <button type="button" onclick="closeMigrateModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>
+    </div>
+    <div id="migrateBody" style="padding:18px 22px;overflow:auto;flex:1">
+      <div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Running dry-run against Baseline mirror…</div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">
+      <button type="button" onclick="closeMigrateModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Close</button>
+      <button type="button" id="migrateCommitBtn" onclick="runMigrateCommit()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(21,128,61,0.40);background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Commit Import (writes to SLA)</button>
     </div>
   </div>
 </div>
@@ -1676,6 +1704,132 @@ function cdmToggleInspect(idx) {
   }
   row.style.display = '';
   if (caret) caret.textContent = '▾';
+}
+
+// Deploy 236.178 — Baseline migration modal. Opens a modal with a
+// dry-run report of what would be created/updated, then a commit
+// button flips dryRun:false to actually write. Runs against every
+// mirrored Baseline loan; the upsert helper on the backend handles
+// idempotency + preserves SLA-authored fields.
+function openMigrateModal() {
+  var modal = document.getElementById('migrateModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('migrateSubtitle').textContent = 'Dry-run report — nothing has been written yet.';
+  document.getElementById('migrateBody').innerHTML =
+    '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Running dry-run against Baseline mirror…</div>';
+  document.getElementById('migrateCommitBtn').disabled = true;
+  _runMigrateInternal(true);
+}
+function closeMigrateModal() {
+  var modal = document.getElementById('migrateModal');
+  if (modal) modal.style.display = 'none';
+}
+function runMigrateCommit() {
+  var btn = document.getElementById('migrateCommitBtn');
+  if (btn.disabled) return;
+  if (!confirm('Commit the migration? This will write every mirrored Baseline loan into the SLA clients store under the baseline-migration pseudo-owner. Idempotent — safe to re-run.')) return;
+  document.getElementById('migrateSubtitle').textContent = 'Running real migration…';
+  document.getElementById('migrateBody').innerHTML =
+    '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Writing to SLA…</div>';
+  btn.disabled = true;
+  _runMigrateInternal(false);
+}
+function _runMigrateInternal(dryRun) {
+  SLA.api('POST', '/api/baseline-migrate', { dryRun: !!dryRun }).then(function(r) {
+    if (!r || !r.ok) {
+      document.getElementById('migrateBody').innerHTML =
+        '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(r && r.error || 'unknown') + '</div>';
+      return;
+    }
+    _renderMigrateReport(r);
+  }).catch(function(err) {
+    document.getElementById('migrateBody').innerHTML =
+      '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+function _renderMigrateReport(r) {
+  var subtitle = document.getElementById('migrateSubtitle');
+  var body     = document.getElementById('migrateBody');
+  var commit   = document.getElementById('migrateCommitBtn');
+  var dryRun   = !!r.dryRun;
+  subtitle.textContent = dryRun
+    ? 'Dry-run report — nothing has been written yet. Review below and click Commit Import to write.'
+    : '✓ Migration committed. Loans now live in the SLA clients store under ' + escH(r.importOwner || '') + '.';
+
+  var bs = r.byStatus || {};
+  var summaryTiles =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem">' +
+      _tile('Loans in mirror', r.mirrorCount) +
+      _tile('Processed',       r.processed) +
+      _tile('Would create',    r.created,   dryRun ? '' : 'Created', dryRun ? '#166534' : '#166534') +
+      _tile('Would update',    r.updated,   dryRun ? '' : 'Updated', '#b5712d') +
+      _tile('No change',       r.noChange) +
+      _tile('Errors',          r.errorCount || 0, '', r.errorCount ? '#991b1b' : 'var(--muted)') +
+    '</div>';
+
+  var statusTiles =
+    '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">By SLA Status</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(5,minmax(90px,1fr));gap:8px;margin-bottom:1.25rem">' +
+      _tile('active',    bs.active    || 0, '', '#7a7488') +
+      _tile('approved',  bs.approved  || 0, 'In Processing Pipeline', '#166534') +
+      _tile('on_hold',   bs.on_hold   || 0, '', '#854d0e') +
+      _tile('closed',    bs.closed    || 0, '', '#1e40af') +
+      _tile('denied',    bs.denied    || 0, '', '#991b1b') +
+    '</div>';
+
+  var samplesHtml = '';
+  if (Array.isArray(r.samples) && r.samples.length) {
+    samplesHtml =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">First ' + r.samples.length + ' samples</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:#faf8f3">' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">External Id</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Action</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">SLA Status</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Processing Stage</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Changed Fields</th>' +
+      '</tr></thead><tbody>' +
+      r.samples.map(function(s) {
+        var actionColor = s.action === 'created' ? '#166534' : s.action === 'updated' ? '#b5712d' : s.action === 'no_change' ? '#7a7488' : '#991b1b';
+        return '<tr>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px">' + escH(s.externalId) + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;color:' + actionColor + ';font-weight:600">' + escH(s.action) + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2">' + escH(s.status) + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px;color:var(--muted)">' + escH(s.processingStage || '—') + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;text-align:right;font-variant-numeric:tabular-nums">' + (s.changesCount || 0) + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+  }
+
+  var errorsHtml = '';
+  if (Array.isArray(r.errors) && r.errors.length) {
+    errorsHtml = '<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:1rem">' +
+      '<strong>' + r.errorCount + ' error' + (r.errorCount === 1 ? '' : 's') + '</strong>. First ' + r.errors.length + ':<br>' +
+      r.errors.map(function(e) { return '· ' + escH(e.id || '?') + ' — ' + escH(e.error); }).join('<br>') +
+    '</div>';
+  }
+
+  var ownerNote = '<div style="padding:10px 12px;background:#faf8f3;border-radius:6px;font-size:12px;color:var(--muted);margin-bottom:1rem">' +
+    'Pseudo-owner: <code style="background:#fff;padding:1px 5px;border-radius:3px;font-size:11px">' + escH(r.importOwner || '') + '</code>. Loans in this owner\'s book appear in the Processing Pipeline (approved) or their status-appropriate views. When the processing team is added to SLA, use the existing user-reassign flow to migrate ownership.' +
+  '</div>';
+
+  var nextStep = dryRun
+    ? '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">Numbers look right? Click <strong>Commit Import</strong> below to write.</div>'
+    : '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">✓ Done. Open the <a href="processing-pipeline.html" style="color:#166534;font-weight:600;text-decoration:underline">Processing Pipeline</a> to see the newly-imported loans.</div>';
+
+  body.innerHTML = summaryTiles + statusTiles + samplesHtml + errorsHtml + ownerNote + nextStep;
+  commit.disabled = !dryRun; // enable Commit only when we\'ve just shown a dry-run
+}
+function _tile(label, value, sub, color) {
+  color = color || 'var(--text)';
+  return '<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px">' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);font-weight:600">' + escH(label) + '</div>' +
+    '<div style="font-size:18px;font-weight:700;margin-top:2px;color:' + color + '">' + (value == null ? '—' : escH(String(value))) + '</div>' +
+    (sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(sub) + '</div>' : '') +
+  '</div>';
 }
 
 // Deploy 236.176 — single-loan delete from mirror. Called from
