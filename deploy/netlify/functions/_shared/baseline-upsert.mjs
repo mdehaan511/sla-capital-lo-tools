@@ -35,8 +35,14 @@ export const IMPORT_OWNER_KEY   = keySafe(normalizeEmail(IMPORT_OWNER_EMAIL));
 // Baseline-authored fields on a loan record. These get overwritten
 // on every sync (Baseline stays authoritative until cutover). Any
 // field NOT listed here is SLA-authored and preserved verbatim.
+// Deploy 236.181 — processingStage added. Without it here, a
+// re-migration never propagated new column mappings — the merge
+// kept whatever processingStage the prior migration wrote, so
+// improvements to the mapping table were silent no-ops. The
+// preservation logic in _mergeLoanPreservingSla still keeps
+// processor-advanced stages (anything != 'new_loan') intact.
 const BASELINE_AUTHORED_FIELDS = [
-  'address', 'loanAmt', 'loanType', 'loanTypeLabel', 'status',
+  'address', 'loanAmt', 'loanType', 'loanTypeLabel', 'status', 'processingStage',
   'rate', 'points', 'fundingDate', 'propValue',
   'baselineStatus', 'baselineSubstatus', 'baselineOwnerName',
   'baselineArchivedAt', '_baselineRaw', '_baselineMirroredAt',
