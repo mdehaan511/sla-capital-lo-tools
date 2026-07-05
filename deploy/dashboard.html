@@ -1764,17 +1764,82 @@ function runMigrateCommit() {
   btn.disabled = true;
   _runMigrateInternal(false);
 }
+// Deploy 236.185 — chunk the migration so we never blow past
+// Netlify's ~26s function timeout. Each POST processes at most
+// MIGRATE_CHUNK mirror records; we loop until offset reaches
+// mirrorCount, aggregating counts and samples as we go.
+// Progress bar updates between chunks. Previously this was a
+// single call over the whole mirror (~250+ loans, ~2 blob ops
+// each with linked-upsert path) which was timing out at 504.
+var MIGRATE_CHUNK = 40;
 function _runMigrateInternal(dryRun) {
-  SLA.api('POST', '/api/baseline-migrate', { dryRun: !!dryRun }).then(function(r) {
-    if (!r || !r.ok) {
-      document.getElementById('migrateBody').innerHTML =
-        '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(r && r.error || 'unknown') + '</div>';
-      return;
-    }
-    _renderMigrateReport(r);
-  }).catch(function(err) {
-    document.getElementById('migrateBody').innerHTML =
-      '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(err && err.message || 'unknown') + '</div>';
+  var body = document.getElementById('migrateBody');
+  var agg = {
+    ok: true, dryRun: !!dryRun,
+    mirrorCount: 0, processed: 0,
+    created: 0, updated: 0, noChange: 0, skipped: 0,
+    errors: [], errorCount: 0,
+    byStatus: { active: 0, approved: 0, closed: 0, denied: 0, on_hold: 0 },
+    samples: [],
+    importOwner: '', importOwnerKey: '',
+    chunkCount: 0,
+  };
+  var offset = 0;
+
+  function renderProgress(pct, label) {
+    var pctStr = Math.floor(pct * 100);
+    body.innerHTML =
+      '<div style="text-align:center;padding:2rem">' +
+        '<div style="font-style:italic;color:var(--muted);margin-bottom:1rem">' + escH(label) + '</div>' +
+        '<div style="max-width:400px;margin:0 auto;background:#f4efe2;border-radius:8px;height:12px;overflow:hidden">' +
+          '<div style="width:' + pctStr + '%;height:100%;background:#166534;transition:width 0.3s"></div>' +
+        '</div>' +
+        '<div style="margin-top:8px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">' + pctStr + '% — ' + agg.processed + (agg.mirrorCount ? ' / ' + agg.mirrorCount : '') + ' processed</div>' +
+      '</div>';
+  }
+
+  function tick() {
+    return SLA.api('POST', '/api/baseline-migrate', {
+      dryRun: !!dryRun,
+      offset: offset,
+      limit:  MIGRATE_CHUNK,
+    }).then(function(r) {
+      if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+      agg.chunkCount++;
+      agg.mirrorCount    = r.mirrorCount || agg.mirrorCount;
+      agg.processed     += r.processed || 0;
+      agg.created       += r.created   || 0;
+      agg.updated       += r.updated   || 0;
+      agg.noChange      += r.noChange  || 0;
+      agg.skipped       += r.skipped   || 0;
+      agg.errorCount    += r.errorCount || 0;
+      agg.importOwner    = r.importOwner    || agg.importOwner;
+      agg.importOwnerKey = r.importOwnerKey || agg.importOwnerKey;
+      if (r.byStatus) {
+        Object.keys(r.byStatus).forEach(function(k) {
+          agg.byStatus[k] = (agg.byStatus[k] || 0) + (r.byStatus[k] || 0);
+        });
+      }
+      if (Array.isArray(r.errors) && agg.errors.length < 20) {
+        agg.errors = agg.errors.concat(r.errors).slice(0, 20);
+      }
+      if (Array.isArray(r.samples) && agg.samples.length < 20) {
+        agg.samples = agg.samples.concat(r.samples).slice(0, 20);
+      }
+      offset += (r.processed || 0);
+      var done = agg.mirrorCount > 0 && offset >= agg.mirrorCount;
+      if (!done && (r.processed || 0) === 0) done = true; // guard against server returning empty
+      if (done) return _renderMigrateReport(agg);
+      renderProgress(agg.mirrorCount ? offset / agg.mirrorCount : 0,
+        (dryRun ? 'Dry-run chunk ' : 'Committing chunk ') + agg.chunkCount + '…');
+      return tick();
+    });
+  }
+
+  renderProgress(0, dryRun ? 'Starting dry-run…' : 'Starting migration…');
+  tick().catch(function(err) {
+    body.innerHTML =
+      '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed at chunk ' + (agg.chunkCount + 1) + ' (offset ' + offset + '): ' + escH(err && err.message || 'unknown') + '</div>';
   });
 }
 function _renderMigrateReport(r) {
