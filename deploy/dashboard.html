@@ -1836,8 +1836,27 @@ function _runMigrateInternal(dryRun) {
     });
   }
 
-  renderProgress(0, dryRun ? 'Starting dry-run…' : 'Starting migration…');
-  tick().catch(function(err) {
+  // Deploy 236.186 — self-healing preflight. Runs BEFORE any
+  // chunks so the migrate loop can't recreate duplicates.
+  // Back-fills native-links + deletes orphan import copies from
+  // pre-link Migrate runs. Fully idempotent; safe every time.
+  renderProgress(0, 'Preflight — linking merged loans + clearing orphan copies…');
+  SLA.api('POST', '/api/baseline-migrate-preflight', {}).then(function(pf) {
+    if (pf && pf.ok) {
+      agg.preflight = {
+        linksWritten:    pf.linksWritten    || 0,
+        linksAlreadyOk:  pf.linksAlreadyOk  || 0,
+        orphanedDeleted: pf.orphanedDeleted || 0,
+      };
+    } else {
+      // Don't fail the whole migration if preflight glitches — just
+      // note it and press on. The chunk loop still works, might just
+      // create the odd duplicate that Merge Duplicates can clean up.
+      agg.preflight = { warning: (pf && pf.error) || 'preflight returned no ok' };
+    }
+    renderProgress(0, dryRun ? 'Starting dry-run…' : 'Starting migration…');
+    return tick();
+  }).catch(function(err) {
     body.innerHTML =
       '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed at chunk ' + (agg.chunkCount + 1) + ' (offset ' + offset + '): ' + escH(err && err.message || 'unknown') + '</div>';
   });
@@ -1915,11 +1934,30 @@ function _renderMigrateReport(r) {
     'Pseudo-owner: <code style="background:#fff;padding:1px 5px;border-radius:3px;font-size:11px">' + escH(r.importOwner || '') + '</code>. Loans in this owner\'s book appear in the Processing Pipeline (approved) or their status-appropriate views. When the processing team is added to SLA, use the existing user-reassign flow to migrate ownership.' +
   '</div>';
 
+  // Deploy 236.186 — preflight summary. Shows what the auto-heal
+  // step did: links written, orphaned import copies deleted.
+  var preflightHtml = '';
+  var pf = r.preflight;
+  if (pf && (pf.linksWritten || pf.orphanedDeleted || pf.linksAlreadyOk || pf.warning)) {
+    if (pf.warning) {
+      preflightHtml = '<div style="padding:10px 12px;background:#fef3c7;color:#854d0e;border-radius:6px;font-size:12px;margin-bottom:1rem">' +
+        'Preflight warning: ' + escH(String(pf.warning)) + '. Migration ran anyway; if duplicates appear, use Merge Duplicates to clean up.' +
+      '</div>';
+    } else {
+      preflightHtml = '<div style="padding:10px 12px;background:rgba(30,64,175,0.08);color:#1e40af;border-radius:6px;font-size:12px;margin-bottom:1rem">' +
+        '<strong>Preflight:</strong> ' +
+        (pf.linksWritten    || 0) + ' native link' + ((pf.linksWritten || 0) === 1 ? '' : 's') + ' written · ' +
+        (pf.linksAlreadyOk  || 0) + ' already ok · ' +
+        (pf.orphanedDeleted || 0) + ' orphaned import cop' + ((pf.orphanedDeleted || 0) === 1 ? 'y' : 'ies') + ' deleted.' +
+      '</div>';
+    }
+  }
+
   var nextStep = dryRun
     ? '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">Numbers look right? Click <strong>Commit Import</strong> below to write.</div>'
     : '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">✓ Done. Open the <a href="processing-pipeline.html" style="color:#166534;font-weight:600;text-decoration:underline">Processing Pipeline</a> to see the newly-imported loans.</div>';
 
-  body.innerHTML = summaryTiles + statusTiles + samplesHtml + errorsHtml + ownerNote + nextStep;
+  body.innerHTML = preflightHtml + summaryTiles + statusTiles + samplesHtml + errorsHtml + ownerNote + nextStep;
   commit.disabled = !dryRun; // enable Commit only when we\'ve just shown a dry-run
 }
 function _tile(label, value, sub, color) {

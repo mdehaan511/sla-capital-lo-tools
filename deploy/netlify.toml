@@ -825,6 +825,16 @@
   status = 200
   force = true
 
+# Deploy 236.186 — self-healing preflight for Migrate. Runs BEFORE
+# the chunk loop: parallel-walks the clients store, back-fills
+# native links for previously-merged loans, and deletes orphaned
+# import-copy clients that a pre-link Migrate recreated. Idempotent.
+[[redirects]]
+  from = "/api/baseline-migrate-preflight"
+  to = "/.netlify/functions/baseline-migrate-preflight"
+  status = 200
+  force = true
+
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
 # investor (with prompt caching) so verdicts are judged against the
