@@ -405,7 +405,12 @@ const DIYA = {
     "1.00-1.19": [0,0,0,0,0,0,0],
     "1.20+":     [-0.050,-0.050,-0.050,-0.050,-0.075,-0.100,-0.125],
   },
-  ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.150, "320":0.200, "300":0.300 },
+  // Deploy 236.216 — "No Prepayment" option added. Placeholder
+  // adjustment of +0.500% reflects the typical premium lenders
+  // charge to give up all prepayment lockout; adjust per rate sheet
+  // update if Diya publishes an official number. Rate override still
+  // available if the LO needs a specific number for a given loan.
+  ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.150, "320":0.200, "300":0.300, "none":0.500 },
 
   // TPO rate adjustments by premium percentage. Deploy 236.39 -- this
   // table is no longer consulted by calculate() for the buy-down
@@ -819,6 +824,7 @@ function getFICOMin(ficoStr) {
             <option value="321">3-Year (321)</option>
             <option value="320">2-Year (320)</option>
             <option value="300">1-Year (300)</option>
+            <option value="none">No Prepayment Penalty</option>
           </select>
         </div>
       </div>
@@ -2160,7 +2166,7 @@ function _generateRateSheetPDF(opts) {
   // ── LOAN DETAILS — two-column table ────────────────────────
   var ptLabel = {sfr:'Single Family','2-4':'2-4 Unit',nw_condo:'Non-Warrantable Condo',portfolio:'Portfolio'};
   var purposeLabel = {purchase:'Purchase',refi_rt:'Rate/Term Refi',refi_co:'Cash-Out Refi'};
-  var ppLabel = {'5y6m':'5-Year / 6-Month (5Yr/6Mo)','54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)'};
+  var ppLabel = {'5y6m':'5-Year / 6-Month (5Yr/6Mo)','54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)','none':'No Prepayment Penalty'};
 
   // Property Address now lives in the dark hero band above — no longer
   // included in the two-column details grid where it was getting truncated.

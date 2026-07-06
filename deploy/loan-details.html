@@ -4220,6 +4220,16 @@ function saveLoanFinInlineEdit(field, newVal, bg, btn) {
     _loan = r.loan;
     var lidx = (_client && _client.loans || []).findIndex(function(l) { return l && l.id === _loanId; });
     if (lidx >= 0) _client.loans[lidx] = r.loan;
+    // Deploy 236.216 — invalidate the SWR clients cache so a
+    // subsequent "Open in Sizer" click reads the FRESH loan record
+    // (with mirrored _rateOverride / _pointsOverride) instead of
+    // the localStorage snapshot from before this edit. Without
+    // this, the sizer's applyLockedOverride path pulled stale
+    // formData and edits looked like they had never happened.
+    try {
+      localStorage.removeItem('sla_cache_clients');
+      localStorage.removeItem('sla_cache_clients_all');
+    } catch (_) {}
     bg.remove();
     // Re-render Loan Details — the existing render() pipeline rebuilds
     // every section from the new loan state. tabs / hash / sidebar
@@ -4243,6 +4253,11 @@ function restoreLoanFinancials() {
     _loan = r.loan;
     var lidx = (_client && _client.loans || []).findIndex(function(l) { return l && l.id === _loanId; });
     if (lidx >= 0) _client.loans[lidx] = r.loan;
+    // Deploy 236.216 — same cache-clear rationale as saveLoanFinInlineEdit.
+    try {
+      localStorage.removeItem('sla_cache_clients');
+      localStorage.removeItem('sla_cache_clients_all');
+    } catch (_) {}
     render();
   }).catch(function(err) {
     alert('Restore failed: ' + (err && err.message || 'unknown'));
