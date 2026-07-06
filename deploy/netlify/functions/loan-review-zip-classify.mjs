@@ -117,12 +117,58 @@ function _normFilename(fn) {
     .replace(/[^a-z0-9]+/g, ' ')            // any non-alnum → space
     .trim();
 }
-// Very cheap slug guess: if the filename contains most tokens of a
-// slug's label OR its slug identifier, mark 'high' confidence.
+// Deploy 236.211 — more forgiving heuristic. Previously required 60%
+// of the label's tokens to appear in the filename — too strict for
+// long labels like "Verification of Housing Cost (CorrFirst Only)".
+// New scoring: hits / min(fnTokens, targets), with a lower threshold.
+// Anything <0.75 falls through to Claude Haiku, which has the full
+// context to sort it.
+const ABBREVIATIONS = {
+  aoo: ['articles of organization'],
+  oa: ['operating agreement'],
+  cogs: ['certificate of good standing'],
+  cog: ['certificate of good standing'],
+  psa: ['purchase and sale agreement'],
+  sow: ['statement of work'],
+  air: ['appraisal independence report'],
+  cda: ['cda report'],
+  bpo: ['bpo valuation'],
+  vom: ['verification of mortgage'],
+  voh: ['verification of housing cost'],
+  pfs: ['personal financial statement'],
+  ein: ['ein letter or w9'],
+  w9:  ['ein letter or w9'],
+  ofac: ['ofac check'],
+  cpl: ['closing protection letter'],
+  emd: ['emd receipt'],
+  ach: ['voided check ach letter'],
+  pma: ['property management agreement'],
+  pmq: ['property management questionnaire'],
+  loe: ['letter of explanation'],
+  reo: ['track record reo schedule'],
+  eoi: ['evidence of insurance'],
+  pif: ['proof of insurance paid in full'],
+};
+
+function _expandAbbreviations(normFilename) {
+  // Add expansion tokens to the filename token set so, e.g., "AOO.pdf"
+  // matches "articles of organization" via label-token overlap.
+  const tokens = normFilename.split(/\s+/).filter(Boolean);
+  const expanded = new Set(tokens);
+  for (const t of tokens) {
+    const expansions = ABBREVIATIONS[t];
+    if (!expansions) continue;
+    for (const phrase of expansions) {
+      for (const w of phrase.split(/\s+/)) expanded.add(w);
+    }
+  }
+  return expanded;
+}
+
 function _heuristic(normFilename, slugs) {
+  const fnTokens = _expandAbbreviations(normFilename);
   let bestScore = 0;
   let bestSlug = null;
-  const fnTokens = new Set(normFilename.split(/\s+/).filter(Boolean));
   for (const s of slugs) {
     const labelTokens = new Set(_normFilename(s.label).split(/\s+/).filter((t) => t.length > 2));
     const slugTokens  = new Set(s.slug.replace(/_/g, ' ').split(/\s+/).filter((t) => t.length > 2));
@@ -130,10 +176,14 @@ function _heuristic(normFilename, slugs) {
     if (!targets.size) continue;
     let hits = 0;
     for (const t of targets) if (fnTokens.has(t)) hits++;
-    const score = hits / targets.size;
+    if (hits < 1) continue;
+    // Score: hits / min(fnTokens length, target length). Favors
+    // matches where the filename mostly consists of doc-name tokens
+    // (short filenames like "psa.pdf") without punishing long labels.
+    const score = hits / Math.min(Math.max(fnTokens.size, 1), targets.size);
     if (score > bestScore) { bestScore = score; bestSlug = s.slug; }
   }
-  if (bestScore >= 0.6) return { slug: bestSlug, confidence: 'high', reason: 'filename tokens match label' };
+  if (bestScore >= 0.75) return { slug: bestSlug, confidence: 'high', reason: 'filename tokens match label' };
   return null; // let Claude decide
 }
 
@@ -145,14 +195,26 @@ async function _classifyWithClaude(filenames, slugs) {
   const checklistLines = slugs.map((s, i) => `${i + 1}. ${s.slug} — "${s.label}"${s.hint ? ' — ' + s.hint : ''}`).join('\n');
   const filenameLines  = filenames.map((f, i) => `${i + 1}. ${f}`).join('\n');
 
+  // Deploy 236.211 — expanded system prompt with abbreviation
+  // examples + a stronger nudge to use 'high' when the filename
+  // plainly names the doc. The old prompt was too conservative,
+  // dumping obvious matches into the ambiguous picker.
   const system =
     "You classify loan-document filenames into a fixed checklist. " +
     "For each filename, pick the single best slug from the checklist, or return null if unclear. " +
-    "Base your decision on the filename ONLY — you cannot see the file contents. " +
-    "Return strictly JSON matching the schema: " +
-    '{"assignments":[{"filename":"...","slug":"..."|null,"confidence":"high"|"low"|"unknown","reason":"..."}]}. ' +
-    "Use 'high' when the filename clearly names the doc (\"appraisal.pdf\", \"psa - 123 main.pdf\"). " +
-    "Use 'low' when it's a plausible guess but ambiguous. Use 'unknown' with slug:null when nothing fits.";
+    "Base your decision on the filename ONLY (you cannot see the file contents), BUT be practical: " +
+    "loan-industry acronyms, informal shorthand, borrower names, dates, addresses and version suffixes are all normal. " +
+    "\n\n" +
+    "USE 'high' CONFIDENCE for any of the following patterns:\n" +
+    "  · Filename contains the doc name or a common abbreviation: 'PSA', 'AOO' (Articles of Organization), 'OA' (Operating Agreement), 'CoGS' (Cert of Good Standing), 'EIN', 'W9', 'OFAC', 'Credit Report', 'Appraisal', 'CDA', 'AIR', 'BPO', 'PMA', 'PMQ', 'SoW', 'CPL', 'EMD', 'Tax Cert', 'Title Commit', 'Wire Instructions', 'PFS', 'VoM', 'VoH', 'Track Record', 'REO', 'ACH Letter', 'Voided Check', 'Flood', 'Insurance', 'Term Sheet', 'Loan App', 'Settlement', 'LoE'.\n" +
+    "  · Filename has the doc name PLUS extra context: 'appraisal - 123 Main St.pdf', 'PSA_Smith_signed.pdf', 'Credit Report - John Doe.pdf'.\n" +
+    "  · Filename is the doc name with a common suffix: (signed), (final), (draft), (2024), version numbers, etc.\n" +
+    "\n" +
+    "USE 'low' only when the filename hints at a category but truly could be one of two docs (e.g. 'bank statement.pdf' — current-month or previous-month?).\n" +
+    "USE 'unknown' with slug:null only when nothing on the checklist plausibly matches ('random_photo.jpg', 'notes.txt').\n" +
+    "\n" +
+    "Return strictly JSON matching the schema (no prose, no code fence):\n" +
+    '{"assignments":[{"filename":"...","slug":"..."|null,"confidence":"high"|"low"|"unknown","reason":"<short>"}]}';
 
   const userMsg =
     'CHECKLIST:\n' + checklistLines + '\n\n' +
