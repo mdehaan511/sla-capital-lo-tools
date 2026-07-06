@@ -88,8 +88,17 @@ export async function listNativeLinks() {
 // improvements to the mapping table were silent no-ops. The
 // preservation logic in _mergeLoanPreservingSla still keeps
 // processor-advanced stages (anything != 'new_loan') intact.
+// Deploy 236.204 — processingSubstatus added. Pipeline cards were
+// rendering "— substatus —" placeholder for every imported loan
+// because processingSubstatus (the SLA field the picker binds to)
+// was never set on import. Mike gave us a substatus mapping table
+// back in 236.180, so Baseline's Substatus IS a valid picker value
+// for its target column. Copy it through on import. Preservation
+// clause in _mergeLoanPreservingSla keeps LO-changed substatuses
+// intact on re-sync.
 const BASELINE_AUTHORED_FIELDS = [
   'address', 'loanAmt', 'loanType', 'loanTypeLabel', 'status', 'processingStage',
+  'processingSubstatus',
   'rate', 'points', 'fundingDate', 'propValue',
   'baselineStatus', 'baselineSubstatus', 'baselineOwnerName',
   'baselineArchivedAt', '_baselineRaw', '_baselineMirroredAt',
@@ -299,6 +308,12 @@ function _mapBaselineToLoanFields(b, now) {
     propValue:          _num(b.As_Is_Value || b.After_Repair_Value || 0),
     baselineStatus:     _str(b.Status),
     baselineSubstatus:  _str(b.Substatus),
+    // Deploy 236.204 — feed Baseline's Substatus straight into the
+    // SLA picker's field. When it matches a configured picker option
+    // for the loan's target column, the pill renders selected; when
+    // it doesn't, it still shows the raw text instead of an empty
+    // placeholder (fallback added in processing-pipeline.html).
+    processingSubstatus: _str(b.Substatus),
     baselineOwnerName:  _accountOwnersLabel(b),
     _baselineRaw:       b,
     _baselineMirroredAt: b._mirroredAt || now,
@@ -480,6 +495,13 @@ function _mergeLoanPreservingSla(priorLoan, freshBaselineFields) {
   // processor's kanban card backwards.
   if (priorLoan.processingStage && priorLoan.processingStage !== 'new_loan') {
     out.processingStage = priorLoan.processingStage;
+  }
+  // Deploy 236.204 — same rule for processingSubstatus. If the LO
+  // picked a substatus that doesn't match what Baseline currently
+  // has, treat the LO's pick as authoritative.
+  if (priorLoan.processingSubstatus
+      && priorLoan.processingSubstatus !== freshBaselineFields.processingSubstatus) {
+    out.processingSubstatus = priorLoan.processingSubstatus;
   }
   return out;
 }

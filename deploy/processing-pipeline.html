@@ -503,12 +503,24 @@ function renderCard(it) {
   // has configured substatuses, render a styled native <select> that
   // looks like the pill but pops a dropdown on click. Empty column =
   // static "No substatus" placeholder.
-  var substatus = loan.processingSubstatus || '';
+  // Deploy 236.204 — fall back to baselineSubstatus when the SLA
+  // field is empty. Import path (baseline-upsert) now writes the
+  // substatus straight into processingSubstatus, but legacy imports
+  // may only have baselineSubstatus set.
+  var substatus = loan.processingSubstatus || loan.baselineSubstatus || '';
   var subs = (_substatuses[col] || []);
   var substatusHtml;
   if (subs.length > 0) {
+    // Deploy 236.204 — if the loan's substatus isn't already in the
+    // configured picker list, prepend it so the <select> shows the
+    // actual value instead of falling back to the placeholder.
+    // Distinguishes real off-list values from missing data.
+    var subsWithCurrent = subs.slice();
+    if (substatus && subsWithCurrent.indexOf(substatus) < 0) {
+      subsWithCurrent.unshift(substatus);
+    }
     var subOpts = '<option value="">— substatus —</option>' +
-      subs.map(function(s) {
+      subsWithCurrent.map(function(s) {
         var sel = s === substatus ? ' selected' : '';
         return '<option value="' + escAttr(s) + '"' + sel + '>' + escH(s) + '</option>';
       }).join('');
