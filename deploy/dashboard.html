@@ -2083,7 +2083,28 @@ function _runPullBorrowersInternal(dryRun) {
       offset: offset,
       limit:  PULL_FETCH_CHUNK,
     }).then(function(r) {
-      if (!r || !r.ok) throw new Error((r && r.error) || 'fetch failed');
+      if (!r || !r.ok) {
+        // Deploy 236.194 — surface probe results when the list
+        // endpoint 403s / 404s so Mike can see which paths were
+        // tried and pick the right escalation with Baseline.
+        var probes = (r && Array.isArray(r.probesTried)) ? r.probesTried : null;
+        var probeHtml = '';
+        if (probes && probes.length) {
+          probeHtml = '<div style="margin-top:12px;padding:10px 12px;background:#faf8f3;border-radius:6px;font-size:11px;font-family:monospace;line-height:1.6">' +
+            '<strong>Probes tried:</strong><br>' +
+            probes.map(function(p) {
+              var status = p.status ? 'HTTP ' + p.status : (p.error || '?');
+              return '· ' + escH(p.probe) + ' → ' + escH(status);
+            }).join('<br>') +
+            '</div>';
+        }
+        body.innerHTML =
+          '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">' +
+            'Fetch failed: ' + escH((r && r.error) || 'unknown') +
+            probeHtml +
+          '</div>';
+        throw new Error('halted');
+      }
       totalFromFetch = r.total || totalFromFetch;
       totalFetched  += (r.fetched || 0);
       envelopeShape  = r.envelopeShape || envelopeShape;
@@ -2116,6 +2137,7 @@ function _runPullBorrowersInternal(dryRun) {
     r.dryRun = !!dryRun;
     _renderPullBorrowersReport(r);
   }).catch(function(err) {
+    if (err && err.message === 'halted') return; // fetchLoop already rendered its own error UI
     body.innerHTML =
       '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(err && err.message || 'unknown') + '</div>';
   });

@@ -23,32 +23,94 @@ function baseUrl() { return (process.env.BASELINE_BASE_URL || DEFAULT_BASE_URL).
 function authHeader() { return 'Token ' + (process.env.BASELINE_API_KEY || ''); }
 
 /**
- * GET /borrower — list all borrowers (both people and entities).
- * Baseline's list shape isn't documented for us; try the common
- * envelopes ({borrowers}, array, {data}).
+ * List all borrowers (both people and entities). Baseline's list
+ * endpoint isn't documented publicly so we probe a few plausible
+ * paths + GraphQL until one returns 200.
+ *
+ * Deploy 236.194 — production reported 403 on GET /borrower. Added
+ * fallbacks:
+ *   1) GET /borrower
+ *   2) GET /borrowers          (plural)
+ *   3) POST /api/graph query { borrowers { Id Is_Company ... } }
+ *   4) POST /api/graph query { people { Id ... } } — Baseline's
+ *      Hasura convention (per baseline-sync.mjs L1051 comment).
+ * Returns { ok, borrowers, probesTried[] } so the caller can log
+ * exactly which probe succeeded.
  */
 export async function fetchAllBorrowerList() {
   if (!process.env.BASELINE_API_KEY) {
     return { ok: false, borrowers: [], status: 0, error: 'BASELINE_API_KEY not configured' };
   }
-  const url = baseUrl() + '/borrower';
-  try {
-    const resp = await fetch(url, {
-      method: 'GET',
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
-    });
-    const text = await resp.text().catch(() => '');
-    let body; try { body = text ? JSON.parse(text) : {}; } catch (_) { body = { raw: text.slice(0, 500) }; }
-    if (!resp.ok) return { ok: false, borrowers: [], status: resp.status, error: (body && body.error) || ('HTTP ' + resp.status), rawPreview: text.slice(0, 500) };
-    const borrowers = Array.isArray(body.borrowers) ? body.borrowers
-      : Array.isArray(body) ? body
-      : Array.isArray(body.data) ? body.data
-      : Array.isArray(body.results) ? body.results
-      : [];
-    return { ok: true, borrowers, status: resp.status, envelopeShape: Array.isArray(body) ? 'array' : Object.keys(body || {}).slice(0, 6).join(',') };
-  } catch (e) {
-    return { ok: false, borrowers: [], status: 0, error: (e && e.message) || 'fetch failed' };
+  const probesTried = [];
+
+  async function tryRest(path) {
+    const url = baseUrl() + path;
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: authHeader(), Accept: 'application/json' },
+      });
+      const text = await resp.text().catch(() => '');
+      probesTried.push({ probe: 'GET ' + path, status: resp.status, bytes: text.length });
+      if (!resp.ok) return null;
+      let body; try { body = text ? JSON.parse(text) : {}; } catch (_) { return null; }
+      const borrowers = Array.isArray(body.borrowers) ? body.borrowers
+        : Array.isArray(body) ? body
+        : Array.isArray(body.data) ? body.data
+        : Array.isArray(body.results) ? body.results
+        : null;
+      if (!borrowers) return null;
+      return { borrowers, envelopeShape: Array.isArray(body) ? 'array' : Object.keys(body || {}).slice(0, 6).join(',') };
+    } catch (e) {
+      probesTried.push({ probe: 'GET ' + path, error: (e && e.message) || 'fetch failed' });
+      return null;
+    }
   }
+
+  async function tryGraph(label, query) {
+    const url = baseUrl() + '/api/graph';
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: authHeader(), 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      const text = await resp.text().catch(() => '');
+      probesTried.push({ probe: 'POST /api/graph ' + label, status: resp.status, bytes: text.length });
+      if (!resp.ok) return null;
+      let body; try { body = text ? JSON.parse(text) : {}; } catch (_) { return null; }
+      if (body && body.data) {
+        for (const k of Object.keys(body.data)) {
+          if (Array.isArray(body.data[k])) {
+            return { borrowers: body.data[k], envelopeShape: 'graphql.data.' + k + '[]' };
+          }
+        }
+      }
+      return null;
+    } catch (e) {
+      probesTried.push({ probe: 'POST /api/graph ' + label, error: (e && e.message) || 'fetch failed' });
+      return null;
+    }
+  }
+
+  const attempts = [
+    () => tryRest('/borrower'),
+    () => tryRest('/borrowers'),
+    () => tryGraph('borrowers', 'query { borrowers { Id Is_Company Name First_Name Last_Name Email Phone Address_State } }'),
+    () => tryGraph('people',    'query { people    { Id Is_Company Name First_Name Last_Name Email Phone Address_State } }'),
+  ];
+  for (const attempt of attempts) {
+    const r = await attempt();
+    if (r && Array.isArray(r.borrowers)) {
+      return { ok: true, borrowers: r.borrowers, envelopeShape: r.envelopeShape, probesTried };
+    }
+  }
+  const lastFail = probesTried[probesTried.length - 1] || {};
+  return {
+    ok: false, borrowers: [], status: lastFail.status || 0,
+    error: 'No borrower endpoint returned a valid list. Last probe: ' + JSON.stringify(lastFail),
+    probesTried,
+  };
 }
 
 /**

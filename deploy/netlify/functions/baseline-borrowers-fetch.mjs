@@ -56,7 +56,12 @@ async function handle(req, context) {
   if (offset === 0) {
     const listResp = await fetchAllBorrowerList();
     if (!listResp.ok) {
-      return json(500, { error: 'Baseline list failed: ' + (listResp.error || 'unknown'), status: listResp.status, rawPreview: listResp.rawPreview });
+      return json(500, {
+        error: 'Baseline list failed: ' + (listResp.error || 'unknown'),
+        status: listResp.status,
+        rawPreview: listResp.rawPreview,
+        probesTried: listResp.probesTried || [],
+      });
     }
     const rawBorrowers = listResp.borrowers || [];
     const ids = [];
