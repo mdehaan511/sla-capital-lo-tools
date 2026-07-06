@@ -90,6 +90,11 @@ async function handle(req, context) {
     fields: restored,
     reason: 'financials_restored',
   };
+  // Deploy 236.219 — invalidate the pricing snapshot on restore too.
+  // Restoring is a data change and the next sizer open should
+  // synthesize a fresh snapshot from the reverted loan record.
+  if (loan.pricingSnapshot) delete loan.pricingSnapshot;
+  if (loan.formData && loan.formData._pricingSnapshot) delete loan.formData._pricingSnapshot;
   loan.updatedAt = now;
 
   appendNoteEntry(loan, {

@@ -3960,10 +3960,16 @@ netlifyIdentity.on('init', function(user) {
           // for older loans saved before the full snapshot mechanism.
           // _finalRate is what Loan Details renders; using it here keeps
           // the printed rate sheet in lock-step with what the LO sees.
-          window._loadedLoanPricingSnapshot = found.pricingSnapshot
-            || (fd && fd._pricingSnapshot)
-            || _synthDscrSnapFromFD(fd)
+          // Deploy 236.219 (Phase 2) — always prefer the synth'd snapshot
+          // (which now includes 236.218's rate/points overrides from the
+          // loan record) over any saved snapshot. Saved snapshots are
+          // invalidated by loan-financials-edit / restore on the backend,
+          // but Baseline imports + legacy loans may still carry stale
+          // ones. Fresh loan record wins.
+          window._loadedLoanPricingSnapshot = _synthDscrSnapFromFD(fd)
             || _synthDscrSnapFromFD(found)
+            || found.pricingSnapshot
+            || (fd && fd._pricingSnapshot)
             || null;
           window._snapshotConsumed = false;
           window._originalAddress = found.address || '';

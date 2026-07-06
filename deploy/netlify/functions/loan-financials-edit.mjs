@@ -203,6 +203,26 @@ async function handle(req, context) {
     reason:    'financials_edited',
   };
 
+  // Deploy 236.219 — Phase 2 of Mike's "Loan Details is the point
+  // of truth" refactor. When any rate-sheet-affecting field is
+  // edited, invalidate the saved pricingSnapshot on both loan and
+  // loan.formData so the next sizer open synthesizes a fresh
+  // snapshot from the canonical loan record. Without this,
+  // window._loadedLoanPricingSnapshot in the sizer stays the old
+  // saved snap and the "Download Rate Sheet" / "Send for Signature"
+  // auto-download paths print the pre-edit rate/points/loan-amount
+  // even though the LO's Loan-Details edit went through.
+  const SNAPSHOT_INVALIDATING = new Set([
+    'rate', 'points', 'purchasePrice', 'rehabBudget', 'arv',
+    'fico', 'loanType', 'experience', 'brokerFee',
+    'monthlyRent', 'monthlyTaxes', 'monthlyInsurance', 'monthlyHoa',
+    'appraisedValue',
+  ]);
+  if (applied.some((k) => SNAPSHOT_INVALIDATING.has(k))) {
+    if (loan.pricingSnapshot) delete loan.pricingSnapshot;
+    if (loan.formData && loan.formData._pricingSnapshot) delete loan.formData._pricingSnapshot;
+  }
+
   loan.updatedAt = now;
 
   // Audit entry for the notesLog timeline.

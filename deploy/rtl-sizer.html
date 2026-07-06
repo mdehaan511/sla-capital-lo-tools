@@ -3802,10 +3802,17 @@ netlifyIdentity.on('init', function(user) {
         // _synthRtlSnapFromFD covers older loans that pre-date the
         // full _pricingSnapshot mechanism by reading the top-level
         // _finalRate / _points / _maxLoan that Loan Details renders.
-        window._loadedLoanPricingSnapshot = found.pricingSnapshot
-          || (fd && fd._pricingSnapshot)
-          || _synthRtlSnapFromFD(fd)
+        // Deploy 236.219 (Phase 2) — prefer synth over saved
+        // pricingSnapshot. Fresh loan record wins so Loan-Details
+        // edits round-trip into the rate sheet PDF. Backend
+        // (loan-financials-edit / restore) invalidates saved
+        // snapshots on relevant field changes; the reorder here is
+        // a belt-and-suspenders for Baseline imports + legacy loans
+        // that carry stale snapshots.
+        window._loadedLoanPricingSnapshot = _synthRtlSnapFromFD(fd)
           || _synthRtlSnapFromFD(found)
+          || found.pricingSnapshot
+          || (fd && fd._pricingSnapshot)
           || null;
         window._snapshotConsumed = false;
         loadRTLQuote(fd);
