@@ -262,17 +262,23 @@ function render() {
   // Top action row (Deploy 170): Create New Loan launches a small
   // modal asking DSCR or RTL, then opens the right sizer with the
   // borrower's contact info pre-filled (prefillContact=1 URL param).
-  // Send Loan Prequal — placeholder for future prequal-link flow.
-  html += '<div class="client-actions" style="display:flex;gap:10px;margin-bottom:1.6rem;flex-wrap:wrap">' +
+  // Send Loan Prequal — emails the borrower a prequal link, CCs the
+  // LO, and stamps _prequalLastSentAt so the "Last sent {date}" note
+  // below the button (Deploy 236.189) reflects the most recent send.
+  html += '<div class="client-actions" style="display:flex;gap:10px;margin-bottom:0.4rem;flex-wrap:wrap;align-items:flex-start">' +
     '<button type="button" class="action-btn primary" onclick="openCreateLoanModal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--gold);color:#fff;border:1px solid var(--gold);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
       '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' +
       'Create New Loan' +
     '</button>' +
-    '<button type="button" class="action-btn" onclick="sendLoanPrequal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
-      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4l5 4 5-4M2 4v6h10V4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
-      'Send Loan Prequal' +
-    '</button>' +
-  '</div>';
+    '<div style="display:flex;flex-direction:column;gap:2px">' +
+      '<button type="button" class="action-btn" onclick="sendLoanPrequal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
+        '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4l5 4 5-4M2 4v6h10V4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
+        'Send Loan Prequal' +
+      '</button>' +
+      '<div id="prequalLastSent" style="font-size:11px;color:var(--muted);padding:0 4px;line-height:1.4">' + _prequalLastSentLabel(c) + '</div>' +
+    '</div>' +
+  '</div>' +
+  '<div style="height:1rem"></div>';
 
   // Profile edit section
   html += '<div class="section">' +
@@ -805,6 +811,19 @@ function createLoanOfType(toolType) {
   window.location.href = url;
 }
 
+// Deploy 236.189 — format the client's _prequalLastSentAt as a
+// small "Last sent {date}" caption under the Send Loan Prequal
+// button. Empty string when never sent so the label just disappears.
+function _prequalLastSentLabel(c) {
+  var ts = c && c._prequalLastSentAt;
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  var opts = { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' };
+  try { return 'Last sent ' + d.toLocaleString(undefined, opts); }
+  catch (_) { return 'Last sent ' + d.toISOString().slice(0, 10); }
+}
+
 // ─── Send Loan Prequal (Deploy 170) ───────────────────────────
 // Emails the client a link to the LO's public prequal form
 // (apply.html?lo=<lo-email>) — same link the LO has on their Profile
@@ -812,6 +831,9 @@ function createLoanOfType(toolType) {
 // submits the form, the existing prospects-save flow upserts the
 // client record by email match, so this is safe to send to an
 // already-existing client.
+// Deploy 236.189 — email now CCs the LO who owns the lead, and the
+// backend stamps _prequalLastSentAt on the client record. On success
+// we update the "Last sent" caption in place without a full reload.
 function sendLoanPrequal() {
   if (!_client) { showToast('Client not loaded'); return; }
   if (!_client.email) {
@@ -843,6 +865,15 @@ function sendLoanPrequal() {
     showToast(resp.body.emailed
       ? 'Prequal link emailed to ' + _client.email
       : 'Link generated (email failed — check console)');
+    // Deploy 236.189 — refresh the "Last sent" caption in place. The
+    // backend returns the timestamp it stamped; mirror it onto the
+    // client object so subsequent sends recompute correctly without a
+    // full page reload.
+    if (resp.body.emailed && resp.body.lastSentAt && _client) {
+      _client._prequalLastSentAt = resp.body.lastSentAt;
+      var lbl = document.getElementById('prequalLastSent');
+      if (lbl) lbl.textContent = _prequalLastSentLabel(_client);
+    }
   })
   .catch(function(err) {
     showToast('Send failed: ' + (err.message || 'unknown'));

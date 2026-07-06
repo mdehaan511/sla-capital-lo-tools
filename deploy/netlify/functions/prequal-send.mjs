@@ -83,7 +83,25 @@ async function handle(req, context) {
     return json(500, { error: 'Email failed: ' + (e.message || 'unknown') });
   }
 
-  return json(200, { ok: true, link, emailed });
+  // Deploy 236.189 — stamp last-sent so client-details.html can show
+  // "Last sent {date}" under the Send Loan Prequal button. Only mark
+  // the send if the email actually went out — a Resend failure leaves
+  // the prior timestamp intact so the button doesn't lie.
+  let lastSentAt = client._prequalLastSentAt || null;
+  if (emailed) {
+    const now = new Date().toISOString();
+    client._prequalLastSentAt = now;
+    client._prequalLastSentBy = user.email || '';
+    client.updatedAt = now;
+    try {
+      await clientsStore.setJSON(`${ownerKey}/${keySafe(body.clientId)}`, client);
+      lastSentAt = now;
+    } catch (e) {
+      console.warn('prequal-send: failed to persist lastSent stamp:', e && e.message);
+    }
+  }
+
+  return json(200, { ok: true, link, emailed, lastSentAt });
 }
 
 async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link, ownerKey }) {
@@ -124,12 +142,22 @@ async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link, ownerK
     '</body></html>';
 
   const replyTo = await getOwnerReplyTo(ownerKey);
+  // Deploy 236.189 — CC the LO so they have a copy of the exact
+  // message sent to the borrower. Reply-To keeps borrower replies
+  // going to the LO's inbox; CC gives the LO the outbound too.
+  // Guarded: skip if the LO email matches the To (would look weird
+  // on the borrower's side).
+  const ccList = [];
+  if (loEmail && String(loEmail).toLowerCase() !== String(toEmail).toLowerCase()) {
+    ccList.push(loEmail);
+  }
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'SLA Capital <noreply@leads.slacapital.com>',
       to: [toEmail],
+      ...(ccList.length ? { cc: ccList } : {}),
       subject,
       text,
       html,
