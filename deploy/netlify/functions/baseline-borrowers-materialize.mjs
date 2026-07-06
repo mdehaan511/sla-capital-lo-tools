@@ -276,9 +276,14 @@ async function handle(req, context) {
   for (const { entry, loan } of allLoansCtx) {
     const raw = loan && loan._baselineRaw;
     if (!raw) continue;
-    const g1Id = raw.Guarantor_1_Id;
+    // Deploy 236.198 — Baseline loan records carry Guarantor_Id
+    // (singular — primary person) and Borrower_Id (usually the LLC).
+    // Guarantor_1_Id doesn't exist; only Guarantor_1_First_Name/etc.
+    // are on the loan, as denormalized display fields.
+    const guarantorId = raw.Guarantor_Id || raw.Guarantor_1_Id;
     const borrowerId = raw.Borrower_Id;
-    const primaryPersonId = g1Id || (personBorrowersById.has(String(borrowerId)) ? borrowerId : null);
+    const primaryPersonId = guarantorId
+      || (personBorrowersById.has(String(borrowerId)) ? borrowerId : null);
     if (primaryPersonId) {
       const link = linkMap.get(String(primaryPersonId));
       if (link && link.ownerKey && link.clientId) {

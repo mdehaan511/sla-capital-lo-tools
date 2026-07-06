@@ -2078,11 +2078,13 @@ function _runPullBorrowersInternal(dryRun) {
       '</div>';
   }
 
+  var seenDiag = null;
   function fetchLoop(offset) {
     return SLA.api('POST', '/api/baseline-borrowers-fetch', {
       offset: offset,
       limit:  PULL_FETCH_CHUNK,
     }).then(function(r) {
+      if (r && r.extractDiag) seenDiag = r.extractDiag;
       if (!r || !r.ok) {
         // Deploy 236.194 — surface probe results when the list
         // endpoint 403s / 404s so Mike can see which paths were
@@ -2120,7 +2122,17 @@ function _runPullBorrowersInternal(dryRun) {
   renderProgress('Fetching Baseline borrower list…', 0);
   fetchLoop(0).then(function() {
     if (totalFromFetch === 0) {
-      body.innerHTML = '<div style="padding:10px 12px;background:#faf8f3;color:var(--muted);border-radius:6px;font-size:12px">Baseline returned 0 borrowers (envelope shape: <code>' + escH(envelopeShape || '?') + '</code>). Nothing to materialize.</div>';
+      var diagHtml = '';
+      if (seenDiag) {
+        diagHtml = '<div style="margin-top:12px;padding:10px 12px;background:#faf8f3;border-radius:6px;font-size:11px;font-family:monospace;line-height:1.6">' +
+          '<strong>Diagnostic:</strong><br>' +
+          '· Loans in mirror: ' + seenDiag.loanCount + '<br>' +
+          '· Fields probed as id sources: ' + escH((seenDiag.fieldsProbed || []).join(', ') || '(none)') + '<br>' +
+          '· Ids extracted: ' + seenDiag.idsExtracted + '<br>' +
+          '· First loan keys: ' + escH((seenDiag.firstLoanKeys || []).join(', ')) +
+        '</div>';
+      }
+      body.innerHTML = '<div style="padding:10px 12px;background:#faf8f3;color:var(--muted);border-radius:6px;font-size:12px">No borrower ids found in the loan mirror. Nothing to fetch.' + diagHtml + '</div>';
       return;
     }
     renderProgress('Materializing ' + totalFetched + ' borrowers into SLA…', 1);

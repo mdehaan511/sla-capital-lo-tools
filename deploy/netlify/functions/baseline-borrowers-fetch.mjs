@@ -51,31 +51,42 @@ async function _walkLoanMirrorParallel() {
   return out;
 }
 
-// Deploy 236.195 — extract every unique Baseline borrower Id we can
-// find on the loans we've already mirrored. The Baseline API token
-// we have doesn't grant list-borrower scope (all 4 list probes 403),
-// so we build the id list ourselves from Guarantor_1_Id /
-// Guarantor_2_Id / Borrower_Id fields on each mirrored loan. GET
-// /borrower/{Id} is scoped-in because that's how POST /borrower
-// creates work, and Baseline routinely permits reads on records the
-// token can write.
+// Deploy 236.198 — Baseline loan records carry Borrower_Id (usually
+// the vesting LLC) and Guarantor_Id (SINGULAR — the primary person
+// borrower). NOT Guarantor_1_Id — that's just a denormalized view
+// field for the guarantor's NAME, not an id. See baseline-sync.mjs
+// L849: "1. Identity — Id, Name, Status, Borrower_Id, Guarantor_Id".
+// Also probe common nested shapes ({Borrower: {Id}}, arrays, etc.)
+// so we don't miss anything schema-y.
 function _idsFromMirror(loans) {
   const ids = new Set();
+  const fieldsProbed = new Set();
   for (const loan of loans) {
     if (!loan) continue;
-    const candidates = [
-      loan.Guarantor_1_Id, loan.Guarantor_2_Id,
-      loan.Borrower_Id,    loan.Vesting_Id,
-      loan.Entity_Id,      loan.Guarantor_Id,
-    ];
-    for (const c of candidates) {
-      if (c && typeof c === 'string') ids.add(c.trim());
-      else if (c && typeof c === 'object' && c.Id) ids.add(String(c.Id).trim());
-      else if (typeof c === 'number') ids.add(String(c));
+    // Every top-level key on the loan record that LOOKS like an id
+    // field (endsWith _Id, is an object with .Id, etc.). Best-effort
+    // — this is a diagnostic pass to cover Baseline schema drift.
+    for (const [k, v] of Object.entries(loan)) {
+      if (k === 'Id') continue;      // that's the loan's own id
+      if (k.startsWith('_')) continue; // our own metadata
+      const looksLikeIdKey = /_Id$|_id$/.test(k) || /^(Borrower|Guarantor|Vesting|Entity|Owner)$/.test(k);
+      if (!looksLikeIdKey) continue;
+      fieldsProbed.add(k);
+      if (typeof v === 'string' && v.trim()) ids.add(v.trim());
+      else if (typeof v === 'number') ids.add(String(v));
+      else if (v && typeof v === 'object') {
+        if (v.Id) ids.add(String(v.Id).trim());
+        else if (Array.isArray(v)) {
+          for (const item of v) {
+            if (typeof item === 'string') ids.add(item.trim());
+            else if (item && item.Id) ids.add(String(item.Id).trim());
+          }
+        }
+      }
     }
   }
   ids.delete('');
-  return Array.from(ids);
+  return { ids: Array.from(ids), fieldsProbed: Array.from(fieldsProbed) };
 }
 
 export default async (req, context) => {
@@ -105,11 +116,20 @@ async function handle(req, context) {
   // GET /borrower/{Id} works because the token can create borrowers
   // and Baseline generally permits reads on writable records.
   let listState = null;
+  let extractDiag = null;
   if (offset === 0) {
     const loans = await _walkLoanMirrorParallel();
-    let ids = _idsFromMirror(loans);
+    const extract = _idsFromMirror(loans);
+    let ids = extract.ids;
     let envelopeShape = 'from loan mirror';
     let probesTried = [];
+    extractDiag = {
+      loanCount: loans.length,
+      fieldsProbed: extract.fieldsProbed,
+      idsExtracted: ids.length,
+      idsSample: ids.slice(0, 5),
+      firstLoanKeys: loans.length && loans[0] ? Object.keys(loans[0]).filter((k) => !k.startsWith('_')).slice(0, 30) : [],
+    };
     // Best-effort: still try Baseline's list endpoint in case the
     // token gets scope later or the mirror is empty. If it works and
     // gives us MORE ids than the mirror does, prefer that.
@@ -169,6 +189,7 @@ async function handle(req, context) {
     processedNext: offset + slice.length,
     fetched,
     envelopeShape: listState.envelopeShape || '',
+    extractDiag,
     errorCount: errors.length,
     errors: errors.slice(0, 10),
   });
