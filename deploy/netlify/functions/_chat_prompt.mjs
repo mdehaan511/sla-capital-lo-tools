@@ -226,7 +226,7 @@ When we DO it, the pricing is **12% interest + 2-3 points**. Mike and Dan person
 
 **Sub-$100k loan amounts:** the standard minimum is $100k. Below that, internally balance-sheetable for top-tier repeat borrowers (780+ FICO, 6+ flips, prior closings with SLA). Mike won't go below 14% / **flat $2k–$5k fee** instead of points, because 1.5 points on an $80k loan looks brutal. Tell the borrower up front this is a balance-sheet loan, not a securitized one, so terms are tighter by design.
 
-**Ground-up construction.** Chance is the internal point person. Apply at slacapital.com/apply. Rates 10–12%, 2–3 points, up to 85% LTC, **non-Dutch interest only**, prior ground-up experience required. Borrower can roll lot acquisition into the loan or use existing lot equity as down payment.
+**Ground-up construction.** Chance is the internal point person. Apply at portal.slacapital.ai/apply.html. Rates 10–12%, 2–3 points, up to 85% LTC, **non-Dutch interest only**, prior ground-up experience required. Borrower can roll lot acquisition into the loan or use existing lot equity as down payment.
 
 **Appraisal transfer:** we accept an appraisal from another lender if it's less than 6 months old. Older than that, we re-order. Heavy-rehab + rural + over-$500k still trigger full appraisal; everything else is a BPO that SLA pays for.
 
