@@ -25,10 +25,38 @@ import { handleOptions, json, requireAuth, isAdmin, readJsonBody } from './_shar
 import {
   fetchAllBorrowerList, fetchBorrowerDetail, saveMirroredBorrower,
 } from './_shared/baseline-borrowers.mjs';
+import { listMirroredLoans } from './_shared/baseline-mirror.mjs';
 
 const CONCURRENCY = 6;
 const TEMP_STORE = 'baseline_borrowers_fetch_state';
 const LIST_KEY   = 'current_list';
+
+// Deploy 236.195 — extract every unique Baseline borrower Id we can
+// find on the loans we've already mirrored. The Baseline API token
+// we have doesn't grant list-borrower scope (all 4 list probes 403),
+// so we build the id list ourselves from Guarantor_1_Id /
+// Guarantor_2_Id / Borrower_Id fields on each mirrored loan. GET
+// /borrower/{Id} is scoped-in because that's how POST /borrower
+// creates work, and Baseline routinely permits reads on records the
+// token can write.
+function _idsFromMirror(loans) {
+  const ids = new Set();
+  for (const loan of loans) {
+    if (!loan) continue;
+    const candidates = [
+      loan.Guarantor_1_Id, loan.Guarantor_2_Id,
+      loan.Borrower_Id,    loan.Vesting_Id,
+      loan.Entity_Id,      loan.Guarantor_Id,
+    ];
+    for (const c of candidates) {
+      if (c && typeof c === 'string') ids.add(c.trim());
+      else if (c && typeof c === 'object' && c.Id) ids.add(String(c.Id).trim());
+      else if (typeof c === 'number') ids.add(String(c));
+    }
+  }
+  ids.delete('');
+  return Array.from(ids);
+}
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -51,30 +79,38 @@ async function handle(req, context) {
 
   const tempStore = getStore({ name: TEMP_STORE, consistency: 'strong' });
 
-  // ── 1. Fetch or reuse the borrower id list. ─────────────────
+  // ── 1. Build or reuse the borrower id list. ─────────────────
+  // Deploy 236.195 — Baseline's /borrower list endpoint 403s for
+  // our token. Enumerate ids from our own loan mirror instead;
+  // GET /borrower/{Id} works because the token can create borrowers
+  // and Baseline generally permits reads on writable records.
   let listState = null;
   if (offset === 0) {
-    const listResp = await fetchAllBorrowerList();
-    if (!listResp.ok) {
-      return json(500, {
-        error: 'Baseline list failed: ' + (listResp.error || 'unknown'),
-        status: listResp.status,
-        rawPreview: listResp.rawPreview,
-        probesTried: listResp.probesTried || [],
-      });
+    const loans = await listMirroredLoans();
+    let ids = _idsFromMirror(loans);
+    let envelopeShape = 'from loan mirror';
+    let probesTried = [];
+    // Best-effort: still try Baseline's list endpoint in case the
+    // token gets scope later or the mirror is empty. If it works and
+    // gives us MORE ids than the mirror does, prefer that.
+    if (ids.length === 0) {
+      const listResp = await fetchAllBorrowerList();
+      if (listResp.ok) {
+        const raw = listResp.borrowers || [];
+        for (const item of raw) {
+          if (typeof item === 'string') ids.push(item);
+          else if (item && typeof item === 'object' && item.Id) ids.push(String(item.Id));
+        }
+        envelopeShape = listResp.envelopeShape || '';
+      } else {
+        probesTried = listResp.probesTried || [];
+        return json(500, {
+          error: 'No borrower ids to fetch. Loan mirror is empty AND the Baseline /borrower list endpoint is not accessible.',
+          probesTried,
+        });
+      }
     }
-    const rawBorrowers = listResp.borrowers || [];
-    const ids = [];
-    // Each item might be a bare Id string or an object with .Id.
-    for (const item of rawBorrowers) {
-      if (typeof item === 'string') ids.push(item);
-      else if (item && typeof item === 'object' && item.Id) ids.push(String(item.Id));
-    }
-    listState = {
-      ids,
-      envelopeShape: listResp.envelopeShape || '',
-      startedAt: new Date().toISOString(),
-    };
+    listState = { ids, envelopeShape, startedAt: new Date().toISOString() };
     try { await tempStore.setJSON(LIST_KEY, listState); }
     catch (e) { /* non-fatal — we still have listState in memory */ }
   } else {
