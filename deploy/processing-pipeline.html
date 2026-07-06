@@ -322,13 +322,19 @@ function columnFor(loan) {
   if (stage === 'pp_closed')    return 'pp_closed';
   if (stage === 'new_loan')     return 'new_loan';
   var status = String(loan.status || '').toLowerCase().trim();
-  // Deploy 236.205 — removed the status='closed' / 'liquidated'
-  // fallback that landed Sold / In Servicing / Paid Off loans in
-  // pp_closed. Those are terminal states and belong on the Loans
-  // page under the corresponding filter chips, not in the
-  // processing pipeline. Any loan currently in the pp_closed
-  // workflow step still has processingStage='pp_closed' — the
-  // stage check above already places it correctly.
+  // Deploy 236.206 — refined 236.205's blanket removal. "Closed"
+  // means SLA closed the loan but hasn't handed it off yet — it
+  // belongs in pp_closed. Only Sold / In Servicing / Paid Off
+  // (Liquidated) — the truly-offloaded states — drop off the
+  // pipeline. SLA rolls all four Baseline states into
+  // status='closed', so we discriminate on baselineStatus.
+  if (status === 'closed') {
+    var bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+    if (bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off') {
+      return null; // truly offloaded — live only on the Loans page
+    }
+    return 'pp_closed'; // Baseline 'Closed' or SLA-native close → stays in the pipeline
+  }
   if (status === 'approved') return 'new_loan';
   return null; // not in this pipeline
 }
