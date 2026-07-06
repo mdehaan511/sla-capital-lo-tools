@@ -173,6 +173,11 @@
            pulled loans that already existed under real LOs. Dry-run
            first, then Commit. -->
       <button class="btn-primary" id="mergeDupesBtn" onclick="openMergeDupesModal()" style="background:rgba(133,77,14,0.10);color:#854d0e;border:1px solid rgba(133,77,14,0.40)">Merge Duplicates</button>
+      <!-- Deploy 236.191 — Consolidate borrowers imported from
+           Baseline. Dedupes clients by email (fallback name+phone),
+           attaches LLCs to companies[], and creates separate clients
+           for Guarantor_2 co-borrowers. Same dry-run → Commit shape. -->
+      <button class="btn-primary" id="consolidateBorrowersBtn" onclick="openConsolidateBorrowersModal()" style="background:rgba(30,64,175,0.08);color:#1e40af;border:1px solid rgba(30,64,175,0.40)">Consolidate Borrowers</button>
     </div>
   </div>
 
@@ -310,6 +315,27 @@
     <!-- Footer -->
     <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;flex-shrink:0">
       <button type="button" class="btn" onclick="closeChartDrilldown()" style="font-size:13px;padding:7px 18px">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deploy 236.191 — Consolidate Borrowers modal. Same two-step
+     shape as Merge Duplicates. Dry-run → Commit. -->
+<div id="consolidateBorrowersModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this) closeConsolidateBorrowersModal()">
+  <div style="background:#fff;max-width:900px;width:100%;max-height:90vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark)">Consolidate Baseline Borrowers</div>
+        <div id="consolidateSubtitle" style="font-size:12px;color:var(--muted);margin-top:2px">Dry-run: nothing has been changed yet.</div>
+      </div>
+      <button type="button" onclick="closeConsolidateBorrowersModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>
+    </div>
+    <div id="consolidateBody" style="padding:18px 22px;overflow:auto;flex:1">
+      <div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Scanning clients store…</div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">
+      <button type="button" onclick="closeConsolidateBorrowersModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Close</button>
+      <button type="button" id="consolidateCommitBtn" onclick="runConsolidateCommit()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(30,64,175,0.40);background:rgba(30,64,175,0.08);color:#1e40af;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Commit Consolidation</button>
     </div>
   </div>
 </div>
@@ -1967,6 +1993,151 @@ function _tile(label, value, sub, color) {
     '<div style="font-size:18px;font-weight:700;margin-top:2px;color:' + color + '">' + (value == null ? '—' : escH(String(value))) + '</div>' +
     (sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(sub) + '</div>' : '') +
   '</div>';
+}
+
+// Deploy 236.191 — Consolidate Borrowers modal. Groups clients by
+// borrower dedupe key (email → name+phone fallback), picks a canonical
+// per (owner, key) group, moves loans onto it, attaches LLCs to the
+// canonical's companies[], and creates separate clients for
+// Guarantor_2. Cross-owner candidates are reported for manual review.
+function openConsolidateBorrowersModal() {
+  var modal = document.getElementById('consolidateBorrowersModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('consolidateSubtitle').textContent = 'Dry-run: nothing has been changed yet.';
+  document.getElementById('consolidateBody').innerHTML =
+    '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Scanning clients store…</div>';
+  document.getElementById('consolidateCommitBtn').disabled = true;
+  _runConsolidateInternal(true);
+}
+function closeConsolidateBorrowersModal() {
+  var modal = document.getElementById('consolidateBorrowersModal');
+  if (modal) modal.style.display = 'none';
+}
+function runConsolidateCommit() {
+  var btn = document.getElementById('consolidateCommitBtn');
+  if (btn.disabled) return;
+  if (!confirm('Consolidate borrowers now? This merges duplicate client records within each owner, attaches LLCs to the canonical clients\' companies[], and creates separate clients for Guarantor_2 co-borrowers. Cross-owner duplicates are reported for you to review manually. This cannot be undone.')) return;
+  document.getElementById('consolidateSubtitle').textContent = 'Committing…';
+  document.getElementById('consolidateBody').innerHTML =
+    '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Writing…</div>';
+  btn.disabled = true;
+  _runConsolidateInternal(false);
+}
+function _runConsolidateInternal(dryRun) {
+  SLA.api('POST', '/api/baseline-borrower-consolidate', { dryRun: !!dryRun }).then(function(r) {
+    if (!r || !r.ok) {
+      document.getElementById('consolidateBody').innerHTML =
+        '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(r && r.error || 'unknown') + '</div>';
+      return;
+    }
+    _renderConsolidateReport(r);
+  }).catch(function(err) {
+    document.getElementById('consolidateBody').innerHTML =
+      '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+function _renderConsolidateReport(r) {
+  var subtitle = document.getElementById('consolidateSubtitle');
+  var body     = document.getElementById('consolidateBody');
+  var commit   = document.getElementById('consolidateCommitBtn');
+  var dryRun   = !!r.dryRun;
+
+  subtitle.textContent = dryRun
+    ? 'Dry-run report — no changes yet. Review below and click Commit Consolidation to write.'
+    : '✓ Consolidation committed.';
+
+  var summaryTiles =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem">' +
+      _tile('Clients scanned',      r.clientsScanned) +
+      _tile('Loans scanned',        r.loansScanned) +
+      _tile('Borrower groups',      r.borrowerGroups, 'same-owner duplicates', '#854d0e') +
+      _tile(dryRun ? 'Would merge clients' : 'Merged clients', r.duplicateClientsMerged, '', '#991b1b') +
+      _tile(dryRun ? 'Would move loans' : 'Loans reassigned', r.loansReassigned, '', '#854d0e') +
+      _tile('LLCs attached',        r.llcsAttached, 'onto companies[]', '#166534') +
+      _tile('Guarantor_2 clients',  r.guarantor2ClientsCreated, 'created for co-borrowers', '#166534') +
+      _tile('Cross-owner candidates', r.crossOwnerCandidateCount, 'manual review', '#1e40af') +
+      _tile('Errors',               r.errorCount || 0, '', r.errorCount ? '#991b1b' : 'var(--muted)') +
+    '</div>';
+
+  var consolidationHtml = '';
+  if (Array.isArray(r.consolidationSamples) && r.consolidationSamples.length) {
+    consolidationHtml =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">Borrower merges (' + r.consolidationSamples.length + ' shown)</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:#faf8f3">' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Owner</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Kept (canonical)</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Merged (losers)</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Loans moved</th>' +
+      '</tr></thead><tbody>' +
+      r.consolidationSamples.map(function(s) {
+        return '<tr>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px">' + escH(s.ownerKey) + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2"><strong>' + escH(s.canonical.name || '—') + '</strong>' + (s.canonical.email ? '<br><span style="color:var(--muted);font-size:11px">' + escH(s.canonical.email) + '</span>' : '') + '<br><span style="color:var(--muted);font-family:monospace;font-size:11px">' + escH(s.canonical.clientId) + '</span></td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px;color:var(--muted)">' + escH(s.losers.map(function(l) { return l.clientId; }).join(', ')) + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;text-align:right;font-variant-numeric:tabular-nums">' + (s.loanIdsMoved || []).length + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+  }
+
+  var llcHtml = '';
+  if (Array.isArray(r.llcSamples) && r.llcSamples.length) {
+    llcHtml =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">LLC attachments (' + r.llcSamples.length + ' shown)</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem;padding:10px 12px;font-size:12px;line-height:1.6">' +
+      r.llcSamples.map(function(s) {
+        return '· <strong>' + escH(s.companyName) + '</strong> → client <code>' + escH(s.clientId) + '</code> (owner ' + escH(s.ownerKey) + ')';
+      }).join('<br>') +
+      '</div>';
+  }
+
+  var g2Html = '';
+  if (Array.isArray(r.g2Samples) && r.g2Samples.length) {
+    g2Html =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">Guarantor_2 clients (' + r.g2Samples.length + ' shown)</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem;padding:10px 12px;font-size:12px;line-height:1.6">' +
+      r.g2Samples.map(function(s) {
+        return '· <strong>' + escH(s.name) + '</strong>' + (s.email ? ' (' + escH(s.email) + ')' : '') + ' — co-guarantor on primary client <code>' + escH(s.primaryClientId) + '</code>';
+      }).join('<br>') +
+      '</div>';
+  }
+
+  var crossHtml = '';
+  if (Array.isArray(r.crossOwnerCandidates) && r.crossOwnerCandidates.length) {
+    crossHtml =
+      '<div style="padding:10px 12px;background:rgba(30,64,175,0.06);color:#1e40af;border-radius:6px;font-size:12px;margin-bottom:1rem">' +
+      '<strong>' + r.crossOwnerCandidateCount + ' cross-owner candidates</strong> — same borrower appears under 2+ different owners. Not auto-merged. Use the Loans page → Select Multiple → Merge Selected for any you want combined. First ' + r.crossOwnerCandidates.length + ':<br>' +
+      r.crossOwnerCandidates.map(function(c) {
+        var label = c.entries[0].email || c.entries[0].name || c.dedupeKey;
+        return '· <strong>' + escH(label) + '</strong>: ' +
+          c.entries.map(function(e) { return escH(e.ownerKey) + '/<code>' + escH(e.clientId) + '</code>'; }).join(' vs ');
+      }).join('<br>') +
+      '</div>';
+  }
+
+  var errorsHtml = '';
+  if (Array.isArray(r.errors) && r.errors.length) {
+    errorsHtml = '<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:1rem">' +
+      '<strong>' + r.errorCount + ' error(s)</strong>. First ' + r.errors.length + ':<br>' +
+      r.errors.map(function(e) { return '· ' + escH(JSON.stringify(e)); }).join('<br>') +
+    '</div>';
+  }
+
+  var nextStep;
+  if (dryRun) {
+    var hasWork = r.duplicateClientsMerged + r.llcsAttached + r.guarantor2ClientsCreated > 0;
+    nextStep = hasWork
+      ? '<div style="padding:10px 12px;background:rgba(30,64,175,0.08);color:#1e40af;border-radius:6px;font-size:12px">Numbers look right? Click <strong>Commit Consolidation</strong> to write.</div>'
+      : '<div style="padding:10px 12px;background:#faf8f3;color:var(--muted);border-radius:6px;font-size:12px">Nothing to consolidate — the store is already clean.</div>';
+  } else {
+    nextStep = '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">✓ Done. Open <a href="clients.html" style="color:#166534;font-weight:600;text-decoration:underline">Clients</a> or <a href="loans.html" style="color:#166534;font-weight:600;text-decoration:underline">Loans</a> to verify.</div>';
+  }
+
+  body.innerHTML = summaryTiles + consolidationHtml + llcHtml + g2Html + crossHtml + errorsHtml + nextStep;
+  commit.disabled = !(dryRun && (r.duplicateClientsMerged > 0 || r.llcsAttached > 0 || r.guarantor2ClientsCreated > 0));
 }
 
 // Deploy 236.182 — Merge Duplicates modal. When the migration

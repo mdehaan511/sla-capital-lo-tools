@@ -848,6 +848,15 @@
   status = 200
   force = true
 
+# Deploy 236.191 — consolidate baseline borrowers. Dedupes clients
+# by email (fallback name+phone), attaches LLCs to companies[], and
+# creates separate clients for Guarantor_2s.
+[[redirects]]
+  from = "/api/baseline-borrower-consolidate"
+  to = "/.netlify/functions/baseline-borrower-consolidate"
+  status = 200
+  force = true
+
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
 # investor (with prompt caching) so verdicts are judged against the
