@@ -3695,6 +3695,27 @@ netlifyIdentity.on('init', function(user) {
             fd[k] = found[k];
           }
         });
+        // Deploy 236.218 — same synthesis as dscr-sizer. When the
+        // loan-financials-edit mirror never wrote _rateOverride /
+        // _pointsOverride into loan.formData (older records, direct
+        // API writes, imports), fall back to the canonical
+        // loan.rate / loan.points so the sizer paints the LO's
+        // Loan-Details edits.
+        if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+          var _r = parseFloat(found.rate);
+          if (isFinite(_r) && _r > 0) {
+            fd._rateOverride = String(_r > 1 ? _r / 100 : _r);
+          }
+        }
+        if (!fd._pointsOverride && found.points != null && found.points !== '') {
+          var _p = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+          if (isFinite(_p) && _p >= 0) fd._pointsOverride = String(_p);
+        }
+        console.log('[rtl-sizer 236.218] loadFromClientLoan overrides:',
+          { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,
+            found_rate: found.rate, found_points: found.points,
+            loanFd_rateOverride: (found.formData || {})._rateOverride,
+            loanFd_pointsOverride: (found.formData || {})._pointsOverride });
         if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
         if (!fd.borrowerName && clientRec) {
           fd = Object.assign({}, fd, {

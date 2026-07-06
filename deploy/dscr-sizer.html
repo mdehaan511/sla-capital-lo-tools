@@ -3882,6 +3882,33 @@ netlifyIdentity.on('init', function(user) {
               fd[k] = found[k];
             }
           });
+          // Deploy 236.218 — synthesize the rate/points override from
+          // the canonical loan.rate / loan.points when the formData
+          // mirror is missing. Older loan records (pre-236.135),
+          // Baseline imports, and any writes that bypassed the inline
+          // editor never got the _rateOverride mirror — so 236.140's
+          // union merge landed loan.rate on fd but the sizer's
+          // loadQuoteIntoForm hydrates window._dscrOverrides ONLY from
+          // fd._rateOverride, leaving the display at the algorithmic
+          // default. Synthesize the override so Loan Details is the
+          // single source of truth for rate/points regardless of when
+          // the record was created.
+          if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+            var _r = parseFloat(found.rate);
+            if (isFinite(_r) && _r > 0) {
+              // Values >1 are percent (8.625), <=1 already decimal.
+              fd._rateOverride = String(_r > 1 ? _r / 100 : _r);
+            }
+          }
+          if (!fd._pointsOverride && found.points != null && found.points !== '') {
+            var _p = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+            if (isFinite(_p) && _p >= 0) fd._pointsOverride = String(_p);
+          }
+          console.log('[dscr-sizer 236.218] loadFromClientLoan overrides:',
+            { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,
+              found_rate: found.rate, found_points: found.points,
+              loanFd_rateOverride: (found.formData || {})._rateOverride,
+              loanFd_pointsOverride: (found.formData || {})._pointsOverride });
           if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
           if (!fd.borrowerName && clientRec) {
             fd = Object.assign({}, fd, {
