@@ -18,8 +18,31 @@ import {
 } from './_shared/auth.mjs';
 import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
 import {
-  listMirroredBorrowers, getBorrowerLink, setBorrowerLink,
+  getBorrowerLink, setBorrowerLink,
 } from './_shared/baseline-borrowers.mjs';
+
+// Deploy 236.197 — parallel mirror walk. The shared
+// listMirroredBorrowers() is serial (~25s for a 250-borrower
+// mirror). Same trick used elsewhere: read blobs in parallel with a
+// small concurrency ceiling.
+const MIRROR_READ_CONCURRENCY = 10;
+const WRITE_CONCURRENCY = 10;
+
+async function _walkBorrowerMirrorParallel() {
+  const store = getStore({ name: 'baseline_borrowers_mirror', consistency: 'strong' });
+  let blobs;
+  try { blobs = (await store.list()).blobs || []; }
+  catch (_) { return []; }
+  const out = [];
+  for (let i = 0; i < blobs.length; i += MIRROR_READ_CONCURRENCY) {
+    const chunk = blobs.slice(i, i + MIRROR_READ_CONCURRENCY);
+    const recs = await Promise.all(chunk.map(({ key }) =>
+      store.get(key, { type: 'json' }).catch(() => null),
+    ));
+    for (const r of recs) if (r) out.push(r);
+  }
+  return out;
+}
 
 function _lower(s) { return String(s || '').trim().toLowerCase(); }
 function _isEmpty(v) { return v === undefined || v === null || v === ''; }
@@ -74,7 +97,7 @@ async function handle(req, context) {
   const errors = [];
 
   // ── Load Baseline mirror + all clients + all borrower links ──
-  const borrowers = await listMirroredBorrowers();
+  const borrowers = await _walkBorrowerMirrorParallel();
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   let blobs;
@@ -122,6 +145,10 @@ async function handle(req, context) {
     if (!existing || (xIsImport && !eIsImport)) clientsByEmail.set(email, e);
   }
 
+  // Queue of (borrowerId, link) writes deferred to the end so we
+  // can fan them out in parallel batches instead of one-at-a-time.
+  const linkWrites = [];
+
   // ── Phase 2: Materialize People ──────────────────────────────
   let peopleLinked = 0, peopleCreated = 0, peopleGapFilled = 0;
   const peopleSamples = [];
@@ -154,15 +181,12 @@ async function handle(req, context) {
       }
       target.client._baselineBorrowerId = id;
       target.client.updatedAt = now;
-      if (!dryRun) {
-        try {
-          await clientsStore.setJSON(target.key, target.client);
-          await setBorrowerLink(id, { ownerKey: target.ownerKey, clientId: target.clientId, source: 'match' });
-          linkMap.set(String(id), { ownerKey: target.ownerKey, clientId: target.clientId, source: 'match' });
-        } catch (e) { errors.push({ phase: 'person materialize', id, error: (e && e.message) || 'unknown' }); }
-      } else if (!existingLink) {
-        linkMap.set(String(id), { ownerKey: target.ownerKey, clientId: target.clientId, source: 'match' });
-      }
+      // Defer the write — phase-4 persist loop batches all dirty
+      // clients in parallel at the end.
+      target._dirty = true;
+      const linkVal = { ownerKey: target.ownerKey, clientId: target.clientId, source: 'match' };
+      linkMap.set(String(id), linkVal);
+      if (!dryRun) linkWrites.push({ id, link: linkVal });
       peopleLinked++;
       if (changed) peopleGapFilled++;
     } else {
@@ -176,19 +200,13 @@ async function handle(req, context) {
         _baselineBorrowerId: id, _baselineImport: true, _baselineImportedAt: now,
         loans: [], companies: [],
       };
-      target = { key, ownerKey: IMPORT_OWNER_KEY, clientId, client: newClient };
+      target = { key, ownerKey: IMPORT_OWNER_KEY, clientId, client: newClient, _dirty: true };
       clientsByKey.set(key, target);
       if (email) clientsByEmail.set(email, target);
       peopleCreated++;
-      if (!dryRun) {
-        try {
-          await clientsStore.setJSON(key, newClient);
-          await setBorrowerLink(id, { ownerKey: IMPORT_OWNER_KEY, clientId, source: 'new' });
-          linkMap.set(String(id), { ownerKey: IMPORT_OWNER_KEY, clientId, source: 'new' });
-        } catch (e) { errors.push({ phase: 'person create', id, error: (e && e.message) || 'unknown' }); }
-      } else {
-        linkMap.set(String(id), { ownerKey: IMPORT_OWNER_KEY, clientId, source: 'new' });
-      }
+      const linkVal = { ownerKey: IMPORT_OWNER_KEY, clientId, source: 'new' };
+      linkMap.set(String(id), linkVal);
+      if (!dryRun) linkWrites.push({ id, link: linkVal });
     }
     if (peopleSamples.length < 20) {
       peopleSamples.push({
@@ -238,19 +256,17 @@ async function handle(req, context) {
         existing._baselineEntityId = id;
       }
       target.client.updatedAt = now;
-      if (!dryRun) {
-        try {
-          await clientsStore.setJSON(target.key, target.client);
-          await setBorrowerLink(id, { ownerKey: target.ownerKey, clientId: target.clientId, companyId: existing.id, source: 'entity connect' });
-          linkMap.set(String(id), { ownerKey: target.ownerKey, clientId: target.clientId, companyId: existing.id });
-        } catch (e) { errors.push({ phase: 'entity materialize', id, error: (e && e.message) || 'unknown' }); }
-      }
+      target._dirty = true;
+      const linkVal = { ownerKey: target.ownerKey, clientId: target.clientId, companyId: existing.id, source: 'entity connect' };
+      linkMap.set(String(id), linkVal);
+      if (!dryRun) linkWrites.push({ id, link: linkVal });
     }
   }
 
   // ── Phase 4: Reassign existing loans ─────────────────────────
   let loansReassigned = 0, loansLlcTagged = 0;
   const reassignSamples = [];
+  const nativeLinkWrites = []; // deferred; flushed in parallel below
   const allLoansCtx = [];
   for (const entry of clientsByKey.values()) {
     if (!Array.isArray(entry.client.loans)) continue;
@@ -282,8 +298,10 @@ async function handle(req, context) {
             target._dirty = true;
             const extId = String(loan._baselineExternalId || (raw && raw.Id) || '').trim();
             if (extId && !dryRun) {
-              try { await setNativeLink(extId, { ownerKey: target.ownerKey, clientId: target.clientId, loanId: loan.id, source: 'borrower_pull' }); }
-              catch (e) { errors.push({ phase: 'native link', loanId: loan.id, error: (e && e.message) || 'unknown' }); }
+              nativeLinkWrites.push({
+                extId,
+                link: { ownerKey: target.ownerKey, clientId: target.clientId, loanId: loan.id, source: 'borrower_pull' },
+              });
             }
           }
         }
@@ -300,21 +318,45 @@ async function handle(req, context) {
   }
 
   if (!dryRun) {
-    for (const entry of clientsByKey.values()) {
-      if (!entry._dirty) continue;
-      try {
-        if (entry.ownerKey === IMPORT_OWNER_KEY &&
-            (!entry.client.loans || entry.client.loans.length === 0) &&
-            (!entry.client.companies || entry.client.companies.length === 0) &&
-            !entry.client._baselineBorrowerId) {
-          await clientsStore.delete(entry.key);
-          continue;
+    // Deploy 236.197 — parallelize the final persist. Serial writes
+    // of ~100+ dirty clients pushed us past the timeout even after
+    // the mirror walk got fast.
+    // First, flush deferred borrower-link writes in parallel batches.
+    for (let i = 0; i < linkWrites.length; i += WRITE_CONCURRENCY) {
+      const chunk = linkWrites.slice(i, i + WRITE_CONCURRENCY);
+      await Promise.all(chunk.map((w) =>
+        setBorrowerLink(w.id, w.link).catch((e) =>
+          errors.push({ phase: 'link write', id: w.id, error: (e && e.message) || 'unknown' })),
+      ));
+    }
+    // Then native-link writes for reassigned loans.
+    for (let i = 0; i < nativeLinkWrites.length; i += WRITE_CONCURRENCY) {
+      const chunk = nativeLinkWrites.slice(i, i + WRITE_CONCURRENCY);
+      await Promise.all(chunk.map((w) =>
+        setNativeLink(w.extId, w.link).catch((e) =>
+          errors.push({ phase: 'native link', extId: w.extId, error: (e && e.message) || 'unknown' })),
+      ));
+    }
+    // Then the dirty client writes.
+    const dirty = [];
+    for (const entry of clientsByKey.values()) if (entry._dirty) dirty.push(entry);
+    for (let i = 0; i < dirty.length; i += WRITE_CONCURRENCY) {
+      const chunk = dirty.slice(i, i + WRITE_CONCURRENCY);
+      await Promise.all(chunk.map(async (entry) => {
+        try {
+          if (entry.ownerKey === IMPORT_OWNER_KEY &&
+              (!entry.client.loans || entry.client.loans.length === 0) &&
+              (!entry.client.companies || entry.client.companies.length === 0) &&
+              !entry.client._baselineBorrowerId) {
+            await clientsStore.delete(entry.key);
+            return;
+          }
+          entry.client.updatedAt = now;
+          await clientsStore.setJSON(entry.key, entry.client);
+        } catch (e) {
+          errors.push({ phase: 'final persist', key: entry.key, error: (e && e.message) || 'unknown' });
         }
-        entry.client.updatedAt = now;
-        await clientsStore.setJSON(entry.key, entry.client);
-      } catch (e) {
-        errors.push({ phase: 'final persist', key: entry.key, error: (e && e.message) || 'unknown' });
-      }
+      }));
     }
   }
 
