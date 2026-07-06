@@ -3774,20 +3774,46 @@ netlifyIdentity.on('init', function(user) {
           if (found) {
             fd = Object.assign({}, fd);
             var loanFd = (found.formData && typeof found.formData === 'object') ? found.formData : {};
-            if (loanFd._rateOverride)   fd._rateOverride   = loanFd._rateOverride;
-            if (loanFd._finalRate)      fd._finalRate      = loanFd._finalRate;
-            if (loanFd._pointsOverride) fd._pointsOverride = loanFd._pointsOverride;
-            if (loanFd._points)         fd._points         = loanFd._points;
-            // Loan-level canonical fields the LO can inline-edit on
-            // Loan Details — always overwrite from the loan record
-            // when a value is set. Empty / null values on the loan
-            // record are ignored so we don't blow away a valid quote
-            // field with a blank.
+            // Deploy 236.217 — belt-and-suspenders on the rate/points
+            // override hydration. Prior deploys mirrored to
+            // formData._rateOverride only; if that mirror ever fails to
+            // land (older loan records, direct API writes, imports)
+            // we now ALSO synthesize the override from the canonical
+            // loan.rate / loan.points values. Rate on the loan record
+            // is stored as PERCENT (8.625 = 8.625%). The override is
+            // stored as DECIMAL fraction (0.08625). Convert.
+            var _finalRateStr   = loanFd._rateOverride   || loanFd._finalRate;
+            var _finalPointsStr = loanFd._pointsOverride || loanFd._points;
+            if (_finalRateStr)   fd._rateOverride = String(_finalRateStr).indexOf('%') >= 0 ? String(_finalRateStr).replace('%','') : _finalRateStr;
+            if (loanFd._finalRate)   fd._finalRate      = loanFd._finalRate;
+            if (_finalPointsStr) fd._pointsOverride = String(_finalPointsStr).replace(/[^0-9.]/g, '');
+            if (loanFd._points)      fd._points         = loanFd._points;
+            // Loan-level canonical fields the LO can inline-edit.
             ['rate','points','purchasePrice','rehabBudget','arv','fico',
              'loanType','experience','brokerFee','appraisedValue',
              'monthlyRent','monthlyTaxes','monthlyInsurance','monthlyHoa'].forEach(function(k) {
               if (found[k] != null && found[k] !== '') fd[k] = found[k];
             });
+            // Deploy 236.217 — synthesize the override from the
+            // canonical rate/points if the formData mirror was
+            // missing. loan.rate is percent (8.625), _rateOverride
+            // wants decimal (0.08625). loan.points is pts (1.5),
+            // _pointsOverride wants same (1.5).
+            if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+              var rNum = parseFloat(found.rate);
+              if (isFinite(rNum) && rNum > 0) {
+                // Values >1 are percent, <=1 are decimal (Baseline import).
+                fd._rateOverride = String(rNum > 1 ? rNum / 100 : rNum);
+              }
+            }
+            if (!fd._pointsOverride && found.points != null && found.points !== '') {
+              var pNum = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+              if (isFinite(pNum) && pNum >= 0) fd._pointsOverride = String(pNum);
+            }
+            console.log('[sizer 236.217] loaded overrides:',
+              { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,
+                loanFd_rateOverride: loanFd._rateOverride, loanFd_pointsOverride: loanFd._pointsOverride,
+                found_rate: found.rate, found_points: found.points });
           }
           // Deploy 228.1 — always overwrite borrower contact fields from
           // the live client record. The QuoteStore localStorage cache and

@@ -3619,6 +3619,24 @@ netlifyIdentity.on('init', function(user) {
            'monthlyRent','monthlyTaxes','monthlyInsurance','monthlyHoa'].forEach(function(k) {
             if (found[k] != null && found[k] !== '') fd[k] = found[k];
           });
+          // Deploy 236.217 — synthesize the override from the
+          // canonical rate/points if the formData mirror wasn't
+          // written for this loan (older records, direct API writes,
+          // imports). Percent vs decimal detection via threshold.
+          if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+            var rNum = parseFloat(found.rate);
+            if (isFinite(rNum) && rNum > 0) {
+              fd._rateOverride = String(rNum > 1 ? rNum / 100 : rNum);
+            }
+          }
+          if (!fd._pointsOverride && found.points != null && found.points !== '') {
+            var pNum = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+            if (isFinite(pNum) && pNum >= 0) fd._pointsOverride = String(pNum);
+          }
+          console.log('[rtl sizer 236.217] loaded overrides:',
+            { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,
+              loanFd_rateOverride: loanFd._rateOverride, loanFd_pointsOverride: loanFd._pointsOverride,
+              found_rate: found.rate, found_points: found.points });
         }
         // Deploy 228.1 — always overwrite borrower contact fields from
         // the live client record. The QuoteStore localStorage cache and
