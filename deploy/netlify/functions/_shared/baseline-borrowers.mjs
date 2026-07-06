@@ -51,7 +51,15 @@ export async function fetchAllBorrowerList() {
         headers: { Authorization: authHeader(), Accept: 'application/json' },
       });
       const text = await resp.text().catch(() => '');
-      probesTried.push({ probe: 'GET ' + path, status: resp.status, bytes: text.length });
+      // Deploy 236.200 — capture the response body preview so 403s
+      // actually tell us WHY Baseline refused (permission name, missing
+      // scope, etc.). Trimmed to 400 chars so the response stays small.
+      probesTried.push({
+        probe: 'GET ' + path,
+        status: resp.status,
+        bytes: text.length,
+        bodyPreview: text ? text.slice(0, 400) : '',
+      });
       if (!resp.ok) return null;
       let body; try { body = text ? JSON.parse(text) : {}; } catch (_) { return null; }
       const borrowers = Array.isArray(body.borrowers) ? body.borrowers
@@ -76,7 +84,12 @@ export async function fetchAllBorrowerList() {
         body: JSON.stringify({ query }),
       });
       const text = await resp.text().catch(() => '');
-      probesTried.push({ probe: 'POST /api/graph ' + label, status: resp.status, bytes: text.length });
+      probesTried.push({
+        probe: 'POST /api/graph ' + label,
+        status: resp.status,
+        bytes: text.length,
+        bodyPreview: text ? text.slice(0, 400) : '',
+      });
       if (!resp.ok) return null;
       let body; try { body = text ? JSON.parse(text) : {}; } catch (_) { return null; }
       if (body && body.data) {

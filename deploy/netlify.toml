@@ -879,6 +879,15 @@
   status = 200
   force = true
 
+# Deploy 236.200 — diagnostic probe of Baseline's /borrower
+# endpoint(s). No writes. Returns status + body preview per probe so
+# we can see exactly what Baseline is refusing.
+[[redirects]]
+  from = "/api/baseline-borrower-probe"
+  to = "/.netlify/functions/baseline-borrower-probe"
+  status = 200
+  force = true
+
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
 # investor (with prompt caching) so verdicts are judged against the

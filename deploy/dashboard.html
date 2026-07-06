@@ -182,6 +182,10 @@
            materialize into SLA clients + companies, then reassign
            existing loans to the correct borrower record. -->
       <button class="btn-primary" id="pullBorrowersBtn" onclick="openPullBorrowersModal()" style="background:rgba(21,128,61,0.10);color:#166534;border:1px solid rgba(21,128,61,0.40)">Pull Borrowers from Baseline</button>
+      <!-- Deploy 236.200 — diagnostic. Runs the /borrower list
+           probes and shows the raw response body so we can see
+           what Baseline is refusing. -->
+      <button class="btn-primary" id="probeBaselineBtn" onclick="probeBaseline()" style="background:rgba(120,113,108,0.10);color:#57534e;border:1px solid rgba(120,113,108,0.40)">Probe Baseline</button>
     </div>
   </div>
 
@@ -2018,6 +2022,43 @@ function _tile(label, value, sub, color) {
     '<div style="font-size:18px;font-weight:700;margin-top:2px;color:' + color + '">' + (value == null ? '—' : escH(String(value))) + '</div>' +
     (sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(sub) + '</div>' : '') +
   '</div>';
+}
+
+// Deploy 236.200 — one-shot Baseline probe. Renders results into
+// the pullBorrowers modal so the layout is already in place; no side
+// effects on data. Use to see exactly what Baseline returns on the
+// /borrower list endpoint so we can share the failure with support.
+function probeBaseline() {
+  var modal = document.getElementById('pullBorrowersModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('pullBorrowersSubtitle').textContent = 'Baseline /borrower list probe — no writes, diagnostic only.';
+  document.getElementById('pullBorrowersCommitBtn').disabled = true;
+  var body = document.getElementById('pullBorrowersBody');
+  body.innerHTML = '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Probing…</div>';
+  SLA.api('POST', '/api/baseline-borrower-probe', {}).then(function(r) {
+    if (!r || !r.ok) {
+      body.innerHTML = '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Probe failed: ' + escH((r && r.error) || 'unknown') + '</div>';
+      return;
+    }
+    var probes = r.probesTried || [];
+    var header = r.succeeded
+      ? '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px;margin-bottom:1rem"><strong>One probe succeeded.</strong> Envelope: <code>' + escH(r.envelopeShape) + '</code>. Result count: ' + r.resultCount + '.</div>'
+      : '<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:1rem"><strong>All probes failed.</strong> Body previews below tell you exactly what Baseline is refusing — copy the relevant one into your email to Baseline support and ask them to enable the borrower.list scope on the API key.</div>';
+    var probesHtml = probes.map(function(p) {
+      var statusColor = p.status >= 200 && p.status < 300 ? '#166534' : '#991b1b';
+      return '<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">' +
+        '<div style="padding:8px 12px;background:#faf8f3;font-size:12px;font-family:monospace;display:flex;justify-content:space-between;align-items:center">' +
+          '<span><strong>' + escH(p.probe) + '</strong></span>' +
+          '<span style="color:' + statusColor + ';font-weight:600">' + (p.status ? 'HTTP ' + p.status : escH(p.error || 'error')) + '</span>' +
+        '</div>' +
+        (p.bodyPreview ? '<pre style="margin:0;padding:10px 12px;font-size:11px;font-family:monospace;background:#fff;white-space:pre-wrap;word-break:break-all;color:#57534e;max-height:200px;overflow:auto">' + escH(p.bodyPreview) + '</pre>' : '') +
+      '</div>';
+    }).join('');
+    body.innerHTML = header + probesHtml;
+  }).catch(function(err) {
+    body.innerHTML = '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Probe failed: ' + escH((err && err.message) || 'unknown') + '</div>';
+  });
 }
 
 // Deploy 236.192 — Pull Borrowers from Baseline modal. Calls
