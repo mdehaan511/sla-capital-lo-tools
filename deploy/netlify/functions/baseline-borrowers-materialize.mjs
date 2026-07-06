@@ -172,6 +172,11 @@ async function handle(req, context) {
 
   const body = (await readJsonBody(req)) || {};
   const dryRun = body.dryRun !== false;
+  // Deploy 236.202 — Mike's ask: focus on getting borrowers into
+  // SLA as clients with full field mapping; he'll handle loan
+  // assignment manually. Phase 4 (loan reassignment) is opt-in from
+  // now on. The default flow is Phase 1-3: fetch → people → LLCs.
+  const linkLoans = body.linkLoans === true;
   const now = new Date().toISOString();
   const errors = [];
 
@@ -353,10 +358,12 @@ async function handle(req, context) {
     }
   }
 
-  // ── Phase 4: Reassign existing loans ─────────────────────────
+  // ── Phase 4: Reassign existing loans (opt-in) ────────────────
   let loansReassigned = 0, loansLlcTagged = 0;
   const reassignSamples = [];
   const nativeLinkWrites = []; // deferred; flushed in parallel below
+
+  if (linkLoans) {
   const allLoansCtx = [];
   for (const entry of clientsByKey.values()) {
     if (!Array.isArray(entry.client.loans)) continue;
@@ -411,6 +418,7 @@ async function handle(req, context) {
       }
     }
   }
+  } // end if (linkLoans)
 
   if (!dryRun) {
     // Deploy 236.197 — parallelize the final persist. Serial writes
@@ -458,10 +466,11 @@ async function handle(req, context) {
   return json(200, {
     ok: true,
     dryRun,
+    linkLoans,
     mirrorCount: borrowers.length,
     people:   { linked: peopleLinked, created: peopleCreated, gapFilled: peopleGapFilled, samples: peopleSamples },
     entities: { attached: llcsAttached, samples: llcSamples },
-    loans:    { reassigned: loansReassigned, llcTagged: loansLlcTagged, samples: reassignSamples },
+    loans:    { reassigned: loansReassigned, llcTagged: loansLlcTagged, samples: reassignSamples, skipped: !linkLoans },
     errorCount: errors.length,
     errors: errors.slice(0, 20),
   });

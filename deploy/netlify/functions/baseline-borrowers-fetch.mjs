@@ -118,14 +118,50 @@ async function handle(req, context) {
   let listState = null;
   let extractDiag = null;
   if (offset === 0) {
+    // Deploy 236.202 — enumerate borrower IDs from every source we
+    // can. Baseline's list-borrower endpoint 403s and support said
+    // there's no scope to enable, so we build the id list ourselves:
+    //   1. Loan mirror — every Borrower_Id / Guarantor_Id / etc.
+    //   2. SLA clients store — every client already tagged with a
+    //      _baselineBorrowerId from prior syncs. Catches borrowers
+    //      that were synced OUT to Baseline via the LO flow, not
+    //      just ones on inbound loans.
     const loans = await _walkLoanMirrorParallel();
     const extract = _idsFromMirror(loans);
-    let ids = extract.ids;
-    let envelopeShape = 'from loan mirror';
+    const idsFromLoans = new Set(extract.ids);
+
+    // Also pull ids from SLA clients that have already been tagged.
+    const idsFromClients = new Set();
+    try {
+      const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+      const { blobs: cb } = await clientsStore.list();
+      for (let i = 0; i < cb.length; i += 10) {
+        const chunk = cb.slice(i, i + 10);
+        const clients = await Promise.all(chunk.map(({ key }) =>
+          clientsStore.get(key, { type: 'json' }).catch(() => null),
+        ));
+        for (const c of clients) {
+          if (!c) continue;
+          if (c._baselineBorrowerId) idsFromClients.add(String(c._baselineBorrowerId));
+          if (Array.isArray(c.companies)) {
+            for (const co of c.companies) {
+              if (co && co._baselineEntityId) idsFromClients.add(String(co._baselineEntityId));
+            }
+          }
+        }
+      }
+    } catch (_) { /* non-fatal */ }
+
+    const combined = new Set([...idsFromLoans, ...idsFromClients]);
+    combined.delete('');
+    let ids = Array.from(combined);
+    let envelopeShape = 'from local sources';
     let probesTried = [];
     extractDiag = {
       loanCount: loans.length,
       fieldsProbed: extract.fieldsProbed,
+      idsFromLoans: idsFromLoans.size,
+      idsFromClients: idsFromClients.size,
       idsExtracted: ids.length,
       idsSample: ids.slice(0, 5),
       firstLoanKeys: loans.length && loans[0] ? Object.keys(loans[0]).filter((k) => !k.startsWith('_')).slice(0, 30) : [],
