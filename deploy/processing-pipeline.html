@@ -322,7 +322,13 @@ function columnFor(loan) {
   if (stage === 'pp_closed')    return 'pp_closed';
   if (stage === 'new_loan')     return 'new_loan';
   var status = String(loan.status || '').toLowerCase().trim();
-  if (status === 'closed' || status === 'liquidated') return 'pp_closed';
+  // Deploy 236.205 — removed the status='closed' / 'liquidated'
+  // fallback that landed Sold / In Servicing / Paid Off loans in
+  // pp_closed. Those are terminal states and belong on the Loans
+  // page under the corresponding filter chips, not in the
+  // processing pipeline. Any loan currently in the pp_closed
+  // workflow step still has processingStage='pp_closed' — the
+  // stage check above already places it correctly.
   if (status === 'approved') return 'new_loan';
   return null; // not in this pipeline
 }
