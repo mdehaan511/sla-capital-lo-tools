@@ -25,11 +25,31 @@ import { handleOptions, json, requireAuth, isAdmin, readJsonBody } from './_shar
 import {
   fetchAllBorrowerList, fetchBorrowerDetail, saveMirroredBorrower,
 } from './_shared/baseline-borrowers.mjs';
-import { listMirroredLoans } from './_shared/baseline-mirror.mjs';
 
 const CONCURRENCY = 6;
+const MIRROR_READ_CONCURRENCY = 10;
 const TEMP_STORE = 'baseline_borrowers_fetch_state';
 const LIST_KEY   = 'current_list';
+
+// Deploy 236.196 — parallel walk of the loan mirror. The shared
+// listMirroredLoans() is serial (~50-100ms per blob × 250 loans =
+// past the 26s function timeout). We read the mirror ourselves here
+// with concurrency 10 so offset=0 lands in a few seconds.
+async function _walkLoanMirrorParallel() {
+  const store = getStore({ name: 'baseline_loans_mirror', consistency: 'strong' });
+  let blobs;
+  try { blobs = (await store.list()).blobs || []; }
+  catch (_) { return []; }
+  const out = [];
+  for (let i = 0; i < blobs.length; i += MIRROR_READ_CONCURRENCY) {
+    const chunk = blobs.slice(i, i + MIRROR_READ_CONCURRENCY);
+    const recs = await Promise.all(chunk.map(({ key }) =>
+      store.get(key, { type: 'json' }).catch(() => null),
+    ));
+    for (const r of recs) if (r) out.push(r);
+  }
+  return out;
+}
 
 // Deploy 236.195 — extract every unique Baseline borrower Id we can
 // find on the loans we've already mirrored. The Baseline API token
@@ -86,7 +106,7 @@ async function handle(req, context) {
   // and Baseline generally permits reads on writable records.
   let listState = null;
   if (offset === 0) {
-    const loans = await listMirroredLoans();
+    const loans = await _walkLoanMirrorParallel();
     let ids = _idsFromMirror(loans);
     let envelopeShape = 'from loan mirror';
     let probesTried = [];
