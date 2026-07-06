@@ -2044,7 +2044,40 @@ function probeBaseline() {
     var probes = r.probesTried || [];
     var header = r.succeeded
       ? '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px;margin-bottom:1rem"><strong>One probe succeeded.</strong> Envelope: <code>' + escH(r.envelopeShape) + '</code>. Result count: ' + r.resultCount + '.</div>'
-      : '<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:1rem"><strong>All probes failed.</strong> Body previews below tell you exactly what Baseline is refusing — copy the relevant one into your email to Baseline support and ask them to enable the borrower.list scope on the API key.</div>';
+      : '<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:1rem"><strong>All list probes failed.</strong> If Baseline confirmed there is no borrower.list scope to enable, we fall back to the loan-mirror ID extraction (which is what Pull Borrowers already does — see the detail sample below to confirm the individual GET works).</div>';
+
+    // Deploy 236.201 — detail sample block. Shows that GET /borrower/{Id}
+    // works with our token + the exact JSON shape Baseline returns, so
+    // we can confirm the field mapping in materialize matches reality.
+    var detailHtml = '';
+    if (r.detailSample) {
+      var d = r.detailSample;
+      if (d.error) {
+        detailHtml = '<div style="padding:10px 12px;background:#fef3c7;color:#854d0e;border-radius:6px;font-size:12px;margin-bottom:1rem"><strong>Detail sample skipped:</strong> ' + escH(d.error) + '</div>';
+      } else if (d.sampledId) {
+        var okColor = d.ok ? '#166534' : '#991b1b';
+        detailHtml =
+          '<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:1rem;overflow:hidden">' +
+            '<div style="padding:8px 12px;background:#faf8f3;font-size:12px;font-family:monospace;display:flex;justify-content:space-between">' +
+              '<span><strong>Detail sample:</strong> GET /borrower/' + escH(d.sampledId) + '</span>' +
+              '<span style="color:' + okColor + ';font-weight:600">HTTP ' + (d.status || '?') + '</span>' +
+            '</div>' +
+            (d.ok
+              ? '<div style="padding:10px 12px;font-size:12px;line-height:1.7">' +
+                  '· Is_Company: <code>' + escH(String(d.isCompanyFlag)) + '</code><br>' +
+                  '· First_Name: <code>' + escH(String(d.firstNameField || '—')) + '</code><br>' +
+                  '· Last_Name: <code>' + escH(String(d.lastNameField || '—')) + '</code><br>' +
+                  '· Email: <code>' + escH(String(d.emailField || '—')) + '</code><br>' +
+                  '· Date_Birth: <code>' + escH(String(d.dobField || '—')) + '</code><br>' +
+                  '· Credit_Score: <code>' + escH(String(d.creditField || '—')) + '</code><br>' +
+                  '· Address_Street1: <code>' + escH(String(d.addressField || '—')) + '</code><br>' +
+                  '· All keys: <code style="font-size:11px">' + escH((d.responseKeys || []).join(', ')) + '</code>' +
+                '</div>'
+              : '') +
+            (d.bodyPreview ? '<pre style="margin:0;padding:10px 12px;font-size:11px;font-family:monospace;background:#fff;white-space:pre-wrap;word-break:break-all;color:#57534e;max-height:200px;overflow:auto;border-top:1px solid var(--border)">' + escH(d.bodyPreview) + '</pre>' : '') +
+          '</div>';
+      }
+    }
     var probesHtml = probes.map(function(p) {
       var statusColor = p.status >= 200 && p.status < 300 ? '#166534' : '#991b1b';
       return '<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">' +
@@ -2055,7 +2088,7 @@ function probeBaseline() {
         (p.bodyPreview ? '<pre style="margin:0;padding:10px 12px;font-size:11px;font-family:monospace;background:#fff;white-space:pre-wrap;word-break:break-all;color:#57534e;max-height:200px;overflow:auto">' + escH(p.bodyPreview) + '</pre>' : '') +
       '</div>';
     }).join('');
-    body.innerHTML = header + probesHtml;
+    body.innerHTML = header + detailHtml + probesHtml;
   }).catch(function(err) {
     body.innerHTML = '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Probe failed: ' + escH((err && err.message) || 'unknown') + '</div>';
   });
