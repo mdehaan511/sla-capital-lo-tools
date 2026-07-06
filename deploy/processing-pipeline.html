@@ -341,13 +341,18 @@ function columnFor(loan) {
 
 // ── Data load ──────────────────────────────────────────────────────
 function loadAll() {
-  // Admins see all owners; everyone else sees only their own loans.
-  // (Processors will need broader visibility once that role is in
-  // active use — handled in a later phase along with the LO-pipeline
-  // hide. For now everyone-but-admin is treated as an LO.)
-  var clientsP  = _isAdmin
-    ? SLA.Clients.list({ all: true })
-    : SLA.Clients.list();
+  var listOpts = _isAdmin ? { all: true } : {};
+
+  // Deploy 236.207 — stale-while-revalidate paint. Skip the loading
+  // spinner and slot cached loans into the board immediately, then
+  // fetch fresh in the background. First page-load is unchanged;
+  // every subsequent nav feels instant.
+  var cached = SLA.Clients.listCached(listOpts);
+  if (cached) {
+    _processPipelineClients(cached);
+  }
+
+  var clientsP  = SLA.Clients.list(listOpts);
   var profilesP = (SLA.Profile && SLA.Profile.listAll)
     ? SLA.Profile.listAll().catch(function() { return { profiles: [] }; })
     : Promise.resolve({ profiles: [] });
@@ -356,90 +361,81 @@ function loadAll() {
     var clientsResp = results[0];
     var profilesResp = results[1] || { profiles: [] };
 
-    // Build LO display map from profiles (for admin-mode tile attribution).
     (profilesResp.profiles || []).forEach(function(p) {
       if (!p || !p.email) return;
       var key = String(p.email).toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
       _loDisplayMap[key] = p.fullName || p.email;
     });
 
-    // Walk every client → every loan, slot into the right column.
-    _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
-    if (clientsResp.byOwner) {
-      Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
-        (clientsResp.byOwner[ownerKey] || []).forEach(function(client) {
-          (client.loans || []).forEach(function(loan) {
-            var col = columnFor(loan);
-            if (!col) return;
-            _items[col].push({
-              ownerKey: ownerKey,
-              client: client,
-              loan: loan,
-            });
-          });
-        });
-      });
-    } else if (clientsResp.clients) {
-      var myKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
-      clientsResp.clients.forEach(function(client) {
+    _processPipelineClients(clientsResp);
+  }).catch(function(err) {
+    if (!cached) {
+      document.getElementById('boardWrap').innerHTML =
+        '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err.message || 'unknown error') + '</div>';
+    }
+  });
+}
+
+// Deploy 236.207 — factored out so the cached paint and the fresh
+// re-paint share the exact same slotting/sort/filter logic.
+function _processPipelineClients(clientsResp) {
+  _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
+  if (clientsResp.byOwner) {
+    Object.keys(clientsResp.byOwner).forEach(function(ownerKey) {
+      (clientsResp.byOwner[ownerKey] || []).forEach(function(client) {
         (client.loans || []).forEach(function(loan) {
           var col = columnFor(loan);
           if (!col) return;
-          _items[col].push({
-            ownerKey: myKey,
-            client: client,
-            loan: loan,
-          });
+          _items[col].push({ ownerKey: ownerKey, client: client, loan: loan });
         });
-      });
-    }
-
-    // Sort each column by daysUntilClose ascending — past-due
-    // (negative) sorts above closing-soon (0-5), which sorts above
-    // future dates, which sorts above no-date. Loans without a
-    // close date fall to the bottom, ordered by most-recently-
-    // updated. Deploy 236.94 simplified this from the prior
-    // "isClosingSoon first" comparator since past-due is more
-    // urgent than closing-soon and the date arithmetic already
-    // expresses that ordering when read ascending.
-    Object.keys(_items).forEach(function(col) {
-      _items[col].sort(function(a, b) {
-        var aDays = daysUntilClose(a.loan.fundingDate);
-        var bDays = daysUntilClose(b.loan.fundingDate);
-        if (aDays == null && bDays == null) {
-          var aU = new Date(a.loan.updatedAt || 0).getTime();
-          var bU = new Date(b.loan.updatedAt || 0).getTime();
-          return bU - aU;
-        }
-        if (aDays == null) return 1;
-        if (bDays == null) return -1;
-        return aDays - bDays;
       });
     });
-
-    // Populate the LO filter (admins only).
-    if (_isAdmin) {
-      var sel = document.getElementById('loFilter');
-      var seen = {};
-      Object.keys(_items).forEach(function(col) {
-        _items[col].forEach(function(it) {
-          if (!it.ownerKey || seen[it.ownerKey]) return;
-          seen[it.ownerKey] = true;
-        });
+  } else if (clientsResp.clients) {
+    var myKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+    clientsResp.clients.forEach(function(client) {
+      (client.loans || []).forEach(function(loan) {
+        var col = columnFor(loan);
+        if (!col) return;
+        _items[col].push({ ownerKey: myKey, client: client, loan: loan });
       });
-      Object.keys(seen).sort().forEach(function(ownerKey) {
-        var opt = document.createElement('option');
-        opt.value = ownerKey;
-        opt.textContent = loDisplay(ownerKey);
-        sel.appendChild(opt);
-      });
-    }
+    });
+  }
 
-    render();
-  }).catch(function(err) {
-    document.getElementById('boardWrap').innerHTML =
-      '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err.message || 'unknown error') + '</div>';
+  Object.keys(_items).forEach(function(col) {
+    _items[col].sort(function(a, b) {
+      var aDays = daysUntilClose(a.loan.fundingDate);
+      var bDays = daysUntilClose(b.loan.fundingDate);
+      if (aDays == null && bDays == null) {
+        var aU = new Date(a.loan.updatedAt || 0).getTime();
+        var bU = new Date(b.loan.updatedAt || 0).getTime();
+        return bU - aU;
+      }
+      if (aDays == null) return 1;
+      if (bDays == null) return -1;
+      return aDays - bDays;
+    });
   });
+
+  if (_isAdmin) {
+    var sel = document.getElementById('loFilter');
+    // Rebuild dropdown without adding duplicate options on re-paint.
+    while (sel.options.length > 1) sel.remove(1);
+    var seen = {};
+    Object.keys(_items).forEach(function(col) {
+      _items[col].forEach(function(it) {
+        if (!it.ownerKey || seen[it.ownerKey]) return;
+        seen[it.ownerKey] = true;
+      });
+    });
+    Object.keys(seen).sort().forEach(function(ownerKey) {
+      var opt = document.createElement('option');
+      opt.value = ownerKey;
+      opt.textContent = loDisplay(ownerKey);
+      sel.appendChild(opt);
+    });
+  }
+
+  render();
 }
 
 // ── Render ─────────────────────────────────────────────────────────

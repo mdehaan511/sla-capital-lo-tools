@@ -85,6 +85,12 @@
     },
     clear: function (key) {
       try { localStorage.removeItem('sla_cache_' + key); } catch (e) {}
+      // Deploy 236.207 — always clear the paired admin (_all) slot so
+      // saves invalidate both self and admin caches. Zero-cost when
+      // the key doesn't have an admin variant (removeItem is a no-op
+      // for missing keys). This spares every mutating endpoint from
+      // needing to remember to clear both slots.
+      try { localStorage.removeItem('sla_cache_' + key + '_all'); } catch (e) {}
     },
     clearAll: function () {
       try {
@@ -99,18 +105,34 @@
   };
 
   // ── Clients ─────────────────────────────────────────────────────
+  // Deploy 236.207 — admin (all:true) responses are now cached too.
+  // Previously the admin path bypassed the localStorage cache, so
+  // every page-nav on Pipeline / Processing Pipeline / Loans did a
+  // full network round-trip + blob walk before rendering anything.
+  // Cached under a separate key so switching scope doesn't collide.
   var Clients = {
     list: function (opts) {
       opts = opts || {};
       var q = opts.all ? '?all=1' : '';
+      var cacheKey = opts.all ? 'clients_all' : 'clients';
       return api('GET', '/api/clients' + q).then(function (r) {
-        if (!opts.all) cache.set('clients', r.clients || []);
+        // Store the full response shape ({clients} or {byOwner}) so
+        // listCached returns something usable directly.
+        cache.set(cacheKey, r);
         return r;
       });
     },
-    /** Synchronous cache hit for instant paints. May be null. */
-    listCached: function () {
-      return cache.get('clients');
+    /**
+     * Synchronous cache hit for instant paints. Returns the full
+     * response shape ({clients: [...]} or {byOwner: {...}}), matching
+     * what list() resolves to. May be null.
+     * Deploy 236.207 — accepts opts.all so the right cache slot is
+     * checked for admin scope.
+     */
+    listCached: function (opts) {
+      opts = opts || {};
+      var cacheKey = opts.all ? 'clients_all' : 'clients';
+      return cache.get(cacheKey);
     },
     save: function (client) {
       return api('POST', '/api/clients-save', client).then(function (r) {
@@ -336,6 +358,9 @@
   };
 
   // ── Prospects ───────────────────────────────────────────────────
+  // Deploy 236.207 — admin (all:true) responses now cached too,
+  // same rationale as Clients. Skips the slug variant since that's
+  // a public-form context.
   var Prospects = {
     list: function (opts) {
       opts = opts || {};
@@ -343,12 +368,17 @@
       if (opts.all) params.push('all=1');
       if (opts.slug) params.push('slug=' + encodeURIComponent(opts.slug));
       var qs = params.length ? '?' + params.join('&') : '';
+      var cacheKey = opts.all ? 'prospects_all' : 'prospects';
       return api('GET', '/api/prospects' + qs).then(function (r) {
-        if (!opts.all && !opts.slug) cache.set('prospects', r.prospects || []);
+        if (!opts.slug) cache.set(cacheKey, r);
         return r;
       });
     },
-    listCached: function () { return cache.get('prospects'); },
+    listCached: function (opts) {
+      opts = opts || {};
+      var cacheKey = opts.all ? 'prospects_all' : 'prospects';
+      return cache.get(cacheKey);
+    },
     /** PUBLIC — called from apply.html without auth. */
     submit: function (prospect) {
       return fetch('/api/prospects-save', {
@@ -401,16 +431,25 @@
   };
 
   // ── Quotes ──────────────────────────────────────────────────────
+  // Deploy 236.207 — admin (all:true) responses now cached, same
+  // rationale as Clients / Prospects. Pipeline pulls quotes+prospects
+  // alongside clients on every page-nav; caching all three lets the
+  // whole board paint from localStorage in one frame.
   var Quotes = {
     list: function (opts) {
       opts = opts || {};
       var q = opts.all ? '?all=1' : '';
+      var cacheKey = opts.all ? 'quotes_all' : 'quotes';
       return api('GET', '/api/quotes' + q).then(function (r) {
-        if (!opts.all) cache.set('quotes', r.quotes || []);
+        cache.set(cacheKey, r);
         return r;
       });
     },
-    listCached: function () { return cache.get('quotes'); },
+    listCached: function (opts) {
+      opts = opts || {};
+      var cacheKey = opts.all ? 'quotes_all' : 'quotes';
+      return cache.get(cacheKey);
+    },
     save: function (quote) {
       return api('POST', '/api/quotes-save', quote).then(function (r) {
         cache.clear('quotes');

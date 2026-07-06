@@ -374,13 +374,16 @@ netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 // ── Data load ──────────────────────────────────────────────────────
 function loadAll() {
   var listOpts = (_isAdmin && _view === 'all') ? { all: true } : {};
-  // Deploy 236.26 — admins also fetch user-stats so we know which LOs
-  // have been removed from Netlify Identity. Skipped for non-admins
-  // because (a) they don't see the LO filter dropdown anyway and (b)
-  // users-stats is admin-gated. Both fetches go through Promise.all
-  // so populateLoFilter() runs after _deletedOwners is populated —
-  // racing them would let deleted LOs flash in the dropdown briefly.
-  // Failure is silent — deleted-user filtering is a polish feature.
+
+  // Deploy 236.207 — stale-while-revalidate. Paint from localStorage
+  // cache first (0ms), then fetch fresh in the background and
+  // repaint. Users pay full network latency only on the very first
+  // visit; subsequent nav feels instant.
+  var cached = SLA.Clients.listCached(listOpts);
+  if (cached) {
+    _processClientsResponse(cached);
+  }
+
   var statsPromise = (_isAdmin && SLA.Admin)
     ? SLA.Admin.userStats().catch(function() { return { users: [] }; })
     : Promise.resolve({ users: [] });
@@ -391,34 +394,43 @@ function loadAll() {
     (statsResp.users || []).forEach(function(u) {
       if (u && u.deleted && u.email) _deletedOwners[_keySafe(u.email)] = true;
     });
-    var flat = [];
-    if (_isAdmin && _view === 'all') {
-      // byOwner shape
-      var byOwner = (r && r.byOwner) || {};
-      Object.keys(byOwner).forEach(function(ownerKey) {
-        (byOwner[ownerKey] || []).forEach(function(c) {
-          (c.loans || []).forEach(function(l) {
-            flat.push(decorateLoan(l, c, ownerKey));
-          });
-        });
-      });
-    } else {
-      // self view — flat clients[] array
-      var clients = (r && r.clients) || [];
-      var selfOwner = (_user.email || '').toLowerCase();
-      clients.forEach(function(c) {
-        (c.loans || []).forEach(function(l) {
-          flat.push(decorateLoan(l, c, selfOwner));
-        });
-      });
-    }
-    _allLoans = flat;
-    populateLoFilter();
-    renderTable();
+    _processClientsResponse(r);
   }).catch(function(err) {
-    document.getElementById('tbody').innerHTML =
-      '<tr><td colspan="9"><div class="empty"><strong>Failed to load loans.</strong>' + escH(err && err.message || 'Unknown error') + '</div></td></tr>';
+    // Only surface the error if we didn't already paint from cache;
+    // otherwise the stale-but-usable view stays up.
+    if (!cached) {
+      document.getElementById('tbody').innerHTML =
+        '<tr><td colspan="9"><div class="empty"><strong>Failed to load loans.</strong>' + escH(err && err.message || 'Unknown error') + '</div></td></tr>';
+    }
   });
+}
+
+// Deploy 236.207 — factored out so both the cached-paint and the
+// fresh-fetch code paths use the same shape-handling. `r` is the
+// full response object from Clients.list()/listCached().
+function _processClientsResponse(r) {
+  var flat = [];
+  if (_isAdmin && _view === 'all') {
+    var byOwner = (r && r.byOwner) || {};
+    Object.keys(byOwner).forEach(function(ownerKey) {
+      (byOwner[ownerKey] || []).forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          flat.push(decorateLoan(l, c, ownerKey));
+        });
+      });
+    });
+  } else {
+    var clients = (r && r.clients) || [];
+    var selfOwner = (_user.email || '').toLowerCase();
+    clients.forEach(function(c) {
+      (c.loans || []).forEach(function(l) {
+        flat.push(decorateLoan(l, c, selfOwner));
+      });
+    });
+  }
+  _allLoans = flat;
+  populateLoFilter();
+  renderTable();
 }
 
 // Add derived fields onto each loan so sorting + display don't have to
