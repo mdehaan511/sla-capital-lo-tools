@@ -3601,6 +3601,25 @@ netlifyIdentity.on('init', function(user) {
           console.log('[sizer] Applying LO override: loanAmt = ' + found.loanAmt + ' (locked)');
           fd = Object.assign({}, fd, { loanAmt: found.loanAmt, _loanAmtLocked: true });
         }
+        // Deploy 236.215 — pull Loan-Details inline edits onto the
+        // loading quote. See dscr-sizer.html for the full rationale;
+        // the mirror in loan-financials-edit.mjs writes rate + points
+        // into loan.formData._rateOverride / _pointsOverride so this
+        // handoff round-trips. Without this the RTL sizer loads the
+        // stale QUOTE's formData and Loan-Details edits get dropped.
+        if (found) {
+          fd = Object.assign({}, fd);
+          var loanFd = (found.formData && typeof found.formData === 'object') ? found.formData : {};
+          if (loanFd._rateOverride)   fd._rateOverride   = loanFd._rateOverride;
+          if (loanFd._finalRate)      fd._finalRate      = loanFd._finalRate;
+          if (loanFd._pointsOverride) fd._pointsOverride = loanFd._pointsOverride;
+          if (loanFd._points)         fd._points         = loanFd._points;
+          ['rate','points','purchasePrice','rehabBudget','arv','fico',
+           'loanType','experience','brokerFee','appraisedValue',
+           'monthlyRent','monthlyTaxes','monthlyInsurance','monthlyHoa'].forEach(function(k) {
+            if (found[k] != null && found[k] !== '') fd[k] = found[k];
+          });
+        }
         // Deploy 228.1 — always overwrite borrower contact fields from
         // the live client record. The QuoteStore localStorage cache and
         // even the saved quote in the backend can hold stale name/
