@@ -46,6 +46,85 @@ async function _walkBorrowerMirrorParallel() {
 
 function _lower(s) { return String(s || '').trim().toLowerCase(); }
 function _isEmpty(v) { return v === undefined || v === null || v === ''; }
+
+// Deploy 236.199 — reverse of baseline-sync's mapMaritalStatus /
+// mapCitizenship. Baseline stores title-case display strings ("US
+// Citizen"); SLA uses the enum values the profile select expects.
+function _reverseCitizenship(v) {
+  if (!v) return '';
+  const s = String(v).trim().toLowerCase();
+  if (s === 'us citizen' || s === 'us_citizen' || s === 'us' || s === 'yes') return 'yes';
+  if (s === 'non-us citizen' || s === 'non_us_citizen' || s === 'foreign' || s === 'no') return 'no';
+  return '';
+}
+function _reverseMaritalStatus(v) {
+  if (!v) return '';
+  const s = String(v).trim().toLowerCase();
+  if (s === 'married') return 'married';
+  if (s === 'single' || s === 'not married' || s === 'divorced' || s === 'widowed') return 'single';
+  return '';
+}
+function _cleanDob(v) {
+  if (!v) return '';
+  // Baseline dates come as ISO 8601 or "YYYY-MM-DD". Trim time.
+  const m = String(v).match(/(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+function _cleanFico(v) {
+  if (_isEmpty(v)) return '';
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? String(n) : '';
+}
+
+// Deploy 236.199 — full field mapping. Returns an object of SLA
+// client fields (only the ones we have data for). Callers gap-fill
+// or overwrite from this depending on whether the target is a
+// native SLA client (gap-fill) or a fresh import stub (overwrite).
+function _mapBorrowerToClientFields(b) {
+  if (!b) return {};
+  return {
+    firstName:      String(b.First_Name || '').trim(),
+    lastName:       String(b.Last_Name  || '').trim(),
+    email:          _lower(b.Email),
+    otherEmail:     _lower(b.Other_Email),
+    phone:          String(b.Phone || '').trim(),
+    phoneSecondary: String(b.Phone_Secondary || '').trim(),
+    dob:            _cleanDob(b.Date_Birth || b.DOB),
+    fico:           _cleanFico(b.Credit_Score),
+    flips:          _isEmpty(b.Num_Flipped) ? '' : String(parseInt(b.Num_Flipped, 10) || ''),
+    maritalStatus:  _reverseMaritalStatus(b.Marital_Status),
+    usCitizen:      _reverseCitizenship(b.Citizenship),
+    homeAddress: {
+      street: String(b.Address_Street1 || '').trim(),
+      city:   String(b.Address_City    || '').trim(),
+      state:  String(b.Address_State   || '').trim(),
+      zip:    String(b.Address_Zipcode || b.Address_Zip || '').trim(),
+    },
+  };
+}
+
+// Merge one field-mapping bundle into a target client object.
+// Gap-fill semantics: only writes into a target field when the target
+// is empty. homeAddress is a nested object — merge each sub-field
+// independently so a partial existing address isn't clobbered.
+function _gapFillClient(target, mapped) {
+  let changed = false;
+  const scalars = ['firstName', 'lastName', 'email', 'otherEmail', 'phone', 'phoneSecondary',
+                    'dob', 'fico', 'flips', 'maritalStatus', 'usCitizen'];
+  for (const k of scalars) {
+    if (_isEmpty(target[k]) && !_isEmpty(mapped[k])) { target[k] = mapped[k]; changed = true; }
+  }
+  if (mapped.homeAddress) {
+    if (!target.homeAddress || typeof target.homeAddress !== 'object') target.homeAddress = {};
+    for (const k of ['street', 'city', 'state', 'zip']) {
+      if (_isEmpty(target.homeAddress[k]) && !_isEmpty(mapped.homeAddress[k])) {
+        target.homeAddress[k] = mapped.homeAddress[k];
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
 function _isPerson(b) {
   if (!b) return false;
   if (b.Is_Company === true)  return false;
@@ -173,16 +252,13 @@ async function handle(req, context) {
       target = clientsByEmail.get(email);
     }
 
+    // Deploy 236.199 — full field mapping (not just email + phone).
+    const mapped = _mapBorrowerToClientFields(b);
+
     if (target) {
-      let changed = false;
-      const gap = { firstName: first, lastName: last, email, phone: String(b.Phone || '').trim() };
-      for (const k of Object.keys(gap)) {
-        if (_isEmpty(target.client[k]) && gap[k]) { target.client[k] = gap[k]; changed = true; }
-      }
+      const changed = _gapFillClient(target.client, mapped);
       target.client._baselineBorrowerId = id;
       target.client.updatedAt = now;
-      // Defer the write — phase-4 persist loop batches all dirty
-      // clients in parallel at the end.
       target._dirty = true;
       const linkVal = { ownerKey: target.ownerKey, clientId: target.clientId, source: 'match' };
       linkMap.set(String(id), linkVal);
@@ -193,13 +269,13 @@ async function handle(req, context) {
       const clientId = 'c_bl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       const key = IMPORT_OWNER_KEY + '/' + clientId;
       const displayName = (first + ' ' + last).trim() || email || 'Baseline Borrower';
-      const newClient = {
-        id: clientId, firstName: first, lastName: last, email,
-        phone: String(b.Phone || '').trim(), displayName,
+      const newClient = Object.assign({
+        id: clientId,
+        displayName,
         createdAt: now, updatedAt: now,
         _baselineBorrowerId: id, _baselineImport: true, _baselineImportedAt: now,
         loans: [], companies: [],
-      };
+      }, mapped);
       target = { key, ownerKey: IMPORT_OWNER_KEY, clientId, client: newClient, _dirty: true };
       clientsByKey.set(key, target);
       if (email) clientsByEmail.set(email, target);
@@ -241,19 +317,33 @@ async function handle(req, context) {
       if (!target) continue;
       target.client.companies = Array.isArray(target.client.companies) ? target.client.companies : [];
       let existing = target.client.companies.find((co) => _normLlc(co && co.name) === norm);
+      // Deploy 236.199 — pull every entity field Baseline gives us
+      // (name, formation state, address, EIN via Custom_Fields.Tax_ID).
+      const entityFields = {
+        name:      entityName,
+        state:     state, // formation/jurisdiction (also used as fallback for addrState)
+        ein:       String((b.Tax_ID || (b.Custom_Fields && b.Custom_Fields.Tax_ID) || '')).trim(),
+        address:   String(b.Address_Street1 || '').trim(),
+        city:      String(b.Address_City    || '').trim(),
+        addrState: String(b.Address_State   || state || '').trim(),
+        zip:       String(b.Address_Zipcode || b.Address_Zip || '').trim(),
+      };
       if (!existing) {
-        existing = {
+        existing = Object.assign({
           id: 'co_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
-          name: entityName, addrState: state,
           _baselineEntityId: id, _baselineImport: true, createdAt: now,
-        };
+        }, entityFields);
         target.client.companies.push(existing);
         llcsAttached++;
         if (llcSamples.length < 20) {
           llcSamples.push({ baselineId: id, entityName, attachedTo: target.clientId, ownerKey: target.ownerKey });
         }
-      } else if (!existing._baselineEntityId) {
-        existing._baselineEntityId = id;
+      } else {
+        // Gap-fill any missing fields on the existing company entry.
+        if (!existing._baselineEntityId) existing._baselineEntityId = id;
+        for (const k of ['state', 'ein', 'address', 'city', 'addrState', 'zip']) {
+          if (_isEmpty(existing[k]) && !_isEmpty(entityFields[k])) existing[k] = entityFields[k];
+        }
       }
       target.client.updatedAt = now;
       target._dirty = true;
