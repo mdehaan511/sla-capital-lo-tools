@@ -1390,9 +1390,14 @@ function render() {
   // trailing zeros (6.350 instead of 6.35). The stored value can be
   // either a string like "6.350" (modern saves) or a number 6.35
   // (older records); normalize both paths through toFixed(3).
+  // Deploy 236.210 — threshold-detect decimal-vs-percent. Baseline
+  // imports store rate as a decimal (0.106 = 10.6%); SLA-native
+  // saves store as already-percent (10.6). Anything <=1 gets
+  // multiplied by 100. Same pattern loans.html:584 already uses.
   var _rateRaw  = l.rate       || fd._finalRate || '';
   var _rateNum  = parseFloat(_rateRaw);
-  var rate      = (_rateRaw && isFinite(_rateNum)) ? _rateNum.toFixed(3) : '';
+  var _ratePct  = (isFinite(_rateNum) && _rateNum > 0 && _rateNum <= 1) ? _rateNum * 100 : _rateNum;
+  var rate      = (_rateRaw && isFinite(_ratePct)) ? _ratePct.toFixed(3) : '';
   var buydown   = parseFloat(l.buydown  != null ? l.buydown  : (fd.buydown  != null ? fd.buydown  : 0)) || 0;
   // Points: use stored value, or compute from buydown (1 base + buydown)
   var rawPoints = l.points || fd._points || '';
@@ -6522,8 +6527,12 @@ function postSlackNotification(webhookUrl, notes) {
   var loanAmt = l.loanAmt || l.purchasePrice || '';
   var amtFmt  = loanAmt ? '$'+Number(loanAmt).toLocaleString() : '-';
   // Deploy 236.40 — show 3 decimals on the rate to preserve trailing zeros.
+  // Deploy 236.210 — same threshold-detect as the main loan render:
+  // Baseline imports store rate as decimal (0.106), SLA-native as
+  // percent (10.6). <=1 → *100.
   var _rateNumSlack = parseFloat(l.rate);
-  var rate    = (l.rate && isFinite(_rateNumSlack)) ? _rateNumSlack.toFixed(3)+'%' : '-';
+  var _ratePctSlack = (isFinite(_rateNumSlack) && _rateNumSlack > 0 && _rateNumSlack <= 1) ? _rateNumSlack * 100 : _rateNumSlack;
+  var rate    = (l.rate && isFinite(_ratePctSlack)) ? _ratePctSlack.toFixed(3)+'%' : '-';
   var points  = l.points || '-';
   var dateStr = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
   var loLine  = [loName, loPhone, loEmail].filter(Boolean).join(' | ');
