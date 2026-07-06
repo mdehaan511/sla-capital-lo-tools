@@ -544,6 +544,11 @@
         // Deploy 236.159 — one-click ZIP of every uploaded doc on
         // this review. Server bundles current + history per tray.
         '<button class="expand-btn" id="dr-zipBtn" onclick="dr_downloadZip(this)">⬇ Download all (ZIP)</button>' +
+        // Deploy 236.208 — bulk zip upload. Client extracts, AI
+        // classifies filenames into checklist slugs, high-confidence
+        // matches auto-upload, ambiguous ones surface in a modal.
+        '<button class="expand-btn" id="dr-uploadZipBtn" onclick="dr_startUploadZip()">⬆ Upload ZIP</button>' +
+        '<input type="file" id="dr-uploadZipFile" accept=".zip,application/zip,application/x-zip-compressed" style="display:none" onchange="dr_onUploadZipPick(event)" />' +
       '</div>';
 
     var activeSlugs = _activeTab === 'pending' ? pendingSlugs : reviewedSlugs;
@@ -1588,6 +1593,213 @@
       showToast('ZIP download failed: ' + ((err && err.message) || 'unknown'), 'error');
     });
   };
+
+  // ── Deploy 236.208 — Bulk Zip Upload ─────────────────────────
+  // Client-side pipeline: user picks a .zip → JSZip parses it →
+  // filenames go to /api/loan-review-zip-classify → high-confidence
+  // matches auto-upload → low + unknown surface in a picker modal
+  // where the processor assigns slugs or skips.
+  var _bulkZipInFlight = null;
+
+  function _ensureJSZipLoaded() {
+    if (global.JSZip) return Promise.resolve(global.JSZip);
+    return new Promise(function(resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      s.onload = function() { resolve(global.JSZip); };
+      s.onerror = function() { reject(new Error('Failed to load JSZip library')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  global.dr_startUploadZip = function() {
+    if (_bulkZipInFlight) { showToast('A zip upload is already in progress.', 'info'); return; }
+    document.getElementById('dr-uploadZipFile').click();
+  };
+
+  global.dr_onUploadZipPick = function(e) {
+    var file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-picking the same file later
+    if (!file) return;
+    if (file.size > 200 * 1024 * 1024) {
+      showToast('Zip too large (max 200MB).', 'error');
+      return;
+    }
+    _bulkZipInFlight = { total: 0, done: 0, uploaded: 0, skipped: 0, failed: 0 };
+    _openBulkZipModal();
+    _bulkZipStatus('Loading zip parser…');
+    _ensureJSZipLoaded().then(function(JSZip) {
+      _bulkZipStatus('Extracting zip…');
+      return JSZip.loadAsync(file);
+    }).then(function(zip) {
+      // Collect file entries (skip directories + __MACOSX / dotfiles).
+      var entries = [];
+      zip.forEach(function(path, entry) {
+        if (entry.dir) return;
+        if (/(^|\/)\.[^/]|(^|\/)__MACOSX(\/|$)/.test(path)) return;
+        entries.push({ path: path, entry: entry, filename: path.split('/').pop() });
+      });
+      if (!entries.length) throw new Error('The zip contained no files.');
+      _bulkZipInFlight.total = entries.length;
+      _bulkZipStatus('Classifying ' + entries.length + ' file' + (entries.length === 1 ? '' : 's') + '…');
+      return global.SLA.api('POST', '/api/loan-review-zip-classify', {
+        reviewId: _review.id,
+        filenames: entries.map(function(e) { return e.filename; }),
+      }).then(function(resp) {
+        if (!resp || !resp.ok) throw new Error((resp && resp.error) || 'Classification failed');
+        return { entries: entries, assignments: resp.assignments || [] };
+      });
+    }).then(function(payload) {
+      // Merge entries with assignments (by filename order — same slice we sent).
+      var merged = payload.entries.map(function(e, i) {
+        var a = payload.assignments[i] || { slug: null, confidence: 'unknown' };
+        return Object.assign({}, e, { slug: a.slug, confidence: a.confidence, reason: a.reason || '' });
+      });
+      var high = merged.filter(function(x) { return x.slug && x.confidence === 'high'; });
+      var ambiguous = merged.filter(function(x) { return !(x.slug && x.confidence === 'high'); });
+
+      _bulkZipStatus('Auto-uploading ' + high.length + ' confident match' + (high.length === 1 ? '' : 'es') + '…');
+      return _bulkZipUploadAll(high).then(function() {
+        if (!ambiguous.length) return null;
+        return _bulkZipAmbiguousPicker(ambiguous);
+      }).then(function(picked) {
+        if (!picked || !picked.length) return;
+        _bulkZipStatus('Uploading ' + picked.length + ' processor-assigned file' + (picked.length === 1 ? '' : 's') + '…');
+        return _bulkZipUploadAll(picked);
+      });
+    }).then(function() {
+      var s = _bulkZipInFlight;
+      showToast('Bulk upload done: ' + s.uploaded + ' uploaded, ' + s.skipped + ' skipped, ' + s.failed + ' failed.', s.failed ? 'error' : 'success');
+      _closeBulkZipModal();
+      _bulkZipInFlight = null;
+      render();
+    }).catch(function(err) {
+      showToast('Bulk upload failed: ' + ((err && err.message) || 'unknown'), 'error');
+      _closeBulkZipModal();
+      _bulkZipInFlight = null;
+    });
+  };
+
+  function _bulkZipUploadAll(items) {
+    // Serial to avoid stampeding the AI-review pipeline; each upload
+    // itself waits on Claude. Concurrency > 1 would drive costs up
+    // without meaningful wall-clock savings.
+    var i = 0;
+    function next() {
+      if (i >= items.length) return Promise.resolve();
+      var item = items[i++];
+      _bulkZipStatus('Uploading (' + i + '/' + items.length + ') ' + item.filename + ' → ' + item.slug + '…');
+      return item.entry.async('blob').then(function(blob) {
+        // Blob's default type is empty; File carries filename + mime.
+        var mime = _mimeFromFilename(item.filename) || blob.type || 'application/octet-stream';
+        var f = new File([blob], item.filename, { type: mime });
+        return global.SLA.LoanReviews.uploadDoc(_review.id, item.slug, f, { mode: 'add' });
+      }).then(function(r) {
+        if (r && r.review) _review = r.review;
+        _bulkZipInFlight.uploaded++;
+      }).catch(function(err) {
+        console.warn('bulk upload failed for', item.filename, err);
+        _bulkZipInFlight.failed++;
+      }).then(next);
+    }
+    return next();
+  }
+
+  function _mimeFromFilename(fn) {
+    var ext = String(fn || '').toLowerCase().replace(/^.*\./, '');
+    var map = {
+      pdf: 'application/pdf',
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      heic: 'image/heic', webp: 'image/webp', gif: 'image/gif',
+      doc: 'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xls: 'application/vnd.ms-excel',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      csv: 'text/csv',
+    };
+    return map[ext] || '';
+  }
+
+  function _openBulkZipModal() {
+    var existing = document.getElementById('dr-bulkZipModal');
+    if (existing) existing.remove();
+    var m = document.createElement('div');
+    m.id = 'dr-bulkZipModal';
+    m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:24px';
+    m.innerHTML =
+      '<div style="background:#fff;max-width:640px;width:100%;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;border-radius:14px">' +
+        '<div style="padding:18px 22px;border-bottom:1px solid #ddd8d0"><div style="font-family:\'Lora\',serif;font-size:18px;font-weight:600">Bulk Upload from ZIP</div><div id="dr-bulkZipStatus" style="font-size:12px;color:#7a7488;margin-top:2px">Working…</div></div>' +
+        '<div id="dr-bulkZipBody" style="padding:18px 22px;overflow:auto;flex:1"></div>' +
+        '<div id="dr-bulkZipFooter" style="padding:14px 22px;border-top:1px solid #ddd8d0;display:flex;justify-content:flex-end;gap:10px;background:#faf8f3"></div>' +
+      '</div>';
+    document.body.appendChild(m);
+  }
+  function _closeBulkZipModal() {
+    var m = document.getElementById('dr-bulkZipModal'); if (m) m.remove();
+  }
+  function _bulkZipStatus(text) {
+    var el = document.getElementById('dr-bulkZipStatus'); if (el) el.textContent = text;
+  }
+
+  // Picker modal for ambiguous files — one row per file with a
+  // <select> of every checklist slug on this review + a Skip option.
+  function _bulkZipAmbiguousPicker(items) {
+    return new Promise(function(resolve) {
+      var body = document.getElementById('dr-bulkZipBody');
+      var footer = document.getElementById('dr-bulkZipFooter');
+      _bulkZipStatus(items.length + ' file' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' your input — pick a category or skip.');
+      var slugOptions = _allSlugsForPicker();
+      body.innerHTML =
+        '<div style="font-size:12px;color:#7a7488;margin-bottom:1rem">The AI wasn\'t confident on these files. Pick which category they belong to, or leave as Skip to ignore them.</div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px">' +
+        items.map(function(it, i) {
+          var suggested = it.slug || '';
+          var suggestedNote = (it.confidence === 'low' && it.slug)
+            ? '<div style="font-size:11px;color:#7a7488;font-style:italic;margin-top:2px">AI guess: ' + escH(_slugLabel(it.slug)) + (it.reason ? ' — ' + escH(it.reason) : '') + '</div>'
+            : (it.reason ? '<div style="font-size:11px;color:#7a7488;font-style:italic;margin-top:2px">' + escH(it.reason) + '</div>' : '');
+          return '<div style="border:1px solid #ddd8d0;border-radius:8px;padding:10px 12px">' +
+            '<div style="font-size:13px;font-weight:600;color:#1a1520;word-break:break-all">' + escH(it.filename) + '</div>' +
+            suggestedNote +
+            '<div style="margin-top:8px"><select id="dr-bulk-pick-' + i + '" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #ddd8d0;border-radius:6px;background:#fff">' +
+              '<option value="">— Skip this file —</option>' +
+              slugOptions.map(function(o) {
+                var sel = o.slug === suggested ? ' selected' : '';
+                return '<option value="' + escAttr(o.slug) + '"' + sel + '>' + escH(o.label) + '</option>';
+              }).join('') +
+            '</select></div>' +
+          '</div>';
+        }).join('') +
+        '</div>';
+      footer.innerHTML =
+        '<button class="dr-modal-btn" onclick="dr_bulkZipCancel()">Cancel</button>' +
+        '<button class="dr-modal-btn primary" onclick="dr_bulkZipConfirm()">Upload selected</button>';
+      global.dr_bulkZipCancel = function() { resolve([]); };
+      global.dr_bulkZipConfirm = function() {
+        var picked = [];
+        items.forEach(function(it, i) {
+          var sel = document.getElementById('dr-bulk-pick-' + i);
+          var val = sel && sel.value;
+          if (val) picked.push(Object.assign({}, it, { slug: val }));
+          else _bulkZipInFlight.skipped++;
+        });
+        resolve(picked);
+      };
+    });
+  }
+
+  function _allSlugsForPicker() {
+    var docs = (_review && _review.docs) || {};
+    var out = [];
+    Object.keys(docs).forEach(function(slug) {
+      out.push({ slug: slug, label: _slugLabel(slug) });
+    });
+    out.sort(function(a, b) { return a.label < b.label ? -1 : a.label > b.label ? 1 : 0; });
+    return out;
+  }
+  function _slugLabel(slug) {
+    var meta = DOC_META[slug];
+    return (meta && meta.label) || slug;
+  }
 
   global.dr_saveNotes = function(slug, value) {
     var patch = { docs: {} };

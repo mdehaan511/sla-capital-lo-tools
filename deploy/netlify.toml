@@ -888,6 +888,15 @@
   status = 200
   force = true
 
+# Deploy 236.208 — bulk zip upload for Doc Review. Client extracts
+# zip in-browser, sends filenames here; we return the checklist slug
+# mapping so confident matches skip the confirmation modal.
+[[redirects]]
+  from = "/api/loan-review-zip-classify"
+  to = "/.netlify/functions/loan-review-zip-classify"
+  status = 200
+  force = true
+
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
 # investor (with prompt caching) so verdicts are judged against the

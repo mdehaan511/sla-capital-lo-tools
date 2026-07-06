@@ -254,7 +254,22 @@ async function handle(req, context) {
       console.warn('loan-review-doc-upload: loan app fetch failed:', e && e.message);
     }
   }
-  try {
+  // Deploy 236.208 — support non-PDF file types in bulk-zip uploads
+  // (Word / Excel / CSV / HEIC). Claude's vision endpoint only handles
+  // PDF + JPG/PNG/WEBP/GIF natively. For everything else we skip AI
+  // review, store the file, and mark the doc as pending manual review.
+  const mime = String(docState.currentMimeType || '').toLowerCase();
+  const aiReviewable = (
+    mime === 'application/pdf' ||
+    mime === 'image/jpeg' || mime === 'image/jpg' ||
+    mime === 'image/png' || mime === 'image/webp' || mime === 'image/gif'
+  );
+  if (!aiReviewable) {
+    docState.aiVerdict = 'needs_manual_review';
+    docState.aiNotes = 'This file type (' + mime + ') cannot be reviewed automatically. Please review manually and approve/override.';
+    docState.aiReviewedAt = new Date().toISOString();
+    docState.aiSkippedForMimeType = true;
+  } else try {
     const aiResult = await reviewDocument({
       bytes,
       mimeType: docState.currentMimeType,
