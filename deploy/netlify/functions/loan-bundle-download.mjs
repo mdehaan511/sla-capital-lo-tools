@@ -120,6 +120,19 @@ async function handle(req, context) {
   // Already-occupied slots: any non-empty entries from the
   // long-app record. The primary's data is always in slot 0;
   // a long-app co-borrower (if any) is in slot 1.
+  //
+  // Deploy 236.209 — dedupe by normalized email before appending.
+  // Prior behavior blindly pushed every loan.guarantorClientIds
+  // entry, so when the long app already had G2 filled in and the
+  // LO re-added the same person via Loan Details' Add Guarantor,
+  // that person landed in slot 2 (rendered as "Guarantor 3") and
+  // the app showed the duplicate. Now: if the email matches an
+  // existing filled slot, we gap-fill that slot from the fuller
+  // client record (never overwrite) and don't push again.
+  function _normEmail(e) { return String(e || '').trim().toLowerCase(); }
+  function _slotHasEmail(slot, email) {
+    return slot && _normEmail(slot.email) && _normEmail(slot.email) === email;
+  }
   const additionalRecords = []; // { guarantor, subState, slotIdx }
   for (let i = 0; i < additionalGids.length; i++) {
     if (record.data.guarantors.length >= MAX_GUARANTORS) break;
@@ -129,6 +142,28 @@ async function handle(req, context) {
     catch (_) {}
     if (!guarantor) continue;
     const flat = _flattenGuarantorForLongApp(guarantor, loan);
+    const flatEmail = _normEmail(flat.email);
+    // Check if this guarantor is already sitting in one of the
+    // long-app slots (matched by email).
+    let existingSlot = -1;
+    if (flatEmail) {
+      for (let s = 0; s < record.data.guarantors.length; s++) {
+        if (_slotHasEmail(record.data.guarantors[s], flatEmail)) { existingSlot = s; break; }
+      }
+    }
+    if (existingSlot >= 0) {
+      // Gap-fill the existing slot from the client record without
+      // clobbering anything the long-app respondent already provided.
+      const target = record.data.guarantors[existingSlot];
+      Object.keys(flat).forEach((k) => {
+        if ((target[k] === undefined || target[k] === null || target[k] === '') && flat[k]) {
+          target[k] = flat[k];
+        }
+      });
+      const subState = (guarantor._subFormTokensByLoan && guarantor._subFormTokensByLoan[loanId]) || {};
+      additionalRecords.push({ guarantor, subState, slotIdx: existingSlot });
+      continue;
+    }
     const slotIdx = record.data.guarantors.length;
     record.data.guarantors.push(flat);
     const subState = (guarantor._subFormTokensByLoan && guarantor._subFormTokensByLoan[loanId]) || {};
