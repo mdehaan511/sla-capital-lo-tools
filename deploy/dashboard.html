@@ -178,6 +178,10 @@
            attaches LLCs to companies[], and creates separate clients
            for Guarantor_2 co-borrowers. Same dry-run → Commit shape. -->
       <button class="btn-primary" id="consolidateBorrowersBtn" onclick="openConsolidateBorrowersModal()" style="background:rgba(30,64,175,0.08);color:#1e40af;border:1px solid rgba(30,64,175,0.40)">Consolidate Borrowers</button>
+      <!-- Deploy 236.192 — pull from Baseline's /borrower API and
+           materialize into SLA clients + companies, then reassign
+           existing loans to the correct borrower record. -->
+      <button class="btn-primary" id="pullBorrowersBtn" onclick="openPullBorrowersModal()" style="background:rgba(21,128,61,0.10);color:#166534;border:1px solid rgba(21,128,61,0.40)">Pull Borrowers from Baseline</button>
     </div>
   </div>
 
@@ -315,6 +319,27 @@
     <!-- Footer -->
     <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;flex-shrink:0">
       <button type="button" class="btn" onclick="closeChartDrilldown()" style="font-size:13px;padding:7px 18px">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deploy 236.192 — Pull Borrowers from Baseline modal. Two-step
+     dry-run / commit like the other Baseline actions. -->
+<div id="pullBorrowersModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this) closePullBorrowersModal()">
+  <div style="background:#fff;max-width:900px;width:100%;max-height:90vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:'Lora',serif;font-size:18px;font-weight:600;color:var(--dark)">Pull Borrowers from Baseline</div>
+        <div id="pullBorrowersSubtitle" style="font-size:12px;color:var(--muted);margin-top:2px">Dry-run: nothing has been written yet.</div>
+      </div>
+      <button type="button" onclick="closePullBorrowersModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>
+    </div>
+    <div id="pullBorrowersBody" style="padding:18px 22px;overflow:auto;flex:1">
+      <div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Fetching from Baseline…</div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">
+      <button type="button" onclick="closePullBorrowersModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Close</button>
+      <button type="button" id="pullBorrowersCommitBtn" onclick="runPullBorrowersCommit()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(21,128,61,0.40);background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Commit Pull</button>
     </div>
   </div>
 </div>
@@ -1993,6 +2018,134 @@ function _tile(label, value, sub, color) {
     '<div style="font-size:18px;font-weight:700;margin-top:2px;color:' + color + '">' + (value == null ? '—' : escH(String(value))) + '</div>' +
     (sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + escH(sub) + '</div>' : '') +
   '</div>';
+}
+
+// Deploy 236.192 — Pull Borrowers from Baseline modal. Calls
+// /api/baseline-borrowers-pull which:
+//   1) fetches all borrowers from Baseline (people + entities)
+//   2) creates or matches SLA client records for people (email match
+//      when available, IMPORT_OWNER_KEY fallback)
+//   3) attaches entities as companies[] on the linked person's SLA client
+//   4) reassigns existing loans whose _baselineRaw.Guarantor_1_Id
+//      matches a borrower link — so loans land on the right client.
+function openPullBorrowersModal() {
+  var modal = document.getElementById('pullBorrowersModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('pullBorrowersSubtitle').textContent = 'Dry-run: nothing has been written yet.';
+  document.getElementById('pullBorrowersBody').innerHTML =
+    '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Fetching from Baseline…</div>';
+  document.getElementById('pullBorrowersCommitBtn').disabled = true;
+  _runPullBorrowersInternal(true);
+}
+function closePullBorrowersModal() {
+  var modal = document.getElementById('pullBorrowersModal');
+  if (modal) modal.style.display = 'none';
+}
+function runPullBorrowersCommit() {
+  var btn = document.getElementById('pullBorrowersCommitBtn');
+  if (btn.disabled) return;
+  if (!confirm('Pull all borrowers from Baseline and materialize them into SLA now? This creates client records for people, attaches LLCs to companies[], and reassigns existing loans to the correct borrower. Not undoable.')) return;
+  document.getElementById('pullBorrowersSubtitle').textContent = 'Committing…';
+  document.getElementById('pullBorrowersBody').innerHTML =
+    '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Writing…</div>';
+  btn.disabled = true;
+  _runPullBorrowersInternal(false);
+}
+function _runPullBorrowersInternal(dryRun) {
+  SLA.api('POST', '/api/baseline-borrowers-pull', { dryRun: !!dryRun }).then(function(r) {
+    if (!r || !r.ok) {
+      document.getElementById('pullBorrowersBody').innerHTML =
+        '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(r && r.error || 'unknown') + (r && r.rawPreview ? '<br><br><code style="font-size:11px;white-space:pre-wrap">' + escH(String(r.rawPreview).slice(0, 500)) + '</code>' : '') + '</div>';
+      return;
+    }
+    _renderPullBorrowersReport(r);
+  }).catch(function(err) {
+    document.getElementById('pullBorrowersBody').innerHTML =
+      '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+function _renderPullBorrowersReport(r) {
+  var subtitle = document.getElementById('pullBorrowersSubtitle');
+  var body     = document.getElementById('pullBorrowersBody');
+  var commit   = document.getElementById('pullBorrowersCommitBtn');
+  var dryRun   = !!r.dryRun;
+
+  subtitle.textContent = dryRun
+    ? 'Dry-run report — no changes yet. Click Commit Pull to write.'
+    : '✓ Pull committed.';
+
+  var bl = r.baseline || {};
+  var p  = r.people   || { linked: 0, created: 0, gapFilled: 0, samples: [] };
+  var e  = r.entities || { attached: 0, samples: [] };
+  var l  = r.loans    || { reassigned: 0, llcTagged: 0, samples: [] };
+
+  var summaryTiles =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem">' +
+      _tile('Baseline list',     bl.listCount || 0, bl.envelopeShape || '', 'var(--muted)') +
+      _tile('Details fetched',   bl.detailCount || 0) +
+      _tile(dryRun ? 'People linked'    : 'People linked',    p.linked  || 0, 'matched existing SLA client', '#166534') +
+      _tile(dryRun ? 'People created'   : 'People created',   p.created || 0, 'under IMPORT_OWNER_KEY',      '#166534') +
+      _tile('People gap-filled', p.gapFilled || 0, 'contact fields filled', '#854d0e') +
+      _tile('LLCs attached',     e.attached  || 0, 'onto companies[]', '#166534') +
+      _tile('Loans reassigned',  l.reassigned || 0, 'via borrower link', '#1e40af') +
+      _tile('Loans LLC-tagged',  l.llcTagged  || 0, 'loan.companyId set', 'var(--muted)') +
+      _tile('Errors',            r.errorCount || 0, '', r.errorCount ? '#991b1b' : 'var(--muted)') +
+    '</div>';
+
+  var peopleHtml = '';
+  if (Array.isArray(p.samples) && p.samples.length) {
+    peopleHtml =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">People (' + p.samples.length + ' shown)</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem;padding:10px 12px;font-size:12px;line-height:1.6">' +
+      p.samples.map(function(s) {
+        return '· <strong>' + escH(s.name) + '</strong>' + (s.email !== '—' ? ' (' + escH(s.email) + ')' : '') + ' — <span style="color:var(--muted)">' + escH(s.action) + '</span> → <code>' + escH(s.clientId) + '</code>';
+      }).join('<br>') +
+      '</div>';
+  }
+
+  var entitiesHtml = '';
+  if (Array.isArray(e.samples) && e.samples.length) {
+    entitiesHtml =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">LLCs (' + e.samples.length + ' shown)</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem;padding:10px 12px;font-size:12px;line-height:1.6">' +
+      e.samples.map(function(s) {
+        return '· <strong>' + escH(s.entityName) + '</strong> → client <code>' + escH(s.attachedTo) + '</code> (owner ' + escH(s.ownerKey) + ')';
+      }).join('<br>') +
+      '</div>';
+  }
+
+  var reassignHtml = '';
+  if (Array.isArray(l.samples) && l.samples.length) {
+    reassignHtml =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">Loan reassignments (' + l.samples.length + ' shown)</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem;padding:10px 12px;font-size:12px;line-height:1.6">' +
+      l.samples.map(function(s) {
+        return '· <strong>' + escH(s.address || s.loanId) + '</strong>: <code>' + escH(s.from) + '</code> → <code>' + escH(s.to) + '</code>';
+      }).join('<br>') +
+      '</div>';
+  }
+
+  var errorsHtml = '';
+  if (Array.isArray(r.errors) && r.errors.length) {
+    errorsHtml = '<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:1rem">' +
+      '<strong>' + r.errorCount + ' error(s)</strong>. First ' + r.errors.length + ':<br>' +
+      r.errors.map(function(e) { return '· ' + escH(JSON.stringify(e)); }).join('<br>') +
+    '</div>';
+  }
+
+  var nextStep;
+  if (dryRun) {
+    var hasWork = (p.linked || 0) + (p.created || 0) + (e.attached || 0) + (l.reassigned || 0) > 0;
+    nextStep = hasWork
+      ? '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">Numbers look right? Click <strong>Commit Pull</strong> to write.</div>'
+      : '<div style="padding:10px 12px;background:#faf8f3;color:var(--muted);border-radius:6px;font-size:12px">Nothing to do — Baseline returned ' + (bl.listCount || 0) + ' borrowers and nothing needs materializing.</div>';
+  } else {
+    nextStep = '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">✓ Done. Open <a href="clients.html" style="color:#166534;font-weight:600;text-decoration:underline">Clients</a> to verify.</div>';
+  }
+
+  body.innerHTML = summaryTiles + peopleHtml + entitiesHtml + reassignHtml + errorsHtml + nextStep;
+  commit.disabled = !(dryRun && ((p.linked || 0) + (p.created || 0) + (e.attached || 0) + (l.reassigned || 0) > 0));
 }
 
 // Deploy 236.191 — Consolidate Borrowers modal. Groups clients by

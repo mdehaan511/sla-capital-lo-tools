@@ -857,6 +857,14 @@
   status = 200
   force = true
 
+# Deploy 236.192 — pull all borrowers from Baseline's /borrower API,
+# materialize into SLA clients + companies, reassign loans.
+[[redirects]]
+  from = "/api/baseline-borrowers-pull"
+  to = "/.netlify/functions/baseline-borrowers-pull"
+  status = 200
+  force = true
+
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
 # investor (with prompt caching) so verdicts are judged against the
