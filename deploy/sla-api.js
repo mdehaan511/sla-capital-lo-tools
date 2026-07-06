@@ -28,6 +28,45 @@
   }
 
   // ── Core fetch wrapper ──────────────────────────────────────────
+  // Deploy 236.220 — Phase 3 of Mike's "Loan Details is the source
+  // of truth" refactor. Auto-invalidate the SWR cache after any
+  // mutation POST so no per-endpoint remembering is required. Prior
+  // deploys had to add cache.clear() calls one at a time and missed
+  // some (e.g. loan-financials-edit before 236.216) — this systemic
+  // handling means every future mutating endpoint gets cache
+  // invalidation for free.
+  //
+  // Convention: any POST to /api/{prefix}-* invalidates the matching
+  // cache slot. Explicit deny-list of read-only POSTs keeps
+  // classify/probe/discover endpoints from doing needless work.
+  var _MUTATION_PREFIX_TO_SLOT = {
+    'clients':       'clients',
+    'loan':          'clients',   // covers loan-*, loan-note-add, loan-add-guarantor, etc.
+    'loans':         'clients',
+    'borrower-info': 'clients',
+    'brokers':       'brokers',
+    'prospects':     'prospects',
+    'quotes':        'quotes',
+    'reminders':     'reminders',
+  };
+  var _READONLY_SUFFIXES = [
+    '-list', '-get', '-probe', '-discover', '-find', '-fetch',
+    '-classify', '-zip-download',
+  ];
+  var _BASELINE_MUTATIONS = /^\/api\/baseline-(migrate$|migrate-preflight|dedupe-merge|borrowers-materialize|borrower-consolidate|mirror-purge|mirror-delete|migrate-cron|borrowers-fetch$|migrate\b)/;
+  function _invalidateCacheForPath(method, path) {
+    if (method !== 'POST') return;
+    if (_READONLY_SUFFIXES.some(function(s) { return path.indexOf(s) === path.length - s.length; })) return;
+    // Baseline mutations that touch the clients store.
+    if (_BASELINE_MUTATIONS.test(path)) { cache.clear('clients'); return; }
+    // Standard /api/<prefix>-<verb> pattern.
+    var m = /^\/api\/([a-z-]+?)(?=-[a-z]+(?:\?|$))/i.exec(path);
+    if (!m) return;
+    var prefix = m[1].toLowerCase();
+    var slot = _MUTATION_PREFIX_TO_SLOT[prefix];
+    if (slot) cache.clear(slot);
+  }
+
   function api(method, path, body) {
     return getToken().then(function (token) {
       var opts = {
@@ -60,6 +99,8 @@
             err.status = r.status; err.data = data;
             throw err;
           }
+          // Deploy 236.220 — Phase 3 systemic invalidation.
+          try { _invalidateCacheForPath(method, path); } catch (_) {}
           return data;
         });
       });
