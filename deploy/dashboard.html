@@ -2256,6 +2256,29 @@ function _renderPullBorrowersReport(r) {
       _tile('Errors',            r.errorCount || 0, '', r.errorCount ? '#991b1b' : 'var(--muted)') +
     '</div>';
 
+  // Deploy 236.203 — raw diagnostic block for the first cached
+  // Baseline borrower. Shows the actual JSON shape + which values
+  // our mapping extracted. If firstName / lastName are blank in
+  // the mapping row but populated in the raw JSON, we know exactly
+  // which field name to add to the picker list.
+  var firstBorrowerDiagHtml = '';
+  if (r.firstBorrowerDiag) {
+    var d = r.firstBorrowerDiag;
+    firstBorrowerDiagHtml =
+      '<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:1.25rem;overflow:hidden">' +
+        '<div style="padding:8px 12px;background:#faf8f3;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted)">First cached Baseline borrower — diagnostic</div>' +
+        '<div style="padding:10px 12px;font-size:12px;line-height:1.7">' +
+          '· Mapped First Name: <code>' + escH(d.mappedFirst || '(blank)') + '</code><br>' +
+          '· Mapped Last Name: <code>' + escH(d.mappedLast || '(blank)') + '</code><br>' +
+          '· Mapped Email: <code>' + escH(d.mappedEmail || '(blank)') + '</code><br>' +
+          '· Mapped DOB: <code>' + escH(d.mappedDob || '(blank)') + '</code><br>' +
+          '· Mapped FICO: <code>' + escH(d.mappedFico || '(blank)') + '</code><br>' +
+          '· All response keys: <code style="font-size:11px">' + escH((d.keys || []).join(', ')) + '</code>' +
+        '</div>' +
+        '<pre style="margin:0;padding:10px 12px;font-size:11px;font-family:monospace;background:#fff;white-space:pre-wrap;word-break:break-all;color:#57534e;max-height:220px;overflow:auto;border-top:1px solid var(--border)">' + escH(d.rawPreview || '') + '</pre>' +
+      '</div>';
+  }
+
   var peopleHtml = '';
   if (Array.isArray(p.samples) && p.samples.length) {
     peopleHtml =
@@ -2313,7 +2336,7 @@ function _renderPullBorrowersReport(r) {
     nextStep = '<div style="padding:10px 12px;background:rgba(21,128,61,0.10);color:#166534;border-radius:6px;font-size:12px">✓ Done. Open <a href="clients.html" style="color:#166534;font-weight:600;text-decoration:underline">Clients</a> to verify.</div>';
   }
 
-  body.innerHTML = summaryTiles + peopleHtml + entitiesHtml + reassignHtml + errorsHtml + nextStep;
+  body.innerHTML = summaryTiles + firstBorrowerDiagHtml + peopleHtml + entitiesHtml + reassignHtml + errorsHtml + nextStep;
   commit.disabled = !(dryRun && ((p.linked || 0) + (p.created || 0) + (e.attached || 0) + (l.reassigned || 0) > 0));
 }
 

@@ -76,30 +76,69 @@ function _cleanFico(v) {
   return Number.isFinite(n) && n > 0 ? String(n) : '';
 }
 
-// Deploy 236.199 — full field mapping. Returns an object of SLA
-// client fields (only the ones we have data for). Callers gap-fill
-// or overwrite from this depending on whether the target is a
-// native SLA client (gap-fill) or a fresh import stub (overwrite).
+// Deploy 236.203 — defensive field mapping. Try every plausible
+// name variant, including a fallback that splits a combined "Name"
+// field into first + last when the individual fields are missing.
+// Baseline hasn't documented the GET /borrower/{Id} schema for us,
+// so we cast a wide net.
+function _pick(obj, keys) {
+  if (!obj) return '';
+  for (const k of keys) {
+    const v = obj[k];
+    if (v !== undefined && v !== null && v !== '') return String(v).trim();
+  }
+  return '';
+}
+function _splitName(full) {
+  const s = String(full || '').trim();
+  if (!s) return { first: '', last: '' };
+  // "Last, First" convention
+  if (s.indexOf(',') >= 0) {
+    const parts = s.split(',').map((x) => x.trim());
+    return { last: parts[0] || '', first: parts.slice(1).join(' ').trim() };
+  }
+  // "First Middle Last"
+  const parts = s.split(/\s+/);
+  if (parts.length === 1) return { first: parts[0], last: '' };
+  return { first: parts.slice(0, -1).join(' '), last: parts[parts.length - 1] };
+}
 function _mapBorrowerToClientFields(b) {
   if (!b) return {};
+  let first = _pick(b, ['First_Name', 'first_name', 'FirstName', 'firstName', 'Given_Name', 'given_name']);
+  let last  = _pick(b, ['Last_Name',  'last_name',  'LastName',  'lastName',  'Family_Name', 'family_name', 'Surname']);
+  if (!first && !last) {
+    const combined = _pick(b, ['Name', 'name', 'Full_Name', 'full_name', 'Display_Name', 'display_name']);
+    const split = _splitName(combined);
+    first = split.first;
+    last  = split.last;
+  }
+  const email       = _lower(_pick(b, ['Email', 'email', 'Primary_Email', 'primary_email', 'Email_Address', 'email_address']));
+  const otherEmail  = _lower(_pick(b, ['Other_Email', 'other_email', 'Secondary_Email', 'secondary_email']));
+  const phone       = _pick(b, ['Phone', 'phone', 'Primary_Phone', 'primary_phone', 'Phone_Number', 'phone_number', 'Mobile', 'Cell']);
+  const phone2      = _pick(b, ['Phone_Secondary', 'phone_secondary', 'Secondary_Phone', 'Alternate_Phone']);
+  const dobRaw      = _pick(b, ['Date_Birth', 'date_birth', 'DOB', 'dob', 'Birth_Date', 'birth_date', 'Birthday']);
+  const fico        = _pick(b, ['Credit_Score', 'credit_score', 'FICO', 'fico', 'Score']);
+  const flips       = _pick(b, ['Num_Flipped', 'num_flipped', 'Flips', 'Flip_Count']);
+  const marital     = _pick(b, ['Marital_Status', 'marital_status', 'MaritalStatus']);
+  const citizen     = _pick(b, ['Citizenship', 'citizenship', 'Citizen_Status']);
+  const street      = _pick(b, ['Address_Street1', 'address_street1', 'Address_Line_1', 'address_line_1', 'Street', 'street', 'Home_Street']);
+  const city        = _pick(b, ['Address_City', 'address_city', 'City', 'city']);
+  const state       = _pick(b, ['Address_State', 'address_state', 'State', 'state']);
+  const zip         = _pick(b, ['Address_Zipcode', 'Address_Zip', 'address_zipcode', 'address_zip', 'Zip', 'zip', 'Postal_Code']);
+
   return {
-    firstName:      String(b.First_Name || '').trim(),
-    lastName:       String(b.Last_Name  || '').trim(),
-    email:          _lower(b.Email),
-    otherEmail:     _lower(b.Other_Email),
-    phone:          String(b.Phone || '').trim(),
-    phoneSecondary: String(b.Phone_Secondary || '').trim(),
-    dob:            _cleanDob(b.Date_Birth || b.DOB),
-    fico:           _cleanFico(b.Credit_Score),
-    flips:          _isEmpty(b.Num_Flipped) ? '' : String(parseInt(b.Num_Flipped, 10) || ''),
-    maritalStatus:  _reverseMaritalStatus(b.Marital_Status),
-    usCitizen:      _reverseCitizenship(b.Citizenship),
-    homeAddress: {
-      street: String(b.Address_Street1 || '').trim(),
-      city:   String(b.Address_City    || '').trim(),
-      state:  String(b.Address_State   || '').trim(),
-      zip:    String(b.Address_Zipcode || b.Address_Zip || '').trim(),
-    },
+    firstName:      first,
+    lastName:       last,
+    email,
+    otherEmail,
+    phone,
+    phoneSecondary: phone2,
+    dob:            _cleanDob(dobRaw),
+    fico:           _cleanFico(fico),
+    flips:          flips ? String(parseInt(flips, 10) || '') : '',
+    maritalStatus:  _reverseMaritalStatus(marital),
+    usCitizen:      _reverseCitizenship(citizen),
+    homeAddress: { street, city, state, zip },
   };
 }
 
@@ -463,6 +502,11 @@ async function handle(req, context) {
     }
   }
 
+  // Deploy 236.203 — include a raw sample of the first cached
+  // Baseline borrower so we can see the exact JSON shape when field
+  // mapping isn't producing the values Mike expects.
+  const firstRaw = borrowers[0] || null;
+  const firstMapped = firstRaw ? _mapBorrowerToClientFields(firstRaw) : null;
   return json(200, {
     ok: true,
     dryRun,
@@ -471,6 +515,15 @@ async function handle(req, context) {
     people:   { linked: peopleLinked, created: peopleCreated, gapFilled: peopleGapFilled, samples: peopleSamples },
     entities: { attached: llcsAttached, samples: llcSamples },
     loans:    { reassigned: loansReassigned, llcTagged: loansLlcTagged, samples: reassignSamples, skipped: !linkLoans },
+    firstBorrowerDiag: firstRaw ? {
+      keys: Object.keys(firstRaw).slice(0, 40),
+      mappedFirst: firstMapped.firstName,
+      mappedLast:  firstMapped.lastName,
+      mappedEmail: firstMapped.email,
+      mappedDob:   firstMapped.dob,
+      mappedFico:  firstMapped.fico,
+      rawPreview:  JSON.stringify(firstRaw).slice(0, 1000),
+    } : null,
     errorCount: errors.length,
     errors: errors.slice(0, 20),
   });
