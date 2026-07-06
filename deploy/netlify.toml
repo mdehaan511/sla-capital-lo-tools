@@ -865,6 +865,20 @@
   status = 200
   force = true
 
+# Deploy 236.193 — split of the 236.192 endpoint into fetch (chunked
+# external API calls) + materialize (fast local-only) so the whole
+# thing dodges the 26s function timeout.
+[[redirects]]
+  from = "/api/baseline-borrowers-fetch"
+  to = "/.netlify/functions/baseline-borrowers-fetch"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/baseline-borrowers-materialize"
+  to = "/.netlify/functions/baseline-borrowers-materialize"
+  status = 200
+  force = true
+
 # Deploy 236.77 — investor underwriting-guidelines management. The
 # uploaded PDFs are attached to every AI doc review on the matching
 # investor (with prompt caching) so verdicts are judged against the

@@ -2052,16 +2052,71 @@ function runPullBorrowersCommit() {
   btn.disabled = true;
   _runPullBorrowersInternal(false);
 }
+// Deploy 236.193 — orchestrate the chunked fetch + single-call
+// materialize. The old single-call /baseline-borrowers-pull kept
+// timing out at 26s because it did external Baseline API calls +
+// a full clients-store walk in one shot.
+var PULL_FETCH_CHUNK = 30;
 function _runPullBorrowersInternal(dryRun) {
-  SLA.api('POST', '/api/baseline-borrowers-pull', { dryRun: !!dryRun }).then(function(r) {
-    if (!r || !r.ok) {
-      document.getElementById('pullBorrowersBody').innerHTML =
-        '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(r && r.error || 'unknown') + (r && r.rawPreview ? '<br><br><code style="font-size:11px;white-space:pre-wrap">' + escH(String(r.rawPreview).slice(0, 500)) + '</code>' : '') + '</div>';
+  var body = document.getElementById('pullBorrowersBody');
+  var totalFromFetch = 0;
+  var totalFetched   = 0;
+  var chunkCount     = 0;
+  var envelopeShape  = '';
+
+  function renderProgress(label, pct) {
+    var pctStr = Math.floor((pct || 0) * 100);
+    body.innerHTML =
+      '<div style="text-align:center;padding:2rem">' +
+        '<div style="font-style:italic;color:var(--muted);margin-bottom:1rem">' + escH(label) + '</div>' +
+        '<div style="max-width:400px;margin:0 auto;background:#f4efe2;border-radius:8px;height:12px;overflow:hidden">' +
+          '<div style="width:' + pctStr + '%;height:100%;background:#166534;transition:width 0.3s"></div>' +
+        '</div>' +
+        '<div style="margin-top:8px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">' + pctStr + '%' +
+          (totalFromFetch ? ' — ' + totalFetched + ' / ' + totalFromFetch + ' borrowers cached' : '') +
+        '</div>' +
+      '</div>';
+  }
+
+  function fetchLoop(offset) {
+    return SLA.api('POST', '/api/baseline-borrowers-fetch', {
+      offset: offset,
+      limit:  PULL_FETCH_CHUNK,
+    }).then(function(r) {
+      if (!r || !r.ok) throw new Error((r && r.error) || 'fetch failed');
+      totalFromFetch = r.total || totalFromFetch;
+      totalFetched  += (r.fetched || 0);
+      envelopeShape  = r.envelopeShape || envelopeShape;
+      chunkCount++;
+      var next = r.processedNext || (offset + PULL_FETCH_CHUNK);
+      if (next >= totalFromFetch) return; // done
+      renderProgress('Fetching from Baseline (chunk ' + chunkCount + ')…',
+        totalFromFetch ? next / totalFromFetch : 0);
+      return fetchLoop(next);
+    });
+  }
+
+  renderProgress('Fetching Baseline borrower list…', 0);
+  fetchLoop(0).then(function() {
+    if (totalFromFetch === 0) {
+      body.innerHTML = '<div style="padding:10px 12px;background:#faf8f3;color:var(--muted);border-radius:6px;font-size:12px">Baseline returned 0 borrowers (envelope shape: <code>' + escH(envelopeShape || '?') + '</code>). Nothing to materialize.</div>';
       return;
     }
+    renderProgress('Materializing ' + totalFetched + ' borrowers into SLA…', 1);
+    return SLA.api('POST', '/api/baseline-borrowers-materialize', { dryRun: !!dryRun });
+  }).then(function(r) {
+    if (!r) return; // early-return above
+    if (!r.ok) {
+      body.innerHTML =
+        '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Materialize failed: ' + escH(r.error || 'unknown') + '</div>';
+      return;
+    }
+    // Reshape into what _renderPullBorrowersReport expects.
+    r.baseline = { listCount: totalFromFetch, detailCount: r.mirrorCount || totalFetched, envelopeShape: envelopeShape };
+    r.dryRun = !!dryRun;
     _renderPullBorrowersReport(r);
   }).catch(function(err) {
-    document.getElementById('pullBorrowersBody').innerHTML =
+    body.innerHTML =
       '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(err && err.message || 'unknown') + '</div>';
   });
 }
