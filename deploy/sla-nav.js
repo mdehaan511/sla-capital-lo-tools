@@ -27,7 +27,10 @@
 
   // ── Single source of truth for the navbar links ────────────────
   var LINKS = [
-    { label: 'Pipeline', href: 'pipeline.html' },
+    // Deploy 236.188 — "Pipeline" renamed to "Leads" per Mike. The
+    // pipeline.html page is the LO's pre-processing view of quoted /
+    // in-flight loans; "Leads" reads more accurately for that role.
+    { label: 'Leads', href: 'pipeline.html' },
     // Deploy 236.93 / 236.107 — Processing menu. Pipeline (the
     // Kanban) and Tasks live under one parent so the navbar
     // stays compact and "process-side" tools are grouped.
@@ -46,17 +49,29 @@
       // one-click path.
       // Deploy 236.115 (Phase E.2) — added Contacts: the cross-loan
       // view of additional contacts (Title Co / Insurance / etc.).
+      // Deploy 236.188 — Loans moved out to its own top-level dropdown
+      // below (with Submissions + Loan List).
       children: [
         { label: 'Clients',  href: 'clients.html'  },
         { label: 'Brokers',  href: 'brokers.html'  },
         { label: 'Contacts', href: 'contacts.html' },
-        { label: 'Loans',    href: 'loans.html'    },
+      ],
+    },
+    // Deploy 236.188 — replaces the standalone Submissions link.
+    // Loans is now a dropdown so admins can pick between Submissions
+    // (the admin submission-tape queue) and Loan List (the full
+    // loans.html view). Non-admins see just Loan List — the
+    // Submissions child is admin-gated.
+    {
+      label: 'Loans',
+      children: [
+        { label: 'Submissions', href: 'submissions.html', requires: 'admin' },
+        { label: 'Loan List',   href: 'loans.html' },
       ],
     },
     // Deploy 236.121 — standalone Doc Review pages deleted; the
     // experience lives inside the Documents tab on Loan Details now.
     // Processors get to a review by opening any loan → Documents.
-    { label: 'Submissions', href: 'submissions.html', requires: 'admin' },
     { label: 'Dashboard',   href: 'dashboard.html',   requires: 'admin' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile
     // page for admins (same surface). Keeping it as a separate top-level
