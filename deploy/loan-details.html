@@ -656,6 +656,32 @@
   </div>
 </div>
 
+<!-- Deploy 236.232 — merge-loan modal. Admin picks another loan at
+     the same street address and this loan becomes the winner. Backend
+     is /api/loans-merge-manual (Deploy 236.187). -->
+<div class="bi-modal-bg" id="mergeLoanModal">
+  <div class="bi-modal" style="max-width:680px">
+    <h3>Merge Another Loan Into This One</h3>
+    <p class="bi-sub">Pick the <strong>loser</strong> — the loan that will be absorbed. This loan (the one you're viewing) is the <strong>winner</strong> and keeps every non-empty field. The loser fills gaps and is removed from its client. This cannot be undone.</p>
+
+    <div style="margin:14px 0;padding:10px 12px;background:#faf8f3;border-radius:6px;font-size:12px;color:var(--dark)">
+      <div><strong>Winner (this loan):</strong> <span id="mergeWinnerLine"></span></div>
+    </div>
+
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Merge candidates (same street address)</div>
+    <div id="mergeLoserList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border, #E4DFD4);border-radius:6px;background:#fff">
+      <div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading candidates…</div>
+    </div>
+
+    <div class="bi-status" id="mergeLoanStatus"></div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeMergeLoanModal()">Cancel</button>
+      <button class="bi-btn primary" id="mergeLoanConfirmBtn" onclick="confirmMergeLoan()" disabled>Merge selected</button>
+    </div>
+  </div>
+</div>
+
 <style>
 .reassign-tab {
   background: transparent;
@@ -2031,6 +2057,20 @@ function render() {
             '<div id="adminStatusMsg" style="font-size:11px;min-height:14px;margin-top:6px;color:var(--muted)"></div>' +
             '<div style="font-size:11px;color:var(--muted);margin-top:6px;font-style:italic">Use sparingly — bypasses normal flow gates. Audit-logged on the loan and visible in Notes.</div>' +
           '</div>'
+        : '') +
+      // Deploy 236.232 — admin-only manual loan merge. Opens a picker
+      // showing every OTHER loan at the same street address across
+      // owners; admin chooses a loser and this loan becomes the winner.
+      // Calls /api/loans-merge-manual which gap-fills winner fields
+      // and removes the loser from its client's loans[]. Useful when
+      // the same subject property got quoted twice (different LOs,
+      // different tools, borrower-typed vs Google-canonical address)
+      // and the pipeline card resolution can't disambiguate them.
+      (_isAdminUser
+        ? '<button type="button" class="open-sizer-btn" onclick="openMergeLoanModal()" style="margin-top:8px;background:rgba(133,77,14,0.10);color:#854d0e;border-color:rgba(133,77,14,0.40)">' +
+            '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M4 3h3l2 2h3M4 12h3l2-2h3M11 5l-2-2M11 5l-2 2M11 10l-2-2M11 10l-2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+            'Merge with another loan…' +
+          '</button>'
         : '') +
       // Delete loan — destructive. Kept inside this section so it's
       // intentional to find but explicit when chosen.
@@ -5723,6 +5763,166 @@ function closeReassignLoanModal() {
   var btn = document.getElementById('reassignConfirmBtn');
   btn.disabled = true;
   btn.textContent = 'Reassign loan';
+}
+
+// ── Deploy 236.232: Merge Loan (admin) ─────────────────────────
+// Opens a picker that lists every OTHER loan whose address's first
+// street segment matches this loan's, across every client + owner.
+// Admin selects a loser; POST to /api/loans-merge-manual folds it
+// into this loan (winner) and deletes the loser from its client.
+var _mergeLoanCandidates = [];
+var _mergeLoanSelectedKey = null;
+
+function _mergeStreetKey(addr) {
+  return String(addr || '').toLowerCase().trim().replace(/\s+/g, ' ').split(',')[0].trim();
+}
+
+function openMergeLoanModal() {
+  if (!_client || !_loan) { showToast('Loan not loaded'); return; }
+  _mergeLoanSelectedKey = null;
+  var btn = document.getElementById('mergeLoanConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Merge selected';
+  document.getElementById('mergeLoanStatus').className = 'bi-status';
+  document.getElementById('mergeLoanStatus').textContent = '';
+
+  // Populate winner line.
+  var name = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim() || _client.email || '';
+  var winnerLine = (_loan.address || '') + ' — ' + name + ' — ' + (_loan.id || '');
+  document.getElementById('mergeWinnerLine').textContent = winnerLine;
+
+  document.getElementById('mergeLoanModal').classList.add('show');
+  document.getElementById('mergeLoserList').innerHTML =
+    '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading candidates…</div>';
+
+  // Load pool. Admin always fetches all=true (endpoint is admin-only).
+  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  p.then(function(r) {
+    var pool = [];
+    if (r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(ownerKey) {
+        (r.byOwner[ownerKey] || []).forEach(function(c) {
+          pool.push({ ownerKey: ownerKey, client: c });
+        });
+      });
+    } else {
+      var myKey = (_user && _user.email || '').toLowerCase();
+      (r.clients || []).forEach(function(c) { pool.push({ ownerKey: myKey, client: c }); });
+    }
+
+    var thisStreet = _mergeStreetKey(_loan.address);
+    var thisLoanId = _loan.id;
+    var candidates = [];
+    pool.forEach(function(row) {
+      var c = row.client;
+      if (!c || c.deleted || !Array.isArray(c.loans)) return;
+      c.loans.forEach(function(l) {
+        if (!l || !l.id || l.id === thisLoanId) return;
+        var st = _mergeStreetKey(l.address);
+        if (!st || !thisStreet || st !== thisStreet) return;
+        candidates.push({
+          ownerKey: row.ownerKey,
+          clientId: c.id,
+          loanId: l.id,
+          address: l.address || '',
+          borrower: ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '',
+          loanAmt: l.loanAmt || 0,
+          propTypeLabel: l.propTypeLabel || l.propType || '',
+          toolType: String(l.toolType || l._toolType || 'dscr').toUpperCase(),
+          status: l.status || '',
+          updatedAt: l.updatedAt || l.createdAt || '',
+        });
+      });
+    });
+    _mergeLoanCandidates = candidates;
+    _renderMergeLoserList();
+  }).catch(function(err) {
+    document.getElementById('mergeLoserList').innerHTML =
+      '<div style="padding:1.25rem;text-align:center;color:#7C1F1F;font-size:13px">Failed to load candidates: ' + escH(err.message || 'Unknown') + '</div>';
+  });
+}
+
+function _renderMergeLoserList() {
+  var container = document.getElementById('mergeLoserList');
+  if (!_mergeLoanCandidates.length) {
+    container.innerHTML = '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">No other loans found at this street address. Merge is for cleaning up same-address dupes — if the two loans are at different addresses, use Reassign instead.</div>';
+    return;
+  }
+  var myOwner = (_user && _user.email || '').toLowerCase();
+  container.innerHTML = _mergeLoanCandidates.map(function(cand) {
+    var selKey = cand.ownerKey + '|' + cand.clientId + '|' + cand.loanId;
+    var isSel = (_mergeLoanSelectedKey === selKey);
+    var amt = cand.loanAmt ? '$' + Math.round(cand.loanAmt).toLocaleString() : '—';
+    var updated = cand.updatedAt ? new Date(cand.updatedAt).toLocaleDateString() : '';
+    var loLabel = cand.ownerKey === myOwner ? 'This LO' : cand.ownerKey;
+    return '<div onclick="pickMergeLoser(\'' + escAttr(selKey) + '\')" style="padding:12px 14px;border-bottom:1px solid var(--border, #E4DFD4);cursor:pointer;background:' + (isSel ? 'rgba(133,77,14,0.08)' : '#fff') + ';border-left:3px solid ' + (isSel ? '#854d0e' : 'transparent') + '">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<div style="font-size:14px;font-weight:600;color:var(--dark)">' + escH(cand.borrower) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + escH(updated) + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">' + escH(cand.address) + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px">' +
+        '<span style="background:rgba(200,129,58,0.10);color:#7a4a13;padding:1px 7px;border-radius:10px;font-weight:600">' + escH(cand.toolType) + '</span>' +
+        (cand.propTypeLabel ? '<span style="background:rgba(30,64,175,0.08);color:#1e3a8a;padding:1px 7px;border-radius:10px">' + escH(cand.propTypeLabel) + '</span>' : '') +
+        '<span style="background:#f4f3ee;color:var(--dark);padding:1px 7px;border-radius:10px">' + escH(amt) + '</span>' +
+        '<span style="background:#f4f3ee;color:var(--muted);padding:1px 7px;border-radius:10px">' + escH(cand.status) + '</span>' +
+        '<span style="background:rgba(133,77,14,0.08);color:#854d0e;padding:1px 7px;border-radius:10px">LO: ' + escH(loLabel) + '</span>' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--muted);font-family:monospace;margin-top:5px">' + escH(cand.loanId) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function pickMergeLoser(selKey) {
+  _mergeLoanSelectedKey = (_mergeLoanSelectedKey === selKey) ? null : selKey;
+  document.getElementById('mergeLoanConfirmBtn').disabled = !_mergeLoanSelectedKey;
+  _renderMergeLoserList();
+}
+
+function closeMergeLoanModal() {
+  document.getElementById('mergeLoanModal').classList.remove('show');
+}
+
+function confirmMergeLoan() {
+  if (!_mergeLoanSelectedKey || !_loan || !_client) return;
+  var parts = _mergeLoanSelectedKey.split('|');
+  if (parts.length !== 3) return;
+  var loserOwner = parts[0], loserClientId = parts[1], loserLoanId = parts[2];
+  var loser = _mergeLoanCandidates.find(function(c) {
+    return c.ownerKey === loserOwner && c.clientId === loserClientId && c.loanId === loserLoanId;
+  });
+  if (!loser) return;
+  if (!confirm('Merge loan "' + (loser.address || loser.loanId) + '" (LO: ' + loser.ownerKey + ') INTO this loan? The loser record is removed from its client. This cannot be undone.')) return;
+
+  var btn = document.getElementById('mergeLoanConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Merging…';
+  var statusEl = document.getElementById('mergeLoanStatus');
+  statusEl.className = 'bi-status';
+  statusEl.textContent = '';
+
+  var winnerOwner = (_loEmail || (_user && _user.email) || '').toLowerCase();
+  SLA.api('POST', '/api/loans-merge-manual', {
+    winner: { ownerKey: winnerOwner,  clientId: _client.id, loanId: _loan.id  },
+    loser:  { ownerKey: loser.ownerKey, clientId: loser.clientId, loanId: loser.loanId },
+  }).then(function(r) {
+    if (!r || !r.ok) {
+      btn.disabled = false;
+      btn.textContent = 'Merge selected';
+      statusEl.className = 'bi-status err';
+      statusEl.textContent = 'Merge failed: ' + ((r && r.error) || 'unknown');
+      return;
+    }
+    showToast('Merge complete — ' + ((r.filledFields || []).length) + ' field(s) gap-filled.');
+    closeMergeLoanModal();
+    // Reload the loan to reflect gap-filled fields.
+    setTimeout(function() { window.location.reload(); }, 700);
+  }).catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'Merge selected';
+    statusEl.className = 'bi-status err';
+    statusEl.textContent = 'Merge failed: ' + (err && err.message || 'unknown');
+  });
 }
 
 function reassignSwitchTab(tab) {

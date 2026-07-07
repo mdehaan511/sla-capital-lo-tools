@@ -490,6 +490,22 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Deploy 236.232: Loan chooser modal. When a card can't uniquely
+     resolve a loan (or when a street has multiple loans), the LO
+     clicks "Choose loan…" and this modal lists every candidate at
+     that street across owners (admins see all; LOs see just their
+     own). Row click → navigate to loan-details for that loan. -->
+<div class="bi-modal-bg" id="loanChooserModal">
+  <div class="bi-modal" style="max-width:720px">
+    <h3>Multiple loans at this address</h3>
+    <p class="bi-sub" id="loanChooserSub">Pick which loan to open. If two of these are actually the same loan, open one and use "Merge with another loan…" on the Loan Details page.</p>
+    <div id="loanChooserList" style="margin-top:14px;max-height:60vh;overflow-y:auto"></div>
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeLoanChooserModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Deploy 226: Pre-discussed Ask modal (Quoted → ?). Two paths.
      "No" opens the existing UW submit-notes flow. "Yes" opens the
      pre-discussed details modal and skips the Submitted column. -->
@@ -908,6 +924,13 @@ function processResults(results) {
     _loanLookup = {};
     _contactLookup = {};
     _clientById = {}; // ownerKey|clientId → full client record (for modal prefill)
+    // Deploy 236.232 — candidates-by-address so the click chooser can
+    // enumerate every loan at a given street when the quote can't
+    // uniquely resolve one. Keyed by ownerKey|street (never the full
+    // normalized address, since dupes often have slightly different
+    // suffixes — "Ave" vs "Avenue"). Also keyed by a global 'all|street'
+    // so the Loan Details merge picker can find dupes across owners.
+    _loanCandidatesByStreet = {};
     function norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
     function ne(s){ return String(s||'').toLowerCase().trim(); }
     function streetOf(s) { return norm(s).split(',')[0].trim().replace(/\s+/g,' '); }
@@ -928,11 +951,25 @@ function processResults(results) {
             // write fail, etc.) the loan-side check still removes
             // the tile from the pipeline.
             var rec = { clientId: c.id, loanId: l.id, ownerKey: ownerKey, loanStatus: String(l.status || '').toLowerCase().trim() };
+            // Deploy 236.232 — carry enough info on the candidate rec
+            // for the chooser modal to render a useful row without
+            // needing to re-lookup the loan/client.
+            rec.address = l.address || '';
+            rec.propType = l.propType || '';
+            rec.propTypeLabel = l.propTypeLabel || '';
+            rec.loanAmt = l.loanAmt || 0;
+            rec.toolType = String(l.toolType || l._toolType || '').toLowerCase();
+            rec.updatedAt = l.updatedAt || l.createdAt || '';
+            rec.borrower = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '';
             _loanLookup[ownerKey + '|id|' + l.id] = rec;
             if (l.address) {
               _loanLookup[ownerKey + '|' + norm(l.address)] = rec;
               var st = streetOf(l.address);
-              if (st) _loanLookup[ownerKey + '|street|' + st] = rec;
+              if (st) {
+                _loanLookup[ownerKey + '|street|' + st] = rec;
+                (_loanCandidatesByStreet[ownerKey + '|' + st] = _loanCandidatesByStreet[ownerKey + '|' + st] || []).push(rec);
+                (_loanCandidatesByStreet['all|' + st] = _loanCandidatesByStreet['all|' + st] || []).push(rec);
+              }
               // Deploy 236.51 — propType-aware index so two loans at
               // the same address (Portfolio vs. SFR from 236.49) each
               // resolve to their own record instead of overwriting
@@ -955,11 +992,23 @@ function processResults(results) {
           if (!l.id) return;
           // Deploy 236.67 — see byOwner branch above.
           var rec2 = { clientId: c.id, loanId: l.id, ownerKey: myKey, loanStatus: String(l.status || '').toLowerCase().trim() };
+          // Deploy 236.232 — same enrichment as the byOwner branch.
+          rec2.address = l.address || '';
+          rec2.propType = l.propType || '';
+          rec2.propTypeLabel = l.propTypeLabel || '';
+          rec2.loanAmt = l.loanAmt || 0;
+          rec2.toolType = String(l.toolType || l._toolType || '').toLowerCase();
+          rec2.updatedAt = l.updatedAt || l.createdAt || '';
+          rec2.borrower = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '';
           _loanLookup[myKey + '|id|' + l.id] = rec2;
           if (l.address) {
             _loanLookup[myKey + '|' + norm(l.address)] = rec2;
             var st2 = streetOf(l.address);
-            if (st2) _loanLookup[myKey + '|street|' + st2] = rec2;
+            if (st2) {
+              _loanLookup[myKey + '|street|' + st2] = rec2;
+              (_loanCandidatesByStreet[myKey + '|' + st2] = _loanCandidatesByStreet[myKey + '|' + st2] || []).push(rec2);
+              (_loanCandidatesByStreet['all|' + st2] = _loanCandidatesByStreet['all|' + st2] || []).push(rec2);
+            }
             // Deploy 236.51 — propType-aware index (see byOwner branch).
             var ptC2 = String(l.propType || '').toLowerCase().trim();
             if (ptC2) {
@@ -1433,6 +1482,40 @@ function buildQuoteCard(it, colKey) {
       + '&owner=' + encodeURIComponent(lookup.ownerKey)
     : null;
 
+  // Deploy 236.232 — chooser fallback. When a card can't resolve
+  // deterministically OR when the same street has multiple loans,
+  // expose a "choose loan" action so the click never silently fails.
+  // Same-owner candidates first; admins see cross-owner too so a stray
+  // cross-LO dupe is still reachable from the card.
+  var _candKey = it.ownerKey + '|' + addrStreet;
+  var _sameOwnerCandidates = (addrStreet && _loanCandidatesByStreet[_candKey]) || [];
+  var _allOwnerCandidates  = (addrStreet && _loanCandidatesByStreet['all|' + addrStreet]) || [];
+  var _candidates = _isAdmin ? _allOwnerCandidates : _sameOwnerCandidates;
+  // Dedupe by loanId (candidate rec is by reference from _loanLookup so
+  // pushes are cheap — just guard against dup indexing).
+  var _seenCand = {}; var _uniqCandidates = [];
+  _candidates.forEach(function(rec) {
+    if (!rec || !rec.loanId || _seenCand[rec.loanId]) return;
+    _seenCand[rec.loanId] = 1; _uniqCandidates.push(rec);
+  });
+  // Show the chooser button ONLY when: no deterministic resolution AND
+  // candidates exist, OR resolution succeeded but the street has 2+
+  // loans (so the LO can pick a different one if this card routed to
+  // the wrong dupe). The chooser is stored on window keyed by
+  // an ephemeral id so onclick can reach it without JSON-escaping.
+  var showChooser = (!detailsUrl && _uniqCandidates.length > 0)
+                 || (detailsUrl && _uniqCandidates.length >= 2);
+  var chooserId = '';
+  if (showChooser) {
+    chooserId = 'ch_' + Math.floor(Math.random() * 1e9).toString(36) + '_' + (window._chSeq = (window._chSeq || 0) + 1);
+    window._pipelineChoosers = window._pipelineChoosers || {};
+    window._pipelineChoosers[chooserId] = {
+      street: addrStreet,
+      address: addr,
+      candidates: _uniqCandidates,
+    };
+  }
+
   var loRow = (_scope === 'all' && _isAdmin)
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
     : '';
@@ -1462,17 +1545,27 @@ function buildQuoteCard(it, colKey) {
     ? '<div class="orphan-hint" title="This quote has no Loan Details page yet. Open the Sizer and re-save with borrower name and email to fix.">⚠ Loan record missing — open Sizer to fix</div>'
     : '';
 
+  // Deploy 236.232 — when the deterministic click can't resolve a
+  // single loan (or when the street has multiple candidates), add a
+  // "Choose loan…" button so the user always has a working way in.
+  var chooserBtn = chooserId
+    ? '<button type="button" class="card-btn" onclick="openLoanChooserModal(\'' + escAttr(chooserId) + '\')" title="' + (_uniqCandidates.length + ' loan' + (_uniqCandidates.length === 1 ? '' : 's') + ' at this street. Pick one to open Loan Details.') + '">Choose loan… (' + _uniqCandidates.length + ')</button>'
+    : '';
+
   if (colKey === 'quoted') {
     actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
+    actions += chooserBtn;
     actions += '<button type="button" class="card-btn primary" onclick="goSubmit(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Submit</button>';
   } else if (colKey === 'submitted') {
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     else            actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
+    actions += chooserBtn;
     actions += '<span class="card-btn muted">Awaiting decision</span>';
   } else if (colKey === 'awaitingApp') {
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     else            actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
+    actions += chooserBtn;
     // Determine label from borrower-info status. Prefer per-loan lookup
     // (Deploy 168); fall back to per-client for legacy records that
     // haven't been re-saved yet.
@@ -1502,6 +1595,7 @@ function buildQuoteCard(it, colKey) {
     // "In Processing" column
     if (detailsUrl) actions += '<a class="card-btn" href="' + escAttr(detailsUrl) + '">Loan Details</a>';
     actions += '<a class="card-btn" href="' + escAttr(sizerUrl) + '">Open Sizer</a>';
+    actions += chooserBtn;
     if (_isAdmin) {
       actions += '<button type="button" class="card-btn success" onclick="closeLoan(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\')">Mark Closed</button>';
     }
@@ -1614,6 +1708,55 @@ function buildQuoteCard(it, colKey) {
       '<div class="card-actions">' + actions + '</div>' +
     '</div>'
   );
+}
+
+// ── Deploy 236.232: Loan chooser modal ────────────────────
+// Opens when a card can't uniquely resolve a loan OR when a street
+// has multiple loans. Lists every candidate and routes the click to
+// the right loan-details.html.
+function openLoanChooserModal(chooserId) {
+  var d = window._pipelineChoosers && window._pipelineChoosers[chooserId];
+  if (!d) { showToast('Chooser data missing — try refreshing the page.'); return; }
+  var list = document.getElementById('loanChooserList');
+  var myOwner = (_user && _user.email || '').toLowerCase();
+  // Sort: same-owner first, then by most-recently updated.
+  var rows = (d.candidates || []).slice().sort(function(a, b) {
+    var ao = (a.ownerKey === myOwner) ? 0 : 1;
+    var bo = (b.ownerKey === myOwner) ? 0 : 1;
+    if (ao !== bo) return ao - bo;
+    return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+  });
+  list.innerHTML = rows.map(function(r) {
+    var amt = r.loanAmt ? '$' + Math.round(r.loanAmt).toLocaleString() : '—';
+    var pt  = r.propTypeLabel || r.propType || '';
+    var tool = (r.toolType || 'dscr').toUpperCase();
+    var updated = r.updatedAt ? new Date(r.updatedAt).toLocaleDateString() : '';
+    var loLabel = loDisplay(r.ownerKey) || r.ownerKey;
+    var isMine = r.ownerKey === myOwner;
+    var url = 'loan-details.html?clientId=' + encodeURIComponent(r.clientId)
+            + '&loanId=' + encodeURIComponent(r.loanId)
+            + '&owner=' + encodeURIComponent(r.ownerKey);
+    return '<a href="' + escAttr(url) + '" style="display:block;text-decoration:none;color:inherit;border:1.5px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fff;transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--accent, #C8813A)\';this.style.background=\'rgba(200,129,58,0.04)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.background=\'#fff\'">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+        '<div style="font-size:14px;font-weight:600;color:var(--dark)">' + escH(r.borrower || '—') + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + escH(updated) + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">' + escH(r.address || '') + '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px">' +
+        '<span style="background:rgba(200,129,58,0.10);color:#7a4a13;padding:2px 8px;border-radius:10px;font-weight:600">' + escH(tool) + '</span>' +
+        (pt ? '<span style="background:rgba(30,64,175,0.08);color:#1e3a8a;padding:2px 8px;border-radius:10px">' + escH(pt) + '</span>' : '') +
+        '<span style="background:#f4f3ee;color:var(--dark);padding:2px 8px;border-radius:10px">' + escH(amt) + '</span>' +
+        '<span style="background:#f4f3ee;color:var(--muted);padding:2px 8px;border-radius:10px">' + escH(r.loanStatus || '') + '</span>' +
+        (!isMine ? '<span style="background:rgba(133,77,14,0.10);color:#854d0e;padding:2px 8px;border-radius:10px">LO: ' + escH(loLabel) + '</span>' : '') +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--muted);font-family:monospace;margin-top:6px">loan: ' + escH(r.loanId) + '</div>' +
+    '</a>';
+  }).join('');
+  document.getElementById('loanChooserModal').style.display = 'flex';
+}
+function closeLoanChooserModal() {
+  var m = document.getElementById('loanChooserModal');
+  if (m) m.style.display = 'none';
 }
 
 // ── Reminder helpers ────────────────────────────────────
