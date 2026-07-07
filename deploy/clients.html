@@ -783,9 +783,35 @@ function _selectedClientIds() {
   });
   return out;
 }
-function _findClientById(id) {
+function _findClientById(id, ownerHint) {
+  // Personal-view list first (fast path).
   for (var i = 0; i < _clients.length; i++) {
     if (_clients[i] && _clients[i].id === id) return _clients[i];
+  }
+  // Deploy 236.236 — also walk _adminData when admin is on All Users
+  // view. Without this, Merge Selected on cross-LO clients threw
+  // "Could not locate one of the selected clients in the loaded list."
+  // ownerHint is the owner email that _selectedClientIds recorded when
+  // the row was checked; we prefer it to speed up the search when the
+  // selection came from a specific LO's bucket.
+  if (Array.isArray(_adminData)) {
+    if (ownerHint) {
+      for (var oi = 0; oi < _adminData.length; oi++) {
+        if (_adminData[oi] && _adminData[oi].email === ownerHint) {
+          var oc = _adminData[oi].clients || [];
+          for (var ci = 0; ci < oc.length; ci++) {
+            if (oc[ci] && oc[ci].id === id) return oc[ci];
+          }
+        }
+      }
+    }
+    // Fall back to a full sweep (no ownerHint or hint miss).
+    for (var ui = 0; ui < _adminData.length; ui++) {
+      var uc = (_adminData[ui] && _adminData[ui].clients) || [];
+      for (var uj = 0; uj < uc.length; uj++) {
+        if (uc[uj] && uc[uj].id === id) return uc[uj];
+      }
+    }
   }
   return null;
 }
@@ -861,7 +887,7 @@ function openMergeSelectedModal() {
   var sel = _selectedClientIds();
   if (sel.length !== 2) { alert('Select exactly 2 clients to merge.'); return; }
   _mergeWinnerKey = null;
-  var clients = sel.map(function(s) { return { owner: s.owner || _user.email, clientId: s.clientId, client: _findClientById(s.clientId) }; });
+  var clients = sel.map(function(s) { return { owner: s.owner || _user.email, clientId: s.clientId, client: _findClientById(s.clientId, s.owner) }; });
   if (clients.some(function(c) { return !c.client; })) {
     alert('Could not locate one of the selected clients in the loaded list. Refresh and try again.');
     return;

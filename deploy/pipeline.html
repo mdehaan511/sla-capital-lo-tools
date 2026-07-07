@@ -1432,7 +1432,24 @@ function buildQuoteCard(it, colKey) {
   // last in _loanLookup, and the wrong card resolves to the wrong
   // loan-details page.
   var _qPt = String((fd && fd.propType) || '').toLowerCase().trim();
-  var lookup = (quoteLoanId && quoteClientId)
+  // Deploy 236.236 — VERIFY the stamped (clientId, loanId) pair actually
+  // exists before trusting it. Historically pipeline blindly used the
+  // quote's stamps when both were present. When those stamps went stale
+  // (e.g. the loan was deleted, or a client got duplicated and the
+  // original client+loan died with a merge-loser), the card silently
+  // routed to a dead client → Loan Details showed nothing, borrower
+  // link went to the empty duplicate, Open Sizer opened blank. See the
+  // Randy Dargan / Vinnie Pastura / 335 Trevor incident on 2026-07-07.
+  //
+  // We only trust the stamps when _loanLookup confirms both pieces
+  // still map to a live loan on a live client. Otherwise we fall
+  // through the same id/address/propType chain a legacy quote would.
+  function _stampsAreLive(cid, lid) {
+    if (!cid || !lid) return false;
+    var rec = _loanLookup[it.ownerKey + '|id|' + lid];
+    return !!(rec && rec.clientId === cid);
+  }
+  var lookup = _stampsAreLive(quoteClientId, quoteLoanId)
     ? { clientId: quoteClientId, loanId: quoteLoanId, ownerKey: it.ownerKey }
     : (_loanLookup[it.ownerKey + '|id|'   + quoteLoanId]
        || (_qPt && _loanLookup[it.ownerKey + '|' + addrNorm   + '|pt:' + _qPt])

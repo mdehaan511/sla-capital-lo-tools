@@ -192,6 +192,45 @@ async function handle(req, context) {
     }
   } catch (_) {}
 
+  // Deploy 236.236 — sweep the quotes store so pipeline cards don't
+  // silently misroute after the merge. Without this, a quote stamped
+  // with loser.id / <a loanId that only existed on loser> lingers
+  // pointing at nothing; the pipeline card resolves to a dead client
+  // (Randy Dargan / Vinnie Pastura / 335 Trevor incident 2026-07-07).
+  // For each quote under this owner:
+  //   - if quote.clientId === loser.id → rewrite to winner.id
+  //   - if quote's stamped loanId (or _editingLoanId) belonged only to
+  //     the loser and NOT a loan we just carried into winner → drop it
+  //     so pipeline can fall through to address resolution.
+  const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+  const loserLoanIds  = new Set((Array.isArray(loser.loans) ? loser.loans : []).map((l) => l && l.id).filter(Boolean));
+  const winnerLoanIds = new Set(winner.loans.map((l) => l && l.id).filter(Boolean));
+  let quotesRestamped = 0, quotesLoanIdDropped = 0;
+  try {
+    const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
+    for (const { key } of blobs) {
+      const q = await quotesStore.get(key, { type: 'json' }).catch(() => null);
+      if (!q) continue;
+      const fd = q.formData || (q.formData = {});
+      let dirty = false;
+      // Rewrite clientId if it points at the loser.
+      if (q.clientId === loser.id)     { q.clientId = winner.id; dirty = true; }
+      if (fd._editingClientId === loser.id) { fd._editingClientId = winner.id; dirty = true; }
+      // Drop a stamped loanId that lived only on the loser and didn't
+      // survive the merge into winner. Address resolution takes over.
+      const qLid = q.loanId || fd._editingLoanId || '';
+      if (qLid && loserLoanIds.has(qLid) && !winnerLoanIds.has(qLid)) {
+        if (q.loanId === qLid)          { q.loanId = ''; dirty = true; }
+        if (fd._editingLoanId === qLid) { fd._editingLoanId = ''; dirty = true; }
+        quotesLoanIdDropped++;
+      }
+      if (dirty) {
+        await quotesStore.setJSON(key, q);
+        quotesRestamped++;
+      }
+    }
+  } catch (_) { /* non-fatal — merge itself still succeeds */ }
+
   // 7. Persist winner + delete loser.
   try {
     await clientsStore.setJSON(winnerKey, winner);
@@ -209,5 +248,7 @@ async function handle(req, context) {
     gapFilled,
     biMoved,
     appsMoved,
+    quotesRestamped,
+    quotesLoanIdDropped,
   });
 }
