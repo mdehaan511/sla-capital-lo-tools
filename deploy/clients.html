@@ -783,6 +783,20 @@ function _selectedClientIds() {
   });
   return out;
 }
+// Deploy 236.238 — reload both the personal and admin lists after a
+// bulk delete or merge. Earlier code called loadAll() which never
+// existed in this file — the mutation succeeded server-side but the
+// success callback threw "loadAll is not defined" and the user saw
+// "Merge failed" even though the merge had actually landed. Uses
+// the same primitives the initial page-load flow uses so both views
+// stay consistent.
+function _reloadAfterMutation() {
+  try { refreshClientsFromBackend().then(function() { renderClients(); }); } catch (_) {}
+  if (_isAdmin && typeof loadAdminClients === 'function') {
+    try { loadAdminClients(true); } catch (_) {}
+  }
+}
+
 function _findClientById(id, ownerHint) {
   // Personal-view list first (fast path).
   for (var i = 0; i < _clients.length; i++) {
@@ -878,7 +892,7 @@ function confirmDeleteSelected() {
     if (b) { b.textContent = 'Select Multiple'; b.style.background = ''; b.style.color = ''; b.style.borderColor = ''; }
     refreshSelectionBar();
     showToast('Deleted ' + okCount + (errCount ? ' (' + errCount + ' failed)' : ''));
-    loadAll();
+    _reloadAfterMutation();
   });
 }
 
@@ -981,7 +995,7 @@ function commitClientMerge() {
     if (b) { b.textContent = 'Select Multiple'; b.style.background = ''; b.style.color = ''; b.style.borderColor = ''; }
     refreshSelectionBar();
     showToast('Merged — ' + r.loansAdded + ' loan(s) + ' + r.companiesAdded + ' compan(ies) moved.');
-    loadAll();
+    _reloadAfterMutation();
   }).catch(function(err) {
     btn.disabled = false; btn.textContent = 'Merge';
     alert('Merge failed: ' + (err && err.message || 'unknown'));
