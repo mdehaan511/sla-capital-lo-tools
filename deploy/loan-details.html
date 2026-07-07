@@ -5290,6 +5290,140 @@ function deleteThisLoan() {
 // record's status to 'complete', but the address-match-based quote
 // bump never finds a quote and the loan stays at awaiting_app.
 //
+// ── Deploy 236.229 (Broker Phase E) — deferred borrower-info capture ──
+// Broker loans defer borrower info at submit (Phase D). When the LO
+// advances the loan to Approved ("In Processing"), the gate below
+// requires them to fill in Guarantor 1 (+ optional co-guarantors)
+// before the status change proceeds. Backend endpoint creates or
+// links client records for each guarantor and populates guarantors[].
+function _brokerLoanNeedsBorrowerInfo() {
+  if (!_loan) return false;
+  if (!_loan._isBrokerLoan) return false;
+  if (_loan._borrowerInfoPending === false) return false;
+  // Defensive: if pending flag was never set (older broker loans) but
+  // guarantors[] is empty, still gate the advance.
+  var gs = Array.isArray(_loan.guarantors) ? _loan.guarantors : [];
+  var hasReal = gs.some(function(g) {
+    return g && (g.firstName || g.lastName || g.email);
+  });
+  return !hasReal;
+}
+
+var _brokerCaptureRowCount = 1;
+var _brokerCaptureCallback = null;
+function openBrokerBorrowerCaptureModal(onSuccess) {
+  _brokerCaptureCallback = onSuccess || null;
+  _brokerCaptureRowCount = 1;
+  var existing = document.getElementById('brokerBorrowerCaptureModal');
+  if (existing) existing.remove();
+  var m = document.createElement('div');
+  m.id = 'brokerBorrowerCaptureModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:24px';
+  m.innerHTML =
+    '<div style="background:#fff;max-width:720px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;border-radius:14px">' +
+      '<div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div>' +
+          '<div style="font-family:\'Lora\',serif;font-size:18px;font-weight:600;color:var(--dark)">Borrower Info Required</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">This broker loan needs Guarantor 1 (and any co-guarantors) before advancing to In Processing.</div>' +
+        '</div>' +
+        '<button type="button" onclick="closeBrokerBorrowerCaptureModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>' +
+      '</div>' +
+      '<div id="brokerCaptureBody" style="padding:18px 22px;overflow:auto;flex:1">' +
+        _brokerCaptureRowHtml(1) +
+        '<div id="brokerCaptureRows"></div>' +
+        '<div style="margin-top:10px"><button type="button" onclick="brokerCaptureAddRow()" style="font-size:12px;padding:6px 12px;border:1px dashed var(--border);background:transparent;border-radius:6px;cursor:pointer;font-family:inherit;color:var(--muted)">+ Add another guarantor</button></div>' +
+        '<div style="margin-top:1.5rem;padding-top:14px;border-top:1px solid var(--border)">' +
+          '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:8px">Vesting entity (optional)</div>' +
+          '<div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">' +
+            '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">LLC / Entity Name</label><input type="text" id="brokerCaptureEntity" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+            '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">EIN</label><input type="text" id="brokerCaptureEin" placeholder="XX-XXXXXXX" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+          '</div>' +
+        '</div>' +
+        '<div id="brokerCaptureErr" style="margin-top:12px;color:#b91c1c;font-size:12px;display:none"></div>' +
+      '</div>' +
+      '<div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" onclick="closeBrokerBorrowerCaptureModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>' +
+        '<button type="button" id="brokerCaptureSubmit" onclick="submitBrokerBorrowerCapture()" style="font-size:13px;padding:8px 18px;border:1px solid var(--gold);background:var(--gold);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">Save & Advance</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(m);
+}
+function closeBrokerBorrowerCaptureModal() {
+  var m = document.getElementById('brokerBorrowerCaptureModal'); if (m) m.remove();
+  _brokerCaptureCallback = null;
+}
+function _brokerCaptureRowHtml(n) {
+  var isFirst = (n === 1);
+  return '<div id="brokerCaptureRow_' + n + '" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--dark);text-transform:uppercase;letter-spacing:0.05em">Guarantor ' + n + (isFirst ? ' (primary)' : '') + '</div>' +
+      (isFirst ? '' : '<button type="button" onclick="brokerCaptureRemoveRow(' + n + ')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);background:transparent;border-radius:4px;cursor:pointer;color:var(--muted)">Remove</button>') +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">First Name *</label><input type="text" data-cap="firstName" data-row="' + n + '" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Last Name *</label><input type="text" data-cap="lastName" data-row="' + n + '" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Email *</label><input type="email" data-cap="email" data-row="' + n + '" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Phone</label><input type="tel" data-cap="phone" data-row="' + n + '" placeholder="(555) 555-5555" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">DOB</label><input type="date" data-cap="dob" data-row="' + n + '" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+      '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">% Ownership of LLC</label><input type="number" data-cap="ownershipPct" data-row="' + n + '" min="0" max="100" step="0.01" placeholder="e.g. 50" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+      '<div style="grid-column:span 2"><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">SSN (optional here — captured on the long-app if you skip)</label><input type="text" data-cap="ssn" data-row="' + n + '" placeholder="XXX-XX-XXXX" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" /></div>' +
+    '</div>' +
+  '</div>';
+}
+function brokerCaptureAddRow() {
+  if (_brokerCaptureRowCount >= 4) return;
+  _brokerCaptureRowCount++;
+  var el = document.getElementById('brokerCaptureRows');
+  if (el) el.insertAdjacentHTML('beforeend', _brokerCaptureRowHtml(_brokerCaptureRowCount));
+}
+function brokerCaptureRemoveRow(n) {
+  var row = document.getElementById('brokerCaptureRow_' + n);
+  if (row) row.remove();
+}
+function submitBrokerBorrowerCapture() {
+  var err = document.getElementById('brokerCaptureErr');
+  err.style.display = 'none'; err.textContent = '';
+  var rows = document.querySelectorAll('[id^="brokerCaptureRow_"]');
+  var guarantors = [];
+  for (var i = 0; i < rows.length; i++) {
+    var rowEl = rows[i];
+    var g = {};
+    ['firstName','lastName','email','phone','dob','ssn','ownershipPct'].forEach(function(k) {
+      var input = rowEl.querySelector('[data-cap="' + k + '"]');
+      if (input) g[k] = String(input.value || '').trim();
+    });
+    if (!g.firstName && !g.lastName && !g.email) continue; // fully blank row → skip
+    if (!g.firstName || !g.lastName) { err.textContent = 'Guarantor ' + (i+1) + ' needs first + last name.'; err.style.display=''; return; }
+    if (!g.email || g.email.indexOf('@') < 0) { err.textContent = 'Guarantor ' + (i+1) + ' needs a valid email.'; err.style.display=''; return; }
+    guarantors.push(g);
+  }
+  if (!guarantors.length) { err.textContent = 'Enter at least one guarantor.'; err.style.display=''; return; }
+
+  var btn = document.getElementById('brokerCaptureSubmit');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  var payload = {
+    clientId:   _client.id,
+    loanId:     _loanId,
+    guarantors: guarantors,
+    entityName: (document.getElementById('brokerCaptureEntity') || {}).value || '',
+    entityEin:  (document.getElementById('brokerCaptureEin')    || {}).value || '',
+  };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.api('POST', '/api/loan-broker-borrower-capture', payload).then(function(r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    _loan = r.loan;
+    var lidx = (_client && _client.loans || []).findIndex(function(l) { return l && l.id === _loanId; });
+    if (lidx >= 0) _client.loans[lidx] = r.loan;
+    var cb = _brokerCaptureCallback;
+    closeBrokerBorrowerCaptureModal();
+    showToast('Borrower info saved — ' + r.guarantors.length + ' guarantor' + (r.guarantors.length === 1 ? '' : 's') + ' captured.');
+    if (cb) setTimeout(cb, 100);
+  }).catch(function(e) {
+    btn.disabled = false; btn.textContent = 'Save & Advance';
+    err.textContent = 'Failed: ' + (e && e.message || 'unknown'); err.style.display='';
+  });
+}
+
 // Hits POST /api/loan-advance-status which updates both the client
 // loan record AND any matching quotes (using more permissive address
 // normalization). Stamps audit fields so we can spot manually-advanced
@@ -5298,6 +5432,19 @@ function moveToInProcessing() {
   if (!_loan || !_client) return;
   if (_loan.status !== 'awaiting_app') {
     showToast('Loan is not in Awaiting Application state.');
+    return;
+  }
+  // Deploy 236.229 (Broker Phase E) — broker loans deferred borrower
+  // capture at submit time (Phase D). Before allowing the advance,
+  // require the LO or broker to fill in Guarantor 1 (and optional
+  // co-guarantors) so guarantors[] is populated and the Loan App PDF
+  // can render correctly.
+  if (_brokerLoanNeedsBorrowerInfo()) {
+    openBrokerBorrowerCaptureModal(function onCaptured() {
+      // Recurse — flag is now cleared; second call falls through to
+      // the standard confirm/advance path.
+      moveToInProcessing();
+    });
     return;
   }
   if (!confirm('Move this loan to "In Processing"?\n\nUse this only when the borrower has confirmed completion of the loan application but the loan didn\'t auto-advance.')) return;
@@ -5382,6 +5529,12 @@ function adminMoveStatus() {
     closed: 'Closed', denied: 'Declined', cancelled: 'Cancelled',
   };
   var human = labelMap[target] || target;
+  // Deploy 236.229 (Broker Phase E) — same gate as moveToInProcessing:
+  // broker loans need borrower info before advancing to approved.
+  if (target === 'approved' && _brokerLoanNeedsBorrowerInfo()) {
+    openBrokerBorrowerCaptureModal(function onCaptured() { adminMoveStatus(); });
+    return;
+  }
   if (!confirm('Manually move this loan to "' + human + '"?\n\nThis bypasses the normal flow. The change will be visible in the Notes audit log.')) return;
 
   if (msg) { msg.textContent = 'Moving…'; msg.style.color = 'var(--muted)'; }

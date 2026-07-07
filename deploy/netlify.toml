@@ -904,6 +904,14 @@
   status = 200
   force = true
 
+# Deploy 236.229 — Broker Phase E. Broker-deferred borrower info
+# capture at Advance to Approved.
+[[redirects]]
+  from = "/api/loan-broker-borrower-capture"
+  to = "/.netlify/functions/loan-broker-borrower-capture"
+  status = 200
+  force = true
+
 # Deploy 236.208 — bulk zip upload for Doc Review. Client extracts
 # zip in-browser, sends filenames here; we return the checklist slug
 # mapping so confident matches skip the confirmation modal.
