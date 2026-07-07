@@ -279,6 +279,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;margin-right:4px"><path d="M10 6A4 4 0 1 1 6 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 2v4h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Refresh
       </button>
+      <!-- Deploy 236.231 — same Select Multiple UX in the admin view. -->
+      <button class="filter-btn" id="selectModeBtnAdmin" onclick="toggleSelectMode()" style="margin-left:auto">
+        Select Multiple
+      </button>
+    </div>
+    <!-- Admin-view action bar. refreshSelectionBar() toggles both this
+         and the personal-view one — only the one under the visible
+         view is on-screen anyway. -->
+    <div id="selectActionBarAdmin" style="display:none;background:var(--gold-light);border:1px solid var(--gold-border);border-radius:12px;padding:10px 14px;margin:0 0 1rem 0;align-items:center;gap:14px;flex-wrap:wrap">
+      <span id="selectCountAdmin" style="font-size:13px;font-weight:600;color:var(--gold-mid)"></span>
+      <button type="button" class="filter-btn" onclick="clearSelections()">Clear</button>
+      <span style="flex:1"></span>
+      <button type="button" class="filter-btn" id="mergeSelectedBtnAdmin" onclick="openMergeSelectedModal()" style="background:rgba(133,77,14,0.10);color:#854d0e;border:1px solid rgba(133,77,14,0.40)">Merge Selected (pick 2)</button>
+      <button type="button" class="filter-btn" id="deleteSelectedBtnAdmin" onclick="confirmDeleteSelected()" style="background:rgba(124,31,31,0.10);color:var(--danger);border:1px solid rgba(124,31,31,0.40)">Delete Selected</button>
     </div>
     <div class="alpha-jump" id="adminAlphaJump" style="display:none"></div>
     <div class="summary-bar" id="adminSummaryBar"></div>
@@ -704,13 +718,16 @@ function _selectedCount() { var n = 0; for (var k in _selected) if (_selected[k]
 
 function toggleSelectMode() {
   _selectMode = !_selectMode;
-  var btn = document.getElementById('selectModeBtn');
-  if (btn) {
+  // Deploy 236.231 — both personal + admin toolbars now have their
+  // own Select Multiple button. Keep both in sync.
+  ['selectModeBtn', 'selectModeBtnAdmin'].forEach(function(btnId) {
+    var btn = document.getElementById(btnId);
+    if (!btn) return;
     btn.textContent = _selectMode ? 'Done' : 'Select Multiple';
     btn.style.background = _selectMode ? 'var(--dark)' : '';
-    btn.style.color = _selectMode ? '#fff' : '';
+    btn.style.color      = _selectMode ? '#fff'        : '';
     btn.style.borderColor = _selectMode ? 'var(--dark)' : '';
-  }
+  });
   if (!_selectMode) _selected = {};
   refreshSelectionBar();
   // Re-render both views so checkbox visibility updates in place.
@@ -733,26 +750,28 @@ function clearSelections() {
 }
 
 function refreshSelectionBar() {
-  var bar = document.getElementById('selectActionBar');
-  var lbl = document.getElementById('selectCount');
-  var mergeBtn = document.getElementById('mergeSelectedBtn');
-  var delBtn   = document.getElementById('deleteSelectedBtn');
-  if (!bar || !lbl) return;
   var n = _selectedCount();
   var visible = _selectMode && n > 0;
-  bar.style.display = visible ? 'flex' : 'none';
-  if (!visible) return;
-  lbl.textContent = n + ' selected';
-  if (mergeBtn) {
-    mergeBtn.disabled = n !== 2;
-    mergeBtn.style.opacity = n === 2 ? '1' : '0.4';
-    mergeBtn.style.cursor  = n === 2 ? 'pointer' : 'not-allowed';
-    mergeBtn.title = n === 2 ? 'Merge these 2 clients' : 'Select exactly 2 clients to merge';
-  }
-  if (delBtn) {
-    delBtn.disabled = n < 1;
-    delBtn.style.opacity = n >= 1 ? '1' : '0.4';
-  }
+  // Deploy 236.231 — mirror the state across personal + admin bars.
+  ['', 'Admin'].forEach(function(suffix) {
+    var bar = document.getElementById('selectActionBar' + suffix);
+    var lbl = document.getElementById('selectCount'     + suffix);
+    var mergeBtn = document.getElementById('mergeSelectedBtn' + suffix);
+    var delBtn   = document.getElementById('deleteSelectedBtn' + suffix);
+    if (bar) bar.style.display = visible ? 'flex' : 'none';
+    if (!visible) return;
+    if (lbl) lbl.textContent = n + ' selected';
+    if (mergeBtn) {
+      mergeBtn.disabled = n !== 2;
+      mergeBtn.style.opacity = n === 2 ? '1' : '0.4';
+      mergeBtn.style.cursor  = n === 2 ? 'pointer' : 'not-allowed';
+      mergeBtn.title = n === 2 ? 'Merge these 2 clients' : 'Select exactly 2 clients to merge';
+    }
+    if (delBtn) {
+      delBtn.disabled = n < 1;
+      delBtn.style.opacity = n >= 1 ? '1' : '0.4';
+    }
+  });
 }
 
 function _selectedClientIds() {
