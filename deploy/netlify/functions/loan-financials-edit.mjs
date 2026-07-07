@@ -38,6 +38,8 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.222 Phase 5 — keep the QuoteStore in sync with the loan.
+import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
 
 // Whitelist of fields the inline editor can patch + how to coerce them.
 // Values not on the list are silently dropped.
@@ -241,7 +243,18 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(clientKey, client); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
 
-  return json(200, { ok: true, loan, applied });
+  // Deploy 236.222 Phase 5 — mirror the loan's editable fields onto
+  // any QuoteStore entries. Non-fatal on failure — a stale quote is
+  // a UX gripe, not a data-integrity issue.
+  let quotesSynced = 0;
+  try {
+    const sync = await syncLoanToQuoteStore(ownerKey, loan);
+    quotesSynced = sync.updated || 0;
+  } catch (e) {
+    console.warn('loan-financials-edit: quote sync failed (non-fatal):', e && e.message);
+  }
+
+  return json(200, { ok: true, loan, applied, quotesSynced });
 }
 
 function _fmtFromTo(c) {

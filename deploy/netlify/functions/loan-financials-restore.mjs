@@ -18,6 +18,8 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.222 Phase 5 — mirror the restored loan onto the QuoteStore too.
+import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -112,5 +114,14 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(clientKey, client); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
 
-  return json(200, { ok: true, loan, restored });
+  // Deploy 236.222 Phase 5 — mirror the restored values onto the QuoteStore.
+  let quotesSynced = 0;
+  try {
+    const sync = await syncLoanToQuoteStore(ownerKey, loan);
+    quotesSynced = sync.updated || 0;
+  } catch (e) {
+    console.warn('loan-financials-restore: quote sync failed (non-fatal):', e && e.message);
+  }
+
+  return json(200, { ok: true, loan, restored, quotesSynced });
 }
