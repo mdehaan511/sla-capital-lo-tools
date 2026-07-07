@@ -897,6 +897,13 @@
   status = 200
   force = true
 
+# Deploy 236.226 — Broker Phase C. Tag/untag a client as a broker.
+[[redirects]]
+  from = "/api/client-broker-tag"
+  to = "/.netlify/functions/client-broker-tag"
+  status = 200
+  force = true
+
 # Deploy 236.208 — bulk zip upload for Doc Review. Client extracts
 # zip in-browser, sends filenames here; we return the checklist slug
 # mapping so confident matches skip the confirmation modal.

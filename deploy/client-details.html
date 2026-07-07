@@ -265,6 +265,15 @@ function render() {
   // Send Loan Prequal — emails the borrower a prequal link, CCs the
   // LO, and stamps _prequalLastSentAt so the "Last sent {date}" note
   // below the button (Deploy 236.189) reflects the most recent send.
+  // Deploy 236.226 (Broker Phase C) — Tag / Untag broker button.
+  // Sets or clears _isBroker on the client via /api/client-broker-tag;
+  // Brokers page will pick it up on next load. When set, the client
+  // appears in the Broker Book alongside the existing contact record.
+  var _isBrokerFlag = !!c._isBroker;
+  var _brokerBtnLabel = _isBrokerFlag ? 'Remove Broker Tag' : 'Tag as Broker';
+  var _brokerBtnStyle = _isBrokerFlag
+    ? 'background:rgba(200,129,58,0.10);color:#b5712d;border:1px solid rgba(200,129,58,0.40)'
+    : 'background:var(--surface);color:var(--text);border:1px solid var(--border)';
   html += '<div class="client-actions" style="display:flex;gap:10px;margin-bottom:0.4rem;flex-wrap:wrap;align-items:flex-start">' +
     '<button type="button" class="action-btn primary" onclick="openCreateLoanModal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--gold);color:#fff;border:1px solid var(--gold);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">' +
       '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' +
@@ -277,6 +286,13 @@ function render() {
       '</button>' +
       '<div id="prequalLastSent" style="font-size:11px;color:var(--muted);padding:0 4px;line-height:1.4">' + _prequalLastSentLabel(c) + '</div>' +
     '</div>' +
+    '<button type="button" class="action-btn" id="brokerTagBtn" onclick="toggleBrokerTag()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;' + _brokerBtnStyle + '" title="Toggle whether this contact appears in the Broker Book">' +
+      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4h10M2 7h10M2 10h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      _brokerBtnLabel +
+    '</button>' +
+    (_isBrokerFlag
+      ? '<span style="display:inline-flex;align-items:center;padding:6px 12px;background:rgba(200,129,58,0.10);color:#b5712d;border:1px solid rgba(200,129,58,0.40);border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase">Broker</span>'
+      : '') +
   '</div>' +
   '<div style="height:1rem"></div>';
 
@@ -834,6 +850,31 @@ function _prequalLastSentLabel(c) {
 // Deploy 236.189 — email now CCs the LO who owns the lead, and the
 // backend stamps _prequalLastSentAt on the client record. On success
 // we update the "Last sent" caption in place without a full reload.
+// Deploy 236.226 (Broker Phase C) — flip _isBroker on the client.
+// Optimistic update: label + badge toggle immediately, POST goes to
+// /api/client-broker-tag which re-renders on success or reverts on
+// failure.
+function toggleBrokerTag() {
+  if (!_client) { showToast('Client not loaded'); return; }
+  var willBeBroker = !_client._isBroker;
+  var btn = document.getElementById('brokerTagBtn');
+  if (btn) { btn.disabled = true; btn.textContent = willBeBroker ? 'Tagging…' : 'Removing…'; }
+  var body = { clientId: _client.id, isBroker: willBeBroker };
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+  SLA.api('POST', '/api/client-broker-tag', body).then(function(r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    _client = r.client;
+    if (Array.isArray(_client.loans) === false) _client.loans = _client.loans || [];
+    showToast(willBeBroker
+      ? 'Tagged as Broker — now visible in the Broker Book.'
+      : 'Removed Broker tag.');
+    render();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = willBeBroker ? 'Tag as Broker' : 'Remove Broker Tag'; }
+    showToast('Broker tag failed: ' + (err && err.message || 'unknown'));
+  });
+}
+
 function sendLoanPrequal() {
   if (!_client) { showToast('Client not loaded'); return; }
   if (!_client.email) {
