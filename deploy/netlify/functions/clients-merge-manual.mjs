@@ -204,7 +204,10 @@ async function handle(req, context) {
   //     so pipeline can fall through to address resolution.
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
   const loserLoanIds  = new Set((Array.isArray(loser.loans) ? loser.loans : []).map((l) => l && l.id).filter(Boolean));
-  const winnerLoanIds = new Set(winner.loans.map((l) => l && l.id).filter(Boolean));
+  // winnerLoanIds already exists from the loan-merge loop above and
+  // reflects the final set including any loser loans that were
+  // appended. Reusing it avoids a redeclaration collision that
+  // broke the Netlify function bundler in 236.236 (fixed 236.237).
   let quotesRestamped = 0, quotesLoanIdDropped = 0;
   try {
     const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
