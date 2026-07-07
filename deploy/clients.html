@@ -245,6 +245,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;margin-right:4px;vertical-align:-1px"><path d="M6 1.5v6m0 0L3.5 5M6 7.5L8.5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 9v1.5h8V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         CSV
       </button>
+      <!-- Deploy 236.230 — Select Multiple toggle. When on, a checkbox
+           appears on each client card and the action bar (below) slides
+           in with Merge Selected + Delete Selected. Mirrors the loans.html
+           pattern from Deploy 236.29. -->
+      <button class="filter-btn" id="selectModeBtn" onclick="toggleSelectMode()" style="margin-left:auto">
+        Select Multiple
+      </button>
+    </div>
+    <!-- Selection action bar — shows in select mode with 1+ selected. -->
+    <div id="selectActionBar" style="display:none;background:var(--gold-light);border:1px solid var(--gold-border);border-radius:12px;padding:10px 14px;margin:0 0 1rem 0;align-items:center;gap:14px;flex-wrap:wrap">
+      <span id="selectCount" style="font-size:13px;font-weight:600;color:var(--gold-mid)"></span>
+      <button type="button" class="filter-btn" onclick="clearSelections()">Clear</button>
+      <span style="flex:1"></span>
+      <button type="button" class="filter-btn" id="mergeSelectedBtn" onclick="openMergeSelectedModal()" style="background:rgba(133,77,14,0.10);color:#854d0e;border:1px solid rgba(133,77,14,0.40)">Merge Selected (pick 2)</button>
+      <button type="button" class="filter-btn" id="deleteSelectedBtn" onclick="confirmDeleteSelected()" style="background:rgba(124,31,31,0.10);color:var(--danger);border:1px solid rgba(124,31,31,0.40)">Delete Selected</button>
     </div>
     <div class="alpha-jump" id="alphaJump" style="display:none"></div>
     <div id="clientsList"></div>
@@ -594,8 +609,18 @@ function buildClientCard(c, userEmail, readOnly) {
   var clientUrl = 'client-details.html?clientId='+encodeURIComponent(c.id) + (userEmail ? '&owner='+encodeURIComponent(userEmail) : '');
   var card = document.createElement('div');
   card.className = 'client-card';
+  // Deploy 236.230 — checkbox is rendered only in Select Multiple mode.
+  // Uses a data-selkey attribute keyed to client id + owner so a
+  // subsequent re-render preserves the selection state.
+  var selKey = (userEmail || '') + '|' + c.id;
+  var selCheckedAttr = (_selectMode && _selected[selKey]) ? ' checked' : '';
+  var selDisplay = _selectMode ? '' : 'display:none';
+  var checkboxHtml = '<label class="client-select-cell" style="' + selDisplay + ';padding:0 8px 0 4px;display:inline-flex;align-items:center" onclick="event.stopPropagation()">' +
+    '<input type="checkbox" data-selkey="' + escAttr(selKey) + '"' + selCheckedAttr + ' onchange="toggleRowSelect(this)" />' +
+  '</label>';
   card.innerHTML =
     '<div class="client-header" id="'+cardId+'">' +
+      checkboxHtml +
       '<div class="client-header-left" onclick="toggleCard(\''+loansId+'\',\''+cardId+'\')">'+
         '<div class="client-avatar">'+escH(initials)+'</div>' +
         '<div class="client-info">' +
@@ -666,6 +691,232 @@ function openLoanInSizer(loanJson) {
   var _tt = String(l.toolType || '').toLowerCase();
   var tool = _tt === 'rtl' ? 'rtl-sizer.html' : _tt === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
   window.location.href = tool + '?loadQuote=' + encodeURIComponent(l.address||'');
+}
+
+// ── Deploy 236.230 — Select Multiple + bulk merge / delete ──────
+// Mirrors the loans.html Select Multiple UX (Deploy 236.29).
+// Selection is keyed by "<owner>|<clientId>" so re-renders (search,
+// filter, letter-jump) preserve state, and it works cleanly in both
+// personal-view and admin cross-LO view.
+var _selectMode = false;
+var _selected = {};
+function _selectedCount() { var n = 0; for (var k in _selected) if (_selected[k]) n++; return n; }
+
+function toggleSelectMode() {
+  _selectMode = !_selectMode;
+  var btn = document.getElementById('selectModeBtn');
+  if (btn) {
+    btn.textContent = _selectMode ? 'Done' : 'Select Multiple';
+    btn.style.background = _selectMode ? 'var(--dark)' : '';
+    btn.style.color = _selectMode ? '#fff' : '';
+    btn.style.borderColor = _selectMode ? 'var(--dark)' : '';
+  }
+  if (!_selectMode) _selected = {};
+  refreshSelectionBar();
+  // Re-render both views so checkbox visibility updates in place.
+  renderClients();
+  if (_isAdmin && _view === 'admin' && typeof renderAdminClients === 'function') renderAdminClients();
+}
+
+function toggleRowSelect(cb) {
+  var k = cb.getAttribute('data-selkey');
+  if (!k) return;
+  if (cb.checked) _selected[k] = true;
+  else delete _selected[k];
+  refreshSelectionBar();
+}
+
+function clearSelections() {
+  _selected = {};
+  document.querySelectorAll('.client-select-cell input[type="checkbox"]').forEach(function(cb) { cb.checked = false; });
+  refreshSelectionBar();
+}
+
+function refreshSelectionBar() {
+  var bar = document.getElementById('selectActionBar');
+  var lbl = document.getElementById('selectCount');
+  var mergeBtn = document.getElementById('mergeSelectedBtn');
+  var delBtn   = document.getElementById('deleteSelectedBtn');
+  if (!bar || !lbl) return;
+  var n = _selectedCount();
+  var visible = _selectMode && n > 0;
+  bar.style.display = visible ? 'flex' : 'none';
+  if (!visible) return;
+  lbl.textContent = n + ' selected';
+  if (mergeBtn) {
+    mergeBtn.disabled = n !== 2;
+    mergeBtn.style.opacity = n === 2 ? '1' : '0.4';
+    mergeBtn.style.cursor  = n === 2 ? 'pointer' : 'not-allowed';
+    mergeBtn.title = n === 2 ? 'Merge these 2 clients' : 'Select exactly 2 clients to merge';
+  }
+  if (delBtn) {
+    delBtn.disabled = n < 1;
+    delBtn.style.opacity = n >= 1 ? '1' : '0.4';
+  }
+}
+
+function _selectedClientIds() {
+  var out = [];
+  Object.keys(_selected).forEach(function(k) {
+    if (!_selected[k]) return;
+    var parts = k.split('|');
+    out.push({ owner: parts[0] || '', clientId: parts[1] || '' });
+  });
+  return out;
+}
+function _findClientById(id) {
+  for (var i = 0; i < _clients.length; i++) {
+    if (_clients[i] && _clients[i].id === id) return _clients[i];
+  }
+  return null;
+}
+
+function confirmDeleteSelected() {
+  var sel = _selectedClientIds();
+  if (!sel.length) return;
+  var msg = 'Delete ' + sel.length + ' selected client' + (sel.length === 1 ? '' : 's') +
+    '? This also deletes every loan on those clients and their long-app records. This cannot be undone.';
+  if (!confirm(msg)) return;
+  var btn = document.getElementById('deleteSelectedBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+  // Group by owner in case admin selected across LOs.
+  var byOwner = {};
+  sel.forEach(function(s) {
+    var o = s.owner || _user.email;
+    (byOwner[o] = byOwner[o] || []).push(s.clientId);
+  });
+  var owners = Object.keys(byOwner);
+  var chain = Promise.resolve();
+  var results = [];
+  owners.forEach(function(o) {
+    chain = chain.then(function() {
+      var body = { clientIds: byOwner[o] };
+      if (o && o !== _user.email) body.owner = o;
+      return SLA.api('POST', '/api/clients-bulk-delete', body).then(function(r) {
+        if (r && Array.isArray(r.deleted)) results = results.concat(r.deleted);
+      }).catch(function(err) {
+        byOwner[o].forEach(function(id) { results.push({ clientId: id, ok: false, error: (err && err.message) || 'unknown' }); });
+      });
+    });
+  });
+  chain.then(function() {
+    var okCount = results.filter(function(x) { return x.ok; }).length;
+    var errCount = results.length - okCount;
+    if (btn) { btn.disabled = false; btn.textContent = 'Delete Selected'; }
+    _selected = {};
+    _selectMode = false;
+    var b = document.getElementById('selectModeBtn');
+    if (b) { b.textContent = 'Select Multiple'; b.style.background = ''; b.style.color = ''; b.style.borderColor = ''; }
+    refreshSelectionBar();
+    showToast('Deleted ' + okCount + (errCount ? ' (' + errCount + ' failed)' : ''));
+    loadAll();
+  });
+}
+
+var _mergeWinnerKey = null;
+function openMergeSelectedModal() {
+  var sel = _selectedClientIds();
+  if (sel.length !== 2) { alert('Select exactly 2 clients to merge.'); return; }
+  _mergeWinnerKey = null;
+  var clients = sel.map(function(s) { return { owner: s.owner || _user.email, clientId: s.clientId, client: _findClientById(s.clientId) }; });
+  if (clients.some(function(c) { return !c.client; })) {
+    alert('Could not locate one of the selected clients in the loaded list. Refresh and try again.');
+    return;
+  }
+  var existing = document.getElementById('mergeClientsModal');
+  if (existing) existing.remove();
+  var m = document.createElement('div');
+  m.id = 'mergeClientsModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:24px';
+  m.innerHTML =
+    '<div style="background:#fff;max-width:760px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;border-radius:14px">' +
+      '<div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div>' +
+          '<div style="font-family:\'Lora\',serif;font-size:18px;font-weight:600;color:var(--dark)">Merge Two Clients</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">Pick which client is the winner. The other is deleted; its loans, companies, and any missing profile fields transfer to the winner.</div>' +
+        '</div>' +
+        '<button type="button" onclick="closeMergeClientsModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>' +
+      '</div>' +
+      '<div id="mergeClientsBody" style="padding:18px 22px;overflow:auto;flex:1"><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
+        clients.map(function(cc, i) {
+          var c = cc.client;
+          var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || c.id;
+          var loans = (c.loans || []).length;
+          return '<div id="mergeCard_' + i + '" onclick="pickMergeWinner(' + i + ')" style="border:2px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;background:#fff;transition:all 0.15s">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+              (c._isBroker
+                ? '<span style="background:rgba(200,129,58,0.10);color:#b5712d;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Broker</span>'
+                : '<span style="background:rgba(21,128,61,0.10);color:#166534;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Contact</span>') +
+              '<span id="mergeWinnerBadge_' + i + '" style="display:none;background:#166534;color:#fff;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Winner</span>' +
+            '</div>' +
+            '<div style="font-size:14px;font-weight:600;color:var(--dark);margin-bottom:4px">' + escH(name) + '</div>' +
+            '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">' + escH(c.email || '') + (c.phone ? ' · ' + escH(c.phone) : '') + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);font-family:monospace">Client: ' + escH(c.id) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);font-family:monospace">Owner: ' + escH(cc.owner) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);font-family:monospace">' + loans + ' loan' + (loans === 1 ? '' : 's') + '</div>' +
+          '</div>';
+        }).join('') +
+      '</div></div>' +
+      '<div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" onclick="closeMergeClientsModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>' +
+        '<button type="button" id="mergeClientsCommitBtn" onclick="commitClientMerge()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(133,77,14,0.40);background:rgba(133,77,14,0.10);color:#854d0e;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Merge</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(m);
+  window._mergeClientsSelection = clients;
+}
+function closeMergeClientsModal() {
+  var m = document.getElementById('mergeClientsModal'); if (m) m.remove();
+  window._mergeClientsSelection = null;
+}
+function pickMergeWinner(i) {
+  var clients = window._mergeClientsSelection || [];
+  if (clients.length !== 2) return;
+  _mergeWinnerKey = clients[i].clientId;
+  for (var j = 0; j < 2; j++) {
+    var card = document.getElementById('mergeCard_' + j);
+    var badge = document.getElementById('mergeWinnerBadge_' + j);
+    if (!card) continue;
+    if (j === i) {
+      card.style.borderColor = '#166534';
+      card.style.background  = 'rgba(21,128,61,0.06)';
+      if (badge) badge.style.display = '';
+    } else {
+      card.style.borderColor = 'var(--border)';
+      card.style.background  = '#fff';
+      if (badge) badge.style.display = 'none';
+    }
+  }
+  document.getElementById('mergeClientsCommitBtn').disabled = false;
+}
+function commitClientMerge() {
+  var clients = window._mergeClientsSelection || [];
+  if (clients.length !== 2 || !_mergeWinnerKey) return;
+  var winner = clients[0].clientId === _mergeWinnerKey ? clients[0] : clients[1];
+  var loser  = clients[0].clientId === _mergeWinnerKey ? clients[1] : clients[0];
+  if (winner.owner !== loser.owner) {
+    alert('Cross-owner merges aren\'t supported yet. Reassign one client first, then merge.');
+    return;
+  }
+  if (!confirm('Merge these two? Loser ' + loser.clientId + ' will be deleted and its data folded into ' + winner.clientId + '. This cannot be undone.')) return;
+  var btn = document.getElementById('mergeClientsCommitBtn');
+  btn.disabled = true; btn.textContent = 'Merging…';
+  var body = { winnerClientId: winner.clientId, loserClientId: loser.clientId };
+  if (winner.owner && winner.owner !== _user.email) body.owner = winner.owner;
+  SLA.api('POST', '/api/clients-merge-manual', body).then(function(r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    closeMergeClientsModal();
+    _selected = {};
+    _selectMode = false;
+    var b = document.getElementById('selectModeBtn');
+    if (b) { b.textContent = 'Select Multiple'; b.style.background = ''; b.style.color = ''; b.style.borderColor = ''; }
+    refreshSelectionBar();
+    showToast('Merged — ' + r.loansAdded + ' loan(s) + ' + r.companiesAdded + ' compan(ies) moved.');
+    loadAll();
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Merge';
+    alert('Merge failed: ' + (err && err.message || 'unknown'));
+  });
 }
 
 function toggleCard(loansId, headerId) {

@@ -912,6 +912,18 @@
   status = 200
   force = true
 
+# Deploy 236.230 — bulk delete + merge for the Clients page.
+[[redirects]]
+  from = "/api/clients-bulk-delete"
+  to = "/.netlify/functions/clients-bulk-delete"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/clients-merge-manual"
+  to = "/.netlify/functions/clients-merge-manual"
+  status = 200
+  force = true
+
 # Deploy 236.208 — bulk zip upload for Doc Review. Client extracts
 # zip in-browser, sends filenames here; we return the checklist slug
 # mapping so confident matches skip the confirmation modal.
