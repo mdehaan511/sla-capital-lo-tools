@@ -3910,22 +3910,22 @@ netlifyIdentity.on('init', function(user) {
               loanFd_rateOverride: (found.formData || {})._rateOverride,
               loanFd_pointsOverride: (found.formData || {})._pointsOverride });
           if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
-          if (!fd.borrowerName && clientRec) {
-            fd = Object.assign({}, fd, {
-              borrowerName: ((clientRec.firstName||'') + ' ' + (clientRec.lastName||'')).trim(),
-            });
-          }
-          // Always pull borrower email from the client record if we have one
-          // (the quote's formData might have been saved without the email).
-          if (!fd.borrowerEmail && clientRec && clientRec.email) {
-            fd = Object.assign({}, fd, { borrowerEmail: clientRec.email });
-          }
-          // Same for phone — older saved quotes won't have borrowerPhone in
-          // their formData; fall back to the client profile so returning
-          // LOs see the phone they previously entered (or that was filled
-          // in elsewhere, like the borrower-info form).
-          if (!fd.borrowerPhone && clientRec && clientRec.phone) {
-            fd = Object.assign({}, fd, { borrowerPhone: clientRec.phone });
+          // Deploy 236.223 — ALWAYS overwrite borrower contact fields
+          // from the live client record. Previous gap-fill semantics
+          // meant that a client rename on Client Details never made
+          // it into the sizer because the saved loan.formData still
+          // had the old name (Object.assign kept the stale value).
+          // Same treatment for email + phone. Matches the 228.1
+          // pattern already in applyLockedOverrideIfAnyDSCR — the
+          // client record is the single source of truth for these.
+          if (clientRec) {
+            var _freshName  = ((clientRec.firstName || '') + ' ' + (clientRec.lastName || '')).trim();
+            var _freshEmail = (clientRec.email || '').toLowerCase();
+            var _freshPhone = clientRec.phone || '';
+            fd = Object.assign({}, fd);
+            if (_freshName)  { fd.borrower      = _freshName; fd.borrowerName = _freshName; }
+            if (_freshEmail) fd.borrowerEmail = _freshEmail;
+            if (_freshPhone) fd.borrowerPhone = _freshPhone;
           }
           // Deploy 236.18 — explicit broker-field hydration + 1pt fee
           // default for fresh broker apps. Same rationale as RTL sizer:

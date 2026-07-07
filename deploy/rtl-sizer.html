@@ -3717,16 +3717,20 @@ netlifyIdentity.on('init', function(user) {
             loanFd_rateOverride: (found.formData || {})._rateOverride,
             loanFd_pointsOverride: (found.formData || {})._pointsOverride });
         if (!fd.address && found.address) fd = Object.assign({}, fd, { address: found.address });
-        if (!fd.borrowerName && clientRec) {
-          fd = Object.assign({}, fd, {
-            borrowerName: ((clientRec.firstName||'') + ' ' + (clientRec.lastName||'')).trim(),
-            borrowerEmail: clientRec.email || '',
-          });
-        }
-        // Fall back to client phone if the saved quote doesn't have one.
-        // Older quotes (pre-borrowerPhone-field) won't carry it.
-        if (!fd.borrowerPhone && clientRec && clientRec.phone) {
-          fd = Object.assign({}, fd, { borrowerPhone: clientRec.phone });
+        // Deploy 236.223 — ALWAYS overwrite borrower contact fields
+        // from the live client record. Client record is the source of
+        // truth for name/email/phone; a rename on Client Details or
+        // Loan Details' contact card must show up in the sizer.
+        // Matches the DSCR fix + the 228.1 pattern already in
+        // applyLockedOverrideIfAny for the loadFromQuote path.
+        if (clientRec) {
+          var _freshName  = ((clientRec.firstName || '') + ' ' + (clientRec.lastName || '')).trim();
+          var _freshEmail = (clientRec.email || '').toLowerCase();
+          var _freshPhone = clientRec.phone || '';
+          fd = Object.assign({}, fd);
+          if (_freshName)  { fd.borrower      = _freshName; fd.borrowerName = _freshName; }
+          if (_freshEmail) fd.borrowerEmail = _freshEmail;
+          if (_freshPhone) fd.borrowerPhone = _freshPhone;
         }
         // If address is one combined string but no street/city/state fields,
         // try to parse them so the form fields populate correctly. Otherwise
