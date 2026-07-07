@@ -793,8 +793,32 @@ function _findClientById(id) {
 function confirmDeleteSelected() {
   var sel = _selectedClientIds();
   if (!sel.length) return;
-  var msg = 'Delete ' + sel.length + ' selected client' + (sel.length === 1 ? '' : 's') +
-    '? This also deletes every loan on those clients and their long-app records. This cannot be undone.';
+  // Deploy 236.234 — spell out exactly what dies. The 236.230 delete
+  // path takes out the WHOLE CLIENT (every loan on it), and the LO's
+  // "select two dupe LOANS to delete" mental model can wipe an
+  // innocent 3rd loan attached to the same client. Show the exact
+  // loan tally + list of loan addresses so the impact is unambiguous.
+  var loanTally = 0;
+  var loanLines = [];
+  sel.forEach(function(s) {
+    var c = _findClientById(s.clientId);
+    if (!c) return;
+    var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '(unnamed)';
+    var loans = Array.isArray(c.loans) ? c.loans : [];
+    loanTally += loans.length;
+    loans.forEach(function(l) {
+      loanLines.push('   · ' + (l.address || '(no address)') + '  [' + (l.status || '?') + ']');
+    });
+    loanLines.push(' — ' + name + '  (' + loans.length + ' loan' + (loans.length === 1 ? '' : 's') + ')');
+  });
+  var msg = 'DELETE ' + sel.length + ' client' + (sel.length === 1 ? '' : 's') +
+    ' AND ' + loanTally + ' loan' + (loanTally === 1 ? '' : 's') + '.\n\n' +
+    'This deletes the entire client record — every loan attached to each ' +
+    'selected client is destroyed along with them, plus their long-app + ' +
+    'signed application records. Saved sizer quotes for these loans are ' +
+    'also swept.\n\n' +
+    'Loans that will be deleted:\n' + loanLines.join('\n') + '\n\n' +
+    'This CANNOT be undone. Continue?';
   if (!confirm(msg)) return;
   var btn = document.getElementById('deleteSelectedBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }

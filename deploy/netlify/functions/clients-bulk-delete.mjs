@@ -6,12 +6,22 @@
  *
  * Each client under the owner is deleted, plus its associated
  * borrower_info + signed_applications entries. Loans in the client
- * record die with it (they're nested inside the client). Quotes /
- * loan_reviews / loan_access grants tied by loanId are left in place
- * — they'd be orphaned but harmless, and cleaning them up would slow
- * a bulk delete considerably. A future sweep endpoint can prune them.
+ * record die with it (they're nested inside the client).
  *
- * Response: { ok, deleted: [{clientId, ok, error?}, ...] }
+ * Deploy 236.234 — also sweeps the `quotes` store for any saved
+ * quote whose stamped loanId matches a loan on a deleted client
+ * OR whose street address matches a deleted loan's street. Without
+ * this sweep, deleting a client left PHANTOM cards in the Pipeline
+ * (the pipeline reads BOTH clients + quotes; a client-delete didn't
+ * touch quotes). Prod incident: Randy Dargan / 335 Trevor St dupe
+ * cleanup on 2026-07-07 left the wrong loan's quote as a phantom.
+ *
+ * loan_reviews / loan_access grants tied by loanId are still left
+ * in place — they'd be orphaned but harmless, and cleaning them up
+ * would slow a bulk delete considerably. A future sweep endpoint
+ * can prune them.
+ *
+ * Response: { ok, deleted: [{clientId, ok, quotesSwept, error?}, ...] }
  * Auth: LO owns the clients (or admin owner-override).
  */
 import { getStore } from '@netlify/blobs';
@@ -19,6 +29,13 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+
+function _normAddr(s) {
+  return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+function _streetPart(s) {
+  return _normAddr(s).split(',')[0].trim();
+}
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -50,6 +67,20 @@ async function handle(req, context) {
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const biStore      = getStore({ name: 'borrower_info', consistency: 'strong' });
   const appStore     = getStore({ name: 'signed_applications', consistency: 'strong' });
+  const quotesStore  = getStore({ name: 'quotes', consistency: 'strong' });
+
+  // Deploy 236.234 — pre-load every saved quote for this owner so
+  // we can sweep them per client without re-listing on each iteration.
+  // Quote keys are ownerKey/quoteId; store owner is inferred from the
+  // key prefix.
+  const ownerQuotes = []; // [{ key, quote }]
+  try {
+    const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
+    for (const { key } of blobs) {
+      const q = await quotesStore.get(key, { type: 'json' }).catch(() => null);
+      if (q) ownerQuotes.push({ key, quote: q });
+    }
+  } catch (_) { /* non-fatal — quote sweep is best-effort */ }
 
   const deleted = [];
   for (const id of ids) {
@@ -58,17 +89,53 @@ async function handle(req, context) {
     try {
       const client = await clientsStore.get(key, { type: 'json' }).catch(() => null);
       if (!client) { deleted.push({ clientId: cid, ok: false, error: 'not_found' }); continue; }
-      // Clean up per-loan borrower_info + signed_applications entries.
+
+      // Collect (loanId, streetKey) tuples for every loan on this
+      // client so the quote sweep can match by either.
+      const loanIds  = new Set();
+      const streets  = new Set();
       if (Array.isArray(client.loans)) {
         for (const l of client.loans) {
-          if (!l || !l.id) continue;
-          try { await biStore.delete(ownerKey + '/' + keySafe(cid) + '/' + keySafe(l.id)); } catch (_) {}
-          try { await biStore.delete(ownerKey + '/' + keySafe(cid)); } catch (_) {}
-          try { await appStore.delete(ownerKey + '/' + keySafe(cid) + '/' + keySafe(l.id)); } catch (_) {}
+          if (!l) continue;
+          if (l.id) loanIds.add(l.id);
+          const st = _streetPart(l.address);
+          if (st) streets.add(st);
+          // Clean up per-loan borrower_info + signed_applications.
+          if (l.id) {
+            try { await biStore.delete(ownerKey + '/' + keySafe(cid) + '/' + keySafe(l.id)); } catch (_) {}
+            try { await biStore.delete(ownerKey + '/' + keySafe(cid)); } catch (_) {}
+            try { await appStore.delete(ownerKey + '/' + keySafe(cid) + '/' + keySafe(l.id)); } catch (_) {}
+          }
         }
       }
+
+      // Sweep quotes matching any of this client's loans. Prefer loanId
+      // (stamped on quotes saved after Deploy 236.7) over address match
+      // to avoid nuking a legit unrelated quote at the same street.
+      let quotesSwept = 0;
+      for (const oq of ownerQuotes) {
+        const q = oq.quote || {};
+        const qLoanId = q.loanId || (q.formData && q.formData._editingLoanId);
+        const qClientId = q.clientId || (q.formData && q.formData._editingClientId);
+        const matchByLoanId   = qLoanId && loanIds.has(qLoanId);
+        const matchByClientId = qClientId && qClientId === cid;
+        const qStreet = _streetPart(q.address);
+        // Address-only match ONLY when there's no loanId stamped on the
+        // quote — that's the legacy case; a quote with a loanId that
+        // doesn't match one of this client's loans is left alone.
+        const matchByAddr = !qLoanId && qStreet && streets.has(qStreet);
+        if (matchByLoanId || matchByClientId || matchByAddr) {
+          try { await quotesStore.delete(oq.key); quotesSwept++; } catch (_) {}
+        }
+      }
+
       await clientsStore.delete(key);
-      deleted.push({ clientId: cid, ok: true, loanCount: (client.loans || []).length });
+      deleted.push({
+        clientId: cid,
+        ok: true,
+        loanCount: (client.loans || []).length,
+        quotesSwept,
+      });
     } catch (e) {
       deleted.push({ clientId: cid, ok: false, error: (e && e.message) || 'unknown' });
     }
