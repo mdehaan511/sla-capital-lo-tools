@@ -10,7 +10,16 @@
  *   {
  *     winner: { ownerKey, clientId, loanId },
  *     loser:  { ownerKey, clientId, loanId },
+ *     winnerOverrides?: { <fieldName>: <value>, ... },
  *   }
+ *
+ * winnerOverrides (Deploy 236.233) — client-picked field values that
+ * override the automatic gap-fill. Applied AFTER gap-fill, so the
+ * caller's choices always win — including forcing an empty string
+ * ("") to clear a field intentionally. NEVER_TOUCH_ON_WINNER fields
+ * (id, createdAt, slaDisplayId) are still protected. Used by the
+ * loan-details.html two-stage merge picker where the LO explicitly
+ * chose per-field values from either side.
  *
  * Behavior:
  *   - Winner is authoritative on every non-empty field.
@@ -122,6 +131,23 @@ async function handle(req, context) {
       filledFields.push(k);
     }
   }
+  // Deploy 236.233 — apply client-picked field overrides. Runs AFTER
+  // gap-fill so the caller's choices always win. Includes the ability
+  // to force an empty string to clear a field intentionally.
+  const overriddenPickFields = [];
+  const rawOverrides = body.winnerOverrides;
+  if (rawOverrides && typeof rawOverrides === 'object' && !Array.isArray(rawOverrides)) {
+    for (const k of Object.keys(rawOverrides)) {
+      if (NEVER_TOUCH_ON_WINNER.indexOf(k) >= 0) continue;
+      if (BASELINE_FIELDS.indexOf(k) >= 0) continue; // Baseline still authoritative
+      const v = rawOverrides[k];
+      // Skip undefined but allow '' and null (client explicitly clearing).
+      if (v === undefined) continue;
+      if (winnerLoan[k] !== v) overriddenPickFields.push(k);
+      winnerLoan[k] = v;
+    }
+  }
+
   winnerLoan.updatedAt = now;
   winnerLoan._mergedFromLoanId    = loserLoan.id;
   winnerLoan._mergedFromClientId  = loserClient.id;
@@ -150,7 +176,8 @@ async function handle(req, context) {
       kind: 'status',
       text: 'Merged with loan ' + (loserLoan.id) + ' from client ' + (loserClient.id) + ' (owner ' + l.ownerKey + '). ' +
         filledFields.length + ' winner field' + (filledFields.length === 1 ? '' : 's') + ' gap-filled; ' +
-        overriddenBaselineFields.length + ' Baseline field' + (overriddenBaselineFields.length === 1 ? '' : 's') + ' pulled.',
+        overriddenBaselineFields.length + ' Baseline field' + (overriddenBaselineFields.length === 1 ? '' : 's') + ' pulled' +
+        (overriddenPickFields.length ? '; ' + overriddenPickFields.length + ' field' + (overriddenPickFields.length === 1 ? '' : 's') + ' picked manually (' + overriddenPickFields.join(', ') + ')' : '') + '.',
       author,
       authorEmail: user.email || '',
       meta: {
@@ -160,6 +187,7 @@ async function handle(req, context) {
         fromOwnerKey:  l.ownerKey,
         filledFields,
         overriddenBaselineFields,
+        overriddenPickFields,
       },
     });
   }
@@ -216,6 +244,7 @@ async function handle(req, context) {
     ok: true,
     winner: { ownerKey: w.ownerKey, clientId: w.clientId, loanId: winnerLoan.id },
     filledFields, overriddenBaselineFields, filledClientFields,
+    overriddenPickFields,
     loserClientDeleted: deleteLoserClient,
     linkWritten,
     externalId: extId ? String(extId).trim() : '',

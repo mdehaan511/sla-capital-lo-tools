@@ -656,28 +656,50 @@
   </div>
 </div>
 
-<!-- Deploy 236.232 — merge-loan modal. Admin picks another loan at
-     the same street address and this loan becomes the winner. Backend
-     is /api/loans-merge-manual (Deploy 236.187). -->
-<div class="bi-modal-bg" id="mergeLoanModal">
-  <div class="bi-modal" style="max-width:680px">
-    <h3>Merge Another Loan Into This One</h3>
-    <p class="bi-sub">Pick the <strong>loser</strong> — the loan that will be absorbed. This loan (the one you're viewing) is the <strong>winner</strong> and keeps every non-empty field. The loser fills gaps and is removed from its client. This cannot be undone.</p>
+<!-- Deploy 236.232 / 236.233 — merge-loan modal.
 
-    <div style="margin:14px 0;padding:10px 12px;background:#faf8f3;border-radius:6px;font-size:12px;color:var(--dark)">
-      <div><strong>Winner (this loan):</strong> <span id="mergeWinnerLine"></span></div>
+     Two stages:
+       stage=pick     — list of same-street candidates, pick loser
+       stage=review   — side-by-side field diff, radios per differing
+                        field, swap winner/loser button, confirm.
+
+     Backend is /api/loans-merge-manual. Deploy 236.233 added
+     winnerOverrides to the request body so the LO's per-field
+     picks take precedence over automatic gap-fill. -->
+<div class="bi-modal-bg" id="mergeLoanModal">
+  <div class="bi-modal" style="max-width:860px">
+    <h3 id="mergeLoanHeading">Merge Another Loan Into This One</h3>
+    <p class="bi-sub" id="mergeLoanSub">Pick which loan to merge in. On the next step you'll review every field side-by-side and choose which value survives.</p>
+
+    <!-- STAGE 1 — pick loser candidate. -->
+    <div id="mergeStagePick">
+      <div style="margin:14px 0;padding:10px 12px;background:#faf8f3;border-radius:6px;font-size:12px;color:var(--dark)">
+        <div><strong>Currently viewing:</strong> <span id="mergeWinnerLine"></span></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Merge candidates (same street address)</div>
+      <div id="mergeLoserList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border, #E4DFD4);border-radius:6px;background:#fff">
+        <div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading candidates…</div>
+      </div>
     </div>
 
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Merge candidates (same street address)</div>
-    <div id="mergeLoserList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border, #E4DFD4);border-radius:6px;background:#fff">
-      <div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading candidates…</div>
+    <!-- STAGE 2 — side-by-side field diff. -->
+    <div id="mergeStageReview" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin:8px 0 14px 0">
+        <div id="mergeWinnerCard" style="padding:10px 12px;background:rgba(21,128,61,0.06);border:2px solid #166534;border-radius:8px;font-size:12px"></div>
+        <button type="button" class="bi-btn" onclick="swapMergeSides()" title="Swap which loan is the winner" style="padding:8px 10px;font-size:11px;background:#fff;border:1.5px solid var(--border, #E4DFD4);color:var(--dark);white-space:nowrap">Swap ↔</button>
+        <div id="mergeLoserCard"  style="padding:10px 12px;background:rgba(124,31,31,0.06);border:2px solid #7C1F1F;border-radius:8px;font-size:12px"></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Pick a value for each field</div>
+      <div id="mergeFieldDiff" style="max-height:360px;overflow-y:auto;border:1px solid var(--border, #E4DFD4);border-radius:6px;background:#fff;padding:6px 10px"></div>
+      <div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:8px">Green = Winner (kept). Red = Loser (removed from its client after merge).</div>
     </div>
 
     <div class="bi-status" id="mergeLoanStatus"></div>
 
     <div class="bi-actions">
       <button class="bi-btn cancel" onclick="closeMergeLoanModal()">Cancel</button>
-      <button class="bi-btn primary" id="mergeLoanConfirmBtn" onclick="confirmMergeLoan()" disabled>Merge selected</button>
+      <button class="bi-btn" id="mergeBackBtn" onclick="mergeBackToPick()" style="display:none;background:#fff;border:1.5px solid var(--border, #E4DFD4);color:var(--dark)">← Back</button>
+      <button class="bi-btn primary" id="mergeLoanConfirmBtn" onclick="confirmMergeLoan()" disabled>Next: Review fields</button>
     </div>
   </div>
 </div>
@@ -5765,13 +5787,25 @@ function closeReassignLoanModal() {
   btn.textContent = 'Reassign loan';
 }
 
-// ── Deploy 236.232: Merge Loan (admin) ─────────────────────────
-// Opens a picker that lists every OTHER loan whose address's first
-// street segment matches this loan's, across every client + owner.
-// Admin selects a loser; POST to /api/loans-merge-manual folds it
-// into this loan (winner) and deletes the loser from its client.
-var _mergeLoanCandidates = [];
-var _mergeLoanSelectedKey = null;
+// ── Deploy 236.232/233: Merge Loan (admin, two-stage) ─────────
+// STAGE 1 (pick): list every OTHER loan at the same street across
+// owners; admin picks one as loser.
+// STAGE 2 (review): side-by-side field diff. Admin picks winner
+// value per differing field, can swap winner/loser roles. Confirm
+// sends winnerOverrides to /api/loans-merge-manual (Deploy 236.233).
+//
+// Two "sides" throughout — sideA and sideB, each holding a
+// {ownerKey, clientId, loanId, loan (full record), client (full)}.
+// _mergeWinnerSide = 'A' | 'B' tells which is currently the winner.
+// Starts with sideA = this loan, sideB = picked candidate,
+// _mergeWinnerSide = 'A'. Swap flips the assignment.
+var _mergeLoanCandidates = [];        // stage-1 pick pool
+var _mergeLoanSelectedKey = null;     // ownerKey|clientId|loanId
+var _mergeClientPool = null;          // full pool cached across stages
+var _mergeSideA = null;               // { ownerKey, clientId, loanId, loan, client }
+var _mergeSideB = null;
+var _mergeWinnerSide = 'A';           // 'A' or 'B'
+var _mergePicks = {};                 // { fieldName: 'A' | 'B' } — which side's value goes on winner
 
 function _mergeStreetKey(addr) {
   return String(addr || '').toLowerCase().trim().replace(/\s+/g, ' ').split(',')[0].trim();
@@ -5780,13 +5814,24 @@ function _mergeStreetKey(addr) {
 function openMergeLoanModal() {
   if (!_client || !_loan) { showToast('Loan not loaded'); return; }
   _mergeLoanSelectedKey = null;
+  _mergeClientPool = null;
+  _mergeSideA = null;
+  _mergeSideB = null;
+  _mergeWinnerSide = 'A';
+  _mergePicks = {};
+
+  // Reset to stage 1.
+  document.getElementById('mergeStagePick').style.display = '';
+  document.getElementById('mergeStageReview').style.display = 'none';
+  document.getElementById('mergeBackBtn').style.display = 'none';
   var btn = document.getElementById('mergeLoanConfirmBtn');
   btn.disabled = true;
-  btn.textContent = 'Merge selected';
+  btn.textContent = 'Next: Review fields';
+  document.getElementById('mergeLoanHeading').textContent = 'Merge Another Loan Into This One';
+  document.getElementById('mergeLoanSub').textContent = "Pick which loan to merge in. On the next step you'll review every field side-by-side and choose which value survives.";
   document.getElementById('mergeLoanStatus').className = 'bi-status';
   document.getElementById('mergeLoanStatus').textContent = '';
 
-  // Populate winner line.
   var name = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim() || _client.email || '';
   var winnerLine = (_loan.address || '') + ' — ' + name + ' — ' + (_loan.id || '');
   document.getElementById('mergeWinnerLine').textContent = winnerLine;
@@ -5795,7 +5840,6 @@ function openMergeLoanModal() {
   document.getElementById('mergeLoserList').innerHTML =
     '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading candidates…</div>';
 
-  // Load pool. Admin always fetches all=true (endpoint is admin-only).
   var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
   p.then(function(r) {
     var pool = [];
@@ -5809,6 +5853,7 @@ function openMergeLoanModal() {
       var myKey = (_user && _user.email || '').toLowerCase();
       (r.clients || []).forEach(function(c) { pool.push({ ownerKey: myKey, client: c }); });
     }
+    _mergeClientPool = pool;
 
     var thisStreet = _mergeStreetKey(_loan.address);
     var thisLoanId = _loan.id;
@@ -5883,16 +5928,230 @@ function closeMergeLoanModal() {
   document.getElementById('mergeLoanModal').classList.remove('show');
 }
 
+// Called when the primary button is clicked. On stage 1 it advances
+// to stage 2 (review); on stage 2 it commits the merge.
 function confirmMergeLoan() {
+  var reviewPane = document.getElementById('mergeStageReview');
+  if (reviewPane.style.display === 'none') {
+    _enterMergeReviewStage();
+  } else {
+    _commitMergeReview();
+  }
+}
+
+// ── Stage transitions ──────────────────────────────────────────
+function _enterMergeReviewStage() {
   if (!_mergeLoanSelectedKey || !_loan || !_client) return;
   var parts = _mergeLoanSelectedKey.split('|');
   if (parts.length !== 3) return;
   var loserOwner = parts[0], loserClientId = parts[1], loserLoanId = parts[2];
-  var loser = _mergeLoanCandidates.find(function(c) {
-    return c.ownerKey === loserOwner && c.clientId === loserClientId && c.loanId === loserLoanId;
+
+  // Locate the picked candidate's FULL client + loan record from the
+  // cached pool so we can diff every field, not just the summary.
+  var pickedClient = null, pickedLoan = null;
+  (_mergeClientPool || []).forEach(function(row) {
+    if (pickedLoan) return;
+    if (row.ownerKey !== loserOwner) return;
+    if (!row.client || row.client.id !== loserClientId) return;
+    var l = (row.client.loans || []).find(function(x) { return x && x.id === loserLoanId; });
+    if (l) { pickedClient = row.client; pickedLoan = l; }
   });
-  if (!loser) return;
-  if (!confirm('Merge loan "' + (loser.address || loser.loanId) + '" (LO: ' + loser.ownerKey + ') INTO this loan? The loser record is removed from its client. This cannot be undone.')) return;
+  if (!pickedLoan) { showToast('Picked loan not found — try reopening the merge modal.'); return; }
+
+  // Side A = this loan (default winner). Side B = picked candidate.
+  _mergeSideA = {
+    ownerKey: (_loEmail || (_user && _user.email) || '').toLowerCase(),
+    clientId: _client.id, loanId: _loan.id,
+    loan: _loan, client: _client,
+  };
+  _mergeSideB = {
+    ownerKey: loserOwner,
+    clientId: loserClientId, loanId: loserLoanId,
+    loan: pickedLoan, client: pickedClient,
+  };
+  _mergeWinnerSide = 'A';
+  _mergePicks = {}; // reset — will default to winner's value
+
+  document.getElementById('mergeStagePick').style.display = 'none';
+  document.getElementById('mergeStageReview').style.display = '';
+  document.getElementById('mergeBackBtn').style.display = '';
+  document.getElementById('mergeLoanHeading').textContent = 'Review Merge — Pick Values Per Field';
+  document.getElementById('mergeLoanSub').textContent = 'For each row, pick which side\'s value survives on the merged loan. The Winner is kept; the Loser is removed. Use "Swap" to flip roles.';
+  var btn = document.getElementById('mergeLoanConfirmBtn');
+  btn.disabled = false;
+  btn.textContent = 'Commit Merge';
+
+  _renderMergeReview();
+}
+
+function mergeBackToPick() {
+  document.getElementById('mergeStagePick').style.display = '';
+  document.getElementById('mergeStageReview').style.display = 'none';
+  document.getElementById('mergeBackBtn').style.display = 'none';
+  document.getElementById('mergeLoanHeading').textContent = 'Merge Another Loan Into This One';
+  document.getElementById('mergeLoanSub').textContent = "Pick which loan to merge in. On the next step you'll review every field side-by-side and choose which value survives.";
+  var btn = document.getElementById('mergeLoanConfirmBtn');
+  btn.disabled = !_mergeLoanSelectedKey;
+  btn.textContent = 'Next: Review fields';
+}
+
+function swapMergeSides() {
+  _mergeWinnerSide = (_mergeWinnerSide === 'A') ? 'B' : 'A';
+  // Flip every pick so a "keep A" stays "keep A" (value-preserving swap).
+  // Actually no — user wants to re-decide. Reset picks on swap so
+  // defaults align with the new winner.
+  _mergePicks = {};
+  _renderMergeReview();
+}
+
+// ── Stage 2 rendering ──────────────────────────────────────────
+// The fields we show side-by-side. Order matters — most-important
+// first. If both sides are empty on a field, it's hidden.
+var _MERGE_LOAN_FIELDS = [
+  'address', 'loanAmt', 'purchasePrice', 'status', 'propType', 'propTypeLabel',
+  'toolType', 'fico', 'notes', 'bedrooms', 'bathrooms', 'sqft',
+  'projectDescription', 'fundingDate', 'brokerName', 'brokerCompany',
+  'lockDate', 'rate', 'points', 'ltv', 'dscr', 'occupancy',
+];
+var _MERGE_CLIENT_FIELDS = [
+  'firstName', 'lastName', 'email', 'phone', 'entityName', 'displayName',
+];
+
+function _mergeGetField(side, field, kind) {
+  if (!side) return '';
+  var src = kind === 'client' ? side.client : side.loan;
+  if (!src) return '';
+  var v = src[field];
+  if (v == null) return '';
+  return typeof v === 'object' ? JSON.stringify(v) : String(v);
+}
+
+function _renderMergeReview() {
+  var winner = (_mergeWinnerSide === 'A') ? _mergeSideA : _mergeSideB;
+  var loser  = (_mergeWinnerSide === 'A') ? _mergeSideB : _mergeSideA;
+  var winnerLabel = _mergeSideLabel(winner) + '  ·  KEPT';
+  var loserLabel  = _mergeSideLabel(loser)  + '  ·  REMOVED';
+
+  document.getElementById('mergeWinnerCard').innerHTML =
+    '<div style="font-size:10px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Winner</div>' +
+    '<div style="font-weight:600;color:var(--dark);margin-bottom:2px">' + escH(winnerLabel) + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);font-family:monospace">' + escH(winner.loanId) + '</div>';
+
+  document.getElementById('mergeLoserCard').innerHTML =
+    '<div style="font-size:10px;font-weight:700;color:#7C1F1F;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Loser</div>' +
+    '<div style="font-weight:600;color:var(--dark);margin-bottom:2px">' + escH(loserLabel) + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);font-family:monospace">' + escH(loser.loanId) + '</div>';
+
+  var rows = [];
+  // Loan fields.
+  _MERGE_LOAN_FIELDS.forEach(function(f) {
+    var vW = _mergeGetField(winner, f, 'loan');
+    var vL = _mergeGetField(loser,  f, 'loan');
+    if (!vW && !vL) return;
+    rows.push(_mergeRowHtml('loan', f, vW, vL));
+  });
+  // Client fields.
+  if (_MERGE_CLIENT_FIELDS.length) {
+    rows.push('<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin:8px 0 4px 0;padding:0 4px">Client fields</div>');
+  }
+  _MERGE_CLIENT_FIELDS.forEach(function(f) {
+    var vW = _mergeGetField(winner, f, 'client');
+    var vL = _mergeGetField(loser,  f, 'client');
+    if (!vW && !vL) return;
+    rows.push(_mergeRowHtml('client', f, vW, vL));
+  });
+  if (!rows.length) rows.push('<div style="padding:1rem;text-align:center;color:var(--muted);font-size:13px">Both loans share the same values on all tracked fields. Merge is safe — winner keeps everything, loser is removed.</div>');
+  document.getElementById('mergeFieldDiff').innerHTML = rows.join('');
+}
+
+function _mergeSideLabel(side) {
+  if (!side) return '';
+  var c = side.client || {};
+  var l = side.loan || {};
+  var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '';
+  var amt = l.loanAmt ? '$' + Math.round(l.loanAmt).toLocaleString() : '';
+  return (name || '(no borrower)') + (amt ? '  ·  ' + amt : '') + '  ·  LO: ' + side.ownerKey;
+}
+
+function _mergeRowHtml(kind, field, vW, vL) {
+  var pickKey = kind + '.' + field;
+  var currentPick = _mergePicks[pickKey];
+  // Default pick: winner wins non-empty conflicts; when winner is empty,
+  // default to loser (gap-fill). User can override either way.
+  if (!currentPick) currentPick = vW ? 'W' : (vL ? 'L' : 'W');
+  var sameValue = (vW === vL);
+  var wSel = currentPick === 'W';
+  var lSel = currentPick === 'L';
+  var label = field;
+
+  var wBox = '<label style="flex:1;display:flex;gap:8px;align-items:flex-start;cursor:pointer;padding:8px 10px;border-radius:6px;background:' + (wSel ? 'rgba(21,128,61,0.08)' : '#fff') + ';border:1.5px solid ' + (wSel ? '#166534' : 'var(--border, #E4DFD4)') + ';transition:all 0.12s">' +
+    '<input type="radio" name="mergepick_' + escAttr(pickKey) + '" ' + (wSel ? 'checked' : '') + ' onchange="setMergePick(\'' + escAttr(pickKey) + '\', \'W\')" style="margin-top:2px" />' +
+    '<div style="flex:1;min-width:0"><div style="font-size:10px;color:#166534;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">Winner value</div><div style="font-size:12px;color:var(--dark);word-break:break-word;white-space:pre-wrap">' + (vW ? escH(vW) : '<em style="color:var(--muted)">(empty)</em>') + '</div></div>' +
+  '</label>';
+
+  var lBox = '<label style="flex:1;display:flex;gap:8px;align-items:flex-start;cursor:pointer;padding:8px 10px;border-radius:6px;background:' + (lSel ? 'rgba(124,31,31,0.08)' : '#fff') + ';border:1.5px solid ' + (lSel ? '#7C1F1F' : 'var(--border, #E4DFD4)') + ';transition:all 0.12s">' +
+    '<input type="radio" name="mergepick_' + escAttr(pickKey) + '" ' + (lSel ? 'checked' : '') + ' onchange="setMergePick(\'' + escAttr(pickKey) + '\', \'L\')" style="margin-top:2px" />' +
+    '<div style="flex:1;min-width:0"><div style="font-size:10px;color:#7C1F1F;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">Loser value</div><div style="font-size:12px;color:var(--dark);word-break:break-word;white-space:pre-wrap">' + (vL ? escH(vL) : '<em style="color:var(--muted)">(empty)</em>') + '</div></div>' +
+  '</label>';
+
+  return '<div style="padding:8px 4px;border-bottom:1px dashed var(--border, #E4DFD4)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<div style="font-size:12px;font-weight:600;color:var(--dark)">' + escH(label) + (kind === 'client' ? ' <span style="font-size:10px;color:var(--muted);font-weight:400">(client)</span>' : '') + '</div>' +
+      (sameValue ? '<span style="font-size:10px;color:#166534;background:rgba(21,128,61,0.08);padding:1px 8px;border-radius:10px;font-weight:600">Same value</span>' : '') +
+    '</div>' +
+    '<div style="display:flex;gap:8px">' + wBox + lBox + '</div>' +
+  '</div>';
+}
+
+function setMergePick(pickKey, side) {
+  _mergePicks[pickKey] = side; // 'W' or 'L'
+  _renderMergeReview();
+}
+
+// ── Commit ────────────────────────────────────────────────────
+function _commitMergeReview() {
+  var winner = (_mergeWinnerSide === 'A') ? _mergeSideA : _mergeSideB;
+  var loser  = (_mergeWinnerSide === 'A') ? _mergeSideB : _mergeSideA;
+  if (!winner || !loser) return;
+
+  // Compose winnerOverrides — only include fields where the user's
+  // pick DIFFERS from what the winner already has, so the audit is
+  // clean and the backend gap-fill still runs for everything else.
+  var winnerOverrides = {};
+  // Loan-level picks.
+  _MERGE_LOAN_FIELDS.forEach(function(f) {
+    var vW = _mergeGetField(winner, f, 'loan');
+    var vL = _mergeGetField(loser,  f, 'loan');
+    if (!vW && !vL) return;
+    var pickKey = 'loan.' + f;
+    var pick = _mergePicks[pickKey] || (vW ? 'W' : 'L');
+    if (pick === 'L' && vL !== vW) winnerOverrides[f] = _mergeRawField(loser, f, 'loan');
+    // Also handle "user picked W but W is empty and L is non-empty"
+    // — that means the user wants to force W's empty value (clear).
+    if (pick === 'W' && !vW && vL) winnerOverrides[f] = '';
+  });
+  // Client-level picks — piggyback via a separate payload since the
+  // endpoint gap-fills the client itself. We don't have client-field
+  // overrides on the backend yet, so surface a note if any client
+  // picks would force a "loser wins" — those get skipped for now.
+  var skippedClientPicks = [];
+  _MERGE_CLIENT_FIELDS.forEach(function(f) {
+    var vW = _mergeGetField(winner, f, 'client');
+    var vL = _mergeGetField(loser,  f, 'client');
+    if (!vW && !vL) return;
+    var pickKey = 'client.' + f;
+    var pick = _mergePicks[pickKey] || (vW ? 'W' : 'L');
+    // Backend already gap-fills client fields; only note if user
+    // picked LOSER when WINNER has a value (that's the only case
+    // that won't happen automatically).
+    if (pick === 'L' && vL && vL !== vW) skippedClientPicks.push(f);
+  });
+
+  var summary = 'MERGE — Winner: ' + _mergeSideLabel(winner) + '\n\nLoser (removed): ' + _mergeSideLabel(loser) + '\n\n' +
+    Object.keys(winnerOverrides).length + ' loan field(s) will use the loser\'s value.\n' +
+    (skippedClientPicks.length ? '\nNote: ' + skippedClientPicks.length + ' client field pick(s) [' + skippedClientPicks.join(', ') + '] can\'t be applied — client-field overrides aren\'t supported by the backend yet. Winner client keeps its values.\n' : '') +
+    '\nThis cannot be undone. Proceed?';
+  if (!confirm(summary)) return;
 
   var btn = document.getElementById('mergeLoanConfirmBtn');
   btn.disabled = true;
@@ -5901,28 +6160,43 @@ function confirmMergeLoan() {
   statusEl.className = 'bi-status';
   statusEl.textContent = '';
 
-  var winnerOwner = (_loEmail || (_user && _user.email) || '').toLowerCase();
   SLA.api('POST', '/api/loans-merge-manual', {
-    winner: { ownerKey: winnerOwner,  clientId: _client.id, loanId: _loan.id  },
-    loser:  { ownerKey: loser.ownerKey, clientId: loser.clientId, loanId: loser.loanId },
+    winner: { ownerKey: winner.ownerKey, clientId: winner.clientId, loanId: winner.loanId },
+    loser:  { ownerKey: loser.ownerKey,  clientId: loser.clientId,  loanId: loser.loanId  },
+    winnerOverrides: winnerOverrides,
   }).then(function(r) {
     if (!r || !r.ok) {
       btn.disabled = false;
-      btn.textContent = 'Merge selected';
+      btn.textContent = 'Commit Merge';
       statusEl.className = 'bi-status err';
       statusEl.textContent = 'Merge failed: ' + ((r && r.error) || 'unknown');
       return;
     }
-    showToast('Merge complete — ' + ((r.filledFields || []).length) + ' field(s) gap-filled.');
+    var picked = (r.overriddenPickFields || []).length;
+    var filled = (r.filledFields || []).length;
+    showToast('Merge complete — ' + picked + ' picked, ' + filled + ' gap-filled.');
     closeMergeLoanModal();
-    // Reload the loan to reflect gap-filled fields.
-    setTimeout(function() { window.location.reload(); }, 700);
+    // Winner might have been the OTHER loan — navigate to whichever
+    // is the winner's loan-details page, threading owner if needed.
+    var dest = 'loan-details.html?clientId=' + encodeURIComponent(winner.clientId)
+             + '&loanId=' + encodeURIComponent(winner.loanId)
+             + '&owner=' + encodeURIComponent(winner.ownerKey);
+    setTimeout(function() { window.location.href = dest; }, 700);
   }).catch(function(err) {
     btn.disabled = false;
-    btn.textContent = 'Merge selected';
+    btn.textContent = 'Commit Merge';
     statusEl.className = 'bi-status err';
     statusEl.textContent = 'Merge failed: ' + (err && err.message || 'unknown');
   });
+}
+
+// Get raw (non-stringified) field value for the winnerOverrides payload.
+function _mergeRawField(side, field, kind) {
+  if (!side) return '';
+  var src = kind === 'client' ? side.client : side.loan;
+  if (!src) return '';
+  var v = src[field];
+  return (v == null) ? '' : v;
 }
 
 function reassignSwitchTab(tab) {
