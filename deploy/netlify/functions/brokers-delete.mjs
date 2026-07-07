@@ -1,16 +1,15 @@
 /**
  * brokers-delete.mjs — POST /api/brokers-delete
  *
- * Deploy 236 (Brokers Phase 1). Hard-delete a broker record. Caller
- * passes { id, _owner? }.
+ * Deploy 236.224 (Broker Phase A). "Delete broker" now clears the
+ * `_isBroker` flag on the unified client record — turning the broker
+ * back into a plain contact rather than nuking data. If the client
+ * has never had any loans linked and only exists as a broker record
+ * (rare), the entry is fully removed. Also cleans up the legacy
+ * brokers store entry for the same id.
  *
- * Loans that referenced this broker via brokerId will still have the
- * id string but lookups will return null. The frontend should still
- * render the inline broker fields stored on the loan record as a
- * fallback. Phase 2 wiring keeps both id + inline copies so this
- * delete doesn't orphan data.
- *
- * Returns: { ok: true }
+ * Body: { id, _owner? }
+ * Returns: { ok, mode: 'untagged' | 'deleted' }
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -32,15 +31,34 @@ export default async (req, context) => {
   if (body._owner && isAdmin(user)) owner = normalizeEmail(body._owner);
   const ownerKey = keySafe(owner);
 
-  const store = getStore({ name: 'brokers', consistency: 'strong' });
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const legacyStore  = getStore({ name: 'brokers', consistency: 'strong' });
   const key = ownerKey + '/' + keySafe(body.id);
 
   try {
-    await store.delete(key);
+    const existing = await clientsStore.get(key, { type: 'json' }).catch(() => null);
+    let mode = 'untagged';
+    if (existing) {
+      const hasLoans = Array.isArray(existing.loans) && existing.loans.length > 0;
+      // Purely-broker-shaped record with no loan history → safe to
+      // delete outright. Otherwise keep it as a contact by clearing
+      // the broker flag.
+      const looksBrokerOnly = existing._isBroker && !hasLoans && !existing.firstName && !existing.lastName;
+      if (looksBrokerOnly) {
+        await clientsStore.delete(key);
+        mode = 'deleted';
+      } else {
+        delete existing._isBroker;
+        delete existing._brokerCompany;
+        existing.updatedAt = new Date().toISOString();
+        await clientsStore.setJSON(key, existing);
+      }
+    }
+    // Clean up any lingering legacy broker record too.
+    try { await legacyStore.delete(key); } catch (_) {}
+    return json(200, { ok: true, mode });
   } catch (e) {
     console.error('brokers-delete error:', e);
     return json(500, { error: 'Failed to delete broker' });
   }
-
-  return json(200, { ok: true });
 };

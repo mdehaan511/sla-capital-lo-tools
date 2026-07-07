@@ -888,6 +888,15 @@
   status = 200
   force = true
 
+# Deploy 236.224 — Broker Phase A. One-shot migration of the legacy
+# `brokers` blob store into the unified `clients` store with an
+# `_isBroker: true` flag.
+[[redirects]]
+  from = "/api/brokers-migrate-to-clients"
+  to = "/.netlify/functions/brokers-migrate-to-clients"
+  status = 200
+  force = true
+
 # Deploy 236.208 — bulk zip upload for Doc Review. Client extracts
 # zip in-browser, sends filenames here; we return the checklist slug
 # mapping so confident matches skip the confirmation modal.

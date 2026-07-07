@@ -1,22 +1,19 @@
 /**
  * brokers-find.mjs — GET /api/brokers-find?email=X
  *
- * Deploy 236 (Brokers Phase 1). Lookup helper used by:
- *   - Phase 2 sizer autocomplete — "do we already have a broker with
- *     this email?" without paginating the whole list.
- *   - Phase 5 migration — bind legacy inline brokerEmail to a real
- *     broker record.
+ * Deploy 236.224 (Broker Phase A). Searches the unified clients store
+ * for a broker-flagged record with the given email under the caller's
+ * owner (admin can override with ?owner=). Falls back to the legacy
+ * brokers store for un-migrated records.
  *
- * Searches the caller's own broker book (or, with admin override,
- * another LO's). Returns the first email match or null.
- *
- * Response: { broker: <record> | null }
+ * Response: { broker: <legacy-broker-shape record> | null }
  */
 import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { isBrokerClient, clientAsBroker } from './_shared/broker-client.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -29,19 +26,28 @@ export default async (req, context) => {
   const email = String(url.searchParams.get('email') || '').toLowerCase().trim();
   if (!email) return json(400, { error: 'email required' });
 
-  // Owner — default to caller; admins can pass ?owner= to look up
-  // another LO's broker.
   let owner = normalizeEmail(user.email);
   const ownerOverride = url.searchParams.get('owner');
   if (ownerOverride && isAdmin(user)) owner = normalizeEmail(ownerOverride);
   const ownerKey = keySafe(owner);
 
-  const store = getStore({ name: 'brokers', consistency: 'strong' });
   try {
-    const { blobs } = await store.list({ prefix: ownerKey + '/' });
+    // Prefer unified clients store.
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
     for (const { key } of blobs) {
-      const rec = await store.get(key, { type: 'json' });
-      if (rec && (rec.email || '').toLowerCase() === email) {
+      const c = await clientsStore.get(key, { type: 'json' });
+      if (!isBrokerClient(c)) continue;
+      if (String(c.email || '').toLowerCase().trim() === email) {
+        return json(200, { broker: clientAsBroker(c) });
+      }
+    }
+    // Fallback: legacy brokers store.
+    const legacyStore = getStore({ name: 'brokers', consistency: 'strong' });
+    const { blobs: lb } = await legacyStore.list({ prefix: ownerKey + '/' });
+    for (const { key } of lb) {
+      const rec = await legacyStore.get(key, { type: 'json' });
+      if (rec && String(rec.email || '').toLowerCase() === email) {
         return json(200, { broker: rec });
       }
     }

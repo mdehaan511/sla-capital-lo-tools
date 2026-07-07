@@ -182,6 +182,10 @@
            materialize into SLA clients + companies, then reassign
            existing loans to the correct borrower record. -->
       <button class="btn-primary" id="pullBorrowersBtn" onclick="openPullBorrowersModal()" style="background:rgba(21,128,61,0.10);color:#166534;border:1px solid rgba(21,128,61,0.40)">Pull Borrowers from Baseline</button>
+      <!-- Deploy 236.224 — Broker Phase A. One-shot migration of the
+           legacy `brokers` blob store into unified `clients` with
+           `_isBroker: true`. Dry-run default. -->
+      <button class="btn-primary" id="migrateBrokersBtn" onclick="openMigrateBrokersModal()" style="background:rgba(200,129,58,0.10);color:#b5712d;border:1px solid rgba(200,129,58,0.40)">Migrate Brokers → Clients</button>
       <!-- Deploy 236.200 — diagnostic. Runs the /borrower list
            probes and shows the raw response body so we can see
            what Baseline is refusing. -->
@@ -2092,6 +2096,121 @@ function probeBaseline() {
   }).catch(function(err) {
     body.innerHTML = '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Probe failed: ' + escH((err && err.message) || 'unknown') + '</div>';
   });
+}
+
+// Deploy 236.224 — Broker Phase A. Migrates the legacy `brokers`
+// blob store into the unified `clients` store with an _isBroker
+// flag. Existing broker.id becomes the client.id so any
+// loan.brokerId reference keeps resolving. Email-matched contacts
+// get the flag added in place; unmatched brokers create a fresh
+// client under the same owner. Dry-run default.
+function openMigrateBrokersModal() {
+  var existing = document.getElementById('migrateBrokersModal');
+  if (existing) existing.remove();
+  var m = document.createElement('div');
+  m.id = 'migrateBrokersModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:24px';
+  m.innerHTML =
+    '<div style="background:#fff;max-width:780px;width:100%;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;border-radius:14px">' +
+      '<div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div>' +
+          '<div style="font-family:\'Lora\',serif;font-size:18px;font-weight:600;color:var(--dark)">Migrate Brokers → Clients</div>' +
+          '<div id="migrateBrokersSubtitle" style="font-size:12px;color:var(--muted);margin-top:2px">Dry-run: nothing has been written yet.</div>' +
+        '</div>' +
+        '<button type="button" onclick="closeMigrateBrokersModal()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>' +
+      '</div>' +
+      '<div id="migrateBrokersBody" style="padding:18px 22px;overflow:auto;flex:1">' +
+        '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Scanning brokers store…</div>' +
+      '</div>' +
+      '<div id="migrateBrokersFooter" style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" onclick="closeMigrateBrokersModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Close</button>' +
+        '<button type="button" id="migrateBrokersCommitBtn" onclick="runMigrateBrokersCommit()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(200,129,58,0.40);background:rgba(200,129,58,0.10);color:#b5712d;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Commit Migration</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(m);
+  _runMigrateBrokersInternal(true);
+}
+function closeMigrateBrokersModal() {
+  var m = document.getElementById('migrateBrokersModal'); if (m) m.remove();
+}
+function runMigrateBrokersCommit() {
+  var btn = document.getElementById('migrateBrokersCommitBtn');
+  if (btn.disabled) return;
+  if (!confirm('Migrate every broker into the unified clients store? Broker IDs are preserved so loan.brokerId references keep resolving. Legacy broker records are kept for safety unless you also want them deleted.')) return;
+  var alsoDelete = confirm('Also delete the legacy broker records after migration? Recommended once the migration report looks clean. Click Cancel to keep them as a fallback.');
+  btn.disabled = true;
+  document.getElementById('migrateBrokersSubtitle').textContent = 'Committing…';
+  document.getElementById('migrateBrokersBody').innerHTML = '<div style="text-align:center;color:var(--muted);font-style:italic;padding:2rem">Writing…</div>';
+  _runMigrateBrokersInternal(false, alsoDelete);
+}
+function _runMigrateBrokersInternal(dryRun, deleteBrokerRecords) {
+  SLA.api('POST', '/api/brokers-migrate-to-clients', {
+    dryRun: !!dryRun,
+    deleteBrokerRecords: !!deleteBrokerRecords,
+  }).then(function(r) {
+    if (!r || !r.ok) {
+      document.getElementById('migrateBrokersBody').innerHTML =
+        '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH((r && r.error) || 'unknown') + '</div>';
+      return;
+    }
+    _renderMigrateBrokersReport(r);
+  }).catch(function(err) {
+    document.getElementById('migrateBrokersBody').innerHTML =
+      '<div style="color:#b91c1c;padding:1rem;background:#fee2e2;border-radius:6px">Failed: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+function _renderMigrateBrokersReport(r) {
+  var subtitle = document.getElementById('migrateBrokersSubtitle');
+  var body     = document.getElementById('migrateBrokersBody');
+  var commit   = document.getElementById('migrateBrokersCommitBtn');
+  var dryRun   = !!r.dryRun;
+  subtitle.textContent = dryRun
+    ? 'Dry-run report — no changes yet. Review below and click Commit Migration to write.'
+    : '✓ Migration committed. Broker records are now unified into `clients` with _isBroker: true.';
+
+  var summaryTiles =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem">' +
+      _tile('Brokers scanned',       r.brokerRecordCount) +
+      _tile(dryRun ? 'Would merge into existing contacts' : 'Merged into existing contacts', r.matchedExisting, '', '#166534') +
+      _tile(dryRun ? 'Would create new clients' : 'New clients created', r.createdNew, '', '#166534') +
+      _tile('Legacy records deleted', r.deletedBrokerRecords || 0, '', 'var(--muted)') +
+      _tile('Errors',                 r.errorCount || 0, '', r.errorCount ? '#991b1b' : 'var(--muted)') +
+    '</div>';
+
+  var samplesHtml = '';
+  if (Array.isArray(r.samples) && r.samples.length) {
+    samplesHtml =
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px">First ' + r.samples.length + ' migrations</div>' +
+      '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:1.25rem">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:#faf8f3">' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Broker</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Company</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Owner</th>' +
+        '<th style="text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);border-bottom:1px solid var(--border)">Action</th>' +
+      '</tr></thead><tbody>' +
+      r.samples.map(function(s) {
+        var color = s.action === 'created' ? '#166534' : '#b5712d';
+        return '<tr>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2">' + escH(s.brokerName || '—') + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2">' + escH(s.brokerCompany || '—') + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;font-family:monospace;font-size:11px">' + escH(s.ownerKey) + '</td>' +
+          '<td style="padding:5px 10px;border-bottom:1px solid #f4efe2;color:' + color + ';font-weight:600">' + escH(s.action) + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+  }
+
+  var errorsHtml = '';
+  if (Array.isArray(r.errors) && r.errors.length) {
+    errorsHtml = '<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:1rem">' +
+      '<strong>' + r.errorCount + ' error(s)</strong>. First ' + r.errors.length + ':<br>' +
+      r.errors.map(function(e) { return '· ' + escH(e.key || '?') + ' — ' + escH(e.error); }).join('<br>') +
+    '</div>';
+  }
+
+  body.innerHTML = summaryTiles + samplesHtml + errorsHtml;
+  commit.disabled = !dryRun;
 }
 
 // Deploy 236.192 — Pull Borrowers from Baseline modal. Calls

@@ -1,28 +1,30 @@
 /**
  * brokers-save.mjs — POST /api/brokers-save
  *
- * Deploy 236 (Brokers Phase 1). Upsert a broker record. Body shape:
+ * Deploy 236.224 (Broker Phase A). Now writes to the unified `clients`
+ * store with `_isBroker: true`. The response shape stays as the legacy
+ * broker record so existing frontend (brokers.html, sizer autocomplete)
+ * doesn't need to change.
+ *
+ * Body:
  *   {
- *     id?,            // existing broker id; omit / null to create
- *     name,           // required
+ *     id?,        // existing broker/client id; omit to create
+ *     name,       // required — split into firstName/lastName on write
  *     company?,
- *     email?,         // optional but recommended (used for legacy
- *                     // loan matching in Phase 5 migration)
+ *     email?,
  *     phone?,
  *     notes?,
- *     _owner?,        // admin-only override to save under another LO
+ *     _owner?,    // admin-only cross-LO override
  *   }
  *
- * Owner-scoped: LOs own their broker book the same way they own their
- * client book. Admins can save on behalf via _owner.
- *
- * Returns: { ok: true, broker: <full saved record> }
+ * Returns: { ok: true, broker: <legacy-shape record> }
  */
 import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { splitBrokerName, clientAsBroker } from './_shared/broker-client.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -37,40 +39,50 @@ export default async (req, context) => {
     return json(400, { error: 'name required' });
   }
 
-  // Owner resolution
   let owner = normalizeEmail(user.email);
   if (body._owner && isAdmin(user)) owner = normalizeEmail(body._owner);
   const ownerKey = keySafe(owner);
 
   const now = new Date().toISOString();
-  const id = String(body.id || '').trim() ||
-             ('b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+  const id = String(body.id || '').trim()
+          || ('b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
 
-  const store = getStore({ name: 'brokers', consistency: 'strong' });
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const key = ownerKey + '/' + keySafe(id);
+  const existing = await clientsStore.get(key, { type: 'json' }).catch(() => null);
 
-  // Read existing for createdAt preservation
-  let existing = null;
-  try { existing = await store.get(key, { type: 'json' }); } catch (_) {}
-
-  const record = {
+  const { firstName, lastName } = splitBrokerName(body.name);
+  const record = Object.assign({}, existing || {}, {
     id,
-    name:      String(body.name      || '').trim(),
-    company:   String(body.company   || '').trim(),
-    email:     String(body.email     || '').toLowerCase().trim(),
-    phone:     String(body.phone     || '').trim(),
-    notes:     String(body.notes     || '').trim(),
+    firstName: existing && existing.firstName ? existing.firstName : firstName,
+    lastName:  existing && existing.lastName  ? existing.lastName  : lastName,
+    email:     String(body.email   || (existing && existing.email)   || '').toLowerCase().trim(),
+    phone:     String(body.phone   || (existing && existing.phone)   || '').trim(),
+    entityName: String(body.company || (existing && existing.entityName) || '').trim(),
+    notes:     String(body.notes   || (existing && existing.notes)   || '').trim(),
+    displayName: String(body.name || '').trim(),
+    _isBroker: true,
+    _brokerCompany: String(body.company || '').trim(),
     createdAt: (existing && existing.createdAt) || now,
     updatedAt: now,
     createdBy: (existing && existing.createdBy) || owner,
-  };
+    loans:     (existing && Array.isArray(existing.loans))    ? existing.loans    : [],
+    companies: (existing && Array.isArray(existing.companies)) ? existing.companies : [],
+  });
 
   try {
-    await store.setJSON(key, record);
+    await clientsStore.setJSON(key, record);
   } catch (e) {
     console.error('brokers-save error:', e);
     return json(500, { error: 'Failed to save broker' });
   }
 
-  return json(200, { ok: true, broker: record });
+  // Best-effort: if a legacy broker record still exists for this id,
+  // delete it so we don't dual-list.
+  try {
+    const legacyStore = getStore({ name: 'brokers', consistency: 'strong' });
+    await legacyStore.delete(key);
+  } catch (_) { /* non-fatal */ }
+
+  return json(200, { ok: true, broker: clientAsBroker(record) });
 };
