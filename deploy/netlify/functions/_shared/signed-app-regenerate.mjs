@@ -90,11 +90,19 @@ export async function regenerateSignedApplicationPDF(record, editor) {
     return { ok: false, reason: 'no_signers_in_signed_record' };
   }
 
+  // Deploy 236.221 Phase 4 — locate the loan on the client record so
+  // renderer can prefer canonical loan values over the long-app snapshot
+  // whenever the LO has inline-edited on Loan Details since signing.
+  const _regenLoan = (client && Array.isArray(client.loans) && record.loanId)
+    ? client.loans.find((l) => l && l.id === record.loanId)
+    : null;
+
   let pdfBuffer;
   try {
     pdfBuffer = await renderSignedApplicationPDF({
       record,
       client,
+      loan: _regenLoan,
       status: signedRecord.status || 'complete',
       signers,
     });

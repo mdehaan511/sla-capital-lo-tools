@@ -68,7 +68,17 @@ function roleLabelFor(role) {
  *   Order matters — first entry is rendered first.
  * @param {string} [params.status] - 'awaiting_borrower2' | 'complete'
  */
-export function renderSignedApplicationPDF({ record, client, signers, status, unsigned, enteredBy }) {
+// Deploy 236.221 — Phase 4 of Mike's "Loan Details is the point of
+// truth" refactor. Accept an optional `loan` param. When passed, the
+// renderer prefers loan-level canonical values over the long-app
+// snapshot for financial fields (loanAmt, purchasePrice, arv,
+// rehabBudget, propValue, propertyAddress, loanType). Signature-flow
+// callers (borrower-info-sign, borrower2-auth-sign) intentionally
+// omit `loan` so the borrower signs what they typed. Download-flow
+// callers (loan-bundle-download, loan-application-pdf-unsigned,
+// signed-app-regenerate) pass it so LO-edits round-trip into the
+// re-generated PDF.
+export function renderSignedApplicationPDF({ record, client, signers, status, unsigned, enteredBy, loan }) {
   signers = signers || [];
   status = status || 'complete';
   // Deploy 231 — `unsigned` mode renders the same document but with no
@@ -104,6 +114,28 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
 
       // Helpers
       const data = record.data || {};
+      // Deploy 236.221 — Phase 4 override map. Only fields the LO can
+      // inline-edit on Loan Details. Empty / null / undefined values
+      // on the loan record are skipped so we don't blow away a good
+      // long-app value with a blank. Applied as a shallow overlay so
+      // the rest of `data.*` render paths are untouched.
+      if (loan && typeof loan === 'object') {
+        const LOAN_OVERRIDES = {
+          loanAmt:         loan.loanAmt,
+          requestedLoanAmt: loan.loanAmt,
+          purchasePrice:   loan.purchasePrice,
+          arv:             loan.arv,
+          renoCost:        loan.rehabBudget,   // long-app uses renoCost, loan record uses rehabBudget
+          rehabBudget:     loan.rehabBudget,
+          propValue:       loan.propValue,
+          propertyAddress: loan.address,
+          loanType:        loan.loanType || loan.toolType,
+        };
+        for (const k of Object.keys(LOAN_OVERRIDES)) {
+          const v = LOAN_OVERRIDES[k];
+          if (v !== undefined && v !== null && v !== '') data[k] = v;
+        }
+      }
       // Deploy 236.148 — extended to support up to 4 guarantors
       // (g0..g3). The long-app sign flow still only collects g0+g1;
       // g2/g3 land here via the bundle download (loan-bundle-

@@ -111,11 +111,20 @@ async function handle(req, context) {
     at:    new Date().toISOString(),
   };
 
+  // Deploy 236.221 — Phase 4: locate the loan on the client record
+  // so the renderer can prefer loan-level values (loanAmt,
+  // purchasePrice, etc.) over the long-app snapshot. Undefined loan
+  // → renderer falls back to data.* as before.
+  const _loan = Array.isArray(client.loans)
+    ? client.loans.find((l) => l && l.id === loanId)
+    : null;
+
   let pdfBuffer;
   try {
     pdfBuffer = await renderSignedApplicationPDF({
       record,
       client,
+      loan: _loan,
       signers,
       status: 'unsigned',
       unsigned: true,

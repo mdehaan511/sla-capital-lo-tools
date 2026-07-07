@@ -227,6 +227,7 @@ async function handle(req, context) {
     appPdfBytes = await renderSignedApplicationPDF({
       record,
       client: primary,
+      loan, // Deploy 236.221 Phase 4 — prefer loan-level values over long-app snapshot
       signers,
       status: 'complete',
       unsigned,
