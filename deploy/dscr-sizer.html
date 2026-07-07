@@ -3789,10 +3789,21 @@ netlifyIdentity.on('init', function(user) {
             if (_finalPointsStr) fd._pointsOverride = String(_finalPointsStr).replace(/[^0-9.]/g, '');
             if (loanFd._points)      fd._points         = loanFd._points;
             // Loan-level canonical fields the LO can inline-edit.
+            // Deploy 236.239 — guard `loanType`. Baseline import writes
+            // loan.loanType = "dscr" (product category), but the DSCR
+            // sizer's #loanType <select> is a TERM STRUCTURE picker
+            // (30Y Fixed / 10/6 ARM / 7/6 ARM / 5/6 ARM). Blindly
+            // overlaying "dscr" left the select on no valid option, so
+            // baseRate = DIYA.baseRate["dscr"] = undefined → pricing
+            // crashed with no useful message, and any loan whose LO
+            // had a locked-override save couldn't be reopened at all.
+            var DSCR_LOAN_TYPE_OPTIONS = { '30Y Fixed':1, '10/6 ARM':1, '7/6 ARM':1, '5/6 ARM':1 };
             ['rate','points','purchasePrice','rehabBudget','arv','fico',
              'loanType','experience','brokerFee','appraisedValue',
              'monthlyRent','monthlyTaxes','monthlyInsurance','monthlyHoa'].forEach(function(k) {
-              if (found[k] != null && found[k] !== '') fd[k] = found[k];
+              if (found[k] == null || found[k] === '') return;
+              if (k === 'loanType' && !DSCR_LOAN_TYPE_OPTIONS[found[k]]) return;
+              fd[k] = found[k];
             });
             // Deploy 236.217 — synthesize the override from the
             // canonical rate/points if the formData mirror was

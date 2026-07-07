@@ -3614,10 +3614,20 @@ netlifyIdentity.on('init', function(user) {
           if (loanFd._finalRate)      fd._finalRate      = loanFd._finalRate;
           if (loanFd._pointsOverride) fd._pointsOverride = loanFd._pointsOverride;
           if (loanFd._points)         fd._points         = loanFd._points;
+          // Deploy 236.239 — guard `loanType`. Baseline import writes
+          // loan.loanType = "rtl" (product category), but the RTL
+          // sizer's #loanType <select> is a TRACK picker
+          // (light / heavy / bridge / transactional). Blindly overlaying
+          // "rtl" left the select on no valid option and every downstream
+          // pricing branch broke silently. See dscr-sizer.html for the
+          // matching fix.
+          var RTL_LOAN_TYPE_OPTIONS = { 'light':1, 'heavy':1, 'bridge':1, 'transactional':1 };
           ['rate','points','purchasePrice','rehabBudget','arv','fico',
            'loanType','experience','brokerFee','appraisedValue',
            'monthlyRent','monthlyTaxes','monthlyInsurance','monthlyHoa'].forEach(function(k) {
-            if (found[k] != null && found[k] !== '') fd[k] = found[k];
+            if (found[k] == null || found[k] === '') return;
+            if (k === 'loanType' && !RTL_LOAN_TYPE_OPTIONS[found[k]]) return;
+            fd[k] = found[k];
           });
           // Deploy 236.217 — synthesize the override from the
           // canonical rate/points if the formData mirror wasn't
