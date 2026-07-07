@@ -168,6 +168,42 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           </div>
           <div class="err-msg" id="err-brokerPhone">Required</div>
         </div>
+        <!-- Deploy 236.228 (Broker Phase D+) — quick borrower-side
+             pricing signals the broker knows even before the borrower
+             is engaged: US Citizen status + estimated credit score.
+             Saved onto the loan record so the sizer prices correctly
+             without waiting for the full borrower-info capture
+             (Phase E). -->
+        <div class="field">
+          <div class="wrap" id="wrap-brokerUsCitizen">
+            <label>Is the borrower a US Citizen? <span class="req">*</span></label>
+            <select id="brokerUsCitizen" onchange="clearE('brokerUsCitizen')">
+              <option value="">— Select —</option>
+              <option value="yes">Yes</option>
+              <option value="no">No — Permanent Resident / Other</option>
+            </select>
+          </div>
+          <div class="err-msg" id="err-brokerUsCitizen">Required</div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-brokerCreditScore">
+            <label>Estimated Borrower Credit Score <span class="req">*</span></label>
+            <select id="brokerCreditScore" onchange="clearE('brokerCreditScore')">
+              <option value="">— Select —</option>
+              <option value="780+">780+ (Excellent)</option>
+              <option value="760-779">760–779 (Very Good)</option>
+              <option value="740-759">740–759 (Very Good)</option>
+              <option value="720-739">720–739 (Good)</option>
+              <option value="700-719">700–719 (Good)</option>
+              <option value="680-699">680–699 (Fair)</option>
+              <option value="660-679">660–679 (Fair)</option>
+              <option value="640-659">640–659</option>
+              <option value="620-639">620–639</option>
+              <option value="550-619">550–619</option>
+            </select>
+          </div>
+          <div class="err-msg" id="err-brokerCreditScore">Please select a credit score range</div>
+        </div>
       </div>
     </div>
 
@@ -774,6 +810,11 @@ function validate() {
     var bem = gv('brokerEmail');
     if (!bem || !bem.includes('@')) { showE('brokerEmail', 'Valid broker email required'); ok=false; }
     if (!gv('brokerPhone')) { showE('brokerPhone'); ok=false; }
+    // Deploy 236.228 — quick borrower pricing signals now required
+    // in broker mode so the sizer can quote correctly without waiting
+    // on Phase E's borrower-info capture.
+    if (!gv('brokerUsCitizen'))    { showE('brokerUsCitizen'); ok=false; }
+    if (!gv('brokerCreditScore'))  { showE('brokerCreditScore', 'Please select a credit score range'); ok=false; }
   }
 
   return ok;
@@ -801,8 +842,12 @@ function submitApp() {
     lastName:    _isBroker ? '' : gv('lastName'),
     email:       _isBroker ? '' : gv('email'),
     phone:       _isBroker ? '' : gv('phone'),
-    usCitizen:   _isBroker ? '' : gv('usCitizen'),
-    creditScore: _isBroker ? '' : gv('creditScore'),
+    // Deploy 236.228 — in broker mode we DO capture the borrower's
+    // citizenship + credit-score range (from the broker's quick
+    // signals card), because pricing depends on both. The person's
+    // Name / Email / Phone stay blank until Phase E.
+    usCitizen:   _isBroker ? gv('brokerUsCitizen')   : gv('usCitizen'),
+    creditScore: _isBroker ? gv('brokerCreditScore') : gv('creditScore'),
     // Property
     propAddress: gv('propAddress'),
     propType:    gv('propType'),
