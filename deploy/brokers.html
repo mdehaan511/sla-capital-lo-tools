@@ -536,9 +536,16 @@ function renderBrokers() {
     var dealsBadge = agg.dealCount > 0
       ? '<span class="stat-badge">' + agg.dealCount + ' ' + (agg.dealCount === 1 ? 'deal' : 'deals') + '</span>'
       : '<span class="stat-badge muted">No deals yet</span>';
+    // Deploy 236.225 (Broker Phase B) — the broker header now navigates
+    // to the broker's Contact Page (client-details.html?clientId=...).
+    // The chevron becomes its own button that toggles the loans-detail
+    // panel; edit/delete buttons unchanged. Clicking anywhere else on
+    // the header row goes to the Contact Page so a returning LO can
+    // reach the broker's full profile in one click.
+    var contactUrl = 'client-details.html?clientId=' + encodeURIComponent(b.id);
     return '' +
       '<div class="broker-card" data-id="' + escapeHtml(b.id) + '">' +
-        '<div class="broker-header ' + (isOpen?'open':'') + '" onclick="toggleBroker(\'' + b.id + '\', event)">' +
+        '<div class="broker-header ' + (isOpen?'open':'') + '" onclick="window.location.href=\'' + contactUrl + '\'" style="cursor:pointer" title="Open Contact Page">' +
           '<div class="broker-avatar">' + escapeHtml(avatar) + '</div>' +
           '<div class="broker-info">' +
             '<div>' +
@@ -563,7 +570,7 @@ function renderBrokers() {
             '<button class="icon-btn" title="Edit" onclick="event.stopPropagation();openEditBroker(\'' + b.id + '\')">✎</button>' +
             '<button class="icon-btn danger" title="Delete" onclick="event.stopPropagation();quickDeleteBroker(\'' + b.id + '\')">×</button>' +
           '</div>' +
-          '<div class="chevron ' + (isOpen?'open':'') + '">▾</div>' +
+          '<button type="button" class="chevron ' + (isOpen?'open':'') + '" title="Show / hide linked loans" onclick="event.stopPropagation();toggleBroker(\'' + b.id + '\', event)" style="background:transparent;border:none;cursor:pointer;font-size:inherit;color:inherit;padding:0">▾</button>' +
         '</div>' +
         '<div class="broker-detail ' + (isOpen?'open':'') + '">' +
           renderBrokerDetail(b, agg) +
@@ -962,9 +969,14 @@ function renderAdminBrokers() {
       var avgPts = agg.dealsWithFee > 0 ? (agg.totalBrokerFeePts / agg.dealsWithFee) : 0;
       totalDeals += agg.dealCount;
       var avatar = initials(b.name);
+      // Deploy 236.225 (Broker Phase B) — admin cross-LO view: cards
+      // also navigate to Contact Page. Owner context is passed so
+      // client-details.html resolves under the right namespace.
+      var contactUrlAdmin = 'client-details.html?clientId=' + encodeURIComponent(b.id) +
+        (owner ? '&owner=' + encodeURIComponent(owner) : '');
       return '' +
         '<div class="broker-card">' +
-          '<div class="broker-header">' +
+          '<div class="broker-header" onclick="window.location.href=\'' + contactUrlAdmin + '\'" style="cursor:pointer" title="Open Contact Page">' +
             '<div class="broker-avatar">' + escapeHtml(avatar) + '</div>' +
             '<div class="broker-info">' +
               '<div>' +
