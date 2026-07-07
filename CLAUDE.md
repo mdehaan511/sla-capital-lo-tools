@@ -1,8 +1,8 @@
 # SLA Capital — Internal Loan Tools
 
 Internal portal for SLA Capital loan officers. Hosted on Netlify at:
-- Primary: <https://silver-narwhal-0d9f84.netlify.app>
-- Vanity: <https://slaloantools.netlify.app>
+- **Live**: <https://slaloantools.netlify.app> (the vanity is the effective primary; use this for curl checks + LO-facing links)
+- The old auto-generated `silver-narwhal-0d9f84.netlify.app` subdomain returns 404 as of 2026-07 — do NOT reference it.
 
 This is **production software with active LOs**. Bugs are felt immediately.
 Prefer small, surgical, reversible changes over large rewrites. When unsure,
