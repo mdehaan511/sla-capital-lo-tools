@@ -143,17 +143,25 @@ export default async (req, context) => {
 async function upsertClientFromProspect(prospect, loEmail) {
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const ownerKey = keySafe(normalizeEmail(loEmail));
-  const borrowerEmailNorm = normalizeEmail(prospect.email);
-  if (!borrowerEmailNorm) return;
+  // Deploy 236.227 (Broker Phase D) — for broker submissions the
+  // "client" IS the broker; there is no borrower record to look up
+  // yet. Match on brokerEmail instead. The loan will land under the
+  // broker's client with _isBrokerLoan: true and guarantors[] empty;
+  // Phase E captures borrower info at Advance to Approved.
+  const isBrokerSubmission = String(prospect.submitterType || '').toLowerCase() === 'broker';
+  const lookupEmail = isBrokerSubmission
+    ? normalizeEmail(prospect.brokerEmail)
+    : normalizeEmail(prospect.email);
+  if (!lookupEmail) return;
 
-  // Search this LO's clients for an existing match by borrower email
+  // Search this LO's clients for an existing match by lookup email.
   let existing = null;
   let existingKey = null;
   try {
     const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
     for (const { key } of blobs) {
       const c = await clientsStore.get(key, { type: 'json' });
-      if (c && (c.email || '').toLowerCase() === borrowerEmailNorm) {
+      if (c && (c.email || '').toLowerCase() === lookupEmail) {
         existing = c;
         existingKey = key;
         break;
@@ -226,6 +234,12 @@ async function upsertClientFromProspect(prospect, loEmail) {
     brokerPhone:   prospect.brokerPhone   || '',
     brokerFee:     prospect.brokerFee     || '',
     fromApplication: true,
+    // Deploy 236.227 (Broker Phase D) — flag broker submissions so
+    // the loan starts with guarantors[] empty and Loan Details knows
+    // to require borrower info at Advance to Approved.
+    _isBrokerLoan: isBrokerSubmission,
+    _borrowerInfoPending: isBrokerSubmission,
+    guarantors: [], // populated at Phase E's borrower-info capture
   };
 
   // Deploy 236.5 — resolve the broker entity in the LO's book and bind
@@ -254,17 +268,56 @@ async function upsertClientFromProspect(prospect, loEmail) {
   let record;
   if (existing) {
     record = existing;
-    if (!record.firstName && prospect.firstName) record.firstName = prospect.firstName;
-    if (!record.lastName  && prospect.lastName)  record.lastName  = prospect.lastName;
-    if (!record.phone     && prospect.phone)     record.phone     = prospect.phone;
-    if (!record.usCitizen && prospect.usCitizen) record.usCitizen = prospect.usCitizen;
+    if (isBrokerSubmission) {
+      // Ensure the existing contact is flagged as a broker (it may
+      // have been a plain contact before). The unified model lets
+      // the same record wear both hats.
+      record._isBroker = true;
+      if (!record._brokerCompany && prospect.brokerCompany) {
+        record._brokerCompany = prospect.brokerCompany;
+      }
+      if (!record.entityName && prospect.brokerCompany) {
+        record.entityName = prospect.brokerCompany;
+      }
+    } else {
+      if (!record.firstName && prospect.firstName) record.firstName = prospect.firstName;
+      if (!record.lastName  && prospect.lastName)  record.lastName  = prospect.lastName;
+      if (!record.phone     && prospect.phone)     record.phone     = prospect.phone;
+      if (!record.usCitizen && prospect.usCitizen) record.usCitizen = prospect.usCitizen;
+    }
     record.loans = record.loans || [];
     record.loans.unshift(loan);
     record.updatedAt = now;
+  } else if (isBrokerSubmission) {
+    // Fresh client record for a broker who's never submitted before.
+    // Split their full name into first/last for the standard client
+    // shape; stamp _isBroker so they show up in the Broker Book too.
+    const nameParts = String(prospect.brokerName || '').trim().replace(/\s+/g, ' ').split(' ');
+    const brokerFirstName = nameParts.length === 1
+      ? nameParts[0]
+      : nameParts.slice(0, -1).join(' ');
+    const brokerLastName = nameParts.length === 1 ? '' : nameParts[nameParts.length - 1];
+    record = {
+      id:         'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      email:      lookupEmail,
+      firstName:  brokerFirstName,
+      lastName:   brokerLastName,
+      phone:      prospect.brokerPhone   || '',
+      entityName: prospect.brokerCompany || '',
+      displayName: prospect.brokerName   || '',
+      _isBroker:  true,
+      _brokerCompany: prospect.brokerCompany || '',
+      createdAt:  now,
+      updatedAt:  now,
+      createdBy:  loEmail,
+      loans:      [loan],
+      fromApplication: true,
+    };
+    existingKey = ownerKey + '/' + keySafe(record.id);
   } else {
     record = {
       id:        'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-      email:     borrowerEmailNorm,
+      email:     lookupEmail,
       firstName: prospect.firstName || '',
       lastName:  prospect.lastName  || '',
       phone:     prospect.phone     || '',

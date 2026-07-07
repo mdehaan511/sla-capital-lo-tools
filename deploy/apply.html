@@ -172,7 +172,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
 
     <!-- Step 1: Your Information -->
-    <div class="card">
+    <!-- Deploy 236.227 (Broker Phase D) — this whole card hides when
+         the submitter is a broker. Brokers no longer collect borrower
+         Name / Email / Phone up front; the loan is created under the
+         broker's client record and the borrower info is captured at
+         Advance to Approved (Phase E). -->
+    <div class="card" id="borrowerInfoCard">
       <div class="card-head"><div class="step">1</div><span id="borrowerCardTitle">Your Information</span></div>
       <div class="card-body">
         <div class="field">
@@ -609,10 +614,16 @@ function setSubmitter(type) {
   // Show/hide broker info card
   var brokerCard = document.getElementById('brokerCard');
   if (brokerCard) brokerCard.style.display = (type === 'broker') ? '' : 'none';
-  // Re-label Step 1 — "Your Information" for the borrower-self path,
-  // "Borrower Information" when a broker is filling in on behalf.
+  // Deploy 236.227 (Broker Phase D) — HIDE the borrower-info card
+  // entirely when a broker is submitting. The broker no longer has
+  // to collect borrower Name / Email / Phone up front; that gets
+  // captured at Advance to Approved (Phase E).
+  var borrowerInfoCard = document.getElementById('borrowerInfoCard');
+  if (borrowerInfoCard) borrowerInfoCard.style.display = (type === 'broker') ? 'none' : '';
+  // Re-label Step 1 — "Your Information" for the borrower-self path.
+  // (Broker path hides the card; label is moot in that state.)
   var bct = document.getElementById('borrowerCardTitle');
-  if (bct) bct.textContent = (type === 'broker') ? 'Borrower Information' : 'Your Information';
+  if (bct) bct.textContent = 'Your Information';
   // Also tweak the page-header copy so the broker isn't confused by
   // text that addresses them ("we can quote your loan").
   var ph = document.querySelector('.page-header p');
@@ -697,9 +708,16 @@ function _looksLikeFullAddress(s) {
 function validate() {
   var ok = true;
   var lp = gv('loanProduct');
+  var isBrokerSubmission = (_submitterType === 'broker');
 
-  // Always required (regardless of loan product)
-  var always = ['firstName','lastName','phone','propAddress','propType','purchasePrice','fundingDate'];
+  // Deploy 236.227 (Broker Phase D) — borrower personal fields
+  // (firstName/lastName/email/phone/usCitizen/creditScore) are
+  // only required when the borrower is submitting for themselves.
+  // Broker submissions skip these; borrower info is captured at
+  // Advance to Approved (Phase E).
+  var always = isBrokerSubmission
+    ? ['propAddress','propType','purchasePrice','fundingDate']
+    : ['firstName','lastName','phone','propAddress','propType','purchasePrice','fundingDate'];
   always.forEach(function(id){ if (!gv(id)) { showE(id); ok=false; }});
 
   // Deploy 190: require the property address to include city/state/ZIP.
@@ -719,15 +737,14 @@ function validate() {
   var isRtlFamily = (lp === 'fix_flip' || lp === 'bridge' || lp === 'transactional');
   if (!isRtlFamily && !gv('propertyValue')) { showE('propertyValue'); ok = false; }
 
-  // Email
-  var em = gv('email');
-  if (!em || !em.includes('@')) { showE('email', 'Valid email required'); ok=false; }
-
-  // US Citizen
-  if (!gv('usCitizen')) { showE('usCitizen'); ok=false; }
-
-  // Credit Score
-  if (!gv('creditScore')) { showE('creditScore', 'Please select a credit score range'); ok=false; }
+  // Deploy 236.227 (Broker Phase D) — email/citizenship/credit-score
+  // are all borrower-owned data, skipped when a broker submits.
+  if (!isBrokerSubmission) {
+    var em = gv('email');
+    if (!em || !em.includes('@')) { showE('email', 'Valid email required'); ok=false; }
+    if (!gv('usCitizen')) { showE('usCitizen'); ok=false; }
+    if (!gv('creditScore')) { showE('creditScore', 'Please select a credit score range'); ok=false; }
+  }
 
   // Loan product
   if (!lp) { showE('loanProduct'); ok=false; }
@@ -770,17 +787,22 @@ function submitApp() {
   }
 
   var lp = gv('loanProduct');
+  var _isBroker = (_submitterType === 'broker');
+  // Deploy 236.227 (Broker Phase D) — borrower fields blank when a
+  // broker submits. Server (prospects-save) creates the loan under
+  // the broker's client with _isBrokerLoan: true and guarantors[]
+  // empty; borrower info gets captured at Advance to Approved.
   var prospect = {
     submittedAt: new Date().toISOString(),
     loSlug:      _loSlug,
     loDisplay:   _loDisplay,
     // Borrower
-    firstName:   gv('firstName'),
-    lastName:    gv('lastName'),
-    email:       gv('email'),
-    phone:       gv('phone'),
-    usCitizen:   gv('usCitizen'),
-    creditScore: gv('creditScore'),
+    firstName:   _isBroker ? '' : gv('firstName'),
+    lastName:    _isBroker ? '' : gv('lastName'),
+    email:       _isBroker ? '' : gv('email'),
+    phone:       _isBroker ? '' : gv('phone'),
+    usCitizen:   _isBroker ? '' : gv('usCitizen'),
+    creditScore: _isBroker ? '' : gv('creditScore'),
     // Property
     propAddress: gv('propAddress'),
     propType:    gv('propType'),
@@ -823,7 +845,11 @@ function submitApp() {
     // Show success
     document.getElementById('appForm').style.display = 'none';
     document.getElementById('successCard').classList.add('show');
-    document.getElementById('confirmEmail').textContent = prospect.email;
+    // Deploy 236.227 (Broker Phase D) — for broker submissions the
+    // borrower email is intentionally blank, so surface the broker's
+    // email on the confirmation copy instead.
+    document.getElementById('confirmEmail').textContent =
+      _isBroker ? (prospect.brokerEmail || '(no email)') : prospect.email;
     window.scrollTo({top: 0, behavior:'smooth'});
   }).catch(function(err) {
     if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Application'; }
