@@ -242,6 +242,13 @@
   status = 200
   force = true
 
+# Deploy 236.235 — admin diagnostic for phantom/orphaned records
+[[redirects]]
+  from = "/api/admin-find-record"
+  to = "/.netlify/functions/admin-find-record"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/orphaned-quote-recover"
   to = "/.netlify/functions/orphaned-quote-recover"
