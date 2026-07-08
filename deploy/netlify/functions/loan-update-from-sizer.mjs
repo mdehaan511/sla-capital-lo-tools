@@ -127,10 +127,17 @@ async function handle(req, context) {
     id: prior.id,
     createdAt: prior.createdAt || incoming.createdAt || now,
     updatedAt: now,
-    // Preserve loan amount when LO has locked it (manual override on
-    // Loan Details). If not locked, take the incoming value.
-    loanAmt:       prior.loanAmtLocked ? prior.loanAmt : incoming.loanAmt,
-    loanAmtLocked: prior.loanAmtLocked || false,
+    // Deploy 236.254 — loanAmt now behaves like rate/points: whichever
+    // side wrote most recently wins. Prior behavior preserved the LO's
+    // manual override on Loan Details (loanAmtLocked=true) across
+    // every sizer re-save, which meant the sizer's own loan-amount
+    // edits silently no-op'd against the record whenever the LO had
+    // previously touched Loan Details. Mike's ask: bidirectional
+    // sync just like all other pricing fields. loanAmtLocked is
+    // still stored so the Loan Details "LO override" badge continues
+    // to reflect the last touch, but it's no longer a write gate.
+    loanAmt:       incoming.loanAmt,
+    loanAmtLocked: incoming.loanAmtLocked !== undefined ? !!incoming.loanAmtLocked : (prior.loanAmtLocked || false),
     // Preserve LO-edited app-section fields if the sizer didn\u2019t
     // explicitly set them this round.
     bedrooms:    incoming.bedrooms    || prior.bedrooms,
