@@ -94,6 +94,30 @@ async function handle(req, context) {
   const prior = client.loans[idx];
   const incoming = body.loanData;
 
+  // Deploy 236.252 \u2014 diagnostic log. Surfaces the exact values the
+  // sizer is sending (incoming) vs. what's currently on the record
+  // (prior), specifically for the pricing/status fields that Mike
+  // reported as "not updating" for in-processing DSCR loans. If a
+  // reprice ever silently loses rate/points, the function log will
+  // now show WHY (incoming empty? backend preservation kicked in?
+  // status branch taking prior?).
+  console.log('[loan-update-from-sizer] incoming reprice for loan', body.loanId, {
+    incoming_rate: incoming && incoming.rate,
+    prior_rate: prior && prior.rate,
+    incoming_points: incoming && incoming.points,
+    prior_points: prior && prior.points,
+    incoming_loanAmt: incoming && incoming.loanAmt,
+    prior_loanAmt: prior && prior.loanAmt,
+    prior_loanAmtLocked: prior && prior.loanAmtLocked,
+    incoming_status: incoming && incoming.status,
+    prior_status: prior && prior.status,
+    incoming_loanType: incoming && incoming.loanType,
+    prior_loanType: prior && prior.loanType,
+    incoming_finalRate_fd: incoming && incoming._finalRate,
+    incoming_rateOverride: incoming && incoming._rateOverride,
+    incoming_pointsOverride: incoming && incoming._pointsOverride,
+  });
+
   // Merge: spread incoming, then preserve specific server-side fields
   // that the sizer should never overwrite. Don\u2019t let the sizer
   // change the loan\u2019s id/createdAt/createdBy. Preserve LO-edited
