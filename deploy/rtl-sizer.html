@@ -3097,7 +3097,11 @@ function saveCurrentQuote() {
   // (when both clientId AND loanId are known \u2014 i.e. the LO opened an
   // existing loan to edit). Falls back to the legacy upsert path for
   // brand-new quotes where the IDs aren\u2019t resolved yet.
-  if (window.ClientBook && formData.borrowerEmail) {
+  //
+  // Deploy 236.251 \u2014 REMOVED the outer borrowerEmail requirement so
+  // direct-ID saves work regardless of whether the client record has
+  // an email. See dscr-sizer.html for the full rationale \u2014 same fix.
+  if (window.ClientBook) {
     var loanRec = ClientBook.buildLoanFromSizer('rtl', formData.address, formData, 'active');
     var rNameParts = (formData.borrowerName || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
@@ -3152,14 +3156,19 @@ function saveCurrentQuote() {
 
     if (hasDirectIds) {
       // Direct ID-based update: bypasses the email/address matching in
-      // Clients.upsert entirely. The loan is found by (clientId, loanId)
-      // on the backend.
+      // Clients.upsert entirely. Works regardless of borrowerEmail.
+      console.log('[SLA] RTL save: direct-ID path', {
+        clientId: window._editingClientId, loanId: window._editingLoanId,
+        hasEmail: !!formData.borrowerEmail,
+      });
       SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRec, ownerOvr)
         .then(handleSaveSuccess)
         .catch(handleSaveFailure);
-    } else {
+    } else if (formData.borrowerEmail) {
       // Brand-new quote (no editing IDs resolved yet). Fall back to the
       // legacy upsert path which auto-creates the client + initial loan.
+      // NEEDS borrowerEmail because upsert matches by email.
+      console.log('[SLA] RTL save: upsert path (no direct-IDs)');
       if (window._editingLoanId) loanRec._editingLoanId = window._editingLoanId;
       var upsertPromise = ClientBook.upsert(_quoteUser, formData.borrowerEmail,
         rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',
@@ -3170,10 +3179,12 @@ function saveCurrentQuote() {
       } else {
         console.warn('[SLA] RTL save: ClientBook.upsert did not return a promise:', upsertPromise);
       }
+    } else {
+      // No direct-IDs AND no email \u2014 nothing we can do at the loan-record
+      // level. Quote was still saved locally at the top of this function.
+      console.warn('[SLA] RTL save: no direct-IDs and no borrowerEmail \u2014 loan record NOT updated. Quote saved locally only.');
+      showToast('\u26a0 Loan record not saved \u2014 add borrower email to persist. (quote saved locally)');
     }
-  } else if (!formData.borrowerEmail) {
-    console.warn('[SLA] RTL save: no borrowerEmail, ClientBook upsert skipped');
-    showToast('\u2139 Note: no borrower email \u2014 quote saved locally only.');
   }
 
   // Prospect cleanup. The upsert above already wrote the loan via the
