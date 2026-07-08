@@ -3699,11 +3699,17 @@ netlifyIdentity.on('init', function(user) {
         // values override on a per-field basis whenever set so every
         // field on Loan Details flows into the sizer.
         var fd = Object.assign({}, found.formData || {});
+        // Deploy 236.250 — same DSCR fix in the RTL sizer. Baseline
+        // stores loan.loanType = "rtl" (product category); the RTL
+        // sizer's #loanType <select> is a TRACK picker (light /
+        // heavy / bridge / transactional). Blindly overwriting fd
+        // with the string "rtl" leaves the dropdown blank.
+        var RTL_LOAN_TYPE_OPTIONS = { 'light':1, 'heavy':1, 'bridge':1, 'transactional':1 };
         Object.keys(found).forEach(function(k) {
           if (k === 'formData' || k === 'loans') return;
-          if (found[k] !== undefined && found[k] !== null) {
-            fd[k] = found[k];
-          }
+          if (found[k] === undefined || found[k] === null) return;
+          if (k === 'loanType' && !RTL_LOAN_TYPE_OPTIONS[found[k]]) return;
+          fd[k] = found[k];
         });
         // Deploy 236.218 — same synthesis as dscr-sizer. When the
         // loan-financials-edit mirror never wrote _rateOverride /

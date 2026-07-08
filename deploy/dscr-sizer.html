@@ -3967,11 +3967,22 @@ netlifyIdentity.on('init', function(user) {
           //   • Previous merge took formData OR top-level whole; this
           //     fine-grained merge lets each field choose its source.
           var fd = Object.assign({}, found.formData || {});
+          // Deploy 236.250 — same guard the 236.239 overlay uses in
+          // applyLockedOverrideIfAnyDSCR, applied at THIS union-merge
+          // site too. Baseline-imported loans store loan.loanType =
+          // "dscr" / "rtl" (product category). This union merge copied
+          // that raw string straight into fd.loanType, and the DSCR
+          // sizer's #loanType <select> options are TERM STRUCTURE
+          // ("30Y Fixed", "10/6 ARM", "7/6 ARM", "5/6 ARM"). No match
+          // → dropdown paints blank → pricing lookup breaks.
+          var DSCR_LOAN_TYPE_OPTIONS = { '30Y Fixed':1, '10/6 ARM':1, '7/6 ARM':1, '5/6 ARM':1 };
           Object.keys(found).forEach(function(k) {
             if (k === 'formData' || k === 'loans') return; // skip wrappers
-            if (found[k] !== undefined && found[k] !== null) {
-              fd[k] = found[k];
-            }
+            if (found[k] === undefined || found[k] === null) return;
+            // Skip incompatible loanType values so the sizer default
+            // (or the formData's saved-quote value) is used instead.
+            if (k === 'loanType' && !DSCR_LOAN_TYPE_OPTIONS[found[k]]) return;
+            fd[k] = found[k];
           });
           // Deploy 236.218 — synthesize the rate/points override from
           // the canonical loan.rate / loan.points when the formData
