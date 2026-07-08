@@ -133,18 +133,12 @@
 var _user = null;
 var _isAdmin = false;
 
+// Matches the pattern used by profile.html — don't call
+// netlifyIdentity.init() (widget auto-inits) and don't try to open
+// a login modal from a page whose full-screen auth-gate would hide
+// it. If no session, bounce to / where the existing login lives.
 netlifyIdentity.on('init', function(user) {
-  if (user) onSignedIn(user);
-  else netlifyIdentity.open('login');
-});
-netlifyIdentity.on('login', function(user) {
-  netlifyIdentity.close();
-  onSignedIn(user);
-});
-netlifyIdentity.on('logout', function() { window.location.reload(); });
-netlifyIdentity.init();
-
-function onSignedIn(user) {
+  if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = window.SLA && SLA.isAdmin && SLA.isAdmin(user);
   if (!_isAdmin) {
@@ -156,7 +150,8 @@ function onSignedIn(user) {
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('app').style.display = '';
   loadUsers();
-}
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
 function setStatus(el, kind, msg) {
   el.className = 'status ' + kind;
