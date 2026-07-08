@@ -193,8 +193,12 @@
     .notes-input-wrap { margin-bottom: 12px; }
     .notes-input-wrap textarea { width: 100%; box-sizing: border-box; min-height: 70px; max-height: 240px; resize: vertical; border: 1.5px solid var(--border); border-radius: var(--r-xs); padding: 10px 12px; font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.5; }
     .notes-input-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-    .notes-input-row .btn-add { white-space: nowrap; padding: 10px 22px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; border-radius: var(--r-xs); border: none; cursor: pointer; background: var(--accent); color: #fff; }
-    .notes-input-row .btn-add:hover { background: var(--accent-dark); }
+    /* Deploy 236.248 — var(--accent) / var(--accent-dark) aren't defined
+       on this page (only --gold / --gold-mid), so the Add Note button
+       rendered transparent with white text — invisible. Match the
+       existing orange used everywhere else on the page. */
+    .notes-input-row .btn-add { white-space: nowrap; padding: 10px 22px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; border-radius: var(--r-xs); border: none; cursor: pointer; background: var(--gold); color: #fff; }
+    .notes-input-row .btn-add:hover { background: var(--gold-mid); }
     .notes-input-row .btn-add:disabled { opacity: 0.6; cursor: not-allowed; }
     .notes-jumpbar { display: flex; justify-content: flex-end; gap: 6px; margin: 0 0 8px; }
     .notes-jumpbar .btn-jump { padding: 6px 12px; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; border-radius: var(--r-xs); border: 1px solid var(--border); cursor: pointer; background: var(--surface); color: var(--muted); }
