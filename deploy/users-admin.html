@@ -78,8 +78,11 @@
 
 <div id="auth-gate">
   <div class="gate-msg">
-    <strong>Signing in…</strong>
-    Users admin is available to admins only.
+    <strong id="gateTitle">Signing in…</strong>
+    <div id="gateBody">Checking your session.</div>
+    <div id="gateActions" style="margin-top:16px;display:none">
+      <button type="button" onclick="netlifyIdentity.open('login')" style="padding:8px 20px;border-radius:6px;background:var(--gold);color:#fff;border:none;font-weight:600;cursor:pointer;font-family:inherit">Sign in</button>
+    </div>
   </div>
 </div>
 
@@ -133,25 +136,44 @@
 var _user = null;
 var _isAdmin = false;
 
-// Matches the pattern used by profile.html — don't call
-// netlifyIdentity.init() (widget auto-inits) and don't try to open
-// a login modal from a page whose full-screen auth-gate would hide
-// it. If no session, bounce to / where the existing login lives.
-netlifyIdentity.on('init', function(user) {
-  if (!user) { window.location.replace('/'); return; }
+// Auth flow (rev 236.244): keep the user on this page throughout.
+// No redirect. On init:
+//   - no user → show Sign In button that opens the widget modal
+//     inline; the on('login') handler below then admits them.
+//   - user but not admin → show a clear message with sign-out.
+//   - user + admin → hide gate, show app.
+// on('login') runs when the widget completes a login while we're
+// still on the page; we re-check admin and proceed accordingly.
+function _handleUser(user) {
+  var titleEl = document.getElementById('gateTitle');
+  var bodyEl  = document.getElementById('gateBody');
+  var actionsEl = document.getElementById('gateActions');
+  if (!user) {
+    titleEl.textContent = 'Sign in required';
+    bodyEl.textContent  = 'This page is admin-only. Sign in with your admin account to continue.';
+    actionsEl.style.display = '';
+    return;
+  }
   _user = user;
   _isAdmin = window.SLA && SLA.isAdmin && SLA.isAdmin(user);
+  var roles = (window.SLA && SLA.getRoles) ? SLA.getRoles(user) : [];
   if (!_isAdmin) {
-    document.getElementById('auth-gate').innerHTML =
-      '<div class="gate-msg"><strong>Admins only</strong>Signed in as ' +
-      (user.email || 'unknown') + ', but this page requires admin.</div>';
+    titleEl.textContent = 'Admins only';
+    bodyEl.innerHTML = 'Signed in as <strong>' + (user.email || 'unknown') + '</strong>' +
+      (roles && roles.length ? ' (role: ' + roles.join(', ') + ')' : ' (no role assigned)') +
+      ', but this page requires an admin role. Contact a super_admin to grant access.';
+    actionsEl.innerHTML = '<button type="button" onclick="netlifyIdentity.logout()" style="padding:8px 20px;border-radius:6px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.3);font-weight:600;cursor:pointer;font-family:inherit">Sign out</button>';
+    actionsEl.style.display = '';
     return;
   }
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('app').style.display = '';
   loadUsers();
-});
-netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+}
+
+netlifyIdentity.on('init',   function(user) { _handleUser(user); });
+netlifyIdentity.on('login',  function(user) { netlifyIdentity.close(); _handleUser(user); });
+netlifyIdentity.on('logout', function()      { _handleUser(null); });
 
 function setStatus(el, kind, msg) {
   el.className = 'status ' + kind;
