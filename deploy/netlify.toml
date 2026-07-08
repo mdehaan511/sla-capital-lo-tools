@@ -257,6 +257,19 @@
   status = 200
   force = true
 
+# Path A Phase 1 — Supabase user management (invite + list).
+[[redirects]]
+  from = "/api/users-invite-supabase"
+  to = "/.netlify/functions/users-invite-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users-list-supabase"
+  to = "/.netlify/functions/users-list-supabase"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/orphaned-quote-recover"
   to = "/.netlify/functions/orphaned-quote-recover"

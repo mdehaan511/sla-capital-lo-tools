@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Users Admin — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --success: #256940; --success-light: rgba(37,105,64,0.08);
+      --warn: #7a5218;
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; padding: 2rem; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+
+    .page { max-width: 1100px; margin: 0 auto; padding-top: 1rem; }
+    .page-header { margin-bottom: 1.25rem; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+
+    .grid { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1.25rem 1.5rem; }
+    .card h2 { font-family: 'Lora', serif; font-size: 16px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .card .card-sub { font-size: 12px; color: var(--muted); margin-bottom: 1rem; }
+
+    label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+    input[type="email"], input[type="text"], select {
+      width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 6px;
+      font-family: inherit; font-size: 13px; margin-bottom: 12px; background: #fff;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--gold); }
+
+    button { padding: 9px 16px; border-radius: 6px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1.5px solid; transition: all 0.15s; }
+    button.primary { background: var(--gold); color: #fff; border-color: var(--gold); }
+    button.primary:hover:not(:disabled) { filter: brightness(1.05); }
+    button.secondary { background: #fff; color: var(--dark); border-color: var(--border); }
+    button.secondary:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .status { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 12px; word-break: break-word; }
+    .status.ok   { background: var(--success-light); color: var(--success); border: 1px solid rgba(37,105,64,0.25); }
+    .status.err  { background: rgba(124,31,31,0.08); color: var(--danger);  border: 1px solid rgba(124,31,31,0.25); }
+    .status.warn { background: rgba(122,82,24,0.08); color: var(--warn);    border: 1px solid rgba(122,82,24,0.25); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); text-align: left; font-weight: 600; padding: 8px 10px; border-bottom: 1.5px solid var(--border); }
+    tbody td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #faf8f3; }
+    td.mono { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); }
+
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .pill.admin         { background: rgba(200,129,58,0.15); color: var(--gold-mid); }
+    .pill.loan_officer  { background: rgba(30,64,175,0.10); color: #1e40af; }
+    .pill.processor     { background: rgba(37,105,64,0.10); color: var(--success); }
+    .pill.none          { background: #f3efe4; color: var(--muted); }
+    .pill.pending       { background: rgba(122,82,24,0.10); color: var(--warn); }
+    .pill.confirmed     { background: rgba(37,105,64,0.10); color: var(--success); }
+
+    .empty { padding: 2rem; text-align: center; color: var(--muted); font-size: 13px; font-style: italic; }
+    .loading { padding: 1.5rem; text-align: center; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<div id="auth-gate">
+  <div class="gate-msg">
+    <strong>Signing in…</strong>
+    Users admin is available to admins only.
+  </div>
+</div>
+
+<div class="page" id="app" style="display:none">
+  <div class="page-header">
+    <h1>Users Admin</h1>
+    <p>Invite new users to the Supabase-backed auth. Roles are stamped at invite time. Netlify Identity users still work via the existing login; the two systems run in parallel until Phase 3.</p>
+  </div>
+
+  <div class="grid">
+    <!-- Invite form -->
+    <div class="card">
+      <h2>Invite a user</h2>
+      <div class="card-sub">Sends a magic-link email via Supabase (through your Resend SMTP). The invitee clicks the link, is signed in, and lands in the app with their role already stamped.</div>
+      <form onsubmit="return sendInvite(event)">
+        <label>Email</label>
+        <input type="email" id="inviteEmail" required placeholder="jane@slacapital.com" />
+
+        <label>Full name (optional)</label>
+        <input type="text" id="inviteFullName" placeholder="Jane Doe" />
+
+        <label>Role</label>
+        <select id="inviteRole">
+          <option value="loan_officer">Loan Officer</option>
+          <option value="processor">Processor</option>
+          <option value="admin">Admin</option>
+        </select>
+
+        <button type="submit" class="primary" id="inviteBtn">Send invite</button>
+        <div id="inviteStatus" class="status" style="display:none"></div>
+      </form>
+    </div>
+
+    <!-- Users list -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <h2 style="margin-bottom:0">Users</h2>
+          <div class="card-sub" id="usersCount" style="margin-bottom:0">Loading…</div>
+        </div>
+        <button class="secondary" onclick="loadUsers()">Refresh</button>
+      </div>
+      <div id="usersWrap">
+        <div class="loading">Loading users…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _user = null;
+var _isAdmin = false;
+
+netlifyIdentity.on('init', function(user) {
+  if (user) onSignedIn(user);
+  else netlifyIdentity.open('login');
+});
+netlifyIdentity.on('login', function(user) {
+  netlifyIdentity.close();
+  onSignedIn(user);
+});
+netlifyIdentity.on('logout', function() { window.location.reload(); });
+netlifyIdentity.init();
+
+function onSignedIn(user) {
+  _user = user;
+  _isAdmin = window.SLA && SLA.isAdmin && SLA.isAdmin(user);
+  if (!_isAdmin) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Admins only</strong>Signed in as ' +
+      (user.email || 'unknown') + ', but this page requires admin.</div>';
+    return;
+  }
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  loadUsers();
+}
+
+function setStatus(el, kind, msg) {
+  el.className = 'status ' + kind;
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+async function sendInvite(evt) {
+  evt.preventDefault();
+  var email    = document.getElementById('inviteEmail').value.trim();
+  var fullName = document.getElementById('inviteFullName').value.trim();
+  var role     = document.getElementById('inviteRole').value;
+  var statusEl = document.getElementById('inviteStatus');
+  var btn      = document.getElementById('inviteBtn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  statusEl.style.display = 'none';
+  try {
+    var r = await SLA.api('POST', '/api/users-invite-supabase', { email: email, fullName: fullName, role: role });
+    if (r && r.ok) {
+      var msg = 'Invited ' + email + ' as ' + role + '.';
+      if (r.roleStamped === false) msg += ' NOTE: role stamp failed (' + (r.roleError || 'unknown') + ') — reset via Refresh.';
+      setStatus(statusEl, r.roleStamped === false ? 'warn' : 'ok', msg);
+      document.getElementById('inviteEmail').value = '';
+      document.getElementById('inviteFullName').value = '';
+      loadUsers();
+    } else {
+      setStatus(statusEl, 'err', 'Failed: ' + ((r && r.error) || 'unknown'));
+    }
+  } catch (e) {
+    setStatus(statusEl, 'err', 'Failed: ' + (e && e.message || 'unknown'));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send invite';
+  }
+  return false;
+}
+
+async function loadUsers() {
+  var wrap = document.getElementById('usersWrap');
+  var count = document.getElementById('usersCount');
+  wrap.innerHTML = '<div class="loading">Loading users…</div>';
+  count.textContent = 'Loading…';
+  try {
+    var r = await SLA.api('GET', '/api/users-list-supabase');
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    var users = r.users || [];
+    count.textContent = users.length + ' user' + (users.length === 1 ? '' : 's');
+    if (!users.length) {
+      wrap.innerHTML = '<div class="empty">No users in Supabase yet. Invite someone above to get started.</div>';
+      return;
+    }
+    var rows = users.map(function(u) {
+      var rolePill = u.role
+        ? '<span class="pill ' + escAttr(u.role) + '">' + escH(u.role) + '</span>'
+        : '<span class="pill none">no role</span>';
+      var statusPill = u.confirmedAt
+        ? '<span class="pill confirmed">confirmed</span>'
+        : '<span class="pill pending">pending</span>';
+      var last = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString() : '—';
+      return '<tr>' +
+        '<td>' + escH(u.email) + (u.fullName ? '<div class="mono">' + escH(u.fullName) + '</div>' : '') + '</td>' +
+        '<td>' + rolePill + '</td>' +
+        '<td>' + statusPill + '</td>' +
+        '<td class="mono">' + escH(last) + '</td>' +
+        '<td class="mono">' + escH(u.id) + '</td>' +
+      '</tr>';
+    }).join('');
+    wrap.innerHTML =
+      '<table>' +
+        '<thead><tr>' +
+          '<th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Supabase ID</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>';
+  } catch (e) {
+    wrap.innerHTML = '<div class="status err">Failed to load users: ' + escH(e.message || 'unknown') + '</div>';
+    count.textContent = '';
+  }
+}
+
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s || '').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
