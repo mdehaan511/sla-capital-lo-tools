@@ -1006,7 +1006,21 @@
 [[headers]]
   for = "/*.html"
   [headers.values]
-    Cache-Control = "private, no-cache, must-revalidate"
+    # Deploy 236.260 (perf #1): let the browser cache HTML for 60s and
+    # revalidate after — huge in-session win since every LO
+    # navigation between Pipeline / Clients / Loan Details previously
+    # redownloaded ~100-160KB per page even when nothing had changed.
+    #
+    # Tradeoff: an LO who's mid-navigation during a deploy could see
+    # up to 60s of pre-deploy HTML before their next revalidation.
+    # Acceptable — deploys land quietly during work hours and the
+    # window is small.
+    #
+    # `private` = don't let any upstream CDN cache LO-specific pages.
+    # `must-revalidate` = once the 60s window is up, the browser MUST
+    # check with Netlify before serving stale (Netlify returns 304
+    # when nothing changed — near-instant).
+    Cache-Control = "private, max-age=60, must-revalidate"
 
 # Deploy 194 (perf): cache static JS/CSS aggressively in the browser.
 # These files change on each deploy (Netlify serves the latest build's

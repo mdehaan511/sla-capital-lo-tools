@@ -156,6 +156,21 @@
       opts = opts || {};
       var q = opts.all ? '?all=1' : '';
       var cacheKey = opts.all ? 'clients_all' : 'clients';
+      // Deploy 236.260 (perf #2) — SWR at the API layer. If we have a
+      // fresh cached response (within CACHE_TTL_MS = 5 min), resolve
+      // with it INSTANTLY and kick off a background refresh so the
+      // next call gets even fresher data. Pages navigating quickly
+      // between Pipeline / Clients / Loan Details no longer wait on
+      // a full network round-trip for the same clients list.
+      //
+      // Opt-out: pass { forceFresh: true } when you actually need
+      // a fresh network read (e.g. right after a mutation you're
+      // trying to verify).
+      var cached = cache.get(cacheKey);
+      if (cached && !opts.forceFresh) {
+        api('GET', '/api/clients' + q).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
+        return Promise.resolve(cached);
+      }
       return api('GET', '/api/clients' + q).then(function (r) {
         // Store the full response shape ({clients} or {byOwner}) so
         // listCached returns something usable directly.
@@ -410,6 +425,16 @@
       if (opts.slug) params.push('slug=' + encodeURIComponent(opts.slug));
       var qs = params.length ? '?' + params.join('&') : '';
       var cacheKey = opts.all ? 'prospects_all' : 'prospects';
+      // Deploy 236.260 (perf #2) — SWR at API layer. Same pattern as
+      // Clients.list. Skip caching when slug is passed (public form
+      // context, we don't want to share those responses).
+      if (!opts.slug) {
+        var cached = cache.get(cacheKey);
+        if (cached && !opts.forceFresh) {
+          api('GET', '/api/prospects' + qs).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
+          return Promise.resolve(cached);
+        }
+      }
       return api('GET', '/api/prospects' + qs).then(function (r) {
         if (!opts.slug) cache.set(cacheKey, r);
         return r;
@@ -481,6 +506,13 @@
       opts = opts || {};
       var q = opts.all ? '?all=1' : '';
       var cacheKey = opts.all ? 'quotes_all' : 'quotes';
+      // Deploy 236.260 (perf #2) — SWR at API layer. Same pattern as
+      // Clients.list. Return cached instantly + background refresh.
+      var cached = cache.get(cacheKey);
+      if (cached && !opts.forceFresh) {
+        api('GET', '/api/quotes' + q).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
+        return Promise.resolve(cached);
+      }
       return api('GET', '/api/quotes' + q).then(function (r) {
         cache.set(cacheKey, r);
         return r;
