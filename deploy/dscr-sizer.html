@@ -330,16 +330,16 @@
   </div>
 </div>
 
-<!-- Deploy 236.240 — Below 1.0 DSCR ack modal. Fires when the LO clicks
-     the "Allow DSCR < 1.0" button on the form. On confirm we mark the
-     loan as below-1.0 mode, treat it as an acknowledged pricing
-     override (so subsequent rate/points pencils skip the standard
-     warning), and drop the LO into the Note Rate override editor. -->
+<!-- Deploy 236.241 — Below-1.0 DSCR ack modal. Fires automatically
+     inside run() when calculate() returns a DSCR < 1.0 for a loan
+     that hasn't been acknowledged yet. Persistent flag on the quote
+     (formData._dscrBelow1) means reopening a manager-approved loan
+     doesn't re-fire the modal. -->
 <div class="ow-overlay" id="dscrBelow1Overlay">
   <div class="ow-modal">
-    <h3>⚠ Below-1.0 DSCR Requires Manager Approval</h3>
+    <h3>⚠ DSCR Below 1.0 — Manager Approval Required</h3>
     <div class="ow-body">
-      Loans with a DSCR below 1.0 can only be priced with manager approval. If you continue, the automatic rate + points calculation no longer applies — you'll manually enter both the Note Rate and the Origination Points that your manager approved. This flag is stored on the loan record.
+      The calculated DSCR for this loan is <strong id="dscrBelow1Value">below 1.0</strong>. Allowing DSCRs below 1.0 requires managerial approval, and the auto-calculated pricing no longer applies. You must manually enter the manager-approved <strong>Note Rate</strong> and <strong>Origination Points</strong>. Cancel returns to the form so you can adjust the inputs instead.
     </div>
     <div class="ow-actions">
       <button type="button" onclick="cancelDscrBelow1()">Cancel</button>
@@ -828,13 +828,6 @@ function getFICOMin(ficoStr) {
       <div class="computed-wrap span2">
         <label>DSCR &nbsp;<span style="font-weight:400;font-size:10px;color:var(--muted)">Rent &#247; (PI + Taxes + Insurance + HOA)</span></label>
         <span class="computed-val" id="dscrVal">&#8212;</span>
-        <!-- Deploy 236.240 — Below 1.0 DSCR shortcut. Fires the below-1.0
-             ack modal; on confirm, marks the loan as below-1.0 mode,
-             pre-authorizes the standard override warning, and opens the
-             Note Rate override input so the LO can enter the manager-
-             approved rate. Points can then be pencil-edited without a
-             second modal. -->
-        <button type="button" id="dscrBelow1Btn" onclick="requestDscrBelow1Ack()" style="margin-top:8px;padding:6px 12px;background:#faf8f3;border:1.5px solid rgba(133,77,14,0.35);color:#854d0e;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:0.02em">Allow DSCR &lt; 1.0 (Manager Approval)</button>
       </div>
 
       <div class="form-divider"></div>
@@ -1577,13 +1570,22 @@ function confirmOverrideAck() {
   if (field) _openOverrideInput(field);
 }
 
-// ── Deploy 236.240: Below 1.0 DSCR (manager-approved) ───────────
-// One-click path for the below-1.0 DSCR scenario. Fires the modal;
-// on confirm, marks the loan as below-1.0 mode, pre-acknowledges the
-// standard pricing override warning (subsequent pencils don't re-ask),
-// and opens the Note Rate override input. Points can then be edited
-// with a normal pencil click, no extra modal.
-function requestDscrBelow1Ack() {
+// ── Deploy 236.241: Below-1.0 DSCR ack (fired by run()) ──────────
+// Trigger lives inside run() — after calculate() returns, if the
+// resulting DSCR is < 1.0 AND this loan hasn't already been
+// acknowledged (window._dscrBelow1 is falsy), we fire the modal.
+// Cancel returns to the form untouched. Confirm marks the loan as
+// below-1.0, pre-authorizes the standard pricing override warning
+// (so the following rate/points pencils don't re-prompt), and drops
+// the LO straight into the Note Rate override input. Points can be
+// pencil-edited without a second modal.
+// Persistence: formData._dscrBelow1 saves alongside the quote so
+// reopening a manager-approved below-1.0 loan doesn't re-fire.
+function _showDscrBelow1Modal(dscrValue) {
+  var vEl = document.getElementById('dscrBelow1Value');
+  if (vEl && typeof dscrValue === 'number' && isFinite(dscrValue)) {
+    vEl.textContent = dscrValue.toFixed(2);
+  }
   var ov = document.getElementById('dscrBelow1Overlay');
   if (ov) ov.classList.add('open');
 }
@@ -1592,44 +1594,16 @@ function cancelDscrBelow1() {
   if (ov) ov.classList.remove('open');
 }
 function confirmDscrBelow1() {
-  // Persistent flag: saved with the quote so reopening keeps the state.
   window._dscrBelow1 = true;
-  // Pre-authorize the standard override warning modal so the LO isn't
-  // asked twice on the very next pencil click.
+  // Pre-authorize the standard override warning so the LO isn't
+  // asked twice — first the below-1.0 modal, then the standard
+  // override modal on the pencil click.
   window._dscrOverrides.warningAcknowledged = true;
-
   var ov = document.getElementById('dscrBelow1Overlay');
   if (ov) ov.classList.remove('open');
-
-  // Visually confirm the mode on the button so the LO sees state.
-  var btn = document.getElementById('dscrBelow1Btn');
-  if (btn) {
-    btn.textContent = '✓ DSCR < 1.0 — manager-approved pricing';
-    btn.style.background = 'rgba(21,128,61,0.10)';
-    btn.style.borderColor = 'rgba(21,128,61,0.35)';
-    btn.style.color = '#166534';
-    btn.disabled = true;
-    btn.style.cursor = 'default';
-  }
-
-  // Drop the LO straight into the Note Rate input; they can pencil
-  // Origination Points right after.
+  // Drop the LO straight into the Note Rate input; Origination
+  // Points is then a normal pencil click.
   _openOverrideInput('rate');
-}
-// Called at load time when reopening a saved below-1.0 loan so the
-// button reflects the persisted state without re-firing the modal.
-function _syncDscrBelow1ButtonFromState() {
-  if (!window._dscrBelow1) return;
-  var btn = document.getElementById('dscrBelow1Btn');
-  if (!btn) return;
-  btn.textContent = '✓ DSCR < 1.0 — manager-approved pricing';
-  btn.style.background = 'rgba(21,128,61,0.10)';
-  btn.style.borderColor = 'rgba(21,128,61,0.35)';
-  btn.style.color = '#166534';
-  btn.disabled = true;
-  btn.style.cursor = 'default';
-  // A persisted below-1.0 loan is already an acknowledged override.
-  window._dscrOverrides.warningAcknowledged = true;
 }
 
 function enableOverrideEdit(fieldKey) {
@@ -1917,6 +1891,20 @@ function run() {
   try { applyOverridesAndRender(); } catch (e) { console.warn('override render failed:', e); }
   // Toggle Save Quote button based on whether all required fields are filled
   toggleSaveButton();
+  // Deploy 236.241 — Below-1.0 DSCR ack. If the calculated DSCR is
+  // below 1.0 and this loan hasn't been acknowledged yet, fire the
+  // modal. Skip when: (a) previously acknowledged (window._dscrBelow1),
+  // (b) calc errored, (c) DSCR couldn't be computed (null/undefined),
+  // (d) LO already has a manual rate/points override active from a
+  // prior open (_dscrOverrides.rate/points already set — respect their
+  // in-progress state without re-prompting).
+  try {
+    var dscrN = r && typeof r.dscr === 'number' ? r.dscr : null;
+    var ovActive = window._dscrOverrides && (window._dscrOverrides.rate !== null || window._dscrOverrides.points !== null);
+    if (!window._dscrBelow1 && !ovActive && dscrN !== null && isFinite(dscrN) && dscrN < 1.0 && !r.error) {
+      _showDscrBelow1Modal(dscrN);
+    }
+  } catch (_) { /* non-fatal */ }
 }
 
 // Required fields gating Save Quote (#9). Email is recommended but not required;
@@ -3518,14 +3506,14 @@ function loadQuoteIntoForm(formData) {
       try { lockLoanFinancialFields(true); } catch (_) {}
     }
   }
-  // Deploy 236.240 — rehydrate the below-1.0 DSCR flag + button state
-  // from the saved quote so reopening a manager-approved below-1.0
-  // loan doesn't force the LO through the modal again.
+  // Deploy 236.241 — rehydrate the below-1.0 DSCR flag from the saved
+  // quote so reopening a manager-approved below-1.0 loan doesn't
+  // re-fire the modal when the sizer auto-runs calculate(). The
+  // saved _rateOverride / _pointsOverride will still round-trip via
+  // the standard override rehydration block above.
   if (formData._dscrBelow1) {
     window._dscrBelow1 = true;
-    if (typeof _syncDscrBelow1ButtonFromState === 'function') {
-      try { _syncDscrBelow1ButtonFromState(); } catch (_) {}
-    }
+    window._dscrOverrides.warningAcknowledged = true;
   }
   // Re-format the phone (could have been saved without formatting in
   // older quotes, or pulled from the client record which may store raw
