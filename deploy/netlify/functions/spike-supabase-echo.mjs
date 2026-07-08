@@ -42,18 +42,20 @@ export default async (req) => {
   const cors = _cors(req);
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
+  const hasUrl    = !!process.env.SUPABASE_URL;
   const hasSecret = !!process.env.SUPABASE_JWT_SECRET;
-  const user = requireSupabaseAuth(req);
+  const user = await requireSupabaseAuth(req);
 
   if (!user) {
     return _json(401, {
       ok: false,
-      error: hasSecret
-        ? 'Invalid or missing Supabase JWT. Confirm Authorization: Bearer <token> is set and the token was issued by this Supabase project.'
-        : 'SUPABASE_JWT_SECRET env var is not set on Netlify. The verifier cannot check signatures until it is.',
+      error: !hasUrl
+        ? 'SUPABASE_URL is not set on Netlify. Asymmetric verification (ES256/RS256) needs it to derive the JWKS endpoint.'
+        : 'Invalid or missing Supabase JWT. Confirm Authorization: Bearer <token> is set, the token was issued by this Supabase project, and its `kid` matches a key in ' + process.env.SUPABASE_URL + '/auth/v1/.well-known/jwks.json.',
       runtime: {
-        node_version: process.version,
-        has_secret:   hasSecret,
+        node_version:   process.version,
+        has_url:        hasUrl,
+        has_hs256_secret: hasSecret,
       },
     }, cors);
   }
@@ -70,8 +72,9 @@ export default async (req) => {
       iat:           user.iat,
     },
     runtime: {
-      node_version: process.version,
-      has_secret:   true,
+      node_version:   process.version,
+      has_url:        true,
+      has_hs256_secret: hasSecret,
     },
   }, cors);
 };
