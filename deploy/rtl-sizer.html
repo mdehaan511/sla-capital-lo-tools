@@ -7,6 +7,7 @@
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="sla-api.js"></script>
+<script src="sla-nav.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
 <script src="quotes.js"></script>
@@ -405,24 +406,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
   </div>
 </div>
 
-<nav class="nav">
-  
-  <div class="nav-left">
-    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
-    <a href="index.html" class="nav-tools-btn">Tools</a></div>
-  <div class="nav-right">
-    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" href="brokers.html">Brokers</a>
-    <a class="nav-tool-link" href="loans.html">Loans</a>
-    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
-    <a class="nav-tool-link" href="profile.html">Profile</a>
-
-    <span class="date-pill" id="datePill"></span>
-
-    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
-  </div>
-</nav>
+<!-- Deploy 236.259 — shared sla-nav placeholder (see dscr-sizer.html
+     for the full rationale — same change). -->
+<nav class="nav" id="slaNav"></nav>
 
 <div id="quotesPanelWrap" style="max-width:1120px;margin:1.25rem auto 0;padding:0 1rem"></div>
 
@@ -3548,12 +3534,8 @@ netlifyIdentity.on('init', function(user) {
     // BrokerPicker.restore(loan.brokerId) after they paint the inline
     // fields so the binding chip shows on reload.
     try { if (window.BrokerPicker) window.BrokerPicker.init('brokerFields'); } catch (_) {}
-    var navAdmin = document.getElementById('navAdminLink');
-    if (navAdmin) {
-      var roles = (user.app_metadata && user.app_metadata.roles) || [];
-      if (typeof roles === 'string') roles = [roles];
-      if (roles.some(function(r){return r==='admin'||r==='super_admin';})) navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
-    }
+    // Deploy 236.259 — sla-nav.js handles admin/super_admin gating
+    // on the shared navbar; nothing to do per-page.
     var urlParams = new URLSearchParams(window.location.search);
     var loadAddr     = urlParams.get('loadQuote');
     var clientIdP    = urlParams.get('clientId');
@@ -4131,7 +4113,10 @@ netlifyIdentity.on('init', function(user) {
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
 // ── Init ─────────────────────────────────────────────────────
-document.getElementById('datePill').textContent = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+// Deploy 236.259 — datePill lived in the old hand-rolled navbar
+// which the shared sla-nav replaced. Guard so its absence isn't a
+// TypeError on load.
+(function(){ var el = document.getElementById('datePill'); if (el) el.textContent = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); })();
 toggleRehab();
 
 // ── RTL Rate Sheet PDF ────────────────────────────────────────
