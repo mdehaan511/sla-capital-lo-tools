@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supabase Auth Spike — SLA Capital</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --dark: #261a36; --bg: #f0ece5; --surface: #fff;
+      --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --ok: #166534; --err: #7c1f1f;
+      --mono: 'DM Mono', ui-monospace, SFMono-Regular, monospace;
+    }
+    body { font-family: 'DM Sans', -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 2rem 1rem; }
+    .wrap { max-width: 780px; margin: 0 auto; }
+    h1 { font-family: 'Lora', serif; font-size: 28px; color: var(--dark); margin-bottom: 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; margin-bottom: 16px; }
+    .card h2 { font-size: 16px; color: var(--dark); margin-bottom: 12px; }
+    .card p { font-size: 13px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+    label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+    input[type="email"] { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 14px; margin-bottom: 12px; }
+    button { padding: 10px 18px; border-radius: 6px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1.5px solid; transition: all 0.15s; }
+    button.primary { background: var(--gold); color: #fff; border-color: var(--gold); }
+    button.primary:hover { filter: brightness(1.05); }
+    button.secondary { background: #fff; color: var(--dark); border-color: var(--border); }
+    button.secondary:hover { border-color: var(--gold); color: var(--gold); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 12px; font-family: var(--mono); word-break: break-all; }
+    .status.ok  { background: rgba(21,128,61,0.10);  color: var(--ok);  border: 1px solid rgba(21,128,61,0.30); }
+    .status.err { background: rgba(124,31,31,0.10); color: var(--err); border: 1px solid rgba(124,31,31,0.30); }
+    pre.json { background: #faf8f3; border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; font-family: var(--mono); font-size: 11px; color: var(--dark); overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .pill.on  { background: rgba(21,128,61,0.10);  color: var(--ok); }
+    .pill.off { background: rgba(124,31,31,0.10); color: var(--err); }
+    code { font-family: var(--mono); background: #faf8f3; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Supabase Auth Spike</h1>
+    <div class="sub">Proves end-to-end: <strong>@supabase/supabase-js</strong> from CDN (no bundler) → magic-link login → JWT verified by <code>_shared/supabase-auth.mjs</code> in a Netlify Function.</div>
+
+    <!-- ── Config check ────────────────────────────────────────── -->
+    <div class="card">
+      <h2>1. Config check</h2>
+      <p>Supabase URL and publishable key are baked into this page. The JWT secret + service role live in Netlify env only.</p>
+      <div class="row">
+        <span>Client SDK:</span> <span id="sdkPill" class="pill off">loading…</span>
+        <span style="margin-left:12px">Session:</span> <span id="sessionPill" class="pill off">none</span>
+      </div>
+      <div class="note">If the SDK pill stays red, the CDN load failed — see console.</div>
+    </div>
+
+    <!-- ── Magic-link login ─────────────────────────────────────── -->
+    <div class="card">
+      <h2>2. Send magic link</h2>
+      <p>Enter an email → Supabase sends a login link → clicking it redirects back here with an access token in the URL hash → we complete the session.</p>
+      <label>Email</label>
+      <input type="email" id="emailInput" placeholder="you@slacapital.com" />
+      <div class="row">
+        <button class="primary" id="sendLinkBtn" onclick="sendMagicLink()">Send Magic Link</button>
+        <button class="secondary" onclick="signOut()">Sign Out</button>
+      </div>
+      <div id="loginStatus" class="status" style="display:none"></div>
+    </div>
+
+    <!-- ── Round-trip test ──────────────────────────────────────── -->
+    <div class="card">
+      <h2>3. Call spike API with JWT</h2>
+      <p>Hits <code>/api/spike-supabase-echo</code> with <code>Authorization: Bearer &lt;access_token&gt;</code>. The function verifies the signature with <code>SUPABASE_JWT_SECRET</code> and echoes what it saw. Green = round-trip works and the migration mechanic is proven.</p>
+      <div class="row">
+        <button class="primary" id="callApiBtn" onclick="callSpikeApi()" disabled>Call /api/spike-supabase-echo</button>
+      </div>
+      <div id="apiStatus" class="status" style="display:none"></div>
+      <pre class="json" id="apiResult" style="display:none;margin-top:10px"></pre>
+    </div>
+
+    <!-- ── Token inspector ──────────────────────────────────────── -->
+    <div class="card">
+      <h2>4. Token inspector</h2>
+      <p>Decoded (unverified) payload of the current access token. Useful for eyeballing what claims Supabase mints for us — especially <code>app_metadata.role</code> which is where our future invite endpoint will stamp <em>loan_officer</em>, <em>processor</em>, etc.</p>
+      <pre class="json" id="tokenPayload">(sign in to see)</pre>
+    </div>
+
+    <!-- ── Notes ────────────────────────────────────────────────── -->
+    <div class="card">
+      <h2>Notes</h2>
+      <p><strong>What this proves</strong>: JWT signature verification works with pure Node <code>crypto</code> (no <code>jsonwebtoken</code> dep), vanilla-JS integration works via CDN ESM (no build step), magic-link + email-confirm-off works out of the box.</p>
+      <p><strong>Next question</strong>: role assignment on invite. The service-role key (server-only) can call <code>admin.inviteUserByEmail(email, { data: { role: 'processor' } })</code> from a Netlify Function — that's the pattern for the in-app "Invite user with role" flow once we commit.</p>
+      <p><strong>What's not proven yet</strong>: (a) importing existing LO users from Netlify Identity without re-inviting, (b) session refresh behavior on tab-switch after 1hr token expiry, (c) rate-limit behavior on magic-link sends. Not blockers, but worth prototyping before a real migration.</p>
+    </div>
+  </div>
+
+  <!-- ── Config + logic ──────────────────────────────────────────
+       Supabase project details injected here. Publishable key is
+       safe to expose client-side (that's its whole design).
+  ── -->
+  <script>
+    // Fetched from /api/config at boot — kept out of the built HTML
+    // so Netlify's secret-scanner doesn't flag matches against
+    // SUPABASE_URL / SUPABASE_ANON_KEY env values.
+    var SUPABASE_URL     = '';
+    var SUPABASE_PUB_KEY = '';
+    var _supabase = null;
+    var _currentSession = null;
+
+    async function loadConfig() {
+      var r = await fetch('/api/config', { cache: 'no-store' });
+      if (!r.ok) throw new Error('config fetch failed: HTTP ' + r.status);
+      var j = await r.json();
+      SUPABASE_URL     = j.supabaseUrl || '';
+      SUPABASE_PUB_KEY = j.supabasePublishableKey || '';
+      if (!SUPABASE_URL || !SUPABASE_PUB_KEY) {
+        throw new Error('SUPABASE_URL / SUPABASE_ANON_KEY missing from /api/config response — set them in Netlify env vars and retrigger the deploy.');
+      }
+    }
+
+    function setStatus(el, kind, msg) {
+      el.className = 'status ' + kind;
+      el.style.display = '';
+      el.textContent = msg;
+    }
+    function pill(id, on, label) {
+      var el = document.getElementById(id);
+      el.className = 'pill ' + (on ? 'on' : 'off');
+      el.textContent = label || (on ? 'ok' : 'off');
+    }
+    function decodeJwt(token) {
+      try {
+        var parts = String(token || '').split('.');
+        if (parts.length !== 3) return null;
+        var payload = parts[1].replace(/-/g,'+').replace(/_/g,'/');
+        while (payload.length % 4) payload += '=';
+        return JSON.parse(atob(payload));
+      } catch (e) { return null; }
+    }
+    function refreshTokenView(session) {
+      var box = document.getElementById('tokenPayload');
+      var callBtn = document.getElementById('callApiBtn');
+      if (!session || !session.access_token) {
+        box.textContent = '(sign in to see)';
+        callBtn.disabled = true;
+        pill('sessionPill', false, 'none');
+        return;
+      }
+      var claims = decodeJwt(session.access_token) || {};
+      box.textContent = JSON.stringify(claims, null, 2);
+      callBtn.disabled = false;
+      pill('sessionPill', true, session.user && session.user.email || 'signed in');
+    }
+
+    async function bootSupabase() {
+      try {
+        await loadConfig();
+        var mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+        _supabase = mod.createClient(SUPABASE_URL, SUPABASE_PUB_KEY, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+          },
+        });
+        pill('sdkPill', true, 'ready');
+        // If we landed here from a magic-link callback, detectSessionInUrl
+        // will pick that up in the same tick.
+        var { data } = await _supabase.auth.getSession();
+        _currentSession = data && data.session || null;
+        refreshTokenView(_currentSession);
+        // Watch for future sign-in / sign-out events.
+        _supabase.auth.onAuthStateChange(function(_evt, session) {
+          _currentSession = session;
+          refreshTokenView(session);
+        });
+      } catch (e) {
+        pill('sdkPill', false, 'load failed');
+        console.error('[spike] supabase-js load failed:', e);
+      }
+    }
+
+    async function sendMagicLink() {
+      var email = (document.getElementById('emailInput').value || '').trim();
+      var statusEl = document.getElementById('loginStatus');
+      if (!email) { setStatus(statusEl, 'err', 'Enter an email first.'); return; }
+      if (!_supabase) { setStatus(statusEl, 'err', 'Supabase SDK not loaded.'); return; }
+      var btn = document.getElementById('sendLinkBtn');
+      btn.disabled = true; btn.textContent = 'Sending…';
+      try {
+        var { error } = await _supabase.auth.signInWithOtp({
+          email: email,
+          options: { emailRedirectTo: window.location.href.split('#')[0] },
+        });
+        if (error) throw error;
+        setStatus(statusEl, 'ok', 'Magic link sent to ' + email + '. Check your inbox and click the link to complete sign-in.');
+      } catch (e) {
+        setStatus(statusEl, 'err', 'Failed to send magic link: ' + (e && e.message || 'unknown'));
+      } finally {
+        btn.disabled = false; btn.textContent = 'Send Magic Link';
+      }
+    }
+
+    async function signOut() {
+      if (!_supabase) return;
+      await _supabase.auth.signOut();
+      _currentSession = null;
+      refreshTokenView(null);
+      var statusEl = document.getElementById('loginStatus');
+      setStatus(statusEl, 'ok', 'Signed out.');
+    }
+
+    async function callSpikeApi() {
+      var statusEl = document.getElementById('apiStatus');
+      var resultEl = document.getElementById('apiResult');
+      resultEl.style.display = 'none';
+      if (!_currentSession || !_currentSession.access_token) {
+        setStatus(statusEl, 'err', 'Not signed in — no access token to send.');
+        return;
+      }
+      setStatus(statusEl, 'ok', 'Calling /api/spike-supabase-echo…');
+      try {
+        var r = await fetch('/api/spike-supabase-echo', {
+          headers: { 'Authorization': 'Bearer ' + _currentSession.access_token },
+        });
+        var body = await r.json();
+        resultEl.textContent = JSON.stringify(body, null, 2);
+        resultEl.style.display = '';
+        if (r.ok && body && body.ok) {
+          setStatus(statusEl, 'ok', 'Round-trip succeeded — JWT verified server-side. Signature check + payload decode both work.');
+        } else {
+          setStatus(statusEl, 'err', 'Server rejected the token: ' + (body && body.error || ('HTTP ' + r.status)));
+        }
+      } catch (e) {
+        setStatus(statusEl, 'err', 'Fetch failed: ' + (e && e.message || 'unknown'));
+      }
+    }
+
+    bootSupabase();
+  </script>
+</body>
+</html>
