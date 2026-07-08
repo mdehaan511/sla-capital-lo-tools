@@ -264,6 +264,21 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .override-notice .nm-text { color: var(--gold-mid); font-weight: 600; }
 .override-notice .nm-text small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; margin-top: 2px; }
 .override-notice .nm-restore { background: var(--gold); color: #fff; border: 0; border-radius: 4px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; flex-shrink: 0; }
+
+/* Deploy 236.258 — Sizer History panel (mirrors DSCR 236.255) */
+.sizer-history-panel { margin: 12px 1.75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); overflow: hidden; }
+.sizer-history-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 10px 14px; background: transparent; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; color: var(--dark); text-align: left; }
+.sizer-history-toggle:hover { background: rgba(120,116,136,0.04); }
+.sizer-history-toggle[data-open="1"] .sizer-history-toggle-label { color: var(--gold-mid); }
+.sizer-history-toggle[data-open="1"] #sizerHistoryChevron { transform: rotate(180deg); }
+.sizer-history-body { border-top: 1px solid var(--border); background: #faf8f3; }
+.sizer-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sizer-history-table thead th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1.5px solid var(--border); text-align: left; }
+.sizer-history-table tbody td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.sizer-history-table tbody tr:last-child td { border-bottom: none; }
+.sizer-history-table tbody tr { cursor: pointer; transition: background 0.1s; }
+.sizer-history-table tbody tr:hover { background: rgba(200,129,58,0.06); }
+.sizer-history-empty { padding: 1rem 1.25rem; text-align: center; color: var(--muted); font-size: 12px; font-style: italic; }
 .override-notice .nm-restore:hover { background: var(--gold-mid); }
 /* Lock styling on loan/financial fields while override is active */
 .override-locked { background: rgba(120,116,136,0.08) !important; cursor: not-allowed !important; opacity: 0.65; }
@@ -699,6 +714,27 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
     </div><!-- /form-body -->
 
     <button class="submit-btn" onclick="runCalculate()">Calculate Pricing →</button>
+
+    <!-- Deploy 236.258 — Sizer History panel (mirrors DSCR 236.255-257).
+         RTL variant drops the Prepayment column since RTL loans don't
+         have prepayment penalties. Columns: Saved / Loan Amount /
+         Rate / Points. Same click-to-restore mechanic. -->
+    <div id="sizerHistoryPanel" class="sizer-history-panel" style="display:none">
+      <button type="button" class="sizer-history-toggle" onclick="toggleSizerHistory()">
+        <span class="sizer-history-toggle-label">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px;margin-right:6px">
+            <path d="M6 3v3l2 2M11 6a5 5 0 11-10 0 5 5 0 0110 0z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Sizer History <span id="sizerHistoryCount" style="color:var(--muted);font-weight:400;margin-left:4px"></span>
+        </span>
+        <svg id="sizerHistoryChevron" width="10" height="10" viewBox="0 0 10 10" fill="none" style="transition:transform 0.18s">
+          <path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div id="sizerHistoryBody" class="sizer-history-body" style="display:none">
+        <div id="sizerHistoryTable"></div>
+      </div>
+    </div>
   </div><!-- /input-card -->
 
   <!-- ── RESULTS COLUMN ──────────────────────────────────── -->
@@ -1789,6 +1825,98 @@ function autoCalc() {
   if (typeof toggleSaveButton === 'function') toggleSaveButton();
   if (!_resultsShown) return;
   runCalculate();
+}
+
+// ── Deploy 236.258: Sizer History panel (RTL) ─────────────────────
+// Mirrors DSCR 236.255-257 but with no Prepayment column (RTL loans
+// don't have prepayment penalties). Columns: Saved / Loan Amount /
+// Rate / Points. Every save banks a snapshot server-side; click any
+// row to fully restore the sizer to that saved state.
+window._sizerHistory = null;
+
+function _shEscH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function paintSizerHistory(history) {
+  window._sizerHistory = Array.isArray(history) ? history : [];
+  var panel = document.getElementById('sizerHistoryPanel');
+  var countEl = document.getElementById('sizerHistoryCount');
+  var tableEl = document.getElementById('sizerHistoryTable');
+  if (!panel || !tableEl) return;
+  if (!window._editingLoanId) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  var n = window._sizerHistory.length;
+  if (countEl) countEl.textContent = n ? '(' + n + ')' : '(0)';
+  if (!n) {
+    tableEl.innerHTML = '<div class="sizer-history-empty">No prior sizer saves for this loan yet. Save one to start banking history.</div>';
+    return;
+  }
+  var rows = window._sizerHistory.map(function(h, i) {
+    var savedAt = h && h.savedAt ? new Date(h.savedAt) : null;
+    var dateStr = savedAt ? savedAt.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+    var amt = h && h.loanAmt ? '$' + Math.round(parseFloat(String(h.loanAmt).replace(/[$,]/g, ''))).toLocaleString() : '—';
+    var rate = h && h.rate ? String(h.rate) + '%' : '—';
+    var points = h && h.points ? String(h.points) : '—';
+    return '<tr onclick="restoreSizerHistory(' + i + ')" title="Click to restore this snapshot">' +
+      '<td>' + _shEscH(dateStr) + '</td>' +
+      '<td>' + _shEscH(amt) + '</td>' +
+      '<td>' + _shEscH(rate) + '</td>' +
+      '<td>' + _shEscH(points) + '</td>' +
+    '</tr>';
+  }).join('');
+  tableEl.innerHTML =
+    '<table class="sizer-history-table">' +
+      '<thead><tr>' +
+        '<th>Saved</th><th>Loan Amount</th><th>Rate</th><th>Points</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+}
+
+function toggleSizerHistory() {
+  var body = document.getElementById('sizerHistoryBody');
+  var btn  = document.querySelector('.sizer-history-toggle');
+  if (!body) return;
+  var isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (btn) btn.setAttribute('data-open', isOpen ? '0' : '1');
+}
+
+function restoreSizerHistory(idx) {
+  var hist = window._sizerHistory || [];
+  var entry = hist[idx];
+  if (!entry) return;
+  var when = entry.savedAt ? new Date(entry.savedAt).toLocaleString() : 'this snapshot';
+  if (!confirm('Restore the sizer state from ' + when + '?\n\nAny unsaved changes to the current sizer will be lost. Click Calculate Pricing or Save after restoring to persist.')) return;
+  var fd = entry.formData || {};
+  // Same field-id mapping as DSCR — RTL uses borrowerName + propAddress
+  // as the form input ids where formData uses `borrower` / `address`
+  // in some places. Also RTL has slightly different fields but they
+  // all use direct id matches (purchasePrice, rehabBudget, arv,
+  // experience, brokerFee, brokerName, ...) so no extra mapping needed.
+  var FORMDATA_KEY_TO_DOM_ID = {
+    borrower: 'borrowerName',
+    address:  'propAddress',
+  };
+  try {
+    Object.keys(fd).forEach(function(k) {
+      var domId = FORMDATA_KEY_TO_DOM_ID[k] || k;
+      var el = document.getElementById(domId);
+      if (!el) return;
+      if (fd[k] == null) return;
+      el.value = fd[k];
+    });
+    // Restore override state so pricing repaints exactly as saved.
+    window._rtlOverrides = window._rtlOverrides || { rate: null, points: null, dp: null, warningAcknowledged: false };
+    window._rtlOverrides.rate   = (fd._rateOverride   && !isNaN(parseFloat(fd._rateOverride)))   ? parseFloat(fd._rateOverride)   : null;
+    window._rtlOverrides.points = (fd._pointsOverride && !isNaN(parseFloat(fd._pointsOverride))) ? parseFloat(fd._pointsOverride) : null;
+    window._rtlOverrides.dp     = (fd._dpOverride     && !isNaN(parseFloat(fd._dpOverride)))     ? parseFloat(fd._dpOverride)     : null;
+    window._rtlOverrides.warningAcknowledged = true;
+  } catch (e) { console.warn('[SLA] RTL sizer-history restore: field populate failed:', e); }
+  try { runCalculate(); } catch (_) {}
+  showToast('Restored sizer state from ' + when + '. Save to persist as a new entry.');
+  var body = document.getElementById('sizerHistoryBody');
+  var btn  = document.querySelector('.sizer-history-toggle');
+  if (body && body.style.display !== 'none') { body.style.display = 'none'; if (btn) btn.setAttribute('data-open', '0'); }
 }
 
 // Wrapper for calculate() that surfaces errors visibly. Used by both the
@@ -3103,6 +3231,11 @@ function saveCurrentQuote() {
   // an email. See dscr-sizer.html for the full rationale \u2014 same fix.
   if (window.ClientBook) {
     var loanRec = ClientBook.buildLoanFromSizer('rtl', formData.address, formData, 'active');
+    // Deploy 236.258 — same _sizerFormData attach as DSCR 236.257.
+    // Lets the backend snapshot the raw formData verbatim into
+    // sizerHistory[] so the History panel's restore can rehydrate
+    // every input the LO had set, not just a pricing subset.
+    loanRec._sizerFormData = formData;
     var rNameParts = (formData.borrowerName || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRec._originalAddress = window._originalAddress;
@@ -3110,6 +3243,16 @@ function saveCurrentQuote() {
 
     function handleSaveSuccess(resp) {
       window._originalAddress = formData.address;
+      // Deploy 236.258 — refresh the sizer-history panel from the
+      // freshly-persisted loan record so a new save shows up in the
+      // table without a page reload.
+      try {
+        var _lHist = resp && (
+          (resp.loan   && resp.loan.sizerHistory) ||
+          (resp.client && Array.isArray(resp.client.loans) && resp.client.loans.find(function(l){return l && l.id === window._editingLoanId;}) || {}).sizerHistory
+        );
+        if (Array.isArray(_lHist)) paintSizerHistory(_lHist);
+      } catch (_) {}
       // Deploy 236.51 — backfill the newly created loanId onto the
       // QuoteStore quote so Pipeline canonical dedup resolves correctly
       // (see dscr-sizer.html for the full rationale — same fix shape).
@@ -3828,6 +3971,9 @@ netlifyIdentity.on('init', function(user) {
         // adopts the right initial bucket on save (see dscr-sizer.html
         // for the full rationale).
         window._editingLoanStatus = found.status || '';
+        // Deploy 236.258 — paint the sizer-history panel from the
+        // loan's stored history array. Mirrors DSCR 236.255.
+        try { paintSizerHistory(found.sizerHistory || []); } catch (_) {}
         // Deploy 236.47 — stash pricing snapshot so the auto-download
         // rate sheet honors the saved pricing on the loan record.
         // _synthRtlSnapFromFD covers older loans that pre-date the
