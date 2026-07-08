@@ -179,7 +179,13 @@ function render() {
           '<input type="text" id="f_fico" value="' + escA(g.fico) + '" placeholder="e.g. 740" required /></div>' +
       '</div>' +
       '<div class="field"><label>Social Security Number <span class="req">*</span></label>' +
-        '<input type="text" id="f_ssn" data-sla-mask="ssn" placeholder="XXX-XX-XXXX" />' +
+        // Deploy 236.247 — SSN input now has value= attr so re-render
+        // (fired by any onchange="_saveAndRender()" like the twoYear /
+        // mailSame radios) doesn't wipe what the user just typed.
+        // Preserves through in-memory STATE only; the info endpoint
+        // never sends the actual SSN back, so a fresh page load still
+        // starts with an empty box.
+        '<input type="text" id="f_ssn" data-sla-mask="ssn" placeholder="XXX-XX-XXXX" value="' + escA(g.ssn || '') + '" />' +
         '<div class="hint">Securely encrypted at rest. Used only on your loan application document.</div>' +
       '</div>' +
       '<div class="field-row">' +
@@ -354,7 +360,10 @@ function _collect() {
     phone:     v('f_phone'),
     dob:       v('f_dob'),
     fico:      v('f_fico'),
-    ssn_enc:   v('f_ssn'),     // server should encrypt; placeholder for now
+    // Deploy 236.247 — key as `ssn` (plaintext-ish, mask-formatted).
+    // Server encrypts on receipt. Previous name `ssn_enc` was
+    // misleading — this is never actually encrypted client-side.
+    ssn:       v('f_ssn'),
     flips:     v('f_flips'),
     rentals:   v('f_rentals'),
     maritalStatus: r('marital'),

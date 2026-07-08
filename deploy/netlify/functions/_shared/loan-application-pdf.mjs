@@ -671,10 +671,39 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         // g1Ownership at the top level — fall back to those for any
         // pre-Deploy-182 records.
         // Deploy 236.148 — extended to all 4 guarantors.
-        const g0Own = (g0 && g0.ownership) || data.g0Ownership || '';
-        const g1Own = (g1 && g1.ownership) || data.g1Ownership || '';
-        const g2Own = (g2 && g2.ownership) || '';
-        const g3Own = (g3 && g3.ownership) || '';
+        //
+        // Deploy 236.247 — LO-set LLC ownership on the Guarantors tab
+        // is now the source of truth. Prior code read `g.ownership`
+        // (the number each guarantor typed on their own long-app or
+        // sub-form) and the four numbers routinely didn't add to
+        // 100% or reflect the LO's negotiated split. The loan
+        // record's `guarantorOwnership` map is keyed by client id
+        // and edited via the Guarantors tab.
+        //
+        // Slots 2/3 already get this override at flatten time via
+        // guarantor-synth.mjs, but slots 0/1 come from the
+        // borrower_info snapshot and were never re-flattened. Overlay
+        // for all four so nothing depends on the earlier stage.
+        const _ownMap  = (loanRec && loanRec.guarantorOwnership) || {};
+        const _addlIds = (loanRec && Array.isArray(loanRec.guarantorClientIds))
+                          ? loanRec.guarantorClientIds : [];
+        // Slot 0 always maps to the primary borrower's client id.
+        const _g0Id = (client && client.id) || (record && record.clientId) || '';
+        // Slots 1-3: prefer an id carried on the guarantor object
+        // (guarantor-synth stamps this on the flattened record), fall
+        // back to positional lookup in loan.guarantorClientIds.
+        const _idFor = (g, addlIdx) =>
+          (g && (g.id || g.clientId)) || _addlIds[addlIdx] || '';
+        const g0Own = (_g0Id && _ownMap[_g0Id])
+                     || (g0 && g0.ownership)
+                     || data.g0Ownership || '';
+        const g1Own = _ownMap[_idFor(g1, 0)]
+                     || (g1 && g1.ownership)
+                     || data.g1Ownership || '';
+        const g2Own = _ownMap[_idFor(g2, 1)]
+                     || (g2 && g2.ownership) || '';
+        const g3Own = _ownMap[_idFor(g3, 2)]
+                     || (g3 && g3.ownership) || '';
         row('Guarantor 1 % Ownership', g0Own ? `${g0Own}%` : '');
         if (g1) row('Guarantor 2 % Ownership', g1Own ? `${g1Own}%` : '');
         if (g2) row('Guarantor 3 % Ownership', g2Own ? `${g2Own}%` : '');

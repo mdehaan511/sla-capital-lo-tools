@@ -100,6 +100,14 @@ async function handle(req) {
   // page predates this fix and still uses ssn_enc). Strip the
   // mask formatting, encrypt with the SSN_ENCRYPTION_KEY-derived
   // key, store as ciphertext on guarantor.ssn_enc.
+  // Deploy 236.247 — REMOVED the "explicit clear on empty" branch.
+  // The old branch wiped any existing ssn_enc whenever fields.ssn
+  // came in empty. Combined with the sub-form's SSN input having no
+  // value= attr, every re-render (fired by twoYear / mailSame radio
+  // clicks) cleared the visible SSN and the next save wiped it from
+  // the client record — so LOs kept having to call guarantors to
+  // re-collect it. Now: only WRITE a new SSN when 9 digits are
+  // present; empty or partial input is ignored.
   const rawSsn = fields.ssn != null ? fields.ssn : fields.ssn_enc;
   if (rawSsn != null) {
     const digits = String(rawSsn).replace(/\D/g, '');
@@ -107,20 +115,12 @@ async function handle(req) {
       const enc = encryptField(digits);
       if (enc && guarantor.ssn_enc !== enc) {
         guarantor.ssn_enc = enc;
-        // Also stash the masked form for at-a-glance display.
         guarantor.ssnLast4 = digits.slice(-4);
         changed = true;
       }
-    } else if (digits.length === 0) {
-      // Explicit clear.
-      if (guarantor.ssn_enc) {
-        delete guarantor.ssn_enc;
-        delete guarantor.ssnLast4;
-        changed = true;
-      }
     }
-    // Partial digit count (e.g. user typed 5 of 9): silently
-    // ignore — sub-form will keep showing the input, no clobber.
+    // Partial (<9) or empty digit count: silently ignore.
+    // Never wipe a stored SSN from a sub-form submission.
   }
 
   ALLOWED_ADDR_BLOCKS.forEach((k) => {
