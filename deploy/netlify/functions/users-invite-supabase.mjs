@@ -43,7 +43,10 @@ export default async (req, context) => {
   // Phase 1 gate: existing Netlify Identity admin check. Phase 2
   // will extend requireAuth to also accept Supabase JWTs so
   // Supabase-migrated admins can still invite.
-  const user = requireAuth(context);
+  // Pass req so requireAuth can fall back to Authorization-header
+  // decode when context.clientContext.user is empty (which happens
+  // whenever the browser calls the function directly via /api/*).
+  const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isAdmin(user)) return json(403, { error: 'Admin required' });
 
