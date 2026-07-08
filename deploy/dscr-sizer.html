@@ -4099,6 +4099,18 @@ netlifyIdentity.on('init', function(user) {
           // save with a slightly different address string would create a
           // duplicate loan and orphan the loan-details page.
           window._editingLoanId = found.id || loanIdP || null;
+          // Deploy 236.253 — ALSO set _editingClientId so the Save's
+          // hasDirectIds check at line ~3365 evaluates true and routes
+          // to updateLoanDirect (POST /api/loan-update-from-sizer) instead
+          // of the legacy upsert path. Every native LO-created loan
+          // opened from Loan Details was falling to upsert because
+          // this line was missing — the sizer save appeared to succeed
+          // (Deploy 192 immediate-feedback toast) but the loan record
+          // and the Pipeline tile both stayed stale. Prior deploys
+          // 236.249 (server-side quote sync) and 236.251 (drop the
+          // false email gate) fixed adjacent issues but the direct-ID
+          // path was never actually taken by this entry point.
+          window._editingClientId = (clientRec && clientRec.id) || clientIdP || null;
           // Deploy 236.9 — stash the loan's current status so that when
           // the LO saves the sizer (creating a fresh per-loan quote
           // record), QuoteStore.saveQuote can inherit the real loan
