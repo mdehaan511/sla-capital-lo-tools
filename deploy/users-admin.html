@@ -81,7 +81,7 @@
     <strong id="gateTitle">Signing in…</strong>
     <div id="gateBody">Checking your session.</div>
     <div id="gateActions" style="margin-top:16px;display:none">
-      <button type="button" onclick="netlifyIdentity.open('login')" style="padding:8px 20px;border-radius:6px;background:var(--gold);color:#fff;border:none;font-weight:600;cursor:pointer;font-family:inherit">Sign in</button>
+      <button type="button" onclick="openSignInModal()" style="padding:8px 20px;border-radius:6px;background:var(--gold);color:#fff;border:none;font-weight:600;cursor:pointer;font-family:inherit">Sign in</button>
     </div>
   </div>
 </div>
@@ -171,9 +171,27 @@ function _handleUser(user) {
   loadUsers();
 }
 
+// The auth-gate has z-index 9999. Netlify Identity's widget modal
+// uses inconsistent z-indexes across versions — sometimes higher,
+// sometimes lower. If ours wins, the modal opens invisibly beneath.
+// Fix: temporarily hide the gate around any open() call, and restore
+// it when the widget closes without a login.
+function openSignInModal() {
+  var gate = document.getElementById('auth-gate');
+  if (gate) gate.style.display = 'none';
+  netlifyIdentity.open('login');
+}
+
 netlifyIdentity.on('init',   function(user) { _handleUser(user); });
 netlifyIdentity.on('login',  function(user) { netlifyIdentity.close(); _handleUser(user); });
-netlifyIdentity.on('logout', function()      { _handleUser(null); });
+netlifyIdentity.on('logout', function()     { _handleUser(null); });
+// If the widget closes without a login (user hit escape / X), restore
+// the gate so the sign-in button is still reachable.
+netlifyIdentity.on('close', function() {
+  if (_user) return; // already signed in — nothing to restore
+  var gate = document.getElementById('auth-gate');
+  if (gate) gate.style.display = 'flex';
+});
 
 function setStatus(el, kind, msg) {
   el.className = 'status ' + kind;
