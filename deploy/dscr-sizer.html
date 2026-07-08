@@ -3349,6 +3349,14 @@ function saveCurrentQuote() {
   // no-op'ing while showing the LO the "Saved" toast.
   if (window.ClientBook) {
     var loanRecord = ClientBook.buildLoanFromSizer('dscr', formData.address, formData, 'active');
+    // Deploy 236.257 — attach the raw formData so the backend can
+    // snapshot it verbatim into loan.sizerHistory[] and the History
+    // panel's "restore" action can rehydrate every input the LO
+    // had set (borrower name/email/phone, address, all pricing +
+    // property fields, override values). buildLoanFromSizer's
+    // output only includes a subset. Backend strips this before
+    // persisting so the loan record stays lean.
+    loanRecord._sizerFormData = formData;
     var nameParts = (formData.borrower || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRecord._originalAddress = window._originalAddress;
@@ -3697,12 +3705,23 @@ function restoreSizerHistory(idx) {
   var when = entry.savedAt ? new Date(entry.savedAt).toLocaleString() : 'this snapshot';
   if (!confirm('Restore the sizer state from ' + when + '?\n\nAny unsaved changes to the current sizer will be lost. Click "Get Rate" or Save after restoring to persist.')) return;
   var fd = entry.formData || {};
-  // Populate every top-level input/select by id when a matching id
-  // exists AND the snapshot has a value. Overrides are applied via
-  // the same mechanism the load flow uses.
+  // Deploy 236.257 — comprehensive restore. Iterate every field in
+  // the snapshot's formData and place it on the matching DOM input.
+  // Handles the id-name mismatches between formData keys and form
+  // input ids (borrower → #borrowerName, address → #propAddress) so
+  // the sizer visibly returns to its saved state — not just pricing
+  // inputs but borrower contact, address, broker fields, everything.
+  // Fields that don't map to any DOM element (internal `_finalRate`,
+  // `_dscr`, `_maxLoan`, `_totalPayment`, `_dscrBelow1`, labels) are
+  // skipped by the null check on `el`.
+  var FORMDATA_KEY_TO_DOM_ID = {
+    borrower:      'borrowerName',
+    address:       'propAddress',
+  };
   try {
     Object.keys(fd).forEach(function(k) {
-      var el = document.getElementById(k);
+      var domId = FORMDATA_KEY_TO_DOM_ID[k] || k;
+      var el = document.getElementById(domId);
       if (!el) return;
       if (fd[k] == null) return;
       el.value = fd[k];

@@ -268,14 +268,44 @@ async function handle(req, context) {
     '5y6m':  '5Yr/6Mo', '54321': '5-Year', '321': '3-Year',
     '320':   '2-Year',  '300':   '1-Year', 'none': 'None',
   };
-  // Deploy 236.256 — read from `prior`, not `merged`. sizerHistory
-  // lives on the persisted loan record. Since `merged` is built via
-  // Object.assign({}, incoming, {...preserved}) and sizerHistory
-  // isn't in the preserve list, `merged.sizerHistory` was always
-  // undefined and every save was overwriting the history with just
-  // its own single entry. Reading from `prior` picks up the actual
-  // stored history.
+  // Deploy 236.256 — read history from `prior` (the persisted record),
+  // not `merged`. sizerHistory isn't in the preserved-fields block,
+  // so merged.sizerHistory was always undefined and 236.255 was
+  // silently overwriting on every save.
   const priorHistory = Array.isArray(prior.sizerHistory) ? prior.sizerHistory : [];
+  // Deploy 236.257 — snapshot the RAW sizer formData that the
+  // frontend attached to loanRecord._sizerFormData. buildLoanFromSizer
+  // only emits a subset of loan-record fields; a full "restore"
+  // needs every input the LO had on the sizer at save time (borrower
+  // contact, address, all overrides, computed display values). If
+  // the frontend didn't send _sizerFormData (older clients still
+  // running 236.255-256), fall back to the previous subset built
+  // from merged so history entries still stack.
+  const rawFormData = (incoming && incoming._sizerFormData && typeof incoming._sizerFormData === 'object')
+    ? incoming._sizerFormData
+    : null;
+  const snapshotFormData = rawFormData || {
+    loanAmt:          merged.loanAmt          || '',
+    propValue:        merged.propValue        || '',
+    loanType:         merged.loanType         || '',
+    fico:             merged.fico             || '',
+    rent:             merged.rent             || '',
+    taxes:            merged.taxes            || '',
+    insurance:        merged.insurance        || '',
+    hoa:              merged.hoa              || '',
+    prepay:           merged.prepay           || '',
+    buydown:          merged.buydown          || '',
+    isIO:             merged.isIO             || '',
+    loanPurpose:      merged.loanPurpose      || '',
+    propType:         merged.propType         || '',
+    currentLoanAmt:   merged.currentLoanAmt   || '',
+    brokerFee:        merged.brokerFee        || '',
+    _rateOverride:    merged._rateOverride    || '',
+    _ltvOverride:     merged._ltvOverride     || '',
+    _pointsOverride:  merged._pointsOverride  || '',
+    _finalRate:       merged._finalRate       || '',
+    _points:          merged._points          || '',
+  };
   const snapshot = {
     savedAt:     now,
     savedBy:     user.email || '',
@@ -284,32 +314,13 @@ async function handle(req, context) {
     points:      merged.points      || '',
     prepay:      merged.prepay      || '',
     prepayLabel: PREPAY_LABEL[String(merged.prepay || '').toLowerCase()] || '',
-    // Full snapshot for restore — mirrors the sizer's formData shape.
-    // Includes overrides so pricing displays exactly as saved.
-    formData: {
-      loanAmt:          merged.loanAmt          || '',
-      propValue:        merged.propValue        || '',
-      loanType:         merged.loanType         || '',
-      fico:             merged.fico             || '',
-      rent:             merged.rent             || '',
-      taxes:            merged.taxes            || '',
-      insurance:        merged.insurance        || '',
-      hoa:              merged.hoa              || '',
-      prepay:           merged.prepay           || '',
-      buydown:          merged.buydown          || '',
-      isIO:             merged.isIO             || '',
-      loanPurpose:      merged.loanPurpose      || '',
-      propType:         merged.propType         || '',
-      currentLoanAmt:   merged.currentLoanAmt   || '',
-      brokerFee:        merged.brokerFee        || '',
-      _rateOverride:    merged._rateOverride    || '',
-      _ltvOverride:     merged._ltvOverride     || '',
-      _pointsOverride:  merged._pointsOverride  || '',
-      _finalRate:       merged._finalRate       || '',
-      _points:          merged._points          || '',
-    },
+    formData:    snapshotFormData,
   };
   merged.sizerHistory = [snapshot].concat(priorHistory).slice(0, 50);
+  // Deploy 236.257 — strip _sizerFormData off the persisted loan
+  // record so it doesn't bloat every load (the sizer only cares
+  // about the snapshot copies inside sizerHistory).
+  if (merged._sizerFormData) delete merged._sizerFormData;
 
   client.loans[idx] = merged;
   client.updatedAt = now;
