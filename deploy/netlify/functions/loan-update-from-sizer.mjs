@@ -256,6 +256,54 @@ async function handle(req, context) {
     });
   }
 
+  // Deploy 236.255 — append a snapshot to the loan's sizerHistory[]
+  // so LOs can pull up past pricing rounds for the same deal during
+  // negotiation. Every sizer save banks the current state; the
+  // frontend history panel renders it as a scrollable table with
+  // click-to-restore. Capped at 50 entries (~1KB each, 50 = 50KB
+  // per loan record — comfortable within Netlify Blobs limits).
+  // Note we snapshot from `merged` AFTER all preservation +
+  // override logic so history reflects what was actually persisted.
+  const PREPAY_LABEL = {
+    '5y6m':  '5Yr/6Mo', '54321': '5-Year', '321': '3-Year',
+    '320':   '2-Year',  '300':   '1-Year', 'none': 'None',
+  };
+  const priorHistory = Array.isArray(merged.sizerHistory) ? merged.sizerHistory : [];
+  const snapshot = {
+    savedAt:     now,
+    savedBy:     user.email || '',
+    loanAmt:     merged.loanAmt     || '',
+    rate:        merged.rate        || '',
+    points:      merged.points      || '',
+    prepay:      merged.prepay      || '',
+    prepayLabel: PREPAY_LABEL[String(merged.prepay || '').toLowerCase()] || '',
+    // Full snapshot for restore — mirrors the sizer's formData shape.
+    // Includes overrides so pricing displays exactly as saved.
+    formData: {
+      loanAmt:          merged.loanAmt          || '',
+      propValue:        merged.propValue        || '',
+      loanType:         merged.loanType         || '',
+      fico:             merged.fico             || '',
+      rent:             merged.rent             || '',
+      taxes:            merged.taxes            || '',
+      insurance:        merged.insurance        || '',
+      hoa:              merged.hoa              || '',
+      prepay:           merged.prepay           || '',
+      buydown:          merged.buydown          || '',
+      isIO:             merged.isIO             || '',
+      loanPurpose:      merged.loanPurpose      || '',
+      propType:         merged.propType         || '',
+      currentLoanAmt:   merged.currentLoanAmt   || '',
+      brokerFee:        merged.brokerFee        || '',
+      _rateOverride:    merged._rateOverride    || '',
+      _ltvOverride:     merged._ltvOverride     || '',
+      _pointsOverride:  merged._pointsOverride  || '',
+      _finalRate:       merged._finalRate       || '',
+      _points:          merged._points          || '',
+    },
+  };
+  merged.sizerHistory = [snapshot].concat(priorHistory).slice(0, 50);
+
   client.loans[idx] = merged;
   client.updatedAt = now;
 

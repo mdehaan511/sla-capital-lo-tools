@@ -274,6 +274,22 @@
     .rate-big .rv.overridden::after { content: 'OVERRIDE'; display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--gold); margin-top: 2px; opacity: 0.9; }
     /* "Pricing Overwrite Active" banner — hidden by default; .show flips to flex */
     .override-notice { display: none; background: rgba(200,129,58,0.10); border: 1px solid var(--gold-border); border-left: 3px solid var(--gold); border-radius: var(--r-xs); padding: 10px 14px; margin-bottom: 12px; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+
+    /* Deploy 236.255 — Sizer History panel */
+    .sizer-history-panel { margin: 12px 1.75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); overflow: hidden; }
+    .sizer-history-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 10px 14px; background: transparent; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; color: var(--dark); text-align: left; }
+    .sizer-history-toggle:hover { background: rgba(120,116,136,0.04); }
+    .sizer-history-toggle[data-open="1"] .sizer-history-toggle-label { color: var(--gold-mid); }
+    .sizer-history-toggle[data-open="1"] #sizerHistoryChevron { transform: rotate(180deg); }
+    .sizer-history-body { border-top: 1px solid var(--border); background: #faf8f3; }
+    .sizer-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .sizer-history-table thead th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1.5px solid var(--border); text-align: left; }
+    .sizer-history-table tbody td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .sizer-history-table tbody tr:last-child td { border-bottom: none; }
+    .sizer-history-table tbody tr { cursor: pointer; transition: background 0.1s; }
+    .sizer-history-table tbody tr:hover { background: rgba(200,129,58,0.06); }
+    .sizer-history-empty { padding: 1rem 1.25rem; text-align: center; color: var(--muted); font-size: 12px; font-style: italic; }
+    .sizer-history-restored { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: rgba(37,105,64,0.10); color: #256940; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
     .override-notice.show { display: flex; }
     .override-notice .nm-text { color: var(--gold-mid); font-weight: 600; }
     .override-notice .nm-text small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; margin-top: 2px; }
@@ -922,6 +938,28 @@ function getFICOMin(ficoStr) {
     </div>
 
     <button class="submit-btn" id="calcBtn">Get Rate</button>
+
+    <!-- Deploy 236.255 — Sizer History panel. Shows every past save
+         for THIS specific loan (loan.sizerHistory[] on the record).
+         Collapsed by default. Click a row to restore that snapshot;
+         useful during negotiation to reference past pricing. Only
+         renders when a loan is loaded — hidden for brand-new quotes. -->
+    <div id="sizerHistoryPanel" class="sizer-history-panel" style="display:none">
+      <button type="button" class="sizer-history-toggle" onclick="toggleSizerHistory()">
+        <span class="sizer-history-toggle-label">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-1px;margin-right:6px">
+            <path d="M6 3v3l2 2M11 6a5 5 0 11-10 0 5 5 0 0110 0z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Sizer History <span id="sizerHistoryCount" style="color:var(--muted);font-weight:400;margin-left:4px"></span>
+        </span>
+        <svg id="sizerHistoryChevron" width="10" height="10" viewBox="0 0 10 10" fill="none" style="transition:transform 0.18s">
+          <path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div id="sizerHistoryBody" class="sizer-history-body" style="display:none">
+        <div id="sizerHistoryTable"></div>
+      </div>
+    </div>
   </div>
 
   <div class="results-col">
@@ -3318,6 +3356,17 @@ function saveCurrentQuote() {
 
     function handleDscrSaveSuccess(resp) {
       window._originalAddress = formData.address;
+      // Deploy 236.255 — refresh the sizer-history panel from the
+      // freshly-persisted loan record. Backend appends a new entry
+      // on every save; picking it up here means the LO sees the
+      // save land in the history table without a page reload.
+      try {
+        var _lHist = resp && (
+          (resp.loan   && resp.loan.sizerHistory) ||
+          (resp.client && Array.isArray(resp.client.loans) && resp.client.loans.find(function(l){return l && l.id === window._editingLoanId;}) || {}).sizerHistory
+        );
+        if (Array.isArray(_lHist)) paintSizerHistory(_lHist);
+      } catch (_) {}
       // Deploy 236.51 — when upsert just created a NEW loan (no
       // _editingLoanId went in), the freshly created loanId never
       // makes it onto the QuoteStore quote (which was saved BEFORE
@@ -3574,6 +3623,105 @@ function showToast(msg) {
   t.classList.add('show');
   clearTimeout(t._timer);
   t._timer = setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+
+// ── Deploy 236.255: Sizer History panel ──────────────────────
+// State is populated by loadFromClientLoan when a loan is opened.
+// Persistence: every save appends a snapshot to loan.sizerHistory[]
+// server-side (see loan-update-from-sizer.mjs). Cap 50 entries.
+window._sizerHistory = null; // array or null when no loan loaded
+
+function _shEscH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function paintSizerHistory(history) {
+  window._sizerHistory = Array.isArray(history) ? history : [];
+  var panel = document.getElementById('sizerHistoryPanel');
+  var countEl = document.getElementById('sizerHistoryCount');
+  var tableEl = document.getElementById('sizerHistoryTable');
+  if (!panel || !tableEl) return;
+  // Only show the panel when there's a loaded loan (context = we have IDs).
+  if (!window._editingLoanId) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  var n = window._sizerHistory.length;
+  if (countEl) countEl.textContent = n ? '(' + n + ')' : '(0)';
+  if (!n) {
+    tableEl.innerHTML = '<div class="sizer-history-empty">No prior sizer saves for this loan yet. Save one to start banking history.</div>';
+    return;
+  }
+  var rows = window._sizerHistory.map(function(h, i) {
+    var savedAt = h && h.savedAt ? new Date(h.savedAt) : null;
+    var dateStr = savedAt ? savedAt.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+    var amt = h && h.loanAmt ? '$' + Math.round(parseFloat(String(h.loanAmt).replace(/[$,]/g, ''))).toLocaleString() : '—';
+    var rate = h && h.rate ? String(h.rate) + '%' : '—';
+    var points = h && h.points ? String(h.points) : '—';
+    var prepay = h && h.prepayLabel ? h.prepayLabel : (h && h.prepay ? _prepayCodeLabel(h.prepay) : '—');
+    return '<tr onclick="restoreSizerHistory(' + i + ')" title="Click to restore this snapshot">' +
+      '<td>' + _shEscH(dateStr) + '</td>' +
+      '<td>' + _shEscH(amt) + '</td>' +
+      '<td>' + _shEscH(rate) + '</td>' +
+      '<td>' + _shEscH(points) + '</td>' +
+      '<td>' + _shEscH(prepay) + '</td>' +
+    '</tr>';
+  }).join('');
+  tableEl.innerHTML =
+    '<table class="sizer-history-table">' +
+      '<thead><tr>' +
+        '<th>Saved</th><th>Loan Amount</th><th>Rate</th><th>Points</th><th>Prepay</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+}
+
+function _prepayCodeLabel(code) {
+  var c = String(code || '').toLowerCase();
+  var m = {
+    '5y6m': '5Yr/6Mo', '54321': '5-Year', '321': '3-Year',
+    '320': '2-Year',    '300':  '1-Year',  'none': 'None',
+  };
+  return m[c] || c;
+}
+
+function toggleSizerHistory() {
+  var body = document.getElementById('sizerHistoryBody');
+  var btn  = document.querySelector('.sizer-history-toggle');
+  if (!body) return;
+  var isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (btn) btn.setAttribute('data-open', isOpen ? '0' : '1');
+}
+
+function restoreSizerHistory(idx) {
+  var hist = window._sizerHistory || [];
+  var entry = hist[idx];
+  if (!entry) return;
+  var when = entry.savedAt ? new Date(entry.savedAt).toLocaleString() : 'this snapshot';
+  if (!confirm('Restore the sizer state from ' + when + '?\n\nAny unsaved changes to the current sizer will be lost. Click "Get Rate" or Save after restoring to persist.')) return;
+  var fd = entry.formData || {};
+  // Populate every top-level input/select by id when a matching id
+  // exists AND the snapshot has a value. Overrides are applied via
+  // the same mechanism the load flow uses.
+  try {
+    Object.keys(fd).forEach(function(k) {
+      var el = document.getElementById(k);
+      if (!el) return;
+      if (fd[k] == null) return;
+      el.value = fd[k];
+    });
+    // Restore overrides state so pricing renders exactly like it did
+    // when this snapshot was saved.
+    window._dscrOverrides = window._dscrOverrides || { rate: null, ltv: null, points: null, warningAcknowledged: false, _pendingField: null };
+    window._dscrOverrides.rate   = (fd._rateOverride   && !isNaN(parseFloat(fd._rateOverride)))   ? parseFloat(fd._rateOverride)   : null;
+    window._dscrOverrides.ltv    = (fd._ltvOverride    && !isNaN(parseFloat(fd._ltvOverride)))    ? parseFloat(fd._ltvOverride)    : null;
+    window._dscrOverrides.points = (fd._pointsOverride && !isNaN(parseFloat(fd._pointsOverride))) ? parseFloat(fd._pointsOverride) : null;
+    window._dscrOverrides.warningAcknowledged = true;
+  } catch (e) { console.warn('[SLA] sizer-history restore: field populate failed:', e); }
+  // Re-run the calc + repaint results.
+  try { run(); } catch (_) {}
+  showToast('Restored sizer state from ' + when + '. Save to persist as a new entry.');
+  // Collapse the panel for cleanliness.
+  var body = document.getElementById('sizerHistoryBody');
+  var btn  = document.querySelector('.sizer-history-toggle');
+  if (body && body.style.display !== 'none') { body.style.display = 'none'; if (btn) btn.setAttribute('data-open', '0'); }
 }
 
 // ── Init ────────────────────────────────────────────────────────
@@ -4119,6 +4267,11 @@ netlifyIdentity.on('init', function(user) {
           // Approved visually demotes it back to Quoted in the
           // pipeline.
           window._editingLoanStatus = found.status || '';
+          // Deploy 236.255 — paint the history panel with the loan's
+          // sizerHistory[] (empty array is fine; the panel renders an
+          // empty-state hint). Runs BEFORE loadQuoteIntoForm so the
+          // panel is visible from first paint.
+          try { paintSizerHistory(found.sizerHistory || []); } catch (_) {}
           loadQuoteIntoForm(fd);
           tryAutoDownload(); trySignatureHandoff();
           return true;
