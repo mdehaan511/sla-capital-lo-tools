@@ -268,7 +268,14 @@ async function handle(req, context) {
     '5y6m':  '5Yr/6Mo', '54321': '5-Year', '321': '3-Year',
     '320':   '2-Year',  '300':   '1-Year', 'none': 'None',
   };
-  const priorHistory = Array.isArray(merged.sizerHistory) ? merged.sizerHistory : [];
+  // Deploy 236.256 — read from `prior`, not `merged`. sizerHistory
+  // lives on the persisted loan record. Since `merged` is built via
+  // Object.assign({}, incoming, {...preserved}) and sizerHistory
+  // isn't in the preserve list, `merged.sizerHistory` was always
+  // undefined and every save was overwriting the history with just
+  // its own single entry. Reading from `prior` picks up the actual
+  // stored history.
+  const priorHistory = Array.isArray(prior.sizerHistory) ? prior.sizerHistory : [];
   const snapshot = {
     savedAt:     now,
     savedBy:     user.email || '',
