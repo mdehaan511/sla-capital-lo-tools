@@ -34,6 +34,12 @@ import { appendNoteEntry, describeReprice } from './_shared/notes-log.mjs';
 // the case where the LO typed broker info directly without using the
 // picker, OR where they're saving a loan that pre-dates the picker.
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
+// Deploy 236.249 — mirror this write into the quotes store so the
+// Pipeline tile (which reads rate/points from the quote's formData,
+// not the loan record) picks up the new pricing without depending on
+// the browser-side QuoteStore.saveQuote landing correctly. Same
+// pattern loan-financials-edit.mjs uses for inline edits.
+import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
 
 export default async (req, context) => {
   try {
@@ -228,5 +234,31 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
 
-  return json(200, { ok: true, loan: merged, clientId: client.id });
+  // Deploy 236.249 — mirror the write into the quotes store. Pipeline
+  // tiles read rate/points from quote.formData._finalRate / _points,
+  // NOT from the loan record. The sizer's frontend also calls
+  // QuoteStore.saveQuote before this POST, but that's a fire-and-forget
+  // whose only visible failure mode is a console.warn — for at least
+  // one class of loans (in-processing / status=approved was the
+  // reported case) the drift landed the pipeline on stale rate. Doing
+  // the sync server-side after the authoritative write closes the gap
+  // regardless of what the browser did.
+  //
+  // Non-fatal: a stale quote is a UX issue, not a data-integrity one.
+  // Log the result so we can see it happening.
+  let quotesSynced = 0;
+  try {
+    const syncResult = await syncLoanToQuoteStore(ownerKey, merged);
+    quotesSynced = (syncResult && syncResult.updated) || 0;
+    if (quotesSynced === 0) {
+      // Not necessarily wrong (loan may have no quote yet), but log
+      // for the specific class of bug where an in-processing loan
+      // has a quote in the store but this sync doesn't find it.
+      console.log('[loan-update-from-sizer] no quote synced for loan', merged.id, 'status=' + (merged.status || '?'), 'owner=' + ownerKey);
+    }
+  } catch (e) {
+    console.warn('[loan-update-from-sizer] quote sync failed (non-fatal):', e && e.message);
+  }
+
+  return json(200, { ok: true, loan: merged, clientId: client.id, quotesSynced });
 }
