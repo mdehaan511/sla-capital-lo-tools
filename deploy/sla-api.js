@@ -206,10 +206,22 @@
     // out to page callbacks ourselves — never rely on the widget's
     // replay-to-late-subscribers behavior for anything but this one
     // subscription.
-    _origOn('init', function (nlUser) { _resolveInit(nlUser); });
+    _origOn('init', function (nlUser) {
+      // If Supabase already resolved init synchronously (eager fire
+      // below), the widget's later init is redundant. Only escalate
+      // if the widget found a Netlify Identity user we should show
+      // instead of the Supabase one (unlikely — users are on one
+      // provider — but a defensible fallback).
+      if (_initResolved) {
+        if (nlUser && (!_initUser || _initUser._authProvider === 'supabase')) {
+          _fireLogin(nlUser); // treat as a login event so pages update
+        }
+        return;
+      }
+      _resolveInit(nlUser);
+    });
     _origOn('login', function (nlUser) {
-      // A Netlify Identity login always wins; map straight through.
-      _loginPending.slice().forEach(function (cb) { try { cb(nlUser); } catch (_) {} });
+      _fireLogin(nlUser);
     });
 
     window.netlifyIdentity.on = function (eventName, callback) {
@@ -230,6 +242,23 @@
       return _origOn(eventName, callback);
     };
   }
+
+  function _fireLogin(nlUser) {
+    _loginPending.slice().forEach(function (cb) { try { cb(nlUser); } catch (_) {} });
+  }
+
+  // Deploy 236.267.2 — EAGER fire init from the Supabase session
+  // peek so the auth-gate hides on the same tick page inline scripts
+  // subscribe, not 100–300ms later when the Netlify Identity widget
+  // finally emits its own 'init'. Netlify Identity users fall through
+  // to the widget path unchanged.
+  (function _eagerResolveFromPeek() {
+    var peek = _peekSupabaseSession();
+    if (!peek) return;
+    _supabaseCache = peek;
+    _fireInit(_mapSupabaseUserToNetlifyShape(peek));
+  })();
+
   _patchNetlifyIdentityOn();
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _patchNetlifyIdentityOn, { once: true });
@@ -240,10 +269,8 @@
     if (window._slaNetlifyIdentityOnPatched || ++_patchTries > 20) clearInterval(_patchIvl);
   }, 100);
 
-  // Safety net — if the widget somehow never fires init (rare, but
-  // has been seen when the widget script fails to load), resolve to
-  // whatever Supabase says after a short delay so the app doesn't
-  // hang on a permanent auth-gate spinner.
+  // Safety net — if neither the widget nor Supabase resolve within
+  // 3s, fire null so pages don't hang on a permanent auth-gate.
   setTimeout(function () {
     if (!_initResolved) _resolveInit(null);
   }, 3000);
