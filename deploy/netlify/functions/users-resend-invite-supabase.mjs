@@ -115,6 +115,8 @@ export default async (req, context) => {
   // 2. Generate a fresh magic link.
   let actionLink = '';
   try {
+    // Deploy 236.264 — same activate.html redirect as users-invite.
+    const inviteOrigin = new URL(req.url).origin;
     const linkResp = await fetch(base + '/auth/v1/admin/generate_link', {
       method: 'POST',
       headers: {
@@ -122,7 +124,11 @@ export default async (req, context) => {
         'Authorization': 'Bearer ' + SVC,
         'Content-Type':  'application/json',
       },
-      body: JSON.stringify({ type: 'magiclink', email: email }),
+      body: JSON.stringify({
+        type: 'magiclink',
+        email: email,
+        redirect_to: inviteOrigin + '/activate.html',
+      }),
     });
     if (!linkResp.ok) {
       const txt = await linkResp.text().catch(() => '');

@@ -155,6 +155,16 @@ export default async (req, context) => {
   //    project's ES256 configuration.
   let actionLink = '';
   try {
+    // Deploy 236.264 — point the magic-link redirect at our own
+    // activation page. Without redirect_to, Supabase falls back to
+    // the project's Site URL (=/), which loads Netlify Identity and
+    // shows a login modal instead of receiving the Supabase session
+    // token. The activation page has the Supabase SDK loaded and
+    // auto-detects the session from the URL fragment.
+    // origin resolves to whichever domain the admin invited from
+    // (portal.slacapital.ai vs slaloantools.netlify.app) so the
+    // invitee lands on a matching subdomain.
+    const inviteOrigin = new URL(req.url).origin;
     const linkResp = await fetch(base + '/auth/v1/admin/generate_link', {
       method: 'POST',
       headers: {
@@ -162,7 +172,11 @@ export default async (req, context) => {
         'Authorization': 'Bearer ' + SVC,
         'Content-Type':  'application/json',
       },
-      body: JSON.stringify({ type: 'magiclink', email: email }),
+      body: JSON.stringify({
+        type: 'magiclink',
+        email: email,
+        redirect_to: inviteOrigin + '/activate.html',
+      }),
     });
     if (!linkResp.ok) {
       const txt = await linkResp.text().catch(() => '');

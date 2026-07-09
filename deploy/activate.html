@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Activate Account — SLA Capital Loan Tools</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --ok: #166534; --err: #7c1f1f;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; }
+    .card { background: var(--surface); max-width: 480px; width: 100%; border-radius: 14px; padding: 44px 40px; text-align: center; border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(38,26,54,0.05); }
+    .logo { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .tagline { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 32px; }
+    .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--gold); border-radius: 50%; margin: 0 auto 20px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { font-family: 'Lora', serif; font-size: 24px; color: var(--dark); margin-bottom: 8px; }
+    p { font-size: 14px; color: var(--muted); line-height: 1.55; margin-bottom: 12px; }
+    .status-ok  h1 { color: var(--ok); }
+    .status-err h1 { color: var(--err); }
+    .details { background: #faf8f3; border-radius: 8px; padding: 14px 16px; font-size: 12px; color: var(--dark); margin: 20px 0; text-align: left; font-family: 'DM Mono', monospace; }
+    .details strong { display: block; font-family: 'DM Sans', sans-serif; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+    .details .row + .row { margin-top: 10px; }
+    .note { background: var(--gold-light); border: 1px solid var(--gold-border); border-radius: 8px; padding: 14px 16px; font-size: 12px; color: var(--gold-mid); margin-top: 20px; text-align: left; line-height: 1.5; }
+    .note strong { color: var(--dark); }
+    button.retry { margin-top: 20px; padding: 10px 22px; border-radius: 6px; background: var(--gold); color: #fff; border: none; font-weight: 600; font-family: inherit; font-size: 13px; cursor: pointer; }
+    button.retry:hover { filter: brightness(1.05); }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="logo">SLA Capital Loan Tools</div>
+    <div class="tagline">Account activation</div>
+    <div class="spinner" id="spinner"></div>
+    <h1 id="title">Activating your account…</h1>
+    <p id="body">Verifying the invitation link and establishing your session.</p>
+  </div>
+
+  <script>
+    var SUPABASE_URL = '';
+    var SUPABASE_PUB_KEY = '';
+
+    async function loadConfig() {
+      var r = await fetch('/api/config', { cache: 'no-store' });
+      if (!r.ok) throw new Error('config fetch failed');
+      var j = await r.json();
+      SUPABASE_URL = j.supabaseUrl || '';
+      SUPABASE_PUB_KEY = j.supabasePublishableKey || '';
+      if (!SUPABASE_URL || !SUPABASE_PUB_KEY) throw new Error('Supabase env vars missing on the server. Ask an admin.');
+    }
+
+    function renderOk(user) {
+      var card = document.getElementById('card');
+      var meta = (user && user.user_metadata) || {};
+      var am   = (user && user.app_metadata)  || {};
+      var name = meta.full_name || meta.name || '';
+      var role = (Array.isArray(am.roles) && am.roles[0]) || am.role || '';
+      var humanRole = role === 'admin' ? 'Admin' : role === 'loan_officer' ? 'Loan Officer' : role === 'processor' ? 'Processor' : (role || '(no role)');
+      card.className = 'card status-ok';
+      card.innerHTML =
+        '<div class="logo">SLA Capital Loan Tools</div>' +
+        '<div class="tagline">Account activated</div>' +
+        '<h1>You\'re signed in' + (name ? ', ' + escH(name) : '') + '.</h1>' +
+        '<p>Your Supabase account is active and your session is established.</p>' +
+        '<div class="details">' +
+          '<div class="row"><strong>Email</strong>' + escH(user.email || '') + '</div>' +
+          '<div class="row"><strong>Role</strong>' + escH(humanRole) + '</div>' +
+        '</div>' +
+        '<div class="note"><strong>What\'s next?</strong> Full in-app access via Supabase auth is landing in Phase 2. Until then, your invitation is recorded and your session will pick up as soon as the LO app pages accept Supabase tokens. Talk to your admin for the next step.</div>';
+    }
+
+    function renderErr(msg) {
+      var card = document.getElementById('card');
+      card.className = 'card status-err';
+      card.innerHTML =
+        '<div class="logo">SLA Capital Loan Tools</div>' +
+        '<div class="tagline">Activation failed</div>' +
+        '<h1>Something went wrong.</h1>' +
+        '<p>' + escH(msg || 'Unknown error') + '</p>' +
+        '<p style="margin-top:8px;color:#7a7488;font-size:12px">Ask your admin to resend the invitation. If this keeps happening, share the message above with them.</p>';
+    }
+
+    function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    async function boot() {
+      try {
+        await loadConfig();
+        var mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+        var supabase = mod.createClient(SUPABASE_URL, SUPABASE_PUB_KEY, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+          },
+        });
+        // detectSessionInUrl parses the fragment token on this same tick.
+        // Give it one microtask to complete then check getSession().
+        await new Promise(function(res){ setTimeout(res, 0); });
+        var { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (!data || !data.session) {
+          // Possible if the user hit this page directly without a magic link
+          // in the URL, or the token was already consumed.
+          renderErr('No active session detected. If you clicked an invitation link and got here, the link may have expired. Ask for a fresh one.');
+          return;
+        }
+        renderOk(data.session.user);
+      } catch (e) {
+        console.error('[activate] boot failed:', e);
+        renderErr((e && e.message) || 'unknown error');
+      }
+    }
+    boot();
+  </script>
+</body>
+</html>
