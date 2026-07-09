@@ -1246,6 +1246,76 @@ function processResults(results) {
       });
     });
 
+    // Deploy 236.276 — synthetic tiles for loans that have no matching
+    // quote. Before 236.249 shipped, sizer saves didn't sync to the
+    // quotes store, so a class of loans (Baseline migrations, admin
+    // status changes, older sizer saves) exist with a valid status
+    // but no corresponding quote. pipeline.html builds tiles from
+    // quotes, so those loans silently didn't render — the tile owner
+    // saw an empty column even when the loan was "In Processing".
+    //
+    // Sweep every loan on every client; for any loan in an active-
+    // pipeline status that doesn't already have a quote-based tile,
+    // push a synthetic tile with a quote-shaped object built from the
+    // loan record itself. The existing renderer reads from `it.quote`
+    // fields — supplying those from the loan works transparently.
+    var _loanIdsWithTile = {}; // ownerKey|loanId → true
+    Object.keys(_items).forEach(function(bkt) {
+      _items[bkt].forEach(function(t) {
+        if (t.kind === 'quote' && t.quote && t.quote.loanId) {
+          _loanIdsWithTile[t.ownerKey + '|' + t.quote.loanId] = true;
+        }
+      });
+    });
+    Object.keys(_clientById).forEach(function(ck) {
+      var bar = ck.indexOf('|');
+      if (bar < 0) return;
+      var ownerKey = ck.slice(0, bar);
+      var c = _clientById[ck];
+      (c.loans || []).forEach(function(l) {
+        if (!l || !l.id) return;
+        var st = String(l.status || 'active').toLowerCase();
+        // Skip terminal / hidden statuses (matches the exclusion list
+        // the quote path uses above).
+        if (st === 'on_hold' || st === 'denied' || st === 'closed' ||
+            st === 'cancelled' || st === 'liquidated' || st === 'sold') return;
+        if (_loanIdsWithTile[ownerKey + '|' + l.id]) return;
+        var bkt = st === 'submitted'     ? 'submitted'
+                : st === 'awaiting_app'  ? 'awaitingApp'
+                : st === 'approved'      ? 'approved'
+                : 'quoted';
+        var _tt = String(l.toolType || 'dscr').toLowerCase();
+        var _rateN = parseFloat(l.rate);
+        var syntheticQuote = {
+          id:        'syn_' + l.id, // avoid collision with real quote ids
+          loanId:    l.id,
+          address:   l.address || '',
+          status:    st,
+          updatedAt: l.updatedAt || l.createdAt || '',
+          savedAt:   l.updatedAt || l.createdAt || '',
+          toolType:  _tt,
+          loanAmt:   l.loanAmt || '',
+          borrower:  ((c.firstName || '') + ' ' + (c.lastName || '')).trim(),
+          borrowerEmail: c.email || '',
+          formData: {
+            propType:    l.propType || '',
+            loanAmt:     l.loanAmt  || '',
+            _finalRate:  isFinite(_rateN) ? String(_rateN) : (l.rate || ''),
+            _points:     l.points   || '',
+            purchasePrice: l.purchasePrice || '',
+          },
+          _syntheticFromLoan: true,
+        };
+        _items[bkt].push({
+          kind:     'quote',
+          ownerKey: ownerKey,
+          id:       syntheticQuote.id,
+          date:     syntheticQuote.updatedAt,
+          quote:    syntheticQuote,
+        });
+      });
+    });
+
     // Sort each column most-recent first
     Object.keys(_items).forEach(function(k) {
       _items[k].sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
