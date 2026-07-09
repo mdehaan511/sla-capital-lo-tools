@@ -270,6 +270,25 @@
   status = 200
   force = true
 
+# Path A Phase 1 extension (Deploy 236.262) — delete, role change, resend invite.
+[[redirects]]
+  from = "/api/users-delete-supabase"
+  to = "/.netlify/functions/users-delete-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users-update-role-supabase"
+  to = "/.netlify/functions/users-update-role-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/users-resend-invite-supabase"
+  to = "/.netlify/functions/users-resend-invite-supabase"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/orphaned-quote-recover"
   to = "/.netlify/functions/orphaned-quote-recover"

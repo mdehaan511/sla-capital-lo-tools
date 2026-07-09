@@ -72,6 +72,21 @@
 
     .empty { padding: 2rem; text-align: center; color: var(--muted); font-size: 13px; font-style: italic; }
     .loading { padding: 1.5rem; text-align: center; color: var(--muted); font-size: 13px; }
+    /* Deploy 236.262 — Actions column + inline role dropdown */
+    .role-select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; font-family: inherit; background: #fff; cursor: pointer; }
+    .role-select:focus { outline: none; border-color: var(--gold); }
+    .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    .icon-btn { padding: 4px 8px; border-radius: 5px; font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid; transition: all 0.15s; background: #fff; }
+    .icon-btn:hover:not(:disabled) { filter: brightness(0.98); }
+    .icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .icon-btn.resend { color: var(--gold-mid); border-color: rgba(200,129,58,0.35); }
+    .icon-btn.resend:hover { background: rgba(200,129,58,0.08); }
+    .icon-btn.danger { color: var(--danger); border-color: rgba(124,31,31,0.35); }
+    .icon-btn.danger:hover { background: rgba(124,31,31,0.08); }
+    /* Row-level status toast slot */
+    .row-msg { font-size: 11px; padding: 4px 8px; border-radius: 4px; margin-top: 4px; display: none; }
+    .row-msg.ok  { background: var(--success-light); color: var(--success); display: block; }
+    .row-msg.err { background: rgba(124,31,31,0.08); color: var(--danger);  display: block; }
   </style>
 </head>
 <body>
@@ -243,31 +258,123 @@ async function loadUsers() {
       return;
     }
     var rows = users.map(function(u) {
-      var rolePill = u.role
-        ? '<span class="pill ' + escAttr(u.role) + '">' + escH(u.role) + '</span>'
-        : '<span class="pill none">no role</span>';
-      var statusPill = u.confirmedAt
-        ? '<span class="pill confirmed">confirmed</span>'
-        : '<span class="pill pending">pending</span>';
+      // Deploy 236.262 — role dropdown + Resend / Delete actions.
+      // Status shows the SIGN-IN state (accepted vs pending) rather
+      // than confirmation flag since Supabase auto-confirms on
+      // invite-click. Any signed-in user = accepted.
+      var roleOpts = ['admin','loan_officer','processor'].map(function(r){
+        var sel = (u.role === r) ? ' selected' : '';
+        return '<option value="' + escAttr(r) + '"' + sel + '>' + escH(r === 'loan_officer' ? 'Loan Officer' : r === 'admin' ? 'Admin' : 'Processor') + '</option>';
+      }).join('');
+      var roleControl = '<select class="role-select" data-user-id="' + escAttr(u.id) + '" data-current-role="' + escAttr(u.role || '') + '" onchange="changeUserRole(this)">' + roleOpts + '</select>';
+
+      var statusPill;
+      if (u.lastSignInAt) {
+        statusPill = '<span class="pill confirmed">accepted</span>';
+      } else if (u.invitedAt) {
+        statusPill = '<span class="pill pending">pending invite</span>';
+      } else {
+        statusPill = '<span class="pill none">no status</span>';
+      }
       var last = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString() : '—';
-      return '<tr>' +
-        '<td>' + escH(u.email) + (u.fullName ? '<div class="mono">' + escH(u.fullName) + '</div>' : '') + '</td>' +
-        '<td>' + rolePill + '</td>' +
+
+      // Resend button only makes sense for users who haven't signed in yet.
+      var resendBtn = !u.lastSignInAt
+        ? '<button class="icon-btn resend" onclick="resendInvite(\'' + escAttr(u.id) + '\', this)" title="Send a fresh magic-link email">Resend invite</button>'
+        : '';
+      var deleteBtn = '<button class="icon-btn danger" onclick="deleteUser(\'' + escAttr(u.id) + '\', \'' + escAttr(u.email) + '\', this)" title="Permanently delete this Supabase user">Delete</button>';
+
+      return '<tr data-user-id="' + escAttr(u.id) + '">' +
+        '<td>' + escH(u.email) + (u.fullName ? '<div class="mono">' + escH(u.fullName) + '</div>' : '') +
+          '<div class="row-msg" id="rowmsg_' + escAttr(u.id) + '"></div>' +
+        '</td>' +
+        '<td>' + roleControl + '</td>' +
         '<td>' + statusPill + '</td>' +
         '<td class="mono">' + escH(last) + '</td>' +
-        '<td class="mono">' + escH(u.id) + '</td>' +
+        '<td><div class="row-actions">' + resendBtn + deleteBtn + '</div></td>' +
       '</tr>';
     }).join('');
     wrap.innerHTML =
       '<table>' +
         '<thead><tr>' +
-          '<th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Supabase ID</th>' +
+          '<th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th style="text-align:right">Actions</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
       '</table>';
   } catch (e) {
     wrap.innerHTML = '<div class="status err">Failed to load users: ' + escH(e.message || 'unknown') + '</div>';
     count.textContent = '';
+  }
+}
+
+// ── Deploy 236.262: per-row actions ──────────────────────────────
+function _rowMsg(userId, kind, text) {
+  var el = document.getElementById('rowmsg_' + userId);
+  if (!el) return;
+  el.className = 'row-msg ' + kind;
+  el.textContent = text;
+  if (kind === 'ok') {
+    setTimeout(function(){ el.className = 'row-msg'; el.textContent = ''; }, 4000);
+  }
+}
+
+async function changeUserRole(sel) {
+  var userId = sel.getAttribute('data-user-id');
+  var previousRole = sel.getAttribute('data-current-role');
+  var newRole = sel.value;
+  if (newRole === previousRole) return;
+  if (!confirm('Change role from ' + (previousRole || 'none') + ' to ' + newRole + '?')) {
+    sel.value = previousRole || '';
+    return;
+  }
+  sel.disabled = true;
+  try {
+    var r = await SLA.api('POST', '/api/users-update-role-supabase', { userId: userId, role: newRole });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    _rowMsg(userId, 'ok', 'Role updated to ' + newRole);
+    sel.setAttribute('data-current-role', newRole);
+  } catch (e) {
+    _rowMsg(userId, 'err', 'Role change failed: ' + (e.message || 'unknown'));
+    sel.value = previousRole || '';
+  } finally {
+    sel.disabled = false;
+  }
+}
+
+async function resendInvite(userId, btn) {
+  if (!confirm('Send a fresh invite email to this user?')) return;
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Sending…';
+  try {
+    var r = await SLA.api('POST', '/api/users-resend-invite-supabase', { userId: userId });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    _rowMsg(userId, 'ok', 'Fresh invite sent to ' + (r.email || 'user'));
+  } catch (e) {
+    _rowMsg(userId, 'err', 'Resend failed: ' + (e.message || 'unknown'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+async function deleteUser(userId, email, btn) {
+  if (!confirm('Permanently delete Supabase user ' + email + '? This cannot be undone.\n\nYou can invite them again afterward with the same email.')) return;
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Deleting…';
+  try {
+    var r = await SLA.api('POST', '/api/users-delete-supabase', { userId: userId });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    // Remove the row from the DOM immediately; also refresh the list to
+    // keep the count accurate.
+    var tr = document.querySelector('tr[data-user-id="' + userId + '"]');
+    if (tr) tr.style.opacity = '0.3';
+    setTimeout(loadUsers, 400);
+  } catch (e) {
+    _rowMsg(userId, 'err', 'Delete failed: ' + (e.message || 'unknown'));
+    btn.disabled = false;
+    btn.textContent = originalLabel;
   }
 }
 
