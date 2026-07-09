@@ -1,32 +1,49 @@
 /**
  * admin-guarantor-audit.mjs — GET /api/admin-guarantor-audit
  *
- * Deploy 236.270 — one-shot forensic scan for loans whose
+ * Deploy 236.271 — three-path forensic scan for loans whose
  * guarantorClientIds / guarantorOwnership got silently wiped by the
  * pre-236.269 sizer-upsert fallback bug.
  *
- * How it works:
- *   1. Iterate every record in `signed_applications`. Each record
- *      encodes the borrower count at long-app sign time
- *      (`numBorrowers`) plus the actual borrower2/3/4 blocks with
- *      their email + ownership.
- *   2. For each signed record where numBorrowers >= 2, look up the
- *      corresponding loan (nested under the primary client in the
- *      `clients` store, keyed as ownerKey/clientId).
- *   3. Compare loan.guarantorClientIds.length to the expected count
- *      (numBorrowers - 1). If it's short, the loan is affected.
- *   4. Also flag loans where guarantorOwnership is missing entries
- *      that are present in the signed record.
+ * DETECTION PATHS
+ *
+ *   A. signed_applications comparison (236.270)
+ *      For each signed_applications record with numBorrowers >= 2,
+ *      compare secondaries (borrower2/3/4) to loan.guarantorClientIds.
+ *      Catches long-app-signed loans that lost guarantors.
+ *
+ *   B. Orphaned ownership entries (236.271 addition)
+ *      Any loan where guarantorOwnership has a key that's NOT in
+ *      guarantorClientIds. Smoking gun that a guarantor's ownership %
+ *      was recorded but their client-id reference got wiped. Catches
+ *      loans regardless of how the guarantor was originally added
+ *      (long-app sign OR the loan-add-guarantor "Add Guarantor" flow).
+ *
+ *   C. Guarantor backref mismatch (236.271 addition)
+ *      Every client created as a guarantor carries
+ *      _guarantorOnLoans: [{ primaryClientId, loanId }]. If a client
+ *      says "I'm on loan X" but loan X's guarantorClientIds doesn't
+ *      include this client's id, that's a wipe. Catches cases where
+ *      BOTH arrays got fully cleared (no orphaned ownership signal).
+ *
+ * Every affected entry carries `reasons: ['signed', 'orphaned', 'backref']`
+ * showing which path(s) flagged it. A loan flagged by multiple paths
+ * is deduped into one entry.
  *
  * Response:
  *   {
- *     scanned: <int>,
+ *     scanned: { signed: N, loans: M, clients: K },
+ *     affectedCount: <int>,
  *     affected: [
  *       {
- *         ownerKey, clientId, loanId, address,
- *         expected: N, actual: M,
- *         missingSecondaryEmails: ['g2@x.com', 'g3@y.com'],
- *         lastReprice: '2026-07-08T…' | null,
+ *         ownerKey, clientId, loanId, address, status,
+ *         reasons: ['signed', ...],
+ *         expected: N|null, actual: M,
+ *         missingSecondaryEmails: [...],
+ *         orphanedOwnershipEntries: [{ clientId, pct }],
+ *         backrefClientIds: [ids of clients whose _guarantorOnLoans points here],
+ *         lastReprice: '…' | null,
+ *         signedAt: '…' | null,
  *       },
  *       ...
  *     ],
@@ -58,19 +75,6 @@ async function handle(req, context) {
   const signedStore  = getStore({ name: 'signed_applications', consistency: 'strong' });
   const clientsStore = getStore({ name: 'clients',             consistency: 'strong' });
 
-  // Cache client records so we only fetch each once.
-  const clientCache = new Map(); // key = ownerKey/clientId → client|null
-
-  async function _getClient(ownerKey, clientId) {
-    const safe = String(clientId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const cacheKey = ownerKey + '/' + safe;
-    if (clientCache.has(cacheKey)) return clientCache.get(cacheKey);
-    let c = null;
-    try { c = await clientsStore.get(cacheKey, { type: 'json' }); } catch (_) { c = null; }
-    clientCache.set(cacheKey, c);
-    return c;
-  }
-
   function _lastRepriceAt(loan) {
     const log = (loan && Array.isArray(loan.notesLog)) ? loan.notesLog : [];
     for (let i = log.length - 1; i >= 0; i--) {
@@ -80,79 +84,177 @@ async function handle(req, context) {
     return null;
   }
 
-  const affected = [];
-  let scanned = 0;
+  // Load every client record ONCE. Everything downstream indexes off
+  // this in-memory map.
+  //   loansByKey:      "ownerKey|loanId" → { loan, primary }
+  //   clientsByKey:    "ownerKey|clientId" → client
+  //   clientById:      just clientId → { client, ownerKey }  (dedup collisions OK; guarantors are unique per owner)
+  const loansByKey   = new Map();
+  const clientsByKey = new Map();
+  const clientById   = new Map();
 
-  const { blobs } = await signedStore.list();
-  for (const { key } of blobs) {
-    scanned++;
+  const { blobs: clientBlobs } = await clientsStore.list();
+  let scannedClients = 0;
+  let scannedLoans   = 0;
+
+  for (const { key } of clientBlobs) {
+    scannedClients++;
+    const slash = key.indexOf('/');
+    if (slash < 0) continue;
+    const ownerKey = key.slice(0, slash);
+    const client = await clientsStore.get(key, { type: 'json' }).catch(() => null);
+    if (!client) continue;
+    clientsByKey.set(ownerKey + '|' + client.id, client);
+    clientById.set(client.id, { client, ownerKey });
+    if (Array.isArray(client.loans)) {
+      for (const loan of client.loans) {
+        if (!loan || !loan.id) continue;
+        scannedLoans++;
+        loansByKey.set(ownerKey + '|' + loan.id, { loan, primary: client, ownerKey });
+      }
+    }
+  }
+
+  // Reason accumulator, keyed by ownerKey|loanId so a loan flagged by
+  // multiple paths dedups to one row with reasons: ['signed','orphaned','backref'].
+  const flagged = new Map();
+  function _flag(ownerKey, loanId, reason, patch) {
+    const key = ownerKey + '|' + loanId;
+    let row = flagged.get(key);
+    if (!row) {
+      const rec = loansByKey.get(key) || {};
+      const loan = rec.loan || {};
+      row = {
+        ownerKey,
+        clientId: rec.primary ? rec.primary.id : (patch && patch.clientId) || '',
+        loanId,
+        address: loan.address || '',
+        status:  loan.status  || '',
+        reasons: [],
+        expected: null,
+        actual: Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds.length : 0,
+        missingSecondaryEmails: [],
+        orphanedOwnershipEntries: [],
+        backrefClientIds: [],
+        lastReprice: _lastRepriceAt(loan),
+        signedAt: null,
+      };
+      flagged.set(key, row);
+    }
+    if (!row.reasons.includes(reason)) row.reasons.push(reason);
+    if (patch) {
+      if (patch.expected != null) row.expected = Math.max(row.expected || 0, patch.expected);
+      if (patch.signedAt) row.signedAt = patch.signedAt;
+      if (Array.isArray(patch.missingSecondaryEmails)) {
+        for (const em of patch.missingSecondaryEmails) if (em && !row.missingSecondaryEmails.includes(em)) row.missingSecondaryEmails.push(em);
+      }
+      if (Array.isArray(patch.orphanedOwnershipEntries)) {
+        for (const oe of patch.orphanedOwnershipEntries) row.orphanedOwnershipEntries.push(oe);
+      }
+      if (Array.isArray(patch.backrefClientIds)) {
+        for (const bid of patch.backrefClientIds) if (bid && !row.backrefClientIds.includes(bid)) row.backrefClientIds.push(bid);
+      }
+    }
+  }
+
+  // ── Path A: signed_applications comparison ────────────────
+  let scannedSigned = 0;
+  const { blobs: signedBlobs } = await signedStore.list();
+  for (const { key } of signedBlobs) {
+    scannedSigned++;
     const rec = await signedStore.get(key, { type: 'json' }).catch(() => null);
     if (!rec) continue;
     const numBorrowers = Number(rec.numBorrowers || 0);
     if (numBorrowers < 2) continue;
-
     const secondaries = [rec.borrower2, rec.borrower3, rec.borrower4].filter(function (b) {
       return b && (b.email || (b.audit && b.audit.signerEmail));
     });
     if (!secondaries.length) continue;
-
     const ownerKey = rec.ownerKey || '';
     const clientId = rec.clientId || '';
     const loanId   = rec.loanId   || '';
     if (!ownerKey || !clientId || !loanId) continue;
-
-    const primary = await _getClient(ownerKey, clientId);
-    if (!primary || !Array.isArray(primary.loans)) continue;
-    const loan = primary.loans.find(function (l) { return l && l.id === loanId; });
-    if (!loan) continue;
-
+    const rec2 = loansByKey.get(ownerKey + '|' + loanId);
+    if (!rec2 || !rec2.loan) continue;
+    const loan = rec2.loan;
     const gClientIds = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
-    const expected   = secondaries.length; // primary is not in this list
-    const actual     = gClientIds.length;
-
-    if (actual >= expected) continue; // fully attached, nothing to fix
-
-    // Build the list of secondary emails whose client-id we can't
-    // find on the loan. These are the ones to recover.
-    const attachedIdSet = new Set(gClientIds);
-    const missingEmails = [];
-    for (const s of secondaries) {
-      const em = String((s && (s.email || (s.audit && s.audit.signerEmail))) || '').toLowerCase().trim();
-      if (!em) continue;
-      // Check if any attached client id maps to this email under
-      // the same owner — only meaningful if we can prove it. Skip
-      // that resolution here (expensive lookup); missingEmails is
-      // the superset the recovery script consumes.
-      missingEmails.push(em);
-    }
-    // If a stored guarantor has ownership entry, note it.
-    const ownership = (loan.guarantorOwnership && typeof loan.guarantorOwnership === 'object') ? loan.guarantorOwnership : {};
-    const orphanedOwnershipEntries = Object.keys(ownership).filter(function (k) {
-      return !attachedIdSet.has(k);
-    });
-
-    affected.push({
-      ownerKey,
+    if (gClientIds.length >= secondaries.length) continue;
+    const emails = secondaries
+      .map(function (s) { return String((s && (s.email || (s.audit && s.audit.signerEmail))) || '').toLowerCase().trim(); })
+      .filter(Boolean);
+    _flag(ownerKey, loanId, 'signed', {
       clientId,
-      loanId,
-      address: loan.address || '',
-      status:  loan.status  || '',
-      expected: expected,
-      actual:   actual,
-      missingSecondaryEmails: missingEmails,
-      orphanedOwnershipEntries: orphanedOwnershipEntries.length,
-      lastReprice: _lastRepriceAt(loan),
+      expected: secondaries.length,
+      missingSecondaryEmails: emails,
       signedAt: rec.signedAt || null,
     });
   }
 
+  // ── Path B: orphaned ownership entries ────────────────────
+  // For every loan whose guarantorOwnership has a key that isn't in
+  // guarantorClientIds — that key is the wiped guarantor's client id.
+  // Look up the client record (if it still exists) to attach the
+  // email for the recovery script.
+  for (const [key, { loan, ownerKey, primary }] of loansByKey.entries()) {
+    const own = (loan && loan.guarantorOwnership && typeof loan.guarantorOwnership === 'object') ? loan.guarantorOwnership : null;
+    if (!own) continue;
+    const attached = new Set(Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : []);
+    const orphaned = [];
+    const emails   = [];
+    for (const gcid of Object.keys(own)) {
+      if (attached.has(gcid)) continue;
+      const pct = own[gcid];
+      const gRec = clientById.get(gcid);
+      const gClient = gRec ? gRec.client : null;
+      orphaned.push({
+        clientId: gcid,
+        pct: pct,
+        email: gClient ? (gClient.email || '') : '',
+        name: gClient ? ((gClient.firstName || '') + ' ' + (gClient.lastName || '')).trim() : '',
+      });
+      if (gClient && gClient.email) emails.push(String(gClient.email).toLowerCase().trim());
+    }
+    if (!orphaned.length) continue;
+    _flag(ownerKey, loan.id, 'orphaned', {
+      clientId: primary.id,
+      orphanedOwnershipEntries: orphaned,
+      missingSecondaryEmails: emails,
+    });
+  }
+
+  // ── Path C: guarantor backref mismatch ────────────────────
+  // Every client created via loan-add-guarantor or borrower-info-sign
+  // carries _guarantorOnLoans: [{primaryClientId, loanId}]. If a
+  // client says "I'm on loan X" but loan X's guarantorClientIds
+  // doesn't include this client's id, that's a wipe. Catches loans
+  // where BOTH the ownership map AND the client id array were fully
+  // cleared (no orphaned ownership signal).
+  for (const [ckey, client] of clientsByKey.entries()) {
+    const backrefs = Array.isArray(client._guarantorOnLoans) ? client._guarantorOnLoans : [];
+    if (!backrefs.length) continue;
+    const ownerKey = ckey.split('|')[0];
+    for (const bref of backrefs) {
+      if (!bref || !bref.loanId) continue;
+      const rec = loansByKey.get(ownerKey + '|' + bref.loanId);
+      if (!rec || !rec.loan) continue;
+      const attached = new Set(Array.isArray(rec.loan.guarantorClientIds) ? rec.loan.guarantorClientIds : []);
+      if (attached.has(client.id)) continue; // fine, still attached
+      const em = client.email ? [String(client.email).toLowerCase().trim()] : [];
+      _flag(ownerKey, bref.loanId, 'backref', {
+        clientId: bref.primaryClientId || rec.primary.id,
+        backrefClientIds: [client.id],
+        missingSecondaryEmails: em,
+      });
+    }
+  }
+
+  const affected = Array.from(flagged.values());
   affected.sort(function (a, b) {
-    // Most recently repriced first — those are the freshest damage.
     return String(b.lastReprice || '').localeCompare(String(a.lastReprice || ''));
   });
 
   return json(200, {
-    scanned: scanned,
+    scanned: { signed: scannedSigned, loans: scannedLoans, clients: scannedClients },
     affectedCount: affected.length,
     affected: affected,
   });
