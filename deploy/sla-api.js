@@ -118,35 +118,72 @@
   }
 
   // ── netlifyIdentity.on() wrapper ────────────────────────────────
-  // Patch 'init' and 'login' so pages that gate on the callback's
-  // user param transparently accept Supabase users too. Runs once —
-  // set a flag to no-op re-runs when sla-api.js is loaded more than
-  // once on a page (some pages include it twice for legacy reasons).
+  // Deploy 236.267 — rewrite. The previous version wrapped each
+  // .on('init', cb) call and relied on netlifyIdentity replaying
+  // 'init' to every late subscriber. The widget replay turns out to
+  // fire reliably for the FIRST late subscriber only (which is why
+  // the page's auth guard hides the auth-gate) but silently drops
+  // the second one (sla-nav's autoRender never sees a user, so
+  // the navbar stays empty).
+  //
+  // Fix: resolve init state ONCE via a single underlying subscribe
+  // (before any page code runs), stash the resolved user, and fan
+  // out to every wrapped .on('init', cb) subscription directly.
+  // Late subscribers get a scheduled synchronous replay.
+  var _initResolved = false;
+  var _initUser = null;
+  var _initPending = []; // callbacks waiting for init to resolve
+  var _loginPending = []; // callbacks passed to .on('login')
+
+  function _fireInit(u) {
+    _initResolved = true;
+    _initUser = u;
+    var cbs = _initPending.slice(); _initPending = [];
+    cbs.forEach(function (cb) { try { cb(u); } catch (e) { console.warn('[SLA] init callback threw:', e); } });
+  }
+
+  function _resolveInit(nlUser) {
+    if (nlUser) { _fireInit(nlUser); return; }
+    _initSupabase().then(function (supa) {
+      if (supa && supa.user) _fireInit(_mapSupabaseUserToNetlifyShape(supa));
+      else _fireInit(null);
+    });
+  }
+
   function _patchNetlifyIdentityOn() {
     if (!window.netlifyIdentity || window._slaNetlifyIdentityOnPatched) return;
     if (typeof window.netlifyIdentity.on !== 'function') return;
     window._slaNetlifyIdentityOnPatched = true;
     var _origOn = window.netlifyIdentity.on.bind(window.netlifyIdentity);
+
+    // Subscribe ONCE to the underlying widget's init/login. We fan
+    // out to page callbacks ourselves — never rely on the widget's
+    // replay-to-late-subscribers behavior for anything but this one
+    // subscription.
+    _origOn('init', function (nlUser) { _resolveInit(nlUser); });
+    _origOn('login', function (nlUser) {
+      // A Netlify Identity login always wins; map straight through.
+      _loginPending.slice().forEach(function (cb) { try { cb(nlUser); } catch (_) {} });
+    });
+
     window.netlifyIdentity.on = function (eventName, callback) {
-      if (eventName !== 'init' && eventName !== 'login') {
-        return _origOn(eventName, callback);
+      if (eventName === 'init') {
+        if (_initResolved) {
+          setTimeout(function () { callback(_initUser); }, 0);
+        } else {
+          _initPending.push(callback);
+        }
+        return;
       }
-      var wrapped = function (nlUser) {
-        if (nlUser) { callback(nlUser); return; }
-        _initSupabase().then(function (supa) {
-          if (supa && supa.user) {
-            var mapped = _mapSupabaseUserToNetlifyShape(supa);
-            callback(mapped);
-          } else {
-            callback(null); // preserve original null semantics
-          }
-        });
-      };
-      return _origOn(eventName, wrapped);
+      if (eventName === 'login') {
+        _loginPending.push(callback);
+        return;
+      }
+      // Pass through anything else (logout, error, open, close) —
+      // no user shape translation needed.
+      return _origOn(eventName, callback);
     };
   }
-  // netlifyIdentity may not be loaded yet when sla-api.js runs. Try
-  // now, then retry on DOMContentLoaded, then poll a few times.
   _patchNetlifyIdentityOn();
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _patchNetlifyIdentityOn, { once: true });
@@ -157,26 +194,13 @@
     if (window._slaNetlifyIdentityOnPatched || ++_patchTries > 20) clearInterval(_patchIvl);
   }, 100);
 
-  // Expose a helper pages can call directly if they want to check
-  // "is any user signed in, either provider?"
-  window.SLA = window.SLA || {};
-  window.SLA.getCurrentUser = function () {
-    return _initSupabase().then(function (supa) {
-      try {
-        var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
-        if (nlUser) return nlUser;
-      } catch (_) {}
-      return supa ? _mapSupabaseUserToNetlifyShape(supa) : null;
-    });
-  };
-  window.SLA.signOut = function () {
-    var tasks = [];
-    try {
-      if (window.netlifyIdentity && window.netlifyIdentity.logout) tasks.push(window.netlifyIdentity.logout());
-    } catch (_) {}
-    if (window._slaSupabase) tasks.push(window._slaSupabase.auth.signOut());
-    return Promise.all(tasks).catch(function () {});
-  };
+  // Safety net — if the widget somehow never fires init (rare, but
+  // has been seen when the widget script fails to load), resolve to
+  // whatever Supabase says after a short delay so the app doesn't
+  // hang on a permanent auth-gate spinner.
+  setTimeout(function () {
+    if (!_initResolved) _resolveInit(null);
+  }, 3000);
 
   // ── Core fetch wrapper ──────────────────────────────────────────
   // Deploy 236.220 — Phase 3 of Mike's "Loan Details is the source
@@ -1558,6 +1582,26 @@
     isProcessor: isProcessor,
     isStaff: isStaff, // Deploy 236.266 — alias of isProcessor for scope callsites
     slugFromUser: slugFromUser,
+    // Deploy 236.267 — helpers we set earlier were being clobbered
+    // when this window.SLA = {...} assignment ran. Attach on the same
+    // object so they survive.
+    getCurrentUser: function () {
+      return _initSupabase().then(function (supa) {
+        try {
+          var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+          if (nlUser) return nlUser;
+        } catch (_) {}
+        return supa ? _mapSupabaseUserToNetlifyShape(supa) : null;
+      });
+    },
+    signOut: function () {
+      var tasks = [];
+      try {
+        if (window.netlifyIdentity && window.netlifyIdentity.logout) tasks.push(window.netlifyIdentity.logout());
+      } catch (_) {}
+      if (window._slaSupabase) tasks.push(window._slaSupabase.auth.signOut());
+      return Promise.all(tasks).catch(function () {});
+    },
   };
 
   // ── Auto-init on identity ready ─────────────────────────────────
