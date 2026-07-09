@@ -202,6 +202,31 @@
     window._slaNetlifyIdentityOnPatched = true;
     var _origOn = window.netlifyIdentity.on.bind(window.netlifyIdentity);
 
+    // Deploy 236.274 — patch netlifyIdentity.logout to ALSO sign the
+    // user out of Supabase. sla-nav.js's Sign Out button, and every
+    // other page's netlifyIdentity.logout() callsite, otherwise leaves
+    // the Supabase session live in localStorage — the user reloads
+    // and gets signed straight back in. Fire-and-forget both drains
+    // so the button feels instant.
+    if (typeof window.netlifyIdentity.logout === 'function' && !window._slaLogoutPatched) {
+      window._slaLogoutPatched = true;
+      var _origLogout = window.netlifyIdentity.logout.bind(window.netlifyIdentity);
+      window.netlifyIdentity.logout = function () {
+        try { if (window._slaSupabase) window._slaSupabase.auth.signOut(); } catch (_) {}
+        // Also clear any leftover Supabase session key from
+        // localStorage — auth.signOut is async and we want the sign
+        // out to feel instant. `sb-<project-ref>-auth-token` is the
+        // v2 SDK's canonical key format.
+        try {
+          for (var i = localStorage.length - 1; i >= 0; i--) {
+            var k = localStorage.key(i);
+            if (k && /^sb-.+-auth-token$/.test(k)) localStorage.removeItem(k);
+          }
+        } catch (_) {}
+        return _origLogout();
+      };
+    }
+
     // Subscribe ONCE to the underlying widget's init/login. We fan
     // out to page callbacks ourselves — never rely on the widget's
     // replay-to-late-subscribers behavior for anything but this one
