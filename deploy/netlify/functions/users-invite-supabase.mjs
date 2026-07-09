@@ -1,51 +1,92 @@
 /**
  * users-invite-supabase.mjs — POST /api/users-invite-supabase
  *
- * Path A Phase 1: Send a Supabase invitation email to a new user
- * with a role stamped into app_metadata. Admin-only.
+ * Path A Phase 1 (Deploy 236.263 rework): invite a new Supabase user
+ * WITHOUT going through Supabase's own invite-email path, which trips
+ * an ES256 mismatch on this project's JWT signing keys.
+ *
+ * Approach:
+ *   1. Create the user directly via /auth/v1/admin/users. Role is
+ *      stamped into app_metadata at creation time, `email_confirm:
+ *      true` so no separate confirmation step is required.
+ *   2. Generate a magic-link URL via /auth/v1/admin/generate_link
+ *      with type='magiclink'. Same code path signInWithOtp uses,
+ *      which is proven working (spike test 236.20-something).
+ *   3. Send the invite email OURSELVES via Resend (already used
+ *      by borrower2-auth-resend / envelopes-send / quotes-decide
+ *      throughout the codebase). Bypasses Supabase's built-in
+ *      email delivery entirely.
  *
  * Body: { email, role?, fullName? }
- *   - email    (required): the invitee's email
- *   - role     (optional, default 'loan_officer'): one of
- *                'admin' | 'loan_officer' | 'processor'
- *   - fullName (optional): stashed in user_metadata for display
  *
- * Flow:
- *   1. Gate on admin via existing Netlify Identity requireAuth.
- *      (Phase 2 will teach requireAuth to also accept Supabase
- *      JWTs so an admin whose own account has moved to Supabase
- *      can still invite.)
- *   2. Call Supabase Auth Admin API:
- *      POST {SUPABASE_URL}/auth/v1/invite
- *      Headers:
- *        apikey: <service role key>
- *        Authorization: Bearer <service role key>
- *      Body: {
- *        email,
- *        data: { full_name },        // → user_metadata
- *      }
- *      This sends the invite email AND creates the user. It does
- *      NOT accept app_metadata directly, so we follow up with a
- *      PUT to /auth/v1/admin/users/:id to stamp the role.
- *   3. Return the invited user's id + email.
+ * Roles: 'admin' | 'loan_officer' | 'processor'
+ * super_admin required to grant admin.
  *
- * Response 200: { ok, user: { id, email, role } }
- * Response 4xx: { error }
+ * Response 200: { ok, user: { id, email, role }, emailedVia: 'resend' }
+ * Response 409: user with this email already exists in Supabase
  */
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin, isSuperAdmin, normalizeEmail } from './_shared/auth.mjs';
 
 const ALLOWED_ROLES = new Set(['admin', 'loan_officer', 'processor']);
+const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
+
+function escH(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _humanRole(r) {
+  return r === 'admin' ? 'Admin' : r === 'loan_officer' ? 'Loan Officer' : r === 'processor' ? 'Processor' : r;
+}
+
+function _buildInviteEmail(email, fullName, role, actionLink) {
+  const greeting = fullName ? 'Hi ' + escH(fullName) : 'Hi there';
+  const humanRole = escH(_humanRole(role));
+  const subject = 'You\'re invited to SLA Capital Loan Tools';
+  const text =
+    greeting + ',\n\n' +
+    'You\'ve been invited to SLA Capital\'s Loan Tools portal with the role of ' + role + '.\n\n' +
+    'Click here to activate your account and sign in:\n' + actionLink + '\n\n' +
+    'This link is single-use and will sign you in the first time you click it. ' +
+    'If you didn\'t expect this invitation, you can ignore this email — the invitation will expire.\n\n' +
+    'SLA Capital';
+  const html =
+    '<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f0ece5;padding:40px 20px;margin:0">' +
+      '<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:32px 28px;color:#1a1520">' +
+        '<h1 style="font-family:\'Lora\',serif;color:#261a36;font-size:22px;margin:0 0 8px 0">SLA Capital Loan Tools</h1>' +
+        '<p style="margin:0 0 20px;color:#7a7488;font-size:13px">You\'ve been invited to the internal loan-officer portal.</p>' +
+        '<p style="margin:0 0 12px">' + greeting + ',</p>' +
+        '<p style="margin:0 0 16px">You\'ve been invited to SLA Capital\'s Loan Tools as a <strong>' + humanRole + '</strong>. Click the button below to activate your account and sign in.</p>' +
+        '<p style="margin:0 0 28px">' +
+          '<a href="' + escH(actionLink) + '" style="display:inline-block;padding:12px 28px;background:#C8813A;color:#fff;border-radius:6px;font-weight:600;text-decoration:none;font-size:14px">Activate account</a>' +
+        '</p>' +
+        '<p style="font-size:12px;color:#7a7488;margin:0 0 8px">Or copy this link into your browser:</p>' +
+        '<p style="font-size:11px;color:#7a7488;word-break:break-all;background:#faf8f3;padding:8px 12px;border-radius:6px;margin:0 0 20px"><a href="' + escH(actionLink) + '" style="color:#7a7488;text-decoration:none">' + escH(actionLink) + '</a></p>' +
+        '<p style="font-size:11px;color:#7a7488;font-style:italic;margin:0">This link is single-use. If you didn\'t expect this invitation, ignore this email.</p>' +
+      '</div>' +
+    '</body></html>';
+  return { subject, text, html };
+}
+
+async function _sendViaResend(email, subject, text, html) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY not configured');
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: INVITE_FROM, to: [email], subject, text, html }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '');
+    throw new Error('Resend ' + resp.status + ': ' + t.slice(0, 300));
+  }
+  return await resp.json().catch(() => ({}));
+}
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
 
-  // Phase 1 gate: existing Netlify Identity admin check. Phase 2
-  // will extend requireAuth to also accept Supabase JWTs so
-  // Supabase-migrated admins can still invite.
-  // Pass req so requireAuth can fall back to Authorization-header
-  // decode when context.clientContext.user is empty (which happens
-  // whenever the browser calls the function directly via /api/*).
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isAdmin(user)) return json(403, { error: 'Admin required' });
@@ -73,9 +114,12 @@ export default async (req, context) => {
   }
   const base = String(SUPABASE_URL).replace(/\/+$/, '');
 
+  // 1. Create the Supabase user with role stamped + email confirmed.
+  //    email_confirm=true prevents Supabase from firing its own
+  //    confirmation-email path (which would trip the ES256 bug).
+  let supabaseUserId = '';
   try {
-    // 1. Invite — sends email + creates the user record.
-    const inviteResp = await fetch(base + '/auth/v1/invite', {
+    const createResp = await fetch(base + '/auth/v1/admin/users', {
       method: 'POST',
       headers: {
         'apikey':        SVC,
@@ -84,60 +128,79 @@ export default async (req, context) => {
       },
       body: JSON.stringify({
         email: email,
-        data:  fullName ? { full_name: fullName } : {},
+        email_confirm: true,
+        app_metadata: { role: role, roles: [role] },
+        user_metadata: fullName ? { full_name: fullName } : {},
       }),
     });
-
-    if (!inviteResp.ok) {
-      const txt = await inviteResp.text().catch(() => '');
-      // Supabase returns 422 for "already exists" too; normalize to 409
-      // to match the Netlify Identity invite behavior.
-      if (inviteResp.status === 422 && /already|exists|registered/i.test(txt)) {
-        return json(409, { error: 'User with this email already exists in Supabase' });
+    if (!createResp.ok) {
+      const txt = await createResp.text().catch(() => '');
+      if (createResp.status === 422 && /already|exists|registered/i.test(txt)) {
+        return json(409, { error: 'User with this email already exists in Supabase. Delete or resend-invite the existing record instead.' });
       }
-      return json(inviteResp.status, { error: 'Supabase invite ' + inviteResp.status + ': ' + txt.slice(0, 300) });
+      return json(createResp.status, { error: 'Supabase createUser ' + createResp.status + ': ' + txt.slice(0, 300) });
     }
-
-    const created = await inviteResp.json().catch(() => ({}));
-    const supabaseUserId = created && created.id;
-
-    // 2. Stamp the role into app_metadata. Best-effort — if this
-    // fails, the user was still invited; we surface a warning
-    // rather than swallowing it or double-charging the email.
-    let roleStamped = false;
-    let roleError = null;
-    if (supabaseUserId) {
-      try {
-        const putResp = await fetch(base + '/auth/v1/admin/users/' + encodeURIComponent(supabaseUserId), {
-          method: 'PUT',
-          headers: {
-            'apikey':        SVC,
-            'Authorization': 'Bearer ' + SVC,
-            'Content-Type':  'application/json',
-          },
-          body: JSON.stringify({ app_metadata: { role: role, roles: [role] } }),
-        });
-        if (putResp.ok) roleStamped = true;
-        else roleError = 'HTTP ' + putResp.status + ': ' + (await putResp.text().catch(() => '')).slice(0, 200);
-      } catch (e) {
-        roleError = (e && e.message) || 'unknown error';
-      }
-    } else {
-      roleError = 'Invite succeeded but no user id returned — cannot stamp role.';
+    const created = await createResp.json().catch(() => ({}));
+    supabaseUserId = created && created.id || '';
+    if (!supabaseUserId) {
+      return json(500, { error: 'Supabase createUser succeeded but returned no user id' });
     }
-
-    return json(200, {
-      ok: true,
-      user: {
-        id:    supabaseUserId || '',
-        email: email,
-        role:  role,
-      },
-      roleStamped,
-      roleError,
-    });
   } catch (e) {
-    console.error('users-invite-supabase error:', e);
-    return json(500, { error: 'Failed to invite user: ' + ((e && e.message) || 'unknown') });
+    console.error('users-invite-supabase createUser error:', e);
+    return json(500, { error: 'Failed to create user: ' + ((e && e.message) || 'unknown') });
   }
+
+  // 2. Generate a magic-link URL. type='magiclink' goes through the
+  //    same code path signInWithOtp uses — proven working on this
+  //    project's ES256 configuration.
+  let actionLink = '';
+  try {
+    const linkResp = await fetch(base + '/auth/v1/admin/generate_link', {
+      method: 'POST',
+      headers: {
+        'apikey':        SVC,
+        'Authorization': 'Bearer ' + SVC,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({ type: 'magiclink', email: email }),
+    });
+    if (!linkResp.ok) {
+      const txt = await linkResp.text().catch(() => '');
+      // User was created but we can't email them. Return partial
+      // success so the admin knows to delete + retry OR use the
+      // resend-invite action once they're in the list.
+      return json(500, {
+        error: 'User created but magiclink generation failed: ' + linkResp.status + ' ' + txt.slice(0, 200),
+        userId: supabaseUserId,
+      });
+    }
+    const linkData = await linkResp.json().catch(() => ({}));
+    actionLink = (linkData && linkData.properties && linkData.properties.action_link) || linkData.action_link || '';
+    if (!actionLink) {
+      return json(500, { error: 'Supabase generate_link returned no action_link', userId: supabaseUserId });
+    }
+  } catch (e) {
+    console.error('users-invite-supabase generate_link error:', e);
+    return json(500, { error: 'Failed to generate magic link: ' + ((e && e.message) || 'unknown'), userId: supabaseUserId });
+  }
+
+  // 3. Send the invite email via Resend directly.
+  try {
+    const mail = _buildInviteEmail(email, fullName, role, actionLink);
+    await _sendViaResend(email, mail.subject, mail.text, mail.html);
+  } catch (e) {
+    console.error('users-invite-supabase resend error:', e);
+    return json(500, {
+      error: 'User created but email send failed: ' + ((e && e.message) || 'unknown'),
+      userId: supabaseUserId,
+      hint: 'The user exists in Supabase — use Resend invite from the users list to try emailing again.',
+    });
+  }
+
+  return json(200, {
+    ok: true,
+    user: { id: supabaseUserId, email: email, role: role },
+    emailedVia: 'resend',
+    roleStamped: true,
+  });
 };
