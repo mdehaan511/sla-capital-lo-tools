@@ -1972,8 +1972,65 @@ function fmtDplain(n) {
 
 // Public entrypoint for the LO's "Download Rate Sheet PDF" button.
 function downloadPDF() {
+  // Deploy 236.277 — mobile back-nav preservation. jsPDF's doc.save()
+  // navigates the current tab to the PDF blob URL on iOS Safari and
+  // some Android configs; hitting Back reloads the sizer fresh with
+  // every field blank. Snapshot the entire form to sessionStorage
+  // first so the on-load restore hook can put everything back.
+  try { _snapshotSizerFormForRestore(); } catch (_) {}
   return _generateRateSheetPDF({ mode: 'download' });
 }
+
+// Deploy 236.277 — form-state snapshot / restore around the print
+// flow. Address bar disappearing after "back from PDF" was reported
+// on mobile; root cause is the browser reloading the page instead of
+// serving it from bfcache. Snapshot into sessionStorage before print;
+// restore on DOMContentLoaded if #propAddress is empty AND the
+// snapshot is fresh (<30 min).
+var _SIZER_RESTORE_KEY = 'sla_sizer_restore_dscr';
+function _snapshotSizerFormForRestore() {
+  var snap = { at: Date.now(), fields: {} };
+  var els = document.querySelectorAll('input[id], select[id], textarea[id]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    if (el.type === 'password') continue;
+    snap.fields[el.id] = (el.type === 'checkbox' || el.type === 'radio')
+      ? !!el.checked
+      : String(el.value == null ? '' : el.value);
+  }
+  try { sessionStorage.setItem(_SIZER_RESTORE_KEY, JSON.stringify(snap)); } catch (_) {}
+}
+function _maybeRestoreSizerForm() {
+  try {
+    var addrEl = document.getElementById('propAddress');
+    if (!addrEl) return;
+    if (String(addrEl.value || '').trim() !== '') return; // user already has data
+    var raw = sessionStorage.getItem(_SIZER_RESTORE_KEY);
+    if (!raw) return;
+    var snap = JSON.parse(raw);
+    if (!snap || !snap.fields) return;
+    if (Date.now() - Number(snap.at || 0) > 30 * 60 * 1000) return; // stale
+    Object.keys(snap.fields).forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var v = snap.fields[id];
+      if (el.type === 'checkbox' || el.type === 'radio') { el.checked = !!v; }
+      else { el.value = v; }
+      try { el.dispatchEvent(new Event('input',  { bubbles: true })); } catch (_) {}
+      try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+    });
+    try { if (typeof calculate === 'function') calculate(); } catch (_) {}
+  } catch (_) {}
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _maybeRestoreSizerForm);
+} else {
+  setTimeout(_maybeRestoreSizerForm, 0);
+}
+// Also try on pageshow — mobile browsers sometimes restore-from-cache
+// and fire pageshow with event.persisted=false when the sizer is a
+// fresh load after PDF back-nav.
+window.addEventListener('pageshow', function () { _maybeRestoreSizerForm(); });
 
 // Used by the Send-for-Signature flow. Returns base64 PDF bytes (no data:
 // prefix) with PandaDoc field tags embedded for an N-signer envelope.

@@ -4141,8 +4141,56 @@ function _synthRtlSnapFromFD(fd) {
 }
 
 function downloadRTLPDF() {
+  // Deploy 236.277 — mobile back-nav preservation. See DSCR sizer.
+  try { _snapshotRtlSizerFormForRestore(); } catch (_) {}
   return _generateRTLRateSheetPDF({ mode: 'download' });
 }
+
+// Deploy 236.277 — snapshot/restore form state around print so mobile
+// back-navigation from the PDF doesn't leave the sizer blank. Same
+// approach as DSCR sizer; separate key so DSCR ↔ RTL restores don't
+// cross-pollinate.
+var _RTL_SIZER_RESTORE_KEY = 'sla_sizer_restore_rtl';
+function _snapshotRtlSizerFormForRestore() {
+  var snap = { at: Date.now(), fields: {} };
+  var els = document.querySelectorAll('input[id], select[id], textarea[id]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    if (el.type === 'password') continue;
+    snap.fields[el.id] = (el.type === 'checkbox' || el.type === 'radio')
+      ? !!el.checked
+      : String(el.value == null ? '' : el.value);
+  }
+  try { sessionStorage.setItem(_RTL_SIZER_RESTORE_KEY, JSON.stringify(snap)); } catch (_) {}
+}
+function _maybeRestoreRtlSizerForm() {
+  try {
+    var addrEl = document.getElementById('propAddress');
+    if (!addrEl) return;
+    if (String(addrEl.value || '').trim() !== '') return;
+    var raw = sessionStorage.getItem(_RTL_SIZER_RESTORE_KEY);
+    if (!raw) return;
+    var snap = JSON.parse(raw);
+    if (!snap || !snap.fields) return;
+    if (Date.now() - Number(snap.at || 0) > 30 * 60 * 1000) return;
+    Object.keys(snap.fields).forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var v = snap.fields[id];
+      if (el.type === 'checkbox' || el.type === 'radio') { el.checked = !!v; }
+      else { el.value = v; }
+      try { el.dispatchEvent(new Event('input',  { bubbles: true })); } catch (_) {}
+      try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+    });
+    try { if (typeof calculate === 'function') calculate(); } catch (_) {}
+  } catch (_) {}
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _maybeRestoreRtlSizerForm);
+} else {
+  setTimeout(_maybeRestoreRtlSizerForm, 0);
+}
+window.addEventListener('pageshow', function () { _maybeRestoreRtlSizerForm(); });
 
 // Native eSign hook. Returns just base64 (legacy callers).
 function getRTLRateSheetBase64ForSignature(signerCount) {
