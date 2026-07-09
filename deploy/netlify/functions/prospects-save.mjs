@@ -43,9 +43,25 @@ export default async (req, context) => {
   const email = normalizeEmail(body.email);
   const firstName = String(body.firstName || '').trim();
   const lastName = String(body.lastName || '').trim();
-  if (!email || !email.includes('@')) return json(400, { error: 'Valid email required' });
-  if (!firstName && !lastName) return json(400, { error: 'Name required' });
-  if (email.length > 200) return json(400, { error: 'Invalid email' });
+  const submitterType = String(body.submitterType || 'borrower').toLowerCase();
+  const brokerEmail = normalizeEmail(body.brokerEmail);
+  const brokerName  = String(body.brokerName || '').trim();
+  // Deploy 236.272 — broker submissions send borrower fields empty by
+  // design (client-side validation skipped in 236.227 for broker mode
+  // because the borrower's contact info gets captured at Advance to
+  // Approved, not at prospect submission). Server-side validation was
+  // never updated to match, so broker submits hit "Valid email required"
+  // and 400'd. Validate against the appropriate field set depending on
+  // submitterType.
+  if (submitterType === 'broker') {
+    if (!brokerEmail || !brokerEmail.includes('@')) return json(400, { error: 'Valid broker email required' });
+    if (!brokerName) return json(400, { error: 'Broker name required' });
+    if (brokerEmail.length > 200) return json(400, { error: 'Invalid broker email' });
+  } else {
+    if (!email || !email.includes('@')) return json(400, { error: 'Valid email required' });
+    if (!firstName && !lastName) return json(400, { error: 'Name required' });
+    if (email.length > 200) return json(400, { error: 'Invalid email' });
+  }
 
   // Build sanitized prospect record (don't trust anything from the client)
   const now = new Date().toISOString();
@@ -366,9 +382,14 @@ async function notifyLO(prospect) {
   // Deploy 236.6 — flag broker-submitted apps in the subject so the LO
   // sees the source at a glance. apply.html Phase 3c sets submitterType
   // to 'broker' when a broker is filling out on behalf of a borrower.
+  // Deploy 236.272 — broker submissions send borrower name/email empty,
+  // so fall back to broker name/property address so the subject line
+  // isn't left with a trailing "— " and no context.
   const isBrokerApp = prospect.submitterType === 'broker';
+  const brokerHint  = prospect.brokerName || prospect.brokerCompany || prospect.brokerEmail || '';
+  const propHint    = prospect.propAddress || '';
   const subject = isBrokerApp
-    ? `New loan application (via broker) — ${name || prospect.email}`
+    ? `New loan application (via broker) — ${brokerHint || propHint || 'new prospect'}`
     : `New loan application — ${name || prospect.email}`;
 
   const text = [
