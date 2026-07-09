@@ -34,11 +34,16 @@
     // Deploy 236.93 / 236.107 — Processing menu. Pipeline (the
     // Kanban) and Tasks live under one parent so the navbar
     // stays compact and "process-side" tools are grouped.
+    // Deploy 236.275 — locked to admin-only per Mike. Processors
+    // and LOs no longer see the dropdown; direct URL access to
+    // processing-pipeline.html / tasks.html bounces at the page
+    // guards below.
     {
       label: 'Processing',
+      requires: 'admin',
       children: [
-        { label: 'Pipeline', href: 'processing-pipeline.html' },
-        { label: 'Tasks',    href: 'tasks.html' },
+        { label: 'Pipeline', href: 'processing-pipeline.html', requires: 'admin' },
+        { label: 'Tasks',    href: 'tasks.html',               requires: 'admin' },
       ],
     },
     {
