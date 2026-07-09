@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Activate Account — SLA Capital Loan Tools</title>
+  <title>Activate Account — Sir Lends A Lot LLC</title>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -34,8 +34,8 @@
 </head>
 <body>
   <div class="card" id="card">
-    <div class="logo">SLA Capital Loan Tools</div>
-    <div class="tagline">Account activation</div>
+    <div class="logo">Sir Lends A Lot LLC</div>
+    <div class="tagline">Activating account</div>
     <div class="spinner" id="spinner"></div>
     <h1 id="title">Activating your account…</h1>
     <p id="body">Verifying the invitation link and establishing your session.</p>
@@ -63,22 +63,22 @@
       var humanRole = role === 'admin' ? 'Admin' : role === 'loan_officer' ? 'Loan Officer' : role === 'processor' ? 'Processor' : (role || '(no role)');
       card.className = 'card status-ok';
       card.innerHTML =
-        '<div class="logo">SLA Capital Loan Tools</div>' +
-        '<div class="tagline">Account activated</div>' +
+        '<div class="logo">Sir Lends A Lot LLC</div>' +
+        '<div class="tagline">Account Activated</div>' +
         '<h1>You\'re signed in' + (name ? ', ' + escH(name) : '') + '.</h1>' +
-        '<p>Your Supabase account is active and your session is established.</p>' +
+        '<p>Your account is active.</p>' +
         '<div class="details">' +
           '<div class="row"><strong>Email</strong>' + escH(user.email || '') + '</div>' +
           '<div class="row"><strong>Role</strong>' + escH(humanRole) + '</div>' +
         '</div>' +
-        '<div class="note"><strong>What\'s next?</strong> Full in-app access via Supabase auth is landing in Phase 2. Until then, your invitation is recorded and your session will pick up as soon as the LO app pages accept Supabase tokens. Talk to your admin for the next step.</div>';
+        '<p style="margin-top:20px"><a href="/" style="display:inline-block;padding:10px 24px;background:var(--gold);color:#fff;border-radius:6px;font-weight:600;text-decoration:none;font-size:13px">Enter the app →</a></p>';
     }
 
     function renderErr(msg) {
       var card = document.getElementById('card');
       card.className = 'card status-err';
       card.innerHTML =
-        '<div class="logo">SLA Capital Loan Tools</div>' +
+        '<div class="logo">Sir Lends A Lot LLC</div>' +
         '<div class="tagline">Activation failed</div>' +
         '<h1>Something went wrong.</h1>' +
         '<p>' + escH(msg || 'Unknown error') + '</p>' +

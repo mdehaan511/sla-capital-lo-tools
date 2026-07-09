@@ -17,15 +17,166 @@
 
   var CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+  // ── Deploy 236.265 — Path A Phase 2: dual auth ──────────────────
+  // Bridge Supabase-invited users into the existing Netlify Identity
+  // callsites without touching every LO page. Two hooks:
+  //   1. getToken() prefers the Supabase access_token when a Supabase
+  //      session is active, falls back to Netlify Identity otherwise.
+  //   2. netlifyIdentity.on('init'/'login', cb) — the auth guard every
+  //      LO page runs — is patched so that when netlifyIdentity has no
+  //      user of its own, a Supabase session gets mapped into a
+  //      Netlify-Identity-shaped object and passed to the callback.
+  //      Existing per-page guards (`if (!user) redirect to login`) then
+  //      accept Supabase-invited users transparently.
+  // Server side is already dual-aware: _shared/auth.mjs decodeJwtPayload
+  // reads sub/email/app_metadata/user_metadata which Supabase JWTs also
+  // populate, so a Supabase JWT sent as Bearer decodes to the same
+  // shape as a Netlify Identity JWT.
+  var _supabaseInitPromise = null;
+  var _supabaseCache = null; // { user, session } | null
+
+  function _initSupabase() {
+    if (_supabaseInitPromise) return _supabaseInitPromise;
+    _supabaseInitPromise = (function () {
+      return fetch('/api/config', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j) return null;
+          var url = j.supabaseUrl || '';
+          var key = j.supabasePublishableKey || '';
+          if (!url || !key) return null;
+          return import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm')
+            .then(function (mod) {
+              var client = mod.createClient(url, key, {
+                auth: {
+                  persistSession: true,
+                  autoRefreshToken: true,
+                  detectSessionInUrl: false, // activate.html handles URL fragment
+                },
+              });
+              window._slaSupabase = client;
+              client.auth.onAuthStateChange(function (_evt, session) {
+                _supabaseCache = session ? { user: session.user, session: session } : null;
+              });
+              return client.auth.getSession().then(function (res) {
+                if (res && res.data && res.data.session) {
+                  _supabaseCache = { user: res.data.session.user, session: res.data.session };
+                }
+                return _supabaseCache;
+              });
+            });
+        })
+        .catch(function (e) {
+          console.warn('[SLA] Supabase init failed:', e && e.message);
+          return null;
+        });
+    })();
+    return _supabaseInitPromise;
+  }
+  _initSupabase(); // kick off ASAP so getToken() rarely blocks
+
+  function _mapSupabaseUserToNetlifyShape(cache) {
+    if (!cache || !cache.user) return null;
+    var sUser = cache.user;
+    var am = sUser.app_metadata || {};
+    var roles = Array.isArray(am.roles) ? am.roles : (am.role ? [am.role] : []);
+    return {
+      id: sUser.id,
+      email: sUser.email || '',
+      user_metadata: sUser.user_metadata || {},
+      app_metadata: { roles: roles, role: am.role || roles[0] || null, provider: am.provider || 'supabase' },
+      confirmed_at: sUser.confirmed_at || sUser.email_confirmed_at || null,
+      _authProvider: 'supabase',
+      jwt: function () {
+        if (!window._slaSupabase) {
+          return Promise.resolve(cache.session ? (cache.session.access_token || '') : '');
+        }
+        return window._slaSupabase.auth.getSession().then(function (res) {
+          return (res && res.data && res.data.session && res.data.session.access_token) || '';
+        });
+      },
+      logout: function () {
+        if (window._slaSupabase) return window._slaSupabase.auth.signOut();
+        return Promise.resolve();
+      },
+    };
+  }
+
   // ── Auth token helper ───────────────────────────────────────────
   function getToken() {
-    try {
-      var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
-      if (!u) return Promise.resolve('');
-      // .jwt() refreshes if expired
-      return u.jwt().then(function (t) { return t || ''; });
-    } catch (e) { return Promise.resolve(''); }
+    return _initSupabase().then(function (supa) {
+      if (supa && supa.session && supa.session.access_token) {
+        return supa.session.access_token;
+      }
+      try {
+        var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+        if (!u) return '';
+        // .jwt() refreshes if expired
+        return u.jwt().then(function (t) { return t || ''; });
+      } catch (e) { return ''; }
+    });
   }
+
+  // ── netlifyIdentity.on() wrapper ────────────────────────────────
+  // Patch 'init' and 'login' so pages that gate on the callback's
+  // user param transparently accept Supabase users too. Runs once —
+  // set a flag to no-op re-runs when sla-api.js is loaded more than
+  // once on a page (some pages include it twice for legacy reasons).
+  function _patchNetlifyIdentityOn() {
+    if (!window.netlifyIdentity || window._slaNetlifyIdentityOnPatched) return;
+    if (typeof window.netlifyIdentity.on !== 'function') return;
+    window._slaNetlifyIdentityOnPatched = true;
+    var _origOn = window.netlifyIdentity.on.bind(window.netlifyIdentity);
+    window.netlifyIdentity.on = function (eventName, callback) {
+      if (eventName !== 'init' && eventName !== 'login') {
+        return _origOn(eventName, callback);
+      }
+      var wrapped = function (nlUser) {
+        if (nlUser) { callback(nlUser); return; }
+        _initSupabase().then(function (supa) {
+          if (supa && supa.user) {
+            var mapped = _mapSupabaseUserToNetlifyShape(supa);
+            callback(mapped);
+          } else {
+            callback(null); // preserve original null semantics
+          }
+        });
+      };
+      return _origOn(eventName, wrapped);
+    };
+  }
+  // netlifyIdentity may not be loaded yet when sla-api.js runs. Try
+  // now, then retry on DOMContentLoaded, then poll a few times.
+  _patchNetlifyIdentityOn();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _patchNetlifyIdentityOn, { once: true });
+  }
+  var _patchTries = 0;
+  var _patchIvl = setInterval(function () {
+    _patchNetlifyIdentityOn();
+    if (window._slaNetlifyIdentityOnPatched || ++_patchTries > 20) clearInterval(_patchIvl);
+  }, 100);
+
+  // Expose a helper pages can call directly if they want to check
+  // "is any user signed in, either provider?"
+  window.SLA = window.SLA || {};
+  window.SLA.getCurrentUser = function () {
+    return _initSupabase().then(function (supa) {
+      try {
+        var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+        if (nlUser) return nlUser;
+      } catch (_) {}
+      return supa ? _mapSupabaseUserToNetlifyShape(supa) : null;
+    });
+  };
+  window.SLA.signOut = function () {
+    var tasks = [];
+    try {
+      if (window.netlifyIdentity && window.netlifyIdentity.logout) tasks.push(window.netlifyIdentity.logout());
+    } catch (_) {}
+    if (window._slaSupabase) tasks.push(window._slaSupabase.auth.signOut());
+    return Promise.all(tasks).catch(function () {});
+  };
 
   // ── Core fetch wrapper ──────────────────────────────────────────
   // Deploy 236.220 — Phase 3 of Mike's "Loan Details is the source

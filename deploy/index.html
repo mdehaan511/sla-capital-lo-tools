@@ -200,6 +200,8 @@
       <h1 id="login-title">SLA Capital</h1>
       <p>Internal tools portal.<br>Sign in with your team account to continue.</p>
       <button class="login-btn" id="loginBtn">Sign In</button>
+      <button class="login-btn" id="loginMagicBtn" style="margin-top:10px;background:transparent;color:var(--gold);border:1px solid var(--gold)">Sign In With Email Link</button>
+      <p id="loginMagicMsg" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);line-height:1.5"></p>
       <p class="login-footer">SLA Capital &middot; Sir Lends A Lot LLC &middot; Internal use only</p>
     </div>
   </div>
@@ -462,10 +464,60 @@
     }
 
     // ── Netlify Identity events ───────────────────────────────
+    // sla-api.js wraps netlifyIdentity.on('init'/'login') so these
+    // callbacks also fire for Supabase-invited users (Deploy 236.265,
+    // Path A Phase 2 dual auth).
     netlifyIdentity.on('init', function(user) { if (user) { showApp(user); } else { showLogin(); } });
     netlifyIdentity.on('login', function(user) { netlifyIdentity.close(); showApp(user); });
     netlifyIdentity.on('logout', function() { showLogin(); });
     document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
+
+    // ── Deploy 236.265: Supabase magic-link sign-in ───────────
+    // Invited Supabase users (users-invite-supabase.mjs) sign in by
+    // requesting a fresh magic link. The link redirects to
+    // activate.html which persists the session in localStorage;
+    // when the user returns to the portal, sla-api.js detects the
+    // Supabase session and the netlifyIdentity.on('init') wrapper
+    // treats them as signed in.
+    document.getElementById('loginMagicBtn').addEventListener('click', function() {
+      var email = String(prompt('Enter your email to receive a sign-in link:') || '').trim().toLowerCase();
+      if (!email || email.indexOf('@') < 0) return;
+      var msg = document.getElementById('loginMagicMsg');
+      msg.style.display = 'block';
+      msg.style.color = 'var(--muted)';
+      msg.textContent = 'Sending sign-in link…';
+      (window.SLA && window.SLA.getCurrentUser ? Promise.resolve() : new Promise(function(r){ setTimeout(r, 200); }))
+        .then(function() {
+          // sla-api.js kicked off Supabase init on script load; wait
+          // briefly for window._slaSupabase.
+          var tries = 0;
+          return new Promise(function(resolve, reject) {
+            var iv = setInterval(function() {
+              if (window._slaSupabase) { clearInterval(iv); resolve(window._slaSupabase); }
+              else if (++tries > 40) { clearInterval(iv); reject(new Error('Supabase client not ready. Refresh the page and try again.')); }
+            }, 100);
+          });
+        })
+        .then(function(supabase) {
+          return supabase.auth.signInWithOtp({
+            email: email,
+            options: {
+              emailRedirectTo: window.location.origin + '/activate.html',
+              shouldCreateUser: false, // must already be invited
+            },
+          });
+        })
+        .then(function(res) {
+          if (res && res.error) throw res.error;
+          msg.style.color = 'var(--ok, #166534)';
+          msg.textContent = 'Sign-in link sent — check ' + email + ' and click the link.';
+        })
+        .catch(function(e) {
+          msg.style.color = '#7c1f1f';
+          var reason = (e && e.message) || 'unknown error';
+          msg.textContent = 'Could not send link: ' + reason;
+        });
+    });
   </script>
 
 </body>
