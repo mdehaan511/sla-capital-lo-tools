@@ -168,6 +168,21 @@
     </div>
   </div>
 
+  <!-- Deploy 236.268 — sign-in password (Supabase-authenticated users only) -->
+  <div class="card" id="passwordCard" style="display:none">
+    <div class="card-header"><div><h2>Sign-in Password</h2><p>Set a password so you can sign in without waiting for a magic link every time. Leave blank if you prefer email-link sign-in.</p></div></div>
+    <div class="card-body">
+      <div class="profile-grid">
+        <div class="field"><label>New password</label><input type="password" id="fldPassword" autocomplete="new-password" placeholder="At least 8 characters" /></div>
+        <div class="field"><label>Confirm password</label><input type="password" id="fldPasswordConfirm" autocomplete="new-password" /></div>
+      </div>
+      <div class="save-row">
+        <button class="save-btn" id="savePasswordBtn" onclick="saveSupabasePassword()">Save password</button>
+        <span class="save-status" id="passwordStatus"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Apply link -->
   <div class="card">
     <div class="card-header"><div><h2>Your Application Link</h2><p>Send this URL to borrowers — applications submitted through it route to your pipeline.</p></div></div>
@@ -366,6 +381,12 @@ netlifyIdentity.on('init', function(user) {
     // Deploy 236.131 — surface the Test Loan Fixtures card for admins.
     var tf = document.getElementById('testFixturesCard'); if (tf) tf.style.display = 'block';
   }
+  // Deploy 236.268 — expose the sign-in password card only for
+  // Supabase-authenticated users. Netlify Identity users manage
+  // their password via the Identity widget's own flow.
+  if (user && user._authProvider === 'supabase') {
+    document.getElementById('passwordCard').style.display = 'block';
+  }
   initProfile();
   if (_isSuperAdmin) {
     document.getElementById('settingsCard').style.display = 'block';
@@ -414,6 +435,47 @@ function saveProfile() {
     btn.disabled = false; btn.textContent = 'Save changes';
     status.className = 'save-status err';
     status.textContent = 'Failed: ' + (err.message || 'unknown error');
+  });
+}
+
+// Deploy 236.268 — save a sign-in password for the current Supabase
+// user. Requires an active _slaSupabase session (the Card is hidden
+// otherwise). Password rules kept minimal — Supabase enforces its
+// project-level password policy server-side.
+function saveSupabasePassword() {
+  var pwd  = document.getElementById('fldPassword').value || '';
+  var conf = document.getElementById('fldPasswordConfirm').value || '';
+  var status = document.getElementById('passwordStatus');
+  var btn = document.getElementById('savePasswordBtn');
+  status.textContent = ''; status.className = 'save-status';
+  if (pwd.length < 8) {
+    status.className = 'save-status err';
+    status.textContent = 'Password must be at least 8 characters.';
+    return;
+  }
+  if (pwd !== conf) {
+    status.className = 'save-status err';
+    status.textContent = 'Passwords do not match.';
+    return;
+  }
+  if (!window._slaSupabase) {
+    status.className = 'save-status err';
+    status.textContent = 'Supabase client not ready. Refresh the page and try again.';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  window._slaSupabase.auth.updateUser({ password: pwd }).then(function(res) {
+    btn.disabled = false; btn.textContent = 'Save password';
+    if (res && res.error) throw res.error;
+    document.getElementById('fldPassword').value = '';
+    document.getElementById('fldPasswordConfirm').value = '';
+    status.className = 'save-status ok';
+    status.textContent = '✓ Password set. You can now sign in with email + password from the login screen.';
+    setTimeout(function(){ status.textContent = ''; status.className = 'save-status'; }, 8000);
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Save password';
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + ((err && err.message) || 'unknown error');
   });
 }
 
