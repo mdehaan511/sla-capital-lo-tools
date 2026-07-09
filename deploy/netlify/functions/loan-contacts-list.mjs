@@ -10,6 +10,7 @@ import {
   handleOptions, json, requireAuth, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.266
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -39,7 +40,8 @@ async function handle(req, context) {
   const store = getStore({ name: 'loan-contacts', consistency: 'strong' });
 
   if (all) {
-    if (!isAdmin(user)) return json(403, { error: 'Admin only' });
+    // Deploy 236.266 — processors need cross-LO contact reads.
+    if (!canListAllClients(user).ok) return json(403, { error: 'Admin or processor only' });
     try {
       const { blobs } = await store.list();
       const contacts = [];
@@ -57,7 +59,7 @@ async function handle(req, context) {
 
   let ownerKey = selfKey;
   if (ownerParam && ownerParam !== selfEmail && ownerParam !== selfKey) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canListAllClients(user).ok) return json(403, { error: 'Owner override requires admin or processor' });
     ownerKey = keySafe(normalizeEmail(ownerParam));
   }
 

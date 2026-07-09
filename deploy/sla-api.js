@@ -1260,6 +1260,10 @@
   function isSuperAdmin(user) { return getRoles(user).some(function (r) { return r === 'super_admin'; }); }
   // Deploy 236.71 — "processor" is a User+Extras tier. Admins implicitly count.
   function isProcessor(user) { return getRoles(user).some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin'; }); }
+  // Deploy 236.266 — `isStaff` reads more naturally at scope callsites
+  // ("staff sees all LOs") than `isProcessor`. Same set as isProcessor
+  // (admin OR super_admin OR processor); it's an alias, not a new tier.
+  function isStaff(user) { return isProcessor(user); }
 
   // The LO's apply-link slug is simply their email address.
   // URLs are like apply.html?lo=mike@slacapital.com (URL-encoded).
@@ -1552,6 +1556,7 @@
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
     isProcessor: isProcessor,
+    isStaff: isStaff, // Deploy 236.266 — alias of isProcessor for scope callsites
     slugFromUser: slugFromUser,
   };
 

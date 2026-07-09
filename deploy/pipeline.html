@@ -638,6 +638,8 @@
 <script>
 var _user = null;
 var _isAdmin = false;
+// Deploy 236.266 — processors get the cross-LO view too.
+var _isStaff = false;
 var _loFilterValue = ''; // ownerKey (lowercase email) or '' for all
                          // intentionally NOT persisted — scope defaults to
                          // "My pipeline" on reload so the filter would be
@@ -728,6 +730,7 @@ netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = SLA.isAdmin(user);
+  _isStaff = _isAdmin || (SLA.isProcessor && SLA.isProcessor(user));
   document.getElementById('auth-gate').style.display = 'none';
   // Multi-select is available to ALL users now — LOs can clear their own
   // duplicate quotes/prospects via Select Multiple → Decline. Backend
@@ -746,11 +749,14 @@ netlifyIdentity.on('init', function(user) {
     var a = document.getElementById('navAdminLink');     if (a) a.style.display = 'inline-block';
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     var d = document.getElementById('navDashboardLink');  if (d) d.style.display = 'inline-block';
+  }
+  if (_isStaff) {
     document.getElementById('scopeToggle').style.display = 'flex';
-    // Super-admins land on the All LOs view by default — they almost
-    // always want the cross-LO firehose first. Regular admins keep the
-    // "My pipeline" default since they're typically using it like an LO.
-    if (SLA.isSuperAdmin(user)) {
+    // Super-admins and processors land on the All LOs view by default
+    // — they almost always want the cross-LO firehose first. Regular
+    // admins keep the "My pipeline" default since they're typically
+    // using it like an LO. Deploy 236.266 — processors added.
+    if (SLA.isSuperAdmin(user) || (!_isAdmin && SLA.isProcessor && SLA.isProcessor(user))) {
       _scope = 'all';
       document.querySelectorAll('#scopeToggle button').forEach(function(b){
         b.classList.toggle('active', b.dataset.scope === 'all');
@@ -790,8 +796,11 @@ function loadAll() {
   // pipe them through the same processResults() call right now so
   // the board is on-screen instantly. Fresh fetches replace it when
   // they arrive.
-  var isAdminAll = _scope === 'all' && _isAdmin;
-  var listOpts = isAdminAll ? { all: true } : {};
+  // Deploy 236.266 — processors also see all-scope. Rename local flag
+  // from isAdminAll → isStaffAll to match; it now means "the current
+  // user has cross-LO permission AND they've selected the All view".
+  var isStaffAll = _scope === 'all' && _isStaff;
+  var listOpts = isStaffAll ? { all: true } : {};
 
   var cachedClients   = SLA.Clients.listCached(listOpts);
   var cachedProspects = (SLA.Prospects && SLA.Prospects.listCached) ? SLA.Prospects.listCached(listOpts) : null;
@@ -810,23 +819,23 @@ function loadAll() {
     document.getElementById('boardWrap').innerHTML = '<div class="loading">Loading pipeline…</div>';
   }
 
-  var fetchProspects = isAdminAll
+  var fetchProspects = isStaffAll
     ? SLA.Prospects.list({ all: true })
     : SLA.Prospects.list();
-  var fetchQuotes = isAdminAll
+  var fetchQuotes = isStaffAll
     ? SLA.Quotes.list({ all: true })
     : SLA.Quotes.list();
-  var fetchClients = isAdminAll
+  var fetchClients = isStaffAll
     ? SLA.Clients.list({ all: true }).catch(function(){ return { byOwner: {} }; })
     : SLA.Clients.list().catch(function(){ return { clients: [] }; });
   var fetchStats = SLA.Admin
     ? SLA.Admin.userStats().catch(function(){ return { users: [] }; })
     : Promise.resolve({ users: [] });
-  var fetchReminders = (_scope === 'all' && _isAdmin)
+  var fetchReminders = isStaffAll
     ? SLA.Reminders.list({ all: true }).catch(function(){ return { byOwner: {} }; })
     : SLA.Reminders.list().catch(function(){ return { reminders: [] }; });
   var fetchBorrowerInfo = SLA.BorrowerInfo
-    ? SLA.BorrowerInfo.list({ all: _scope === 'all' && _isAdmin }).catch(function(){ return { records: [] }; })
+    ? SLA.BorrowerInfo.list({ all: isStaffAll }).catch(function(){ return { records: [] }; })
     : Promise.resolve({ records: [] });
   // Deploy 236.61 — pull Baseline's close-date-by-address map alongside
   // the rest of the loads so In Processing tiles can prefer Baseline's
@@ -1346,7 +1355,7 @@ function buildProspectCard(it) {
   var loName = loDisplay(it.ownerKey);
   var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
 
-  var loRow = (_scope === 'all' && _isAdmin)
+  var loRow = (_scope === 'all' && _isStaff)
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
     : '';
 
@@ -1489,7 +1498,7 @@ function buildQuoteCard(it, colKey) {
               + '&loanId='   + encodeURIComponent(lookup.loanId);
   }
   if (_qPt) sizerUrl += '&propType=' + encodeURIComponent(_qPt);
-  if (_scope === 'all' && _isAdmin && it.ownerKey !== (_user.email||'').toLowerCase()) {
+  if (_scope === 'all' && _isStaff && it.ownerKey !== (_user.email||'').toLowerCase()) {
     sizerUrl += '&owner=' + encodeURIComponent(it.ownerKey);
   }
 
@@ -1507,7 +1516,7 @@ function buildQuoteCard(it, colKey) {
   var _candKey = it.ownerKey + '|' + addrStreet;
   var _sameOwnerCandidates = (addrStreet && _loanCandidatesByStreet[_candKey]) || [];
   var _allOwnerCandidates  = (addrStreet && _loanCandidatesByStreet['all|' + addrStreet]) || [];
-  var _candidates = _isAdmin ? _allOwnerCandidates : _sameOwnerCandidates;
+  var _candidates = _isStaff ? _allOwnerCandidates : _sameOwnerCandidates;
   // Dedupe by loanId (candidate rec is by reference from _loanLookup so
   // pushes are cheap — just guard against dup indexing).
   var _seenCand = {}; var _uniqCandidates = [];
@@ -1533,7 +1542,7 @@ function buildQuoteCard(it, colKey) {
     };
   }
 
-  var loRow = (_scope === 'all' && _isAdmin)
+  var loRow = (_scope === 'all' && _isStaff)
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
     : '';
 
@@ -3144,8 +3153,9 @@ function loDisplay(ownerKey) {
 function populateLoFilter() {
   var sel = document.getElementById('loFilter');
   if (!sel) return;
-  // Only show in admin "All LOs" mode; in personal scope it's pointless
-  var visible = _isAdmin && _scope === 'all';
+  // Show for admin OR processor in "All LOs" mode — both work across
+  // every LO's pipeline. In personal scope it's pointless.
+  var visible = _isStaff && _scope === 'all';
   sel.style.display = visible ? '' : 'none';
   if (!visible) return;
 

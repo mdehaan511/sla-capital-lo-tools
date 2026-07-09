@@ -1722,7 +1722,7 @@ function refreshBorrowerInfoPanes() {
   var ids = Array.isArray(_loan.guarantorClientIds) ? _loan.guarantorClientIds : [];
   if (!ids.length) return; // single-borrower case; nothing to fetch
 
-  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r.byOwner) {
@@ -2147,7 +2147,7 @@ function openAddGuarantorModal() {
 
 function _agPrimeClientsCache() {
   if (_agAllClientsCache) return;
-  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r && r.byOwner) {
@@ -3467,7 +3467,7 @@ function refreshLinkedGuarantors() {
   if (!ids.length) return; // section won't be rendered
 
   // Admin viewing a cross-LO loan needs the all=true list.
-  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r.byOwner) {
@@ -4129,7 +4129,9 @@ function syncOverrideToQuote() {
   // Admin viewing another LO's loan: list the OWNER's quotes, not the current
   // user's. Otherwise we'd find no match.
   var listOpts = {};
-  if (_loEmail && _user && _loEmail !== _user.email && SLA.isAdmin && SLA.isAdmin(_user)) {
+  // Deploy 236.266 — same override for processors viewing another
+  // LO's loan (staff = admin OR processor).
+  if (_loEmail && _user && _loEmail !== _user.email && SLA.isStaff && SLA.isStaff(_user)) {
     listOpts.all = true;
   }
   return SLA.Quotes.list(listOpts).then(function(r) {
@@ -4724,7 +4726,9 @@ function openReassignLoanModal() {
   // don't need to share with the cache layer).
   document.getElementById('reassignClientList').innerHTML =
     '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading clients…</div>';
-  var p = SLA.isAdmin(_user)
+  // Deploy 236.266 — processors also need cross-LO client list here
+  // (reassign target picker).
+  var p = SLA.isStaff(_user)
     ? SLA.Clients.list({ all: true })
     : SLA.Clients.list();
   p.then(function(r) {
@@ -4804,7 +4808,7 @@ function openMergeLoanModal() {
   document.getElementById('mergeLoserList').innerHTML =
     '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading candidates…</div>';
 
-  var p = SLA.isAdmin(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r.byOwner) {

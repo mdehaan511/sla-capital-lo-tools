@@ -14,6 +14,7 @@ import {
   handleOptions, json, requireAuth, isAdmin,
   keySafe, normalizeEmail, corsHeaders,
 } from './_shared/auth.mjs';
+import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -40,7 +41,7 @@ async function handle(req, context) {
   const selfKey   = keySafe(selfEmail);
   let ownerKey = selfKey;
   if (ownerParam && ownerParam !== selfEmail && ownerParam !== selfKey) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canOverrideOwner(user).ok) return json(403, { error: 'Owner override requires admin or processor' }); // Deploy 236.266
     ownerKey = keySafe(normalizeEmail(ownerParam));
   }
 

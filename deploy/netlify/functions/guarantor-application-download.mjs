@@ -28,6 +28,7 @@ import {
   handleOptions, json, requireAuth, isAdmin,
   keySafe, normalizeEmail, corsHeaders,
 } from './_shared/auth.mjs';
+import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { synthRecordForGuarantor } from './_shared/guarantor-synth.mjs';
 
@@ -59,7 +60,7 @@ async function handle(req, context) {
   const selfKey   = keySafe(selfEmail);
   let ownerKey;
   if (ownerP && ownerP !== selfEmail && ownerP !== selfKey) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canOverrideOwner(user).ok) return json(403, { error: 'Owner override requires admin or processor' }); // Deploy 236.266
     ownerKey = keySafe(normalizeEmail(ownerP));
   } else {
     ownerKey = selfKey;

@@ -30,6 +30,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB — matches loan-review-doc-upload
 const VALID_CATEGORIES = ['borrower', 'property', 'title', 'insurance', 'loan-app', 'rate-sheet', 'closing', 'other'];
@@ -67,7 +68,7 @@ async function handle(req, context) {
   const selfKey   = keySafe(selfEmail);
   let ownerKey;
   if (body.owner && body.owner !== selfEmail && body.owner !== selfKey) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canOverrideOwner(user).ok) return json(403, { error: 'Owner override requires admin or processor' }); // Deploy 236.266
     ownerKey = keySafe(normalizeEmail(body.owner));
   } else {
     ownerKey = selfKey;

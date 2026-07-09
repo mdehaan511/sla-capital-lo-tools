@@ -24,6 +24,7 @@ import {
   handleOptions, json, requireAuth, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.266
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -51,14 +52,16 @@ async function handle(req, context) {
   const tasksStore = getStore({ name: 'tasks', consistency: 'strong' });
 
   // Resolve effective ownerKey for non-all queries.
+  // Deploy 236.266 — processors can also cross-owner read (they work
+  // every LO's loans). canListAllClients is the single decision point.
   let ownerKey = selfKey;
   if (ownerParam && ownerParam !== selfEmail && ownerParam !== selfKey) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canListAllClients(user).ok) return json(403, { error: 'Owner override requires admin or processor' });
     ownerKey = keySafe(normalizeEmail(ownerParam));
   }
 
   if (all) {
-    if (!isAdmin(user)) return json(403, { error: 'Admin only' });
+    if (!canListAllClients(user).ok) return json(403, { error: 'Admin or processor only' });
     try {
       const out = [];
       const { blobs } = await tasksStore.list();

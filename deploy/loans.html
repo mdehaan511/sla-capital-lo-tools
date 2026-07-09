@@ -267,8 +267,10 @@
 // ── State ──────────────────────────────────────────────────────────
 var _user = null;
 var _isAdmin = false;
+// Deploy 236.266 — processors get cross-LO scope too.
+var _isStaff = false;
 var _allLoans = [];        // every loan we loaded
-var _view = 'my';           // 'my' or 'all' for admins
+var _view = 'my';           // 'my' or 'all' for admin/processor
 var _sortBy = '_status';    // current sort key
 var _sortDir = 'asc';       // 'asc' or 'desc' — asc = "most advanced" for status
 // Deploy 236.29: `closed` is now a togglable status (default off) so
@@ -350,15 +352,17 @@ netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = SLA.isAdmin(user);
+  _isStaff = _isAdmin || (SLA.isProcessor && SLA.isProcessor(user));
 
   document.getElementById('auth-gate').style.display = 'none';
 
-  // Admins see the My / All toggle + the LO filter dropdown + the
-  // Submissions nav link. Super-admins also default to All view.
-  if (_isAdmin) {
+  // Admin + processor: My / All toggle and LO filter (both work
+  // cross-LO). Submissions link is admin-only. Super-admins and
+  // processors default to All (they primarily want cross-LO).
+  if (_isStaff) {
     document.getElementById('viewTabs').style.display = 'flex';
-    document.getElementById('navSubmissionsLink').style.display = 'inline-block';
-    if (SLA.isSuperAdmin(user)) {
+    if (_isAdmin) document.getElementById('navSubmissionsLink').style.display = 'inline-block';
+    if (SLA.isSuperAdmin(user) || (!_isAdmin && SLA.isProcessor && SLA.isProcessor(user))) {
       _view = 'all';
       document.querySelectorAll('.view-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.view === 'all'); });
     }
@@ -373,7 +377,7 @@ netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
 // ── Data load ──────────────────────────────────────────────────────
 function loadAll() {
-  var listOpts = (_isAdmin && _view === 'all') ? { all: true } : {};
+  var listOpts = (_isStaff && _view === 'all') ? { all: true } : {};
 
   // Deploy 236.207 — stale-while-revalidate. Paint from localStorage
   // cache first (0ms), then fetch fresh in the background and
@@ -410,7 +414,7 @@ function loadAll() {
 // full response object from Clients.list()/listCached().
 function _processClientsResponse(r) {
   var flat = [];
-  if (_isAdmin && _view === 'all') {
+  if (_isStaff && _view === 'all') {
     var byOwner = (r && r.byOwner) || {};
     Object.keys(byOwner).forEach(function(ownerKey) {
       (byOwner[ownerKey] || []).forEach(function(c) {
@@ -494,7 +498,7 @@ function toggleStatusFilter(status) {
 
 // ── LO filter (admins only) ────────────────────────────────────────
 function populateLoFilter() {
-  if (!(_isAdmin && _view === 'all')) {
+  if (!(_isStaff && _view === 'all')) {
     document.getElementById('loFilterWrap').style.display = 'none';
     return;
   }

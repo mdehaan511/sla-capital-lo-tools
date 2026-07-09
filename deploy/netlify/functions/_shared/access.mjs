@@ -53,7 +53,25 @@ export function roleOf(user) {
 export function canListAllClients(user) {
   if (!user) return _deny(401, 'not authenticated');
   if (isAdmin(user)) return _allow();
-  return _deny(403, 'admin required for cross-LO listing');
+  // Deploy 236.266 — processors are staff who work across every LO's
+  // loans (Processing Pipeline, Tasks, etc.). Grant them the same
+  // cross-LO read scope as admins on list endpoints. Admin-only pages
+  // (Dashboard, Users admin, Submissions, admin settings) are gated
+  // separately.
+  if (isProcessor(user)) return _allow();
+  return _deny(403, 'admin or processor required for cross-LO listing');
+}
+
+// Deploy 236.266 — cross-owner MUTATION gate. Processors need to add
+// notes / advance status / upload docs on any LO's loan as part of
+// their processing workflow. Same set as canListAllClients today
+// (admin OR processor); separate helper so future policy changes can
+// diverge read from write.
+export function canOverrideOwner(user) {
+  if (!user) return _deny(401, 'not authenticated');
+  if (isAdmin(user)) return _allow();
+  if (isProcessor(user)) return _allow();
+  return _deny(403, 'owner override requires admin or processor');
 }
 
 export function canReadClient(user, client) {

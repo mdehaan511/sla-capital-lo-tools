@@ -119,6 +119,8 @@
 
 var _user = null;
 var _isAdmin = false;
+// Deploy 236.266 — processors get cross-LO scope too.
+var _isStaff = false;
 var _contacts = [];
 var _loansById = {}; // contactId → loan summary for display
 var _scope = 'me';
@@ -134,9 +136,17 @@ window.netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
-  if (_isAdmin) document.getElementById('scopeToggle').style.display = '';
+  if (_isStaff) {
+    document.getElementById('scopeToggle').style.display = '';
+    if (!_isAdmin) {
+      _scope = 'all';
+      document.getElementById('scopeMyBtn').classList.remove('active');
+      document.getElementById('scopeAllBtn').classList.add('active');
+    }
+  }
   loadAll();
 });
 
@@ -158,8 +168,8 @@ function loadAll() {
   document.getElementById('contactsTable').innerHTML = '<div class="loading">Loading contacts…</div>';
   // Load contacts + clients in parallel — we need clients to render
   // the loan link (address) for each contact's row.
-  var contactsUrl = (_scope === 'all' && _isAdmin) ? '/api/loan-contacts-list?all=1' : '/api/loan-contacts-list';
-  var clientsP = _isAdmin ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
+  var contactsUrl = (_scope === 'all' && _isStaff) ? '/api/loan-contacts-list?all=1' : '/api/loan-contacts-list';
+  var clientsP = _isStaff ? SLA.Clients.list({ all: true }) : SLA.Clients.list();
   Promise.all([
     SLA.api('GET', contactsUrl),
     clientsP,

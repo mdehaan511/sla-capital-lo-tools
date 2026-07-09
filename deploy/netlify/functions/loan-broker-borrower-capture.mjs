@@ -35,6 +35,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 export default async (req, context) => {
@@ -69,7 +70,7 @@ async function handle(req, context) {
   // Owner resolution.
   let owner = normalizeEmail(user.email);
   if (body.owner && body.owner !== owner) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canOverrideOwner(user).ok) return json(403, { error: 'Owner override requires admin or processor' }); // Deploy 236.266
     owner = normalizeEmail(body.owner);
   }
   const ownerKey = keySafe(owner);

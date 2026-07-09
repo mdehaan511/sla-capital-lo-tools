@@ -305,7 +305,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 // Clients stored as: sla_clients_{userEmail} → array of client objects
 // Each client: { email, firstName, lastName, phone, prospectData, loans:[...quote objects], addedAt }
 
-var _user = null, _isAdmin = false, _clients = [], _tf = 'all', _view = 'my';
+// Deploy 236.266 — `_isStaff` (admin OR processor) for cross-LO scope.
+var _user = null, _isAdmin = false, _isStaff = false, _clients = [], _tf = 'all', _view = 'my';
 var _adminData = null;
 // Deploy 236.26 — keySafed owner keys for LOs flagged deleted by
 // users-stats. Used to hide them from the admin LO filter.
@@ -341,14 +342,22 @@ netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = checkAdmin(user);
+  _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
   document.getElementById('auth-gate').style.display = 'none';
   var _ne=document.getElementById('navEmail'); if(_ne) _ne.textContent = user.email;
-  if (_isAdmin) document.getElementById('viewTabs').style.display = 'flex';
+  // Deploy 236.266 — expose the All Clients tab to processors too.
+  // They work across every LO's book and default to that view.
+  if (_isStaff) document.getElementById('viewTabs').style.display = 'flex';
+  if (_isStaff && !_isAdmin) _view = 'admin'; // processors default to the All Users view
   var navAdmin = document.getElementById('navAdminLink');
   if (navAdmin && _isAdmin) navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';
   refreshClientsFromBackend().then(function() {
     renderSummary();
     renderClients();
+    // Deploy 236.266 — if processor defaulted to the All Users view,
+    // trigger the same view switch code path that clicking the tab
+    // would (loads admin data, hides the My view container).
+    if (_view === 'admin') setView('admin');
   });
 
   // Deploy 194 (perf): stale-while-revalidate paint. If there\u2019s a
@@ -732,7 +741,7 @@ function toggleSelectMode() {
   refreshSelectionBar();
   // Re-render both views so checkbox visibility updates in place.
   renderClients();
-  if (_isAdmin && _view === 'admin' && typeof renderAdminClients === 'function') renderAdminClients();
+  if (_isStaff && _view === 'admin' && typeof renderAdminClients === 'function') renderAdminClients();
 }
 
 function toggleRowSelect(cb) {
@@ -792,7 +801,7 @@ function _selectedClientIds() {
 // stay consistent.
 function _reloadAfterMutation() {
   try { refreshClientsFromBackend().then(function() { renderClients(); }); } catch (_) {}
-  if (_isAdmin && typeof loadAdminClients === 'function') {
+  if (_isStaff && typeof loadAdminClients === 'function') {
     try { loadAdminClients(true); } catch (_) {}
   }
 }

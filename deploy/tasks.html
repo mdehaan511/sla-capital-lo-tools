@@ -115,17 +115,29 @@
 
 var _user = null;
 var _isAdmin = false;
+// Deploy 236.266 — processors get the All Tasks scope too.
+var _isStaff = false;
 var _tasks = [];
-var _scope  = 'me';   // 'me' | 'all' (admin only)
+var _scope  = 'me';   // 'me' | 'all' (admin OR processor)
 var _filter = 'open'; // 'open' | 'done' | 'all'
 
 window.netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
-  if (_isAdmin) document.getElementById('scopeToggle').style.display = '';
+  if (_isStaff) {
+    document.getElementById('scopeToggle').style.display = '';
+    // Processors don't own tasks — default them to the All view so
+    // the page isn't empty on first load.
+    if (!_isAdmin) {
+      _scope = 'all';
+      document.getElementById('scopeMyBtn').classList.remove('active');
+      document.getElementById('scopeAllBtn').classList.add('active');
+    }
+  }
   loadTasks();
 });
 
@@ -162,7 +174,7 @@ function fmtDate(s) {
 
 function loadTasks() {
   var url;
-  if (_scope === 'all' && _isAdmin) url = '/api/tasks-list?all=1';
+  if (_scope === 'all' && _isStaff) url = '/api/tasks-list?all=1';
   else                               url = '/api/tasks-list?assignedTo=me';
   document.getElementById('tasksTable').innerHTML = '<div class="loading">Loading tasks…</div>';
   SLA.api('GET', url).then(function(resp) {
