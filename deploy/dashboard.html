@@ -159,37 +159,18 @@
         <input type="checkbox" id="mirrorForce" /> force re-fetch all
       </label>
       <button class="btn-primary" id="mirrorSyncBtn" onclick="runMirrorSync()">Sync from Baseline</button>
-      <!-- Deploy 236.176 — detect + purge mirror entries that no
-           longer exist in Baseline (404s on refetch). Two-step:
-           first click = dry-run report; second click on the
-           follow-up = actual purge. Uses confirm() dialogs. -->
-      <button class="btn-primary" id="mirrorPurgeBtn" onclick="runGhostPurge()" style="background:transparent;color:#991b1b;border:1px solid rgba(185,28,28,0.40)">Detect Ghosts</button>
-      <!-- Deploy 236.178 (Baseline Migration Stage 2) — one-click
-           dry-run + review modal for importing every mirrored
-           Baseline loan into the SLA clients store. Second click
-           after review commits the real write. -->
-      <button class="btn-primary" id="migrateBaselineBtn" onclick="openMigrateModal()" style="background:rgba(21,128,61,0.10);color:#166534;border:1px solid rgba(21,128,61,0.40)">Migrate from Baseline</button>
-      <!-- Deploy 236.182 — Merge duplicates created when the migration
-           pulled loans that already existed under real LOs. Dry-run
-           first, then Commit. -->
-      <button class="btn-primary" id="mergeDupesBtn" onclick="openMergeDupesModal()" style="background:rgba(133,77,14,0.10);color:#854d0e;border:1px solid rgba(133,77,14,0.40)">Merge Duplicates</button>
-      <!-- Deploy 236.191 — Consolidate borrowers imported from
-           Baseline. Dedupes clients by email (fallback name+phone),
-           attaches LLCs to companies[], and creates separate clients
-           for Guarantor_2 co-borrowers. Same dry-run → Commit shape. -->
-      <button class="btn-primary" id="consolidateBorrowersBtn" onclick="openConsolidateBorrowersModal()" style="background:rgba(30,64,175,0.08);color:#1e40af;border:1px solid rgba(30,64,175,0.40)">Consolidate Borrowers</button>
-      <!-- Deploy 236.192 — pull from Baseline's /borrower API and
-           materialize into SLA clients + companies, then reassign
-           existing loans to the correct borrower record. -->
-      <button class="btn-primary" id="pullBorrowersBtn" onclick="openPullBorrowersModal()" style="background:rgba(21,128,61,0.10);color:#166534;border:1px solid rgba(21,128,61,0.40)">Pull Borrowers from Baseline</button>
-      <!-- Deploy 236.224 — Broker Phase A. One-shot migration of the
-           legacy `brokers` blob store into unified `clients` with
-           `_isBroker: true`. Dry-run default. -->
-      <button class="btn-primary" id="migrateBrokersBtn" onclick="openMigrateBrokersModal()" style="background:rgba(200,129,58,0.10);color:#b5712d;border:1px solid rgba(200,129,58,0.40)">Migrate Brokers → Clients</button>
-      <!-- Deploy 236.200 — diagnostic. Runs the /borrower list
-           probes and shows the raw response body so we can see
-           what Baseline is refusing. -->
-      <button class="btn-primary" id="probeBaselineBtn" onclick="probeBaseline()" style="background:rgba(120,113,108,0.10);color:#57534e;border:1px solid rgba(120,113,108,0.40)">Probe Baseline</button>
+      <!-- Deploy 236.273 — the one-shot Baseline migration tools
+           (Detect Ghosts, Migrate from Baseline, Merge Duplicates,
+           Consolidate Borrowers, Pull Borrowers from Baseline,
+           Migrate Brokers → Clients, Probe Baseline) were removed
+           from the Dashboard header per Mike — they were data-
+           migration flows that ran once during 236.176–236.224
+           bring-up and don't belong in the recurring recurring-tools
+           bar. The JS handlers (openMigrateModal, openMergeDupesModal,
+           etc.) and the corresponding modals are left in place; if a
+           one-time re-run is ever needed, restore the button(s) from
+           git and re-invoke.
+      -->
     </div>
   </div>
 
