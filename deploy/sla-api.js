@@ -35,6 +35,36 @@
   var _supabaseInitPromise = null;
   var _supabaseCache = null; // { user, session } | null
 
+  // Deploy 236.267.1 — synchronous session peek. Supabase's JS SDK
+  // stashes the current session in localStorage under a key like
+  // `sb-<project-ref>-auth-token`. On page navigations the browser
+  // has this stashed value available immediately — waiting for the
+  // CDN import + fetch('/api/config') + getSession() just to
+  // rediscover it adds a ~300–500ms auth-gate flash on every click.
+  // Peek the key synchronously so we can fire init(user) instantly.
+  // The full Supabase client still initializes in the background to
+  // handle token refresh, sign-out events, etc.
+  function _peekSupabaseSession() {
+    try {
+      if (!window.localStorage) return null;
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || !/^sb-.+-auth-token$/.test(k)) continue;
+        var raw = localStorage.getItem(k);
+        if (!raw) continue;
+        var parsed = JSON.parse(raw);
+        if (!parsed) continue;
+        var session = parsed.currentSession || parsed; // SDK v2 shape vs legacy
+        if (!session || !session.access_token || !session.user) continue;
+        // Expiry check — if the peeked token is stale, fall back to
+        // the async path (SDK will refresh via refresh_token).
+        if (session.expires_at && Date.now() / 1000 > session.expires_at) return null;
+        return { user: session.user, session: session };
+      }
+    } catch (_) {}
+    return null;
+  }
+
   function _initSupabase() {
     if (_supabaseInitPromise) return _supabaseInitPromise;
     _supabaseInitPromise = (function () {
@@ -104,16 +134,23 @@
 
   // ── Auth token helper ───────────────────────────────────────────
   function getToken() {
+    // Fast path (Deploy 236.267.1) — a live Netlify Identity user or
+    // a live Supabase session from localStorage lets us produce the
+    // Bearer token synchronously (well, one Promise tick) without
+    // waiting for the Supabase SDK to import.
+    try {
+      var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+      if (nlUser) return nlUser.jwt().then(function (t) { return t || ''; });
+    } catch (_) {}
+    var peek = _peekSupabaseSession();
+    if (peek && peek.session && peek.session.access_token) {
+      return Promise.resolve(peek.session.access_token);
+    }
+    // Fall through to the slow path (may still discover a session
+    // once the SDK has fetched /api/config and imported the CDN).
     return _initSupabase().then(function (supa) {
-      if (supa && supa.session && supa.session.access_token) {
-        return supa.session.access_token;
-      }
-      try {
-        var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
-        if (!u) return '';
-        // .jwt() refreshes if expired
-        return u.jwt().then(function (t) { return t || ''; });
-      } catch (e) { return ''; }
+      if (supa && supa.session && supa.session.access_token) return supa.session.access_token;
+      return '';
     });
   }
 
@@ -144,6 +181,15 @@
 
   function _resolveInit(nlUser) {
     if (nlUser) { _fireInit(nlUser); return; }
+    // Fast path (Deploy 236.267.1) — peek localStorage synchronously
+    // for a live Supabase session and fire init immediately. Full
+    // SDK init still runs in the background.
+    var peek = _peekSupabaseSession();
+    if (peek) {
+      _supabaseCache = peek;
+      _fireInit(_mapSupabaseUserToNetlifyShape(peek));
+      return;
+    }
     _initSupabase().then(function (supa) {
       if (supa && supa.user) _fireInit(_mapSupabaseUserToNetlifyShape(supa));
       else _fireInit(null);
