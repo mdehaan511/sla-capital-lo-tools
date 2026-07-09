@@ -249,6 +249,14 @@
   status = 200
   force = true
 
+# Deploy 236.270 — one-shot audit for loans whose guarantor list was
+# wiped by the pre-236.269 sizer-upsert fallback bug. super_admin only.
+[[redirects]]
+  from = "/api/admin-guarantor-audit"
+  to = "/.netlify/functions/admin-guarantor-audit"
+  status = 200
+  force = true
+
 # Spike (spike/supabase-auth branch) — Supabase JWT round-trip test.
 # Not linked from prod; verified via /spike-supabase.html.
 [[redirects]]
