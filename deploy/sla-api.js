@@ -622,19 +622,54 @@
               // the loan amount manually.
               var preservedLoanAmt = prior.loanAmtLocked ? prior.loanAmt : loanData.loanAmt;
               var preservedFlag    = prior.loanAmtLocked || false;
+              // Deploy 236.269 — bring the upsert fallback path up to parity
+              // with the backend loan-update-from-sizer.mjs preservation
+              // list. Before this, the fallback silently wiped
+              // guarantorClientIds, guarantorOwnership, vestingLLCs,
+              // processingStage/substatus, notesLog audit history, and
+              // several _test/_manualAdvance* meta fields on every reprice.
+              // A specific loan for Randy Dargan lost its Guarantor 2 +
+              // ownership % via two reprices on 2026-07-08 that hit this
+              // path. Same preservation semantics as the direct-ID
+              // endpoint: use incoming when it actively sends the field,
+              // else fall back to prior.
               existing.loans[lIdx] = Object.assign({}, loanData, {
                 id: prior.id,
                 status: prior.status || loanData.status || 'active',
                 createdAt: prior.createdAt || loanData.createdAt || new Date().toISOString(),
                 loanAmt: preservedLoanAmt,
                 loanAmtLocked: preservedFlag,
-                // Also preserve LO-edited app-section fields so a sizer re-save
-                // doesn't wipe them
+                // App-section fields — preserved if sizer didn't send them.
                 bedrooms:    prior.bedrooms    || loanData.bedrooms,
                 bathrooms:   prior.bathrooms   || loanData.bathrooms,
                 sqft:        prior.sqft        || loanData.sqft,
                 projectDescription: prior.projectDescription || loanData.projectDescription || '',
                 notes:       prior.notes       || loanData.notes || '',
+                fundingDate: loanData.fundingDate || prior.fundingDate || '',
+                // Guarantor / vesting / processing — sizer never sends
+                // these, but Object.assign was leaving `undefined` in place.
+                guarantorClientIds:      (Array.isArray(loanData.guarantorClientIds)      ? loanData.guarantorClientIds      : (prior.guarantorClientIds      || [])),
+                guarantorOwnership:      (loanData.guarantorOwnership && typeof loanData.guarantorOwnership === 'object' ? loanData.guarantorOwnership : (prior.guarantorOwnership || {})),
+                vestingLLCs:             (Array.isArray(loanData.vestingLLCs)             ? loanData.vestingLLCs             : (prior.vestingLLCs             || [])),
+                _checkOwnership:         loanData._checkOwnership         || prior._checkOwnership         || null,
+                _guarantorDocsUpdatedAt: loanData._guarantorDocsUpdatedAt || prior._guarantorDocsUpdatedAt || '',
+                _guarantorDocsUpdatedBy: loanData._guarantorDocsUpdatedBy || prior._guarantorDocsUpdatedBy || '',
+                processingStage:         loanData.processingStage         || prior.processingStage         || '',
+                processingSubstatus:     loanData.processingSubstatus     || prior.processingSubstatus     || '',
+                _templatesAppliedFor:    (loanData._templatesAppliedFor && typeof loanData._templatesAppliedFor === 'object' ? loanData._templatesAppliedFor : (prior._templatesAppliedFor || {})),
+                assignedProcessor:       loanData.assignedProcessor       || prior.assignedProcessor       || '',
+                slaDisplayId:            loanData.slaDisplayId            || prior.slaDisplayId            || '',
+                appraisedValue:          loanData.appraisedValue          || prior.appraisedValue          || '',
+                // notesLog / prospectId / baselineId / manualAdvance meta —
+                // audit trail + provenance, never sent by the sizer.
+                notesLog:                (Array.isArray(prior.notesLog) ? prior.notesLog.slice() : []),
+                prospectId:              loanData.prospectId              || prior.prospectId              || '',
+                baselineId:              loanData.baselineId              || prior.baselineId              || '',
+                borrowerInfoCompletedAt: loanData.borrowerInfoCompletedAt || prior.borrowerInfoCompletedAt || '',
+                _manualAdvanceAt:        loanData._manualAdvanceAt        || prior._manualAdvanceAt        || '',
+                _manualAdvanceBy:        loanData._manualAdvanceBy        || prior._manualAdvanceBy        || '',
+                _manualAdvanceFrom:      loanData._manualAdvanceFrom      || prior._manualAdvanceFrom      || '',
+                _test:                   (loanData._test === true || prior._test === true) || undefined,
               });
               // _editingLoanId is a transient meta field used for matching,
               // not a real loan property. Don't persist it.
