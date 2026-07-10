@@ -3769,15 +3769,32 @@ netlifyIdentity.on('init', function(user) {
           // canonical rate/points if the formData mirror wasn't
           // written for this loan (older records, direct API writes,
           // imports). Percent vs decimal detection via threshold.
-          if (!fd._rateOverride && found.rate != null && found.rate !== '') {
-            var rNum = parseFloat(found.rate);
-            if (isFinite(rNum) && rNum > 0) {
-              fd._rateOverride = String(rNum > 1 ? rNum / 100 : rNum);
+          // Deploy 236.278 — GATE on explicit-override evidence.
+          // Without the gate, every loan with a stored rate lit the
+          // "Pricing Overwrite Active" banner on reopen — the
+          // last-calc rate lives on loan.rate even when no override
+          // was ever set. Only synthesize when we can see an audit
+          // stamp or a persisted formData override.
+          var _fdRateSaved  = loanFd && loanFd._rateOverride;
+          var _fdPtsSaved   = loanFd && loanFd._pointsOverride;
+          var _hasExplicitOverride = !!(
+            found._pricingOverrideAt ||
+            found._pricingOverrideBy ||
+            found._pricingOverrideOriginal ||
+            _fdRateSaved ||
+            _fdPtsSaved
+          );
+          if (_hasExplicitOverride) {
+            if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+              var rNum = parseFloat(found.rate);
+              if (isFinite(rNum) && rNum > 0) {
+                fd._rateOverride = String(rNum > 1 ? rNum / 100 : rNum);
+              }
             }
-          }
-          if (!fd._pointsOverride && found.points != null && found.points !== '') {
-            var pNum = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
-            if (isFinite(pNum) && pNum >= 0) fd._pointsOverride = String(pNum);
+            if (!fd._pointsOverride && found.points != null && found.points !== '') {
+              var pNum = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+              if (isFinite(pNum) && pNum >= 0) fd._pointsOverride = String(pNum);
+            }
           }
           console.log('[rtl sizer 236.217] loaded overrides:',
             { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,
@@ -3853,15 +3870,29 @@ netlifyIdentity.on('init', function(user) {
         // API writes, imports), fall back to the canonical
         // loan.rate / loan.points so the sizer paints the LO's
         // Loan-Details edits.
-        if (!fd._rateOverride && found.rate != null && found.rate !== '') {
-          var _r = parseFloat(found.rate);
-          if (isFinite(_r) && _r > 0) {
-            fd._rateOverride = String(_r > 1 ? _r / 100 : _r);
+        // Deploy 236.278 — GATE on explicit-override evidence; see
+        // dscr-sizer for full rationale. Prevents every loan reopen
+        // from lighting the "Pricing Overwrite Active" banner.
+        var _fdRateSaved2 = found.formData && found.formData._rateOverride;
+        var _fdPtsSaved2  = found.formData && found.formData._pointsOverride;
+        var _hasExplicitOverride2 = !!(
+          found._pricingOverrideAt ||
+          found._pricingOverrideBy ||
+          found._pricingOverrideOriginal ||
+          _fdRateSaved2 ||
+          _fdPtsSaved2
+        );
+        if (_hasExplicitOverride2) {
+          if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+            var _r = parseFloat(found.rate);
+            if (isFinite(_r) && _r > 0) {
+              fd._rateOverride = String(_r > 1 ? _r / 100 : _r);
+            }
           }
-        }
-        if (!fd._pointsOverride && found.points != null && found.points !== '') {
-          var _p = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
-          if (isFinite(_p) && _p >= 0) fd._pointsOverride = String(_p);
+          if (!fd._pointsOverride && found.points != null && found.points !== '') {
+            var _p = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+            if (isFinite(_p) && _p >= 0) fd._pointsOverride = String(_p);
+          }
         }
         console.log('[rtl-sizer 236.218] loadFromClientLoan overrides:',
           { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,

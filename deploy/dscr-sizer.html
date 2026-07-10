@@ -4118,16 +4118,29 @@ netlifyIdentity.on('init', function(user) {
             // missing. loan.rate is percent (8.625), _rateOverride
             // wants decimal (0.08625). loan.points is pts (1.5),
             // _pointsOverride wants same (1.5).
-            if (!fd._rateOverride && found.rate != null && found.rate !== '') {
-              var rNum = parseFloat(found.rate);
-              if (isFinite(rNum) && rNum > 0) {
-                // Values >1 are percent, <=1 are decimal (Baseline import).
-                fd._rateOverride = String(rNum > 1 ? rNum / 100 : rNum);
+            // Deploy 236.278 — GATE on explicit-override evidence;
+            // see the second dscr-sizer site for full rationale.
+            var _fdRateSaved3 = loanFd && loanFd._rateOverride;
+            var _fdPtsSaved3  = loanFd && loanFd._pointsOverride;
+            var _hasExplicitOverride3 = !!(
+              found._pricingOverrideAt ||
+              found._pricingOverrideBy ||
+              found._pricingOverrideOriginal ||
+              _fdRateSaved3 ||
+              _fdPtsSaved3
+            );
+            if (_hasExplicitOverride3) {
+              if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+                var rNum = parseFloat(found.rate);
+                if (isFinite(rNum) && rNum > 0) {
+                  // Values >1 are percent, <=1 are decimal (Baseline import).
+                  fd._rateOverride = String(rNum > 1 ? rNum / 100 : rNum);
+                }
               }
-            }
-            if (!fd._pointsOverride && found.points != null && found.points !== '') {
-              var pNum = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
-              if (isFinite(pNum) && pNum >= 0) fd._pointsOverride = String(pNum);
+              if (!fd._pointsOverride && found.points != null && found.points !== '') {
+                var pNum = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+                if (isFinite(pNum) && pNum >= 0) fd._pointsOverride = String(pNum);
+              }
             }
             console.log('[sizer 236.217] loaded overrides:',
               { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,
@@ -4223,16 +4236,41 @@ netlifyIdentity.on('init', function(user) {
           // default. Synthesize the override so Loan Details is the
           // single source of truth for rate/points regardless of when
           // the record was created.
-          if (!fd._rateOverride && found.rate != null && found.rate !== '') {
-            var _r = parseFloat(found.rate);
-            if (isFinite(_r) && _r > 0) {
-              // Values >1 are percent (8.625), <=1 already decimal.
-              fd._rateOverride = String(_r > 1 ? _r / 100 : _r);
+          //
+          // Deploy 236.278 — GATE on explicit-override evidence. The
+          // original 236.218 synthesized unconditionally, which meant
+          // EVERY saved loan looked like it had an override (their
+          // last-calc rate lives on loan.rate — non-empty — and
+          // fd._rateOverride is only populated when the LO actually
+          // overrode). Result: the "⚑ Pricing Overwrite Active"
+          // banner lit up on every loan reopen. Only synthesize when
+          // there's a signal that pricing was actually overridden:
+          // an audit stamp (_pricingOverrideAt / _pricingOverrideBy),
+          // or the persisted formData already carries an override,
+          // or a Loan Details inline edit stamped its own marker
+          // (_pricingOverrideOriginal is written by the inline edit
+          // path when the LO manually adjusts rate/points).
+          var _fdRateSaved  = found.formData && found.formData._rateOverride;
+          var _fdPtsSaved   = found.formData && found.formData._pointsOverride;
+          var _hasExplicitOverride = !!(
+            found._pricingOverrideAt ||
+            found._pricingOverrideBy ||
+            found._pricingOverrideOriginal ||
+            _fdRateSaved ||
+            _fdPtsSaved
+          );
+          if (_hasExplicitOverride) {
+            if (!fd._rateOverride && found.rate != null && found.rate !== '') {
+              var _r = parseFloat(found.rate);
+              if (isFinite(_r) && _r > 0) {
+                // Values >1 are percent (8.625), <=1 already decimal.
+                fd._rateOverride = String(_r > 1 ? _r / 100 : _r);
+              }
             }
-          }
-          if (!fd._pointsOverride && found.points != null && found.points !== '') {
-            var _p = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
-            if (isFinite(_p) && _p >= 0) fd._pointsOverride = String(_p);
+            if (!fd._pointsOverride && found.points != null && found.points !== '') {
+              var _p = parseFloat(String(found.points).replace(/[^0-9.]/g, ''));
+              if (isFinite(_p) && _p >= 0) fd._pointsOverride = String(_p);
+            }
           }
           console.log('[dscr-sizer 236.218] loadFromClientLoan overrides:',
             { _rateOverride: fd._rateOverride, _pointsOverride: fd._pointsOverride,
