@@ -498,7 +498,15 @@ function fmtMoney(v) {
   var n = Number(v);
   if (!isFinite(n) || n === 0) return '$0';
   if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
-  return '$' + Math.round(n).toLocaleString();
+  // Deploy 236.279 — preserve cents when the value has them.
+  // Whole-dollar loan amounts still render as "$150,000" (no
+  // trailing .00) but commissions like $528.75 no longer round
+  // up to $529.
+  var hasCents = Math.abs(n - Math.round(n)) > 0.005;
+  return '$' + n.toLocaleString('en-US', {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
 }
 function escH(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 </script>

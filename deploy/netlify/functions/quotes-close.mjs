@@ -147,7 +147,15 @@ async function notifyLO(quote, closedByEmail) {
   const fmtMoney = (v) => {
     const n = Number(v);
     if (!isFinite(n) || n === 0) return '$0';
-    return '$' + Math.round(n).toLocaleString();
+    // Deploy 236.279 — preserve cents when present. Commission
+    // amounts like $528.75 no longer round to $529 in the LO
+    // notification email; whole-dollar values still display
+    // without a trailing .00.
+    const hasCents = Math.abs(n - Math.round(n)) > 0.005;
+    return '$' + n.toLocaleString('en-US', {
+      minimumFractionDigits: hasCents ? 2 : 0,
+      maximumFractionDigits: 2,
+    });
   };
   const fd = quote.formData || {};
   const borrower = quote.borrower || fd.borrower || '';
