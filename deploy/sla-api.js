@@ -294,11 +294,28 @@
     if (window._slaNetlifyIdentityOnPatched || ++_patchTries > 20) clearInterval(_patchIvl);
   }, 100);
 
-  // Safety net — if neither the widget nor Supabase resolve within
-  // 3s, fire null so pages don't hang on a permanent auth-gate.
+  // Deploy 236.281 — safety net rewrite. The original 3s timeout
+  // fired _resolveInit(null) unconditionally, which meant every LO
+  // page's `if (!user) window.location.replace('/')` guard kicked
+  // in and bounced them to the login screen whenever the Netlify
+  // Identity widget's own init event hadn't propagated within 3s
+  // (slow network, cold browser tab, background throttling). Reports
+  // came in as "LOs keep getting logged out."
+  //
+  // Two changes:
+  //   1. Bump timeout to 8s — more slack for real-world networks.
+  //   2. Before firing null, peek netlifyIdentity.currentUser().
+  //      When the widget HAS initialized but its own 'init'
+  //      subscription somehow missed our wrap (a genuine miss, not
+  //      a slow widget), currentUser() still returns the live user
+  //      synchronously. Pass that into _resolveInit so the LO
+  //      stays signed in instead of hitting the redirect.
   setTimeout(function () {
-    if (!_initResolved) _resolveInit(null);
-  }, 3000);
+    if (_initResolved) return;
+    var nl = null;
+    try { nl = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser(); } catch (_) {}
+    _resolveInit(nl);
+  }, 8000);
 
   // ── Core fetch wrapper ──────────────────────────────────────────
   // Deploy 236.220 — Phase 3 of Mike's "Loan Details is the source
