@@ -1060,7 +1060,24 @@ function processResults(results) {
     // won't have prospectId yet — they still depend on the address
     // dedup until the LO touches them, but new applications going
     // forward are immune to the address-rename break.
-    var _workedByOwner = {};         // ownerKey -> normAddr -> true
+    // Deploy 236.280 — propType-aware "worked address" dedup. Two
+    // leads at the same address can coexist as legitimately distinct
+    // loans when their propType differs (single-asset SFR vs.
+    // portfolio, for example). Prior key format was just `addr`,
+    // which hid the second prospect from New Application as soon as
+    // the LO quoted the first — even though the second was a
+    // meaningfully different deal.
+    //
+    // New shape: per (owner, addr), track the SET of propTypes seen
+    // on quotes at that address. Empty propType is recorded as
+    // '_nopt_' so we can distinguish "no quote here" from "quote
+    // here with no propType stamped". A prospect is hidden if:
+    //   - it has a propType AND the same propType is in the set, OR
+    //   - it has a propType but there's a quote with no propType at
+    //     this address (legacy — ambiguous, dedup to be safe), OR
+    //   - it has no propType and any quote exists at this address.
+    // Different propTypes on both sides → NOT hidden → both visible.
+    var _workedByOwner = {};         // ownerKey -> addr -> { propType: true, ..., _nopt_: true }
     var _workedProspectIds = {};      // ownerKey -> prospectId -> true
     // Deploy 236.36 — track which loans have an associated quote, by
     // (ownerKey, loanId). The prospectId dedup must only fire when a
@@ -1076,7 +1093,9 @@ function processResults(results) {
       var addr = _normAddr(item.quote.address);
       if (addr) {
         if (!_workedByOwner[item.owner]) _workedByOwner[item.owner] = {};
-        _workedByOwner[item.owner][addr] = true;
+        if (!_workedByOwner[item.owner][addr]) _workedByOwner[item.owner][addr] = {};
+        var qPt = String((item.quote.formData && item.quote.formData.propType) || item.quote.propType || '').toLowerCase().trim();
+        _workedByOwner[item.owner][addr][qPt || '_nopt_'] = true;
       }
       var lid = item.quote.loanId;
       if (lid) {
@@ -1126,7 +1145,21 @@ function processResults(results) {
       // address dedup (legacy fallback for pre-236.22 loans).
       if (_workedProspectIds[item.owner] && _workedProspectIds[item.owner][item.prospect.id]) return;
       var addr = _normAddr(item.prospect.propAddress);
-      if (addr && _workedByOwner[item.owner] && _workedByOwner[item.owner][addr]) return;
+      if (addr && _workedByOwner[item.owner] && _workedByOwner[item.owner][addr]) {
+        // Deploy 236.280 — propType-aware match.
+        var seenPts = _workedByOwner[item.owner][addr];
+        var pPt = String(item.prospect.propType || '').toLowerCase().trim();
+        if (pPt) {
+          // Prospect has propType. Hide only when the same propType
+          // is present, or when a quote at this address has no
+          // propType stamped (ambiguous — fall back to legacy hide).
+          if (seenPts[pPt] || seenPts['_nopt_']) return;
+        } else {
+          // Prospect has no propType — any quote at this address
+          // hides it (legacy behavior).
+          if (Object.keys(seenPts).length > 0) return;
+        }
+      }
       _items.newApp.push({
         kind: 'prospect',
         ownerKey: item.owner,
