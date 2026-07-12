@@ -2919,9 +2919,17 @@ function saveCurrentQuote() {
   var emailEl = document.getElementById('borrowerEmail');
   var nameVal = (nameEl && nameEl.value || '').trim();
   var emailVal = (emailEl && emailEl.value || '').trim();
-  var brokerFeeVal = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
-  var brokerNameVal = (document.getElementById('brokerName') && document.getElementById('brokerName').value.trim()) || '';
-  var isBrokerDeal = brokerFeeVal > 0 || !!brokerNameVal;
+  // Deploy 236.287 — expanded broker detection. ANY broker signal
+  // (fee, name, email, company, or a linked brokerId) counts as a
+  // broker deal. Prior version required fee>0 or name in the DOM,
+  // which missed broker-submitted loans where only brokerEmail was
+  // pre-populated by the apply flow.
+  var brokerFeeVal   = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+  var brokerNameVal  = (document.getElementById('brokerName')    && document.getElementById('brokerName').value.trim())    || '';
+  var brokerEmailVal = (document.getElementById('brokerEmail')   && document.getElementById('brokerEmail').value.trim())   || '';
+  var brokerCompVal  = (document.getElementById('brokerCompany') && document.getElementById('brokerCompany').value.trim()) || '';
+  var brokerIdVal    = (document.getElementById('brokerId')      && document.getElementById('brokerId').value.trim())      || '';
+  var isBrokerDeal = brokerFeeVal > 0 || !!brokerNameVal || !!brokerEmailVal || !!brokerCompVal || !!brokerIdVal;
   var firstErrorEl = null;
   if (!isBrokerDeal) {
     if (!emailVal) {
@@ -3312,6 +3320,24 @@ function saveCurrentQuote() {
       SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRec, ownerOvr)
         .then(handleSaveSuccess)
         .catch(handleSaveFailure);
+    } else if (isBrokerDeal && formData.brokerEmail) {
+      // Deploy 236.287 — broker fallback path. When we have no direct
+      // IDs (fresh broker deal, or auto-created loan wasn't matched),
+      // upsert onto the BROKER's client record — not the borrower's.
+      // Prior behavior fell through to the borrower-email branch, which
+      // created a new borrower client every time the LO added borrower
+      // name+email to a broker deal (the duplicate bug).
+      console.log('[SLA] RTL save: broker-fallback upsert path');
+      var brokerNameParts = String(formData.brokerName || '').trim().split(/\s+/);
+      var upsertPromise = ClientBook.upsert(_quoteUser, formData.brokerEmail,
+        brokerNameParts.slice(0, -1).join(' ') || brokerNameParts[0] || '',
+        brokerNameParts.length > 1 ? brokerNameParts[brokerNameParts.length - 1] : '',
+        formData.brokerPhone || '', loanRec, ownerOvr);
+      if (upsertPromise && typeof upsertPromise.then === 'function') {
+        upsertPromise.then(handleSaveSuccess).catch(handleSaveFailure);
+      } else {
+        console.warn('[SLA] RTL save: ClientBook.upsert (broker) did not return a promise:', upsertPromise);
+      }
     } else if (formData.borrowerEmail) {
       // Brand-new quote (no editing IDs resolved yet). Fall back to the
       // legacy upsert path which auto-creates the client + initial loan.

@@ -1449,7 +1449,20 @@ function buildCard(it, colKey) {
 
 function buildProspectCard(it) {
   var p = it.prospect;
-  var name = ((p.firstName || '') + ' ' + (p.lastName || '')).trim() || (p.email || 'Borrower');
+  // Deploy 236.287 — broker-submitted prospects use the broker's name
+  // as the primary title. The borrower's name (when present) drops to
+  // a secondary line. The small chip below changes from "via <Name>"
+  // to just "Broker" per Mike's ask. Borrower detection: the prospect
+  // carries a submitterType of 'broker' set by apply.html Phase 3c.
+  var isBrokerSubmit = String(p.submitterType || '').toLowerCase() === 'broker'
+                    || (!!p.brokerName || !!p.brokerEmail);
+  var borrowerName = ((p.firstName || '') + ' ' + (p.lastName || '')).trim() || p.email || '';
+  var brokerDisplay = String(p.brokerName || '').trim()
+    || String(p.brokerCompany || '').trim()
+    || String(p.brokerEmail || '').trim();
+  var name = isBrokerSubmit
+    ? (brokerDisplay || 'Broker')
+    : (borrowerName || 'Borrower');
   var addr = p.propAddress || '';
   var amt  = fmtMoney(num(p.purchasePrice || p.propertyValue));
   var tool = (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl'
@@ -1464,29 +1477,48 @@ function buildProspectCard(it) {
 
   var selKey = 'prospect|' + it.ownerKey + '|' + it.id;
   var checked = _selectedItems.has(selKey) ? ' checked' : '';
-  var nameHtml = nameAsContactLink(name, p.email, it.ownerKey);
+  // Deploy 236.287 — title is a link to the sizer for the prospect, so
+  // clicking either the borrower/broker name OR the address opens the
+  // same sizer that "Open in Sizer" does. When a contact record exists
+  // for the name, prefer the contact link (nameAsContactLink) since it
+  // routes to the client details page. For broker submits with no
+  // contact record yet, fall back to the sizer click.
+  var sizerJs = 'openInSizer(\'' + escAttr(it.id) + '\', \'' + escAttr(it.ownerKey) + '\', \'' + tool + '\')';
+  var contactNameHtml = nameAsContactLink(name, isBrokerSubmit ? (p.brokerEmail || '') : (p.email || ''), it.ownerKey);
+  // nameAsContactLink returns escaped HTML with an <a> if a match exists.
+  // Detect the un-linked plain-text case (contains no <a) and wrap it in
+  // a click handler so the title is clickable either way.
+  var nameHtml = contactNameHtml.indexOf('<a ') >= 0
+    ? contactNameHtml
+    : '<a href="javascript:void(0)" class="contact-link" onclick="event.stopPropagation();' + sizerJs + '">' + escH(name) + '</a>';
   var checkboxHtml = _selectMode
     ? ('<label class="select-box" title="Select">' +
          '<input type="checkbox" class="bulk-cb" data-key="' + escAttr(selKey) + '" data-kind="prospect" data-owner="' + escAttr(it.ownerKey) + '" data-id="' + escAttr(it.id) + '" onchange="toggleSelect(this)"' + checked + ' />' +
        '</label>')
     : '';
 
-  // Deploy 236.18 — broker chip on prospect cards too. Broker-mode
-  // apply.html submissions (Phase 3c) land here as prospects with
-  // brokerName/Company/Email at the top level. buildQuoteCard got
-  // the chip in 236.17 but I missed the prospect path — broker apps
-  // sit in the New Application column until the LO claims them, so
-  // this is actually the FIRST place the broker should be visible.
-  var prospectBrokerLine = (p.brokerName || p.brokerEmail)
-    ? '<div class="card-broker" title="Submitted by Broker"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="display:inline-block;vertical-align:-1px;margin-right:4px"><path d="M6 6.5a2 2 0 100-4 2 2 0 000 4zM2 10.5c0-1.7 1.8-3 4-3s4 1.3 4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>via ' + escH(p.brokerName || p.brokerEmail) + '</div>'
+  // Deploy 236.18 — broker chip on prospect cards.
+  // Deploy 236.287 — collapse to just "Broker" (the broker name is now
+  // in the card title). When the borrower's own name was also captured
+  // at apply time, show it as a small secondary line right below.
+  var prospectBrokerLine = isBrokerSubmit
+    ? '<div class="card-broker" title="Submitted by Broker"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="display:inline-block;vertical-align:-1px;margin-right:4px"><path d="M6 6.5a2 2 0 100-4 2 2 0 000 4zM2 10.5c0-1.7 1.8-3 4-3s4 1.3 4 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>Broker</div>'
+      + (borrowerName
+          ? '<div class="card-borrower-sub" style="font-size:12px;color:var(--muted);margin-top:2px">for ' + escH(borrowerName) + '</div>'
+          : '')
     : '';
+
+  // Deploy 236.287 — clickable address opens the same sizer view.
+  var addrHtml = addr
+    ? '<a href="javascript:void(0)" class="card-addr-link" onclick="event.stopPropagation();' + sizerJs + '" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)">' + escH(addr) + '</a>'
+    : '— no address —';
 
   return (
     '<div class="card prospect-card' + (_selectMode && _selectedItems.has(selKey) ? ' is-selected' : '') + '">' +
       checkboxHtml +
       loRow +
       '<div class="card-title">' + nameHtml + '</div>' +
-      '<div class="card-sub">' + escH(addr || '— no address —') + '</div>' +
+      '<div class="card-sub">' + addrHtml + '</div>' +
       prospectBrokerLine +
       '<div class="card-amt">' + amt + '</div>' +
       '<div class="card-meta">' +

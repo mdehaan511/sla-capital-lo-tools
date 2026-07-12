@@ -184,34 +184,49 @@ export default async (req, context) => {
 
 // Auto-create or update a Client record + initial Loan from a prospect submission
 async function upsertClientFromProspect(prospect, loEmail) {
+  // Deploy 236.287 — extensive logging + parallelized owner-scoped scan.
+  // Prior version silently returned on any exception, making broker
+  // submissions hard to diagnose when the loan didn't materialize.
+  const tag = `[apply-upsert p=${prospect.id || '?'}]`;
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const ownerKey = keySafe(normalizeEmail(loEmail));
-  // Deploy 236.227 (Broker Phase D) — for broker submissions the
-  // "client" IS the broker; there is no borrower record to look up
-  // yet. Match on brokerEmail instead. The loan will land under the
-  // broker's client with _isBrokerLoan: true and guarantors[] empty;
-  // Phase E captures borrower info at Advance to Approved.
   const isBrokerSubmission = String(prospect.submitterType || '').toLowerCase() === 'broker';
   const lookupEmail = isBrokerSubmission
     ? normalizeEmail(prospect.brokerEmail)
     : normalizeEmail(prospect.email);
-  if (!lookupEmail) return;
+  if (!lookupEmail) {
+    console.warn(`${tag} skipped: no lookup email (isBroker=${isBrokerSubmission}, brokerEmail=${!!prospect.brokerEmail}, email=${!!prospect.email})`);
+    return;
+  }
+  console.log(`${tag} start owner=${ownerKey} lookup=${lookupEmail} isBroker=${isBrokerSubmission}`);
 
   // Search this LO's clients for an existing match by lookup email.
+  // Parallelized: for LOs with many clients, sequential GETs added
+  // seconds of latency (which pushed us close to Netlify's function
+  // timeout on the first submit). Chunk to keep concurrent GETs under
+  // the socket-pool ceiling.
   let existing = null;
   let existingKey = null;
   try {
     const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
-    for (const { key } of blobs) {
-      const c = await clientsStore.get(key, { type: 'json' });
-      if (c && (c.email || '').toLowerCase() === lookupEmail) {
-        existing = c;
-        existingKey = key;
-        break;
-      }
+    console.log(`${tag} scanning ${blobs.length} client blobs for match`);
+    const CHUNK = 40;
+    for (let i = 0; i < blobs.length && !existing; i += CHUNK) {
+      const chunk = blobs.slice(i, i + CHUNK);
+      const results = await Promise.all(chunk.map(async ({ key }) => {
+        try {
+          const rec = await clientsStore.get(key, { type: 'json' });
+          if (!rec) return null;
+          if ((rec.email || '').toLowerCase() !== lookupEmail) return null;
+          return { key, rec };
+        } catch (_) { return null; }
+      }));
+      const hit = results.find(Boolean);
+      if (hit) { existing = hit.rec; existingKey = hit.key; break; }
     }
+    console.log(`${tag} scan done — existing=${!!existing}${existingKey ? ' key=' + existingKey : ''}`);
   } catch (e) {
-    console.warn('client lookup failed:', e);
+    console.warn(`${tag} client lookup failed:`, e && e.message);
   }
 
   // Build a loan record from the application
@@ -373,7 +388,13 @@ async function upsertClientFromProspect(prospect, loEmail) {
     };
     existingKey = ownerKey + '/' + keySafe(record.id);
   }
-  await clientsStore.setJSON(existingKey, record);
+  try {
+    await clientsStore.setJSON(existingKey, record);
+    console.log(`${tag} saved client=${record.id} loan=${loan.id} loans=${record.loans.length}`);
+  } catch (e) {
+    console.error(`${tag} setJSON failed:`, e && e.message);
+    throw e;
+  }
   // Deploy 236.284 — return ids so the LO notify can deep-link to the
   // Loan Details page for this loan. Was previously fire-and-forget.
   return { clientId: record.id, loanId: loan.id };
