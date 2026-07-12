@@ -2580,7 +2580,22 @@ function openInSizer(prospectId, ownerKey, tool) {
   if (!item) return;
   try { localStorage.setItem('sla_prefill_prospect', JSON.stringify(item.prospect)); } catch(e){}
   var dest = (tool === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
-  window.location.href = dest + '?fromProspect=1';
+  var params = '?fromProspect=1';
+  // Deploy 236.293 — cross-LO handoff. When the prospect belongs to a
+  // different LO than the current user (admin viewing all-scope, or an
+  // apply that routed to Chance's house account and Mike is picking it
+  // up), pass ?owner=<ownerKey> so the sizer:
+  //   1. Scans clients cross-LO to find the auto-created loan.
+  //   2. Sets _ownerOverride so the save routes to that LO's namespace.
+  // Without this, the sizer defaulted to the current user's namespace
+  // and created a duplicate loan on save (the "Mike DeHaan → Broker
+  // Person" ghost that appeared in Quoted).
+  var currentUserKey = String((_user && _user.email) || '').toLowerCase();
+  var normalizedOwner = String(ownerKey || '').toLowerCase();
+  if (normalizedOwner && normalizedOwner !== currentUserKey && normalizedOwner !== 'unassigned') {
+    params += '&owner=' + encodeURIComponent(normalizedOwner);
+  }
+  window.location.href = dest + params;
 }
 
 // Deploy 190: assign an unassigned prospect to an LO. Re-stores the

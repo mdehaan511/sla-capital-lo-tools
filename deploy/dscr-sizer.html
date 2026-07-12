@@ -3104,9 +3104,13 @@ function prefillFromProspect(p) {
       if (matched) {
         window._editingLoanId   = matched.loan.id;
         window._editingClientId = matched.client.id;
-        // If matched under a different LO (cross-LO admin scope), stamp
-        // the owner override so the save routes to that LO's namespace.
-        if (matchedOwner && _ownerParamPFP && matchedOwner !== _ownerParamPFP) {
+        // Deploy 236.293 — the fromProspect init already stamped
+        // _ownerOverride from the URL owner param. But if the scan
+        // discovered the loan under a DIFFERENT LO than the URL
+        // suggested (rare — e.g. house-account fallback + admin scope
+        // finding the real owner), correct the override to point at
+        // where the loan actually lives.
+        if (matchedOwner && matchedOwner !== _ownerParamPFP) {
           window._ownerOverride = matchedOwner;
         }
       }
@@ -4694,6 +4698,17 @@ netlifyIdentity.on('init', function(user) {
       }
       // Check for prospect prefill
       if (urlParams.get('fromProspect')) {
+        // Deploy 236.293 — stamp owner override BEFORE prefill runs so
+        // the save flow routes to the right LO's namespace. Without
+        // this, an admin claiming a Chance-routed prospect saved the
+        // priced loan under their own account (a duplicate that Mike
+        // hit repeatedly). openInSizer now passes ?owner=<lo> whenever
+        // the prospect isn't the current user's own.
+        var _fpOwner = String(urlParams.get('owner') || '').toLowerCase();
+        var _fpMe    = String((user && user.email) || '').toLowerCase();
+        if (_fpOwner && _fpOwner !== _fpMe) {
+          window._ownerOverride = _fpOwner;
+        }
         try {
           var pd = JSON.parse(localStorage.getItem('sla_prefill_prospect') || 'null');
           if (pd) { setTimeout(function(){ prefillFromProspect(pd); }, 200); }
