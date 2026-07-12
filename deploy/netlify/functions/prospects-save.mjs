@@ -170,12 +170,13 @@ export default async (req, context) => {
   } catch (e) {
     console.error('prospects-save notify error:', e);
   }
-  // Item #1: also send a borrower confirmation showing all the fields they
-  // submitted, so they can double-check for mistakes.
+  // Item #1: also send an applicant confirmation showing all the fields
+  // that were submitted, so the person can double-check for mistakes.
+  // Deploy 236.285 — for broker submits, this goes to the broker's email.
   try {
-    await notifyBorrowerOfSubmission(prospect);
+    await notifyApplicantOfSubmission(prospect);
   } catch (e) {
-    console.error('prospects-save borrower notify error:', e);
+    console.error('prospects-save applicant notify error:', e);
   }
 
   return json(200, { ok: true, id });
@@ -380,9 +381,13 @@ async function upsertClientFromProspect(prospect, loEmail) {
 
 // ── LO notification via Resend ───────────────────────────────────────
 async function notifyLO(prospect, ids) {
+  // Deploy 236.285 — log tag makes it easy to grep Netlify function
+  // logs and see exactly why an LO didn't receive their notification
+  // (missing key, no email resolved, or Resend rejection).
+  const tag = `[apply-notify LO p=${prospect.id || '?'} src=${prospect.assignmentSource || '?'}]`;
   const key = process.env.RESEND_API_KEY;
   if (!key) {
-    console.warn('RESEND_API_KEY not set — skipping LO notification');
+    console.warn(`${tag} skipped: RESEND_API_KEY not set`);
     return;
   }
 
@@ -399,9 +404,10 @@ async function notifyLO(prospect, ids) {
   }
   if (!toEmail) toEmail = process.env.DEFAULT_SUBMIT_EMAIL || '';
   if (!toEmail) {
-    console.warn('No LO email available for prospect notification');
+    console.warn(`${tag} skipped: no LO email available`);
     return;
   }
+  console.log(`${tag} sending → ${toEmail}`);
 
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const name = `${prospect.firstName} ${prospect.lastName}`.trim();
@@ -438,8 +444,14 @@ async function notifyLO(prospect, ids) {
   // override needed). Absent when upsert didn't run (rare — only if
   // no LO email was resolvable, but the routing fallback to Chance
   // means that's now vanishingly unlikely).
+  //
+  // Deploy 236.285 — append &fresh=1 so loan-details.js bypasses the
+  // 5-min SWR cache in sla-api.js's SLA.Clients.list(). Without this,
+  // the recipient's stale cached client list wouldn't include the loan
+  // that was just created — the loan showed as "not found" for up to
+  // 5 minutes until the background refresh finally repainted.
   const detailsLink = (ids && ids.clientId && ids.loanId)
-    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}`
+    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}&fresh=1`
     : '';
 
   // Deploy 236.284 — build the plain-text body as an array of entries,
@@ -570,9 +582,10 @@ async function notifyLO(prospect, ids) {
     },
     body: payload,
   });
+  const respBody = await resp.text().catch(() => '');
+  console.log(`${tag} Resend ${resp.status}: ${respBody.slice(0, 200)}`);
   if (!resp.ok) {
-    const txt = await resp.text().catch(() => '');
-    throw new Error(`Resend ${resp.status}: ${txt.slice(0, 200)}`);
+    throw new Error(`Resend ${resp.status}: ${respBody.slice(0, 200)}`);
   }
 }
 
@@ -614,31 +627,67 @@ function fmtDateTime(v) {
 
 // Item #1: confirmation email back to the borrower with everything they
 // submitted, so they can double-check for mistakes before pricing.
-async function notifyBorrowerOfSubmission(prospect) {
+async function notifyApplicantOfSubmission(prospect) {
+  // Deploy 236.285 — routes to broker or borrower depending on who
+  // submitted. Broker mode: sends to brokerEmail with a "thanks for
+  // submitting on behalf of your borrower" greeting. Borrower mode
+  // (self-submit): sends to prospect.email as before. Same body shape
+  // in both cases so the audit trail is consistent.
+  const tag = `[apply-notify APPLICANT p=${prospect.id || '?'}]`;
   const key = process.env.RESEND_API_KEY;
-  if (!key) return;
-  const toEmail = prospect.email;
-  if (!toEmail || !String(toEmail).includes('@')) return;
+  if (!key) { console.warn(`${tag} skipped: RESEND_API_KEY not set`); return; }
+
+  const isBroker = String(prospect.submitterType || '').toLowerCase() === 'broker';
+  const toEmail = isBroker ? prospect.brokerEmail : prospect.email;
+  if (!toEmail || !String(toEmail).includes('@')) {
+    console.warn(`${tag} skipped: no applicant email (isBroker=${isBroker})`);
+    return;
+  }
 
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '';
-  const name = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || prospect.email;
+  const borrowerName = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || prospect.email;
+  const brokerFullName = String(prospect.brokerName || '').trim();
+  const brokerFirst = brokerFullName ? brokerFullName.split(/\s+/)[0] : '';
 
-  const subject = `Application received — ${prospect.propAddress || 'SLA Capital'}`;
+  const greetingName = isBroker ? (brokerFirst || 'there') : (prospect.firstName || 'there');
+  const subject = isBroker
+    ? `Application received — ${prospect.propAddress || (borrowerName ? `for ${borrowerName}` : 'SLA Capital')}`
+    : `Application received — ${prospect.propAddress || 'SLA Capital'}`;
+  const introLine = isBroker
+    ? `Thanks for submitting a loan application with SLA Capital${borrowerName && borrowerName !== prospect.email ? ` on behalf of ${borrowerName}` : ''}. Here's a copy of what you submitted — please review and let your loan officer know if anything is incorrect.`
+    : `Thanks for submitting your application with SLA Capital. Here's a copy of what you submitted — please review and let your loan officer know if anything is incorrect.`;
 
   // Deploy 236.284 — filter empty fields, format dates MM/DD/YYYY.
   const bbSqft = [prospect.bedrooms, prospect.bathrooms, prospect.sqft].filter(v => v && String(v).trim()).length;
   const textLines = [];
-  textLines.push(`Hi ${prospect.firstName || 'there'},`);
+  textLines.push(`Hi ${greetingName},`);
   textLines.push('');
-  textLines.push(`Thanks for submitting your application with SLA Capital. Here's a copy of what you submitted — please review and let your loan officer know if anything is incorrect.`);
+  textLines.push(introLine);
   textLines.push('');
-  textLines.push('--- YOUR INFO ---');
-  textLines.push(`Name:     ${name}`);
-  textLines.push(`Email:    ${prospect.email}`);
-  if (prospect.phone)       textLines.push(`Phone:    ${prospect.phone}`);
-  if (prospect.creditScore) textLines.push(`Credit:   ${prospect.creditScore}`);
-  if (prospect.usCitizen)   textLines.push(`US Citizen: ${prospect.usCitizen}`);
+  if (isBroker) {
+    textLines.push('--- BROKER ---');
+    if (brokerFullName)          textLines.push(`Name:     ${brokerFullName}`);
+    if (prospect.brokerCompany)  textLines.push(`Company:  ${prospect.brokerCompany}`);
+    if (prospect.brokerEmail)    textLines.push(`Email:    ${prospect.brokerEmail}`);
+    if (prospect.brokerPhone)    textLines.push(`Phone:    ${prospect.brokerPhone}`);
+    if (borrowerName && borrowerName !== prospect.email) {
+      textLines.push('');
+      textLines.push('--- BORROWER ---');
+      textLines.push(`Name:     ${borrowerName}`);
+      if (prospect.email)       textLines.push(`Email:    ${prospect.email}`);
+      if (prospect.phone)       textLines.push(`Phone:    ${prospect.phone}`);
+      if (prospect.creditScore) textLines.push(`Credit:   ${prospect.creditScore}`);
+      if (prospect.usCitizen)   textLines.push(`US Citizen: ${prospect.usCitizen}`);
+    }
+  } else {
+    textLines.push('--- YOUR INFO ---');
+    textLines.push(`Name:     ${borrowerName}`);
+    textLines.push(`Email:    ${prospect.email}`);
+    if (prospect.phone)       textLines.push(`Phone:    ${prospect.phone}`);
+    if (prospect.creditScore) textLines.push(`Credit:   ${prospect.creditScore}`);
+    if (prospect.usCitizen)   textLines.push(`US Citizen: ${prospect.usCitizen}`);
+  }
   if (prospect.propAddress || prospect.propType || bbSqft) {
     textLines.push('');
     textLines.push('--- PROPERTY ---');
@@ -694,6 +743,38 @@ async function notifyBorrowerOfSubmission(prospect) {
     row('Funding Date', esc(fmtDate(prospect.fundingDate))) +
     row('Project Description', esc(prospect.projectDescription));
 
+  // Deploy 236.285 — broker mode header block. When submitted by a broker
+  // on behalf of a borrower, show broker fields first, then the borrower's
+  // limited info (if any was provided at submit time).
+  const brokerBlock = isBroker
+    ? '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Broker</h3>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      row('Name', esc(brokerFullName)) +
+      row('Company', esc(prospect.brokerCompany)) +
+      row('Email', esc(prospect.brokerEmail)) +
+      row('Phone', esc(prospect.brokerPhone)) +
+      '</table>'
+    : '';
+  const borrowerBlock = isBroker
+    ? (borrowerName && borrowerName !== prospect.email
+        ? '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Borrower</h3>' +
+          '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+          row('Name', esc(borrowerName)) +
+          row('Email', esc(prospect.email)) +
+          row('Phone', esc(prospect.phone)) +
+          row('Credit Score', esc(prospect.creditScore)) +
+          row('US Citizen', esc(prospect.usCitizen)) +
+          '</table>'
+        : '')
+    : '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Your Info</h3>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      row('Name', esc(borrowerName)) +
+      row('Email', esc(prospect.email)) +
+      row('Phone', esc(prospect.phone)) +
+      row('Credit Score', esc(prospect.creditScore)) +
+      row('US Citizen', esc(prospect.usCitizen)) +
+      '</table>';
+
   const html =
     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
     '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
@@ -701,16 +782,10 @@ async function notifyBorrowerOfSubmission(prospect) {
     `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(fmtDateTime(prospect.submittedAt))}</p></div>` +
     '<div style="padding:24px">' +
     '<div style="display:inline-block;padding:5px 12px;border-radius:18px;background:#256940;color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;margin-bottom:14px">RECEIVED</div>' +
-    `<p style="font-size:14px;color:#1a1520;line-height:1.6">Hi ${esc(prospect.firstName || 'there')},</p>` +
-    '<p style="font-size:14px;color:#1a1520;line-height:1.6">Thanks for submitting your application. Below is a copy of everything you submitted — please review and let your loan officer know if anything is incorrect.</p>' +
-    '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Your Info</h3>' +
-    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-    row('Name', esc(name)) +
-    row('Email', esc(prospect.email)) +
-    row('Phone', esc(prospect.phone)) +
-    row('Credit Score', esc(prospect.creditScore)) +
-    row('US Citizen', esc(prospect.usCitizen)) +
-    '</table>' +
+    `<p style="font-size:14px;color:#1a1520;line-height:1.6">Hi ${esc(greetingName)},</p>` +
+    `<p style="font-size:14px;color:#1a1520;line-height:1.6">${esc(introLine)}</p>` +
+    brokerBlock +
+    borrowerBlock +
     (propertyTable
       ? '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Property</h3>' +
         '<table style="width:100%;border-collapse:collapse;font-size:13px">' + propertyTable + '</table>'
@@ -723,6 +798,7 @@ async function notifyBorrowerOfSubmission(prospect) {
     '<p style="margin-top:8px;font-size:13px;color:#666">— SLA Capital</p>' +
     '</div></div></body></html>';
 
+  console.log(`${tag} sending → ${toEmail}`);
   const payload = JSON.stringify({
     from: 'SLA Capital <noreply@leads.slacapital.com>',
     to: [toEmail],
@@ -740,9 +816,10 @@ async function notifyBorrowerOfSubmission(prospect) {
     },
     body: payload,
   });
+  const respBody = await resp.text().catch(() => '');
+  console.log(`${tag} Resend ${resp.status}: ${respBody.slice(0, 200)}`);
   if (!resp.ok) {
-    const txt = await resp.text().catch(() => '');
-    console.warn(`Borrower confirmation email failed (Resend ${resp.status}): ${txt.slice(0, 200)}`);
+    console.warn(`${tag} failed: Resend ${resp.status}: ${respBody.slice(0, 200)}`);
   }
 }
 

@@ -312,6 +312,13 @@ function updateCloseDateClass() {
 // if the cache is empty or the loan isn\u2019t in it; the caller then
 // falls back to fetchLoan() exclusively.
 function fetchLoanFromCache() {
+  // Deploy 236.285 — skip cache entirely when arriving from an
+  // apply-notify email (?fresh=1). The whole point of that link is
+  // that the loan was just created and won't be in cache.
+  try {
+    var _p = new URLSearchParams(window.location.search);
+    if (_p.get('fresh') === '1') return null;
+  } catch (_) {}
   if (!window.SLA || !SLA.Clients || !SLA.Clients.listCached) return null;
   try {
     var clients = SLA.Clients.listCached();
@@ -330,10 +337,17 @@ function fetchLoanFromCache() {
 }
 
 // Find the {client, loan} in the backend. Admins may pass ?owner= to view another LO's loan.
+// Deploy 236.285 — ?fresh=1 (emitted on the "Open Loan Details" link in
+// the apply-notify email) forces past the 5-min SWR cache in
+// SLA.Clients.list(). Without it, a freshly-created loan would be
+// invisible for up to 5 minutes because the recipient's cached clients
+// list didn't include it yet.
 function fetchLoan() {
   var params = new URLSearchParams(window.location.search);
   var ownerParam = params.get('owner');
+  var isFresh = params.get('fresh') === '1';
   var listOpts = ownerParam ? { all: true } : {};
+  if (isFresh) listOpts.forceFresh = true;
   return SLA.Clients.list(listOpts).then(function(r) {
     if (r && r.byOwner) {
       var keys = Object.keys(r.byOwner);
