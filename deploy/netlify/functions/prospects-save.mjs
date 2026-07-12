@@ -25,6 +25,13 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
+// Deploy 236.282 — House account for neutral /apply leads that match
+// no existing broker/borrower relationship. Chance triages these so no
+// lead falls on the floor. Constant (not a settings value) per the
+// explicit product decision — change this one line if the triage owner
+// ever changes.
+const HOUSE_ACCOUNT_EMAIL = 'chance@slacapital.com';
+
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -111,12 +118,30 @@ export default async (req, context) => {
     brokerPhone:   String(body.brokerPhone   || ''),
   };
 
-  // The loSlug is the LO's email address (URL-encoded). The storage key
-  // is keySafe(email-lowercased), which matches what prospects-list reads.
-  const loEmail = String(body.loSlug || '').toLowerCase().trim();
-  const ownerKey = loEmail && loEmail.includes('@') ? keySafe(loEmail) : keySafe(loSlug);
+  // Deploy 236.282 (neutral-apply auto-routing) — decide who owns this lead.
+  // Four ways a lead arrives, in precedence order:
+  //   1. Explicit ?lo= link (email OR slug form)  → route to that LO.
+  //      Slug form resolves via profiles store so LO-specific links keep
+  //      working even when they use a display-slug not a raw email.
+  //   2. Broker email match  → auto-assign to that broker's LO.
+  //      Broker wins over borrower per the product rule (the broker who
+  //      brought the deal owns it).
+  //   3. Borrower email match → auto-assign to that client's existing LO.
+  //   4. No match at all → house account so a human (Chance) triages.
+  //      Previously an unrouted submission became an "unassigned" prospect
+  //      with no client/loan record and only a settings.submit_email note.
+  //      Now every lead becomes a real client + loan under a real owner.
+  const routing = await resolveOwner({
+    incomingLoSlug: String(body.loSlug || ''),
+    brokerEmail:    prospect.brokerEmail,
+    borrowerEmail:  prospect.email,
+  });
+  const loEmail = routing.loEmail;
+  const ownerKey = keySafe(loEmail);
 
-  prospect.loEmail = loEmail.includes('@') ? loEmail : '';
+  prospect.loEmail = loEmail;
+  prospect.loSlug = ownerKey; // keep in sync with resolved owner
+  prospect.assignmentSource = routing.source; // 'link' | 'broker' | 'borrower' | 'house'
 
   const store = getStore({ name: 'prospects', consistency: 'strong' });
   const key = `${ownerKey}/${keySafe(id)}`;
@@ -388,12 +413,25 @@ async function notifyLO(prospect) {
   const isBrokerApp = prospect.submitterType === 'broker';
   const brokerHint  = prospect.brokerName || prospect.brokerCompany || prospect.brokerEmail || '';
   const propHint    = prospect.propAddress || '';
+  const isUnrouted  = prospect.assignmentSource === 'house';
+  const routedTag   = isUnrouted ? '[UNROUTED] ' : '';
   const subject = isBrokerApp
-    ? `New loan application (via broker) — ${brokerHint || propHint || 'new prospect'}`
-    : `New loan application — ${name || prospect.email}`;
+    ? `${routedTag}New loan application (via broker) — ${brokerHint || propHint || 'new prospect'}`
+    : `${routedTag}New loan application — ${name || prospect.email || propHint || 'new prospect'}`;
+
+  // Deploy 236.282 — tell the recipient HOW this lead routed to them.
+  // Explicit ?lo= link → no banner (unchanged).
+  // Auto-matched     → green banner explaining the match.
+  // House account    → red banner asking for triage.
+  const routingLine =
+    prospect.assignmentSource === 'broker'   ? 'Auto-assigned to you — matched an existing broker in your book.' :
+    prospect.assignmentSource === 'borrower' ? 'Auto-assigned to you — matched an existing client of yours.' :
+    prospect.assignmentSource === 'house'    ? 'Unassigned website lead — no existing broker or client matched. Please triage / reassign.' :
+    '';
 
   const text = [
     `New loan application submitted ${new Date(prospect.submittedAt).toLocaleString('en-US')}`,
+    ...(routingLine ? [routingLine] : []),
     '',
     ...(isBrokerApp ? [
       `Submitted by Broker: ${fmtText(prospect.brokerName)}`,
@@ -430,6 +468,11 @@ async function notifyLO(prospect) {
     '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — New Loan Application</h1>' +
     `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(new Date(prospect.submittedAt).toLocaleString('en-US'))}</p></div>` +
     '<div style="padding:24px">' +
+    // Deploy 236.282 — routing banner (auto-assigned / triage). Only shown
+    // when the lead didn't arrive via an explicit ?lo= link.
+    (routingLine
+      ? '<div style="background:' + (isUnrouted ? 'rgba(124,31,31,0.08)' : 'rgba(37,105,64,0.08)') + ';border:1px solid ' + (isUnrouted ? 'rgba(124,31,31,0.28)' : 'rgba(37,105,64,0.28)') + ';border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#1a1520">' + esc(routingLine) + '</div>'
+      : '') +
     (isBrokerApp
       ? '<div style="background:rgba(200,129,58,0.10);border:1px solid rgba(200,129,58,0.28);border-radius:8px;padding:12px 14px;margin-bottom:16px">' +
           '<div style="font-size:10px;font-weight:600;color:#b5712d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Submitted by Broker</div>' +
@@ -606,4 +649,106 @@ async function notifyBorrowerOfSubmission(prospect) {
     const txt = await resp.text().catch(() => '');
     console.warn(`Borrower confirmation email failed (Resend ${resp.status}): ${txt.slice(0, 200)}`);
   }
+}
+
+// Deploy 236.282 (neutral-apply auto-routing) — decide which LO owns
+// an incoming lead. Precedence: explicit ?lo= link → broker match →
+// borrower match → house account. Returns { loEmail, source }.
+//
+// Defensive throughout: any lookup failure falls through to the next
+// tier rather than throwing, so a bad scan can't 500 a public submit.
+//
+// Cost note: tiers 2/3 scan the whole brokers/clients store (list all
+// blobs, GET each). Website submissions are human-paced and low-volume,
+// so this is fine at current scale. If the record set grows into the
+// tens of thousands, add an email→owner index blob and consult it first.
+async function resolveOwner({ incomingLoSlug, brokerEmail, borrowerEmail }) {
+  const rawSlug = String(incomingLoSlug || '').toLowerCase().trim();
+
+  // Tier 1a: explicit ?lo=<email> — the standard LO-tagged apply link.
+  if (rawSlug && rawSlug.includes('@')) {
+    return { loEmail: rawSlug, source: 'link' };
+  }
+
+  // Load profiles once — used for slug-to-email resolution AND for
+  // ownerKey → LO email translation in tiers 2/3.
+  const ownerEmailByKey = {};
+  try {
+    const profiles = getStore({ name: 'profiles', consistency: 'eventual' });
+    const { blobs } = await profiles.list();
+    await Promise.all(blobs.map(async ({ key }) => {
+      try {
+        const p = await profiles.get(key, { type: 'json' });
+        if (p && p.email) ownerEmailByKey[key] = String(p.email).toLowerCase().trim();
+      } catch (_) { /* skip broken records */ }
+    }));
+  } catch (e) {
+    console.warn('resolveOwner: profiles load failed:', e && e.message);
+  }
+
+  // Tier 1b: explicit ?lo=<slug> — resolve slug against profiles store
+  // (matches keySafe(profile.email) → profile.email).
+  if (rawSlug) {
+    if (ownerEmailByKey[rawSlug]) {
+      return { loEmail: ownerEmailByKey[rawSlug], source: 'link' };
+    }
+    const safeSlug = keySafe(rawSlug);
+    if (ownerEmailByKey[safeSlug]) {
+      return { loEmail: ownerEmailByKey[safeSlug], source: 'link' };
+    }
+  }
+
+  const brokerNeedle   = normalizeEmail(brokerEmail   || '');
+  const borrowerNeedle = normalizeEmail(borrowerEmail || '');
+
+  // Tier 2: broker email match (scan brokers store across all owners).
+  if (brokerNeedle) {
+    try {
+      const brokers = getStore({ name: 'brokers', consistency: 'strong' });
+      const { blobs } = await brokers.list();
+      for (const { key } of blobs) {
+        const slash = key.indexOf('/');
+        if (slash < 0) continue;
+        const owner = key.slice(0, slash);
+        try {
+          const b = await brokers.get(key, { type: 'json' });
+          if (!b) continue;
+          if (normalizeEmail(b.email || '') !== brokerNeedle) continue;
+          const loEmail = ownerEmailByKey[owner] || normalizeEmail(b.createdBy || '');
+          if (loEmail && loEmail.includes('@')) {
+            return { loEmail, source: 'broker' };
+          }
+        } catch (_) { /* skip broken record */ }
+      }
+    } catch (e) {
+      console.warn('resolveOwner: brokers scan failed:', e && e.message);
+    }
+  }
+
+  // Tier 3: borrower email match (scan clients store across all owners).
+  if (borrowerNeedle) {
+    try {
+      const clients = getStore({ name: 'clients', consistency: 'strong' });
+      const { blobs } = await clients.list();
+      for (const { key } of blobs) {
+        const slash = key.indexOf('/');
+        if (slash < 0) continue;
+        const owner = key.slice(0, slash);
+        try {
+          const c = await clients.get(key, { type: 'json' });
+          if (!c) continue;
+          if (normalizeEmail(c.email || '') !== borrowerNeedle) continue;
+          const loEmail = normalizeEmail(c.createdBy || '') || ownerEmailByKey[owner];
+          if (loEmail && loEmail.includes('@')) {
+            return { loEmail, source: 'borrower' };
+          }
+        } catch (_) { /* skip broken record */ }
+      }
+    } catch (e) {
+      console.warn('resolveOwner: clients scan failed:', e && e.message);
+    }
+  }
+
+  // Tier 4: no match — house account for triage.
+  return { loEmail: HOUSE_ACCOUNT_EMAIL, source: 'house' };
 }
