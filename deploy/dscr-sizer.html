@@ -3049,31 +3049,66 @@ function prefillFromProspect(p) {
   // would have to fall back to address matching — which fails when the
   // borrower-typed address differs from what Google Places returns.
   // This is the deterministic fix: match by the loan ID, not the address.
-  if (p.email && window.SLA && SLA.Clients) {
-    SLA.Clients.list({}).then(function(r) {
-      var clients = (r && r.clients) || [];
-      var pEmail = String(p.email).toLowerCase().trim();
-      for (var ci = 0; ci < clients.length; ci++) {
-        if ((clients[ci].email || '').toLowerCase() !== pEmail) continue;
-        var loans = clients[ci].loans || [];
-        // Pick the most recent prospect-created loan that hasn't been
-        // priced yet (no rate). If multiple, prefer one matching the
-        // prospect's address.
+  //
+  // Deploy 236.291 — for BROKER submissions the auto-created loan lives
+  // under the BROKER's client (keyed by brokerEmail), not the borrower's
+  // — and p.email is typically blank for broker submits. Fall back to
+  // p.brokerEmail so we still find + lock onto the pre-created loan.
+  // Without this the sizer save fell through the direct-ID path, hit
+  // the broker-fallback upsert, and created a second broker-client
+  // under the current user's namespace — a visible duplicate in Pipeline.
+  //
+  // Also scan cross-LO: broker submits routed to another LO (e.g.
+  // Chance's house account) live under THAT LO's namespace. If the
+  // pipeline tile passed ?owner=<lo>, use all-scope so the auto-created
+  // loan under that other LO's namespace is findable.
+  var isBrokerProspect = String(p.submitterType || '').toLowerCase() === 'broker'
+                      || !!p.brokerEmail || !!p.brokerName;
+  var lookupEmail = String(
+    isBrokerProspect ? (p.brokerEmail || '') : (p.email || '')
+  ).toLowerCase().trim();
+  var _urlParamsPFP = new URLSearchParams(window.location.search);
+  var _ownerParamPFP = String(_urlParamsPFP.get('owner') || '').toLowerCase();
+  if (lookupEmail && window.SLA && SLA.Clients) {
+    var listOptsPFP = _ownerParamPFP ? { all: true } : {};
+    SLA.Clients.list(listOptsPFP).then(function(r) {
+      var matched = null;
+      var matchedOwner = null;
+      function scanClients(clients) {
         var pAddr = (p.propAddress || '').toLowerCase().trim();
-        var match = null;
-        for (var li = 0; li < loans.length; li++) {
-          var l = loans[li];
-          if (!l.fromApplication) continue;
-          if (l.rate) continue;
-          var lAddr = (l.address || '').toLowerCase().trim();
-          if (pAddr && lAddr === pAddr) { match = l; break; }
-          if (!match) match = l;
+        for (var ci = 0; ci < clients.length; ci++) {
+          if ((clients[ci].email || '').toLowerCase() !== lookupEmail) continue;
+          var loans = clients[ci].loans || [];
+          var innerMatch = null;
+          for (var li = 0; li < loans.length; li++) {
+            var l = loans[li];
+            if (!l.fromApplication) continue;
+            if (l.rate) continue;
+            var lAddr = (l.address || '').toLowerCase().trim();
+            if (pAddr && lAddr === pAddr) { innerMatch = { loan: l, client: clients[ci] }; break; }
+            if (!innerMatch) innerMatch = { loan: l, client: clients[ci] };
+          }
+          if (innerMatch) return innerMatch;
         }
-        if (match) {
-          window._editingLoanId = match.id;
-          window._editingClientId = clients[ci].id;
+        return null;
+      }
+      if (r && r.byOwner) {
+        var owners = Object.keys(r.byOwner);
+        for (var oi = 0; oi < owners.length; oi++) {
+          var hit = scanClients(r.byOwner[owners[oi]] || []);
+          if (hit) { matched = hit; matchedOwner = owners[oi]; break; }
         }
-        break;
+      } else if (r && r.clients) {
+        matched = scanClients(r.clients);
+      }
+      if (matched) {
+        window._editingLoanId   = matched.loan.id;
+        window._editingClientId = matched.client.id;
+        // If matched under a different LO (cross-LO admin scope), stamp
+        // the owner override so the save routes to that LO's namespace.
+        if (matchedOwner && _ownerParamPFP && matchedOwner !== _ownerParamPFP) {
+          window._ownerOverride = matchedOwner;
+        }
       }
     }).catch(function(){});
   }

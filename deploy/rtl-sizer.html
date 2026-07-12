@@ -2785,28 +2785,60 @@ function prefillRTLFromProspect(p) {
   // Look up the prospect's existing loan record so save updates that
   // record by ID rather than creating a duplicate. See dscr-sizer.html
   // for the full rationale.
-  if (p.email && window.SLA && SLA.Clients) {
-    SLA.Clients.list({}).then(function(r) {
-      var clients = (r && r.clients) || [];
-      var pEmail = String(p.email).toLowerCase().trim();
-      for (var ci = 0; ci < clients.length; ci++) {
-        if ((clients[ci].email || '').toLowerCase() !== pEmail) continue;
-        var loans = clients[ci].loans || [];
+  //
+  // Deploy 236.291 — broker submits: p.email is typically empty, and
+  // the auto-created loan lives under the BROKER's client keyed by
+  // brokerEmail. Fall back to p.brokerEmail so the direct-ID path fires
+  // instead of the broker-fallback upsert (which was creating a second
+  // broker-client under the current LO's namespace — the pipeline
+  // duplicate). Also scans cross-LO when ?owner=<lo> is on the URL so
+  // an admin viewing a Chance-routed prospect finds the loan under
+  // Chance's namespace and saves back there via ownerOverride.
+  var isBrokerProspect = String(p.submitterType || '').toLowerCase() === 'broker'
+                      || !!p.brokerEmail || !!p.brokerName;
+  var lookupEmail = String(
+    isBrokerProspect ? (p.brokerEmail || '') : (p.email || '')
+  ).toLowerCase().trim();
+  var _urlParamsPFP = new URLSearchParams(window.location.search);
+  var _ownerParamPFP = String(_urlParamsPFP.get('owner') || '').toLowerCase();
+  if (lookupEmail && window.SLA && SLA.Clients) {
+    var listOptsPFP = _ownerParamPFP ? { all: true } : {};
+    SLA.Clients.list(listOptsPFP).then(function(r) {
+      var matched = null;
+      var matchedOwner = null;
+      function scanClients(clients) {
         var pAddr = (p.propAddress || '').toLowerCase().trim();
-        var match = null;
-        for (var li = 0; li < loans.length; li++) {
-          var l = loans[li];
-          if (!l.fromApplication) continue;
-          if (l.rate) continue;
-          var lAddr = (l.address || '').toLowerCase().trim();
-          if (pAddr && lAddr === pAddr) { match = l; break; }
-          if (!match) match = l;
+        for (var ci = 0; ci < clients.length; ci++) {
+          if ((clients[ci].email || '').toLowerCase() !== lookupEmail) continue;
+          var loans = clients[ci].loans || [];
+          var innerMatch = null;
+          for (var li = 0; li < loans.length; li++) {
+            var l = loans[li];
+            if (!l.fromApplication) continue;
+            if (l.rate) continue;
+            var lAddr = (l.address || '').toLowerCase().trim();
+            if (pAddr && lAddr === pAddr) { innerMatch = { loan: l, client: clients[ci] }; break; }
+            if (!innerMatch) innerMatch = { loan: l, client: clients[ci] };
+          }
+          if (innerMatch) return innerMatch;
         }
-        if (match) {
-          window._editingLoanId = match.id;
-          window._editingClientId = clients[ci].id;
+        return null;
+      }
+      if (r && r.byOwner) {
+        var owners = Object.keys(r.byOwner);
+        for (var oi = 0; oi < owners.length; oi++) {
+          var hit = scanClients(r.byOwner[owners[oi]] || []);
+          if (hit) { matched = hit; matchedOwner = owners[oi]; break; }
         }
-        break;
+      } else if (r && r.clients) {
+        matched = scanClients(r.clients);
+      }
+      if (matched) {
+        window._editingLoanId   = matched.loan.id;
+        window._editingClientId = matched.client.id;
+        if (matchedOwner && _ownerParamPFP && matchedOwner !== _ownerParamPFP) {
+          window._ownerOverride = matchedOwner;
+        }
       }
     }).catch(function(){});
   }
