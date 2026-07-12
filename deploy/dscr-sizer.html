@@ -3111,32 +3111,52 @@ function saveCurrentQuote() {
   if (!r.address && !r.borrower) { showToast('Add an address or borrower name first'); return; }
   if (!window.QuoteStore) { showToast('Quote storage unavailable'); return; }
 
-  // Hard requirements: both borrower name AND email must be present at save.
-  // Without them, ClientBook.upsert short-circuits and we get an orphaned
-  // quote (in Pipeline) with no matching Loan Details page. Catch this
-  // explicitly with field-level errors so the LO knows which field to fix.
+  // Requirements at save:
+  //   - Borrower name + email are usually required — without them
+  //     ClientBook.upsert short-circuits and we get an orphaned quote
+  //     (in Pipeline) with no matching Loan Details page.
+  //   - Deploy 236.286 — EXCEPTION: when this is a broker deal
+  //     (brokerName filled or brokerFee > 0), the borrower fields are
+  //     optional. Broker deals often submit before the borrower's
+  //     contact info is finalized; the LO captures it later. The
+  //     ClientBook path is bypassed in that case because the broker
+  //     is the entity we key the quote under.
   var nameEl = $('borrowerName');
   var emailEl = $('borrowerEmail');
   var nameVal = (nameEl && nameEl.value || '').trim();
   var emailVal = (emailEl && emailEl.value || '').trim();
+  var brokerFeeVal = parseFloat(($('brokerFee')||{}).value) || 0;
+  var brokerNameVal = ($('brokerName') && $('brokerName').value.trim()) || '';
+  var isBrokerDeal = brokerFeeVal > 0 || !!brokerNameVal;
   var firstErrorEl = null;
-  if (!emailVal) {
-    _showEmailError('Borrower email is required to save a quote.');
-    firstErrorEl = firstErrorEl || emailEl;
-  } else if (!_isValidEmail(emailVal)) {
-    _showEmailError('Please enter a valid email address.');
-    firstErrorEl = firstErrorEl || emailEl;
+  if (!isBrokerDeal) {
+    if (!emailVal) {
+      _showEmailError('Borrower email is required to save a quote.');
+      firstErrorEl = firstErrorEl || emailEl;
+    } else if (!_isValidEmail(emailVal)) {
+      _showEmailError('Please enter a valid email address.');
+      firstErrorEl = firstErrorEl || emailEl;
+    } else {
+      _clearEmailError();
+    }
+    if (!nameVal) {
+      _showNameError('Borrower name is required to save a quote.');
+      firstErrorEl = nameEl || firstErrorEl; // name comes first in the form, focus it preferentially
+    } else {
+      _clearNameError();
+    }
   } else {
-    _clearEmailError();
-  }
-  if (!nameVal) {
-    _showNameError('Borrower name is required to save a quote.');
-    firstErrorEl = nameEl || firstErrorEl; // name comes first in the form, focus it preferentially
-  } else {
+    // Broker deal — borrower fields optional. Still validate email
+    // format when present so we don't save a typo'd address.
+    if (emailVal && !_isValidEmail(emailVal)) {
+      _showEmailError('Please enter a valid email address.');
+      firstErrorEl = firstErrorEl || emailEl;
+    } else {
+      _clearEmailError();
+    }
     _clearNameError();
   }
   // Broker name required when broker fee is set
-  var brokerFeeVal = parseFloat(($('brokerFee')||{}).value) || 0;
   if (brokerFeeVal > 0) {
     var bnEl = $('brokerName');
     var bnVal = bnEl ? bnEl.value.trim() : '';
@@ -3152,7 +3172,11 @@ function saveCurrentQuote() {
   }
   if (firstErrorEl) {
     firstErrorEl.focus();
-    if (!brokerFeeVal || ($('brokerName')||{}).value) {
+    // Deploy 236.286 — only nag about borrower fields when we actually
+    // required them (non-broker deals). In broker mode, the field-level
+    // error message (invalid email format, broker name required, etc)
+    // is enough — no top-of-form nag needed.
+    if (!isBrokerDeal && (!brokerFeeVal || ($('brokerName')||{}).value)) {
       showToast('Borrower name and email are required to save a quote');
     }
     return;

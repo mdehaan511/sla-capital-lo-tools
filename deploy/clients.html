@@ -641,13 +641,23 @@ function buildClientCard(c, userEmail, readOnly) {
   var checkboxHtml = '<label class="client-select-cell" style="' + selDisplay + ';padding:0 8px 0 4px;display:inline-flex;align-items:center" onclick="event.stopPropagation()">' +
     '<input type="checkbox" data-selkey="' + escAttr(selKey) + '"' + selCheckedAttr + ' onchange="toggleRowSelect(this)" />' +
   '</label>';
+  // Deploy 236.286 — broker badge on the client card. Same peach pill
+  // style as the merge-clients modal so brokers are recognizable at a
+  // glance across all views. When _isBroker is true, the contact is
+  // a broker (may also carry their own loans, but they typically bring
+  // deals for other borrowers).
+  var brokerBadge = c._isBroker
+    ? ' <span title="Broker" style="display:inline-flex;align-items:center;gap:4px;margin-left:10px;vertical-align:middle;background:rgba(200,129,58,0.10);color:#b5712d;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">'
+      + '<svg width="10" height="10" viewBox="0 0 20 20" fill="none" aria-hidden="true" style="flex-shrink:0"><path d="M4 7h12v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 11h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+      + 'Broker</span>'
+    : '';
   card.innerHTML =
     '<div class="client-header" id="'+cardId+'">' +
       checkboxHtml +
       '<div class="client-header-left" onclick="toggleCard(\''+loansId+'\',\''+cardId+'\')">'+
         '<div class="client-avatar">'+escH(initials)+'</div>' +
         '<div class="client-info">' +
-          '<div class="client-name"><a href="'+clientUrl+'" class="client-name-link" onclick="event.stopPropagation()">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</a></div>' +
+          '<div class="client-name"><a href="'+clientUrl+'" class="client-name-link" onclick="event.stopPropagation()">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</a>'+brokerBadge+'</div>' +
           '<div class="client-meta">'+escH(c.email)+(c.phone?' · '+escH(fmtPhoneDisplay(c.phone)):'')+'</div>' +
         '</div>' +
       '</div>' +
