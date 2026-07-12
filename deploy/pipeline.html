@@ -1313,6 +1313,17 @@ function processResults(results) {
         if (st === 'on_hold' || st === 'denied' || st === 'closed' ||
             st === 'cancelled' || st === 'liquidated' || st === 'sold') return;
         if (_loanIdsWithTile[ownerKey + '|' + l.id]) return;
+        // Deploy 236.292 — skip synthetic tiles for auto-created loans
+        // that haven't been priced yet. prospects-save.mjs creates a
+        // status='active' loan on every apply submit; without this
+        // check, that unpriced loan gets a synthetic Quoted tile while
+        // the underlying prospect ALSO shows in New Application — the
+        // duplicate Mike hit. Once the LO opens the sizer and saves a
+        // real rate, l.rate is set and the tile can render.
+        var _isUnpricedAutoCreate = l.fromApplication
+          && !l.rate
+          && !(l.formData && l.formData._finalRate);
+        if (_isUnpricedAutoCreate) return;
         var bkt = st === 'submitted'     ? 'submitted'
                 : st === 'awaiting_app'  ? 'awaitingApp'
                 : st === 'approved'      ? 'approved'
