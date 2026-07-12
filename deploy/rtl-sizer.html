@@ -383,6 +383,21 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
     .nav-tool-link.current { background:var(--dark); border-color:var(--dark); color:#fff; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 9999; white-space: nowrap; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Deploy 236.289 — Broker Deal mode toggle */
+.broker-mode-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: rgba(200,129,58,0.06); border: 1px solid rgba(200,129,58,0.20); border-radius: var(--r-xs); margin-bottom: 4px; }
+.broker-mode-row.on { background: rgba(200,129,58,0.14); border-color: rgba(200,129,58,0.45); }
+.broker-mode-switch { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+.broker-mode-switch input { opacity: 0; width: 0; height: 0; }
+.broker-mode-track { position: absolute; inset: 0; background: #d6cfc0; border-radius: 22px; cursor: pointer; transition: background 0.18s; }
+.broker-mode-track::before { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.18); transition: transform 0.18s; }
+.broker-mode-switch input:checked + .broker-mode-track { background: #C8813A; }
+.broker-mode-switch input:checked + .broker-mode-track::before { transform: translateX(18px); }
+.broker-mode-label { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+.broker-mode-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.broker-mode-hint { font-size: 11px; color: var(--muted); }
+.broker-mode-hint.on { color: #b5712d; font-weight: 500; }
+#borrowerFieldsSection.hidden { display: none; }
 </style>
 </head>
 <body>
@@ -424,26 +439,45 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
     <div class="form-body">
 
+      <!-- Deploy 236.289 — Broker Deal mode toggle. When ON, borrower/
+           guarantor fields hide and become optional; broker fields
+           become the primary contact. Persists via _isBrokerLoan on the
+           loan record. -->
+      <div class="field span2">
+        <div class="broker-mode-row" id="brokerModeRow">
+          <label class="broker-mode-switch">
+            <input type="checkbox" id="brokerModeToggle" onchange="onBrokerModeToggle()" />
+            <span class="broker-mode-track"></span>
+          </label>
+          <div class="broker-mode-label">
+            <span class="broker-mode-title">Broker Deal</span>
+            <span class="broker-mode-hint" id="brokerModeHint">Toggle on when a broker is sourcing the deal — guarantor details captured at loan acceptance.</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Borrower -->
-      <div class="section-label">Borrower</div>
-      <div class="field">
-        <div class="wrap" id="borrowerNameWrap">
-          <label>Guarantor Name <span class="req">*</span></label>
-          <input type="text" id="borrowerName" placeholder="John Smith" oninput="_clearNameError();autoCalc()" />
+      <div id="borrowerFieldsSection" style="display:contents">
+        <div class="section-label">Borrower</div>
+        <div class="field">
+          <div class="wrap" id="borrowerNameWrap">
+            <label>Guarantor Name <span class="req">*</span></label>
+            <input type="text" id="borrowerName" placeholder="John Smith" oninput="_clearNameError();autoCalc()" />
+          </div>
+          <div class="email-err" id="borrowerNameErr" style="display:none">Borrower name is required to save a quote.</div>
         </div>
-        <div class="email-err" id="borrowerNameErr" style="display:none">Borrower name is required to save a quote.</div>
-      </div>
-      <div class="field">
-        <div class="wrap" id="borrowerEmailWrap">
-          <label>Guarantor Email <span class="req">*</span></label>
-          <input type="email" id="borrowerEmail" placeholder="borrower@email.com" oninput="_clearEmailError()" />
+        <div class="field">
+          <div class="wrap" id="borrowerEmailWrap">
+            <label>Guarantor Email <span class="req">*</span></label>
+            <input type="email" id="borrowerEmail" placeholder="borrower@email.com" oninput="_clearEmailError()" />
+          </div>
+          <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
         </div>
-        <div class="email-err" id="borrowerEmailErr" style="display:none">Please enter a valid email address.</div>
-      </div>
-      <div class="field">
-        <div class="wrap">
-          <label>Borrower Phone <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label>
-          <input type="tel" id="borrowerPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)" />
+        <div class="field">
+          <div class="wrap">
+            <label>Borrower Phone <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label>
+            <input type="tel" id="borrowerPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)" />
+          </div>
         </div>
       </div>
 
@@ -1190,10 +1224,62 @@ function onBrokerFeeChange() {
   var wrap  = document.getElementById('brokerFields');
   if (!feeEl || !wrap) return;
   var fee = parseFloat(feeEl.value) || 0;
-  wrap.style.display = fee > 0 ? 'grid' : 'none';
+  // Deploy 236.289 — in explicit Broker Deal mode the broker fields
+  // stay visible even at fee 0.
+  wrap.style.display = (fee > 0 || window._isBrokerMode) ? 'grid' : 'none';
   // Clear any prior name-required error when the fee drops to 0
   if (fee <= 0) clearErr('brokerName');
   renderBrokerFeesCardRows();
+}
+
+// Deploy 236.289 — Broker Deal mode (see DSCR sizer for full rationale).
+function onBrokerModeToggle() {
+  var cb = document.getElementById('brokerModeToggle');
+  var on = !!(cb && cb.checked);
+  window._isBrokerMode = on;
+  var row  = document.getElementById('brokerModeRow');
+  var hint = document.getElementById('brokerModeHint');
+  var borrowerSection = document.getElementById('borrowerFieldsSection');
+  if (row)  row.classList.toggle('on', on);
+  if (hint) {
+    hint.classList.toggle('on', on);
+    hint.textContent = on
+      ? 'Broker Deal mode ON — guarantor details will be captured at loan acceptance.'
+      : 'Toggle on when a broker is sourcing the deal — guarantor details captured at loan acceptance.';
+  }
+  if (borrowerSection) {
+    borrowerSection.style.display = on ? 'none' : 'contents';
+  }
+  if (on) {
+    var advT = document.getElementById('advToggle');
+    var advB = document.getElementById('advBody');
+    if (advT && !advT.classList.contains('open')) {
+      advT.classList.add('open');
+      if (advB) advB.style.display = 'block';
+    }
+    var bf = document.getElementById('brokerFields');
+    if (bf) bf.style.display = 'grid';
+    if (typeof _clearEmailError === 'function') _clearEmailError();
+    if (typeof _clearNameError  === 'function') _clearNameError();
+  } else {
+    if (typeof onBrokerFeeChange === 'function') { try { onBrokerFeeChange(); } catch (_) {} }
+  }
+}
+
+function autoEnableBrokerModeFrom(source) {
+  if (!source) return;
+  var signal = source._isBrokerLoan === true
+    || !!source.brokerId
+    || !!source.brokerName
+    || !!source.brokerEmail
+    || !!source.brokerCompany
+    || (parseFloat(source.brokerFee || 0) > 0);
+  if (!signal) return;
+  var cb = document.getElementById('brokerModeToggle');
+  if (cb && !cb.checked) {
+    cb.checked = true;
+    onBrokerModeToggle();
+  }
 }
 
 // Compute the $ amount of the broker fee based on the current best loan
@@ -2860,6 +2946,17 @@ function prefillRTLFromProspect(p) {
       try { BrokerPicker.restore(p.brokerId); } catch (_) {}
     }
   }
+  // Deploy 236.289 — flip the sizer into Broker Deal mode when the
+  // prospect came in from a broker.
+  if (typeof autoEnableBrokerModeFrom === 'function') {
+    autoEnableBrokerModeFrom({
+      _isBrokerLoan: String(p.submitterType || '').toLowerCase() === 'broker',
+      brokerId:      p.brokerId,
+      brokerName:    p.brokerName,
+      brokerEmail:   p.brokerEmail,
+      brokerCompany: p.brokerCompany,
+    });
+  }
   window._currentProspect = p;
   // Force calculation since the form is now ready to price
   try {
@@ -2919,17 +3016,20 @@ function saveCurrentQuote() {
   var emailEl = document.getElementById('borrowerEmail');
   var nameVal = (nameEl && nameEl.value || '').trim();
   var emailVal = (emailEl && emailEl.value || '').trim();
-  // Deploy 236.287 — expanded broker detection. ANY broker signal
-  // (fee, name, email, company, or a linked brokerId) counts as a
-  // broker deal. Prior version required fee>0 or name in the DOM,
-  // which missed broker-submitted loans where only brokerEmail was
-  // pre-populated by the apply flow.
+  // Deploy 236.289 — explicit Broker Deal toggle at the top of the
+  // form is the source of truth. DOM sniffing is kept as a fallback.
   var brokerFeeVal   = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
   var brokerNameVal  = (document.getElementById('brokerName')    && document.getElementById('brokerName').value.trim())    || '';
   var brokerEmailVal = (document.getElementById('brokerEmail')   && document.getElementById('brokerEmail').value.trim())   || '';
   var brokerCompVal  = (document.getElementById('brokerCompany') && document.getElementById('brokerCompany').value.trim()) || '';
   var brokerIdVal    = (document.getElementById('brokerId')      && document.getElementById('brokerId').value.trim())      || '';
-  var isBrokerDeal = brokerFeeVal > 0 || !!brokerNameVal || !!brokerEmailVal || !!brokerCompVal || !!brokerIdVal;
+  var brokerToggleOn = !!(document.getElementById('brokerModeToggle') && document.getElementById('brokerModeToggle').checked);
+  var isBrokerDeal = brokerToggleOn
+                  || brokerFeeVal > 0
+                  || !!brokerNameVal
+                  || !!brokerEmailVal
+                  || !!brokerCompVal
+                  || !!brokerIdVal;
   var firstErrorEl = null;
   if (!isBrokerDeal) {
     if (!emailVal) {
@@ -3249,6 +3349,9 @@ function saveCurrentQuote() {
     // sizerHistory[] so the History panel's restore can rehydrate
     // every input the LO had set, not just a pricing subset.
     loanRec._sizerFormData = formData;
+    // Deploy 236.289 — persist Broker Deal mode on the loan record.
+    loanRec._isBrokerLoan = isBrokerDeal;
+    if (loanRec._sizerFormData) loanRec._sizerFormData._isBrokerLoan = isBrokerDeal;
     var rNameParts = (formData.borrowerName || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRec._originalAddress = window._originalAddress;
@@ -3471,6 +3574,18 @@ function loadRTLQuote(formData) {
     if (typeof onBrokerFeeChange === 'function') {
       try { onBrokerFeeChange(); } catch (_) {}
     }
+  }
+  // Deploy 236.289 — flip Broker Deal mode on for loaded loans that
+  // carry _isBrokerLoan or any broker signal.
+  if (typeof autoEnableBrokerModeFrom === 'function') {
+    autoEnableBrokerModeFrom({
+      _isBrokerLoan: formData._isBrokerLoan === true,
+      brokerId:      formData.brokerId,
+      brokerName:    formData.brokerName,
+      brokerEmail:   formData.brokerEmail,
+      brokerCompany: formData.brokerCompany,
+      brokerFee:     formData.brokerFee,
+    });
   }
   // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
   // ask the picker to bind to it. The picker fetches the broker record
