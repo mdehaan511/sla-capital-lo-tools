@@ -894,28 +894,72 @@ async function resolveOwner({ incomingLoSlug, brokerEmail, borrowerEmail }) {
   const brokerNeedle   = normalizeEmail(brokerEmail   || '');
   const borrowerNeedle = normalizeEmail(borrowerEmail || '');
 
-  // Tier 2: broker email match (scan brokers store across all owners).
-  if (brokerNeedle) {
-    const hit = await findEmailMatch('brokers', brokerNeedle);
-    if (hit) {
-      const owner = hit.key.slice(0, hit.key.indexOf('/'));
-      const loEmail = ownerEmailByKey[owner] || normalizeEmail(hit.rec.createdBy || '');
-      if (loEmail && loEmail.includes('@')) {
-        return { loEmail, source: 'broker' };
+  // Deploy 236.288 — brokers live in the `clients` blob store with
+  // `_isBroker: true`, not the legacy `brokers` store. brokers-save.mjs
+  // writes to `clients` and best-effort DELETES the legacy `brokers`
+  // key on every save (Broker Phase A). Prior resolveOwner scanned the
+  // legacy `brokers` store, which was empty for every broker resaved
+  // since Phase A shipped — that's why brokeremail@broker.com routed
+  // to Chance despite Mike having that broker in his book.
+  //
+  // Single-pass strategy: walk `clients` once, classify each hit as
+  // broker/borrower by _isBroker, pick with broker-priority. Then a
+  // legacy `brokers` fallback catches any pre-Phase-A records that
+  // were never resaved.
+  let brokerHit = null;
+  let borrowerHit = null;
+
+  if (brokerNeedle || borrowerNeedle) {
+    try {
+      const clients = getStore({ name: 'clients', consistency: 'strong' });
+      const { blobs } = await clients.list();
+      const CHUNK = 40;
+      for (let i = 0; i < blobs.length; i += CHUNK) {
+        if (brokerHit) break;                        // broker wins, done
+        if (!brokerNeedle && borrowerHit) break;     // no broker needle → borrower is final
+        const chunk = blobs.slice(i, i + CHUNK);
+        const results = await Promise.all(chunk.map(async ({ key }) => {
+          try {
+            const rec = await clients.get(key, { type: 'json' });
+            if (!rec) return null;
+            const recEmail = normalizeEmail(rec.email || '');
+            if (!recEmail) return null;
+            return { key, rec, email: recEmail };
+          } catch (_) { return null; }
+        }));
+        for (const r of results) {
+          if (!r) continue;
+          if (brokerNeedle && r.email === brokerNeedle && r.rec._isBroker) {
+            if (!brokerHit) brokerHit = r;
+          } else if (borrowerNeedle && r.email === borrowerNeedle && !r.rec._isBroker) {
+            if (!borrowerHit) borrowerHit = r;
+          }
+        }
       }
+    } catch (e) {
+      console.warn('resolveOwner: clients scan failed:', e && e.message);
     }
   }
 
-  // Tier 3: borrower email match (scan clients store across all owners).
-  if (borrowerNeedle) {
-    const hit = await findEmailMatch('clients', borrowerNeedle);
-    if (hit) {
-      const owner = hit.key.slice(0, hit.key.indexOf('/'));
-      const loEmail = normalizeEmail(hit.rec.createdBy || '') || ownerEmailByKey[owner];
-      if (loEmail && loEmail.includes('@')) {
-        return { loEmail, source: 'borrower' };
-      }
+  // Legacy brokers store fallback — a broker record predating Phase A
+  // (or one that fell off the migration for any reason) still routes.
+  if (!brokerHit && brokerNeedle) {
+    const legacyHit = await findEmailMatch('brokers', brokerNeedle);
+    if (legacyHit) {
+      brokerHit = { key: legacyHit.key, rec: legacyHit.rec, email: normalizeEmail(legacyHit.rec.email || '') };
     }
+  }
+
+  const pickedHit = brokerHit || borrowerHit;
+  if (pickedHit) {
+    const owner = pickedHit.key.slice(0, pickedHit.key.indexOf('/'));
+    const loEmail = normalizeEmail(pickedHit.rec.createdBy || '') || ownerEmailByKey[owner];
+    const source = brokerHit ? 'broker' : 'borrower';
+    if (loEmail && loEmail.includes('@')) {
+      console.log(`resolveOwner: matched ${source} → ${loEmail} (ownerKey=${owner})`);
+      return { loEmail, source };
+    }
+    console.warn(`resolveOwner: matched ${source} in ownerKey=${owner} but no routable LO email (createdBy=${pickedHit.rec.createdBy || '(empty)'})`);
   }
 
   // Tier 4: no match — house account for triage.
