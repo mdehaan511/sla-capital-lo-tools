@@ -703,52 +703,58 @@ async function resolveOwner({ incomingLoSlug, brokerEmail, borrowerEmail }) {
 
   // Tier 2: broker email match (scan brokers store across all owners).
   if (brokerNeedle) {
-    try {
-      const brokers = getStore({ name: 'brokers', consistency: 'strong' });
-      const { blobs } = await brokers.list();
-      for (const { key } of blobs) {
-        const slash = key.indexOf('/');
-        if (slash < 0) continue;
-        const owner = key.slice(0, slash);
-        try {
-          const b = await brokers.get(key, { type: 'json' });
-          if (!b) continue;
-          if (normalizeEmail(b.email || '') !== brokerNeedle) continue;
-          const loEmail = ownerEmailByKey[owner] || normalizeEmail(b.createdBy || '');
-          if (loEmail && loEmail.includes('@')) {
-            return { loEmail, source: 'broker' };
-          }
-        } catch (_) { /* skip broken record */ }
+    const hit = await findEmailMatch('brokers', brokerNeedle);
+    if (hit) {
+      const owner = hit.key.slice(0, hit.key.indexOf('/'));
+      const loEmail = ownerEmailByKey[owner] || normalizeEmail(hit.rec.createdBy || '');
+      if (loEmail && loEmail.includes('@')) {
+        return { loEmail, source: 'broker' };
       }
-    } catch (e) {
-      console.warn('resolveOwner: brokers scan failed:', e && e.message);
     }
   }
 
   // Tier 3: borrower email match (scan clients store across all owners).
   if (borrowerNeedle) {
-    try {
-      const clients = getStore({ name: 'clients', consistency: 'strong' });
-      const { blobs } = await clients.list();
-      for (const { key } of blobs) {
-        const slash = key.indexOf('/');
-        if (slash < 0) continue;
-        const owner = key.slice(0, slash);
-        try {
-          const c = await clients.get(key, { type: 'json' });
-          if (!c) continue;
-          if (normalizeEmail(c.email || '') !== borrowerNeedle) continue;
-          const loEmail = normalizeEmail(c.createdBy || '') || ownerEmailByKey[owner];
-          if (loEmail && loEmail.includes('@')) {
-            return { loEmail, source: 'borrower' };
-          }
-        } catch (_) { /* skip broken record */ }
+    const hit = await findEmailMatch('clients', borrowerNeedle);
+    if (hit) {
+      const owner = hit.key.slice(0, hit.key.indexOf('/'));
+      const loEmail = normalizeEmail(hit.rec.createdBy || '') || ownerEmailByKey[owner];
+      if (loEmail && loEmail.includes('@')) {
+        return { loEmail, source: 'borrower' };
       }
-    } catch (e) {
-      console.warn('resolveOwner: clients scan failed:', e && e.message);
     }
   }
 
   // Tier 4: no match — house account for triage.
   return { loEmail: HOUSE_ACCOUNT_EMAIL, source: 'house' };
+}
+
+// Deploy 236.283 — parallel-batched scan of a keyed store for the first
+// record whose lowercased .email field equals `needle`. Replaces the
+// previous sequential `for...await get()` loop, which took ~30ms per
+// record and could push a 500-record scan past 15 seconds (observed on
+// the first neutral submission after ship). Chunk size caps concurrent
+// blob GETs so a large store can't overrun the function's socket pool.
+async function findEmailMatch(storeName, needle) {
+  const CHUNK = 40;
+  try {
+    const store = getStore({ name: storeName, consistency: 'strong' });
+    const { blobs } = await store.list();
+    for (let i = 0; i < blobs.length; i += CHUNK) {
+      const chunk = blobs.slice(i, i + CHUNK).filter(({ key }) => key.indexOf('/') >= 0);
+      const results = await Promise.all(chunk.map(async ({ key }) => {
+        try {
+          const rec = await store.get(key, { type: 'json' });
+          if (!rec) return null;
+          if (normalizeEmail(rec.email || '') !== needle) return null;
+          return { key, rec };
+        } catch (_) { return null; }
+      }));
+      const hit = results.find(Boolean);
+      if (hit) return hit;
+    }
+  } catch (e) {
+    console.warn(`findEmailMatch(${storeName}): scan failed:`, e && e.message);
+  }
+  return null;
 }
