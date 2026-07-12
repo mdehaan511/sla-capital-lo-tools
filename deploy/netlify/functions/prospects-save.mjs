@@ -22,6 +22,10 @@ import {
 // broker entity in the LO's book so the materialized loan lands with
 // a brokerId already set.
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
+// Deploy 236.295 — Slack notification for every apply submission.
+// Uses the admin-managed webhook URL (settings blob key 'slack_webhook')
+// so operations can rotate it without redeploying.
+import { postSlack } from './_shared/slack.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -177,6 +181,15 @@ export default async (req, context) => {
     await notifyApplicantOfSubmission(prospect);
   } catch (e) {
     console.error('prospects-save applicant notify error:', e);
+  }
+  // Deploy 236.295 — post to the team Slack channel so the whole team
+  // sees each new lead in real time (in addition to the LO email). No-op
+  // when the admin hasn't configured a webhook URL. Best-effort — never
+  // throws, never blocks the submit response.
+  try {
+    await notifySlack(prospect, ids);
+  } catch (e) {
+    console.error('prospects-save slack notify error:', e);
   }
 
   return json(200, { ok: true, id });
@@ -994,4 +1007,167 @@ async function findEmailMatch(storeName, needle) {
     console.warn(`findEmailMatch(${storeName}): scan failed:`, e && e.message);
   }
   return null;
+}
+
+// Deploy 236.295 — Slack notification for every apply submission.
+// Emits a Block Kit message with all fields the applicant filled out,
+// plus the routing outcome (which LO owns it) so the team sees the
+// full picture at a glance. Skips silently when no webhook is set.
+async function notifySlack(prospect, ids) {
+  const tag = `[apply-slack p=${prospect.id || '?'}]`;
+  const isBroker = String(prospect.submitterType || '').toLowerCase() === 'broker';
+  const src = prospect.assignmentSource || 'link';
+  const routingEmoji = src === 'broker'   ? '🤝'
+                     : src === 'borrower' ? '👤'
+                     : src === 'house'    ? '⚠️'
+                     :                     '🔗';
+  const routingLabel = src === 'broker'   ? 'Auto-assigned via broker match'
+                     : src === 'borrower' ? 'Auto-assigned via prior client match'
+                     : src === 'house'    ? 'UNROUTED — house account triage'
+                     :                     'LO-tagged apply link';
+  const borrowerName = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim();
+  const brokerName   = String(prospect.brokerName || '').trim();
+  const propHint     = prospect.propAddress || '';
+  const title        = isBroker
+    ? `New broker application${brokerName ? ` — ${brokerName}` : ''}`
+    : `New loan application${borrowerName ? ` — ${borrowerName}` : (prospect.email ? ` — ${prospect.email}` : '')}`;
+
+  const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '';
+  const fmtDate  = (v) => {
+    if (!v) return '';
+    const s = String(v).trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return `${m[2]}/${m[3]}/${m[1]}`;
+    return s;
+  };
+  const fmtDateTime = (v) => {
+    if (!v) return '';
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return String(v);
+    return d.toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }) + ' PT';
+  };
+
+  // Build a compact "Field: value" block, one line per filled field.
+  // Slack Block Kit's "fields" grid pairs items in columns of two, so
+  // we keep entries short and lean on section splits for headers.
+  function fieldsList(pairs) {
+    const filled = pairs.filter(([, v]) => v && String(v).trim() !== '');
+    if (!filled.length) return null;
+    return filled.map(([k, v]) => ({ type: 'mrkdwn', text: `*${k}:*\n${v}` }));
+  }
+
+  const borrowerFields = isBroker ? null : fieldsList([
+    ['Name',   borrowerName],
+    ['Email',  prospect.email],
+    ['Phone',  prospect.phone],
+    ['Credit', prospect.creditScore],
+    ['US Citizen', prospect.usCitizen],
+  ]);
+  const brokerFields = isBroker ? fieldsList([
+    ['Broker',  brokerName],
+    ['Company', prospect.brokerCompany],
+    ['Email',   prospect.brokerEmail],
+    ['Phone',   prospect.brokerPhone],
+  ]) : null;
+  const brokerOnRetailFields = (!isBroker && (prospect.brokerName || prospect.brokerEmail)) ? fieldsList([
+    ['Broker',  prospect.brokerName],
+    ['Company', prospect.brokerCompany],
+    ['Email',   prospect.brokerEmail],
+    ['Phone',   prospect.brokerPhone],
+  ]) : null;
+  const propertyFields = fieldsList([
+    ['Address',   prospect.propAddress],
+    ['Type',      prospect.propType],
+    ['Beds/Baths', (prospect.bedrooms || prospect.bathrooms) ? `${prospect.bedrooms || '?'} / ${prospect.bathrooms || '?'}` : ''],
+    ['Sq Ft',     prospect.sqft],
+  ]);
+  const loanFields = fieldsList([
+    ['Product',      prospect.loanProduct],
+    ['Purpose',      prospect.loanPurpose],
+    ['Purchase',     fmtMoney(prospect.purchasePrice)],
+    ['Value',        fmtMoney(prospect.propertyValue)],
+    ['Current Loan', fmtMoney(prospect.currentLoanAmt)],
+    ['Rehab',        fmtMoney(prospect.rehabCost)],
+    ['ARV',          fmtMoney(prospect.estimatedARV)],
+    ['Rent',         fmtMoney(prospect.monthlyRent)],
+    ['Flips (36mo)', prospect.flipsCompleted],
+    ['Funding',      fmtDate(prospect.fundingDate)],
+  ]);
+
+  const detailsLink = (ids && ids.clientId && ids.loanId)
+    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}&fresh=1`
+    : '';
+
+  const blocks = [];
+  blocks.push({
+    type: 'header',
+    text: { type: 'plain_text', text: `🎯 ${title}`, emoji: true },
+  });
+  blocks.push({
+    type: 'context',
+    elements: [
+      { type: 'mrkdwn', text: `${routingEmoji} *${routingLabel}* → \`${prospect.loEmail || 'unassigned'}\`` },
+      { type: 'mrkdwn', text: `Submitted ${fmtDateTime(prospect.submittedAt)}` },
+    ],
+  });
+  if (propHint) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Property:* ${propHint}` },
+    });
+  }
+  if (brokerFields) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Broker*' } });
+    blocks.push({ type: 'section', fields: brokerFields });
+  }
+  if (borrowerFields) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Borrower*' } });
+    blocks.push({ type: 'section', fields: borrowerFields });
+  }
+  if (brokerOnRetailFields) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Broker on this deal*' } });
+    blocks.push({ type: 'section', fields: brokerOnRetailFields });
+  }
+  if (propertyFields) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Property details*' } });
+    blocks.push({ type: 'section', fields: propertyFields });
+  }
+  if (loanFields) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Loan details*' } });
+    blocks.push({ type: 'section', fields: loanFields });
+  }
+  if (prospect.projectDescription) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Project description*\n${prospect.projectDescription}` },
+    });
+  }
+  if (detailsLink) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Open Loan Details', emoji: true },
+          url: detailsLink,
+          style: 'primary',
+        },
+      ],
+    });
+  }
+
+  const fallbackText = `${title} · owner ${prospect.loEmail || 'unassigned'}`;
+  console.log(`${tag} posting to slack — owner=${prospect.loEmail || '?'} source=${src}`);
+  const result = await postSlack({ text: fallbackText, blocks });
+  if (result && result.skipped) {
+    console.log(`${tag} skipped: ${result.reason}`);
+  } else if (result && result.ok) {
+    console.log(`${tag} delivered (${result.status})`);
+  } else {
+    console.warn(`${tag} failed:`, result && (result.error || result.status));
+  }
 }
