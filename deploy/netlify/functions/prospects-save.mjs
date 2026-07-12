@@ -155,9 +155,10 @@ export default async (req, context) => {
 
   // Auto-create a Client record under the LO so they see this in Clients.
   // Only when we have a valid LO email.
+  let ids = null;
   if (loEmail && loEmail.includes('@')) {
     try {
-      await upsertClientFromProspect(prospect, loEmail);
+      ids = await upsertClientFromProspect(prospect, loEmail);
     } catch (e) {
       console.warn('prospects-save: client upsert failed:', e);
     }
@@ -165,7 +166,7 @@ export default async (req, context) => {
 
   // Notify the LO by email — best-effort, don't fail the submission if email fails
   try {
-    await notifyLO(prospect);
+    await notifyLO(prospect, ids);
   } catch (e) {
     console.error('prospects-save notify error:', e);
   }
@@ -372,10 +373,13 @@ async function upsertClientFromProspect(prospect, loEmail) {
     existingKey = ownerKey + '/' + keySafe(record.id);
   }
   await clientsStore.setJSON(existingKey, record);
+  // Deploy 236.284 — return ids so the LO notify can deep-link to the
+  // Loan Details page for this loan. Was previously fire-and-forget.
+  return { clientId: record.id, loanId: loan.id };
 }
 
 // ── LO notification via Resend ───────────────────────────────────────
-async function notifyLO(prospect) {
+async function notifyLO(prospect, ids) {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     console.warn('RESEND_API_KEY not set — skipping LO notification');
@@ -401,8 +405,7 @@ async function notifyLO(prospect) {
 
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const name = `${prospect.firstName} ${prospect.lastName}`.trim();
-  const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '—';
-  const fmtText = (v) => v || '—';
+  const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '';
 
   // Deploy 236.6 — flag broker-submitted apps in the subject so the LO
   // sees the source at a glance. apply.html Phase 3c sets submitterType
@@ -429,60 +432,94 @@ async function notifyLO(prospect) {
     prospect.assignmentSource === 'house'    ? 'Unassigned website lead — no existing broker or client matched. Please triage / reassign.' :
     '';
 
-  const text = [
-    `New loan application submitted ${new Date(prospect.submittedAt).toLocaleString('en-US')}`,
-    ...(routingLine ? [routingLine] : []),
-    '',
-    ...(isBrokerApp ? [
-      `Submitted by Broker: ${fmtText(prospect.brokerName)}`,
-      `  Company: ${fmtText(prospect.brokerCompany)}`,
-      `  Email:   ${fmtText(prospect.brokerEmail)}`,
-      `  Phone:   ${fmtText(prospect.brokerPhone)}`,
-      '',
-    ] : []),
-    `Borrower: ${name}`,
-    `Email:    ${prospect.email}`,
-    `Phone:    ${fmtText(prospect.phone)}`,
-    `Credit:   ${fmtText(prospect.creditScore)}`,
-    `US Citizen: ${fmtText(prospect.usCitizen)}`,
-    '',
-    `Property: ${fmtText(prospect.propAddress)}`,
-    `Type:     ${fmtText(prospect.propType)}`,
-    `Beds/Baths/SqFt: ${fmtText(prospect.bedrooms)}/${fmtText(prospect.bathrooms)}/${fmtText(prospect.sqft)}`,
-    '',
-    `Product:  ${fmtText(prospect.loanProduct)}`,
-    `Purpose:  ${fmtText(prospect.loanPurpose)}`,
-    `Purchase: ${fmtMoney(prospect.purchasePrice)}`,
-    `Value:    ${fmtMoney(prospect.propertyValue)}`,
-    prospect.currentLoanAmt ? `Current Loan: ${fmtMoney(prospect.currentLoanAmt)}` : '',
-    `Rehab:    ${fmtMoney(prospect.rehabCost)}`,
-    `ARV:      ${fmtMoney(prospect.estimatedARV)}`,
-    `Flips Completed (36mo): ${fmtText(prospect.flipsCompleted)}`,
-    `Rent:     ${fmtMoney(prospect.monthlyRent)}`,
-    `Funding:  ${fmtText(prospect.fundingDate)}`,
-  ].join('\n');
+  // Deploy 236.284 — deep-link to Loan Details for this specific loan.
+  // The auto-created loan lives under the assigned LO's clients store,
+  // so opening the link resolves to the LO's own loan (no ?owner=
+  // override needed). Absent when upsert didn't run (rare — only if
+  // no LO email was resolvable, but the routing fallback to Chance
+  // means that's now vanishingly unlikely).
+  const detailsLink = (ids && ids.clientId && ids.loanId)
+    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}`
+    : '';
+
+  // Deploy 236.284 — build the plain-text body as an array of entries,
+  // dropping any field the applicant didn't fill out. `push` is verbose
+  // but keeps the emitted section order obvious and lets each field
+  // decide independently whether it renders.
+  const bbSqft = [prospect.bedrooms, prospect.bathrooms, prospect.sqft].filter(v => v && String(v).trim()).length;
+  const textLines = [];
+  textLines.push(`New loan application submitted ${fmtDateTime(prospect.submittedAt)}`);
+  if (routingLine) textLines.push(routingLine);
+  textLines.push('');
+  if (isBrokerApp) {
+    textLines.push(`Submitted by Broker: ${prospect.brokerName || ''}`.trim());
+    if (prospect.brokerCompany) textLines.push(`  Company: ${prospect.brokerCompany}`);
+    if (prospect.brokerEmail)   textLines.push(`  Email:   ${prospect.brokerEmail}`);
+    if (prospect.brokerPhone)   textLines.push(`  Phone:   ${prospect.brokerPhone}`);
+    textLines.push('');
+  }
+  if (name)                    textLines.push(`Borrower: ${name}`);
+  if (prospect.email)          textLines.push(`Email:    ${prospect.email}`);
+  if (prospect.phone)          textLines.push(`Phone:    ${prospect.phone}`);
+  if (prospect.creditScore)    textLines.push(`Credit:   ${prospect.creditScore}`);
+  if (prospect.usCitizen)      textLines.push(`US Citizen: ${prospect.usCitizen}`);
+  if (prospect.propAddress || prospect.propType || bbSqft) textLines.push('');
+  if (prospect.propAddress)    textLines.push(`Property: ${prospect.propAddress}`);
+  if (prospect.propType)       textLines.push(`Type:     ${prospect.propType}`);
+  if (bbSqft) {
+    const b = prospect.bedrooms  || '?';
+    const ba = prospect.bathrooms || '?';
+    const sq = prospect.sqft      || '?';
+    textLines.push(`Beds/Baths/SqFt: ${b}/${ba}/${sq}`);
+  }
+  const hasLoanSection = prospect.loanProduct || prospect.loanPurpose || prospect.purchasePrice
+    || prospect.propertyValue || prospect.currentLoanAmt || prospect.rehabCost || prospect.estimatedARV
+    || prospect.flipsCompleted || prospect.monthlyRent || prospect.fundingDate || prospect.projectDescription;
+  if (hasLoanSection) textLines.push('');
+  if (prospect.loanProduct)    textLines.push(`Product:  ${prospect.loanProduct}`);
+  if (prospect.loanPurpose)    textLines.push(`Purpose:  ${prospect.loanPurpose}`);
+  if (prospect.purchasePrice)  textLines.push(`Purchase: ${fmtMoney(prospect.purchasePrice)}`);
+  if (prospect.propertyValue)  textLines.push(`Value:    ${fmtMoney(prospect.propertyValue)}`);
+  if (prospect.currentLoanAmt) textLines.push(`Current Loan: ${fmtMoney(prospect.currentLoanAmt)}`);
+  if (prospect.rehabCost)      textLines.push(`Rehab:    ${fmtMoney(prospect.rehabCost)}`);
+  if (prospect.estimatedARV)   textLines.push(`ARV:      ${fmtMoney(prospect.estimatedARV)}`);
+  if (prospect.flipsCompleted) textLines.push(`Flips Completed (36mo): ${prospect.flipsCompleted}`);
+  if (prospect.monthlyRent)    textLines.push(`Rent:     ${fmtMoney(prospect.monthlyRent)}`);
+  if (prospect.fundingDate)    textLines.push(`Funding:  ${fmtDate(prospect.fundingDate)}`);
+  if (prospect.projectDescription) textLines.push(`Project:  ${prospect.projectDescription}`);
+  if (detailsLink) {
+    textLines.push('');
+    textLines.push(`Open Loan Details: ${detailsLink}`);
+  }
+  const text = textLines.join('\n');
 
   const html =
     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
     '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
     '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — New Loan Application</h1>' +
-    `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(new Date(prospect.submittedAt).toLocaleString('en-US'))}</p></div>` +
+    `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(fmtDateTime(prospect.submittedAt))}</p></div>` +
     '<div style="padding:24px">' +
     // Deploy 236.282 — routing banner (auto-assigned / triage). Only shown
     // when the lead didn't arrive via an explicit ?lo= link.
     (routingLine
       ? '<div style="background:' + (isUnrouted ? 'rgba(124,31,31,0.08)' : 'rgba(37,105,64,0.08)') + ';border:1px solid ' + (isUnrouted ? 'rgba(124,31,31,0.28)' : 'rgba(37,105,64,0.28)') + ';border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#1a1520">' + esc(routingLine) + '</div>'
       : '') +
-    (isBrokerApp
+    (isBrokerApp && (prospect.brokerName || prospect.brokerEmail || prospect.brokerCompany || prospect.brokerPhone)
       ? '<div style="background:rgba(200,129,58,0.10);border:1px solid rgba(200,129,58,0.28);border-radius:8px;padding:12px 14px;margin-bottom:16px">' +
           '<div style="font-size:10px;font-weight:600;color:#b5712d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Submitted by Broker</div>' +
-          `<div style="font-size:13px;font-weight:600;color:#1a1520">${esc(prospect.brokerName || '—')}` +
-            (prospect.brokerCompany ? ` <span style="font-weight:400;color:#7a7488">· ${esc(prospect.brokerCompany)}</span>` : '') +
-          '</div>' +
-          `<div style="font-size:12px;color:#7a7488;margin-top:2px">${esc(prospect.brokerEmail || '—')} · ${esc(prospect.brokerPhone || '—')}</div>` +
+          (prospect.brokerName
+            ? `<div style="font-size:13px;font-weight:600;color:#1a1520">${esc(prospect.brokerName)}` +
+                (prospect.brokerCompany ? ` <span style="font-weight:400;color:#7a7488">· ${esc(prospect.brokerCompany)}</span>` : '') +
+              '</div>'
+            : (prospect.brokerCompany ? `<div style="font-size:13px;font-weight:600;color:#1a1520">${esc(prospect.brokerCompany)}</div>` : '')) +
+          ((prospect.brokerEmail || prospect.brokerPhone)
+            ? `<div style="font-size:12px;color:#7a7488;margin-top:2px">${esc([prospect.brokerEmail, prospect.brokerPhone].filter(Boolean).join(' · '))}</div>`
+            : '') +
         '</div>'
       : '') +
-    `<h2 style="font-size:15px;margin:0 0 12px">${esc(name || prospect.email)}</h2>` +
+    (name || prospect.email
+      ? `<h2 style="font-size:15px;margin:0 0 12px">${esc(name || prospect.email)}</h2>`
+      : '') +
     '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
     row('Email', esc(prospect.email)) +
     row('Phone', esc(prospect.phone)) +
@@ -490,18 +527,24 @@ async function notifyLO(prospect) {
     row('US Citizen', esc(prospect.usCitizen)) +
     row('Property', esc(prospect.propAddress)) +
     row('Property Type', esc(prospect.propType)) +
-    row('Beds / Baths / SqFt', `${esc(prospect.bedrooms)} / ${esc(prospect.bathrooms)} / ${esc(prospect.sqft)}`) +
+    row('Beds / Baths / SqFt', bbSqft ? `${esc(prospect.bedrooms || '?')} / ${esc(prospect.bathrooms || '?')} / ${esc(prospect.sqft || '?')}` : '') +
     row('Loan Product', esc(prospect.loanProduct)) +
     row('Purpose', esc(prospect.loanPurpose)) +
     row('Purchase Price', fmtMoney(prospect.purchasePrice)) +
     row('Property Value', fmtMoney(prospect.propertyValue)) +
+    row('Current Loan', fmtMoney(prospect.currentLoanAmt)) +
     row('Rehab Cost', fmtMoney(prospect.rehabCost)) +
     row('ARV', fmtMoney(prospect.estimatedARV)) +
     row('Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
     row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
-    row('Funding Date', esc(prospect.fundingDate)) +
+    row('Funding Date', esc(fmtDate(prospect.fundingDate))) +
+    row('Project Description', esc(prospect.projectDescription)) +
     '</table>' +
-    '<p style="margin-top:20px;font-size:12px;color:#666">View in Prospects to import to a loan sizer.</p>' +
+    // Deploy 236.284 — CTA button. When we have IDs (client + loan), the
+    // recipient can jump straight into Loan Details for this prospect.
+    (detailsLink
+      ? `<p style="margin-top:22px"><a href="${detailsLink}" style="display:inline-block;background:#DA7238;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600;font-size:13px;font-family:Arial,sans-serif">Open Loan Details →</a></p>`
+      : '<p style="margin-top:20px;font-size:12px;color:#666">View in Prospects to import to a loan sizer.</p>') +
     '</div></div></body></html>';
 
   const payload = JSON.stringify({
@@ -533,8 +576,40 @@ async function notifyLO(prospect) {
   }
 }
 
+// Deploy 236.284 — emit a row only when the value is present. Emails now
+// show only fields the applicant filled out; empty fields disappear
+// entirely instead of showing an em-dash placeholder.
 function row(label, value) {
-  return `<tr><td style="padding:6px 0;color:#666;width:160px">${label}</td><td style="padding:6px 0;color:#1a1520">${value || '—'}</td></tr>`;
+  const v = value == null ? '' : String(value).trim();
+  if (!v || v === '—') return '';
+  return `<tr><td style="padding:6px 0;color:#666;width:160px">${label}</td><td style="padding:6px 0;color:#1a1520">${v}</td></tr>`;
+}
+
+// Deploy 236.284 — date formatting. Form date inputs come as YYYY-MM-DD;
+// ISO timestamps come with time. Output MM/DD/YYYY (dates) and
+// MM/DD/YYYY h:mm AM/PM PT (timestamps). Times are rendered in Pacific
+// because the team is in Spokane and Netlify functions run in UTC.
+function fmtDate(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[2]}/${m[3]}/${m[1]}`;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+}
+function fmtDateTime(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }) + ' PT';
 }
 
 // Item #1: confirmation email back to the borrower with everything they
@@ -546,52 +621,84 @@ async function notifyBorrowerOfSubmission(prospect) {
   if (!toEmail || !String(toEmail).includes('@')) return;
 
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '—';
-  const fmtText = (v) => v || '—';
+  const fmtMoney = (v) => v ? '$' + Number(v).toLocaleString() : '';
   const name = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || prospect.email;
 
   const subject = `Application received — ${prospect.propAddress || 'SLA Capital'}`;
 
-  const text = [
-    `Hi ${prospect.firstName || 'there'},`,
-    '',
-    `Thanks for submitting your application with SLA Capital. Here's a copy of what you submitted — please review and let your loan officer know if anything is incorrect.`,
-    '',
-    `--- YOUR INFO ---`,
-    `Name:     ${name}`,
-    `Email:    ${prospect.email}`,
-    `Phone:    ${fmtText(prospect.phone)}`,
-    `Credit:   ${fmtText(prospect.creditScore)}`,
-    `US Citizen: ${fmtText(prospect.usCitizen)}`,
-    '',
-    `--- PROPERTY ---`,
-    `Address:  ${fmtText(prospect.propAddress)}`,
-    `Type:     ${fmtText(prospect.propType)}`,
-    `Beds/Baths/SqFt: ${fmtText(prospect.bedrooms)}/${fmtText(prospect.bathrooms)}/${fmtText(prospect.sqft)}`,
-    '',
-    `--- LOAN ---`,
-    `Product:  ${fmtText(prospect.loanProduct)}`,
-    `Purpose:  ${fmtText(prospect.loanPurpose)}`,
-    `Purchase: ${fmtMoney(prospect.purchasePrice)}`,
-    `Value:    ${fmtMoney(prospect.propertyValue)}`,
-    prospect.currentLoanAmt ? `Current Loan: ${fmtMoney(prospect.currentLoanAmt)}` : '',
-    `Rehab:    ${fmtMoney(prospect.rehabCost)}`,
-    `ARV:      ${fmtMoney(prospect.estimatedARV)}`,
-    `Flips Completed (36mo): ${fmtText(prospect.flipsCompleted)}`,
-    `Rent:     ${fmtMoney(prospect.monthlyRent)}`,
-    `Funding:  ${fmtText(prospect.fundingDate)}`,
-    prospect.projectDescription ? `Project Description: ${fmtText(prospect.projectDescription)}` : '',
-    '',
-    `If anything looks wrong, just reply to this email or contact your loan officer.`,
-    '',
-    `— SLA Capital`,
-  ].filter(Boolean).join('\n');
+  // Deploy 236.284 — filter empty fields, format dates MM/DD/YYYY.
+  const bbSqft = [prospect.bedrooms, prospect.bathrooms, prospect.sqft].filter(v => v && String(v).trim()).length;
+  const textLines = [];
+  textLines.push(`Hi ${prospect.firstName || 'there'},`);
+  textLines.push('');
+  textLines.push(`Thanks for submitting your application with SLA Capital. Here's a copy of what you submitted — please review and let your loan officer know if anything is incorrect.`);
+  textLines.push('');
+  textLines.push('--- YOUR INFO ---');
+  textLines.push(`Name:     ${name}`);
+  textLines.push(`Email:    ${prospect.email}`);
+  if (prospect.phone)       textLines.push(`Phone:    ${prospect.phone}`);
+  if (prospect.creditScore) textLines.push(`Credit:   ${prospect.creditScore}`);
+  if (prospect.usCitizen)   textLines.push(`US Citizen: ${prospect.usCitizen}`);
+  if (prospect.propAddress || prospect.propType || bbSqft) {
+    textLines.push('');
+    textLines.push('--- PROPERTY ---');
+    if (prospect.propAddress) textLines.push(`Address:  ${prospect.propAddress}`);
+    if (prospect.propType)    textLines.push(`Type:     ${prospect.propType}`);
+    if (bbSqft) {
+      const b = prospect.bedrooms  || '?';
+      const ba = prospect.bathrooms || '?';
+      const sq = prospect.sqft      || '?';
+      textLines.push(`Beds/Baths/SqFt: ${b}/${ba}/${sq}`);
+    }
+  }
+  const hasLoanSection = prospect.loanProduct || prospect.loanPurpose || prospect.purchasePrice
+    || prospect.propertyValue || prospect.currentLoanAmt || prospect.rehabCost || prospect.estimatedARV
+    || prospect.flipsCompleted || prospect.monthlyRent || prospect.fundingDate || prospect.projectDescription;
+  if (hasLoanSection) {
+    textLines.push('');
+    textLines.push('--- LOAN ---');
+    if (prospect.loanProduct)    textLines.push(`Product:  ${prospect.loanProduct}`);
+    if (prospect.loanPurpose)    textLines.push(`Purpose:  ${prospect.loanPurpose}`);
+    if (prospect.purchasePrice)  textLines.push(`Purchase: ${fmtMoney(prospect.purchasePrice)}`);
+    if (prospect.propertyValue)  textLines.push(`Value:    ${fmtMoney(prospect.propertyValue)}`);
+    if (prospect.currentLoanAmt) textLines.push(`Current Loan: ${fmtMoney(prospect.currentLoanAmt)}`);
+    if (prospect.rehabCost)      textLines.push(`Rehab:    ${fmtMoney(prospect.rehabCost)}`);
+    if (prospect.estimatedARV)   textLines.push(`ARV:      ${fmtMoney(prospect.estimatedARV)}`);
+    if (prospect.flipsCompleted) textLines.push(`Flips Completed (36mo): ${prospect.flipsCompleted}`);
+    if (prospect.monthlyRent)    textLines.push(`Rent:     ${fmtMoney(prospect.monthlyRent)}`);
+    if (prospect.fundingDate)    textLines.push(`Funding:  ${fmtDate(prospect.fundingDate)}`);
+    if (prospect.projectDescription) textLines.push(`Project Description: ${prospect.projectDescription}`);
+  }
+  textLines.push('');
+  textLines.push('If anything looks wrong, just reply to this email or contact your loan officer.');
+  textLines.push('');
+  textLines.push('— SLA Capital');
+  const text = textLines.join('\n');
+
+  // HTML — sections/tables are auto-suppressed when their row() calls all
+  // return empty strings (see Deploy 236.284 row() helper).
+  const propertyTable =
+    row('Address', esc(prospect.propAddress)) +
+    row('Property Type', esc(prospect.propType)) +
+    row('Beds / Baths / SqFt', bbSqft ? `${esc(prospect.bedrooms || '?')} / ${esc(prospect.bathrooms || '?')} / ${esc(prospect.sqft || '?')}` : '');
+  const loanTable =
+    row('Product', esc(prospect.loanProduct)) +
+    row('Purpose', esc(prospect.loanPurpose)) +
+    row('Purchase Price', fmtMoney(prospect.purchasePrice)) +
+    row('Property Value', fmtMoney(prospect.propertyValue)) +
+    row('Current Loan', fmtMoney(prospect.currentLoanAmt)) +
+    row('Rehab Cost', fmtMoney(prospect.rehabCost)) +
+    row('ARV', fmtMoney(prospect.estimatedARV)) +
+    row('Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
+    row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
+    row('Funding Date', esc(fmtDate(prospect.fundingDate))) +
+    row('Project Description', esc(prospect.projectDescription));
 
   const html =
     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
     '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
     '<div style="background:#261a36;padding:24px"><h1 style="color:#C8813A;margin:0;font-size:18px">SLA Capital — Application Received</h1>' +
-    `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(new Date(prospect.submittedAt).toLocaleString('en-US'))}</p></div>` +
+    `<p style="color:rgba(255,255,255,.5);font-size:12px;margin:4px 0 0">Submitted ${esc(fmtDateTime(prospect.submittedAt))}</p></div>` +
     '<div style="padding:24px">' +
     '<div style="display:inline-block;padding:5px 12px;border-radius:18px;background:#256940;color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;margin-bottom:14px">RECEIVED</div>' +
     `<p style="font-size:14px;color:#1a1520;line-height:1.6">Hi ${esc(prospect.firstName || 'there')},</p>` +
@@ -604,26 +711,14 @@ async function notifyBorrowerOfSubmission(prospect) {
     row('Credit Score', esc(prospect.creditScore)) +
     row('US Citizen', esc(prospect.usCitizen)) +
     '</table>' +
-    '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Property</h3>' +
-    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-    row('Address', esc(prospect.propAddress)) +
-    row('Property Type', esc(prospect.propType)) +
-    row('Beds / Baths / SqFt', `${esc(prospect.bedrooms)} / ${esc(prospect.bathrooms)} / ${esc(prospect.sqft)}`) +
-    '</table>' +
-    '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Loan</h3>' +
-    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-    row('Product', esc(prospect.loanProduct)) +
-    row('Purpose', esc(prospect.loanPurpose)) +
-    row('Purchase Price', fmtMoney(prospect.purchasePrice)) +
-    row('Property Value', fmtMoney(prospect.propertyValue)) +
-    (prospect.currentLoanAmt ? row('Current Loan', fmtMoney(prospect.currentLoanAmt)) : '') +
-    row('Rehab Cost', fmtMoney(prospect.rehabCost)) +
-    row('ARV', fmtMoney(prospect.estimatedARV)) +
-    row('Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
-    row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
-    row('Funding Date', esc(prospect.fundingDate)) +
-    (prospect.projectDescription ? row('Project Description', esc(prospect.projectDescription)) : '') +
-    '</table>' +
+    (propertyTable
+      ? '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Property</h3>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:13px">' + propertyTable + '</table>'
+      : '') +
+    (loanTable
+      ? '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#7a7488;margin-top:20px">Loan</h3>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:13px">' + loanTable + '</table>'
+      : '') +
     '<p style="margin-top:24px;font-size:13px;color:#666">If anything looks wrong, just reply to this email or contact your loan officer directly.</p>' +
     '<p style="margin-top:8px;font-size:13px;color:#666">— SLA Capital</p>' +
     '</div></div></body></html>';
