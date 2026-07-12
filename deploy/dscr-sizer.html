@@ -1577,6 +1577,10 @@ function onBrokerModeToggle() {
     // Turning off — broker fields visibility falls back to fee-based rule.
     if (typeof onBrokerFeeChange === 'function') { try { onBrokerFeeChange(); } catch (_) {} }
   }
+  // Deploy 236.289 — re-evaluate the Save button gating. Toggling broker
+  // mode changes the required-field set (borrowerName is excluded when
+  // ON), and toggleSaveButton needs to know so the button enables.
+  if (typeof toggleSaveButton === 'function') { try { toggleSaveButton(); } catch (_) {} }
 }
 
 // Deploy 236.289 — auto-enable Broker Deal mode when the loaded loan
@@ -2044,8 +2048,14 @@ var DSCR_REQUIRED = [
   'propType','fico','rent','prepay'
 ];
 function allRequiredFilled() {
+  // Deploy 236.289 — Broker Deal mode skips borrower-name gating. The
+  // field is hidden and empty by design; forcing it required would
+  // permanently disable the Save button on every broker deal.
+  var isBrokerMode = !!window._isBrokerMode;
   for (var i = 0; i < DSCR_REQUIRED.length; i++) {
-    var el = $(DSCR_REQUIRED[i]);
+    var field = DSCR_REQUIRED[i];
+    if (isBrokerMode && field === 'borrowerName') continue;
+    var el = $(field);
     if (!el || !String(el.value || '').trim()) return false;
   }
   // Conditional: currentLoanAmt required for refis

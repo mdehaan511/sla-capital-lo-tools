@@ -1264,6 +1264,9 @@ function onBrokerModeToggle() {
   } else {
     if (typeof onBrokerFeeChange === 'function') { try { onBrokerFeeChange(); } catch (_) {} }
   }
+  // Deploy 236.289 — re-evaluate the Save button gating (borrowerName
+  // drops out of the required set when broker mode flips ON).
+  if (typeof toggleSaveButton === 'function') { try { toggleSaveButton(); } catch (_) {} }
 }
 
 function autoEnableBrokerModeFrom(source) {
@@ -2685,11 +2688,14 @@ var RTL_REQUIRED = [
   'loanType','fico','experience','propType','loanTerm','loanPurpose'
 ];
 function rtlAllRequiredFilled() {
+  // Deploy 236.289 — Broker Deal mode skips borrower-name gating.
+  var isBrokerMode = !!window._isBrokerMode;
   var ltEl = document.getElementById('loanType');
   // Transactional Funding requires only borrower name + property address + loan amount
   if (ltEl && ltEl.value === 'transactional') {
     var requiredTx = ['borrowerName','propStreet','propCity','propState','propZip','transactionalAmt'];
     for (var j = 0; j < requiredTx.length; j++) {
+      if (isBrokerMode && requiredTx[j] === 'borrowerName') continue;
       var elj = document.getElementById(requiredTx[j]);
       if (!elj || !String(elj.value || '').trim()) return false;
     }
@@ -2705,6 +2711,7 @@ function rtlAllRequiredFilled() {
   var purpEl = document.getElementById('loanPurpose');
   var isRefi = purpEl && (purpEl.value === 'cashout' || purpEl.value === 'rateterm');
   for (var i = 0; i < RTL_REQUIRED.length; i++) {
+    if (isBrokerMode && RTL_REQUIRED[i] === 'borrowerName') continue;
     var el = document.getElementById(RTL_REQUIRED[i]);
     if (!el) continue; // skip fields that don't exist on this variant
     // ARV is hidden for refis (no rehab math, LTV against as-is value)
