@@ -1295,8 +1295,31 @@ function processResults(results) {
     var _loanIdsWithTile = {}; // ownerKey|loanId → true
     Object.keys(_items).forEach(function(bkt) {
       _items[bkt].forEach(function(t) {
-        if (t.kind === 'quote' && t.quote && t.quote.loanId) {
+        if (t.kind !== 'quote' || !t.quote) return;
+        // Direct loanId stamp — the happy path for every quote saved
+        // since Deploy 236.7.
+        if (t.quote.loanId) {
           _loanIdsWithTile[t.ownerKey + '|' + t.quote.loanId] = true;
+          return;
+        }
+        // Deploy 236.320 — dedup fix. Legacy quotes (pre-236.7) and
+        // orphan quotes whose loanId got stripped never made it into
+        // _loanIdsWithTile via the direct path, so the synthetic-tile
+        // sweep below rendered a SECOND tile for the same underlying
+        // loan. Mike: Quoted column showing duplicates. Fix: resolve
+        // the loan via _loanLookup (propType-discriminated address,
+        // then bare address, then street) and mark _loanIdsWithTile
+        // for THAT loanId so the synthetic sweep skips it.
+        var _an = _normAddr(t.quote.address || '');
+        var _st = _an ? _an.split(',')[0].trim() : '';
+        var _pt = String((t.quote.formData && t.quote.formData.propType) || '').toLowerCase().trim();
+        var _rec = (_pt && _an && _loanLookup[t.ownerKey + '|' + _an + '|pt:' + _pt])
+                || (_pt && _st && _loanLookup[t.ownerKey + '|street|' + _st + '|pt:' + _pt])
+                || (_an && _loanLookup[t.ownerKey + '|' + _an])
+                || (_st && _loanLookup[t.ownerKey + '|street|' + _st])
+                || null;
+        if (_rec && _rec.loanId) {
+          _loanIdsWithTile[t.ownerKey + '|' + _rec.loanId] = true;
         }
       });
     });
