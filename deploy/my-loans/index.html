@@ -64,6 +64,22 @@
     .loan-actions .btn.primary { background:var(--gold); color:#fff; border-color:var(--gold); }
     .loan-actions .btn.primary:hover { background:#a66727; border-color:#a66727; color:#fff; }
 
+    /* Deploy 236.310 — persistent primary CTA at the top of the portal */
+    .top-cta {
+      display:flex; align-items:center; justify-content:center; gap:10px;
+      width:100%; padding:16px 24px;
+      background:var(--gold); color:#fff;
+      border:none; border-radius:var(--r);
+      font-family:'DM Sans', sans-serif; font-size:16px; font-weight:700;
+      letter-spacing:0.02em; cursor:pointer; text-decoration:none;
+      box-shadow:0 6px 20px -6px rgba(200,129,58,0.55);
+      transition:background 0.15s, transform 0.15s, box-shadow 0.15s;
+      margin-bottom:28px;
+    }
+    .top-cta:hover { background:#a66727; text-decoration:none; color:#fff; transform:translateY(-1px); box-shadow:0 10px 24px -6px rgba(200,129,58,0.60); }
+    .top-cta:active { transform:translateY(0); box-shadow:0 4px 12px -6px rgba(200,129,58,0.50); }
+    .top-cta svg { flex-shrink:0; }
+
     /* Registration + welcome states */
     .reg-card, .welcome-card { background:#fff; border:1px solid var(--border); border-radius:var(--r); padding:28px 32px; margin-top:20px; }
     .reg-card h2, .welcome-card h2 { font-family:'Lora',serif; font-size:22px; margin:0 0 8px; color:var(--text); font-weight:600; }
@@ -382,11 +398,19 @@
           : 'Here\'s where each of your loans stands right now.') +
         '</div>';
 
+      // Deploy 236.310 — persistent primary CTA at the top of the portal.
+      // Shown for every registered borrower regardless of loan count so
+      // there's always a clear next step. The plus glyph reinforces
+      // "start something new" without needing a label change.
+      html += '<a class="top-cta" href="/apply.html">' +
+        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>' +
+        'Submit New Loan Application' +
+      '</a>';
+
       if (loansCount === 0) {
-        html += '<div class="welcome-card">' +
-          '<h2>Submit a loan application</h2>' +
-          '<p>Our short application takes a few minutes. Once submitted, a loan officer will follow up with a term sheet.</p>' +
-          '<a class="btn-primary" href="/apply.html">Submit a Loan Application</a>' +
+        html += '<div class="welcome-card" style="text-align:center">' +
+          '<h2>Ready when you are.</h2>' +
+          '<p>The short application takes a few minutes. Once submitted, a loan officer will follow up with a term sheet.</p>' +
         '</div>';
       } else {
         html += renderBucket('Awaiting Terms Approval', 'awaiting', buckets.awaitingTerms,
@@ -395,10 +419,6 @@
           'No loans currently in processing.');
         html += renderBucket('Closed Loans',             'closed', buckets.closed,
           'You don\'t have any closed loans yet.');
-
-        html += '<div style="margin-top:36px;text-align:center;color:var(--muted);font-size:13px">' +
-          'Need another loan? <a href="/apply.html">Submit a new application</a>.' +
-        '</div>';
       }
 
       content.innerHTML = html;
