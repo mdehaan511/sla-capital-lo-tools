@@ -87,6 +87,31 @@
     .docs-placeholder h3 { font-family:'Lora',serif; font-size:16px; margin:0 0 6px; color:var(--text); font-weight:600; }
     .docs-placeholder p { color:var(--muted); font-size:13px; margin:0; }
 
+    /* Deploy 236.308 — inline processor line + in-card docs block */
+    .loan-processor { background:var(--page); border-radius:var(--r-xs); padding:10px 14px; font-size:13px; color:var(--text); margin-top:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .loan-processor .p-label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; }
+    .loan-processor .p-name  { font-weight:600; }
+    .loan-processor .p-none  { color:var(--muted); font-style:italic; }
+    .loan-docs { margin-top:12px; padding:14px 16px; background:linear-gradient(135deg,rgba(200,129,58,0.05),rgba(37,105,64,0.05)); border:1px dashed var(--gold-border); border-radius:var(--r-xs); }
+    .loan-docs .d-head { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+    .loan-docs .d-body { font-size:12px; color:var(--muted); line-height:1.55; }
+
+    /* Deploy 236.308 — modal shell (message + payoff) */
+    .modal-overlay { position:fixed; inset:0; background:rgba(38,26,54,0.55); display:none; align-items:center; justify-content:center; padding:20px; z-index:100; }
+    .modal-overlay.open { display:flex; }
+    .modal-card { background:#fff; border-radius:var(--r); max-width:520px; width:100%; max-height:calc(100vh - 40px); overflow-y:auto; box-shadow:0 30px 60px -20px rgba(0,0,0,0.35); }
+    .modal-head { padding:20px 24px 12px; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    .modal-head h2 { font-family:'Lora',serif; font-size:20px; margin:0 0 4px; color:var(--text); font-weight:600; }
+    .modal-head p  { font-size:13px; color:var(--muted); margin:0; }
+    .modal-close { background:transparent; border:none; font-size:24px; color:var(--muted); cursor:pointer; padding:0 4px; line-height:1; margin:-4px 0 0; }
+    .modal-body { padding:20px 24px; }
+    .modal-body textarea { width:100%; min-height:120px; padding:12px 14px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; color:var(--text); background:#fff; box-sizing:border-box; resize:vertical; line-height:1.5; }
+    .modal-body textarea:focus { outline:none; border-color:var(--gold); box-shadow:0 0 0 3px rgba(200,129,58,0.15); }
+    .modal-foot { padding:14px 24px 20px; display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+    .modal-foot .btn-cancel { background:transparent; color:var(--muted); border:1px solid var(--border); padding:9px 18px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
+    .modal-foot .btn-cancel:hover { color:var(--text); border-color:var(--muted); }
+    .modal-note { font-size:12px; color:var(--muted); margin-top:14px; line-height:1.5; }
+
     /* Deploy 236.306 — impersonation banner + admin picker */
     .impersonate-banner {
       background: #4b2f6b; color: #fff; padding: 10px 20px;
@@ -114,7 +139,7 @@
 
   <nav class="my-nav">
     <div class="brand">
-      <img src="/SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'">
+      <img src="/SLA_Capital_Logo_light.png" alt="SLA Capital" onerror="this.style.display='none'">
       <div>
         <div>My Loans</div>
         <div class="brand-sub">SLA Capital · Sir Lends A Lot LLC</div>
@@ -135,6 +160,69 @@
   <div class="page-wrap">
     <div id="content">
       <div class="loading">Loading your loans…</div>
+    </div>
+  </div>
+
+  <!-- ── Message-your-LO modal ─────────────────────────────────── -->
+  <div class="modal-overlay" id="messageModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 id="msgTitle">Message your loan officer</h2>
+          <p id="msgSubtitle"></p>
+        </div>
+        <button class="modal-close" data-close-modal="messageModal" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Message</label>
+        <textarea id="msgText" placeholder="Type your question or comment…"></textarea>
+        <p class="modal-note">Your message goes straight to your loan officer. They can reply either here in the portal (coming soon) or by responding to the email — either way, you'll see the reply.</p>
+        <div id="msgErr" class="err" style="display:none;margin-top:10px"></div>
+        <div id="msgOk"  class="success-msg" style="display:none;margin-top:10px">Message sent. Your loan officer will follow up.</div>
+      </div>
+      <div class="modal-foot">
+        <a id="msgMailtoBtn" class="btn-cancel" href="#" style="text-decoration:none;color:var(--muted)">Or send as an email</a>
+        <button class="btn-cancel" data-close-modal="messageModal" type="button">Cancel</button>
+        <button class="btn-primary" id="msgSubmit" type="button">Send Message</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Request Payoff modal ─────────────────────────────────── -->
+  <div class="modal-overlay" id="payoffModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2>Request a payoff</h2>
+          <p id="payoffSubtitle"></p>
+        </div>
+        <button class="modal-close" data-close-modal="payoffModal" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Expected Payoff Date</label>
+          <input type="date" id="payoffDate" required />
+        </div>
+        <div class="field">
+          <label>Title / Escrow Contact Name</label>
+          <input type="text" id="payoffTitleName" required placeholder="Jane Smith" />
+        </div>
+        <div class="field">
+          <label>Title / Escrow Contact Email</label>
+          <input type="email" id="payoffTitleEmail" required placeholder="jane@titleco.com" />
+        </div>
+        <div class="field">
+          <label>Title / Escrow Contact Phone <span style="text-transform:none;letter-spacing:0;color:#a09a90;font-weight:400">(optional)</span></label>
+          <input type="tel" id="payoffTitlePhone" placeholder="(555) 123-4567" />
+        </div>
+        <p class="modal-note">We'll email payoffs@slacapital.com with these details and cc the title/escrow contact so everyone's on the same thread.</p>
+        <div id="payoffErr" class="err" style="display:none;margin-top:10px"></div>
+        <div id="payoffOk"  class="success-msg" style="display:none;margin-top:10px">Payoff request sent. You'll hear back from our team shortly.</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-cancel" data-close-modal="payoffModal" type="button">Cancel</button>
+        <button class="btn-primary" id="payoffSubmit" type="button">Send Payoff Request</button>
+      </div>
     </div>
   </div>
 
@@ -304,11 +392,6 @@
         html += renderBucket('Closed Loans',             'closed', buckets.closed,
           'You don\'t have any closed loans yet.');
 
-        html += '<div class="docs-placeholder">' +
-          '<h3>📄 Document Upload — coming soon</h3>' +
-          '<p>Soon you\'ll be able to upload requested documents here. Our AI reviews each upload instantly and lets you know if anything needs a correction. Until then, please send documents directly to your loan officer.</p>' +
-        '</div>';
-
         html += '<div style="margin-top:36px;text-align:center;color:var(--muted);font-size:13px">' +
           'Need another loan? <a href="/apply.html">Submit a new application</a>.' +
         '</div>';
@@ -337,13 +420,38 @@
       var contactBits = [];
       if (owner.email) contactBits.push('<a href="mailto:' + encodeURIComponent(owner.email) + '">' + escH(owner.email) + '</a>');
       if (owner.phone) contactBits.push(escH(owner.phone));
+
+      // Deploy 236.308 — data payload for the message + payoff modals.
+      // Stashed on the card via data-* so the click handlers pick up
+      // exactly what to send without re-plumbing state.
+      var dataAttrs =
+        ' data-loan-id="'      + escH(l.id       || '') + '"' +
+        ' data-client-id="'    + escH(l.clientId || '') + '"' +
+        ' data-owner-email="'  + escH(owner.email|| '') + '"' +
+        ' data-owner-name="'   + escH(owner.name || '') + '"' +
+        ' data-address="'      + escH(l.address  || '') + '"';
+
       var actions = [];
+      var extras = ''; // extra content INSIDE the card (processor line, docs block)
 
       if (cls === 'awaiting') {
-        // No borrower-facing "sign terms" flow yet — link to email the LO
-        actions.push('<a class="btn primary" href="mailto:' + encodeURIComponent(owner.email || 'apply@slacapital.com') + '?subject=' + encodeURIComponent('Terms review — ' + (l.address || '')) + '">Ask your LO about terms</a>');
+        actions.push('<button class="btn primary" data-action="message">Ask your LO about terms</button>');
       } else if (cls === 'processing') {
-        actions.push('<a class="btn" href="mailto:' + encodeURIComponent(owner.email || 'apply@slacapital.com') + '?subject=' + encodeURIComponent('Loan status — ' + (l.address || '')) + '">Message your LO</a>');
+        // Deploy 236.308 — Processor line (blank until we plumb processor
+        // assignment through) and per-loan Documents block.
+        var processorHtml =
+          '<div class="loan-processor">' +
+            '<span class="p-label">Processor</span>' +
+            (l.processorName
+              ? '<span class="p-name">' + escH(l.processorName) + '</span>'
+              : '<span class="p-none">Not yet assigned</span>') +
+          '</div>';
+        var docsHtml =
+          '<div class="loan-docs">' +
+            '<div class="d-head">📄 Documents</div>' +
+            '<div class="d-body">Upload requested documents here — our AI reviews each upload instantly. Coming soon. Until then, send documents directly to your loan officer.</div>' +
+          '</div>';
+        extras = processorHtml + docsHtml;
       } else if (cls === 'closed') {
         if (l.drawPortalUrl) {
           actions.push('<a class="btn" href="' + escH(l.drawPortalUrl) + '" target="_blank" rel="noopener">Request Draw (SiteWire)</a>');
@@ -351,7 +459,7 @@
         if (l.servicerUrl) {
           actions.push('<a class="btn" href="' + escH(l.servicerUrl) + '" target="_blank" rel="noopener">Servicer' + (l.servicerName ? ' (' + escH(l.servicerName) + ')' : '') + '</a>');
         }
-        actions.push('<a class="btn" href="mailto:payoffs@slacapital.com?subject=' + encodeURIComponent('Payoff request — ' + (l.address || '')) + '">Request Payoff</a>');
+        actions.push('<button class="btn" data-action="payoff">Request Payoff</button>');
       }
 
       var factRows = [
@@ -362,7 +470,7 @@
         factRows.push({ k: 'Maturity Date', v: fmtDate(l.maturityDate) });
       }
 
-      return '<div class="loan-card">' +
+      return '<div class="loan-card"' + dataAttrs + '>' +
         '<div class="loan-card-head">' +
           '<div class="loan-addr">' + escH(l.address || 'Property address not on file') + '</div>' +
           '<span class="loan-status ' + cls + '">' + escH(l.statusLabel || l.status || '') + '</span>' +
@@ -377,6 +485,7 @@
           '<span class="lo-name">' + escH(owner.name || owner.email || '—') + '</span>' +
           (contactBits.length ? '<span class="lo-contact">· ' + contactBits.join(' · ') + '</span>' : '') +
         '</div>' +
+        extras +
         (actions.length ? '<div class="loan-actions">' + actions.join('') + '</div>' : '') +
       '</div>';
     }
@@ -427,6 +536,141 @@
           });
       });
     }
+
+    // ── Modal helpers (Deploy 236.308) ─────────────────────────
+    var _msgCtx = null;
+    var _payoffCtx = null;
+
+    function openModal(id) {
+      var m = document.getElementById(id);
+      if (m) m.classList.add('open');
+    }
+    function closeModal(id) {
+      var m = document.getElementById(id);
+      if (m) m.classList.remove('open');
+    }
+    // Global click delegation for card action buttons + modal closes.
+    document.addEventListener('click', function(e) {
+      var target = e.target;
+      var actionEl = target.closest && target.closest('[data-action]');
+      if (actionEl) {
+        var action = actionEl.getAttribute('data-action');
+        var card = actionEl.closest('.loan-card');
+        if (!card) return;
+        var ctx = {
+          loanId:     card.getAttribute('data-loan-id') || '',
+          clientId:   card.getAttribute('data-client-id') || '',
+          ownerEmail: card.getAttribute('data-owner-email') || '',
+          ownerName:  card.getAttribute('data-owner-name') || '',
+          address:    card.getAttribute('data-address') || '',
+        };
+        if (action === 'message') openMessageModal(ctx);
+        else if (action === 'payoff') openPayoffModal(ctx);
+        return;
+      }
+      var closeEl = target.closest && target.closest('[data-close-modal]');
+      if (closeEl) {
+        closeModal(closeEl.getAttribute('data-close-modal'));
+        return;
+      }
+      // Click on overlay backdrop closes the modal
+      if (target.classList && target.classList.contains('modal-overlay') && target.classList.contains('open')) {
+        target.classList.remove('open');
+      }
+    });
+
+    function openMessageModal(ctx) {
+      _msgCtx = ctx;
+      document.getElementById('msgTitle').textContent = 'Message ' + (ctx.ownerName || ctx.ownerEmail || 'your loan officer');
+      document.getElementById('msgSubtitle').textContent = ctx.address ? ('Regarding ' + ctx.address) : '';
+      document.getElementById('msgText').value = '';
+      document.getElementById('msgErr').style.display = 'none';
+      document.getElementById('msgOk').style.display  = 'none';
+      var subj = encodeURIComponent('Terms review — ' + (ctx.address || ''));
+      var mailto = 'mailto:' + encodeURIComponent(ctx.ownerEmail || 'apply@slacapital.com') + '?subject=' + subj;
+      document.getElementById('msgMailtoBtn').setAttribute('href', mailto);
+      openModal('messageModal');
+      setTimeout(function() { document.getElementById('msgText').focus(); }, 50);
+    }
+
+    document.getElementById('msgSubmit').addEventListener('click', function() {
+      if (!_msgCtx) return;
+      var txt = document.getElementById('msgText').value.trim();
+      var errEl = document.getElementById('msgErr');
+      var okEl  = document.getElementById('msgOk');
+      errEl.style.display = 'none';
+      okEl.style.display  = 'none';
+      if (!txt) {
+        errEl.textContent = 'Please enter a message.';
+        errEl.style.display = 'block';
+        return;
+      }
+      var btn = document.getElementById('msgSubmit');
+      btn.disabled = true; btn.textContent = 'Sending…';
+      SLA.api('POST', '/api/borrower-message', {
+        loanId:     _msgCtx.loanId,
+        clientId:   _msgCtx.clientId,
+        ownerEmail: _msgCtx.ownerEmail,
+        address:    _msgCtx.address,
+        message:    txt,
+      }).then(function() {
+        okEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Send Message';
+        setTimeout(function() { closeModal('messageModal'); }, 1200);
+      }).catch(function(err) {
+        errEl.textContent = (err && err.message) || 'Could not send. Please try again.';
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Send Message';
+      });
+    });
+
+    function openPayoffModal(ctx) {
+      _payoffCtx = ctx;
+      document.getElementById('payoffSubtitle').textContent = ctx.address ? ('For ' + ctx.address) : '';
+      ['payoffDate','payoffTitleName','payoffTitleEmail','payoffTitlePhone'].forEach(function(id) {
+        var el = document.getElementById(id); if (el) el.value = '';
+      });
+      document.getElementById('payoffErr').style.display = 'none';
+      document.getElementById('payoffOk').style.display  = 'none';
+      openModal('payoffModal');
+      setTimeout(function() { document.getElementById('payoffDate').focus(); }, 50);
+    }
+
+    document.getElementById('payoffSubmit').addEventListener('click', function() {
+      if (!_payoffCtx) return;
+      var payoffDate = document.getElementById('payoffDate').value.trim();
+      var name       = document.getElementById('payoffTitleName').value.trim();
+      var email      = document.getElementById('payoffTitleEmail').value.trim();
+      var phone      = document.getElementById('payoffTitlePhone').value.trim();
+      var errEl = document.getElementById('payoffErr');
+      var okEl  = document.getElementById('payoffOk');
+      errEl.style.display = 'none';
+      okEl.style.display  = 'none';
+      if (!payoffDate || !name || !email) {
+        errEl.textContent = 'Expected payoff date, title contact name, and title contact email are all required.';
+        errEl.style.display = 'block';
+        return;
+      }
+      var btn = document.getElementById('payoffSubmit');
+      btn.disabled = true; btn.textContent = 'Sending…';
+      SLA.api('POST', '/api/borrower-payoff-request', {
+        loanId:            _payoffCtx.loanId,
+        address:           _payoffCtx.address,
+        ownerEmail:        _payoffCtx.ownerEmail,
+        payoffDate:        payoffDate,
+        titleContactName:  name,
+        titleContactEmail: email,
+        titleContactPhone: phone,
+      }).then(function() {
+        okEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Send Payoff Request';
+        setTimeout(function() { closeModal('payoffModal'); }, 1500);
+      }).catch(function(err) {
+        errEl.textContent = (err && err.message) || 'Could not send. Please try again.';
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Send Payoff Request';
+      });
+    });
 
     // ── Sign out ────────────────────────────────────────────────
     signOutBtn.addEventListener('click', function() {
