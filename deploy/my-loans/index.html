@@ -138,6 +138,14 @@
     </div>
   </div>
 
+  <!-- Deploy 236.307 — Netlify Identity widget lets SLA.getCurrentUser()
+       see the current session for LO/admin accounts (Google OAuth is
+       Netlify Identity). Without this include an admin's session was
+       invisible on this page → getCurrentUser returned null →
+       auth-guard bounced back to /. Borrowers (Supabase-only) don't
+       need the widget but including it is a no-op for them. -->
+  <script defer src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+
   <!-- Same sla-api.js the rest of the portal uses. Handles Supabase +
        Netlify Identity dual-auth transparently. -->
   <script src="/sla-api.js"></script>
@@ -182,9 +190,13 @@
         // sla-api still initializing — try again on next tick.
         return setTimeout(loadPortal, 100);
       }
-      SLA.getCurrentUser().then(function(session) {
-        var user = session && session.user;
-        if (!user) {
+      SLA.getCurrentUser().then(function(result) {
+        // Deploy 236.307 — return-shape normalization. SLA.getCurrentUser()
+        // returns a plain user for Netlify Identity, a {user,session}
+        // wrapper for Supabase. Handle both.
+        var user = result && (result.user || result);
+        // Sanity check — some return paths give an object without an email.
+        if (!user || !user.email) {
           window.location.replace('/');
           return;
         }
