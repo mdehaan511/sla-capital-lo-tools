@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Loans — SLA Capital</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <meta name="robots" content="noindex,nofollow">
+
+  <!-- Web fonts (matches the rest of the portal) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --dark:#261a36; --gold:#C8813A; --gold-light:rgba(200,129,58,0.12); --gold-border:rgba(200,129,58,0.35);
+      --surface:#ffffff; --page:#faf6ef; --text:#1a1520; --muted:#7a7488; --border:#e5e0d5;
+      --success:#256940; --danger:#7c1f1f;
+      --r:14px; --r-xs:10px;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--page); color:var(--text); font-family:'DM Sans',sans-serif; font-size:14px; line-height:1.5; }
+    a { color: var(--gold); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Header */
+    .my-nav { background:var(--dark); padding:14px 24px; display:flex; align-items:center; justify-content:space-between; }
+    .my-nav .brand { display:flex; align-items:center; gap:12px; color:#fff; font-family:'Lora',serif; font-size:18px; font-weight:600; }
+    .my-nav .brand img { height:32px; width:auto; }
+    .my-nav .brand-sub { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,0.55); font-weight:500; text-transform:uppercase; letter-spacing:0.08em; }
+    .signout-btn { background:transparent; color:rgba(255,255,255,0.75); border:1px solid rgba(255,255,255,0.25); font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:6px 14px; border-radius:20px; cursor:pointer; transition:all 0.15s; }
+    .signout-btn:hover { border-color:var(--gold); color:#fff; background:var(--gold); }
+
+    /* Layout */
+    .page-wrap { max-width:900px; margin:0 auto; padding:28px 24px 60px; }
+    .greeting { font-family:'Lora',serif; font-size:26px; font-weight:600; color:var(--text); margin-bottom:6px; }
+    .greeting-sub { color:var(--muted); font-size:14px; margin-bottom:32px; }
+
+    /* Section */
+    .section { margin-bottom:36px; }
+    .section-title { font-family:'DM Sans',sans-serif; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+    .section-title .count { background:var(--gold-light); color:var(--gold); padding:2px 10px; border-radius:12px; font-size:11px; font-weight:600; text-transform:none; letter-spacing:0; }
+    .section-empty { background:#fff; border:1px dashed var(--border); border-radius:var(--r); padding:24px; text-align:center; color:var(--muted); font-size:13px; }
+
+    /* Loan card */
+    .loan-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px; margin-bottom:14px; }
+    .loan-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:14px; }
+    .loan-addr { font-family:'Lora',serif; font-size:18px; font-weight:600; color:var(--text); line-height:1.3; }
+    .loan-status { flex-shrink:0; padding:4px 12px; border-radius:12px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; }
+    .loan-status.awaiting  { background:rgba(200,129,58,0.14); color:#a86722; }
+    .loan-status.processing { background:rgba(37,105,64,0.14); color:var(--success); }
+    .loan-status.closed { background:rgba(38,26,54,0.10); color:var(--dark); }
+    .loan-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:14px 24px; margin-bottom:14px; }
+    .loan-facts .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px; }
+    .loan-facts .v { font-size:14px; color:var(--text); font-weight:600; }
+    .loan-lo { background:var(--page); border-radius:var(--r-xs); padding:12px 14px; font-size:13px; color:var(--text); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .loan-lo .lo-label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; }
+    .loan-lo .lo-name { font-weight:600; }
+    .loan-lo .lo-contact { color:var(--muted); font-size:12px; }
+    .loan-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+    .loan-actions .btn { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; border:1px solid var(--border); background:#fff; color:var(--text); transition:all 0.15s; }
+    .loan-actions .btn:hover { border-color:var(--gold); color:var(--gold); text-decoration:none; }
+    .loan-actions .btn.primary { background:var(--gold); color:#fff; border-color:var(--gold); }
+    .loan-actions .btn.primary:hover { background:#a66727; border-color:#a66727; color:#fff; }
+
+    /* Registration + welcome states */
+    .reg-card, .welcome-card { background:#fff; border:1px solid var(--border); border-radius:var(--r); padding:28px 32px; margin-top:20px; }
+    .reg-card h2, .welcome-card h2 { font-family:'Lora',serif; font-size:22px; margin:0 0 8px; color:var(--text); font-weight:600; }
+    .reg-card p, .welcome-card p { color:var(--muted); margin:0 0 22px; font-size:14px; }
+    .field { margin-bottom:14px; }
+    .field label { display:block; font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:5px; }
+    .field input { width:100%; height:42px; padding:0 14px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; color:var(--text); background:#fff; box-sizing:border-box; }
+    .field input:focus { outline:none; border-color:var(--gold); box-shadow:0 0 0 3px rgba(200,129,58,0.15); }
+    .field-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .btn-primary { display:inline-flex; align-items:center; justify-content:center; padding:11px 22px; background:var(--gold); color:#fff; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; transition:background 0.15s; }
+    .btn-primary:hover { background:#a66727; }
+    .btn-primary:disabled { background:var(--muted); cursor:not-allowed; }
+
+    /* Placeholder / status states */
+    .loading { text-align:center; padding:60px 20px; color:var(--muted); font-size:14px; }
+    .err { background:rgba(124,31,31,0.06); border:1px solid rgba(124,31,31,0.28); border-radius:var(--r-xs); padding:14px 18px; color:var(--danger); font-size:13px; margin:16px 0; }
+    .success-msg { background:rgba(37,105,64,0.08); border:1px solid rgba(37,105,64,0.28); border-radius:var(--r-xs); padding:12px 16px; color:var(--success); font-size:13px; margin-bottom:16px; }
+
+    /* Documents placeholder */
+    .docs-placeholder { background:linear-gradient(135deg,rgba(200,129,58,0.06),rgba(37,105,64,0.06)); border:1px dashed var(--gold-border); border-radius:var(--r); padding:22px 24px; margin-top:32px; }
+    .docs-placeholder h3 { font-family:'Lora',serif; font-size:16px; margin:0 0 6px; color:var(--text); font-weight:600; }
+    .docs-placeholder p { color:var(--muted); font-size:13px; margin:0; }
+
+    @media (max-width: 640px) {
+      .field-row { grid-template-columns: 1fr; }
+      .loan-card-head { flex-direction:column; align-items:flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="my-nav">
+    <div class="brand">
+      <img src="/SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'">
+      <div>
+        <div>My Loans</div>
+        <div class="brand-sub">SLA Capital · Sir Lends A Lot LLC</div>
+      </div>
+    </div>
+    <button class="signout-btn" id="signOutBtn" type="button">Sign out</button>
+  </nav>
+
+  <div class="page-wrap">
+    <div id="content">
+      <div class="loading">Loading your loans…</div>
+    </div>
+  </div>
+
+  <!-- Same sla-api.js the rest of the portal uses. Handles Supabase +
+       Netlify Identity dual-auth transparently. -->
+  <script src="/sla-api.js"></script>
+
+  <script>
+  (function() {
+    'use strict';
+    var content = document.getElementById('content');
+    var signOutBtn = document.getElementById('signOutBtn');
+
+    function escH(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function fmtMoney(v) {
+      var n = parseFloat(String(v || '').replace(/[^\d.-]/g, ''));
+      if (!isFinite(n) || n <= 0) return '—';
+      return '$' + n.toLocaleString('en-US');
+    }
+    function fmtDate(v) {
+      if (!v) return '—';
+      var s = String(v).trim();
+      var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return m[2] + '/' + m[3] + '/' + m[1];
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return s;
+      return String(d.getMonth()+1).padStart(2,'0') + '/' +
+             String(d.getDate()).padStart(2,'0') + '/' +
+             d.getFullYear();
+    }
+
+    // Auth-guarded load. Waits for SLA.getCurrentUser() to resolve,
+    // then either fetches loans or bounces to the login page.
+    function loadPortal() {
+      if (!window.SLA || !SLA.getCurrentUser) {
+        // sla-api still initializing — try again on next tick.
+        return setTimeout(loadPortal, 100);
+      }
+      SLA.getCurrentUser().then(function(session) {
+        var user = session && session.user;
+        if (!user) {
+          window.location.replace('/');
+          return;
+        }
+        // Fetch this borrower's loans.
+        SLA.api('GET', '/api/borrower-loans').then(function(resp) {
+          render(resp || {});
+        }).catch(function(err) {
+          content.innerHTML = '<div class="err">Could not load your loans right now. Please refresh the page in a moment. If the problem continues, contact your loan officer.</div>' +
+            '<pre style="font-size:11px;color:var(--muted);white-space:pre-wrap">' + escH(err && err.message || String(err)) + '</pre>';
+        });
+      }).catch(function() {
+        window.location.replace('/');
+      });
+    }
+
+    function render(data) {
+      if (!data || data.ok === false) {
+        content.innerHTML = '<div class="err">Something went wrong loading your loans. Please refresh.</div>';
+        return;
+      }
+      if (!data.isRegistered) {
+        renderRegistration();
+        return;
+      }
+      var buckets = data.loans || { awaitingTerms: [], inProcessing: [], closed: [] };
+      var loansCount = (buckets.awaitingTerms.length + buckets.inProcessing.length + buckets.closed.length);
+      var firstName = (data.client && data.client.firstName) || 'there';
+
+      var html = '';
+      html += '<div class="greeting">Welcome back, ' + escH(firstName) + '.</div>';
+      html += '<div class="greeting-sub">' +
+        (loansCount === 0
+          ? 'You don\'t have any active loans yet. Ready to get started?'
+          : 'Here\'s where each of your loans stands right now.') +
+        '</div>';
+
+      if (loansCount === 0) {
+        html += '<div class="welcome-card">' +
+          '<h2>Submit a loan application</h2>' +
+          '<p>Our short application takes a few minutes. Once submitted, a loan officer will follow up with a term sheet.</p>' +
+          '<a class="btn-primary" href="/apply.html">Submit a Loan Application</a>' +
+        '</div>';
+      } else {
+        html += renderBucket('Awaiting Terms Approval', 'awaiting', buckets.awaitingTerms,
+          'No loans awaiting term-sheet approval right now.');
+        html += renderBucket('In Processing',            'processing', buckets.inProcessing,
+          'No loans currently in processing.');
+        html += renderBucket('Closed Loans',             'closed', buckets.closed,
+          'You don\'t have any closed loans yet.');
+
+        html += '<div class="docs-placeholder">' +
+          '<h3>📄 Document Upload — coming soon</h3>' +
+          '<p>Soon you\'ll be able to upload requested documents here. Our AI reviews each upload instantly and lets you know if anything needs a correction. Until then, please send documents directly to your loan officer.</p>' +
+        '</div>';
+
+        html += '<div style="margin-top:36px;text-align:center;color:var(--muted);font-size:13px">' +
+          'Need another loan? <a href="/apply.html">Submit a new application</a>.' +
+        '</div>';
+      }
+
+      content.innerHTML = html;
+    }
+
+    function renderBucket(title, cls, loans, emptyMsg) {
+      var body = '';
+      if (!loans || !loans.length) {
+        body = '<div class="section-empty">' + escH(emptyMsg) + '</div>';
+      } else {
+        body = loans.map(function(l) { return renderCard(l, cls); }).join('');
+      }
+      return '<div class="section">' +
+        '<div class="section-title">' + escH(title) +
+          (loans && loans.length ? '<span class="count">' + loans.length + '</span>' : '') +
+        '</div>' +
+        body +
+      '</div>';
+    }
+
+    function renderCard(l, cls) {
+      var owner = l.owner || {};
+      var contactBits = [];
+      if (owner.email) contactBits.push('<a href="mailto:' + encodeURIComponent(owner.email) + '">' + escH(owner.email) + '</a>');
+      if (owner.phone) contactBits.push(escH(owner.phone));
+      var actions = [];
+
+      if (cls === 'awaiting') {
+        // No borrower-facing "sign terms" flow yet — link to email the LO
+        actions.push('<a class="btn primary" href="mailto:' + encodeURIComponent(owner.email || 'apply@slacapital.com') + '?subject=' + encodeURIComponent('Terms review — ' + (l.address || '')) + '">Ask your LO about terms</a>');
+      } else if (cls === 'processing') {
+        actions.push('<a class="btn" href="mailto:' + encodeURIComponent(owner.email || 'apply@slacapital.com') + '?subject=' + encodeURIComponent('Loan status — ' + (l.address || '')) + '">Message your LO</a>');
+      } else if (cls === 'closed') {
+        if (l.drawPortalUrl) {
+          actions.push('<a class="btn" href="' + escH(l.drawPortalUrl) + '" target="_blank" rel="noopener">Request Draw (SiteWire)</a>');
+        }
+        if (l.servicerUrl) {
+          actions.push('<a class="btn" href="' + escH(l.servicerUrl) + '" target="_blank" rel="noopener">Servicer' + (l.servicerName ? ' (' + escH(l.servicerName) + ')' : '') + '</a>');
+        }
+        actions.push('<a class="btn" href="mailto:payoffs@slacapital.com?subject=' + encodeURIComponent('Payoff request — ' + (l.address || '')) + '">Request Payoff</a>');
+      }
+
+      var factRows = [
+        { k: 'Loan Amount', v: fmtMoney(l.loanAmt) },
+        { k: 'Loan Type',   v: escH(l.loanType || '—') },
+      ];
+      if (cls === 'closed' && l.maturityDate) {
+        factRows.push({ k: 'Maturity Date', v: fmtDate(l.maturityDate) });
+      }
+
+      return '<div class="loan-card">' +
+        '<div class="loan-card-head">' +
+          '<div class="loan-addr">' + escH(l.address || 'Property address not on file') + '</div>' +
+          '<span class="loan-status ' + cls + '">' + escH(l.statusLabel || l.status || '') + '</span>' +
+        '</div>' +
+        '<div class="loan-facts">' +
+          factRows.map(function(f) {
+            return '<div><div class="k">' + escH(f.k) + '</div><div class="v">' + f.v + '</div></div>';
+          }).join('') +
+        '</div>' +
+        '<div class="loan-lo">' +
+          '<span class="lo-label">Loan Officer</span>' +
+          '<span class="lo-name">' + escH(owner.name || owner.email || '—') + '</span>' +
+          (contactBits.length ? '<span class="lo-contact">· ' + contactBits.join(' · ') + '</span>' : '') +
+        '</div>' +
+        (actions.length ? '<div class="loan-actions">' + actions.join('') + '</div>' : '') +
+      '</div>';
+    }
+
+    // ── Registration ────────────────────────────────────────────
+    function renderRegistration() {
+      content.innerHTML =
+        '<div class="reg-card">' +
+          '<h2>Welcome to SLA Capital.</h2>' +
+          '<p>Before you can submit a loan application, we need a few basic details. This takes ~30 seconds.</p>' +
+          '<form id="regForm">' +
+            '<div class="field-row">' +
+              '<div class="field"><label>First Name</label><input required id="regFirst" autocomplete="given-name" /></div>' +
+              '<div class="field"><label>Last Name</label><input required id="regLast" autocomplete="family-name" /></div>' +
+            '</div>' +
+            '<div class="field">' +
+              '<label>Phone Number</label>' +
+              '<input id="regPhone" type="tel" autocomplete="tel" placeholder="(555) 123-4567" />' +
+            '</div>' +
+            '<div id="regErr" class="err" style="display:none"></div>' +
+            '<button type="submit" class="btn-primary" id="regSubmit">Continue</button>' +
+          '</form>' +
+        '</div>';
+      var form = document.getElementById('regForm');
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var first = document.getElementById('regFirst').value.trim();
+        var last  = document.getElementById('regLast').value.trim();
+        var phone = document.getElementById('regPhone').value.trim();
+        var errEl = document.getElementById('regErr');
+        errEl.style.display = 'none';
+        if (!first || !last) {
+          errEl.textContent = 'First and last name are required.';
+          errEl.style.display = 'block';
+          return;
+        }
+        var btn = document.getElementById('regSubmit');
+        btn.disabled = true; btn.textContent = 'Saving…';
+        SLA.api('POST', '/api/borrower-register', { firstName: first, lastName: last, phone: phone })
+          .then(function() {
+            // Reload the portal now that we're registered.
+            loadPortal();
+          })
+          .catch(function(err) {
+            btn.disabled = false; btn.textContent = 'Continue';
+            errEl.textContent = (err && err.message) || 'Could not save. Please try again.';
+            errEl.style.display = 'block';
+          });
+      });
+    }
+
+    // ── Sign out ────────────────────────────────────────────────
+    signOutBtn.addEventListener('click', function() {
+      // Prefer Supabase sign-out if available (borrower session lives there).
+      var done = function() { window.location.replace('/'); };
+      if (window._slaSupabase && window._slaSupabase.auth) {
+        window._slaSupabase.auth.signOut().then(done).catch(done);
+      } else {
+        try { if (window.netlifyIdentity) window.netlifyIdentity.logout(); } catch(_) {}
+        done();
+      }
+    });
+
+    // Kick off.
+    loadPortal();
+  })();
+  </script>
+
+</body>
+</html>

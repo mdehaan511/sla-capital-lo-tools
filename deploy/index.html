@@ -356,6 +356,21 @@
     function isProcessor(user)  { return getRoles(user).some(function(r){ return r === 'processor' || r === 'admin' || r === 'super_admin'; }); }
 
     function showApp(user) {
+      // Deploy 236.305 — borrower routing. Anyone WITHOUT a staff role
+      // AND WITHOUT an @slacapital.com email is a borrower — bounce
+      // them to their portal. Roles (processor/admin/super_admin) are
+      // the authoritative signal; the domain check is a belt-and-
+      // suspenders backstop so a legacy LO whose role wasn't stamped
+      // still lands on the internal dashboard.
+      if (user) {
+        var _em = String(user.email || '').toLowerCase();
+        var _isStaff = isProcessor(user) || isAdmin(user) || isSuperAdmin(user)
+                     || _em.endsWith('@slacapital.com');
+        if (!_isStaff) {
+          window.location.replace('/my-loans/');
+          return;
+        }
+      }
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
       // Reveal role-gated tool cards.

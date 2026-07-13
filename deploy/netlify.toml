@@ -72,6 +72,19 @@
   status = 200
   force = true
 
+# Deploy 236.305 — borrower portal Phase 1
+[[redirects]]
+  from = "/api/borrower-loans"
+  to = "/.netlify/functions/borrower-loans"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/borrower-register"
+  to = "/.netlify/functions/borrower-register"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prospects-backfill-clients"
   to = "/.netlify/functions/prospects-backfill-clients"
