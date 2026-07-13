@@ -445,36 +445,6 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
 <div id="quotesPanelWrap" style="max-width:1120px;margin:1.25rem auto 0;padding:0 1rem"></div>
 
-<!-- Deploy 236.301 — Admin Mode bar. Above the sizer's page grid so
-     admins can toggle manual pricing without hunting for it inside the
-     form. Hidden for non-admins. -->
-<div id="adminModeToggleField" style="display:none;max-width:1120px;margin:1rem auto 0;padding:0 1rem">
-  <div class="admin-mode-row" id="adminModeRow">
-    <label class="admin-mode-switch">
-      <input type="checkbox" id="adminModeToggle" onchange="onAdminModeToggle()" />
-      <span class="admin-mode-track"></span>
-    </label>
-    <div class="admin-mode-label" style="flex:1">
-      <span class="admin-mode-title">Admin Mode</span>
-      <span class="admin-mode-hint" id="adminModeHint">Manual pricing — skip pricing lookups, enter rate and origination points directly. Rate sheets print with your inputs.</span>
-    </div>
-    <div id="adminModeInputs" style="grid-template-columns:180px 180px">
-      <div class="field">
-        <div class="wrap" id="adminRateWrap">
-          <label>Manual Rate (%) <span class="req">*</span></label>
-          <input type="number" step="0.001" id="adminRateInput" placeholder="e.g. 10.500" oninput="onAdminManualInput()" />
-        </div>
-      </div>
-      <div class="field">
-        <div class="wrap" id="adminPointsWrap">
-          <label>Origination Points <span class="req">*</span></label>
-          <input type="number" step="0.001" id="adminPointsInput" placeholder="e.g. 2.000" oninput="onAdminManualInput()" />
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div class="page">
 
   <!-- ── INPUT CARD ─────────────────────────────────────── -->
@@ -486,6 +456,35 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
     <div class="product-btn">RTL — Fix &amp; Flip · Bridge</div>
 
     <div class="form-body">
+
+      <!-- Deploy 236.302 — Admin Mode toggle sits ABOVE Broker Deal, at
+           the very top of the form-body. Admin-only visibility. -->
+      <div class="field span2" id="adminModeToggleField" style="display:none">
+        <div class="admin-mode-row" id="adminModeRow">
+          <label class="admin-mode-switch">
+            <input type="checkbox" id="adminModeToggle" onchange="onAdminModeToggle()" />
+            <span class="admin-mode-track"></span>
+          </label>
+          <div class="admin-mode-label">
+            <span class="admin-mode-title">Admin Mode</span>
+            <span class="admin-mode-hint" id="adminModeHint">Manual pricing — skip pricing lookups, enter rate and origination points directly. Rate sheets print with your inputs.</span>
+          </div>
+        </div>
+        <div id="adminModeInputs">
+          <div class="field">
+            <div class="wrap" id="adminRateWrap">
+              <label>Manual Rate (%) <span class="req">*</span></label>
+              <input type="number" step="0.001" id="adminRateInput" placeholder="e.g. 10.500" oninput="onAdminManualInput()" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="wrap" id="adminPointsWrap">
+              <label>Origination Points <span class="req">*</span></label>
+              <input type="number" step="0.001" id="adminPointsInput" placeholder="e.g. 2.000" oninput="onAdminManualInput()" />
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Deploy 236.289 — Broker Deal mode toggle. When ON, borrower/
            guarantor fields hide and become optional; broker fields
