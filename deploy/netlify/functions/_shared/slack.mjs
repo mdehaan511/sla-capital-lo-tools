@@ -1,65 +1,83 @@
 /**
- * _shared/slack.mjs — Slack webhook helper. Reads the admin-managed
- * webhook URL from the `settings` blob store (key: 'slack_webhook',
- * value: { value: 'https://hooks.slack.com/...' }) and POSTs a message
- * to it. Reusable beyond Baseline — anything that needs to nudge the
- * admin can call postSlack().
+ * _shared/slack.mjs — Slack webhook helper. Reads admin-managed
+ * webhook URLs from the `settings` blob store and POSTs messages to
+ * them. Multiple channels supported (Deploy 236.311) — apply
+ * notifications and processing-pipeline notifications can go to
+ * different Slack channels by pointing each at its own webhook.
+ *
+ * Settings keys:
+ *   slack_webhook             — legacy / default fallback for any post
+ *                                without an explicit channel key.
+ *   slack_webhook_apply       — new loan applications (apply.html flow).
+ *   slack_webhook_submitted   — loans submitted for processing (LO
+ *                                clicks Submit on Loan Details).
+ *   ...more can be added as new channel keys ship.
+ *
+ * Any per-channel key falls back to `slack_webhook` when unset, so
+ * partial configuration keeps working.
  *
  * Failure philosophy: NEVER throw. A failed Slack notification must
  * not break the user-facing operation that triggered it. All errors
- * are caught and logged to console; the caller gets back a result
- * object describing what happened.
+ * are caught and logged; the caller gets a result object.
  *
- * Why this is a settings-store webhook (not an env var):
- *   The webhook URL is admin-managed via the Settings UI on profile.html
- *   so it can be rotated without redeploying. Per CLAUDE.md: "SLACK_
- *   WEBHOOK_URL — admin-managed via Settings, not env."
+ * Why settings-store not env: rotatable without redeploying. Per
+ * CLAUDE.md: "SLACK_WEBHOOK_URL — admin-managed via Settings, not env."
  */
 import { getStore } from '@netlify/blobs';
 
-/**
- * Look up the configured Slack webhook URL.
- * Returns null if unset (in which case callers should silently skip).
- */
-async function getWebhookUrl() {
+const DEFAULT_KEY = 'slack_webhook';
+
+async function readWebhook(settingsKey) {
   try {
     const store = getStore({ name: 'settings', consistency: 'strong' });
-    const rec = await store.get('slack_webhook', { type: 'json' });
+    const rec = await store.get(settingsKey, { type: 'json' });
     if (!rec || !rec.value) return null;
     const url = String(rec.value).trim();
     if (!url.startsWith('https://hooks.slack.com/')) return null;
     return url;
   } catch (e) {
-    console.warn('slack getWebhookUrl failed:', e && e.message);
+    console.warn(`slack readWebhook(${settingsKey}) failed:`, e && e.message);
     return null;
   }
 }
 
 /**
- * Post a message to the configured Slack webhook.
+ * Resolve which webhook URL to use for a channel key. Tries the
+ * channel-specific key first, falls back to the default `slack_webhook`
+ * so unconfigured channels still work.
  *
- * @param {string|object} msg  Either a plain string (becomes the `text`)
- *                             or a full Slack message object with
- *                             { text, blocks, attachments, ... }.
- * @returns {Promise<{ok, skipped?, error?, status?}>}
- *
- * Examples:
- *   await postSlack('Baseline sync failed for loan l_123');
- *   await postSlack({
- *     text: 'Loan approved',
- *     blocks: [{ type: 'section', text: { type: 'mrkdwn', text: '*Loan approved*\nLoan: ...' }}],
- *   });
+ * channel examples: 'apply', 'submitted', 'closed', or a full settings
+ * key like 'slack_webhook_apply'. Bare names are prefixed with
+ * `slack_webhook_`.
  */
-export async function postSlack(msg) {
-  const webhookUrl = await getWebhookUrl();
+async function resolveWebhook(channel) {
+  if (!channel) return readWebhook(DEFAULT_KEY);
+  const key = channel.startsWith('slack_webhook') ? channel : `slack_webhook_${channel}`;
+  const specific = await readWebhook(key);
+  if (specific) return specific;
+  return readWebhook(DEFAULT_KEY);
+}
+
+/**
+ * Post a message to a configured Slack webhook.
+ *
+ * @param {string|object} msg      Plain string → { text }, or full
+ *                                 Slack Block Kit body.
+ * @param {object} [opts]
+ * @param {string} [opts.channel]  Channel key (e.g. 'apply', 'submitted').
+ *                                 Falls back to the default webhook.
+ * @returns {Promise<{ok, skipped?, error?, status?, channel?}>}
+ */
+export async function postSlack(msg, opts) {
+  const channel = (opts && opts.channel) || null;
+  const webhookUrl = await resolveWebhook(channel);
   if (!webhookUrl) {
-    return { ok: false, skipped: true, reason: 'no_webhook_configured' };
+    return { ok: false, skipped: true, reason: 'no_webhook_configured', channel };
   }
 
-  // Normalize to a Slack message body. A bare string becomes { text }.
   const body = (typeof msg === 'string') ? { text: msg } : (msg || {});
   if (!body.text && !body.blocks && !body.attachments) {
-    return { ok: false, skipped: true, reason: 'empty_message' };
+    return { ok: false, skipped: true, reason: 'empty_message', channel };
   }
 
   try {
@@ -69,21 +87,21 @@ export async function postSlack(msg) {
       body: JSON.stringify(body),
     });
     if (resp.status >= 200 && resp.status < 300) {
-      return { ok: true, status: resp.status };
+      return { ok: true, status: resp.status, channel };
     }
     const respText = await resp.text().catch(() => '');
-    console.warn('slack post non-2xx:', resp.status, respText.slice(0, 200));
-    return { ok: false, status: resp.status, error: respText.slice(0, 200) };
+    console.warn(`slack post non-2xx (channel=${channel || 'default'}):`, resp.status, respText.slice(0, 200));
+    return { ok: false, status: resp.status, error: respText.slice(0, 200), channel };
   } catch (e) {
     console.warn('slack post threw:', e && e.message);
-    return { ok: false, error: e && e.message };
+    return { ok: false, error: e && e.message, channel };
   }
 }
 
 /**
- * Whether a webhook is currently configured. Useful for the admin UI
- * to show a "Slack is wired up ✓" indicator without exposing the URL.
+ * Whether the default webhook is configured. Useful for admin UI
+ * indicators without exposing the URL.
  */
 export async function slackConfigured() {
-  return !!(await getWebhookUrl());
+  return !!(await resolveWebhook(null));
 }

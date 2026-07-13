@@ -36,6 +36,10 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { syncOnApproval as _baselineSyncOnApproval } from './_shared/baseline-sync.mjs';
 // Deploy 226 — auto-write a "status" entry to the loan's audit log.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.311 — Slack notification when a loan advances to
+// 'submitted'. Routed to the 'submitted' channel so it can land in a
+// different Slack channel than the "new loan application" post.
+import { postSlack } from './_shared/slack.mjs';
 
 // Non-admin callers can only push to 'approved' — the existing safety-
 // valve use case (loan got stuck in awaiting_app, manually nudge it
@@ -255,10 +259,136 @@ async function handle(req, context) {
     });
   }
 
+  // Deploy 236.311 — fire a Slack notification when a loan enters the
+  // Processing Pipeline via 'submitted'. Non-blocking: any failure is
+  // logged, never propagated. Routed to channel 'submitted' so it can
+  // land in a different Slack channel than new-application posts.
+  if (body.newStatus === 'submitted') {
+    try {
+      await notifySubmitted(client, targetLoan, ownerKey, selfEmail, prevStatus);
+    } catch (e) {
+      console.warn('loan-advance-status: submitted-slack notify threw, ignoring:', e && e.message);
+    }
+  }
+
   return json(200, {
     success: true,
     prevStatus,
     newStatus: body.newStatus,
     quotesUpdated,
   });
+}
+
+// ─── Slack: new loan submitted for processing ───────────────────────
+// Mirrors the tidy label:value block-per-section layout used by
+// prospects-save.mjs's notifySlack for apply submissions, but scoped
+// to what matters when a loan crosses into In Processing.
+async function notifySubmitted(client, loan, ownerKey, submitterEmail, prevStatus) {
+  const tag = `[submit-slack loan=${loan.id || '?'}]`;
+  const fmtMoney = (v) => (v || v === 0) ? '$' + Number(v).toLocaleString() : '';
+  const humanizeLocalpart = (email) => {
+    const local = String(email || '').split('@')[0];
+    return local.split(/[._-]+/).filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+  async function loDisplay(loEmail) {
+    if (!loEmail) return 'Unassigned';
+    try {
+      const profiles = getStore({ name: 'profiles', consistency: 'eventual' });
+      const p = await profiles.get(keySafe(loEmail), { type: 'json' });
+      if (p && p.fullName && String(p.fullName).trim()) return String(p.fullName).trim();
+    } catch (_) { /* fall through */ }
+    return humanizeLocalpart(loEmail) || loEmail;
+  }
+  const humanizeProduct = (code) => {
+    const c = String(code || '').toLowerCase();
+    if (c === 'dscr')          return 'DSCR';
+    if (c === 'fix_flip')      return 'Fix & Flip';
+    if (c === 'bridge')        return 'Bridge';
+    if (c === 'transactional') return 'Transactional Funding';
+    if (c === 'rtl')           return 'RTL (Bridge / Fix & Flip)';
+    if (c === 'new_construction' || c === 'nc') return 'New Construction';
+    return code || '';
+  };
+
+  const borrowerName = String(client.name || `${client.firstName || ''} ${client.lastName || ''}`).trim();
+  const borrowerEmail = client.email || '';
+  const brokerName = client._isBroker ? borrowerName : (loan.brokerName || client.brokerName || '');
+  const brokerCompany = loan.brokerCompany || client.brokerCompany || '';
+  const brokerEmail = loan.brokerEmail || client.brokerEmail || '';
+  const isBroker = !!(client._isBroker || brokerName || brokerEmail);
+
+  // The loan's owning LO — the person whose namespace this record
+  // lives under, not necessarily the submitter (an admin can advance
+  // another LO's loan).
+  const ownerEmail = String(loan._owner || '').trim() ||
+                     String(client.loEmail || '').trim() ||
+                     ''; // we only have ownerKey (email keysafed) here;
+                         // fall through to displaying the key.
+  const ownerDisplay = await loDisplay(ownerEmail || ownerKey.replace(/-/g, '.'));
+  const submittedByDisplay = submitterEmail
+    ? (submitterEmail === ownerEmail ? '' : await loDisplay(submitterEmail))
+    : '';
+
+  const line = (label, value) => {
+    const v = value == null ? '' : String(value).trim();
+    if (!v) return null;
+    return `${label}: ${v}`;
+  };
+  const filterLines = (arr) => arr.filter(l => l != null && l !== '');
+
+  const title = 'New Loan Submitted for Processing:';
+
+  // ── Section 1: contact ───────────────────────────────────────
+  const contactLines = filterLines([
+    isBroker ? line('Broker', brokerName) : null,
+    isBroker ? line('Broker Company', brokerCompany) : null,
+    isBroker ? line('Broker Email', brokerEmail) : null,
+    borrowerName ? line('Borrower', borrowerName) : null,
+    borrowerEmail ? line('Borrower Email', borrowerEmail) : null,
+    line('Assigned Loan Officer', ownerDisplay),
+    submittedByDisplay ? line('Submitted By', submittedByDisplay) : null,
+  ]);
+
+  // ── Section 2: deal details ───────────────────────────────────
+  const dealLines = filterLines([
+    line('Address',   loan.address),
+    line('Loan Type', humanizeProduct(loan.loanType || loan.product)),
+    line('Loan Amount', fmtMoney(loan.loanAmt || loan.loanAmount)),
+    line('Rate',        loan.rate ? String(loan.rate) + '%' : ''),
+    line('Term',        loan.term),
+    line('Previous Status', prevStatus || '—'),
+  ]);
+
+  const _ownerParam = ownerEmail
+    ? `&owner=${encodeURIComponent(ownerEmail)}`
+    : '';
+  const detailsLink = `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(client.id)}&loanId=${encodeURIComponent(loan.id)}${_ownerParam}&fresh=1`;
+
+  const blocks = [];
+  blocks.push({
+    type: 'section',
+    text: { type: 'mrkdwn', text: `*${title}*\n${contactLines.join('\n')}` },
+  });
+  if (dealLines.length) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Deal Details:*\n${dealLines.join('\n')}` },
+    });
+  }
+  blocks.push({
+    type: 'section',
+    text: { type: 'mrkdwn', text: `Link to Deal: <${detailsLink}|${detailsLink}>` },
+  });
+
+  const fallbackText = `${title} · ${loan.address || ''} · ${fmtMoney(loan.loanAmt || loan.loanAmount)} · owner ${ownerDisplay}`;
+  console.log(`${tag} posting to slack — owner=${ownerEmail || ownerKey} submitter=${submitterEmail}`);
+  const result = await postSlack({ text: fallbackText, blocks }, { channel: 'submitted' });
+  if (result && result.skipped) {
+    console.log(`${tag} skipped: ${result.reason}`);
+  } else if (result && result.ok) {
+    console.log(`${tag} delivered (${result.status})`);
+  } else {
+    console.warn(`${tag} failed:`, result && (result.error || result.status));
+  }
 }

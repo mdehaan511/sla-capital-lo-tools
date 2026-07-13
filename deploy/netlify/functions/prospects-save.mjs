@@ -1241,7 +1241,11 @@ async function notifySlack(prospect, ids) {
 
   const fallbackText = `${title} · owner ${prospect.loEmail || 'unassigned'}`;
   console.log(`${tag} posting to slack — owner=${prospect.loEmail || '?'} source=${src}`);
-  const result = await postSlack({ text: fallbackText, blocks });
+  // Deploy 236.311 — route to the 'apply' channel so applications and
+  // in-processing submissions can land in different Slack channels.
+  // Falls back to the default `slack_webhook` if the apply-specific
+  // one isn't configured.
+  const result = await postSlack({ text: fallbackText, blocks }, { channel: 'apply' });
   if (result && result.skipped) {
     console.log(`${tag} skipped: ${result.reason}`);
   } else if (result && result.ok) {
