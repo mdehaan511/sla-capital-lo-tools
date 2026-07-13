@@ -237,6 +237,10 @@
   <!-- Same sla-api.js the rest of the portal uses. Handles Supabase +
        Netlify Identity dual-auth transparently. -->
   <script src="/sla-api.js"></script>
+  <!-- Deploy 236.309 — auto phone-mask on <input type="tel"> for the
+       registration form + payoff-request modal. Future phone fields
+       on this page get the same formatting for free. -->
+  <script src="/sla-forms.js"></script>
 
   <script>
   (function() {
@@ -509,6 +513,10 @@
             '<button type="submit" class="btn-primary" id="regSubmit">Continue</button>' +
           '</form>' +
         '</div>';
+      // Deploy 236.309 — re-bind phone mask on the freshly-rendered tel input.
+      if (window.SLAForms && SLAForms.reformatExisting) {
+        try { SLAForms.reformatExisting(document.getElementById('regForm')); } catch (_) {}
+      }
       var form = document.getElementById('regForm');
       form.addEventListener('submit', function(e) {
         e.preventDefault();

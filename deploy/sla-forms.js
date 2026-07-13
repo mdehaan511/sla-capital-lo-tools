@@ -107,6 +107,22 @@
         if (formatted !== el.value) el.value = formatted;
       }
     });
+    // Deploy 236.309 — auto-apply phone mask to every <input type="tel">.
+    // Mike's rule for the borrower portal and any future forms: phone
+    // fields format themselves. No explicit data-sla-mask needed —
+    // just use type="tel" and the mask attaches. Skips inputs that
+    // already opted in via data-sla-mask so we don't double-bind.
+    root.querySelectorAll('input[type="tel"]').forEach(function(el) {
+      if (el._slaMaskBound) return;
+      if (el.hasAttribute('data-sla-mask')) return; // handled above
+      el._slaMaskBound = true;
+      el.setAttribute('data-sla-mask', 'phone');
+      el.addEventListener('input', onMaskInput);
+      if (el.value) {
+        var f = applyMaskValue(el.value, 'phone');
+        if (f !== el.value) el.value = f;
+      }
+    });
     // Money
     root.querySelectorAll('input[data-sla-money]').forEach(function(el) {
       if (el._slaMoneyBound) return;
