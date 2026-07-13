@@ -120,6 +120,17 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       // long-app value with a blank. Applied as a shallow overlay so
       // the rest of `data.*` render paths are untouched.
       if (loan && typeof loan === 'object') {
+        // Deploy 236.314 — DO NOT overwrite data.loanType with
+        // loan.loanType. The DSCR sizer stores the TERM STRUCTURE
+        // ("30Y Fixed" / "10/6 ARM" / "7/6 ARM" / "5/6 ARM") in
+        // loan.loanType — a name collision with the borrower long-app's
+        // data.loanType, which stores the LOAN PRODUCT code
+        // ('dscr' / 'fix_flip' / 'transactional'). The old override
+        // silently poisoned data.loanType, making isDSCR fail and
+        // loanTermDisplay() return empty ("Loan Term" printed blank on
+        // every DSCR long-app PDF). Prefer loan.toolType (product code)
+        // and map 'rtl' → 'fix_flip' so LOAN_TYPE_LABEL resolves.
+        const _productFromLoan = (loan.toolType === 'rtl') ? 'fix_flip' : loan.toolType;
         const LOAN_OVERRIDES = {
           loanAmt:         loan.loanAmt,
           requestedLoanAmt: loan.loanAmt,
@@ -129,7 +140,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
           rehabBudget:     loan.rehabBudget,
           propValue:       loan.propValue,
           propertyAddress: loan.address,
-          loanType:        loan.loanType || loan.toolType,
+          loanType:        _productFromLoan,
         };
         for (const k of Object.keys(LOAN_OVERRIDES)) {
           const v = LOAN_OVERRIDES[k];
@@ -454,9 +465,19 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         return ((amt / val) * 100).toFixed(0) + '%';
       };
       const loanTermDisplay = () => {
-        // DSCR is always 360 months / 30-year fixed; RTL is 12 months IO.
+        // Deploy 236.314 — for DSCR, prefer the sizer's actual term
+        // structure over a generic "360 Months". The sizer stores it in
+        // loanRec.loanType as "30Y Fixed" / "10/6 ARM" / "7/6 ARM" /
+        // "5/6 ARM" — that's the informative value to print on the app.
         if (loanRec && loanRec.term) return loanRec.term + ' Months';
-        if (isDSCR) return '360 Months';
+        if (isDSCR) {
+          const sizerTerm = loanRec && loanRec.loanType
+            ? String(loanRec.loanType).trim() : '';
+          if (/^30Y\s*Fixed$/i.test(sizerTerm))    return '30-Year Fixed (360 Months)';
+          if (/^\d+\/\d+\s*ARM$/i.test(sizerTerm)) return sizerTerm + ' (360 Months)';
+          if (sizerTerm) return sizerTerm;
+          return '360 Months';
+        }
         if (isFF)   return '12 Months';
         return '';
       };
