@@ -1327,22 +1327,30 @@ function renderResult(r) {
     ? '<div style="margin-top:8px;padding:8px 10px;background:var(--gold-light);border-radius:var(--r-xs);font-size:12px;color:var(--gold-mid)">&#8599; '+r.buydown.toFixed(2)+' buy-down pts added &mdash; '+totalPts.toFixed(2)+' pts total ('+fmtD(totalPtsFee)+') &mdash; rate reduced by '+Math.abs(DIYA.rateBuydown[(r.buydown).toFixed(2)]||0).toFixed(3)+'%</div>'
     : '';
 
+  // Deploy 236.300 — Admin Mode hides the DIYA adjustment breakdown.
+  // Senior LOs use this to print rate sheets against external investor
+  // pricing tools; the internal DIYA adjustments aren't relevant and
+  // would confuse the borrower who receives the rate sheet.
+  var _adminMode = !!window._dscrAdminMode;
+
   return glBanners+'<div class="rate-card">'+
     '<div class="rate-header">'+
       // Header program line: LTV is overridable. Wraps the value in a
       // span with data-metric so applyOverridesAndRender can mutate it.
       // The .ov-meta class lets us style the overridden state.
       '<div class="rate-header-left"><div class="lender">SLA Capital &middot; Eff. '+DIYA.effectiveDate+'</div>'+
-        '<div class="prog">DSCR &mdash; '+r.loanType+' &mdash; LTV <span class="ov-meta" data-metric="ltv">'+r.ltv.toFixed(1)+'%</span> <span class="override-pencil on-dark" onclick="enableOverrideEdit(\'ltv\')" title="Override LTV (requires manager approval)">✎</span></div>'+
+        '<div class="prog">DSCR &mdash; '+r.loanType+' &mdash; LTV <span class="ov-meta" data-metric="ltv">'+r.ltv.toFixed(1)+'%</span>'+(_adminMode ? '' : ' <span class="override-pencil on-dark" onclick="enableOverrideEdit(\'ltv\')" title="Override LTV (requires manager approval)">✎</span>')+'</div>'+
       '</div>'+
-      '<div class="rate-big"><div class="rl">Note Rate <span class="override-pencil on-dark" onclick="enableOverrideEdit(\'rate\')" title="Override rate (requires manager approval)">✎</span></div><div class="rv" data-metric="rate">'+r.finalRate.toFixed(3)+'%</div></div>'+
+      '<div class="rate-big"><div class="rl">Note Rate'+(_adminMode ? '' : ' <span class="override-pencil on-dark" onclick="enableOverrideEdit(\'rate\')" title="Override rate (requires manager approval)">✎</span>')+'</div><div class="rv" data-metric="rate">'+r.finalRate.toFixed(3)+'%</div></div>'+
     '</div>'+
     '<div class="rate-body">'+
-      '<table class="breakdown"><tbody>'+
-        '<tr><td>Base rate ('+r.loanType+')</td><td class="bv base">'+r.baseRate.toFixed(3)+'%</td></tr>'+
-        adjRows+
-      '</tbody></table>'+
-      '<div class="total-row"><span class="tl">Final note rate</span><span class="tv">'+r.finalRate.toFixed(3)+'%</span></div>'+
+      (_adminMode
+        ? ''
+        : '<table class="breakdown"><tbody>'+
+            '<tr><td>Base rate ('+r.loanType+')</td><td class="bv base">'+r.baseRate.toFixed(3)+'%</td></tr>'+
+            adjRows+
+          '</tbody></table>'+
+          '<div class="total-row"><span class="tl">Final note rate</span><span class="tv">'+r.finalRate.toFixed(3)+'%</span></div>')+
       // Deploy 236.48 — Origination Points row with override pencil.
       // Default = 1.00 base + buydown. When window._dscrOverrides.points
       // is set the value below reflects the override; applyOverrides
@@ -1350,7 +1358,10 @@ function renderResult(r) {
       (function(){
         var ovP = (window._dscrOverrides && window._dscrOverrides.points);
         var eff = (typeof ovP === 'number' && isFinite(ovP)) ? ovP : (1 + (r.buydown||0));
-        return '<div class="total-row"><span class="tl">Origination Points <span class="override-pencil" onclick="enableOverrideEdit(\'points\')" title="Override Origination Points (requires manager approval)">&#x270e;</span></span><span class="tv ov-meta" data-metric="points">'+eff.toFixed(2)+' pts</span></div>';
+        // Deploy 236.300 — hide the override pencil in Admin Mode; the
+        // points input at the top of the form is the source of truth.
+        var pencil = _adminMode ? '' : ' <span class="override-pencil" onclick="enableOverrideEdit(\'points\')" title="Override Origination Points (requires manager approval)">&#x270e;</span>';
+        return '<div class="total-row"><span class="tl">Origination Points'+pencil+'</span><span class="tv ov-meta" data-metric="points">'+eff.toFixed(2)+' pts</span></div>';
       })()+
       buydownNote+
     '</div>'+

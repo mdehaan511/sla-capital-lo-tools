@@ -398,6 +398,24 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .broker-mode-hint { font-size: 11px; color: var(--muted); }
 .broker-mode-hint.on { color: #b5712d; font-weight: 500; }
 #borrowerFieldsSection.hidden { display: none; }
+
+/* Deploy 236.300 — Admin Mode toggle (same shape as DSCR). Plum accent
+   to distinguish from the peach Broker Deal toggle. Admin-only. */
+.admin-mode-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: rgba(40,29,40,0.06); border: 1px solid rgba(40,29,40,0.22); border-radius: var(--r-xs); margin-bottom: 4px; }
+.admin-mode-row.on { background: rgba(40,29,40,0.10); border-color: rgba(40,29,40,0.55); }
+.admin-mode-switch { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+.admin-mode-switch input { opacity: 0; width: 0; height: 0; }
+.admin-mode-track { position: absolute; inset: 0; background: #d6cfc0; border-radius: 22px; cursor: pointer; transition: background 0.18s; }
+.admin-mode-track::before { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.18); transition: transform 0.18s; }
+.admin-mode-switch input:checked + .admin-mode-track { background: #281D28; }
+.admin-mode-switch input:checked + .admin-mode-track::before { transform: translateX(18px); }
+.admin-mode-label { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+.admin-mode-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.admin-mode-title::before { content: '⚙ '; }
+.admin-mode-hint { font-size: 11px; color: var(--muted); }
+.admin-mode-hint.on { color: #281D28; font-weight: 500; }
+#adminModeInputs { display: none; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+#adminModeInputs.on { display: grid; }
 </style>
 </head>
 <body>
@@ -452,6 +470,36 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
           <div class="broker-mode-label">
             <span class="broker-mode-title">Broker Deal</span>
             <span class="broker-mode-hint" id="brokerModeHint">Toggle on when a broker is sourcing the deal — guarantor details captured at loan acceptance.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Deploy 236.300 — Admin Mode toggle (admin-only). Manual
+           pricing: skip pricing lookups, enter rate + origination points
+           directly, no lock, print rate sheets with any pricing. -->
+      <div class="field span2" id="adminModeToggleField" style="display:none">
+        <div class="admin-mode-row" id="adminModeRow">
+          <label class="admin-mode-switch">
+            <input type="checkbox" id="adminModeToggle" onchange="onAdminModeToggle()" />
+            <span class="admin-mode-track"></span>
+          </label>
+          <div class="admin-mode-label">
+            <span class="admin-mode-title">Admin Mode</span>
+            <span class="admin-mode-hint" id="adminModeHint">Manual pricing — skip pricing lookups, enter rate and origination points directly. Rate sheets print with your inputs.</span>
+          </div>
+        </div>
+        <div id="adminModeInputs">
+          <div class="field">
+            <div class="wrap" id="adminRateWrap">
+              <label>Manual Rate (%) <span class="req">*</span></label>
+              <input type="number" step="0.001" id="adminRateInput" placeholder="e.g. 10.500" oninput="onAdminManualInput()" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="wrap" id="adminPointsWrap">
+              <label>Origination Points <span class="req">*</span></label>
+              <input type="number" step="0.001" id="adminPointsInput" placeholder="e.g. 2.000" oninput="onAdminManualInput()" />
+            </div>
           </div>
         </div>
       </div>
@@ -1285,6 +1333,67 @@ function autoEnableBrokerModeFrom(source) {
   }
 }
 
+// Deploy 236.300 — RTL Admin Mode. Same UX + intent as DSCR (see dscr-
+// sizer.html for full rationale). Feeds manual rate + origination
+// points into window._rtlOverrides, bypasses the lock, so senior LOs
+// can print rate sheets from external investor pricing.
+function onAdminModeToggle() {
+  var cb = document.getElementById('adminModeToggle');
+  var on = !!(cb && cb.checked);
+  window._rtlAdminMode = on;
+  var row    = document.getElementById('adminModeRow');
+  var hint   = document.getElementById('adminModeHint');
+  var inputs = document.getElementById('adminModeInputs');
+  if (row)    row.classList.toggle('on', on);
+  if (hint)   hint.classList.toggle('on', on);
+  if (inputs) inputs.classList.toggle('on', on);
+  if (!window._rtlOverrides) {
+    window._rtlOverrides = { rate: null, ltp: null, ltc: null, larv: null, points: null, warningAcknowledged: false, _pendingField: null };
+  }
+  if (on) {
+    window._rtlOverrides.warningAcknowledged = true;
+    onAdminManualInput();
+  } else {
+    window._rtlOverrides.rate = null;
+    window._rtlOverrides.points = null;
+    if (typeof lockLoanFinancialFields === 'function') lockLoanFinancialFields(false);
+  }
+  try { if (typeof calculate === 'function') calculate(); } catch (_) {}
+  try { if (typeof autoCalc === 'function') autoCalc(); } catch (_) {}
+  if (typeof toggleSaveButton === 'function') { try { toggleSaveButton(); } catch (_) {} }
+}
+
+function onAdminManualInput() {
+  if (!window._rtlAdminMode) return;
+  var rEl = document.getElementById('adminRateInput');
+  var pEl = document.getElementById('adminPointsInput');
+  var rVal = (rEl && rEl.value !== '') ? parseFloat(rEl.value) : null;
+  var pVal = (pEl && pEl.value !== '') ? parseFloat(pEl.value) : null;
+  if (!window._rtlOverrides) {
+    window._rtlOverrides = { rate: null, ltp: null, ltc: null, larv: null, points: null, warningAcknowledged: true, _pendingField: null };
+  }
+  window._rtlOverrides.rate   = (rVal !== null && isFinite(rVal) && rVal > 0) ? rVal / 100 : null;
+  window._rtlOverrides.points = (pVal !== null && isFinite(pVal) && pVal >= 0) ? pVal : null;
+  window._rtlOverrides.warningAcknowledged = true;
+  try { if (typeof calculate === 'function') calculate(); } catch (_) {}
+  try { if (typeof autoCalc === 'function') autoCalc(); } catch (_) {}
+}
+
+function autoEnableAdminModeFrom(source) {
+  if (!source || source._adminMode !== true) return;
+  if (!window._userIsAdmin) return;
+  var cb = document.getElementById('adminModeToggle');
+  if (cb && !cb.checked) {
+    cb.checked = true;
+    onAdminModeToggle();
+  }
+  var rEl = document.getElementById('adminRateInput');
+  var pEl = document.getElementById('adminPointsInput');
+  if (rEl && source.rate  != null && source.rate  !== '') rEl.value = source.rate;
+  if (pEl && source.points != null && source.points !== '') pEl.value = source.points;
+  onAdminManualInput();
+}
+
 // Compute the $ amount of the broker fee based on the current best loan
 // amount estimate. Priority:
 //   1. window._rtlLastCalc.bMax (canonical max from last successful calc)
@@ -1524,6 +1633,9 @@ function restoreOverridesToDefault() {
 // engaging. Does NOT touch borrower, property address, or broker fee
 // inputs (they remain editable per spec).
 function lockLoanFinancialFields(lock) {
+  // Deploy 236.300 — Admin Mode bypasses the lock. Manual pricing
+  // requires free access to loan/property inputs.
+  if (window._rtlAdminMode) lock = false;
   OVERRIDE_LOCK_IDS.forEach(function(id) {
     var el = document.getElementById(id);
     if (!el) return;
@@ -3394,6 +3506,13 @@ function saveCurrentQuote() {
     // Deploy 236.289 — persist Broker Deal mode on the loan record.
     loanRec._isBrokerLoan = isBrokerDeal;
     if (loanRec._sizerFormData) loanRec._sizerFormData._isBrokerLoan = isBrokerDeal;
+    // Deploy 236.300 — persist Admin Mode on the loan record. Only
+    // admins can set this (toggle hidden otherwise), so a non-admin
+    // save can never clobber the flag.
+    if (window._userIsAdmin) {
+      loanRec._adminMode = !!window._rtlAdminMode;
+      if (loanRec._sizerFormData) loanRec._sizerFormData._adminMode = !!window._rtlAdminMode;
+    }
     var rNameParts = (formData.borrowerName || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRec._originalAddress = window._originalAddress;
@@ -3629,6 +3748,15 @@ function loadRTLQuote(formData) {
       brokerFee:     formData.brokerFee,
     });
   }
+  // Deploy 236.300 — flip Admin Mode on for loaded loans that carry
+  // _adminMode: true. Guarded on admin user.
+  if (typeof autoEnableAdminModeFrom === 'function') {
+    autoEnableAdminModeFrom({
+      _adminMode: formData._adminMode === true,
+      rate:   formData._finalRate || formData.rate   || '',
+      points: formData._points    || formData.points || '',
+    });
+  }
   // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
   // ask the picker to bind to it. The picker fetches the broker record
   // from the LO's book and (a) sets the chip, (b) locks the inline
@@ -3728,6 +3856,12 @@ netlifyIdentity.on('init', function(user) {
     window._loName  = (user.user_metadata && user.user_metadata.full_name) || '';
     window._loPhone = (user.user_metadata && user.user_metadata.phone) || '';
     window._loEmail = user.email || '';
+    // Deploy 236.300 — reveal Admin Mode toggle to admins only.
+    if (window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
+      window._userIsAdmin = true;
+      var _adminField = document.getElementById('adminModeToggleField');
+      if (_adminField) _adminField.style.display = '';
+    }
     initQuotes(user.email);
     // Deploy 236 (Brokers Phase 2): mount the broker picker inside the
     // existing #brokerFields div. It injects a search box + hidden
