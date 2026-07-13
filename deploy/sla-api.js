@@ -140,7 +140,21 @@
     // waiting for the Supabase SDK to import.
     try {
       var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
-      if (nlUser) return nlUser.jwt().then(function (t) { return t || ''; });
+      if (nlUser) {
+        // Deploy 236.315 — pass `true` to Netlify Identity so it
+        // proactively refreshes the access token when it's close to
+        // expiring (< 60 s in gotrue-js) or already dead. Passing
+        // nothing/false returned a cached JWT even when it was
+        // seconds from expiry, which caused every user to bounce to
+        // the login screen ~1 hour into a session — the widget's
+        // internal refresh timer throttles on backgrounded tabs, so
+        // the token would silently expire, the next fetch would fail
+        // 401, and the next page nav would fire on('logout') →
+        // window.location.replace('/'). Zero visible latency: the
+        // widget short-circuits the refresh when the token is still
+        // valid; only actually hits the refresh endpoint when needed.
+        return nlUser.jwt(true).then(function (t) { return t || ''; });
+      }
     } catch (_) {}
     var peek = _peekSupabaseSession();
     if (peek && peek.session && peek.session.access_token) {
@@ -153,6 +167,26 @@
       return '';
     });
   }
+
+  // Deploy 236.315 — refresh the token when the tab becomes visible
+  // again. Fixes the "logged out after leaving the tab open in the
+  // background" case: the widget's built-in refresh timer throttles
+  // on hidden tabs (chrome/firefox both), so a 1-hour token can die
+  // without ever getting refreshed. On visibility change we
+  // preemptively renew — the widget short-circuits the request when
+  // the token's still valid. Also refreshes the Supabase session
+  // (autoRefreshToken usually handles this but doesn't hurt).
+  try {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+        if (nlUser && typeof nlUser.jwt === 'function') {
+          nlUser.jwt(true).catch(function () { /* stale on tab focus is fine */ });
+        }
+      } catch (_) {}
+    });
+  } catch (_) {}
 
   // ── netlifyIdentity.on() wrapper ────────────────────────────────
   // Deploy 236.267 — rewrite. The previous version wrapped each
@@ -347,14 +381,23 @@
   function _invalidateCacheForPath(method, path) {
     if (method !== 'POST') return;
     if (_READONLY_SUFFIXES.some(function(s) { return path.indexOf(s) === path.length - s.length; })) return;
-    // Baseline mutations that touch the clients store.
-    if (_BASELINE_MUTATIONS.test(path)) { cache.clear('clients'); return; }
+    // Deploy 236.315 — MARK STALE instead of hard-clear. Rationale:
+    // hard-clearing killed the cached-first paint from Deploy 236.207.
+    // For a super admin who's actively editing loans, every loan-*
+    // mutation nuked the `clients_all` slot, so the next Pipeline visit
+    // became a cold cross-LO blob walk before ANY tile rendered.
+    // Marking stale keeps `listCached()` returning data for instant
+    // paint; `list()` sees the stale flag and forces a fresh network
+    // read (no SWR return with stale data) — freshness within one
+    // round-trip, no visible slow load. Callers that need immediate
+    // freshness verification still use `forceFresh: true`.
+    if (_BASELINE_MUTATIONS.test(path)) { cache.markStale('clients'); return; }
     // Standard /api/<prefix>-<verb> pattern.
     var m = /^\/api\/([a-z-]+?)(?=-[a-z]+(?:\?|$))/i.exec(path);
     if (!m) return;
     var prefix = m[1].toLowerCase();
     var slot = _MUTATION_PREFIX_TO_SLOT[prefix];
-    if (slot) cache.clear(slot);
+    if (slot) cache.markStale(slot);
   }
 
   function api(method, path, body) {
@@ -409,10 +452,42 @@
         return obj.data;
       } catch (e) { return null; }
     },
+    // Deploy 236.315 — return whether the cache entry is marked stale
+    // by a mutation since it was written. `list()` uses this to skip
+    // the SWR fast-return path (which would resolve stale data) and
+    // force a fresh network read, while `listCached()` still gets the
+    // stale data for instant paint. Returns false when no entry exists.
+    isStale: function (key) {
+      try {
+        var raw = localStorage.getItem('sla_cache_' + key);
+        if (!raw) return false;
+        var obj = JSON.parse(raw);
+        return !!(obj && obj.stale);
+      } catch (e) { return false; }
+    },
     set: function (key, data) {
       try {
-        localStorage.setItem('sla_cache_' + key, JSON.stringify({ ts: Date.now(), data: data }));
+        // Clears the stale flag on write.
+        localStorage.setItem('sla_cache_' + key, JSON.stringify({ ts: Date.now(), data: data, stale: false }));
       } catch (e) { /* quota / unavailable */ }
+    },
+    // Deploy 236.315 — mark stale in-place instead of deleting. Keeps
+    // the data available for `listCached()` (instant paint on the next
+    // page load) while telling `list()` to skip the SWR return path
+    // and force a fresh read. Also marks the paired admin (_all) slot.
+    markStale: function (key) {
+      var mark = function (k) {
+        try {
+          var raw = localStorage.getItem('sla_cache_' + k);
+          if (!raw) return;
+          var obj = JSON.parse(raw);
+          if (!obj) return;
+          obj.stale = true;
+          localStorage.setItem('sla_cache_' + k, JSON.stringify(obj));
+        } catch (e) {}
+      };
+      mark(key);
+      mark(key + '_all');
     },
     clear: function (key) {
       try { localStorage.removeItem('sla_cache_' + key); } catch (e) {}
@@ -456,8 +531,13 @@
       // Opt-out: pass { forceFresh: true } when you actually need
       // a fresh network read (e.g. right after a mutation you're
       // trying to verify).
+      // Deploy 236.315 — when the cache is stale-marked (a mutation
+      // happened since this entry was written), skip the SWR return
+      // path and force a network read. listCached() still returns the
+      // stale data separately for the instant-paint hint.
       var cached = cache.get(cacheKey);
-      if (cached && !opts.forceFresh) {
+      var isStale = cache.isStale(cacheKey);
+      if (cached && !opts.forceFresh && !isStale) {
         api('GET', '/api/clients' + q).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
         return Promise.resolve(cached);
       }
@@ -753,9 +833,13 @@
       // Deploy 236.260 (perf #2) — SWR at API layer. Same pattern as
       // Clients.list. Skip caching when slug is passed (public form
       // context, we don't want to share those responses).
+      // Deploy 236.315 — stale-marked cache short-circuits the SWR
+      // fast return path so mutations get freshness within one round-
+      // trip. See sla-api.js cache.markStale() docblock.
       if (!opts.slug) {
         var cached = cache.get(cacheKey);
-        if (cached && !opts.forceFresh) {
+        var isStale = cache.isStale(cacheKey);
+        if (cached && !opts.forceFresh && !isStale) {
           api('GET', '/api/prospects' + qs).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
           return Promise.resolve(cached);
         }
@@ -833,8 +917,11 @@
       var cacheKey = opts.all ? 'quotes_all' : 'quotes';
       // Deploy 236.260 (perf #2) — SWR at API layer. Same pattern as
       // Clients.list. Return cached instantly + background refresh.
+      // Deploy 236.315 — stale-marked cache skips SWR (force fresh
+      // read); listCached() still returns stale data for paint.
       var cached = cache.get(cacheKey);
-      if (cached && !opts.forceFresh) {
+      var isStale = cache.isStale(cacheKey);
+      if (cached && !opts.forceFresh && !isStale) {
         api('GET', '/api/quotes' + q).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
         return Promise.resolve(cached);
       }
