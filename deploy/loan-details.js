@@ -179,6 +179,20 @@ function init() {
 function onUser(user) {
   _user = user;
   _loEmail = user.email;
+  // Deploy 236.317 — if the URL has ?owner=<lo>, respect it as the
+  // authoritative loan-owner email immediately. Without this, an admin
+  // who opens a cross-LO loan and clicks a mutation button (Add
+  // Guarantor, Add Note, etc.) BEFORE fetchLoan()'s network call
+  // resolves will send the request with no owner param — the backend
+  // then looks under the admin's own namespace, fails with 404
+  // "Primary client not found", and the mutation silently fails.
+  // Reported specifically for the "Add Guarantor" flow. fetchLoan
+  // still refines _loEmail from the byOwner response when it lands.
+  try {
+    var _p = new URLSearchParams(window.location.search);
+    var _o = _p.get('owner');
+    if (_o) _loEmail = _o;
+  } catch (_) {}
   var navAdmin = document.getElementById('navAdminLink');
   if (navAdmin && window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
     navAdmin.style.display = 'inline-block'; var navSub=document.getElementById('navSubmissionsLink'); if(navSub) navSub.style.display='inline-block';

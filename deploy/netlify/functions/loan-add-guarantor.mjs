@@ -74,11 +74,40 @@ async function handle(req, context) {
   }
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-  const primaryKey = ownerKey + '/' + keySafe(clientId);
+  let primaryKey = ownerKey + '/' + keySafe(clientId);
 
   let primary;
   try { primary = await clientsStore.get(primaryKey, { type: 'json' }); }
   catch (e) { return json(500, { error: 'Failed to read primary client: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.317 — belt-and-suspenders. If the client isn't in the
+  // derived owner namespace AND the caller can override owner (admin /
+  // processor), scan every namespace for a matching client id. Fixes
+  // the case where the client-side omitted body.owner (stale _loEmail
+  // in loan-details.js before fetchLoan resolves) so the request hit
+  // the admin's own namespace, missed the actual record, and 404'd.
+  // We adopt the discovered ownerKey for the rest of the write so the
+  // record lands in the correct namespace.
+  if (!primary && canOverrideOwner(user).ok) {
+    try {
+      const { blobs } = await clientsStore.list();
+      const wantSuffix = '/' + keySafe(clientId);
+      for (const { key } of blobs) {
+        if (!key.endsWith(wantSuffix)) continue;
+        const rec = await clientsStore.get(key, { type: 'json' });
+        if (rec && rec.id === clientId) {
+          primary = rec;
+          primaryKey = key;
+          const slash = key.indexOf('/');
+          if (slash > 0) ownerKey = key.slice(0, slash);
+          console.warn(`loan-add-guarantor: cross-namespace recovery — clientId=${clientId} found under ownerKey=${ownerKey} (request had none)`);
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn('loan-add-guarantor: cross-namespace scan failed (non-fatal):', e && e.message);
+    }
+  }
   if (!primary) return json(404, { error: 'Primary client not found' });
   if (!Array.isArray(primary.loans)) return json(404, { error: 'Primary client has no loans array' });
   const loanIdx = primary.loans.findIndex((l) => l && l.id === loanId);
