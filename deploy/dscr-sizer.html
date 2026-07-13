@@ -342,6 +342,24 @@
     .broker-mode-hint { font-size: 11px; color: var(--muted); }
     .broker-mode-hint.on { color: #b5712d; font-weight: 500; }
     #borrowerFieldsSection.hidden { display: none; }
+
+    /* Deploy 236.299 — Admin Mode toggle. Deep plum accent to distinguish
+       from the peach Broker Deal toggle. Only visible to admins. */
+    .admin-mode-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: rgba(40,29,40,0.06); border: 1px solid rgba(40,29,40,0.22); border-radius: var(--r-xs); margin-bottom: 4px; }
+    .admin-mode-row.on { background: rgba(40,29,40,0.10); border-color: rgba(40,29,40,0.55); }
+    .admin-mode-switch { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+    .admin-mode-switch input { opacity: 0; width: 0; height: 0; }
+    .admin-mode-track { position: absolute; inset: 0; background: #d6cfc0; border-radius: 22px; cursor: pointer; transition: background 0.18s; }
+    .admin-mode-track::before { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.18); transition: transform 0.18s; }
+    .admin-mode-switch input:checked + .admin-mode-track { background: #281D28; }
+    .admin-mode-switch input:checked + .admin-mode-track::before { transform: translateX(18px); }
+    .admin-mode-label { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+    .admin-mode-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .admin-mode-title::before { content: '⚙ '; }
+    .admin-mode-hint { font-size: 11px; color: var(--muted); }
+    .admin-mode-hint.on { color: #281D28; font-weight: 500; }
+    #adminModeInputs { display: none; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+    #adminModeInputs.on { display: grid; }
   </style>
 </head>
 <body>
@@ -713,6 +731,39 @@ function getFICOMin(ficoStr) {
           <div class="broker-mode-label">
             <span class="broker-mode-title">Broker Deal</span>
             <span class="broker-mode-hint" id="brokerModeHint">Toggle on when a broker is sourcing the deal — borrower details captured at loan acceptance.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Deploy 236.299 — Admin Mode toggle (admin-only). When ON:
+             - DIYA lookups + adjustments are skipped
+             - Rate and Origination Points are entered manually
+             - Loan / financial input lock is disabled
+             - Rate sheet PDF prints with the LO-entered pricing
+           Persists as loan._adminMode so reopening keeps the mode. -->
+      <div class="field span2" id="adminModeToggleField" style="display:none">
+        <div class="admin-mode-row" id="adminModeRow">
+          <label class="admin-mode-switch">
+            <input type="checkbox" id="adminModeToggle" onchange="onAdminModeToggle()" />
+            <span class="admin-mode-track"></span>
+          </label>
+          <div class="admin-mode-label">
+            <span class="admin-mode-title">Admin Mode</span>
+            <span class="admin-mode-hint" id="adminModeHint">Manual pricing — skip DIYA adjustments, enter rate and origination points directly. Rate sheets print with your inputs.</span>
+          </div>
+        </div>
+        <div id="adminModeInputs">
+          <div class="field">
+            <div class="wrap" id="adminRateWrap">
+              <label>Manual Rate (%) <span class="req">*</span></label>
+              <input type="number" step="0.001" id="adminRateInput" placeholder="e.g. 8.500" oninput="onAdminManualInput()" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="wrap" id="adminPointsWrap">
+              <label>Origination Points <span class="req">*</span></label>
+              <input type="number" step="0.001" id="adminPointsInput" placeholder="e.g. 1.000" oninput="onAdminManualInput()" />
+            </div>
           </div>
         </div>
       </div>
@@ -1603,6 +1654,79 @@ function autoEnableBrokerModeFrom(source) {
   }
 }
 
+// Deploy 236.299 — Admin Mode. Admin-only manual pricing:
+//   * Skip DIYA lookups + adjustment breakdowns
+//   * Rate and Origination Points come straight from admin inputs
+//   * No override lock (LOs need to freely change loan/property inputs
+//     while pricing externally)
+//   * No override warning modal
+//   * Rate sheet PDF prints with the LO-entered pricing
+// Under the hood we reuse the existing _dscrOverrides plumbing so the
+// render/PDF path picks up the manual rate + points — but we set the
+// _dscrAdminMode flag first so the lock is bypassed and the "Override
+// Active" pill is suppressed.
+function onAdminModeToggle() {
+  var cb = document.getElementById('adminModeToggle');
+  var on = !!(cb && cb.checked);
+  window._dscrAdminMode = on;
+  var row    = document.getElementById('adminModeRow');
+  var hint   = document.getElementById('adminModeHint');
+  var inputs = document.getElementById('adminModeInputs');
+  if (row)    row.classList.toggle('on', on);
+  if (hint)   hint.classList.toggle('on', on);
+  if (inputs) inputs.classList.toggle('on', on);
+  if (!window._dscrOverrides) {
+    window._dscrOverrides = { rate: null, ltv: null, points: null, warningAcknowledged: false, _pendingField: null };
+  }
+  if (on) {
+    // Auto-acknowledge so setting overrides doesn't pop the "you're
+    // about to override pricing" modal.
+    window._dscrOverrides.warningAcknowledged = true;
+    onAdminManualInput();
+  } else {
+    // Turning off — clear the manual overrides so DIYA takes over again.
+    window._dscrOverrides.rate   = null;
+    window._dscrOverrides.points = null;
+    if (typeof lockLoanFinancialFields === 'function') lockLoanFinancialFields(false);
+  }
+  try { run(); } catch (_) {}
+  if (typeof refreshOverrideNotice === 'function') { try { refreshOverrideNotice(); } catch (_) {} }
+  if (typeof toggleSaveButton === 'function') { try { toggleSaveButton(); } catch (_) {} }
+}
+
+function onAdminManualInput() {
+  if (!window._dscrAdminMode) return;
+  var rEl = document.getElementById('adminRateInput');
+  var pEl = document.getElementById('adminPointsInput');
+  var rVal = (rEl && rEl.value !== '') ? parseFloat(rEl.value) : null;
+  var pVal = (pEl && pEl.value !== '') ? parseFloat(pEl.value) : null;
+  if (!window._dscrOverrides) {
+    window._dscrOverrides = { rate: null, ltv: null, points: null, warningAcknowledged: true, _pendingField: null };
+  }
+  // Rate stored as decimal fraction (0.085), matches the override
+  // system's convention. Points stored as absolute (1.5 = 1.5 pts).
+  window._dscrOverrides.rate   = (rVal !== null && isFinite(rVal) && rVal > 0) ? rVal / 100 : null;
+  window._dscrOverrides.points = (pVal !== null && isFinite(pVal) && pVal >= 0) ? pVal : null;
+  window._dscrOverrides.warningAcknowledged = true;
+  try { run(); } catch (_) {}
+}
+
+function autoEnableAdminModeFrom(source) {
+  if (!source || source._adminMode !== true) return;
+  if (!window._userIsAdmin) return; // guard — non-admin viewing an admin-mode loan doesn't flip on
+  var cb = document.getElementById('adminModeToggle');
+  if (cb && !cb.checked) {
+    cb.checked = true;
+    onAdminModeToggle();
+  }
+  // Prefill the admin inputs from the loan record's stored rate/points.
+  var rEl = document.getElementById('adminRateInput');
+  var pEl = document.getElementById('adminPointsInput');
+  if (rEl && source.rate  != null && source.rate  !== '') rEl.value = source.rate;
+  if (pEl && source.points != null && source.points !== '') pEl.value = source.points;
+  onAdminManualInput();
+}
+
 // Refresh the right-side fees card with broker fee row(s) + new total.
 // Called from onBrokerFeeChange and from run() (the loan amount may have
 // changed). When brokerFee is 0, broker rows hide and total falls back
@@ -1825,6 +1949,10 @@ function restoreOverridesToDefault() {
 }
 
 function lockLoanFinancialFields(lock) {
+  // Deploy 236.299 — Admin Mode bypasses the lock entirely. The manual
+  // override IS the point of admin mode — LOs need to change inputs
+  // freely while overriding pricing from an external investor's tool.
+  if (window._dscrAdminMode) lock = false;
   DSCR_OVERRIDE_LOCK_IDS.forEach(function(id) {
     var el = document.getElementById(id);
     if (!el) return;
@@ -3622,6 +3750,14 @@ function saveCurrentQuote() {
     // enabled at load time).
     loanRecord._isBrokerLoan = isBrokerDeal;
     if (loanRecord._sizerFormData) loanRecord._sizerFormData._isBrokerLoan = isBrokerDeal;
+    // Deploy 236.299 — persist Admin Mode state so reopening the loan
+    // keeps the manual-pricing shape. Only admins can flip this on
+    // (toggle is hidden for non-admins), so non-admin saves never set
+    // it and can never unset an existing admin-mode flag by accident.
+    if (window._userIsAdmin) {
+      loanRecord._adminMode = !!window._dscrAdminMode;
+      if (loanRecord._sizerFormData) loanRecord._sizerFormData._adminMode = !!window._dscrAdminMode;
+    }
     var nameParts = (formData.borrower || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
       loanRecord._originalAddress = window._originalAddress;
@@ -3840,6 +3976,19 @@ function loadQuoteIntoForm(formData) {
       brokerEmail:   formData.brokerEmail,
       brokerCompany: formData.brokerCompany,
       brokerFee:     formData.brokerFee,
+    });
+  }
+  // Deploy 236.299 — flip Admin Mode ON when the loaded loan carries
+  // _adminMode: true. Guarded on the user being an admin (the toggle
+  // is hidden otherwise, so this would be a no-op anyway).
+  if (typeof autoEnableAdminModeFrom === 'function') {
+    autoEnableAdminModeFrom({
+      _adminMode: formData._adminMode === true,
+      // Rate on the loan record is stored as a percent number (e.g. 8.5)
+      // or a formatted string. Feed it to the admin input as-is; the
+      // admin input parser will re-normalize.
+      rate:   formData._finalRate || formData.rate || '',
+      points: formData._points    || formData.points  || '',
     });
   }
   // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
@@ -4070,6 +4219,13 @@ netlifyIdentity.on('init', function(user) {
       window._loName  = (user.user_metadata && user.user_metadata.full_name)  || '';
       window._loPhone = (user.user_metadata && user.user_metadata.phone)       || '';
       window._loEmail = user.email || '';
+      // Deploy 236.299 — reveal Admin Mode toggle to admins only.
+      // Non-admin LOs never see the switch; they can't turn it on.
+      if (window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
+        window._userIsAdmin = true;
+        var _adminField = document.getElementById('adminModeToggleField');
+        if (_adminField) _adminField.style.display = '';
+      }
       initQuotes(user.email);
       // Deploy 236 (Brokers Phase 2): mount the broker picker inside the
       // existing #brokerFields div. It injects a search box + hidden
