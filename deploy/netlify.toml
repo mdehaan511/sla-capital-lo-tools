@@ -282,6 +282,14 @@
   status = 200
   force = true
 
+# Deploy 236.312 — admin diagnostic: given (clientId, loanId, owner),
+# explain why a loan does or doesn't appear in the pipeline.
+[[redirects]]
+  from = "/api/admin-loan-pipeline-diagnose"
+  to = "/.netlify/functions/admin-loan-pipeline-diagnose"
+  status = 200
+  force = true
+
 # Deploy 236.270 — one-shot audit for loans whose guarantor list was
 # wiped by the pre-236.269 sizer-upsert fallback bug. super_admin only.
 [[redirects]]
