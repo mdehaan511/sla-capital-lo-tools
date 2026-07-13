@@ -516,7 +516,20 @@
     // callbacks also fire for Supabase-invited users (Deploy 236.265,
     // Path A Phase 2 dual auth).
     netlifyIdentity.on('init', function(user) { if (user) { showApp(user); } else { showLogin(); } });
-    netlifyIdentity.on('login', function(user) { netlifyIdentity.close(); showApp(user); });
+    netlifyIdentity.on('login', function(user) {
+      // Deploy 236.316 — belt-and-suspenders. Some login flows (mostly
+      // Supabase password + magic-link paths) resolve the user via
+      // sla-api.js's dual-auth wrap and fire this handler, but any race
+      // where showApp() silently no-ops (role check timing, banner
+      // fetch throwing, etc.) leaves the user staring at the login card
+      // even though they're authenticated. A full reload triggers init
+      // on a clean page load — showApp runs from scratch, borrower
+      // routing (window.location.replace('/my-loans/')) still fires
+      // because init sees the user. Safe: we're on '/' with no unsaved
+      // state to lose.
+      netlifyIdentity.close();
+      window.location.reload();
+    });
     netlifyIdentity.on('logout', function() { showLogin(); });
     document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
 

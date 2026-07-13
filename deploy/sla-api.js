@@ -261,6 +261,47 @@
       };
     }
 
+    // Deploy 236.316 — intercept netlifyIdentity.open(). Every LO page
+    // has a guard along the lines of `on('init', u => if (!u) open())`.
+    // When init briefly fires with a null user (auth race — the widget
+    // hadn't finished refreshing its cached token yet, or a Supabase
+    // session is still resolving), the page calls open(). Milliseconds
+    // later the SDK confirms the user IS logged in — but the widget is
+    // already open, and rather than showing the login form it shows the
+    // "Logged in as <name>" state modal with a Log Out button.
+    //
+    // The user reported seeing this modal appear over inner pages
+    // (borrower-info.html REVIEW_MODE, etc.) after a normal session.
+    // The fix: intercept open() to check currentUser first (both
+    // Netlify Identity AND the peeked Supabase session). If a user IS
+    // present, skip the widget entirely — the caller was almost
+    // certainly triggered by an auth race, not a real "please log in"
+    // intent. Same-page auth guards will then run their success path.
+    if (typeof window.netlifyIdentity.open === 'function' && !window._slaOpenPatched) {
+      window._slaOpenPatched = true;
+      var _origOpen = window.netlifyIdentity.open.bind(window.netlifyIdentity);
+      window.netlifyIdentity.open = function (tab) {
+        // Explicit login-form open (index.html login button) always
+        // wins — but if the user is already logged in there, the button
+        // wouldn't be visible anyway.
+        try {
+          var _u = null;
+          try { _u = window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser(); } catch (_) {}
+          if (!_u) {
+            var _peek = _peekSupabaseSession();
+            if (_peek && _peek.user) _u = _peek;
+          }
+          if (_u) {
+            // Bail out — no widget. Fire login so page code that was
+            // waiting on it can proceed with the user we already have.
+            _fireLogin(_u._authProvider === 'supabase' ? _u : (typeof _u === 'object' ? _u : null));
+            return;
+          }
+        } catch (_) {}
+        return _origOpen(tab);
+      };
+    }
+
     // Subscribe ONCE to the underlying widget's init/login. We fan
     // out to page callbacks ourselves — never rely on the widget's
     // replay-to-late-subscribers behavior for anything but this one
