@@ -360,7 +360,23 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         ? (data.numUnits || '')
         : '1';
 
-      const loanType = data.loanType || '';
+      // Deploy 236.313 — hoist loanRec lookup so Section A can fall back
+      // to it. When the LO generates the LOI before the borrower has
+      // filled the long app (common in Admin Mode), `data.loanType` is
+      // empty; without a fallback the "Loan Term" row prints blank.
+      const loanRec = (() => {
+        if (!record || !record.loanId || !client || !Array.isArray(client.loans)) return null;
+        return client.loans.find((l) => l && l.id === record.loanId) || null;
+      })();
+      const pf = record.prefill || {};
+
+      // Deploy 236.313 — fall back to the loan record's toolType when
+      // the borrower hasn't filled the long app. RTL sizers store
+      // toolType='rtl' but the LOAN_TYPE_LABEL key is 'fix_flip'.
+      const loanType = data.loanType
+                    || (loanRec && (loanRec.toolType === 'rtl' ? 'fix_flip' : loanRec.toolType))
+                    || (pf.loan && pf.loan.toolType === 'rtl' ? 'fix_flip' : (pf.loan && pf.loan.toolType))
+                    || '';
       const loanTypeLabel = LOAN_TYPE_LABEL[loanType] || loanType || '';
       const propertyTypeLabel = PROPERTY_TYPE_LABEL[data.propertyType] || data.propertyType || '';
 
@@ -376,8 +392,19 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
 
       const isFF       = loanType === 'fix_flip';
       const isDSCR     = loanType === 'dscr' || loanType === 'dscr_2nd';
-      const isPurchase = (data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose) === 'purchase';
-      const isRefi     = (data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose) === 'refinance';
+      // Deploy 236.313 — collapse the LO's specific sizer selection
+      // ('refi_co' / 'refi_rt') back to 'refinance' for the binary
+      // purchase/refi widgets in Section A, but let it flow through
+      // specifically to the Section A.5 purposeDisplay() below.
+      const _sizerPurpose = (loanRec && loanRec.loanPurpose)
+        ? String(loanRec.loanPurpose).toLowerCase() : '';
+      const _sizerBinary = (_sizerPurpose === 'refi_co' || _sizerPurpose === 'refi_rt')
+        ? 'refinance'
+        : (_sizerPurpose === 'purchase' ? 'purchase' : '');
+      const _binaryPurpose = data.dscrPurchaseRefi || data.purchaseOrRefi
+                          || data.loanPurpose || _sizerBinary || '';
+      const isPurchase = _binaryPurpose === 'purchase';
+      const isRefi     = _binaryPurpose === 'refinance';
 
       // ── SECTION A: PERSONAL LOAN PROPOSAL & PROPERTY INFO ──────
       // Matches the first table in the SLA Loan Application docx.
@@ -387,7 +414,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       row('Type of Loan Requested', loanTypeLabel);
       row('Property Type', propertyTypeLabel);
       row('Number of Units', resolvedNumUnits);
-      row('Purchase or Refinance?', PURCHASE_REFI_LABEL[data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose] || '');
+      row('Purchase or Refinance?', PURCHASE_REFI_LABEL[_binaryPurpose] || '');
       row('Original Purchase Date (if Refi)', isRefi ? (data.originalPurchaseDate || '') : '');
       row('Loan Term', loanTypeLabel);  // The docx labels this redundantly
       row('Requested Loan Amount', fmtMoney(requestedLoanAmt));
@@ -406,12 +433,8 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       //
       // Pulls from the loan record (client.loans matched by
       // record.loanId), falling back to prefill / data when fields
-      // aren't on the loan yet.
-      const loanRec = (() => {
-        if (!record || !record.loanId || !client || !Array.isArray(client.loans)) return null;
-        return client.loans.find((l) => l && l.id === record.loanId) || null;
-      })();
-      const pf = record.prefill || {};
+      // aren't on the loan yet. Deploy 236.313 — loanRec + pf are now
+      // hoisted above (Section A needs them too), reuse those.
 
       // Helpers for display formatting.
       const fmtPct = (v, digits) => {
@@ -452,8 +475,17 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         return String(raw);
       };
       const purposeDisplay = () => {
-        const code = data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose
-                  || (loanRec && loanRec.loanPurpose) || '';
+        // Deploy 236.313 — prefer the LO's sizer selection when it's
+        // more specific than the borrower's binary answer. The long-app
+        // only asks "Purchase or Refinance" so `data.dscrPurchaseRefi`
+        // is 'refinance' for BOTH cashout and rate/term deals — using
+        // it first meant every refi printed as "Rate/Term Refi" even
+        // when the LO priced it as a cashout. The sizer's loanPurpose
+        // ('refi_co' / 'refi_rt' / 'purchase') is authoritative.
+        const loRec = (loanRec && loanRec.loanPurpose) ? String(loanRec.loanPurpose).toLowerCase() : '';
+        const code = loRec
+                  || data.dscrPurchaseRefi || data.purchaseOrRefi || data.loanPurpose
+                  || '';
         if (!code) return '';
         const c = String(code).toLowerCase();
         if (c === 'refi_co' || c === 'cashout' || c === 'cashout_refi' || c === 'cashout refi') return 'Cashout Refi';
