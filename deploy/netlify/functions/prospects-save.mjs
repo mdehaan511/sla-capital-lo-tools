@@ -506,8 +506,16 @@ async function notifyLO(prospect, ids) {
   // the recipient's stale cached client list wouldn't include the loan
   // that was just created — the loan showed as "not found" for up to
   // 5 minutes until the background refresh finally repainted.
+  //
+  // Deploy 236.298 — include ?owner=<lo> so the link works even if the
+  // recipient isn't the owning LO (forwarded emails, admin bcc, house-
+  // account triage). loan-details.js checks for the owner param and
+  // switches to all-scope search when it's present.
+  const _ownerParam = prospect.loEmail
+    ? `&owner=${encodeURIComponent(prospect.loEmail)}`
+    : '';
   const detailsLink = (ids && ids.clientId && ids.loanId)
-    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}&fresh=1`
+    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}${_ownerParam}&fresh=1`
     : '';
 
   // Deploy 236.284 — build the plain-text body as an array of entries,
@@ -1184,8 +1192,17 @@ async function notifySlack(prospect, ids) {
     line('US Citizen',              prospect.usCitizen),
   ]);
 
+  // Deploy 236.298 — include ?owner=<lo> in the Slack link so anyone
+  // in the channel who isn't the loan's owning LO (an admin, another
+  // LO, or Chance viewing a routed lead) triggers the all-scope path
+  // in loan-details.js's fetchLoan(). Without this, the link resolved
+  // to "Loan Not Found" for viewers whose own SLA.Clients.list() didn't
+  // include the loan's owner namespace.
+  const _ownerParam = prospect.loEmail
+    ? `&owner=${encodeURIComponent(prospect.loEmail)}`
+    : '';
   const detailsLink = (ids && ids.clientId && ids.loanId)
-    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}&fresh=1`
+    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}${_ownerParam}&fresh=1`
     : '';
 
   // Build the message body as a single mrkdwn text block per section.
