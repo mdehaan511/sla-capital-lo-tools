@@ -255,6 +255,21 @@ async function upsertClientFromProspect(prospect, loEmail) {
   if (prospect.loanProduct === 'bridge')        loanTypeForRecord = 'bridge';
   else if (prospect.loanProduct === 'transactional') loanTypeForRecord = 'transactional';
   // 'fix_flip', 'rtl', 'dscr' all leave loanType blank
+
+  // Deploy 236.297 — DSCR PURCHASE default loanAmt = 80% of purchase
+  // price (the standard max LTV on DSCR). Without this, the sizer
+  // opens with loanAmt == purchasePrice → 100% LTV → immediately
+  // errors out with "LTV exceeds 80% maximum" until the LO manually
+  // types the loan amount. Doesn't apply to refi (uses currentLoanAmt),
+  // and doesn't apply to RTL (Mike: RTL loans size off ARV + rehab,
+  // not off purchase price, so this rule is DSCR-purchase-only).
+  const isDscrPurchase = !isRtl
+    && String(prospect.loanPurpose || '').toLowerCase() === 'purchase';
+  const _pxNum = parseFloat(String(prospect.purchasePrice || '').replace(/[^\d.]/g, '')) || 0;
+  const _defaultLoanAmt = isDscrPurchase && _pxNum > 0
+    ? String(Math.round(_pxNum * 0.80))
+    : (prospect.purchasePrice || prospect.propertyValue || '');
+
   const loan = {
     id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     // Deploy 236.22 — stamp prospectId on the loan so the pipeline
@@ -271,8 +286,15 @@ async function upsertClientFromProspect(prospect, loEmail) {
     updatedAt:   new Date().toISOString(),
     status:      'active',
     loanType:    loanTypeForRecord,
-    loanAmt:     prospect.purchasePrice || prospect.propertyValue || '',
-    propValue:   prospect.propertyValue || prospect.estimatedARV || '',
+    loanAmt:     _defaultLoanAmt,
+    // Deploy 236.297 — DSCR purchase: default property value to the
+    // purchase price when the borrower didn't provide one separately.
+    // LTV can't compute without a denominator, so an empty propValue
+    // meant the LO had to re-key the purchase price into propValue
+    // before the sizer would price anything.
+    propValue:   prospect.propertyValue
+                 || prospect.estimatedARV
+                 || (isDscrPurchase ? (prospect.purchasePrice || '') : ''),
     rent:        prospect.monthlyRent || '',
     taxes:       prospect.monthlyTaxes || '',
     insurance:   prospect.monthlyInsurance || '',

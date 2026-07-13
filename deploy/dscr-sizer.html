@@ -3117,6 +3117,19 @@ function prefillFromProspect(p) {
     }).catch(function(){});
   }
 
+  // Deploy 236.297 — DSCR PURCHASE default loanAmt = 80% of purchase
+  // price (max standard LTV). Fallback default propValue to the
+  // purchase price so LTV computes. Prevents the sizer from opening
+  // at 100% LTV → "LTV exceeds 80% maximum" the moment the LO clicks
+  // in. Doesn't apply to refis (they use currentLoanAmt) or RTL.
+  var _pIsDscrPurchase = String(p.loanPurpose || '').toLowerCase() === 'purchase';
+  var _pPxNum = parseFloat(String(p.purchasePrice || '').replace(/[^\d.]/g, '')) || 0;
+  var _pDefaultLoanAmt = _pIsDscrPurchase && _pPxNum > 0
+    ? String(Math.round(_pPxNum * 0.80))
+    : (p.purchasePrice || '');
+  var _pDefaultPropVal = p.propertyValue
+    || (_pIsDscrPurchase ? (p.purchasePrice || '') : '');
+
   // Map prospect fields to DSCR form
   var map = {
     borrowerName: (p.firstName||'')+' '+(p.lastName||''),
@@ -3125,8 +3138,8 @@ function prefillFromProspect(p) {
     taxes:        p.monthlyTaxes||'',
     insurance:    p.monthlyInsurance||'',
     hoa:          p.monthlyHOA||'',
-    loanAmt:      p.purchasePrice||'',
-    propValue:    p.propertyValue||'',
+    loanAmt:      _pDefaultLoanAmt,
+    propValue:    _pDefaultPropVal,
     // Currency Loan Amount for refinances. Without this AND the
     // onPurposeChange() call below, the field stayed hidden and empty
     // so the LO had to manually re-enter what the borrower already typed.
