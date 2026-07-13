@@ -517,18 +517,20 @@
     // Path A Phase 2 dual auth).
     netlifyIdentity.on('init', function(user) { if (user) { showApp(user); } else { showLogin(); } });
     netlifyIdentity.on('login', function(user) {
-      // Deploy 236.316 — belt-and-suspenders. Some login flows (mostly
-      // Supabase password + magic-link paths) resolve the user via
-      // sla-api.js's dual-auth wrap and fire this handler, but any race
-      // where showApp() silently no-ops (role check timing, banner
-      // fetch throwing, etc.) leaves the user staring at the login card
-      // even though they're authenticated. A full reload triggers init
-      // on a clean page load — showApp runs from scratch, borrower
-      // routing (window.location.replace('/my-loans/')) still fires
-      // because init sees the user. Safe: we're on '/' with no unsaved
-      // state to lose.
+      // Deploy 236.318 — REVERTED from 236.316's window.location.reload().
+      // The reload broke Google OAuth via Netlify Identity: the widget
+      // parses the OAuth access_token from the URL fragment
+      // (#access_token=...&refresh_token=...) AFTER firing 'login', and
+      // a reload strips the fragment before the widget persists the
+      // session to localStorage. The user then lands back on '/' with
+      // no session → showLogin fires → modal reopens → infinite loop.
+      // Password + magic-link flows don't hit this because their tokens
+      // are already persisted before 'login' fires. Deploy 236.316's
+      // real fix (patching netlifyIdentity.open in sla-api.js to skip
+      // the widget when a user is already logged in) still handles the
+      // "Logged in as <name>" modal problem — the reload was overkill.
       netlifyIdentity.close();
-      window.location.reload();
+      showApp(user);
     });
     netlifyIdentity.on('logout', function() { showLogin(); });
     document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
