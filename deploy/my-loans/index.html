@@ -87,6 +87,23 @@
     .docs-placeholder h3 { font-family:'Lora',serif; font-size:16px; margin:0 0 6px; color:var(--text); font-weight:600; }
     .docs-placeholder p { color:var(--muted); font-size:13px; margin:0; }
 
+    /* Deploy 236.306 — impersonation banner + admin picker */
+    .impersonate-banner {
+      background: #4b2f6b; color: #fff; padding: 10px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+      font-size: 13px; font-weight: 500;
+    }
+    .impersonate-banner strong { color: #FFBC7D; font-weight: 700; }
+    .impersonate-banner .exit-btn {
+      background: rgba(255,255,255,0.14); color: #fff; border: 1px solid rgba(255,255,255,0.30);
+      font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+      padding: 5px 12px; border-radius: 16px; cursor: pointer; text-decoration: none;
+    }
+    .impersonate-banner .exit-btn:hover { background: rgba(255,255,255,0.22); text-decoration: none; color: #fff; }
+    .picker-card { background: #fff; border: 1px solid var(--border); border-radius: var(--r); padding: 26px 30px; margin-top: 20px; }
+    .picker-card h2 { font-family: 'Lora', serif; font-size: 22px; margin: 0 0 8px; color: var(--text); font-weight: 600; }
+    .picker-card p { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+
     @media (max-width: 640px) {
       .field-row { grid-template-columns: 1fr; }
       .loan-card-head { flex-direction:column; align-items:flex-start; }
@@ -105,6 +122,15 @@
     </div>
     <button class="signout-btn" id="signOutBtn" type="button">Sign out</button>
   </nav>
+
+  <!-- Impersonation banner (only visible when an admin is viewing as another borrower) -->
+  <div id="impBanner" class="impersonate-banner" style="display:none">
+    <div><span>👁 Viewing as</span> <strong id="impEmail"></strong></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <a href="/my-loans/" class="exit-btn">Switch borrower</a>
+      <a href="/" class="exit-btn">Back to Dashboard</a>
+    </div>
+  </div>
 
   <div class="page-wrap">
     <div id="content">
@@ -144,8 +170,13 @@
              d.getFullYear();
     }
 
+    // Deploy 236.306 — capture ?as=<email> for admin impersonation.
+    var _urlParams = new URLSearchParams(window.location.search);
+    var _asParam = String(_urlParams.get('as') || '').toLowerCase().trim();
+
     // Auth-guarded load. Waits for SLA.getCurrentUser() to resolve,
-    // then either fetches loans or bounces to the login page.
+    // then either fetches loans or bounces to the login page. Admins
+    // get an impersonation picker if they visit /my-loans/ without ?as=.
     function loadPortal() {
       if (!window.SLA || !SLA.getCurrentUser) {
         // sla-api still initializing — try again on next tick.
@@ -157,8 +188,18 @@
           window.location.replace('/');
           return;
         }
-        // Fetch this borrower's loans.
-        SLA.api('GET', '/api/borrower-loans').then(function(resp) {
+        var isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+        // Admin visiting without ?as= → show the impersonation picker
+        // instead of trying to load their own (non-existent) borrower
+        // record. Non-admins fall through to the normal borrower flow.
+        if (isAdminUser && !_asParam) {
+          renderAdminPicker();
+          return;
+        }
+        // Fetch loans. When admin passes ?as=<email>, pass it through
+        // to the endpoint which validates the caller's role.
+        var url = '/api/borrower-loans' + (_asParam ? ('?as=' + encodeURIComponent(_asParam)) : '');
+        SLA.api('GET', url).then(function(resp) {
           render(resp || {});
         }).catch(function(err) {
           content.innerHTML = '<div class="err">Could not load your loans right now. Please refresh the page in a moment. If the problem continues, contact your loan officer.</div>' +
@@ -169,12 +210,59 @@
       });
     }
 
+    function renderAdminPicker() {
+      content.innerHTML =
+        '<div class="picker-card">' +
+          '<h2>Borrower Portal — Admin Impersonation</h2>' +
+          '<p>Enter a borrower\'s email to view their /my-loans/ page as if you were them. Any borrower with a client record can be impersonated.</p>' +
+          '<form id="pickerForm">' +
+            '<div class="field">' +
+              '<label>Borrower Email</label>' +
+              '<input required type="email" id="pickerEmail" placeholder="borrower@example.com" autocomplete="off" />' +
+            '</div>' +
+            '<button type="submit" class="btn-primary">View as borrower</button>' +
+            ' &nbsp; <a href="/" style="font-size:13px;color:var(--muted);text-decoration:none">← Back to Dashboard</a>' +
+          '</form>' +
+          '<div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)">' +
+            '<strong style="color:var(--text)">Test borrower:</strong> ' +
+            '<a href="/my-loans/?as=demo.borrower%40slalendtest.com">demo.borrower@slalendtest.com</a>' +
+            ' <span style="color:var(--muted)">— seeded with one loan in each status. If it doesn\'t exist yet, run <code style="background:var(--page);padding:1px 5px;border-radius:4px">POST /api/borrower-test-seed</code> once.</span>' +
+          '</div>' +
+        '</div>';
+      document.getElementById('pickerForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var em = document.getElementById('pickerEmail').value.trim();
+        if (!em) return;
+        window.location.href = '/my-loans/?as=' + encodeURIComponent(em);
+      });
+    }
+
     function render(data) {
       if (!data || data.ok === false) {
         content.innerHTML = '<div class="err">Something went wrong loading your loans. Please refresh.</div>';
         return;
       }
+      // Deploy 236.306 — surface the impersonation banner when an admin
+      // is viewing another borrower's portal.
+      if (data.impersonating && data.impersonatedEmail) {
+        var b = document.getElementById('impBanner');
+        var e = document.getElementById('impEmail');
+        if (e) e.textContent = data.impersonatedEmail;
+        if (b) b.style.display = 'flex';
+      }
       if (!data.isRegistered) {
+        if (data.impersonating) {
+          // Admin looking at a borrower who has no client record. Don't
+          // show them the registration form — that would sign the admin
+          // up as a borrower. Show a helpful empty state instead.
+          content.innerHTML =
+            '<div class="reg-card">' +
+              '<h2>No client record</h2>' +
+              '<p>The email <strong>' + escH(data.impersonatedEmail || '') + '</strong> isn\'t in any LO\'s client book yet. Nothing to view.</p>' +
+              '<a href="/my-loans/" class="btn-primary" style="text-decoration:none">← Pick a different borrower</a>' +
+            '</div>';
+          return;
+        }
         renderRegistration();
         return;
       }

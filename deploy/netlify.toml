@@ -85,6 +85,13 @@
   status = 200
   force = true
 
+# Deploy 236.306 — admin-only test seed for the borrower portal
+[[redirects]]
+  from = "/api/borrower-test-seed"
+  to = "/.netlify/functions/borrower-test-seed"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/prospects-backfill-clients"
   to = "/.netlify/functions/prospects-backfill-clients"

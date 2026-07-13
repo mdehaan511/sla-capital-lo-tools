@@ -29,7 +29,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, keySafe, normalizeEmail,
+  handleOptions, json, requireAuth, isAdmin, isSuperAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 
 export default async (req, context) => {
@@ -39,8 +39,25 @@ export default async (req, context) => {
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
 
-  const callerEmail = normalizeEmail(user.email || '');
-  if (!callerEmail) return json(401, { error: 'No email on auth token' });
+  const authedEmail = normalizeEmail(user.email || '');
+  if (!authedEmail) return json(401, { error: 'No email on auth token' });
+
+  // Deploy 236.306 — admin impersonation. When ?as=<email> is present
+  // AND the caller is admin/super_admin, load that borrower's loans
+  // instead of the caller's. Rejected 403 for non-admin callers so a
+  // regular user can't peek at another borrower.
+  const impersonateRaw = new URL(req.url).searchParams.get('as') || '';
+  const impersonateEmail = normalizeEmail(impersonateRaw);
+  let callerEmail = authedEmail;
+  let impersonating = false;
+  if (impersonateEmail && impersonateEmail !== authedEmail) {
+    if (!isAdmin(user) && !isSuperAdmin(user)) {
+      return json(403, { error: 'Impersonation requires admin' });
+    }
+    callerEmail = impersonateEmail;
+    impersonating = true;
+    console.log(`[borrower-loans] admin=${authedEmail} impersonating=${callerEmail}`);
+  }
 
   // Load profiles once — used to enrich each loan with the LO's real
   // name + phone. keySafe(email) → { email, fullName, phone }.
@@ -95,6 +112,8 @@ export default async (req, context) => {
     return json(200, {
       ok: true,
       isRegistered: false,
+      impersonating: impersonating,
+      impersonatedEmail: impersonating ? callerEmail : null,
       client: null,
       loans: { awaitingTerms: [], inProcessing: [], closed: [] },
     });
@@ -182,6 +201,8 @@ export default async (req, context) => {
   return json(200, {
     ok: true,
     isRegistered: true,
+    impersonating: impersonating,
+    impersonatedEmail: impersonating ? callerEmail : null,
     client: {
       firstName: canonical.firstName || '',
       lastName:  canonical.lastName  || '',
