@@ -373,6 +373,9 @@
       }
       loginScreen.style.display = 'none';
       appScreen.style.display   = 'block';
+      // Deploy 236.319 — remove the OAuth "Completing sign-in…"
+      // placeholder if it's still up.
+      try { var _p = document.getElementById('oauthPendingMsg'); if (_p) _p.remove(); } catch (_) {}
       // Reveal role-gated tool cards.
       var roleChecks = { processor: isProcessor, admin: isAdmin, super_admin: isSuperAdmin };
       var gated = document.querySelectorAll('.tool-card[data-role-required]');
@@ -515,7 +518,48 @@
     // sla-api.js wraps netlifyIdentity.on('init'/'login') so these
     // callbacks also fire for Supabase-invited users (Deploy 236.265,
     // Path A Phase 2 dual auth).
-    netlifyIdentity.on('init', function(user) { if (user) { showApp(user); } else { showLogin(); } });
+    // Deploy 236.319 — suppress the login-card flash while a Google
+    // OAuth callback is completing. Netlify Identity's Google flow
+    // redirects back to the app with tokens in the URL fragment
+    // (#access_token=...&refresh_token=...); the widget fires 'init'
+    // with user=null BEFORE it parses the fragment and fires 'login' a
+    // few hundred ms later. Without this, the LO briefly sees the
+    // login modal even though sign-in is about to succeed. When we
+    // detect the OAuth fragment, keep the login screen hidden and
+    // show a small "Completing sign-in…" indicator instead; the
+    // 'login' handler below hides it via showApp().
+    var _oauthFragRe = /(^|[#&])(access_token|refresh_token|error_description)=/;
+    var _isOAuthCallback = false;
+    try { _isOAuthCallback = _oauthFragRe.test(window.location.hash || ''); } catch (_) {}
+    if (_isOAuthCallback) {
+      try {
+        loginScreen.style.display = 'none';
+        var _pending = document.createElement('div');
+        _pending.id = 'oauthPendingMsg';
+        _pending.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg,#f0ece5);color:#7a7488;font-family:inherit;font-size:14px;letter-spacing:0.02em;z-index:9999';
+        _pending.textContent = 'Completing sign-in…';
+        document.body.appendChild(_pending);
+      } catch (_) {}
+    }
+    netlifyIdentity.on('init', function(user) {
+      if (user) { showApp(user); return; }
+      // During an OAuth callback, don't flash the login modal — the
+      // widget will fire 'login' momentarily once it parses the URL
+      // fragment. The "Completing sign-in…" placeholder above stays
+      // visible until showApp runs. As a safety net, if 'login' never
+      // fires within 5s, fall back to the login screen.
+      if (_isOAuthCallback) {
+        setTimeout(function() {
+          if (loginScreen.style.display === 'none' && !document.querySelector('#app-screen[style*="block"]')) {
+            var _p = document.getElementById('oauthPendingMsg');
+            if (_p) _p.remove();
+            showLogin();
+          }
+        }, 5000);
+        return;
+      }
+      showLogin();
+    });
     netlifyIdentity.on('login', function(user) {
       // Deploy 236.318 — REVERTED from 236.316's window.location.reload().
       // The reload broke Google OAuth via Netlify Identity: the widget
