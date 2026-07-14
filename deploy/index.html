@@ -634,7 +634,7 @@
 
     var _dashLoans        = null;   // last-fetched mirror rows
     var _dashLoansLoading = false;
-    var _dashLoanSort     = { key: 'closeDate', dir: 'asc' };
+    var _dashLoanSort     = { key: 'close', dir: 'asc' };
     var _dashLoanSearch   = '';
     var _dashLeaderboardLoaded = false;
 
@@ -709,21 +709,56 @@
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
 
-    // ── Widget 1: Performance stats tiles (no revenue — public) ──
+    // Deploy 236.335 — mirror dashboard.html's estimatedRevenue()
+    // math verbatim so the home-page Est. Revenue matches the admin
+    // dashboard exactly. Points + rate + type + TPO logic ported
+    // from dashboard.html:529-563.
+    function dashInferType(l) {
+      var s = ((l.Substatus || l.Loan_Type || l.Loan_Product || '') + '').toUpperCase();
+      if (s.indexOf('DSCR') >= 0) return 'DSCR';
+      if (s.indexOf('RTL') >= 0 || s.indexOf('FIX') >= 0 || s.indexOf('BRIDGE') >= 0 || s.indexOf('FLIP') >= 0) return 'RTL';
+      return 'DSCR'; // default matches dashboard.html assumption
+    }
+    function dashEstRevenue(l) {
+      if (!l) return 0;
+      var amt = parseFloat(String(l.Loan_Amount || 0).replace(/[$,]/g, ''));
+      if (!isFinite(amt) || amt <= 0) return 0;
+      var pts = parseFloat(l.Origination_Points || 0);
+      if (!isFinite(pts)) pts = 0;
+      // Percent-vs-decimal heuristic (dashboard.html Deploy 233.3).
+      var ptsDecimal = pts < 0.1 ? pts : (pts / 100);
+      var pointsRevenue = amt * ptsDecimal;
+      var type = dashInferType(l);
+      // TPO Premium — probe a few plausible field names.
+      var tpoRaw = l.TPO_Premium || l.TPOPremium || l.tpo_premium || 0;
+      var tpo = parseFloat(tpoRaw);
+      if (isFinite(tpo) && tpo > 0) {
+        var tpoDecimal = tpo < 0.1 ? tpo : (tpo / 100);
+        pointsRevenue += amt * tpoDecimal;
+      }
+      var flatFees = type === 'RTL' ? 2150 : 2315;
+      var costOfCapital = type === 'RTL' ? (amt * 0.0025) : 1495;
+      return pointsRevenue + flatFees - costOfCapital;
+    }
+
+    // ── Widget 1: Performance stats — 4 tiles matching dashboard.html
+    // exactly. Active Pipeline $, Won $, Est. Revenue, Total Mirrored
+    // (count, excludes archived).
     function renderDashPerf() {
       var loans = _dashLoans || [];
-      var active = 0, won = 0, volume = 0;
-      loans.forEach(function(l) {
-        if (dashIsWon(l))         { won++; volume += dashAmount(l); }
-        else if (dashIsOpen(l))   { active++; }
-      });
-      document.getElementById('perfMeta').textContent = loans.length.toLocaleString() + ' total';
+      var openLoans   = loans.filter(dashIsOpen);
+      var wonLoans    = loans.filter(dashIsWon);
+      var openAmount  = openLoans.reduce(function(s, l) { return s + dashAmount(l); }, 0);
+      var wonSum      = wonLoans.reduce(function(s, l) { return s + dashAmount(l); }, 0);
+      var revSum      = wonLoans.reduce(function(s, l) { return s + dashEstRevenue(l); }, 0);
+      var nonArchived = loans.filter(function(l) { return !dashIsArchived(l); }).length;
+      document.getElementById('perfMeta').textContent = loans.length.toLocaleString() + ' mirrored';
       document.getElementById('dashPerfBody').innerHTML =
         '<div class="perf-tiles">' +
-          '<div class="perf-tile"><div class="n">' + active.toLocaleString() + '</div><div class="l">Active</div></div>' +
-          '<div class="perf-tile"><div class="n">' + won.toLocaleString() + '</div><div class="l">Closed</div></div>' +
-          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(volume) + '</div><div class="l">Closed Volume</div></div>' +
-          '<div class="perf-tile"><div class="n">' + loans.length.toLocaleString() + '</div><div class="l">Total Loans</div></div>' +
+          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(openAmount) + '</div><div class="l">Active Pipeline</div></div>' +
+          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(wonSum) + '</div><div class="l">Won</div></div>' +
+          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(revSum) + '</div><div class="l">Est. Revenue</div></div>' +
+          '<div class="perf-tile"><div class="n">' + nonArchived.toLocaleString() + '</div><div class="l">Total Loans</div></div>' +
         '</div>';
     }
 
@@ -795,21 +830,36 @@
         }).join('') + '</div>';
     }
 
-    // ── Widget 4: Loans table (search + sort, no revenue) ────────
+    // ── Widget 4: Loans table (active/processing only) ──────────
+    // Deploy 236.335 — filter to isOpen (currently-processing) only
+    // per Mike; won/hold/archived hidden. Columns mirror admin
+    // dashboard.html:3360-3369 exactly. Rate value is a decimal in
+    // the mirror (0.075) — multiply by 100 to display (7.50%).
     var DASH_LOAN_COLS = [
-      { key: 'name',      label: 'Loan',    numeric: false, get: function(l) { return l.Name || ''; } },
-      { key: 'state',     label: 'State',   numeric: false, get: function(l) { return l.Address_State || ''; } },
-      { key: 'amount',    label: 'Amount',  numeric: true,  get: function(l) { return dashAmount(l); } },
-      { key: 'rate',      label: 'Rate',    numeric: true,  get: function(l) { var n = parseFloat(l.Rate); return isFinite(n) ? n : 0; } },
-      { key: 'status',    label: 'Status',  numeric: false, get: function(l) { return l.Status || ''; } },
-      { key: 'closeDate', label: 'Close',   numeric: true,  get: function(l) { var d = dashCloseDate(l); return d ? d.getTime() : 0; } },
+      { key: 'address', label: 'Address', numeric: false, get: function(l) { return l.Name || ''; } },
+      { key: 'state',   label: 'State',   numeric: false, get: function(l) { return l.Address_State || ''; } },
+      { key: 'status',  label: 'Status',  numeric: false, get: function(l) { return l.Status || ''; } },
+      { key: 'type',    label: 'Type',    numeric: false, get: function(l) { return l.Substatus || ''; } },
+      { key: 'amount',  label: 'Amount',  numeric: true,  get: function(l) { return dashAmount(l); } },
+      { key: 'rate',    label: 'Rate',    numeric: true,  get: function(l) { var n = parseFloat(l.Rate); return isFinite(n) ? n : 0; } },
+      { key: 'points',  label: 'Points',  numeric: true,  get: function(l) { var n = parseFloat(l.Origination_Points); return isFinite(n) ? n : 0; } },
+      { key: 'close',   label: 'Close',   numeric: true,  get: function(l) { var d = dashCloseDate(l); return d ? d.getTime() : 0; } },
     ];
+    // Points → percent (handles both storage formats — decimal or
+    // percent-number). Same heuristic as dashboard.html.
+    function dashPointsPct(v) {
+      var n = parseFloat(v);
+      if (!isFinite(n)) return null;
+      return n < 0.1 ? n * 100 : n;
+    }
     function renderDashLoans() {
-      var loans = (_dashLoans || []).slice();
+      // Active/processing filter — matches dashboard.html isOpen().
+      var loans = (_dashLoans || []).filter(dashIsOpen);
       var q = (_dashLoanSearch || '').toLowerCase().trim();
       if (q) {
         loans = loans.filter(function(l) {
-          var hay = ((l.Name||'') + ' ' + (l.Address_State||'') + ' ' + (l.Status||'')).toLowerCase();
+          var hay = ((l.Name||'') + ' ' + (l.Address_State||'') + ' ' +
+                     (l.Status||'') + ' ' + (l.Substatus||'')).toLowerCase();
           return hay.indexOf(q) >= 0;
         });
       }
@@ -826,19 +876,28 @@
       }).join('') + '</tr></thead>';
       var body = '<tbody>' + loans.slice(0, 200).map(function(l) {
         var bucket = dashStatusBucket(l);
-        var rate = parseFloat(l.Rate);
+        // Rate mirror value is stored as a decimal (0.075 → 7.50%).
+        var rateN = parseFloat(l.Rate);
+        var rateHtml = (isFinite(rateN) && rateN > 0) ? (rateN * 100).toFixed(2) + '%' : '—';
+        var ptsHtml = '—';
+        var ptsPct = dashPointsPct(l.Origination_Points);
+        if (ptsPct != null) ptsHtml = ptsPct.toFixed(2) + '%';
         return '<tr>' +
           '<td>' + escH(l.Name || '—') + '</td>' +
           '<td>' + escH(l.Address_State || '') + '</td>' +
-          '<td>' + fmtMoneyShort(dashAmount(l)) + '</td>' +
-          '<td>' + (isFinite(rate) && rate > 0 ? rate.toFixed(3) + '%' : '—') + '</td>' +
           '<td class="status-cell"><span class="status-pill ' + bucket + '">' + escH(l.Status || '—') + '</span></td>' +
+          '<td>' + escH(l.Substatus || '—') + '</td>' +
+          '<td>' + fmtMoneyShort(dashAmount(l)) + '</td>' +
+          '<td>' + rateHtml + '</td>' +
+          '<td>' + ptsHtml + '</td>' +
           '<td>' + (dashCloseDate(l) ? dashCloseDate(l).toLocaleDateString() : '—') + '</td>' +
         '</tr>';
       }).join('') + '</tbody>';
       var footer = loans.length > 200
-        ? '<div style="padding:8px;font-size:11px;color:var(--muted);text-align:center">Showing first 200 of ' + loans.length.toLocaleString() + '. Open <a href="dashboard.html" style="color:var(--gold-mid)">Dashboard</a> for the full table.</div>'
-        : '';
+        ? '<div style="padding:8px;font-size:11px;color:var(--muted);text-align:center">Showing first 200 active. Open <a href="dashboard.html" style="color:var(--gold-mid)">Dashboard</a> for the full table.</div>'
+        : (loans.length === 0
+            ? '<div style="padding:12px;font-size:12px;color:var(--muted);text-align:center">No active loans currently processing.</div>'
+            : '');
       document.getElementById('dashLoansBody').innerHTML =
         '<table class="dash-loans-table">' + head + body + '</table>' + footer;
     }
