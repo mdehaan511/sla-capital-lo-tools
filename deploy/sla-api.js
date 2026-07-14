@@ -132,6 +132,27 @@
     };
   }
 
+  // Deploy 236.324 — decode the exp claim from a JWT (base64url) and
+  // return true when the token has less than REFRESH_MARGIN_SEC left
+  // before expiry. Refuses to guess when the token can't be parsed —
+  // caller trusts the cached path. Safe against XSS-ish input: we do
+  // NOT eval, just base64-decode and JSON.parse the middle segment.
+  var REFRESH_MARGIN_SEC = 180; // refresh only when < 3 min left
+  function _tokenNeedsRefresh(jwt) {
+    try {
+      var parts = String(jwt || '').split('.');
+      if (parts.length !== 3) return false;
+      var p = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (p.length % 4) p += '=';
+      var payload = JSON.parse(atob(p));
+      if (!payload || typeof payload.exp !== 'number') return false;
+      var secondsLeft = payload.exp - Math.floor(Date.now() / 1000);
+      return secondsLeft < REFRESH_MARGIN_SEC;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── Auth token helper ───────────────────────────────────────────
   function getToken() {
     // Fast path (Deploy 236.267.1) — a live Netlify Identity user or
@@ -141,32 +162,33 @@
     try {
       var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
       if (nlUser) {
-        // Deploy 236.315 — pass `true` to Netlify Identity so it
-        // proactively refreshes the access token when it's close to
-        // expiring (< 60 s in gotrue-js) or already dead. Passing
-        // nothing/false returned a cached JWT even when it was
-        // seconds from expiry, which caused every user to bounce to
-        // the login screen ~1 hour into a session — the widget's
-        // internal refresh timer throttles on backgrounded tabs, so
-        // the token would silently expire, the next fetch would fail
-        // 401, and the next page nav would fire on('logout') →
-        // window.location.replace('/'). Zero visible latency: the
-        // widget short-circuits the refresh when the token is still
-        // valid; only actually hits the refresh endpoint when needed.
+        // Deploy 236.324 — only force a refresh when the current
+        // access_token is actually close to expiring. Prior deploys
+        // (236.315, 236.323) called jwt(true) on EVERY getToken() —
+        // which fires POST /.netlify/identity/token on every API call.
+        // Pipeline load makes ~7 parallel calls; Netlify refresh_tokens
+        // are single-use, so the parallel refreshes race and most 400
+        // with invalid_grant. Repeated 400s eventually cause Netlify
+        // to invalidate the session → user logged out. Also breaks
+        // the rate-sheet signature popup ("Auth not initialized in
+        // popup") because the popup's init reads the shared session
+        // right after the parent has torched it via a bad refresh.
         //
-        // Deploy 236.323 — CATCH refresh failure. jwt(true) can reject
-        // (POST /.netlify/identity/token 400) when the refresh_token
-        // is invalid but the cached access_token is still usable. If
-        // we let the rejection propagate, every getToken() caller
-        // fails BEFORE even hitting the API — user's Send Rate Sheet
-        // errored out with no Bearer sent. Fall back to jwt() (no
-        // refresh) so the current in-memory token still ships.
-        return nlUser.jwt(true)
-          .catch(function (e) {
-            console.warn('[SLA auth] jwt(true) refresh failed, falling back to cached token:', e && e.message);
-            try { return nlUser.jwt(); } catch (_) { return ''; }
-          })
-          .then(function (t) { return t || ''; });
+        // Correct behavior: return the cached JWT when it's still
+        // fresh, only force a refresh when we can PROVE it's close to
+        // expiry. Parse the exp claim ourselves; if we can't (Supabase
+        // token, malformed, etc.) trust the cached path.
+        return nlUser.jwt().then(function (t) {
+          if (!t) return '';
+          if (_tokenNeedsRefresh(t)) {
+            return nlUser.jwt(true)
+              .catch(function (e) {
+                console.warn('[SLA auth] refresh failed, using cached token:', e && e.message);
+                return t;
+              });
+          }
+          return t;
+        });
       }
     } catch (_) {}
     var peek = _peekSupabaseSession();
@@ -189,14 +211,21 @@
   // preemptively renew — the widget short-circuits the request when
   // the token's still valid. Also refreshes the Supabase session
   // (autoRefreshToken usually handles this but doesn't hurt).
+  //
+  // Deploy 236.324 — same expiry guard as getToken(). Blindly calling
+  // jwt(true) on every visibility change consumed refresh_tokens in
+  // parallel with in-flight API calls and caused invalid_grant 400s.
   try {
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState !== 'visible') return;
       try {
         var nlUser = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
-        if (nlUser && typeof nlUser.jwt === 'function') {
-          nlUser.jwt(true).catch(function () { /* stale on tab focus is fine */ });
-        }
+        if (!nlUser || typeof nlUser.jwt !== 'function') return;
+        nlUser.jwt().then(function (t) {
+          if (t && _tokenNeedsRefresh(t)) {
+            nlUser.jwt(true).catch(function () { /* stale on tab focus is fine */ });
+          }
+        }).catch(function () {});
       } catch (_) {}
     });
   } catch (_) {}
