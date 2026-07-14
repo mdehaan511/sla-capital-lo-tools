@@ -80,9 +80,12 @@ async function handle(req, context) {
         if (!ownerEmail || ownerEmail.indexOf('@') < 1) {
           return { ok: false, rowIdx, email, reason: 'missing owner' };
         }
-        const firstName = String(raw.firstName || '').trim();
-        const lastName  = String(raw.lastName  || '').trim();
-        const phone     = String(raw.phone     || '').trim();
+        const firstName  = String(raw.firstName  || '').trim();
+        const lastName   = String(raw.lastName   || '').trim();
+        const phone      = String(raw.phone      || '').trim();
+        // Deploy 236.332 — accept optional entityName from the
+        // importer (CRM exports usually have an Organization column).
+        const entityName = String(raw.entityName || '').trim();
 
         const clientId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
         const ownerKey = keySafe(normalizeEmail(ownerEmail));
@@ -92,7 +95,7 @@ async function handle(req, context) {
           id: clientId,
           firstName, lastName,
           email, phone,
-          entityName: '',
+          entityName,
           createdAt: now,
           updatedAt: now,
           createdBy: ownerEmail,

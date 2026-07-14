@@ -7,6 +7,10 @@
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <script src="sla-api.js"></script>
 <script src="sla-nav.js" defer></script>
+<!-- Deploy 236.332 — SheetJS lets us read .xlsx directly (Pipedrive
+     and every other CRM exports as xlsx by default). Loaded from
+     CDN; only pulled on this admin-only page. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,8 +90,8 @@ table.sample th { background: var(--pill-bg, #f7f5f1); font-weight: 600; }
   <!-- Step 1 — file -->
   <div class="card">
     <h2><span class="step-num">1</span>Choose a CSV file</h2>
-    <div class="desc">First row should be a header (Name, Email, Phone, Owner or similar). Delimiter auto-detected (comma or tab). Files ≤ 15 MB.</div>
-    <input type="file" id="fileInput" accept=".csv,.tsv,.txt" />
+    <div class="desc">CSV, TSV, or Excel (.xlsx). First row is treated as the header (Name, Email, Phone, Owner, etc.). Files ≤ 15 MB.</div>
+    <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx" />
     <div id="fileErr" style="color:var(--danger);font-size:12.5px;margin-top:8px"></div>
   </div>
 
@@ -193,21 +197,67 @@ function parseCSV(text) {
 }
 
 // ─── Header → field guess ────────────────────────────────
+// Deploy 236.332 — email + phone are now ARRAYS of column indexes
+// (fallback chain, first non-empty wins). Handles Pipedrive-style
+// exports that split "Person - Email - Work / Home / Other" and
+// "Person - Phone - Work / Mobile / Home / Other". Also detects
+// Organization / Company → entityName. Personal-name variants also
+// stripped of the leading "Person - " prefix Pipedrive uses.
 function guessMap(headers) {
-  var g = { firstName: -1, lastName: -1, name: -1, email: -1, phone: -1, owner: -1 };
+  var g = {
+    firstName:    -1,
+    lastName:     -1,
+    name:         -1,
+    organization: -1,
+    email:        [], // fallback chain
+    phone:        [],
+    owner:        -1,
+  };
   headers.forEach(function (h, idx) {
-    var s = String(h || '').toLowerCase().trim();
-    if (g.firstName < 0 && /^(first[_\s-]?name|firstname|first)$/.test(s)) g.firstName = idx;
-    if (g.lastName  < 0 && /^(last[_\s-]?name|lastname|last|surname)$/.test(s)) g.lastName  = idx;
-    if (g.name      < 0 && /^(name|full[_\s-]?name|fullname|contact|contact[_\s-]?name)$/.test(s)) g.name = idx;
-    if (g.email     < 0 && /email/.test(s)) g.email = idx;
-    if (g.phone     < 0 && /(phone|mobile|cell)/.test(s)) g.phone = idx;
-    if (g.owner     < 0 && /(owner|lo|loan[_\s-]?officer|agent|assigned|rep|salesperson)/.test(s)) g.owner = idx;
+    // Normalize: lowercase, strip "person - " prefix, collapse hyphens.
+    var s = String(h || '').toLowerCase().trim()
+      .replace(/^person\s*-\s*/, '')
+      .replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (g.firstName < 0 && /^(first ?name|first)$/.test(s)) g.firstName = idx;
+    if (g.lastName  < 0 && /^(last ?name|last|surname)$/.test(s)) g.lastName  = idx;
+    if (g.name      < 0 && /^(name|full ?name|contact|contact ?name)$/.test(s)) g.name = idx;
+    if (g.organization < 0 && /(organization|organisation|company|entity|llc|business)/.test(s)) g.organization = idx;
+    if (/email/.test(s)) g.email.push(idx);
+    if (/(phone|mobile|cell|tel)/.test(s)) g.phone.push(idx);
+    if (g.owner < 0 && /(owner|^lo$|loan officer|agent|assigned|rep|salesperson)/.test(s)) g.owner = idx;
   });
+  // Prefer Work → Home → Mobile → Other ordering — Pipedrive names
+  // are already in the header text; sort by suffix priority.
+  function suffixRank(h) {
+    var t = String(h || '').toLowerCase();
+    if (/\bwork\b/.test(t))   return 0;
+    if (/\bmobile\b|\bcell\b/.test(t)) return 1;
+    if (/\bhome\b/.test(t))   return 2;
+    if (/\bother\b/.test(t))  return 3;
+    return 4;
+  }
+  g.email.sort(function (a, b) { return suffixRank(headers[a]) - suffixRank(headers[b]); });
+  g.phone.sort(function (a, b) { return suffixRank(headers[a]) - suffixRank(headers[b]); });
   return g;
 }
 
 // ─── File input ──────────────────────────────────────────
+// Deploy 236.332 — XLSX parser via SheetJS. Reads the first sheet as
+// an array of arrays so downstream code treats it the same as a CSV.
+// Skips rows that are entirely empty (Pipedrive sometimes exports
+// trailing blank rows).
+function parseXLSX(arrayBuf) {
+  if (!window.XLSX) throw new Error('XLSX library not loaded — refresh and try again.');
+  var wb = XLSX.read(arrayBuf, { type: 'array' });
+  var firstSheetName = wb.SheetNames[0];
+  if (!firstSheetName) throw new Error('Workbook has no sheets.');
+  var ws = wb.Sheets[firstSheetName];
+  var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
+  return aoa.filter(function (row) {
+    return row.some(function (v) { return String(v == null ? '' : v).trim() !== ''; });
+  });
+}
+
 qs('fileInput').addEventListener('change', function (e) {
   var f = e.target.files[0];
   if (!f) return;
@@ -216,11 +266,17 @@ qs('fileInput').addEventListener('change', function (e) {
     qs('fileErr').textContent = 'File is over 15 MB. Please split it before upload.';
     return;
   }
+  var isXlsx = /\.xlsx$/i.test(f.name);
   var rdr = new FileReader();
   rdr.onload = function () {
     try {
-      var rows = parseCSV(String(rdr.result || ''));
-      if (rows.length < 2) throw new Error('CSV needs a header row plus at least one data row.');
+      var rows;
+      if (isXlsx) {
+        rows = parseXLSX(rdr.result);
+      } else {
+        rows = parseCSV(String(rdr.result || ''));
+      }
+      if (rows.length < 2) throw new Error('File needs a header row plus at least one data row.');
       CSV_HEADERS = rows[0];
       CSV_ROWS = rows.slice(1);
       CSV_MAP = guessMap(CSV_HEADERS);
@@ -231,28 +287,40 @@ qs('fileInput').addEventListener('change', function (e) {
       qs('fileErr').textContent = 'Parse failed: ' + err.message;
     }
   };
-  rdr.readAsText(f);
+  if (isXlsx) rdr.readAsArrayBuffer(f); else rdr.readAsText(f);
 });
 
 function renderMapUI() {
   var g = qs('mapGrid');
   g.innerHTML = '';
-  var fields = [
-    { key: 'firstName', label: 'First Name', required: false, hint: 'Or leave blank if the CSV only has a full "Name" column' },
-    { key: 'lastName',  label: 'Last Name',  required: false, hint: '' },
-    { key: 'name',      label: 'Full Name',  required: false, hint: 'Used only if First/Last are unmapped — we split on the last space' },
-    { key: 'email',     label: 'Email',      required: true,  hint: 'REQUIRED. Rows without a valid email are skipped.' },
-    { key: 'phone',     label: 'Phone',      required: false, hint: 'Formatted to (XXX) XXX-XXXX on save' },
-    { key: 'owner',     label: 'Owner (LO name)', required: true, hint: 'REQUIRED. Fuzzy-matched to Netlify Identity LOs on the next step' },
+  // Deploy 236.332 — email + phone rows render as a fallback CHAIN:
+  // one <select> per column position, up to 4 slots. Row uses the
+  // first non-empty value across the chain. Simpler than a
+  // multi-select and preserves priority (Work first, etc.).
+  var scalarFields = [
+    { key: 'firstName',    label: 'First Name',       required: false, hint: 'Or leave blank if the CSV only has a full "Name" column' },
+    { key: 'lastName',     label: 'Last Name',        required: false, hint: '' },
+    { key: 'name',         label: 'Full Name',        required: false, hint: 'Used only if First/Last are unmapped — we split on the last space' },
+    { key: 'organization', label: 'Organization/LLC', required: false, hint: 'Stored as the entity name on the contact record' },
+    { key: 'owner',        label: 'Owner (LO name)',  required: true,  hint: 'REQUIRED. Fuzzy-matched to LO list on the next step' },
   ];
-  fields.forEach(function (f) {
+  var chainFields = [
+    { key: 'email', label: 'Email',                   required: true,  slots: 3, hint: 'REQUIRED. First non-empty column across the chain wins. Rows with no email are skipped.' },
+    { key: 'phone', label: 'Phone',                   required: false, slots: 4, hint: 'Auto-formatted to (XXX) XXX-XXXX (strips +1, non-digits). First non-empty column wins.' },
+  ];
+
+  function selectHtml(id, currentIdx) {
+    return '<option value="-1">— none —</option>' + CSV_HEADERS.map(function (h, i) {
+      return '<option value="' + i + '"' + (currentIdx === i ? ' selected' : '') + '>' + esc(h || ('Column ' + (i + 1))) + '</option>';
+    }).join('');
+  }
+
+  scalarFields.forEach(function (f) {
     var lbl = document.createElement('label');
     lbl.textContent = f.label + (f.required ? ' *' : '');
     var sel = document.createElement('select');
     sel.id = 'map-' + f.key;
-    sel.innerHTML = '<option value="-1">— none —</option>' + CSV_HEADERS.map(function (h, i) {
-      return '<option value="' + i + '"' + (CSV_MAP[f.key] === i ? ' selected' : '') + '>' + esc(h || ('Column ' + (i + 1))) + '</option>';
-    }).join('');
+    sel.innerHTML = selectHtml('map-' + f.key, CSV_MAP[f.key]);
     sel.addEventListener('change', function () { CSV_MAP[f.key] = parseInt(sel.value, 10); });
     g.appendChild(lbl);
     var wrap = document.createElement('div');
@@ -260,14 +328,40 @@ function renderMapUI() {
     if (f.hint) { var h = document.createElement('div'); h.className = 'hint'; h.textContent = f.hint; wrap.appendChild(h); }
     g.appendChild(wrap);
   });
+
+  chainFields.forEach(function (f) {
+    var lbl = document.createElement('label');
+    lbl.textContent = f.label + (f.required ? ' *' : '') + ' (fallback chain)';
+    var wrap = document.createElement('div');
+    var chain = document.createElement('div');
+    chain.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px';
+    for (var i = 0; i < f.slots; i++) {
+      (function (slotIdx) {
+        var sel = document.createElement('select');
+        sel.id = 'map-' + f.key + '-' + slotIdx;
+        var current = (CSV_MAP[f.key] && CSV_MAP[f.key][slotIdx] != null) ? CSV_MAP[f.key][slotIdx] : -1;
+        sel.innerHTML = selectHtml(sel.id, current);
+        sel.addEventListener('change', function () {
+          if (!Array.isArray(CSV_MAP[f.key])) CSV_MAP[f.key] = [];
+          CSV_MAP[f.key][slotIdx] = parseInt(sel.value, 10);
+        });
+        chain.appendChild(sel);
+      })(i);
+    }
+    wrap.appendChild(chain);
+    if (f.hint) { var h = document.createElement('div'); h.className = 'hint'; h.textContent = f.hint; wrap.appendChild(h); }
+    g.appendChild(lbl);
+    g.appendChild(wrap);
+  });
+
   // Sample rows
   var sw = qs('sampleWrap');
   sw.innerHTML = '<label style="margin-bottom:6px">Sample rows</label>';
-  var t = '<table class="sample"><thead><tr>' + CSV_HEADERS.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  var t = '<div style="overflow-x:auto"><table class="sample"><thead><tr>' + CSV_HEADERS.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>';
   CSV_ROWS.slice(0, 3).forEach(function (r) {
-    t += '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>';
+    t += '<tr>' + CSV_HEADERS.map(function (_, i) { return '<td>' + esc(r[i]) + '</td>'; }).join('') + '</tr>';
   });
-  t += '</tbody></table>';
+  t += '</tbody></table></div>';
   sw.innerHTML += t;
 }
 
@@ -297,10 +391,36 @@ function bestLoMatch(csvName) {
   return best;
 }
 
+// Deploy 236.332 — normalize a phone value to (XXX) XXX-XXXX when
+// possible. Handles the Pipedrive mix: bare digits ("15718392983"),
+// pre-formatted "(406) 570-7339", E.164 "+12087716115". Strips
+// leading country code 1. Anything that doesn't come out to 10
+// digits is passed through as-is so we don't lose international.
+function normalizePhone(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  var d = s.replace(/\D+/g, '');
+  if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+  if (d.length === 10) return '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
+  return s; // international / short — leave untouched
+}
+
+// Deploy 236.332 — first-non-empty across a chain of column indexes.
+function pickFromChain(row, chain) {
+  if (!Array.isArray(chain)) return '';
+  for (var i = 0; i < chain.length; i++) {
+    var idx = chain[i];
+    if (idx == null || idx < 0) continue;
+    var v = String(row[idx] == null ? '' : row[idx]).trim();
+    if (v) return v;
+  }
+  return '';
+}
+
 function runMatchOwners() {
   var ownerIdx = CSV_MAP.owner;
-  var emailIdx = CSV_MAP.email;
-  if (emailIdx < 0) { alert('Map the Email column first — it\'s required.'); return; }
+  var emailChain = (CSV_MAP.email || []).filter(function (i) { return i != null && i >= 0; });
+  if (!emailChain.length) { alert('Map at least one Email column first — it\'s required.'); return; }
   if (ownerIdx < 0) { alert('Map the Owner column first — it\'s required.'); return; }
 
   // Tally unique owner names.
@@ -386,7 +506,8 @@ function prepareRows() {
 
   for (var i = 0; i < CSV_ROWS.length; i++) {
     var r = CSV_ROWS[i];
-    var email = String(m.email >= 0 ? (r[m.email] || '') : '').trim().toLowerCase();
+    // Deploy 236.332 — email + phone come from fallback chains now.
+    var email = pickFromChain(r, m.email).toLowerCase();
     if (!email || email.indexOf('@') < 1) { invalid++; continue; }
     if (seenEmails.has(email)) { invalid++; continue; }
     seenEmails.add(email);
@@ -401,9 +522,15 @@ function prepareRows() {
       var parts = splitName(r[m.name]);
       firstName = parts.firstName; lastName = parts.lastName;
     }
-    var phone = m.phone >= 0 ? String(r[m.phone] || '').trim() : '';
+    var phone = normalizePhone(pickFromChain(r, m.phone));
+    var entityName = m.organization >= 0 ? String(r[m.organization] || '').trim() : '';
 
-    out.push({ firstName: firstName, lastName: lastName, email: email, phone: phone, ownerEmail: ownerEmail });
+    out.push({
+      firstName: firstName, lastName: lastName,
+      email: email, phone: phone,
+      entityName: entityName,
+      ownerEmail: ownerEmail,
+    });
   }
   return { rows: out, invalid: invalid };
 }
