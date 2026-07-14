@@ -14,6 +14,16 @@
   --surface:#ffffff;--text:#1a1520;--muted:#7a7488;--border:#E4DFD4;
   --success:#256940;--danger:#7c1f1f;
 }
+/* Deploy 236.326 — print stylesheet. Borrowers save this to PDF via
+   browser Print; hide the nav / buttons / auth gate + reset the page
+   background so the printed doc reads cleanly on paper. */
+@media print {
+  body { background: #fff !important; padding: 0 !important; }
+  .nav, button, .btn, .action-bar, #auth-gate,
+  [class*="modal-bg"] { display: none !important; }
+  .card, .box, .section { box-shadow: none !important; border-color: #ccc !important; }
+  a { color: inherit !important; text-decoration: none !important; }
+}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:0 1rem 5rem}
 .nav{max-width:920px;margin:0 auto;padding:1.5rem 0 0;display:flex;align-items:center;gap:12px}

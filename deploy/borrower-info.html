@@ -9,6 +9,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* Deploy 236.326 — print stylesheet for borrower who saves the
+   completed long-app to PDF. Strips nav / buttons / progress bar
+   so the printed doc is a clean transcript of the answers. */
+@media print {
+  body { background: #fff !important; padding: 0 !important; }
+  .nav, button, .btn, .progress, .progress-bar, .field-actions,
+  #auth-gate, [class*="modal-bg"] { display: none !important; }
+  .field, .card, .box { box-shadow: none !important; border-color: #ccc !important; page-break-inside: avoid; }
+  a { color: inherit !important; text-decoration: none !important; }
+}
 :root {
   --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.08);
   --gold-border: rgba(200,129,58,0.28);

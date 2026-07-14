@@ -759,7 +759,7 @@ function moveLoanByDrop(loanKey, newStage, currentStage) {
     if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
     loadAll();
   }).catch(function(err) {
-    alert('Failed to move loan: ' + (err && err.message ? err.message : 'unknown'));
+    showToast('Failed to move loan: ' + (err && err.message ? err.message : 'unknown'));
     loadAll(); // server didn't update — reload to undo the optimistic move
   });
 }
@@ -800,7 +800,7 @@ function editCloseDate(input) {
   }).catch(function(err) {
     input.disabled = false;
     input.value = current;
-    alert('Failed to save close date: ' + (err && err.message ? err.message : 'unknown'));
+    showToast('Failed to save close date: ' + (err && err.message ? err.message : 'unknown'));
   });
 }
 
@@ -830,7 +830,7 @@ function moveLoanSubstatus(sel) {
   }).catch(function(err) {
     sel.disabled = false;
     sel.value = current;
-    alert('Failed to update substatus: ' + (err && err.message ? err.message : 'unknown error'));
+    showToast('Failed to update substatus: ' + (err && err.message ? err.message : 'unknown error'));
   });
 }
 

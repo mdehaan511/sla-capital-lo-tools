@@ -6,6 +6,8 @@
   <title>Baseline Sync Log — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <!-- Deploy 236.326 — migrated to shared sla-nav. -->
+  <script src="sla-nav.js" defer></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -94,22 +96,8 @@
 
 <div id="auth-gate"><div class="gate-msg"><strong>Loading...</strong>Verifying access...</div></div>
 
-<nav class="nav">
-  <div class="nav-left">
-    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
-    <a href="index.html" class="nav-tools-btn">Tools</a>
-  </div>
-  <div class="nav-right">
-    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
-    <a class="nav-tool-link" href="clients.html">Clients</a>
-    <a class="nav-tool-link" href="brokers.html">Brokers</a>
-    <a class="nav-tool-link" href="loans.html">Loans</a>
-    <a class="nav-tool-link" href="submissions.html">Submissions</a>
-    <a class="nav-tool-link" href="dashboard.html">Dashboard</a>
-    <a class="nav-tool-link" href="profile.html">Profile</a>
-    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
-  </div>
-</nav>
+<!-- Deploy 236.326 — sla-nav.js populates this placeholder. -->
+<nav class="nav" id="slaNav"></nav>
 
 <div class="page">
   <a href="profile.html" class="back-link">← Back to Profile</a>

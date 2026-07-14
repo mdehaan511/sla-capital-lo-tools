@@ -1590,7 +1590,7 @@ function buildProspectCard(it) {
     : '— no address —';
 
   return (
-    '<div class="card prospect-card' + (_selectMode && _selectedItems.has(selKey) ? ' is-selected' : '') + '">' +
+    '<div class="card prospect-card' + (_selectMode && _selectedItems.has(selKey) ? ' is-selected' : '') + '" data-quote-id="' + escAttr(it.id || '') + '" data-owner-key="' + escAttr(it.ownerKey || '') + '">' +
       checkboxHtml +
       loRow +
       '<div class="card-title">' + nameHtml + '</div>' +
@@ -1963,7 +1963,7 @@ function buildQuoteCard(it, colKey) {
   }
 
   return (
-    '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + bulkClass + '">' +
+    '<div class="card has-bell' + (isCardReminderDue(it) ? ' due' : '') + bulkClass + '" data-quote-id="' + escAttr(it.id || '') + '" data-owner-key="' + escAttr(it.ownerKey || '') + '">' +
       bulkCb +
       bellForLoan(lookup, q, addr) +
       loRow +
@@ -2146,30 +2146,12 @@ function handleDeepLinkParams() {
     // Find the matching quote card across all columns and scroll to it.
     // Cards don't have ids today; we re-render with data attribute, then find.
     setTimeout(function() {
-      var allCards = document.querySelectorAll('.card');
-      var found = null;
-      // Walk _items and find the index of the matching quote, then map to a card
-      // The simpler path: search by borrower/address text match.
-      var match = null;
-      ['approved','awaitingApp','submitted','quoted','newApp'].some(function(col) {
-        var hit = (_items[col] || []).find(function(it) {
-          return it.kind === 'quote' && it.id === focusLoan;
-        });
-        if (hit) { match = hit; return true; }
-        return false;
-      });
-      if (!match) return;
-      // Find card by walking title text
-      var fd = match.quote.formData || {};
-      var name = match.quote.borrower || fd.borrower || fd.borrowerName || '';
-      var addr = match.quote.address || fd.address || '';
-      allCards.forEach(function(card) {
-        var titleEl = card.querySelector('.card-title');
-        if (!titleEl) return;
-        if (titleEl.textContent.indexOf(name) >= 0 || (addr && card.textContent.indexOf(addr) >= 0)) {
-          if (!found) found = card;
-        }
-      });
+      // Deploy 236.326 — direct attribute lookup instead of text
+      // substring matching. Cards are stamped with data-quote-id in
+      // buildCard(). Text matching mis-fired when two loans shared
+      // a borrower name or the address appeared in another card's
+      // notes / meta.
+      var found = document.querySelector('.card[data-quote-id="' + focusLoan.replace(/"/g, '\\"') + '"]');
       if (found) {
         found.scrollIntoView({ behavior: 'smooth', block: 'center' });
         // Brief highlight

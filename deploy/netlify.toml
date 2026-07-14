@@ -308,14 +308,6 @@
   status = 200
   force = true
 
-# Spike (spike/supabase-auth branch) — Supabase JWT round-trip test.
-# Not linked from prod; verified via /spike-supabase.html.
-[[redirects]]
-  from = "/api/spike-supabase-echo"
-  to = "/.netlify/functions/spike-supabase-echo"
-  status = 200
-  force = true
-
 # Path A Phase 1 — Supabase user management (invite + list).
 [[redirects]]
   from = "/api/users-invite-supabase"

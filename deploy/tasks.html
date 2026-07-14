@@ -295,7 +295,7 @@ function toggleComplete(taskId, checked) {
     }
   }).catch(function(err) {
     t.completed = prev; render();
-    alert('Failed to update: ' + (err && err.message || 'unknown'));
+    showToast('Failed to update: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -308,7 +308,7 @@ function del(taskId, ownerKey) {
   var ownerEmail = (ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
   SLA.api('POST', '/api/tasks-delete', { taskId: taskId, owner: ownerEmail }).catch(function(err) {
     _tasks.splice(idx, 0, removed); render();
-    alert('Failed to delete: ' + (err && err.message || 'unknown'));
+    showToast('Failed to delete: ' + (err && err.message || 'unknown'));
   });
 }
 </script>

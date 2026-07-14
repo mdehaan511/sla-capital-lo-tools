@@ -318,7 +318,7 @@ function del(contactId, ownerKey) {
   SLA.api('POST', '/api/loan-contacts-delete', { contactId: contactId, owner: ownerEmail }).catch(function(err) {
     _contacts.splice(idx, 0, removed);
     render();
-    alert('Failed to delete: ' + (err && err.message || 'unknown'));
+    showToast('Failed to delete: ' + (err && err.message || 'unknown'));
   });
 }
 </script>

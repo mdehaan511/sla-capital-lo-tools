@@ -2764,7 +2764,7 @@ function _renderDocReviewStarter() {
     }).catch(function(err) {
       btn.disabled = false;
       btn.textContent = 'Start Document Review';
-      alert('Could not start review: ' + (err && err.message || 'unknown'));
+      showToast('Could not start review: ' + (err && err.message || 'unknown'));
     });
   };
 }
@@ -2895,7 +2895,7 @@ function deleteDoc(id) {
   }).catch(function(err) {
     _docs.splice(idx, 0, removed);
     renderDocsList();
-    alert('Failed to delete: ' + (err && err.message || 'unknown'));
+    showToast('Failed to delete: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -3263,7 +3263,7 @@ function saveLoanFinInlineEdit(field, newVal, bg, btn) {
   SLA.api('POST', '/api/loan-financials-edit', payload).then(function(r) {
     if (!r || !r.loan) {
       btn.disabled = false; btn.textContent = 'Save';
-      alert('Save failed: server returned no loan.');
+      showToast('Save failed: server returned no loan.');
       return;
     }
     _loan = r.loan;
@@ -3286,7 +3286,7 @@ function saveLoanFinInlineEdit(field, newVal, bg, btn) {
     render();
   }).catch(function(err) {
     btn.disabled = false; btn.textContent = 'Save';
-    alert('Save failed: ' + (err && err.message || 'unknown'));
+    showToast('Save failed: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -3298,7 +3298,7 @@ function restoreLoanFinancials() {
   var payload = { clientId: _clientId, loanId: _loanId };
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   SLA.api('POST', '/api/loan-financials-restore', payload).then(function(r) {
-    if (!r || !r.loan) { alert('Restore failed: server returned no loan.'); return; }
+    if (!r || !r.loan) { showToast('Restore failed: server returned no loan.'); return; }
     _loan = r.loan;
     var lidx = (_client && _client.loans || []).findIndex(function(l) { return l && l.id === _loanId; });
     if (lidx >= 0) _client.loans[lidx] = r.loan;
@@ -3309,7 +3309,7 @@ function restoreLoanFinancials() {
     } catch (_) {}
     render();
   }).catch(function(err) {
-    alert('Restore failed: ' + (err && err.message || 'unknown'));
+    showToast('Restore failed: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -3401,7 +3401,24 @@ function openAddContactModal() {
   });
   _resetContactModalStatus();
   document.getElementById('ctAddModal').classList.add('show');
+  _wireContactModalEnter();
   setTimeout(function(){ var n = document.getElementById('ctModalName'); if (n) n.focus(); }, 30);
+}
+// Deploy 236.326 — Enter submits the Add-Contact modal. Wire once
+// per modal open; guard against duplicate handlers via _slaEnterBound.
+function _wireContactModalEnter() {
+  ['ctModalName','ctModalCompany','ctModalEmail','ctModalPhone'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el || el._slaEnterBound) return;
+    el._slaEnterBound = true;
+    el.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        var btn = document.getElementById('ctModalSaveBtn');
+        if (btn && !btn.disabled) btn.click();
+      }
+    });
+  });
 }
 function openEditContactModal(contactId) {
   var c = _loanContacts.find(function(x) { return x.id === contactId; });
@@ -3416,6 +3433,7 @@ function openEditContactModal(contactId) {
   document.getElementById('ctModalPhone').value   = c.phone   || '';
   _resetContactModalStatus();
   document.getElementById('ctAddModal').classList.add('show');
+  _wireContactModalEnter();
 }
 function closeAddContactModal() {
   document.getElementById('ctAddModal').classList.remove('show');
@@ -3475,7 +3493,7 @@ function deleteLoanContact(contactId) {
   SLA.api('POST', '/api/loan-contacts-delete', body).catch(function(err) {
     _loanContacts.splice(idx, 0, removed);
     renderLoanContactsList();
-    alert('Failed to delete contact: ' + (err && err.message || 'unknown'));
+    showToast('Failed to delete contact: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -3575,7 +3593,7 @@ function openOrCreateDocReview() {
     return;
   }
   // No existing review — create one and navigate.
-  if (!_client || !_loan) { alert('Loan not loaded yet.'); return; }
+  if (!_client || !_loan) { showToast('Loan not loaded yet.'); return; }
   var loanType = (String(_loan.toolType || '').toLowerCase() === 'rtl') ? 'rtl' : 'dscr';
   var borrowerName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim();
   var btn = document.getElementById('docReviewBtn');
@@ -3600,7 +3618,7 @@ function openOrCreateDocReview() {
   }).catch(function(err) {
     if (btn) btn.disabled = false;
     if (label) label.textContent = 'Start Loan Doc Review';
-    alert('Failed to start review: ' + (err.message || 'Unknown error'));
+    showToast('Failed to start review: ' + (err.message || 'Unknown error'));
   });
 }
 
@@ -3861,7 +3879,7 @@ function addTaskFromUI() {
     }
   }).catch(function(err) {
     btn.disabled = false;
-    alert('Failed to add task: ' + (err && err.message || 'unknown'));
+    showToast('Failed to add task: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -4055,7 +4073,7 @@ function toggleTaskComplete(taskId, completed) {
   }).catch(function(err) {
     task.completed = prevCompleted;
     renderTasksList();
-    alert('Failed to update task: ' + (err && err.message || 'unknown'));
+    showToast('Failed to update task: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -4072,7 +4090,7 @@ function deleteTask(taskId) {
     // Revert on failure.
     _tasks.splice(idx, 0, removed);
     renderTasksList();
-    alert('Failed to delete task: ' + (err && err.message || 'unknown'));
+    showToast('Failed to delete task: ' + (err && err.message || 'unknown'));
   });
 }
 
@@ -4322,7 +4340,7 @@ function deleteThisLoan() {
     }
     setTimeout(function(){ window.location.href = dest; }, 600);
   }).catch(function(err) {
-    alert('Delete failed: ' + (err.message || 'unknown error'));
+    showToast('Delete failed: ' + (err.message || 'unknown error'));
   });
 }
 
@@ -5496,7 +5514,7 @@ function confirmChangeType() {
       var msg = (resp.body && resp.body.error) || ('HTTP ' + resp.status);
       btn.disabled = false;
       btn.innerHTML = 'Yes, change to <span id="ctTargetType">' + (resp.body.newToolType || '').toUpperCase() + '</span>';
-      alert('Change failed: ' + msg);
+      showToast('Change failed: ' + msg);
       return;
     }
     // Success — bounce to the new sizer with the loan prefilled
@@ -5506,7 +5524,7 @@ function confirmChangeType() {
     }, 500);
   }).catch(function(err) {
     btn.disabled = false;
-    alert('Change failed: ' + (err && err.message || 'network error'));
+    showToast('Change failed: ' + (err && err.message || 'network error'));
   });
 }
 
@@ -5597,7 +5615,7 @@ function closeEsignModal() {
 
 function esAddSigner(fn, ln, em) {
   if (_esSignerCount >= 6) {
-    alert('Maximum 6 signers per envelope.');
+    showToast('Maximum 6 signers per envelope.');
     return;
   }
   _esSignerCount++;
@@ -6051,7 +6069,7 @@ function voidEnvelope(envelopeId) {
     showToast('Envelope cancelled');
     refreshEnvelopes();
   }).catch(function(err) {
-    alert('Failed to cancel: ' + (err.message || 'unknown'));
+    showToast('Failed to cancel: ' + (err.message || 'unknown'));
   });
 }
 
@@ -6069,7 +6087,7 @@ function resendEnvelopeSigner(envelopeId, signerIndex, btn) {
     refreshEnvelopes();
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Resend'; }
-    alert('Resend failed: ' + (err.message || 'unknown'));
+    showToast('Resend failed: ' + (err.message || 'unknown'));
   });
 }
 
@@ -6089,7 +6107,7 @@ function downloadEnvelopeFinal(envelopeId, docIdx, btn) {
 function submitLoan() {
   var status = _loan.status || 'active';
   if (status !== 'active' && status !== 'on_hold') {
-    alert('This loan has already been submitted or decided.');
+    showToast('This loan has already been submitted or decided.');
     return;
   }
   var notes = (document.getElementById('ld-submitNotes') || {}).value || '';
@@ -6098,7 +6116,7 @@ function submitLoan() {
   // Update the loan status in the client record
   var loans = _client.loans || [];
   var idx = loans.findIndex(function(l){ return l.id === _loanId; });
-  if (idx < 0) { alert('Loan not found.'); return; }
+  if (idx < 0) { showToast('Loan not found.'); return; }
   loans[idx].status    = 'submitted';
   loans[idx].updatedAt = new Date().toISOString();
   // Persist underwriter notes on the loan record so they show on:
@@ -6915,7 +6933,7 @@ function _ppOnStageChange(sel) {
   }).catch(function(err) {
     sel.disabled = false;
     sel.value = current;
-    alert('Failed to move stage: ' + (err && err.message ? err.message : 'unknown'));
+    showToast('Failed to move stage: ' + (err && err.message ? err.message : 'unknown'));
   });
 }
 
@@ -6935,7 +6953,7 @@ function _ppOnSubstatusChange(sel) {
   }).catch(function(err) {
     sel.disabled = false;
     sel.value = current;
-    alert('Failed to update substatus: ' + (err && err.message ? err.message : 'unknown'));
+    showToast('Failed to update substatus: ' + (err && err.message ? err.message : 'unknown'));
   });
 }
 
@@ -6955,7 +6973,7 @@ function _ppOnCloseDateChange(input) {
   }).catch(function(err) {
     input.disabled = false;
     input.value = current;
-    alert('Failed to save close date: ' + (err && err.message ? err.message : 'unknown'));
+    showToast('Failed to save close date: ' + (err && err.message ? err.message : 'unknown'));
   });
 }
 

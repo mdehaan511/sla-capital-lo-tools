@@ -216,6 +216,74 @@
     });
   }
 
+  // Deploy 236.326 — universal Escape + click-outside for modals. The
+  // codebase's modal convention is `.<prefix>-modal-bg` (ct-, bi-,
+  // ag-, esign-, etc.) as a fixed-position overlay; the inner
+  // `.<prefix>-modal` is the card. Adding this once here spares every
+  // page a keydown/click handler per modal. Behavior:
+  //   ESC   → find the topmost visible *-modal-bg; if it has a
+  //            [data-modal-close] or a Cancel/Close button inside,
+  //            click that (so per-modal cleanup runs); else hide it
+  //            outright.
+  //   Click → clicking the bg element itself (not its children) hides
+  //            the modal. Same discover-and-click pattern.
+  function _visibleModalBg() {
+    var candidates = document.querySelectorAll(
+      '[class*="modal-bg"], [class*="-overlay"], [class*="Overlay"]'
+    );
+    for (var i = candidates.length - 1; i >= 0; i--) {
+      var el = candidates[i];
+      // Only true overlays: fixed-position covering the viewport.
+      var cs = window.getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      if (cs.position !== 'fixed' && cs.position !== 'absolute') continue;
+      return el;
+    }
+    return null;
+  }
+  function _closeModalBg(bg) {
+    if (!bg) return false;
+    // Prefer an explicit close hook the page registered.
+    var closeAttr = bg.getAttribute('data-modal-close');
+    if (closeAttr && typeof window[closeAttr] === 'function') {
+      try { window[closeAttr](); return true; } catch (_) {}
+    }
+    // Fall back to any button labeled Cancel or Close (case-insensitive).
+    var btns = bg.querySelectorAll('button');
+    for (var j = 0; j < btns.length; j++) {
+      var txt = (btns[j].textContent || '').trim().toLowerCase();
+      if (txt === 'cancel' || txt === 'close' || txt === '×' || txt === '✕') {
+        try { btns[j].click(); return true; } catch (_) {}
+      }
+    }
+    // Last resort: hide via style.
+    bg.style.display = 'none';
+    return true;
+  }
+  try {
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' && e.keyCode !== 27) return;
+      // Don't fire when the user is typing in an input that manages
+      // its own Esc (autocomplete dropdowns handle it themselves).
+      var tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' && e.target.getAttribute('list')) return;
+      var bg = _visibleModalBg();
+      if (bg) _closeModalBg(bg);
+    });
+    document.addEventListener('click', function (e) {
+      // Only trigger when the click target IS the bg (not a child).
+      var t = e.target;
+      if (!t || !t.classList) return;
+      var isBg = false;
+      for (var i = 0; i < t.classList.length; i++) {
+        var cn = t.classList[i];
+        if (/modal-bg$|-overlay$|Overlay$/.test(cn)) { isBg = true; break; }
+      }
+      if (!isBg) return;
+      _closeModalBg(t);
+    }, true);
+  } catch (_) {}
+
   // Deploy 236.315 — refresh the token when the tab becomes visible
   // again. Fixes the "logged out after leaving the tab open in the
   // background" case: the widget's built-in refresh timer throttles
@@ -1914,9 +1982,47 @@
   };
 
   // ── Public namespace ────────────────────────────────────────────
+  // Deploy 236.326 — global toast fallback. Pages that don't define
+  // their own showToast() can call SLA.toast(msg) — or the top-level
+  // window.showToast shim below. If a #toast element exists on the
+  // page we use it; else we synthesize one, injecting a minimal style
+  // block so it looks right without any per-page CSS.
+  function _slaToast(msg, kind) {
+    try {
+      if (typeof window.showToast === 'function' && window.showToast !== _slaToast) {
+        window.showToast(msg); return;
+      }
+      var t = document.getElementById('sla-global-toast');
+      if (!t) {
+        t = document.createElement('div');
+        t.id = 'sla-global-toast';
+        t.setAttribute('role', 'status');
+        t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+          'padding:12px 20px;border-radius:24px;background:#261a36;color:#fff;' +
+          'font-family:DM Sans,system-ui,sans-serif;font-size:13px;font-weight:500;' +
+          'box-shadow:0 8px 24px rgba(0,0,0,0.18);opacity:0;transition:opacity 0.2s;' +
+          'z-index:2147483000;pointer-events:none;max-width:min(90vw,560px);text-align:center';
+        document.body.appendChild(t);
+      }
+      t.textContent = String(msg || '');
+      t.style.background = kind === 'error' ? '#7c1f1f' : (kind === 'success' ? '#256940' : '#261a36');
+      t.style.opacity = '1';
+      clearTimeout(t._slaTimer);
+      t._slaTimer = setTimeout(function () { t.style.opacity = '0'; }, 3200);
+    } catch (_) {
+      // Ultimate fallback if the DOM isn't ready — the original alert.
+      try { window.alert(msg); } catch (_) {}
+    }
+  }
+  // Only shim window.showToast if no page-defined one exists yet.
+  if (typeof window.showToast !== 'function') {
+    window.showToast = _slaToast;
+  }
+
   window.SLA = {
     api: api,
     cache: cache,
+    toast: _slaToast,
     Clients: Clients,
     Prospects: Prospects,
     Quotes: Quotes,

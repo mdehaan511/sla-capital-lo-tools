@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Admin Diagnostics — SLA Capital</title>
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-api.js"></script>
+<script src="sla-nav.js" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #C8813A; --gold-mid: #b5712d;
+  --dark: #261a36; --bg: #f0ece5; --surface: #ffffff;
+  --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+  --success: #256940; --danger: #7c1f1f;
+  --r: 12px; --r-sm: 8px;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 5rem; }
+.page { max-width: 960px; margin: 0 auto; padding-top: 24px; }
+h1 { font-family: 'Lora', serif; font-size: 26px; margin-bottom: 6px; }
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; margin-bottom: 20px; }
+.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.card .desc { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; line-height: 1.4; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
+label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
+input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-sm); font-family: inherit; font-size: 13px; background: #fff; }
+input:focus { outline: none; border-color: var(--gold); }
+button { padding: 8px 18px; border: none; border-radius: var(--r-sm); background: var(--gold); color: #fff; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+button:hover { background: var(--gold-mid); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+pre { background: #0f0a15; color: #e8dfd0; padding: 14px; border-radius: var(--r-sm); font-family: 'DM Mono', monospace; font-size: 12px; line-height: 1.5; overflow-x: auto; margin-top: 12px; max-height: 480px; overflow-y: auto; }
+.err { color: var(--danger); background: rgba(124,31,31,0.08); padding: 10px 12px; border-radius: var(--r-sm); font-size: 13px; margin-top: 10px; }
+.gate { max-width: 400px; margin: 80px auto; text-align: center; }
+.gate h1 { margin-bottom: 12px; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="auth-gate" class="gate">
+  <h1>Admin Diagnostics</h1>
+  <p class="sub">Checking access…</p>
+</div>
+
+<div id="page" class="page hidden">
+  <div id="navSlot"></div>
+  <h1 style="margin-top: 12px">Admin Diagnostics</h1>
+  <p class="sub">Direct access to the admin-only diagnostic endpoints. Results are JSON — expand each tool to run.</p>
+
+  <div class="card">
+    <h2>Pipeline visibility check</h2>
+    <div class="desc">Given a (clientId, loanId, owner), explains exactly why a loan does or doesn't appear in the pipeline. Walks the actual filter rules and names the specific hide reason. Also lists matching quotes.</div>
+    <div class="grid">
+      <div><label for="pd_clientId">Client ID</label><input id="pd_clientId" placeholder="c_..." /></div>
+      <div><label for="pd_loanId">Loan ID</label><input id="pd_loanId" placeholder="l_..." /></div>
+      <div><label for="pd_owner">Owner Email</label><input id="pd_owner" placeholder="lo@slacapital.com" /></div>
+    </div>
+    <button onclick="runPipelineDiag()">Diagnose</button>
+    <div id="pd_out"></div>
+  </div>
+
+  <div class="card">
+    <h2>Find record across every blob store</h2>
+    <div class="desc">Case-insensitive substring grep across clients, quotes, prospects (add more via <code>stores=</code>). Finds phantom cards / orphans / rename collisions.</div>
+    <div class="grid">
+      <div><label for="fr_q">Query (substring)</label><input id="fr_q" placeholder="e.g. 335 trevor" /></div>
+      <div><label for="fr_stores">Stores (optional)</label><input id="fr_stores" placeholder="clients,quotes,prospects" /></div>
+      <div><label for="fr_max">Max hits/store</label><input id="fr_max" type="number" placeholder="30" /></div>
+    </div>
+    <button onclick="runFindRecord()">Search</button>
+    <div id="fr_out"></div>
+  </div>
+
+  <div class="card">
+    <h2>Guarantor audit</h2>
+    <div class="desc">Sweeps every loan for wiped guarantors, ownership-total mismatches, or Path B primary-ownership regressions. No inputs — runs whole-org.</div>
+    <button onclick="runGuarantorAudit()">Run audit</button>
+    <div id="ga_out"></div>
+  </div>
+</div>
+
+<script>
+var qs = function (id) { return document.getElementById(id); };
+var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+
+function render(target, ok, data, err) {
+  var el = qs(target);
+  if (err) { el.innerHTML = '<div class="err">Failed: ' + esc(err.message || String(err)) + '</div>'; return; }
+  el.innerHTML = '<pre>' + esc(JSON.stringify(data, null, 2)) + '</pre>';
+}
+
+function runPipelineDiag() {
+  var cid = qs('pd_clientId').value.trim();
+  var lid = qs('pd_loanId').value.trim();
+  var own = qs('pd_owner').value.trim();
+  if (!cid || !lid || !own) { qs('pd_out').innerHTML = '<div class="err">clientId, loanId, and owner all required.</div>'; return; }
+  qs('pd_out').innerHTML = '<pre>Running…</pre>';
+  var url = '/api/admin-loan-pipeline-diagnose?clientId=' + encodeURIComponent(cid)
+         + '&loanId=' + encodeURIComponent(lid)
+         + '&owner=' + encodeURIComponent(own);
+  SLA.api('GET', url).then(function (r) { render('pd_out', true, r); })
+    .catch(function (e) { render('pd_out', false, null, e); });
+}
+
+function runFindRecord() {
+  var q = qs('fr_q').value.trim();
+  var stores = qs('fr_stores').value.trim();
+  var max = qs('fr_max').value.trim();
+  if (!q) { qs('fr_out').innerHTML = '<div class="err">query required.</div>'; return; }
+  var url = '/api/admin-find-record?q=' + encodeURIComponent(q);
+  if (stores) url += '&stores=' + encodeURIComponent(stores);
+  if (max) url += '&maxHits=' + encodeURIComponent(max);
+  qs('fr_out').innerHTML = '<pre>Running…</pre>';
+  SLA.api('GET', url).then(function (r) { render('fr_out', true, r); })
+    .catch(function (e) { render('fr_out', false, null, e); });
+}
+
+function runGuarantorAudit() {
+  qs('ga_out').innerHTML = '<pre>Running audit — may take a minute…</pre>';
+  SLA.api('GET', '/api/admin-guarantor-audit').then(function (r) { render('ga_out', true, r); })
+    .catch(function (e) { render('ga_out', false, null, e); });
+}
+
+// ── Auth gate ─────────────────────────────────────
+netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!SLA.isAdmin(user)) {
+    qs('auth-gate').innerHTML = '<h1>Admin Diagnostics</h1><p class="sub">Admin access required. <a href="/" style="color:var(--gold)">Back</a></p>';
+    return;
+  }
+  qs('auth-gate').classList.add('hidden');
+  qs('page').classList.remove('hidden');
+});
+netlifyIdentity.on('logout', function () { window.location.replace('/'); });
+</script>
+</body>
+</html>
