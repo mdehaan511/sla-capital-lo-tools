@@ -56,9 +56,13 @@
         if (!parsed) continue;
         var session = parsed.currentSession || parsed; // SDK v2 shape vs legacy
         if (!session || !session.access_token || !session.user) continue;
-        // Expiry check — if the peeked token is stale, fall back to
-        // the async path (SDK will refresh via refresh_token).
-        if (session.expires_at && Date.now() / 1000 > session.expires_at) return null;
+        // Expiry check — if the peeked token is stale OR within the
+        // refresh margin, fall back to the async path so the SDK can
+        // refresh via refresh_token first. Deploy 236.325 — was a
+        // point-in-time check (`now > expires_at`) which resolved
+        // init with a session that would 401 within a few seconds;
+        // the next API call kicked off the whole "logged out" cascade.
+        if (session.expires_at && (Date.now() / 1000 + REFRESH_MARGIN_SEC) > session.expires_at) return null;
         return { user: session.user, session: session };
       }
     } catch (_) {}
@@ -137,7 +141,16 @@
   // before expiry. Refuses to guess when the token can't be parsed —
   // caller trusts the cached path. Safe against XSS-ish input: we do
   // NOT eval, just base64-decode and JSON.parse the middle segment.
-  var REFRESH_MARGIN_SEC = 180; // refresh only when < 3 min left
+  // Deploy 236.325 — dropped from 180s → 30s. The widget's OWN
+  // internal refresh timer fires at ~60s pre-expiry; keeping our
+  // margin above that window guaranteed a two-refresher race on every
+  // eligible token (widget fires at 60s left, we also fire because
+  // 180s > 60s). The winner rotates the refresh_token; the loser gets
+  // invalid_grant. At 30s we only escalate INSIDE the widget's own
+  // window if the widget hasn't already refreshed — same coverage,
+  // no race. The 401 → refresh → retry path in api() catches anything
+  // that slips through this narrower gate.
+  var REFRESH_MARGIN_SEC = 30;
   function _tokenNeedsRefresh(jwt) {
     try {
       var parts = String(jwt || '').split('.');
@@ -483,18 +496,65 @@
     if (slot) cache.markStale(slot);
   }
 
+  function _doFetch(method, path, body, token) {
+    var opts = {
+      method: method,
+      headers: { 'Accept': 'application/json' },
+    };
+    if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(path, opts);
+  }
+
+  // Deploy 236.325 — a single, coordinated refresh promise. When two
+  // parallel api() calls both get 401, they share ONE refresh attempt
+  // instead of racing (which was the invalid_grant + session-nuke
+  // pattern that landed us in 236.324). First 401 kicks off the
+  // refresh; subsequent 401s within the same tick await the same
+  // promise, then retry with the newly-minted token.
+  var _refreshInFlight = null;
+  function _sharedRefresh() {
+    if (_refreshInFlight) return _refreshInFlight;
+    _refreshInFlight = (function () {
+      try {
+        var nl = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+        if (nl && typeof nl.jwt === 'function') {
+          return nl.jwt(true).catch(function () { return null; });
+        }
+      } catch (_) {}
+      // Supabase — client SDK auto-refreshes; poke it by re-reading session.
+      if (window._slaSupabase && window._slaSupabase.auth && window._slaSupabase.auth.getSession) {
+        return window._slaSupabase.auth.getSession().then(function (r) {
+          return (r && r.data && r.data.session && r.data.session.access_token) || null;
+        }).catch(function () { return null; });
+      }
+      return Promise.resolve(null);
+    })().then(function (t) {
+      _refreshInFlight = null;
+      return t || null;
+    });
+    return _refreshInFlight;
+  }
+
   function api(method, path, body) {
     return getToken().then(function (token) {
-      var opts = {
-        method: method,
-        headers: { 'Accept': 'application/json' },
-      };
-      if (token) opts.headers['Authorization'] = 'Bearer ' + token;
-      if (body !== undefined) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-      }
-      return fetch(path, opts).then(function (r) {
+      return _doFetch(method, path, body, token).then(function (r) {
+        // Deploy 236.325 — 401 auto-recovery. Instead of propagating
+        // the 401 (which every page's guard translates into a bounce
+        // to '/' on the next nav — user sees "logged out"), do ONE
+        // shared refresh + retry. Second failure is real and gets
+        // thrown to the caller as before.
+        if (r.status === 401) {
+          return _sharedRefresh().then(function (fresh) {
+            if (!fresh || fresh === token) return r; // no new token — original 401 stands
+            return _doFetch(method, path, body, fresh);
+          });
+        }
+        return r;
+      }).then(function (r) {
         return r.text().then(function (txt) {
           var data;
           try { data = txt ? JSON.parse(txt) : {}; }

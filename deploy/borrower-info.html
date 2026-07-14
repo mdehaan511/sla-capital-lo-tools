@@ -198,7 +198,12 @@ document.addEventListener('DOMContentLoaded', function() {
       window.location.reload();
     });
     netlifyIdentity.on('logout', function() {
-      window.location.reload();
+      // Deploy 236.325 — was reload(), which re-fired the same init
+      // handler above → netlifyIdentity.open() → widget → any
+      // refresh_token failure could infinite-loop between logout and
+      // open. replace('/') mirrors every other LO page and hands
+      // control to index.html's login handling.
+      window.location.replace('/');
     });
     return;
   }

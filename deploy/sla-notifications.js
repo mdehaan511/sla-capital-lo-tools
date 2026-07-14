@@ -13,6 +13,14 @@
   'use strict';
 
   var POLL_MS = 60 * 1000; // refresh every minute
+  // Deploy 236.325 — exponential back-off when the API is 401'ing.
+  // Without this, a session-refresh storm floods the browser console
+  // with errors every 60s and amplifies the "logged out" feel. On
+  // three consecutive 401s we pause polling until the next visibility
+  // change or user click on the bell.
+  var _consecutive401s = 0;
+  var _pollingPaused = false;
+  var _pollTimer = null;
 
   function inject() {
     if (document.getElementById('slaNotifWrap')) return;
@@ -89,7 +97,16 @@
 
     // Initial fetch + poll
     refresh();
-    setInterval(refresh, POLL_MS);
+    _pollTimer = setInterval(refresh, POLL_MS);
+    // Deploy 236.325 — resume polling on tab focus if the auth back-off
+    // paused us. Same visibility hook sla-api uses for token refresh.
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible' && _pollingPaused) {
+        _consecutive401s = 0; _pollingPaused = false;
+        refresh();
+        if (!_pollTimer) _pollTimer = setInterval(refresh, POLL_MS);
+      }
+    });
   }
 
   function toggleDrop() {
@@ -108,8 +125,25 @@
 
   function refresh() {
     if (!window.SLA || !SLA.Reminders) return Promise.resolve();
-    var fetchReminders = SLA.Reminders.list().catch(function(){ return { reminders: [] }; });
-    var fetchQuotes = SLA.Quotes ? SLA.Quotes.list().catch(function(){ return { quotes: [] }; }) : Promise.resolve({ quotes: [] });
+    if (_pollingPaused) return Promise.resolve();
+    // Deploy 236.325 — capture 401s so back-off can kick in. We
+    // don't count network errors or other failures — only auth
+    // failures signal that polling has become disruptive noise.
+    function trackAuth(p) {
+      return p.then(function(r) { _consecutive401s = 0; return r; })
+              .catch(function(e) {
+                if (e && e.status === 401) {
+                  _consecutive401s++;
+                  if (_consecutive401s >= 3) {
+                    _pollingPaused = true;
+                    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+                  }
+                }
+                throw e;
+              });
+    }
+    var fetchReminders = trackAuth(SLA.Reminders.list()).catch(function(){ return { reminders: [] }; });
+    var fetchQuotes = SLA.Quotes ? trackAuth(SLA.Quotes.list()).catch(function(){ return { quotes: [] }; }) : Promise.resolve({ quotes: [] });
     return Promise.all([fetchReminders, fetchQuotes]).then(function(results) {
       var reminders = (results[0] && results[0].reminders) || [];
       var quotes    = (results[1] && results[1].quotes)    || [];
