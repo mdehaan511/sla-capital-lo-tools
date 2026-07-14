@@ -1405,14 +1405,14 @@ function render() {
     var brokerBookLink = l.brokerId
       ? '<a href="brokers.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book">View in Broker Book →</a>'
       : '';
-    // Deploy 236.327 — "Convert to standard deal" button (only when
-    // _isBrokerLoan is true). Removes the broker flag, clears the
-    // broker contact fields, logs an audit note. Wraps its action in
-    // a confirm so an accidental click is recoverable via git-log /
-    // the audit trail rather than an undo modal.
-    var convertBtn = l._isBrokerLoan
-      ? '<button onclick="convertBrokerLoanToStandard()" style="margin-left:auto;font-size:12px;padding:6px 12px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;cursor:pointer;font-family:inherit" title="Remove broker flag and clear broker contact fields">Convert to standard deal</button>'
-      : '';
+    // Deploy 236.327 — "Convert to standard deal" button. Deploy
+    // 236.328 — broadened gate: any loan whose Broker Info section
+    // is rendering (hasBrokerInfo=true above) gets the button, even
+    // if _isBrokerLoan was never explicitly set. Legacy broker loans
+    // from before Deploy 236.289's explicit toggle just have broker
+    // contact fields with no _isBrokerLoan flag — those should still
+    // be convertible. The server endpoint clears both.
+    var convertBtn = '<button onclick="convertBrokerLoanToStandard()" style="margin-left:auto;font-size:12px;padding:6px 12px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;cursor:pointer;font-family:inherit" title="Remove broker flag and clear broker contact fields">Convert to standard deal</button>';
     html +=
     '<div class="section" id="brokerInfoSection">' +
       '<div class="section-head" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Broker Info</h2>' + sourceBadge + '<span class="section-tag tag-editable">Editable</span>' + brokerBookLink + convertBtn + '</div>' +
@@ -4306,8 +4306,17 @@ function persistClient() {
 // only — no undo modal, so the audit trail is the recovery path.
 function convertBrokerLoanToStandard() {
   if (!_loan || !_client) return;
-  if (!_loan._isBrokerLoan) {
-    showToast('This loan is not flagged as a broker deal.');
+  // Deploy 236.328 — allow any loan with broker contact info, not
+  // just those with the explicit _isBrokerLoan flag. Legacy loans
+  // predate the flag but still show up as broker deals visually.
+  var hasBrokerInfo = _loan._isBrokerLoan
+    || (_loan.brokerName    && String(_loan.brokerName).trim())
+    || (_loan.brokerEmail   && String(_loan.brokerEmail).trim())
+    || (_loan.brokerCompany && String(_loan.brokerCompany).trim())
+    || (_loan.brokerId      && String(_loan.brokerId).trim())
+    || (parseFloat(_loan.brokerFee || 0) > 0);
+  if (!hasBrokerInfo) {
+    showToast('This loan has no broker info to remove.');
     return;
   }
   var brokerName = _loan.brokerName || _loan.brokerCompany || 'broker';
