@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Bulk Import Contacts — SLA Capital</title>
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-api.js"></script>
+<script src="sla-nav.js" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #C8813A; --gold-mid: #b5712d;
+  --dark: #261a36; --bg: #f0ece5; --surface: #ffffff;
+  --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+  --success: #256940; --danger: #7c1f1f; --warn: #7a5218;
+  --r: 12px; --r-sm: 8px;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 5rem; }
+.page { max-width: 1100px; margin: 0 auto; padding-top: 24px; }
+h1 { font-family: 'Lora', serif; font-size: 28px; margin-bottom: 6px; }
+.sub { color: var(--muted); font-size: 13.5px; margin-bottom: 24px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 22px; margin-bottom: 20px; }
+.card h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.card .desc { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
+.step-num { display: inline-block; width: 24px; height: 24px; line-height: 24px; text-align: center; background: var(--gold); color: #fff; border-radius: 50%; font-size: 12px; font-weight: 700; margin-right: 8px; vertical-align: middle; }
+.hidden { display: none !important; }
+
+input[type=file], input, select, button { font-family: inherit; font-size: 13px; }
+label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
+select, input[type=text] { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: #fff; }
+select:focus, input[type=text]:focus { outline: none; border-color: var(--gold); }
+
+.btn { padding: 10px 22px; border: none; border-radius: var(--r-sm); background: var(--gold); color: #fff; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.btn:hover { background: var(--gold-mid); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.secondary { background: transparent; color: var(--dark); border: 1px solid var(--border); }
+.btn.secondary:hover { background: var(--pill-bg, #f7f5f1); }
+.btn.danger { background: var(--danger); }
+
+.map-grid { display: grid; grid-template-columns: 130px 1fr; gap: 10px 16px; align-items: center; }
+.hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+.owner-map { border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.owner-row { display: grid; grid-template-columns: 1fr 220px 60px; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; align-items: center; }
+.owner-row:last-child { border-bottom: none; }
+.owner-row .csv-name { font-weight: 500; }
+.owner-row .count { font-size: 11px; color: var(--muted); text-align: right; }
+.owner-row.unmatched { background: rgba(122,82,24,0.08); }
+.owner-row.matched   { background: rgba(37,105,64,0.04); }
+
+.preview-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat { background: var(--pill-bg, #f7f5f1); border-radius: var(--r-sm); padding: 12px 14px; }
+.stat .n { font-size: 22px; font-weight: 700; color: var(--dark); font-family: 'Lora', serif; }
+.stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+.stat.warn .n { color: var(--warn); }
+.stat.err  .n { color: var(--danger); }
+.stat.ok   .n { color: var(--success); }
+
+.progress-wrap { background: var(--pill-bg, #f7f5f1); border-radius: var(--r-sm); height: 8px; overflow: hidden; margin: 12px 0; }
+.progress-bar  { background: var(--gold); height: 100%; width: 0%; transition: width 0.2s; }
+
+.err-list { max-height: 240px; overflow-y: auto; font-family: 'DM Mono', monospace; font-size: 11.5px; background: #0f0a15; color: #e8dfd0; padding: 12px; border-radius: var(--r-sm); }
+
+.gate { max-width: 400px; margin: 80px auto; text-align: center; }
+.gate h1 { margin-bottom: 12px; }
+
+table.sample { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+table.sample th, table.sample td { padding: 6px 8px; border: 1px solid var(--border); text-align: left; }
+table.sample th { background: var(--pill-bg, #f7f5f1); font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="auth-gate" class="gate">
+  <h1>Bulk Import Contacts</h1>
+  <p class="sub">Checking access…</p>
+</div>
+
+<div id="page" class="page hidden">
+  <nav class="nav" id="slaNav"></nav>
+
+  <h1 style="margin-top: 12px">Bulk Import Contacts</h1>
+  <p class="sub">Upload a CSV of borrowers from your old CRM. We'll map columns, fuzzy-match owner LOs against Netlify Identity, dedupe against every existing client system-wide, and let you review before writing anything. Safe for large exports (tested up to 30 000 rows).</p>
+
+  <!-- Step 1 — file -->
+  <div class="card">
+    <h2><span class="step-num">1</span>Choose a CSV file</h2>
+    <div class="desc">First row should be a header (Name, Email, Phone, Owner or similar). Delimiter auto-detected (comma or tab). Files ≤ 15 MB.</div>
+    <input type="file" id="fileInput" accept=".csv,.tsv,.txt" />
+    <div id="fileErr" style="color:var(--danger);font-size:12.5px;margin-top:8px"></div>
+  </div>
+
+  <!-- Step 2 — column mapping -->
+  <div class="card hidden" id="mapCard">
+    <h2><span class="step-num">2</span>Map columns</h2>
+    <div class="desc">Pick which CSV column feeds each field. First 3 rows shown below for reference.</div>
+    <div class="map-grid" id="mapGrid"></div>
+    <div style="margin-top:14px">
+      <button class="btn" onclick="runMatchOwners()">Match owners →</button>
+    </div>
+    <div id="sampleWrap" style="margin-top:16px"></div>
+  </div>
+
+  <!-- Step 3 — owner matching -->
+  <div class="card hidden" id="ownerCard">
+    <h2><span class="step-num">3</span>Match owners</h2>
+    <div class="desc">
+      Each unique owner name from your CSV is fuzzy-matched to a live LO. Adjust any misroute before continuing. Unmatched rows must be assigned to an LO — nothing will be imported without a valid owner.
+    </div>
+    <div class="owner-map" id="ownerMap"></div>
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+      <button class="btn" id="previewBtn" onclick="runPreview()">Check duplicates →</button>
+      <span id="ownerWarn" style="font-size:12px;color:var(--warn)"></span>
+    </div>
+  </div>
+
+  <!-- Step 4 — preview -->
+  <div class="card hidden" id="previewCard">
+    <h2><span class="step-num">4</span>Preview</h2>
+    <div class="desc">Numbers you'll actually write once you confirm. Duplicates are skipped (existing records are left alone). Invalid rows are counted but not sent.</div>
+    <div class="preview-stats" id="previewStats"></div>
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+      <button class="btn" id="commitBtn" onclick="runCommit()">Import <span id="commitCount">0</span> contacts</button>
+      <button class="btn secondary" onclick="resetImport()">Start over</button>
+    </div>
+  </div>
+
+  <!-- Step 5 — import progress + result -->
+  <div class="card hidden" id="importCard">
+    <h2><span class="step-num">5</span>Import</h2>
+    <div class="desc" id="importStatus">Uploading…</div>
+    <div class="progress-wrap"><div class="progress-bar" id="importBar"></div></div>
+    <div id="importResult" style="margin-top:14px"></div>
+    <div id="importErrors" class="hidden">
+      <label style="margin-top:12px">Failed rows (first 200)</label>
+      <div class="err-list" id="importErrorsList"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────
+var CSV_ROWS = [];        // parsed rows: [{col0, col1, …}, …]
+var CSV_HEADERS = [];     // header row values in order
+var CSV_MAP = {};         // { firstName, lastName, name, email, phone, owner } → column index (or -1)
+var OWNER_MATCHES = [];   // [ { csvName, count, matchedEmail, confidence } ]
+var LO_DIRECTORY = [];    // [ { email, fullName } ] from users-directory
+var PREPARED = [];        // rows post-mapping + valid: [ { firstName, lastName, email, phone, ownerName, ownerEmail } ]
+var EXISTING_EMAILS = new Set(); // from admin-import-preview
+
+var qs = function (id) { return document.getElementById(id); };
+var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+
+// ─── CSV parse — handles quoted fields, escaped quotes, comma/tab
+// delimiters. No dependency; ~30 lines of state machine. Robust
+// enough for real-world CSV exports.
+function parseCSV(text) {
+  // Sniff delimiter — comma vs tab, majority in the first line wins.
+  var firstNL = text.indexOf('\n');
+  var head = firstNL > 0 ? text.slice(0, firstNL) : text;
+  var commas = (head.match(/,/g) || []).length;
+  var tabs   = (head.match(/\t/g) || []).length;
+  var delim = tabs > commas ? '\t' : ',';
+
+  var rows = [];
+  var row = [];
+  var field = '';
+  var inQuote = false;
+  var i = 0;
+  var n = text.length;
+  while (i < n) {
+    var ch = text[i];
+    if (inQuote) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuote = false; i++; continue;
+      }
+      field += ch; i++; continue;
+    }
+    if (ch === '"') { inQuote = true; i++; continue; }
+    if (ch === delim) { row.push(field); field = ''; i++; continue; }
+    if (ch === '\r') { i++; continue; }
+    if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
+    field += ch; i++;
+  }
+  // Last field / row.
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  // Strip trailing empty rows.
+  while (rows.length && rows[rows.length - 1].every(function (f) { return String(f || '').trim() === ''; })) rows.pop();
+  return rows;
+}
+
+// ─── Header → field guess ────────────────────────────────
+function guessMap(headers) {
+  var g = { firstName: -1, lastName: -1, name: -1, email: -1, phone: -1, owner: -1 };
+  headers.forEach(function (h, idx) {
+    var s = String(h || '').toLowerCase().trim();
+    if (g.firstName < 0 && /^(first[_\s-]?name|firstname|first)$/.test(s)) g.firstName = idx;
+    if (g.lastName  < 0 && /^(last[_\s-]?name|lastname|last|surname)$/.test(s)) g.lastName  = idx;
+    if (g.name      < 0 && /^(name|full[_\s-]?name|fullname|contact|contact[_\s-]?name)$/.test(s)) g.name = idx;
+    if (g.email     < 0 && /email/.test(s)) g.email = idx;
+    if (g.phone     < 0 && /(phone|mobile|cell)/.test(s)) g.phone = idx;
+    if (g.owner     < 0 && /(owner|lo|loan[_\s-]?officer|agent|assigned|rep|salesperson)/.test(s)) g.owner = idx;
+  });
+  return g;
+}
+
+// ─── File input ──────────────────────────────────────────
+qs('fileInput').addEventListener('change', function (e) {
+  var f = e.target.files[0];
+  if (!f) return;
+  qs('fileErr').textContent = '';
+  if (f.size > 15 * 1024 * 1024) {
+    qs('fileErr').textContent = 'File is over 15 MB. Please split it before upload.';
+    return;
+  }
+  var rdr = new FileReader();
+  rdr.onload = function () {
+    try {
+      var rows = parseCSV(String(rdr.result || ''));
+      if (rows.length < 2) throw new Error('CSV needs a header row plus at least one data row.');
+      CSV_HEADERS = rows[0];
+      CSV_ROWS = rows.slice(1);
+      CSV_MAP = guessMap(CSV_HEADERS);
+      renderMapUI();
+      qs('mapCard').classList.remove('hidden');
+      window.scrollTo({ top: qs('mapCard').offsetTop - 20, behavior: 'smooth' });
+    } catch (err) {
+      qs('fileErr').textContent = 'Parse failed: ' + err.message;
+    }
+  };
+  rdr.readAsText(f);
+});
+
+function renderMapUI() {
+  var g = qs('mapGrid');
+  g.innerHTML = '';
+  var fields = [
+    { key: 'firstName', label: 'First Name', required: false, hint: 'Or leave blank if the CSV only has a full "Name" column' },
+    { key: 'lastName',  label: 'Last Name',  required: false, hint: '' },
+    { key: 'name',      label: 'Full Name',  required: false, hint: 'Used only if First/Last are unmapped — we split on the last space' },
+    { key: 'email',     label: 'Email',      required: true,  hint: 'REQUIRED. Rows without a valid email are skipped.' },
+    { key: 'phone',     label: 'Phone',      required: false, hint: 'Formatted to (XXX) XXX-XXXX on save' },
+    { key: 'owner',     label: 'Owner (LO name)', required: true, hint: 'REQUIRED. Fuzzy-matched to Netlify Identity LOs on the next step' },
+  ];
+  fields.forEach(function (f) {
+    var lbl = document.createElement('label');
+    lbl.textContent = f.label + (f.required ? ' *' : '');
+    var sel = document.createElement('select');
+    sel.id = 'map-' + f.key;
+    sel.innerHTML = '<option value="-1">— none —</option>' + CSV_HEADERS.map(function (h, i) {
+      return '<option value="' + i + '"' + (CSV_MAP[f.key] === i ? ' selected' : '') + '>' + esc(h || ('Column ' + (i + 1))) + '</option>';
+    }).join('');
+    sel.addEventListener('change', function () { CSV_MAP[f.key] = parseInt(sel.value, 10); });
+    g.appendChild(lbl);
+    var wrap = document.createElement('div');
+    wrap.appendChild(sel);
+    if (f.hint) { var h = document.createElement('div'); h.className = 'hint'; h.textContent = f.hint; wrap.appendChild(h); }
+    g.appendChild(wrap);
+  });
+  // Sample rows
+  var sw = qs('sampleWrap');
+  sw.innerHTML = '<label style="margin-bottom:6px">Sample rows</label>';
+  var t = '<table class="sample"><thead><tr>' + CSV_HEADERS.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  CSV_ROWS.slice(0, 3).forEach(function (r) {
+    t += '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>';
+  });
+  t += '</tbody></table>';
+  sw.innerHTML += t;
+}
+
+// ─── Fuzzy owner matching ────────────────────────────────
+function normName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function scoreMatch(csvNorm, lo) {
+  var loNorm = normName(lo.fullName || lo.email.split('@')[0]);
+  if (!csvNorm || !loNorm) return 0;
+  if (csvNorm === loNorm) return 1.0;
+  // Token intersection: any token from CSV matches any token from LO name.
+  var csvTokens = csvNorm.split(' ').filter(Boolean);
+  var loTokens  = loNorm.split(' ').filter(Boolean);
+  var hit = 0;
+  csvTokens.forEach(function (t) { if (loTokens.indexOf(t) >= 0) hit++; });
+  var union = new Set(csvTokens.concat(loTokens)).size;
+  return union > 0 ? hit / union : 0;
+}
+function bestLoMatch(csvName) {
+  var norm = normName(csvName);
+  var best = null;
+  LO_DIRECTORY.forEach(function (lo) {
+    var s = scoreMatch(norm, lo);
+    if (!best || s > best.score) best = { lo: lo, score: s };
+  });
+  return best;
+}
+
+function runMatchOwners() {
+  var ownerIdx = CSV_MAP.owner;
+  var emailIdx = CSV_MAP.email;
+  if (emailIdx < 0) { alert('Map the Email column first — it\'s required.'); return; }
+  if (ownerIdx < 0) { alert('Map the Owner column first — it\'s required.'); return; }
+
+  // Tally unique owner names.
+  var counts = {};
+  for (var i = 0; i < CSV_ROWS.length; i++) {
+    var row = CSV_ROWS[i];
+    var raw = String((row[ownerIdx] || '')).trim();
+    if (!raw) continue;
+    counts[raw] = (counts[raw] || 0) + 1;
+  }
+
+  qs('ownerCard').classList.remove('hidden');
+  qs('ownerMap').innerHTML = '<div style="padding:12px;color:var(--muted);font-size:13px">Loading LO directory…</div>';
+  window.scrollTo({ top: qs('ownerCard').offsetTop - 20, behavior: 'smooth' });
+
+  SLA.api('GET', '/api/users-directory').then(function (r) {
+    LO_DIRECTORY = (r && r.users) || [];
+    OWNER_MATCHES = Object.keys(counts).map(function (name) {
+      var best = bestLoMatch(name);
+      return {
+        csvName: name,
+        count: counts[name],
+        matchedEmail: best && best.score >= 0.5 ? best.lo.email : '',
+        confidence: best ? best.score : 0,
+      };
+    }).sort(function (a, b) { return b.count - a.count; });
+    renderOwnerMap();
+  }).catch(function (err) {
+    qs('ownerMap').innerHTML = '<div style="padding:12px;color:var(--danger)">Failed to load LOs: ' + esc(err.message) + '</div>';
+  });
+}
+
+function renderOwnerMap() {
+  var el = qs('ownerMap');
+  el.innerHTML = OWNER_MATCHES.map(function (m, idx) {
+    var matched = !!m.matchedEmail;
+    var opts = '<option value="">— unassigned —</option>' + LO_DIRECTORY.map(function (lo) {
+      return '<option value="' + esc(lo.email) + '"' + (lo.email === m.matchedEmail ? ' selected' : '') + '>' +
+        esc((lo.fullName || lo.email.split('@')[0]) + ' <' + lo.email + '>') + '</option>';
+    }).join('');
+    return '<div class="owner-row ' + (matched ? 'matched' : 'unmatched') + '" data-idx="' + idx + '">' +
+      '<div class="csv-name">' + esc(m.csvName || '(empty)') + (m.confidence >= 0.99 ? ' <span style="color:var(--success);font-size:11px">exact</span>' : m.confidence >= 0.5 ? ' <span style="color:var(--gold-mid);font-size:11px">' + Math.round(m.confidence * 100) + '% match</span>' : ' <span style="color:var(--warn);font-size:11px">unmatched</span>') + '</div>' +
+      '<div><select onchange="onOwnerPicked(' + idx + ', this.value)">' + opts + '</select></div>' +
+      '<div class="count">' + m.count.toLocaleString() + ' rows</div>' +
+    '</div>';
+  }).join('');
+  updateOwnerWarn();
+}
+function onOwnerPicked(idx, email) {
+  OWNER_MATCHES[idx].matchedEmail = email;
+  var row = qs('ownerMap').querySelector('[data-idx="' + idx + '"]');
+  if (row) row.className = 'owner-row ' + (email ? 'matched' : 'unmatched');
+  updateOwnerWarn();
+}
+function updateOwnerWarn() {
+  var unmatched = OWNER_MATCHES.filter(function (m) { return !m.matchedEmail; });
+  if (unmatched.length) {
+    var rows = unmatched.reduce(function (n, m) { return n + m.count; }, 0);
+    qs('ownerWarn').textContent = unmatched.length + ' unmatched owner' + (unmatched.length > 1 ? 's' : '') +
+      ' (' + rows.toLocaleString() + ' rows) — those rows will be dropped unless you pick an LO.';
+    qs('previewBtn').disabled = false; // still allow — dropped rows go in the invalid count
+  } else {
+    qs('ownerWarn').textContent = '';
+    qs('previewBtn').disabled = false;
+  }
+}
+
+// ─── Preview: build final rows + query existing emails ───
+function splitName(full) {
+  var s = String(full || '').trim();
+  if (!s) return { firstName: '', lastName: '' };
+  var i = s.lastIndexOf(' ');
+  if (i < 0) return { firstName: s, lastName: '' };
+  return { firstName: s.slice(0, i), lastName: s.slice(i + 1) };
+}
+function prepareRows() {
+  var m = CSV_MAP;
+  var ownerByName = {};
+  OWNER_MATCHES.forEach(function (om) { ownerByName[om.csvName] = om.matchedEmail; });
+  var out = [];
+  var invalid = 0;
+  var seenEmails = new Set(); // within-file dedupe
+
+  for (var i = 0; i < CSV_ROWS.length; i++) {
+    var r = CSV_ROWS[i];
+    var email = String(m.email >= 0 ? (r[m.email] || '') : '').trim().toLowerCase();
+    if (!email || email.indexOf('@') < 1) { invalid++; continue; }
+    if (seenEmails.has(email)) { invalid++; continue; }
+    seenEmails.add(email);
+
+    var ownerRaw = m.owner >= 0 ? String(r[m.owner] || '').trim() : '';
+    var ownerEmail = ownerByName[ownerRaw] || '';
+    if (!ownerEmail) { invalid++; continue; }
+
+    var firstName = m.firstName >= 0 ? String(r[m.firstName] || '').trim() : '';
+    var lastName  = m.lastName  >= 0 ? String(r[m.lastName]  || '').trim() : '';
+    if (!firstName && !lastName && m.name >= 0) {
+      var parts = splitName(r[m.name]);
+      firstName = parts.firstName; lastName = parts.lastName;
+    }
+    var phone = m.phone >= 0 ? String(r[m.phone] || '').trim() : '';
+
+    out.push({ firstName: firstName, lastName: lastName, email: email, phone: phone, ownerEmail: ownerEmail });
+  }
+  return { rows: out, invalid: invalid };
+}
+
+function runPreview() {
+  var prep = prepareRows();
+  PREPARED = prep.rows;
+  qs('previewCard').classList.remove('hidden');
+  qs('previewStats').innerHTML =
+    '<div class="stat"><div class="n">' + CSV_ROWS.length.toLocaleString() + '</div><div class="l">Rows in CSV</div></div>' +
+    '<div class="stat warn"><div class="n">' + prep.invalid.toLocaleString() + '</div><div class="l">Invalid / no owner</div></div>' +
+    '<div class="stat"><div class="n">' + PREPARED.length.toLocaleString() + '</div><div class="l">Valid to check</div></div>' +
+    '<div class="stat"><div class="n">…</div><div class="l">Checking duplicates…</div></div>';
+  window.scrollTo({ top: qs('previewCard').offsetTop - 20, behavior: 'smooth' });
+
+  // Ask backend which emails already exist.
+  var emails = PREPARED.map(function (r) { return r.email; });
+  qs('commitBtn').disabled = true;
+  SLA.api('POST', '/api/admin-import-preview', { emails: emails }).then(function (r) {
+    EXISTING_EMAILS = new Set(r.existing || []);
+    var willImport = PREPARED.filter(function (row) { return !EXISTING_EMAILS.has(row.email); });
+    qs('previewStats').innerHTML =
+      '<div class="stat"><div class="n">' + CSV_ROWS.length.toLocaleString() + '</div><div class="l">Rows in CSV</div></div>' +
+      '<div class="stat warn"><div class="n">' + prep.invalid.toLocaleString() + '</div><div class="l">Invalid / no owner</div></div>' +
+      '<div class="stat"><div class="n">' + EXISTING_EMAILS.size.toLocaleString() + '</div><div class="l">Already exist (skip)</div></div>' +
+      '<div class="stat ok"><div class="n">' + willImport.length.toLocaleString() + '</div><div class="l">Will create</div></div>';
+    qs('commitCount').textContent = willImport.length.toLocaleString();
+    qs('commitBtn').disabled = willImport.length === 0;
+  }).catch(function (err) {
+    qs('previewStats').innerHTML +=
+      '<div class="stat err"><div class="n">Failed</div><div class="l">Dupe check failed: ' + esc(err.message) + '</div></div>';
+  });
+}
+
+// ─── Commit — chunked upload ─────────────────────────────
+async function runCommit() {
+  var toImport = PREPARED.filter(function (r) { return !EXISTING_EMAILS.has(r.email); });
+  if (!toImport.length) { alert('Nothing to import.'); return; }
+  qs('commitBtn').disabled = true;
+  qs('importCard').classList.remove('hidden');
+  qs('importStatus').textContent = 'Uploading ' + toImport.length.toLocaleString() + ' contacts in batches…';
+  qs('importResult').innerHTML = '';
+  qs('importErrors').classList.add('hidden');
+  window.scrollTo({ top: qs('importCard').offsetTop - 20, behavior: 'smooth' });
+
+  var CHUNK = 50;
+  var created = 0;
+  var failed  = [];
+  for (var i = 0; i < toImport.length; i += CHUNK) {
+    var slice = toImport.slice(i, i + CHUNK);
+    try {
+      var r = await SLA.api('POST', '/api/admin-import-batch', { clients: slice });
+      created += (r && r.created) || 0;
+      if (r && Array.isArray(r.failed)) {
+        r.failed.forEach(function (f) { failed.push({ email: f.email, reason: f.reason }); });
+      }
+    } catch (e) {
+      // Whole batch failed — treat every row as failed.
+      slice.forEach(function (row) { failed.push({ email: row.email, reason: (e && e.message) || 'batch failed' }); });
+    }
+    var pct = Math.round(((i + slice.length) / toImport.length) * 100);
+    qs('importBar').style.width = pct + '%';
+    qs('importStatus').textContent = 'Uploaded ' + (i + slice.length).toLocaleString() + ' of ' + toImport.length.toLocaleString() + '  (' + pct + '%)';
+  }
+
+  qs('importStatus').textContent = 'Done.';
+  qs('importResult').innerHTML =
+    '<div class="preview-stats">' +
+      '<div class="stat ok"><div class="n">' + created.toLocaleString() + '</div><div class="l">Created</div></div>' +
+      '<div class="stat ' + (failed.length ? 'err' : '') + '"><div class="n">' + failed.length.toLocaleString() + '</div><div class="l">Failed</div></div>' +
+    '</div>';
+  if (failed.length) {
+    qs('importErrors').classList.remove('hidden');
+    qs('importErrorsList').textContent = failed.slice(0, 200).map(function (f) {
+      return '- ' + (f.email || '(no email)') + '  →  ' + f.reason;
+    }).join('\n');
+  }
+}
+
+function resetImport() {
+  location.reload();
+}
+
+// ─── Auth gate ────────────────────────────────────────────
+netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!SLA.isAdmin(user)) {
+    qs('auth-gate').innerHTML = '<h1>Bulk Import Contacts</h1><p class="sub">Admin access required. <a href="/" style="color:var(--gold)">Back</a></p>';
+    return;
+  }
+  qs('auth-gate').classList.add('hidden');
+  qs('page').classList.remove('hidden');
+});
+netlifyIdentity.on('logout', function () { window.location.replace('/'); });
+</script>
+</body>
+</html>

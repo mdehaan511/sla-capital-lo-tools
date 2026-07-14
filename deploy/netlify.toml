@@ -300,6 +300,19 @@
   status = 200
   force = true
 
+# Deploy 236.331 — bulk CSV import: preview (dedupe check) + batch
+# write. Used by /admin-bulk-import.html for one-time CRM imports.
+[[redirects]]
+  from = "/api/admin-import-preview"
+  to = "/.netlify/functions/admin-import-preview"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/admin-import-batch"
+  to = "/.netlify/functions/admin-import-batch"
+  status = 200
+  force = true
+
 # Deploy 236.270 — one-shot audit for loans whose guarantor list was
 # wiped by the pre-236.269 sizer-upsert fallback bug. super_admin only.
 [[redirects]]
