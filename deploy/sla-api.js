@@ -284,6 +284,69 @@
     }, true);
   } catch (_) {}
 
+  // Deploy 236.330 — Tier 4 keyboard shortcuts. Complements the Esc
+  // handler above with "/" (focus the page's search input) and "?"
+  // (show a small shortcut cheatsheet). Skips when the user is
+  // already typing — an inline editor or textarea has focus — so
+  // typing "/" or "?" in a form field works normally.
+  function _isTypingInField() {
+    var el = document.activeElement;
+    if (!el) return false;
+    var tag = (el.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+  function _focusPageSearch() {
+    // Standard search inputs across the app — first hit wins.
+    var candidates = [
+      '#searchBox', '#searchInput', '#loanSearch',
+      'input[type="search"]',
+      'input[placeholder*="Search" i]',
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var el = document.querySelector(candidates[i]);
+      if (el && el.offsetParent !== null) { // visible
+        try { el.focus(); el.select && el.select(); return true; } catch (_) {}
+      }
+    }
+    return false;
+  }
+  function _showShortcutHelp() {
+    var existing = document.getElementById('sla-shortcut-help');
+    if (existing) { existing.remove(); return; }
+    var d = document.createElement('div');
+    d.id = 'sla-shortcut-help';
+    d.className = 'sla-shortcut-help-modal-bg'; // picked up by ESC + click-outside
+    d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:2147483100;' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;' +
+      'font-family:DM Sans,system-ui,sans-serif';
+    d.innerHTML =
+      '<div style="background:#fff;max-width:440px;width:100%;border-radius:14px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+        '<div style="font-family:Lora,serif;font-size:20px;font-weight:600;color:#261a36;margin-bottom:16px">Keyboard shortcuts</div>' +
+        '<div style="display:grid;grid-template-columns:1fr auto;gap:10px 24px;font-size:13.5px;color:#1a1520">' +
+          '<div>Focus the page search</div><kbd style="font-family:DM Mono,monospace;background:#f0ece5;border:1px solid #ddd8d0;border-radius:5px;padding:2px 8px;font-size:12px">/</kbd>' +
+          '<div>Show this help</div><kbd style="font-family:DM Mono,monospace;background:#f0ece5;border:1px solid #ddd8d0;border-radius:5px;padding:2px 8px;font-size:12px">?</kbd>' +
+          '<div>Close the top modal / help</div><kbd style="font-family:DM Mono,monospace;background:#f0ece5;border:1px solid #ddd8d0;border-radius:5px;padding:2px 8px;font-size:12px">Esc</kbd>' +
+        '</div>' +
+        '<div style="margin-top:20px;text-align:right">' +
+          '<button onclick="document.getElementById(\'sla-shortcut-help\').remove()" style="padding:8px 18px;border:none;border-radius:8px;background:#C8813A;color:#fff;font:600 13px DM Sans,sans-serif;cursor:pointer">Close</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(d);
+  }
+  try {
+    document.addEventListener('keydown', function (e) {
+      if (_isTypingInField()) return;
+      if (e.key === '/' || e.keyCode === 191) {
+        if (_focusPageSearch()) { e.preventDefault(); }
+      } else if (e.key === '?' || (e.shiftKey && e.keyCode === 191)) {
+        e.preventDefault();
+        _showShortcutHelp();
+      }
+    });
+  } catch (_) {}
+
   // Deploy 236.315 — refresh the token when the tab becomes visible
   // again. Fixes the "logged out after leaving the tab open in the
   // background" case: the widget's built-in refresh timer throttles

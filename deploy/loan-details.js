@@ -88,6 +88,33 @@ function showToast(msg) {
 
 function clientsKey(email) { return 'sla_clients_' + (email||''); }
 
+// Deploy 236.330 (Tier 4) — freshness helper for the "Updated 2 min
+// ago" indicator on Loan Details. Human-friendly relative-time
+// output; refreshes every 30s via _startFreshnessRefresh() so the
+// value stays honest without a full re-render.
+function _formatFreshness(iso) {
+  if (!iso) return '';
+  var t = new Date(iso).getTime();
+  if (!isFinite(t)) return '';
+  var delta = Math.max(0, (Date.now() - t) / 1000); // seconds
+  if (delta < 5)      return 'Updated just now';
+  if (delta < 60)     return 'Updated ' + Math.round(delta) + 's ago';
+  if (delta < 3600)   return 'Updated ' + Math.round(delta / 60) + 'm ago';
+  if (delta < 86400)  return 'Updated ' + Math.round(delta / 3600) + 'h ago';
+  if (delta < 604800) return 'Updated ' + Math.round(delta / 86400) + 'd ago';
+  return 'Updated ' + new Date(iso).toLocaleDateString();
+}
+var _freshnessTimer = null;
+function _startFreshnessRefresh() {
+  if (_freshnessTimer) return;
+  _freshnessTimer = setInterval(function() {
+    var el = document.getElementById('ldFreshness');
+    if (!el || !_loan) return;
+    el.textContent = _formatFreshness(_loan.updatedAt || _loan.createdAt);
+    el.title = _loan.updatedAt || _loan.createdAt || '';
+  }, 30 * 1000);
+}
+
 // Deploy 236.61 — Baseline close-date lookup. Populated by a parallel
 // fetch in onUser(); consumed when the Application Form section
 // renders the "Desired Close Date" input. Stays null on fetch failure
@@ -398,6 +425,9 @@ function render() {
   var c = _client;
   var l = _loan;
   var fd = l.formData || {};
+  // Deploy 236.330 (Tier 4) — kick off the freshness auto-refresh on
+  // first render. Idempotent — the helper only starts the timer once.
+  _startFreshnessRefresh();
   var isDscr = (l.toolType||'') !== 'rtl';
   var status = l.status || 'active';
   var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
@@ -524,6 +554,15 @@ function render() {
             '<span>' + escH(displayId || '(none)') + '</span>' +
           '</span>';
         })() +
+        // Deploy 236.330 (Tier 4) — freshness chip. Passive
+        // "Updated X ago" indicator so the LO can see at a glance
+        // when the record last changed. Text refreshes every 30s
+        // via _startFreshnessRefresh(). Empty title until the
+        // helper populates it, so we don't flash "unknown" on
+        // cached-first paint before the fetch resolves.
+        '<span id="ldFreshness" class="ld-freshness" title="' + escAttr(l.updatedAt || '') + '" style="font-size:11.5px;color:var(--muted);font-family:DM Sans,sans-serif;font-weight:500">' +
+          _formatFreshness(l.updatedAt || l.createdAt) +
+        '</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:10px">' +
         // Deploy 236.102 — Actions dropdown aggregates the Rate Sheet

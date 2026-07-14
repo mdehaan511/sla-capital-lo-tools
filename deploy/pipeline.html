@@ -363,6 +363,16 @@
       border: 1px dashed var(--border); border-radius: var(--r-xs);
     }
     .loading { padding: 4rem 2rem; text-align: center; color: var(--muted); font-size: 13px; }
+    /* Deploy 236.330 (Tier 4) — skeleton loader for the pipeline
+       kanban. Shown ONLY on cold loads (no cache) — cached-first
+       paint from Deploy 236.207 replaces this within the same tick.
+       Pulse animation keeps it clear the page hasn't hung. */
+    .skeleton-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; padding: 8px 0; }
+    .skeleton-col { display: flex; flex-direction: column; gap: 10px; }
+    .skeleton-col-head { height: 32px; background: linear-gradient(90deg, #eae5da 0%, #f2eee5 50%, #eae5da 100%); background-size: 200% 100%; border-radius: 6px; animation: sla-skel-pulse 1.4s ease-in-out infinite; }
+    .skeleton-card { height: 92px; background: linear-gradient(90deg, #eae5da 0%, #f2eee5 50%, #eae5da 100%); background-size: 200% 100%; border-radius: 10px; animation: sla-skel-pulse 1.4s ease-in-out infinite; }
+    @keyframes sla-skel-pulse { 0%,100% { background-position: 100% 0; } 50% { background-position: 0 0; } }
+    @media (max-width: 900px) { .skeleton-board { grid-template-columns: 1fr; } }
 
     /* Prospect select-box */
     .prospect-card { position: relative; }
@@ -446,7 +456,17 @@
   </div>
 
   <div id="boardWrap">
-    <div class="loading">Loading pipeline…</div>
+    <!-- Deploy 236.330 (Tier 4) — skeleton loader replaces the flat
+         "Loading pipeline…" text. Shown ONLY on cold loads; the
+         cached-first paint from Deploy 236.207 wipes this within
+         the first render tick when there's cache data. -->
+    <div class="skeleton-board" aria-hidden="true">
+      <div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div>
+      <div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div>
+      <div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div></div>
+      <div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div>
+      <div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div></div>
+    </div>
   </div>
 </div>
 
@@ -820,7 +840,16 @@ function loadAll() {
       { byAddress: _baselineCloseDates || {} },
     ]);
   } else {
-    document.getElementById('boardWrap').innerHTML = '<div class="loading">Loading pipeline…</div>';
+    // Deploy 236.330 — inline skeleton so scope-switch refreshes still
+    // paint a placeholder instead of a flat "Loading pipeline…" text.
+    document.getElementById('boardWrap').innerHTML =
+      '<div class="skeleton-board" aria-hidden="true">' +
+        '<div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div>' +
+        '<div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div>' +
+        '<div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div></div>' +
+        '<div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div>' +
+        '<div class="skeleton-col"><div class="skeleton-col-head"></div><div class="skeleton-card"></div></div>' +
+      '</div>';
   }
 
   var fetchProspects = isStaffAll
