@@ -1412,7 +1412,7 @@ function render() {
     // from before Deploy 236.289's explicit toggle just have broker
     // contact fields with no _isBrokerLoan flag — those should still
     // be convertible. The server endpoint clears both.
-    var convertBtn = '<button onclick="convertBrokerLoanToStandard()" style="margin-left:auto;font-size:12px;padding:6px 12px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;cursor:pointer;font-family:inherit" title="Remove broker flag and clear broker contact fields">Convert to standard deal</button>';
+    var convertBtn = '<button onclick="convertBrokerLoanToStandard()" style="margin-left:auto;font-size:12px;padding:6px 12px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;cursor:pointer;font-family:inherit" title="Remove broker flag and clear broker contact fields">Remove Broker</button>';
     html +=
     '<div class="section" id="brokerInfoSection">' +
       '<div class="section-head" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Broker Info</h2>' + sourceBadge + '<span class="section-tag tag-editable">Editable</span>' + brokerBookLink + convertBtn + '</div>' +
@@ -4321,24 +4321,24 @@ function convertBrokerLoanToStandard() {
   }
   var brokerName = _loan.brokerName || _loan.brokerCompany || 'broker';
   if (!confirm(
-    'Convert this loan to a standard (non-broker) deal?\n\n' +
+    'Remove the broker from this loan?\n\n' +
     'This will:\n' +
-    '  • Remove the broker flag\n' +
     '  • Clear the broker contact info (' + brokerName + ')\n' +
+    '  • Remove the broker flag\n' +
     '  • Add an audit-log entry\n\n' +
-    'The Broker Info section will disappear from Loan Details. If you need to convert back to a broker deal later, open the sizer and toggle "Broker Deal" on.'
+    'The Broker Info section will disappear from Loan Details. If you need to add a broker back later, open the sizer and toggle "Broker Deal" on.'
   )) return;
   var payload = { clientId: _clientId, loanId: _loanId, isBroker: false };
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   SLA.api('POST', '/api/loan-set-broker-flag', payload).then(function(r) {
-    if (!r || !r.loan) { showToast('Convert failed: server returned no loan.'); return; }
+    if (!r || !r.loan) { showToast('Failed to remove broker: server returned no loan.'); return; }
     _loan = r.loan;
     var lidx = (_client && _client.loans || []).findIndex(function(x) { return x && x.id === _loanId; });
     if (lidx >= 0) _client.loans[lidx] = r.loan;
-    showToast('Converted to standard deal.');
+    showToast('Broker removed.');
     render();
   }).catch(function(err) {
-    showToast('Convert failed: ' + (err && err.message || 'unknown'));
+    showToast('Failed to remove broker: ' + (err && err.message || 'unknown'));
   });
 }
 
