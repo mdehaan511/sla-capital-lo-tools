@@ -1214,11 +1214,25 @@ function processResults(results) {
       // through the same lookup chain a legacy no-loanId quote uses.
       var _liveByStamped = q.loanId ? _loanLookup[item.owner + '|id|' + q.loanId] : null;
       var _stampedIsGhost = !!q.loanId && !_liveByStamped;
-      var canonical  = (!_stampedIsGhost && q.loanId)
+      var _canonFromLiveStamp = !_stampedIsGhost && q.loanId;
+      var canonical  = _canonFromLiveStamp
                     || (ptLookup && ptLookup.loanId)
                     || (addrLookup && addrLookup.loanId)
                     || q.id;
-      var groupKey   = item.owner + '|' + canonical + (qPtDdp ? '|pt:' + qPtDdp : '');
+      // Deploy 236.322 — DO NOT include propType in the group key when
+      // canonical came from a live-stamped loanId. A live loanId is
+      // the authoritative identity — two quotes on the SAME loan (one
+      // saved from the DSCR sizer, one saved from the RTL sizer) must
+      // dedup down to one tile even when their formData.propType
+      // differs (or one is empty). The propType belt-and-suspenders
+      // was added in Deploy 236.51 to keep DIFFERENT loans at the same
+      // address apart when the loanId ISN'T known — that reasoning
+      // doesn't apply here because the loanId IS the ground truth.
+      // Reported: 22 Lane Hill Rd, quotes q_dscr_l_..._34dz and
+      // q_rtl_l_..._34dz both point at l_1783613765987_34dz but
+      // survived as two tiles.
+      var groupKey   = item.owner + '|' + canonical
+        + (_canonFromLiveStamp ? '' : (qPtDdp ? '|pt:' + qPtDdp : ''));
       var existing   = _quoteByCanonical[groupKey];
       var thisTs     = new Date(q.updatedAt || q.savedAt || 0).getTime();
       var prevTs     = existing ? new Date(existing.quote.updatedAt || existing.quote.savedAt || 0).getTime() : -1;
