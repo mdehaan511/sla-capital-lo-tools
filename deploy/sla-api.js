@@ -153,7 +153,20 @@
         // window.location.replace('/'). Zero visible latency: the
         // widget short-circuits the refresh when the token is still
         // valid; only actually hits the refresh endpoint when needed.
-        return nlUser.jwt(true).then(function (t) { return t || ''; });
+        //
+        // Deploy 236.323 — CATCH refresh failure. jwt(true) can reject
+        // (POST /.netlify/identity/token 400) when the refresh_token
+        // is invalid but the cached access_token is still usable. If
+        // we let the rejection propagate, every getToken() caller
+        // fails BEFORE even hitting the API — user's Send Rate Sheet
+        // errored out with no Bearer sent. Fall back to jwt() (no
+        // refresh) so the current in-memory token still ships.
+        return nlUser.jwt(true)
+          .catch(function (e) {
+            console.warn('[SLA auth] jwt(true) refresh failed, falling back to cached token:', e && e.message);
+            try { return nlUser.jwt(); } catch (_) { return ''; }
+          })
+          .then(function (t) { return t || ''; });
       }
     } catch (_) {}
     var peek = _peekSupabaseSession();
