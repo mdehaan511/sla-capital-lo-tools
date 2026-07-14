@@ -300,6 +300,16 @@
   status = 200
   force = true
 
+# Deploy 236.334 — public-safe home-page dashboard read. Same shape
+# as baseline-mirror-list, but auth = any signed-in user (drop the
+# admin gate) and per-loan commission fields (Origination_Points,
+# Origination) stripped. Used by the home-page "Dashboards" tab.
+[[redirects]]
+  from = "/api/dashboard-public"
+  to = "/.netlify/functions/dashboard-public"
+  status = 200
+  force = true
+
 # Deploy 236.331 — bulk CSV import: preview (dedupe check) + batch
 # write. Used by /admin-bulk-import.html for one-time CRM imports.
 [[redirects]]

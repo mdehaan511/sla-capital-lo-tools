@@ -6,6 +6,7 @@
   <title>SLA Capital — Home</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <script src="sla-forms.js"></script>
   <script src="sla-nav.js"></script>
   <script src="sla-chat.js" defer></script>
   <script src="sla-notifications.js"></script>
@@ -129,6 +130,92 @@
       font-family: 'Lora', serif; font-size: 14px; font-weight: 600;
       color: var(--dark); margin-bottom: 12px; letter-spacing: 0.01em;
     }
+
+    /* Deploy 236.334 — right-column tabs (Dashboards / Team Leaderboard). */
+    .home-right-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    .home-tab {
+      padding: 8px 16px; background: transparent; border: none;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600;
+      color: var(--muted); cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    }
+    .home-tab:hover  { color: var(--dark); }
+    .home-tab.active { color: var(--dark); border-bottom-color: var(--gold); }
+    .home-tab-panel.hidden { display: none; }
+
+    /* Dashboards row (Performance / Upcoming / State) + full-width Loans table. */
+    .home-dash-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    @media (max-width: 1100px) { .home-dash-row { grid-template-columns: 1fr; } }
+    .dash-card {
+      background: var(--surface); border: 1px solid var(--gold-border);
+      border-radius: 12px; padding: 14px 16px;
+      display: flex; flex-direction: column; min-height: 220px;
+    }
+    .dash-card-wide { min-height: 320px; }
+    .dash-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 10px; flex-shrink: 0;
+    }
+    .dash-card-head h3 {
+      font-family: 'Lora', serif; font-size: 14px; font-weight: 600;
+      color: var(--dark); margin: 0;
+    }
+    .dash-card-meta { font-size: 11px; color: var(--muted); font-weight: 500; }
+    .dash-card-body { flex: 1; overflow: auto; font-size: 12px; }
+    .dash-loans-body { max-height: 420px; }
+    .dash-search {
+      padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px;
+      font-family: inherit; font-size: 12px; background: #fff; width: 220px;
+    }
+    .dash-search:focus { outline: none; border-color: var(--gold); }
+    /* Performance-stats mini tiles inside the card. */
+    .perf-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .perf-tile {
+      background: var(--pill-bg, #f7f5f1); border-radius: 8px;
+      padding: 10px 12px; display: flex; flex-direction: column;
+    }
+    .perf-tile .n {
+      font-family: 'Lora', serif; font-size: 20px; font-weight: 600;
+      color: var(--dark); line-height: 1.1;
+    }
+    .perf-tile .l {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--muted); margin-top: 3px; font-weight: 600;
+    }
+    /* Simple two-column list rows shared by Upcoming Closings + Loans by State. */
+    .dash-row-list { display: flex; flex-direction: column; gap: 2px; }
+    .dash-row-list .r {
+      display: grid; grid-template-columns: 1fr auto; gap: 8px;
+      padding: 6px 4px; border-bottom: 1px solid rgba(0,0,0,0.04);
+      font-size: 12px;
+    }
+    .dash-row-list .r:last-child { border-bottom: none; }
+    .dash-row-list .r .k { color: var(--text); font-weight: 500; }
+    .dash-row-list .r .v { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .dash-row-list .r .v .amt { color: var(--dark); font-weight: 500; margin-left: 6px; }
+    /* Loans table inside the card. */
+    .dash-loans-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .dash-loans-table th {
+      text-align: left; font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.04em; color: var(--muted); font-weight: 600;
+      padding: 6px 8px; border-bottom: 1px solid var(--border);
+      background: var(--surface); position: sticky; top: 0; z-index: 1;
+      cursor: pointer; user-select: none; white-space: nowrap;
+    }
+    .dash-loans-table th:hover { color: var(--dark); }
+    .dash-loans-table td {
+      padding: 7px 8px; border-bottom: 1px solid rgba(0,0,0,0.04);
+      color: var(--text); font-variant-numeric: tabular-nums;
+    }
+    .dash-loans-table td.status-cell { font-size: 11px; }
+    .status-pill {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 10.5px; font-weight: 600;
+    }
+    .status-pill.won  { background: rgba(37,105,64,0.12);  color: var(--success); }
+    .status-pill.open { background: rgba(200,129,58,0.12); color: var(--gold-mid); }
+    .status-pill.hold { background: rgba(122,82,24,0.12);  color: var(--warn); }
+    .status-pill.arch { background: rgba(122,116,136,0.15); color: var(--muted); }
 
     /* Left column — vertical stack of tool tiles */
     .tools-stack { display: flex; flex-direction: column; gap: 12px; }
@@ -319,16 +406,52 @@
           </div>
         </div>
 
-        <!-- ── RIGHT: LO Leaderboard ─────────────────────── -->
+        <!-- ── RIGHT: Dashboards + Leaderboard (tabbed) ────
+             Deploy 236.334 — home page now defaults to the
+             Dashboards view (Performance Stats, Upcoming
+             Closings, Loans by State, Loans table). The Team
+             Leaderboard is one tab click away. -->
         <div class="home-col home-col-right">
-          <div class="home-col-heading">Team Leaderboard</div>
-          <div class="leaderboard-card">
-            <div class="leaderboard-header">
-              <div class="leaderboard-title">Loan Officers</div>
-              <div class="leaderboard-meta" id="lbMeta">loading…</div>
+          <div class="home-right-tabs" role="tablist">
+            <button type="button" class="home-tab active" id="tabDashboards" role="tab" aria-selected="true" onclick="setHomeTab('dashboards')">Dashboards</button>
+            <button type="button" class="home-tab"        id="tabLeaderboard" role="tab" aria-selected="false" onclick="setHomeTab('leaderboard')">Team Leaderboard</button>
+          </div>
+
+          <!-- Dashboards panel (default) -->
+          <div class="home-tab-panel" id="dashboardsPanel">
+            <div class="home-dash-row">
+              <div class="dash-card" id="dashPerfCard">
+                <div class="dash-card-head"><h3>Performance</h3><span class="dash-card-meta" id="perfMeta">loading…</span></div>
+                <div class="dash-card-body" id="dashPerfBody"><div class="lb-loading">Loading…</div></div>
+              </div>
+              <div class="dash-card" id="dashUpcomingCard">
+                <div class="dash-card-head"><h3>Upcoming Closings</h3><span class="dash-card-meta">by week</span></div>
+                <div class="dash-card-body" id="dashUpcomingBody"><div class="lb-loading">Loading…</div></div>
+              </div>
+              <div class="dash-card" id="dashStateCard">
+                <div class="dash-card-head"><h3>Loans by State</h3><span class="dash-card-meta" id="stateMeta"></span></div>
+                <div class="dash-card-body" id="dashStateBody"><div class="lb-loading">Loading…</div></div>
+              </div>
             </div>
-            <div id="lbBody">
-              <div class="lb-loading">Loading team stats…</div>
+            <div class="dash-card dash-card-wide">
+              <div class="dash-card-head">
+                <h3>Loans</h3>
+                <input type="text" id="dashLoanSearch" class="dash-search" placeholder="Search address, state, borrower…" />
+              </div>
+              <div class="dash-card-body dash-loans-body" id="dashLoansBody"><div class="lb-loading">Loading…</div></div>
+            </div>
+          </div>
+
+          <!-- Leaderboard panel (hidden by default) -->
+          <div class="home-tab-panel hidden" id="leaderboardPanel">
+            <div class="leaderboard-card">
+              <div class="leaderboard-header">
+                <div class="leaderboard-title">Loan Officers</div>
+                <div class="leaderboard-meta" id="lbMeta">loading…</div>
+              </div>
+              <div id="lbBody">
+                <div class="lb-loading">Loading team stats…</div>
+              </div>
             </div>
           </div>
         </div>
@@ -392,7 +515,9 @@
           bannerEl.style.display = 'flex';
         } else if (bannerEl) { bannerEl.style.display = 'none'; }
       }).catch(function() {});
-      loadLeaderboard();
+      // Deploy 236.334 — home right column defaults to Dashboards.
+      // Leaderboard loads only on tab click (lazy).
+      loadDashboard();
     }
     function showLogin() {
       loginScreen.style.display = 'flex';
@@ -497,6 +622,246 @@
       }
       renderLeaderboard();
     };
+
+    // ═══════════════════════════════════════════════════════════
+    // Deploy 236.334 — Home-page Dashboards tab
+    // ═══════════════════════════════════════════════════════════
+    // Ports Performance Stats + Upcoming Closings + Loans by State
+    // + Loans table from /dashboard.html but reads /api/dashboard-
+    // public (open to all staff; per-loan commission fields stripped).
+    // Everything below is self-contained — leaderboard code above is
+    // untouched.
+
+    var _dashLoans        = null;   // last-fetched mirror rows
+    var _dashLoansLoading = false;
+    var _dashLoanSort     = { key: 'closeDate', dir: 'asc' };
+    var _dashLoanSearch   = '';
+    var _dashLeaderboardLoaded = false;
+
+    function setHomeTab(which) {
+      var isDash = which === 'dashboards';
+      document.getElementById('tabDashboards').classList.toggle('active', isDash);
+      document.getElementById('tabDashboards').setAttribute('aria-selected', isDash ? 'true' : 'false');
+      document.getElementById('tabLeaderboard').classList.toggle('active', !isDash);
+      document.getElementById('tabLeaderboard').setAttribute('aria-selected', isDash ? 'false' : 'true');
+      document.getElementById('dashboardsPanel').classList.toggle('hidden', !isDash);
+      document.getElementById('leaderboardPanel').classList.toggle('hidden', isDash);
+      // Lazy-load leaderboard the first time its tab is opened.
+      if (!isDash && !_dashLeaderboardLoaded) {
+        _dashLeaderboardLoaded = true;
+        loadLeaderboard();
+      }
+    }
+
+    function loadDashboard() {
+      if (_dashLoansLoading) return;
+      _dashLoansLoading = true;
+      SLA.api('GET', '/api/dashboard-public').then(function(resp) {
+        _dashLoans = (resp && resp.loans) || [];
+        _dashLoansLoading = false;
+        renderDashboard();
+      }).catch(function(err) {
+        _dashLoansLoading = false;
+        var msg = '<div class="lb-loading" style="color:var(--danger)">Failed to load: ' + (err && err.message || 'unknown') + '</div>';
+        ['dashPerfBody','dashUpcomingBody','dashStateBody','dashLoansBody'].forEach(function(id) {
+          document.getElementById(id).innerHTML = msg;
+        });
+      });
+    }
+
+    function renderDashboard() {
+      renderDashPerf();
+      renderDashUpcoming();
+      renderDashState();
+      renderDashLoans();
+    }
+
+    // ── Status classification (mirrored from dashboard.html) ─────
+    function dashIsOpen(l)     { var s = (l.Status||'').toLowerCase(); return s.indexOf('open') >= 0 || s.indexOf('active') >= 0 || s.indexOf('pending') >= 0 || s.indexOf('processing') >= 0; }
+    function dashIsWon(l)      { var s = (l.Status||'').toLowerCase(); return s.indexOf('closed') >= 0 || s.indexOf('funded') >= 0 || s.indexOf('won') >= 0; }
+    function dashIsOnHold(l)   { var s = (l.Status||'').toLowerCase(); return s.indexOf('hold') >= 0 || s.indexOf('pause') >= 0; }
+    function dashIsArchived(l) { var s = (l.Status||'').toLowerCase(); return s.indexOf('lost') >= 0 || s.indexOf('cancel') >= 0 || s.indexOf('withdraw') >= 0 || s.indexOf('dead') >= 0 || s.indexOf('archiv') >= 0; }
+    function dashStatusBucket(l) {
+      if (dashIsWon(l))      return 'won';
+      if (dashIsOnHold(l))   return 'hold';
+      if (dashIsArchived(l)) return 'arch';
+      return 'open';
+    }
+    function dashAmount(l) {
+      var n = parseFloat(String(l.Loan_Amount || 0).replace(/[$,]/g, ''));
+      return isFinite(n) ? n : 0;
+    }
+    function dashCloseDate(l) {
+      var raw = l.Estimated_Close_Date || l.Close_Date || '';
+      if (!raw) return null;
+      var t = new Date(raw).getTime();
+      return isFinite(t) ? new Date(t) : null;
+    }
+    function fmtMoneyShort(n) {
+      n = Number(n) || 0;
+      if (n >= 1e6) return '$' + (n/1e6).toFixed(n < 1e7 ? 2 : 1).replace(/\.?0+$/, '') + 'M';
+      if (n >= 1e3) return '$' + Math.round(n/1e3) + 'K';
+      if (n > 0)    return '$' + n.toLocaleString();
+      return '$0';
+    }
+    function fmtDateShort(d) {
+      if (!(d instanceof Date)) return '';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    // ── Widget 1: Performance stats tiles (no revenue — public) ──
+    function renderDashPerf() {
+      var loans = _dashLoans || [];
+      var active = 0, won = 0, volume = 0;
+      loans.forEach(function(l) {
+        if (dashIsWon(l))         { won++; volume += dashAmount(l); }
+        else if (dashIsOpen(l))   { active++; }
+      });
+      document.getElementById('perfMeta').textContent = loans.length.toLocaleString() + ' total';
+      document.getElementById('dashPerfBody').innerHTML =
+        '<div class="perf-tiles">' +
+          '<div class="perf-tile"><div class="n">' + active.toLocaleString() + '</div><div class="l">Active</div></div>' +
+          '<div class="perf-tile"><div class="n">' + won.toLocaleString() + '</div><div class="l">Closed</div></div>' +
+          '<div class="perf-tile"><div class="n">' + fmtMoneyShort(volume) + '</div><div class="l">Closed Volume</div></div>' +
+          '<div class="perf-tile"><div class="n">' + loans.length.toLocaleString() + '</div><div class="l">Total Loans</div></div>' +
+        '</div>';
+    }
+
+    // ── Widget 2: Upcoming closings by week ──────────────────────
+    function renderDashUpcoming() {
+      var loans = _dashLoans || [];
+      var now = new Date(); now.setHours(0,0,0,0);
+      // Bucket into "this week" (Mon-Sun) + next 5 weeks by week-start.
+      function mondayOf(d) {
+        var x = new Date(d);
+        var dow = x.getDay(); // 0=Sun..6=Sat
+        var diff = (dow === 0 ? -6 : 1 - dow);
+        x.setDate(x.getDate() + diff); x.setHours(0,0,0,0);
+        return x;
+      }
+      var buckets = {}; // ms → { start, count, volume }
+      loans.forEach(function(l) {
+        if (dashIsWon(l) || dashIsArchived(l)) return;
+        var d = dashCloseDate(l);
+        if (!d || d < now) return;
+        var wk = mondayOf(d);
+        var k = wk.getTime();
+        if (!buckets[k]) buckets[k] = { start: wk, count: 0, volume: 0 };
+        buckets[k].count += 1;
+        buckets[k].volume += dashAmount(l);
+      });
+      var rows = Object.keys(buckets).map(function(k) { return buckets[k]; })
+        .sort(function(a, b) { return a.start - b.start; })
+        .slice(0, 6);
+      if (!rows.length) {
+        document.getElementById('dashUpcomingBody').innerHTML =
+          '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No upcoming closings scheduled.</div>';
+        return;
+      }
+      document.getElementById('dashUpcomingBody').innerHTML =
+        '<div class="dash-row-list">' + rows.map(function(r) {
+          var end = new Date(r.start); end.setDate(end.getDate() + 6);
+          var label = fmtDateShort(r.start) + '–' + fmtDateShort(end);
+          return '<div class="r"><span class="k">' + label + '</span>' +
+            '<span class="v">' + r.count + ' loan' + (r.count === 1 ? '' : 's') +
+            '<span class="amt">' + fmtMoneyShort(r.volume) + '</span></span></div>';
+        }).join('') + '</div>';
+    }
+
+    // ── Widget 3: Loans by state ─────────────────────────────────
+    function renderDashState() {
+      var loans = _dashLoans || [];
+      var byState = {};
+      loans.forEach(function(l) {
+        var s = (l.Address_State || '').toString().trim().toUpperCase();
+        if (!s || s.length > 3) return;
+        if (!byState[s]) byState[s] = { count: 0, volume: 0 };
+        byState[s].count += 1;
+        byState[s].volume += dashAmount(l);
+      });
+      var rows = Object.keys(byState).map(function(s) {
+        return { state: s, count: byState[s].count, volume: byState[s].volume };
+      }).sort(function(a, b) { return b.count - a.count; }).slice(0, 10);
+      document.getElementById('stateMeta').textContent = Object.keys(byState).length + ' states';
+      if (!rows.length) {
+        document.getElementById('dashStateBody').innerHTML =
+          '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No state data.</div>';
+        return;
+      }
+      document.getElementById('dashStateBody').innerHTML =
+        '<div class="dash-row-list">' + rows.map(function(r) {
+          return '<div class="r"><span class="k">' + r.state + '</span>' +
+            '<span class="v">' + r.count + '<span class="amt">' + fmtMoneyShort(r.volume) + '</span></span></div>';
+        }).join('') + '</div>';
+    }
+
+    // ── Widget 4: Loans table (search + sort, no revenue) ────────
+    var DASH_LOAN_COLS = [
+      { key: 'name',      label: 'Loan',    numeric: false, get: function(l) { return l.Name || ''; } },
+      { key: 'state',     label: 'State',   numeric: false, get: function(l) { return l.Address_State || ''; } },
+      { key: 'amount',    label: 'Amount',  numeric: true,  get: function(l) { return dashAmount(l); } },
+      { key: 'rate',      label: 'Rate',    numeric: true,  get: function(l) { var n = parseFloat(l.Rate); return isFinite(n) ? n : 0; } },
+      { key: 'status',    label: 'Status',  numeric: false, get: function(l) { return l.Status || ''; } },
+      { key: 'closeDate', label: 'Close',   numeric: true,  get: function(l) { var d = dashCloseDate(l); return d ? d.getTime() : 0; } },
+    ];
+    function renderDashLoans() {
+      var loans = (_dashLoans || []).slice();
+      var q = (_dashLoanSearch || '').toLowerCase().trim();
+      if (q) {
+        loans = loans.filter(function(l) {
+          var hay = ((l.Name||'') + ' ' + (l.Address_State||'') + ' ' + (l.Status||'')).toLowerCase();
+          return hay.indexOf(q) >= 0;
+        });
+      }
+      var col = DASH_LOAN_COLS.find(function(c) { return c.key === _dashLoanSort.key; }) || DASH_LOAN_COLS[0];
+      loans.sort(function(a, b) {
+        var av = col.get(a), bv = col.get(b);
+        if (av < bv) return _dashLoanSort.dir === 'asc' ? -1 : 1;
+        if (av > bv) return _dashLoanSort.dir === 'asc' ?  1 : -1;
+        return 0;
+      });
+      var head = '<thead><tr>' + DASH_LOAN_COLS.map(function(c) {
+        var arrow = (_dashLoanSort.key === c.key) ? (_dashLoanSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+        return '<th onclick="dashLoanSort(\'' + c.key + '\')">' + c.label + arrow + '</th>';
+      }).join('') + '</tr></thead>';
+      var body = '<tbody>' + loans.slice(0, 200).map(function(l) {
+        var bucket = dashStatusBucket(l);
+        var rate = parseFloat(l.Rate);
+        return '<tr>' +
+          '<td>' + escH(l.Name || '—') + '</td>' +
+          '<td>' + escH(l.Address_State || '') + '</td>' +
+          '<td>' + fmtMoneyShort(dashAmount(l)) + '</td>' +
+          '<td>' + (isFinite(rate) && rate > 0 ? rate.toFixed(3) + '%' : '—') + '</td>' +
+          '<td class="status-cell"><span class="status-pill ' + bucket + '">' + escH(l.Status || '—') + '</span></td>' +
+          '<td>' + (dashCloseDate(l) ? dashCloseDate(l).toLocaleDateString() : '—') + '</td>' +
+        '</tr>';
+      }).join('') + '</tbody>';
+      var footer = loans.length > 200
+        ? '<div style="padding:8px;font-size:11px;color:var(--muted);text-align:center">Showing first 200 of ' + loans.length.toLocaleString() + '. Open <a href="dashboard.html" style="color:var(--gold-mid)">Dashboard</a> for the full table.</div>'
+        : '';
+      document.getElementById('dashLoansBody').innerHTML =
+        '<table class="dash-loans-table">' + head + body + '</table>' + footer;
+    }
+    function dashLoanSort(key) {
+      if (_dashLoanSort.key === key) {
+        _dashLoanSort.dir = _dashLoanSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _dashLoanSort.key = key;
+        var col = DASH_LOAN_COLS.find(function(c) { return c.key === key; });
+        _dashLoanSort.dir = (col && col.numeric) ? 'desc' : 'asc';
+      }
+      renderDashLoans();
+    }
+    function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    // Wire the loan search with the shared debounce helper.
+    document.addEventListener('DOMContentLoaded', function() {
+      var el = document.getElementById('dashLoanSearch');
+      if (!el) return;
+      var handler = function() { _dashLoanSearch = el.value; renderDashLoans(); };
+      var debounced = (window.SLAForms && SLAForms.debounce) ? SLAForms.debounce(handler, 140) : handler;
+      el.addEventListener('input', debounced);
+    });
 
     function formatMoney(v) {
       var n = Number(v) || 0;
