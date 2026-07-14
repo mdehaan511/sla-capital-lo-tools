@@ -676,11 +676,39 @@
       renderDashLoans();
     }
 
-    // ── Status classification (mirrored from dashboard.html) ─────
-    function dashIsOpen(l)     { var s = (l.Status||'').toLowerCase(); return s.indexOf('open') >= 0 || s.indexOf('active') >= 0 || s.indexOf('pending') >= 0 || s.indexOf('processing') >= 0; }
-    function dashIsWon(l)      { var s = (l.Status||'').toLowerCase(); return s.indexOf('closed') >= 0 || s.indexOf('funded') >= 0 || s.indexOf('won') >= 0; }
-    function dashIsOnHold(l)   { var s = (l.Status||'').toLowerCase(); return s.indexOf('hold') >= 0 || s.indexOf('pause') >= 0; }
-    function dashIsArchived(l) { var s = (l.Status||'').toLowerCase(); return s.indexOf('lost') >= 0 || s.indexOf('cancel') >= 0 || s.indexOf('withdraw') >= 0 || s.indexOf('dead') >= 0 || s.indexOf('archiv') >= 0; }
+    // ── Status classification — VERBATIM PORTS from dashboard.html
+    // (deploy 236.336). Prior loose regex-based helpers picked up
+    // ~nothing on real Baseline data because the actual Status /
+    // Substatus values are exact strings like 'sold', 'in_servicing',
+    // 'on_hold', 'liquidated' — not substrings.
+    function dashIsWon(l) {
+      var s   = String((l && l.Status)    || '').toLowerCase();
+      var sub = String((l && l.Substatus) || '').toLowerCase();
+      if (s === 'sold' || s === 'closed' || s === 'funded') return true;
+      if (s === 'in_servicing' || s === 'servicing') return true;
+      if (sub === 'in_servicing' || sub === 'servicing') return true;
+      return false;
+    }
+    function dashIsLiquidated(l) {
+      return String((l && l.Status) || '').toLowerCase() === 'liquidated';
+    }
+    function dashIsClosed(l) { return dashIsWon(l) || dashIsLiquidated(l); }
+    function dashIsOnHold(l) {
+      var s   = String((l && l.Status)    || '').toLowerCase();
+      var sub = String((l && l.Substatus) || '').toLowerCase();
+      return s === 'on_hold' || s === 'hold' || s.indexOf('hold') >= 0
+          || sub === 'on_hold' || sub === 'hold' || sub.indexOf('hold') >= 0;
+    }
+    function dashIsArchived(l) {
+      if (!l) return false;
+      if (l.Archived === true || l.Is_Archived === true) return true;
+      var s = String(l.Status || '').toLowerCase();
+      return s === 'archived' || s === 'lost' || s === 'declined'
+          || s === 'denied'   || s === 'withdrawn' || s === 'cancelled';
+    }
+    function dashIsOpen(l) {
+      return l && !dashIsWon(l) && !dashIsLiquidated(l) && !dashIsOnHold(l) && !dashIsArchived(l);
+    }
     function dashStatusBucket(l) {
       if (dashIsWon(l))      return 'won';
       if (dashIsOnHold(l))   return 'hold';
@@ -688,14 +716,53 @@
       return 'open';
     }
     function dashAmount(l) {
-      var n = parseFloat(String(l.Loan_Amount || 0).replace(/[$,]/g, ''));
+      var n = parseFloat(String((l && l.Loan_Amount) || 0).replace(/[$,]/g, ''));
       return isFinite(n) ? n : 0;
     }
-    function dashCloseDate(l) {
-      var raw = l.Estimated_Close_Date || l.Close_Date || '';
+    // Close date: dashboard.html uses l.Origination || l.Created_Date
+    // (NOT Estimated_Close_Date — that field doesn't exist on the
+    // mirror). Every date on the mirror is a projected close for
+    // open loans, actual close for won loans. Deploy 236.336.
+    function dashRawCloseDate(l) {
+      return (l && (l.Origination || l.Created_Date)) || '';
+    }
+    // ISO / US / Date-parse tolerant parser. Ported from dashboard.html.
+    function dashParseDate(raw) {
       if (!raw) return null;
-      var t = new Date(raw).getTime();
-      return isFinite(t) ? new Date(t) : null;
+      var s = String(raw).trim();
+      var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return { year: +iso[1], month: +iso[2], day: +iso[3] };
+      var us = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (us) return { year: +us[3], month: +us[1], day: +us[2] };
+      var d2 = new Date(s);
+      if (!isNaN(d2.getTime())) return { year: d2.getFullYear(), month: d2.getMonth() + 1, day: d2.getDate() };
+      return null;
+    }
+    function dashCloseDate(l) {
+      var p = dashParseDate(dashRawCloseDate(l));
+      if (!p) return null;
+      return new Date(p.year, p.month - 1, p.day);
+    }
+    // Verbatim from dashboard.html:3089-3093 — recover state from
+    // the address string when Address_State isn't populated.
+    function dashExtractState(name) {
+      if (!name) return '';
+      var m = String(name).match(/,\s*([A-Z]{2})(?:\s|,)/);
+      return m ? m[1] : '';
+    }
+    // Verbatim from dashboard.html:503-513.
+    function dashInferLoanType(l) {
+      if (!l) return 'UNKNOWN';
+      var sub = String(l.Substatus || '').toUpperCase();
+      if (sub === 'RTL' || sub === 'DSCR') return sub;
+      if (parseFloat(l.Holdback)        > 0) return 'RTL';
+      if (parseFloat(l.Initial_Advance) > 0) return 'RTL';
+      var term = parseFloat(l.Term);
+      if (isFinite(term)) {
+        if (term <= 18)  return 'RTL';
+        if (term >= 240) return 'DSCR';
+      }
+      return 'UNKNOWN';
     }
     function fmtMoneyShort(n) {
       n = Number(n) || 0;
@@ -713,12 +780,6 @@
     // math verbatim so the home-page Est. Revenue matches the admin
     // dashboard exactly. Points + rate + type + TPO logic ported
     // from dashboard.html:529-563.
-    function dashInferType(l) {
-      var s = ((l.Substatus || l.Loan_Type || l.Loan_Product || '') + '').toUpperCase();
-      if (s.indexOf('DSCR') >= 0) return 'DSCR';
-      if (s.indexOf('RTL') >= 0 || s.indexOf('FIX') >= 0 || s.indexOf('BRIDGE') >= 0 || s.indexOf('FLIP') >= 0) return 'RTL';
-      return 'DSCR'; // default matches dashboard.html assumption
-    }
     function dashEstRevenue(l) {
       if (!l) return 0;
       var amt = parseFloat(String(l.Loan_Amount || 0).replace(/[$,]/g, ''));
@@ -728,7 +789,7 @@
       // Percent-vs-decimal heuristic (dashboard.html Deploy 233.3).
       var ptsDecimal = pts < 0.1 ? pts : (pts / 100);
       var pointsRevenue = amt * ptsDecimal;
-      var type = dashInferType(l);
+      var type = dashInferLoanType(l);
       // TPO Premium — probe a few plausible field names.
       var tpoRaw = l.TPO_Premium || l.TPOPremium || l.tpo_premium || 0;
       var tpo = parseFloat(tpoRaw);
@@ -763,69 +824,97 @@
     }
 
     // ── Widget 2: Upcoming closings by week ──────────────────────
+    // Ported from dashboard.html:850+ — gate is isOpen || isOnHold
+    // (archived skipped), close date = l.Origination, parsed via
+    // dashParseDate. Weeks bucketed by Monday.
     function renderDashUpcoming() {
       var loans = _dashLoans || [];
-      var now = new Date(); now.setHours(0,0,0,0);
-      // Bucket into "this week" (Mon-Sun) + next 5 weeks by week-start.
-      function mondayOf(d) {
-        var x = new Date(d);
-        var dow = x.getDay(); // 0=Sun..6=Sat
+      var today = new Date(); today.setHours(0,0,0,0);
+      var todayMs = today.getTime();
+      var buckets = {}; // mondayMs → { start, count, volume, dscrCount, dscrTotal, rtlCount, rtlTotal }
+      function mondayOf(ms) {
+        var d = new Date(ms);
+        var dow = d.getDay();
         var diff = (dow === 0 ? -6 : 1 - dow);
-        x.setDate(x.getDate() + diff); x.setHours(0,0,0,0);
-        return x;
+        d.setDate(d.getDate() + diff); d.setHours(0,0,0,0);
+        return d;
       }
-      var buckets = {}; // ms → { start, count, volume }
       loans.forEach(function(l) {
-        if (dashIsWon(l) || dashIsArchived(l)) return;
+        if (dashIsArchived(l)) return;
+        if (!dashIsOpen(l) && !dashIsOnHold(l)) return;
         var d = dashCloseDate(l);
-        if (!d || d < now) return;
-        var wk = mondayOf(d);
+        if (!d) return;
+        if (d.getTime() < todayMs) return;
+        var wk = mondayOf(d.getTime());
         var k = wk.getTime();
-        if (!buckets[k]) buckets[k] = { start: wk, count: 0, volume: 0 };
+        if (!buckets[k]) buckets[k] = { start: wk, count: 0, volume: 0, dscr: 0, rtl: 0 };
+        var amt = dashAmount(l);
         buckets[k].count += 1;
-        buckets[k].volume += dashAmount(l);
+        buckets[k].volume += amt;
+        var type = dashInferLoanType(l);
+        if (type === 'DSCR') buckets[k].dscr += 1;
+        else if (type === 'RTL') buckets[k].rtl += 1;
       });
       var rows = Object.keys(buckets).map(function(k) { return buckets[k]; })
         .sort(function(a, b) { return a.start - b.start; })
-        .slice(0, 6);
+        .slice(0, 8);
       if (!rows.length) {
         document.getElementById('dashUpcomingBody').innerHTML =
-          '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No upcoming closings scheduled.</div>';
+          '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No upcoming closings in the pipeline.</div>';
         return;
       }
       document.getElementById('dashUpcomingBody').innerHTML =
         '<div class="dash-row-list">' + rows.map(function(r) {
-          var end = new Date(r.start); end.setDate(end.getDate() + 6);
+          var end = new Date(r.start); end.setDate(end.getDate() + 4);
           var label = fmtDateShort(r.start) + '–' + fmtDateShort(end);
-          return '<div class="r"><span class="k">' + label + '</span>' +
-            '<span class="v">' + r.count + ' loan' + (r.count === 1 ? '' : 's') +
-            '<span class="amt">' + fmtMoneyShort(r.volume) + '</span></span></div>';
+          var typeBits = [];
+          if (r.dscr) typeBits.push(r.dscr + ' DSCR');
+          if (r.rtl)  typeBits.push(r.rtl + ' RTL');
+          var typeStr = typeBits.join(' · ') || (r.count + ' loan' + (r.count === 1 ? '' : 's'));
+          return '<div class="r"><span class="k">' + label + '<div style="font-size:10.5px;color:var(--muted);font-weight:400;margin-top:1px">' + typeStr + '</div></span>' +
+            '<span class="v">' + r.count + '<span class="amt">' + fmtMoneyShort(r.volume) + '</span></span></div>';
         }).join('') + '</div>';
     }
 
     // ── Widget 3: Loans by state ─────────────────────────────────
+    // Ported from dashboard.html:3002+ — all-time mode (default),
+    // archived excluded, active+closed both counted. State falls
+    // back to the address regex when Address_State is empty.
     function renderDashState() {
       var loans = _dashLoans || [];
       var byState = {};
       loans.forEach(function(l) {
-        var s = (l.Address_State || '').toString().trim().toUpperCase();
-        if (!s || s.length > 3) return;
-        if (!byState[s]) byState[s] = { count: 0, volume: 0 };
-        byState[s].count += 1;
-        byState[s].volume += dashAmount(l);
+        if (dashIsArchived(l)) return;
+        var st = (l.Address_State || dashExtractState(l.Name) || '').toString().trim().toUpperCase();
+        if (!st) st = '(unknown)';
+        if (!byState[st]) byState[st] = { count: 0, volume: 0, dscr: 0, rtl: 0 };
+        byState[st].count += 1;
+        byState[st].volume += dashAmount(l);
+        var t = dashInferLoanType(l);
+        if (t === 'DSCR') byState[st].dscr += 1;
+        else if (t === 'RTL') byState[st].rtl += 1;
       });
       var rows = Object.keys(byState).map(function(s) {
-        return { state: s, count: byState[s].count, volume: byState[s].volume };
-      }).sort(function(a, b) { return b.count - a.count; }).slice(0, 10);
-      document.getElementById('stateMeta').textContent = Object.keys(byState).length + ' states';
+        return { state: s, count: byState[s].count, volume: byState[s].volume, dscr: byState[s].dscr, rtl: byState[s].rtl };
+      }).sort(function(a, b) {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.state.localeCompare(b.state);
+      });
+      document.getElementById('stateMeta').textContent = rows.length + ' states';
       if (!rows.length) {
         document.getElementById('dashStateBody').innerHTML =
           '<div style="color:var(--muted);font-size:12px;padding:8px 4px">No state data.</div>';
         return;
       }
       document.getElementById('dashStateBody').innerHTML =
-        '<div class="dash-row-list">' + rows.map(function(r) {
-          return '<div class="r"><span class="k">' + r.state + '</span>' +
+        '<div class="dash-row-list">' + rows.slice(0, 15).map(function(r) {
+          var typeBits = [];
+          if (r.dscr) typeBits.push(r.dscr + ' DSCR');
+          if (r.rtl)  typeBits.push(r.rtl + ' RTL');
+          var typeStr = typeBits.join(' · ');
+          return '<div class="r"><span class="k">' + r.state +
+            (typeStr ? '<div style="font-size:10.5px;color:var(--muted);font-weight:400;margin-top:1px">' + typeStr + '</div>' : '') +
+            '</span>' +
             '<span class="v">' + r.count + '<span class="amt">' + fmtMoneyShort(r.volume) + '</span></span></div>';
         }).join('') + '</div>';
     }
@@ -837,7 +926,7 @@
     // the mirror (0.075) — multiply by 100 to display (7.50%).
     var DASH_LOAN_COLS = [
       { key: 'address', label: 'Address', numeric: false, get: function(l) { return l.Name || ''; } },
-      { key: 'state',   label: 'State',   numeric: false, get: function(l) { return l.Address_State || ''; } },
+      { key: 'state',   label: 'State',   numeric: false, get: function(l) { return l.Address_State || dashExtractState(l.Name) || ''; } },
       { key: 'status',  label: 'Status',  numeric: false, get: function(l) { return l.Status || ''; } },
       { key: 'type',    label: 'Type',    numeric: false, get: function(l) { return l.Substatus || ''; } },
       { key: 'amount',  label: 'Amount',  numeric: true,  get: function(l) { return dashAmount(l); } },
@@ -853,8 +942,12 @@
       return n < 0.1 ? n * 100 : n;
     }
     function renderDashLoans() {
-      // Active/processing filter — matches dashboard.html isOpen().
-      var loans = (_dashLoans || []).filter(dashIsOpen);
+      // Deploy 236.336 — Mike's rule: "show all except Closed, Sold,
+      // In Servicing, or Archived". isClosed covers won (sold /
+      // closed / funded / in_servicing) + liquidated. Keeps on-hold.
+      var loans = (_dashLoans || []).filter(function(l) {
+        return !dashIsClosed(l) && !dashIsArchived(l);
+      });
       var q = (_dashLoanSearch || '').toLowerCase().trim();
       if (q) {
         loans = loans.filter(function(l) {
@@ -884,7 +977,7 @@
         if (ptsPct != null) ptsHtml = ptsPct.toFixed(2) + '%';
         return '<tr>' +
           '<td>' + escH(l.Name || '—') + '</td>' +
-          '<td>' + escH(l.Address_State || '') + '</td>' +
+          '<td>' + escH(l.Address_State || dashExtractState(l.Name) || '—') + '</td>' +
           '<td class="status-cell"><span class="status-pill ' + bucket + '">' + escH(l.Status || '—') + '</span></td>' +
           '<td>' + escH(l.Substatus || '—') + '</td>' +
           '<td>' + fmtMoneyShort(dashAmount(l)) + '</td>' +
@@ -894,9 +987,9 @@
         '</tr>';
       }).join('') + '</tbody>';
       var footer = loans.length > 200
-        ? '<div style="padding:8px;font-size:11px;color:var(--muted);text-align:center">Showing first 200 active. Open <a href="dashboard.html" style="color:var(--gold-mid)">Dashboard</a> for the full table.</div>'
+        ? '<div style="padding:8px;font-size:11px;color:var(--muted);text-align:center">Showing first 200 of ' + loans.length.toLocaleString() + ' in-flight loans. Open <a href="dashboard.html" style="color:var(--gold-mid)">Dashboard</a> for the full table.</div>'
         : (loans.length === 0
-            ? '<div style="padding:12px;font-size:12px;color:var(--muted);text-align:center">No active loans currently processing.</div>'
+            ? '<div style="padding:12px;font-size:12px;color:var(--muted);text-align:center">No in-flight loans.</div>'
             : '');
       document.getElementById('dashLoansBody').innerHTML =
         '<table class="dash-loans-table">' + head + body + '</table>' + footer;
