@@ -409,6 +409,14 @@
   to = "/.netlify/functions/loan-add-guarantor"
   status = 200
   force = true
+# Deploy 236.327 — flip loan._isBrokerLoan flag from Loan Details.
+# On convert-to-standard, clears every broker contact field so
+# downstream views stop showing broker data on a non-broker deal.
+[[redirects]]
+  from = "/api/loan-set-broker-flag"
+  to = "/.netlify/functions/loan-set-broker-flag"
+  status = 200
+  force = true
 # Deploy 236.144 — one-click bundle: signed loan app + every
 # completed additional guarantor's signed Credit Auth + per-
 # guarantor sub-form data summary, packaged as a single ZIP.

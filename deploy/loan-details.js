@@ -1290,12 +1290,31 @@ function render() {
   var _ownerships = (l.guarantorOwnership && typeof l.guarantorOwnership === 'object') ? l.guarantorOwnership : {};
   var _primaryOwnership = _ownerships[c.id] != null ? _ownerships[c.id] : '';
 
+  // Deploy 236.327 — Borrower LLC fallback matches the Vesting LLC
+  // section's chain so a broker deal doesn't show the broker company
+  // here (c.entityName is the broker's when the primary client IS
+  // the broker). Mike hit this: guarantor pane showed "Nexa Lending"
+  // (broker) instead of "Summit Rental Group-AI, LLC" (vesting).
+  //   1) loan.vestingLLCs[0].name — LO-set on this page
+  //   2) client.companies[0].name — long-app-captured
+  //   3) client.entityName        — legacy single-LLC field (broker
+  //                                  contamination lives here)
+  function _borrowerLLCDisplay(clientRec) {
+    if (Array.isArray(l.vestingLLCs) && l.vestingLLCs.length && l.vestingLLCs[0].name) {
+      return l.vestingLLCs[0].name;
+    }
+    if (Array.isArray(clientRec.companies) && clientRec.companies.length) {
+      var co0 = clientRec.companies.find(function(co) { return co && co.name; });
+      if (co0) return co0.name;
+    }
+    return clientRec.entityName || '';
+  }
   var _bwPrimaryHtml  =
     '<div class="app-grid">' +
       '<div class="field"><label>Guarantor Name</label>' +
         '<input type="text"  id="bw-0-name"   value="' + escAttr(_bwPrimaryName) + '" readonly /></div>' +
       '<div class="field"><label>Borrower LLC</label>' +
-        '<input type="text"  id="bw-0-entity" value="' + escAttr(c.entityName || '') + '" readonly placeholder="No entity on file" /></div>' +
+        '<input type="text"  id="bw-0-entity" value="' + escAttr(_borrowerLLCDisplay(c)) + '" readonly placeholder="No entity on file" /></div>' +
       '<div class="field"><label>Email</label>' +
         '<input type="email" id="bw-0-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
       '<div class="field"><label>Phone</label>' +
@@ -1386,9 +1405,17 @@ function render() {
     var brokerBookLink = l.brokerId
       ? '<a href="brokers.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book">View in Broker Book →</a>'
       : '';
+    // Deploy 236.327 — "Convert to standard deal" button (only when
+    // _isBrokerLoan is true). Removes the broker flag, clears the
+    // broker contact fields, logs an audit note. Wraps its action in
+    // a confirm so an accidental click is recoverable via git-log /
+    // the audit trail rather than an undo modal.
+    var convertBtn = l._isBrokerLoan
+      ? '<button onclick="convertBrokerLoanToStandard()" style="margin-left:auto;font-size:12px;padding:6px 12px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;cursor:pointer;font-family:inherit" title="Remove broker flag and clear broker contact fields">Convert to standard deal</button>'
+      : '';
     html +=
     '<div class="section" id="brokerInfoSection">' +
-      '<div class="section-head"><h2>Broker Info</h2>' + sourceBadge + '<span class="section-tag tag-editable">Editable</span>' + brokerBookLink + '</div>' +
+      '<div class="section-head" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Broker Info</h2>' + sourceBadge + '<span class="section-tag tag-editable">Editable</span>' + brokerBookLink + convertBtn + '</div>' +
       '<div class="section-body">' +
         '<div class="app-grid">' +
           '<div class="field"><label>Broker Name</label>' +
@@ -1793,7 +1820,16 @@ function refreshBorrowerInfoPanes() {
           '<div class="field"><label>Guarantor Name</label>' +
             '<input type="text"  id="bw-' + idx + '-name"   value="' + escAttr(name) + '" readonly /></div>' +
           '<div class="field"><label>Borrower LLC</label>' +
-            '<input type="text"  id="bw-' + idx + '-entity" value="' + escAttr(c.entityName || '') + '" readonly placeholder="No entity on file" /></div>' +
+            // Deploy 236.327 — same Borrower LLC fallback the primary
+            // pane uses: prefer the loan's Vesting LLC (the entity
+            // actually on title) over this guarantor's own entityName
+            // (which for co-guarantors is often just their personal
+            // holding company, not the deal's vesting entity).
+            '<input type="text"  id="bw-' + idx + '-entity" value="' + escAttr(
+              (Array.isArray(_loan.vestingLLCs) && _loan.vestingLLCs.length && _loan.vestingLLCs[0].name)
+                || (Array.isArray(c.companies) && c.companies[0] && c.companies[0].name)
+                || c.entityName || ''
+            ) + '" readonly placeholder="No entity on file" /></div>' +
           '<div class="field"><label>Email</label>' +
             '<input type="email" id="bw-' + idx + '-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
           '<div class="field"><label>Phone</label>' +
@@ -4262,6 +4298,39 @@ function persistClient() {
     saveOpts = Object.assign({}, _client, { _owner: _loEmail });
   }
   return SLA.Clients.save(saveOpts);
+}
+
+// Deploy 236.327 — flip a broker loan back to a standard deal.
+// Clears the broker flag + all broker contact fields on the server;
+// server appends an audit note to the loan's notesLog. Confirmation
+// only — no undo modal, so the audit trail is the recovery path.
+function convertBrokerLoanToStandard() {
+  if (!_loan || !_client) return;
+  if (!_loan._isBrokerLoan) {
+    showToast('This loan is not flagged as a broker deal.');
+    return;
+  }
+  var brokerName = _loan.brokerName || _loan.brokerCompany || 'broker';
+  if (!confirm(
+    'Convert this loan to a standard (non-broker) deal?\n\n' +
+    'This will:\n' +
+    '  • Remove the broker flag\n' +
+    '  • Clear the broker contact info (' + brokerName + ')\n' +
+    '  • Add an audit-log entry\n\n' +
+    'The Broker Info section will disappear from Loan Details. If you need to convert back to a broker deal later, open the sizer and toggle "Broker Deal" on.'
+  )) return;
+  var payload = { clientId: _clientId, loanId: _loanId, isBroker: false };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.api('POST', '/api/loan-set-broker-flag', payload).then(function(r) {
+    if (!r || !r.loan) { showToast('Convert failed: server returned no loan.'); return; }
+    _loan = r.loan;
+    var lidx = (_client && _client.loans || []).findIndex(function(x) { return x && x.id === _loanId; });
+    if (lidx >= 0) _client.loans[lidx] = r.loan;
+    showToast('Converted to standard deal.');
+    render();
+  }).catch(function(err) {
+    showToast('Convert failed: ' + (err && err.message || 'unknown'));
+  });
 }
 
 function saveAppFields() {
