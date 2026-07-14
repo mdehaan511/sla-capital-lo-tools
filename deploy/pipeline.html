@@ -1203,7 +1203,18 @@ function processResults(results) {
         ? _loanLookup[item.owner + '|' + addrNormDdp + '|pt:' + qPtDdp]
         : null;
       var addrLookup = addrNormDdp ? _loanLookup[item.owner + '|' + addrNormDdp] : null;
-      var canonical  = q.loanId
+      // Deploy 236.321 — verify q.loanId still points at a live loan
+      // before using it as the canonical. If the referenced loan was
+      // deleted or merged away, the stamped loanId becomes a "ghost"
+      // that doesn't match any other quote's canonical — the same
+      // underlying real loan then gets a duplicate tile (one from the
+      // ghost-loanId quote, one from a live-loanId quote or the
+      // synthetic-tile sweep). Ghost detection: q.loanId is set but
+      // _loanLookup has no live record for it. When ghosted, fall
+      // through the same lookup chain a legacy no-loanId quote uses.
+      var _liveByStamped = q.loanId ? _loanLookup[item.owner + '|id|' + q.loanId] : null;
+      var _stampedIsGhost = !!q.loanId && !_liveByStamped;
+      var canonical  = (!_stampedIsGhost && q.loanId)
                     || (ptLookup && ptLookup.loanId)
                     || (addrLookup && addrLookup.loanId)
                     || q.id;
@@ -1296,20 +1307,25 @@ function processResults(results) {
     Object.keys(_items).forEach(function(bkt) {
       _items[bkt].forEach(function(t) {
         if (t.kind !== 'quote' || !t.quote) return;
-        // Direct loanId stamp — the happy path for every quote saved
-        // since Deploy 236.7.
-        if (t.quote.loanId) {
-          _loanIdsWithTile[t.ownerKey + '|' + t.quote.loanId] = true;
+        // Deploy 236.321 — verify the stamped loanId points at a LIVE
+        // loan before trusting it. A stale stamp (loan deleted or
+        // merged away) means marking _loanIdsWithTile[stale_id] has no
+        // effect — the live loan at the same address then gets a
+        // duplicate synthetic tile. Fall through to the address chain
+        // when the stamp is a ghost.
+        var _liveRec = t.quote.loanId
+          ? _loanLookup[t.ownerKey + '|id|' + t.quote.loanId]
+          : null;
+        if (_liveRec && _liveRec.loanId) {
+          _loanIdsWithTile[t.ownerKey + '|' + _liveRec.loanId] = true;
           return;
         }
         // Deploy 236.320 — dedup fix. Legacy quotes (pre-236.7) and
         // orphan quotes whose loanId got stripped never made it into
         // _loanIdsWithTile via the direct path, so the synthetic-tile
         // sweep below rendered a SECOND tile for the same underlying
-        // loan. Mike: Quoted column showing duplicates. Fix: resolve
-        // the loan via _loanLookup (propType-discriminated address,
-        // then bare address, then street) and mark _loanIdsWithTile
-        // for THAT loanId so the synthetic sweep skips it.
+        // loan. Deploy 236.321 extends the same fallback to
+        // ghost-loanId quotes (stamp exists but points at a dead loan).
         var _an = _normAddr(t.quote.address || '');
         var _st = _an ? _an.split(',')[0].trim() : '';
         var _pt = String((t.quote.formData && t.quote.formData.propType) || '').toLowerCase().trim();
