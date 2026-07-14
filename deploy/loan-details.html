@@ -13,10 +13,11 @@
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
   <script src="loan-doc-review.js"></script>
-  <script src="sla-nav.js"></script>
-  <script src="sla-notifications.js"></script>
-<script src="sla-chat.js"></script>
-  <script src="quotes.js"></script>
+  <!-- Deploy 236.325 — defer non-critical shell scripts (install on DOMContentLoaded). -->
+  <script src="sla-nav.js" defer></script>
+  <script src="sla-notifications.js" defer></script>
+  <script src="sla-chat.js" defer></script>
+  <script src="quotes.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {

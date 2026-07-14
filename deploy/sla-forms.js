@@ -324,6 +324,22 @@
     init();
   }
 
+  // Deploy 236.325 — shared debounce helper for search inputs. Every
+  // filter search across the app (pipeline, dashboard, clients,
+  // saved-quotes, decisions, admin logs) rebuilds the whole list on
+  // every keystroke — noticeable lag when the list has hundreds of
+  // rows. Wrap the render function with SLAForms.debounce(fn, 120)
+  // so we only rebuild after typing pauses.
+  function debounce(fn, wait) {
+    var _t = null;
+    if (typeof wait !== 'number') wait = 120;
+    return function() {
+      var self = this, args = arguments;
+      if (_t) clearTimeout(_t);
+      _t = setTimeout(function() { fn.apply(self, args); }, wait);
+    };
+  }
+
   // Expose helpers
   window.SLAForms = {
     formatMoney: formatMoney,
@@ -332,6 +348,7 @@
     formatSSN:   function(v) { return applyMaskValue(v, 'ssn'); },
     formatEIN:   function(v) { return applyMaskValue(v, 'ein'); },
     parseDigits: function(s) { return String(s||'').replace(/\D/g,''); },
+    debounce:    debounce,
     reformatExisting: bindRoot,
     // Reasonable email validator: not RFC-perfect but rejects garbage like
     // "asdf", "asdf@", "@x.com", "no-tld@example", and "bob smith@x.com".

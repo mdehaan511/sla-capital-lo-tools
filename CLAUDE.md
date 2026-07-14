@@ -106,9 +106,10 @@ to bypass owner scoping.
 
 ## Naming conventions
 
-- **Deploys are numbered sequentially** (currently at 194). Increment in the
-  zip filename, commit message, and any new comment block referencing the
-  change. Comment style: `// Deploy 194 (perf): <description>`.
+- **Deploys are numbered sequentially** (currently at 236.325). Post-Claude-
+  Code the numbering uses `236.<N>` where each `git push` to main is a deploy.
+  Increment in the commit message and any new comment block referencing the
+  change. Comment style: `// Deploy 236.325 (perf): <description>`.
 - **Loan IDs**: `l_<timestamp>_<random6>`. Never reuse, never edit, treat as
   immutable once assigned.
 - **Client IDs**: `c_<timestamp>_<random6>`.
@@ -289,10 +290,8 @@ Once on Claude Code with git + Netlify continuous deploy:
 If something breaks: `git revert HEAD && git push`. The previous deploy is
 live again within ~60s.
 
-Pre-Claude-Code workflow (legacy, currently in use): I generated zip files
-under `/mnt/user-data/outputs/SLA_Capital_Deploy_<N>.zip` and you deployed
-them manually. The zip files for deploys 185–194 are archived; nothing else
-relies on this flow.
+Pre-Claude-Code workflow (legacy, no longer in use): zips under
+`/mnt/user-data/outputs/SLA_Capital_Deploy_<N>.zip`. Archived; not used.
 
 ---
 

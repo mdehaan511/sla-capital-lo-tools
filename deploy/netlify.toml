@@ -10,6 +10,16 @@
   NODE_VERSION = "20"
   AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
 
+# Deploy 236.325 — favicon rewrite. Browsers auto-request /favicon.ico
+# on every page load; without this every LO page 404'd. 200-rewrite to
+# our PNG (Netlify serves it with image/png Content-Type, which every
+# major browser accepts as a favicon).
+[[redirects]]
+  from = "/favicon.ico"
+  to = "/favicon.png"
+  status = 200
+  force = true
+
 # ── Page redirects (post pipeline migration) ──────────────
 [[redirects]]
   from = "/prospects.html"

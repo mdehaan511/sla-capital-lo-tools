@@ -3577,10 +3577,6 @@ function saveCurrentQuote() {
     if (hasDirectIds) {
       // Direct ID-based update: bypasses the email/address matching in
       // Clients.upsert entirely. Works regardless of borrowerEmail.
-      console.log('[SLA] RTL save: direct-ID path', {
-        clientId: window._editingClientId, loanId: window._editingLoanId,
-        hasEmail: !!formData.borrowerEmail,
-      });
       SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRec, ownerOvr)
         .then(handleSaveSuccess)
         .catch(handleSaveFailure);
@@ -3591,7 +3587,6 @@ function saveCurrentQuote() {
       // Prior behavior fell through to the borrower-email branch, which
       // created a new borrower client every time the LO added borrower
       // name+email to a broker deal (the duplicate bug).
-      console.log('[SLA] RTL save: broker-fallback upsert path');
       var brokerNameParts = String(formData.brokerName || '').trim().split(/\s+/);
       var upsertPromise = ClientBook.upsert(_quoteUser, formData.brokerEmail,
         brokerNameParts.slice(0, -1).join(' ') || brokerNameParts[0] || '',
@@ -3606,7 +3601,6 @@ function saveCurrentQuote() {
       // Brand-new quote (no editing IDs resolved yet). Fall back to the
       // legacy upsert path which auto-creates the client + initial loan.
       // NEEDS borrowerEmail because upsert matches by email.
-      console.log('[SLA] RTL save: upsert path (no direct-IDs)');
       if (window._editingLoanId) loanRec._editingLoanId = window._editingLoanId;
       var upsertPromise = ClientBook.upsert(_quoteUser, formData.borrowerEmail,
         rNameParts.slice(0,-1).join(' ') || rNameParts[0] || '',

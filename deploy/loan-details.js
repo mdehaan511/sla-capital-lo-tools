@@ -1718,14 +1718,9 @@ function render() {
   refreshLoanContacts();
 
   // Deploy 236.108 — eagerly preload the user directory so the
-  // assignee picker is instant on first click. Deploy 236.109 —
-  // added a console.log so we can see in Mike's dev tools whether
-  // the preload actually fires from this code path.
+  // assignee picker is instant on first click.
   if (typeof loadUserDirectory === 'function') {
-    console.log('[SLA] render(): kicking off eager user-directory preload');
     loadUserDirectory();
-  } else {
-    console.warn('[SLA] render(): loadUserDirectory NOT DEFINED at preload time');
   }
 
   // Deploy 236.73 — async-check whether a loan review already exists
@@ -3881,27 +3876,21 @@ function addTaskFromUI() {
 var _userDirectory   = null;
 var _userDirLoading  = false;
 function loadUserDirectory(cb) {
-  if (_userDirectory) { console.log('[SLA] loadUserDirectory: cache hit', _userDirectory.length); cb && cb(_userDirectory); return; }
-  if (_userDirLoading) { console.log('[SLA] loadUserDirectory: already loading, retrying in 80ms'); setTimeout(function(){ loadUserDirectory(cb); }, 80); return; }
+  if (_userDirectory) { cb && cb(_userDirectory); return; }
+  if (_userDirLoading) { setTimeout(function(){ loadUserDirectory(cb); }, 80); return; }
   _userDirLoading = true;
-  console.log('[SLA] loadUserDirectory: firing fetch /api/users-directory');
   SLA.api('GET', '/api/users-directory').then(function(r) {
     _userDirectory = (r && r.users) || [];
     _userDirLoading = false;
-    console.log('[SLA] loadUserDirectory: SUCCESS, got', _userDirectory.length, 'users');
     cb && cb(_userDirectory);
   }).catch(function(err) {
-    console.warn('[SLA] loadUserDirectory: FAILED', err && err.message, err);
+    console.warn('loadUserDirectory failed:', err && err.message);
     _userDirectory = [];
     _userDirLoading = false;
     cb && cb([]);
   });
 }
 function openUserPicker(input) {
-  // Deploy 236.109 — diagnostic log so we can see in Mike's
-  // browser console whether this handler is firing at all.
-  // Strip once we confirm the picker is healthy.
-  console.log('[SLA] openUserPicker fired. cached?', !!_userDirectory, 'count:', _userDirectory ? _userDirectory.length : '(not loaded)');
   if (_userDirectory) {
     _renderUserPicker(input, input.value || '');
   } else {

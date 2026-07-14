@@ -116,7 +116,7 @@ async function handle(req, context) {
     // contained. Same pattern used in borrower-info-sign.mjs.
     const proto = (req.headers.get ? req.headers.get('x-forwarded-proto') : req.headers['x-forwarded-proto']) || 'https';
     const host  = (req.headers.get ? req.headers.get('host') : req.headers.host) || '';
-    const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://silver-narwhal-0d9f84.netlify.app');
+    const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://slaloantools.netlify.app');
     const link  = `${base}/borrower2-auth.html?t=${encodeURIComponent(newToken)}`;
 
     const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

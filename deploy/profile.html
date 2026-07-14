@@ -321,14 +321,13 @@
       </div>
 
       <!-- Deploy 200 — Baseline LOS (Phase 2 — manual button live).
-           The hard dry-run lock from Phase 1 is gone; env var
-           BASELINE_DRY_RUN controls mode. Auto-fire on approval lands
-           in Phase 3; expanded field mapping (custom fields) lands in
-           Phase 2.5 once PULL dumps are in. The mode tag is loaded
-           from /api/baseline-sync-log just like Brevo's. -->
+           Deploy 236.325 — copy updated: auto-fire shipped in Deploy
+           222 (Phase 3); loan-advance-status.mjs calls
+           _baselineSyncOnApproval whenever a loan moves to 'approved'.
+           The manual button on Loan Details remains as a resync tool. -->
       <div class="setting-row">
         <label>Loan-origination sync (Baseline) <span class="banner-tag off" id="baselineModeTag">Loading…</span></label>
-        <div class="hint">When a loan reaches <strong>Approved</strong> with the borrower application <strong>complete</strong>, an entity, each guarantor, and the loan itself are pushed to Baseline (auto-fire ships in Phase 3 — for now the LO clicks "Send to Baseline" on Loan Details). Configure these env vars in Netlify:
+        <div class="hint">When a loan reaches <strong>Approved</strong> with the borrower application <strong>complete</strong>, an entity, each guarantor, and the loan itself are auto-pushed to Baseline. LOs can also click "Send to Baseline" on Loan Details at any time to force a resync. Configure these env vars in Netlify:
           <ul style="margin:8px 0 0 18px;padding:0;list-style:disc;color:var(--muted)">
             <li><code>BASELINE_API_KEY</code> — required.</li>
             <li><code>BASELINE_DRY_RUN</code> — defaults to <code>true</code>. Set to the literal string <code>false</code> to enable real Baseline calls. Anything else (typos, "FALSE", unset) stays in dry-run as a fail-safe.</li>

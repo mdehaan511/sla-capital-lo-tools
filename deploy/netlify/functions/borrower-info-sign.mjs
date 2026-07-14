@@ -736,7 +736,7 @@ async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress
     ? req.headers.get('host') : req.headers.host)) || '';
   const base = host
     ? `${proto}://${host}`
-    : (process.env.URL || 'https://silver-narwhal-0d9f84.netlify.app');
+    : (process.env.URL || 'https://slaloantools.netlify.app');
   const link = `${base}/borrower2-auth.html?t=${encodeURIComponent(token)}`;
 
   const subject = 'Action required: Co-borrower authorization for SLA Capital loan application';

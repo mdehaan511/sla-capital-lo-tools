@@ -94,7 +94,7 @@ export default async (req, context) => {
     if (apiKey) {
       const proto = (req.headers.get ? req.headers.get('x-forwarded-proto') : req.headers['x-forwarded-proto']) || 'https';
       const host  = (req.headers.get ? req.headers.get('host') : req.headers.host) || '';
-      const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://silver-narwhal-0d9f84.netlify.app');
+      const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://slaloantools.netlify.app');
       const link  = `${base}/term-sheet-sign.html?t=${encodeURIComponent(newToken)}`;
 
       let loName = env.requesterEmail;

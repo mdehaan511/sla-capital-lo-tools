@@ -20,12 +20,14 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Lora:wght@500;600&display=swap" rel="stylesheet" />
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
-  <script src="sla-nav.js"></script>
+  <script src="sla-forms.js"></script>
+  <!-- Deploy 236.325 — defer non-critical shell scripts. -->
+  <script src="sla-nav.js" defer></script>
   <!-- Deploy 236.31: submission-tape builder (factory pattern). Used
        by the "Export RTL Submission Template" action when 1+ closed
        loans are selected in the Loans table. -->
-  <script src="loan-submissions.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="loan-submissions.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
   <style>
     :root {
       --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
@@ -239,7 +241,7 @@
     <div class="table-head">
       <h2>Loans</h2>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="loanSearch" class="search-box" placeholder="Search address, borrower, ID…" oninput="renderTable()" />
+        <input type="text" id="loanSearch" class="search-box" placeholder="Search address, borrower, ID…" oninput="_debouncedRenderTable()" />
         <div class="tabs">
           <button class="tab active" id="tabActive" onclick="setTab('active')">Active</button>
           <button class="tab" id="tabSold"   onclick="setTab('sold')">Sold</button>
@@ -3308,6 +3310,12 @@ function sortBy(col) {
   }
   renderTable();
 }
+
+// Deploy 236.325 — debounced trampoline for the search input; direct
+// callers of renderTable() still get the immediate path.
+var _debouncedRenderTable = (window.SLAForms && SLAForms.debounce)
+  ? SLAForms.debounce(function() { renderTable(); }, 140)
+  : function() { renderTable(); };
 
 function renderTable() {
   // Deploy 236.31 — _dashGetFiltered() owns the filter chain so the
