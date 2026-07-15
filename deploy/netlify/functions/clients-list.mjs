@@ -27,7 +27,16 @@ export default async (req, context) => {
 
   const url = new URL(req.url);
   const wantAll = url.searchParams.get('all') === '1';
+  // Deploy 236.340 — `?summary=1` returns a compact projection of
+  // each client + a per-loan mini-record covering only the fields
+  // pipeline.html / clients.html / loans.html actually render. Cuts
+  // wire size ~90% and JSON parse time by roughly the same on Mike's
+  // post-import 2 852-record set. Callers that need the full record
+  // (loan-details.js, sizer) leave this off.
+  const wantSummary = url.searchParams.get('summary') === '1';
   const store = getStore({ name: 'clients', consistency: 'strong' });
+
+  const project = wantSummary ? projectSummary : sanitize;
 
   try {
     if (wantAll && canListAllClients(user).ok) {
@@ -47,7 +56,7 @@ export default async (req, context) => {
         byOwner[o].sort((a, b) =>
           new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0),
         );
-        byOwner[o] = byOwner[o].map(sanitize);
+        byOwner[o] = byOwner[o].map(project);
       });
       return json(200, { byOwner });
     }
@@ -62,7 +71,7 @@ export default async (req, context) => {
     filtered.sort((a, b) =>
       new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0),
     );
-    return json(200, { clients: filtered.map(sanitize) });
+    return json(200, { clients: filtered.map(project) });
   } catch (e) {
     console.error('clients-list error:', e);
     return json(500, { error: 'Failed to load clients' });
@@ -80,4 +89,61 @@ function sanitize(client) {
     out.hasSSN = false;
   }
   return out;
+}
+
+// Deploy 236.340 — compact projection for list views. Includes what
+// pipeline tile / clients card / loans row render + everything the
+// per-loan lookup needs to route clicks and cross-check status.
+// Excludes: notesLog, sizer formData snapshots, envelope metadata,
+// borrower_info long-app data, pricing overrides, signed docs, ssn.
+// The full record is still available via a follow-up
+// /api/clients?all=1 (no summary) or per-loan fetch on demand.
+const LOAN_SUMMARY_FIELDS = [
+  'id', 'address', 'status', 'processingStage', 'loanAmt', 'loanType',
+  'toolType', 'rate', 'points', 'purchasePrice', 'propValue', 'propType',
+  'fico', 'prepay', 'dscr', 'brokerId', 'brokerName', 'brokerCompany',
+  'brokerEmail', 'brokerPhone', 'brokerFee', '_isBrokerLoan',
+  'fromApplication', 'prospectId', 'fundingDate', 'maturityDate',
+  'servicerName', 'servicerUrl',
+  'slaDisplayId', 'guarantorClientIds',
+  'createdAt', 'updatedAt', 'savedAt', '_owner',
+];
+function projectLoan(l) {
+  if (!l || typeof l !== 'object') return l;
+  const out = {};
+  for (const k of LOAN_SUMMARY_FIELDS) {
+    if (k in l) out[k] = l[k];
+  }
+  // Keep formData._finalRate + propType only — pipeline uses them for
+  // the "unpriced auto-create" filter and the propType-discriminated
+  // loanLookup.
+  if (l.formData && typeof l.formData === 'object') {
+    out.formData = {
+      _finalRate: l.formData._finalRate,
+      propType:   l.formData.propType,
+    };
+  }
+  return out;
+}
+function projectSummary(client) {
+  if (!client || typeof client !== 'object') return client;
+  return {
+    id:        client.id,
+    firstName: client.firstName || '',
+    lastName:  client.lastName  || '',
+    name:      client.name      || '',
+    email:     client.email     || '',
+    phone:     client.phone     || '',
+    entityName: client.entityName || '',
+    companies: Array.isArray(client.companies)
+      ? client.companies.map((co) => ({ id: co && co.id, name: co && co.name }))
+      : [],
+    hasSSN:    !!client.ssn_enc,
+    _isBroker: !!client._isBroker,
+    _importedAt:    client._importedAt    || undefined,
+    _importSource:  client._importSource  || undefined,
+    createdAt: client.createdAt,
+    updatedAt: client.updatedAt,
+    loans: Array.isArray(client.loans) ? client.loans.map(projectLoan) : [],
+  };
 }

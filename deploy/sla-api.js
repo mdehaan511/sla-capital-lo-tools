@@ -760,8 +760,14 @@
           localStorage.setItem('sla_cache_' + k, JSON.stringify(obj));
         } catch (e) {}
       };
+      // Deploy 236.340 — mark ALL variants stale: the base slot, the
+      // admin (_all) slot, and the two summary siblings. A save
+      // invalidates every listCached() surface that could paint stale
+      // data on the next visit.
       mark(key);
       mark(key + '_all');
+      mark(key + '_summary');
+      mark(key + '_all_summary');
     },
     clear: function (key) {
       try { localStorage.removeItem('sla_cache_' + key); } catch (e) {}
@@ -771,6 +777,8 @@
       // for missing keys). This spares every mutating endpoint from
       // needing to remember to clear both slots.
       try { localStorage.removeItem('sla_cache_' + key + '_all'); } catch (e) {}
+      try { localStorage.removeItem('sla_cache_' + key + '_summary'); } catch (e) {}
+      try { localStorage.removeItem('sla_cache_' + key + '_all_summary'); } catch (e) {}
     },
     clearAll: function () {
       try {
@@ -793,22 +801,19 @@
   var Clients = {
     list: function (opts) {
       opts = opts || {};
-      var q = opts.all ? '?all=1' : '';
-      var cacheKey = opts.all ? 'clients_all' : 'clients';
-      // Deploy 236.260 (perf #2) — SWR at the API layer. If we have a
-      // fresh cached response (within CACHE_TTL_MS = 5 min), resolve
-      // with it INSTANTLY and kick off a background refresh so the
-      // next call gets even fresher data. Pages navigating quickly
-      // between Pipeline / Clients / Loan Details no longer wait on
-      // a full network round-trip for the same clients list.
-      //
-      // Opt-out: pass { forceFresh: true } when you actually need
-      // a fresh network read (e.g. right after a mutation you're
-      // trying to verify).
-      // Deploy 236.315 — when the cache is stale-marked (a mutation
-      // happened since this entry was written), skip the SWR return
-      // path and force a network read. listCached() still returns the
-      // stale data separately for the instant-paint hint.
+      // Deploy 236.340 — pipeline / dashboards / loans lists don't
+      // need the full record shape. Pass `summary: true` to fetch
+      // the ~10x smaller projection built by clients-list.mjs. The
+      // full record path (loan-details.js, sizer) omits it.
+      var qs = [];
+      if (opts.all)     qs.push('all=1');
+      if (opts.summary) qs.push('summary=1');
+      var q = qs.length ? '?' + qs.join('&') : '';
+      // Separate cache slot per (all × summary) combination so a
+      // summary paint doesn't poison a follow-up full fetch.
+      var cacheKey =
+        (opts.all ? 'clients_all' : 'clients') +
+        (opts.summary ? '_summary' : '');
       var cached = cache.get(cacheKey);
       var isStale = cache.isStale(cacheKey);
       if (cached && !opts.forceFresh && !isStale) {
@@ -816,8 +821,6 @@
         return Promise.resolve(cached);
       }
       return api('GET', '/api/clients' + q).then(function (r) {
-        // Store the full response shape ({clients} or {byOwner}) so
-        // listCached returns something usable directly.
         cache.set(cacheKey, r);
         return r;
       });
@@ -831,7 +834,11 @@
      */
     listCached: function (opts) {
       opts = opts || {};
-      var cacheKey = opts.all ? 'clients_all' : 'clients';
+      // Deploy 236.340 — mirrors the list() cache-key shape so
+      // summary+all reads hit their own instant-paint slot.
+      var cacheKey =
+        (opts.all ? 'clients_all' : 'clients') +
+        (opts.summary ? '_summary' : '');
       return cache.get(cacheKey);
     },
     save: function (client) {
@@ -1511,7 +1518,24 @@
     list: function (opts) {
       opts = opts || {};
       var qs = opts.all ? '?all=1' : '';
-      return api('GET', '/api/borrower-info-list' + qs);
+      // Deploy 236.340 — SWR added. Was uncached; every pipeline
+      // load paid full latency for a whole-store walk. Now the first
+      // cold visit populates + every subsequent nav returns instant.
+      var cacheKey = opts.all ? 'borrower_info_all' : 'borrower_info';
+      var cached = cache.get(cacheKey);
+      var isStale = cache.isStale(cacheKey);
+      if (cached && !opts.forceFresh && !isStale) {
+        api('GET', '/api/borrower-info-list' + qs).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
+        return Promise.resolve(cached);
+      }
+      return api('GET', '/api/borrower-info-list' + qs).then(function (r) {
+        cache.set(cacheKey, r); return r;
+      });
+    },
+    listCached: function (opts) {
+      opts = opts || {};
+      var cacheKey = opts.all ? 'borrower_info_all' : 'borrower_info';
+      return cache.get(cacheKey);
     },
     status: function (clientId, opts) {
       opts = opts || {};
@@ -1746,7 +1770,27 @@
       if (opts.all)               qs.push('all=1');
       if (opts.includeCompleted)  qs.push('completed=1');
       var url = '/api/reminders' + (qs.length ? '?' + qs.join('&') : '');
-      return api('GET', url);
+      // Deploy 236.340 — SWR. Pipeline + notification poller both
+      // fired this uncached; instant paint on repeat visits now.
+      var cacheKey =
+        (opts.all ? 'reminders_all' : 'reminders') +
+        (opts.includeCompleted ? '_c' : '');
+      var cached = cache.get(cacheKey);
+      var isStale = cache.isStale(cacheKey);
+      if (cached && !opts.forceFresh && !isStale) {
+        api('GET', url).then(function (r) { cache.set(cacheKey, r); }).catch(function(){});
+        return Promise.resolve(cached);
+      }
+      return api('GET', url).then(function (r) {
+        cache.set(cacheKey, r); return r;
+      });
+    },
+    listCached: function (opts) {
+      opts = opts || {};
+      var cacheKey =
+        (opts.all ? 'reminders_all' : 'reminders') +
+        (opts.includeCompleted ? '_c' : '');
+      return cache.get(cacheKey);
     },
     save: function (reminder) {
       return api('POST', '/api/reminders-save', reminder);

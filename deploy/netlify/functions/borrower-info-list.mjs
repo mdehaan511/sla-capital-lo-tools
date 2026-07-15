@@ -42,7 +42,13 @@ async function handle(req, context) {
   const origin = url.origin;
 
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  const { blobs } = await store.list();
+  // Deploy 236.340 — non-admin path now scans by owner prefix
+  // instead of walking the whole store and filtering client-side.
+  // That drops the per-LO fetch from O(N total) → O(N owner) and
+  // removes a giant metadata payload per pipeline load.
+  const { blobs } = wantAll
+    ? await store.list()
+    : await store.list({ prefix: ownerKey + '/' });
   const out = [];
 
   // Track which (owner, clientId, loanId) keys we've already emitted so
@@ -54,6 +60,8 @@ async function handle(req, context) {
     const slashIdx = key.indexOf('/');
     if (slashIdx < 0) return;
     const recordOwner = key.slice(0, slashIdx);
+    // Prefix scan already filters to this owner in non-admin mode;
+    // this guard is a belt-and-suspenders for admin mode.
     if (!wantAll && recordOwner !== ownerKey) return;
 
     const r = await store.get(key, { type: 'json' });
