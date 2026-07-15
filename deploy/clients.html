@@ -143,6 +143,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .letter-divider-letter{font-family:'Lora',serif;font-size:24px;font-weight:600;color:var(--gold)}
 .letter-divider-count{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
 
+/* Deploy 236.347 — pagination footer.
+   Sits below the client list. Shows "X-Y of N clients" and page
+   number buttons. Only rendered when the filtered set > 100. */
+.clients-pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:24px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r)}
+.clients-pager .pager-info{font-size:12px;color:var(--muted);font-family:'DM Mono',monospace}
+.clients-pager .pager-buttons{display:flex;flex-wrap:wrap;gap:4px}
+.clients-pager .pager-btn{padding:6px 12px;min-width:34px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;transition:all .12s}
+.clients-pager .pager-btn:hover:not(:disabled):not(.pager-btn-current){background:var(--gold-light);border-color:var(--gold-mid);color:var(--gold-mid)}
+.clients-pager .pager-btn:disabled{opacity:0.35;cursor:default}
+.clients-pager .pager-btn-current{background:var(--dark);color:#fff;border-color:var(--dark);cursor:default}
+.clients-pager .pager-gap{padding:0 4px;color:var(--muted);align-self:center;font-family:'DM Mono',monospace}
+
 /* Modal */
 .modal-bg{position:fixed;inset:0;background:rgba(38,26,54,0.55);display:none;align-items:center;justify-content:center;z-index:100;padding:1rem}
 .modal-bg.show{display:flex}
@@ -264,6 +276,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
     <div class="alpha-jump" id="alphaJump" style="display:none"></div>
     <div id="clientsList"></div>
+    <!-- Deploy 236.347 — pagination footer. Populated by
+         renderClientsPagination() when the filtered set > page size. -->
+    <div id="clientsPager" class="clients-pager" style="display:none"></div>
   </div>
 
   <!-- Admin View -->
@@ -298,6 +313,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="alpha-jump" id="adminAlphaJump" style="display:none"></div>
     <div class="summary-bar" id="adminSummaryBar"></div>
     <div id="adminClientsList"></div>
+    <!-- Deploy 236.347 — pagination footer for cross-LO view.
+         Same 100-per-page slice as My Clients. -->
+    <div id="adminClientsPager" class="clients-pager" style="display:none"></div>
   </div>
 </div>
 
@@ -537,9 +555,17 @@ var _debouncedRenderClients = (window.SLAForms && SLAForms.debounce)
   ? SLAForms.debounce(function() { renderClients(); }, 140)
   : function() { renderClients(); };
 
+// Deploy 236.347 — pagination state. 100 per page. Reset to page 1
+// whenever the filter/search changes so the LO doesn't land on a
+// page number that no longer exists.
+var _clientsPage = 1;
+var _clientsPerPage = 100;
+var _lastFilterSignature = '';
+
 function renderClients() {
   var search = (document.getElementById('searchInput').value||'').toLowerCase().trim();
   var list = document.getElementById('clientsList');
+  var pager = document.getElementById('clientsPager');
   list.innerHTML = '';
 
   var filtered = _clients.filter(function(c) {
@@ -564,8 +590,17 @@ function renderClients() {
     return aFirst.localeCompare(bFirst);
   });
 
+  // Reset to page 1 when the filter/search set changes (so a search
+  // for "Smith" doesn't land you on page 12 of a smaller set).
+  var sig = search + '|' + _tf + '|' + filtered.length;
+  if (sig !== _lastFilterSignature) {
+    _clientsPage = 1;
+    _lastFilterSignature = sig;
+  }
+
   if (!filtered.length) {
     document.getElementById('alphaJump').style.display = 'none';
+    pager.style.display = 'none';
     if (search) {
       list.innerHTML = '<div class="empty-state"><h3>No matching clients</h3><p>Nothing matches "<strong>'+escH(search)+'</strong>". Try a different search.</p></div>';
     } else {
@@ -574,9 +609,21 @@ function renderClients() {
     return;
   }
 
-  // Group by first letter of last name (or '#' for missing)
+  // Deploy 236.347 — slice to the current page BEFORE building DOM.
+  // Rendering all 2 852 cards synchronously froze the browser for
+  // several seconds. 100 at a time paints instantly.
+  var totalPages = Math.max(1, Math.ceil(filtered.length / _clientsPerPage));
+  if (_clientsPage > totalPages) _clientsPage = totalPages;
+  if (_clientsPage < 1)          _clientsPage = 1;
+  var pageStart = (_clientsPage - 1) * _clientsPerPage;
+  var pageEnd   = pageStart + _clientsPerPage;
+  var pageSlice = filtered.slice(pageStart, pageEnd);
+
+  // Group by first letter of last name (or '#' for missing) — only
+  // the current page's slice, so headers reflect what's actually
+  // rendered.
   var groups = {};
-  filtered.forEach(function(c) {
+  pageSlice.forEach(function(c) {
     var letter = ((c.firstName || c.lastName || '#').charAt(0) || '#').toUpperCase();
     if (!/[A-Z]/.test(letter)) letter = '#';
     if (!groups[letter]) groups[letter] = [];
@@ -588,19 +635,77 @@ function renderClients() {
     return a.localeCompare(b);
   });
 
-  // Render the A-Z jump bar
-  renderAlphaJump(letters);
+  // Alpha jump reflects letters present across the WHOLE filtered
+  // set so clicking a letter jumps to the right page even when it
+  // isn't on the current page.
+  var allLetters = {};
+  filtered.forEach(function(c) {
+    var L = ((c.firstName || c.lastName || '#').charAt(0) || '#').toUpperCase();
+    if (!/[A-Z]/.test(L)) L = '#';
+    allLetters[L] = true;
+  });
+  renderAlphaJump(Object.keys(allLetters).sort(function(a, b) {
+    if (a === '#') return 1;
+    if (b === '#') return -1;
+    return a.localeCompare(b);
+  }));
 
-  // Render groups
+  // Build DOM into a DocumentFragment so we do ONE reflow, not N.
+  var frag = document.createDocumentFragment();
   letters.forEach(function(L) {
     var hdr = document.createElement('div');
     hdr.className = 'letter-divider';
     hdr.id = 'letter-' + L;
     hdr.innerHTML = '<span class="letter-divider-letter">' + L + '</span>' +
       '<span class="letter-divider-count">' + groups[L].length + ' client' + (groups[L].length === 1 ? '' : 's') + '</span>';
-    list.appendChild(hdr);
-    groups[L].forEach(function(c) { list.appendChild(buildClientCard(c, _user.email, false)); });
+    frag.appendChild(hdr);
+    groups[L].forEach(function(c) { frag.appendChild(buildClientCard(c, _user.email, false)); });
   });
+  list.appendChild(frag);
+
+  // Pagination footer.
+  if (filtered.length > _clientsPerPage) {
+    pager.style.display = '';
+    pager.innerHTML = _renderPagerHtml(_clientsPage, totalPages, filtered.length, pageStart, pageEnd);
+  } else {
+    pager.style.display = 'none';
+  }
+}
+
+// Deploy 236.347 — pagination controls. Prev / Next / page number
+// buttons + "showing X-Y of N" info. Called only when there's more
+// than one page.
+function _renderPagerHtml(page, totalPages, total, pageStart, pageEnd) {
+  var shownStart = pageStart + 1;
+  var shownEnd   = Math.min(pageEnd, total);
+  // Compact page-number list: 1 … page-2, page-1, page, page+1, page+2 … totalPages
+  var pages = new Set([1, totalPages, page - 2, page - 1, page, page + 1, page + 2]);
+  var visible = [];
+  for (var i = 1; i <= totalPages; i++) if (pages.has(i)) visible.push(i);
+  var numHtml = '';
+  var prev = 0;
+  visible.forEach(function(n) {
+    if (prev && n - prev > 1) numHtml += '<span class="pager-gap">…</span>';
+    numHtml += n === page
+      ? '<button class="pager-btn pager-btn-current" disabled>' + n + '</button>'
+      : '<button class="pager-btn" onclick="_clientsGoto(' + n + ')">' + n + '</button>';
+    prev = n;
+  });
+  var prevDisabled = page <= 1 ? ' disabled' : '';
+  var nextDisabled = page >= totalPages ? ' disabled' : '';
+  return '<div class="pager-info">Showing ' + shownStart + '–' + shownEnd + ' of ' + total.toLocaleString() + ' clients</div>' +
+    '<div class="pager-buttons">' +
+      '<button class="pager-btn"' + prevDisabled + ' onclick="_clientsGoto(' + (page - 1) + ')">‹ Prev</button>' +
+      numHtml +
+      '<button class="pager-btn"' + nextDisabled + ' onclick="_clientsGoto(' + (page + 1) + ')">Next ›</button>' +
+    '</div>';
+}
+function _clientsGoto(n) {
+  _clientsPage = n;
+  renderClients();
+  // Scroll the list to the top of the newly-rendered page.
+  var top = document.getElementById('clientsList');
+  if (top && top.scrollIntoView) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderAlphaJump(presentLetters, opts) {
@@ -1130,6 +1235,12 @@ function loadAdminClients(forceRefresh) {
   });
 }
 
+// Deploy 236.347 — cross-LO admin view pagination state. Mirrors
+// _clientsPage in My Clients — 100 rows per page + reset when the
+// filter/search set changes.
+var _adminPage = 1;
+var _adminLastFilterSignature = '';
+
 function renderAdminClients() {
   if (!_adminData) return;
   var search = (document.getElementById('adminSearch').value||'').toLowerCase().trim();
@@ -1139,6 +1250,7 @@ function renderAdminClients() {
   var wrap = document.getElementById('adminClientsList');
   wrap.innerHTML = '';
   var alphaJump = document.getElementById('adminAlphaJump');
+  var pager = document.getElementById('adminClientsPager');
 
   // Populate LO filter dropdown lazily — every render rebuilds it from
   // _adminData so it always reflects the freshest set of LOs we know about.
@@ -1210,8 +1322,16 @@ function renderAdminClients() {
       '<div class="summary-pill"><strong>'+loCount+'</strong> '+(loCount===1?'LO':'LOs')+'</div>';
   }
 
+  // Deploy 236.347 — reset to page 1 whenever the filter set changes.
+  var sig = search + '|' + loFilter + '|' + flat.length;
+  if (sig !== _adminLastFilterSignature) {
+    _adminPage = 1;
+    _adminLastFilterSignature = sig;
+  }
+
   if (!flat.length) {
     if (alphaJump) alphaJump.style.display = 'none';
+    if (pager) pager.style.display = 'none';
     if (summaryEl) summaryEl.innerHTML = '';
     wrap.innerHTML = '<div class="empty-state"><h3>No clients</h3><p>'+
       (search || loFilter
@@ -1221,11 +1341,19 @@ function renderAdminClients() {
     return;
   }
 
-  // Group flat list by first letter of last name (matches My Clients behavior).
-  // Use a different DOM-id prefix from My Clients ("aletter-" vs "letter-")
-  // so the two views never collide on a hidden duplicate ID.
+  // Deploy 236.347 — slice to current page BEFORE building DOM.
+  // The cross-LO view can have 2 800+ clients; rendering all at
+  // once was killing the browser tab.
+  var totalPages = Math.max(1, Math.ceil(flat.length / _clientsPerPage));
+  if (_adminPage > totalPages) _adminPage = totalPages;
+  if (_adminPage < 1)          _adminPage = 1;
+  var pageStart = (_adminPage - 1) * _clientsPerPage;
+  var pageEnd   = pageStart + _clientsPerPage;
+  var pageSlice = flat.slice(pageStart, pageEnd);
+
+  // Group ONLY the current page slice into letter buckets.
   var groups = {};
-  flat.forEach(function(entry) {
+  pageSlice.forEach(function(entry) {
     var c = entry.client;
     var letter = ((c.firstName || c.lastName || '#').charAt(0) || '#').toUpperCase();
     if (!/[A-Z]/.test(letter)) letter = '#';
@@ -1238,17 +1366,30 @@ function renderAdminClients() {
     return a.localeCompare(b);
   });
 
-  // Render the alphabet jump bar
-  renderAlphaJump(letters, { barId: 'adminAlphaJump', prefix: 'aletter-' });
+  // Alpha jump reflects letters across the WHOLE filtered set so
+  // admins can jump to any letter regardless of current page.
+  var allLetters = {};
+  flat.forEach(function(entry) {
+    var c = entry.client;
+    var L = ((c.firstName || c.lastName || '#').charAt(0) || '#').toUpperCase();
+    if (!/[A-Z]/.test(L)) L = '#';
+    allLetters[L] = true;
+  });
+  renderAlphaJump(Object.keys(allLetters).sort(function(a, b) {
+    if (a === '#') return 1;
+    if (b === '#') return -1;
+    return a.localeCompare(b);
+  }), { barId: 'adminAlphaJump', prefix: 'aletter-' });
 
-  // Render each letter group
+  // Build DOM into a DocumentFragment for one reflow instead of N.
+  var frag = document.createDocumentFragment();
   letters.forEach(function(L) {
     var hdr = document.createElement('div');
     hdr.className = 'letter-divider';
     hdr.id = 'aletter-' + L;
     hdr.innerHTML = '<span class="letter-divider-letter">' + L + '</span>' +
       '<span class="letter-divider-count">' + groups[L].length + ' client' + (groups[L].length === 1 ? '' : 's') + '</span>';
-    wrap.appendChild(hdr);
+    frag.appendChild(hdr);
     groups[L].forEach(function(entry) {
       var card = buildClientCard(entry.client, entry.owner, true);
       // Inject a "Belongs to" badge into the card's meta row so admins can see
@@ -1260,9 +1401,25 @@ function renderAdminClients() {
         loBadge.innerHTML = '<span class="lo-tag-badge" title="Loan officer">'+escH(humanizeEmail(entry.owner))+'</span>';
         meta.parentNode.insertBefore(loBadge, meta.nextSibling);
       }
-      wrap.appendChild(card);
+      frag.appendChild(card);
     });
   });
+  wrap.appendChild(frag);
+
+  // Pagination footer.
+  if (flat.length > _clientsPerPage) {
+    pager.style.display = '';
+    pager.innerHTML = _renderPagerHtml(_adminPage, totalPages, flat.length, pageStart, pageEnd)
+      .replace(/_clientsGoto\(/g, '_adminGoto(');
+  } else {
+    pager.style.display = 'none';
+  }
+}
+function _adminGoto(n) {
+  _adminPage = n;
+  renderAdminClients();
+  var top = document.getElementById('adminClientsList');
+  if (top && top.scrollIntoView) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // Old grouped-by-LO admin renderer kept as a fallback function name in case

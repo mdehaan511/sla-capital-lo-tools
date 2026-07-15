@@ -129,6 +129,16 @@
     .empty strong { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
     .empty a { color: var(--gold-mid); text-decoration: none; border-bottom: 1px dotted; }
 
+    /* Deploy 236.347 — pagination footer for the loans table. */
+    .loans-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--border); background: #faf8f5; }
+    .loans-pager .pager-info { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .loans-pager .pager-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+    .loans-pager .pager-btn { padding: 6px 12px; min-width: 34px; border: 1px solid var(--border); background: #fff; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all .12s; }
+    .loans-pager .pager-btn:hover:not(:disabled):not(.pager-btn-current) { background: var(--gold-light); border-color: var(--gold-border); color: var(--gold-mid); }
+    .loans-pager .pager-btn:disabled { opacity: 0.35; cursor: default; }
+    .loans-pager .pager-btn-current { background: var(--dark, #2a1f38); color: #fff; border-color: var(--dark, #2a1f38); cursor: default; }
+    .loans-pager .pager-gap { padding: 0 4px; color: var(--muted); align-self: center; font-family: 'DM Mono', monospace; }
+
     /* Mobile */
     @media (max-width: 720px) {
       .stats { gap: 8px; }
@@ -259,6 +269,10 @@
           <tr><td colspan="9"><div class="loading">Loading loans…</div></td></tr>
         </tbody>
       </table>
+      <!-- Deploy 236.347 — pagination footer. Populated by
+           renderTable() when filtered set > page size. Same
+           visual language as clients.html. -->
+      <div id="loansPager" class="loans-pager" style="display:none"></div>
     </div>
   </div>
 </div>
@@ -291,6 +305,13 @@ var _statusFilters = { active: true, submitted: true, awaiting_app: true, approv
 var _baselineFilters = { sold: false, in_servicing: false, paid_off: false };
 var _search = '';
 var _loFilter = '';
+// Deploy 236.347 — pagination state. Same 100-per-page slice as
+// clients.html. Reset to page 1 whenever the filter/search/sort
+// signature changes so the user doesn't land on a page number
+// that no longer exists.
+var _loansPage = 1;
+var _loansPerPage = 100;
+var _loansLastSignature = '';
 // Deploy 236.29 — Select Multiple mode + selection set keyed by the
 // (ownerKey, clientId, loanId) triple. When _selectMode is on, the
 // table grows a checkbox column and an action bar appears once 1+
@@ -635,18 +656,85 @@ function renderTable() {
 
   renderStats(rows);
 
+  var pager = document.getElementById('loansPager');
+
   if (!rows.length) {
     var msg = _allLoans.length === 0
       ? '<strong>No loans yet.</strong> Quote a deal from the <a href="dscr-sizer.html">DSCR</a> or <a href="rtl-sizer.html">RTL</a> sizer to get started.'
       : '<strong>No loans match the current filters.</strong> Try clearing your search or toggling more status chips on.';
     document.getElementById('tbody').innerHTML = '<tr><td colspan="' + _totalColumns() + '"><div class="empty">' + msg + '</div></td></tr>';
+    if (pager) pager.style.display = 'none';
     return;
   }
 
-  document.getElementById('tbody').innerHTML = rows.map(renderRow).join('');
+  // Deploy 236.347 — reset to page 1 when the filter/sort set
+  // changes. Signature includes sort key + direction because a
+  // resort should also return to the first page.
+  var sig = _search + '|' + _loFilter + '|' + _sortBy + '|' + _sortDir + '|' +
+    JSON.stringify(_statusFilters) + '|' + JSON.stringify(_baselineFilters) + '|' + rows.length;
+  if (sig !== _loansLastSignature) {
+    _loansPage = 1;
+    _loansLastSignature = sig;
+  }
+
+  // Slice to the current page. Rendering 2 852 rows synchronously
+  // as a single innerHTML assignment was the browser-freeze cause
+  // on the All Users view.
+  var totalPages = Math.max(1, Math.ceil(rows.length / _loansPerPage));
+  if (_loansPage > totalPages) _loansPage = totalPages;
+  if (_loansPage < 1)          _loansPage = 1;
+  var pageStart = (_loansPage - 1) * _loansPerPage;
+  var pageEnd   = pageStart + _loansPerPage;
+  var pageSlice = rows.slice(pageStart, pageEnd);
+
+  document.getElementById('tbody').innerHTML = pageSlice.map(renderRow).join('');
   // Deploy 236.29 — sync the "select all visible" header checkbox so it
   // reflects whether every currently-visible row is in the selection.
-  syncSelectAllHeader(rows);
+  // Note: "visible" means the current page slice, not the full filter
+  // set — bulk-select all reaches into `rows`, not the DOM.
+  syncSelectAllHeader(pageSlice);
+
+  // Pagination footer.
+  if (pager) {
+    if (rows.length > _loansPerPage) {
+      pager.style.display = '';
+      pager.innerHTML = _renderLoansPagerHtml(_loansPage, totalPages, rows.length, pageStart, pageEnd);
+    } else {
+      pager.style.display = 'none';
+    }
+  }
+}
+
+// Deploy 236.347 — pager controls (same shape as clients.html).
+function _renderLoansPagerHtml(page, totalPages, total, pageStart, pageEnd) {
+  var shownStart = pageStart + 1;
+  var shownEnd   = Math.min(pageEnd, total);
+  var pages = new Set([1, totalPages, page - 2, page - 1, page, page + 1, page + 2]);
+  var visible = [];
+  for (var i = 1; i <= totalPages; i++) if (pages.has(i)) visible.push(i);
+  var numHtml = '';
+  var prev = 0;
+  visible.forEach(function(n) {
+    if (prev && n - prev > 1) numHtml += '<span class="pager-gap">…</span>';
+    numHtml += n === page
+      ? '<button class="pager-btn pager-btn-current" disabled>' + n + '</button>'
+      : '<button class="pager-btn" onclick="_loansGoto(' + n + ')">' + n + '</button>';
+    prev = n;
+  });
+  var prevDisabled = page <= 1 ? ' disabled' : '';
+  var nextDisabled = page >= totalPages ? ' disabled' : '';
+  return '<div class="pager-info">Showing ' + shownStart + '–' + shownEnd + ' of ' + total.toLocaleString() + ' loans</div>' +
+    '<div class="pager-buttons">' +
+      '<button class="pager-btn"' + prevDisabled + ' onclick="_loansGoto(' + (page - 1) + ')">‹ Prev</button>' +
+      numHtml +
+      '<button class="pager-btn"' + nextDisabled + ' onclick="_loansGoto(' + (page + 1) + ')">Next ›</button>' +
+    '</div>';
+}
+function _loansGoto(n) {
+  _loansPage = n;
+  renderTable();
+  var top = document.getElementById('tbody');
+  if (top && top.scrollIntoView) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderRow(l) {
