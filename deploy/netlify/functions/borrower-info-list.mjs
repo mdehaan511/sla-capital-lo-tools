@@ -19,6 +19,9 @@ import {
 } from './_shared/auth.mjs';
 // Deploy 236.170 — Access Refactor PR #2.
 import { canListAllClients } from './_shared/access.mjs';
+// Deploy 236.343 — index fast path so cross-owner reads are one
+// blob fetch instead of walking the whole borrower_info store.
+import { borrowerInfoIndex } from './_shared/borrower-info-index.mjs';
 
 export default async (req, context) => {
   try {
@@ -41,41 +44,74 @@ async function handle(req, context) {
   const ownerKey = keySafe(normalizeEmail(user.email));
   const origin = url.origin;
 
+  // Deploy 236.343 — admin (all-scope) reads from the index blob.
+  // Non-admin still scans by owner prefix (fast enough for a single
+  // LO's records).
+  if (wantAll) {
+    let byOwner = null;
+    try {
+      const { index, isStale, exists } = await borrowerInfoIndex.readIndex();
+      if (exists && index && index.byOwner) {
+        if (isStale) borrowerInfoIndex.rebuildIndex().catch(() => {});
+        byOwner = index.byOwner;
+      } else {
+        const stats = await borrowerInfoIndex.rebuildIndex();
+        const fresh = await borrowerInfoIndex.readIndex();
+        if (fresh && fresh.index && fresh.index.byOwner) byOwner = fresh.index.byOwner;
+      }
+    } catch (e) {
+      console.warn('borrower-info-list: index read failed, falling to walk:', e && e.message);
+    }
+    if (byOwner) {
+      const seen = new Set();
+      const out = [];
+      for (const o of Object.keys(byOwner)) {
+        for (const r of byOwner[o]) {
+          if (!r) continue;
+          const dedupeKey = (r.ownerKey || o) + '|' + (r.clientId || '') + '|' + (r.loanId || '');
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          out.push({
+            clientId: r.clientId,
+            loanId:   r.loanId || null,
+            ownerKey: r.ownerKey || o,
+            borrowerEmail: r.borrowerEmail || '',
+            status: r.status,
+            sentAt: r.sentAt,
+            lastSavedAt: r.lastSavedAt,
+            completedAt: r.completedAt,
+            expiresAt: r.expiresAt,
+            token: r.token,
+            url: origin + '/borrower-info.html?t=' + encodeURIComponent(r.token || ''),
+          });
+        }
+      }
+      return json(200, { records: out, _fromIndex: true });
+    }
+    // Fall through to walk if index unavailable.
+  }
+
   const store = getStore({ name: 'borrower_info', consistency: 'strong' });
-  // Deploy 236.340 — non-admin path now scans by owner prefix
-  // instead of walking the whole store and filtering client-side.
-  // That drops the per-LO fetch from O(N total) → O(N owner) and
-  // removes a giant metadata payload per pipeline load.
   const { blobs } = wantAll
     ? await store.list()
     : await store.list({ prefix: ownerKey + '/' });
   const out = [];
-
-  // Track which (owner, clientId, loanId) keys we've already emitted so
-  // we don't double-count the legacy duplicate that borrower-info-save
-  // intentionally leaves behind during the per-loan migration.
   const seen = new Set();
-
   await Promise.all(blobs.map(async ({ key }) => {
     const slashIdx = key.indexOf('/');
     if (slashIdx < 0) return;
     const recordOwner = key.slice(0, slashIdx);
-    // Prefix scan already filters to this owner in non-admin mode;
-    // this guard is a belt-and-suspenders for admin mode.
     if (!wantAll && recordOwner !== ownerKey) return;
 
     const r = await store.get(key, { type: 'json' });
     if (!r) return;
-    // Dedupe: the migration may have left both a legacy per-client key
-    // AND a new per-loan key with the same content. Use clientId+loanId
-    // as the dedupe key; if a per-loan record exists, prefer it.
     const dedupeKey = (r.ownerKey || '') + '|' + (r.clientId || '') + '|' + (r.loanId || '');
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
 
     out.push({
       clientId: r.clientId,
-      loanId:   r.loanId || null,    // Deploy 168
+      loanId:   r.loanId || null,
       ownerKey: r.ownerKey,
       borrowerEmail: r.borrowerEmail || '',
       status: r.status,
@@ -83,7 +119,7 @@ async function handle(req, context) {
       lastSavedAt: r.lastSavedAt,
       completedAt: r.completedAt,
       expiresAt: r.expiresAt,
-      token: r.token, // The LO needs this to copy/share the link
+      token: r.token,
       url: origin + '/borrower-info.html?t=' + encodeURIComponent(r.token || ''),
     });
   }));

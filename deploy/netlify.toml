@@ -457,6 +457,13 @@
   to = "/.netlify/functions/admin-clients-index-rebuild"
   status = 200
   force = true
+# Deploy 236.343 — rebuild all store indexes (clients, quotes,
+# prospects, borrower_info). Optionally scoped to one via ?store=.
+[[redirects]]
+  from = "/api/admin-store-indexes-rebuild"
+  to = "/.netlify/functions/admin-store-indexes-rebuild"
+  status = 200
+  force = true
 # Deploy 236.144 — one-click bundle: signed loan app + every
 # completed additional guarantor's signed Credit Auth + per-
 # guarantor sub-form data summary, packaged as a single ZIP.

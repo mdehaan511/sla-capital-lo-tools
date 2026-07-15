@@ -27,6 +27,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // so operations can rotate it without redeploying.
 import { postSlack } from './_shared/slack.mjs';
 import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
+import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.343
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -153,6 +154,7 @@ export default async (req, context) => {
 
   try {
     await store.setJSON(key, prospect);
+    prospectsIndex.upsertRecord(ownerKey, prospect).catch(() => {});
   } catch (e) {
     console.error('prospects-save write error:', e);
     return json(500, { error: 'Failed to save application' });

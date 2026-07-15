@@ -14,6 +14,8 @@ import {
   handleOptions, json, requireAuth, isAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.266
+import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.343
+import { quotesIndex }    from './_shared/quotes-index.mjs';    // Deploy 236.343
 
 function ownerKeyForUser(user) {
   if (!user) return '';
@@ -41,8 +43,58 @@ export default async (req, context) => {
 
   try {
     if (wantAll && canListAllClients(user).ok) {
+      // Deploy 236.343 — index fast path: pull prospects + quotes
+      // from their materialized indexes so we skip the ~2x N-walks
+      // this endpoint used to do (once for prospects, once for
+      // quotes to dedupe already-worked addresses).
+      let byOwner = null;
+      try {
+        const pIdx = await prospectsIndex.readIndex();
+        if (pIdx.exists && pIdx.index && pIdx.index.byOwner) {
+          if (pIdx.isStale) prospectsIndex.rebuildIndex().catch(() => {});
+          byOwner = JSON.parse(JSON.stringify(pIdx.index.byOwner)); // clone for mutation
+        } else {
+          const stats = await prospectsIndex.rebuildIndex();
+          const fresh = await prospectsIndex.readIndex();
+          if (fresh && fresh.index && fresh.index.byOwner) {
+            byOwner = JSON.parse(JSON.stringify(fresh.index.byOwner));
+          }
+        }
+      } catch (e) {
+        console.warn('prospects-list: index read failed, falling to walk:', e && e.message);
+      }
+      if (byOwner) {
+        // Dedupe against worked addresses via the quotes index.
+        try {
+          const qIdx = await quotesIndex.readIndex();
+          const qOwners = (qIdx && qIdx.index && qIdx.index.byOwner) || {};
+          const workedByOwner = {};
+          for (const o of Object.keys(qOwners)) {
+            const set = new Set();
+            for (const q of qOwners[o]) {
+              if (q && q.address) set.add(normAddr(q.address));
+            }
+            if (set.size) workedByOwner[o] = set;
+          }
+          for (const owner of Object.keys(byOwner)) {
+            const worked = workedByOwner[owner];
+            if (!worked || !worked.size) continue;
+            byOwner[owner] = byOwner[owner].filter(
+              (p) => !worked.has(normAddr(p.propAddress || ''))
+            );
+            if (!byOwner[owner].length) delete byOwner[owner];
+          }
+        } catch (e) {
+          console.warn('prospects-list: quote-index dedupe failed:', e && e.message);
+        }
+        Object.keys(byOwner).forEach((s) => {
+          byOwner[s].sort((a, b) => new Date(b.submittedAt || b.savedAt || b.updatedAt || 0) - new Date(a.submittedAt || a.savedAt || a.updatedAt || 0));
+        });
+        return json(200, { bySlug: byOwner, _fromIndex: true });
+      }
+      // ── Legacy walk fallback (index unavailable) ──
       const { blobs } = await store.list();
-      const byOwner = {};
+      byOwner = {};
       await Promise.all(blobs.map(async ({ key }) => {
         const idx = key.indexOf('/');
         if (idx < 0) return;
@@ -52,37 +104,6 @@ export default async (req, context) => {
         if (!byOwner[owner]) byOwner[owner] = [];
         byOwner[owner].push(record);
       }));
-
-      // Hide prospects that already have a saved quote at the same address
-      // for the same owner. Mirrors the per-LO dedupe further down.
-      try {
-        const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-        const { blobs: qBlobs } = await quotesStore.list();
-        const workedByOwner = {}; // ownerKey -> Set<normAddr>
-        await Promise.all(qBlobs.map(async ({ key }) => {
-          const idx = key.indexOf('/');
-          if (idx < 0) return;
-          const owner = key.slice(0, idx);
-          const q = await quotesStore.get(key, { type: 'json' });
-          if (!q || !q.address) return;
-          if (!workedByOwner[owner]) workedByOwner[owner] = new Set();
-          workedByOwner[owner].add(normAddr(q.address));
-        }));
-        Object.keys(byOwner).forEach((owner) => {
-          const worked = workedByOwner[owner];
-          if (!worked || !worked.size) return;
-          byOwner[owner] = byOwner[owner].filter(
-            (p) => !worked.has(normAddr(p.propAddress || ''))
-          );
-        });
-        // Drop any owners whose list is now empty
-        Object.keys(byOwner).forEach((owner) => {
-          if (!byOwner[owner].length) delete byOwner[owner];
-        });
-      } catch (e) {
-        console.warn('prospects-list (admin) quote dedupe failed:', e);
-      }
-
       Object.keys(byOwner).forEach((s) => {
         byOwner[s].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
       });

@@ -19,6 +19,7 @@ import { getOwnerReplyTo } from './_shared/email.mjs';
 // Deploy 228 — parse single-line Google formatted_address to fill
 // city/state/zip on guarantor home + company addresses.
 import { fillAddressBlanks } from './_shared/address.mjs';
+import { borrowerInfoIndex } from './_shared/borrower-info-index.mjs'; // Deploy 236.343
 
 export default async (req, context) => {
   try {
@@ -111,6 +112,8 @@ async function handle(req) {
   } else {
     await store.setJSON(recordKey, record);
   }
+  // Deploy 236.343 — write-through the borrower-info index.
+  borrowerInfoIndex.upsertRecord(record.ownerKey, record).catch(() => {});
 
   // Item #3: write property field edits (beds/baths/sqft, plus loan-purpose
   // and current loan amount for refis) back to the matching client loan record

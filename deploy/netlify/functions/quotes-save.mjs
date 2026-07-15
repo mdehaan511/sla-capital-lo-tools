@@ -7,6 +7,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { quotesIndex } from './_shared/quotes-index.mjs'; // Deploy 236.343
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -43,6 +44,7 @@ export default async (req, context) => {
       return json(403, { error: 'Not authorized' });
     }
     await store.setJSON(key, record);
+    quotesIndex.upsertRecord(ownerKey, record).catch(() => {});
     return json(200, { ok: true, quote: record });
   } catch (e) {
     console.error('quotes-save error:', e);

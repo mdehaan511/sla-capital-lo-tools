@@ -20,6 +20,7 @@
  * loan-data-integrity issue. Callers catch + log.
  */
 import { getStore } from '@netlify/blobs';
+import { quotesIndex } from './quotes-index.mjs'; // Deploy 236.343
 
 // Fields that mirror onto the quote's formData. Match the sizer's
 // buildLoanFromSizer + loan-financials-edit mirror pass. formData
@@ -133,6 +134,7 @@ export async function syncLoanToQuoteStore(ownerKey, loan) {
     q._loanSyncedAt = now;
     try {
       await store.setJSON(key, q);
+      quotesIndex.upsertRecord(ownerKey, q).catch(() => {});
       updated++;
     } catch (_) { /* non-fatal */ }
   }
