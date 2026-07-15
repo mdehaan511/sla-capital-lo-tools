@@ -4152,28 +4152,18 @@ netlifyIdentity.on('init', function(user) {
 
     function loadFromClientLoan() {
       if (!window.SLA || !SLA.Clients) return Promise.resolve(false);
-      var listOpts = ownerParam ? { all: true } : {};
+      // Deploy 236.345 — single-record fetch via /api/client-get.
       // Cross-LO override — see dscr-sizer.html.
       if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
         window._ownerOverride = ownerParam.toLowerCase();
       }
-      return SLA.Clients.list(listOpts).then(function(r) {
+      return SLA.Clients.get(clientIdP, ownerParam ? { owner: ownerParam } : {}).then(function(r) {
+        if (!r || !r.client) return false;
+        var clientRec = r.client;
+        var loans = clientRec.loans || [];
         var found = null;
-        var clientRec = null;
-        var iterate = function(list) {
-          for (var i = 0; i < list.length; i++) {
-            if (list[i].id !== clientIdP) continue;
-            clientRec = list[i];
-            var ll = list[i].loans || [];
-            for (var j = 0; j < ll.length; j++) {
-              if (ll[j].id === loanIdP) { found = ll[j]; return; }
-            }
-          }
-        };
-        if (r && r.byOwner) {
-          Object.keys(r.byOwner).forEach(function(k){ if (!found) iterate(r.byOwner[k] || []); });
-        } else {
-          iterate((r && r.clients) || []);
+        for (var j = 0; j < loans.length; j++) {
+          if (loans[j].id === loanIdP) { found = loans[j]; break; }
         }
         if (!found) return false;
         // Deploy 236.140 — systemic union-merge (see dscr-sizer.html

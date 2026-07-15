@@ -847,6 +847,17 @@
         (opts.nonEmptyOnly ? '_nonempty' : '');
       return cache.get(cacheKey);
     },
+    // Deploy 236.345 — single-record fetch. Was: loan-details.js +
+    // sizers called list({all:true}) and walked ~2 852 records to
+    // find one. Now they hit /api/client-get for a single blob
+    // read (O(1) regardless of store size). Owner param optional;
+    // admin/processor pass the loan's owning LO email.
+    get: function (clientId, opts) {
+      opts = opts || {};
+      var qs = 'clientId=' + encodeURIComponent(clientId);
+      if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
+      return api('GET', '/api/client-get?' + qs);
+    },
     save: function (client) {
       return api('POST', '/api/clients-save', client).then(function (r) {
         cache.clear('clients');

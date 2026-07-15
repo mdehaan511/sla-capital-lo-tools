@@ -464,6 +464,13 @@
   to = "/.netlify/functions/admin-store-indexes-rebuild"
   status = 200
   force = true
+# Deploy 236.345 — single-record fetch. loan-details.js + sizers
+# use this instead of walking /api/clients?all=1 to find one loan.
+[[redirects]]
+  from = "/api/client-get"
+  to = "/.netlify/functions/client-get"
+  status = 200
+  force = true
 # Deploy 236.144 — one-click bundle: signed loan app + every
 # completed additional guarantor's signed Credit Auth + per-
 # guarantor sub-form data summary, packaged as a single ZIP.

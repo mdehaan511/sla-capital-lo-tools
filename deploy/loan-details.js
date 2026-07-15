@@ -384,39 +384,30 @@ function fetchLoanFromCache() {
 // invisible for up to 5 minutes because the recipient's cached clients
 // list didn't include it yet.
 function fetchLoan() {
+  // Deploy 236.345 — single-record fetch via /api/client-get.
+  // Was: walked every client in the store (~2 852 records post-CRM
+  // import) to find one (clientId, loanId) pair. Now: one blob get,
+  // ~50 ms regardless of dataset size. Full record still returned
+  // (the summary projection doesn't include notesLog, formData
+  // snapshots, guarantorOwnership, vestingLLCs, etc. — all of
+  // which render on this page).
   var params = new URLSearchParams(window.location.search);
   var ownerParam = params.get('owner');
-  var isFresh = params.get('fresh') === '1';
-  var listOpts = ownerParam ? { all: true } : {};
-  if (isFresh) listOpts.forceFresh = true;
-  return SLA.Clients.list(listOpts).then(function(r) {
-    if (r && r.byOwner) {
-      var keys = Object.keys(r.byOwner);
-      for (var i = 0; i < keys.length; i++) {
-        var ownerClients = r.byOwner[keys[i]] || [];
-        for (var j = 0; j < ownerClients.length; j++) {
-          if (ownerClients[j].id !== _clientId) continue;
-          var loans = ownerClients[j].loans || [];
-          for (var k = 0; k < loans.length; k++) {
-            if (loans[k].id === _loanId) {
-              _loEmail = keys[i];
-              return { client: ownerClients[j], loan: loans[k] };
-            }
-          }
-        }
-      }
-      return null;
-    }
-    var list = (r && r.clients) || [];
-    for (var ci = 0; ci < list.length; ci++) {
-      if (list[ci].id !== _clientId) continue;
-      var ll = list[ci].loans || [];
-      for (var li = 0; li < ll.length; li++) {
-        if (ll[li].id === _loanId) return { client: list[ci], loan: ll[li] };
+  return SLA.Clients.get(_clientId, ownerParam ? { owner: ownerParam } : {}).then(function(r) {
+    if (!r || !r.client) return null;
+    var client = r.client;
+    var loans = client.loans || [];
+    for (var i = 0; i < loans.length; i++) {
+      if (loans[i].id === _loanId) {
+        // Backend returned the ownerKey it actually found the
+        // record under (cross-namespace recovery may have moved
+        // ownerParam → different bucket). Trust it.
+        if (r.ownerKey) _loEmail = r.ownerKey;
+        return { client: client, loan: loans[i] };
       }
     }
     return null;
-  });
+  }).catch(function() { return null; });
 }
 
 var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
@@ -1849,7 +1840,7 @@ function refreshBorrowerInfoPanes() {
   var ids = Array.isArray(_loan.guarantorClientIds) ? _loan.guarantorClientIds : [];
   if (!ids.length) return; // single-borrower case; nothing to fetch
 
-  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true }) : SLA.Clients.list({ summary: true }); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r.byOwner) {
@@ -2283,7 +2274,7 @@ function openAddGuarantorModal() {
 
 function _agPrimeClientsCache() {
   if (_agAllClientsCache) return;
-  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true }) : SLA.Clients.list({ summary: true }); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r && r.byOwner) {
@@ -3621,7 +3612,7 @@ function refreshLinkedGuarantors() {
   if (!ids.length) return; // section won't be rendered
 
   // Admin viewing a cross-LO loan needs the all=true list.
-  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true }) : SLA.Clients.list({ summary: true }); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r.byOwner) {
@@ -4953,9 +4944,11 @@ function openReassignLoanModal() {
     '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading clients…</div>';
   // Deploy 236.266 — processors also need cross-LO client list here
   // (reassign target picker).
+  // Deploy 236.345 — summary is enough for the picker (only reads
+  // id/firstName/lastName/email/phone/loans.length).
   var p = SLA.isStaff(_user)
-    ? SLA.Clients.list({ all: true })
-    : SLA.Clients.list();
+    ? SLA.Clients.list({ all: true, summary: true })
+    : SLA.Clients.list({ summary: true });
   p.then(function(r) {
     var clients = [];
     if (r.byOwner) {
@@ -5033,7 +5026,7 @@ function openMergeLoanModal() {
   document.getElementById('mergeLoserList').innerHTML =
     '<div style="padding:1.25rem;text-align:center;color:var(--muted);font-size:13px">Loading candidates…</div>';
 
-  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true }) : SLA.Clients.list(); // Deploy 236.266
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true }) : SLA.Clients.list({ summary: true }); // Deploy 236.266
   p.then(function(r) {
     var pool = [];
     if (r.byOwner) {
