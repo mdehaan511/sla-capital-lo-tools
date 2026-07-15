@@ -17,6 +17,9 @@ import {
 // behavior for callers; centralizes the decision so PR #2+ can
 // evolve the rule without editing every endpoint.
 import { canListAllClients } from './_shared/access.mjs';
+// Deploy 236.341 (Tier 2 scaling) — materialized index blob so
+// cross-owner reads are 1 fetch not N.
+import { readIndex, rebuildIndex } from './_shared/clients-index.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -40,6 +43,34 @@ export default async (req, context) => {
 
   try {
     if (wantAll && canListAllClients(user).ok) {
+      // Deploy 236.341 — index fast path for summary reads. Pipeline
+      // and dashboards use ?all=1&summary=1 → single blob fetch.
+      // Full-record cross-owner reads still walk (rare, admin-only
+      // forensics + a few merge helpers).
+      if (wantSummary) {
+        const { index, isStale, exists } = await readIndex();
+        if (exists && index && index.byOwner) {
+          // Trigger a background rebuild if the index is past TTL.
+          // Fire-and-forget: the current read returns immediately.
+          if (isStale) {
+            rebuildIndex().catch((e) => console.warn('background rebuild failed:', e && e.message));
+          }
+          return json(200, { byOwner: index.byOwner, _fromIndex: true });
+        }
+        // Index missing (or version-drift) → build it in-request.
+        // Later reads hit the fast path.
+        try {
+          const stats = await rebuildIndex();
+          const fresh = await readIndex();
+          if (fresh && fresh.index && fresh.index.byOwner) {
+            return json(200, { byOwner: fresh.index.byOwner, _fromIndex: true, _rebuilt: stats });
+          }
+        } catch (e) {
+          console.warn('clients-list inline rebuild failed, falling through to walk:', e && e.message);
+        }
+        // Fall through to the walk below if the rebuild couldn't
+        // write for some reason.
+      }
       const { blobs } = await store.list();
       const byOwner = {};
       await Promise.all(blobs.map(async ({ key }) => {

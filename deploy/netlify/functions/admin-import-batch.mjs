@@ -29,6 +29,10 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 236.341 — write-through the clients-index blob so bulk-
+// imported clients show up in cross-owner reads immediately without
+// waiting for the next background rebuild.
+import { upsertClient } from './_shared/clients-index.mjs';
 
 const MAX_BATCH = 200;
 
@@ -106,6 +110,7 @@ async function handle(req, context) {
           _importSource: 'bulk-csv',
         };
         await store.setJSON(key, record);
+        upsertClient(ownerKey, record).catch(() => {});
         return { ok: true, rowIdx };
       } catch (e) {
         return { ok: false, rowIdx, email: raw && raw.email, reason: (e && e.message) || 'write failed' };

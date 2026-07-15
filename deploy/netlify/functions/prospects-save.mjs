@@ -26,6 +26,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // Uses the admin-managed webhook URL (settings blob key 'slack_webhook')
 // so operations can rotate it without redeploying.
 import { postSlack } from './_shared/slack.mjs';
+import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -425,6 +426,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
   }
   try {
     await clientsStore.setJSON(existingKey, record);
+    upsertClient(ownerKey, record).catch(() => {});
     console.log(`${tag} saved client=${record.id} loan=${loan.id} loans=${record.loans.length}`);
   } catch (e) {
     console.error(`${tag} setJSON failed:`, e && e.message);

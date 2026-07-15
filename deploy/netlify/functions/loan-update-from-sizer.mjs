@@ -41,6 +41,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // the browser-side QuoteStore.saveQuote landing correctly. Same
 // pattern loan-financials-edit.mjs uses for inline edits.
 import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
+import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
 
 export default async (req, context) => {
   try {
@@ -328,6 +329,7 @@ async function handle(req, context) {
 
   try {
     await clientsStore.setJSON(clientKey, client);
+    upsertClient(ownerKey, client).catch(() => {});
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

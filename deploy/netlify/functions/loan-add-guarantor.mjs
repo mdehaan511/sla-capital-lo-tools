@@ -31,6 +31,9 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
+// Deploy 236.341 — write-through the clients-index blob so
+// guarantor-add mutations show up in cross-owner reads instantly.
+import { upsertClient } from './_shared/clients-index.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -229,6 +232,7 @@ async function handle(req, context) {
   guarantor.updatedAt = now;
   try { await clientsStore.setJSON(guarantorKey, guarantor); }
   catch (e) { return json(500, { error: 'Failed to write guarantor client: ' + (e.message || 'unknown') }); }
+  upsertClient(ownerKey, guarantor).catch(() => {});
 
   // ── Wire into the loan: guarantorClientIds + ownership map.
   loan.guarantorClientIds = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
@@ -263,6 +267,7 @@ async function handle(req, context) {
   primary.updatedAt = now;
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e.message || 'unknown') }); }
+  upsertClient(ownerKey, primary).catch(() => {});
 
   return json(200, {
     ok: true,

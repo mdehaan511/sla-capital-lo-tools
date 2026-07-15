@@ -448,6 +448,15 @@
   to = "/.netlify/functions/loan-servicing-set"
   status = 200
   force = true
+
+# Deploy 236.341 (Tier 2 scaling) — force full rebuild of the
+# materialized clients-index blob. Admin-only. Also runs
+# automatically on any index-missing read from /api/clients.
+[[redirects]]
+  from = "/api/admin-clients-index-rebuild"
+  to = "/.netlify/functions/admin-clients-index-rebuild"
+  status = 200
+  force = true
 # Deploy 236.144 — one-click bundle: signed loan app + every
 # completed additional guarantor's signed Credit Auth + per-
 # guarantor sub-form data summary, packaged as a single ZIP.

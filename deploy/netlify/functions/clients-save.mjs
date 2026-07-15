@@ -19,6 +19,9 @@ import { syncClient as brevoSyncClient } from './_shared/brevo.mjs';
 // loans that already have a brokerId (no-op fast path in the helper).
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { encryptField } from './_shared/crypto.mjs';
+// Deploy 236.341 (Tier 2 scaling) — write-through the materialized
+// clients-index blob so cross-owner list reads stay in sync.
+import { upsertClient } from './_shared/clients-index.mjs';
 
 /**
  * Look up a profile by email and return a best-effort full name. Never throws.
@@ -195,6 +198,10 @@ export default async (req, context) => {
     }
 
     await store.setJSON(key, record);
+    // Deploy 236.341 — write-through the materialized clients-index
+    // so cross-owner list reads stay in-sync. upsertClient never
+    // throws (index write failure logged, primary save unaffected).
+    upsertClient(ownerKey, record).catch(() => {});
 
     // Fire-and-forget Brevo sync. Failures never block the save response.
     // We do await name resolution because it's a quick local blob read,

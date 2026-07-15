@@ -7,6 +7,8 @@
  *   { clientId, _owner }           → admin: target another LO's client
  */
 import { getStore } from '@netlify/blobs';
+// Deploy 236.341 — write-through the clients-index blob.
+import { upsertClient, removeClient } from './_shared/clients-index.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
@@ -29,7 +31,8 @@ export default async (req, context) => {
   }
 
   const store = getStore({ name: 'clients', consistency: 'strong' });
-  const key = `${keySafe(owner)}/${keySafe(body.clientId)}`;
+  const ownerKey = keySafe(owner);
+  const key = `${ownerKey}/${keySafe(body.clientId)}`;
 
   try {
     const existing = await store.get(key, { type: 'json' });
@@ -49,11 +52,13 @@ export default async (req, context) => {
       }
       existing.updatedAt = new Date().toISOString();
       await store.setJSON(key, existing);
+      upsertClient(ownerKey, existing).catch(() => {});
       return json(200, { ok: true, client: existing });
     }
 
     // Otherwise delete the whole client
     await store.delete(key);
+    removeClient(ownerKey, body.clientId).catch(() => {});
     return json(200, { ok: true, deleted: body.clientId });
   } catch (e) {
     console.error('clients-delete error:', e);

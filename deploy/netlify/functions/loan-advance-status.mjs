@@ -29,6 +29,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
+import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
 // Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
 // advances a loan to approved (the safety-valve path for when the
 // borrower-info auto-advance silently bailed). Same helper as
@@ -157,6 +158,7 @@ async function handle(req, context) {
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
+  upsertClient(ownerKey, client).catch(() => {});
 
   // Now sync the matching quote(s). We're more permissive than
   // borrower-info-save's auto-transition: we match by loanAmt + address
