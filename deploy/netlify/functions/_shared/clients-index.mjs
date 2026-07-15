@@ -222,8 +222,17 @@ export async function rebuildIndex() {
       const rec = await clientsStore.get(key, { type: 'json' }).catch(() => null);
       return { ownerKey, rec };
     }));
-    for (const { ownerKey, rec } of recs) {
-      if (!rec) continue;
+    // Deploy 236.342 — filter out null items BEFORE destructuring.
+    // The prior loop `for (const { ownerKey, rec } of recs)` blew up
+    // on the first null (which happens whenever a blob's key has no
+    // `/` — settings blobs, malformed keys, etc.) with the message
+    // "Cannot destructure property 'ownerKey' of '.for' as it is
+    // null." That silently killed every rebuild attempt, so the
+    // index never populated and every read fell through to the
+    // 30-second walk fallback.
+    for (const item of recs) {
+      if (!item || !item.rec) continue;
+      const { ownerKey, rec } = item;
       if (!byOwner[ownerKey]) byOwner[ownerKey] = [];
       byOwner[ownerKey].push(projectClientSummary(rec));
       clientCount++;
