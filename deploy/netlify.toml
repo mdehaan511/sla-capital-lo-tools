@@ -440,6 +440,14 @@
   to = "/.netlify/functions/loan-set-broker-flag"
   status = 200
   force = true
+# Deploy 236.339 — post-close servicing metadata (maturity date,
+# servicer name, servicer portal URL). Borrower portal reads these
+# to render the Servicer button + Maturity fact on Closed cards.
+[[redirects]]
+  from = "/api/loan-servicing-set"
+  to = "/.netlify/functions/loan-servicing-set"
+  status = 200
+  force = true
 # Deploy 236.144 — one-click bundle: signed loan app + every
 # completed additional guarantor's signed Credit Auth + per-
 # guarantor sub-form data summary, packaged as a single ZIP.

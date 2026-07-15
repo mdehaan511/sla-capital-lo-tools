@@ -1482,6 +1482,44 @@ function render() {
     '</div>';
   }
 
+  // Deploy 236.339 — Servicing Info section. Rendered when the loan
+  // has reached a post-close state (closed / sold / funded / in_
+  // servicing) OR already has any servicing metadata set (so an LO
+  // who filled it in early doesn't lose the input on next render).
+  // Values feed the borrower's /my-loans/ Closed card:
+  //   - Maturity Date  → "Maturity Date" fact
+  //   - Servicer Name  → button label
+  //   - Servicer URL   → button href
+  var _lstat = String(l.status || '').toLowerCase();
+  var _isServicingStage =
+       _lstat === 'closed' || _lstat === 'sold' || _lstat === 'funded'
+    || _lstat === 'in_servicing' || _lstat === 'servicing' || _lstat === 'liquidated';
+  var _hasServicing = !!(l.maturityDate || l.servicerName || l.servicerUrl);
+  if (_isServicingStage || _hasServicing) {
+    html +=
+    '<div class="section" id="servicingSection">' +
+      '<div class="section-head"><h2>Servicing Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Shown to the borrower on their /my-loans page after close. The Servicer button links out to whatever URL you paste here (e.g. their servicer\'s login page).</div>' +
+        '<div class="app-grid">' +
+          '<div class="field"><label>Maturity Date</label>' +
+            '<input type="date" id="sv-maturityDate" value="' + escAttr(l.maturityDate || '') + '" />' +
+          '</div>' +
+          '<div class="field"><label>Servicer Name</label>' +
+            '<input type="text" id="sv-servicerName" value="' + escAttr(l.servicerName || '') + '" placeholder="e.g. Servicing Pros" maxlength="80" />' +
+          '</div>' +
+          '<div class="field" style="grid-column:1/-1"><label>Servicer Portal URL</label>' +
+            '<input type="url" id="sv-servicerUrl" value="' + escAttr(l.servicerUrl || '') + '" placeholder="https://servicerportal.example.com/" />' +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-top:14px;display:flex;align-items:center;gap:10px">' +
+          '<button class="save-app-btn" onclick="saveServicingFields()">Save Changes</button>' +
+          '<span id="servicingStatus" style="display:none;color:var(--success);font-size:13px">Saved ✓</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   html += '</div>'; // close right col
   html += '</div>'; // close two-col
 
@@ -4378,6 +4416,41 @@ function convertBrokerLoanToStandard() {
     render();
   }).catch(function(err) {
     showToast('Failed to remove broker: ' + (err && err.message || 'unknown'));
+  });
+}
+
+// Deploy 236.339 — save the Servicing Info section (maturity date,
+// servicer name, servicer URL). Server does the URL sanity check +
+// audit-log entry; on success we splice the returned loan into the
+// local client + re-render so the Servicer button URL / Maturity
+// display update immediately.
+function saveServicingFields() {
+  if (!_loan || !_client) return;
+  var maturityDate = (document.getElementById('sv-maturityDate') || {}).value || '';
+  var servicerName = (document.getElementById('sv-servicerName') || {}).value || '';
+  var servicerUrl  = (document.getElementById('sv-servicerUrl')  || {}).value || '';
+  var payload = {
+    clientId: _clientId,
+    loanId:   _loanId,
+    maturityDate: maturityDate,
+    servicerName: servicerName,
+    servicerUrl:  servicerUrl,
+  };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  var status = document.getElementById('servicingStatus');
+  var btn = document.querySelector('#servicingSection .save-app-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  SLA.api('POST', '/api/loan-servicing-set', payload).then(function(r) {
+    if (!r || !r.loan) { showToast('Servicing save failed: server returned no loan.'); return; }
+    _loan = r.loan;
+    var lidx = (_client && _client.loans || []).findIndex(function(x) { return x && x.id === _loanId; });
+    if (lidx >= 0) _client.loans[lidx] = r.loan;
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+    if (status) { status.style.display = ''; setTimeout(function(){ status.style.display = 'none'; }, 2200); }
+    render();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+    showToast('Servicing save failed: ' + (err && err.message || 'unknown'));
   });
 }
 
