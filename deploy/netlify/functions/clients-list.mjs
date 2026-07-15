@@ -48,14 +48,34 @@ export default async (req, context) => {
       // Full-record cross-owner reads still walk (rare, admin-only
       // forensics + a few merge helpers).
       if (wantSummary) {
-        const { index, isStale, exists } = await readIndex();
+        const { index, exists } = await readIndex();
         if (exists && index && index.byOwner) {
-          // Trigger a background rebuild if the index is past TTL.
-          // Fire-and-forget: the current read returns immediately.
-          if (isStale) {
-            rebuildIndex().catch((e) => console.warn('background rebuild failed:', e && e.message));
+          // Deploy 236.344 — do NOT fire a background rebuild on the
+          // stale path. AWS Lambda holds the response until pending
+          // promises settle by default; the "fire and forget"
+          // rebuildIndex().catch(...) was a ~15s stall on every
+          // read. Freshness comes from write-through instrumentation
+          // + manual admin rebuild, not background work triggered
+          // from reads.
+          const nonEmpty = url.searchParams.get('nonEmptyOnly') === '1';
+          let byOwner = index.byOwner;
+          if (nonEmpty) {
+            // Deploy 236.344 — Pipeline / dashboards only render
+            // tiles for clients with loans. The 2 852-record CSV
+            // import inflated the payload from ~100 KB → 1.1 MB
+            // with records that Pipeline can't display anyway.
+            // Drop clients whose loans array is empty. Response
+            // stays the same shape ({ byOwner: {...} }), just
+            // with those clients omitted.
+            byOwner = {};
+            for (const owner of Object.keys(index.byOwner)) {
+              const list = index.byOwner[owner].filter(
+                (c) => c && Array.isArray(c.loans) && c.loans.length > 0
+              );
+              if (list.length) byOwner[owner] = list;
+            }
           }
-          return json(200, { byOwner: index.byOwner, _fromIndex: true });
+          return json(200, { byOwner, _fromIndex: true });
         }
         // Index missing (or version-drift) → build it in-request.
         // Later reads hit the fast path.
@@ -63,7 +83,18 @@ export default async (req, context) => {
           const stats = await rebuildIndex();
           const fresh = await readIndex();
           if (fresh && fresh.index && fresh.index.byOwner) {
-            return json(200, { byOwner: fresh.index.byOwner, _fromIndex: true, _rebuilt: stats });
+            const nonEmpty = url.searchParams.get('nonEmptyOnly') === '1';
+            let byOwner = fresh.index.byOwner;
+            if (nonEmpty) {
+              byOwner = {};
+              for (const owner of Object.keys(fresh.index.byOwner)) {
+                const list = fresh.index.byOwner[owner].filter(
+                  (c) => c && Array.isArray(c.loans) && c.loans.length > 0
+                );
+                if (list.length) byOwner[owner] = list;
+              }
+            }
+            return json(200, { byOwner, _fromIndex: true, _rebuilt: stats });
           }
         } catch (e) {
           console.warn('clients-list inline rebuild failed, falling through to walk:', e && e.message);
@@ -98,7 +129,14 @@ export default async (req, context) => {
     const clients = await Promise.all(
       blobs.map(({ key }) => store.get(key, { type: 'json' })),
     );
-    const filtered = clients.filter(Boolean);
+    let filtered = clients.filter(Boolean);
+    // Deploy 236.344 — nonEmptyOnly filter on self-scope too.
+    const nonEmpty = url.searchParams.get('nonEmptyOnly') === '1';
+    if (nonEmpty) {
+      filtered = filtered.filter(
+        (c) => c && Array.isArray(c.loans) && c.loans.length > 0
+      );
+    }
     filtered.sort((a, b) =>
       new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0),
     );

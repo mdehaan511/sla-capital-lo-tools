@@ -828,7 +828,11 @@ function loadAll() {
 
   // Deploy 236.340 — pipeline reads the summary projection only
   // (10x smaller payload, same tile shape).
-  var listOptsSummary = Object.assign({ summary: true }, listOpts);
+  // Deploy 236.344 — also nonEmptyOnly: pipeline only renders
+  // tiles for clients with loans; the 2 852-row CSV import
+  // inflated the byOwner payload with records Pipeline can't
+  // display anyway. Drops payload ~90% at Mike's scale.
+  var listOptsSummary = Object.assign({ summary: true, nonEmptyOnly: true }, listOpts);
   var cachedClients   = SLA.Clients.listCached(listOptsSummary);
   var cachedProspects = (SLA.Prospects && SLA.Prospects.listCached) ? SLA.Prospects.listCached(listOpts) : null;
   var cachedQuotes    = (SLA.Quotes    && SLA.Quotes.listCached)    ? SLA.Quotes.listCached(listOpts)    : null;
@@ -861,11 +865,13 @@ function loadAll() {
   var fetchQuotes = isStaffAll
     ? SLA.Quotes.list({ all: true })
     : SLA.Quotes.list();
-  // Deploy 236.340 — summary projection for pipeline. Payload drops
-  // ~90% vs the full record for the 2 852-row post-import set.
+  // Deploy 236.340 — summary projection for pipeline.
+  // Deploy 236.344 — nonEmptyOnly drops clients with no loans
+  // (imported CRM contacts). Massive payload cut with zero visual
+  // change since Pipeline can't render a loanless client anyway.
   var fetchClients = isStaffAll
-    ? SLA.Clients.list({ all: true, summary: true }).catch(function(){ return { byOwner: {} }; })
-    : SLA.Clients.list({ summary: true }).catch(function(){ return { clients: [] }; });
+    ? SLA.Clients.list({ all: true, summary: true, nonEmptyOnly: true }).catch(function(){ return { byOwner: {} }; })
+    : SLA.Clients.list({ summary: true, nonEmptyOnly: true }).catch(function(){ return { clients: [] }; });
   var fetchStats = SLA.Admin
     ? SLA.Admin.userStats().catch(function(){ return { users: [] }; })
     : Promise.resolve({ users: [] });

@@ -30,11 +30,10 @@ export default async (req, context) => {
     if (wantAll && canListAllClients(user).ok) {
       // Deploy 236.343 — index fast path. One blob get instead of
       // walking every quote (~500+ at Mike's scale, growing).
-      const { index, isStale, exists } = await quotesIndex.readIndex();
+      const { index, exists } = await quotesIndex.readIndex();
       if (exists && index && index.byOwner) {
-        if (isStale) {
-          quotesIndex.rebuildIndex().catch((e) => console.warn('quotes rebuild bg failed:', e && e.message));
-        }
+        // Deploy 236.344 — no background rebuild on stale path
+        // (Lambda holds the response for the pending promise).
         return json(200, { byOwner: index.byOwner, _fromIndex: true });
       }
       // Missing index → rebuild inline + return.

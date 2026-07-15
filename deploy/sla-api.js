@@ -761,13 +761,15 @@
         } catch (e) {}
       };
       // Deploy 236.340 — mark ALL variants stale: the base slot, the
-      // admin (_all) slot, and the two summary siblings. A save
-      // invalidates every listCached() surface that could paint stale
-      // data on the next visit.
+      // admin (_all) slot, the summary siblings, and (236.344) the
+      // nonEmpty siblings. A save invalidates every listCached
+      // surface that could paint stale data on the next visit.
       mark(key);
       mark(key + '_all');
       mark(key + '_summary');
       mark(key + '_all_summary');
+      mark(key + '_summary_nonempty');
+      mark(key + '_all_summary_nonempty');
     },
     clear: function (key) {
       try { localStorage.removeItem('sla_cache_' + key); } catch (e) {}
@@ -806,14 +808,15 @@
       // the ~10x smaller projection built by clients-list.mjs. The
       // full record path (loan-details.js, sizer) omits it.
       var qs = [];
-      if (opts.all)     qs.push('all=1');
-      if (opts.summary) qs.push('summary=1');
+      if (opts.all)          qs.push('all=1');
+      if (opts.summary)      qs.push('summary=1');
+      if (opts.nonEmptyOnly) qs.push('nonEmptyOnly=1');
       var q = qs.length ? '?' + qs.join('&') : '';
-      // Separate cache slot per (all × summary) combination so a
-      // summary paint doesn't poison a follow-up full fetch.
+      // Separate cache slot per (all × summary × nonEmpty) combo.
       var cacheKey =
         (opts.all ? 'clients_all' : 'clients') +
-        (opts.summary ? '_summary' : '');
+        (opts.summary ? '_summary' : '') +
+        (opts.nonEmptyOnly ? '_nonempty' : '');
       var cached = cache.get(cacheKey);
       var isStale = cache.isStale(cacheKey);
       if (cached && !opts.forceFresh && !isStale) {
@@ -836,9 +839,12 @@
       opts = opts || {};
       // Deploy 236.340 — mirrors the list() cache-key shape so
       // summary+all reads hit their own instant-paint slot.
+      // Deploy 236.344 — includes nonEmptyOnly for the pipeline
+      // slim payload.
       var cacheKey =
         (opts.all ? 'clients_all' : 'clients') +
-        (opts.summary ? '_summary' : '');
+        (opts.summary ? '_summary' : '') +
+        (opts.nonEmptyOnly ? '_nonempty' : '');
       return cache.get(cacheKey);
     },
     save: function (client) {

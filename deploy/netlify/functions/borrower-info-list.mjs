@@ -50,9 +50,9 @@ async function handle(req, context) {
   if (wantAll) {
     let byOwner = null;
     try {
-      const { index, isStale, exists } = await borrowerInfoIndex.readIndex();
+      const { index, exists } = await borrowerInfoIndex.readIndex();
       if (exists && index && index.byOwner) {
-        if (isStale) borrowerInfoIndex.rebuildIndex().catch(() => {});
+        // Deploy 236.344 — no bg rebuild on stale (Lambda holds).
         byOwner = index.byOwner;
       } else {
         const stats = await borrowerInfoIndex.rebuildIndex();

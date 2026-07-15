@@ -51,7 +51,7 @@ export default async (req, context) => {
       try {
         const pIdx = await prospectsIndex.readIndex();
         if (pIdx.exists && pIdx.index && pIdx.index.byOwner) {
-          if (pIdx.isStale) prospectsIndex.rebuildIndex().catch(() => {});
+          // Deploy 236.344 — no bg rebuild on stale (Lambda holds).
           byOwner = JSON.parse(JSON.stringify(pIdx.index.byOwner)); // clone for mutation
         } else {
           const stats = await prospectsIndex.rebuildIndex();
