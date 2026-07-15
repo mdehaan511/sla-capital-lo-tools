@@ -30,13 +30,13 @@ export default async (req, context) => {
 
   const url = new URL(req.url);
   const wantAll = url.searchParams.get('all') === '1';
-  // Deploy 236.340 — `?summary=1` returns a compact projection of
-  // each client + a per-loan mini-record covering only the fields
-  // pipeline.html / clients.html / loans.html actually render. Cuts
-  // wire size ~90% and JSON parse time by roughly the same on Mike's
-  // post-import 2 852-record set. Callers that need the full record
-  // (loan-details.js, sizer) leave this off.
-  const wantSummary = url.searchParams.get('summary') === '1';
+  // Deploy 236.346 — DEFAULT is summary. Any caller who explicitly
+  // wants full records passes ?full=1 (typically avoided — use the
+  // single-record /api/client-get endpoint for that). The old
+  // ?summary=1 opt-in still works so live clients that haven't
+  // deployed yet aren't broken.
+  const wantFull    = url.searchParams.get('full')    === '1';
+  const wantSummary = !wantFull;
   const store = getStore({ name: 'clients', consistency: 'strong' });
 
   const project = wantSummary ? projectSummary : sanitize;

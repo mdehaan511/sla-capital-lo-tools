@@ -760,16 +760,19 @@
           localStorage.setItem('sla_cache_' + k, JSON.stringify(obj));
         } catch (e) {}
       };
-      // Deploy 236.340 — mark ALL variants stale: the base slot, the
-      // admin (_all) slot, the summary siblings, and (236.344) the
-      // nonEmpty siblings. A save invalidates every listCached
-      // surface that could paint stale data on the next visit.
+      // Deploy 236.346 — clients cache slot naming changed:
+      // {base|_all}{_full|_summary}{_nonempty?}. Mark every variant
+      // so a save invalidates every listCached surface.
       mark(key);
       mark(key + '_all');
       mark(key + '_summary');
+      mark(key + '_full');
       mark(key + '_all_summary');
+      mark(key + '_all_full');
       mark(key + '_summary_nonempty');
+      mark(key + '_full_nonempty');
       mark(key + '_all_summary_nonempty');
+      mark(key + '_all_full_nonempty');
     },
     clear: function (key) {
       try { localStorage.removeItem('sla_cache_' + key); } catch (e) {}
@@ -803,19 +806,20 @@
   var Clients = {
     list: function (opts) {
       opts = opts || {};
-      // Deploy 236.340 — pipeline / dashboards / loans lists don't
-      // need the full record shape. Pass `summary: true` to fetch
-      // the ~10x smaller projection built by clients-list.mjs. The
-      // full record path (loan-details.js, sizer) omits it.
+      // Deploy 236.346 — DEFAULT is summary (via server default).
+      // Explicit { full: true } sends ?full=1 to get the whole
+      // record shape (rarely needed — use Clients.get() for a
+      // single record instead of walking).
       var qs = [];
       if (opts.all)          qs.push('all=1');
-      if (opts.summary)      qs.push('summary=1');
+      if (opts.full)         qs.push('full=1');
       if (opts.nonEmptyOnly) qs.push('nonEmptyOnly=1');
       var q = qs.length ? '?' + qs.join('&') : '';
-      // Separate cache slot per (all × summary × nonEmpty) combo.
+      // Cache slots split by shape so a full paint doesn't return
+      // when a caller asks for summary + vice versa.
       var cacheKey =
         (opts.all ? 'clients_all' : 'clients') +
-        (opts.summary ? '_summary' : '') +
+        (opts.full ? '_full' : '_summary') +
         (opts.nonEmptyOnly ? '_nonempty' : '');
       var cached = cache.get(cacheKey);
       var isStale = cache.isStale(cacheKey);
@@ -837,13 +841,10 @@
      */
     listCached: function (opts) {
       opts = opts || {};
-      // Deploy 236.340 — mirrors the list() cache-key shape so
-      // summary+all reads hit their own instant-paint slot.
-      // Deploy 236.344 — includes nonEmptyOnly for the pipeline
-      // slim payload.
+      // Deploy 236.346 — mirror the list() cache-key shape.
       var cacheKey =
         (opts.all ? 'clients_all' : 'clients') +
-        (opts.summary ? '_summary' : '') +
+        (opts.full ? '_full' : '_summary') +
         (opts.nonEmptyOnly ? '_nonempty' : '');
       return cache.get(cacheKey);
     },
