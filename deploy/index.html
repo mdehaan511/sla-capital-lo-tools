@@ -152,9 +152,10 @@
       display: flex; flex-direction: column;
       /* Deploy 236.337 — fixed height so all three row cards line up
          + long lists scroll inside via .dash-card-body overflow:auto.
-         Height picked to show ~4 rows of the row-list widgets
-         (state / week rows are ~34px each with the sub-line). */
-      height: 232px;
+         Deploy 236.338 — bumped to 300px so Upcoming Closings shows
+         ~5 weeks without scroll (its typical row count). Loans by
+         State still scrolls, which is expected (it has many rows). */
+      height: 300px;
     }
     .dash-card-wide { height: auto; min-height: 320px; }
     .dash-card-head {
@@ -639,7 +640,10 @@
 
     var _dashLoans        = null;   // last-fetched mirror rows
     var _dashLoansLoading = false;
-    var _dashLoanSort     = { key: 'close', dir: 'asc' };
+    // Deploy 236.338 — default sort: Status desc so pipeline order is
+    // Approved → Underwriting → Processing → Awaiting App → Submitted → Lead
+    // (higher statusOrder score bubbles up first).
+    var _dashLoanSort     = { key: 'status', dir: 'desc' };
     var _dashLoanSearch   = '';
     var _dashLeaderboardLoaded = false;
 
@@ -929,10 +933,32 @@
     // per Mike; won/hold/archived hidden. Columns mirror admin
     // dashboard.html:3360-3369 exactly. Rate value is a decimal in
     // the mirror (0.075) — multiply by 100 to display (7.50%).
+    // Deploy 236.338 — pipeline-order score for status sort. Ported
+    // verbatim from dashboard.html:419 (statusOrder). Higher score =
+    // further along = should bubble up when sorted desc. So default
+    // Status-desc yields:
+    //   Approved (100) → Underwriting (95) → Processing (90) →
+    //   Awaiting App (85) → Submitted (80) → Lead (70) → ...
+    function dashStatusOrder(l) {
+      var s = String((l && l.Status) || '').toLowerCase();
+      if (s === 'approved')                                  return 100;
+      if (s === 'under_review' || s === 'underwriting')      return 95;
+      if (s === 'in_processing' || s === 'processing')       return 90;
+      if (s === 'awaiting_app' || s === 'awaiting application' || s === 'awaiting_application') return 85;
+      if (s === 'submitted' || s === 'pending_review' || s === 'pending review')                return 80;
+      if (s === 'lead' || s === 'quoted' || s === 'active' || s === 'pre_qual')                 return 70;
+      if (s === 'on_hold' || s === 'hold')                   return 60;
+      if (s === 'in_servicing' || s === 'servicing')         return 55;
+      if (s === 'funded' || s === 'closed' || s === 'sold')  return 50;
+      if (s === 'liquidated')                                return 40;
+      if (s === 'archived')                                  return 10;
+      if (s === 'declined' || s === 'denied' || s === 'withdrawn' || s === 'cancelled' || s === 'lost') return 5;
+      return 30;
+    }
     var DASH_LOAN_COLS = [
       { key: 'address', label: 'Address', numeric: false, get: function(l) { return l.Name || ''; } },
       { key: 'state',   label: 'State',   numeric: false, get: function(l) { return l.Address_State || dashExtractState(l.Name) || ''; } },
-      { key: 'status',  label: 'Status',  numeric: false, get: function(l) { return l.Status || ''; } },
+      { key: 'status',  label: 'Status',  numeric: true,  get: function(l) { return dashStatusOrder(l); } },
       { key: 'type',    label: 'Type',    numeric: false, get: function(l) { return l.Substatus || ''; } },
       { key: 'amount',  label: 'Amount',  numeric: true,  get: function(l) { return dashAmount(l); } },
       { key: 'rate',    label: 'Rate',    numeric: true,  get: function(l) { var n = parseFloat(l.Rate); return isFinite(n) ? n : 0; } },
