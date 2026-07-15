@@ -149,9 +149,14 @@
     .dash-card {
       background: var(--surface); border: 1px solid var(--gold-border);
       border-radius: 12px; padding: 14px 16px;
-      display: flex; flex-direction: column; min-height: 220px;
+      display: flex; flex-direction: column;
+      /* Deploy 236.337 — fixed height so all three row cards line up
+         + long lists scroll inside via .dash-card-body overflow:auto.
+         Height picked to show ~4 rows of the row-list widgets
+         (state / week rows are ~34px each with the sub-line). */
+      height: 232px;
     }
-    .dash-card-wide { min-height: 320px; }
+    .dash-card-wide { height: auto; min-height: 320px; }
     .dash-card-head {
       display: flex; align-items: center; justify-content: space-between;
       gap: 8px; margin-bottom: 10px; flex-shrink: 0;
