@@ -9,6 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="sla-api.js"></script>
   <script src="sla-nav.js"></script>
+  <script src="sla-sizer-assign-lo.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
   <script src="quotes.js"></script>
@@ -742,6 +743,15 @@ function getFICOMin(ficoStr) {
     <div class="product-btn">DSCR — 1&#8211;4 Unit Rental Loans</div>
 
     <div class="form-body">
+
+      <!-- Deploy 236.359 — Admin: Assign to Loan Officer.
+           Hydrated by sla-sizer-assign-lo.js when the user is admin
+           AND the URL has clientId+loanId (existing loan loaded).
+           Mounts a dropdown of every LO — picking one and clicking
+           Assign fires SLA.Admin.assignLo and redirects to the loan's
+           new URL. Empty until mount fires, so LOs / new-quote
+           sessions never see it. -->
+      <div id="sizerAssignLoContainer" class="field span2"></div>
 
       <!-- Deploy 236.302 — Admin Mode toggle sits ABOVE Broker Deal, at
            the very top of the form-body. Admin-only visibility. -->
@@ -4683,6 +4693,10 @@ netlifyIdentity.on('init', function(user) {
             if (loans[j].id === loanIdP) { found = loans[j]; break; }
           }
           if (!found) return false;
+          // Deploy 236.359 — stash the loaded loan so the admin
+          // Assign-LO widget (mounted after load) can read
+          // fromApplication / rate / status without re-fetching.
+          window._loadedLoan = found;
           // Deploy 236.140 — systemic fix: hydrate from the UNION of
           // loan.formData + loan top-level values, with top-level
           // winning whenever it has a defined value. This guarantees
@@ -4936,6 +4950,32 @@ netlifyIdentity.on('init', function(user) {
           if (signatureMode && !loaded2) {
             console.log('[SLA esign] no quote/loan loaded — firing handoff anyway so parent gets error');
             trySignatureHandoff();
+          }
+          // Deploy 236.359 — mount the admin Assign-LO dropdown once the
+          // loan is loaded so borrower name + address are populated for
+          // the confirmation prompt. No-op when: user isn't admin, or the
+          // URL lacks clientId+loanId (fresh sizer session).
+          if (window.SLASizerAssignLo && !signatureMode) {
+            SLASizerAssignLo.mount({
+              user: user,
+              containerEl: document.getElementById('sizerAssignLoContainer'),
+              getContext: function () {
+                var _ba = (window._loadedLoan && window._loadedLoan.address) ||
+                          (document.getElementById('propAddress') && document.getElementById('propAddress').value) || '';
+                var _bn = (document.getElementById('borrowerName') && document.getElementById('borrowerName').value) || '';
+                var _lo = window._ownerOverride || ownerParam || (user && user.email) || '';
+                var _l  = window._loadedLoan || {};
+                return {
+                  clientId:          clientIdP,
+                  loanId:            loanIdP,
+                  ownerEmail:        _lo,
+                  borrowerName:      _bn,
+                  address:           _ba,
+                  isFromApplication: !!_l.fromApplication,
+                  isUnpriced:        !(_l.rate || (_l.formData && _l.formData._finalRate)),
+                };
+              },
+            });
           }
         });
       } else if (signatureMode) {

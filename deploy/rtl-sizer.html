@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="sla-api.js"></script>
 <script src="sla-nav.js"></script>
+<script src="sla-sizer-assign-lo.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
 <script src="quotes.js"></script>
@@ -459,6 +460,12 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
     <div class="product-btn">RTL — Fix &amp; Flip · Bridge</div>
 
     <div class="form-body">
+
+      <!-- Deploy 236.359 — Admin: Assign to Loan Officer.
+           Hydrated by sla-sizer-assign-lo.js when the user is admin
+           AND the URL has clientId+loanId. See DSCR sizer for the
+           full rationale — same shell, same server contract. -->
+      <div id="sizerAssignLoContainer" class="field span2"></div>
 
       <!-- Deploy 236.302 — Admin Mode toggle sits ABOVE Broker Deal, at
            the very top of the form-body. Admin-only visibility. -->
@@ -4292,6 +4299,9 @@ netlifyIdentity.on('init', function(user) {
           if (loans[j].id === loanIdP) { found = loans[j]; break; }
         }
         if (!found) return false;
+        // Deploy 236.359 — stash the loaded loan for the admin
+        // Assign-LO widget (see dscr-sizer.html for details).
+        window._loadedLoan = found;
         // Deploy 236.140 — systemic union-merge (see dscr-sizer.html
         // for full rationale). formData provides sizer-specific
         // computed values (_finalRate, _points); top-level loan
@@ -4573,6 +4583,34 @@ netlifyIdentity.on('init', function(user) {
         if (signatureMode && !loaded2) {
           console.log('[SLA esign] no quote/loan loaded (RTL) — firing handoff anyway');
           trySignatureHandoff();
+        }
+        // Deploy 236.359 — mount the admin Assign-LO dropdown once the
+        // loan is loaded. Same shell as DSCR sizer.
+        if (window.SLASizerAssignLo && !signatureMode) {
+          SLASizerAssignLo.mount({
+            user: user,
+            containerEl: document.getElementById('sizerAssignLoContainer'),
+            getContext: function () {
+              var _addrParts = [
+                document.getElementById('propStreet') && document.getElementById('propStreet').value,
+                document.getElementById('propCity')   && document.getElementById('propCity').value,
+                document.getElementById('propState')  && document.getElementById('propState').value,
+              ].filter(Boolean);
+              var _ba = (window._loadedLoan && window._loadedLoan.address) || _addrParts.join(', ') || '';
+              var _bn = (document.getElementById('borrowerName') && document.getElementById('borrowerName').value) || '';
+              var _lo = window._ownerOverride || ownerParam || (user && user.email) || '';
+              var _l  = window._loadedLoan || {};
+              return {
+                clientId:          clientIdP,
+                loanId:            loanIdP,
+                ownerEmail:        _lo,
+                borrowerName:      _bn,
+                address:           _ba,
+                isFromApplication: !!_l.fromApplication,
+                isUnpriced:        !(_l.rate || (_l.formData && _l.formData._finalRate)),
+              };
+            },
+          });
         }
       });
     } else if (signatureMode) {

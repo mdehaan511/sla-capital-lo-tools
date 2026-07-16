@@ -441,17 +441,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             </div>
             <div class="err-msg" id="err-monthlyRent">Required</div>
           </div>
+          <!-- Deploy 236.359 — Taxes + Insurance are now required.
+               DSCR ratio depends on both; without them the priced
+               DSCR the borrower sees on the sizer is optimistic. -->
           <div class="field" style="grid-column:span 1">
-            <div class="wrap">
-              <label>Monthly Taxes</label>
+            <div class="wrap" id="wrap-monthlyTaxes">
+              <label>Monthly Taxes <span class="req">*</span></label>
               <input type="text" inputmode="decimal" id="monthlyTaxes" placeholder="$0" oninput="clearE('monthlyTaxes'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
+            <div class="err-msg" id="err-monthlyTaxes">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
-            <div class="wrap">
-              <label>Monthly Insurance</label>
+            <div class="wrap" id="wrap-monthlyInsurance">
+              <label>Monthly Insurance <span class="req">*</span></label>
               <input type="text" inputmode="decimal" id="monthlyInsurance" placeholder="$0" oninput="clearE('monthlyInsurance'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
             </div>
+            <div class="err-msg" id="err-monthlyInsurance">Required</div>
           </div>
           <div class="field" style="grid-column:span 1">
             <div class="wrap">
@@ -789,6 +794,13 @@ function validate() {
     if (!gv('loanPurpose')) { showE('loanPurpose'); ok=false; }
     if (!gv('rentalType'))  { showE('rentalType');  ok=false; }
     if (!gv('monthlyRent')) { showE('monthlyRent'); ok=false; }
+    // Deploy 236.359 — Taxes + Insurance are required on the short
+    // prequal. Without them the DSCR the sizer computes downstream is
+    // optimistic, and the LO ends up chasing the borrower for the
+    // numbers anyway. Required only for DSCR (they're inside
+    // #cond-dscr-fin — bridge/fix-flip don't show them).
+    if (!gv('monthlyTaxes'))     { showE('monthlyTaxes');     ok=false; }
+    if (!gv('monthlyInsurance')) { showE('monthlyInsurance'); ok=false; }
     if (gv('loanPurpose') === 'refinance' && !gv('currentLoanAmt')) {
       showE('currentLoanAmt');
       ok = false;
