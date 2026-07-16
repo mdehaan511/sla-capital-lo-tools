@@ -39,6 +39,10 @@ import {
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs';
+// Deploy 236.357 — persist the (old → new) location so any URL that
+// still references the old (owner, client) tuple redirects in one
+// blob read instead of forcing loan-locate to scan the index.
+import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 
 export default async (req, context) => {
   try {
@@ -313,6 +317,19 @@ async function handle(req, context) {
   } catch (e) {
     console.warn('loan-reassign: review update failed (non-fatal):', e && e.message);
   }
+
+  // Deploy 236.357 — persist the (old → new) redirect so any URL
+  // that still references (ownerKey, srcClientId, loanId) redirects
+  // in one blob read. Same-owner reassign: fromOwnerKey === toOwnerKey
+  // but the client differs, so it's still worth recording.
+  await recordLoanRedirect({
+    loanId:       body.loanId,
+    fromOwnerKey: ownerKey,
+    fromClientId: body.srcClientId,
+    toOwnerKey:   ownerKey,
+    toClientId:   destClient.id,
+    via:          'loan_reassign' + (resetApp ? ':reset-app' : ''),
+  });
 
   return json(200, {
     ok: true,

@@ -32,6 +32,10 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { readIndex, rebuildIndex } from './_shared/clients-index.mjs';
+// Deploy 236.357 — one-blob-read redirect map. Reassignments write
+// (old → new) here so subsequent locates are O(1) instead of an
+// index walk.
+import { resolve as resolveRedirect, record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -51,9 +55,34 @@ async function handle(req, context) {
   const url = new URL(req.url);
   const loanId = String(url.searchParams.get('loanId') || '').trim();
   if (!loanId) return json(400, { error: 'loanId required' });
+  // Optional stale (owner, client) tuple from the caller. When
+  // provided we can hit the by-source key directly, which is even
+  // faster than the by-loan lookup (skips the chain-follow loop).
+  const oldOwner  = String(url.searchParams.get('oldOwnerKey') || '').trim();
+  const oldClient = String(url.searchParams.get('oldClientId') || '').trim();
 
   const selfKey = keySafe(normalizeEmail(user.email));
   const isStaff = canOverrideOwner(user).ok;
+
+  // Deploy 236.357 — fast path via the redirect map. If a reassign
+  // recorded this loan's new home, one blob read gets us the answer
+  // — no index scan. Only trust the redirect when the caller has
+  // permission to see the target (owner-scoped for LOs).
+  const hit = await resolveRedirect({ loanId, oldOwnerKey: oldOwner || undefined, oldClientId: oldClient || undefined });
+  if (hit && hit.ownerKey && hit.clientId) {
+    if (isStaff || hit.ownerKey === selfKey) {
+      return json(200, {
+        found:    true,
+        ownerKey: hit.ownerKey,
+        clientId: hit.clientId,
+        loanId,
+        source:   'redirect',
+      });
+    }
+    // LO scope + redirect points at another owner: fall through to
+    // the index scan (which will also miss for a non-admin), so the
+    // caller gets a clean 'not found in your scope' response.
+  }
 
   // One index read. If the index is missing (never built or version
   // drift), build inline before we scan — much cheaper than the
@@ -82,6 +111,23 @@ async function handle(req, context) {
       if (!client || !Array.isArray(client.loans)) continue;
       for (const loan of client.loans) {
         if (loan && loan.id === loanId) {
+          // Deploy 236.357 — seed the redirect map from a successful
+          // index scan. Covers loans that were moved BEFORE the
+          // redirect writer shipped (or where the write failed):
+          // first locate pays the index cost, every subsequent
+          // locate is O(1). Only write when the caller supplied a
+          // stale tuple (otherwise there's no OLD side to remember).
+          if (oldOwner && oldClient
+            && (oldOwner !== ownerKey || oldClient !== client.id)) {
+            recordLoanRedirect({
+              loanId,
+              fromOwnerKey: oldOwner,
+              fromClientId: oldClient,
+              toOwnerKey:   ownerKey,
+              toClientId:   client.id,
+              via:          'loan_locate:seed',
+            }).catch(() => {});
+          }
           return json(200, {
             found: true,
             ownerKey,
@@ -89,6 +135,7 @@ async function handle(req, context) {
             loanId,
             address: loan.address || '',
             status:  loan.status  || '',
+            source:  'index',
           });
         }
       }

@@ -285,7 +285,14 @@ function onUser(user) {
           '<p style="color:var(--muted);margin-bottom:12px">Looking up its new location\u2026</p>' +
         '</div>';
       if (window.SLA && SLA.Loans && SLA.Loans.locate) {
-        SLA.Loans.locate(loanId).then(function(locate) {
+        // Deploy 236.357 — pass the stale (owner, client) tuple so
+        // the backend hits the redirect map directly (O(1)) and, on
+        // an index-scan resolve, writes the redirect entry for the
+        // next visitor.
+        SLA.Loans.locate(loanId, {
+          oldOwnerKey: ownerHref || undefined,
+          oldClientId: clientId || undefined,
+        }).then(function(locate) {
           if (locate && locate.found && locate.clientId && locate.ownerKey) {
             var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
               '&loanId=' + encodeURIComponent(locate.loanId) +

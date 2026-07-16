@@ -41,6 +41,10 @@ import {
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs';
 import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
+// Deploy 236.357 — persist the (old → new) location so any URL that
+// still references the old (owner, client) tuple redirects in one
+// blob read instead of forcing loan-locate to scan the index.
+import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -241,6 +245,19 @@ async function handle(req, context) {
       console.warn('loan-assign-lo: setNativeLink failed (non-fatal):', e && e.message);
     }
   }
+
+  // Deploy 236.357 — write the (old → new) redirect entry BEFORE
+  // the notify block so if the email/reminder block throws, the
+  // redirect is still on file. Any URL that still points at
+  // (oldOwnerKey, body.clientId, loanId) resolves in one blob read.
+  await recordLoanRedirect({
+    loanId:       loan.id,
+    fromOwnerKey: oldOwnerKey,
+    fromClientId: body.clientId,
+    toOwnerKey:   newOwnerKey,
+    toClientId:   destClientId,
+    via:          'loan_assign_lo',
+  });
 
   // ── Notify the new LO: in-app reminder + email ───────────────
   // Deploy 236.351 — dropdown-reassign UX shipped; the new LO

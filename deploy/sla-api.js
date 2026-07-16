@@ -2011,12 +2011,21 @@
       });
     },
     // Deploy 236.356 — locate a loan by id when the URL's (client,
-    // owner) tuple is stale. Backend consults the materialized
-    // clients-index for a one-blob-read lookup. Returns
-    // { found, ownerKey, clientId, ... } — used by loan-details
-    // to auto-redirect after a reassign moved the loan.
-    locate: function (loanId) {
-      return api('GET', '/api/loan-locate?loanId=' + encodeURIComponent(loanId));
+    // owner) tuple is stale. Backend consults the persisted redirect
+    // map first (Deploy 236.357, one-blob-read O(1)); falls back to
+    // scanning the materialized clients-index. Returns
+    // { found, ownerKey, clientId, source, ... }.
+    //
+    // Deploy 236.357 — pass the STALE (owner, client) tuple so the
+    // backend can hit the by-source key directly and, on an index
+    // scan miss, seed the redirect entry so the next click for the
+    // same URL is O(1).
+    locate: function (loanId, opts) {
+      opts = opts || {};
+      var qs = 'loanId=' + encodeURIComponent(loanId);
+      if (opts.oldOwnerKey)  qs += '&oldOwnerKey='  + encodeURIComponent(opts.oldOwnerKey);
+      if (opts.oldClientId)  qs += '&oldClientId='  + encodeURIComponent(opts.oldClientId);
+      return api('GET', '/api/loan-locate?' + qs);
     },
   };
 
