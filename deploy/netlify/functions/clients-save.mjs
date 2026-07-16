@@ -81,6 +81,38 @@ export default async (req, context) => {
       record.ssn_enc = existing.ssn_enc;
     }
 
+    // Deploy 236.348 — per-loan field preservation. Deploy 236.346
+    // flipped SLA.Clients.list() to return SUMMARY-projected records
+    // by default. Any caller that fetches via .list() then round-trips
+    // through .save() (client-details.html name edit, pipeline drag,
+    // etc.) sends back a loan object with only the summary fields.
+    // Without merging, the full-blob overwrite here wipes every
+    // field NOT in LOAN_SUMMARY_FIELDS — including rehabBudget, arv,
+    // bedrooms/bathrooms/sqft, notesLog, formData snapshots, and
+    // anything else the summary doesn't project.
+    //
+    // Merge rule: for each incoming loan matched by id to an existing
+    // loan, copy any key present on existing but absent from incoming.
+    // A caller who genuinely wants to clear a field sends it as
+    // '' / null / 0 — those are present-on-incoming and win. Only
+    // omission preserves.
+    if (existing && Array.isArray(existing.loans) && Array.isArray(record.loans)) {
+      const existingById = new Map();
+      for (const el of existing.loans) {
+        if (el && el.id) existingById.set(el.id, el);
+      }
+      record.loans = record.loans.map((incoming) => {
+        if (!incoming || !incoming.id) return incoming;
+        const prior = existingById.get(incoming.id);
+        if (!prior) return incoming;
+        const merged = { ...incoming };
+        for (const key of Object.keys(prior)) {
+          if (!(key in incoming)) merged[key] = prior[key];
+        }
+        return merged;
+      });
+    }
+
     // Deploy 236.150 — accept a freshly-typed SSN under
     // record.ssn (raw digits from the Client Details page).
     // Strip mask, encrypt with SSN_ENCRYPTION_KEY-derived key
