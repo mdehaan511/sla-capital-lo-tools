@@ -71,6 +71,9 @@ window.ClientBook = {
       ficoLabel:     formData.ficoLabel     || '',
       propTypeLabel: formData.propTypeLabel || '',
       currentLoanAmt: formData.currentLoanAmt || '',
+      // Deploy 236.350 — optional target-loan / target-LTV caps
+      targetLoanAmt:  formData.targetLoanAmt  || '',
+      targetLtv:      formData.targetLtv      || '',
       // Deploy 196/197: Dutch / Non-Dutch interest structure. Stored as
       // 'dutch' or 'non_dutch'. Defaults to 'dutch' if nothing is set
       // (Deploy 197 made Dutch the system default since it matches the
@@ -695,7 +698,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="field">
         <div class="wrap" id="wrap-purchasePrice">
           <label id="lbl-purchasePrice">Purchase Price <span class="req">*</span></label>
-          <input type="number" id="purchasePrice" step="5000" oninput="clearErr('purchasePrice');autoCalc()" />
+          <input type="number" id="purchasePrice" step="5000" oninput="clearErr('purchasePrice');_syncTargetsToPurchase();autoCalc()" />
         </div>
         <div class="err-msg" id="err-purchasePrice">Required</div>
       </div>
@@ -720,6 +723,27 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
         <div class="wrap">
           <label>Current Loan Amount <span class="req">*</span></label>
           <input type="number" id="currentLoanAmt" min="0" step="1000" oninput="autoCalc()" />
+        </div>
+      </div>
+
+      <!-- Deploy 236.350 — optional Target Loan Amount / Target LTV.
+           When BOTH are blank, the sizer prices at the Colchis guideline
+           max (current behavior). When either is filled, both stay in
+           sync (Loan Amount = purchase price × LTV/100) and the calc
+           uses that dollar figure as the loan amount cap — so LOs can
+           reduce a deal to a specific LTV without hand-mathing. -->
+      <div class="field">
+        <div class="wrap" id="wrap-targetLoanAmt">
+          <label>Target Loan Amount <span style="font-size:11px;color:var(--muted);font-weight:400">(optional)</span></label>
+          <input type="number" id="targetLoanAmt" min="0" step="1000" placeholder="Leave blank for max"
+            oninput="onTargetLoanAmtInput();autoCalc()" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap" id="wrap-targetLtv">
+          <label>Target LTV <span style="font-size:11px;color:var(--muted);font-weight:400">(optional %)</span></label>
+          <input type="number" id="targetLtv" min="0" max="200" step="0.1" placeholder="e.g. 70"
+            oninput="onTargetLtvInput();autoCalc()" />
         </div>
       </div>
 
@@ -2007,6 +2031,62 @@ function onRtlPurposeChange() {
   autoCalc();
 }
 
+// Deploy 236.350 — bidirectional Target LTV ↔ Target Loan Amount.
+// When the LO types a Target LTV, we compute the loan dollar amount
+// from purchasePrice × (ltv/100) and write it to #targetLoanAmt.
+// When they type a Target Loan Amount, we compute LTV from the loan
+// dollar / purchasePrice and write it to #targetLtv. Guarded by
+// activeElement so we don't feed a keystroke back into the field
+// the user is currently editing.
+//
+// Denominator: purchasePrice. That's LTP (loan-to-purchase) for
+// purchase / rehab / construction loans, and LTV (loan-to-as-is)
+// for refis — same field, same math, LOs think of it as "LTV" in
+// both cases when talking to borrowers.
+function onTargetLtvInput() {
+  if (document.activeElement && document.activeElement.id !== 'targetLtv') return;
+  var pp   = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+  var ltvV = parseFloat((document.getElementById('targetLtv')||{}).value);
+  var loanEl = document.getElementById('targetLoanAmt');
+  if (!loanEl) return;
+  if (!isFinite(ltvV) || ltvV <= 0 || pp <= 0) {
+    loanEl.value = '';
+    return;
+  }
+  loanEl.value = Math.round(pp * (ltvV / 100));
+}
+function onTargetLoanAmtInput() {
+  if (document.activeElement && document.activeElement.id !== 'targetLoanAmt') return;
+  var pp    = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+  var loanV = parseFloat((document.getElementById('targetLoanAmt')||{}).value);
+  var ltvEl = document.getElementById('targetLtv');
+  if (!ltvEl) return;
+  if (!isFinite(loanV) || loanV <= 0 || pp <= 0) {
+    ltvEl.value = '';
+    return;
+  }
+  ltvEl.value = ((loanV / pp) * 100).toFixed(1);
+}
+
+// When purchase price changes and a target is set, LTV wins — recompute
+// targetLoanAmt so the LO's "70%" intent survives a purchase-price
+// correction. If only targetLoanAmt is set (no targetLtv), refresh
+// targetLtv from the new pp.
+function _syncTargetsToPurchase() {
+  var pp    = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+  if (pp <= 0) return;
+  var ltvEl  = document.getElementById('targetLtv');
+  var loanEl = document.getElementById('targetLoanAmt');
+  if (!ltvEl || !loanEl) return;
+  var ltvV  = parseFloat(ltvEl.value);
+  var loanV = parseFloat(loanEl.value);
+  if (isFinite(ltvV) && ltvV > 0) {
+    loanEl.value = Math.round(pp * (ltvV / 100));
+  } else if (isFinite(loanV) && loanV > 0) {
+    ltvEl.value = ((loanV / pp) * 100).toFixed(1);
+  }
+}
+
 function autoCalc() {
   // Toggle save button regardless of whether results have been shown yet
   if (typeof toggleSaveButton === 'function') toggleSaveButton();
@@ -2270,6 +2350,22 @@ function calculate(){
   if (bMax && mByLtc && mByLtc < bMax)  { bMax = mByLtc;  bLabel = 'LTC'; }
   if (bMax && mByLarv && mByLarv < bMax){ bMax = mByLarv; bLabel = 'LTARV'; }
   if (bMax && bMax > 3500000)          { bMax = 3500000; bLabel = 'Program max $3.5M'; }
+
+  // Deploy 236.350 — Target Loan Amount cap. When the LO fills the
+  // optional Target Loan Amount / Target LTV inputs on the form, the
+  // sizer prices at that dollar figure instead of the guideline max.
+  // Only reduces — a target ABOVE the guideline max still floors to
+  // the max (LOs can't override up past what Colchis allows). The
+  // bLabel changes to "LO Target" so the constraint reason is visible
+  // in the result card next to the number.
+  var targetLoanEl = document.getElementById('targetLoanAmt');
+  if (targetLoanEl) {
+    var targetLoan = parseFloat(targetLoanEl.value);
+    if (isFinite(targetLoan) && targetLoan > 0 && bMax && targetLoan < bMax) {
+      bMax = Math.round(targetLoan);
+      bLabel = 'LO Target';
+    }
+  }
 
   // Down-payment math is purchase-specific. On a refi, the equivalent
   // concept is "cash to/from borrower" which gets computed downstream
@@ -3234,6 +3330,11 @@ function saveCurrentQuote() {
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
     'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
+    // Deploy 236.350 — optional Target Loan Amount + Target LTV
+    // caps. Persisted so reopening a saved loan restores the
+    // constraint (otherwise the sizer would show the guideline
+    // max and the LO would need to re-type the target).
+    'targetLoanAmt','targetLtv',
     // Broker fields — captured at quote time. brokerFee is in points
     // (1 = 1%); when 0/empty the loan isn't a broker loan and the
     // contact fields stay empty. brokerName is required upstream when
@@ -3686,6 +3787,8 @@ function loadRTLQuote(formData) {
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
     'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
+    // Deploy 236.350 — target-loan / target-LTV caps
+    'targetLoanAmt','targetLtv',
     // Broker fields — populated when reopening a quote saved as a broker loan
     'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
     // Deploy 236 (Brokers Phase 2): restore hidden brokerId so the picker
