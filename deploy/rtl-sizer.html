@@ -1905,6 +1905,17 @@ function toggleRehab(){
   var el=document.getElementById('row-rehab');
   el.style.visibility=show?'visible':'hidden';
   el.style.opacity=show?'1':'0';
+  // Deploy 236.358 — when the rehab row is hidden (Bridge /
+  // Transactional / Refi), also CLEAR the input value. Was: value
+  // stayed in the DOM, got serialized on save, and landed on the
+  // Bridge loan's record + loan application PDF (Mike's report).
+  // Hiding a field that still contributes to save state is the
+  // classic invisible-input bug — the LO can't see it, so they
+  // can't fix it.
+  if (!show) {
+    var rb = document.getElementById('rehabBudget');
+    if (rb && rb.value) rb.value = '';
+  }
 }
 
 // Transactional Funding (1-day loans): bypass the entire pricing matrix.
@@ -3353,6 +3364,18 @@ function saveCurrentQuote() {
     var el = document.getElementById(id);
     if (el) formData[id] = el.value;
   });
+  // Deploy 236.358 — defensive scrub for type-incompatible fields.
+  // Bridge / Transactional / Refi loans don't have a rehab budget;
+  // if the DOM was populated from a stale record and toggleRehab's
+  // clear didn't fire (edge case: LO edited via URL that skipped
+  // the onLoanTypeChange trigger), the stale value would still land
+  // on the saved loan record + application PDF. This blanks it at
+  // the save boundary so the loan record is always self-consistent.
+  var _fdType = String(formData.loanType || '').toLowerCase();
+  var _fdPurpose = String(formData.loanPurpose || '').toLowerCase();
+  var _fdIsRefi = (_fdPurpose === 'cashout' || _fdPurpose === 'rateterm');
+  var _fdRehabApplies = ['light', 'heavy'].indexOf(_fdType) >= 0 && !_fdIsRefi;
+  if (!_fdRehabApplies) formData.rehabBudget = '';
   // Item #5/#6: also capture the human-readable label for fico + experience
   // so Loan Details and Submission page can show "740+" instead of "740".
   var ficoEl = document.getElementById('fico');

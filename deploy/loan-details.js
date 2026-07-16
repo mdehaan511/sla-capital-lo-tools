@@ -38,7 +38,17 @@ var _loEmail = null;
 
 function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escAttr(s) { return String(s||'').replace(/"/g,'&quot;'); }
-function fmtM(n) { var v = Number(n); return (v && !isNaN(v)) ? '$'+v.toLocaleString() : '—'; }
+// Deploy 236.358 — cap at 2 decimals. Was: raw toLocaleString(), which
+// rendered a monthly payment like 3024.6091 as '$3,024.609'. With the
+// Intl options below whole-dollar amounts stay '$300,000' (min 0) and
+// fractional amounts round to '$3,024.61' (max 2). Callers that need
+// a strict '$3,024' form (already round via Math.round(n)) still get
+// what they expect since the input is an integer.
+function fmtM(n) {
+  var v = Number(n);
+  if (!v || isNaN(v)) return '—';
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
 // Deploy 199: small helper for the Baseline panel + future status
 // timestamps. Returns "2026-05-23 14:32 PM" style — locale, short.
 function fmtDateTime(iso) {
