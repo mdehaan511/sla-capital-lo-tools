@@ -652,6 +652,31 @@
       <div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">At least a first/last name OR email is required.</div>
     </div>
 
+    <!-- Deploy 236.353 — "different borrower" checkbox. When checked
+         the reassign clears the existing borrower_info + signed
+         loan application and unlinks co-guarantors so the new
+         primary can start a fresh app. Default off — most reassigns
+         are just fixing which client owns the record (same person). -->
+    <div id="reassignResetAppWrap" style="margin-top:12px;padding:10px 12px;border:1px solid var(--border, #E4DFD4);border-radius:6px;background:#fafaf7">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">
+        <input type="checkbox" id="reassignResetAppCbx" onchange="_onReassignResetToggle()" style="margin-top:2px;flex-shrink:0" />
+        <span>
+          <strong>This is a different borrower</strong> — reset the loan application so the new guarantor fills it out fresh
+          <div id="reassignResetWarning" style="display:none;margin-top:8px;padding:9px 11px;background:rgba(200,129,58,0.10);border:1px solid rgba(200,129,58,0.35);border-left:3px solid #C8813A;border-radius:5px;font-size:12px;color:#7a5a2c;line-height:1.5">
+            <strong>The following will be cleared on this loan:</strong>
+            <ul style="margin:6px 0 0 18px;padding:0">
+              <li>Long-form borrower application (any in-progress or submitted long-app data)</li>
+              <li>Signed loan application PDF (if one exists)</li>
+              <li>Co-guarantors linked to this loan + their ownership percentages</li>
+              <li>Vesting LLC info (the old borrower's entities)</li>
+              <li>Prequal / long-app email send timestamps (so the LO can re-send fresh)</li>
+            </ul>
+            The property, pricing, notes, and eSign envelope history are kept.
+          </div>
+        </span>
+      </label>
+    </div>
+
     <div class="bi-status" id="reassignStatus"></div>
 
     <div class="bi-actions">

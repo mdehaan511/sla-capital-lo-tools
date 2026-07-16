@@ -134,6 +134,36 @@ async function handle(req, context) {
   loan._movedFromClientId = srcClient.id;
   loan.updatedAt = now;
 
+  // Deploy 236.353 — "different borrower" mode. When resetApplication
+  // is set, the reassign represents a real borrower swap (backed out /
+  // new person buying the property), not a records fix. We wipe:
+  //   - guarantorClientIds + guarantorOwnership (co-guarantors were
+  //     the OLD borrower's spouse/partner — don't drag them along)
+  //   - vestingLLCs (old borrower's LLCs)
+  //   - per-borrower email-send timestamps so re-send flows show
+  //     "never sent" instead of an old date
+  // borrower_info + signed_application deletion happens in the
+  // per-store blocks below (using resetApp as the branch flag).
+  const resetApp = !!body.resetApplication;
+  let unlinkedGuarantors = 0;
+  if (resetApp) {
+    if (Array.isArray(loan.guarantorClientIds)) {
+      unlinkedGuarantors = loan.guarantorClientIds.length;
+    }
+    loan.guarantorClientIds = [];
+    loan.guarantorOwnership = {};
+    loan.vestingLLCs = [];
+    // Timestamps the LO uses to decide "should I re-send?" — old
+    // values would confuse them since those sends went to the wrong
+    // person. Only clear the sent-at fields, not any content fields.
+    delete loan._prequalLastSentAt;
+    delete loan._borrowerInfoLastSentAt;
+    delete loan._pandaAppSentAt;
+    delete loan.borrowerEmailSentAt;
+    loan._applicationResetAt = now;
+    loan._applicationResetBy = selfEmail;
+  }
+
   // Audit note on the loan
   {
     const meta = (user && user.user_metadata) || {};
@@ -142,7 +172,7 @@ async function handle(req, context) {
     const destName = ((destClient.firstName || '') + ' ' + (destClient.lastName || '')).trim() || destClient.email || destClient.id;
     appendNoteEntry(loan, {
       kind:        'status',
-      text:        'Reassigned loan from ' + srcName + ' to ' + destName + (destClientCreated ? ' (new client)' : ''),
+      text:        'Reassigned loan from ' + srcName + ' to ' + destName + (destClientCreated ? ' (new client)' : '') + (resetApp ? ' — loan application reset (different borrower)' : ''),
       author,
       authorEmail: user.email || '',
       meta: {
@@ -150,6 +180,8 @@ async function handle(req, context) {
         fromClientId: srcClient.id,
         toClientId:   destClient.id,
         destClientCreated,
+        resetApplication: resetApp,
+        unlinkedGuarantors,
       },
     });
   }
@@ -169,13 +201,12 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client records: ' + (e.message || 'unknown') });
   }
 
-  // ── Move borrower_info ───────────────────────────────────────
-  // The long-app data the original applicant submitted. Probably
-  // partly wrong for the new guarantor (they'll re-send the long-app
-  // link to the actual guarantor), but the property + loan details
-  // are still useful. Move the record to the new key so it's not
-  // orphaned.
+  // ── Move (or clear) borrower_info ────────────────────────────
+  // Deploy 236.353 — when resetApp is set the old data doesn't
+  // apply to the new borrower, so DELETE instead of moving. The
+  // new guarantor starts from an empty long-app.
   let movedBorrowerInfo = false;
+  let clearedBorrowerInfo = false;
   try {
     const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
     const newBiKey = newRecordKey(ownerKey, body.srcClientId, body.loanId);
@@ -184,36 +215,52 @@ async function handle(req, context) {
     let foundAtNewKey = !!biRec;
     if (!biRec) biRec = await biStore.get(legacyBiKey, { type: 'json' });
     if (biRec) {
-      const destBiKey = newRecordKey(ownerKey, destClient.id, body.loanId);
-      // Update embedded refs so the moved record stays self-consistent.
-      biRec.clientId = destClient.id;
-      biRec.loanId   = body.loanId;
-      await biStore.setJSON(destBiKey, biRec);
-      // Delete the old key so we don't leave a stale duplicate that
-      // could be picked up later via the legacy lookup path.
-      if (foundAtNewKey) await biStore.delete(newBiKey);
-      else                await biStore.delete(legacyBiKey);
-      movedBorrowerInfo = true;
+      if (resetApp) {
+        // Just delete the source. Nothing gets moved.
+        if (foundAtNewKey) await biStore.delete(newBiKey);
+        else                await biStore.delete(legacyBiKey);
+        clearedBorrowerInfo = true;
+      } else {
+        const destBiKey = newRecordKey(ownerKey, destClient.id, body.loanId);
+        // Update embedded refs so the moved record stays self-consistent.
+        biRec.clientId = destClient.id;
+        biRec.loanId   = body.loanId;
+        await biStore.setJSON(destBiKey, biRec);
+        // Delete the old key so we don't leave a stale duplicate that
+        // could be picked up later via the legacy lookup path.
+        if (foundAtNewKey) await biStore.delete(newBiKey);
+        else                await biStore.delete(legacyBiKey);
+        movedBorrowerInfo = true;
+      }
     }
   } catch (e) {
-    console.warn('loan-reassign: borrower_info move failed (non-fatal):', e && e.message);
+    console.warn('loan-reassign: borrower_info move/clear failed (non-fatal):', e && e.message);
   }
 
-  // ── Move signed_application ──────────────────────────────────
+  // ── Move (or clear) signed_application ───────────────────────
+  // Deploy 236.353 — same as borrower_info: on a different-borrower
+  // reset, the signed PDF belongs to the OLD person and must not
+  // follow the loan. Delete it so the new borrower re-signs fresh.
   let movedSignedApp = false;
+  let clearedSignedApp = false;
   try {
     const appStore = getStore({ name: 'signed_applications', consistency: 'strong' });
     const oldAppKey = ownerKey + '/' + keySafe(body.srcClientId) + '/' + keySafe(body.loanId);
     const newAppKey = ownerKey + '/' + keySafe(destClient.id) + '/' + keySafe(body.loanId);
     const appRec = await appStore.get(oldAppKey, { type: 'json' });
     if (appRec) {
-      appRec.clientId = destClient.id;
-      await appStore.setJSON(newAppKey, appRec);
-      await appStore.delete(oldAppKey);
-      movedSignedApp = true;
+      if (resetApp) {
+        await appStore.delete(oldAppKey);
+        clearedSignedApp = true;
+      } else {
+        appRec.clientId = destClient.id;
+        await appStore.setJSON(newAppKey, appRec);
+        await appStore.delete(oldAppKey);
+        movedSignedApp = true;
+      }
     }
   } catch (e) {
-    console.warn('loan-reassign: signed_application move failed (non-fatal):', e && e.message);
+    console.warn('loan-reassign: signed_application move/clear failed (non-fatal):', e && e.message);
   }
 
   // ── Update quotes ────────────────────────────────────────────
@@ -276,5 +323,10 @@ async function handle(req, context) {
     movedReviews,
     movedBorrowerInfo,
     movedSignedApp,
+    // Deploy 236.353 — reset-application outputs.
+    resetApplication: resetApp,
+    clearedBorrowerInfo,
+    clearedSignedApp,
+    unlinkedGuarantors,
   });
 }

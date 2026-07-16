@@ -5096,6 +5096,11 @@ function openReassignLoanModal() {
   });
   document.getElementById('reassignStatus').className = 'bi-status';
   document.getElementById('reassignStatus').textContent = '';
+  // Deploy 236.353 — reset the "different borrower" checkbox each open.
+  var _rrCbx = document.getElementById('reassignResetAppCbx');
+  if (_rrCbx) _rrCbx.checked = false;
+  var _rrWarn = document.getElementById('reassignResetWarning');
+  if (_rrWarn) _rrWarn.style.display = 'none';
   reassignSwitchTab('existing');
   document.getElementById('reassignLoanModal').classList.add('show');
   // Load this LO's clients (fresh fetch — small enough that we
@@ -5604,10 +5609,46 @@ function updateReassignBtn() {
   }
 }
 
+// Deploy 236.353 — show/hide the "what gets cleared" warning as the
+// checkbox toggles. Just a display hook — the actual clearing is
+// server-side in loan-reassign.mjs when resetApplication=true.
+function _onReassignResetToggle() {
+  var cbx  = document.getElementById('reassignResetAppCbx');
+  var warn = document.getElementById('reassignResetWarning');
+  if (warn) warn.style.display = (cbx && cbx.checked) ? 'block' : 'none';
+}
+
 function confirmReassignLoan() {
   if (!_client || !_loan) return;
   var statusEl = document.getElementById('reassignStatus');
   var btn = document.getElementById('reassignConfirmBtn');
+
+  // Deploy 236.353 — extra confirm() when the LO opted to reset the
+  // application. The reassign itself is reversible-ish (they can
+  // re-reassign back) but the app-clear DELETES borrower_info +
+  // signed_applications. Force a second-guess click before firing.
+  var resetCbx = document.getElementById('reassignResetAppCbx');
+  var resetApplication = !!(resetCbx && resetCbx.checked);
+  if (resetApplication) {
+    var picked = '';
+    if (_reassignTab === 'existing') {
+      var found = _reassignClients.find(function(c){ return c && c.id === _reassignSelectedId; });
+      if (found) picked = ((found.firstName || '') + ' ' + (found.lastName || '')).trim() || found.email || 'the selected client';
+    } else {
+      var fn = (document.getElementById('reassignNewFirstName').value || '').trim();
+      var ln = (document.getElementById('reassignNewLastName').value  || '').trim();
+      picked = (fn + ' ' + ln).trim() || (document.getElementById('reassignNewEmail').value || '').trim() || 'the new client';
+    }
+    var current = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim() || _client.email || 'the current borrower';
+    var confirmMsg = 'This will:\n\n' +
+      '  1. Move the loan from ' + current + ' to ' + picked + '\n' +
+      '  2. DELETE the existing loan application (long-app + signed PDF)\n' +
+      '  3. Unlink co-guarantors and clear vesting LLC info\n\n' +
+      'The new borrower will need to fill out the application from scratch.\n\n' +
+      'Continue?';
+    if (!confirm(confirmMsg)) return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Reassigning…';
   statusEl.className = 'bi-status';
@@ -5625,6 +5666,7 @@ function confirmReassignLoan() {
       entityName:(document.getElementById('reassignNewEntity').value || '').trim(),
     };
   }
+  if (resetApplication) body.resetApplication = true;
   var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
   if (ownerOvr) body.owner = ownerOvr;
 
@@ -5632,8 +5674,11 @@ function confirmReassignLoan() {
     statusEl.className = 'bi-status ok';
     var bits = [];
     if (resp.destClientCreated) bits.push('new client created');
-    if (resp.movedBorrowerInfo) bits.push('long-app moved');
-    if (resp.movedSignedApp)    bits.push('signed app moved');
+    if (resp.clearedBorrowerInfo)   bits.push('long-app cleared');
+    else if (resp.movedBorrowerInfo) bits.push('long-app moved');
+    if (resp.clearedSignedApp)      bits.push('signed app cleared');
+    else if (resp.movedSignedApp)   bits.push('signed app moved');
+    if (resp.unlinkedGuarantors)    bits.push(resp.unlinkedGuarantors + ' co-guarantor' + (resp.unlinkedGuarantors === 1 ? '' : 's') + ' unlinked');
     if (resp.movedQuotes)       bits.push(resp.movedQuotes + ' quote' + (resp.movedQuotes === 1 ? '' : 's') + ' updated');
     if (resp.movedReviews)      bits.push(resp.movedReviews + ' doc review' + (resp.movedReviews === 1 ? '' : 's') + ' updated');
     statusEl.textContent = '✓ Loan reassigned' + (bits.length ? ' (' + bits.join(', ') + ')' : '') + '. Loading the loan under the new client…';
