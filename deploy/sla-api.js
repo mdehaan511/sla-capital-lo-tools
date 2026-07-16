@@ -1273,6 +1273,45 @@
         return r;
       });
     },
+    // Deploy 236.351 — admin reassignment of a loan to another LO.
+    // See loan-assign-lo.mjs: creates a new client under the new
+    // owner + moves the loan, borrower_info, signed_app, quotes,
+    // reviews. Fires an email + reminder to the new LO.
+    // Params: ownerKey (keySafed current owner), clientId, loanId,
+    // newOwnerEmail. Response includes newClientId — the URL for
+    // the loan changes after reassignment (new client + new owner).
+    assignLo: function (ownerKey, clientId, loanId, newOwnerEmail) {
+      return api('POST', '/api/loan-assign-lo', {
+        ownerKey:      ownerKey,
+        clientId:      clientId,
+        loanId:        loanId,
+        newOwnerEmail: newOwnerEmail,
+      }).then(function (r) {
+        // The moved loan lands under a NEW clientId in the new
+        // owner's namespace. Everyone's cached lists need a refresh.
+        cache.clear('clients');
+        cache.clear('quotes');
+        cache.clear('reminders');
+        return r;
+      });
+    },
+  };
+
+  // ── Users directory (all authenticated users) ────────────────────
+  // Deploy 236.351 — LO picker for the Loan Details reassign
+  // dropdown. Returns { users: [{ email, name, slug, roles }] }
+  // sorted by name. Cached in-session since the roster is stable.
+  var _usersDirCache = null;
+  var Users = {
+    directory: function (opts) {
+      opts = opts || {};
+      if (opts.refresh) _usersDirCache = null;
+      if (_usersDirCache) return Promise.resolve(_usersDirCache);
+      return api('GET', '/api/users-directory').then(function (r) {
+        _usersDirCache = r;
+        return r;
+      });
+    },
   };
 
   // ── Chat Log (super_admin only) ─────────────────────────────────
@@ -2166,6 +2205,9 @@
     Loans: Loans,
     LoanReviews: LoanReviews,
     Search: Search,
+    // Deploy 236.351 — LO picker directory (name + email + roles)
+    // for admin reassignment UI on Loan Details.
+    Users: Users,
     // Deploy 236.170 — Access Refactor PR #3. Borrower portal
     // access lives in the loan_access blob store; these helpers
     // are the frontend wrapper.

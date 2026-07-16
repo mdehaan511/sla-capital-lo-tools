@@ -242,6 +242,139 @@ async function handle(req, context) {
     }
   }
 
+  // ── Notify the new LO: in-app reminder + email ───────────────
+  // Deploy 236.351 — dropdown-reassign UX shipped; the new LO
+  // needs to know a loan just landed on their desk without the
+  // admin having to also send a manual Slack ping. Both channels
+  // are best-effort — a failure here NEVER poisons the assign
+  // (which has already committed all the blob writes above).
+  let reminderCreated = false;
+  let emailedAt = null;
+  try {
+    const profilesStore = getStore({ name: 'profiles', consistency: 'eventual' });
+
+    // New LO profile — for email personalization.
+    let newLoName = '';
+    try {
+      const newProfile = await profilesStore.get(newOwnerKey, { type: 'json' });
+      if (newProfile) {
+        const meta = newProfile.user_metadata || {};
+        newLoName = meta.full_name || meta.fullName
+          || newProfile.full_name || newProfile.fullName || '';
+      }
+    } catch (_) { /* fall through with empty name */ }
+
+    // Admin (the person doing the assign) — for "assigned by" text.
+    let adminName = '';
+    try {
+      const adminMeta = (user && user.user_metadata) || {};
+      adminName = adminMeta.full_name || adminMeta.fullName || user.email || '';
+    } catch (_) { /* empty */ }
+
+    const borrowerName = ((destClient.firstName || '') + ' ' + (destClient.lastName || '')).trim()
+      || destClient.email || 'the borrower';
+    const address = loan.address || '';
+    const amtNum  = parseFloat(String(loan.loanAmt || '').replace(/[$,]/g, '')) || 0;
+    const amtStr  = amtNum > 0 ? '$' + Math.round(amtNum).toLocaleString() : '';
+
+    // ── In-app reminder (fires the bell in the new LO's UI) ────
+    // Reminders are per-owner scoped, so writing under newOwnerKey
+    // means only the new LO sees it. Reminders-save has a "one
+    // active per loan" rule but this loan just moved out of the
+    // old owner's namespace — no collision. `_owner` is the
+    // reminders-save admin-override channel to write on behalf
+    // of another user.
+    try {
+      const remStore = getStore({ name: 'reminders', consistency: 'strong' });
+      const remId = 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      const remRec = {
+        id: remId,
+        loanId:   loan.id,
+        clientId: destClientId,
+        ownerKey: newOwnerKey,
+        address,
+        borrower: borrowerName,
+        note: 'Loan reassigned to you by ' + (adminName || 'an admin') +
+          (amtStr ? ' — ' + amtStr : '') +
+          (address ? ' — ' + address : ''),
+        dueDate: now.slice(0, 10),
+        completed: false,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+        createdBy: user.email || '',
+        _kind: 'loan_assigned',
+      };
+      await remStore.setJSON(newOwnerKey + '/' + keySafe(remId), remRec);
+      reminderCreated = true;
+    } catch (e) {
+      console.warn('loan-assign-lo: reminder create failed (non-fatal):', e && e.message);
+    }
+
+    // ── Email the new LO via Resend ────────────────────────────
+    const apiKey = process.env.RESEND_API_KEY;
+    if (apiKey && newOwnerEmail) {
+      try {
+        const proto = (req.headers.get ? req.headers.get('x-forwarded-proto') : req.headers['x-forwarded-proto']) || 'https';
+        const host  = (req.headers.get ? req.headers.get('host') : req.headers.host) || '';
+        const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://slaloantools.netlify.app');
+        const loanLink = base +
+          '/loan-details.html?clientId=' + encodeURIComponent(destClientId) +
+          '&loanId='   + encodeURIComponent(loan.id) +
+          '&owner='    + encodeURIComponent(newOwnerEmail);
+
+        const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const greeting = newLoName ? ('Hi ' + newLoName.split(/\s+/)[0] + ',') : 'Hi,';
+        const subject = 'Loan assigned to you: ' + (borrowerName || address || 'new loan');
+        const bodyLines = [
+          greeting,
+          '',
+          (adminName || 'An admin') + ' has assigned a loan to you at SLA Capital.',
+          '',
+          'Borrower: ' + borrowerName,
+          address ? ('Property: ' + address) : '',
+          amtStr  ? ('Loan Amount: ' + amtStr) : '',
+          '',
+          'Open the loan:',
+          loanLink,
+          '',
+          "You'll also see this in your Pipeline and reminders bell next time you log in.",
+          '',
+          '— SLA Capital',
+        ].filter(Boolean);
+        const text = bodyLines.join('\n');
+        const html =
+          '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#261A36;line-height:1.55">' +
+          bodyLines.map((ln) => {
+            if (ln === loanLink) {
+              return '<p><a href="' + escH(loanLink) + '" style="color:#C8813A;font-weight:600">Open the loan →</a></p>';
+            }
+            return '<p style="margin:0 0 8px 0">' + escH(ln) + '</p>';
+          }).join('') +
+          '</div>';
+
+        const resp = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'SLA Capital <noreply@leads.slacapital.com>',
+            to: [newOwnerEmail],
+            subject, text, html,
+          }),
+        });
+        if (resp.ok) emailedAt = new Date().toISOString();
+        else {
+          const t = await resp.text().catch(() => '');
+          console.warn('loan-assign-lo: email failed', resp.status, t.slice(0, 200));
+        }
+      } catch (e) {
+        console.warn('loan-assign-lo: email threw (non-fatal):', e && e.message);
+      }
+    }
+  } catch (e) {
+    console.warn('loan-assign-lo: notify block threw (non-fatal):', e && e.message);
+  }
+
   return json(200, {
     ok: true,
     newOwnerKey,
@@ -254,5 +387,7 @@ async function handle(req, context) {
     movedQuotes,
     movedReviews,
     linkUpdated,
+    reminderCreated,
+    emailedAt,
   });
 }

@@ -2620,23 +2620,28 @@ function copyLoanId(el, id) {
 }
 
 // Build the Team Members section that appears at the bottom of
-// the Contacts tab. For now: LO (always), Processor (placeholder
-// until admin reassignment ships in Phase C). Future iterations
-// could add Underwriter / Closing Coordinator / etc. once those
-// roles are first-class on the loan record.
+// the Contacts tab. Deploy 236.351 — Loan Officer is now an
+// editable dropdown for admins (was read-only). Non-admins still
+// see the LO's name, not the email. Reassignment fires
+// SLA.Admin.assignLo → cross-owner move of the loan + email +
+// in-app reminder to the new LO. On success the page reloads at
+// the loan's new URL (moved loans get a new clientId under the
+// new owner's namespace).
 function _buildTeamMembersSection() {
   var lo = _loEmail || '';
+  var isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
   var section = document.createElement('div');
   section.className = 'section';
   section.id = 'teamMembersSection';
+  // Populated async once users-directory lands (loName lookup + full
+  // roster for the picker). Renders with the email as a fallback
+  // so the section is never blank while the directory loads.
+  var loCardId = 'teamLoCard_' + Math.random().toString(36).slice(2, 6);
   var loCard =
-    '<div class="team-member' + (lo ? '' : ' unassigned') + '">' +
+    '<div id="' + loCardId + '" class="team-member' + (lo ? '' : ' unassigned') + '">' +
       '<div class="tm-role">Loan Officer</div>' +
       '<div class="tm-name">' + escH(lo || 'Unassigned') + '</div>' +
     '</div>';
-  // Processor — sourced from loan.assignedProcessor (not yet set
-  // by any UI; future loan-assign endpoint will populate). Renders
-  // as "Not assigned" until then so the slot is visible.
   var processor = _loan && _loan.assignedProcessor || '';
   var procCard =
     '<div class="team-member' + (processor ? '' : ' unassigned') + '">' +
@@ -2644,12 +2649,155 @@ function _buildTeamMembersSection() {
       '<div class="tm-name">' + escH(processor || 'Not assigned') + '</div>' +
     '</div>';
   section.innerHTML =
-    '<div class="section-head"><h2>Team Members</h2><span class="section-tag tag-readonly">Read Only</span></div>' +
+    '<div class="section-head"><h2>Team Members</h2>' +
+      '<span class="section-tag ' + (isAdminUser ? 'tag-editable' : 'tag-readonly') + '">' +
+        (isAdminUser ? 'Editable' : 'Read Only') +
+      '</span>' +
+    '</div>' +
     '<div class="section-body">' +
       '<div class="team-members-grid">' + loCard + procCard + '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:10px;font-style:italic">Processor assignment is coming in a future deploy (admin-only loan reassignment).</div>' +
+      (isAdminUser
+        ? '<div style="font-size:11px;color:var(--muted);margin-top:10px;font-style:italic">Reassigning transfers the loan + all its data (borrower info, quotes, documents) to the new LO and notifies them by email + in-app.</div>'
+        : ''
+      ) +
     '</div>';
+  // Fire the async hydrate — swap email for name, add dropdown for admins.
+  setTimeout(function() { _hydrateTeamLoCard(loCardId, isAdminUser); }, 0);
   return section;
+}
+
+// Deploy 236.351 — swap the placeholder LO card for the real one
+// once the directory lands. For admins we render a <select> of
+// all LOs; changing it fires _reassignLo. For non-admins we just
+// show the LO's name (not the email) and a small subtitle with
+// the email.
+function _hydrateTeamLoCard(cardId, isAdminUser) {
+  if (!window.SLA || !SLA.Users || !SLA.Users.directory) return;
+  var card = document.getElementById(cardId);
+  if (!card) return;
+  SLA.Users.directory().then(function(r) {
+    var users = (r && r.users) || [];
+    // Filter to LOs (anyone with the 'lo' role OR admin/super_admin —
+    // admins can own loans too). Processors aren't LO candidates.
+    var loCandidates = users.filter(function(u) {
+      var roles = (u.roles || []).map(function(r){ return String(r).toLowerCase(); });
+      // Include no-role users as LOs too (legacy accounts pre-role assignment).
+      if (!roles.length) return true;
+      return roles.indexOf('lo') >= 0 || roles.indexOf('admin') >= 0 || roles.indexOf('super_admin') >= 0;
+    });
+    var currentLoEmail = String(_loEmail || '').toLowerCase();
+    var currentLo = null;
+    for (var i = 0; i < users.length; i++) {
+      if (String(users[i].email).toLowerCase() === currentLoEmail) { currentLo = users[i]; break; }
+    }
+    var currentName = (currentLo && currentLo.name) || _loEmail || 'Unassigned';
+
+    if (!isAdminUser) {
+      // Read-only for non-admins: show name over email.
+      card.innerHTML =
+        '<div class="tm-role">Loan Officer</div>' +
+        '<div class="tm-name">' + escH(currentName) + '</div>' +
+        (currentLo && currentLo.email && currentName !== _loEmail
+          ? '<div class="tm-sub" style="font-size:11px;color:var(--muted);margin-top:2px">' + escH(currentLo.email) + '</div>'
+          : ''
+        );
+      return;
+    }
+
+    // Admin: render a dropdown. Options sorted by name (directory
+    // already returns sorted). Include a header option showing the
+    // current LO so the selected state is obvious.
+    var opts = loCandidates.map(function(u) {
+      var label = (u.name || u.email);
+      var isSel = String(u.email).toLowerCase() === currentLoEmail;
+      return '<option value="' + escAttr(u.email) + '"' + (isSel ? ' selected' : '') + '>' +
+        escH(label) + (u.name ? ' (' + escH(u.email) + ')' : '') +
+      '</option>';
+    }).join('');
+    // If the current LO isn't in the directory (deleted account, etc)
+    // prepend a placeholder so the select doesn't jump.
+    var currentInDir = loCandidates.some(function(u){
+      return String(u.email).toLowerCase() === currentLoEmail;
+    });
+    if (!currentInDir && _loEmail) {
+      opts = '<option value="' + escAttr(_loEmail) + '" selected>' +
+        escH(_loEmail) + ' (not in directory)</option>' + opts;
+    }
+
+    card.innerHTML =
+      '<div class="tm-role">Loan Officer</div>' +
+      '<select id="teamLoSelect" ' +
+        'style="width:100%;padding:6px 8px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text);cursor:pointer;margin-top:2px" ' +
+        'onchange="_onTeamLoChange(this)">' +
+        opts +
+      '</select>' +
+      '<div id="teamLoStatus" style="font-size:11px;color:var(--muted);margin-top:4px;min-height:14px"></div>';
+    card.dataset.currentLoEmail = _loEmail || '';
+  }).catch(function(err) {
+    console.warn('team LO hydrate failed:', err && err.message);
+  });
+}
+
+// Fired when the admin picks a new LO from the dropdown. Confirms,
+// calls SLA.Admin.assignLo, then redirects to the loan's new URL
+// (the moved loan gets a new clientId under the new owner).
+function _onTeamLoChange(sel) {
+  var newEmail = sel && sel.value;
+  var currentEmail = _loEmail || '';
+  if (!newEmail || String(newEmail).toLowerCase() === String(currentEmail).toLowerCase()) return;
+  // Pull display name from the selected option's label.
+  var newLabel = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : newEmail;
+  var currentLabel = '';
+  for (var i = 0; i < sel.options.length; i++) {
+    if (String(sel.options[i].value).toLowerCase() === String(currentEmail).toLowerCase()) {
+      currentLabel = sel.options[i].text;
+      break;
+    }
+  }
+  var confirmMsg = 'Reassign this loan from ' + (currentLabel || currentEmail) +
+    ' to ' + newLabel + '?\n\nAll of the loan\'s data (borrower info, quotes, documents) will move to the new LO. They\'ll get an email and in-app notification.';
+  if (!confirm(confirmMsg)) {
+    // Revert the dropdown to the current LO.
+    for (var j = 0; j < sel.options.length; j++) {
+      if (String(sel.options[j].value).toLowerCase() === String(currentEmail).toLowerCase()) {
+        sel.selectedIndex = j;
+        break;
+      }
+    }
+    return;
+  }
+  var statusEl = document.getElementById('teamLoStatus');
+  if (statusEl) { statusEl.style.color = 'var(--muted)'; statusEl.textContent = 'Reassigning…'; }
+  sel.disabled = true;
+
+  // ownerKey passed to loan-assign-lo is expected keySafed — but
+  // keySafe only replaces :/\ so an email round-trips unchanged
+  // via that path. We pass _loEmail as-is.
+  SLA.Admin.assignLo(_loEmail, _clientId, _loanId, newEmail).then(function(r) {
+    if (statusEl) { statusEl.style.color = 'var(--success)'; statusEl.textContent = 'Reassigned ✓ Redirecting…'; }
+    if (typeof showToast === 'function') showToast('Loan reassigned to ' + newLabel);
+    // The loan lives under a new clientId in the new owner's namespace.
+    // Redirect so the page reflects the correct URL + fresh data.
+    setTimeout(function() {
+      var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(r.newClientId) +
+        '&loanId=' + encodeURIComponent(r.loanId) +
+        '&owner='  + encodeURIComponent(r.newOwnerEmail);
+      window.location.href = newUrl;
+    }, 700);
+  }).catch(function(err) {
+    console.error('assignLo failed:', err);
+    var msg = (err && err.message) || 'unknown error';
+    if (statusEl) { statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'Failed: ' + msg; }
+    if (typeof showToast === 'function') showToast('Reassign failed: ' + msg);
+    sel.disabled = false;
+    // Revert the dropdown.
+    for (var k = 0; k < sel.options.length; k++) {
+      if (String(sel.options[k].value).toLowerCase() === String(currentEmail).toLowerCase()) {
+        sel.selectedIndex = k;
+        break;
+      }
+    }
+  });
 }
 
 // Deploy 236.170 — Access Refactor PR #3. Section renders the
