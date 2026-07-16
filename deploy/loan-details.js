@@ -1032,15 +1032,12 @@ function render() {
     '</div>';
   }
 
-  // Deploy 236.82 — Reassign Loan to Different Client is now a
-  // top-level action (was previously inside the collapsed advanced
-  // actions panel where LOs couldn't find it). Open to every user
-  // who can see this page since the common scenario is an LO
-  // fixing a loan attached to the wrong client.
-  html += '<button type="button" class="open-sizer-btn" onclick="openReassignLoanModal()" style="margin-top:8px">' +
-    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h4l2 2h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8h4l2 2h3M11 6l-1.5-1.5M11 6l-1.5 1.5M11 10l-1.5-1.5M11 10l-1.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    'Reassign Loan to Different Client' +
-  '</button>';
+  // Deploy 236.355 — the Reassign / "Change Primary Guarantor"
+  // button used to live here as a top-level action. It moved to the
+  // Guarantor Info section on the Contacts tab, which is where the
+  // LO is already looking at the current primary borrower's info —
+  // discoverable in context instead of stranded up at the loan
+  // header. See _renderChangePrimaryGuarantorRow() below.
 
   // Deploy 227 — Change-Type, Cancel, Decline, Delete buttons are now
   // tucked inside a collapsible "Change Loan Status" section so they
@@ -1382,17 +1379,31 @@ function render() {
     _bwPanesHtml +=
       '<div class="bw-pane loading" id="bw-pane-' + (i + 1) + '" data-client-id="' + escAttr(gid) + '">Loading guarantor info…</div>';
   });
+  // Deploy 236.355 — Guarantor Info section:
+  //   - Removed the "Editable" pill: name / contact fields on the
+  //     Guarantor 1 tab are read-only (editing happens on Client
+  //     Details so changes propagate to every loan tied to the
+  //     client — see Deploy 236.143).
+  //   - Added a "Change Primary Guarantor" button at the bottom-left
+  //     that opens the existing Reassign Loan modal. Contextually
+  //     placed where the LO is already looking at "who is the
+  //     primary guarantor" so the change action is one click away.
   html +=
     '<div class="section" id="borrowerInfoSection">' +
       '<div class="section-head">' +
         '<h2>Guarantor Info</h2>' +
-        '<span class="section-tag tag-editable">Editable</span>' +
         // Deploy 236.130 — manual Add Guarantor entry point.
         '<button type="button" class="add-guarantor-btn" onclick="openAddGuarantorModal()">+ Add Guarantor</button>' +
       '</div>' +
       '<div class="section-body">' +
         _bwTabsHtml +
         _bwPanesHtml +
+        '<div class="change-primary-guarantor-row">' +
+          '<button type="button" class="change-primary-guarantor-btn" onclick="openReassignLoanModal()" title="Reassign this loan to a different primary guarantor. If the new person is a different borrower, the loan application will be reset.">' +
+            '<svg width="14" height="14" viewBox="0 0 15 15" fill="none" style="flex-shrink:0"><path d="M3 4h4l2 2h3M3 8h4l2 2h3M11 6l-1.5-1.5M11 6l-1.5 1.5M11 10l-1.5-1.5M11 10l-1.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+            'Change Primary Guarantor' +
+          '</button>' +
+        '</div>' +
       '</div>' +
     '</div>';
 
