@@ -1,36 +1,25 @@
 /**
- * sla-sizer-assign-lo.js — sizer-side Admin "Assign LO" affordance.
+ * sla-sizer-assign-lo.js — sizer-side Admin "Assign LO" affordance,
+ * PROSPECT MODE ONLY.
  *
- * Deploy 236.359. Both sizers (DSCR + RTL) get the same UI: a small
- * dropdown at the top of the form (right below the Admin Mode toggle)
- * that lets an admin re-route what they're currently looking at to a
- * different Loan Officer without leaving the sizer. Two backends:
+ * Deploy 236.359 (loan mode) → 236.360 (prospect mode added) →
+ * 236.361 (loan mode dropped per Mike). Rationale: once a loan has
+ * been created (clientId + loanId exist), the Team Members dropdown
+ * on Loan Details (Deploy 236.351) is the canonical place to
+ * reassign — the sizer is for pricing, not administration.
  *
- * Deploy 236.360 — handles PROSPECT mode too. Fresh application
- * submissions (from apply.html) land as prospects (Pipeline "New
- * Application" column). Admin opens one in the sizer via
- * ?fromProspect=1 — there's no clientId/loanId in the URL because
- * client + loan don't exist yet. Mike's actual use case, hit
- * because the initial 236.359 gated on clientId+loanId. Fix: also
- * mount when the sizer was opened from a prospect handoff
- * (localStorage sla_prefill_prospect populated + fromProspect=1).
+ * The remaining sizer use case: an admin opens a fresh apply.html
+ * submission (Pipeline "New Application" column) via ?fromProspect=1.
+ * There's no client/loan yet — just a prospect blob referenced by
+ * localStorage.sla_prefill_prospect. The widget routes the prospect
+ * to the target LO via SLA.Prospects.reassign, which re-stores the
+ * prospect under the destination owner and upserts a client + initial
+ * loan (same flow prospects-save runs on a fresh submission).
  *
- * Contract:
- *   mode='loan'     — has clientId+loanId. Calls SLA.Admin.assignLo
- *                     (loan-assign-lo.mjs from Deploy 236.351).
- *                     Redirects to the sizer URL under the new owner.
- *   mode='prospect' — has prospectId+fromOwner. Calls
- *                     SLA.Prospects.reassign (prospects-reassign.mjs).
- *                     Backend re-stores the prospect + upserts a
- *                     client + initial loan under the new LO.
- *                     Redirects to pipeline (admin is done routing).
+ * Mount gate: admin user + prospectId+fromOwner in the context.
+ * Anything else is a no-op.
  *
- * Both dispatch trigger the existing email + in-app reminder flows
- * (assignLo has them; prospects-reassign's own upsert path notifies
- * via the same mechanism prospects-save uses on fresh submissions).
- *
- * Depends on window.SLA (Users.directory, Admin.assignLo,
- * Prospects.reassign, isAdmin).
+ * Depends on window.SLA (Users.directory, Prospects.reassign, isAdmin).
  */
 (function () {
   'use strict';
@@ -48,17 +37,8 @@
   // Build the container's DOM. Rendered inline (no separate stylesheet)
   // so it inherits the sizer's typography without pulling in extra CSS.
   function _renderShell(container, ctx) {
-    var isProspect = ctx.mode === 'prospect';
-    // Prospect mode: always tagged 'New Application' (that's the pipeline
-    // column prospects live in). Loan mode: tag only when the loaded
-    // loan came from apply + isn't yet priced.
-    var showNewAppBadge = isProspect || (ctx.isFromApplication && ctx.isUnpriced);
-    var badge = showNewAppBadge
-      ? '<span style="display:inline-block;margin-left:8px;padding:2px 8px;background:rgba(200,129,58,0.14);color:#b5712d;font-size:10px;font-weight:700;letter-spacing:0.05em;border-radius:10px;text-transform:uppercase;vertical-align:middle">New Application</span>'
-      : '';
-    var subText = isProspect
-      ? 'Reassigns this new application (+ its client/loan) to another LO and notifies them.'
-      : 'Transfers this loan (+ all its data) to another LO and notifies them.';
+    var badge = '<span style="display:inline-block;margin-left:8px;padding:2px 8px;background:rgba(200,129,58,0.14);color:#b5712d;font-size:10px;font-weight:700;letter-spacing:0.05em;border-radius:10px;text-transform:uppercase;vertical-align:middle">New Application</span>';
+    var subText = 'Reassigns this new application to another LO and notifies them. Once a loan is saved you can reassign it from the Team Members section on Loan Details.';
     container.innerHTML =
       '<div style="grid-column:1/-1;margin:6px 0 10px 0;padding:12px 14px;background:rgba(76,110,191,0.05);border:1px solid rgba(76,110,191,0.25);border-left:3px solid #4a6ebf;border-radius:6px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">' +
@@ -148,57 +128,35 @@
         btn.disabled = true; btn.style.opacity = '0.5';
         sel.disabled = true;
 
-        // Deploy 236.360 — dispatch by mode. Prospect mode calls the
-        // prospects-reassign endpoint (which upserts a client + loan
-        // under the destination LO). Loan mode calls the existing
-        // loan-assign-lo path from Deploy 236.351.
-        var assignPromise;
-        var isProspectMode = (ctx.mode === 'prospect');
-        if (isProspectMode) {
-          if (!(window.SLA && SLA.Prospects && SLA.Prospects.reassign)) {
-            if (statusEl) {
-              statusEl.style.color = 'var(--danger, #7C1F1F)';
-              statusEl.textContent = 'SLA.Prospects.reassign unavailable';
-            }
-            btn.disabled = false; btn.style.opacity = '1';
-            sel.disabled = false;
-            return;
+        // Deploy 236.361 — prospect-only. Once a loan is saved,
+        // reassignment happens on Loan Details (Team Members
+        // dropdown, Deploy 236.351) — the sizer is for pricing.
+        if (!(window.SLA && SLA.Prospects && SLA.Prospects.reassign)) {
+          if (statusEl) {
+            statusEl.style.color = 'var(--danger, #7C1F1F)';
+            statusEl.textContent = 'SLA.Prospects.reassign unavailable';
           }
-          assignPromise = SLA.Prospects.reassign(ctx.fromOwner, ctx.prospectId, newEmail);
-        } else {
-          assignPromise = SLA.Admin.assignLo(ctx.ownerEmail, ctx.clientId, ctx.loanId, newEmail);
+          btn.disabled = false; btn.style.opacity = '1';
+          sel.disabled = false;
+          return;
         }
-
-        assignPromise
-          .then(function (resp) {
+        SLA.Prospects.reassign(ctx.fromOwner, ctx.prospectId, newEmail)
+          .then(function () {
             if (statusEl) {
               statusEl.style.color = 'var(--success, #256940)';
-              statusEl.textContent = isProspectMode
-                ? 'Assigned ✓ Sending you back to Pipeline…'
-                : 'Assigned ✓ Loading the loan under ' + pickedLabel + '…';
+              statusEl.textContent = 'Assigned ✓ Sending you back to Pipeline…';
             }
             setTimeout(function () {
-              if (isProspectMode) {
-                // The prospect is now under the new LO's namespace and
-                // the admin is done routing it. Clear the localStorage
-                // stash so a page reload doesn't try to re-prefill from
-                // the stale prospect, then bounce to Pipeline.
-                try { localStorage.removeItem('sla_prefill_prospect'); } catch (_) {}
-                window.location.href = 'pipeline.html';
-              } else {
-                // Loan mode: reopen the sizer under the new (owner,
-                // client, loan) tuple so the admin can hand off cleanly.
-                var page = window.location.pathname.split('/').pop() || 'dscr-sizer.html';
-                var url  = page +
-                  '?clientId=' + encodeURIComponent(resp.newClientId) +
-                  '&loanId='   + encodeURIComponent(resp.loanId) +
-                  '&owner='    + encodeURIComponent(resp.newOwnerEmail);
-                window.location.href = url;
-              }
+              // The prospect is now under the new LO's namespace and the
+              // admin is done routing. Clear the sla_prefill_prospect
+              // stash so a reload doesn't try to re-prefill from a
+              // stale prospect, then bounce to Pipeline.
+              try { localStorage.removeItem('sla_prefill_prospect'); } catch (_) {}
+              window.location.href = 'pipeline.html';
             }, 700);
           })
           .catch(function (err) {
-            console.error('sizer assign failed:', err);
+            console.error('sizer prospect reassign failed:', err);
             var msg = (err && err.message) || 'unknown error';
             if (statusEl) {
               statusEl.style.color = 'var(--danger, #7C1F1F)';
@@ -224,17 +182,11 @@
       var containerEl = opts.containerEl;
       if (!containerEl) return;
       var ctx = (opts.getContext && opts.getContext()) || {};
-      // Deploy 236.360 — two modes:
-      //   loan mode: needs clientId + loanId (an existing saved loan)
-      //   prospect mode: needs prospectId + fromOwner (a raw
-      //     apply.html submission not yet upserted to a client)
-      var hasLoan     = !!(ctx.clientId && ctx.loanId);
-      var hasProspect = !!(ctx.prospectId && ctx.fromOwner);
-      if (!hasLoan && !hasProspect) return;
-      // Prospect wins when both are somehow present — a prospect that
-      // ALSO has an auto-created loan should still route via
-      // prospects-reassign (which cleans up both stores).
-      if (!ctx.mode) ctx.mode = hasProspect ? 'prospect' : 'loan';
+      // Deploy 236.361 — prospect only. Once a loan is saved, the
+      // Loan Details Team Members dropdown (Deploy 236.351) handles
+      // reassignment. Callers that pass clientId+loanId without a
+      // prospectId are no-ops here.
+      if (!(ctx.prospectId && ctx.fromOwner)) return;
       _renderShell(containerEl, ctx);
       _hydrateDropdown(ctx);
       _mounted = true;
