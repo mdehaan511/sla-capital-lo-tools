@@ -655,13 +655,15 @@
     <!-- Deploy 236.353 — "different borrower" checkbox. When checked
          the reassign clears the existing borrower_info + signed
          loan application and unlinks co-guarantors so the new
-         primary can start a fresh app. Default off — most reassigns
-         are just fixing which client owns the record (same person). -->
-    <div id="reassignResetAppWrap" style="margin-top:12px;padding:10px 12px;border:1px solid var(--border, #E4DFD4);border-radius:6px;background:#fafaf7">
+         primary can start a fresh app.
+         Deploy 236.354 — REQUIRED to submit. Reassigning the primary
+         guarantor without acknowledging the app-reset was letting
+         stale application data follow the loan to the new borrower. -->
+    <div id="reassignResetAppWrap" style="margin-top:12px;padding:10px 12px;border:1px solid rgba(200,129,58,0.35);border-left:3px solid #C8813A;border-radius:6px;background:rgba(200,129,58,0.06)">
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">
         <input type="checkbox" id="reassignResetAppCbx" onchange="_onReassignResetToggle()" style="margin-top:2px;flex-shrink:0" />
         <span>
-          <strong>This is a different borrower</strong> — reset the loan application so the new guarantor fills it out fresh
+          <strong>I understand this is a different borrower</strong> <span style="color:var(--danger, #7C1F1F);font-weight:600">(required)</span> — the loan application will be reset so the new guarantor fills it out fresh
           <div id="reassignResetWarning" style="display:none;margin-top:8px;padding:9px 11px;background:rgba(200,129,58,0.10);border:1px solid rgba(200,129,58,0.35);border-left:3px solid #C8813A;border-radius:5px;font-size:12px;color:#7a5a2c;line-height:1.5">
             <strong>The following will be cleared on this loan:</strong>
             <ul style="margin:6px 0 0 18px;padding:0">

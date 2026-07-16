@@ -5599,23 +5599,35 @@ function reassignSelectClient(id) {
 
 function updateReassignBtn() {
   var btn = document.getElementById('reassignConfirmBtn');
+  // Deploy 236.354 — the "different borrower" checkbox is now required.
+  // Every reassign in practice represents a real borrower swap; Mike
+  // hit the case where he reassigned without checking and got a stale
+  // app on the new guarantor. Forcing the click keeps the LO
+  // intentional about clearing the app. If a records-fix-only reassign
+  // ever comes up (same person, wrong client entry) we can revisit —
+  // safer default is "app resets, LO acknowledges."
+  var haveTarget;
   if (_reassignTab === 'existing') {
-    btn.disabled = !_reassignSelectedId;
+    haveTarget = !!_reassignSelectedId;
   } else {
     var fn = (document.getElementById('reassignNewFirstName').value || '').trim();
     var ln = (document.getElementById('reassignNewLastName').value || '').trim();
     var em = (document.getElementById('reassignNewEmail').value || '').trim();
-    btn.disabled = !(fn || ln || em);
+    haveTarget = !!(fn || ln || em);
   }
+  var cbx = document.getElementById('reassignResetAppCbx');
+  var acknowledged = !!(cbx && cbx.checked);
+  btn.disabled = !(haveTarget && acknowledged);
 }
 
 // Deploy 236.353 — show/hide the "what gets cleared" warning as the
-// checkbox toggles. Just a display hook — the actual clearing is
-// server-side in loan-reassign.mjs when resetApplication=true.
+// checkbox toggles. Deploy 236.354 — also refreshes the confirm
+// button's enabled state (checkbox is now required to submit).
 function _onReassignResetToggle() {
   var cbx  = document.getElementById('reassignResetAppCbx');
   var warn = document.getElementById('reassignResetWarning');
   if (warn) warn.style.display = (cbx && cbx.checked) ? 'block' : 'none';
+  if (typeof updateReassignBtn === 'function') updateReassignBtn();
 }
 
 function confirmReassignLoan() {
