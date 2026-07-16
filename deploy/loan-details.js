@@ -2677,13 +2677,18 @@ function _hydrateTeamLoCard(cardId, isAdminUser) {
   if (!card) return;
   SLA.Users.directory().then(function(r) {
     var users = (r && r.users) || [];
-    // Filter to LOs (anyone with the 'lo' role OR admin/super_admin —
-    // admins can own loans too). Processors aren't LO candidates.
+    // Deploy 236.352 — every SLA staff account is a Loan Officer per
+    // Mike (Users = LOs, Admins = Sales Leaders, Super Admins = Owners,
+    // all of whom can own loans). The only accounts NOT eligible are
+    // pure borrower portal users. Include everyone else — no-role,
+    // 'lo', 'admin', 'super_admin', 'processor' all show up.
     var loCandidates = users.filter(function(u) {
       var roles = (u.roles || []).map(function(r){ return String(r).toLowerCase(); });
-      // Include no-role users as LOs too (legacy accounts pre-role assignment).
       if (!roles.length) return true;
-      return roles.indexOf('lo') >= 0 || roles.indexOf('admin') >= 0 || roles.indexOf('super_admin') >= 0;
+      // Exclude accounts whose ONLY role is 'borrower' (external
+      // portal users). If they have any other role, keep them.
+      var nonBorrowerRoles = roles.filter(function(r){ return r !== 'borrower'; });
+      return nonBorrowerRoles.length > 0;
     });
     var currentLoEmail = String(_loEmail || '').toLowerCase();
     var currentLo = null;
@@ -2708,10 +2713,17 @@ function _hydrateTeamLoCard(cardId, isAdminUser) {
     // already returns sorted). Include a header option showing the
     // current LO so the selected state is obvious.
     var opts = loCandidates.map(function(u) {
-      var label = (u.name || u.email);
-      var isSel = String(u.email).toLowerCase() === currentLoEmail;
-      return '<option value="' + escAttr(u.email) + '"' + (isSel ? ' selected' : '') + '>' +
-        escH(label) + (u.name ? ' (' + escH(u.email) + ')' : '') +
+      var name  = String(u.name || '').trim();
+      var email = String(u.email || '').trim();
+      var isSel = email.toLowerCase() === currentLoEmail;
+      // If the profile has a full name distinct from the email
+      // localpart, show "Name (email)". Otherwise just the email
+      // — avoids the awkward "user@x.com (user@x.com)" duplication.
+      var label = name && name.toLowerCase() !== email.toLowerCase()
+        ? name + ' (' + email + ')'
+        : email;
+      return '<option value="' + escAttr(email) + '"' + (isSel ? ' selected' : '') + '>' +
+        escH(label) +
       '</option>';
     }).join('');
     // If the current LO isn't in the directory (deleted account, etc)
