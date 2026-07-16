@@ -4555,13 +4555,58 @@ netlifyIdentity.on('init', function(user) {
       }).catch(function(){ return false; });
     }
 
+    // Deploy 236.360 — extracted the assign-LO mount as a helper so
+    // both the load-existing-loan branch and the fromProspect branch
+    // can call it. Idempotent (SLASizerAssignLo tracks _mounted
+    // internally).
+    function _mountAssignLo() {
+      if (!window.SLASizerAssignLo || signatureMode) return;
+      SLASizerAssignLo.mount({
+        user: user,
+        containerEl: document.getElementById('sizerAssignLoContainer'),
+        getContext: function () {
+          var _isProspect = urlParams.get('fromProspect') === '1';
+          var _prospect = null;
+          if (_isProspect) {
+            try { _prospect = JSON.parse(localStorage.getItem('sla_prefill_prospect') || 'null'); }
+            catch (_) { _prospect = null; }
+          }
+          var _addrParts = [
+            document.getElementById('propStreet') && document.getElementById('propStreet').value,
+            document.getElementById('propCity')   && document.getElementById('propCity').value,
+            document.getElementById('propState')  && document.getElementById('propState').value,
+          ].filter(Boolean);
+          var _ba = (window._loadedLoan && window._loadedLoan.address) ||
+                    (_prospect && _prospect.propAddress) ||
+                    _addrParts.join(', ') || '';
+          var _bn = (document.getElementById('borrowerName') && document.getElementById('borrowerName').value) ||
+                    (_prospect && ((_prospect.firstName || '') + ' ' + (_prospect.lastName || '')).trim()) || '';
+          var _lo = window._ownerOverride || ownerParam || (user && user.email) || '';
+          var _l  = window._loadedLoan || {};
+          var ctx = {
+            ownerEmail:        _lo,
+            borrowerName:      _bn,
+            address:           _ba,
+            isFromApplication: !!_l.fromApplication || _isProspect,
+            isUnpriced:        !(_l.rate || (_l.formData && _l.formData._finalRate)),
+          };
+          if (_isProspect && _prospect && _prospect.id) {
+            ctx.mode       = 'prospect';
+            ctx.prospectId = _prospect.id;
+            ctx.fromOwner  = (ownerParam || _prospect.loSlug ||
+                              _prospect.loEmail || 'unassigned').toLowerCase();
+          } else if (clientIdP && loanIdP) {
+            ctx.clientId = clientIdP;
+            ctx.loanId   = loanIdP;
+          }
+          return ctx;
+        },
+      });
+    }
+
     if ((loadAddr || clientIdP) && window.QuoteStore) {
       // Deploy 236.139 — prefer loadFromClientLoan when both
-      // clientId AND loanId are present. The CLIENTS store is the
-      // canonical source of truth that inline edits on Loan
-      // Details write to; the QUOTES store is the legacy
-      // "saved quotes" panel state which can lag behind. See
-      // matching comment in dscr-sizer.html.
+      // clientId AND loanId are present. See dscr-sizer.html.
       var hasIds = clientIdP && loanIdP;
       var loader = hasIds
         ? loadFromClientLoan()
@@ -4577,41 +4622,12 @@ netlifyIdentity.on('init', function(user) {
           return loadContactOnly();
         }
       }).then(function(loaded2) {
-        // Backup handoff: if neither loader populated the form AND we're
-        // in signature mode, fire the handoff anyway so the parent sees
-        // an error rather than hanging.
         if (signatureMode && !loaded2) {
           console.log('[SLA esign] no quote/loan loaded (RTL) — firing handoff anyway');
           trySignatureHandoff();
         }
-        // Deploy 236.359 — mount the admin Assign-LO dropdown once the
-        // loan is loaded. Same shell as DSCR sizer.
-        if (window.SLASizerAssignLo && !signatureMode) {
-          SLASizerAssignLo.mount({
-            user: user,
-            containerEl: document.getElementById('sizerAssignLoContainer'),
-            getContext: function () {
-              var _addrParts = [
-                document.getElementById('propStreet') && document.getElementById('propStreet').value,
-                document.getElementById('propCity')   && document.getElementById('propCity').value,
-                document.getElementById('propState')  && document.getElementById('propState').value,
-              ].filter(Boolean);
-              var _ba = (window._loadedLoan && window._loadedLoan.address) || _addrParts.join(', ') || '';
-              var _bn = (document.getElementById('borrowerName') && document.getElementById('borrowerName').value) || '';
-              var _lo = window._ownerOverride || ownerParam || (user && user.email) || '';
-              var _l  = window._loadedLoan || {};
-              return {
-                clientId:          clientIdP,
-                loanId:            loanIdP,
-                ownerEmail:        _lo,
-                borrowerName:      _bn,
-                address:           _ba,
-                isFromApplication: !!_l.fromApplication,
-                isUnpriced:        !(_l.rate || (_l.formData && _l.formData._finalRate)),
-              };
-            },
-          });
-        }
+        // Deploy 236.359/360 — mount the admin Assign-LO dropdown.
+        _mountAssignLo();
       });
     } else if (signatureMode) {
       console.log('[SLA esign] no loadAddr/clientId in URL (RTL), calling handoff');
@@ -4630,6 +4646,10 @@ netlifyIdentity.on('init', function(user) {
         var pd = JSON.parse(localStorage.getItem('sla_prefill_prospect') || 'null');
         if (pd) { setTimeout(function(){ prefillRTLFromProspect(pd); }, 250); }
       } catch(e){}
+      // Deploy 236.360 — mount the admin Assign-LO widget for prospect
+      // mode too. Prospects lack clientId/loanId; without this call the
+      // widget stays hidden on the exact case Mike hit.
+      setTimeout(_mountAssignLo, 350);
     }
   }
 });
