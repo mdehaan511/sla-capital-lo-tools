@@ -194,6 +194,31 @@
     .computed-val.warn { color: var(--warn); }
     .computed-val.bad  { color: var(--danger); }
 
+    /* Deploy 236.349 — LTV made bidirectional. The field is now an
+       editable number input styled to match the surrounding
+       .computed-val span. Typing an LTV recomputes loanAmt from
+       propValue * ltv/100; typing a new loanAmt writes back to
+       this field via updatePills(). See onLtvManualInput(). */
+    .computed-wrap input.computed-val {
+      border: none; outline: none; background: transparent;
+      padding: 0; margin: 0; width: 100%;
+      appearance: textfield; -webkit-appearance: none;
+    }
+    .computed-wrap input.computed-val::-webkit-outer-spin-button,
+    .computed-wrap input.computed-val::-webkit-inner-spin-button {
+      -webkit-appearance: none; margin: 0;
+    }
+    .computed-wrap.ltv-wrap {
+      cursor: text;
+    }
+    .computed-wrap.ltv-wrap .ltv-row {
+      display: flex; align-items: baseline; gap: 2px;
+    }
+    .computed-wrap.ltv-wrap .ltv-suffix {
+      font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500;
+      color: inherit;
+    }
+
     .form-divider { grid-column: 1/-1; height: 1px; background: var(--border); margin: 2px 0; }
     .section-label { grid-column: 1/-1; font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
     /* Advanced (collapsible) section — mirrors RTL sizer's pattern. */
@@ -808,9 +833,18 @@ function getFICOMin(ficoStr) {
         </div>
       </div>
 
-      <div class="computed-wrap">
+      <!-- Deploy 236.349 — LTV is bidirectional. Type an LTV → loanAmt
+           auto-updates (loan = propValue * ltv/100). Type a loanAmt →
+           this field auto-updates from updatePills(). Kept in a
+           .computed-wrap so the color coding + compact height match
+           the DSCR pill next to it. -->
+      <div class="computed-wrap ltv-wrap" onclick="_focusLtv()">
         <label>LTV</label>
-        <span class="computed-val" id="ltvVal">&#8212;</span>
+        <span class="ltv-row">
+          <input type="number" id="ltv" class="computed-val" step="0.1" min="0" max="200"
+            inputmode="decimal" placeholder="—" oninput="onLtvManualInput()" />
+          <span class="ltv-suffix" id="ltvSuffix"></span>
+        </span>
       </div>
       <div class="field">
         <div class="wrap">
@@ -1515,13 +1549,64 @@ function renderCashToCloseCard(r, effLoan) {
   return '';
 }
 
+// Deploy 236.349 — bidirectional LTV↔loanAmt. When the LO types a new
+// LTV, compute loanAmt = propValue * (ltv/100) and write it to the
+// #loanAmt input. Then trigger the standard run() cycle so pricing +
+// DSCR + fees all refresh against the new loan amount. The global
+// input listener on #ltv also fires run() so we don't need to call
+// it here directly — but we DO need to set loanAmt.value before
+// that listener fires, which is why this handler is on the LTV
+// input's inline oninput= (attribute handlers fire before generic
+// addEventListener-attached ones in most browsers... actually in
+// standard DOM they're peers, but the ordering below-in-DOM doesn't
+// matter because run() is idempotent: whether it fires from #ltv
+// first or #loanAmt second, the end state is the same).
+function onLtvManualInput() {
+  var ltvEl = $('ltv');
+  var pv    = parseFloat($('propValue').value) || 0;
+  var ltvV  = parseFloat(ltvEl.value);
+  if (!isFinite(ltvV) || ltvV <= 0 || pv <= 0) return;
+  var newLoan = Math.round(pv * (ltvV / 100));
+  var loanEl = $('loanAmt');
+  if (loanEl && String(loanEl.value) !== String(newLoan)) {
+    loanEl.value = newLoan;
+  }
+}
+
+// Click anywhere in the LTV pill focuses the actual input.
+function _focusLtv() {
+  var el = $('ltv');
+  if (el && document.activeElement !== el) el.focus();
+}
+
 function updatePills() {
   var loan = parseFloat($('loanAmt').value)||0;
   var pv   = parseFloat($('propValue').value)||0;
   var ltv  = pv>0?(loan/pv)*100:0;
-  var lv = $('ltvVal');
-  if (ltv>0) { lv.textContent=ltv.toFixed(1)+'%'; lv.className='computed-val '+(ltv<=65?'good':ltv<=75?'warn':'bad'); }
-  else { lv.innerHTML='&mdash;'; lv.className='computed-val'; }
+  // Deploy 236.349 — LTV is now an editable input (#ltv). Read/write
+  // the input value + drive the color coding via the ltv-wrap class.
+  // Skip writing when the user is actively editing the field so we
+  // don't clobber their in-progress input on the way back through
+  // run() — the LTV drives loan, which drives updatePills, which
+  // would otherwise re-render 70 as "70.0".
+  var lv = $('ltv');
+  var lvSuffix = $('ltvSuffix');
+  var lvWrap = lv && lv.closest ? lv.closest('.ltv-wrap') : null;
+  var isEditingLtv = document.activeElement && document.activeElement.id === 'ltv';
+  if (lv && !isEditingLtv) {
+    if (ltv > 0) {
+      lv.value = ltv.toFixed(1);
+      if (lvSuffix) lvSuffix.textContent = '%';
+    } else {
+      lv.value = '';
+      if (lvSuffix) lvSuffix.textContent = '';
+    }
+  }
+  if (lvWrap) {
+    var cls = ltv > 0 ? (ltv <= 65 ? 'good' : ltv <= 75 ? 'warn' : 'bad') : '';
+    if (lv) lv.className = 'computed-val' + (cls ? ' ' + cls : '');
+    if (lvSuffix) lvSuffix.className = 'ltv-suffix' + (cls ? ' ' + cls : '');
+  }
 
   var dv = $('dscrVal');
   var rent=parseFloat($('rent').value)||0;
@@ -1797,6 +1882,9 @@ window._dscrOverrides = {
 var DSCR_OVERRIDE_LOCK_IDS = [
   'loanAmt', 'propValue', 'fico', 'loanPurpose', 'propType', 'isIO',
   'prepay', 'buydown', 'currentLoanAmt',
+  // Deploy 236.349 — ltv is now editable and drives loanAmt, so it
+  // locks alongside loanAmt when a rate/points override is active.
+  'ltv',
   // Monthly cost inputs (taxes / insurance / HOA / rent) also lock —
   // they affect DSCR ratio which depends on the (derived) loan amount.
   'taxes', 'insurance', 'hoa', 'rent',
