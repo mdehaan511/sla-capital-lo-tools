@@ -2010,6 +2010,14 @@
         return r;
       });
     },
+    // Deploy 236.356 — locate a loan by id when the URL's (client,
+    // owner) tuple is stale. Backend consults the materialized
+    // clients-index for a one-blob-read lookup. Returns
+    // { found, ownerKey, clientId, ... } — used by loan-details
+    // to auto-redirect after a reassign moved the loan.
+    locate: function (loanId) {
+      return api('GET', '/api/loan-locate?loanId=' + encodeURIComponent(loanId));
+    },
   };
 
   // ── Loan Doc Review (Deploy 236.71) ─────────────────────────────

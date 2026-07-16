@@ -251,12 +251,60 @@ function onUser(user) {
     render();
   }
   fetchLoan().then(function(found) {
-    if (!found) {
-      // Only show \u201cnot found\u201d if we never managed to paint anything.
-      // If we already painted from cache, leave it (the cached loan
-      // might be stale but it\u2019s better than wiping the page).
-      if (!cachedFound) {
-        document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Loan not found</h3><p><a href="clients.html">\u2190 Back to Clients</a></p></div>';
+    // Deploy 236.356 \u2014 the not-found flow now distinguishes:
+    //   found = null                           \u2192 client itself is gone
+    //   found = { client, loan: null, ... }    \u2192 client exists, loan
+    //                                             was moved (reassigned)
+    //   found = { client, loan }               \u2192 happy path
+    if (!found || !found.loan) {
+      if (cachedFound) return; // already painted, leave it
+      var clientId = _clientId || '';
+      var loanId   = _loanId   || '';
+      var paramsForOwner = new URLSearchParams(window.location.search);
+      var ownerHref = paramsForOwner.get('owner');
+      if (!found) {
+        // Client itself couldn't be resolved.
+        document.getElementById('pageContent').innerHTML =
+          '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
+            '<h3 style="margin-bottom:12px">Client not found</h3>' +
+            '<p style="color:var(--muted);margin-bottom:8px">The client <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(clientId) + '</code>' +
+            (ownerHref ? ' under owner <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(ownerHref) + '</code>' : '') +
+            " couldn't be loaded. It may have been deleted, or the URL bookmark is out of date.</p>" +
+            '<p style="margin-top:20px"><a href="clients.html">\u2190 Back to Clients</a></p>' +
+          '</div>';
+        return;
+      }
+      // Client resolved but the loan isn't on it \u2014 reassign moved it.
+      // Deploy 236.356 \u2014 try to find where it landed via
+      // /api/loan-locate (backed by the materialized clients-index)
+      // and auto-redirect. Falls back to a helpful screen if the
+      // loan can't be located (e.g. deleted, or index stale).
+      document.getElementById('pageContent').innerHTML =
+        '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
+          '<h3 style="margin-bottom:12px">This loan has been moved</h3>' +
+          '<p style="color:var(--muted);margin-bottom:12px">Looking up its new location\u2026</p>' +
+        '</div>';
+      if (window.SLA && SLA.Loans && SLA.Loans.locate) {
+        SLA.Loans.locate(loanId).then(function(locate) {
+          if (locate && locate.found && locate.clientId && locate.ownerKey) {
+            var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
+              '&loanId=' + encodeURIComponent(locate.loanId) +
+              '&owner='  + encodeURIComponent(locate.ownerKey);
+            document.getElementById('pageContent').innerHTML =
+              '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
+                '<h3 style="margin-bottom:12px">Loan moved \u2014 redirecting\u2026</h3>' +
+                '<p style="color:var(--muted);margin-bottom:12px">Found under ' + escH(locate.ownerKey || 'a new owner') + '. Opening now.</p>' +
+              '</div>';
+            setTimeout(function() { window.location.replace(newUrl); }, 400);
+            return;
+          }
+          // Not found anywhere. Show the actionable fallback.
+          _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+        }).catch(function() {
+          _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+        });
+      } else {
+        _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
       }
       return;
     }
@@ -268,6 +316,23 @@ function onUser(user) {
       document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Failed to load</h3><p>'+(err.message||'')+'</p><p><a href="clients.html">\u2190 Back to Clients</a></p></div>';
     }
   });
+}
+
+// Deploy 236.356 \u2014 fallback screen when a moved loan can't be located
+// anywhere (deleted, or the materialized index is out of sync). Gives
+// the LO actionable next steps instead of a dead-end.
+function _renderLoanNotLocatedScreen(clientId, loanId, ownerHref) {
+  var loanShort = loanId && loanId.length > 12 ? loanId.slice(0, 12) + '\u2026' : (loanId || '');
+  document.getElementById('pageContent').innerHTML =
+    '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
+      '<h3 style="margin-bottom:12px">This loan has been moved</h3>' +
+      '<p style="color:var(--muted);margin-bottom:12px">The client record still exists, but loan <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(loanShort) + '</code> is no longer attached to it, and we couldn\'t find it under any other client.</p>' +
+      '<p style="color:var(--muted);margin-bottom:6px;font-size:13px">Most common cause: a reassignment (Team Members \u2192 Loan Officer dropdown, or Change Primary Guarantor). If the reassign just happened, the search index may be a moment behind \u2014 try again in ~30 seconds.</p>' +
+      '<div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">' +
+        '<a href="pipeline.html" style="padding:10px 20px;background:var(--dark, #261A36);color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open Pipeline</a>' +
+        '<a href="client-details.html?clientId=' + encodeURIComponent(clientId) + (ownerHref ? '&owner=' + encodeURIComponent(ownerHref) : '') + '" style="padding:10px 20px;background:transparent;color:var(--muted);border:1.5px solid var(--border, #E4DFD4);text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open the old client</a>' +
+      '</div>' +
+    '</div>';
 }
 
 // Deploy 236.103 \u2014 Processing-Pipeline badge content for the page
@@ -391,6 +456,13 @@ function fetchLoan() {
   // (the summary projection doesn't include notesLog, formData
   // snapshots, guarantorOwnership, vestingLLCs, etc. — all of
   // which render on this page).
+  //
+  // Deploy 236.356 — return { client, loan } on success, { client }
+  // (no loan) when the client exists but the loanId isn't on it
+  // (loan was moved), or null when the client itself is gone. This
+  // lets the error screen distinguish "loan was reassigned" from
+  // "client deleted" instead of both showing the same dead-end
+  // "Loan not found" message.
   var params = new URLSearchParams(window.location.search);
   var ownerParam = params.get('owner');
   return SLA.Clients.get(_clientId, ownerParam ? { owner: ownerParam } : {}).then(function(r) {
@@ -406,7 +478,12 @@ function fetchLoan() {
         return { client: client, loan: loans[i] };
       }
     }
-    return null;
+    // Client exists, loan isn't on it. Deploy 236.356 — surface
+    // this specifically. Most common cause is a Team-Members-tab
+    // LO reassign (or the Change Primary Guarantor flow), which
+    // moves the loan to a new client under a possibly-different
+    // owner and mints a fresh clientId. Old bookmarks then 404.
+    return { client: client, loan: null, loanMoved: true, foundOwnerKey: r.ownerKey };
   }).catch(function() { return null; });
 }
 

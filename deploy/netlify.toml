@@ -1008,6 +1008,14 @@
   status = 200
   force = true
 
+# Deploy 236.356 — find a loan's current (ownerKey, clientId) by loanId.
+# Used by loan-details.html to redirect after a reassign moved the loan.
+[[redirects]]
+  from = "/api/loan-locate"
+  to = "/.netlify/functions/loan-locate"
+  status = 200
+  force = true
+
 # Deploy 236.191 — consolidate baseline borrowers. Dedupes clients
 # by email (fallback name+phone), attaches LLCs to companies[], and
 # creates separate clients for Guarantor_2s.
