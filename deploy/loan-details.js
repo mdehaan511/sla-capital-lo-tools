@@ -273,7 +273,47 @@ function onUser(user) {
       var paramsForOwner = new URLSearchParams(window.location.search);
       var ownerHref = paramsForOwner.get('owner');
       if (!found) {
-        // Client itself couldn't be resolved.
+        // Client itself couldn't be resolved. Deploy 236.362 \u2014 before
+        // dead-ending, try to locate the loan by loanId alone. A client
+        // merge (clients-merge-manual) folds the loser's loans into the
+        // winner and deletes the loser blob \u2014 the URL then references
+        // a client that genuinely no longer exists, but the loan lives
+        // on under the winner. loan-locate consults the redirect map
+        // (populated on merge, Deploy 236.362) so this resolves in one
+        // blob read. On success we redirect; on failure we surface the
+        // dead-end screen with the same actionable links loan-moved
+        // uses.
+        if (loanId && window.SLA && SLA.Loans && SLA.Loans.locate) {
+          document.getElementById('pageContent').innerHTML =
+            '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
+              '<h3 style="margin-bottom:12px">Client not found \u2014 checking loan location\u2026</h3>' +
+              '<p style="color:var(--muted);margin-bottom:8px">The client may have been merged into another. Looking up the loan.</p>' +
+            '</div>';
+          SLA.Loans.locate(loanId, {
+            oldOwnerKey: ownerHref || undefined,
+            oldClientId: clientId || undefined,
+          }).then(function(locate) {
+            if (locate && locate.found && locate.clientId && locate.ownerKey) {
+              var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
+                '&loanId=' + encodeURIComponent(locate.loanId) +
+                '&owner='  + encodeURIComponent(locate.ownerKey);
+              document.getElementById('pageContent').innerHTML =
+                '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
+                  '<h3 style="margin-bottom:12px">Loan moved \u2014 redirecting\u2026</h3>' +
+                  '<p style="color:var(--muted);margin-bottom:12px">Found under ' + escH(locate.ownerKey || 'a new owner') + '. Opening now.</p>' +
+                '</div>';
+              setTimeout(function() { window.location.replace(newUrl); }, 400);
+              return;
+            }
+            _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+          }).catch(function() {
+            _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+          });
+          return;
+        }
+        // No loanId in URL, or Loans.locate unavailable \u2192 the original
+        // dead-end message. Should be rare (loanId is always in the
+        // URL on a real loan-details visit).
         document.getElementById('pageContent').innerHTML =
           '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
             '<h3 style="margin-bottom:12px">Client not found</h3>' +

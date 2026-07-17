@@ -32,6 +32,12 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.362 — persist redirects for every loan that moved from
+// loser → winner. Pipeline / other pages may still hold cached tiles
+// pointing at (ownerKey, loser.id, loanId); loan-details reads the
+// redirect map and auto-redirects instead of dead-ending with
+// "Client not found" once the loser blob is deleted.
+import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 
 function _isEmpty(v) {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
@@ -233,6 +239,25 @@ async function handle(req, context) {
       }
     }
   } catch (_) { /* non-fatal — merge itself still succeeds */ }
+
+  // Deploy 236.362 — record a redirect per moved loan BEFORE the
+  // loser blob gets deleted. Pipeline / clients / dashboards etc. may
+  // still hold cached rows pointing at (owner, loser.id, loanId);
+  // when the LO clicks one, loan-details will consult the redirect
+  // map and auto-navigate to (owner, winner.id, loanId) instead of
+  // dead-ending with "Client not found". Use loserLoanIds computed
+  // earlier (all loans on the losing client, whether or not they
+  // dedup'd against a winner loan of the same id).
+  for (const lid of loserLoanIds) {
+    await recordLoanRedirect({
+      loanId:       lid,
+      fromOwnerKey: ownerKey,
+      fromClientId: loser.id,
+      toOwnerKey:   ownerKey,
+      toClientId:   winner.id,
+      via:          'clients_merge_manual',
+    });
+  }
 
   // 7. Persist winner + delete loser.
   try {
