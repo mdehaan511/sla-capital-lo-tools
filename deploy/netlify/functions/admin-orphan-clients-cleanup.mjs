@@ -67,7 +67,7 @@ async function handle(req, context) {
   const clientsStore   = getStore({ name: 'clients',       consistency: 'strong' });
 
   // Collect (ownerKey, clientId) tuples that show up as merge sources.
-  const merged = new Map(); // key: ownerKey|clientId → { ownerKey, clientId }
+  const merged = new Map(); // key: ownerKey|clientId → { ownerKey, clientId, source }
   try {
     const { blobs } = await redirectsStore.list({ prefix: 'by-source/' });
     for (const { key } of blobs) {
@@ -78,11 +78,43 @@ async function handle(req, context) {
       const clientId = parts[2];
       if (!ownerKey || !clientId) continue;
       const mk = ownerKey + '|' + clientId;
-      if (!merged.has(mk)) merged.set(mk, { ownerKey, clientId });
+      if (!merged.has(mk)) merged.set(mk, { ownerKey, clientId, source: 'merge' });
     }
   } catch (e) {
     return json(500, { error: 'Failed to list redirects: ' + (e && e.message) });
   }
+
+  // Deploy 236.368 — also sweep empty Broker Deal placeholders
+  // (_isBrokerPlaceholder=true, created by loan-reassign when
+  // setBrokerFlag was set — Clear Primary Guarantor). Auto-cleanup
+  // on reassign catches the common case, but any other path that
+  // moves a loan off a placeholder without going through reassign
+  // (e.g., manual delete-and-recreate, direct clients-save with the
+  // loan removed) can strand one. Cheap to scan since we already
+  // have to walk the clients store; only adds candidates that are
+  // both flagged AND empty.
+  const placeholderCandidates = new Map();
+  try {
+    const { blobs } = await clientsStore.list();
+    for (const { key } of blobs) {
+      const slash = key.indexOf('/');
+      if (slash < 0) continue;
+      const rec = await clientsStore.get(key, { type: 'json' }).catch(() => null);
+      if (!rec || !rec._isBrokerPlaceholder) continue;
+      const loanCount = Array.isArray(rec.loans) ? rec.loans.length : 0;
+      if (loanCount > 0) continue; // has active loans; not orphan
+      const ownerKey = key.slice(0, slash);
+      const clientId = key.slice(slash + 1);
+      const mk = ownerKey + '|' + clientId;
+      if (!merged.has(mk)) {
+        placeholderCandidates.set(mk, { ownerKey, clientId, source: 'placeholder' });
+      }
+    }
+  } catch (e) {
+    // Fall through with just the merge candidates — non-fatal.
+    console.warn('admin-orphan-clients-cleanup: placeholder scan failed (non-fatal):', e && e.message);
+  }
+  for (const [mk, v] of placeholderCandidates) merged.set(mk, v);
 
   const scanned = merged.size;
   let wouldDelete = 0;
@@ -91,7 +123,7 @@ async function handle(req, context) {
   let alreadyGone = 0;
   const notes = [];
 
-  for (const { ownerKey, clientId } of merged.values()) {
+  for (const { ownerKey, clientId, source } of merged.values()) {
     if (deleted >= maxDelete) {
       notes.push('Hit maxDelete cap (' + maxDelete + '); more may remain.');
       break;
@@ -102,21 +134,21 @@ async function handle(req, context) {
     const loanCount = Array.isArray(rec.loans) ? rec.loans.length : 0;
     if (loanCount > 0) {
       skippedHasLoans++;
-      notes.push('Skip ' + key + ' — has ' + loanCount + ' loan(s); not a husk');
+      notes.push('Skip ' + key + ' [' + source + '] — has ' + loanCount + ' loan(s); not a husk');
       continue;
     }
     wouldDelete++;
     if (dryRun) {
-      notes.push('Would delete ' + key);
+      notes.push('Would delete ' + key + ' [' + source + ']');
       continue;
     }
     try {
       await clientsStore.delete(key);
       indexRemoveClient(ownerKey, clientId).catch(() => {});
       deleted++;
-      notes.push('Deleted ' + key);
+      notes.push('Deleted ' + key + ' [' + source + ']');
     } catch (e) {
-      notes.push('Delete FAILED for ' + key + ': ' + (e && e.message));
+      notes.push('Delete FAILED for ' + key + ' [' + source + ']: ' + (e && e.message));
     }
   }
 

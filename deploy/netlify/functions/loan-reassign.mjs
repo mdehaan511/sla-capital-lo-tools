@@ -127,6 +127,15 @@ async function handle(req, context) {
       _createdViaReassign: true,
       _createdBy: selfEmail,
     };
+    // Deploy 236.368 — mark broker-deal placeholders so the empty-
+    // client sweep below auto-cleans them when the LO eventually
+    // moves the loan off (e.g., a real borrower gets identified and
+    // the LO reassigns via Change Primary Guarantor). Without this
+    // flag every Clear Primary Guarantor click accumulates a
+    // permanent placeholder client that has to be cleaned up manually.
+    if (body.setBrokerFlag) {
+      destClient._isBrokerPlaceholder = true;
+    }
     destClientCreated = true;
   }
   if (!Array.isArray(destClient.loans)) destClient.loans = [];
@@ -208,10 +217,23 @@ async function handle(req, context) {
   // Write both clients atomically-as-possible. Write dest FIRST so
   // that if the src write fails, the loan still exists somewhere.
   // The audit fields on the loan make it clear it was moved.
+  //
+  // Deploy 236.368 — if the SOURCE client was a Broker Deal
+  // placeholder (created by an earlier Clear Primary Guarantor
+  // click) AND this reassign leaves it with no loans, delete the
+  // placeholder blob outright. Prevents Broker Deal husks from
+  // accumulating every time an LO cycles a broker deal to a real
+  // borrower via Change Primary Guarantor.
+  let srcPlaceholderDeleted = false;
   try {
     const destKey = ownerKey + '/' + keySafe(destClient.id);
     await clientsStore.setJSON(destKey, destClient);
-    await clientsStore.setJSON(srcKey, srcClient);
+    if (srcClient._isBrokerPlaceholder && srcClient.loans.length === 0) {
+      await clientsStore.delete(srcKey);
+      srcPlaceholderDeleted = true;
+    } else {
+      await clientsStore.setJSON(srcKey, srcClient);
+    }
   } catch (e) {
     return json(500, { error: 'Failed to write client records: ' + (e.message || 'unknown') });
   }

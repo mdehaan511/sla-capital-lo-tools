@@ -132,7 +132,13 @@ async function handle(req, context) {
   srcClient.loans.splice(loanIdx, 1);
   srcClient.updatedAt = now;
 
-  const deleteSrcClient = srcClient.loans.length === 0 && oldOwnerKey === IMPORT_OWNER_KEY;
+  // Deploy 236.368 — also delete src when it's a Broker Deal
+  // placeholder that just lost its only loan (matches loan-reassign's
+  // auto-cleanup). Same rationale: don't accumulate placeholder husks
+  // when the LO cycles a broker deal to a real borrower.
+  const deleteSrcClient = srcClient.loans.length === 0 && (
+    oldOwnerKey === IMPORT_OWNER_KEY || srcClient._isBrokerPlaceholder
+  );
 
   try {
     // Write dest FIRST — if src write fails, at least the loan lives somewhere.
