@@ -50,17 +50,39 @@ const CLIENT_DIFF_FIELDS = [
   'is_broker','is_broker_placeholder','notes','updated_at',
 ];
 
+// Fields we compare as Date instants, not strings. PostgreSQL
+// serializes timestamptz as '2026-07-17T05:23:45.123+00:00' while
+// JS's Date#toISOString returns '2026-07-17T05:23:45.123Z' — same
+// moment, different notation, would trigger a false-positive drift
+// alarm on every timestamp otherwise. Parsing both sides to
+// milliseconds and comparing as numbers avoids the alarm without
+// hiding real time-of-day drift.
+const TS_FIELDS = new Set(['updated_at', 'saved_at', 'created_at']);
+
+function _tsMs(v) {
+  if (!v) return 0;
+  const d = new Date(v);
+  const n = d.getTime();
+  return Number.isFinite(n) ? n : 0;
+}
+
 function _diff(blobRow, pgRow, fields) {
   const out = {};
   for (const f of fields) {
     const b = blobRow && blobRow[f];
     const p = pgRow   && pgRow[f];
-    // Loose equality — DB nulls vs empty strings shouldn't count as a
-    // diff, and 0 vs '0' shouldn't either. Anything more subtle we
-    // want to see.
-    if (String(b == null ? '' : b) !== String(p == null ? '' : p)) {
-      out[f] = { blob: b, pg: p };
+    let same;
+    if (TS_FIELDS.has(f)) {
+      // Timestamp: compare as ms instant, tolerate anything within
+      // 1 second (write-time skew between the blob save and the PG
+      // upsert). Anything larger IS real drift worth flagging.
+      same = Math.abs(_tsMs(b) - _tsMs(p)) <= 1000;
+    } else {
+      // Everything else: loose string equality. DB nulls / empty
+      // strings shouldn't diff; 0 vs '0' shouldn't diff.
+      same = String(b == null ? '' : b) === String(p == null ? '' : p);
     }
+    if (!same) out[f] = { blob: b, pg: p };
   }
   return out;
 }
