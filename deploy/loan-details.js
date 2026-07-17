@@ -210,6 +210,17 @@ function init() {
   // straight from Postgres by loanId and hydrates _clientId / _loEmail
   // from the response. Old three-param URLs still work — the fallback
   // path uses them when the loanId lookup misses (backfill lag, etc.).
+  //
+  // The Netlify rewrite /loan-details/:loanId → /loan-details.html?loanId=:loanId
+  // uses status 200 (proxy) so the browser URL stays pretty
+  // (/loan-details/l_xxx). Server sees the query param; browser's
+  // window.location.search does NOT. That means URLSearchParams
+  // above reads empty on a pretty URL. Fall back to parsing the
+  // loanId out of the pathname when the query didn't have it.
+  if (!_loanId) {
+    var m = String(window.location.pathname || '').match(/^\/loan-details\/(l_[A-Za-z0-9_-]+)\/?$/);
+    if (m) _loanId = m[1];
+  }
   if (!_loanId) { window.location.href = '/clients.html'; return; }
 
   netlifyIdentity.on('init', function(user) {
