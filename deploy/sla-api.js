@@ -859,6 +859,26 @@
       if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
       return api('GET', '/api/client-get?' + qs);
     },
+    // Deploy 236.369 — merge two client records (winner + loser).
+    // Same endpoint used by the loan-details clients merge modal
+    // (clients-merge-manual.mjs, Deploy 236.230); adding a Clients-
+    // namespace wrapper so the Brokers page can call it for the
+    // "merge duplicate emails" flow. Backend handles loan-move,
+    // borrower_info re-key, quote/review updates, loan-redirects
+    // writes (Deploy 236.362), and index sync (Deploy 236.363).
+    merge: function (opts) {
+      opts = opts || {};
+      return api('POST', '/api/clients-merge-manual', {
+        winnerClientId: opts.winnerClientId,
+        loserClientId:  opts.loserClientId,
+        owner:          opts.owner,
+      }).then(function (r) {
+        cache.clear('clients');
+        cache.clear('brokers');
+        cache.clear('quotes');
+        return r;
+      });
+    },
     save: function (client) {
       return api('POST', '/api/clients-save', client).then(function (r) {
         cache.clear('clients');
