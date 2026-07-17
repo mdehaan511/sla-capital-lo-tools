@@ -866,13 +866,24 @@
     // "merge duplicate emails" flow. Backend handles loan-move,
     // borrower_info re-key, quote/review updates, loan-redirects
     // writes (Deploy 236.362), and index sync (Deploy 236.363).
+    //
+    // Deploy 236.370 — cross-owner merge. Pass winnerOwner +
+    // loserOwner separately when the two records live under
+    // different LOs (the common Jaelen-Churchill-across-5-LOs case).
+    // Falls back to the single `owner` legacy shape when omitted.
     merge: function (opts) {
       opts = opts || {};
-      return api('POST', '/api/clients-merge-manual', {
+      var body = {
         winnerClientId: opts.winnerClientId,
         loserClientId:  opts.loserClientId,
-        owner:          opts.owner,
-      }).then(function (r) {
+      };
+      if (opts.winnerOwner || opts.loserOwner) {
+        body.winnerOwner = opts.winnerOwner || opts.owner;
+        body.loserOwner  = opts.loserOwner  || opts.owner;
+      } else if (opts.owner) {
+        body.owner = opts.owner;
+      }
+      return api('POST', '/api/clients-merge-manual', body).then(function (r) {
         cache.clear('clients');
         cache.clear('brokers');
         cache.clear('quotes');

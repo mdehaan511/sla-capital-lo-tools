@@ -337,11 +337,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <button type="button" class="btn" onclick="closeMergeDupeBrokersModal()">Close</button>
       </div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:1rem">
-        Brokers sharing the same email under the same LO. Pick a winner in
-        each group and click Merge — the loser's loans, companies, and
-        history fold into the winner and the loser's blob is deleted.
-        Cross-owner duplicates aren't merged here (an LO's brokers stay
-        in that LO's namespace).
+        Brokers grouped by matching email OR normalized name (the name
+        fallback catches cross-email dupes — verify these really are
+        the same broker before merging). Groups spanning multiple LOs
+        are tagged <span style="color:#4a6ebf;font-weight:600">Cross-LO</span>
+        — the loser's loans move to the winner's LO namespace.
+        Losers' loans, companies, and history fold into the winner;
+        loser blobs are deleted.
       </p>
       <div id="mergeDupeStatus" style="font-size:12px;color:var(--muted);margin-bottom:8px"></div>
       <div id="mergeDupeGroups"></div>
@@ -904,25 +906,69 @@ function loadAdminData() {
 function _normalizeBrokerEmail(s) {
   return String(s || '').trim().toLowerCase();
 }
+function _normalizeBrokerName(s) {
+  return String(s || '')
+    .trim().toLowerCase()
+    .replace(/[.,'"\-]/g, '')
+    .replace(/\s+/g, ' ');
+}
 
 // Build a list of dupe groups from _adminData.
-// Returns: [{ ownerKey, email, brokers: [...] }, ...]
+// Deploy 236.370 — cross-owner + name-fallback grouping. The
+// Jaelen-Churchill case: one broker recorded independently under
+// several LOs' namespaces. Group across ALL owners, and match on
+// email OR normalized name so records with slight email differences
+// (typos, work vs. personal) still cluster.
+// Returns: [{ key, kind: 'email'|'name', label, brokers: [...] }, ...]
+// Each broker in the group carries an _ownerKey field so the merge
+// call can address it correctly under cross-owner merge.
 function _findBrokerDupeGroups() {
   if (!_adminData) return [];
-  var groups = [];
+  // Collect every broker across all owners, stamping _ownerKey.
+  var all = [];
   Object.keys(_adminData).forEach(function(owner) {
     var brokers = (_adminData[owner] && _adminData[owner].brokers) || [];
-    var byEmail = {};
     brokers.forEach(function(b) {
-      var em = _normalizeBrokerEmail(b && b.email);
-      if (!em) return; // no email = nothing to match on
-      (byEmail[em] = byEmail[em] || []).push(b);
+      if (!b || !b.id) return;
+      all.push(Object.assign({}, b, { _ownerKey: owner }));
     });
-    Object.keys(byEmail).forEach(function(em) {
-      if (byEmail[em].length >= 2) {
-        groups.push({ ownerKey: owner, email: em, brokers: byEmail[em] });
-      }
-    });
+  });
+
+  // Pass 1: group by normalized email.
+  var byEmail = {};
+  all.forEach(function(b) {
+    var em = _normalizeBrokerEmail(b.email);
+    if (!em) return;
+    (byEmail[em] = byEmail[em] || []).push(b);
+  });
+
+  // Pass 2: group by normalized name (from either "name" or
+  // firstName+lastName). Only for brokers not already captured in
+  // an email group — otherwise a two-record email group would ALSO
+  // appear as a name group.
+  var placedIds = new Set();
+  Object.values(byEmail).forEach(function(list) {
+    if (list.length >= 2) list.forEach(function(b) { placedIds.add(b.id); });
+  });
+  var byName = {};
+  all.forEach(function(b) {
+    if (placedIds.has(b.id)) return;
+    var raw = b.name || ((b.firstName || '') + ' ' + (b.lastName || ''));
+    var nm = _normalizeBrokerName(raw);
+    if (!nm) return;
+    (byName[nm] = byName[nm] || []).push(b);
+  });
+
+  var groups = [];
+  Object.keys(byEmail).forEach(function(em) {
+    if (byEmail[em].length >= 2) {
+      groups.push({ key: 'email:' + em, kind: 'email', label: em, brokers: byEmail[em] });
+    }
+  });
+  Object.keys(byName).forEach(function(nm) {
+    if (byName[nm].length >= 2) {
+      groups.push({ key: 'name:' + nm, kind: 'name', label: nm, brokers: byName[nm] });
+    }
   });
   // Sort so largest groups (biggest cleanup wins) surface first.
   groups.sort(function(a, b) { return b.brokers.length - a.brokers.length; });
@@ -955,19 +1001,34 @@ function _renderMergeDupeGroups() {
     host.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:8px;font-size:13px">All broker emails are unique within each LO\'s namespace.</div>';
     return;
   }
+  // Stash the current groups so the merge click can look up each
+  // broker's ownerKey without another round-trip to _adminData.
+  window._brokerDupeGroups = {};
   host.innerHTML = groups.map(function(g, gi) {
     var groupKey = 'g_' + gi + '_' + Math.random().toString(36).slice(2, 6);
+    window._brokerDupeGroups[groupKey] = g;
     // Default winner = the broker with the most recent updatedAt.
     var winnerId = g.brokers.slice().sort(function(a, b) {
       return new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0);
     })[0].id;
-    return '<div class="dupe-group" data-group-key="' + groupKey + '" data-owner="' + escapeHtml(g.ownerKey) + '" style="margin-bottom:1rem;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:#faf8f5">' +
+    // Unique owners in this group → tell the admin at a glance if
+    // this is a cross-owner merge (bigger deal, notified in copy).
+    var ownerSet = {};
+    g.brokers.forEach(function(b) { ownerSet[b._ownerKey] = true; });
+    var uniqueOwnerCount = Object.keys(ownerSet).length;
+    var groupHeader = g.kind === 'email'
+      ? '<span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em">Email</span> ' + escapeHtml(g.label)
+      : '<span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em">Name</span> ' + escapeHtml(g.label) +
+        ' <span style="color:var(--muted);font-weight:400;font-size:11px">(emails don\'t match — verify these really are the same broker)</span>';
+    var xOwnerTag = uniqueOwnerCount > 1
+      ? '<span style="display:inline-block;margin-left:8px;padding:2px 8px;background:rgba(74,110,191,0.14);color:#4a6ebf;font-size:10px;font-weight:700;letter-spacing:0.05em;border-radius:10px;text-transform:uppercase">Cross-LO</span>'
+      : '';
+    return '<div class="dupe-group" data-group-key="' + groupKey + '" style="margin-bottom:1rem;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:#faf8f5">' +
       '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px;flex-wrap:wrap">' +
         '<div>' +
-          '<div style="font-family:\'DM Mono\',monospace;font-size:12px;color:var(--muted)">' + escapeHtml(g.ownerKey) + '</div>' +
-          '<div style="font-weight:600;font-size:14px">' + escapeHtml(g.email) + '</div>' +
+          '<div style="font-weight:600;font-size:14px">' + groupHeader + xOwnerTag + '</div>' +
         '</div>' +
-        '<div style="font-size:11px;color:var(--muted);font-family:\'DM Mono\',monospace">' + g.brokers.length + ' records</div>' +
+        '<div style="font-size:11px;color:var(--muted);font-family:\'DM Mono\',monospace">' + g.brokers.length + ' records · ' + uniqueOwnerCount + ' LO' + (uniqueOwnerCount === 1 ? '' : 's') + '</div>' +
       '</div>' +
       g.brokers.map(function(b) {
         var name = ((b.name || (b.firstName + ' ' + b.lastName) || '').trim()) || '(no name)';
@@ -978,7 +1039,7 @@ function _renderMergeDupeGroups() {
           '<input type="radio" name="dupe_winner_' + groupKey + '" value="' + escapeHtml(b.id) + '"' + checked + ' />' +
           '<div style="flex:1;min-width:0">' +
             '<div style="font-weight:600">' + escapeHtml(name) + (company ? ' <span style="color:var(--muted);font-weight:400">— ' + escapeHtml(company) + '</span>' : '') + '</div>' +
-            '<div style="font-size:11px;color:var(--muted);font-family:\'DM Mono\',monospace">' + escapeHtml(b.id) + ' · updated ' + escapeHtml(updated) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);font-family:\'DM Mono\',monospace">' + escapeHtml(b.email || '(no email)') + ' · ' + escapeHtml(b._ownerKey) + ' · updated ' + escapeHtml(updated) + '</div>' +
           '</div>' +
         '</label>';
       }).join('') +
@@ -993,7 +1054,8 @@ function _renderMergeDupeGroups() {
 function _mergeDupeGroup(btn, groupKey) {
   var groupEl = document.querySelector('.dupe-group[data-group-key="' + groupKey + '"]');
   if (!groupEl) return;
-  var ownerKey = groupEl.getAttribute('data-owner') || '';
+  var group = (window._brokerDupeGroups || {})[groupKey];
+  if (!group) return;
   var picked = groupEl.querySelector('input[name="dupe_winner_' + groupKey + '"]:checked');
   if (!picked) {
     var sEl0 = groupEl.querySelector('.dupe-group-status');
@@ -1001,38 +1063,53 @@ function _mergeDupeGroup(btn, groupKey) {
     return;
   }
   var winnerId = picked.value;
-  var loserInputs = groupEl.querySelectorAll('input[name="dupe_winner_' + groupKey + '"]');
-  var loserIds = [];
-  loserInputs.forEach(function(inp) { if (inp.value !== winnerId) loserIds.push(inp.value); });
-  if (!loserIds.length) return;
+  var winnerRec = group.brokers.find(function(b){ return b.id === winnerId; });
+  if (!winnerRec) return;
+  var losers = group.brokers.filter(function(b){ return b.id !== winnerId; });
+  if (!losers.length) return;
 
-  if (!confirm('Merge ' + loserIds.length + ' broker record' + (loserIds.length === 1 ? '' : 's') + ' into the selected winner?\n\nLosers\' loans + history fold into the winner. Loser blobs are deleted.')) return;
+  var uniqueOwners = {};
+  group.brokers.forEach(function(b) { uniqueOwners[b._ownerKey] = true; });
+  var isCrossOwner = Object.keys(uniqueOwners).length > 1;
+
+  var confirmMsg = 'Merge ' + losers.length + ' broker record' + (losers.length === 1 ? '' : 's') + ' into the selected winner?\n\n' +
+    'Winner: ' + (winnerRec.name || winnerRec.email || winnerRec.id) + ' (LO ' + winnerRec._ownerKey + ')\n\n' +
+    'Losers\' loans + history fold into the winner. Loser blobs are deleted.' +
+    (isCrossOwner ? '\n\nCROSS-LO merge: losers currently belong to different LOs. Their loans + data will move to the winner\'s LO namespace.' : '');
+  if (!confirm(confirmMsg)) return;
 
   var statusEl = groupEl.querySelector('.dupe-group-status');
   btn.disabled = true;
   if (statusEl) { statusEl.style.color = 'var(--muted)'; statusEl.textContent = 'Merging…'; }
 
-  // Sequential merge — each call updates the winner's loans/companies,
-  // so running them in parallel would race on the winner blob.
+  // Sequential merge — each call mutates the winner blob, so running
+  // in parallel would race.
   var i = 0;
   function next() {
-    if (i >= loserIds.length) {
+    if (i >= losers.length) {
       if (statusEl) { statusEl.style.color = 'var(--success, #256940)'; statusEl.textContent = 'Merged ✓ Reloading brokers…'; }
       setTimeout(function() {
         closeMergeDupeBrokersModal();
-        // Reload admin broker data so the merged records disappear.
         if (typeof loadAdminData === 'function') loadAdminData();
       }, 700);
       return;
     }
-    var loserId = loserIds[i++];
-    SLA.Clients.merge({ winnerClientId: winnerId, loserClientId: loserId, owner: ownerKey })
+    var loser = losers[i++];
+    // Deploy 236.370 — cross-owner-aware payload. winnerOwner +
+    // loserOwner routed separately so the backend addresses the
+    // right blob key for each.
+    SLA.Clients.merge({
+      winnerClientId: winnerId,
+      loserClientId:  loser.id,
+      winnerOwner:    winnerRec._ownerKey,
+      loserOwner:     loser._ownerKey,
+    })
       .then(next)
       .catch(function(err) {
-        console.error('broker merge failed for loser ' + loserId, err);
+        console.error('broker merge failed for loser ' + loser.id, err);
         if (statusEl) {
           statusEl.style.color = 'var(--danger, #7C1F1F)';
-          statusEl.textContent = 'Merge failed on ' + loserId + ': ' + ((err && err.message) || 'unknown');
+          statusEl.textContent = 'Merge failed on ' + loser.id + ': ' + ((err && err.message) || 'unknown');
         }
         btn.disabled = false;
       });

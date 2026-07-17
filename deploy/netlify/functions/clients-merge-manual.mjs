@@ -84,20 +84,39 @@ async function handle(req, context) {
   if (!winnerId || !loserId) return json(400, { error: 'winnerClientId + loserClientId required' });
   if (winnerId === loserId) return json(400, { error: 'winner and loser are the same client' });
 
-  let owner = normalizeEmail(user.email);
-  if (body.owner && body.owner !== owner) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
-    owner = normalizeEmail(body.owner);
+  // Deploy 236.370 — cross-owner merge. Legacy shape: `owner` (single
+  // value, assumes both are under the same key). New shape:
+  // `winnerOwner` + `loserOwner` (separate), used by the Brokers page
+  // when the 5-copies-of-Jaelen case spans multiple LO namespaces.
+  // Falls back to the legacy shape when the new params aren't present.
+  let winnerOwner, loserOwner;
+  if (body.winnerOwner || body.loserOwner) {
+    if (!isAdmin(user)) return json(403, { error: 'Cross-owner merge requires admin' });
+    winnerOwner = normalizeEmail(body.winnerOwner || body.owner || user.email);
+    loserOwner  = normalizeEmail(body.loserOwner  || body.owner || user.email);
+  } else {
+    let owner = normalizeEmail(user.email);
+    if (body.owner && body.owner !== owner) {
+      if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+      owner = normalizeEmail(body.owner);
+    }
+    winnerOwner = owner;
+    loserOwner  = owner;
   }
-  const ownerKey = keySafe(owner);
+  const winnerOwnerKey = keySafe(winnerOwner);
+  const loserOwnerKey  = keySafe(loserOwner);
+  // Keep an ownerKey alias equal to the WINNER's owner for the
+  // downstream cross-store re-key blocks (borrower_info, quotes,
+  // reviews) — they all move records into the winner's namespace.
+  const ownerKey = winnerOwnerKey;
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-  const winnerKey = ownerKey + '/' + keySafe(winnerId);
-  const loserKey  = ownerKey + '/' + keySafe(loserId);
+  const winnerKey = winnerOwnerKey + '/' + keySafe(winnerId);
+  const loserKey  = loserOwnerKey  + '/' + keySafe(loserId);
   const winner = await clientsStore.get(winnerKey, { type: 'json' }).catch(() => null);
   const loser  = await clientsStore.get(loserKey,  { type: 'json' }).catch(() => null);
-  if (!winner) return json(404, { error: 'Winner client not found' });
-  if (!loser)  return json(404, { error: 'Loser client not found' });
+  if (!winner) return json(404, { error: 'Winner client not found at ' + winnerKey });
+  if (!loser)  return json(404, { error: 'Loser client not found at '  + loserKey });
 
   const now = new Date().toISOString();
 
@@ -170,8 +189,8 @@ async function handle(req, context) {
     if (!l || !l.id) continue;
     // borrower_info per-loan key
     try {
-      const oldK = ownerKey + '/' + keySafe(loser.id) + '/' + keySafe(l.id);
-      const newK = ownerKey + '/' + keySafe(winner.id) + '/' + keySafe(l.id);
+      const oldK = loserOwnerKey  + '/' + keySafe(loser.id)  + '/' + keySafe(l.id);
+      const newK = winnerOwnerKey + '/' + keySafe(winner.id) + '/' + keySafe(l.id);
       const rec = await biStore.get(oldK, { type: 'json' });
       if (rec) {
         rec.clientId = winner.id;
@@ -182,8 +201,8 @@ async function handle(req, context) {
     } catch (_) { /* non-fatal */ }
     // signed_applications
     try {
-      const oldK = ownerKey + '/' + keySafe(loser.id) + '/' + keySafe(l.id);
-      const newK = ownerKey + '/' + keySafe(winner.id) + '/' + keySafe(l.id);
+      const oldK = loserOwnerKey  + '/' + keySafe(loser.id)  + '/' + keySafe(l.id);
+      const newK = winnerOwnerKey + '/' + keySafe(winner.id) + '/' + keySafe(l.id);
       const rec = await appStore.get(oldK, { type: 'json' });
       if (rec) {
         rec.clientId = winner.id;
@@ -195,8 +214,8 @@ async function handle(req, context) {
   }
   // Legacy per-client borrower_info key (Deploy 168 fallback).
   try {
-    const oldK = ownerKey + '/' + keySafe(loser.id);
-    const newK = ownerKey + '/' + keySafe(winner.id);
+    const oldK = loserOwnerKey  + '/' + keySafe(loser.id);
+    const newK = winnerOwnerKey + '/' + keySafe(winner.id);
     const rec = await biStore.get(oldK, { type: 'json' });
     if (rec && !(await biStore.get(newK, { type: 'json' }))) {
       rec.clientId = winner.id;
@@ -222,27 +241,46 @@ async function handle(req, context) {
   // appended. Reusing it avoids a redeclaration collision that
   // broke the Netlify function bundler in 236.236 (fixed 236.237).
   let quotesRestamped = 0, quotesLoanIdDropped = 0;
+  // Deploy 236.370 — cross-owner merge: scan BOTH the loser's and
+  // the winner's quote namespaces. Winner-side catches quotes that
+  // referenced the loser's id (rare, but possible for post-merge
+  // links). Loser-side is where the loser's own quotes live and
+  // need to be moved to the winner's namespace + rewritten.
+  const quotesPrefixes = winnerOwnerKey === loserOwnerKey
+    ? [ownerKey + '/']
+    : [winnerOwnerKey + '/', loserOwnerKey + '/'];
   try {
-    const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
-    for (const { key } of blobs) {
-      const q = await quotesStore.get(key, { type: 'json' }).catch(() => null);
-      if (!q) continue;
-      const fd = q.formData || (q.formData = {});
-      let dirty = false;
-      // Rewrite clientId if it points at the loser.
-      if (q.clientId === loser.id)     { q.clientId = winner.id; dirty = true; }
-      if (fd._editingClientId === loser.id) { fd._editingClientId = winner.id; dirty = true; }
-      // Drop a stamped loanId that lived only on the loser and didn't
-      // survive the merge into winner. Address resolution takes over.
-      const qLid = q.loanId || fd._editingLoanId || '';
-      if (qLid && loserLoanIds.has(qLid) && !winnerLoanIds.has(qLid)) {
-        if (q.loanId === qLid)          { q.loanId = ''; dirty = true; }
-        if (fd._editingLoanId === qLid) { fd._editingLoanId = ''; dirty = true; }
-        quotesLoanIdDropped++;
-      }
-      if (dirty) {
-        await quotesStore.setJSON(key, q);
-        quotesRestamped++;
+    for (const prefix of quotesPrefixes) {
+      const { blobs } = await quotesStore.list({ prefix });
+      for (const { key } of blobs) {
+        const q = await quotesStore.get(key, { type: 'json' }).catch(() => null);
+        if (!q) continue;
+        const fd = q.formData || (q.formData = {});
+        let dirty = false;
+        // Rewrite clientId if it points at the loser.
+        if (q.clientId === loser.id)     { q.clientId = winner.id; dirty = true; }
+        if (fd._editingClientId === loser.id) { fd._editingClientId = winner.id; dirty = true; }
+        // Drop a stamped loanId that lived only on the loser and didn't
+        // survive the merge into winner. Address resolution takes over.
+        const qLid = q.loanId || fd._editingLoanId || '';
+        if (qLid && loserLoanIds.has(qLid) && !winnerLoanIds.has(qLid)) {
+          if (q.loanId === qLid)          { q.loanId = ''; dirty = true; }
+          if (fd._editingLoanId === qLid) { fd._editingLoanId = ''; dirty = true; }
+          quotesLoanIdDropped++;
+        }
+        if (dirty) {
+          // Cross-owner: rewrite the quote's blob key to the winner's
+          // namespace, delete the old key. Same-owner keeps the key.
+          if (prefix === loserOwnerKey + '/' && winnerOwnerKey !== loserOwnerKey) {
+            const newKey = winnerOwnerKey + '/' + key.slice(loserOwnerKey.length + 1);
+            q.ownerKey = winnerOwnerKey;
+            await quotesStore.setJSON(newKey, q);
+            await quotesStore.delete(key);
+          } else {
+            await quotesStore.setJSON(key, q);
+          }
+          quotesRestamped++;
+        }
       }
     }
   } catch (_) { /* non-fatal — merge itself still succeeds */ }
@@ -258,9 +296,9 @@ async function handle(req, context) {
   for (const lid of loserLoanIds) {
     await recordLoanRedirect({
       loanId:       lid,
-      fromOwnerKey: ownerKey,
+      fromOwnerKey: loserOwnerKey,
       fromClientId: loser.id,
-      toOwnerKey:   ownerKey,
+      toOwnerKey:   winnerOwnerKey,
       toClientId:   winner.id,
       via:          'clients_merge_manual',
     });
@@ -281,8 +319,11 @@ async function handle(req, context) {
   // in loan-details to bounce back to the dead URL. Both helpers
   // swallow errors so an index-write blip doesn't roll back the
   // successful merge.
-  await indexUpsertClient(ownerKey, winner);
-  await indexRemoveClient(ownerKey, loser.id);
+  //
+  // Deploy 236.370 — cross-owner-aware. Upsert winner under its own
+  // owner; remove loser under its own owner (which may differ).
+  await indexUpsertClient(winnerOwnerKey, winner);
+  await indexRemoveClient(loserOwnerKey, loser.id);
 
   return json(200, {
     ok: true,
