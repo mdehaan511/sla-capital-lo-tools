@@ -913,6 +913,12 @@
 .bw-edit-guarantor-btn:hover { background: var(--gold-light, rgba(200,129,58,0.10)); border-color: var(--gold, #C8813A); color: var(--gold, #C8813A); }
 .bw-edit-guarantor-btn .bw-edit-icon { font-size: 13px; line-height: 1; }
 
+/* Deploy 236.366 — Remove Guarantor: destructive-tone variant of
+   .bw-edit-guarantor-btn. Same footprint, danger palette. */
+.bw-remove-guarantor-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; background: var(--surface, #fff); border: 1px solid rgba(124,31,31,0.28); border-radius: 5px; color: var(--danger, #7C1F1F); cursor: pointer; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; transition: all 0.10s; }
+.bw-remove-guarantor-btn:hover { background: rgba(124,31,31,0.08); border-color: var(--danger, #7C1F1F); }
+.bw-remove-guarantor-btn .bw-edit-icon { font-size: 15px; line-height: 1; }
+
 /* Deploy 236.130 — Add Guarantor button + modal. */
 .add-guarantor-btn { padding: 7px 14px; background: var(--surface, #fff); border: 1px dashed var(--gold-border, rgba(200,129,58,0.28)); border-radius: 5px; color: var(--gold-mid, #b5712d); cursor: pointer; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; margin-left: auto; }
 .add-guarantor-btn:hover { border-color: var(--gold, #C8813A); background: var(--gold-light, rgba(200,129,58,0.10)); color: var(--gold, #C8813A); }

@@ -2227,13 +2227,66 @@ function _renderEditGuarantorButton(clientId, isPrimary) {
        'title="Download this guarantor\'s full application as PDF (includes decrypted SSN and signed Credit Authorization if on file).">' +
       '<span class="bw-edit-icon">⬇</span> Download Application' +
     '</button>';
+  // Deploy 236.366 — Remove Guarantor. Non-primary only (removing
+  // the primary would orphan the loan; use Change Primary Guarantor
+  // for that). Mike's use case: broker loans get a guarantor added
+  // by accident before the deal's ready — LO needs to be able to
+  // clear it without a support ticket.
+  var removeBtn = isPrimary ? '' :
+    '<button type="button" class="bw-remove-guarantor-btn" onclick="removeGuarantorFromLoan(\'' + escAttr(clientId) + '\')" ' +
+       'title="Unlink this guarantor from this loan. Their client record is kept — you can re-add them later or leave them for other loans they\'re tied to.">' +
+      '<span class="bw-edit-icon">×</span> Remove Guarantor' +
+    '</button>';
   return '<div class="bw-pane-footer" style="gap:8px">' +
     downloadBtn +
     '<a class="bw-edit-guarantor-btn" href="' + escAttr(href) + '" target="_blank" rel="noopener" ' +
        'title="Open this guarantor\'s Client Details page in a new tab. Changes there sync to every loan this client is tied to.">' +
       '<span class="bw-edit-icon">✎</span> Edit Guarantor' +
     '</a>' +
+    removeBtn +
   '</div>';
+}
+
+// Deploy 236.366 — click handler for the Remove Guarantor button.
+// Confirms, calls SLA.Loans.removeGuarantor, reloads on success.
+function removeGuarantorFromLoan(guarantorClientId) {
+  if (!_client || !_loanId || !guarantorClientId) return;
+  // Try to pull a friendly label from the currently-loaded pane's
+  // name field. Falls back to the raw id if the pane hasn't
+  // hydrated yet.
+  var label = 'this guarantor';
+  try {
+    var panes = document.querySelectorAll('#borrowerInfoSection .bw-pane');
+    for (var p = 0; p < panes.length; p++) {
+      if (panes[p].getAttribute('data-client-id') === guarantorClientId) {
+        var nameEl = panes[p].querySelector('input[id^="bw-"][id$="-name"]');
+        if (nameEl && nameEl.value && nameEl.value.trim()) {
+          label = nameEl.value.trim();
+        }
+        break;
+      }
+    }
+  } catch (_) {}
+  var confirmMsg = 'Remove ' + label + ' as a guarantor on this loan?\n\n' +
+    'Their client record is kept — this only unlinks them from THIS loan. ' +
+    'Their ownership % and any pending subform invite for this loan will be cleared.';
+  if (!confirm(confirmMsg)) return;
+
+  var payload = {
+    clientId:          _client.id,
+    loanId:            _loanId,
+    guarantorClientId: guarantorClientId,
+  };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+
+  SLA.Loans.removeGuarantor(payload).then(function() {
+    if (typeof showToast === 'function') showToast('Guarantor removed');
+    setTimeout(function() { window.location.reload(); }, 300);
+  }).catch(function(err) {
+    console.error('removeGuarantorFromLoan failed:', err);
+    var msg = (err && err.message) || 'unknown error';
+    if (typeof showToast === 'function') showToast('Remove failed: ' + msg);
+  });
 }
 
 // Deploy 236.146 — per-guarantor application download.

@@ -1273,6 +1273,23 @@
         return r;
       });
     },
+    // Deploy 236.366 — one-shot cleanup for orphan merged-loser
+    // client husks (either merge's delete failed silently or a save
+    // flow recreated the client at the same id). dryRun defaults to
+    // TRUE so a plain call is safe — pass { dryRun: false } to
+    // actually delete.
+    cleanupOrphans: function (opts) {
+      opts = opts || {};
+      return api('POST', '/api/admin-orphan-clients-cleanup', {
+        dryRun:    opts.dryRun !== false,
+        maxDelete: opts.maxDelete,
+      }).then(function (r) {
+        if (r && r.deleted > 0) {
+          cache.clear('clients');
+        }
+        return r;
+      });
+    },
     // Deploy 236.351 — admin reassignment of a loan to another LO.
     // See loan-assign-lo.mjs: creates a new client under the new
     // owner + moves the loan, borrower_info, signed_app, quotes,
@@ -2026,6 +2043,21 @@
       if (opts.oldOwnerKey)  qs += '&oldOwnerKey='  + encodeURIComponent(opts.oldOwnerKey);
       if (opts.oldClientId)  qs += '&oldClientId='  + encodeURIComponent(opts.oldClientId);
       return api('GET', '/api/loan-locate?' + qs);
+    },
+    // Deploy 236.366 — inverse of Loans.addGuarantor. Unlinks a
+    // guarantor client from a loan; used by the Remove Guarantor
+    // button on the Loan Details guarantor tabs.
+    removeGuarantor: function (opts) {
+      opts = opts || {};
+      return api('POST', '/api/loan-remove-guarantor', {
+        clientId:          opts.clientId,
+        loanId:            opts.loanId,
+        guarantorClientId: opts.guarantorClientId,
+        owner:             opts.owner,
+      }).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
     },
   };
 
