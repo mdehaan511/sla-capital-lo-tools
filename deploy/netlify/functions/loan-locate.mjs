@@ -64,12 +64,24 @@ async function handle(req, context) {
   const selfKey = keySafe(normalizeEmail(user.email));
   const isStaff = canOverrideOwner(user).ok;
 
+  // Deploy 236.363 — if the caller passed the stale tuple that just
+  // 404'd, never resolve back to it. Guards against a redirect loop
+  // where the index still shows a client that was actually deleted
+  // (e.g. clients-merge-manual pre-236.363 didn't sync the index —
+  // the loser lingered in the byOwner map with its old loans, so
+  // loan-locate returned the loser tuple, loan-details redirected
+  // right back to the URL that failed to load, forever).
+  function _isStaleTuple(ownerKey, clientId) {
+    return !!(oldOwner && oldClient
+      && ownerKey === oldOwner && clientId === oldClient);
+  }
+
   // Deploy 236.357 — fast path via the redirect map. If a reassign
   // recorded this loan's new home, one blob read gets us the answer
   // — no index scan. Only trust the redirect when the caller has
   // permission to see the target (owner-scoped for LOs).
   const hit = await resolveRedirect({ loanId, oldOwnerKey: oldOwner || undefined, oldClientId: oldClient || undefined });
-  if (hit && hit.ownerKey && hit.clientId) {
+  if (hit && hit.ownerKey && hit.clientId && !_isStaleTuple(hit.ownerKey, hit.clientId)) {
     if (isStaff || hit.ownerKey === selfKey) {
       return json(200, {
         found:    true,
@@ -105,41 +117,78 @@ async function handle(req, context) {
     ? Object.keys(index.byOwner)
     : [selfKey];
 
-  for (const ownerKey of ownersToScan) {
-    const clients = index.byOwner[ownerKey] || [];
-    for (const client of clients) {
-      if (!client || !Array.isArray(client.loans)) continue;
-      for (const loan of client.loans) {
-        if (loan && loan.id === loanId) {
-          // Deploy 236.357 — seed the redirect map from a successful
-          // index scan. Covers loans that were moved BEFORE the
-          // redirect writer shipped (or where the write failed):
-          // first locate pays the index cost, every subsequent
-          // locate is O(1). Only write when the caller supplied a
-          // stale tuple (otherwise there's no OLD side to remember).
-          if (oldOwner && oldClient
-            && (oldOwner !== ownerKey || oldClient !== client.id)) {
-            recordLoanRedirect({
-              loanId,
-              fromOwnerKey: oldOwner,
-              fromClientId: oldClient,
-              toOwnerKey:   ownerKey,
-              toClientId:   client.id,
-              via:          'loan_locate:seed',
-            }).catch(() => {});
+  // Wrap the scan so we can retry it after an inline rebuild if the
+  // first pass misses AND the caller passed a stale tuple (which
+  // hints that the index is out of date — the URL is real, the
+  // caller expected to find it, but the index doesn't show it).
+  function _scanIndex(idx) {
+    if (!idx || !idx.byOwner) return null;
+    for (const ownerKey of ownersToScan) {
+      const clients = idx.byOwner[ownerKey] || [];
+      for (const client of clients) {
+        if (!client || !Array.isArray(client.loans)) continue;
+        if (_isStaleTuple(ownerKey, client.id)) continue;
+        for (const loan of client.loans) {
+          if (loan && loan.id === loanId) {
+            return { ownerKey, client, loan };
           }
-          return json(200, {
-            found: true,
-            ownerKey,
-            clientId: client.id,
-            loanId,
-            address: loan.address || '',
-            status:  loan.status  || '',
-            source:  'index',
-          });
         }
       }
     }
+    return null;
+  }
+
+  let scanHit = _scanIndex(index);
+
+  // Deploy 236.363 — inline rebuild + re-scan when the first pass
+  // missed AND we have a stale-tuple hint. Covers the exact bug Mike
+  // hit: clients-merge-manual pre-363 didn't sync the index, so the
+  // winner's index entry didn't include the merged-in loans and the
+  // loser's entry (with the loan) was skipped by _isStaleTuple.
+  // First locate pays the rebuild cost once; future locates hit the
+  // now-fresh index. Skip when oldOwner/oldClient aren't set — a
+  // caller with no hint could be probing a truly-nonexistent loan
+  // and we shouldn't rebuild the whole thing per probe.
+  if (!scanHit && oldOwner && oldClient) {
+    try {
+      await rebuildIndex();
+      const fresh = await readIndex();
+      if (fresh && fresh.index) {
+        index = fresh.index;
+        scanHit = _scanIndex(index);
+      }
+    } catch (e) {
+      console.warn('loan-locate: post-miss rebuild failed:', e && e.message);
+    }
+  }
+
+  if (scanHit) {
+    const { ownerKey, client, loan } = scanHit;
+    // Deploy 236.357 — seed the redirect map from a successful index
+    // scan. Covers loans moved BEFORE the redirect writer shipped
+    // (or where the write failed): first locate pays the index cost,
+    // every subsequent locate is O(1). Only write when the caller
+    // supplied a stale tuple (otherwise there's no OLD side to remember).
+    if (oldOwner && oldClient
+      && (oldOwner !== ownerKey || oldClient !== client.id)) {
+      recordLoanRedirect({
+        loanId,
+        fromOwnerKey: oldOwner,
+        fromClientId: oldClient,
+        toOwnerKey:   ownerKey,
+        toClientId:   client.id,
+        via:          'loan_locate:seed',
+      }).catch(() => {});
+    }
+    return json(200, {
+      found:    true,
+      ownerKey,
+      clientId: client.id,
+      loanId,
+      address:  loan.address || '',
+      status:   loan.status  || '',
+      source:   'index',
+    });
   }
 
   return json(200, { found: false });

@@ -38,6 +38,13 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // redirect map and auto-redirects instead of dead-ending with
 // "Client not found" once the loser blob is deleted.
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
+// Deploy 236.363 — the merge writes the primary client blobs but
+// never told the materialized index about them. Result: loan-locate
+// walked the STALE index, found the loan under the (deleted) loser,
+// and my auto-redirect in loan-details bounced right back to the
+// dead URL. Update the index in-flight so subsequent reads are
+// consistent.
+import { upsertClient as indexUpsertClient, removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
 
 function _isEmpty(v) {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
@@ -266,6 +273,16 @@ async function handle(req, context) {
   } catch (e) {
     return json(500, { error: 'Failed to persist merge: ' + (e && e.message) });
   }
+
+  // Deploy 236.363 — index sync. Without these two calls the
+  // materialized clients-index still shows the loser (with its old
+  // loans) and a pre-merge winner, which causes loan-locate to
+  // resolve the loan under the deleted loser and my auto-redirect
+  // in loan-details to bounce back to the dead URL. Both helpers
+  // swallow errors so an index-write blip doesn't roll back the
+  // successful merge.
+  await indexUpsertClient(ownerKey, winner);
+  await indexRemoveClient(ownerKey, loser.id);
 
   return json(200, {
     ok: true,

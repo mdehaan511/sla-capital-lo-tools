@@ -294,6 +294,17 @@ function onUser(user) {
             oldClientId: clientId || undefined,
           }).then(function(locate) {
             if (locate && locate.found && locate.clientId && locate.ownerKey) {
+              // Deploy 236.363 \u2014 guard against a redirect loop back to
+              // the exact URL that just failed. If the index somehow
+              // resolves to the same (owner, client) tuple that we
+              // already tried and couldn't load, treat it as not-found
+              // instead of infinite-redirecting.
+              var sameOwner  = String(locate.ownerKey || '').toLowerCase() === String(ownerHref || '').toLowerCase();
+              var sameClient = String(locate.clientId || '') === String(clientId || '');
+              if (sameOwner && sameClient) {
+                _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+                return;
+              }
               var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
                 '&loanId=' + encodeURIComponent(locate.loanId) +
                 '&owner='  + encodeURIComponent(locate.ownerKey);
