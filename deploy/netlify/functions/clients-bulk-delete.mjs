@@ -29,6 +29,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 function _normAddr(s) {
   return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
@@ -130,6 +131,7 @@ async function handle(req, context) {
       }
 
       await clientsStore.delete(key);
+      pgMirror.deleteClient(cid).catch(() => {});
       deleted.push({
         clientId: cid,
         ok: true,

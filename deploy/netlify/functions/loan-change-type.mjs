@@ -38,6 +38,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try {
@@ -170,6 +171,7 @@ async function handle(req, context) {
 
   // Persist
   await clientsStore.setJSON(clientKey, client);
+  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
 
   // Also touch the matching quote in QuoteStore (if any) so Pipeline
   // reflects the new status + tool type. The quote is keyed by

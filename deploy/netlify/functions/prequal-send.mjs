@@ -22,6 +22,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try {
@@ -95,6 +96,7 @@ async function handle(req, context) {
     client.updatedAt = now;
     try {
       await clientsStore.setJSON(`${ownerKey}/${keySafe(body.clientId)}`, client);
+      pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
       lastSentAt = now;
     } catch (e) {
       console.warn('prequal-send: failed to persist lastSent stamp:', e && e.message);

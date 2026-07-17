@@ -20,6 +20,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -125,7 +126,10 @@ async function syncToClientLoan(ownerKey, quote) {
         changed = true;
       }
     }
-    if (changed) await clientsStore.setJSON(key, c);
+    if (changed) {
+      await clientsStore.setJSON(key, c);
+      pgMirror.upsertClientWithLoans(ownerKey, c).catch(() => {});
+    }
   }
 }
 

@@ -27,6 +27,7 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 const VALID_STAGES = ['', 'new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 
@@ -154,6 +155,7 @@ async function handle(req, context) {
 
   try { await clientsStore.setJSON(clientKey, client); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
+  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
 
   return json(200, { ok: true, loan, clientId: client.id, autoTasks });
 }

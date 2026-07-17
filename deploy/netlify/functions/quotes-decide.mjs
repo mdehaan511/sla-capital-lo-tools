@@ -18,6 +18,7 @@ import {
 } from './_shared/auth.mjs';
 // Deploy 226 — log the admin decision on the loan's audit trail.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 const ALLOWED = new Set(['approved', 'denied', 'on_hold']);
 
@@ -199,7 +200,10 @@ async function syncToClientLoan(ownerKey, quote, status, audit) {
         }
       }
     }
-    if (changed) await clientsStore.setJSON(key, c);
+    if (changed) {
+      await clientsStore.setJSON(key, c);
+      pgMirror.upsertClientWithLoans(ownerKey, c).catch(() => {});
+    }
   }
 }
 

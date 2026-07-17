@@ -36,6 +36,7 @@ import {
 } from './_shared/guarantor-credit-auth.mjs';
 import { getClientIp, getUserAgent } from './_shared/native-esign.mjs';
 import { encryptField } from './_shared/crypto.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 // Deploy 236.146 — `ssn_enc` removed from the generic top-level
 // whitelist. Frontend sends the raw SSN under `ssn_enc` (legacy
@@ -247,6 +248,7 @@ async function handle(req) {
 
   try { await clientsStore.setJSON(clientKey, guarantor); }
   catch (e) { return json(500, { error: 'Failed to save guarantor: ' + (e.message || 'unknown') }); }
+  pgMirror.upsertClientWithLoans(idx.ownerKey, guarantor).catch(() => {});
 
   // Deploy 236.129 — mark the loan as having freshly-arrived guarantor
   // docs so Loan Details can surface a "Re-generate loan app to
@@ -263,6 +265,7 @@ async function handle(req) {
           ln.updatedAt = now;
           primary.updatedAt = now;
           await clientsStore.setJSON(primaryKey, primary);
+          pgMirror.upsertClientWithLoans(idx.ownerKey, primary).catch(() => {});
         }
       }
     } catch (e) {

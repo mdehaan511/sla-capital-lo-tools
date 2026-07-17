@@ -42,6 +42,7 @@ import {
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 import { getOwnerReplyTo } from './_shared/email.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 // Which forms each signer signed in their single signing event.
 // Borrower 1\u2019s session covers all three forms (their own); borrower 2\u2019s
@@ -385,6 +386,7 @@ async function handle(req) {
       for (const ch of guarantorClientChanges) {
         try { await clientsStore.setJSON(ch.key, ch.client); }
         catch (e) { console.warn('borrower-info-sign: guarantor client write failed:', e && e.message); }
+        pgMirror.upsertClientWithLoans(record.ownerKey, ch.client).catch(() => {});
       }
       // Flush sub-form token index entries to the lookup store.
       if (subFormIndexEntries.length) {
@@ -427,6 +429,7 @@ async function handle(req) {
           ln.updatedAt = signedAt;
           primaryClient.updatedAt = signedAt;
           await clientsStore.setJSON(primaryKey, primaryClient);
+          pgMirror.upsertClientWithLoans(record.ownerKey, primaryClient).catch(() => {});
         }
       }
     } catch (e) {

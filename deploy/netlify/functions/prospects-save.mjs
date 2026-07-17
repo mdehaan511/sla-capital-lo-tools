@@ -28,6 +28,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { postSlack } from './_shared/slack.mjs';
 import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
 import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.343
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -429,6 +430,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
   try {
     await clientsStore.setJSON(existingKey, record);
     upsertClient(ownerKey, record).catch(() => {});
+    pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
     console.log(`${tag} saved client=${record.id} loan=${loan.id} loans=${record.loans.length}`);
   } catch (e) {
     console.error(`${tag} setJSON failed:`, e && e.message);

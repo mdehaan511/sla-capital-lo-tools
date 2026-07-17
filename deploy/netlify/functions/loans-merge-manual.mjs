@@ -47,6 +47,7 @@ import {
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 // Fields that Baseline is authoritative on — always overwrite winner
 // with loser's value when loser has one, even if winner is non-empty.
@@ -205,9 +206,15 @@ async function handle(req, context) {
 
   try {
     await store.setJSON(winnerKey, winnerClient);
+    pgMirror.upsertClientWithLoans(w.ownerKey, winnerClient).catch(() => {});
     if (winnerKey !== loserKey) {
-      if (deleteLoserClient) await store.delete(loserKey);
-      else                    await store.setJSON(loserKey, loserClient);
+      if (deleteLoserClient) {
+        await store.delete(loserKey);
+        pgMirror.deleteClient(loserClient.id).catch(() => {});
+      } else {
+        await store.setJSON(loserKey, loserClient);
+        pgMirror.upsertClientWithLoans(l.ownerKey, loserClient).catch(() => {});
+      }
     }
   } catch (e) {
     return json(500, { error: 'Failed to persist merged records: ' + (e.message || 'unknown') });

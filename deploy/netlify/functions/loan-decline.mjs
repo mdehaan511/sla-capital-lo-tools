@@ -32,6 +32,7 @@ import {
 } from './_shared/auth.mjs';
 // Deploy 226 — audit log entry on decline / restore.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 const DECLINE_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
 // Fallback when _declinedFrom was never written (e.g. a hand-edited
@@ -140,6 +141,7 @@ async function handle(req, context) {
 
   try {
     await clientsStore.setJSON(clientKey, client);
+    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

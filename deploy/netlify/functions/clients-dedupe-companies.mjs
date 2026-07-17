@@ -9,6 +9,7 @@
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth, readJsonBody } from './_shared/auth.mjs';
 import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.170
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try {
@@ -65,6 +66,8 @@ async function handle(req, context) {
         c.companies = dedup;
         c.updatedAt = new Date().toISOString();
         await store.setJSON(key, c);
+        const _ownerKey = key.split('/')[0] || '';
+        pgMirror.upsertClientWithLoans(_ownerKey, c).catch(() => {});
       }
     }
   }

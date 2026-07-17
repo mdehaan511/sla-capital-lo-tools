@@ -37,6 +37,7 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -167,6 +168,7 @@ async function handle(req, context) {
     catch (e) {
       return json(500, { error: 'Failed to save guarantor client ' + (i + 1) + ': ' + (e && e.message) });
     }
+    pgMirror.upsertClientWithLoans(ownerKey, clientRec).catch(() => {});
     createdOrLinked.push({ index: i, mode, clientId: clientRec.id, name: clientRec.firstName + ' ' + clientRec.lastName, email });
   }
 
@@ -194,6 +196,7 @@ async function handle(req, context) {
           });
           g1Client.updatedAt = now;
           try { await clientsStore.setJSON(g1Key, g1Client); } catch (_) {}
+          pgMirror.upsertClientWithLoans(ownerKey, g1Client).catch(() => {});
         }
       }
     }
@@ -222,6 +225,7 @@ async function handle(req, context) {
 
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e && e.message) }); }
+  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
 
   return json(200, { ok: true, loan, guarantors: createdOrLinked });
 }

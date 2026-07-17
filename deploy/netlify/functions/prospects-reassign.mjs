@@ -21,6 +21,7 @@ import {
   handleOptions, json, requireAuth, isAdmin, keySafe, normalizeEmail,
   readJsonBody,
 } from './_shared/auth.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -167,6 +168,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
     }
     existing.updatedAt = now;
     await clientsStore.setJSON(existingKey, existing);
+    pgMirror.upsertClientWithLoans(ownerKey, existing).catch(() => {});
     return true;
   }
 
@@ -186,6 +188,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
   };
   const key = `${ownerKey}/${keySafe(clientId)}`;
   await clientsStore.setJSON(key, record);
+  pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
   return true;
 }
 

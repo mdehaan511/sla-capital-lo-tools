@@ -25,6 +25,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 // Deploy 196: widened from {awaiting_app, approved} to all non-terminal
 // statuses. LOs reported needing to drop dead Quoted leads without
@@ -122,6 +123,7 @@ async function handle(req, context) {
 
   try {
     await clientsStore.setJSON(clientKey, client);
+    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

@@ -24,6 +24,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 const HOUSE_ACCOUNT_EMAIL = 'chance@slacapital.com';
 const MAX_BODY_BYTES = 4 * 1024;
@@ -105,6 +106,7 @@ export default async (req, context) => {
   const key = ownerKey + '/' + keySafe(clientId);
   try {
     await clientsStore.setJSON(key, record);
+    pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
   } catch (e) {
     console.error('borrower-register: setJSON failed:', e && e.message);
     return json(500, { error: 'Failed to save registration' });

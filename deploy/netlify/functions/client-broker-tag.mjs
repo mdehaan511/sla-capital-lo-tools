@@ -18,6 +18,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -85,6 +86,7 @@ async function handle(req, context) {
 
   try { await clientsStore.setJSON(key, client); }
   catch (e) { return json(500, { error: 'Failed to save client: ' + (e && e.message) }); }
+  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
 
   return json(200, { ok: true, client });
 }

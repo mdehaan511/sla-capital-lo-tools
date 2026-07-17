@@ -23,6 +23,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 // Basic URL sanitization — accept http(s) only, otherwise reject.
 // Prevents an LO from accidentally pasting a `javascript:` or
@@ -167,6 +168,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, primary).catch(() => {});
+  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
 
   return json(200, { ok: true, loan });
 }

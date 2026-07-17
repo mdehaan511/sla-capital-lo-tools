@@ -26,6 +26,7 @@ import { regenerateSignedApplicationPDF } from './_shared/signed-app-regenerate.
 // Deploy 236.56 — use the coalesced variant so back-to-back autosaves
 // don't bury Notes & Activity in duplicate entries.
 import { appendCoalescedNoteEntry } from './_shared/notes-log.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try {
@@ -158,6 +159,7 @@ async function handle(req, context) {
               if (added) {
                 clientForLog.updatedAt = new Date().toISOString();
                 await clientsStore2.setJSON(clientKey, clientForLog);
+                pgMirror.upsertClientWithLoans(ownerKey, clientForLog).catch(() => {});
               }
             }
           }
@@ -278,5 +280,6 @@ async function syncBorrowerFieldsToClient(record) {
   if (changed) {
     client.updatedAt = new Date().toISOString();
     await clientsStore.setJSON(clientKey, client);
+    pgMirror.upsertClientWithLoans(record.ownerKey, client).catch(() => {});
   }
 }

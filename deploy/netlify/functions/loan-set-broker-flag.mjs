@@ -25,6 +25,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -143,6 +144,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, primary).catch(() => {});
+  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
 
   return json(200, { ok: true, loan });
 }
