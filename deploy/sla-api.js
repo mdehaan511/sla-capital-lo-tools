@@ -2058,6 +2058,16 @@
         return r;
       });
     },
+    // ═══ Supabase data migration — Phase 1 ═══════════════════
+    // Read a loan straight from Postgres by loanId alone. No owner
+    // or clientId needed. Returns the SAME shape as
+    // SLA.Clients.get + a per-loan projection so the loan-details
+    // callsite change is a two-line swap. Falls back is the
+    // caller's job during Phases 1–4 (see plan doc).
+    getPG: function (loanId) {
+      return api('GET', '/api/loan-get-pg?loanId=' + encodeURIComponent(loanId));
+    },
+
     // Deploy 236.356 — locate a loan by id when the URL's (client,
     // owner) tuple is stale. Backend consults the persisted redirect
     // map first (Deploy 236.357, one-blob-read O(1)); falls back to

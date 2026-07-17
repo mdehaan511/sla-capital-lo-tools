@@ -1032,6 +1032,22 @@
   status = 200
   force = true
 
+# ═══ Supabase data migration — Phase 1 ═══════════════════════
+# Feature branch supabase-data-migration only; won't ship to prod
+# until merged. Read + backfill endpoints live under /api/*-pg so
+# nothing collides with the existing blob-backed endpoints.
+[[redirects]]
+  from = "/api/loan-get-pg"
+  to = "/.netlify/functions/loan-get-pg"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin-backfill-loans-pg"
+  to = "/.netlify/functions/admin-backfill-loans-pg"
+  status = 200
+  force = true
+
 # Deploy 236.191 — consolidate baseline borrowers. Dedupes clients
 # by email (fallback name+phone), attaches LLCs to companies[], and
 # creates separate clients for Guarantor_2s.
