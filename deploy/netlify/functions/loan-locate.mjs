@@ -27,11 +27,12 @@
  *   400 { error }               — missing loanId
  *   401 { error }
  */
+import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
-import { readIndex, rebuildIndex } from './_shared/clients-index.mjs';
+import { readIndex, rebuildIndex, upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
 // Deploy 236.357 — one-blob-read redirect map. Reassignments write
 // (old → new) here so subsequent locates are O(1) instead of an
 // index walk.
@@ -140,25 +141,53 @@ async function handle(req, context) {
 
   let scanHit = _scanIndex(index);
 
-  // Deploy 236.363 — inline rebuild + re-scan when the first pass
-  // missed AND we have a stale-tuple hint. Covers the exact bug Mike
-  // hit: clients-merge-manual pre-363 didn't sync the index, so the
-  // winner's index entry didn't include the merged-in loans and the
-  // loser's entry (with the loan) was skipped by _isStaleTuple.
-  // First locate pays the rebuild cost once; future locates hit the
-  // now-fresh index. Skip when oldOwner/oldClient aren't set — a
-  // caller with no hint could be probing a truly-nonexistent loan
-  // and we shouldn't rebuild the whole thing per probe.
+  // Deploy 236.363 → 236.364 — direct blob-store walk as the
+  // last-resort fallback when the index misses AND the caller
+  // supplied a stale-tuple hint (which implies the loan exists,
+  // the index just doesn't know yet). Replaces the earlier rebuild-
+  // then-rescan approach — the rebuild was timing out in some
+  // cases and never returning, leaving the caller stuck on the
+  // "checking loan location…" screen. Direct walk is O(N) blob
+  // reads but always finds the loan if it exists, no dependency
+  // on index freshness. We also opportunistically upsert the found
+  // client into the index so the very next locate is O(1) again.
+  //
+  // Skip when the caller didn't pass a stale tuple — an unhinted
+  // miss usually means the loan really doesn't exist, and there's
+  // no need to pay the O(N) cost per probe.
   if (!scanHit && oldOwner && oldClient) {
     try {
-      await rebuildIndex();
-      const fresh = await readIndex();
-      if (fresh && fresh.index) {
-        index = fresh.index;
-        scanHit = _scanIndex(index);
+      const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+      const scanOwners = isStaff ? null : selfKey; // null = all owners
+      const listOpts = scanOwners ? { prefix: scanOwners + '/' } : {};
+      const { blobs } = await clientsStore.list(listOpts);
+      const CHUNK = 25;
+      outer: for (let i = 0; i < blobs.length; i += CHUNK) {
+        const slice = blobs.slice(i, i + CHUNK);
+        const recs = await Promise.all(slice.map(async ({ key }) => {
+          const slash = key.indexOf('/');
+          if (slash < 0) return null;
+          const ownerKey = key.slice(0, slash);
+          if (_isStaleTuple(ownerKey, key.slice(slash + 1))) return null;
+          const rec = await clientsStore.get(key, { type: 'json' }).catch(() => null);
+          return rec ? { ownerKey, rec } : null;
+        }));
+        for (const item of recs) {
+          if (!item || !item.rec || !Array.isArray(item.rec.loans)) continue;
+          if (_isStaleTuple(item.ownerKey, item.rec.id)) continue;
+          for (const loan of item.rec.loans) {
+            if (loan && loan.id === loanId) {
+              scanHit = { ownerKey: item.ownerKey, client: item.rec, loan };
+              // Heal the index for next time. Fire-and-forget — a
+              // failed index write here doesn't affect this response.
+              indexUpsertClient(item.ownerKey, item.rec).catch(() => {});
+              break outer;
+            }
+          }
+        }
       }
     } catch (e) {
-      console.warn('loan-locate: post-miss rebuild failed:', e && e.message);
+      console.warn('loan-locate: direct-walk fallback failed:', e && e.message);
     }
   }
 
