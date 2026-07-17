@@ -149,6 +149,12 @@ async function handle(req, context) {
   // borrower_info + signed_application deletion happens in the
   // per-store blocks below (using resetApp as the branch flag).
   const resetApp = !!body.resetApplication;
+  // Deploy 236.367 — setBrokerFlag lets the caller (Clear Primary
+  // Guarantor) mark the reassigned loan as a broker deal after
+  // moving it to the placeholder client. Broker mode hides
+  // borrower-facing fields on Loan Details and short-circuits the
+  // "guarantor must exist" gates elsewhere.
+  const setBrokerFlag = !!body.setBrokerFlag;
   let unlinkedGuarantors = 0;
   if (resetApp) {
     if (Array.isArray(loan.guarantorClientIds)) {
@@ -166,6 +172,11 @@ async function handle(req, context) {
     delete loan.borrowerEmailSentAt;
     loan._applicationResetAt = now;
     loan._applicationResetBy = selfEmail;
+  }
+  if (setBrokerFlag) {
+    loan._isBrokerLoan = true;
+    loan._brokerModeSetAt = now;
+    loan._brokerModeSetBy = selfEmail;
   }
 
   // Audit note on the loan

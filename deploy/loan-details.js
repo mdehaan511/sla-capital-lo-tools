@@ -1565,10 +1565,14 @@ function render() {
   //     Guarantor 1 tab are read-only (editing happens on Client
   //     Details so changes propagate to every loan tied to the
   //     client — see Deploy 236.143).
-  //   - Added a "Change Primary Guarantor" button at the bottom-left
-  //     that opens the existing Reassign Loan modal. Contextually
-  //     placed where the LO is already looking at "who is the
-  //     primary guarantor" so the change action is one click away.
+  // Deploy 236.367 — Change / Clear Primary Guarantor buttons moved
+  // into the primary pane's own footer (see _renderEditGuarantorButton).
+  // The previous standalone .change-primary-guarantor-row rendered
+  // BELOW the pane but INSIDE the section-body; combined with its
+  // border-top + the button's outlined styling it visually read as a
+  // separate mini-card sitting below the Guarantor Info section
+  // (Mike's report). Consolidating the buttons into the pane footer
+  // puts every primary-affecting action in one obvious row.
   html +=
     '<div class="section" id="borrowerInfoSection">' +
       '<div class="section-head">' +
@@ -1579,12 +1583,6 @@ function render() {
       '<div class="section-body">' +
         _bwTabsHtml +
         _bwPanesHtml +
-        '<div class="change-primary-guarantor-row">' +
-          '<button type="button" class="change-primary-guarantor-btn" onclick="openReassignLoanModal()" title="Reassign this loan to a different primary guarantor. If the new person is a different borrower, the loan application will be reset.">' +
-            '<svg width="14" height="14" viewBox="0 0 15 15" fill="none" style="flex-shrink:0"><path d="M3 4h4l2 2h3M3 8h4l2 2h3M11 6l-1.5-1.5M11 6l-1.5 1.5M11 10l-1.5-1.5M11 10l-1.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-            'Change Primary Guarantor' +
-          '</button>' +
-        '</div>' +
       '</div>' +
     '</div>';
 
@@ -2228,23 +2226,100 @@ function _renderEditGuarantorButton(clientId, isPrimary) {
       '<span class="bw-edit-icon">⬇</span> Download Application' +
     '</button>';
   // Deploy 236.366 — Remove Guarantor. Non-primary only (removing
-  // the primary would orphan the loan; use Change Primary Guarantor
-  // for that). Mike's use case: broker loans get a guarantor added
-  // by accident before the deal's ready — LO needs to be able to
-  // clear it without a support ticket.
+  // the primary would orphan the loan). Mike's original use case:
+  // broker loans get a co-guarantor added by accident before ready.
   var removeBtn = isPrimary ? '' :
     '<button type="button" class="bw-remove-guarantor-btn" onclick="removeGuarantorFromLoan(\'' + escAttr(clientId) + '\')" ' +
        'title="Unlink this guarantor from this loan. Their client record is kept — you can re-add them later or leave them for other loans they\'re tied to.">' +
       '<span class="bw-edit-icon">×</span> Remove Guarantor' +
     '</button>';
-  return '<div class="bw-pane-footer" style="gap:8px">' +
+  // Deploy 236.367 — primary-only buttons that used to live in a
+  // standalone .change-primary-guarantor-row (which visually looked
+  // like a separate mini-card underneath the section). Consolidated
+  // into the primary pane footer so all primary-affecting actions
+  // sit in one row alongside Edit Guarantor.
+  var changePrimaryBtn = isPrimary
+    ? '<button type="button" class="bw-edit-guarantor-btn" onclick="openReassignLoanModal()" ' +
+        'title="Reassign this loan to a different primary guarantor. If the new person is a different borrower, the loan application will be reset.">' +
+        '<span class="bw-edit-icon">⇄</span> Change Primary Guarantor' +
+      '</button>'
+    : '';
+  var clearPrimaryBtn = isPrimary
+    ? '<button type="button" class="bw-remove-guarantor-btn" onclick="clearPrimaryGuarantor()" ' +
+        'title="For broker loans: wipe the primary guarantor and revert the loan to broker-only mode. Creates a Broker Deal placeholder client so the loan isn\'t orphaned. The loan application will be reset.">' +
+        '<span class="bw-edit-icon">×</span> Clear Primary Guarantor' +
+      '</button>'
+    : '';
+  return '<div class="bw-pane-footer" style="gap:8px;flex-wrap:wrap">' +
     downloadBtn +
     '<a class="bw-edit-guarantor-btn" href="' + escAttr(href) + '" target="_blank" rel="noopener" ' +
        'title="Open this guarantor\'s Client Details page in a new tab. Changes there sync to every loan this client is tied to.">' +
       '<span class="bw-edit-icon">✎</span> Edit Guarantor' +
     '</a>' +
+    changePrimaryBtn +
     removeBtn +
+    clearPrimaryBtn +
   '</div>';
+}
+
+// Deploy 236.367 — Clear Primary Guarantor. Broker-mode revert flow.
+// Uses the existing loan-reassign endpoint with:
+//   - newClient: a placeholder "Broker Deal — <property>"
+//   - resetApplication: true (wipes borrower_info + signed app)
+//   - setBrokerFlag: true (stamps _isBrokerLoan on the loan)
+// Redirects to the loan under the new placeholder client on success.
+function clearPrimaryGuarantor() {
+  if (!_client || !_loan) return;
+  var address = (_loan.address || '').trim();
+  // Extract the street portion for the placeholder name (before the
+  // first comma). Falls back to a date-stamped label if there's no
+  // address on the loan yet.
+  var street = address.split(',')[0].trim();
+  if (!street) {
+    street = 'no address yet';
+  }
+  var placeholderLast = street.slice(0, 60); // reasonable cap
+  var currentName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim() || _client.email || 'the current borrower';
+
+  var confirmMsg = 'Revert this loan to broker-only mode?\n\n' +
+    'This will:\n' +
+    '  1. Move the loan off ' + currentName + ' onto a new "Broker Deal — ' + street + '" placeholder client\n' +
+    '  2. Delete the loan application (long-app + signed PDF)\n' +
+    '  3. Unlink co-guarantors and clear vesting LLC info\n' +
+    '  4. Flip the loan into broker mode\n\n' +
+    currentName + '\'s own client record is kept — this only affects THIS loan.\n\n' +
+    'Continue?';
+  if (!confirm(confirmMsg)) return;
+
+  var body = {
+    srcClientId: _client.id,
+    loanId:      _loanId,
+    newClient: {
+      firstName:  'Broker Deal',
+      lastName:   placeholderLast,
+      email:      '',
+      phone:      '',
+      entityName: '',
+    },
+    resetApplication: true,
+    setBrokerFlag:    true,
+  };
+  var ownerOvr = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  if (ownerOvr) body.owner = ownerOvr;
+
+  SLA.Loans.reassign(body).then(function(resp) {
+    if (typeof showToast === 'function') showToast('Cleared primary — loan reverted to broker mode');
+    setTimeout(function() {
+      var url = 'loan-details.html?clientId=' + encodeURIComponent(resp.destClientId) +
+        '&loanId=' + encodeURIComponent(resp.loanId);
+      if (ownerOvr) url += '&owner=' + encodeURIComponent(ownerOvr);
+      window.location.href = url;
+    }, 500);
+  }).catch(function(err) {
+    console.error('clearPrimaryGuarantor failed:', err);
+    var msg = (err && err.message) || 'unknown error';
+    if (typeof showToast === 'function') showToast('Clear failed: ' + msg);
+  });
 }
 
 // Deploy 236.366 — click handler for the Remove Guarantor button.
