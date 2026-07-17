@@ -1068,6 +1068,13 @@
   status = 200
   force = true
 
+# Phase 4 — Postgres-backed clients list (drop-in for /api/clients).
+[[redirects]]
+  from = "/api/clients-list-pg"
+  to = "/.netlify/functions/clients-list-pg"
+  status = 200
+  force = true
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates

@@ -859,6 +859,26 @@
       if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
       return api('GET', '/api/client-get?' + qs);
     },
+    // Phase 4 Supabase migration — Postgres-backed clients list.
+    // Same response shape as Clients.list() so page-level cutovers
+    // can be a one-line swap. Callers should wrap in .catch() → old
+    // Clients.list() during the transition window; Phase 5 flips PG
+    // to primary and removes the fallback.
+    //
+    // Perf: single query with an embedded loans join on the DB side
+    // instead of walking a 2 800-key blob store. The clients-index
+    // materialized blob (Deploy 236.341) becomes deprecated once
+    // this path is proven.
+    listPG: function (opts) {
+      opts = opts || {};
+      var parts = [];
+      if (opts.all)          parts.push('all=1');
+      if (opts.summary)      parts.push('summary=1');
+      if (opts.full)         parts.push('full=1');
+      if (opts.nonEmptyOnly) parts.push('nonEmptyOnly=1');
+      var path = '/api/clients-list-pg' + (parts.length ? '?' + parts.join('&') : '');
+      return api('GET', path);
+    },
     // Deploy 236.369 — merge two client records (winner + loser).
     // Same endpoint used by the loan-details clients merge modal
     // (clients-merge-manual.mjs, Deploy 236.230); adding a Clients-
