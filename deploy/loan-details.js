@@ -204,7 +204,13 @@ function init() {
   var params = new URLSearchParams(window.location.search);
   _clientId = params.get('clientId');
   _loanId   = params.get('loanId');
-  if (!_clientId || !_loanId) { window.location.href = 'clients.html'; return; }
+  // Phase 3 Supabase migration — short URL support. Was: hard-required
+  // both clientId AND loanId (redirected to /clients if either was
+  // missing). Now: loanId alone is enough because fetchLoan() reads
+  // straight from Postgres by loanId and hydrates _clientId / _loEmail
+  // from the response. Old three-param URLs still work — the fallback
+  // path uses them when the loanId lookup misses (backfill lag, etc.).
+  if (!_loanId) { window.location.href = 'clients.html'; return; }
 
   netlifyIdentity.on('init', function(user) {
     if (!user) { netlifyIdentity.open(); return; }
@@ -529,6 +535,9 @@ function fetchLoanFromCache() {
     var _p = new URLSearchParams(window.location.search);
     if (_p.get('fresh') === '1') return null;
   } catch (_) {}
+  // Phase 3 — short URL support. Cache is keyed by clientId; without
+  // it there's nothing to look up. PG lookup handles the render.
+  if (!_clientId) return null;
   if (!window.SLA || !SLA.Clients || !SLA.Clients.listCached) return null;
   try {
     var clients = SLA.Clients.listCached();
@@ -553,42 +562,72 @@ function fetchLoanFromCache() {
 // invisible for up to 5 minutes because the recipient's cached clients
 // list didn't include it yet.
 function fetchLoan() {
-  // Deploy 236.345 — single-record fetch via /api/client-get.
-  // Was: walked every client in the store (~2 852 records post-CRM
-  // import) to find one (clientId, loanId) pair. Now: one blob get,
-  // ~50 ms regardless of dataset size. Full record still returned
-  // (the summary projection doesn't include notesLog, formData
-  // snapshots, guarantorOwnership, vestingLLCs, etc. — all of
-  // which render on this page).
+  // Phase 3 Supabase migration — PG-first read path.
   //
-  // Deploy 236.356 — return { client, loan } on success, { client }
-  // (no loan) when the client exists but the loanId isn't on it
-  // (loan was moved), or null when the client itself is gone. This
-  // lets the error screen distinguish "loan was reassigned" from
-  // "client deleted" instead of both showing the same dead-end
-  // "Loan not found" message.
+  // 1. Try SLA.Loans.getPG(_loanId). Postgres knows about EVERY loan
+  //    the migration has mirrored (Phase 1 backfill + Phase 2
+  //    dual-write), no owner or clientId needed. Fastest path.
+  //
+  // 2. On PG miss (backfill lag, or a mutation that slipped past
+  //    the mirror hook), fall back to the blob path. Requires
+  //    _clientId — if the URL is loanId-only AND PG missed, we
+  //    consult loan-locate to find (owner, clientId) then read
+  //    from the blob.
+  //
+  // 3. The blob path (SLA.Clients.get) still returns
+  //    { client, loan: null, loanMoved: true } when the client
+  //    exists but the loanId isn't on it, so the "loan moved"
+  //    redirect flow (Deploy 236.356+) keeps working for old
+  //    bookmarks that point at pre-reassignment tuples.
+  //
+  // Downstream code expects _clientId + _loEmail to be populated
+  // before render(). Both hydrate here whether we came from PG or
+  // from the blob path.
   var params = new URLSearchParams(window.location.search);
   var ownerParam = params.get('owner');
-  return SLA.Clients.get(_clientId, ownerParam ? { owner: ownerParam } : {}).then(function(r) {
-    if (!r || !r.client) return null;
-    var client = r.client;
-    var loans = client.loans || [];
-    for (var i = 0; i < loans.length; i++) {
-      if (loans[i].id === _loanId) {
-        // Backend returned the ownerKey it actually found the
-        // record under (cross-namespace recovery may have moved
-        // ownerParam → different bucket). Trust it.
-        if (r.ownerKey) _loEmail = r.ownerKey;
-        return { client: client, loan: loans[i] };
+
+  function _fromBlob() {
+    // Original blob-store read path — preserved verbatim for the
+    // Phase 3 fallback (backfill lag, mutation slipped past mirror,
+    // etc.). See Deploy 236.345 / 236.356 comments in git history
+    // for context.
+    if (!_clientId) return Promise.resolve(null); // short URL + PG miss = truly not found
+    return SLA.Clients.get(_clientId, ownerParam ? { owner: ownerParam } : {}).then(function(r) {
+      if (!r || !r.client) return null;
+      var client = r.client;
+      var loans = client.loans || [];
+      for (var i = 0; i < loans.length; i++) {
+        if (loans[i].id === _loanId) {
+          if (r.ownerKey) _loEmail = r.ownerKey;
+          return { client: client, loan: loans[i] };
+        }
       }
-    }
-    // Client exists, loan isn't on it. Deploy 236.356 — surface
-    // this specifically. Most common cause is a Team-Members-tab
-    // LO reassign (or the Change Primary Guarantor flow), which
-    // moves the loan to a new client under a possibly-different
-    // owner and mints a fresh clientId. Old bookmarks then 404.
-    return { client: client, loan: null, loanMoved: true, foundOwnerKey: r.ownerKey };
-  }).catch(function() { return null; });
+      return { client: client, loan: null, loanMoved: true, foundOwnerKey: r.ownerKey };
+    }).catch(function() { return null; });
+  }
+
+  if (window.SLA && SLA.Loans && SLA.Loans.getPG) {
+    return SLA.Loans.getPG(_loanId).then(function(pg) {
+      if (pg && pg.loan && pg.client) {
+        // Hydrate global state from the PG response so every
+        // downstream component (which expects _clientId +
+        // _loEmail set) works unchanged.
+        if (pg.client.id) _clientId = pg.client.id;
+        if (pg.ownerKey)  _loEmail  = pg.ownerKey;
+        console.log('[SLA loan-lookup] PG hit for', _loanId);
+        return { client: pg.client, loan: pg.loan };
+      }
+      // PG didn't have it — fall back to blob.
+      console.log('[SLA loan-lookup] PG miss, falling back to blob for', _loanId);
+      return _fromBlob();
+    }).catch(function(err) {
+      console.warn('[SLA loan-lookup] PG threw, falling back to blob:', err && err.message);
+      return _fromBlob();
+    });
+  }
+  // SLA.Loans.getPG isn't available (SDK didn't load cleanly).
+  // Blob is the only source.
+  return _fromBlob();
 }
 
 var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
