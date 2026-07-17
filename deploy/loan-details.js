@@ -261,6 +261,13 @@ function onUser(user) {
     render();
   }
   fetchLoan().then(function(found) {
+    // Deploy 236.365 \u2014 verbose diagnostic logging on the not-found
+    // path so Mike (or any admin) can share console output and I can
+    // see exactly where the flow stalls. Kept prefixed with [SLA
+    // loan-lookup] so it's easy to grep out later.
+    if (!found || !found.loan) {
+      console.log('[SLA loan-lookup] client-get for', _clientId, 'returned:', found);
+    }
     // Deploy 236.356 \u2014 the not-found flow now distinguishes:
     //   found = null                           \u2192 client itself is gone
     //   found = { client, loan: null, ... }    \u2192 client exists, loan
@@ -289,10 +296,14 @@ function onUser(user) {
               '<h3 style="margin-bottom:12px">Client not found \u2014 checking loan location\u2026</h3>' +
               '<p style="color:var(--muted);margin-bottom:8px">The client may have been merged into another. Looking up the loan.</p>' +
             '</div>';
+          console.log('[SLA loan-lookup] calling locate for loanId=' + loanId, {
+            oldOwnerKey: ownerHref, oldClientId: clientId,
+          });
           SLA.Loans.locate(loanId, {
             oldOwnerKey: ownerHref || undefined,
             oldClientId: clientId || undefined,
           }).then(function(locate) {
+            console.log('[SLA loan-lookup] locate returned:', locate);
             if (locate && locate.found && locate.clientId && locate.ownerKey) {
               // Deploy 236.363 \u2014 guard against a redirect loop back to
               // the exact URL that just failed. If the index somehow
@@ -316,9 +327,10 @@ function onUser(user) {
               setTimeout(function() { window.location.replace(newUrl); }, 400);
               return;
             }
-            _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
-          }).catch(function() {
-            _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+            _renderLoanNotLocatedScreen(clientId, loanId, ownerHref, { locateResult: locate });
+          }).catch(function(err) {
+            console.error('[SLA loan-lookup] locate threw:', err);
+            _renderLoanNotLocatedScreen(clientId, loanId, ownerHref, { locateError: (err && err.message) || String(err) });
           });
           return;
         }
@@ -389,17 +401,41 @@ function onUser(user) {
 // Deploy 236.356 \u2014 fallback screen when a moved loan can't be located
 // anywhere (deleted, or the materialized index is out of sync). Gives
 // the LO actionable next steps instead of a dead-end.
-function _renderLoanNotLocatedScreen(clientId, loanId, ownerHref) {
+// Deploy 236.365 \u2014 optional { locateResult, locateError } param
+// renders a collapsible diagnostic block so admins can share what
+// actually came back from the locate call.
+function _renderLoanNotLocatedScreen(clientId, loanId, ownerHref, diag) {
   var loanShort = loanId && loanId.length > 12 ? loanId.slice(0, 12) + '\u2026' : (loanId || '');
+  var _diagBlock = '';
+  if (diag) {
+    var _diagJson = '';
+    try { _diagJson = JSON.stringify(diag, null, 2); } catch (_) { _diagJson = String(diag); }
+    var _isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
+    // Only admins get the raw JSON block; regular LOs don't need it.
+    if (_isAdminUser) {
+      _diagBlock =
+        '<details style="margin-top:24px;text-align:left;max-width:520px;margin-left:auto;margin-right:auto">' +
+          '<summary style="cursor:pointer;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Diagnostic (admin)</summary>' +
+          '<pre style="background:#faf8f5;padding:12px 14px;border-radius:6px;font-family:\'DM Mono\',monospace;font-size:11px;color:#3f2f4d;overflow-x:auto;margin-top:8px;line-height:1.5">' +
+            '<strong>URL params:</strong>\n' +
+            '  clientId: ' + escH(clientId || '') + '\n' +
+            '  loanId:   ' + escH(loanId || '') + '\n' +
+            '  owner:    ' + escH(ownerHref || '') + '\n\n' +
+            '<strong>Locate response:</strong>\n' + escH(_diagJson) +
+          '</pre>' +
+        '</details>';
+    }
+  }
   document.getElementById('pageContent').innerHTML =
-    '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
-      '<h3 style="margin-bottom:12px">This loan has been moved</h3>' +
-      '<p style="color:var(--muted);margin-bottom:12px">The client record still exists, but loan <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(loanShort) + '</code> is no longer attached to it, and we couldn\'t find it under any other client.</p>' +
-      '<p style="color:var(--muted);margin-bottom:6px;font-size:13px">Most common cause: a reassignment (Team Members \u2192 Loan Officer dropdown, or Change Primary Guarantor). If the reassign just happened, the search index may be a moment behind \u2014 try again in ~30 seconds.</p>' +
+    '<div style="padding:4rem 2rem;text-align:center;max-width:640px;margin:0 auto">' +
+      '<h3 style="margin-bottom:12px">This loan couldn\'t be located</h3>' +
+      '<p style="color:var(--muted);margin-bottom:12px">Loan <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(loanShort) + '</code> isn\'t on the client the URL points at, and the store walk didn\'t find it under any other client either.</p>' +
+      '<p style="color:var(--muted);margin-bottom:6px;font-size:13px">Most common cause: a reassignment or client merge that left the loan orphaned. Open Pipeline to find its current tile, or check the old client for context.</p>' +
       '<div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">' +
         '<a href="pipeline.html" style="padding:10px 20px;background:var(--dark, #261A36);color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open Pipeline</a>' +
         '<a href="client-details.html?clientId=' + encodeURIComponent(clientId) + (ownerHref ? '&owner=' + encodeURIComponent(ownerHref) : '') + '" style="padding:10px 20px;background:transparent;color:var(--muted);border:1.5px solid var(--border, #E4DFD4);text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open the old client</a>' +
       '</div>' +
+      _diagBlock +
     '</div>';
 }
 
