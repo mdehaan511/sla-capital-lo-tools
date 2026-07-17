@@ -34,6 +34,7 @@ import { loadRecord } from './_shared/borrower-info-keys.mjs';
 // Deploy 236.341 — write-through the clients-index blob so
 // guarantor-add mutations show up in cross-owner reads instantly.
 import { upsertClient } from './_shared/clients-index.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -233,6 +234,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(guarantorKey, guarantor); }
   catch (e) { return json(500, { error: 'Failed to write guarantor client: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, guarantor).catch(() => {});
+  pgMirror.upsertClientWithLoans(ownerKey, guarantor).catch(() => {});
 
   // ── Wire into the loan: guarantorClientIds + ownership map.
   loan.guarantorClientIds = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
@@ -268,6 +270,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, primary).catch(() => {});
+  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
 
   return json(200, {
     ok: true,

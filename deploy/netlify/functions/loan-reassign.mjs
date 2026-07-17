@@ -43,6 +43,7 @@ import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs'
 // still references the old (owner, client) tuple redirects in one
 // blob read instead of forcing loan-locate to scan the index.
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try {
@@ -228,11 +229,14 @@ async function handle(req, context) {
   try {
     const destKey = ownerKey + '/' + keySafe(destClient.id);
     await clientsStore.setJSON(destKey, destClient);
+    pgMirror.upsertClientWithLoans(ownerKey, destClient).catch(() => {});
     if (srcClient._isBrokerPlaceholder && srcClient.loans.length === 0) {
       await clientsStore.delete(srcKey);
+      pgMirror.deleteClient(srcClient.id).catch(() => {});
       srcPlaceholderDeleted = true;
     } else {
       await clientsStore.setJSON(srcKey, srcClient);
+      pgMirror.upsertClientWithLoans(ownerKey, srcClient).catch(() => {});
     }
   } catch (e) {
     return json(500, { error: 'Failed to write client records: ' + (e.message || 'unknown') });

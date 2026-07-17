@@ -42,6 +42,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // pattern loan-financials-edit.mjs uses for inline edits.
 import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
 import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try {
@@ -330,6 +331,7 @@ async function handle(req, context) {
   try {
     await clientsStore.setJSON(clientKey, client);
     upsertClient(ownerKey, client).catch(() => {});
+    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

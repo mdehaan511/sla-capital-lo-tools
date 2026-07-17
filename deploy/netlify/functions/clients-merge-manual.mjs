@@ -45,6 +45,7 @@ import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 // dead URL. Update the index in-flight so subsequent reads are
 // consistent.
 import { upsertClient as indexUpsertClient, removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 function _isEmpty(v) {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
@@ -307,7 +308,9 @@ async function handle(req, context) {
   // 7. Persist winner + delete loser.
   try {
     await clientsStore.setJSON(winnerKey, winner);
+    pgMirror.upsertClientWithLoans(winnerOwnerKey, winner).catch(() => {});
     await clientsStore.delete(loserKey);
+    pgMirror.deleteClient(loser.id).catch(() => {});
   } catch (e) {
     return json(500, { error: 'Failed to persist merge: ' + (e && e.message) });
   }

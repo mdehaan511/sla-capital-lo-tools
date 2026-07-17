@@ -25,6 +25,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { splitBrokerName, clientAsBroker } from './_shared/broker-client.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -76,6 +77,7 @@ export default async (req, context) => {
     console.error('brokers-save error:', e);
     return json(500, { error: 'Failed to save broker' });
   }
+  pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
 
   // Best-effort: if a legacy broker record still exists for this id,
   // delete it so we don't dual-list.

@@ -16,6 +16,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -46,12 +47,14 @@ export default async (req, context) => {
       const looksBrokerOnly = existing._isBroker && !hasLoans && !existing.firstName && !existing.lastName;
       if (looksBrokerOnly) {
         await clientsStore.delete(key);
+        pgMirror.deleteClient(body.id).catch(() => {});
         mode = 'deleted';
       } else {
         delete existing._isBroker;
         delete existing._brokerCompany;
         existing.updatedAt = new Date().toISOString();
         await clientsStore.setJSON(key, existing);
+        pgMirror.upsertClientWithLoans(ownerKey, existing).catch(() => {});
       }
     }
     // Clean up any lingering legacy broker record too.

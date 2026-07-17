@@ -45,6 +45,7 @@ import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
 // still references the old (owner, client) tuple redirects in one
 // blob read instead of forcing loan-locate to scan the index.
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -143,8 +144,14 @@ async function handle(req, context) {
   try {
     // Write dest FIRST — if src write fails, at least the loan lives somewhere.
     await clientsStore.setJSON(destKey, destClient);
-    if (deleteSrcClient) await clientsStore.delete(srcKey);
-    else                  await clientsStore.setJSON(srcKey, srcClient);
+    pgMirror.upsertClientWithLoans(newOwnerKey, destClient).catch(() => {});
+    if (deleteSrcClient) {
+      await clientsStore.delete(srcKey);
+      pgMirror.deleteClient(srcClient.id).catch(() => {});
+    } else {
+      await clientsStore.setJSON(srcKey, srcClient);
+      pgMirror.upsertClientWithLoans(oldOwnerKey, srcClient).catch(() => {});
+    }
   } catch (e) {
     return json(500, { error: 'Failed to persist client records: ' + (e.message || 'unknown') });
   }

@@ -38,6 +38,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -113,6 +114,7 @@ async function handle(req, context) {
 
   await clientsStore.setJSON(primaryKey, primary);
   indexUpsertClient(ownerKey, primary).catch(() => {});
+  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
 
   // Clean up the backref on the guarantor client. The guarantor may
   // live under a different owner (linked cross-LO); walk all
@@ -138,6 +140,7 @@ async function handle(req, context) {
         const slash = key.indexOf('/');
         const gOwner = slash > 0 ? key.slice(0, slash) : ownerKey;
         indexUpsertClient(gOwner, rec).catch(() => {});
+        pgMirror.upsertClientWithLoans(gOwner, rec).catch(() => {});
         removedBackrefs += (before.length - after.length);
       }
       // Also nuke any pending subform token entries for this loan
@@ -150,6 +153,9 @@ async function handle(req, context) {
         );
         if (rec._guarantorSubformTokens.length !== beforeT) {
           await clientsStore.setJSON(key, rec);
+          const _slash2 = key.indexOf('/');
+          const _gOwner2 = _slash2 > 0 ? key.slice(0, _slash2) : ownerKey;
+          pgMirror.upsertClientWithLoans(_gOwner2, rec).catch(() => {});
         }
       }
       break;

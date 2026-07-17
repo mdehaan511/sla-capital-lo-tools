@@ -42,6 +42,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.222 Phase 5 — keep the QuoteStore in sync with the loan.
 import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
 import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 // Whitelist of fields the inline editor can patch + how to coerce them.
 // Values not on the list are silently dropped.
@@ -245,6 +246,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(clientKey, client); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, client).catch(() => {});
+  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
 
   // Deploy 236.222 Phase 5 — mirror the loan's editable fields onto
   // any QuoteStore entries. Non-fatal on failure — a stale quote is
