@@ -22,6 +22,11 @@ import { encryptField } from './_shared/crypto.mjs';
 // Deploy 236.341 (Tier 2 scaling) — write-through the materialized
 // clients-index blob so cross-owner list reads stay in sync.
 import { upsertClient } from './_shared/clients-index.mjs';
+// Phase 2 Supabase migration — best-effort dual-write to Postgres
+// after the blob write commits. mirror.upsertClientWithLoans
+// flushes the client scalars + all its loans in one call (matches
+// what the frontend just wrote to the blob store).
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
 /**
  * Look up a profile by email and return a best-effort full name. Never throws.
@@ -234,6 +239,10 @@ export default async (req, context) => {
     // so cross-owner list reads stay in-sync. upsertClient never
     // throws (index write failure logged, primary save unaffected).
     upsertClient(ownerKey, record).catch(() => {});
+    // Phase 2 — best-effort Postgres mirror. Same failure discipline
+    // as the clients-index write above: never throws, never blocks
+    // the response. On PG_MIRROR_DISABLED=true env var this is a no-op.
+    pgMirror.upsertClientWithLoans(owner, record).catch(() => {});
 
     // Fire-and-forget Brevo sync. Failures never block the save response.
     // We do await name resolution because it's a quick local blob read,
