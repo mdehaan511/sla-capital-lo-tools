@@ -1056,6 +1056,12 @@
   status = 200
   force = true
 
+[[redirects]]
+  from = "/api/admin-pg-diff"
+  to = "/.netlify/functions/admin-pg-diff"
+  status = 200
+  force = true
+
 # Deploy 236.191 — consolidate baseline borrowers. Dedupes clients
 # by email (fallback name+phone), attaches LLCs to companies[], and
 # creates separate clients for Guarantor_2s.
