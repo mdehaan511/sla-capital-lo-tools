@@ -210,7 +210,7 @@ function init() {
   // straight from Postgres by loanId and hydrates _clientId / _loEmail
   // from the response. Old three-param URLs still work — the fallback
   // path uses them when the loanId lookup misses (backfill lag, etc.).
-  if (!_loanId) { window.location.href = 'clients.html'; return; }
+  if (!_loanId) { window.location.href = '/clients.html'; return; }
 
   netlifyIdentity.on('init', function(user) {
     if (!user) { netlifyIdentity.open(); return; }
@@ -322,7 +322,7 @@ function onUser(user) {
                 _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
                 return;
               }
-              var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
+              var newUrl = '/loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
                 '&loanId=' + encodeURIComponent(locate.loanId) +
                 '&owner='  + encodeURIComponent(locate.ownerKey);
               document.getElementById('pageContent').innerHTML =
@@ -349,7 +349,7 @@ function onUser(user) {
             '<p style="color:var(--muted);margin-bottom:8px">The client <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(clientId) + '</code>' +
             (ownerHref ? ' under owner <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(ownerHref) + '</code>' : '') +
             " couldn't be loaded. It may have been deleted, or the URL bookmark is out of date.</p>" +
-            '<p style="margin-top:20px"><a href="clients.html">\u2190 Back to Clients</a></p>' +
+            '<p style="margin-top:20px"><a href="/clients.html">\u2190 Back to Clients</a></p>' +
           '</div>';
         return;
       }
@@ -373,7 +373,7 @@ function onUser(user) {
           oldClientId: clientId || undefined,
         }).then(function(locate) {
           if (locate && locate.found && locate.clientId && locate.ownerKey) {
-            var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
+            var newUrl = '/loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
               '&loanId=' + encodeURIComponent(locate.loanId) +
               '&owner='  + encodeURIComponent(locate.ownerKey);
             document.getElementById('pageContent').innerHTML =
@@ -399,7 +399,7 @@ function onUser(user) {
     render();
   }).catch(function(err) {
     if (!cachedFound) {
-      document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Failed to load</h3><p>'+(err.message||'')+'</p><p><a href="clients.html">\u2190 Back to Clients</a></p></div>';
+      document.getElementById('pageContent').innerHTML = '<div style="padding:4rem;text-align:center"><h3>Failed to load</h3><p>'+(err.message||'')+'</p><p><a href="/clients.html">\u2190 Back to Clients</a></p></div>';
     }
   });
 }
@@ -438,8 +438,8 @@ function _renderLoanNotLocatedScreen(clientId, loanId, ownerHref, diag) {
       '<p style="color:var(--muted);margin-bottom:12px">Loan <code style="background:#faf8f5;padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace;font-size:11px">' + escH(loanShort) + '</code> isn\'t on the client the URL points at, and the store walk didn\'t find it under any other client either.</p>' +
       '<p style="color:var(--muted);margin-bottom:6px;font-size:13px">Most common cause: a reassignment or client merge that left the loan orphaned. Open Pipeline to find its current tile, or check the old client for context.</p>' +
       '<div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">' +
-        '<a href="pipeline.html" style="padding:10px 20px;background:var(--dark, #261A36);color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open Pipeline</a>' +
-        '<a href="client-details.html?clientId=' + encodeURIComponent(clientId) + (ownerHref ? '&owner=' + encodeURIComponent(ownerHref) : '') + '" style="padding:10px 20px;background:transparent;color:var(--muted);border:1.5px solid var(--border, #E4DFD4);text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open the old client</a>' +
+        '<a href="/pipeline.html" style="padding:10px 20px;background:var(--dark, #261A36);color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open Pipeline</a>' +
+        '<a href="/client-details.html?clientId=' + encodeURIComponent(clientId) + (ownerHref ? '&owner=' + encodeURIComponent(ownerHref) : '') + '" style="padding:10px 20px;background:transparent;color:var(--muted);border:1.5px solid var(--border, #E4DFD4);text-decoration:none;border-radius:6px;font-size:13px;font-weight:600">Open the old client</a>' +
       '</div>' +
       _diagBlock +
     '</div>';
@@ -658,7 +658,7 @@ function render() {
   // Sizer URL for "Open in Sizer" — passes clientId+loanId so the sizer
   // can pull the loan from the client record (works even when there's no
   // QuoteStore entry yet, e.g. for application-sourced loans).
-  var sizerPage = isDscr ? 'dscr-sizer.html' : 'rtl-sizer.html';
+  var sizerPage = isDscr ? '/dscr-sizer.html' : '/rtl-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
   if (l.address) sizerParams += '&loadQuote=' + encodeURIComponent(l.address);
   if (_loEmail && _user && _loEmail !== _user.email) sizerParams += '&owner=' + encodeURIComponent(_loEmail);
@@ -669,7 +669,7 @@ function render() {
   // closed.html; everything else routes to pipeline.html. The
   // breadcrumb's middle link mirrors this; the borrower's
   // name is still a click away via the Contacts tab.
-  var backPage  = (status === 'closed') ? 'closed.html' : 'pipeline.html';
+  var backPage  = (status === 'closed') ? '/closed.html' : '/pipeline.html';
   var backLabel = (status === 'closed') ? 'Closed Loans' : 'Pipeline';
   var backUrl   = backPage;
   if (_loEmail && _user && _loEmail !== _user.email) backUrl += '?owner=' + encodeURIComponent(_loEmail);
@@ -1662,7 +1662,7 @@ function render() {
       : '';
     // Link to broker book entry if we have a brokerId.
     var brokerBookLink = l.brokerId
-      ? '<a href="brokers.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book">View in Broker Book →</a>'
+      ? '<a href="/brokers.html" style="font-size:12px;color:var(--gold-mid, #b5712d);text-decoration:none;margin-left:8px" title="Open Broker Book">View in Broker Book →</a>'
       : '';
     // Deploy 236.327 — "Convert to standard deal" button. Deploy
     // 236.328 — broadened gate: any loan whose Broker Info section
@@ -2258,7 +2258,7 @@ function _renderEditGuarantorButton(clientId, isPrimary) {
   if (!clientId) return '';
   var ownerSuffix = (_loEmail && _user && _loEmail !== _user.email)
     ? '&owner=' + encodeURIComponent(_loEmail) : '';
-  var href = 'client-details.html?clientId=' + encodeURIComponent(clientId) + ownerSuffix;
+  var href = '/client-details.html?clientId=' + encodeURIComponent(clientId) + ownerSuffix;
   var downloadBtn = isPrimary ? '' :
     '<button type="button" class="bw-edit-guarantor-btn" onclick="downloadGuarantorApplication(this, \'' + escAttr(clientId) + '\')" ' +
        'title="Download this guarantor\'s full application as PDF (includes decrypted SSN and signed Credit Authorization if on file).">' +
@@ -2349,7 +2349,7 @@ function clearPrimaryGuarantor() {
   SLA.Loans.reassign(body).then(function(resp) {
     if (typeof showToast === 'function') showToast('Cleared primary — loan reverted to broker mode');
     setTimeout(function() {
-      var url = 'loan-details.html?clientId=' + encodeURIComponent(resp.destClientId) +
+      var url = '/loan-details.html?clientId=' + encodeURIComponent(resp.destClientId) +
         '&loanId=' + encodeURIComponent(resp.loanId);
       if (ownerOvr) url += '&owner=' + encodeURIComponent(ownerOvr);
       window.location.href = url;
@@ -3150,7 +3150,7 @@ function _onTeamLoChange(sel) {
     // The loan lives under a new clientId in the new owner's namespace.
     // Redirect so the page reflects the correct URL + fresh data.
     setTimeout(function() {
-      var newUrl = 'loan-details.html?clientId=' + encodeURIComponent(r.newClientId) +
+      var newUrl = '/loan-details.html?clientId=' + encodeURIComponent(r.newClientId) +
         '&loanId=' + encodeURIComponent(r.loanId) +
         '&owner='  + encodeURIComponent(r.newOwnerEmail);
       window.location.href = newUrl;
@@ -4152,7 +4152,7 @@ function refreshLinkedGuarantors() {
       }
       var fullName = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || c.id;
       var loanCount = Array.isArray(c.loans) ? c.loans.length : 0;
-      var cdUrl = 'client-details.html?clientId=' + encodeURIComponent(c.id);
+      var cdUrl = '/client-details.html?clientId=' + encodeURIComponent(c.id);
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#fff;border:1px solid var(--border, #E4DFD4);border-radius:6px;gap:1rem">' +
         '<div>' +
           '<div style="font-weight:600;font-size:13px;color:var(--text, #1a1520)">' + escH(fullName) + '</div>' +
@@ -4212,7 +4212,7 @@ function openOrCreateDocReview() {
   // runs now that the early-return above always fires.
   return;
   if (_existingReviewId) {
-    window.location.href = 'loan-review-detail.html?id=' + encodeURIComponent(_existingReviewId);
+    window.location.href = '/loan-review-detail.html?id=' + encodeURIComponent(_existingReviewId);
     return;
   }
   // No existing review — create one and navigate.
@@ -4234,7 +4234,7 @@ function openOrCreateDocReview() {
     expectedCloseDate: _loan.fundingDate || '',
   }).then(function(r) {
     if (r && r.review && r.review.id) {
-      window.location.href = 'loan-review-detail.html?id=' + encodeURIComponent(r.review.id);
+      window.location.href = '/loan-review-detail.html?id=' + encodeURIComponent(r.review.id);
     } else {
       throw new Error('Server did not return a review id');
     }
@@ -5034,7 +5034,7 @@ function deleteThisLoan() {
 
     showToast('Loan deleted');
     // Bounce back to the client page (with owner param if applicable)
-    var dest = 'client-details.html?clientId=' + encodeURIComponent(_clientId);
+    var dest = '/client-details.html?clientId=' + encodeURIComponent(_clientId);
     if (_loEmail && _user && _loEmail !== _user.email) {
       dest += '&owner=' + encodeURIComponent(_loEmail);
     }
@@ -5255,7 +5255,7 @@ function moveToInProcessing() {
     // correctly, but Pipeline is where they'll want to verify it
     // landed in the right place.
     setTimeout(function() {
-      window.location.href = 'pipeline.html';
+      window.location.href = '/pipeline.html';
     }, 900);
   })
   .catch(function(err) {
@@ -5888,7 +5888,7 @@ function _commitMergeReview() {
     closeMergeLoanModal();
     // Winner might have been the OTHER loan — navigate to whichever
     // is the winner's loan-details page, threading owner if needed.
-    var dest = 'loan-details.html?clientId=' + encodeURIComponent(winner.clientId)
+    var dest = '/loan-details.html?clientId=' + encodeURIComponent(winner.clientId)
              + '&loanId=' + encodeURIComponent(winner.loanId)
              + '&owner=' + encodeURIComponent(winner.ownerKey);
     setTimeout(function() { window.location.href = dest; }, 700);
@@ -6057,7 +6057,7 @@ function confirmReassignLoan() {
     // the loan to still be the same loanId, just under a different
     // parent client.
     setTimeout(function() {
-      var url = 'loan-details.html?clientId=' + encodeURIComponent(resp.destClientId)
+      var url = '/loan-details.html?clientId=' + encodeURIComponent(resp.destClientId)
               + '&loanId=' + encodeURIComponent(resp.loanId);
       if (ownerOvr) url += '&owner=' + encodeURIComponent(ownerOvr);
       window.location.href = url;
@@ -6584,7 +6584,7 @@ function esSubmit() {
   // authenticates reliably.
   // Deploy 236.87 — GUC routing: a saved GUC loan must reopen in the GUC sizer.
   var _tt = String(_loan.toolType || '').toLowerCase();
-  var sizerPage = _tt === 'rtl' ? 'rtl-sizer.html' : _tt === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
+  var sizerPage = _tt === 'rtl' ? '/rtl-sizer.html' : _tt === 'guc' ? '/guc-sizer.html' : '/dscr-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(_clientId) +
                     '&loanId=' + encodeURIComponent(_loanId) +
                     '&signatureMode=1';
@@ -7021,7 +7021,7 @@ function downloadTermSheet() {
 // ── Review submitted loan app (opens borrower-info.html in review mode) ──
 function openReviewLoanApp() {
   if (!_client) { showToast('Client not loaded'); return; }
-  var url = 'borrower-info.html?clientId=' + encodeURIComponent(_client.id);
+  var url = '/borrower-info.html?clientId=' + encodeURIComponent(_client.id);
   // Pass loanId so borrower-info.html loads the per-loan record (Deploy 168)
   if (_loanId) url += '&loanId=' + encodeURIComponent(_loanId);
   if (_loEmail && _user && _loEmail !== _user.email) {
@@ -7388,7 +7388,7 @@ function _setStaleSignedAppBtn(show, staleSince) {
 // resigns against the updated terms.
 function sendUpdatedAppForSignature() {
   if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
-  var url = 'borrower-info.html?clientId=' + encodeURIComponent(_client.id) +
+  var url = '/borrower-info.html?clientId=' + encodeURIComponent(_client.id) +
             '&loanId=' + encodeURIComponent(_loanId);
   if (_loEmail) url += '&owner=' + encodeURIComponent(_loEmail);
   window.open(url, '_blank');

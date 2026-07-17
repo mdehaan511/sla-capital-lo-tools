@@ -8,16 +8,21 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-  <script src="sla-api.js"></script>
+  <!-- Phase 3 Supabase migration — absolute paths so the pretty
+       URL /loan-details/l_xxx doesn't break relative script
+       resolution (browser was treating "sla-api.js" as
+       /loan-details/sla-api.js under the rewritten path and
+       fetching HTML back with the wrong MIME type). -->
+  <script src="/sla-api.js"></script>
   <!-- Deploy 236.121 — Doc Review module (ported from the deleted
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
-  <script src="loan-doc-review.js"></script>
+  <script src="/loan-doc-review.js"></script>
   <!-- Deploy 236.325 — defer non-critical shell scripts (install on DOMContentLoaded). -->
-  <script src="sla-nav.js" defer></script>
-  <script src="sla-notifications.js" defer></script>
-  <script src="sla-chat.js" defer></script>
-  <script src="quotes.js" defer></script>
+  <script src="/sla-nav.js" defer></script>
+  <script src="/sla-notifications.js" defer></script>
+  <script src="/sla-chat.js" defer></script>
+  <script src="/quotes.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -1097,6 +1102,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="loan-details.js"></script>
+<script src="/loan-details.js"></script>
 </body>
 </html>
