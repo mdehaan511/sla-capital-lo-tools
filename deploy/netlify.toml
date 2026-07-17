@@ -6,6 +6,14 @@
   directory = "netlify/functions"
   included_files = ["netlify/functions/_shared/**", "netlify/functions/_templates/**"]
 
+# Supabase migration Phase 1 — the backfill walks 2 800+ blobs, does
+# a second pass on the legacy brokers store, then chunk-writes
+# thousands of rows to Postgres. Pro-plan on-demand functions get up
+# to 26s; give the backfill the whole budget so it doesn't need
+# cursor pagination for the typical run.
+[functions."admin-backfill-loans-pg"]
+  timeout = 26
+
 [build.environment]
   NODE_VERSION = "20"
   AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
