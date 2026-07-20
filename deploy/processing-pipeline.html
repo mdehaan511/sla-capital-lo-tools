@@ -564,12 +564,9 @@ function renderCard(it) {
       : '<div class="card-substatus empty">No substatus</div>';
   }
 
-  // Deep-link to loan-details with the full triple-key including
-  // owner. _isAdmin && cross-owner is the only case where ?owner=
-  // matters; for an LO's own loan it's redundant but harmless.
-  var href = 'loan-details.html?clientId=' + encodeURIComponent(client.id) +
-             '&loanId=' + encodeURIComponent(loan.id) +
-             '&owner=' + encodeURIComponent(it.ownerKey);
+  // Deep-link via the short-URL helper. Owner is auto-dropped for
+  // self-owned loans; only cross-owner admin views keep the ?owner=.
+  var href = SLA.urls.loanDetails(loan.id, { owner: it.ownerKey });
 
   // Deploy 236.94 — LO email/name row removed from the tile header
   // per Mike's feedback. The LO filter at the top of the page covers

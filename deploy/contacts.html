@@ -296,16 +296,11 @@ function renderRow(c) {
 
 function _loanHref(loan) {
   var ownerEmail = (loan.ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
-  return 'loan-details.html?clientId=' + encodeURIComponent(loan.clientId) +
-         '&loanId='   + encodeURIComponent(loan.loanId) +
-         '&owner='    + encodeURIComponent(ownerEmail);
+  return SLA.urls.loanDetails(loan.loanId, { owner: ownerEmail });
 }
 function openContactLoan(clientId, loanId, ownerKey) {
   var ownerEmail = (ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
-  var href = 'loan-details.html?clientId=' + encodeURIComponent(clientId) +
-             '&loanId='   + encodeURIComponent(loanId) +
-             '&owner='    + encodeURIComponent(ownerEmail) +
-             '#loanContactsSection';
+  var href = SLA.urls.loanDetails(loanId, { owner: ownerEmail }) + '#loanContactsSection';
   window.location.href = href;
 }
 function del(contactId, ownerKey) {

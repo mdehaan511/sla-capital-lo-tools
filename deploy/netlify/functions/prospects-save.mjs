@@ -520,8 +520,8 @@ async function notifyLO(prospect, ids) {
   const _ownerParam = prospect.loEmail
     ? `&owner=${encodeURIComponent(prospect.loEmail)}`
     : '';
-  const detailsLink = (ids && ids.clientId && ids.loanId)
-    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}${_ownerParam}&fresh=1`
+  const detailsLink = (ids && ids.loanId)
+    ? `https://portal.slacapital.ai/loan-details/${encodeURIComponent(ids.loanId)}?fresh=1${_ownerParam}`
     : '';
 
   // Deploy 236.284 — build the plain-text body as an array of entries,
@@ -1207,8 +1207,8 @@ async function notifySlack(prospect, ids) {
   const _ownerParam = prospect.loEmail
     ? `&owner=${encodeURIComponent(prospect.loEmail)}`
     : '';
-  const detailsLink = (ids && ids.clientId && ids.loanId)
-    ? `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(ids.clientId)}&loanId=${encodeURIComponent(ids.loanId)}${_ownerParam}&fresh=1`
+  const detailsLink = (ids && ids.loanId)
+    ? `https://portal.slacapital.ai/loan-details/${encodeURIComponent(ids.loanId)}?fresh=1${_ownerParam}`
     : '';
 
   // Build the message body as a single mrkdwn text block per section.

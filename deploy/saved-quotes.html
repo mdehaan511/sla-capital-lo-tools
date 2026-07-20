@@ -1094,9 +1094,7 @@ function renderSubmittedTable() {
     var lookupKey = item.userEmail + '|' + (q.address||'').trim().toLowerCase().replace(/\s+/g,' ');
     var lookup = _loanLookup[lookupKey];
     if (lookup) {
-      loanDetailsUrl = 'loan-details.html?clientId=' + encodeURIComponent(lookup.clientId)
-        + '&loanId=' + encodeURIComponent(lookup.loanId)
-        + '&owner=' + encodeURIComponent(lookup.ownerKey);
+      loanDetailsUrl = SLA.urls.loanDetails(lookup.loanId, { owner: lookup.ownerKey });
     }
 
     var tr = document.createElement('tr');

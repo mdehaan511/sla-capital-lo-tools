@@ -262,9 +262,7 @@ function renderRow(t) {
   var due  = t.dueDate ? fmtDate(t.dueDate) : '—';
   // Loan deep-link — reconstruct from clientId/loanId/ownerKey.
   var ownerEmail = (t.ownerKey || '').replace(/_at_/g, '@').replace(/_dot_/g, '.').replace(/_/g, ' ');
-  var loanHref = 'loan-details.html?clientId=' + encodeURIComponent(t.clientId) +
-                 '&loanId='   + encodeURIComponent(t.loanId) +
-                 '&owner='    + encodeURIComponent(ownerEmail);
+  var loanHref = SLA.urls.loanDetails(t.loanId, { owner: ownerEmail });
   return '<div class="tasks-table-row' + (t.completed ? ' done' : '') + (past ? ' past-due' : '') + '" data-task-id="' + escAttr(t.id) + '">' +
     '<input type="checkbox" class="t-check"' + (t.completed ? ' checked' : '') + ' onchange="toggleComplete(\'' + escAttr(t.id) + '\', this.checked)" />' +
     '<div class="t-title">' + escH(t.title) + '</div>' +

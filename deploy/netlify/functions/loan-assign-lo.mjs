@@ -349,9 +349,8 @@ async function handle(req, context) {
         const host  = (req.headers.get ? req.headers.get('host') : req.headers.host) || '';
         const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://slaloantools.netlify.app');
         const loanLink = base +
-          '/loan-details.html?clientId=' + encodeURIComponent(destClientId) +
-          '&loanId='   + encodeURIComponent(loan.id) +
-          '&owner='    + encodeURIComponent(newOwnerEmail);
+          '/loan-details/' + encodeURIComponent(loan.id) +
+          '?owner=' + encodeURIComponent(newOwnerEmail);
 
         const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const greeting = newLoName ? ('Hi ' + newLoName.split(/\s+/)[0] + ',') : 'Hi,';

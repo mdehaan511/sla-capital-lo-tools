@@ -367,7 +367,7 @@ async function notifySubmitted(client, loan, ownerKey, submitterEmail, prevStatu
   const _ownerParam = ownerEmail
     ? `&owner=${encodeURIComponent(ownerEmail)}`
     : '';
-  const detailsLink = `https://portal.slacapital.ai/loan-details.html?clientId=${encodeURIComponent(client.id)}&loanId=${encodeURIComponent(loan.id)}${_ownerParam}&fresh=1`;
+  const detailsLink = `https://portal.slacapital.ai/loan-details/${encodeURIComponent(loan.id)}?fresh=1${_ownerParam}`;
 
   const blocks = [];
   blocks.push({

@@ -827,7 +827,7 @@ function buildLoansTable(loans, client, userEmail, readOnly) {
     var statusStyle = status==='approved' ? 'color:var(--success);font-weight:600' :
                       status==='denied'   ? 'color:var(--danger);font-weight:600'  :
                       status==='submitted'? 'color:var(--dark);font-weight:600'    : 'color:var(--muted)';
-    var detailsUrl = l.id ? 'loan-details.html?clientId='+encodeURIComponent(client.id)+'&loanId='+encodeURIComponent(l.id) + (userEmail ? '&owner='+encodeURIComponent(userEmail) : '') : '';
+    var detailsUrl = l.id ? SLA.urls.loanDetails(l.id, { owner: userEmail }) : '';
     var addrCell = (detailsUrl
       ? '<a href="'+detailsUrl+'" class="loan-addr-link" onclick="event.stopPropagation()">'+escH(l.address||'—')+'</a>'
       : escH(l.address||'—'));

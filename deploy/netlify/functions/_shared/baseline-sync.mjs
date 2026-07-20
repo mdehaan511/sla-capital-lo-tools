@@ -247,8 +247,7 @@ export async function syncOnApproval(client, targetLoan, ownerKey, triggerUserEm
   if (!result.ok && result.mode === 'live') {
     const siteUrl = (process.env.URL || 'https://slaloantools.netlify.app').replace(/\/+$/, '');
     const loanLink = siteUrl +
-      '/loan-details.html?clientId=' + encodeURIComponent(client.id) +
-      '&loanId='   + encodeURIComponent(targetLoan.id);
+      '/loan-details/' + encodeURIComponent(targetLoan.id);
     const failingStep = (stepsSummary.find((s) => !s.ok) || { step: result.error || 'unknown' });
     const message = {
       text: ':warning: Baseline auto-sync failed — ' + (targetLoan.address || targetLoan.id),

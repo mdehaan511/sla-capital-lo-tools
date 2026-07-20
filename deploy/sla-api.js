@@ -1942,6 +1942,45 @@
     },
   };
 
+  // ── URL builders ────────────────────────────────────────────────
+  // Phase 4d — single source of truth for the loan-details URL. The
+  // Netlify rewrite /loan-details/:loanId → /loan-details.html?loanId=:loanId
+  // (status=200 proxy) means we can emit the short form and the
+  // browser URL bar shows it too. Old ?clientId=+&loanId=+&owner= URLs
+  // still work (backward compat) but every NEW link should call this.
+  //
+  //   loanDetails(loanId)                    → /loan-details/l_xxx
+  //   loanDetails(loanId, {owner})           → /loan-details/l_xxx?owner=…
+  //   loanDetails(loanId, {owner, fresh})    → …&fresh=1
+  //   loanDetails(loanId, {absolute: true})  → https://slaloantools.netlify.app/loan-details/l_xxx
+  //
+  // owner is DROPPED when it equals the current user's own email —
+  // no point routing a self-owned loan through the cross-LO code path.
+  // Callers that don't know self email can just pass owner and let
+  // the helper handle it.
+  function _selfEmail() {
+    try {
+      var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+      return (u && u.email ? String(u.email).toLowerCase() : '');
+    } catch (_) { return ''; }
+  }
+  var urls = {
+    loanDetails: function (loanId, opts) {
+      opts = opts || {};
+      if (!loanId) return '#';
+      var path = '/loan-details/' + encodeURIComponent(loanId);
+      var qs = [];
+      if (opts.owner) {
+        var o = String(opts.owner).toLowerCase();
+        if (o && o !== _selfEmail()) qs.push('owner=' + encodeURIComponent(o));
+      }
+      if (opts.fresh) qs.push('fresh=1');
+      var out = path + (qs.length ? '?' + qs.join('&') : '');
+      if (opts.absolute) return 'https://slaloantools.netlify.app' + out;
+      return out;
+    },
+  };
+
   // ── Search ──────────────────────────────────────────────────────
   // Phase 4c — PG FTS-first. /api/search-pg uses websearch_to_tsquery
   // against the GIN-indexed search_tsv columns on clients + loans;
@@ -2333,6 +2372,7 @@
     Loans: Loans,
     LoanReviews: LoanReviews,
     Search: Search,
+    urls: urls,
     // Deploy 236.351 — LO picker directory (name + email + roles)
     // for admin reassignment UI on Loan Details.
     Users: Users,

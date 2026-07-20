@@ -313,9 +313,7 @@ function buildCard(r, idx) {
     : '—';
 
   var loanLink = r.loanLink
-    ? 'loan-details.html?clientId=' + encodeURIComponent(r.loanLink.clientId)
-      + '&loanId=' + encodeURIComponent(r.loanLink.loanId)
-      + '&owner=' + encodeURIComponent(r.loanLink.ownerKey)
+    ? SLA.urls.loanDetails(r.loanLink.loanId, { owner: r.loanLink.ownerKey })
     : null;
   var clientLink = r.loanLink
     ? 'client-details.html?clientId=' + encodeURIComponent(r.loanLink.clientId)

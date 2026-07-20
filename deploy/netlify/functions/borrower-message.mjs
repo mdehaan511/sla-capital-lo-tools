@@ -101,7 +101,7 @@ async function notifyLo({ ownerEmail, senderEmail, address, messageText, loanId 
   const key = process.env.RESEND_API_KEY;
   if (!key) { console.warn('[borrower-message] no RESEND_API_KEY — skipping notify'); return; }
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const detailsLink = `https://portal.slacapital.ai/loan-details.html?loanId=${encodeURIComponent(loanId)}&owner=${encodeURIComponent(ownerEmail)}&fresh=1`;
+  const detailsLink = `https://portal.slacapital.ai/loan-details/${encodeURIComponent(loanId)}?owner=${encodeURIComponent(ownerEmail)}&fresh=1`;
   const subject = `Borrower message${address ? ` — ${address}` : ''}`;
   const text = [
     `${senderEmail} sent you a message from the borrower portal.`,

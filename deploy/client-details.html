@@ -426,10 +426,9 @@ function render() {
       // Thread owner through to loan-details when admin is viewing another
       // LO's client. Without this, loan-details runs a non-admin list call
       // that won't find the loan and shows "Loan not found".
-      var detailsUrl = l.id ? 'loan-details.html?clientId='+encodeURIComponent(c.id)+'&loanId='+encodeURIComponent(l.id) : '#';
-      if (l.id && _loEmail && _user && _loEmail !== _user.email) {
-        detailsUrl += '&owner=' + encodeURIComponent(_loEmail);
-      }
+      var detailsUrl = l.id
+        ? SLA.urls.loanDetails(l.id, { owner: _loEmail })
+        : '#';
 
       // Address cell links directly to Loan Details (Deploy 170 — was a
       // separate "Details →" button before). Saves the LO a click and
@@ -633,10 +632,7 @@ function refreshGuarantorOnLoans(backrefs) {
       var statusLabel = STATUS_LABELS[status] || status;
       var statusStyle = status==='approved'?'color:var(--success);font-weight:600':status==='denied'?'color:var(--danger);font-weight:600':status==='submitted'?'color:var(--dark);font-weight:600':'color:var(--muted)';
       var primaryName = ((primary.c.firstName || '') + ' ' + (primary.c.lastName || '')).trim() || primary.c.email || primary.c.id;
-      var detailsUrl = 'loan-details.html?clientId=' + encodeURIComponent(primary.c.id) + '&loanId=' + encodeURIComponent(loan.id);
-      if (primary.owner && _user && primary.owner !== (_user.email || '').toLowerCase()) {
-        detailsUrl += '&owner=' + encodeURIComponent(primary.owner);
-      }
+      var detailsUrl = SLA.urls.loanDetails(loan.id, { owner: primary.owner });
       var addrCell = '<a href="' + detailsUrl + '" class="address-link" style="color:var(--gold-mid);text-decoration:none;border-bottom:1px dotted var(--gold-border)">' + escH(loan.address || '—') + '</a>';
       return '<tr>' +
         '<td class="td-mono" style="max-width:220px;overflow:hidden;white-space:nowrap"><div style="overflow:hidden;text-overflow:ellipsis">' + addrCell + '</div></td>' +

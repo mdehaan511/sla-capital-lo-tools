@@ -333,9 +333,7 @@ function onUser(user) {
                 _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
                 return;
               }
-              var newUrl = '/loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
-                '&loanId=' + encodeURIComponent(locate.loanId) +
-                '&owner='  + encodeURIComponent(locate.ownerKey);
+              var newUrl = SLA.urls.loanDetails(locate.loanId, { owner: locate.ownerKey });
               document.getElementById('pageContent').innerHTML =
                 '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
                   '<h3 style="margin-bottom:12px">Loan moved \u2014 redirecting\u2026</h3>' +
@@ -384,9 +382,7 @@ function onUser(user) {
           oldClientId: clientId || undefined,
         }).then(function(locate) {
           if (locate && locate.found && locate.clientId && locate.ownerKey) {
-            var newUrl = '/loan-details.html?clientId=' + encodeURIComponent(locate.clientId) +
-              '&loanId=' + encodeURIComponent(locate.loanId) +
-              '&owner='  + encodeURIComponent(locate.ownerKey);
+            var newUrl = SLA.urls.loanDetails(locate.loanId, { owner: locate.ownerKey });
             document.getElementById('pageContent').innerHTML =
               '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
                 '<h3 style="margin-bottom:12px">Loan moved \u2014 redirecting\u2026</h3>' +
@@ -2360,9 +2356,7 @@ function clearPrimaryGuarantor() {
   SLA.Loans.reassign(body).then(function(resp) {
     if (typeof showToast === 'function') showToast('Cleared primary — loan reverted to broker mode');
     setTimeout(function() {
-      var url = '/loan-details.html?clientId=' + encodeURIComponent(resp.destClientId) +
-        '&loanId=' + encodeURIComponent(resp.loanId);
-      if (ownerOvr) url += '&owner=' + encodeURIComponent(ownerOvr);
+      var url = SLA.urls.loanDetails(resp.loanId, { owner: ownerOvr });
       window.location.href = url;
     }, 500);
   }).catch(function(err) {
@@ -3161,9 +3155,7 @@ function _onTeamLoChange(sel) {
     // The loan lives under a new clientId in the new owner's namespace.
     // Redirect so the page reflects the correct URL + fresh data.
     setTimeout(function() {
-      var newUrl = '/loan-details.html?clientId=' + encodeURIComponent(r.newClientId) +
-        '&loanId=' + encodeURIComponent(r.loanId) +
-        '&owner='  + encodeURIComponent(r.newOwnerEmail);
+      var newUrl = SLA.urls.loanDetails(r.loanId, { owner: r.newOwnerEmail });
       window.location.href = newUrl;
     }, 700);
   }).catch(function(err) {
@@ -5899,9 +5891,7 @@ function _commitMergeReview() {
     closeMergeLoanModal();
     // Winner might have been the OTHER loan — navigate to whichever
     // is the winner's loan-details page, threading owner if needed.
-    var dest = '/loan-details.html?clientId=' + encodeURIComponent(winner.clientId)
-             + '&loanId=' + encodeURIComponent(winner.loanId)
-             + '&owner=' + encodeURIComponent(winner.ownerKey);
+    var dest = SLA.urls.loanDetails(winner.loanId, { owner: winner.ownerKey });
     setTimeout(function() { window.location.href = dest; }, 700);
   }).catch(function(err) {
     btn.disabled = false;
@@ -6068,9 +6058,7 @@ function confirmReassignLoan() {
     // the loan to still be the same loanId, just under a different
     // parent client.
     setTimeout(function() {
-      var url = '/loan-details.html?clientId=' + encodeURIComponent(resp.destClientId)
-              + '&loanId=' + encodeURIComponent(resp.loanId);
-      if (ownerOvr) url += '&owner=' + encodeURIComponent(ownerOvr);
+      var url = SLA.urls.loanDetails(resp.loanId, { owner: ownerOvr });
       window.location.href = url;
     }, 800);
   }).catch(function(err) {

@@ -405,9 +405,7 @@ function render() {
     var tool = q.toolType === 'rtl' ? 'rtl' : 'dscr';
     var loanLink = _loanLookup[it.ownerKey + '|' + norm(q.address || '')];
     var detailsUrl = loanLink
-      ? 'loan-details.html?clientId=' + encodeURIComponent(loanLink.clientId)
-        + '&loanId=' + encodeURIComponent(loanLink.loanId)
-        + '&owner=' + encodeURIComponent(loanLink.ownerKey)
+      ? SLA.urls.loanDetails(loanLink.loanId, { owner: loanLink.ownerKey })
       : null;
     var loName = _profileMap[(it.ownerKey||'').toLowerCase()];
     var loDisplayName = loName ? (loName.fullName || loName.email) : it.ownerKey;

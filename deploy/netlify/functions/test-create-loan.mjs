@@ -243,9 +243,8 @@ async function handle(req, context) {
   }
 
   const loanUrl =
-    '/loan-details.html?clientId=' + encodeURIComponent(primary.id) +
-    '&loanId=' + encodeURIComponent(loanId) +
-    (ownerEmail !== selfEmail ? '&owner=' + encodeURIComponent(ownerEmail) : '');
+    '/loan-details/' + encodeURIComponent(loanId) +
+    (ownerEmail !== selfEmail ? '?owner=' + encodeURIComponent(ownerEmail) : '');
 
   return json(200, {
     ok: true,

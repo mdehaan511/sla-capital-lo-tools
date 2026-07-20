@@ -706,7 +706,7 @@ function renderBrokerDetail(broker, agg) {
           var comm = (pts > 0 && amt > 0) ? amt * (pts / 100) : 0;
           var updated = l.updatedAt || l.createdAt;
           var updatedStr = updated ? new Date(updated).toLocaleDateString() : '—';
-          var dlUrl = 'loan-details.html?clientId=' + encodeURIComponent(l._clientId||'') + '&loanId=' + encodeURIComponent(l.id||'');
+          var dlUrl = SLA.urls.loanDetails(l.id || '');
           return '<tr class="clickable" onclick="window.location.href=\'' + dlUrl + '\'">' +
             '<td>' + escapeHtml(l._clientName || l._clientEmail || '—') + '</td>' +
             '<td><a class="addr-link" href="' + dlUrl + '" onclick="event.stopPropagation()">' + escapeHtml(l.propAddress || l.address || '—') + '</a></td>' +

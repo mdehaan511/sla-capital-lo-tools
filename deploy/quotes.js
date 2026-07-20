@@ -370,9 +370,7 @@ var QuoteStore = (function () {
       return panel;
     }
 
-    var url = 'loan-details.html?clientId=' + encodeURIComponent(cid) +
-              '&loanId='   + encodeURIComponent(lid) +
-              (owner ? '&owner=' + encodeURIComponent(owner) : '');
+    var url = SLA.urls.loanDetails(lid, { owner: owner });
     panel.style.cssText = 'background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:14px 18px;gap:12px';
     panel.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">' +
@@ -430,7 +428,7 @@ var QuoteStore = (function () {
         clients.forEach(function(c) {
           (c.loans || []).forEach(function(l) {
             if (!l.id) return;
-            var url = 'loan-details.html?clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
+            var url = SLA.urls.loanDetails(l.id);
             loanLinkById[l.id] = url;
             if (l.address) {
               // Address fallback: last-write-wins is fine here because

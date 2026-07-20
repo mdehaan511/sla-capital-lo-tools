@@ -190,9 +190,8 @@ export default async (req, context) => {
   if (!result.ok && result.mode === 'live') {
     const siteUrl = (process.env.URL || 'https://slaloantools.netlify.app').replace(/\/+$/, '');
     const loanLink = siteUrl +
-      '/loan-details.html?clientId=' + encodeURIComponent(body.clientId) +
-      '&loanId='   + encodeURIComponent(body.loanId) +
-      (ownerEmail !== selfEmail ? '&owner=' + encodeURIComponent(ownerEmail) : '');
+      '/loan-details/' + encodeURIComponent(body.loanId) +
+      (ownerEmail !== selfEmail ? '?owner=' + encodeURIComponent(ownerEmail) : '');
     const failingStep = (stepsSummary.find((s) => !s.ok) || { step: result.error || 'unknown' });
     const text = ':warning: Baseline sync failed — ' + (loan.address || body.loanId);
     const message = {

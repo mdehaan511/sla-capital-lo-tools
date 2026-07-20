@@ -757,7 +757,7 @@ function renderRow(l) {
   var c = l._client;
   var clientName = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || '—';
   var status = l.status || 'active';
-  var loanUrl = 'loan-details.html?clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id) + '&owner=' + encodeURIComponent(l._ownerKey);
+  var loanUrl = SLA.urls.loanDetails(l.id, { owner: l._ownerKey });
   var clientUrl = 'client-details.html?clientId=' + encodeURIComponent(c.id) + '&owner=' + encodeURIComponent(l._ownerKey);
   // Rates may be stored as decimal (.085) or already-percent (8.5).
   // Threshold-detect: anything >1 is treated as already-percent.

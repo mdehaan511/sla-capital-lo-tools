@@ -260,7 +260,7 @@ function renderOrphan(o, idx) {
 
   var actions;
   if (o._recovered) {
-    actions = '<div class="action-result ok">✓ Recovered. <br><a href="/loan-details.html?clientId=' + encodeURIComponent(o._recoveredClientId) + '&loanId=' + encodeURIComponent(o._recoveredLoanId) + '&owner=' + encodeURIComponent(o.owner) + '" style="color:var(--gold-mid)">View loan →</a></div>';
+    actions = '<div class="action-result ok">✓ Recovered. <br><a href="' + SLA.urls.loanDetails(o._recoveredLoanId, { owner: o.owner }) + '" style="color:var(--gold-mid)">View loan →</a></div>';
   } else if (o.hasEmail) {
     actions =
       '<button class="action-btn primary" onclick="recoverOne(' + idx + ')" ' + (o._inflight ? 'disabled' : '') + '>' + (o._inflight ? 'Recovering…' : 'Auto-recover') + '</button>' +
