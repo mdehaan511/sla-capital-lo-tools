@@ -18,6 +18,10 @@ import {
 } from './_shared/auth.mjs';
 // Deploy 226 — log the admin decision on the loan's audit trail.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.373 — clients-index write-through. Without this, an admin
+// Approve updated the loan record but left the materialized index (which
+// Pipeline reads via /api/clients?all=1&summary=1) showing the OLD status.
+import { upsertClient } from './_shared/clients-index.mjs';
 
 const ALLOWED = new Set(['approved', 'denied', 'on_hold']);
 
@@ -199,7 +203,12 @@ async function syncToClientLoan(ownerKey, quote, status, audit) {
         }
       }
     }
-    if (changed) await clientsStore.setJSON(key, c);
+    if (changed) {
+      await clientsStore.setJSON(key, c);
+      // Deploy 236.373 — keep the materialized index in step with the
+      // primary write, same pattern as loan-advance-status.mjs.
+      upsertClient(ownerKey, c).catch(() => {});
+    }
   }
 }
 

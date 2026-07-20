@@ -32,6 +32,9 @@ import {
 } from './_shared/auth.mjs';
 // Deploy 226 — audit log entry on decline / restore.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.373 — clients-index write-through, so a decline actually
+// disappears from the Pipeline (which reads the materialized index).
+import { upsertClient } from './_shared/clients-index.mjs';
 
 // Deploy 236.371 (hotfix): added 'on_hold'. It was missing here while
 // loan-details.js only treats {cancelled, denied, closed} as terminal —
@@ -145,6 +148,7 @@ async function handle(req, context) {
 
   try {
     await clientsStore.setJSON(clientKey, client);
+    upsertClient(ownerKey, client).catch(() => {}); // Deploy 236.373
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

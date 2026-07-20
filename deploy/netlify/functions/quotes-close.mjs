@@ -16,6 +16,9 @@
  * Loan Details page reflects it.
  */
 import { getStore } from '@netlify/blobs';
+// Deploy 236.373 — clients-index write-through, so closing a loan is
+// reflected on the Pipeline (which reads the materialized index).
+import { upsertClient } from './_shared/clients-index.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
@@ -141,7 +144,10 @@ async function syncToClientLoan(ownerKey, quote) {
         changed = true;
       }
     }
-    if (changed) await clientsStore.setJSON(key, c);
+    if (changed) {
+      await clientsStore.setJSON(key, c);
+      upsertClient(ownerKey, c).catch(() => {}); // Deploy 236.373
+    }
   }
 }
 
