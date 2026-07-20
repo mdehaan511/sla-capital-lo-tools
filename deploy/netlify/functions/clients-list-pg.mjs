@@ -157,7 +157,15 @@ async function handle(req, context) {
   //   LO: owner_email = self
   //   nonEmpty: PostgREST embedded-resource inner join drops clients
   //     with zero loans. `!inner` on the `loans` relation does that.
-  const embed = nonEmpty ? 'loans!inner(*)' : 'loans(*)';
+  //
+  // FK disambiguation: `loans` has TWO foreign keys to `clients` —
+  // `loans.client_id` (parent) AND `loans.broker_id` (broker). We
+  // must name the hint explicitly so PostgREST picks the parent
+  // relation, otherwise it errors with "more than one relationship
+  // was found for clients and loans". `loans!client_id(*)` uses the
+  // source column as the hint (PostgREST spec §embedded-disambiguation).
+  const inner = nonEmpty ? '!inner' : '';
+  const embed = 'loans!client_id' + inner + '(*)';
   const select = '*,' + embed;
   const opts = { select, limit: 5000 };
   if (!wantAll) {
