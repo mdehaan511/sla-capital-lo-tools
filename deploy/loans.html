@@ -412,7 +412,23 @@ function loadAll() {
   var statsPromise = (_isAdmin && SLA.Admin)
     ? SLA.Admin.userStats().catch(function() { return { users: [] }; })
     : Promise.resolve({ users: [] });
-  Promise.all([SLA.Clients.list(listOpts), statsPromise]).then(function(results) {
+  // Phase 4a.4 Supabase migration — PG-first with blob fallback.
+  // Same shape both ways so _processClientsResponse works unchanged.
+  function _loansListPGThenBlob() {
+    if (window.SLA && SLA.Clients && SLA.Clients.listPG) {
+      var pgOpts = Object.assign({ summary: true }, listOpts);
+      return SLA.Clients.listPG(pgOpts).then(function(r) {
+        if (!r) throw new Error('PG returned nothing');
+        console.log('[SLA phase-4] Loans: PG hit');
+        return r;
+      }).catch(function(err) {
+        console.warn('[SLA phase-4] Loans: PG miss, falling back to blob —', err && err.message);
+        return SLA.Clients.list(listOpts);
+      });
+    }
+    return SLA.Clients.list(listOpts);
+  }
+  Promise.all([_loansListPGThenBlob(), statsPromise]).then(function(results) {
     var r = results[0];
     var statsResp = results[1] || { users: [] };
     _deletedOwners = {};

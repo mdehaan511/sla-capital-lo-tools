@@ -335,8 +335,28 @@ function _keySafe(e) { return String(e || '').toLowerCase().replace(/[^a-z0-9]/g
 // _clients is an in-memory cache of the current user's clients, loaded once
 // from the backend. Mutations go through the backend and update the cache.
 
+// Phase 4a.3 Supabase migration — PG-first with blob fallback.
+// Same shape both ways ({ clients: [...] }), so downstream code is
+// unchanged. On any PG error or empty response, fall back to the
+// blob-backed endpoint.
+function _clientsListPGThenBlob(opts) {
+  opts = opts || {};
+  if (window.SLA && SLA.Clients && SLA.Clients.listPG) {
+    var pgOpts = Object.assign({ summary: true }, opts);
+    return SLA.Clients.listPG(pgOpts).then(function(r) {
+      if (!r) throw new Error('PG returned nothing');
+      console.log('[SLA phase-4] Clients: PG hit');
+      return r;
+    }).catch(function(err) {
+      console.warn('[SLA phase-4] Clients: PG miss, falling back to blob —', err && err.message);
+      return SLA.Clients.list(opts);
+    });
+  }
+  return SLA.Clients.list(opts);
+}
+
 function refreshClientsFromBackend() {
-  return SLA.Clients.list().then(function(r) {
+  return _clientsListPGThenBlob().then(function(r) {
     _clients = (r && r.clients) || [];
     return _clients;
   }).catch(function(err) {
@@ -1213,7 +1233,7 @@ function loadAdminClients(forceRefresh) {
   var statsP = SLA.Admin
     ? SLA.Admin.userStats().catch(function() { return { users: [] }; })
     : Promise.resolve({ users: [] });
-  Promise.all([SLA.Clients.list({ all: true }), statsP]).then(function(results) {
+  Promise.all([_clientsListPGThenBlob({ all: true }), statsP]).then(function(results) {
     var resp = results[0];
     var statsResp = results[1] || { users: [] };
     _deletedOwners = {};
