@@ -864,9 +864,28 @@ function loadAll() {
     : SLA.Quotes.list();
   // Deploy 236.346 — summary is default. nonEmptyOnly drops
   // loanless CRM-import clients.
+  // Phase 4a.2 Supabase migration — try Postgres first, fall back
+  // to the blob-backed endpoint on any error or when PG returns an
+  // empty payload (shouldn't happen post-backfill, but defensive).
+  // The PG endpoint returns the same shape (byOwner / clients) so
+  // downstream code is unchanged.
+  function _fetchClientsPGThenBlob(opts) {
+    var pgOpts = Object.assign({ summary: true }, opts);
+    if (window.SLA && SLA.Clients && SLA.Clients.listPG) {
+      return SLA.Clients.listPG(pgOpts).then(function(r) {
+        if (!r) throw new Error('PG returned nothing');
+        console.log('[SLA phase-4] Pipeline: PG hit');
+        return r;
+      }).catch(function(err) {
+        console.warn('[SLA phase-4] Pipeline: PG miss, falling back to blob —', err && err.message);
+        return SLA.Clients.list(opts);
+      });
+    }
+    return SLA.Clients.list(opts);
+  }
   var fetchClients = isStaffAll
-    ? SLA.Clients.list({ all: true, nonEmptyOnly: true }).catch(function(){ return { byOwner: {} }; })
-    : SLA.Clients.list({ nonEmptyOnly: true }).catch(function(){ return { clients: [] }; });
+    ? _fetchClientsPGThenBlob({ all: true, nonEmptyOnly: true }).catch(function(){ return { byOwner: {} }; })
+    : _fetchClientsPGThenBlob({ nonEmptyOnly: true }).catch(function(){ return { clients: [] }; });
   var fetchStats = SLA.Admin
     ? SLA.Admin.userStats().catch(function(){ return { users: [] }; })
     : Promise.resolve({ users: [] });
