@@ -1083,6 +1083,15 @@
   status = 200
   force = true
 
+# Phase 4c — Postgres FTS-backed search (drop-in for /api/search).
+# Uses the GIN-indexed search_tsv columns on clients + loans; blob
+# scan retained for prospects + quotes (not yet in PG).
+[[redirects]]
+  from = "/api/search-pg"
+  to = "/.netlify/functions/search-pg"
+  status = 200
+  force = true
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates

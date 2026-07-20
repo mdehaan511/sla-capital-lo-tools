@@ -1943,12 +1943,21 @@
   };
 
   // ── Search ──────────────────────────────────────────────────────
+  // Phase 4c — PG FTS-first. /api/search-pg uses websearch_to_tsquery
+  // against the GIN-indexed search_tsv columns on clients + loans;
+  // orders of magnitude faster than the blob scan. Falls back to
+  // /api/search (blob scan) on any error so a Supabase blip never
+  // takes the navbar search offline.
   var Search = {
     query: function (q, opts) {
       opts = opts || {};
       var qs = '?q=' + encodeURIComponent(q || '');
       if (opts.all) qs += '&all=1';
-      return api('GET', '/api/search' + qs);
+      return api('GET', '/api/search-pg' + qs).catch(function (err) {
+        console.warn('[SLA phase-4] Search: PG miss, falling back to blob —',
+          err && err.message);
+        return api('GET', '/api/search' + qs);
+      });
     },
   };
 
