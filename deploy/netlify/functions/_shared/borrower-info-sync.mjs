@@ -30,6 +30,14 @@ import { syncOnApproval as _baselineSyncOnApproval } from './baseline-sync.mjs';
 // Deploy 226 — audit log: write "app_received" + "status" entries when
 // the long app comes back and the loan flips awaiting_app → approved.
 import { appendNoteEntry } from './notes-log.mjs';
+// Deploy 236.373 — clients-index write-through. This module advances a
+// loan awaiting_app -> approved when the borrower completes the
+// application. It wrote the loan record correctly but never refreshed the
+// materialized clients-index, so the Pipeline (which reads that index via
+// /api/clients?all=1&summary=1) kept showing the pre-application status
+// indefinitely — Loan Details said "Approved" while the board said
+// "Quoted". Reported on 7751 Grasmere Dr; the drift was board-wide.
+import { upsertClient } from './clients-index.mjs';
 // Deploy 228 — parse single-line Google formatted_address so the
 // home address landing on the Client Profile has structured
 // city/state/zip even when the borrower used single-line autocomplete
@@ -296,6 +304,7 @@ export async function syncPropertyFieldsToLoan(record) {
   if (changed) {
     client.updatedAt = new Date().toISOString();
     await clientsStore.setJSON(clientKey, client);
+    upsertClient(record.ownerKey, client).catch(() => {}); // Deploy 236.373
   }
 }
 
@@ -458,6 +467,9 @@ export async function advanceQuoteToInProcessing(record) {
     }
     try {
       await clientsStore.setJSON(clientKey, client);
+      // Deploy 236.373 — THE fix for the reported bug: this is the write
+      // that flips awaiting_app -> approved on application completion.
+      upsertClient(record.ownerKey, client).catch(() => {});
     } catch (e) {
       return { ok: false, reason: 'client save error: ' + (e.message || 'unknown'), quotesUpdated, loanUpdated: false };
     }

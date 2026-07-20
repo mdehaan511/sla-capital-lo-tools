@@ -21,6 +21,9 @@
  * Returns: { success, prevStatus, newStatus, loan }
  */
 import { getStore } from '@netlify/blobs';
+// Deploy 236.373 — clients-index write-through, so a cancel actually
+// disappears from the Pipeline (which reads the materialized index).
+import { upsertClient } from './_shared/clients-index.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
@@ -32,7 +35,10 @@ import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-wr
 // going through Decline (which implies SLA-driven denial; Cancel is
 // for borrower-/deal-driven drop-off). Terminal statuses (closed,
 // denied, cancelled) remain ineligible.
-const CANCEL_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
+// Deploy 236.371 (hotfix): added 'on_hold' — same gap as loan-decline.
+// on_hold is NOT terminal, but it was absent from this list, so cancelling
+// an on-hold loan 400'd behind a misleading "already terminal" toast.
+const CANCEL_FROM = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved'];
 const RESTORE_TO  = 'approved';
 
 export default async (req, context) => {
@@ -123,7 +129,8 @@ async function handle(req, context) {
 
   try {
     await clientsStore.setJSON(clientKey, client);
-    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+    upsertClient(ownerKey, client).catch(() => {}); // Deploy 236.373
+    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {}); // Phase 2 dual-write
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

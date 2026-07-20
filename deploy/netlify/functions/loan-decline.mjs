@@ -32,9 +32,17 @@ import {
 } from './_shared/auth.mjs';
 // Deploy 226 — audit log entry on decline / restore.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
+// Deploy 236.373 — clients-index write-through, so a decline actually
+// disappears from the Pipeline (which reads the materialized index).
+import { upsertClient } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
-const DECLINE_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
+// Deploy 236.371 (hotfix): added 'on_hold'. It was missing here while
+// loan-details.js only treats {cancelled, denied, closed} as terminal —
+// so the Decline button RENDERED on an on-hold loan, then this guard
+// rejected it and the UI showed a false "loan is already terminal"
+// toast. An on-hold loan is exactly the kind an admin needs to decline.
+const DECLINE_FROM = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved'];
 // Fallback when _declinedFrom was never written (e.g. a hand-edited
 // record). Approved is the safest restore target since it's the latest
 // stage a normal decline flow would have come from.
@@ -141,7 +149,8 @@ async function handle(req, context) {
 
   try {
     await clientsStore.setJSON(clientKey, client);
-    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+    upsertClient(ownerKey, client).catch(() => {}); // Deploy 236.373
+    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {}); // Phase 2 dual-write
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
