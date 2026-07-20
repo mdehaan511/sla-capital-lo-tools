@@ -4681,10 +4681,32 @@ netlifyIdentity.on('init', function(user) {
         // Deploy 236.345 — single-record fetch via /api/client-get.
         // Was: walked every client in the store to find one loan.
         // Now: one blob get, ~50 ms regardless of dataset size.
+        //
+        // Phase 4b — PG-first read. SLA.Clients.getPG hits Postgres
+        // (embedded loans[]), same response shape as Clients.get.
+        // Falls back to the blob on any error / miss so an outage
+        // or replication lag never blocks the sizer opening a loan.
         if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
           window._ownerOverride = ownerParam.toLowerCase();
         }
-        return SLA.Clients.get(clientIdP, ownerParam ? { owner: ownerParam } : {}).then(function(r) {
+        var _getOpts = ownerParam ? { owner: ownerParam } : {};
+        function _fromBlob() {
+          return SLA.Clients.get(clientIdP, _getOpts);
+        }
+        var _pClient;
+        if (SLA.Clients.getPG) {
+          _pClient = SLA.Clients.getPG(clientIdP, _getOpts).then(function(r) {
+            if (!r || !r.client) throw new Error('PG returned no client');
+            console.log('[SLA phase-4] DSCR Sizer: PG hit for', clientIdP);
+            return r;
+          }).catch(function(err) {
+            console.warn('[SLA phase-4] DSCR Sizer: PG miss, falling back to blob —', err && err.message);
+            return _fromBlob();
+          });
+        } else {
+          _pClient = _fromBlob();
+        }
+        return _pClient.then(function(r) {
           if (!r || !r.client) return false;
           var clientRec = r.client;
           var loans = clientRec.loans || [];

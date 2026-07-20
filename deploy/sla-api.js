@@ -879,6 +879,15 @@
       var path = '/api/clients-list-pg' + (parts.length ? '?' + parts.join('&') : '');
       return api('GET', path);
     },
+    // Phase 4b — Postgres single-client fetch. Same response shape as
+    // Clients.get() (client + ownerKey), plus embedded loans[] on the
+    // client. Wrap in .catch() → Clients.get() during the transition.
+    getPG: function (clientId, opts) {
+      opts = opts || {};
+      var qs = 'clientId=' + encodeURIComponent(clientId);
+      if (opts.owner) qs += '&owner=' + encodeURIComponent(opts.owner);
+      return api('GET', '/api/client-get-pg?' + qs);
+    },
     // Deploy 236.369 — merge two client records (winner + loser).
     // Same endpoint used by the loan-details clients merge modal
     // (clients-merge-manual.mjs, Deploy 236.230); adding a Clients-

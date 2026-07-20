@@ -4287,10 +4287,30 @@ netlifyIdentity.on('init', function(user) {
       if (!window.SLA || !SLA.Clients) return Promise.resolve(false);
       // Deploy 236.345 — single-record fetch via /api/client-get.
       // Cross-LO override — see dscr-sizer.html.
+      //
+      // Phase 4b — PG-first read with blob fallback. Same pattern as
+      // Pipeline / Clients / Loans cutover; see dscr-sizer.html.
       if (ownerParam && ownerParam.toLowerCase() !== (user.email || '').toLowerCase()) {
         window._ownerOverride = ownerParam.toLowerCase();
       }
-      return SLA.Clients.get(clientIdP, ownerParam ? { owner: ownerParam } : {}).then(function(r) {
+      var _getOpts = ownerParam ? { owner: ownerParam } : {};
+      function _fromBlob() {
+        return SLA.Clients.get(clientIdP, _getOpts);
+      }
+      var _pClient;
+      if (SLA.Clients.getPG) {
+        _pClient = SLA.Clients.getPG(clientIdP, _getOpts).then(function(r) {
+          if (!r || !r.client) throw new Error('PG returned no client');
+          console.log('[SLA phase-4] RTL Sizer: PG hit for', clientIdP);
+          return r;
+        }).catch(function(err) {
+          console.warn('[SLA phase-4] RTL Sizer: PG miss, falling back to blob —', err && err.message);
+          return _fromBlob();
+        });
+      } else {
+        _pClient = _fromBlob();
+      }
+      return _pClient.then(function(r) {
         if (!r || !r.client) return false;
         var clientRec = r.client;
         var loans = clientRec.loans || [];

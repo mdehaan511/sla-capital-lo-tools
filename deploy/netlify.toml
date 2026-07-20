@@ -1075,6 +1075,14 @@
   status = 200
   force = true
 
+# Phase 4b — Postgres-backed single-client fetch (drop-in for
+# /api/client-get). Same response shape, embedded loans[].
+[[redirects]]
+  from = "/api/client-get-pg"
+  to = "/.netlify/functions/client-get-pg"
+  status = 200
+  force = true
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates

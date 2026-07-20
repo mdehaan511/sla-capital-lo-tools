@@ -207,29 +207,47 @@ function onUser(user) {
 
 // Fetch the client by id from the backend.
 // Admins may load any owner's client by passing ?owner= in the URL.
+//
+// Phase 4b — PG-first single-record fetch. SLA.Clients.getPG returns
+// { client, ownerKey } with embedded loans[] — O(1) instead of a full
+// list-then-filter. Falls back to the old list path on any error so a
+// PG outage or lag never blocks Client Details from loading.
 function fetchClient() {
   var params = new URLSearchParams(window.location.search);
   var ownerParam = params.get('owner');
-  var listOpts = ownerParam ? { all: true } : {};
-  return SLA.Clients.list(listOpts).then(function(r) {
-    if (r && r.byOwner) {
-      // admin "all" response shape
-      var ownerKey = (ownerParam || '').toLowerCase();
-      var keys = Object.keys(r.byOwner);
-      for (var i = 0; i < keys.length; i++) {
-        var ownerClients = r.byOwner[keys[i]] || [];
-        for (var j = 0; j < ownerClients.length; j++) {
-          if (ownerClients[j].id === _clientId) {
-            _loEmail = keys[i];
-            return ownerClients[j];
+  function _fromBlobList() {
+    var listOpts = ownerParam ? { all: true } : {};
+    return SLA.Clients.list(listOpts).then(function(r) {
+      if (r && r.byOwner) {
+        var keys = Object.keys(r.byOwner);
+        for (var i = 0; i < keys.length; i++) {
+          var ownerClients = r.byOwner[keys[i]] || [];
+          for (var j = 0; j < ownerClients.length; j++) {
+            if (ownerClients[j].id === _clientId) {
+              _loEmail = keys[i];
+              return ownerClients[j];
+            }
           }
         }
+        return null;
       }
-      return null;
-    }
-    var list = (r && r.clients) || [];
-    return list.find(function(c){ return c.id === _clientId; }) || null;
-  });
+      var list = (r && r.clients) || [];
+      return list.find(function(c){ return c.id === _clientId; }) || null;
+    });
+  }
+  if (window.SLA && SLA.Clients && SLA.Clients.getPG) {
+    var _getOpts = ownerParam ? { owner: ownerParam } : {};
+    return SLA.Clients.getPG(_clientId, _getOpts).then(function(r) {
+      if (!r || !r.client) throw new Error('PG returned no client');
+      if (r.ownerKey) _loEmail = r.ownerKey;
+      console.log('[SLA phase-4] Client Details: PG hit for', _clientId);
+      return r.client;
+    }).catch(function(err) {
+      console.warn('[SLA phase-4] Client Details: PG miss, falling back to blob list —', err && err.message);
+      return _fromBlobList();
+    });
+  }
+  return _fromBlobList();
 }
 
 function render() {
