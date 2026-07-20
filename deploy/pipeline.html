@@ -739,6 +739,45 @@ function _baselineLookup(addr) {
   if (k3 && _baselineCloseDates[k3]) return _baselineCloseDates[k3];
   return null;
 }
+// Deploy 236.372 — decide a quote-tile's column from BOTH the quote's
+// status and its loan record's status, taking whichever is further along.
+//
+// Why: this bucketing used to read the QUOTE status alone, while the loan
+// record is the declared source of truth (see the 236.67 note at the call
+// site). Any quote-side sync miss therefore stranded the tile in the wrong
+// column — most often "Quoted", because an un-synced quote sits at
+// 'active' and 'active' is the fallthrough default below.
+//
+// Reported: 7751 Grasmere Dr (broker loan). The borrower completed the
+// application and the LOAN advanced awaiting_app -> approved correctly,
+// but the quote never followed — borrower-info-sync only updates a quote
+// that is already at 'awaiting_app', so once the quote fell behind, every
+// later step advanced the loan and skipped the quote. Tile sat in Quoted.
+//
+// Max-of-both rather than "loan always wins" because the write paths
+// disagree on ordering: loan-advance-status / loan-cancel / loan-decline
+// write loan-first, while quotes-decide and borrower-info-sync write
+// quote-first. Either side can be the stale one, so the further-along
+// status is the correct read in both directions.
+//
+// Terminal / paused states are deliberately NOT ranked — they are exits,
+// not progress. They keep their existing behavior: either side saying
+// terminal hides the tile, checked before we ever rank.
+var _PIPE_PROGRESS = { active: 0, submitted: 1, awaiting_app: 2, approved: 3 };
+var _PIPE_TERMINAL = { on_hold: 1, denied: 1, closed: 1, cancelled: 1 };
+function _pipelineBucket(quoteStatus, loanStatus) {
+  var qs = quoteStatus || 'active';
+  var ls = loanStatus  || '';
+  // Terminal on EITHER side hides the tile (pre-236.372 behavior kept).
+  if (_PIPE_TERMINAL[ls] || _PIPE_TERMINAL[qs]) return null;
+  var eff = qs;
+  if (ls && (_PIPE_PROGRESS[ls] || 0) > (_PIPE_PROGRESS[qs] || 0)) eff = ls;
+  return eff === 'submitted'    ? 'submitted'
+       : eff === 'awaiting_app' ? 'awaitingApp'
+       : eff === 'approved'     ? 'approved'
+       : 'quoted';
+}
+
 var _items = { newApp: [], quoted: [], submitted: [], awaitingApp: [], approved: [] };
 var _selectedItems = new Set();   // unified bulk-select set
                                   // keys: "prospect|<ownerKey>|<prospectId>"
@@ -1324,15 +1363,14 @@ function processResults(results) {
           loanRecStatus: loanStatus,
         });
       }
-      if (loanStatus === 'on_hold' || loanStatus === 'denied' || loanStatus === 'closed' || loanStatus === 'cancelled') return;
-      // Deploy 236.13 — cancelled is now also filtered out of the
-      // active pipeline (was previously falling into the 'quoted' else
-      // branch which made cancelled tiles linger in the Quoted column).
-      var bucket = s === 'submitted'    ? 'submitted'
-                 : s === 'awaiting_app' ? 'awaitingApp'
-                 : s === 'approved'     ? 'approved'
-                 : (s === 'on_hold' || s === 'denied' || s === 'closed' || s === 'cancelled') ? null
-                 : 'quoted';
+      // Deploy 236.13 — cancelled is also filtered out of the active
+      // pipeline (it previously fell into the 'quoted' else branch, which
+      // made cancelled tiles linger in the Quoted column).
+      // Deploy 236.372 — column now derives from the loan record AND the
+      // quote, whichever is further along. Both the terminal-hide checks
+      // that used to live here (loan-side above, quote-side in the null
+      // branch below) now live inside _pipelineBucket, unchanged.
+      var bucket = _pipelineBucket(s, loanStatus);
       if (!bucket) return;
       _items[bucket].push({
         kind: 'quote',
