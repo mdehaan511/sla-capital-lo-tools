@@ -5304,6 +5304,7 @@ function adminMoveStatus() {
 // Deploy 196: status → human label map shared by Cancel + Decline modal subs.
 var _STATUS_LABEL_FOR_END = {
   active:        'Quoted',
+  on_hold:       'On Hold',   // Deploy 236.371 — on_hold is now cancel/decline-able
   submitted:     'Submitted',
   awaiting_app:  'Awaiting Application',
   approved:      'In Processing',
@@ -5312,9 +5313,14 @@ function openCancelLoanModal() {
   if (!_loan) return;
   // Deploy 196: widened to all non-terminal statuses. Mirrors the
   // CANCEL_FROM list in loan-cancel.mjs — keep them in sync.
-  var allowed = ['active', 'submitted', 'awaiting_app', 'approved'];
+  // Deploy 236.371 (hotfix): added 'on_hold'. It was missing from BOTH
+  // this list and the backend's, while _terminalForEnd (which decides
+  // whether the button renders) treats on_hold as non-terminal — so the
+  // button appeared and then this guard rejected it with a message that
+  // was flatly untrue. Message corrected to name the real terminal set.
+  var allowed = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved'];
   if (allowed.indexOf(_loan.status) < 0) {
-    showToast('This loan is already terminal (closed, denied, or cancelled) and cannot be cancelled again.');
+    showToast('This loan is already closed, declined, or cancelled and cannot be cancelled again.');
     return;
   }
   var sub = document.getElementById('cancelLoanSub');
@@ -5337,9 +5343,12 @@ function openCancelLoanModal() {
 // Backend at /api/loan-decline mirrors the loan-cancel flow.
 function openDeclineLoanModal() {
   if (!_loan) return;
-  var allowed = ['active', 'submitted', 'awaiting_app', 'approved'];
+  // Deploy 236.371 (hotfix): added 'on_hold' — mirrors DECLINE_FROM in
+  // loan-decline.mjs. Declining a loan that's parked on hold is a normal
+  // outcome; it was blocked behind a false "already terminal" toast.
+  var allowed = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved'];
   if (allowed.indexOf(_loan.status) < 0) {
-    showToast('This loan is already terminal (closed, denied, or cancelled) and cannot be declined.');
+    showToast('This loan is already closed, declined, or cancelled and cannot be declined.');
     return;
   }
   var sub = document.getElementById('declineLoanSub');

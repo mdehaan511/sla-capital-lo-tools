@@ -103,10 +103,24 @@ export default async (req, context) => {
 };
 
 async function syncToClientLoan(ownerKey, quote) {
-  if (!quote.address) return;
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const target = norm(quote.address);
+  const targetLoanId = String(quote.loanId || '').trim();
+
+  // Deploy 236.371 (hotfix): STRICT loanId match when the quote has one.
+  // This function previously matched on ADDRESS ALONE, so closing a single
+  // quote stamped status='closed' onto EVERY loan at that address across
+  // EVERY client in the owner's namespace. 'closed' is filtered out of the
+  // pipeline entirely (pipeline.html bucket map), so unrelated loans
+  // silently vanished from the board — the two-loans-at-one-property and
+  // two-borrowers-same-address cases were the blast radius.
+  //
+  // This mirrors the guard quotes-decide.mjs has enforced since Deploy
+  // 236.13. Address matching is retained ONLY for legacy quotes that never
+  // had a loanId stamped (pre-236.7); an LO can repair one by opening it
+  // in the sizer and clicking Save Quote.
+  if (!targetLoanId && !target) return;
 
   const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
   for (const { key } of blobs) {
@@ -114,7 +128,9 @@ async function syncToClientLoan(ownerKey, quote) {
     if (!c || !c.loans) continue;
     let changed = false;
     for (const l of c.loans) {
-      if (norm(l.address) === target) {
+      const matchesLoanId  = targetLoanId && l.id === targetLoanId;
+      const matchesAddress = !targetLoanId && target && norm(l.address) === target;
+      if (matchesLoanId || matchesAddress) {
         l.status            = 'closed';
         l.finalLoanAmount   = quote.finalLoanAmount;
         l.commissionRate    = quote.commissionRate;

@@ -31,7 +31,10 @@ import {
 // going through Decline (which implies SLA-driven denial; Cancel is
 // for borrower-/deal-driven drop-off). Terminal statuses (closed,
 // denied, cancelled) remain ineligible.
-const CANCEL_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
+// Deploy 236.371 (hotfix): added 'on_hold' — same gap as loan-decline.
+// on_hold is NOT terminal, but it was absent from this list, so cancelling
+// an on-hold loan 400'd behind a misleading "already terminal" toast.
+const CANCEL_FROM = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved'];
 const RESTORE_TO  = 'approved';
 
 export default async (req, context) => {

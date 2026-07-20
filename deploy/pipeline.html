@@ -2633,6 +2633,7 @@ function bulkCancel() {
 
   var promises = [];
   var skippedNoLookup = 0;
+  var cancelFailures = []; // Deploy 236.371 — real failures, see _bulkResultMsg
   groups.quotes.forEach(function(q) {
     var item = (_items[q.colKey] || []).find(function(it) {
       return it.id === q.id && it.ownerKey === q.ownerKey;
@@ -2659,12 +2660,18 @@ function bulkCancel() {
     }
     promises.push(
       SLA.Loans.cancel(lookup.clientId, lookup.loanId, 'Cancelled via bulk action.', lookup.ownerKey)
-        .catch(function(err) { console.warn('cancel failed for', lookup.loanId, err); })
+        // Deploy 236.371 (hotfix): record the failure instead of
+        // swallowing it — see _bulkResultMsg. Previously every rejection
+        // resolved silently and the toast still claimed success.
+        .catch(function(err) {
+          console.warn('cancel failed for', lookup.loanId, err);
+          cancelFailures.push(err);
+        })
     );
   });
 
   Promise.all(promises).then(function() {
-    var msg = promises.length + ' loan' + (promises.length === 1 ? '' : 's') + ' cancelled';
+    var msg = _bulkResultMsg(promises.length, cancelFailures, 'cancelled', 'loan');
     if (skippedNoLookup > 0) {
       msg += ' (' + skippedNoLookup + ' skipped — no matching loan record)';
     }
@@ -2692,19 +2699,51 @@ function bulkOnHold() {
   }
   if (!confirm('Put ' + qN + ' quote' + (qN === 1 ? '' : 's') + ' on hold?' + skipNote)) return;
 
+  // Deploy 236.371 (hotfix): count real failures instead of swallowing
+  // them. The old .catch() RESOLVED, so Promise.all always succeeded and
+  // the toast reported the whole selection as "put on hold" even when
+  // every call 400'd / 403'd / 404'd — the real errors only ever reached
+  // the console. Note on-hold routes through /api/quotes-decide, which
+  // requires a QUOTE record, so loan-only tiles 404 here; the LO now
+  // sees that instead of a false success.
+  var failures = [];
   var promises = groups.quotes.map(function(q) {
     return SLA.Admin.decideQuote(q.ownerKey, q.id, 'on_hold', 'Placed on hold via bulk action.')
-      .catch(function(err) { console.warn('on_hold failed for', q.id, err); });
+      .catch(function(err) {
+        console.warn('on_hold failed for', q.id, err);
+        failures.push(err);
+      });
   });
 
   Promise.all(promises).then(function() {
-    showToast(qN + ' quote' + (qN === 1 ? '' : 's') + ' put on hold');
+    showToast(_bulkResultMsg(qN, failures, 'put on hold', 'quote'));
     _selectedItems.clear();
     _selectMode = false;
     var btn = document.getElementById('selectModeBtn');
     if (btn) { btn.classList.remove('active'); btn.textContent = 'Select Multiple'; }
     loadAll();
   });
+}
+
+// Deploy 236.371 (hotfix) — shared result-message builder for the bulk
+// actions. Reports what actually happened rather than assuming success,
+// and surfaces the first real error so the LO (and we) can see WHY a
+// bulk action didn't take. Hoisted, so bulkCancel above can call it too.
+function _bulkErrText(err) {
+  if (!err) return 'unknown error';
+  return String(err.error || err.message || err) || 'unknown error';
+}
+function _bulkResultMsg(total, failures, verbPast, noun) {
+  var failN = failures.length;
+  var okN   = total - failN;
+  var plural = function(n) { return n === 1 ? '' : 's'; };
+  if (failN === 0) return okN + ' ' + noun + plural(okN) + ' ' + verbPast;
+  if (okN === 0) {
+    return '⚠ ' + failN + ' ' + noun + plural(failN) + (failN === 1 ? ' was not ' : ' were not ')
+         + verbPast + ': ' + _bulkErrText(failures[0]);
+  }
+  return okN + ' ' + noun + plural(okN) + ' ' + verbPast + ', '
+       + failN + ' failed: ' + _bulkErrText(failures[0]);
 }
 
 // ── Actions ─────────────────────────────────────────────

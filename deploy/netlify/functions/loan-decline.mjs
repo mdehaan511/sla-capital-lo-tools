@@ -33,7 +33,12 @@ import {
 // Deploy 226 — audit log entry on decline / restore.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 
-const DECLINE_FROM = ['active', 'submitted', 'awaiting_app', 'approved'];
+// Deploy 236.371 (hotfix): added 'on_hold'. It was missing here while
+// loan-details.js only treats {cancelled, denied, closed} as terminal —
+// so the Decline button RENDERED on an on-hold loan, then this guard
+// rejected it and the UI showed a false "loan is already terminal"
+// toast. An on-hold loan is exactly the kind an admin needs to decline.
+const DECLINE_FROM = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved'];
 // Fallback when _declinedFrom was never written (e.g. a hand-edited
 // record). Approved is the safest restore target since it's the latest
 // stage a normal decline flow would have come from.
