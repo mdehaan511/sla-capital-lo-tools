@@ -3737,9 +3737,19 @@ function saveCurrentQuote() {
       };
       SLA.Clients.saveFromSizer(_payload)
         .then(function(resp) {
-          // Run the success handler FIRST — see dscr-sizer.html comment.
-          // Hydrating _editingLoanId before it runs skips the QuoteStore
-          // stamp path that keeps Pipeline linkable.
+          // Stamp the quote with the authoritative loanId from the
+          // response BEFORE handleSaveSuccess runs. See dscr-sizer.html
+          // for the full comment. Prevents wrong-loan stamps when the
+          // client has multiple loans at the same address.
+          try {
+            if (resp && resp.loanId && resp.clientId && QuoteStore.stampLoanIdOnQuote) {
+              var _fdPt = String(formData.propType || '').toLowerCase().trim();
+              var _sq = QuoteStore.getQuote(_quoteUser, 'rtl', formData.address, { propType: _fdPt });
+              if (_sq) QuoteStore.stampLoanIdOnQuote(_sq.id, resp.loanId, resp.clientId, ownerOvr);
+            }
+          } catch (e) {
+            console.warn('[SLA] RTL save: quote-stamp from endpoint response failed:', e);
+          }
           var _r = handleSaveSuccess(resp);
           if (resp && resp.clientId) window._editingClientId = resp.clientId;
           if (resp && resp.loanId)   window._editingLoanId   = resp.loanId;

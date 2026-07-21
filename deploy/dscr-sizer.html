@@ -3974,10 +3974,23 @@ function saveCurrentQuote() {
       };
       SLA.Clients.saveFromSizer(_payload)
         .then(function(resp) {
-          // Run the success handler FIRST — it uses !window._editingLoanId
-          // as a gate to decide whether to stamp the freshly-saved quote
-          // with the resolved loanId. Hydrating IDs before that gate would
-          // skip the stamp path and leave the quote orphaned on Pipeline.
+          // Stamp the just-saved quote with the AUTHORITATIVE loanId
+          // from the response BEFORE running handleSaveSuccess. The
+          // handler's own QuoteStore.stampLoanIdOnQuote path searches
+          // resp.client.loans[] by address and grabs the first match —
+          // which, when the client has multiple loans at the same
+          // address (common for repeat brokers), picks the WRONG one.
+          // The endpoint always returns the exact new/updated loanId,
+          // so use that directly.
+          try {
+            if (resp && resp.loanId && resp.clientId && QuoteStore.stampLoanIdOnQuote) {
+              var _fdPt = String(formData.propType || '').toLowerCase().trim();
+              var _sq = QuoteStore.getQuote(_quoteUser, 'dscr', formData.address, { propType: _fdPt });
+              if (_sq) QuoteStore.stampLoanIdOnQuote(_sq.id, resp.loanId, resp.clientId, ownerOvr);
+            }
+          } catch (e) {
+            console.warn('[SLA] DSCR save: quote-stamp from endpoint response failed:', e);
+          }
           var _r = handleDscrSaveSuccess(resp);
           if (resp && resp.clientId) window._editingClientId = resp.clientId;
           if (resp && resp.loanId)   window._editingLoanId   = resp.loanId;

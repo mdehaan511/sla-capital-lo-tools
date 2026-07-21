@@ -223,11 +223,21 @@ async function handle(req, context) {
         if (hit) {
           client = hit.record;
           clientKey = hit.key;
-          // Find the auto-created unpriced fromApplication loan on this client.
+          // Priority order for locating the loan on this client:
+          //   1. loan.prospectId === body.prospectId — the strongest
+          //      signal, unique per prospect. Prevents the "every
+          //      save appends a new loan" bug where the LO clicks
+          //      Save Quote 5 times and ends up with 5 duplicates
+          //      because the fromApplication-only match kept missing.
+          //   2. fromApplication + !rate + address match — the
+          //      classic auto-created unpriced loan for THIS address.
+          //   3. fromApplication + !rate — anywhere on this client.
+          //      Weakest signal, kept for old data without prospectId.
           if (Array.isArray(client.loans)) {
             const pAddr = String(prospect.propAddress || '').toLowerCase().trim();
-            existingLoan = client.loans.find((l) => l && l.fromApplication && !l.rate
-              && (!pAddr || String(l.address || '').toLowerCase().trim() === pAddr))
+            existingLoan = client.loans.find((l) => l && l.prospectId === body.prospectId)
+              || client.loans.find((l) => l && l.fromApplication && !l.rate
+                && (!pAddr || String(l.address || '').toLowerCase().trim() === pAddr))
               || client.loans.find((l) => l && l.fromApplication && !l.rate)
               || null;
           }
