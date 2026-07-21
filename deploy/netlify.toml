@@ -1121,6 +1121,15 @@
   status = 200
   force = true
 
+# One-off cleanup: nuke every loan on a client whose address matches
+# + every quote in the same owner's namespace at that address. Wipes
+# blob + PG + indexes. Used to clean test contamination.
+[[redirects]]
+  from = "/api/admin-nuke-client-address"
+  to = "/.netlify/functions/admin-nuke-client-address"
+  status = 200
+  force = true
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates
