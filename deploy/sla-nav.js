@@ -30,7 +30,7 @@
     // Deploy 236.188 — "Pipeline" renamed to "Leads" per Mike. The
     // pipeline.html page is the LO's pre-processing view of quoted /
     // in-flight loans; "Leads" reads more accurately for that role.
-    { label: 'Leads', href: 'pipeline.html' },
+    { label: 'Leads', href: '/pipeline.html' },
     // Deploy 236.93 / 236.107 — Processing menu. Pipeline (the
     // Kanban) and Tasks live under one parent so the navbar
     // stays compact and "process-side" tools are grouped.
@@ -42,8 +42,8 @@
       label: 'Processing',
       requires: 'admin',
       children: [
-        { label: 'Pipeline', href: 'processing-pipeline.html', requires: 'admin' },
-        { label: 'Tasks',    href: 'tasks.html',               requires: 'admin' },
+        { label: 'Pipeline', href: '/processing-pipeline.html', requires: 'admin' },
+        { label: 'Tasks',    href: '/tasks.html',               requires: 'admin' },
       ],
     },
     {
@@ -57,9 +57,9 @@
       // Deploy 236.188 — Loans moved out to its own top-level dropdown
       // below (with Submissions + Loan List).
       children: [
-        { label: 'Clients',  href: 'clients.html'  },
-        { label: 'Brokers',  href: 'brokers.html'  },
-        { label: 'Contacts', href: 'contacts.html' },
+        { label: 'Clients',  href: '/clients.html'  },
+        { label: 'Brokers',  href: '/brokers.html'  },
+        { label: 'Contacts', href: '/contacts.html' },
       ],
     },
     // Deploy 236.188 — replaces the standalone Submissions link.
@@ -70,14 +70,14 @@
     {
       label: 'Loans',
       children: [
-        { label: 'Submissions', href: 'submissions.html', requires: 'admin' },
-        { label: 'Loan List',   href: 'loans.html' },
+        { label: 'Submissions', href: '/submissions.html', requires: 'admin' },
+        { label: 'Loan List',   href: '/loans.html' },
       ],
     },
     // Deploy 236.121 — standalone Doc Review pages deleted; the
     // experience lives inside the Documents tab on Loan Details now.
     // Processors get to a review by opening any loan → Documents.
-    { label: 'Dashboard',   href: 'dashboard.html',   requires: 'admin' },
+    { label: 'Dashboard',   href: '/dashboard.html',   requires: 'admin' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile
     // page for admins (same surface). Keeping it as a separate top-level
     // link was redundant.
@@ -88,7 +88,7 @@
       // a menu item that calls netlifyIdentity.logout().
       isUserMenu: true,
       children: [
-        { label: 'Profile',  href: 'profile.html' },
+        { label: 'Profile',  href: '/profile.html' },
         { label: 'Sign out', action: 'logout' },
       ],
     },
@@ -96,11 +96,14 @@
 
   function currentFile() {
     try {
-      var p = String(window.location.pathname || '');
+      var p = String(window.location.pathname || '').toLowerCase();
+      // Phase 4d — /loan-details/<loanId> short URL. Fold to
+      // canonical /loan-details.html so highlight logic still works.
+      if (/^\/loan-details\//.test(p)) return '/loan-details.html';
       var slash = p.lastIndexOf('/');
       var f = slash >= 0 ? p.slice(slash + 1) : p;
-      if (!f || f === '/') f = 'index.html';
-      return f.toLowerCase();
+      if (!f) return '/index.html';
+      return '/' + f;
     } catch (_) { return ''; }
   }
 
@@ -140,7 +143,7 @@
     if (here === 'borrower-portal.html') return false;
     // Blocking navigation — replace so the LO page can't be reached
     // via back button either.
-    try { window.location.replace('borrower-portal.html'); } catch (_) {}
+    try { window.location.replace('/borrower-portal.html'); } catch (_) {}
     return true;
   }
 
@@ -210,14 +213,14 @@
 
     return (
       '<div class="nav-left">' +
-        '<a href="index.html" style="display:flex;align-items:center;text-decoration:none">' +
+        '<a href="/index.html" style="display:flex;align-items:center;text-decoration:none">' +
           '<img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display=\'none\'" />' +
         '</a>' +
         // Deploy 236.167 — renamed "Tools" to "Home" per Mike.
         // The index page is now positioned as the home dashboard
         // (leaderboard + sizers/guidelines shortcuts) rather than
         // just a tool launcher.
-        '<a href="index.html" class="nav-tools-btn">Home</a>' +
+        '<a href="/index.html" class="nav-tools-btn">Home</a>' +
       '</div>' +
       '<div class="nav-right">' +
         links +
