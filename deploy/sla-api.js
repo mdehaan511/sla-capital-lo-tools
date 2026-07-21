@@ -959,6 +959,25 @@
       });
     },
     /**
+     * Direct-ID CREATE. Companion to updateLoanDirect for the case
+     * where the sizer knows the target clientId but no loanId exists
+     * yet — typically the "+ Create New Loan" flow from Client Details.
+     * Bypasses Clients.upsert's email-matching guesswork (which was
+     * creating duplicate clients on broker deals).
+     *
+     * Response: { ok: true, loan: <new loan with backend-minted id> }.
+     * The sizer should hydrate window._editingLoanId from resp.loan.id
+     * so the NEXT save goes through updateLoanDirect naturally.
+     */
+    createLoanOnClient: function (clientId, loanData, ownerOverride) {
+      var body = { clientId: clientId, loanData: loanData };
+      if (ownerOverride) body.owner = ownerOverride;
+      return api('POST', '/api/loan-create-on-client', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
+    /**
      * Upsert helper mirroring the old ClientBook.upsert shape so sizer pages
      * can keep calling a familiar function. Merges loanData into the matching
      * client (by email, then name), creating the client if needed.

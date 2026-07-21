@@ -1101,6 +1101,15 @@
   status = 200
   force = true
 
+# Sizer save companion to loan-update-from-sizer: append a NEW loan
+# to an existing client by ID (no email/address matching guesswork).
+# Used by the + Create New Loan flow from Client Details.
+[[redirects]]
+  from = "/api/loan-create-on-client"
+  to = "/.netlify/functions/loan-create-on-client"
+  status = 200
+  force = true
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates

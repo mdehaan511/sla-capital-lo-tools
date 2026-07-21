@@ -3944,6 +3944,22 @@ function saveCurrentQuote() {
       SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRecord, ownerOvr)
         .then(handleDscrSaveSuccess)
         .catch(handleDscrSaveFailure);
+    } else if (window._editingClientId && !window._editingLoanId
+               && window.SLA && SLA.Clients && SLA.Clients.createLoanOnClient) {
+      // Direct-ID CREATE. The "+ Create New Loan" flow from Client
+      // Details lands here with clientId in the URL (stamped by
+      // loadContactOnly) but no loanId. Append a new loan to THIS
+      // client — no email/address matching guesswork — then hydrate
+      // window._editingLoanId from the response so the very next save
+      // takes the updateLoanDirect path.
+      SLA.Clients.createLoanOnClient(window._editingClientId, loanRecord, ownerOvr)
+        .then(function(resp) {
+          if (resp && resp.loan && resp.loan.id) {
+            window._editingLoanId = resp.loan.id;
+          }
+          return handleDscrSaveSuccess(resp);
+        })
+        .catch(handleDscrSaveFailure);
     } else if (isBrokerDeal && formData.brokerEmail) {
       // Deploy 236.287 \u2014 broker fallback path. When we have no direct
       // IDs (fresh broker deal from the sizer, or the auto-created loan
@@ -4934,6 +4950,18 @@ netlifyIdentity.on('init', function(user) {
             if (emailEl) emailEl.value = clientRec.email || '';
             if (phoneEl) phoneEl.value = clientRec.phone || '';
           } catch (_) {}
+          // Bug fix — stamp the target clientId on the transient
+          // sizer state so the Save flow knows to append the new
+          // loan directly to THIS client (via createLoanOnClient)
+          // instead of falling through to Clients.upsert's email
+          // matching, which would create a duplicate client on
+          // broker deals and orphan the quote.
+          window._editingClientId = clientRec.id;
+          // Deliberately NOT setting _editingLoanId — this flow is
+          // for a new loan. The save branch that sees
+          // (_editingClientId && !_editingLoanId) will call
+          // createLoanOnClient and hydrate _editingLoanId from the
+          // response so subsequent saves go through updateLoanDirect.
           return true;
         }).catch(function(){ return false; });
       }

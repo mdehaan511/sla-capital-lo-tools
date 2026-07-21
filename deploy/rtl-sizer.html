@@ -3711,6 +3711,19 @@ function saveCurrentQuote() {
       SLA.Clients.updateLoanDirect(window._editingClientId, window._editingLoanId, loanRec, ownerOvr)
         .then(handleSaveSuccess)
         .catch(handleSaveFailure);
+    } else if (window._editingClientId && !window._editingLoanId
+               && window.SLA && SLA.Clients && SLA.Clients.createLoanOnClient) {
+      // Direct-ID CREATE. + Create New Loan flow from Client Details.
+      // Mirror of the DSCR sizer save branch — see dscr-sizer.html
+      // for the full comment.
+      SLA.Clients.createLoanOnClient(window._editingClientId, loanRec, ownerOvr)
+        .then(function(resp) {
+          if (resp && resp.loan && resp.loan.id) {
+            window._editingLoanId = resp.loan.id;
+          }
+          return handleSaveSuccess(resp);
+        })
+        .catch(handleSaveFailure);
     } else if (isBrokerDeal && formData.brokerEmail) {
       // Deploy 236.287 — broker fallback path. When we have no direct
       // IDs (fresh broker deal, or auto-created loan wasn't matched),
@@ -4571,6 +4584,12 @@ netlifyIdentity.on('init', function(user) {
           if (emailEl) emailEl.value = clientRec.email || '';
           if (phoneEl) phoneEl.value = clientRec.phone || '';
         } catch (_) {}
+        // Bug fix — stamp target clientId so Save appends to THIS
+        // client via createLoanOnClient (deterministic) instead of
+        // falling through to Clients.upsert email matching (which
+        // created duplicate clients on broker deals). Mirror of the
+        // dscr-sizer.html fix.
+        window._editingClientId = clientRec.id;
         return true;
       }).catch(function(){ return false; });
     }
