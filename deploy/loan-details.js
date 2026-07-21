@@ -327,13 +327,25 @@ function onUser(user) {
               // resolves to the same (owner, client) tuple that we
               // already tried and couldn't load, treat it as not-found
               // instead of infinite-redirecting.
+              //
+              // 236.373.2 \u2014 short-URL callers arrive here with clientId=''
+              // (never in the URL), so the sameClient check always fails
+              // and the guard never fires. Compare the DESTINATION URL to
+              // the current URL instead: if they'd be identical, we'd
+              // just reload into the same page and loop forever.
+              var newUrl = SLA.urls.loanDetails(locate.loanId, { owner: locate.ownerKey });
+              var here = window.location.pathname + window.location.search;
+              if (newUrl === here) {
+                console.log('[SLA loan-lookup] locate resolves to same URL \u2014 treat as not-found to avoid loop');
+                _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+                return;
+              }
               var sameOwner  = String(locate.ownerKey || '').toLowerCase() === String(ownerHref || '').toLowerCase();
               var sameClient = String(locate.clientId || '') === String(clientId || '');
               if (sameOwner && sameClient) {
                 _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
                 return;
               }
-              var newUrl = SLA.urls.loanDetails(locate.loanId, { owner: locate.ownerKey });
               document.getElementById('pageContent').innerHTML =
                 '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
                   '<h3 style="margin-bottom:12px">Loan moved \u2014 redirecting\u2026</h3>' +
@@ -383,6 +395,14 @@ function onUser(user) {
         }).then(function(locate) {
           if (locate && locate.found && locate.clientId && locate.ownerKey) {
             var newUrl = SLA.urls.loanDetails(locate.loanId, { owner: locate.ownerKey });
+            // 236.373.2 \u2014 loop guard: if the resolved URL is the same
+            // one we're already on, the loan is genuinely gone but the
+            // index still lists it. Don't reload into ourselves.
+            var here = window.location.pathname + window.location.search;
+            if (newUrl === here) {
+              _renderLoanNotLocatedScreen(clientId, loanId, ownerHref);
+              return;
+            }
             document.getElementById('pageContent').innerHTML =
               '<div style="padding:4rem;text-align:center;max-width:640px;margin:0 auto">' +
                 '<h3 style="margin-bottom:12px">Loan moved \u2014 redirecting\u2026</h3>' +
