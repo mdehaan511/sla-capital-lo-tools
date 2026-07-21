@@ -121,9 +121,25 @@ function _makeNewClient({ firstName, lastName, email, phone, createdBy }) {
 async function _writeClient(clientsStore, ownerKey, client, opts) {
   const key = ownerKey + '/' + keySafe(client.id);
   await clientsStore.setJSON(key, client);
-  // Write-throughs. Fire-and-forget — primary write already landed.
+  // AWAIT the PG mirror. Phase 4 flipped Pipeline / Clients / Loans
+  // Details reads to PG-first with blob fallback. If PG-mirror
+  // silently fails (fire-and-forget was fine when PG was a mirror),
+  // the loan is invisible on every page that reads PG — the save
+  // "succeeded" from the LO's perspective but the tile never appears.
+  // Awaiting surfaces the failure as a 500 so we can retry or fall
+  // back to blob-first reads via cache-invalidation. Wrapped so a
+  // legit PG outage returns actionable info instead of a raw error.
+  try {
+    await pgMirror.upsertClientWithLoans(ownerKey, client);
+  } catch (e) {
+    const err = new Error('Save landed in blob but Postgres mirror failed: ' + ((e && e.message) || 'unknown'));
+    err.pgMirrorFailed = true;
+    err.status = 500;
+    throw err;
+  }
+  // Index + quote-store remain fire-and-forget — they're derived
+  // caches, blob + PG together are the source of truth.
   indexUpsertClient(ownerKey, client).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
   if (opts && opts.loanForQuoteSync) {
     syncLoanToQuoteStore(ownerKey, opts.loanForQuoteSync).catch(() => {});
   }
