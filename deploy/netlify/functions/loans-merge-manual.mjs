@@ -48,6 +48,11 @@ import {
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Materialized clients-index write-through, same pattern as
+// Deploy 236.373. Without this, Pipeline (which reads the index)
+// still shows the merged-away loser loan until the index gets
+// rebuilt by some other path.
+import { upsertClient as indexUpsertClient, removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
 
 // Fields that Baseline is authoritative on — always overwrite winner
 // with loser's value when loser has one, even if winner is non-empty.
@@ -207,13 +212,16 @@ async function handle(req, context) {
   try {
     await store.setJSON(winnerKey, winnerClient);
     pgMirror.upsertClientWithLoans(w.ownerKey, winnerClient).catch(() => {});
+    indexUpsertClient(w.ownerKey, winnerClient).catch(() => {});
     if (winnerKey !== loserKey) {
       if (deleteLoserClient) {
         await store.delete(loserKey);
         pgMirror.deleteClient(loserClient.id).catch(() => {});
+        indexRemoveClient(l.ownerKey, loserClient.id).catch(() => {});
       } else {
         await store.setJSON(loserKey, loserClient);
         pgMirror.upsertClientWithLoans(l.ownerKey, loserClient).catch(() => {});
+        indexUpsertClient(l.ownerKey, loserClient).catch(() => {});
       }
     }
   } catch (e) {
