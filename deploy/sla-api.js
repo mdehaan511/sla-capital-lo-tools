@@ -978,6 +978,25 @@
       });
     },
     /**
+     * Unified sizer save. Replaces the 4-branch decision tree in
+     * DSCR/RTL sizers with a single call that resolves the target
+     * client automatically via any available hint. Never produces
+     * an orphan quote — returns { ok, clientId, loanId, targetPath,
+     * clientCreated, loanCreated } on success or a clear 400 error
+     * when no target can be resolved.
+     *
+     * See netlify/functions/sizer-save-loan.mjs for the priority
+     * order of hints. Callers should pass every hint they have —
+     * the backend picks the best.
+     */
+    saveFromSizer: function (payload) {
+      return api('POST', '/api/sizer-save-loan', payload).then(function (r) {
+        cache.clear('clients');
+        cache.clear('quotes');
+        return r;
+      });
+    },
+    /**
      * Upsert helper mirroring the old ClientBook.upsert shape so sizer pages
      * can keep calling a familiar function. Merges loanData into the matching
      * client (by email, then name), creating the client if needed.

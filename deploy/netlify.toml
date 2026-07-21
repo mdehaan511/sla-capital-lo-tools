@@ -1110,6 +1110,17 @@
   status = 200
   force = true
 
+# Unified sizer save: replaces the 4-branch decision tree in DSCR/RTL
+# sizers with a single endpoint that resolves the target client via
+# any available hint (editing IDs → prospect → broker email → borrower
+# email) and always ends with a real loan record or a clear 400 error.
+# Kills the "orphan quote" class of bugs.
+[[redirects]]
+  from = "/api/sizer-save-loan"
+  to = "/.netlify/functions/sizer-save-loan"
+  status = 200
+  force = true
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates

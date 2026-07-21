@@ -3934,6 +3934,57 @@ function saveCurrentQuote() {
       }
     }
 
+    // Unified sizer save. Backend resolves the target client from any
+    // available hint (editing IDs -> prospect -> broker -> borrower)
+    // and ALWAYS writes a real loan record — no more silent branch
+    // fallthroughs that produced orphan "Loan record missing" cards.
+    // Legacy branches (updateLoanDirect, createLoanOnClient,
+    // ClientBook.upsert with broker/borrower email) are consolidated
+    // on the backend in sizer-save-loan.mjs.
+    if (window.SLA && SLA.Clients && SLA.Clients.saveFromSizer) {
+      var _brokerNameParts = String(formData.brokerName || '').trim().split(/\s+/);
+      var _isBrokerPayload = isBrokerDeal && !!formData.brokerEmail;
+      var _urlParams = new URLSearchParams(window.location.search);
+      var _prospectId = null;
+      if (_urlParams.get('fromProspect') === '1') {
+        try {
+          var _pd = JSON.parse(localStorage.getItem('sla_prefill_prospect') || 'null');
+          if (_pd && _pd.id) _prospectId = _pd.id;
+        } catch (_) {}
+      }
+      var _payload = {
+        toolType: 'dscr',
+        loan:     loanRecord,
+        borrower: {
+          firstName: nameParts.slice(0, -1).join(' ') || nameParts[0] || '',
+          lastName:  nameParts.length > 1 ? nameParts[nameParts.length - 1] : '',
+          email:     formData.borrowerEmail || '',
+          phone:     formData.borrowerPhone || '',
+        },
+        broker: _isBrokerPayload ? {
+          firstName: _brokerNameParts.slice(0, -1).join(' ') || _brokerNameParts[0] || '',
+          lastName:  _brokerNameParts.length > 1 ? _brokerNameParts[_brokerNameParts.length - 1] : '',
+          email:     formData.brokerEmail,
+          phone:     formData.brokerPhone || '',
+        } : null,
+        prospectId:      _prospectId,
+        editingClientId: window._editingClientId || null,
+        editingLoanId:   window._editingLoanId || null,
+        owner:           ownerOvr || null,
+      };
+      SLA.Clients.saveFromSizer(_payload)
+        .then(function(resp) {
+          if (resp && resp.clientId) window._editingClientId = resp.clientId;
+          if (resp && resp.loanId)   window._editingLoanId   = resp.loanId;
+          return handleDscrSaveSuccess(resp);
+        })
+        .catch(handleDscrSaveFailure);
+      return;
+    }
+
+    // Legacy save flow retained ONLY as a fallback if sla-api.js
+    // hasn't loaded saveFromSizer yet. All existing sub-branches kept
+    // intact for that narrow case.
     var hasDirectIds = window._editingClientId && window._editingLoanId
       && window.SLA && SLA.Clients && SLA.Clients.updateLoanDirect;
 
