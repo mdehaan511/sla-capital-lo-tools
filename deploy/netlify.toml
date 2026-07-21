@@ -1092,6 +1092,15 @@
   status = 200
   force = true
 
+# Repair tool: rewrite a client blob's loans[] from PG's truth. For
+# when a mutation left the blob out of sync with PG's loans table
+# (symptom: loans-merge-manual returns "loan not found on client").
+[[redirects]]
+  from = "/api/admin-client-repair-loans"
+  to = "/.netlify/functions/admin-client-repair-loans"
+  status = 200
+  force = true
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates
