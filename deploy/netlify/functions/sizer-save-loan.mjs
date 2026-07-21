@@ -343,10 +343,18 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
 
+  // Response shape includes `client` and `loan` so it's a drop-in
+  // replacement for both Clients.upsert (returned resp.client) and
+  // updateLoanDirect (returned resp.loan). handleSaveSuccess in the
+  // sizers uses both paths; matching the shape means no per-endpoint
+  // adapters in the frontend.
   return json(200, {
     ok:            true,
+    client,
+    loan:          loanRecord,
     clientId:      client.id,
     loanId:        loanRecord.id,
+    ownerKey,
     targetPath,
     clientCreated,
     loanCreated,

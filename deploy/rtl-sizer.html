@@ -3737,9 +3737,13 @@ function saveCurrentQuote() {
       };
       SLA.Clients.saveFromSizer(_payload)
         .then(function(resp) {
+          // Run the success handler FIRST — see dscr-sizer.html comment.
+          // Hydrating _editingLoanId before it runs skips the QuoteStore
+          // stamp path that keeps Pipeline linkable.
+          var _r = handleSaveSuccess(resp);
           if (resp && resp.clientId) window._editingClientId = resp.clientId;
           if (resp && resp.loanId)   window._editingLoanId   = resp.loanId;
-          return handleSaveSuccess(resp);
+          return _r;
         })
         .catch(handleSaveFailure);
       return;

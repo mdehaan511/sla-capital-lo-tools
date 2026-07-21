@@ -3974,9 +3974,14 @@ function saveCurrentQuote() {
       };
       SLA.Clients.saveFromSizer(_payload)
         .then(function(resp) {
+          // Run the success handler FIRST — it uses !window._editingLoanId
+          // as a gate to decide whether to stamp the freshly-saved quote
+          // with the resolved loanId. Hydrating IDs before that gate would
+          // skip the stamp path and leave the quote orphaned on Pipeline.
+          var _r = handleDscrSaveSuccess(resp);
           if (resp && resp.clientId) window._editingClientId = resp.clientId;
           if (resp && resp.loanId)   window._editingLoanId   = resp.loanId;
-          return handleDscrSaveSuccess(resp);
+          return _r;
         })
         .catch(handleDscrSaveFailure);
       return;
