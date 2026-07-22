@@ -49,7 +49,12 @@ We test in production with live LOs. Survivable with LOs; not with borrowers.
 - [ ] **B2 (Mike).** In Netlify: enable branch deploys for a `staging` branch;
       scope `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` env vars per-branch
       so staging points at the staging project.
-- [ ] **B3.** Seed script: copy N sanitized clients/loans into staging PG.
+- [x] **B3.** Seed script (`scripts/seed-staging.mjs`): copies the N most-
+      recent clients + their loans (+ FK-referenced brokers/guarantors) from
+      prod PG into staging PG, scrubbing SSN/DOB/home addresses/phones and
+      remapping emails to stable seed-N@staging.test fakes. Idempotent;
+      refuses target==source. Deploy 236.390. Runnable the moment B1 exists:
+      `SOURCE_URL=… SOURCE_KEY=… TARGET_URL=… TARGET_KEY=… node scripts/seed-staging.mjs`
 - [x] **B4.** Smoke-test script (`scripts/smoke.mjs`): read paths (health,
       clients-list-pg, quotes-list, prospects-list, search-pg) + opt-in write
       lifecycle (sizer save → PG read-back → search → quote sync → advance →
