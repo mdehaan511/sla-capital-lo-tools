@@ -23,6 +23,23 @@ function projectQuote(q) {
     savedAt:    q.savedAt,
     updatedAt:  q.updatedAt,
     borrowerInfoCompletedAt: q.borrowerInfoCompletedAt || '',
+    // Deploy 236.380 — close + decision fields. The original 236.343
+    // projection dropped these, so closed.html and decisions.html in
+    // admin All-LOs scope (which reads this index) rendered EVERY
+    // closed loan with blank final amount / commission / close date.
+    // LO self-scope reads raw blobs and was unaffected — which is why
+    // the regression hid for so long.
+    finalLoanAmount:  q.finalLoanAmount  ?? null,
+    originalLoanAmt:  q.originalLoanAmt  || '',
+    commissionRate:   q.commissionRate   ?? null,
+    commissionAmount: q.commissionAmount ?? null,
+    closedAt:         q.closedAt         || '',
+    closedBy:         q.closedBy         || '',
+    closeNotes:       q.closeNotes       || '',
+    decidedAt:        q.decidedAt        || '',
+    decidedBy:        q.decidedBy        || '',
+    decisionNotes:    q.decisionNotes    || '',
+    submittedAt:      q.submittedAt      || '',
     // Pipeline reads a handful of formData fields for tile display
     // + the propType dedupe key. Drop everything else (sizer state
     // snapshots + pricing overrides can add many KB per record).
@@ -44,5 +61,8 @@ export const quotesIndex = createStoreIndex({
   indexStoreName:   'quotes-index',
   primaryStoreName: 'quotes',
   project:          projectQuote,
-  version:          1,
+  // Deploy 236.380 — bumped so the stored v1 index (missing the close
+  // fields) is discarded and rebuilt with the new projection on the
+  // next read.
+  version:          2,
 });
