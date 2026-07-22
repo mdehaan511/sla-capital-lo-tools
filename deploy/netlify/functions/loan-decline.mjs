@@ -150,7 +150,7 @@ async function handle(req, context) {
   try {
     await clientsStore.setJSON(clientKey, client);
     upsertClient(ownerKey, client).catch(() => {}); // Deploy 236.373
-    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {}); // Phase 2 dual-write
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, client); // Phase 2 dual-write
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

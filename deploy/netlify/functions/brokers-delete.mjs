@@ -47,14 +47,14 @@ export default async (req, context) => {
       const looksBrokerOnly = existing._isBroker && !hasLoans && !existing.firstName && !existing.lastName;
       if (looksBrokerOnly) {
         await clientsStore.delete(key);
-        pgMirror.deleteClient(body.id).catch(() => {});
+        await pgMirror.deleteClientStrict(body.id);
         mode = 'deleted';
       } else {
         delete existing._isBroker;
         delete existing._brokerCompany;
         existing.updatedAt = new Date().toISOString();
         await clientsStore.setJSON(key, existing);
-        pgMirror.upsertClientWithLoans(ownerKey, existing).catch(() => {});
+        await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
       }
     }
     // Clean up any lingering legacy broker record too.

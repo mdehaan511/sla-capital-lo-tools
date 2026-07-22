@@ -242,7 +242,7 @@ export default async (req, context) => {
     // Phase 2 — best-effort Postgres mirror. Same failure discipline
     // as the clients-index write above: never throws, never blocks
     // the response. On PG_MIRROR_DISABLED=true env var this is a no-op.
-    pgMirror.upsertClientWithLoans(owner, record).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(owner, record);
 
     // Fire-and-forget Brevo sync. Failures never block the save response.
     // We do await name resolution because it's a quick local blob read,

@@ -96,7 +96,7 @@ async function handle(req, context) {
     client.updatedAt = now;
     try {
       await clientsStore.setJSON(`${ownerKey}/${keySafe(body.clientId)}`, client);
-      pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+      await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
       lastSentAt = now;
     } catch (e) {
       console.warn('prequal-send: failed to persist lastSent stamp:', e && e.message);

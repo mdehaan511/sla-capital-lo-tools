@@ -67,7 +67,7 @@ async function handle(req, context) {
         c.updatedAt = new Date().toISOString();
         await store.setJSON(key, c);
         const _ownerKey = key.split('/')[0] || '';
-        pgMirror.upsertClientWithLoans(_ownerKey, c).catch(() => {});
+        await pgMirror.upsertClientWithLoansStrict(_ownerKey, c);
       }
     }
   }

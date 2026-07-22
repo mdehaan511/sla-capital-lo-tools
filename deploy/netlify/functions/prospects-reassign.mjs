@@ -168,7 +168,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
     }
     existing.updatedAt = now;
     await clientsStore.setJSON(existingKey, existing);
-    pgMirror.upsertClientWithLoans(ownerKey, existing).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
     return true;
   }
 
@@ -188,7 +188,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
   };
   const key = `${ownerKey}/${keySafe(clientId)}`;
   await clientsStore.setJSON(key, record);
-  pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
   return true;
 }
 

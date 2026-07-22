@@ -229,14 +229,14 @@ async function handle(req, context) {
   try {
     const destKey = ownerKey + '/' + keySafe(destClient.id);
     await clientsStore.setJSON(destKey, destClient);
-    pgMirror.upsertClientWithLoans(ownerKey, destClient).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, destClient);
     if (srcClient._isBrokerPlaceholder && srcClient.loans.length === 0) {
       await clientsStore.delete(srcKey);
-      pgMirror.deleteClient(srcClient.id).catch(() => {});
+      await pgMirror.deleteClientStrict(srcClient.id);
       srcPlaceholderDeleted = true;
     } else {
       await clientsStore.setJSON(srcKey, srcClient);
-      pgMirror.upsertClientWithLoans(ownerKey, srcClient).catch(() => {});
+      await pgMirror.upsertClientWithLoansStrict(ownerKey, srcClient);
     }
   } catch (e) {
     return json(500, { error: 'Failed to write client records: ' + (e.message || 'unknown') });

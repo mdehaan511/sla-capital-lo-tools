@@ -131,7 +131,7 @@ async function handle(req, context) {
       }
 
       await clientsStore.delete(key);
-      pgMirror.deleteClient(cid).catch(() => {});
+      await pgMirror.deleteClientStrict(cid);
       deleted.push({
         clientId: cid,
         ok: true,

@@ -148,7 +148,7 @@ async function syncToClientLoan(ownerKey, quote) {
     if (changed) {
       await clientsStore.setJSON(key, c);
       upsertClient(ownerKey, c).catch(() => {}); // Deploy 236.373
-      pgMirror.upsertClientWithLoans(ownerKey, c).catch(() => {}); // Phase 2 dual-write
+      await pgMirror.upsertClientWithLoansStrict(ownerKey, c); // Phase 2 dual-write
     }
   }
 }

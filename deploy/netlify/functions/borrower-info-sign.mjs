@@ -386,7 +386,7 @@ async function handle(req) {
       for (const ch of guarantorClientChanges) {
         try { await clientsStore.setJSON(ch.key, ch.client); }
         catch (e) { console.warn('borrower-info-sign: guarantor client write failed:', e && e.message); }
-        pgMirror.upsertClientWithLoans(record.ownerKey, ch.client).catch(() => {});
+        await pgMirror.upsertClientWithLoansStrict(record.ownerKey, ch.client);
       }
       // Flush sub-form token index entries to the lookup store.
       if (subFormIndexEntries.length) {
@@ -429,7 +429,7 @@ async function handle(req) {
           ln.updatedAt = signedAt;
           primaryClient.updatedAt = signedAt;
           await clientsStore.setJSON(primaryKey, primaryClient);
-          pgMirror.upsertClientWithLoans(record.ownerKey, primaryClient).catch(() => {});
+          await pgMirror.upsertClientWithLoansStrict(record.ownerKey, primaryClient);
         }
       }
     } catch (e) {

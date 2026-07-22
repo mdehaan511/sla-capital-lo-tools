@@ -234,7 +234,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(guarantorKey, guarantor); }
   catch (e) { return json(500, { error: 'Failed to write guarantor client: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, guarantor).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, guarantor).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, guarantor);
 
   // ── Wire into the loan: guarantorClientIds + ownership map.
   loan.guarantorClientIds = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
@@ -270,7 +270,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, primary).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   return json(200, {
     ok: true,

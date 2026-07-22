@@ -144,13 +144,13 @@ async function handle(req, context) {
   try {
     // Write dest FIRST — if src write fails, at least the loan lives somewhere.
     await clientsStore.setJSON(destKey, destClient);
-    pgMirror.upsertClientWithLoans(newOwnerKey, destClient).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(newOwnerKey, destClient);
     if (deleteSrcClient) {
       await clientsStore.delete(srcKey);
-      pgMirror.deleteClient(srcClient.id).catch(() => {});
+      await pgMirror.deleteClientStrict(srcClient.id);
     } else {
       await clientsStore.setJSON(srcKey, srcClient);
-      pgMirror.upsertClientWithLoans(oldOwnerKey, srcClient).catch(() => {});
+      await pgMirror.upsertClientWithLoansStrict(oldOwnerKey, srcClient);
     }
   } catch (e) {
     return json(500, { error: 'Failed to persist client records: ' + (e.message || 'unknown') });

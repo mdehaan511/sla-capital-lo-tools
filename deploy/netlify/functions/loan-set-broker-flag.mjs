@@ -144,7 +144,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, primary).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   return json(200, { ok: true, loan });
 }

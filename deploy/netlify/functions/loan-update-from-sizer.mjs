@@ -331,7 +331,7 @@ async function handle(req, context) {
   try {
     await clientsStore.setJSON(clientKey, client);
     upsertClient(ownerKey, client).catch(() => {});
-    pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

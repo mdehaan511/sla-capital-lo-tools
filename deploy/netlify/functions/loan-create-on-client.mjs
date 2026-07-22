@@ -150,7 +150,7 @@ async function handle(req, context) {
   // Fire the three write-throughs (index, PG, quote-store). None are
   // load-bearing for the response — the blob write already succeeded.
   indexUpsertClient(ownerKey, client).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
   syncLoanToQuoteStore(ownerKey, newLoan).catch(() => {});
 
   return json(200, {

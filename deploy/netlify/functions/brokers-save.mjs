@@ -77,7 +77,7 @@ export default async (req, context) => {
     console.error('brokers-save error:', e);
     return json(500, { error: 'Failed to save broker' });
   }
-  pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
 
   // Best-effort: if a legacy broker record still exists for this id,
   // delete it so we don't dual-list.

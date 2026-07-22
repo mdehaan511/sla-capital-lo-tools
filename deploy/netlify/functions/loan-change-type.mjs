@@ -171,7 +171,7 @@ async function handle(req, context) {
 
   // Persist
   await clientsStore.setJSON(clientKey, client);
-  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   // Also touch the matching quote in QuoteStore (if any) so Pipeline
   // reflects the new status + tool type. The quote is keyed by

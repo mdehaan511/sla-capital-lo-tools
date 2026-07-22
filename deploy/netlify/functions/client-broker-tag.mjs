@@ -86,7 +86,7 @@ async function handle(req, context) {
 
   try { await clientsStore.setJSON(key, client); }
   catch (e) { return json(500, { error: 'Failed to save client: ' + (e && e.message) }); }
-  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   return json(200, { ok: true, client });
 }

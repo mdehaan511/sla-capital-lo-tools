@@ -248,7 +248,7 @@ async function handle(req) {
 
   try { await clientsStore.setJSON(clientKey, guarantor); }
   catch (e) { return json(500, { error: 'Failed to save guarantor: ' + (e.message || 'unknown') }); }
-  pgMirror.upsertClientWithLoans(idx.ownerKey, guarantor).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(idx.ownerKey, guarantor);
 
   // Deploy 236.129 — mark the loan as having freshly-arrived guarantor
   // docs so Loan Details can surface a "Re-generate loan app to
@@ -265,7 +265,7 @@ async function handle(req) {
           ln.updatedAt = now;
           primary.updatedAt = now;
           await clientsStore.setJSON(primaryKey, primary);
-          pgMirror.upsertClientWithLoans(idx.ownerKey, primary).catch(() => {});
+          await pgMirror.upsertClientWithLoansStrict(idx.ownerKey, primary);
         }
       }
     } catch (e) {

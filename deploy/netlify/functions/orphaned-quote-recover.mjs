@@ -231,7 +231,7 @@ async function handle(req, context) {
 
   // 4) Persist
   await clientsStore.setJSON(clientKey, clientToSave);
-  pgMirror.upsertClientWithLoans(owner, clientToSave).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(owner, clientToSave);
 
   return json(200, {
     success: true,

@@ -430,7 +430,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
   try {
     await clientsStore.setJSON(existingKey, record);
     upsertClient(ownerKey, record).catch(() => {});
-    pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
     console.log(`${tag} saved client=${record.id} loan=${loan.id} loans=${record.loans.length}`);
   } catch (e) {
     console.error(`${tag} setJSON failed:`, e && e.message);

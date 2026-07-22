@@ -159,7 +159,7 @@ async function handle(req, context) {
               if (added) {
                 clientForLog.updatedAt = new Date().toISOString();
                 await clientsStore2.setJSON(clientKey, clientForLog);
-                pgMirror.upsertClientWithLoans(ownerKey, clientForLog).catch(() => {});
+                await pgMirror.upsertClientWithLoansStrict(ownerKey, clientForLog);
               }
             }
           }
@@ -280,6 +280,6 @@ async function syncBorrowerFieldsToClient(record) {
   if (changed) {
     client.updatedAt = new Date().toISOString();
     await clientsStore.setJSON(clientKey, client);
-    pgMirror.upsertClientWithLoans(record.ownerKey, client).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(record.ownerKey, client);
   }
 }

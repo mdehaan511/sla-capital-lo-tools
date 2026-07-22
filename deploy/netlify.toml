@@ -1130,6 +1130,19 @@
   status = 200
   force = true
 
+# Bulk blob→PG diff + repair. Scans every client blob, reports what
+# PG is missing (or has orphaned), optionally writes the missing rows
+# to PG. Dry-run default. Fixes accumulated drift from months of
+# fire-and-forget pg-mirror silently failing.
+[[redirects]]
+  from = "/api/admin-blob-pg-sync"
+  to = "/.netlify/functions/admin-blob-pg-sync"
+  status = 200
+  force = true
+
+[functions."admin-blob-pg-sync"]
+  timeout = 26
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates

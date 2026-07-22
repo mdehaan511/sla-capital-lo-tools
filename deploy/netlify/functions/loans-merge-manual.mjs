@@ -211,16 +211,16 @@ async function handle(req, context) {
 
   try {
     await store.setJSON(winnerKey, winnerClient);
-    pgMirror.upsertClientWithLoans(w.ownerKey, winnerClient).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(w.ownerKey, winnerClient);
     indexUpsertClient(w.ownerKey, winnerClient).catch(() => {});
     if (winnerKey !== loserKey) {
       if (deleteLoserClient) {
         await store.delete(loserKey);
-        pgMirror.deleteClient(loserClient.id).catch(() => {});
+        await pgMirror.deleteClientStrict(loserClient.id);
         indexRemoveClient(l.ownerKey, loserClient.id).catch(() => {});
       } else {
         await store.setJSON(loserKey, loserClient);
-        pgMirror.upsertClientWithLoans(l.ownerKey, loserClient).catch(() => {});
+        await pgMirror.upsertClientWithLoansStrict(l.ownerKey, loserClient);
         indexUpsertClient(l.ownerKey, loserClient).catch(() => {});
       }
     }

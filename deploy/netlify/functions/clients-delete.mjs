@@ -54,14 +54,14 @@ export default async (req, context) => {
       existing.updatedAt = new Date().toISOString();
       await store.setJSON(key, existing);
       upsertClient(ownerKey, existing).catch(() => {});
-      pgMirror.upsertClientWithLoans(ownerKey, existing).catch(() => {});
+      await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
       return json(200, { ok: true, client: existing });
     }
 
     // Otherwise delete the whole client
     await store.delete(key);
     removeClient(ownerKey, body.clientId).catch(() => {});
-    pgMirror.deleteClient(body.clientId).catch(() => {});
+    await pgMirror.deleteClientStrict(body.clientId);
     return json(200, { ok: true, deleted: body.clientId });
   } catch (e) {
     console.error('clients-delete error:', e);

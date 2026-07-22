@@ -141,10 +141,99 @@ async function _deleteLoan(loanId) {
   }
 }
 
+// ── STRICT VARIANTS ─────────────────────────────────────────────
+// These throw on error. Use them from mutation endpoints so PG
+// write failures surface as 500s to the caller (and, in turn, as
+// clear error toasts to the LO) rather than silent success + a
+// missing tile on Pipeline.
+//
+// Phase 4 flipped reads to PG-first with blob fallback. When PG is
+// out of sync with blob, EVERY page that reads PG shows stale data.
+// The old fire-and-forget mirror was fine when PG was purely a
+// mirror; it's dangerous now that PG is authoritative for reads.
+//
+// Rollback lever: PG_MIRROR_DISABLED=true still skips ALL mirror
+// writes (strict + non-strict) so if PG has an outage or a bad
+// schema deploy we can restore write-path availability instantly.
+//
+// Naming: <method>Strict. Callers should await + let the outer
+// try/catch surface the error.
+async function _upsertClientStrict(ownerEmail, client) {
+  if (_isDisabled()) return;
+  if (!client || !client.id || !ownerEmail) return;
+  const row = projectClient(client, ownerEmail);
+  if (!row) return;
+  await db.upsert('clients', row, { onConflict: 'id' });
+}
+
+async function _upsertClientWithLoansStrict(ownerEmail, client) {
+  if (_isDisabled()) return;
+  if (!client || !client.id || !ownerEmail) return;
+  await _upsertClientStrict(ownerEmail, client);
+  const currentLoanIds = new Set();
+  if (Array.isArray(client.loans)) {
+    const loanRows = [];
+    for (const loan of client.loans) {
+      if (!loan || !loan.id) continue;
+      const row = projectLoan(loan, client.id, ownerEmail);
+      if (row) {
+        loanRows.push(row);
+        currentLoanIds.add(loan.id);
+      }
+    }
+    if (loanRows.length) {
+      await db.upsert('loans', loanRows, { onConflict: 'id' });
+    }
+  }
+  // Reconcile stale loans — same logic as the non-strict path but
+  // deletes are awaited too so a broken reconcile surfaces.
+  const existing = await db.select('loans', {
+    select: 'id',
+    eq: { client_id: client.id },
+  });
+  for (const row of (existing || [])) {
+    if (row && row.id && !currentLoanIds.has(row.id)) {
+      await db.del('loans', { id: row.id });
+    }
+  }
+}
+
+async function _upsertLoanStrict(ownerEmail, clientId, loan) {
+  if (_isDisabled()) return;
+  if (!loan || !loan.id || !clientId || !ownerEmail) return;
+  const row = projectLoan(loan, clientId, ownerEmail);
+  if (!row) return;
+  await db.upsert('loans', row, { onConflict: 'id' });
+}
+
+async function _deleteClientStrict(clientId) {
+  if (_isDisabled()) return;
+  if (!clientId) return;
+  await db.del('clients', { id: clientId });
+}
+
+async function _deleteLoanStrict(loanId) {
+  if (_isDisabled()) return;
+  if (!loanId) return;
+  await db.del('loans', { id: loanId });
+}
+
 export const mirror = {
+  // Legacy fire-and-forget variants. Never throw; log on failure.
+  // Kept for callsites where a PG write is genuinely optional
+  // (e.g. best-effort backref cleanup where the caller has already
+  // reported success to the user).
   upsertClient:          (ownerEmail, client)         => _upsertClient(_ownerEmail(ownerEmail), client),
   upsertClientWithLoans: (ownerEmail, client)         => _upsertClientWithLoans(_ownerEmail(ownerEmail), client),
   upsertLoan:            (ownerEmail, clientId, loan) => _upsertLoan(_ownerEmail(ownerEmail), clientId, loan),
   deleteClient:          (clientId)                    => _deleteClient(clientId),
   deleteLoan:            (loanId)                      => _deleteLoan(loanId),
+  // Strict variants — throw on error. Use these for the AUTHORITATIVE
+  // dual-write in every mutation endpoint. Await + let outer try/catch
+  // surface the failure as a 500.
+  upsertClientStrict:          (ownerEmail, client)         => _upsertClientStrict(_ownerEmail(ownerEmail), client),
+  upsertClientWithLoansStrict: (ownerEmail, client)         => _upsertClientWithLoansStrict(_ownerEmail(ownerEmail), client),
+  upsertLoanStrict:            (ownerEmail, clientId, loan) => _upsertLoanStrict(_ownerEmail(ownerEmail), clientId, loan),
+  deleteClientStrict:          (clientId)                    => _deleteClientStrict(clientId),
+  deleteLoanStrict:            (loanId)                      => _deleteLoanStrict(loanId),
 };

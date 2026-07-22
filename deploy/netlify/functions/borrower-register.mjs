@@ -106,7 +106,7 @@ export default async (req, context) => {
   const key = ownerKey + '/' + keySafe(clientId);
   try {
     await clientsStore.setJSON(key, record);
-    pgMirror.upsertClientWithLoans(ownerKey, record).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
   } catch (e) {
     console.error('borrower-register: setJSON failed:', e && e.message);
     return json(500, { error: 'Failed to save registration' });

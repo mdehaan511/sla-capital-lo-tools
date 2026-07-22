@@ -168,7 +168,7 @@ async function handle(req, context) {
     catch (e) {
       return json(500, { error: 'Failed to save guarantor client ' + (i + 1) + ': ' + (e && e.message) });
     }
-    pgMirror.upsertClientWithLoans(ownerKey, clientRec).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, clientRec);
     createdOrLinked.push({ index: i, mode, clientId: clientRec.id, name: clientRec.firstName + ' ' + clientRec.lastName, email });
   }
 
@@ -196,7 +196,7 @@ async function handle(req, context) {
           });
           g1Client.updatedAt = now;
           try { await clientsStore.setJSON(g1Key, g1Client); } catch (_) {}
-          pgMirror.upsertClientWithLoans(ownerKey, g1Client).catch(() => {});
+          await pgMirror.upsertClientWithLoansStrict(ownerKey, g1Client);
         }
       }
     }
@@ -225,7 +225,7 @@ async function handle(req, context) {
 
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e && e.message) }); }
-  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   return json(200, { ok: true, loan, guarantors: createdOrLinked });
 }

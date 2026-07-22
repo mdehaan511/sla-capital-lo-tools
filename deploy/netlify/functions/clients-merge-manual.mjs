@@ -308,9 +308,9 @@ async function handle(req, context) {
   // 7. Persist winner + delete loser.
   try {
     await clientsStore.setJSON(winnerKey, winner);
-    pgMirror.upsertClientWithLoans(winnerOwnerKey, winner).catch(() => {});
+    await pgMirror.upsertClientWithLoansStrict(winnerOwnerKey, winner);
     await clientsStore.delete(loserKey);
-    pgMirror.deleteClient(loser.id).catch(() => {});
+    await pgMirror.deleteClientStrict(loser.id);
   } catch (e) {
     return json(500, { error: 'Failed to persist merge: ' + (e && e.message) });
   }

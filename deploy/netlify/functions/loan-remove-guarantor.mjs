@@ -114,7 +114,7 @@ async function handle(req, context) {
 
   await clientsStore.setJSON(primaryKey, primary);
   indexUpsertClient(ownerKey, primary).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, primary).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   // Clean up the backref on the guarantor client. The guarantor may
   // live under a different owner (linked cross-LO); walk all

@@ -155,7 +155,7 @@ async function handle(req, context) {
 
   try { await clientsStore.setJSON(clientKey, client); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
-  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   return json(200, { ok: true, loan, clientId: client.id, autoTasks });
 }

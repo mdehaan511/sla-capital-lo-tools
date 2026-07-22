@@ -246,7 +246,7 @@ async function handle(req, context) {
   try { await clientsStore.setJSON(clientKey, client); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
   upsertClient(ownerKey, client).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   // Deploy 236.222 Phase 5 — mirror the loan's editable fields onto
   // any QuoteStore entries. Non-fatal on failure — a stale quote is

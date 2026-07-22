@@ -209,7 +209,7 @@ async function syncToClientLoan(ownerKey, quote, status, audit) {
       // Deploy 236.373 — keep the materialized index in step with the
       // primary write, same pattern as loan-advance-status.mjs.
       upsertClient(ownerKey, c).catch(() => {});
-      pgMirror.upsertClientWithLoans(ownerKey, c).catch(() => {}); // Phase 2 dual-write
+      await pgMirror.upsertClientWithLoansStrict(ownerKey, c); // Phase 2 dual-write
     }
   }
 }

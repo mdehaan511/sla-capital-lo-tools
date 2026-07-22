@@ -160,7 +160,7 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
   upsertClient(ownerKey, client).catch(() => {});
-  pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   // Now sync the matching quote(s). We're more permissive than
   // borrower-info-save's auto-transition: we match by loanAmt + address

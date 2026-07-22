@@ -187,7 +187,7 @@ async function handle(req, context) {
         });
         client.loans[matchIdx].updatedAt = new Date().toISOString();
         await clientsStore.setJSON(`${ownerKey}/${keySafe(body.clientId)}`, client);
-        pgMirror.upsertClientWithLoans(ownerKey, client).catch(() => {});
+        await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
       }
     } catch (e) {
       console.warn('borrower-info-request: audit log write failed (non-fatal):', e && e.message);
