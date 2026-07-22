@@ -3413,34 +3413,46 @@ function openSendLoanAppModal(clientId, loanId, ownerKey) {
       viewBtn.style.display = 'inline-block';
     }
 
-    // Deploy 236.44 — show the existing link so the LO can copy it
-    // without rotating the token. The cached _borrowerInfoByClient
-    // record doesn't carry the token (list endpoint strips it), so
-    // we fetch it fresh via the status endpoint and populate the
-    // link row when it comes back. This is the fix Mike asked for:
-    // "add a way to grab the existing link for an app that's already
-    // been sent instead of having to create a new one." It also
-    // sidesteps the bug where a borrower couldn't sign a re-sent
-    // link (the old token had been rotated out from under them).
-    if (bi.status === 'pending' || bi.status === 'in_progress') {
-      var statusOpts = { loanId: loanId };
-      if (ownerKey && ownerKey !== ((_user && _user.email) || '').toLowerCase()) {
-        statusOpts._owner = ownerKey;
-      }
-      SLA.BorrowerInfo.status(clientId, statusOpts)
-        .then(function(resp) {
-          if (!resp || !resp.link) return;
-          // Only populate if the modal is still showing the same loan
-          // (LO might have closed + reopened during the fetch).
-          if (!_sendBiCtx || _sendBiCtx.loanId !== loanId) return;
+    // Deploy 236.44 (expanded) — always fetch + show the existing link
+    // whenever a borrower-info record exists (pending, in_progress, OR
+    // complete). Mike: "I want a way to see the existing loan
+    // application that got sent without having to generate a new one.
+    // The existing app should appear in the Send Full Loan Application
+    // modal instead of generating a new one."
+    //
+    // Previously only ran on pending/in_progress. Now runs on complete
+    // too (borrower finished; LO may still want to reshare a copy of
+    // the link). Also shows a fallback message when the link URL
+    // couldn't be built (e.g. env.URL not set) so the LO knows the
+    // token exists and doesn't need to regenerate.
+    var statusOpts = { loanId: loanId };
+    if (ownerKey && ownerKey !== ((_user && _user.email) || '').toLowerCase()) {
+      statusOpts._owner = ownerKey;
+    }
+    SLA.BorrowerInfo.status(clientId, statusOpts)
+      .then(function(resp) {
+        if (!resp || !resp.exists) return;
+        // Only populate if the modal is still showing the same loan
+        // (LO might have closed + reopened during the fetch).
+        if (!_sendBiCtx || _sendBiCtx.loanId !== loanId) return;
+        var st = document.getElementById('sendBiStatusMsg');
+        if (resp.link) {
           document.getElementById('sendBiLinkInput').value = resp.link;
           document.getElementById('sendBiLinkRow').style.display = 'flex';
-          var st = document.getElementById('sendBiStatusMsg');
           st.className = 'bi-status';
-          st.textContent = 'Existing link shown above — copy it to share again without invalidating the previous send.';
-        })
-        .catch(function() { /* silent — modal still works without prefill */ });
-    }
+          var stateLabel = (resp.status === 'complete') ? 'Completed application' :
+                           (resp.status === 'in_progress') ? 'In-progress application' :
+                           'Pending application';
+          st.textContent = stateLabel + ' — existing link shown above. Copy it to reshare without invalidating the previous send, or click Replace Link below to rotate the token.';
+        } else if (resp.token) {
+          // Token exists but the URL couldn't be built (env.URL missing).
+          // Rare but happened in the past. Surface it so the LO doesn't
+          // assume they need to regenerate.
+          st.className = 'bi-status';
+          st.textContent = 'Existing application already sent — token is stored but the shareable URL could not be built. Contact Mike or click Replace Link to rotate.';
+        }
+      })
+      .catch(function() { /* silent — modal still works without prefill */ });
   }
 
   // Show/hide email field on toggle

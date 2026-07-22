@@ -7097,26 +7097,34 @@ function openBorrowerInfoModal() {
     // modal if it's still showing the same loan.
     var statusLoanId = _loanId;
     SLA.BorrowerInfo.status(_client.id, { loanId: statusLoanId }).then(function(r) {
-      if (!r) return;
+      if (!r || !r.exists) return;
       // Drop the response if the modal is gone OR the loan changed.
       if (_loanId !== statusLoanId) return;
       var s = r.status;
       var msg = '';
       if (s === 'in_progress') msg = '<strong>In progress.</strong> Borrower has started but not finished. Generating a new link will replace the old one — copy the existing link below to share it again without invalidating it.';
-      else if (s === 'complete') msg = '<strong>Already complete.</strong> Generating a new link will reset their data and require them to fill it in again.';
+      else if (s === 'complete') msg = '<strong>Already complete.</strong> The borrower has submitted this application. Copy the link below to reshare, or generate a new link to reset their data.';
       else if (s === 'pending')  msg = '<strong>Link already sent.</strong> Generating a new link will invalidate the previous one — copy the existing link below to share it again without rotating the token.';
       if (msg) {
         info.innerHTML = msg;
         info.style.display = 'block';
         document.getElementById('biSendBtn').textContent = 'Replace Link';
       }
-      // Populate the existing link when it's still safe to reuse
-      // (pending / in_progress only — complete means the borrower has
-      // already signed and the token is no longer interesting).
-      if ((s === 'pending' || s === 'in_progress') && r.link) {
+      // Populate the existing link for ANY status where a token still
+      // exists (pending, in_progress, complete). Mike: "I want a way to
+      // see the existing loan application that got sent without having
+      // to generate a new one." Previously gated to pending/in_progress
+      // only — completed apps had to be regenerated just to reshare.
+      if (r.link) {
         _biLatestUrl = r.link;
         document.getElementById('biLinkInput').value = r.link;
         document.getElementById('biLinkRow').style.display = 'flex';
+      } else if (r.token) {
+        // Token exists but the URL couldn't be built (env.URL missing).
+        // Surface it so the LO doesn't assume they need to regenerate.
+        var st = document.getElementById('biStatusMsg');
+        st.className = 'bi-status';
+        st.textContent = 'Existing application already sent — the link URL couldn\'t be built (env misconfig). Click Replace Link to generate a fresh one.';
       }
     }).catch(function(){});
   }
