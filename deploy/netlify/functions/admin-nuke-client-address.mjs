@@ -35,6 +35,7 @@ import {
 } from './_shared/auth.mjs';
 import { db } from './_shared/supabase-db.mjs';
 import { upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -76,12 +77,17 @@ async function handle(req, context) {
   rec.updatedAt = new Date().toISOString();
   try {
     await clientsStore.setJSON(blobKey, rec);
+    // Also upsert the client to PG so its updatedAt reconciles + the
+    // strict PG reconciler drops any loans no longer in loans[] via
+    // the standard cascade. Belt-and-suspenders with the explicit
+    // db.del below.
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, rec);
   } catch (e) {
-    return json(500, { error: 'Blob write failed: ' + (e && e.message) });
+    return json(500, { error: 'Blob/PG write failed: ' + (e && e.message) });
   }
   indexUpsertClient(ownerKey, rec).catch(() => {});
 
-  // ── 2. Delete matching loans from Postgres ─────────────────────
+  // ── 2. Delete matching loans from Postgres (belt-and-suspenders) ─
   let pgLoansDeleted = 0;
   for (const lid of deletedLoanIds) {
     try {
