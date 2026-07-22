@@ -79,13 +79,22 @@ export default async (req, context) => {
   const selfKey   = keySafe(selfEmail);
 
   // ── Parallel: PG FTS on clients + loans, blob scan on prospects + quotes ──
-  const [clientHits, loanHits, prospectsResult, quotesResult] = await Promise.all([
+  // Deploy 236.383 (universal search) — loans are now their OWN result
+  // category (each row deep-links to /loan-details/<id>, which loads by
+  // loanId alone from PG regardless of any page filter — the "loan
+  // disappeared but it's still in the system" recovery path). Clients
+  // matching the query split into brokers vs clients on is_broker.
+  const [clientHits, loanRows, loanIdRows, prospectsResult, quotesResult] = await Promise.all([
     _searchClientsPG(q, wantAll, selfEmail).catch((e) => {
       console.warn('search-pg: clients FTS failed:', e && e.message);
       return [];
     }),
     _searchLoansPG(q, wantAll, selfEmail).catch((e) => {
       console.warn('search-pg: loans FTS failed:', e && e.message);
+      return [];
+    }),
+    _searchLoansByIdPG(q, wantAll, selfEmail).catch((e) => {
+      console.warn('search-pg: loans id lookup failed:', e && e.message);
       return [];
     }),
     _searchProspectsBlob(q, wantAll, selfKey).catch((e) => {
@@ -98,26 +107,32 @@ export default async (req, context) => {
     }),
   ]);
 
-  // Merge client + loan hits into a single clients list, deduping by
-  // client id (a client that matches by name AND has a loan matching
-  // the address should still be one entry).
-  const seen = new Set();
-  const clients = [];
-  function pushClient(c) {
-    if (!c || !c.id || seen.has(c.id)) return;
-    seen.add(c.id);
-    clients.push(c);
-  }
-  clientHits.forEach(pushClient);
-  loanHits.forEach(pushClient);
+  // Loans: merge FTS + id-lookup hits, dedupe by loan id.
+  const seenLoans = new Set();
+  const loans = [];
+  [].concat(loanIdRows, loanRows).forEach((l) => {
+    if (!l || !l.id || seenLoans.has(l.id)) return;
+    seenLoans.add(l.id);
+    loans.push(l);
+  });
 
-  // Category names + sort order preserved from search.mjs so
-  // sla-search.js render() works unchanged.
+  // Clients: split into brokers vs regular clients, dedupe by id.
+  const seenClients = new Set();
+  const clients = [];
+  const brokers = [];
+  clientHits.forEach((c) => {
+    if (!c || !c.id || seenClients.has(c.id)) return;
+    seenClients.add(c.id);
+    (c.isBroker ? brokers : clients).push(c);
+  });
+
   return json(200, {
     q,
+    loans:     loans.slice(0, PER_CATEGORY),
+    clients:   clients.slice(0, PER_CATEGORY),
+    brokers:   brokers.slice(0, PER_CATEGORY),
     prospects: prospectsResult.slice(0, PER_CATEGORY),
     quotes:    quotesResult.slice(0, PER_CATEGORY),
-    clients:   clients.slice(0, PER_CATEGORY),
     _source:   'postgres',
   });
 };
@@ -125,7 +140,7 @@ export default async (req, context) => {
 async function _searchClientsPG(q, wantAll, selfEmail) {
   const parts = [
     'select=' + encodeURIComponent(
-      'id,owner_email,first_name,last_name,email,is_broker,loans!client_id(id,address)'
+      'id,owner_email,first_name,last_name,email,entity_name,is_broker,loans!client_id(id,address)'
     ),
     'search_tsv=wfts(simple).' + encodeURIComponent(q),
     'limit=' + (PER_CATEGORY * 2),
@@ -136,31 +151,58 @@ async function _searchClientsPG(q, wantAll, selfEmail) {
   return rows.map((c) => _rowToClientResult(c, selfEmail));
 }
 
+const LOAN_SELECT = 'id,client_id,address,status,sla_display_id,tool_type,loan_amt,owner_email,updated_at,' +
+  'clients!client_id(id,first_name,last_name,email,entity_name)';
+
+function _rowToLoanResult(l, selfEmail) {
+  const c = l.clients || {};
+  const borrower = ((c.first_name || '') + ' ' + (c.last_name || '')).trim()
+    || c.entity_name || c.email || '';
+  return {
+    id:           l.id,
+    clientId:     l.client_id,
+    ownerKey:     normalizeEmail(l.owner_email || ''),
+    isSelf:       normalizeEmail(l.owner_email) === selfEmail,
+    address:      l.address || '',
+    status:       l.status || 'active',
+    slaDisplayId: l.sla_display_id || '',
+    toolType:     l.tool_type || '',
+    loanAmt:      l.loan_amt || null,
+    borrower,
+    date:         l.updated_at || '',
+  };
+}
+
 async function _searchLoansPG(q, wantAll, selfEmail) {
-  // Loan address/notes FTS → surface the loan's parent client so it
-  // shows up in the same category as a name-matched client.
-  // Embed the client via the client_id fk so we get the fields the
-  // result-row builder needs without a second round trip.
+  // Loan address/notes FTS → first-class loan results. Each deep-links
+  // to /loan-details/<id> client-side.
   const parts = [
-    'select=' + encodeURIComponent(
-      'id,client_id,address,owner_email,' +
-      'clients!client_id(id,owner_email,first_name,last_name,email,is_broker,loans!client_id(id,address))'
-    ),
+    'select=' + encodeURIComponent(LOAN_SELECT),
     'search_tsv=wfts(simple).' + encodeURIComponent(q),
     'limit=' + (PER_CATEGORY * 2),
     'order=updated_at.desc',
   ];
   if (!wantAll) parts.push('owner_email=eq.' + encodeURIComponent(selfEmail));
   const rows = await _pgSelect('loans', parts.join('&'));
-  const out = [];
-  for (const l of rows) {
-    // PostgREST returns the embedded row as `clients` (the fk source
-    // table). Skip if the join was orphaned somehow.
-    const c = l.clients;
-    if (!c) continue;
-    out.push(_rowToClientResult(c, selfEmail));
-  }
-  return out;
+  return rows.map((l) => _rowToLoanResult(l, selfEmail));
+}
+
+// Deploy 236.383 — direct id / SLA-display-id lookup. The FTS tsv only
+// covers address + notes, so searching "SLA-20260710-7065" or a loan id
+// fragment found nothing. Case-insensitive substring match on both
+// columns; only fires at 3+ chars to keep the ilike cheap.
+async function _searchLoansByIdPG(q, wantAll, selfEmail) {
+  if (q.length < 3) return [];
+  const frag = q.replace(/[(),]/g, ''); // strip PostgREST syntax chars
+  const parts = [
+    'select=' + encodeURIComponent(LOAN_SELECT),
+    'or=' + encodeURIComponent('(id.ilike.*' + frag + '*,sla_display_id.ilike.*' + frag + '*)'),
+    'limit=' + PER_CATEGORY,
+    'order=updated_at.desc',
+  ];
+  if (!wantAll) parts.push('owner_email=eq.' + encodeURIComponent(selfEmail));
+  const rows = await _pgSelect('loans', parts.join('&'));
+  return rows.map((l) => _rowToLoanResult(l, selfEmail));
 }
 
 function _rowToClientResult(c, selfEmail) {
@@ -171,7 +213,8 @@ function _rowToClientResult(c, selfEmail) {
   return {
     id:        c.id,
     ownerKey,
-    name:      name || c.email || 'Client',
+    isBroker:  !!c.is_broker,
+    name:      name || c.entity_name || c.email || 'Client',
     email:     c.email || '',
     loanCount,
     link: 'client-details.html?clientId=' + encodeURIComponent(c.id) +
