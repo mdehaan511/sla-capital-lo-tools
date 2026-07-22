@@ -331,10 +331,30 @@ async function handle(req, context) {
   if (!Array.isArray(client.loans)) client.loans = [];
 
   // ── Merge or append the loan ────────────────────────────────────
+  //
+  // For status specifically, mirror the preservation rule from
+  // loan-update-from-sizer.mjs: never demote a "further along" status
+  // (awaiting_app, submitted, approved, denied, closed, cancelled)
+  // back to 'active' or 'on_hold' on a sizer re-price. The sizer's
+  // buildLoanFromSizer always emits status='active' as its default,
+  // so an unguarded merge silently rolls the loan back and Pipeline
+  // starts disagreeing with the quote card. Preservation logic:
+  //   incoming is 'active' / 'on_hold' → keep prior if further along
+  //   incoming is further along → allow the transition
+  //   no prior → take incoming (or default to 'active')
+  function _resolveStatus(priorStatus, incomingStatus) {
+    const isForwarded = (s) => s && s !== 'active' && s !== 'on_hold';
+    if (isForwarded(priorStatus) && !isForwarded(incomingStatus)) {
+      return priorStatus;
+    }
+    return incomingStatus || priorStatus || 'active';
+  }
+
   let loanRecord;
   if (existingLoan) {
     // Update in place — merge sanitized incoming onto existing.
     const merged = Object.assign({}, existingLoan, _sanitizedLoan(body.loan, existingLoan));
+    merged.status = _resolveStatus(existingLoan.status, body.loan.status);
     merged.updatedAt = now;
     merged.savedAt   = now;
     if (body.prospectId && !merged.prospectId) merged.prospectId = body.prospectId;
@@ -345,12 +365,37 @@ async function handle(req, context) {
     loanRecord = merged;
   } else {
     // Append a fresh loan (backend mints id + createdAt).
+    // If a matching quote at the same address already advanced past
+    // 'active' (common: apply.html sent → quote.status='awaiting_app'
+    // → LO opens sizer to price it → save creates the loan record for
+    // the first time), inherit the quote's status so Pipeline stays
+    // consistent with Loan Details. Otherwise default to 'active'.
+    let inheritedStatus = null;
+    try {
+      const qStore = getStore({ name: 'quotes', consistency: 'strong' });
+      const { blobs: qBlobs } = await qStore.list({ prefix: ownerKey + '/' });
+      const wantAddr = String(body.loan.address || '').trim().toLowerCase();
+      for (const { key } of qBlobs) {
+        const q = await qStore.get(key, { type: 'json' }).catch(() => null);
+        if (!q || !q.status) continue;
+        const qAddr = String(q.address || (q.formData && q.formData.address) || '').trim().toLowerCase();
+        if (qAddr !== wantAddr) continue;
+        // Only inherit if the quote's status is "further along" than
+        // the sizer's default ('active'). Prevents pulling in an old
+        // closed/cancelled quote's status for a brand-new loan.
+        if (q.status !== 'active' && q.status !== 'on_hold') {
+          inheritedStatus = q.status;
+          break;
+        }
+      }
+    } catch (_) { /* non-fatal — fall back to default */ }
+
     const fresh = Object.assign({}, _sanitizedLoan(body.loan, null), {
       id:        _newLoanId(),
       createdAt: now,
       updatedAt: now,
       savedAt:   now,
-      status:    body.loan.status || 'active',
+      status:    inheritedStatus || body.loan.status || 'active',
     });
     if (body.prospectId) fresh.prospectId = body.prospectId;
     client.loans.push(fresh);
