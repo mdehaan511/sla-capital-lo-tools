@@ -426,7 +426,7 @@
 
 <!-- ════════════════════════════════════════════════════════
   PRICING CONFIG — DIYA CAPITAL
-  Source: Diya 1-4 Unit Rate Sheet — Effective 6.2.26  |  Updated: 2026-06-02
+  Source: Diya 1-4 Unit Rate Sheet — Effective 7.22.26  |  Updated: 2026-07-22
 
   BUY-DOWN LOGIC (Deploy 236.39 model):
   - HIDDEN_TPO (1.00% = 0.280 rate adj) is always added, never shown to borrower.
@@ -447,13 +447,17 @@
 ════════════════════════════════════════════════════════ -->
 <script>
 const DIYA = {
-  // Deploy 236.64 — Diya 1-4 Unit Rate Sheet effective 6.12.26. Only
-  // change vs the 6.8.26 sheet is base rates -0.050% across the board:
-  //   30Y Fixed / 10/6 ARM: 6.450 -> 6.400
-  //   7/6 ARM   / 5/6  ARM: 6.350 -> 6.300
-  // FICO/LTV grid, IO, Cash-Out, Property Type, UPB, DSCR, PPP, TPO
-  // Premium, and Rate Buydown tables verified unchanged cell-by-cell
-  // against the 6.12.26 source.
+  // Deploy 236.374 — Diya 1-4 Unit Rate Sheet effective 7.22.26.
+  // Changes vs the 6.12.26 sheet:
+  //   Base rates -0.025: 30Y/10-6 6.400 -> 6.375, 7/6 & 5/6 6.300 -> 6.275
+  //   FICO grid: 780+ through 700-719 improved at 60-80 LTV cols;
+  //     700-719 gains a NEW 75.01-80 tier at +0.500 (was N/A)
+  //   IO: 65-70 col 0.300 -> 0.250, 70-75 col 0.350 -> 0.250
+  //   Portfolio: 0.250 -> 0.200 across all LTVs
+  //   PPP: 321 0.150 -> 0.050, 320 0.200 -> 0.150, 300 0.300 -> 0.250
+  //   TPO Premium table: all rows up ~0.03-0.04 (1.00% row 0.280 -> 0.320)
+  //     => HIDDEN_TPO_ADJ follows to 0.320 per the standing 236.39 rule
+  //   Unchanged: Cash-Out, NW Condo, 2-4 Unit, UPB, DSCR adj, Rate Buydown
   //
   // STANDING RULE (from Deploy 236.39, unchanged) -- supersedes Deploy
   // 234.1 (which said to IGNORE Diya's Rate Buydown table). We mirror
@@ -466,27 +470,27 @@ const DIYA = {
   // old "buydown reduces TPO" model). Borrower pays the same fee,
   // gets a smaller rate reduction; extra spread accrues to SLA.
   //
-  // TPO Premium / Rate Buydown caps by UPB band on the 6.12.26 sheet
+  // TPO Premium / Rate Buydown caps by UPB band on the 7.22.26 sheet
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "June 12, 2026",
-  baseRate: { "30Y Fixed": 6.400, "10/6 ARM": 6.400, "7/6 ARM": 6.300, "5/6 ARM": 6.300 },
+  effectiveDate: "July 22, 2026",
+  baseRate: { "30Y Fixed": 6.375, "10/6 ARM": 6.375, "7/6 ARM": 6.275, "5/6 ARM": 6.275 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
-    "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050, 0.250],
-    "760-779": [-0.100,-0.100,-0.100,-0.025, 0.025, 0.100, 0.300],
-    "740-759": [-0.075,-0.075,-0.050, 0.000, 0.050, 0.150, 0.350],
-    "720-739": [-0.025, 0.000, 0.025, 0.050, 0.075, 0.200, 0.400],
-    "700-719": [ 0.000, 0.050, 0.075, 0.100, 0.125, 0.250,  null],
+    "780+":    [-0.125,-0.125,-0.125,-0.075,-0.050,-0.025, 0.100],
+    "760-779": [-0.100,-0.100,-0.100,-0.050,-0.025, 0.000, 0.150],
+    "740-759": [-0.075,-0.075,-0.050,-0.025, 0.000, 0.050, 0.175],
+    "720-739": [-0.050,-0.025, 0.000, 0.025, 0.050, 0.075, 0.200],
+    "700-719": [ 0.000, 0.025, 0.050, 0.075, 0.100, 0.125, 0.500],
     "680-699": [ 0.100, 0.200, 0.250, 0.300, 0.450,  null,  null],
     "660-679": [ 0.625, 0.750, 0.900, 1.100,  null,  null,  null],
   },
-  io:        [0.100, 0.150, 0.200, 0.250, 0.300, 0.350,  null],
+  io:        [0.100, 0.150, 0.200, 0.250, 0.250, 0.250,  null],
   cashOut:   [0.050, 0.050, 0.050, 0.050, 0.050, 0.050,  null],
   nwCondo:   [0.150, 0.150, 0.150, 0.150, 0.150, 0.150, 0.150],
   multiUnit: [0.000, 0.025, 0.050, 0.075, 0.100, 0.100, 0.100],
-  portfolio: [0.250, 0.250, 0.250, 0.250, 0.250, 0.250, 0.250],
+  portfolio: [0.200, 0.200, 0.200, 0.200, 0.200, 0.200, 0.200],
   upb: [
     { min:  75000, max:  99999, adj:[0.700,0.700,0.700,0.750,0.750,0.750,0.750] },
     // Deploy 236.39 -- UPB 100k-149k flattened from 0.650/0.675 split
@@ -504,7 +508,9 @@ const DIYA = {
   // charge to give up all prepayment lockout; adjust per rate sheet
   // update if Diya publishes an official number. Rate override still
   // available if the LO needs a specific number for a given loan.
-  ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.150, "320":0.200, "300":0.300, "none":0.500 },
+  // "none" stays at the 236.216 placeholder (+0.500) — the 7.22.26
+  // sheet still doesn't publish an official No-Prepayment adjustment.
+  ppp: { "5y6m":-0.150, "54321":-0.100, "321":0.050, "320":0.150, "300":0.250, "none":0.500 },
 
   // TPO rate adjustments by premium percentage. Deploy 236.39 -- this
   // table is no longer consulted by calculate() for the buy-down
@@ -512,9 +518,9 @@ const DIYA = {
   // its own DIYA.rateBuydown table below. Kept here for reference
   // / future use should the pricing model change again.
   tpo: {
-    "0":0, "0.25":0.070, "0.50":0.140, "0.75":0.210,
-    "1.00":0.280, "1.25":0.340, "1.50":0.410, "1.75":0.470,
-    "2.00":0.550, "2.25":0.630, "2.50":0.710,
+    "0":0, "0.25":0.080, "0.50":0.160, "0.75":0.240,
+    "1.00":0.320, "1.25":0.390, "1.50":0.460, "1.75":0.530,
+    "2.00":0.600, "2.25":0.670, "2.50":0.740,
   },
 
   // Deploy 236.39 -- Rate Buydown table mirrored from the 6.2.26
@@ -534,12 +540,12 @@ const DIYA = {
     "2.00": -0.360,
   },
 
-  // Hidden 1% TPO always applied (rate adj = 0.280 per 6.2.26 sheet).
+  // Hidden 1% TPO always applied (rate adj = 0.320 per 7.22.26 sheet).
   // Deploy 236.39 -- buy-down NO LONGER touches this. The TPO premium
   // is locked at 1.00%; buy-down is a separate adjustment via the
   // rateBuydown table above.
   HIDDEN_TPO_PCT: 1.00,   // percentage (1.00 = 1%)
-  HIDDEN_TPO_ADJ: 0.280,  // rate adjustment for 1.00% TPO (always applied)
+  HIDDEN_TPO_ADJ: 0.320,  // rate adjustment for 1.00% TPO (always applied)
 };
 
 // Fixed fees (always shown on term sheet)
