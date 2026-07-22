@@ -456,7 +456,16 @@ function applyPrefillToData() {
   // borrower-profile fields (DOB, FICO, marital, citizenship, address)
   // from prior loan applications stored on the client record.
   // NOTE: the form uses ZERO-indexed prefixes — Guarantor #1 = g0_, #2 = g1_.
-  if (pf.borrower) {
+  //
+  // Broker loans: the client record holds the BROKER's info, not the
+  // borrower's. Mirroring it into g0_ would arrive at the borrower's
+  // inbox with the broker pre-filled as Guarantor #1 — completely
+  // wrong. Skip the mirror when isBrokerLoan is set; the borrower
+  // fills in guarantor info fresh. (Backend also empties pf.borrower
+  // for broker loans, so this guard is defense-in-depth against any
+  // future prefill path that still populates borrower fields.)
+  var _isBrokerLoan = !!(pf.loan && pf.loan.isBrokerLoan);
+  if (pf.borrower && !_isBrokerLoan) {
     if (!d.g0_firstName) d.g0_firstName = pf.borrower.firstName || '';
     if (!d.g0_lastName)  d.g0_lastName  = pf.borrower.lastName  || '';
     if (!d.g0_email)     d.g0_email     = pf.borrower.email     || '';

@@ -220,32 +220,70 @@ function buildPrefill(client, loan, loInfo) {
   };
   const annualize = (m) => { const n = num(m); return n != null ? Math.round(n * 12) : ''; };
 
+  // Broker loans store the BROKER's contact info on the client record —
+  // the borrower is a separate person captured (if at all) on the loan's
+  // formData. Copying client.* into pf.borrower would put broker info
+  // into the borrower form's contact section AND, worse, cascade into
+  // the Guarantor #1 mirror in borrower-info.html (line 459+). The
+  // borrower would open the form pre-filled with the broker as their
+  // own guarantor. Fix: for broker loans, source borrower fields from
+  // loan.formData if captured; leave blank otherwise so the borrower
+  // fills in their own info + guarantor from scratch.
+  const isBrokerLoan = !!(loan && (loan._isBrokerLoan || loan.brokerId));
+  const fd = (loan && loan.formData) || {};
+  let borrowerSrc;
+  if (isBrokerLoan) {
+    // Split loan.formData.borrower name string into first/last if present.
+    const borrowerName = String(fd.borrower || fd.borrowerName || loan.borrower || '').trim();
+    const nameParts = borrowerName.split(/\s+/);
+    borrowerSrc = {
+      firstName: nameParts.slice(0, -1).join(' ') || nameParts[0] || '',
+      lastName:  nameParts.length > 1 ? nameParts[nameParts.length - 1] : '',
+      email:     fd.borrowerEmail || loan.borrowerEmail || '',
+      phone:     fd.borrowerPhone || loan.borrowerPhone || '',
+      usCitizen: '',
+      dob:       '',
+      maritalStatus: '',
+      homeAddress: null,
+      fico:      '',
+      flips:     '',
+      rentals:   '',
+    };
+  } else {
+    borrowerSrc = {
+      firstName: client.firstName || '',
+      lastName:  client.lastName || '',
+      email:     client.email || '',
+      phone:     client.phone || '',
+      usCitizen: client.usCitizen || '',
+      dob:       client.dob || '',
+      maritalStatus: client.maritalStatus || '',
+      homeAddress: client.homeAddress || null,
+      fico:      client.fico || '',
+      flips:     client.flips || '',
+      rentals:   client.rentals || '',
+    };
+  }
+
   const pf = {
     // Item #9: who this borrower is working with (auto-selected + locked on form)
     lo: {
       name: loInfo.loName || '',
       email: loInfo.loEmail || '',
     },
-    borrower: {
-      firstName: client.firstName || '',
-      lastName: client.lastName || '',
-      email: client.email || '',
-      phone: client.phone || '',
-      usCitizen: client.usCitizen || '',
-      // Profile-level fields the LO may have entered on the contact page or
-      // that came from a previous application. Future-proof for #6.
-      dob: client.dob || '',
-      maritalStatus: client.maritalStatus || '',
-      homeAddress: client.homeAddress || null,
-      fico: client.fico || '',
-      // Item #5: experience metrics tracked across applications
-      flips: client.flips || '',
-      rentals: client.rentals || '',
-    },
+    borrower: borrowerSrc,
     property: {},
-    loan: {},
-    // Item #8: borrower's saved companies/entities for the entity selector
-    companies: Array.isArray(client.companies) ? client.companies : [],
+    loan: {
+      // Surface isBrokerLoan so borrower-info.html's Guarantor #1 mirror
+      // (and any other form logic) can be broker-aware.
+      isBrokerLoan,
+    },
+    // Item #8: borrower's saved companies/entities for the entity selector.
+    // Broker loans: the client's companies belong to the BROKER, not the
+    // borrower — don't leak them into the borrower's entity picker.
+    companies: (isBrokerLoan
+      ? []
+      : (Array.isArray(client.companies) ? client.companies : [])),
   };
   if (loan) {
     pf.property.address   = loan.address || '';
