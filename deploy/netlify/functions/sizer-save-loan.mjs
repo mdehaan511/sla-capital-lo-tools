@@ -63,6 +63,14 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
 import { upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
+// Bypass pg-mirror's silent-catch for the sizer-save path so PG
+// write failures surface as 500s. pg-mirror was designed for
+// fire-and-forget when PG was purely a mirror; Phase 4 made reads
+// PG-first, so a silent PG failure means Pipeline never sees the
+// loan even though blob has it. Sizer save is the highest-traffic
+// write; failing loudly here is worth the trade-off.
+import { db } from './_shared/supabase-db.mjs';
+import { projectClient, projectLoan } from './_shared/pg-projections.mjs';
 
 const CALLER_CANNOT_SET_ON_LOAN = ['id', 'createdAt'];
 
@@ -121,20 +129,29 @@ function _makeNewClient({ firstName, lastName, email, phone, createdBy }) {
 async function _writeClient(clientsStore, ownerKey, client, opts) {
   const key = ownerKey + '/' + keySafe(client.id);
   await clientsStore.setJSON(key, client);
-  // AWAIT the PG mirror. Phase 4 flipped Pipeline / Clients / Loans
-  // Details reads to PG-first with blob fallback. If PG-mirror
-  // silently fails (fire-and-forget was fine when PG was a mirror),
-  // the loan is invisible on every page that reads PG — the save
-  // "succeeded" from the LO's perspective but the tile never appears.
-  // Awaiting surfaces the failure as a 500 so we can retry or fall
-  // back to blob-first reads via cache-invalidation. Wrapped so a
-  // legit PG outage returns actionable info instead of a raw error.
+  // Strict PG write — go straight to db.upsert so any error surfaces.
+  // pg-mirror's normal path swallows errors and returns success, which
+  // was hiding real PG failures now that Pipeline reads PG-first.
   try {
-    await pgMirror.upsertClientWithLoans(ownerKey, client);
+    const cRow = projectClient(client, ownerKey);
+    if (cRow) await db.upsert('clients', cRow, { onConflict: 'id' });
+    if (Array.isArray(client.loans) && client.loans.length) {
+      const loanRows = [];
+      for (const l of client.loans) {
+        if (!l || !l.id) continue;
+        const row = projectLoan(l, client.id, ownerKey);
+        if (row) loanRows.push(row);
+      }
+      if (loanRows.length) {
+        await db.upsert('loans', loanRows, { onConflict: 'id' });
+      }
+    }
   } catch (e) {
-    const err = new Error('Save landed in blob but Postgres mirror failed: ' + ((e && e.message) || 'unknown'));
-    err.pgMirrorFailed = true;
+    const msg = (e && e.message) || 'unknown';
+    const err = new Error('Save landed in blob but Postgres write failed: ' + msg);
+    err.pgWriteFailed = true;
     err.status = 500;
+    err.originalError = e;
     throw err;
   }
   // Index + quote-store remain fire-and-forget — they're derived
