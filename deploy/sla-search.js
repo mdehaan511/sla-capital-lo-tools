@@ -22,23 +22,24 @@
 (function () {
   'use strict';
 
-  var DEBOUNCE_MS = 200;
+  var DEBOUNCE_MS = 150;
   var MIN_LEN = 2;
 
   // ── Mount ───────────────────────────────────────────────────────
   // The navbar is rendered by sla-nav.js AFTER identity init, so at
   // DOMContentLoaded there may be no .nav-right yet. Retry until the
-  // navbar exists (max ~20s, then give up quietly).
+  // navbar exists (max ~20s). The search mounts as a real FLEX ITEM
+  // between .nav-left and .nav-right (not an absolute overlay — the
+  // 236.383 overlay collided with nav links on narrower layouts);
+  // the row makes room and the input shrinks gracefully.
   var _mountTries = 0;
+  var _navObserver = null;
   function tryInject() {
     if (document.getElementById('slaSearchWrap')) return true;
     var navRight = document.querySelector('.nav-right');
     if (!navRight || !navRight.parentElement) return false;
 
     var navBar = navRight.parentElement; // the flex row holding nav-left + nav-right
-    // Centering anchor: absolute within the nav row.
-    var cs = window.getComputedStyle(navBar);
-    if (cs.position === 'static') navBar.style.position = 'relative';
 
     var wrap = document.createElement('div');
     wrap.id = 'slaSearchWrap';
@@ -46,10 +47,21 @@
     wrap.innerHTML =
       '<input type="text" id="slaSearchInput" placeholder="Search loans, clients, brokers…" autocomplete="off" spellcheck="false" />' +
       '<div id="slaSearchResults" class="sla-search-results" style="display:none"></div>';
-    navBar.appendChild(wrap);
+    navBar.insertBefore(wrap, navRight);
 
     injectStyles();
     bind();
+
+    // sla-nav re-renders the navbar (innerHTML replacement) on auth
+    // events, wiping our node. Watch for that and re-mount.
+    if (!_navObserver && window.MutationObserver) {
+      _navObserver = new MutationObserver(function () {
+        if (!document.getElementById('slaSearchWrap')) {
+          setTimeout(tryInject, 50);
+        }
+      });
+      _navObserver.observe(navBar, { childList: true });
+    }
     return true;
   }
   function mountLoop() {
@@ -63,7 +75,7 @@
     var s = document.createElement('style');
     s.id = 'slaSearchStyles';
     s.textContent =
-      '.sla-search{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:8000;width:340px}' +
+      '.sla-search{position:relative;flex:1 1 auto;max-width:400px;min-width:120px;margin:0 16px;z-index:8000}' +
       '.sla-search input{width:100%;padding:7px 14px 7px 34px;border:1px solid #ddd8d0;border-radius:20px;font-size:13px;font-family:inherit;background:#fff url("data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27 fill=%27none%27 stroke=%27%237a7488%27 stroke-width=%271.5%27><circle cx=%277%27 cy=%277%27 r=%274.5%27/><path d=%27M10.5 10.5L13 13%27 stroke-linecap=%27round%27/></svg>") no-repeat 11px center;background-size:14px;color:#1a1520;transition:box-shadow .15s,border-color .15s;box-sizing:border-box}' +
       '.sla-search input:focus{outline:none;border-color:#C8813A;box-shadow:0 0 0 3px rgba(200,129,58,0.12)}' +
       '.sla-search-results{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:440px;max-height:520px;overflow-y:auto;background:#fff;border:1px solid #ddd8d0;border-radius:12px;box-shadow:0 10px 32px rgba(0,0,0,0.14);z-index:9000}' +
@@ -88,10 +100,13 @@
       '.sla-search-results .scope{display:flex;gap:0;border-top:1px solid #f0ece5;background:#f0ece5;position:sticky;bottom:0}' +
       '.sla-search-results .scope button{flex:1;padding:7px 10px;border:none;background:transparent;font-size:11px;color:#7a7488;cursor:pointer;font-weight:600;font-family:inherit}' +
       '.sla-search-results .scope button.active{background:#fff;color:#1a1520}' +
-      // Tighter navbars on smaller screens — dock the search between
-      // nav rows instead of overlapping links.
-      '@media (max-width:1180px){.sla-search{width:230px}}' +
-      '@media (max-width:900px){.sla-search{display:none}}';
+      // Flex item shrinks naturally on tighter navbars; below 640px
+      // there's no room for it at all.
+      '@media (max-width:1100px){.sla-search{max-width:220px;margin:0 8px}}' +
+      '@media (max-width:640px){.sla-search{display:none}}' +
+      // Dropdown hugs the input's left edge when the centered-440px
+      // panel would overflow the viewport.
+      '@media (max-width:1100px){.sla-search-results{left:0;transform:none;width:min(440px,86vw)}}';
     document.head.appendChild(s);
   }
 
@@ -169,18 +184,43 @@
     });
   }
 
+  // In-memory memo of recent responses (per query+scope). Makes
+  // backspacing / re-typing instant and halves perceived latency on
+  // common prefixes. Session-lifetime only; cleared on reload.
+  var _memo = {};
+  var _memoKeys = [];
+  function _memoPut(key, resp) {
+    if (!_memo[key]) {
+      _memoKeys.push(key);
+      if (_memoKeys.length > 40) delete _memo[_memoKeys.shift()];
+    }
+    _memo[key] = resp;
+  }
+
   function runSearch(q) {
     _lastQ = q;
     var results = document.getElementById('slaSearchResults');
     results.style.display = 'block';
-    results.innerHTML = '<div class="empty">Searching…</div>';
+    var memoKey = _scope + '|' + q.toLowerCase();
+    if (_memo[memoKey]) {
+      render(_memo[memoKey]);
+      return;
+    }
+    // Only flash "Searching…" if the request is actually slow —
+    // avoids the loading blink on fast responses.
+    var slowTimer = setTimeout(function () {
+      results.innerHTML = '<div class="empty">Searching…</div>';
+    }, 250);
 
     SLA.Search.query(q, { all: _scope === 'all' }).then(function (resp) {
+      clearTimeout(slowTimer);
+      _memoPut(memoKey, resp);
       // Drop stale responses if user kept typing
       var input = document.getElementById('slaSearchInput');
       if (input.value.trim() !== q) return;
       render(resp);
     }).catch(function (err) {
+      clearTimeout(slowTimer);
       results.innerHTML = '<div class="empty" style="color:#7c1f1f">' + escH(err.message || 'Search failed') + '</div>';
     });
   }
@@ -251,8 +291,13 @@
       if (quotes.length) {
         html += '<div class="grp"><div class="grp-hdr">Quotes</div>';
         quotes.forEach(function (r) {
-          var statusTag = '<span class="r-tag ' + escAttr(r.status || '') + '">' + escH(r.status || '') + '</span>';
-          html += linkRow('/' + (r.link || 'pipeline.html'), statusTag + escH(r.name), escH(r.address || '—'));
+          var statusTag = '<span class="r-tag ' + escAttr(r.status || '') + '">' + escH((r.status || '').replace('_', ' ')) + '</span>';
+          // Quotes with a linked loan deep-link to Loan Details —
+          // strictly more useful than the status page.
+          var href = r.loanId
+            ? loanLink({ id: r.loanId, ownerKey: r.ownerKey })
+            : '/' + (r.link || 'pipeline.html');
+          html += linkRow(href, statusTag + escH(r.name), escH(r.address || '—'));
         });
         html += '</div>';
       }

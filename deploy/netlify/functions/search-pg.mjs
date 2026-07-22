@@ -28,6 +28,13 @@ import {
   handleOptions, json, requireAuth, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canListAllClients } from './_shared/access.mjs';
+// Deploy 236.384 — prospects + quotes searched via their materialized
+// indexes (ONE blob read each) instead of walking every blob in every
+// owner namespace. The all-LOs blob scan was multi-second at Mike's
+// scale, which made the typeahead useless. Falls back to the legacy
+// scan only when an index is missing.
+import { prospectsIndex } from './_shared/prospects-index.mjs';
+import { quotesIndex } from './_shared/quotes-index.mjs';
 
 const PER_CATEGORY = 8;
 
@@ -97,12 +104,12 @@ export default async (req, context) => {
       console.warn('search-pg: loans id lookup failed:', e && e.message);
       return [];
     }),
-    _searchProspectsBlob(q, wantAll, selfKey).catch((e) => {
-      console.warn('search-pg: prospects blob scan failed:', e && e.message);
+    _searchProspectsIdx(q, wantAll, selfKey).catch((e) => {
+      console.warn('search-pg: prospects search failed:', e && e.message);
       return [];
     }),
-    _searchQuotesBlob(q, wantAll, selfKey).catch((e) => {
-      console.warn('search-pg: quotes blob scan failed:', e && e.message);
+    _searchQuotesIdx(q, wantAll, selfKey).catch((e) => {
+      console.warn('search-pg: quotes search failed:', e && e.message);
       return [];
     }),
   ]);
@@ -126,16 +133,94 @@ export default async (req, context) => {
     (c.isBroker ? brokers : clients).push(c);
   });
 
+  // Deploy 236.384 — cross-category dedupe. A worked prospect (one
+  // that already produced a quote/loan) showing NEXT TO its own quote
+  // reads as a duplicate to the user. Suppress:
+  //   - quotes whose loanId already appears in the loans results
+  //     (the loan row is strictly better — it deep-links to details)
+  //   - prospects whose address matches a loan or quote in the results
+  const _norm = (s) => String(s || '').trim().toLowerCase()
+    .replace(/,\s*(usa|us|united states)\.?$/i, '').replace(/[.,]/g, '').replace(/\s+/g, ' ');
+  const quotes = quotesResult.filter((qr) => !(qr.loanId && seenLoans.has(qr.loanId)));
+  const coveredAddrs = new Set();
+  loans.forEach((l) => { const a = _norm(l.address); if (a) coveredAddrs.add(a); });
+  quotes.forEach((qr) => { const a = _norm(qr.address); if (a) coveredAddrs.add(a); });
+  const prospects = prospectsResult.filter((p) => !coveredAddrs.has(_norm(p.address)));
+
   return json(200, {
     q,
     loans:     loans.slice(0, PER_CATEGORY),
     clients:   clients.slice(0, PER_CATEGORY),
     brokers:   brokers.slice(0, PER_CATEGORY),
-    prospects: prospectsResult.slice(0, PER_CATEGORY),
-    quotes:    quotesResult.slice(0, PER_CATEGORY),
+    prospects: prospects.slice(0, PER_CATEGORY),
+    quotes:    quotes.slice(0, PER_CATEGORY),
     _source:   'postgres',
   });
 };
+
+// ── Index-backed prospects + quotes search (Deploy 236.384) ──────
+// One blob read each; in-memory substring filter. Falls back to the
+// legacy per-blob scan only when the index doesn't exist yet.
+function _matchQ(text, q) {
+  return text && String(text).toLowerCase().indexOf(q.toLowerCase()) >= 0;
+}
+
+async function _searchProspectsIdx(q, wantAll, selfKey) {
+  const { index, exists } = await prospectsIndex.readIndex();
+  if (!exists || !index || !index.byOwner) {
+    return _searchProspectsBlob(q, wantAll, selfKey);
+  }
+  const owners = wantAll ? Object.keys(index.byOwner) : [selfKey];
+  const out = [];
+  for (const o of owners) {
+    for (const p of (index.byOwner[o] || [])) {
+      if (!p) continue;
+      const name = ((p.firstName || '') + ' ' + (p.lastName || '')).trim();
+      if (!_matchQ(name, q) && !_matchQ(p.email, q) && !_matchQ(p.propAddress, q)) continue;
+      out.push({
+        id: p.id,
+        ownerKey: o,
+        name: name || p.email || 'Borrower',
+        email: p.email || '',
+        address: p.propAddress || '',
+        date: p.submittedAt || '',
+        link: 'pipeline.html',
+      });
+      if (out.length >= PER_CATEGORY * 2) return out;
+    }
+  }
+  return out;
+}
+
+async function _searchQuotesIdx(q, wantAll, selfKey) {
+  const { index, exists } = await quotesIndex.readIndex();
+  if (!exists || !index || !index.byOwner) {
+    return _searchQuotesBlob(q, wantAll, selfKey);
+  }
+  const owners = wantAll ? Object.keys(index.byOwner) : [selfKey];
+  const out = [];
+  for (const o of owners) {
+    for (const qr of (index.byOwner[o] || [])) {
+      if (!qr) continue;
+      const fd = qr.formData || {};
+      const name = qr.borrower || fd.borrower || '';
+      if (!_matchQ(name, q) && !_matchQ(qr.address, q) && !_matchQ(qr.borrowerEmail, q)) continue;
+      out.push({
+        id: qr.id,
+        ownerKey: o,
+        loanId: qr.loanId || '',
+        name: name || qr.address || 'Quote',
+        address: qr.address || '',
+        status: qr.status || 'active',
+        toolType: qr.toolType || 'dscr',
+        date: qr.updatedAt || qr.savedAt || '',
+        link: _linkForQuote(qr),
+      });
+      if (out.length >= PER_CATEGORY * 2) return out;
+    }
+  }
+  return out;
+}
 
 async function _searchClientsPG(q, wantAll, selfEmail) {
   const parts = [
