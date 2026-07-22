@@ -1143,6 +1143,19 @@
 [functions."admin-blob-pg-sync"]
   timeout = 26
 
+# Fix orphaned brokerId references on loans (blob + PG). Some loans
+# carry a brokerId pointing at a client that doesn't exist — harmless
+# under blob-only reads, but the PG loans_broker_id_fkey constraint
+# rejects the write with HTTP 409. This sweep nulls the bad refs.
+[[redirects]]
+  from = "/api/admin-fix-broker-fks"
+  to = "/.netlify/functions/admin-fix-broker-fks"
+  status = 200
+  force = true
+
+[functions."admin-fix-broker-fks"]
+  timeout = 26
+
 # Phase 3 — short URL for loan details. /loan-details/l_123_abc
 # serves loan-details.html with ?loanId=l_123_abc in the query
 # string. The page reads loanId, fetches from Postgres, hydrates
