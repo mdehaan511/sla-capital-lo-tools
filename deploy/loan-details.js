@@ -7073,7 +7073,16 @@ function openBorrowerInfoModal() {
   document.getElementById('biStatusMsg').textContent = '';
   document.getElementById('biStatusMsg').className = 'bi-status';
   document.getElementById('biSendEmailCb').checked = true;
-  document.getElementById('biEmailInput').value = (_client.email || '').toLowerCase();
+  // Prefill priority: client email → loan's broker email → blank.
+  // Broker deals often have an empty client email (the "client" is a
+  // broker shell) but a valid brokerEmail on the loan record. Without
+  // this, the LO saw an empty email field + a "Client has no email"
+  // error on Generate.
+  var _biPrefillEmail = (_client.email || '').toLowerCase();
+  if (!_biPrefillEmail && _loan && _loan.brokerEmail) {
+    _biPrefillEmail = String(_loan.brokerEmail).toLowerCase();
+  }
+  document.getElementById('biEmailInput').value = _biPrefillEmail;
   document.getElementById('biEmailRow').style.display = 'block';
   document.getElementById('biSendBtn').textContent = 'Generate Link';
   document.getElementById('biSendBtn').disabled = false;

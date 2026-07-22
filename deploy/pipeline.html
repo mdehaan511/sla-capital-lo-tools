@@ -3368,7 +3368,9 @@ function openSendLoanAppModal(clientId, loanId, ownerKey) {
   _sendBiCtx = { clientId: clientId, loanId: loanId, ownerKey: ownerKey };
 
   // Find the borrower email — try per-loan borrower-info record first,
-  // then per-client legacy fallback, then the client record itself.
+  // then per-client legacy fallback, then the client record itself,
+  // then finally the loan's brokerEmail (broker deals where the
+  // client is a broker shell with no email).
   var borrowerEmail = '';
   var bi = _borrowerInfoByClient[ownerKey + '|' + clientId + '|' + loanId]
         || _borrowerInfoByClient[ownerKey + '|' + clientId]
@@ -3377,7 +3379,15 @@ function openSendLoanAppModal(clientId, loanId, ownerKey) {
     borrowerEmail = bi.borrowerEmail;
   } else {
     var clientRec = _clientById[ownerKey + '|' + clientId];
-    if (clientRec && clientRec.email) borrowerEmail = clientRec.email;
+    if (clientRec && clientRec.email) {
+      borrowerEmail = clientRec.email;
+    } else {
+      // Broker fallback — pull from the loan record on the client.
+      var loanRec = clientRec && Array.isArray(clientRec.loans)
+        ? clientRec.loans.find(function(l){ return l && l.id === loanId; })
+        : null;
+      if (loanRec && loanRec.brokerEmail) borrowerEmail = loanRec.brokerEmail;
+    }
   }
 
   // Reset modal state

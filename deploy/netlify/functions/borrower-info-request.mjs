@@ -74,7 +74,6 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to load client' });
   }
   if (!client) return json(404, { error: 'Client not found' });
-  if (!client.email) return json(400, { error: 'Client has no email — add one first' });
 
   // Find the matching loan (now required)
   let loan = null;
@@ -82,6 +81,20 @@ async function handle(req, context) {
     loan = client.loans.find((l) => l.id === body.loanId) || null;
   }
   if (!loan) return json(404, { error: 'Loan not found on client' });
+
+  // Validate we have SOMEONE to send to. Priority order:
+  //   1. body.email     — the LO explicitly typed it in the modal
+  //   2. client.email   — normal case, borrower is the client
+  //   3. loan.brokerEmail — broker deals where client is a broker
+  //                       shell with no email on the client row
+  // Only refuse if we can't resolve any recipient anywhere.
+  const bodyEmail = String(body.email || '').trim();
+  const brokerEmail = String(loan.brokerEmail || '').trim();
+  if (!bodyEmail && !client.email && !brokerEmail) {
+    return json(400, {
+      error: 'No email available. Add a borrower or broker email to the loan, or type a recipient in the modal.',
+    });
+  }
 
   // Look up LO profile for email "from" name
   let loProfile = null;
@@ -149,9 +162,11 @@ async function handle(req, context) {
   const link = `${siteUrl}/borrower-info.html?t=${encodeURIComponent(token)}`;
 
   // Optional email — use the body.email override if provided (LO can edit
-  // the recipient in the modal), otherwise default to the client's email.
+  // the recipient in the modal), otherwise default to the client's email,
+  // then fall back to the loan's broker email (broker deals where the
+  // client shell has no email of its own).
   let emailed = false;
-  const recipientEmail = (body.email && String(body.email).trim()) || client.email;
+  const recipientEmail = bodyEmail || client.email || brokerEmail;
   if (body.sendEmail) {
     try {
       emailed = await sendBorrowerEmail({
