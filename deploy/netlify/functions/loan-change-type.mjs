@@ -174,16 +174,24 @@ async function handle(req, context) {
   await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   // Also touch the matching quote in QuoteStore (if any) so Pipeline
-  // reflects the new status + tool type. The quote is keyed by
-  // <ownerKey>/<id> and we don't know its ID directly, but we can find
-  // it by address.
+  // reflects the new status + tool type.
+  //
+  // QC pass — STRICT loanId match when the quote carries one, exactly
+  // like quotes-close (Deploy 236.371) and quotes-decide (236.13).
+  // The old address-only first-match-wins loop could clobber ANOTHER
+  // loan's quote at the same property: reset its status to active,
+  // overwrite its toolType + formData. Address matching is retained
+  // ONLY for legacy quotes that never had a loanId stamped.
   try {
     const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
     const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
     const targetAddr = normAddr(loan.address);
     for (const { key } of blobs) {
       const q = await quotesStore.get(key, { type: 'json' });
-      if (!q || normAddr(q.address) !== targetAddr) continue;
+      if (!q) continue;
+      const matchesLoanId  = q.loanId && q.loanId === loan.id;
+      const matchesAddress = !q.loanId && normAddr(q.address) === targetAddr;
+      if (!matchesLoanId && !matchesAddress) continue;
       q.toolType = newType;
       q.status = 'active';
       q.updatedAt = now;
