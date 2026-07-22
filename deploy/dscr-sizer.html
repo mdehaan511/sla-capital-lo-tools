@@ -603,7 +603,11 @@ const GUIDELINES = {
   maxLTV: {
     740: { purchase: 0.80, rateTerm: 0.80, cashOut: 0.75 },
     720: { purchase: 0.80, rateTerm: 0.80, cashOut: 0.75 },
-    700: { purchase: 0.75, rateTerm: 0.75, cashOut: 0.75 },
+    // Deploy 236.375 — Mike confirmed (7/22/26): guidelines now allow
+    // 80% LTV for 700-719 on purchase + rate/term ONLY. Cash-out stays
+    // capped at 75%. Matches the new 700-719 @ 75.01-80 pricing tier
+    // on the 7.22.26 rate sheet (+0.500 adj).
+    700: { purchase: 0.80, rateTerm: 0.80, cashOut: 0.75 },
     680: { purchase: 0.70, rateTerm: 0.65, cashOut: 0.65 },
     660: { purchase: 0.65, rateTerm: 0.65, cashOut: 0.65 },
   }
