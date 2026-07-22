@@ -50,9 +50,13 @@ We test in production with live LOs. Survivable with LOs; not with borrowers.
       scope `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` env vars per-branch
       so staging points at the staging project.
 - [ ] **B3.** Seed script: copy N sanitized clients/loans into staging PG.
-- [ ] **B4.** Smoke-test script (`scripts/smoke.mjs`): login → pipeline loads →
-      client-get-pg → sizer save → status advance → close → search. Asserts
-      response shapes + status codes. Run against staging before merging to main.
+- [x] **B4.** Smoke-test script (`scripts/smoke.mjs`): read paths (health,
+      clients-list-pg, quotes-list, prospects-list, search-pg) + opt-in write
+      lifecycle (sizer save → PG read-back → search → quote sync → advance →
+      close → cleanup). Refuses writes against prod hostnames. Deploy 236.389.
+      Run: `SMOKE_URL=<url> SMOKE_JWT=<admin jwt> SMOKE_WRITES=1 node scripts/smoke.mjs`
+      (JWT from a logged-in tab: `await netlifyIdentity.currentUser().jwt()`).
+      Read suite is safe against prod today; write suite waits on B1/B2 staging.
 - [ ] **B5.** Workflow: feature branches → staging → smoke → main.
 
 ## Phase C — PG becomes the single write authority  *(2–3 weeks; the big one)*
