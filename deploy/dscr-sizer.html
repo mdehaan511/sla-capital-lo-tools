@@ -82,6 +82,7 @@
       pricingSnapshot: formData._pricingSnapshot || null,
       // Broker fields — when brokerFee > 0 this is a "Broker Loan".
       brokerFee:     formData.brokerFee     || '',
+      brokerProcFee: formData.brokerProcFee || '',
       brokerName:    formData.brokerName    || '',
       brokerCompany: formData.brokerCompany || '',
       brokerEmail:   formData.brokerEmail   || '',
@@ -1031,6 +1032,16 @@ function getFICOMin(ficoStr) {
             <input type="number" id="brokerFee" min="0" step="0.25" placeholder="e.g. 1 = 1 point" oninput="onBrokerFeeChange();run()" />
           </div>
         </div>
+        <!-- Deploy 236.376 — flat-dollar processing fee some brokers
+             charge on top of their points. Flows into closing costs +
+             the term sheet as "<Broker Company> Processing Fee"
+             (falls back to broker name when no company). -->
+        <div class="field">
+          <div class="wrap">
+            <label>Broker Processing Fee ($)</label>
+            <input type="number" id="brokerProcFee" min="0" step="1" placeholder="e.g. 995" oninput="onBrokerFeeChange();run()" />
+          </div>
+        </div>
         <div class="broker-fields" id="brokerFields" style="display:none">
           <div class="field">
             <div class="wrap">
@@ -1330,7 +1341,9 @@ function calculate() {
   // and the rate sheet PDF both reflect it.
   var brokerPts = parseFloat(($('brokerFee')||{}).value) || 0;
   var brokerFeeDol = loan * brokerPts / 100;
-  var totalFees = origFee + FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis + buydownFee + brokerFeeDol;
+  // Deploy 236.376 — flat broker processing fee (dollars, not points).
+  var brokerProcFee = parseFloat(($('brokerProcFee')||{}).value) || 0;
+  var totalFees = origFee + FEES.underwriting + FEES.doc_prep + FEES.legal_doc + FEES.desktop_analysis + buydownFee + brokerFeeDol + brokerProcFee;
 
   // Guideline validation
   var guidelineWarnings = validateGuidelines({
@@ -1344,7 +1357,7 @@ function calculate() {
     totalPayment:pmtFinal, rent,
     borrower, borrowerEmail, address, loan, propVal, prepay, buydown, isIO, purpose, propType,
     origFee, buydownFee, totalFees,
-    brokerPts, brokerFeeDol,
+    brokerPts, brokerFeeDol, brokerProcFee,
     netHiddenTpoPct, guidelineWarnings,
   };
 }
@@ -1482,9 +1495,18 @@ function renderCashToCloseCard(r, effLoan) {
   var flatFees = 995 + 700 + 500 + 120; // DSCR schedule = $2,315
   var brokerPts = (typeof r.brokerPts === 'number' ? r.brokerPts : (parseFloat(($('brokerFee')||{}).value) || 0));
   var brokerDol = effLoan * brokerPts / 100;
-  var totalFees = ptsFee + flatFees + brokerDol;
+  // Deploy 236.376 — flat broker processing fee, labeled with the
+  // broker's company (name fallback) per Mike's spec.
+  var brokerProc = (typeof r.brokerProcFee === 'number' ? r.brokerProcFee : (parseFloat(($('brokerProcFee')||{}).value) || 0));
+  var totalFees = ptsFee + flatFees + brokerDol + brokerProc;
   var brokerRow = brokerPts > 0
     ? '<tr><td>+ Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv base">'+fmtD(brokerDol)+'</td></tr>'
+    : '';
+  var brokerProcRowPlus = brokerProc > 0
+    ? '<tr><td>+ '+escHtml(brokerProcFeeLabel())+'</td><td class="bv base">'+fmtD(brokerProc)+'</td></tr>'
+    : '';
+  var brokerProcRowMinus = brokerProc > 0
+    ? '<tr><td>− '+escHtml(brokerProcFeeLabel())+'</td><td class="bv neg">'+fmtD(brokerProc)+'</td></tr>'
     : '';
 
   if (purpose === 'purchase') {
@@ -1499,6 +1521,7 @@ function renderCashToCloseCard(r, effLoan) {
           '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
           '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
           brokerRow+
+          brokerProcRowPlus+
         '</tbody></table>'+
         '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
           '<span class="tv">'+fmtD(ctc)+'</span></div>'+
@@ -1525,6 +1548,7 @@ function renderCashToCloseCard(r, effLoan) {
           (brokerPts > 0
             ? '<tr><td>− Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv neg">'+fmtD(brokerDol)+'</td></tr>'
             : '')+
+          brokerProcRowMinus+
         '</tbody></table>'+
         '<div class="total-row"><span class="tl">Estimated Cashout<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
           '<span class="tv" style="color:var(--'+coCls+')">'+fmtD(cashout)+'</span></div>'+
@@ -1556,6 +1580,7 @@ function renderCashToCloseCard(r, effLoan) {
           (brokerPts > 0
             ? '<tr><td>+ Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv base">'+fmtD(brokerDol)+'</td></tr>'
             : '')+
+          brokerProcRowPlus+
           '<tr><td>− New Loan Amount</td><td class="bv neg">'+fmtD(effLoan)+'</td></tr>'+
         '</tbody></table>'+
         '<div class="total-row"><span class="tl">Cash to Close<sup style="font-weight:400;color:var(--muted)">*</sup></span>'+
@@ -1687,9 +1712,12 @@ function onBrokerFeeChange() {
   var wrap  = document.getElementById('brokerFields');
   if (!feeEl || !wrap) return;
   var fee = parseFloat(feeEl.value) || 0;
+  // Deploy 236.376 — a processing fee also reveals the broker fields
+  // (the term-sheet label needs the company/name filled in).
+  var proc = parseFloat((document.getElementById('brokerProcFee')||{}).value) || 0;
   // Deploy 236.289 — in explicit Broker Deal mode the broker fields
   // stay visible even at fee 0 (LO may size before negotiating fee).
-  wrap.style.display = (fee > 0 || window._isBrokerMode) ? 'grid' : 'none';
+  wrap.style.display = (fee > 0 || proc > 0 || window._isBrokerMode) ? 'grid' : 'none';
   if (fee <= 0) {
     var errEl = document.getElementById('err-brokerName');
     if (errEl) errEl.style.display = 'none';
@@ -1840,6 +1868,19 @@ function autoEnableAdminModeFrom(source) {
   onAdminManualInput();
 }
 
+// Deploy 236.376 — label for the flat broker processing fee. Uses
+// the broker's company; falls back to the broker's name; then a
+// generic "Broker" when neither is filled yet. Shown on the fees
+// card, cash-to-close breakdowns, and the term sheet PDF.
+function brokerProcFeeLabel() {
+  var co = (($('brokerCompany')||{}).value || '').trim();
+  var nm = (($('brokerName')||{}).value || '').trim();
+  return (co || nm || 'Broker') + ' Processing Fee';
+}
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 // Refresh the right-side fees card with broker fee row(s) + new total.
 // Called from onBrokerFeeChange and from run() (the loan amount may have
 // changed). When brokerFee is 0, broker rows hide and total falls back
@@ -1849,8 +1890,9 @@ function renderBrokerFeesCardRows() {
   var totalEl = document.getElementById('feesCardTotal');
   if (!rowsEl || !totalEl) return;
   var pts = parseFloat(($('brokerFee')||{}).value) || 0;
+  var proc = parseFloat(($('brokerProcFee')||{}).value) || 0;
   var FLAT = 995 + 700 + 500 + 120; // $2,315
-  if (pts <= 0) {
+  if (pts <= 0 && proc <= 0) {
     rowsEl.innerHTML = '';
     totalEl.textContent = '$' + FLAT.toLocaleString();
     return;
@@ -1866,9 +1908,15 @@ function renderBrokerFeesCardRows() {
     loanAmt = parseFloat(($('loanAmt')||{}).value) || 0;
   }
   var dol = loanAmt * (pts / 100);
-  rowsEl.innerHTML =
-    '<div class="fees-row broker"><span class="lbl">Broker Fee (' + pts.toFixed(2) + ' pts)</span><span>$' + Math.round(dol).toLocaleString() + '</span></div>';
-  totalEl.textContent = '$' + Math.round(FLAT + dol).toLocaleString();
+  var html = '';
+  if (pts > 0) {
+    html += '<div class="fees-row broker"><span class="lbl">Broker Fee (' + pts.toFixed(2) + ' pts)</span><span>$' + Math.round(dol).toLocaleString() + '</span></div>';
+  }
+  if (proc > 0) {
+    html += '<div class="fees-row broker"><span class="lbl">' + escHtml(brokerProcFeeLabel()) + '</span><span>$' + Math.round(proc).toLocaleString() + '</span></div>';
+  }
+  rowsEl.innerHTML = html;
+  totalEl.textContent = '$' + Math.round(FLAT + (pts > 0 ? dol : 0) + proc).toLocaleString();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -3025,6 +3073,16 @@ function _generateRateSheetPDF(opts) {
   if (r.brokerPts && r.brokerPts > 0) {
     feeRows.push(['Broker Fee ('+r.brokerPts.toFixed(2)+' pts)', r.brokerFeeDol || (r.loan * r.brokerPts / 100)]);
   }
+  // Deploy 236.376 — flat broker processing fee, labeled with the
+  // broker's company (name fallback) per Mike's spec. Unlike the
+  // points line, this one IS named — Mike explicitly wants the
+  // "<Broker Company> Processing Fee" wording on the term sheet.
+  var _pdfProcFee = (typeof r.brokerProcFee === 'number' && r.brokerProcFee > 0)
+    ? r.brokerProcFee
+    : (parseFloat(($('brokerProcFee')||{}).value) || 0);
+  if (_pdfProcFee > 0) {
+    feeRows.push([brokerProcFeeLabel(), _pdfProcFee]);
+  }
   var totalFeeAmt = feeRows.reduce(function(s,row){ return s + row[1]; }, 0);
 
   var feeBlockH = 22 + feeRows.length * ROW_H + ROW_H + 14;
@@ -3641,6 +3699,7 @@ function saveCurrentQuote() {
     // Broker fields — captured at quote time. brokerFee in points;
     // empty/0 means not a broker loan and the contact fields stay blank.
     brokerFee:     ($('brokerFee') ? $('brokerFee').value : ''),
+    brokerProcFee: ($('brokerProcFee') ? $('brokerProcFee').value : ''),
     brokerName:    ($('brokerName') ? $('brokerName').value.trim() : ''),
     brokerCompany: ($('brokerCompany') ? $('brokerCompany').value.trim() : ''),
     brokerEmail:   ($('brokerEmail') ? $('brokerEmail').value.trim().toLowerCase() : ''),
@@ -4120,6 +4179,7 @@ function loadQuoteIntoForm(formData) {
     currentLoanAmt: formData.currentLoanAmt || '',
     // Broker fields — load back when reopening a broker loan
     brokerFee:     formData.brokerFee     || '',
+    brokerProcFee: formData.brokerProcFee || '',
     brokerName:    formData.brokerName    || '',
     brokerCompany: formData.brokerCompany || '',
     brokerEmail:   formData.brokerEmail   || '',

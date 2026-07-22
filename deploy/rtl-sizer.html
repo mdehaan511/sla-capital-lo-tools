@@ -99,6 +99,7 @@ window.ClientBook = {
       // loan amount wherever it's shown so it stays accurate even if
       // the LO later overrides the loan amount on Loan Details.
       brokerFee:     formData.brokerFee     || '',
+      brokerProcFee: formData.brokerProcFee || '',
       brokerName:    formData.brokerName    || '',
       brokerCompany: formData.brokerCompany || '',
       brokerEmail:   formData.brokerEmail   || '',
@@ -773,6 +774,16 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
             <input type="number" id="brokerFee" min="0" step="0.25" placeholder="e.g. 1 = 1 point" oninput="onBrokerFeeChange();autoCalc()" />
           </div>
         </div>
+        <!-- Deploy 236.376 — flat-dollar processing fee some brokers
+             charge on top of their points. Flows into closing costs +
+             the term sheet as "<Broker Company> Processing Fee"
+             (falls back to broker name when no company). -->
+        <div class="field span2">
+          <div class="wrap">
+            <label>Broker Processing Fee ($)</label>
+            <input type="number" id="brokerProcFee" min="0" step="1" placeholder="e.g. 995" oninput="onBrokerFeeChange();autoCalc()" />
+          </div>
+        </div>
         <div class="broker-fields span2" id="brokerFields" style="display:none">
           <div class="field">
             <div class="wrap">
@@ -1303,9 +1314,12 @@ function onBrokerFeeChange() {
   var wrap  = document.getElementById('brokerFields');
   if (!feeEl || !wrap) return;
   var fee = parseFloat(feeEl.value) || 0;
+  // Deploy 236.376 — a processing fee also reveals the broker fields
+  // (the term-sheet label needs the company/name filled in).
+  var proc = parseFloat((document.getElementById('brokerProcFee')||{}).value) || 0;
   // Deploy 236.289 — in explicit Broker Deal mode the broker fields
   // stay visible even at fee 0.
-  wrap.style.display = (fee > 0 || window._isBrokerMode) ? 'grid' : 'none';
+  wrap.style.display = (fee > 0 || proc > 0 || window._isBrokerMode) ? 'grid' : 'none';
   // Clear any prior name-required error when the fee drops to 0
   if (fee <= 0) clearErr('brokerName');
   renderBrokerFeesCardRows();
@@ -1430,6 +1444,20 @@ function autoEnableAdminModeFrom(source) {
 //   1. window._rtlLastCalc.bMax (canonical max from last successful calc)
 //   2. transactional amount (if transactional loan type)
 //   3. purchase price input (pre-calc fallback)
+// Deploy 236.376 — label + amount for the flat broker processing fee.
+// Company name preferred, broker name fallback, generic 'Broker' last.
+function brokerProcFeeLabel() {
+  var co = ((document.getElementById('brokerCompany')||{}).value || '').trim();
+  var nm = ((document.getElementById('brokerName')||{}).value || '').trim();
+  return (co || nm || 'Broker') + ' Processing Fee';
+}
+function brokerProcFeeAmount() {
+  return parseFloat((document.getElementById('brokerProcFee')||{}).value) || 0;
+}
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function brokerFeeDollars() {
   var pts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
   if (pts <= 0) return 0;
@@ -1458,18 +1486,25 @@ function renderBrokerFeesCardRows() {
   var totalEl = document.getElementById('feesCardTotal');
   if (!rowsEl || !totalEl) return;
   var pts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
+  var proc = brokerProcFeeAmount();
   var ltEl = document.getElementById('loanType');
   var isTransactional = ltEl && ltEl.value === 'transactional';
   var FLAT = isTransactional ? 1000 : (600 + 900 + 500 + 150); // $1,000 or $2,150
-  if (pts <= 0) {
+  if (pts <= 0 && proc <= 0) {
     rowsEl.innerHTML = '';
     totalEl.textContent = '$' + FLAT.toLocaleString();
     return;
   }
-  var dol = brokerFeeDollars();
-  rowsEl.innerHTML =
-    '<div class="fees-row broker"><span class="lbl">Broker Fee (' + pts.toFixed(2) + ' pts)</span><span>$' + Math.round(dol).toLocaleString() + '</span></div>';
-  totalEl.textContent = '$' + Math.round(FLAT + dol).toLocaleString();
+  var dol = pts > 0 ? brokerFeeDollars() : 0;
+  var html = '';
+  if (pts > 0) {
+    html += '<div class="fees-row broker"><span class="lbl">Broker Fee (' + pts.toFixed(2) + ' pts)</span><span>$' + Math.round(dol).toLocaleString() + '</span></div>';
+  }
+  if (proc > 0) {
+    html += '<div class="fees-row broker"><span class="lbl">' + escHtml(brokerProcFeeLabel()) + '</span><span>$' + Math.round(proc).toLocaleString() + '</span></div>';
+  }
+  rowsEl.innerHTML = html;
+  totalEl.textContent = '$' + Math.round(FLAT + dol + proc).toLocaleString();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1796,7 +1831,7 @@ function applyOverridesAndRender() {
     // Total Estimated Closing Costs (broker fee + processing fee + ptsFee)
     var brkPtsT = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
     var brkDolT = txAmt * brkPtsT / 100;
-    var totalT  = txPtsFee + 1000 + brkDolT;
+    var totalT  = txPtsFee + 1000 + brkDolT + brokerProcFeeAmount(); // Deploy 236.376
     var totalSpansT = document.querySelectorAll('.rate-card span[style*="DM Mono"]');
     totalSpansT.forEach(function(sp) {
       if (sp.textContent.indexOf('$') === 0) {
@@ -2759,7 +2794,8 @@ function renderTransactional(street, city, state, zip) {
   // since that's the actual loan size for these 1-day deals.
   var brokerPts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
   var brokerDol = amt * (brokerPts / 100);
-  var totalFees = ptsFee + processingFee + brokerDol;
+  var brokerProc = brokerProcFeeAmount(); // Deploy 236.376
+  var totalFees = ptsFee + processingFee + brokerDol + brokerProc;
 
   // Monthly interest (1-day loans accrue interest only)
   var monthlyInterest = amt * rate / 12;
@@ -2819,6 +2855,9 @@ function renderTransactional(street, city, state, zip) {
       (brokerPts > 0
         ? '<tr><td>Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
         : '') +
+      (brokerProc > 0
+        ? '<tr><td>' + escHtml(brokerProcFeeLabel()) + '</td><td class="bv neg">$' + Math.round(brokerProc).toLocaleString() + '</td></tr>'
+        : '') +
       '</tbody></table>' +
       '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
         '<span style="font-size:14px;font-weight:600">Total Estimated Closing Costs</span>' +
@@ -2871,7 +2910,8 @@ function renderCashoutSummary() {
   // out of proceeds at funding just like origination.
   var brokerPts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
   var brokerDol = loanAmt * (brokerPts / 100);
-  var totalFees = ptsFee + flatFees + brokerDol;
+  var brokerProc = brokerProcFeeAmount(); // Deploy 236.376
+  var totalFees = ptsFee + flatFees + brokerDol + brokerProc;
   var estCash = loanAmt - cl - totalFees;
   var label = (purpose === 'cashout') ? 'Estimated Cashout' : 'Estimated Net to Borrower';
   var cashColor = estCash >= 0 ? 'var(--success, #256940)' : 'var(--danger, #7c1f1f)';
@@ -2886,6 +2926,9 @@ function renderCashoutSummary() {
       '<tr><td>− Flat Fees</td><td class="bv neg">$2,150</td></tr>' +
       (brokerPts > 0
         ? '<tr><td>− Broker Fee (' + brokerPts.toFixed(2) + ' pts)</td><td class="bv neg">$' + Math.round(brokerDol).toLocaleString() + '</td></tr>'
+        : '') +
+      (brokerProc > 0
+        ? '<tr><td>− ' + escHtml(brokerProcFeeLabel()) + '</td><td class="bv neg">$' + Math.round(brokerProc).toLocaleString() + '</td></tr>'
         : '') +
     '</tbody></table>' +
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--border)">' +
@@ -3357,7 +3400,7 @@ function saveCurrentQuote() {
     // (1 = 1%); when 0/empty the loan isn't a broker loan and the
     // contact fields stay empty. brokerName is required upstream when
     // brokerFee > 0; the other contact fields are always optional.
-    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
+    'brokerFee','brokerProcFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
     // Deploy 236 (Brokers Phase 2): hidden brokerId set by BrokerPicker.
     // Captured here alongside the inline fields so buildLoanFromSizer
     // sees it in formData.
@@ -3891,7 +3934,7 @@ function loadRTLQuote(formData) {
     // Deploy 236.350 — target-loan / target-LTV caps
     'targetLoanAmt','targetLtv',
     // Broker fields — populated when reopening a quote saved as a broker loan
-    'brokerFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
+    'brokerFee','brokerProcFee','brokerName','brokerCompany','brokerEmail','brokerPhone',
     // Deploy 236 (Brokers Phase 2): restore hidden brokerId so the picker
     // can rehydrate the binding chip below.
     'brokerId',
@@ -5027,6 +5070,12 @@ function _generateRTLTransactionalPDF(opts) {
   if (brokerPts > 0) {
     feeRows.push(['Broker Fee (' + brokerPts.toFixed(2) + ' pts)', fmtD(brokerDol)]);
   }
+  // Deploy 236.376 — flat broker processing fee, labeled with the
+  // broker's company (name fallback) per Mike's spec.
+  var _txProcFee = brokerProcFeeAmount();
+  if (_txProcFee > 0) {
+    feeRows.push([brokerProcFeeLabel(), fmtD(_txProcFee)]);
+  }
 
   // Section title outside the box
   doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
@@ -5518,6 +5567,14 @@ function _generateRTLRateSheetPDF(opts) {
     var brokerDolPdf = bMaxNum * (brokerPtsPdf / 100);
     feeRows.push(['Broker Fee ('+brokerPtsPdf.toFixed(2)+' pts)', fmtD(brokerDolPdf)]);
     totalFees += brokerDolPdf;
+  }
+  // Deploy 236.376 — flat broker processing fee. Unlike the points
+  // line, this one IS named — Mike explicitly wants the
+  // "<Broker Company> Processing Fee" wording on the term sheet.
+  var brokerProcPdf = brokerProcFeeAmount();
+  if (brokerProcPdf > 0) {
+    feeRows.push([brokerProcFeeLabel(), fmtD(brokerProcPdf)]);
+    totalFees += brokerProcPdf;
   }
 
   // Branch on purpose
