@@ -592,9 +592,19 @@
   // classify/probe/discover endpoints from doing needless work.
   var _MUTATION_PREFIX_TO_SLOT = {
     'clients':       'clients',
-    'loan':          'clients',   // covers loan-*, loan-note-add, loan-add-guarantor, etc.
-    'loans':         'clients',
-    'borrower-info': 'clients',
+    // Deploy 236.379 — loan-* and borrower-info-* mutations mark the
+    // QUOTES cache stale too. Many of these endpoints sweep the quote
+    // store server-side (loan-advance-status, loan-cancel, loan-decline,
+    // loan-change-type, loan-processing-stage, borrower-info-sign) —
+    // marking only 'clients' left closed.html / decisions.html /
+    // pipeline.html reading a stale quotes cache for up to 5 minutes
+    // after the mutation. Mike hit this: dragged a card to Closed on
+    // the Processing Pipeline, quote was swept to closed server-side,
+    // but the Closed Loans page (which lists closed quotes) showed
+    // nothing until the cache TTL expired.
+    'loan':          ['clients', 'quotes'],   // covers loan-*, loan-note-add, loan-add-guarantor, etc.
+    'loans':         ['clients', 'quotes'],
+    'borrower-info': ['clients', 'quotes'],
     'brokers':       'brokers',
     'prospects':     'prospects',
     'quotes':        'quotes',
@@ -624,7 +634,12 @@
     if (!m) return;
     var prefix = m[1].toLowerCase();
     var slot = _MUTATION_PREFIX_TO_SLOT[prefix];
-    if (slot) cache.markStale(slot);
+    if (!slot) return;
+    // Deploy 236.379 — slots may be a single name or an array (loan-*
+    // mutations invalidate both clients AND quotes).
+    (Array.isArray(slot) ? slot : [slot]).forEach(function (s) {
+      cache.markStale(s);
+    });
   }
 
   function _doFetch(method, path, body, token) {

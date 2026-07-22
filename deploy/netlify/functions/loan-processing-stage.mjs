@@ -98,7 +98,18 @@ async function handle(req, context) {
   const priorSubstatus = String(loan.processingSubstatus || '');
 
   loan.processingStage = newStage;
-  if (substatus !== undefined) loan.processingSubstatus = substatus;
+  if (substatus !== undefined) {
+    loan.processingSubstatus = substatus;
+  } else if (String(loan.processingStage || '') !== priorStage) {
+    // Deploy 236.379 — substatuses are per-column tags. Moving a card
+    // to a NEW column without an explicit substatus clears the old
+    // one; otherwise a leftover like "Inspection Scheduled" from the
+    // Underwriting column renders as "Closed · Inspection Scheduled"
+    // on Loan Details after the card lands in Closed. (Substatus-only
+    // updates still pass substatus explicitly, so this never fires
+    // for those.)
+    loan.processingSubstatus = '';
+  }
   loan.updatedAt = new Date().toISOString();
 
   // Deploy 236.378 — keep loan.status coherent with the stage. Moving
