@@ -1902,8 +1902,13 @@ function buildQuoteCard(it, colKey) {
   // quote), fill in the missing borrower email, and save again — that
   // creates the loan record. Required fields are enforced as of Deploy_143.
   var isOrphan = !detailsUrl && colKey !== 'newApp';
+  // Deploy 236.385 — hint updated for the strict save (236.376). The
+  // sizer now REFUSES to save without a borrower/broker email or an
+  // existing-record link, so "open Sizer to fix" alone dead-ends on
+  // email-less legacy orphans. Point at the Auto-recover tool, which
+  // can match/create the client by name with no email at all.
   var orphanHint = isOrphan
-    ? '<div class="orphan-hint" title="This quote has no Loan Details page yet. Open the Sizer and re-save with borrower name and email to fix.">⚠ Loan record missing — open Sizer to fix</div>'
+    ? '<div class="orphan-hint" title="This quote has no linked loan record. Auto-recover rebuilds it from the saved quote data (works even without a borrower email). Alternatively, open the Sizer, add a borrower or broker email, and re-save.">⚠ Loan record missing — <a href="/orphaned-sizers.html" style="color:inherit;text-decoration:underline" onclick="event.stopPropagation()">Auto-recover</a> or re-save in Sizer with an email</div>'
     : '';
 
   // Deploy 236.232 — when the deterministic click can't resolve a
