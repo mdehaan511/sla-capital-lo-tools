@@ -309,6 +309,34 @@ function loadAll() {
       });
     }
 
+    // Deploy 236.381 — dedupe by (owner, loanId). The 236.7 quote-key
+    // transition left many loans with TWO quote records (the legacy
+    // address-keyed q_dscr_<address> + the new loanId-keyed
+    // q_dscr_<loanId>), both pointing at the same loan. Pipeline
+    // dedupes its cards (236.45) but this page didn't, so a closed
+    // loan with the legacy pair rendered as two identical rows.
+    // Keep the record with financials (finalLoanAmount) or, tied,
+    // the most recently updated. Quotes without a loanId can't be
+    // grouped — they pass through untouched.
+    var _byLoan = {};
+    var _deduped = [];
+    _items.forEach(function(it) {
+      var lid = it.quote.loanId;
+      if (!lid) { _deduped.push(it); return; }
+      var key = it.ownerKey + '|' + lid;
+      var prev = _byLoan[key];
+      if (!prev) { _byLoan[key] = it; _deduped.push(it); return; }
+      var prevScore = (Number(prev.quote.finalLoanAmount) > 0 ? 2 : 0) +
+        (new Date(prev.quote.updatedAt || 0) >= new Date(it.quote.updatedAt || 0) ? 1 : 0);
+      var curScore = (Number(it.quote.finalLoanAmount) > 0 ? 2 : 0) +
+        (new Date(it.quote.updatedAt || 0) > new Date(prev.quote.updatedAt || 0) ? 1 : 0);
+      if (curScore > prevScore) {
+        _deduped[_deduped.indexOf(prev)] = it;
+        _byLoan[key] = it;
+      }
+    });
+    _items = _deduped;
+
     _items.sort(function(a,b) {
       return new Date(b.quote.closedAt || b.quote.updatedAt || 0) - new Date(a.quote.closedAt || a.quote.updatedAt || 0);
     });
