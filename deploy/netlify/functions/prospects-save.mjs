@@ -218,30 +218,33 @@ async function upsertClientFromProspect(prospect, loEmail) {
   console.log(`${tag} start owner=${ownerKey} lookup=${lookupEmail} isBroker=${isBrokerSubmission}`);
 
   // Search this LO's clients for an existing match by lookup email.
-  // Parallelized: for LOs with many clients, sequential GETs added
-  // seconds of latency (which pushed us close to Netlify's function
-  // timeout on the first submit). Chunk to keep concurrent GETs under
-  // the socket-pool ceiling.
+  // Deploy 236.387 — direct Postgres lookup (owner_email + email)
+  // replaces the owner-prefix blob walk. Big books (the house account
+  // especially) made that walk seconds-long on a PUBLIC endpoint. PG
+  // only supplies the client id; the authoritative full record is
+  // then fetched from the blob store by key, so the read-modify-write
+  // below still operates on the blob source of truth. ilike with no
+  // wildcards = case-insensitive equality (PG stores email verbatim,
+  // mixed-case hand-typed records exist); `_` is a single-char LIKE
+  // wildcard so exact normalized equality is re-verified in JS. Any
+  // PG failure falls through with existing=null → creates a fresh
+  // client, same as the old walk's failure path.
   let existing = null;
   let existingKey = null;
   try {
-    const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
-    console.log(`${tag} scanning ${blobs.length} client blobs for match`);
-    const CHUNK = 40;
-    for (let i = 0; i < blobs.length && !existing; i += CHUNK) {
-      const chunk = blobs.slice(i, i + CHUNK);
-      const results = await Promise.all(chunk.map(async ({ key }) => {
-        try {
-          const rec = await clientsStore.get(key, { type: 'json' });
-          if (!rec) return null;
-          if ((rec.email || '').toLowerCase() !== lookupEmail) return null;
-          return { key, rec };
-        } catch (_) { return null; }
-      }));
-      const hit = results.find(Boolean);
-      if (hit) { existing = hit.rec; existingKey = hit.key; break; }
+    const rows = await _pgFetch('clients',
+      'select=' + encodeURIComponent('id,email') +
+      '&owner_email=eq.' + encodeURIComponent(normalizeEmail(loEmail)) +
+      '&email=ilike.' + encodeURIComponent(lookupEmail) +
+      '&order=updated_at.desc&limit=10');
+    const hit = (rows || []).find((r) => r && r.id && normalizeEmail(r.email || '') === lookupEmail);
+    if (hit) {
+      const key = ownerKey + '/' + keySafe(hit.id);
+      const rec = await clientsStore.get(key, { type: 'json' }).catch(() => null);
+      if (rec) { existing = rec; existingKey = key; }
+      else console.warn(`${tag} PG matched client ${hit.id} but blob missing at ${key} — treating as new`);
     }
-    console.log(`${tag} scan done — existing=${!!existing}${existingKey ? ' key=' + existingKey : ''}`);
+    console.log(`${tag} PG lookup done — existing=${!!existing}${existingKey ? ' key=' + existingKey : ''}`);
   } catch (e) {
     console.warn(`${tag} client lookup failed:`, e && e.message);
   }
@@ -951,68 +954,116 @@ async function resolveOwner({ incomingLoSlug, brokerEmail, borrowerEmail }) {
   // since Phase A shipped — that's why brokeremail@broker.com routed
   // to Chance despite Mike having that broker in his book.
   //
-  // Single-pass strategy: walk `clients` once, classify each hit as
-  // broker/borrower by _isBroker, pick with broker-priority. Then a
-  // legacy `brokers` fallback catches any pre-Phase-A records that
-  // were never resaved.
+  // Deploy 236.387 — the "walk every client blob" single-pass scan is
+  // replaced with direct Postgres lookups by email. At 2,800+ client
+  // blobs the walk threatened the public submit's function timeout.
+  // Broker-priority is preserved by query order: broker lookup first,
+  // borrower lookup only when no broker matched. ilike with no
+  // wildcards = the same case-insensitive compare the old
+  // normalizeEmail() walk did (PG stores email verbatim; `_` is a
+  // single-char LIKE wildcard, so exact normalized equality is
+  // re-verified in JS). Defensive throughout: a PG failure warns and
+  // leaves the hit null, so routing falls to the legacy brokers store
+  // and then the house account — never a 500 on a public submit.
+  // Hit shape: { ownerKey, createdBy }.
   let brokerHit = null;
   let borrowerHit = null;
 
-  if (brokerNeedle || borrowerNeedle) {
+  const ROUTING_SELECT = 'select=' + encodeURIComponent('id,owner_email,created_by,email,is_broker');
+  if (brokerNeedle) {
     try {
-      const clients = getStore({ name: 'clients', consistency: 'strong' });
-      const { blobs } = await clients.list();
-      const CHUNK = 40;
-      for (let i = 0; i < blobs.length; i += CHUNK) {
-        if (brokerHit) break;                        // broker wins, done
-        if (!brokerNeedle && borrowerHit) break;     // no broker needle → borrower is final
-        const chunk = blobs.slice(i, i + CHUNK);
-        const results = await Promise.all(chunk.map(async ({ key }) => {
-          try {
-            const rec = await clients.get(key, { type: 'json' });
-            if (!rec) return null;
-            const recEmail = normalizeEmail(rec.email || '');
-            if (!recEmail) return null;
-            return { key, rec, email: recEmail };
-          } catch (_) { return null; }
-        }));
-        for (const r of results) {
-          if (!r) continue;
-          if (brokerNeedle && r.email === brokerNeedle && r.rec._isBroker) {
-            if (!brokerHit) brokerHit = r;
-          } else if (borrowerNeedle && r.email === borrowerNeedle && !r.rec._isBroker) {
-            if (!borrowerHit) borrowerHit = r;
-          }
-        }
+      const rows = await _pgFetch('clients',
+        ROUTING_SELECT +
+        '&email=ilike.' + encodeURIComponent(brokerNeedle) +
+        '&is_broker=eq.true&order=updated_at.desc&limit=10');
+      const row = (rows || []).find((r) => r && normalizeEmail(r.email || '') === brokerNeedle && r.is_broker === true);
+      if (row) {
+        brokerHit = {
+          ownerKey:  keySafe(normalizeEmail(row.owner_email || '')),
+          createdBy: row.created_by || '',
+        };
       }
     } catch (e) {
-      console.warn('resolveOwner: clients scan failed:', e && e.message);
+      console.warn('resolveOwner: PG broker lookup failed:', e && e.message);
+    }
+  }
+  if (!brokerHit && borrowerNeedle) {
+    try {
+      // No is_broker filter here — the old walk treated ANY falsy
+      // _isBroker as a borrower record, so filter in JS the same way.
+      const rows = await _pgFetch('clients',
+        ROUTING_SELECT +
+        '&email=ilike.' + encodeURIComponent(borrowerNeedle) +
+        '&order=updated_at.desc&limit=10');
+      const row = (rows || []).find((r) => r && normalizeEmail(r.email || '') === borrowerNeedle && !r.is_broker);
+      if (row) {
+        borrowerHit = {
+          ownerKey:  keySafe(normalizeEmail(row.owner_email || '')),
+          createdBy: row.created_by || '',
+        };
+      }
+    } catch (e) {
+      console.warn('resolveOwner: PG borrower lookup failed:', e && e.message);
     }
   }
 
   // Legacy brokers store fallback — a broker record predating Phase A
   // (or one that fell off the migration for any reason) still routes.
+  // Small store, blob walk is fine here.
   if (!brokerHit && brokerNeedle) {
     const legacyHit = await findEmailMatch('brokers', brokerNeedle);
     if (legacyHit) {
-      brokerHit = { key: legacyHit.key, rec: legacyHit.rec, email: normalizeEmail(legacyHit.rec.email || '') };
+      const slash = legacyHit.key.indexOf('/');
+      brokerHit = {
+        ownerKey:  slash > 0 ? legacyHit.key.slice(0, slash) : '',
+        createdBy: (legacyHit.rec && legacyHit.rec.createdBy) || '',
+      };
     }
   }
 
   const pickedHit = brokerHit || borrowerHit;
   if (pickedHit) {
-    const owner = pickedHit.key.slice(0, pickedHit.key.indexOf('/'));
-    const loEmail = normalizeEmail(pickedHit.rec.createdBy || '') || ownerEmailByKey[owner];
+    const owner = pickedHit.ownerKey;
+    const loEmail = normalizeEmail(pickedHit.createdBy || '') || ownerEmailByKey[owner];
     const source = brokerHit ? 'broker' : 'borrower';
     if (loEmail && loEmail.includes('@')) {
       console.log(`resolveOwner: matched ${source} → ${loEmail} (ownerKey=${owner})`);
       return { loEmail, source };
     }
-    console.warn(`resolveOwner: matched ${source} in ownerKey=${owner} but no routable LO email (createdBy=${pickedHit.rec.createdBy || '(empty)'})`);
+    console.warn(`resolveOwner: matched ${source} in ownerKey=${owner} but no routable LO email (createdBy=${pickedHit.createdBy || '(empty)'})`);
   }
 
   // Tier 4: no match — house account for triage.
   return { loEmail: HOUSE_ACCOUNT_EMAIL, source: 'house' };
+}
+
+// Deploy 236.387 — zero-dep PostgREST GET (same pattern as
+// search-pg.mjs's _pgSelect). Built manually rather than via the
+// shared supabase-db helper because the email lookups above need the
+// `ilike` operator, which the shared _qs() can't express. Throws on
+// missing env / non-OK response — callers catch + fall through.
+async function _pgFetch(table, qs) {
+  const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
+  const resp = await fetch(url + '/rest/v1/' + table + '?' + qs, {
+    headers: {
+      apikey: key,
+      Authorization: 'Bearer ' + key,
+      Accept: 'application/json',
+    },
+  });
+  const text = await resp.text();
+  let data;
+  try { data = text ? JSON.parse(text) : []; }
+  catch (_) { data = []; }
+  if (!resp.ok) {
+    const err = new Error('PostgREST GET ' + table + ' → HTTP ' + resp.status +
+      (data && data.message ? ': ' + data.message : ''));
+    err.status = resp.status;
+    throw err;
+  }
+  return data || [];
 }
 
 // Deploy 236.283 — parallel-batched scan of a keyed store for the first
@@ -1021,6 +1072,8 @@ async function resolveOwner({ incomingLoSlug, brokerEmail, borrowerEmail }) {
 // record and could push a 500-record scan past 15 seconds (observed on
 // the first neutral submission after ship). Chunk size caps concurrent
 // blob GETs so a large store can't overrun the function's socket pool.
+// Deploy 236.387 — now only used for the small legacy `brokers` store;
+// the clients-store lookups moved to Postgres (_pgFetch above).
 async function findEmailMatch(storeName, needle) {
   const CHUNK = 40;
   try {

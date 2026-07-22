@@ -20,6 +20,16 @@ import {
   handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { canListAllClients } from './_shared/access.mjs'; // Deploy 236.170
+// Deploy 236.387 — counts + rollups no longer walk the clients /
+// prospects / quotes blob stores. Client counts come from one
+// paginated Postgres query; prospect counts and quote rollups come
+// from the materialized store indexes (one blob read each). The old
+// quotes walk GET'd every quote blob — 60s+ territory at current
+// scale. The profiles walk stays: ~14 records, and it's the roster
+// source of truth.
+import { db } from './_shared/supabase-db.mjs';
+import { quotesIndex } from './_shared/quotes-index.mjs';
+import { prospectsIndex } from './_shared/prospects-index.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -97,41 +107,65 @@ export default async (req, context) => {
     console.warn('users-stats identity fetch failed:', e);
   }
 
-  // 2) Walk clients store for counts per owner-key
-  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  // 2) Client counts per owner-key. Deploy 236.387 — one paginated PG
+  // query (select just owner_email), counted in JS. Keys stay
+  // keySafe(ownerEmail) to match the blob-era key space used by the
+  // annotate + orphan-promotion steps below.
   const clientCounts = {};
   try {
-    const { blobs } = await clientsStore.list();
-    for (const { key } of blobs) {
-      const idx = key.indexOf('/');
-      if (idx < 0) continue;
-      clientCounts[key.slice(0, idx)] = (clientCounts[key.slice(0, idx)] || 0) + 1;
+    const PAGE = 1000; // PostgREST hard-caps a response at ~1000 rows
+    let offset = 0;
+    while (true) {
+      const rows = await db.select('clients', {
+        select: 'owner_email',
+        limit: PAGE,
+        offset,
+      });
+      for (const r of (rows || [])) {
+        if (!r || !r.owner_email) continue;
+        const ownerKey = keySafe(normalizeEmail(r.owner_email));
+        if (!ownerKey) continue;
+        clientCounts[ownerKey] = (clientCounts[ownerKey] || 0) + 1;
+      }
+      if ((rows || []).length < PAGE) break;
+      offset += PAGE;
+      if (offset > 200000) break; // runaway guard
     }
   } catch (e) {
-    console.warn('users-stats clients list failed:', e);
+    console.warn('users-stats clients count from PG failed:', e);
   }
 
-  // 2b) Walk prospects store for counts (used for conversion rates)
-  const prospectsStore = getStore({ name: 'prospects', consistency: 'strong' });
+  // 2b) Prospect counts (used for conversion rates). Deploy 236.387 —
+  // from the materialized prospects-index (one blob read) instead of
+  // listing the whole prospects store. Missing index → inline rebuild,
+  // same pattern as prospects-list.mjs.
   const prospectCounts = {};
   try {
-    const { blobs } = await prospectsStore.list();
-    for (const { key } of blobs) {
-      const idx = key.indexOf('/');
-      if (idx < 0) continue;
-      prospectCounts[key.slice(0, idx)] = (prospectCounts[key.slice(0, idx)] || 0) + 1;
+    let pIdx = await prospectsIndex.readIndex();
+    if (!pIdx.exists || !pIdx.index || !pIdx.index.byOwner) {
+      await prospectsIndex.rebuildIndex();
+      pIdx = await prospectsIndex.readIndex();
+    }
+    const pByOwner = (pIdx.index && pIdx.index.byOwner) || {};
+    for (const ownerKey of Object.keys(pByOwner)) {
+      prospectCounts[ownerKey] = (pByOwner[ownerKey] || []).length;
     }
   } catch (e) {
-    console.warn('users-stats prospects list failed:', e);
+    console.warn('users-stats prospects count from index failed:', e);
   }
 
-  // 3) Walk quotes store for counts, loan-amount sums, and per-status rollups.
+  // 3) Quote counts, loan-amount sums, and per-status rollups.
   //
   // IMPORTANT for conversion rates: counts are CUMULATIVE — a closed loan
   // counts toward submittedCount, approvedCount, AND closedCount because it
   // passed through every stage. A loan currently in "approved" counts toward
   // both submittedCount and approvedCount.
-  const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+  //
+  // Deploy 236.387 — sourced from the materialized quotes-index (ONE
+  // blob read) instead of listing + GETting every quote blob. The v2
+  // summary carries status, formData.loanAmt/purchasePrice, loanAmt,
+  // finalLoanAmount, and commissionAmount — everything the rollups
+  // below read. Missing index → inline rebuild, same as quotes-list.
   const quoteCounts        = {};
   const quoteLoanSums      = {};
   const submittedCounts    = {};
@@ -141,15 +175,16 @@ export default async (req, context) => {
   const totalCommissions   = {};
   // For avg loan size on closed loans, we need both sum and count (already have both)
   try {
-    const { blobs } = await quotesStore.list();
-    await Promise.all(blobs.map(async ({ key }) => {
-      const idx = key.indexOf('/');
-      if (idx < 0) return;
-      const ownerKey = key.slice(0, idx);
-      quoteCounts[ownerKey] = (quoteCounts[ownerKey] || 0) + 1;
-      try {
-        const q = await quotesStore.get(key, { type: 'json' });
-        if (!q) return;
+    let qIdx = await quotesIndex.readIndex();
+    if (!qIdx.exists || !qIdx.index || !qIdx.index.byOwner) {
+      await quotesIndex.rebuildIndex();
+      qIdx = await quotesIndex.readIndex();
+    }
+    const qByOwner = (qIdx.index && qIdx.index.byOwner) || {};
+    for (const ownerKey of Object.keys(qByOwner)) {
+      for (const q of (qByOwner[ownerKey] || [])) {
+        if (!q) continue;
+        quoteCounts[ownerKey] = (quoteCounts[ownerKey] || 0) + 1;
         const status = q.status || 'active';
         const fd = q.formData || {};
         const amt = parseMoney(fd.loanAmt || fd.purchasePrice || q.loanAmt);
@@ -174,10 +209,10 @@ export default async (req, context) => {
           const commission = Number(q.commissionAmount) || 0;
           if (commission > 0) totalCommissions[ownerKey] = (totalCommissions[ownerKey] || 0) + commission;
         }
-      } catch (_) { /* skip */ }
-    }));
+      }
+    }
   } catch (e) {
-    console.warn('users-stats quotes list failed:', e);
+    console.warn('users-stats quotes rollup from index failed:', e);
   }
 
   // Helpers

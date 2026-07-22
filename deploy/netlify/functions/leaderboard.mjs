@@ -24,6 +24,14 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+// Deploy 236.387 — client counts now come from ONE paginated Postgres
+// query and quote rollups from the materialized quotes-index (one blob
+// read), replacing full walks of the clients + quotes stores. The
+// quotes walk also GET'd every quote blob serially-chunked, which at
+// current scale pushed the home page's leaderboard fetch toward the
+// function timeout.
+import { db } from './_shared/supabase-db.mjs';
+import { quotesIndex } from './_shared/quotes-index.mjs';
 
 export default async (req, context) => {
   try {
@@ -46,39 +54,61 @@ export default async (req, context) => {
       console.warn('leaderboard: profiles list failed:', e && e.message);
     }
 
-    // 2) Clients per owner (prefix walk — key format: <ownerKey>/<clientId>).
-    const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
+    // 2) Clients per owner. Deploy 236.387 — one paginated PG query
+    // (select just owner_email) counted in JS, replacing the full
+    // blob-store listing. Keys stay keySafe(ownerEmail) to match the
+    // profile-derived keys used in the assemble step below.
     const clientCounts = {};
     try {
-      const { blobs } = await clientsStore.list();
-      for (const { key } of blobs) {
-        const idx = key.indexOf('/');
-        if (idx < 0) continue;
-        const ownerKey = key.slice(0, idx);
-        clientCounts[ownerKey] = (clientCounts[ownerKey] || 0) + 1;
+      const PAGE = 1000; // PostgREST hard-caps a response at ~1000 rows
+      let offset = 0;
+      while (true) {
+        const rows = await db.select('clients', {
+          select: 'owner_email',
+          limit: PAGE,
+          offset,
+        });
+        for (const r of (rows || [])) {
+          if (!r || !r.owner_email) continue;
+          const ownerKey = keySafe(normalizeEmail(r.owner_email));
+          if (!ownerKey) continue;
+          clientCounts[ownerKey] = (clientCounts[ownerKey] || 0) + 1;
+        }
+        if ((rows || []).length < PAGE) break;
+        offset += PAGE;
+        if (offset > 200000) break; // runaway guard
       }
     } catch (e) {
-      console.warn('leaderboard: clients list failed:', e && e.message);
+      console.warn('leaderboard: clients count from PG failed:', e && e.message);
     }
 
     // 3) Quotes per owner with per-status rollups. Cumulative counts
     // (approved includes closed, etc.) mirror users-stats so the two
     // views agree.
-    const quotesStore = getStore({ name: 'quotes', consistency: 'eventual' });
+    //
+    // Deploy 236.387 — rollups now come from the materialized
+    // quotes-index (ONE blob read; the v2 summary carries status,
+    // formData.loanAmt/purchasePrice, loanAmt, and finalLoanAmount —
+    // everything this math needs) instead of listing + GETting every
+    // quote blob. Missing/stale-version index → inline rebuild, same
+    // as quotes-list.mjs; if that also fails we fall through with
+    // empty rollups, which matches the old walk's failure behavior
+    // (warn + zeros).
     const quoteCounts    = {};
     const approvedCounts = {};
     const pendingVolumes = {};
     const closedVolumes  = {};
     try {
-      const { blobs } = await quotesStore.list();
-      await Promise.all(blobs.map(async ({ key }) => {
-        const idx = key.indexOf('/');
-        if (idx < 0) return;
-        const ownerKey = key.slice(0, idx);
-        quoteCounts[ownerKey] = (quoteCounts[ownerKey] || 0) + 1;
-        try {
-          const q = await quotesStore.get(key, { type: 'json' });
-          if (!q) return;
+      let idxRead = await quotesIndex.readIndex();
+      if (!idxRead.exists || !idxRead.index || !idxRead.index.byOwner) {
+        await quotesIndex.rebuildIndex();
+        idxRead = await quotesIndex.readIndex();
+      }
+      const byOwner = (idxRead.index && idxRead.index.byOwner) || {};
+      for (const ownerKey of Object.keys(byOwner)) {
+        for (const q of (byOwner[ownerKey] || [])) {
+          if (!q) continue;
+          quoteCounts[ownerKey] = (quoteCounts[ownerKey] || 0) + 1;
           const status = q.status || 'active';
           const fd = q.formData || {};
           const amt = _parseMoney(fd.loanAmt || fd.purchasePrice || q.loanAmt);
@@ -95,10 +125,10 @@ export default async (req, context) => {
             const finalAmt = Number(q.finalLoanAmount) || amt;
             if (finalAmt > 0) closedVolumes[ownerKey] = (closedVolumes[ownerKey] || 0) + finalAmt;
           }
-        } catch (_) { /* skip */ }
-      }));
+        }
+      }
     } catch (e) {
-      console.warn('leaderboard: quotes list failed:', e && e.message);
+      console.warn('leaderboard: quotes rollup from index failed:', e && e.message);
     }
 
     // 4) Assemble rows. Deploy 236.168 — filter out LOs with no

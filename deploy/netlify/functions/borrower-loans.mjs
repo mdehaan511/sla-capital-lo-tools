@@ -26,11 +26,116 @@
  * matches the caller's authenticated email are returned.
  *
  * Deploy 236.305 — borrower portal Phase 1.
+ *
+ * Deploy 236.387 — the "scan ALL client blobs cross-owner for this
+ * email" walk is replaced by ONE Postgres query on clients.email with
+ * the loans embedded (loans!client_id — the FK hint disambiguates
+ * against loans.broker_id, same as client-get-pg.mjs). At 2,800+
+ * client blobs the walk was 60s+ territory and could time out the
+ * borrower portal. Rows are rebuilt to blob shape so all the
+ * bucketing/enrichment logic below runs unchanged. The profiles walk
+ * stays — ~14 records, needed for LO contact enrichment.
  */
 import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, isAdmin, isSuperAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+
+// Deploy 236.387 — zero-dep PostgREST GET (same pattern as
+// search-pg.mjs's _pgSelect). Built manually because the shared
+// supabase-db helper can't express `ilike`, and we need a
+// case-insensitive email match: the blob walk compared with
+// normalizeEmail() on both sides, and PG stores clients.email
+// verbatim from the blob — hand-typed mixed-case records exist, so a
+// plain eq would silently report a registered borrower as
+// unregistered.
+async function _pgSelect(table, qs) {
+  const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
+  const resp = await fetch(url + '/rest/v1/' + table + '?' + qs, {
+    headers: {
+      apikey: key,
+      Authorization: 'Bearer ' + key,
+      Accept: 'application/json',
+    },
+  });
+  const text = await resp.text();
+  let data;
+  try { data = text ? JSON.parse(text) : []; }
+  catch (_) { data = []; }
+  if (!resp.ok) {
+    const err = new Error('PostgREST GET ' + table + ' → HTTP ' + resp.status +
+      (data && data.message ? ': ' + data.message : ''));
+    err.status = resp.status;
+    throw err;
+  }
+  return data || [];
+}
+
+// Rebuild blob-shaped records from PG rows — copied from
+// client-get-pg.mjs so the bucketing code below reads the exact same
+// field names the blob store held (camelCase + extra spread).
+function _clientRowToBlobShape(c) {
+  if (!c) return null;
+  const loans = Array.isArray(c.loans) ? c.loans.map(_loanRowToBlobShape) : [];
+  const out = {
+    id:                    c.id,
+    firstName:             c.first_name  || '',
+    lastName:              c.last_name   || '',
+    email:                 c.email       || '',
+    phone:                 c.phone       || '',
+    entityName:            c.entity_name || '',
+    displayName:           c.display_name || '',
+    _isBroker:             !!c.is_broker,
+    notes:                 c.notes || '',
+    createdAt:             c.created_at,
+    updatedAt:             c.updated_at,
+    createdBy:             c.created_by || '',
+    loans,
+  };
+  // extra JSONB merged onto the top level so anything we haven't
+  // promoted to a column still round-trips.
+  Object.assign(out, c.extra || {});
+  // Re-set loans in case extra had a stale key.
+  out.loans = loans;
+  return out;
+}
+
+function _loanRowToBlobShape(l) {
+  if (!l) return null;
+  const out = {
+    id:                   l.id,
+    address:              l.address           || '',
+    status:               l.status            || 'active',
+    processingStage:      l.processing_stage  || '',
+    toolType:             l.tool_type         || '',
+    loanType:             l.loan_type         || '',
+    loanAmt:              l.loan_amt          || '',
+    rate:                 l.rate              || '',
+    points:               l.points            || '',
+    purchasePrice:        l.purchase_price    || '',
+    propValue:            l.prop_value        || '',
+    propType:             l.prop_type         || '',
+    brokerId:             l.broker_id         || '',
+    _isBrokerLoan:        !!l.is_broker_loan,
+    fromApplication:      !!l.from_application,
+    prospectId:           l.prospect_id       || '',
+    fundingDate:          l.funding_date      || '',
+    maturityDate:         l.maturity_date     || '',
+    servicerName:         l.servicer_name     || '',
+    servicerUrl:          l.servicer_url      || '',
+    slaDisplayId:         l.sla_display_id    || '',
+    formData:             l.form_data || {},
+    createdAt:            l.created_at,
+    updatedAt:            l.updated_at,
+    savedAt:              l.saved_at || l.updated_at,
+  };
+  // extra carries un-promoted fields the loan cards read (loanProduct,
+  // propertyValue, …).
+  Object.assign(out, l.extra || {});
+  return out;
+}
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -81,30 +186,30 @@ export default async (req, context) => {
     console.warn('borrower-loans: profiles load failed:', e && e.message);
   }
 
-  // Scan clients cross-owner for records whose email matches the caller.
-  // Parallelized in chunks of 40 to keep concurrent GETs sane. Same
-  // pattern as prospects-save.mjs resolveOwner / findEmailMatch.
-  const matches = []; // { key, rec, ownerKey }
+  // Find client records for this email cross-owner. Deploy 236.387 —
+  // one PG query on clients.email with loans embedded, replacing the
+  // full clients-store walk. ilike with no wildcards is a
+  // case-insensitive equality match; `_` in an email is technically a
+  // single-char LIKE wildcard, so exact (normalized) equality is
+  // re-verified in JS before trusting a row — same predicate the old
+  // walk applied to every blob. 200-row cap: one borrower email
+  // matching even a dozen client records would be unusual.
+  const matches = []; // { rec, ownerKey }
   try {
-    const clients = getStore({ name: 'clients', consistency: 'strong' });
-    const { blobs } = await clients.list();
-    const CHUNK = 40;
-    for (let i = 0; i < blobs.length; i += CHUNK) {
-      const chunk = blobs.slice(i, i + CHUNK);
-      const results = await Promise.all(chunk.map(async ({ key }) => {
-        try {
-          const rec = await clients.get(key, { type: 'json' });
-          if (!rec) return null;
-          if (normalizeEmail(rec.email || '') !== callerEmail) return null;
-          const slash = key.indexOf('/');
-          const ownerKey = slash > 0 ? key.slice(0, slash) : '';
-          return { key, rec, ownerKey };
-        } catch (_) { return null; }
-      }));
-      for (const r of results) if (r) matches.push(r);
+    const rows = await _pgSelect('clients',
+      'select=' + encodeURIComponent('*,loans!client_id(*)') +
+      '&email=ilike.' + encodeURIComponent(callerEmail) +
+      '&order=updated_at.desc&limit=200');
+    for (const row of (rows || [])) {
+      if (!row) continue;
+      if (normalizeEmail(row.email || '') !== callerEmail) continue;
+      matches.push({
+        rec:      _clientRowToBlobShape(row),
+        ownerKey: keySafe(normalizeEmail(row.owner_email || '')),
+      });
     }
   } catch (e) {
-    console.warn('borrower-loans: clients scan failed:', e && e.message);
+    console.warn('borrower-loans: clients lookup failed:', e && e.message);
   }
 
   // No client records → borrower is unregistered.
