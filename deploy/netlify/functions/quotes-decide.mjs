@@ -23,6 +23,10 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Pipeline reads via /api/clients?all=1&summary=1) showing the OLD status.
 import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.382 — quotes-index write-through (same gap as quotes-close:
+// decisions mutated the quote blob but the All-LOs index kept the old
+// status until something else re-indexed the quote).
+import { quotesIndex } from './_shared/quotes-index.mjs';
 
 const ALLOWED = new Set(['approved', 'denied', 'on_hold']);
 
@@ -78,6 +82,7 @@ export default async (req, context) => {
 
   try {
     await quotesStore.setJSON(key, quote);
+    await quotesIndex.upsertRecord(cleanOwner, quote); // Deploy 236.382
   } catch (e) {
     return json(500, { error: 'Failed to save decision' });
   }

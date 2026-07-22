@@ -24,6 +24,12 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.382 — quotes-index write-through. This endpoint mutated
+// the quote blob but never touched the materialized quotes-index, so
+// closed.html / pipeline.html in admin All-LOs scope (which read the
+// index since 236.343) showed the PRE-close copy — blank financials,
+// stale status — until something else happened to re-index the quote.
+import { quotesIndex } from './_shared/quotes-index.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -82,6 +88,7 @@ export default async (req, context) => {
 
   try {
     await quotesStore.setJSON(key, quote);
+    await quotesIndex.upsertRecord(cleanOwner, quote); // Deploy 236.382
   } catch (e) {
     return json(500, { error: 'Failed to save closed loan' });
   }
