@@ -29,7 +29,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
-import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
+import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs'; // Deploy 236.341
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 // Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
 // advances a loan to approved (the safety-valve path for when the
@@ -159,7 +159,7 @@ async function handle(req, context) {
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
-  upsertClient(ownerKey, client).catch(() => {});
+  await upsertClientStrict(ownerKey, client);
   await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   // Now sync the matching quote(s). We're more permissive than

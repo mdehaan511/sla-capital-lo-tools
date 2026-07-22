@@ -134,18 +134,36 @@ async function _writeIndex(index) {
 export async function upsertClient(ownerKey, client) {
   if (!ownerKey || !client || !client.id) return;
   try {
-    const { index } = await readIndex();
-    const idx = index && index.byOwner ? index : { byOwner: {} };
-    const list = idx.byOwner[ownerKey] || [];
-    const pos = list.findIndex((c) => c && c.id === client.id);
-    const summary = projectClientSummary(client);
-    if (pos >= 0) list[pos] = summary;
-    else list.push(summary);
-    idx.byOwner[ownerKey] = list;
-    await _writeIndex(idx);
+    await _upsertClientInternal(ownerKey, client);
   } catch (e) {
     console.warn(`clients-index upsertClient failed for ${ownerKey}/${client.id}:`, e && e.message);
   }
+}
+
+/**
+ * Strict variant — throws on failure. Use from mutation endpoints so
+ * a broken index write surfaces as a 500 with the actual error rather
+ * than silent success + stale Pipeline tile. Pipeline reads the
+ * materialized index blob; when it drifts from the underlying client
+ * blob, the LO sees a stale card that can persist for a full 5-min
+ * cache cycle (or until admin-clients-index-rebuild is run manually).
+ * Same pattern as pgMirror.upsertClientWithLoansStrict.
+ */
+export async function upsertClientStrict(ownerKey, client) {
+  if (!ownerKey || !client || !client.id) return;
+  await _upsertClientInternal(ownerKey, client);
+}
+
+async function _upsertClientInternal(ownerKey, client) {
+  const { index } = await readIndex();
+  const idx = index && index.byOwner ? index : { byOwner: {} };
+  const list = idx.byOwner[ownerKey] || [];
+  const pos = list.findIndex((c) => c && c.id === client.id);
+  const summary = projectClientSummary(client);
+  if (pos >= 0) list[pos] = summary;
+  else list.push(summary);
+  idx.byOwner[ownerKey] = list;
+  await _writeIndex(idx);
 }
 
 /**
@@ -154,14 +172,24 @@ export async function upsertClient(ownerKey, client) {
 export async function removeClient(ownerKey, clientId) {
   if (!ownerKey || !clientId) return;
   try {
-    const { index } = await readIndex();
-    if (!index || !index.byOwner || !index.byOwner[ownerKey]) return;
-    index.byOwner[ownerKey] = index.byOwner[ownerKey].filter((c) => c && c.id !== clientId);
-    if (!index.byOwner[ownerKey].length) delete index.byOwner[ownerKey];
-    await _writeIndex(index);
+    await _removeClientInternal(ownerKey, clientId);
   } catch (e) {
     console.warn(`clients-index removeClient failed for ${ownerKey}/${clientId}:`, e && e.message);
   }
+}
+
+/** Strict variant — throws. See upsertClientStrict for rationale. */
+export async function removeClientStrict(ownerKey, clientId) {
+  if (!ownerKey || !clientId) return;
+  await _removeClientInternal(ownerKey, clientId);
+}
+
+async function _removeClientInternal(ownerKey, clientId) {
+  const { index } = await readIndex();
+  if (!index || !index.byOwner || !index.byOwner[ownerKey]) return;
+  index.byOwner[ownerKey] = index.byOwner[ownerKey].filter((c) => c && c.id !== clientId);
+  if (!index.byOwner[ownerKey].length) delete index.byOwner[ownerKey];
+  await _writeIndex(index);
 }
 
 /**

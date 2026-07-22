@@ -33,7 +33,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
 // Deploy 236.341 — write-through the clients-index blob so
 // guarantor-add mutations show up in cross-owner reads instantly.
-import { upsertClient } from './_shared/clients-index.mjs';
+import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 export default async (req, context) => {
@@ -233,7 +233,7 @@ async function handle(req, context) {
   guarantor.updatedAt = now;
   try { await clientsStore.setJSON(guarantorKey, guarantor); }
   catch (e) { return json(500, { error: 'Failed to write guarantor client: ' + (e.message || 'unknown') }); }
-  upsertClient(ownerKey, guarantor).catch(() => {});
+  await upsertClientStrict(ownerKey, guarantor);
   await pgMirror.upsertClientWithLoansStrict(ownerKey, guarantor);
 
   // ── Wire into the loan: guarantorClientIds + ownership map.
@@ -269,7 +269,7 @@ async function handle(req, context) {
   primary.updatedAt = now;
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e.message || 'unknown') }); }
-  upsertClient(ownerKey, primary).catch(() => {});
+  await upsertClientStrict(ownerKey, primary);
   await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   return json(200, {

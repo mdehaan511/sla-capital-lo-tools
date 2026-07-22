@@ -21,7 +21,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
-import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
+import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs'; // Deploy 236.341
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
@@ -167,7 +167,7 @@ async function handle(req, context) {
   primary.updatedAt = new Date().toISOString();
   try { await clientsStore.setJSON(primaryKey, primary); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
-  upsertClient(ownerKey, primary).catch(() => {});
+  await upsertClientStrict(ownerKey, primary);
   await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   return json(200, { ok: true, loan });

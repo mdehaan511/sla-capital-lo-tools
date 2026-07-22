@@ -21,7 +21,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { encryptField } from './_shared/crypto.mjs';
 // Deploy 236.341 (Tier 2 scaling) — write-through the materialized
 // clients-index blob so cross-owner list reads stay in sync.
-import { upsertClient } from './_shared/clients-index.mjs';
+import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
 // Phase 2 Supabase migration — best-effort dual-write to Postgres
 // after the blob write commits. mirror.upsertClientWithLoans
 // flushes the client scalars + all its loans in one call (matches
@@ -238,7 +238,7 @@ export default async (req, context) => {
     // Deploy 236.341 — write-through the materialized clients-index
     // so cross-owner list reads stay in-sync. upsertClient never
     // throws (index write failure logged, primary save unaffected).
-    upsertClient(ownerKey, record).catch(() => {});
+    await upsertClientStrict(ownerKey, record);
     // Phase 2 — best-effort Postgres mirror. Same failure discipline
     // as the clients-index write above: never throws, never blocks
     // the response. On PG_MIRROR_DISABLED=true env var this is a no-op.

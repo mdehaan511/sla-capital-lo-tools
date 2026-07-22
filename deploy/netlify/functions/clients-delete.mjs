@@ -8,7 +8,7 @@
  */
 import { getStore } from '@netlify/blobs';
 // Deploy 236.341 — write-through the clients-index blob.
-import { upsertClient, removeClient } from './_shared/clients-index.mjs';
+import { upsertClient, upsertClientStrict, removeClient, removeClientStrict } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
@@ -53,14 +53,14 @@ export default async (req, context) => {
       }
       existing.updatedAt = new Date().toISOString();
       await store.setJSON(key, existing);
-      upsertClient(ownerKey, existing).catch(() => {});
+      await upsertClientStrict(ownerKey, existing);
       await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
       return json(200, { ok: true, client: existing });
     }
 
     // Otherwise delete the whole client
     await store.delete(key);
-    removeClient(ownerKey, body.clientId).catch(() => {});
+    await removeClientStrict(ownerKey, body.clientId);
     await pgMirror.deleteClientStrict(body.clientId);
     return json(200, { ok: true, deleted: body.clientId });
   } catch (e) {

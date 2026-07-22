@@ -26,7 +26,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // Uses the admin-managed webhook URL (settings blob key 'slack_webhook')
 // so operations can rotate it without redeploying.
 import { postSlack } from './_shared/slack.mjs';
-import { upsertClient } from './_shared/clients-index.mjs'; // Deploy 236.341
+import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs'; // Deploy 236.341
 import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.343
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
@@ -429,7 +429,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
   }
   try {
     await clientsStore.setJSON(existingKey, record);
-    upsertClient(ownerKey, record).catch(() => {});
+    await upsertClientStrict(ownerKey, record);
     await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
     console.log(`${tag} saved client=${record.id} loan=${loan.id} loans=${record.loans.length}`);
   } catch (e) {

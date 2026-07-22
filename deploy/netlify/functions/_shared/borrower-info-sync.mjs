@@ -37,7 +37,14 @@ import { appendNoteEntry } from './notes-log.mjs';
 // /api/clients?all=1&summary=1) kept showing the pre-application status
 // indefinitely — Loan Details said "Approved" while the board said
 // "Quoted". Reported on 7751 Grasmere Dr; the drift was board-wide.
-import { upsertClient } from './clients-index.mjs';
+import { upsertClient, upsertClientStrict } from './clients-index.mjs';
+// borrower-info-sync writes to the client blob when an application is
+// completed (advanceQuoteToInProcessing). Missing pgMirror meant every
+// application-completion flow left PG stale — Pipeline / Details would
+// still show awaiting_app instead of the fresh "approved / In Processing"
+// state, until some OTHER endpoint touched the same client and rewrote
+// its PG row. Adding the strict mirror closes that gap.
+import { mirror as pgMirror } from './pg-mirror.mjs';
 // Deploy 228 — parse single-line Google formatted_address so the
 // home address landing on the Client Profile has structured
 // city/state/zip even when the borrower used single-line autocomplete
@@ -304,7 +311,8 @@ export async function syncPropertyFieldsToLoan(record) {
   if (changed) {
     client.updatedAt = new Date().toISOString();
     await clientsStore.setJSON(clientKey, client);
-    upsertClient(record.ownerKey, client).catch(() => {}); // Deploy 236.373
+    await pgMirror.upsertClientWithLoansStrict(record.ownerKey, client);
+    await upsertClientStrict(record.ownerKey, client);
   }
 }
 
@@ -469,7 +477,10 @@ export async function advanceQuoteToInProcessing(record) {
       await clientsStore.setJSON(clientKey, client);
       // Deploy 236.373 — THE fix for the reported bug: this is the write
       // that flips awaiting_app -> approved on application completion.
-      upsertClient(record.ownerKey, client).catch(() => {});
+      // Strict PG + index writes so a silent failure doesn't leave
+      // Pipeline showing awaiting_app forever.
+      await pgMirror.upsertClientWithLoansStrict(record.ownerKey, client);
+      await upsertClientStrict(record.ownerKey, client);
     } catch (e) {
       return { ok: false, reason: 'client save error: ' + (e.message || 'unknown'), quotesUpdated, loanUpdated: false };
     }

@@ -21,7 +21,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.373 — clients-index write-through. Without this, an admin
 // Approve updated the loan record but left the materialized index (which
 // Pipeline reads via /api/clients?all=1&summary=1) showing the OLD status.
-import { upsertClient } from './_shared/clients-index.mjs';
+import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
 
 const ALLOWED = new Set(['approved', 'denied', 'on_hold']);
@@ -208,7 +208,7 @@ async function syncToClientLoan(ownerKey, quote, status, audit) {
       await clientsStore.setJSON(key, c);
       // Deploy 236.373 — keep the materialized index in step with the
       // primary write, same pattern as loan-advance-status.mjs.
-      upsertClient(ownerKey, c).catch(() => {});
+      await upsertClientStrict(ownerKey, c);
       await pgMirror.upsertClientWithLoansStrict(ownerKey, c); // Phase 2 dual-write
     }
   }
