@@ -1,0 +1,139 @@
+# Platform Hardening Plan
+
+**Goal:** make the platform reliable and consistent enough to bring borrowers
+in at scale — and structurally sound enough to grow into one of the largest
+lending platforms in the country.
+
+**Origin:** 2026-07-22 review after the Supabase read-migration (Phase 4) and
+the strict-write / relic-sweep work. Every recurring bug class this month
+traced to a handful of structural decisions; this plan removes them in order
+of leverage.
+
+Working convention: same as SUPABASE_DATA_MIGRATION.md — phases land
+independently, each leaves the system strictly better, nothing blocks daily
+LO work. Track progress by checking boxes and stamping deploy numbers.
+
+---
+
+## Phase A — Error observability  *(days; do first — makes everything else safer)*
+
+Failures currently live in `console.warn` inside function logs nobody reads.
+We learned pg-mirror had been silently failing for weeks only because a tile
+went missing. Breakage should announce itself.
+
+- [x] **A1. Slack alert on every 5xx** — hook in `_shared/auth.mjs json()`:
+      any `json(5xx, …)` response fire-and-forgets a Slack alert (endpoint
+      name parsed from the call stack, error body included). Throttled so an
+      error storm can't flood the channel. Channel key `slack_webhook_errors`
+      in Settings, falls back to the default `slack_webhook`.
+- [x] **A2. Frontend error beacon** — `window.onerror` + `unhandledrejection`
+      in `sla-api.js` POST to `/api/client-error-log` → Slack. Covers LO pages
+      AND the borrower-facing pages (apply, borrower-info, portal). Loop-guarded
+      and size-capped.
+- [x] **A3. Daily health-check cron** — scheduled function verifies: PG
+      reachable, clients/quotes/prospects indexes exist at current version,
+      blob↔PG record-count drift within threshold. Slack-alerts on any failure.
+      Deploy 236.388.
+- [ ] **A4 (Mike, optional).** Create a dedicated #platform-errors Slack
+      channel, add its webhook in Settings as `slack_webhook_errors`.
+      Until then, alerts go to the default webhook channel.
+- [ ] **A5 (later, optional).** Sentry for stack-trace-level detail. Needs a
+      Sentry account + DSN. Slack alerting covers the "know about it" need.
+
+## Phase B — Staging environment + deploy gate  *(days)*
+
+We test in production with live LOs. Survivable with LOs; not with borrowers.
+
+- [ ] **B1 (Mike).** Create a second Supabase project ("sla-staging"). Run
+      `db/migrations/001_initial_schema.sql` against it.
+- [ ] **B2 (Mike).** In Netlify: enable branch deploys for a `staging` branch;
+      scope `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` env vars per-branch
+      so staging points at the staging project.
+- [ ] **B3.** Seed script: copy N sanitized clients/loans into staging PG.
+- [ ] **B4.** Smoke-test script (`scripts/smoke.mjs`): login → pipeline loads →
+      client-get-pg → sizer save → status advance → close → search. Asserts
+      response shapes + status codes. Run against staging before merging to main.
+- [ ] **B5.** Workflow: feature branches → staging → smoke → main.
+
+## Phase C — PG becomes the single write authority  *(2–3 weeks; the big one)*
+
+Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
+
+- [ ] **C1.** Introduce a PG transaction helper (Postgres function / RPC per
+      mutation, or transactional batch endpoint) — client+loans mutations
+      commit atomically.
+- [ ] **C2.** Flip write order: PG first (authoritative), blob becomes the
+      mirrored cache. `PG_MIRROR_DISABLED` lever inverts to `BLOB_MIRROR_*`.
+- [ ] **C3.** Replace materialized index blobs (clients-index, quotes-index,
+      prospects-index) with PG queries/views — they cannot drift from rows
+      they're computed from.
+- [ ] **C4.** DB-enforced integrity: status CHECK constraints, terminal-status
+      demotion trigger, NOT NULLs. The FK that caught the broker corruption
+      is the model — invariants live in the database, not app memory.
+- [ ] **C5.** Bake-off period with `admin-blob-pg-sync` dry-runs daily (cron
+      from A3 already reports drift); then retire blob reads entirely (old
+      Phase 6).
+
+## Phase D — Kill the quote/loan duality  *(1–2 weeks; right after C)*
+
+One deal = one record. "Quoted" is a status, the sizer snapshot is a field.
+
+- [ ] **D1.** Schema: fold quote-only fields (formData snapshot, TPO/buydown
+      display state) onto `loans`; migration script converts orphan quotes
+      via the auto-recover logic, then maps every quote onto its loan.
+- [ ] **D2.** Pipeline/closed/decisions/saved-quotes read loans (PG) directly.
+- [ ] **D3.** Delete the quote-sync machinery: `syncLoanToQuoteStore`, the
+      quote sweeps in loan-cancel/decline/advance-status/change-type/
+      processing-stage, QuoteStore dual-write in the sizers.
+- [ ] **D4.** Retire the `quotes` store + quotes-index.
+
+## Phase E — Auth consolidation  *(≈1 week; before borrower launch)*
+
+Netlify Identity is deprecated by Netlify. Half-migrated already.
+
+- [ ] **E1.** Finish LO auth on Supabase (users-*-supabase endpoints exist);
+      migrate remaining Identity-only flows (identity-login/signup event
+      handlers, token refresh path in sla-api.js).
+- [ ] **E2.** Borrower auth fully on Supabase Auth (magic links already
+      partially built via activate.html).
+- [ ] **E3.** Remove the netlify-identity-widget script tags + dual-token
+      juggling in sla-api.js.
+
+## Phase F — Borrower-portal hardening  *(before invite emails go out)*
+
+- [ ] **F1.** Rate limiting on every public endpoint (apply, borrower-info-*,
+      borrower2-*, token lookups, client-error-log). Netlify rate-limit rules
+      + per-token attempt counters.
+- [ ] **F2.** Token hygiene: aggressive expiry on borrower links, single-
+      purpose tokens, rotation on use where sensible.
+- [ ] **F3.** PII access audit log: who viewed which SSN/document, when.
+      Table in PG, written by client-ssn-reveal + doc-download endpoints.
+- [ ] **F4.** Compliance posture doc: GLBA safeguards inventory now; SOC 2
+      roadmap when partner diligence demands it.
+
+## Phase G — Pricing golden tests  *(2–3 days; any time)*
+
+- [ ] **G1.** Extract DSCR + RTL pricing math into importable modules the
+      sizers `<script src>` (no build step — plain JS files, same pattern as
+      sla-api.js).
+- [ ] **G2.** Fixture file: ~30 scenarios (FICO × LTV × product × IO/cash-out/
+      UPB/PPP/buydown) with expected rate + points, verified against the
+      current rate sheet by hand once.
+- [ ] **G3.** `scripts/pricing-test.mjs` runs fixtures on every deploy (and in
+      the B4 smoke suite). Every future rate-sheet update is self-verifying.
+
+---
+
+## Explicitly not changing
+
+- **No build step / vanilla JS frontend.** It has been the most debuggable
+  part of the system all along. No framework rewrite.
+- **Netlify Functions hosting.** Fine at this scale; revisit only if function
+  duration/pricing becomes a constraint.
+
+## Sequence
+
+A → B → C → D → E → F → G (G can slot in anywhere).
+A and B are days and make every later phase safer to ship.
+C and D remove the two structural bug factories.
+E and F land before borrower invites go out.

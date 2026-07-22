@@ -2594,4 +2594,54 @@
       '.sla-setup-foot{font-size:11px;color:#7a7488;margin:0;text-align:center}';
     document.head.appendChild(s);
   }
+
+  // ── Frontend error beacon — Hardening Phase A2 (Deploy 236.388) ──
+  // Uncaught errors + unhandled promise rejections on ANY page that
+  // loads sla-api.js (LO pages AND public borrower pages) beacon to
+  // /api/client-error-log → Slack. Borrowers can't file bug reports;
+  // this is how we hear about their breakage.
+  //
+  // Guards: max 3 beacons per page load; never beacon errors that
+  // mention the beacon endpoint itself (loop protection); 2KB cap.
+  var _beaconCount = 0;
+  function _sendErrorBeacon(message, stack) {
+    try {
+      if (_beaconCount >= 3) return;
+      var msg = String(message || '');
+      if (!msg || msg.indexOf('client-error-log') >= 0) return;
+      // Skip benign noise browsers throw that isn't actionable.
+      if (msg.indexOf('ResizeObserver loop') >= 0) return;
+      if (msg === 'Script error.') return; // opaque cross-origin errors
+      _beaconCount++;
+      var payload = JSON.stringify({
+        message: msg.slice(0, 500),
+        stack: String(stack || '').slice(0, 800),
+        page: (window.location.pathname + window.location.search).slice(0, 200),
+        ua: String(navigator.userAgent || '').slice(0, 120),
+      });
+      // sendBeacon survives page unloads; fetch keepalive as fallback.
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/client-error-log', new Blob([payload], { type: 'application/json' }));
+      } else {
+        fetch('/api/client-error-log', {
+          method: 'POST', keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        }).catch(function () {});
+      }
+    } catch (_) { /* the beacon must never throw */ }
+  }
+  window.addEventListener('error', function (e) {
+    _sendErrorBeacon(
+      (e && e.message) || 'unknown error',
+      e && e.error && e.error.stack
+    );
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    _sendErrorBeacon(
+      (r && (r.message || String(r))) || 'unhandled rejection',
+      r && r.stack
+    );
+  });
 })();

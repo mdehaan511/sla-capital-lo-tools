@@ -19,6 +19,24 @@ export function corsHeaders() {
 }
 
 export function json(statusCode, body) {
+  // Hardening Phase A1 (Deploy 236.388) — every 5xx response fires a
+  // throttled Slack alert. json() is imported by every endpoint, so
+  // this ONE hook gives full-fleet coverage: breakage announces itself
+  // instead of hiding in function logs. Dynamic import keeps auth.mjs
+  // dependency-light for the endpoints that never error; alerting is
+  // fire-and-forget and can never affect the response.
+  if (statusCode >= 500) {
+    // Capture the stack SYNCHRONOUSLY — inside the import callback it
+    // would point at the microtask, not the erroring endpoint.
+    const _stack = String(new Error().stack || '');
+    import('./error-alert.mjs').then((m) => {
+      m.alertServerError({
+        source: m.inferSourceFromStack(_stack) || 'unknown-endpoint',
+        status: statusCode,
+        message: (body && (body.error || body.message)) || 'unknown 5xx',
+      });
+    }).catch(() => {});
+  }
   return new Response(JSON.stringify(body), {
     status: statusCode,
     headers: { ...corsHeaders(), 'Content-Type': 'application/json' },

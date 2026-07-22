@@ -1110,6 +1110,22 @@
   status = 200
   force = true
 
+# Hardening Phase A2 — frontend error beacon. Accepts anonymous posts
+# (public borrower pages need coverage most); throttled server-side.
+[[redirects]]
+  from = "/api/client-error-log"
+  to = "/.netlify/functions/client-error-log"
+  status = 200
+  force = true
+
+# Hardening Phase A3 — manual health-check trigger (admin GET). The
+# same function also runs on a 6-hour schedule via its config export.
+[[redirects]]
+  from = "/api/health-check"
+  to = "/.netlify/functions/health-check-cron"
+  status = 200
+  force = true
+
 # Unified sizer save: replaces the 4-branch decision tree in DSCR/RTL
 # sizers with a single endpoint that resolves the target client via
 # any available hint (editing IDs → prospect → broker email → borrower
