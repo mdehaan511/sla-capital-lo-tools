@@ -119,21 +119,38 @@ async function handle(req, context) {
   // function's memory + time budget. We compare by presence, not
   // deep equality; deep drift can be repaired via admin-pg-diff on
   // a per-client basis.
-  let pgClientIds = new Set();
-  let pgLoanIds = new Set();
+  //
+  // PostgREST caps single-response rows at ~1000 regardless of the
+  // `limit` param, so we PAGINATE with offset until a short page
+  // signals we've reached the end. Without this, a table with more
+  // than 1000 rows would look "missing from PG" on every run — and
+  // the tool would re-write the same rows every time (idempotent
+  // but expensive, and misleading in the report).
+  const PAGE = 1000;
+  async function _selectAllIds(table) {
+    const ids = new Set();
+    let offset = 0;
+    while (true) {
+      const rows = await db.select(table, {
+        select: 'id',
+        ...(ownerFilter ? { eq: { owner_email: ownerFilter } } : {}),
+        limit: PAGE,
+        offset,
+      });
+      const n = (rows || []).length;
+      for (const r of (rows || [])) if (r && r.id) ids.add(r.id);
+      if (n < PAGE) break; // short page = end
+      offset += PAGE;
+      // Safety: bail out if we've paged past a sensible ceiling —
+      // 200k rows is well beyond current dataset sizes.
+      if (offset > 200000) break;
+    }
+    return ids;
+  }
+  let pgClientIds, pgLoanIds;
   try {
-    const clientRows = await db.select('clients', {
-      select: 'id',
-      ...(ownerFilter ? { eq: { owner_email: ownerFilter } } : {}),
-      limit: 20000,
-    });
-    for (const r of (clientRows || [])) if (r && r.id) pgClientIds.add(r.id);
-    const loanRows = await db.select('loans', {
-      select: 'id',
-      ...(ownerFilter ? { eq: { owner_email: ownerFilter } } : {}),
-      limit: 20000,
-    });
-    for (const r of (loanRows || [])) if (r && r.id) pgLoanIds.add(r.id);
+    pgClientIds = await _selectAllIds('clients');
+    pgLoanIds   = await _selectAllIds('loans');
   } catch (e) {
     return json(500, { error: 'PG snapshot failed: ' + (e && e.message) });
   }
