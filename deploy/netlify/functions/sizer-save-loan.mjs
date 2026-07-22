@@ -60,8 +60,8 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
-import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
-import { upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
+import { syncLoanToQuoteStore, syncLoanToQuoteStoreStrict } from './_shared/quote-sync.mjs';
+import { upsertClient as indexUpsertClient, upsertClientStrict as indexUpsertClientStrict } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 // Bypass pg-mirror's silent-catch for the sizer-save path so PG
 // write failures surface as 500s. pg-mirror was designed for
@@ -154,11 +154,12 @@ async function _writeClient(clientsStore, ownerKey, client, opts) {
     err.originalError = e;
     throw err;
   }
-  // Index + quote-store remain fire-and-forget — they're derived
-  // caches, blob + PG together are the source of truth.
-  indexUpsertClient(ownerKey, client).catch(() => {});
+  // Full strict discipline: index + quote-store both await + throw.
+  // Any silent index/quote failure would leave Pipeline stale on the
+  // just-saved card, defeating the whole point of surfacing errors.
+  await indexUpsertClientStrict(ownerKey, client);
   if (opts && opts.loanForQuoteSync) {
-    syncLoanToQuoteStore(ownerKey, opts.loanForQuoteSync).catch(() => {});
+    await syncLoanToQuoteStoreStrict(ownerKey, opts.loanForQuoteSync);
   }
 }
 

@@ -40,8 +40,8 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
-import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
-import { upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
+import { syncLoanToQuoteStoreStrict } from './_shared/quote-sync.mjs';
+import { upsertClientStrict as indexUpsertClientStrict } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
 // Same shape as loan-details.js's loan ID minter.
@@ -147,11 +147,12 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
 
-  // Fire the three write-throughs (index, PG, quote-store). None are
-  // load-bearing for the response — the blob write already succeeded.
-  indexUpsertClient(ownerKey, client).catch(() => {});
+  // Strict triple-write — blob is already saved above; if PG, index,
+  // or quote store fails, throw a 500 so the LO retries instead of
+  // silent inconsistency.
   await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
-  syncLoanToQuoteStore(ownerKey, newLoan).catch(() => {});
+  await indexUpsertClientStrict(ownerKey, client);
+  await syncLoanToQuoteStoreStrict(ownerKey, newLoan);
 
   return json(200, {
     ok:   true,

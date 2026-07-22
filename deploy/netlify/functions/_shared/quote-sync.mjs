@@ -83,17 +83,35 @@ function _rateOverrideFromRate(rate) {
  * @returns {Promise<{updated: number}>}
  */
 export async function syncLoanToQuoteStore(ownerKey, loan) {
+  try {
+    return await _syncLoanToQuoteStoreInternal(ownerKey, loan);
+  } catch (e) {
+    console.warn(`syncLoanToQuoteStore failed for ${ownerKey}/${loan && loan.id}:`, e && e.message);
+    return { updated: 0 };
+  }
+}
+
+/**
+ * Strict variant — throws on any quote store write / list failure.
+ * Use from mutation endpoints so a broken quote sync surfaces as a
+ * 500 to the caller instead of leaving Pipeline showing stale
+ * pricing on the quote card indefinitely. Same discipline as
+ * pgMirror.upsertClientWithLoansStrict and upsertClientStrict.
+ */
+export async function syncLoanToQuoteStoreStrict(ownerKey, loan) {
+  return _syncLoanToQuoteStoreInternal(ownerKey, loan);
+}
+
+async function _syncLoanToQuoteStoreInternal(ownerKey, loan) {
   if (!ownerKey || !loan || !loan.id) return { updated: 0 };
   const store = getStore({ name: 'quotes', consistency: 'strong' });
-  let blobs;
-  try { blobs = (await store.list({ prefix: ownerKey + '/' })).blobs || []; }
-  catch (_) { return { updated: 0 }; }
+  const blobs = (await store.list({ prefix: ownerKey + '/' })).blobs || [];
   if (!blobs.length) return { updated: 0 };
 
   let updated = 0;
   const now = new Date().toISOString();
   for (const { key } of blobs) {
-    const q = await store.get(key, { type: 'json' }).catch(() => null);
+    const q = await store.get(key, { type: 'json' });
     if (!q) continue;
     if (q.loanId !== loan.id) continue;
     q.formData = q.formData || {};
@@ -132,11 +150,9 @@ export async function syncLoanToQuoteStore(ownerKey, loan) {
     if (!changed) continue;
     q.updatedAt = now;
     q._loanSyncedAt = now;
-    try {
-      await store.setJSON(key, q);
-      quotesIndex.upsertRecord(ownerKey, q).catch(() => {});
-      updated++;
-    } catch (_) { /* non-fatal */ }
+    await store.setJSON(key, q);
+    quotesIndex.upsertRecord(ownerKey, q).catch(() => {});
+    updated++;
   }
   return { updated };
 }
