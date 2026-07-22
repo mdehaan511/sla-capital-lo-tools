@@ -86,11 +86,17 @@ export default async (req, context) => {
     return json(500, { error: 'Failed to save closed loan' });
   }
 
-  // Mirror status into client record's matching loan
+  // Mirror status into client record's matching loan. Deploy 236.377 —
+  // the sync result now surfaces in the response so the frontend can
+  // warn when the quote closed but NO loan record was found to flip
+  // (previously a silent partial success — the card left the board but
+  // Loan Details still showed the old status, and nobody knew why).
+  let loanSync = { loansUpdated: 0, matchedBy: null };
   try {
-    await syncToClientLoan(cleanOwner, quote);
+    loanSync = await syncToClientLoan(cleanOwner, quote);
   } catch (e) {
     console.warn('quotes-close: client sync failed:', e);
+    loanSync = { loansUpdated: 0, matchedBy: null, error: (e && e.message) || 'unknown' };
   }
 
   // Email the LO on the first close. Best-effort; never fail the close.
@@ -103,13 +109,36 @@ export default async (req, context) => {
     }
   }
 
-  return json(200, { ok: true, quote, emailed, firstClose: isFirstClose });
+  return json(200, {
+    ok: true, quote, emailed, firstClose: isFirstClose,
+    loansUpdated: loanSync.loansUpdated,
+    loanMatchedBy: loanSync.matchedBy,
+    loanSyncError: loanSync.error || null,
+  });
 };
 
 async function syncToClientLoan(ownerKey, quote) {
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  // Deploy 236.377 — aggressive address normalization (same helper the
+  // loan-cancel / loan-decline quote sweeps use). Baseline-imported
+  // loans routinely differ from the quote's address by ", USA" suffix
+  // or St/Street spelling, which the simple normalizer treats as a
+  // mismatch.
+  const aggrNorm = (s) => {
+    let x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    x = x.replace(/,\s*(usa|us|united states)\.?$/i, '');
+    x = x.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave')
+         .replace(/\bboulevard\b/g, 'blvd').replace(/\bdrive\b/g, 'dr')
+         .replace(/\broad\b/g, 'rd').replace(/\blane\b/g, 'ln')
+         .replace(/\bcourt\b/g, 'ct').replace(/\bcircle\b/g, 'cir')
+         .replace(/\bplace\b/g, 'pl').replace(/\bparkway\b/g, 'pkwy')
+         .replace(/\btrail\b/g, 'trl').replace(/\bterrace\b/g, 'ter');
+    x = x.replace(/[.,]/g, '');
+    return x.trim();
+  };
   const target = norm(quote.address);
+  const targetAggr = aggrNorm(quote.address);
   const targetLoanId = String(quote.loanId || '').trim();
 
   // Deploy 236.371 (hotfix): STRICT loanId match when the quote has one.
@@ -120,20 +149,41 @@ async function syncToClientLoan(ownerKey, quote) {
   // silently vanished from the board — the two-loans-at-one-property and
   // two-borrowers-same-address cases were the blast radius.
   //
-  // This mirrors the guard quotes-decide.mjs has enforced since Deploy
-  // 236.13. Address matching is retained ONLY for legacy quotes that never
-  // had a loanId stamped (pre-236.7); an LO can repair one by opening it
-  // in the sizer and clicking Save Quote.
-  if (!targetLoanId && !target) return;
+  // Deploy 236.377 — STALE-loanId fallback (mirrors 236.21/236.41 in
+  // loan-cancel / loan-advance-status, reverse direction). Baseline-
+  // imported loans and older re-keyed records often carry a quote whose
+  // loanId points at a loan that no longer exists anywhere in the
+  // owner's namespace. The strict match then finds nothing and the
+  // close never reaches the loan record — the exact "marked closed in
+  // the pipeline but Loan Details still shows the old status" bug.
+  // When the quote's loanId doesn't exist on ANY client, fall back to
+  // aggressive-normalized address matching, but cap it at the FIRST
+  // matching loan (no multi-loan blast radius).
+  if (!targetLoanId && !target) return { loansUpdated: 0, matchedBy: null };
 
   const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
+  // First pass: read everything + build the set of valid loan ids.
+  const records = [];
+  const validLoanIds = new Set();
   for (const { key } of blobs) {
     const c = await clientsStore.get(key, { type: 'json' });
     if (!c || !c.loans) continue;
+    records.push({ key, c });
+    for (const l of c.loans) if (l && l.id) validLoanIds.add(l.id);
+  }
+  const loanIdIsStale = targetLoanId && !validLoanIds.has(targetLoanId);
+  // Address fallback fires when the quote has NO loanId (legacy) OR
+  // its loanId is provably stale.
+  const useAddressFallback = (!targetLoanId || loanIdIsStale) && !!targetAggr;
+
+  let loansUpdated = 0;
+  let matchedBy = null;
+  for (const { key, c } of records) {
     let changed = false;
     for (const l of c.loans) {
       const matchesLoanId  = targetLoanId && l.id === targetLoanId;
-      const matchesAddress = !targetLoanId && target && norm(l.address) === target;
+      const matchesAddress = useAddressFallback && loansUpdated === 0 && !changed
+        && aggrNorm(l.address) === targetAggr;
       if (matchesLoanId || matchesAddress) {
         l.status            = 'closed';
         l.finalLoanAmount   = quote.finalLoanAmount;
@@ -143,6 +193,8 @@ async function syncToClientLoan(ownerKey, quote) {
         l.closedBy          = quote.closedBy;
         l.updatedAt         = new Date().toISOString();
         changed = true;
+        loansUpdated++;
+        matchedBy = matchesLoanId ? 'loanId' : 'address';
       }
     }
     if (changed) {
@@ -151,6 +203,11 @@ async function syncToClientLoan(ownerKey, quote) {
       await pgMirror.upsertClientWithLoansStrict(ownerKey, c); // Phase 2 dual-write
     }
   }
+  if (loansUpdated === 0) {
+    console.warn('[quotes-close] quote ' + quote.id + ' closed but NO loan record matched'
+      + ' (loanId=' + (targetLoanId || 'none') + (loanIdIsStale ? ' STALE' : '') + ', addr="' + (quote.address || '') + '")');
+  }
+  return { loansUpdated, matchedBy };
 }
 
 // ── LO notification email ──────────────────────────────────────

@@ -3292,6 +3292,16 @@ function closeLoan(quoteId, ownerKey) {
   )) return;
 
   SLA.Admin.closeQuote(ownerKey, q.id, finalAmt, bps, '').then(function(resp) {
+    // Deploy 236.377 — the backend now reports whether the close
+    // actually reached a loan record. When it didn't (stale quote
+    // loanId + no address match), warn loudly instead of the old
+    // silent partial success where the card vanished but Loan
+    // Details kept the pre-close status.
+    if (resp && resp.loansUpdated === 0) {
+      showToast('⚠ Quote closed, but NO loan record was found to update — Loan Details will still show the old status. Open the loan and re-save from the sizer to re-link, then close again.');
+      loadAll();
+      return;
+    }
     var msg = 'Loan closed — $' + Math.round(commission).toLocaleString() + ' commission';
     if (resp && resp.emailed) msg += ' · LO notified';
     showToast(msg);
