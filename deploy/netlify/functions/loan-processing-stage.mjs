@@ -101,6 +101,48 @@ async function handle(req, context) {
   if (substatus !== undefined) loan.processingSubstatus = substatus;
   loan.updatedAt = new Date().toISOString();
 
+  // Deploy 236.378 — keep loan.status coherent with the stage. Moving
+  // a card to the Processing Pipeline's Closed column previously set
+  // ONLY processingStage='pp_closed'; loan.status stayed at its old
+  // value, so the Kanban said Closed while Loan Details (which renders
+  // loan.status) still said In Processing. Mike's bug report:
+  // "I marked this loan as closed in the Processing Pipeline and it
+  // did not move to CLOSED status."
+  //
+  //   → pp_closed: promote status to 'closed'. Runs even when the
+  //     stage is unchanged (re-dropping a card into Closed becomes an
+  //     idempotent repair for loans already in the incoherent state).
+  //     No financials collected here — the Mark Closed flow on the
+  //     Leads board (quotes-close) remains the money path; an admin
+  //     can add final amount + commission via closed.html later.
+  //   → leaving pp_closed: revert status to 'approved' ONLY when the
+  //     loan has no finalLoanAmount (i.e. it was closed by a stage
+  //     drag, not the money flow). A financially-closed loan keeps
+  //     its status even if the card is dragged out — quotes-close is
+  //     authoritative for those.
+  const priorStatus = String(loan.status || '');
+  let statusChanged = false;
+  if (newStage === 'pp_closed' && priorStatus !== 'closed') {
+    loan.status = 'closed';
+    loan.closedAt = loan.closedAt || new Date().toISOString();
+    loan.closedBy = loan.closedBy || (user.email || '');
+    statusChanged = true;
+  } else if (priorStage === 'pp_closed' && newStage !== 'pp_closed'
+             && priorStatus === 'closed' && !loan.finalLoanAmount) {
+    loan.status = 'approved';
+    statusChanged = true;
+  }
+  if (statusChanged) {
+    const _meta = (user && user.user_metadata) || {};
+    appendNoteEntry(loan, {
+      kind:        'status',
+      text:        'Status ' + priorStatus + ' → ' + loan.status + ' (via Processing Pipeline stage move)',
+      author:      _meta.full_name || _meta.fullName || user.email || '',
+      authorEmail: user.email || '',
+      meta: { from: priorStatus, to: loan.status, via: 'processing_stage' },
+    });
+  }
+
   // Audit log — only when something meaningful changed.
   const stageChanged = priorStage !== newStage;
   const subChanged   = substatus !== undefined && priorSubstatus !== substatus;
@@ -157,7 +199,50 @@ async function handle(req, context) {
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
   await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
-  return json(200, { ok: true, loan, clientId: client.id, autoTasks });
+  // Deploy 236.378 — when the stage move changed loan.status, sweep the
+  // matching quote(s) too so the Leads board reflects it. Strict loanId
+  // match + stale-loanId address fallback, same pattern as
+  // loan-cancel / quotes-close (236.21/236.41/236.377). Best-effort:
+  // a quote-sweep failure never fails the stage move (the loan-side
+  // write above is the authoritative one).
+  let quotesUpdated = 0;
+  if (statusChanged) {
+    try {
+      const aggrNorm = (s) => {
+        let x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        x = x.replace(/,\s*(usa|us|united states)\.?$/i, '');
+        x = x.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave')
+             .replace(/\bboulevard\b/g, 'blvd').replace(/\bdrive\b/g, 'dr')
+             .replace(/\broad\b/g, 'rd').replace(/\blane\b/g, 'ln')
+             .replace(/\bcourt\b/g, 'ct').replace(/\bcircle\b/g, 'cir')
+             .replace(/\bplace\b/g, 'pl').replace(/\bparkway\b/g, 'pkwy')
+             .replace(/\btrail\b/g, 'trl').replace(/\bterrace\b/g, 'ter');
+        return x.replace(/[.,]/g, '').trim();
+      };
+      const targetAddr = aggrNorm(loan.address || '');
+      const validLoanIds = new Set((client.loans || []).map((l) => l && l.id).filter(Boolean));
+      const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
+      const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
+      for (const { key } of blobs) {
+        const q = await quotesStore.get(key, { type: 'json' }).catch(() => null);
+        if (!q) continue;
+        const matchById          = q.loanId === loanId;
+        const quoteLoanIdIsStale = q.loanId && !validLoanIds.has(q.loanId);
+        const addrMatches        = targetAddr && aggrNorm(q.address || '') === targetAddr;
+        const matchByLegacy      = (!q.loanId || quoteLoanIdIsStale) && addrMatches;
+        if (!matchById && !matchByLegacy) continue;
+        if (matchByLegacy) q.loanId = loanId; // re-stamp for future strict matches
+        q.status = loan.status;
+        q.updatedAt = new Date().toISOString();
+        await quotesStore.setJSON(key, q);
+        quotesUpdated++;
+      }
+    } catch (e) {
+      console.warn('loan-processing-stage: quote sweep failed (non-fatal):', e && e.message);
+    }
+  }
+
+  return json(200, { ok: true, loan, clientId: client.id, autoTasks, statusChanged, quotesUpdated });
 }
 
 // Auto-task creator. Reads settings.task_templates[stage] and
