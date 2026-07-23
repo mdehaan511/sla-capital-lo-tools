@@ -160,7 +160,11 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
   await upsertClientStrict(ownerKey, client);
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
+  // allowDemotion (Phase C4): this endpoint's moves are explicit user
+  // actions and already role-gated above (admins may set any status,
+  // including terminal → active). Without the flag the DB trigger
+  // would reject those legitimate demotions.
+  await pgMirror.upsertClientWithLoansStrict(ownerKey, client, { allowDemotion: true });
 
   // Now sync the matching quote(s). We're more permissive than
   // borrower-info-save's auto-transition: we match by loanAmt + address

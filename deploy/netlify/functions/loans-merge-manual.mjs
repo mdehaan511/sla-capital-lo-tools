@@ -211,7 +211,10 @@ async function handle(req, context) {
 
   try {
     await store.setJSON(winnerKey, winnerClient);
-    await pgMirror.upsertClientWithLoansStrict(w.ownerKey, winnerClient);
+    // allowDemotion (Phase C4): merges are admin-curated — the winner
+    // can legitimately take the loser's earlier status via
+    // winnerOverrides, which may demote a terminal status.
+    await pgMirror.upsertClientWithLoansStrict(w.ownerKey, winnerClient, { allowDemotion: true });
     indexUpsertClient(w.ownerKey, winnerClient).catch(() => {});
     if (winnerKey !== loserKey) {
       if (deleteLoserClient) {

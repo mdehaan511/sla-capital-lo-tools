@@ -85,9 +85,16 @@ Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
 - [ ] **C3.** Replace materialized index blobs (clients-index, quotes-index,
       prospects-index) with PG queries/views — they cannot drift from rows
       they're computed from.
-- [ ] **C4.** DB-enforced integrity: status CHECK constraints, terminal-status
-      demotion trigger, NOT NULLs. The FK that caught the broker corruption
-      is the model — invariants live in the database, not app memory.
+- [x] **C4.** DB-enforced integrity (Deploy 236.394). `db/migrations/003_integrity.sql`
+      (run AFTER 002): CHECK constraints on loans.status + processing_stage
+      (validated against prod data 2026-07-22), trg_loans_no_demotion blocks
+      terminal→non-terminal status moves at the DB unless the write passes
+      p_allow_demotion through the RPC (transaction-local flag). Intentional
+      demotions threaded: loan-cancel restore, loan-advance-status admin
+      moves, loans-merge-manual winner writes. Direct REST writers (admin
+      repair tools) have no hatch by design — a blocked repair is a real
+      conflict surfacing. **Mike: run 003_integrity.sql in the SQL editor.**
+      NOT NULLs deferred to C2 (flip of write authority is the natural time).
 - [ ] **C5.** Bake-off period with `admin-blob-pg-sync` dry-runs daily (cron
       from A3 already reports drift); then retire blob reads entirely (old
       Phase 6).

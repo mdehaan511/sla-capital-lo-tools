@@ -130,7 +130,11 @@ async function handle(req, context) {
   try {
     await clientsStore.setJSON(clientKey, client);
     await upsertClientStrict(ownerKey, client); // Deploy 236.373
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, client); // Phase 2 dual-write
+    // allowDemotion on restore only (Phase C4): un-cancelling moves
+    // cancelled → _cancelledFrom (often 'active'), a terminal → non-
+    // terminal demotion the DB trigger would otherwise reject. The
+    // cancel direction is a promotion and keeps the default.
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, client, { allowDemotion: isRestore }); // Phase 2 dual-write
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

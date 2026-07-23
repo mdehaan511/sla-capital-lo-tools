@@ -181,7 +181,14 @@ function _isRpcMissing(e) {
     /PGRST202|Could not find the function/i.test(String(e.message || ''))));
 }
 
-async function _upsertClientWithLoansStrict(ownerEmail, client) {
+// opts.allowDemotion (Phase C4, Deploy 236.394): the DB trigger
+// trg_loans_no_demotion blocks terminal→non-terminal status moves
+// unless this is passed. Only endpoints where a demotion is an
+// EXPLICIT user action set it: loan-cancel restore, admin moves in
+// loan-advance-status, curated merges. Everything else (sizer saves,
+// prospect flows, quote sync) defaults to false — that's the
+// stale-snapshot bug class the trigger exists to kill.
+async function _upsertClientWithLoansStrict(ownerEmail, client, opts) {
   if (_isDisabled()) return;
   if (!client || !client.id || !ownerEmail) return;
 
@@ -197,7 +204,15 @@ async function _upsertClientWithLoansStrict(ownerEmail, client) {
       }
     }
     try {
-      await db.rpc('upsert_client_with_loans', { p_client: clientRow, p_loans: loanRows });
+      const rpcArgs = { p_client: clientRow, p_loans: loanRows };
+      // Only send the third param when true: a 002-only database
+      // (003 not yet run) has the two-param function, and a 3-named-
+      // arg call against it reads as "function missing" (PGRST202) —
+      // which would silently latch the non-atomic fallback. The
+      // two-arg call matches both versions; on a 002-only DB the
+      // trigger doesn't exist yet, so demotions pass regardless.
+      if (opts && opts.allowDemotion) rpcArgs.p_allow_demotion = true;
+      await db.rpc('upsert_client_with_loans', rpcArgs);
       return;
     } catch (e) {
       if (!_isRpcMissing(e)) throw e; // real failure — strict path surfaces it
@@ -284,7 +299,7 @@ export const mirror = {
   // dual-write in every mutation endpoint. Await + let outer try/catch
   // surface the failure as a 500.
   upsertClientStrict:          (ownerEmail, client)         => _upsertClientStrict(_ownerEmail(ownerEmail), client),
-  upsertClientWithLoansStrict: (ownerEmail, client)         => _upsertClientWithLoansStrict(_ownerEmail(ownerEmail), client),
+  upsertClientWithLoansStrict: (ownerEmail, client, opts)   => _upsertClientWithLoansStrict(_ownerEmail(ownerEmail), client, opts),
   upsertLoanStrict:            (ownerEmail, clientId, loan) => _upsertLoanStrict(_ownerEmail(ownerEmail), clientId, loan),
   deleteClientStrict:          (clientId)                    => _deleteClientStrict(clientId),
   deleteLoanStrict:            (loanId)                      => _deleteLoanStrict(loanId),
