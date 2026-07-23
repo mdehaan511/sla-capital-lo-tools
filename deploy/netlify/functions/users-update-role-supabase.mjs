@@ -17,6 +17,7 @@
  * Response 200: { ok, user: { id, email, role, roles } }
  */
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin, isSuperAdmin } from './_shared/auth.mjs';
+import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
 
 const ALLOWED_ROLES = new Set(['admin', 'loan_officer', 'processor']);
 
@@ -37,7 +38,7 @@ export default async (req, context) => {
     return json(400, { error: 'Invalid role. Allowed: ' + Array.from(ALLOWED_ROLES).join(', ') });
   }
 
-  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_URL = supabaseBaseUrl(); // Deploy 236.398: strips /rest/v1 suffix
   const SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SVC) {
     return json(500, { error: 'Supabase env vars not configured' });

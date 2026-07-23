@@ -26,6 +26,7 @@
  * Response 409: user with this email already exists in Supabase
  */
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin, isSuperAdmin, normalizeEmail } from './_shared/auth.mjs';
+import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
 
 const ALLOWED_ROLES = new Set(['admin', 'loan_officer', 'processor']);
 const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
@@ -107,7 +108,7 @@ export default async (req, context) => {
 
   const fullName = String((body && body.fullName) || '').trim();
 
-  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_URL = supabaseBaseUrl(); // Deploy 236.398: strips /rest/v1 suffix
   const SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SVC) {
     return json(500, { error: 'Supabase env vars not configured (need SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)' });

@@ -22,7 +22,10 @@ export default async (req, context) => {
   // matches against the env values.
   const body = JSON.stringify({
     googleMapsKey:           process.env.GOOGLE_MAPS_API_KEY || '',
-    supabaseUrl:             process.env.SUPABASE_URL || '',
+    // Deploy 236.398: strip an accidental /rest/v1 suffix (inlined —
+    // this file is deliberately import-free; keep in sync with
+    // _shared/supabase-db.mjs supabaseBaseUrl()).
+    supabaseUrl:             (process.env.SUPABASE_URL || '').replace(/\/+$/, '').replace(/\/rest\/v1$/i, '').replace(/\/+$/, ''),
     supabasePublishableKey:  process.env.SUPABASE_ANON_KEY || '',
   });
   return new Response(body, {

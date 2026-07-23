@@ -32,6 +32,7 @@
  * `fetch` for the JWKS pull.
  */
 import crypto from 'node:crypto';
+import { supabaseBaseUrl } from './supabase-db.mjs'; // Deploy 236.398
 
 // ── Module-level JWKS cache ────────────────────────────────────
 // Keyed by JWKS URL so a Netlify Function instance can, in theory,
@@ -235,7 +236,7 @@ export async function verifySupabaseToken(token) {
 
   let sigOk = false;
   if (alg === 'ES256' || alg === 'RS256') {
-    const jwksUrl = _jwksUrlFromSupabase(process.env.SUPABASE_URL);
+    const jwksUrl = _jwksUrlFromSupabase(supabaseBaseUrl()); // Deploy 236.398
     if (!jwksUrl) {
       console.warn('[supabase-auth] Asymmetric JWT received but SUPABASE_URL is not set — cannot fetch JWKS.');
       return null;

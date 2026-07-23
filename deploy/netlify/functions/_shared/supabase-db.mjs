@@ -26,19 +26,28 @@ const REST_HEADERS_COMMON = {
   Accept:         'application/json',
 };
 
+// Deploy 236.396/398: tolerate the REST-endpoint form of the URL
+// (…supabase.co/rest/v1/) — the dashboard shows it in several places
+// and the staging env var was first configured with it, which made
+// every request hit /rest/v1/rest/v1/… (PGRST125). Exported because
+// several endpoints build Supabase URLs from the env var directly
+// (raw FTS queries, auth-admin API, client config) — they must all
+// normalize identically or they break only on misconfigured envs,
+// silently, one by one.
+export function supabaseBaseUrl() {
+  return (process.env.SUPABASE_URL || '')
+    .replace(/\/+$/, '')
+    .replace(/\/rest\/v1$/i, '')
+    .replace(/\/+$/, '');
+}
+
 function _env() {
-  const url = process.env.SUPABASE_URL || '';
+  const url = supabaseBaseUrl();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url || !key) {
     throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
   }
-  // Deploy 236.396: tolerate the REST-endpoint form of the URL
-  // (…supabase.co/rest/v1/) — the dashboard shows it in several
-  // places and the staging env var was first configured with it,
-  // which made every request hit /rest/v1/rest/v1/… (PGRST125).
-  // We append /rest/v1 ourselves, so strip it here.
-  const clean = url.replace(/\/+$/, '').replace(/\/rest\/v1$/i, '').replace(/\/+$/, '');
-  return { url: clean, key };
+  return { url, key };
 }
 
 function _baseHeaders(apikey) {

@@ -23,6 +23,7 @@
  *   }
  */
 import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
+import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -34,7 +35,7 @@ export default async (req, context) => {
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isAdmin(user)) return json(403, { error: 'Admin required' });
 
-  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_URL = supabaseBaseUrl(); // Deploy 236.398: strips /rest/v1 suffix
   const SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SVC) {
     return json(500, { error: 'Supabase env vars not configured (need SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)' });

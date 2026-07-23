@@ -163,12 +163,23 @@ async function writeSuite() {
     search.status === 200 && search.body && (search.body.loans || []).some((l) => l.id === loanId || l.loanId === loanId),
     'loans=' + JSON.stringify(search.body && search.body.loans));
 
-  // 4. Quote sync — the sizer save must have mirrored into the quotes store.
+  // 4. Quote record. Quotes are created by the sizer FRONTEND
+  //    (QuoteStore dual-write in the browser) — sizer-save-loan only
+  //    UPDATES existing quotes via quote-sync. An API-level test must
+  //    therefore create the quote the way the browser would, loanId
+  //    pre-stamped, then verify the round-trip.
+  quoteId = 'q_' + stamp + '_smoke';
+  const qSave = await api('POST', '/api/quotes-save', {
+    id: quoteId, loanId, address, loanAmt: 100000, status: 'active',
+    borrowerEmail: 'smoke-' + stamp + '@example.com',
+    formData: { address, loanAmt: 100000 },
+  });
+  ok('quotes-save stores the quote', qSave.status === 200,
+    'got ' + qSave.status + ' ' + JSON.stringify(qSave.body));
   const quotes = await api('GET', '/api/quotes');
-  const syncedQuote = quotes.body && (quotes.body.quotes || []).find((q) => q.loanId === loanId);
-  ok('quote store received the synced quote', !!syncedQuote,
-    'no quote with loanId=' + loanId);
-  quoteId = syncedQuote && syncedQuote.id;
+  ok('quote visible in quotes list',
+    !!(quotes.body && (quotes.body.quotes || []).find((q) => q.id === quoteId)),
+    'quote ' + quoteId + ' not in list');
 
   // 5. Status advance (admin path).
   const adv = await api('POST', '/api/loan-advance-status', {

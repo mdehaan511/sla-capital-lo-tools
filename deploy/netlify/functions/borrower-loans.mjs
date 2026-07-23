@@ -37,6 +37,7 @@
  * stays — ~14 records, needed for LO contact enrichment.
  */
 import { getStore } from '@netlify/blobs';
+import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
 import {
   handleOptions, json, requireAuth, isAdmin, isSuperAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
@@ -50,7 +51,7 @@ import {
 // plain eq would silently report a registered borrower as
 // unregistered.
 async function _pgSelect(table, qs) {
-  const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  const url = supabaseBaseUrl(); // Deploy 236.398: strips /rest/v1 suffix
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
   const resp = await fetch(url + '/rest/v1/' + table + '?' + qs, {
