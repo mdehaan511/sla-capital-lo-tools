@@ -2,19 +2,21 @@
 /**
  * scripts/pricing-test.mjs — golden pricing tests. Hardening Phase G3.
  *
- * Runs every scenario in scripts/fixtures/dscr-golden.json through
- * deploy/dscr-pricing.js (the extracted engine) and requires the
- * output to EXACTLY equal the recorded golden. Run:
+ * Replays every golden scenario through the extracted pricing engines
+ * and requires outputs to EXACTLY equal the recorded goldens:
  *
- *   node scripts/pricing-test.mjs
+ *   DSCR: deploy/dscr-pricing.js  vs scripts/fixtures/dscr-golden.json
+ *   RTL:  deploy/rtl-pricing.js   vs scripts/fixtures/rtl-golden.json
+ *
+ * Run: node scripts/pricing-test.mjs
  *
  * When to run:
- *   - after ANY edit to deploy/dscr-pricing.js (rate sheets!):
- *     expected diffs only — eyeball each reported mismatch against
- *     the new sheet, then re-baseline with dscr-golden-capture.mjs
+ *   - after ANY edit to a pricing engine (rate sheets!): expected
+ *     diffs only — eyeball each mismatch against the new sheet, then
+ *     re-baseline with the matching *-golden-capture script
  *   - as part of the pre-deploy gate alongside scripts/smoke.mjs
  *
- * Exit 0 = all identical. Exit 1 = any mismatch/missing.
+ * Exit 0 = all identical. Exit 1 = any mismatch.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +25,23 @@ import { createRequire } from 'node:module';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
-const engine = require(join(root, 'deploy', 'dscr-pricing.js'));
-const golden = JSON.parse(readFileSync(join(root, 'scripts', 'fixtures', 'dscr-golden.json'), 'utf8'));
+
+const SUITES = [
+  {
+    name: 'DSCR',
+    module: 'deploy/dscr-pricing.js',
+    golden: 'scripts/fixtures/dscr-golden.json',
+    run: (engine, sc) => engine.priceDSCR(sc.inputs),
+    banner: (engine) => 'eff. ' + engine.DIYA.effectiveDate,
+  },
+  {
+    name: 'RTL',
+    module: 'deploy/rtl-pricing.js',
+    golden: 'scripts/fixtures/rtl-golden.json',
+    run: (engine, sc) => engine.priceRTL(sc.inputs),
+    banner: () => 'Colchis wholesale matrix',
+  },
+];
 
 function diffPaths(a, b, path, out) {
   if (a === b) return;
@@ -37,24 +54,30 @@ function diffPaths(a, b, path, out) {
   out.push(path + ': golden=' + JSON.stringify(a) + ' now=' + JSON.stringify(b));
 }
 
-let pass = 0, fail = 0;
-console.log('DSCR golden pricing tests — engine eff. ' + engine.DIYA.effectiveDate +
-  ' vs golden eff. ' + golden.effectiveDate + ' (' + golden.scenarios.length + ' scenarios)');
-for (const sc of golden.scenarios) {
-  const expected = golden.results[sc.name];
-  let actual;
-  try { actual = engine.priceDSCR(sc.inputs); }
-  catch (e) { actual = { __threw: String(e && e.message) }; }
-  const diffs = [];
-  diffPaths(expected, actual, '', diffs);
-  if (diffs.length === 0) { pass++; }
-  else {
-    fail++;
-    console.log('✗ ' + sc.name);
-    diffs.slice(0, 6).forEach((d) => console.log('    ' + d));
-    if (diffs.length > 6) console.log('    …' + (diffs.length - 6) + ' more');
+let totalFail = 0;
+for (const suite of SUITES) {
+  const engine = require(join(root, suite.module));
+  const golden = JSON.parse(readFileSync(join(root, suite.golden), 'utf8'));
+  let pass = 0, fail = 0;
+  console.log(suite.name + ' golden tests — ' + suite.banner(engine) +
+    ' (' + golden.scenarios.length + ' scenarios)');
+  for (const sc of golden.scenarios) {
+    const expected = golden.results[sc.name];
+    let actual;
+    try { actual = suite.run(engine, sc); }
+    catch (e) { actual = { __threw: String(e && e.message) }; }
+    const diffs = [];
+    diffPaths(expected, actual, '', diffs);
+    if (diffs.length === 0) { pass++; }
+    else {
+      fail++;
+      console.log('  ✗ ' + sc.name);
+      diffs.slice(0, 6).forEach((d) => console.log('      ' + d));
+      if (diffs.length > 6) console.log('      …' + (diffs.length - 6) + ' more');
+    }
   }
+  console.log('  ' + pass + ' identical, ' + fail + ' mismatched\n');
+  totalFail += fail;
 }
-console.log(pass + ' identical, ' + fail + ' mismatched');
-if (fail) process.exit(1);
-console.log('✓ pricing engine matches golden exactly');
+if (totalFail) process.exit(1);
+console.log('✓ both pricing engines match their goldens exactly');

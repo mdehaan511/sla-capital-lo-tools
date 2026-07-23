@@ -175,14 +175,15 @@ Netlify Identity is deprecated by Netlify. Half-migrated already.
       procedure: edit dscr-pricing.js → run pricing tests → only intended
       diffs → re-baseline → deploy. `scripts/check-inline-js.mjs` added
       (parse-checks a page's inline blocks).
-- [ ] **G1–G3 (RTL)** — NOT a mechanical repeat. rtl-sizer.html's
-      calculate() is entangled with rendering (renderTransactional),
-      validate()'s DOM reads, and async page state (detectedState /
-      geoWarning from ZHVI lookups) that pricing consumes. Plan: first
-      carve a pure core (leverage calc + rate stack: PRICING/SPREAD/
-      LTV_COLS/floors/adjustments) behind an inputs object where
-      detectedState/geoWarning are passed IN, golden-capture with a
-      stubbed DOM+state, then extract to rtl-pricing.js. Own session.
+- [x] **G1–G3 (RTL)** — Deploy 236.408. The pure core (fkey/eidx through
+      `var mo = moMax`) carved out of calculate() VERBATIM into
+      `deploy/rtl-pricing.js` priceRTL(I): geo state (detectedState /
+      geoWarning / geoReductionLabel) and the two mid-segment DOM reads
+      (targetLoanAmt, dutchInterest) became inputs; render half + validate
+      + transactional path stay in-page and consume the unpacked result.
+      37 golden scenarios captured from the pre-extraction inline code
+      replay identically through the module. pricing-test.mjs now runs
+      both suites (42 DSCR + 37 RTL). **Phase G complete.**
 
 ---
 
