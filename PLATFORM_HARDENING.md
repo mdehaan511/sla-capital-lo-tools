@@ -103,8 +103,14 @@ Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
       **Mike: run 002_tx_rpcs.sql in the Supabase SQL editor (prod; staging too
       once B1 exists).** Warm instances keep using the fallback until they
       recycle (~minutes) — no restart needed.
-- [ ] **C2.** Flip write order: PG first (authoritative), blob becomes the
-      mirrored cache. `PG_MIRROR_DISABLED` lever inverts to `BLOB_MIRROR_*`.
+- [x] **C2.** Flip write order: PG first (authoritative), blob becomes the
+      mirrored cache (Deploys 236.401 slice 1 + 236.402 slice 2, both gated
+      staging → 19/19 smoke → main). `_shared/client-write.mjs` writeClient()
+      is THE client write path — every user-facing writer (35 endpoints)
+      routes through it; admin repair/migration/test tools stay direct by
+      design. `PG_MIRROR_DISABLED=true` still restores blob-first in a PG
+      outage. Bonus fixes: un-decline C4-trigger block, six endpoints that
+      never wrote clients-index, raw-email PG keying in two endpoints.
 - [ ] **C3.** Replace materialized index blobs (clients-index, quotes-index,
       prospects-index) with PG queries/views — they cannot drift from rows
       they're computed from.
