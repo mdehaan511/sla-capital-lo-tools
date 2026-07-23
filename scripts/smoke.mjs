@@ -173,6 +173,27 @@ async function writeSuite() {
     search.status === 200 && search.body && (search.body.loans || []).some((l) => l.id === loanId || l.loanId === loanId),
     'loans=' + JSON.stringify(search.body && search.body.loans));
 
+  // 3b. Locate by bare loanId — the short-URL recovery path (C3:
+  //     answered by Postgres primary key).
+  const locate = await api('GET', '/api/loan-locate?loanId=' + encodeURIComponent(loanId));
+  ok('loan-locate finds the loan via postgres',
+    locate.status === 200 && locate.body && locate.body.found === true &&
+    locate.body.clientId === clientId && locate.body.source === 'postgres',
+    JSON.stringify(locate.body));
+
+  // 3c. Direct-ID sizer update (loan-update-from-sizer) — the Loan
+  //     Details / Pipeline sizer save path. Edit the rate, verify the
+  //     read-back sees it.
+  const upd = await api('POST', '/api/loan-update-from-sizer', {
+    clientId, loanId, loanData: { rate: 9.875 },
+  });
+  ok('loan-update-from-sizer applies an edit', upd.status === 200 && upd.body && upd.body.ok === true,
+    'got ' + upd.status + ' ' + JSON.stringify(upd.body));
+  const getU = await api('GET', '/api/client-get-pg?clientId=' + encodeURIComponent(clientId));
+  const loanU = getU.body && getU.body.client && (getU.body.client.loans || []).find((l) => l.id === loanId);
+  ok('rate edit visible in PG read-back', !!loanU && String(loanU.rate) === '9.875',
+    'rate=' + (loanU && loanU.rate));
+
   // 4. Quote record. Quotes are created by the sizer FRONTEND
   //    (QuoteStore dual-write in the browser) — sizer-save-loan only
   //    UPDATES existing quotes via quote-sync. An API-level test must
