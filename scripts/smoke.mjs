@@ -38,7 +38,10 @@ if (!JWT) {
   console.error('  await netlifyIdentity.currentUser().jwt()');
   process.exit(1);
 }
-if (WRITES && PROD_HOSTS.some((h) => BASE.includes(h)) && process.env.SMOKE_FORCE_PROD_WRITES !== '1') {
+// Exact-host match: staging--slaloantools.netlify.app CONTAINS the
+// prod hostname as a substring, so includes() would refuse staging too.
+const _baseHost = (() => { try { return new URL(BASE).host; } catch (_) { return BASE; } })();
+if (WRITES && PROD_HOSTS.some((h) => _baseHost === h) && process.env.SMOKE_FORCE_PROD_WRITES !== '1') {
   console.error('Refusing SMOKE_WRITES=1 against production (' + BASE + ').');
   console.error('Point SMOKE_URL at staging, or set SMOKE_FORCE_PROD_WRITES=1 if you really mean it.');
   process.exit(1);
@@ -95,13 +98,15 @@ async function readSuite() {
     !clients.body || clients.body._source !== 'blobs-fallback',
     'fell back to blob scan — PG likely unreachable');
 
-  const quotes = await api('GET', '/api/quotes-list');
-  ok('quotes-list returns 200 + quotes[]',
+  // NB: the list routes are /api/quotes and /api/prospects (the
+  // -list suffix is only in the FUNCTION filenames, not the URLs).
+  const quotes = await api('GET', '/api/quotes');
+  ok('quotes list returns 200 + quotes[]',
     quotes.status === 200 && quotes.body && Array.isArray(quotes.body.quotes),
     'got ' + quotes.status);
 
-  const prospects = await api('GET', '/api/prospects-list');
-  ok('prospects-list returns 200',
+  const prospects = await api('GET', '/api/prospects');
+  ok('prospects list returns 200',
     prospects.status === 200 && !!prospects.body, 'got ' + prospects.status);
 
   const search = await api('GET', '/api/search-pg?q=test');
@@ -159,7 +164,7 @@ async function writeSuite() {
     'loans=' + JSON.stringify(search.body && search.body.loans));
 
   // 4. Quote sync — the sizer save must have mirrored into the quotes store.
-  const quotes = await api('GET', '/api/quotes-list');
+  const quotes = await api('GET', '/api/quotes');
   const syncedQuote = quotes.body && (quotes.body.quotes || []).find((q) => q.loanId === loanId);
   ok('quote store received the synced quote', !!syncedQuote,
     'no quote with loanId=' + loanId);

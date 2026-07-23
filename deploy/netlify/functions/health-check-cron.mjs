@@ -87,6 +87,18 @@ async function runChecks() {
   } catch (e) { problems.push('prospects-index read threw: ' + (e && e.message)); }
 
   // 3. blob↔PG count drift (clients + loans)
+  // Deploy 236.396: skipped off production. Netlify Blob stores are
+  // SITE-scoped — branch deploys (staging) share them with prod while
+  // pointing at their own Postgres, so blob-vs-PG counts diverge by
+  // design there until Phase C2 retires blob reads. Comparing them
+  // would alarm forever.
+  if (process.env.CONTEXT && process.env.CONTEXT !== 'production') {
+    report.checks.drift = 'skipped (context=' + process.env.CONTEXT +
+      ' — blob stores are shared with production on branch deploys)';
+    report.ok = problems.length === 0;
+    report.problems = problems;
+    return report;
+  }
   try {
     const [blobClients, pgClients] = await Promise.all([
       _blobCount('clients'), _pgCount('clients'),

@@ -32,7 +32,13 @@ function _env() {
   if (!url || !key) {
     throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
   }
-  return { url: url.replace(/\/+$/, ''), key };
+  // Deploy 236.396: tolerate the REST-endpoint form of the URL
+  // (…supabase.co/rest/v1/) — the dashboard shows it in several
+  // places and the staging env var was first configured with it,
+  // which made every request hit /rest/v1/rest/v1/… (PGRST125).
+  // We append /rest/v1 ourselves, so strip it here.
+  const clean = url.replace(/\/+$/, '').replace(/\/rest\/v1$/i, '').replace(/\/+$/, '');
+  return { url: clean, key };
 }
 
 function _baseHeaders(apikey) {
