@@ -224,7 +224,7 @@
 
   <!-- Super-admin: site settings -->
   <div class="card" id="settingsCard" style="display:none">
-    <div class="card-header"><div><h2>Site Settings</h2><p>Notification banner, Slack webhook, and submission email — visible to super_admin only.</p></div></div>
+    <div class="card-header"><div><h2>Site Settings</h2><p>Notification banner, Slack webhooks (default + per-channel), and submission email — visible to super_admin only.</p></div></div>
     <div class="card-body">
 
       <div class="setting-row">
@@ -243,14 +243,49 @@
         <div class="save-status" id="bannerStatus"></div>
       </div>
 
+      <!-- Deploy 236.392: per-channel Slack webhooks get UI. The backend
+           channel keys existed since 236.311 (apply/submitted) + 236.388
+           (errors) but weren't on the settings.mjs allowlist, so every
+           channel silently fell back to the default webhook. Blank field
+           = fall back to Default. -->
       <div class="setting-row">
-        <label>Slack webhook</label>
-        <div class="hint">Submissions post here when LOs submit a loan for review. Must start with <code>https://hooks.slack.com/</code>.</div>
+        <label>Slack webhook — Default</label>
+        <div class="hint">Fallback for every notification type below that's left blank. Must start with <code>https://hooks.slack.com/</code>.</div>
         <div class="input-row">
           <input type="text" id="slackInput" placeholder="https://hooks.slack.com/services/..." />
           <button class="small-btn primary" onclick="saveSlack()">Save</button>
         </div>
         <div class="save-status" id="slackStatus"></div>
+      </div>
+
+      <div class="setting-row">
+        <label>Slack webhook — Platform Errors</label>
+        <div class="hint">5xx alerts, frontend error beacons, and health-check failures. Point this at a #platform-errors channel. Blank = use Default.</div>
+        <div class="input-row">
+          <input type="text" id="slackErrorsInput" placeholder="Blank = use Default webhook" />
+          <button class="small-btn primary" onclick="saveSlackChannel('errors')">Save</button>
+        </div>
+        <div class="save-status" id="slackErrorsStatus"></div>
+      </div>
+
+      <div class="setting-row">
+        <label>Slack webhook — New Applications</label>
+        <div class="hint">Borrower/broker submissions from the public application form. Blank = use Default.</div>
+        <div class="input-row">
+          <input type="text" id="slackApplyInput" placeholder="Blank = use Default webhook" />
+          <button class="small-btn primary" onclick="saveSlackChannel('apply')">Save</button>
+        </div>
+        <div class="save-status" id="slackApplyStatus"></div>
+      </div>
+
+      <div class="setting-row">
+        <label>Slack webhook — Submitted Loans</label>
+        <div class="hint">Fires when an LO clicks Submit on Loan Details. Blank = use Default.</div>
+        <div class="input-row">
+          <input type="text" id="slackSubmittedInput" placeholder="Blank = use Default webhook" />
+          <button class="small-btn primary" onclick="saveSlackChannel('submitted')">Save</button>
+        </div>
+        <div class="save-status" id="slackSubmittedStatus"></div>
       </div>
 
       <div class="setting-row">
@@ -734,6 +769,10 @@ function loadSettings() {
     var email = (s.submit_email  && s.submit_email.value)  || '';
     document.getElementById('slackInput').value = slack;
     document.getElementById('submitEmail').value = email;
+    // Deploy 236.392 — per-channel Slack webhooks
+    document.getElementById('slackErrorsInput').value    = (s.slack_webhook_errors    && s.slack_webhook_errors.value)    || '';
+    document.getElementById('slackApplyInput').value     = (s.slack_webhook_apply     && s.slack_webhook_apply.value)     || '';
+    document.getElementById('slackSubmittedInput').value = (s.slack_webhook_submitted && s.slack_webhook_submitted.value) || '';
 
     var b = s.banner;
     if (b && b.text) {
@@ -793,6 +832,28 @@ function saveSlack() {
   SLA.Settings.set('slack_webhook', v ? { value: v } : null).then(function() {
     status.className = 'save-status ok';
     status.textContent = v ? '✓ Saved — Slack notifications enabled' : '✓ Cleared';
+    setTimeout(function(){ status.textContent = ''; }, 4000);
+  }).catch(function(err) {
+    status.className = 'save-status err';
+    status.textContent = 'Failed: ' + (err.message || 'unknown');
+  });
+}
+
+// Deploy 236.392 — save a per-channel Slack webhook. channel is the
+// bare key suffix ('errors' | 'apply' | 'submitted'); blank input
+// deletes the key so slack.mjs falls back to the default webhook.
+function saveSlackChannel(channel) {
+  var cap = channel.charAt(0).toUpperCase() + channel.slice(1);
+  var v = document.getElementById('slack' + cap + 'Input').value.trim();
+  var status = document.getElementById('slack' + cap + 'Status');
+  if (v && !v.startsWith('https://hooks.slack.com/')) {
+    status.className = 'save-status err';
+    status.textContent = 'Must be a Slack hooks URL.';
+    return;
+  }
+  SLA.Settings.set('slack_webhook_' + channel, v ? { value: v } : null).then(function() {
+    status.className = 'save-status ok';
+    status.textContent = v ? '✓ Saved' : '✓ Cleared — this channel uses the Default webhook';
     setTimeout(function(){ status.textContent = ''; }, 4000);
   }).catch(function(err) {
     status.className = 'save-status err';
