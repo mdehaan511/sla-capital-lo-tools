@@ -210,24 +210,56 @@
       </div>
     </div>
 
-    <!-- Slack webhook setting -->
+    <!-- Slack webhook settings -->
+    <!-- Deploy 236.391: per-channel webhooks get UI. Backend channel keys
+         existed since 236.311 (apply/submitted) + 236.388 (errors) but were
+         only settable via API — every channel silently fell back to the
+         default webhook. Each blank input = fall back to Default. -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-header">
         <div><h2>Slack Notifications</h2>
-          <p>Incoming Webhook URL for the channel where loan submissions should be posted.</p>
+          <p>Point each notification type at its own Slack channel. Anything left blank falls back to the Default webhook.</p>
         </div>
       </div>
       <div class="card-body">
         <div class="invite-row" style="max-width:620px">
           <div class="field">
-            <label for="slackWebhookInput">Slack Incoming Webhook URL</label>
+            <label for="slackWebhookInput">Default webhook (fallback for everything)</label>
             <input type="url" id="slackWebhookInput" placeholder="https://hooks.slack.com/services/..." style="font-family:'DM Mono',monospace;font-size:12px" />
           </div>
           <button class="invite-btn" id="saveSlackWebhookBtn">Save</button>
         </div>
         <div class="status-msg" id="slackWebhookStatus"></div>
+
+        <div class="invite-row" style="max-width:620px;margin-top:14px">
+          <div class="field">
+            <label for="slackErrorsInput">Platform Errors &mdash; 5xx alerts, frontend errors, health checks</label>
+            <input type="url" id="slackErrorsInput" placeholder="Blank = use Default webhook" style="font-family:'DM Mono',monospace;font-size:12px" />
+          </div>
+          <button class="invite-btn" id="saveSlackErrorsBtn">Save</button>
+        </div>
+        <div class="status-msg" id="slackErrorsStatus"></div>
+
+        <div class="invite-row" style="max-width:620px;margin-top:14px">
+          <div class="field">
+            <label for="slackApplyInput">New Applications &mdash; apply.html submissions</label>
+            <input type="url" id="slackApplyInput" placeholder="Blank = use Default webhook" style="font-family:'DM Mono',monospace;font-size:12px" />
+          </div>
+          <button class="invite-btn" id="saveSlackApplyBtn">Save</button>
+        </div>
+        <div class="status-msg" id="slackApplyStatus"></div>
+
+        <div class="invite-row" style="max-width:620px;margin-top:14px">
+          <div class="field">
+            <label for="slackSubmittedInput">Submitted Loans &mdash; LO clicks Submit on Loan Details</label>
+            <input type="url" id="slackSubmittedInput" placeholder="Blank = use Default webhook" style="font-family:'DM Mono',monospace;font-size:12px" />
+          </div>
+          <button class="invite-btn" id="saveSlackSubmittedBtn">Save</button>
+        </div>
+        <div class="status-msg" id="slackSubmittedStatus"></div>
+
         <p style="font-size:12px;color:var(--muted);margin-top:10px">
-          To create a webhook: In Slack, go to <strong>Apps &rarr; Incoming WebHooks &rarr; Add to Slack</strong>, choose a channel, and copy the Webhook URL here.
+          To create a webhook: In Slack, go to <strong>Apps &rarr; Incoming WebHooks &rarr; Add to Slack</strong>, choose a channel, and copy the Webhook URL here. Repeat per channel (e.g. a #platform-errors channel for Platform Errors).
         </p>
       </div>
     </div>
@@ -637,9 +669,12 @@ netlifyIdentity.on('init', function(user) {
   function wireSettings() {
     // Fetch all settings up front
     SLA.Settings.getAll().then(function(s) {
-      // Slack webhook
+      // Slack webhooks (default + per-channel — Deploy 236.391)
       var slackVal = (s.slack_webhook && s.slack_webhook.value) || '';
       document.getElementById('slackWebhookInput').value = slackVal;
+      document.getElementById('slackErrorsInput').value    = (s.slack_webhook_errors    && s.slack_webhook_errors.value)    || '';
+      document.getElementById('slackApplyInput').value     = (s.slack_webhook_apply     && s.slack_webhook_apply.value)     || '';
+      document.getElementById('slackSubmittedInput').value = (s.slack_webhook_submitted && s.slack_webhook_submitted.value) || '';
       // Submit email
       var emailVal = (s.submit_email && s.submit_email.value) || '';
       document.getElementById('submitEmailInput').value = emailVal;
@@ -660,20 +695,28 @@ netlifyIdentity.on('init', function(user) {
       console.warn('Settings load failed:', err);
     });
 
-    // Slack webhook save
-    document.getElementById('saveSlackWebhookBtn').addEventListener('click', function() {
-      var val    = document.getElementById('slackWebhookInput').value.trim();
-      var status = document.getElementById('slackWebhookStatus');
-      if (val && !val.startsWith('https://hooks.slack.com/')) {
-        showStatus(status, 'error', 'That does not look like a Slack webhook URL.');
-        return;
-      }
-      SLA.Settings.set('slack_webhook', val ? { value: val } : null).then(function() {
-        showStatus(status, 'success', val ? 'Saved — Slack notifications enabled.' : 'Cleared — Slack notifications disabled.');
-      }).catch(function(err) {
-        showStatus(status, 'error', 'Save failed: ' + (err.message || 'unknown error'));
+    // Slack webhook saves — one wiring helper for default + each channel
+    // key (Deploy 236.391). Saving blank deletes the key, which makes the
+    // backend fall back to the default webhook (see _shared/slack.mjs).
+    function wireSlackSave(inputId, statusId, btnId, settingsKey, clearedMsg) {
+      document.getElementById(btnId).addEventListener('click', function() {
+        var val    = document.getElementById(inputId).value.trim();
+        var status = document.getElementById(statusId);
+        if (val && !val.startsWith('https://hooks.slack.com/')) {
+          showStatus(status, 'error', 'That does not look like a Slack webhook URL.');
+          return;
+        }
+        SLA.Settings.set(settingsKey, val ? { value: val } : null).then(function() {
+          showStatus(status, 'success', val ? 'Saved.' : clearedMsg);
+        }).catch(function(err) {
+          showStatus(status, 'error', 'Save failed: ' + (err.message || 'unknown error'));
+        });
       });
-    });
+    }
+    wireSlackSave('slackWebhookInput',   'slackWebhookStatus',   'saveSlackWebhookBtn',   'slack_webhook',           'Cleared — Slack notifications disabled.');
+    wireSlackSave('slackErrorsInput',    'slackErrorsStatus',    'saveSlackErrorsBtn',    'slack_webhook_errors',    'Cleared — error alerts use the Default webhook.');
+    wireSlackSave('slackApplyInput',     'slackApplyStatus',     'saveSlackApplyBtn',     'slack_webhook_apply',     'Cleared — application alerts use the Default webhook.');
+    wireSlackSave('slackSubmittedInput', 'slackSubmittedStatus', 'saveSlackSubmittedBtn', 'slack_webhook_submitted', 'Cleared — submission alerts use the Default webhook.');
 
     // Submit email save
     document.getElementById('saveSubmitEmailBtn').addEventListener('click', function() {

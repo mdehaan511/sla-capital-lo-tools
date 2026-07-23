@@ -31,7 +31,14 @@ import {
 // Edited via the admin gear on processing-pipeline.html alongside
 // the substatuses. Applied by loan-processing-stage.mjs on stage
 // change (dedup via the _templatesAppliedFor marker on the loan).
-const ALLOWED_KEYS = new Set(['banner', 'submit_email', 'slack_webhook', 'processing_substatuses', 'task_templates']);
+// Deploy 236.391 — per-channel Slack webhook keys. slack.mjs has read
+// them since 236.311 (apply/submitted) and 236.388 (errors), but they
+// were never on this allowlist, so the admin UI couldn't set them and
+// every channel silently fell back to the default slack_webhook.
+const ALLOWED_KEYS = new Set([
+  'banner', 'submit_email', 'processing_substatuses', 'task_templates',
+  'slack_webhook', 'slack_webhook_errors', 'slack_webhook_apply', 'slack_webhook_submitted',
+]);
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
