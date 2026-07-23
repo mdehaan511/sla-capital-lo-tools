@@ -41,8 +41,9 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // the browser-side QuoteStore.saveQuote landing correctly. Same
 // pattern loan-financials-edit.mjs uses for inline edits.
 import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs'; // Deploy 236.341
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.405 (C2 catch-up): store writes route through the shared
+// PG-first writeClient helper (blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try {
@@ -329,9 +330,11 @@ async function handle(req, context) {
   client.updatedAt = now;
 
   try {
-    await clientsStore.setJSON(clientKey, client);
-    await upsertClientStrict(ownerKey, client);
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
+    // Deploy 236.405 (C2 catch-up): this endpoint was missed in the
+    // 236.402 sweep — PG-first via shared writeClient like every
+    // other user-facing writer. Quote sweep below stays non-strict
+    // (its count feeds the quotesSynced response field).
+    await writeClient(ownerKey, client, { clientsStore });
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

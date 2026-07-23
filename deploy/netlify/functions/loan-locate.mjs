@@ -33,6 +33,9 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { readIndex, rebuildIndex, upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
+// Deploy 236.405 (C3 slice 2): Postgres answers the locate by primary
+// key — one query instead of an index scan.
+import { db } from './_shared/supabase-db.mjs';
 // Deploy 236.357 — one-blob-read redirect map. Reassignments write
 // (old → new) here so subsequent locates are O(1) instead of an
 // index walk.
@@ -95,6 +98,45 @@ async function handle(req, context) {
     // LO scope + redirect points at another owner: fall through to
     // the index scan (which will also miss for a non-admin), so the
     // caller gets a clean 'not found in your scope' response.
+  }
+
+  // Deploy 236.405 (C3 slice 2) — Postgres answers the locate by
+  // primary key: one indexed query on the same rows every write
+  // commits to (C2), so the answer can't be stale the way the
+  // materialized index could. Hit → done. Miss or error → fall
+  // through to the legacy index/walk recovery below, which stays
+  // until the index machinery is deleted.
+  try {
+    const row = await db.first('loans', {
+      select: 'id,client_id,owner_email,address,status',
+      eq: { id: loanId },
+    });
+    if (row && row.client_id) {
+      const pgOwnerKey = keySafe(normalizeEmail(row.owner_email || ''));
+      if (!_isStaleTuple(pgOwnerKey, row.client_id)) {
+        if (isStaff || pgOwnerKey === selfKey) {
+          return json(200, {
+            found:    true,
+            ownerKey: pgOwnerKey,
+            clientId: row.client_id,
+            loanId,
+            address:  row.address || '',
+            status:   row.status  || '',
+            source:   'postgres',
+          });
+        }
+        // Loan exists but belongs to another LO — same answer the
+        // index scan would give a non-staff caller.
+        return json(200, { found: false });
+      }
+      // PG points at the tuple the caller says just 404'd — odd
+      // enough to let the legacy scan double-check.
+    }
+    // PG miss: fall through too. Post-C2 this "can't happen" for
+    // real loans, but locate is a recovery endpoint — let the index
+    // scan + blob walk have the final word until they're retired.
+  } catch (e) {
+    console.warn('loan-locate: PG lookup failed, falling back to index:', e && e.message);
   }
 
   // One index read. If the index is missing (never built or version
