@@ -156,6 +156,24 @@ export default async (req, context) => {
     if (!isAdmin(user)) return json(403, { error: 'Admin only' });
   }
 
+  // Deploy 236.400 — Netlify runs scheduled functions on EVERY deployed
+  // context, including branch deploys (learned the hard way: staging's
+  // cron fired every 6h comparing prod's shared blobs against staging
+  // PG and spammed #platform-errors all night). Scheduled runs bail
+  // outside production; staging health is the smoke suite's job.
+  // Detection: Netlify's context.deploy.context when present, request
+  // hostname (branch deploys carry the "--" infix) as fallback.
+  if (!isManual) {
+    const deployCtx = (context && context.deploy && context.deploy.context) || '';
+    let host = '';
+    try { host = new URL(req.url).host; } catch (_) {}
+    const isProd = deployCtx ? (deployCtx === 'production') : !host.includes('--');
+    if (!isProd) {
+      console.log('[health-check] skipping scheduled run on non-production deploy (' + (deployCtx || host) + ')');
+      return json(200, { ok: true, skipped: 'non-production scheduled run' });
+    }
+  }
+
   // Branch-deploy hostnames always carry the "--" infix
   // (staging--slaloantools.netlify.app); prod serves from the bare
   // site domain or a custom domain. Scheduled runs only ever execute
