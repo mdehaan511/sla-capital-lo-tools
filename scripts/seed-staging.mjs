@@ -30,9 +30,14 @@
  * Idempotent — upserts by id, safe to re-run.
  */
 
-const SOURCE_URL = (process.env.SOURCE_URL || '').replace(/\/+$/, '');
+// Accept both the bare project URL and the REST endpoint URL the
+// dashboard shows in some places — we append /rest/v1 ourselves.
+function _normUrl(u) {
+  return String(u || '').replace(/\/+$/, '').replace(/\/rest\/v1$/i, '').replace(/\/+$/, '');
+}
+const SOURCE_URL = _normUrl(process.env.SOURCE_URL);
 const SOURCE_KEY = process.env.SOURCE_KEY || '';
-const TARGET_URL = (process.env.TARGET_URL || '').replace(/\/+$/, '');
+const TARGET_URL = _normUrl(process.env.TARGET_URL);
 const TARGET_KEY = process.env.TARGET_KEY || '';
 const LIMIT = Math.max(1, Number(process.env.SEED_LIMIT || 25));
 const OWNER = (process.env.SEED_OWNER || '').trim().toLowerCase();
