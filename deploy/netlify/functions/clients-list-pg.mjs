@@ -77,9 +77,24 @@ function _clientRowToApi(row, opts) {
     out.notesLog       = row.notes_log || [];
     // Extra JSONB round-trips anything we haven't promoted.
     Object.assign(out, row.extra || {});
+  } else {
+    // Deploy 236.404 (C3): summary parity with clients-list.mjs's
+    // projectSummary — these legacy fields live in the extra JSONB
+    // (never promoted to columns) but list consumers still read them.
+    const ex = row.extra || {};
+    if (ex.name !== undefined)          out.name          = ex.name;
+    if (ex._importedAt !== undefined)   out._importedAt   = ex._importedAt;
+    if (ex._importSource !== undefined) out._importSource = ex._importSource;
   }
   return out;
 }
+
+// Loan summary fields that live in the extra JSONB (unpromoted) but
+// are part of clients-list.mjs's LOAN_SUMMARY_FIELDS contract —
+// Pipeline/Loans render broker attribution from these.
+const LOAN_SUMMARY_EXTRA_KEYS = [
+  'brokerName', 'brokerCompany', 'brokerEmail', 'brokerPhone', 'brokerFee',
+];
 
 function _loanRowToApi(l, summary) {
   if (!l) return null;
@@ -134,11 +149,20 @@ function _loanRowToApi(l, summary) {
         propType:   l.form_data.propType,
       };
     }
+    // Deploy 236.404 (C3): broker attribution fields ride in extra —
+    // part of the summary contract (see LOAN_SUMMARY_EXTRA_KEYS).
+    const ex = l.extra || {};
+    for (const k of LOAN_SUMMARY_EXTRA_KEYS) {
+      if (ex[k] !== undefined) out[k] = ex[k];
+    }
   }
   return out;
 }
 
-async function handle(req, context) {
+// Deploy 236.404 (C3): exported so clients-list.mjs (/api/clients) can
+// serve PG-first through this exact handler and fall back to its
+// legacy index/walk path when this returns a 5xx.
+export async function handle(req, context) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
 

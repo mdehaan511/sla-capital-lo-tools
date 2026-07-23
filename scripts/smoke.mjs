@@ -98,6 +98,16 @@ async function readSuite() {
     !clients.body || clients.body._source !== 'blobs-fallback',
     'fell back to blob scan — PG likely unreachable');
 
+  // C3 slice 1: /api/clients (the Pipeline/Clients payload) must now
+  // serve from Postgres, not the materialized index blob.
+  const apiClients = await api('GET', '/api/clients?nonEmptyOnly=1');
+  ok('/api/clients returns 200 + clients[]',
+    apiClients.status === 200 && apiClients.body && Array.isArray(apiClients.body.clients),
+    'got ' + apiClients.status);
+  ok('/api/clients served from postgres (C3)',
+    !!(apiClients.body && apiClients.body._source === 'postgres'),
+    '_source=' + (apiClients.body && (apiClients.body._source || (apiClients.body._fromIndex ? 'index' : 'walk'))));
+
   // NB: the list routes are /api/quotes and /api/prospects (the
   // -list suffix is only in the FUNCTION filenames, not the URLs).
   const quotes = await api('GET', '/api/quotes');

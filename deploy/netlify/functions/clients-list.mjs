@@ -20,6 +20,8 @@ import { canListAllClients } from './_shared/access.mjs';
 // Deploy 236.341 (Tier 2 scaling) — materialized index blob so
 // cross-owner reads are 1 fetch not N.
 import { readIndex, rebuildIndex } from './_shared/clients-index.mjs';
+// Deploy 236.404 (Hardening C3): /api/clients serves from Postgres.
+import { handle as pgListHandle } from './clients-list-pg.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -27,6 +29,23 @@ export default async (req, context) => {
 
   const user = requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
+
+  // Deploy 236.404 (Hardening C3 slice 1) — PG-first. This endpoint
+  // used to serve Pipeline/Clients/Loans from the materialized
+  // clients-index blob, which is computed FROM the data rather than
+  // BEING the data and drifted whenever a write-through was missed
+  // (511-vs-508 loan-count discrepancy, "stale card" bugs). Postgres
+  // rows are the same rows the writes commit to — nothing to drift.
+  // The index/walk path below survives as automatic fallback while
+  // C3 bakes; a later slice deletes it together with the index
+  // write-through machinery.
+  try {
+    const resp = await pgListHandle(req, context);
+    if (resp && resp.status < 500) return resp;
+    console.warn('clients-list: PG path returned ' + (resp && resp.status) + ' — using legacy fallback');
+  } catch (e) {
+    console.warn('clients-list: PG path threw — using legacy fallback:', e && e.message);
+  }
 
   const url = new URL(req.url);
   const wantAll = url.searchParams.get('all') === '1';
