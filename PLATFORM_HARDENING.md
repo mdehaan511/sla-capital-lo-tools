@@ -62,7 +62,30 @@ We test in production with live LOs. Survivable with LOs; not with borrowers.
       Run: `SMOKE_URL=<url> SMOKE_JWT=<admin jwt> SMOKE_WRITES=1 node scripts/smoke.mjs`
       (JWT from a logged-in tab: `await netlifyIdentity.currentUser().jwt()`).
       Read suite is safe against prod today; write suite waits on B1/B2 staging.
-- [ ] **B5.** Workflow: feature branches → staging → smoke → main.
+- [x] **B5.** Workflow (adopted 2026-07-23, first full run green 19/19):
+      1. Risky changes: push to `staging` first (`git push origin HEAD:staging`),
+         which builds https://staging--slaloantools.netlify.app against the
+         staging Supabase project.
+      2. Smoke it: `SMOKE_URL=https://staging--slaloantools.netlify.app
+         SMOKE_JWT=<admin jwt from a logged-in staging tab> SMOKE_WRITES=1
+         node scripts/smoke.mjs` (JWTs expire hourly; write suite briefly
+         touches the SHARED blob stores — see limitation below).
+      3. Green → push the same commit to main. Small/surgical fixes may still
+         go straight to main per the existing deploy workflow; staging is the
+         gate for schema changes, write-path changes, and cutovers (C2/C3/D).
+      4. New SQL migrations must be run in BOTH Supabase projects (prod +
+         staging) — staging drifts silently otherwise.
+
+**B — known limitation (discovered 2026-07-23, first staging smoke run):**
+Netlify Blob stores are SITE-scoped, so the staging branch deploy shares
+ALL blob stores (clients, quotes, indexes, …) with production while its
+Postgres is fully isolated. Consequences until Phase C2 retires blob
+reads/writes: (1) blob writes made from staging land in prod's stores —
+avoid write-path testing on staging that isn't cleaned up; (2) the
+health-check drift comparison is meaningless off production (now skipped
+via CONTEXT check, Deploy 236.396); (3) true staging isolation is another
+argument for finishing C2/C3. PG-only reads (clients-list-pg, search-pg,
+client-get-pg) ARE fully isolated on staging today.
 
 ## Phase C — PG becomes the single write authority  *(2–3 weeks; the big one)*
 
