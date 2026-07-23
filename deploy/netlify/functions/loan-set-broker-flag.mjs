@@ -24,8 +24,9 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs'; // Deploy 236.341
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -141,10 +142,9 @@ async function handle(req, context) {
 
   primary.loans[loanIdx] = loan;
   primary.updatedAt = now;
-  try { await clientsStore.setJSON(primaryKey, primary); }
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  try { await writeClient(ownerKey, primary, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') }); }
-  await upsertClientStrict(ownerKey, primary);
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   return json(200, { ok: true, loan });
 }

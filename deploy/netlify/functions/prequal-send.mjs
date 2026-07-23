@@ -22,7 +22,9 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try {
@@ -95,8 +97,8 @@ async function handle(req, context) {
     client._prequalLastSentBy = user.email || '';
     client.updatedAt = now;
     try {
-      await clientsStore.setJSON(`${ownerKey}/${keySafe(body.clientId)}`, client);
-      await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
+      // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+      await writeClient(ownerKey, client, { clientsStore });
       lastSentAt = now;
     } catch (e) {
       console.warn('prequal-send: failed to persist lastSent stamp:', e && e.message);

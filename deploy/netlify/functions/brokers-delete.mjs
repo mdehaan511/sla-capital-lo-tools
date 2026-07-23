@@ -16,7 +16,10 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write (kept for deleteClientStrict)
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -53,8 +56,8 @@ export default async (req, context) => {
         delete existing._isBroker;
         delete existing._brokerCompany;
         existing.updatedAt = new Date().toISOString();
-        await clientsStore.setJSON(key, existing);
-        await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
+        // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+        await writeClient(ownerKey, existing, { clientsStore });
       }
     }
     // Clean up any lingering legacy broker record too.

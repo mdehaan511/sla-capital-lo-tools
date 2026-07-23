@@ -47,12 +47,13 @@ import {
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
-// Materialized clients-index write-through, same pattern as
-// Deploy 236.373. Without this, Pipeline (which reads the index)
-// still shows the merged-away loser loan until the index gets
-// rebuilt by some other path.
-import { upsertClient as indexUpsertClient, removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write (kept for deleteClientStrict)
+// Materialized clients-index — removeClient still needed for the
+// deleted-loser path; upserts now happen inside writeClient.
+import { removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 // Fields that Baseline is authoritative on — always overwrite winner
 // with loser's value when loser has one, even if winner is non-empty.
@@ -210,21 +211,19 @@ async function handle(req, context) {
   const deleteLoserClient = loserClient.loans.length === 0 && l.ownerKey === IMPORT_OWNER_KEY;
 
   try {
-    await store.setJSON(winnerKey, winnerClient);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient.
     // allowDemotion (Phase C4): merges are admin-curated — the winner
     // can legitimately take the loser's earlier status via
     // winnerOverrides, which may demote a terminal status.
-    await pgMirror.upsertClientWithLoansStrict(w.ownerKey, winnerClient, { allowDemotion: true });
-    indexUpsertClient(w.ownerKey, winnerClient).catch(() => {});
+    await writeClient(w.ownerKey, winnerClient, { clientsStore: store, allowDemotion: true });
     if (winnerKey !== loserKey) {
       if (deleteLoserClient) {
         await store.delete(loserKey);
         await pgMirror.deleteClientStrict(loserClient.id);
         indexRemoveClient(l.ownerKey, loserClient.id).catch(() => {});
       } else {
-        await store.setJSON(loserKey, loserClient);
-        await pgMirror.upsertClientWithLoansStrict(l.ownerKey, loserClient);
-        indexUpsertClient(l.ownerKey, loserClient).catch(() => {});
+        // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+        await writeClient(l.ownerKey, loserClient, { clientsStore: store });
       }
     }
   } catch (e) {

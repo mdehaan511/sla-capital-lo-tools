@@ -35,7 +35,9 @@ import { writeTokenIndex, deleteTokenIndex } from './_shared/borrower-info-token
 import { getOwnerReplyTo } from './_shared/email.mjs';
 // Deploy 226 — audit log entry on the loan when the long app is sent.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -201,8 +203,8 @@ async function handle(req, context) {
           meta:        { borrowerEmail: recipientEmail, emailed: !!emailed },
         });
         client.loans[matchIdx].updatedAt = new Date().toISOString();
-        await clientsStore.setJSON(`${ownerKey}/${keySafe(body.clientId)}`, client);
-        await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
+        // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+        await writeClient(ownerKey, client, { clientsStore });
       }
     } catch (e) {
       console.warn('borrower-info-request: audit log write failed (non-fatal):', e && e.message);

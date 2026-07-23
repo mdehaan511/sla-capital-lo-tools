@@ -29,7 +29,9 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 // Whitelist of fields the Loan Details inline editors are allowed to
 // set. Expand as the unification work in Phase B continues.
@@ -175,9 +177,9 @@ async function handle(req, context) {
   client.loans[idx] = loan;
   client.updatedAt = new Date().toISOString();
 
-  try { await clientsStore.setJSON(clientKey, client); }
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   return json(200, { ok: true, loan, applied });
 }

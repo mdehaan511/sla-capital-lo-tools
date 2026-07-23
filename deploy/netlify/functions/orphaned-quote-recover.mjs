@@ -29,7 +29,9 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 function normAddr(s) {
   return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
@@ -230,8 +232,10 @@ async function handle(req, context) {
   }
 
   // 4) Persist
-  await clientsStore.setJSON(clientKey, clientToSave);
-  await pgMirror.upsertClientWithLoansStrict(owner, clientToSave);
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  // (`owner` here is already the keySafe'd ownerKey from the
+  // orphan-list endpoint).
+  await writeClient(owner, clientToSave, { clientsStore });
 
   return json(200, {
     success: true,

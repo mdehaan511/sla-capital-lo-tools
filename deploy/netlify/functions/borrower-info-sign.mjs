@@ -42,7 +42,9 @@ import {
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 import { getOwnerReplyTo } from './_shared/email.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 // Which forms each signer signed in their single signing event.
 // Borrower 1\u2019s session covers all three forms (their own); borrower 2\u2019s
@@ -384,9 +386,8 @@ async function handle(req) {
       }
       // Persist every client we touched — new and updated.
       for (const ch of guarantorClientChanges) {
-        try { await clientsStore.setJSON(ch.key, ch.client); }
-        catch (e) { console.warn('borrower-info-sign: guarantor client write failed:', e && e.message); }
-        await pgMirror.upsertClientWithLoansStrict(record.ownerKey, ch.client);
+        // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+        await writeClient(record.ownerKey, ch.client, { clientsStore });
       }
       // Flush sub-form token index entries to the lookup store.
       if (subFormIndexEntries.length) {
@@ -428,8 +429,8 @@ async function handle(req) {
           }
           ln.updatedAt = signedAt;
           primaryClient.updatedAt = signedAt;
-          await clientsStore.setJSON(primaryKey, primaryClient);
-          await pgMirror.upsertClientWithLoansStrict(record.ownerKey, primaryClient);
+          // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+          await writeClient(record.ownerKey, primaryClient, { clientsStore });
         }
       }
     } catch (e) {

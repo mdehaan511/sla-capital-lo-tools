@@ -32,10 +32,9 @@ import {
 } from './_shared/auth.mjs';
 // Deploy 226 — audit log entry on decline / restore.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-// Deploy 236.373 — clients-index write-through, so a decline actually
-// disappears from the Pipeline (which reads the materialized index).
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 // Deploy 236.371 (hotfix): added 'on_hold'. It was missing here while
 // loan-details.js only treats {cancelled, denied, closed} as terminal —
@@ -148,9 +147,13 @@ async function handle(req, context) {
   }
 
   try {
-    await clientsStore.setJSON(clientKey, client);
-    await upsertClientStrict(ownerKey, client); // Deploy 236.373
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, client); // Phase 2 dual-write
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    // allowDemotion on restore only (Phase C4, same pattern as
+    // loan-cancel): un-declining restores denied → _declinedFrom,
+    // which is often 'active'/'on_hold' — a terminal → non-terminal
+    // demotion the DB trigger rejects without the flag. This was a
+    // latent C4 gap: un-decline had been trigger-blocked since 236.394.
+    await writeClient(ownerKey, client, { clientsStore, allowDemotion: isRestore });
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

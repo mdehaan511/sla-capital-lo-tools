@@ -21,7 +21,9 @@ import {
   handleOptions, json, requireAuth, isAdmin, keySafe, normalizeEmail,
   readJsonBody,
 } from './_shared/auth.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -167,8 +169,8 @@ async function upsertClientFromProspect(prospect, loEmail) {
       existing.loans.unshift(loan);
     }
     existing.updatedAt = now;
-    await clientsStore.setJSON(existingKey, existing);
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    await writeClient(ownerKey, existing, { clientsStore });
     return true;
   }
 
@@ -186,9 +188,8 @@ async function upsertClientFromProspect(prospect, loEmail) {
     loans: [loan],
     fromApplication: true,
   };
-  const key = `${ownerKey}/${keySafe(clientId)}`;
-  await clientsStore.setJSON(key, record);
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  await writeClient(ownerKey, record, { clientsStore });
   return true;
 }
 

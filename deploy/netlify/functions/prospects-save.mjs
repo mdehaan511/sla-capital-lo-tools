@@ -27,9 +27,10 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // Uses the admin-managed webhook URL (settings blob key 'slack_webhook')
 // so operations can rotate it without redeploying.
 import { postSlack } from './_shared/slack.mjs';
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs'; // Deploy 236.341
 import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.343
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -432,9 +433,8 @@ async function upsertClientFromProspect(prospect, loEmail) {
     existingKey = ownerKey + '/' + keySafe(record.id);
   }
   try {
-    await clientsStore.setJSON(existingKey, record);
-    await upsertClientStrict(ownerKey, record);
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    await writeClient(ownerKey, record, { clientsStore });
     console.log(`${tag} saved client=${record.id} loan=${loan.id} loans=${record.loans.length}`);
   } catch (e) {
     console.error(`${tag} setJSON failed:`, e && e.message);

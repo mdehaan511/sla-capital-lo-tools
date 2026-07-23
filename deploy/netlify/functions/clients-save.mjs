@@ -19,14 +19,9 @@ import { syncClient as brevoSyncClient } from './_shared/brevo.mjs';
 // loans that already have a brokerId (no-op fast path in the helper).
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { encryptField } from './_shared/crypto.mjs';
-// Deploy 236.341 (Tier 2 scaling) — write-through the materialized
-// clients-index blob so cross-owner list reads stay in sync.
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
-// Phase 2 Supabase migration — best-effort dual-write to Postgres
-// after the blob write commits. mirror.upsertClientWithLoans
-// flushes the client scalars + all its loans in one call (matches
-// what the frontend just wrote to the blob store).
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 /**
  * Look up a profile by email and return a best-effort full name. Never throws.
@@ -234,15 +229,10 @@ export default async (req, context) => {
       }
     }
 
-    await store.setJSON(key, record);
-    // Deploy 236.341 — write-through the materialized clients-index
-    // so cross-owner list reads stay in-sync. upsertClient never
-    // throws (index write failure logged, primary save unaffected).
-    await upsertClientStrict(ownerKey, record);
-    // Phase 2 — best-effort Postgres mirror. Same failure discipline
-    // as the clients-index write above: never throws, never blocks
-    // the response. On PG_MIRROR_DISABLED=true env var this is a no-op.
-    await pgMirror.upsertClientWithLoansStrict(owner, record);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient.
+    // (Note: the PG mirror used to be keyed by the raw owner email
+    // here — now normalized to ownerKey like every other endpoint.)
+    await writeClient(ownerKey, record, { clientsStore: store });
 
     // Fire-and-forget Brevo sync. Failures never block the save response.
     // We do await name resolution because it's a quick local blob read,

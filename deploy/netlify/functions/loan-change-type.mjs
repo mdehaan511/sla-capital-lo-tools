@@ -38,7 +38,9 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try {
@@ -170,8 +172,8 @@ async function handle(req, context) {
   client.updatedAt = now;
 
   // Persist
-  await clientsStore.setJSON(clientKey, client);
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  await writeClient(ownerKey, client, { clientsStore });
 
   // Also touch the matching quote in QuoteStore (if any) so Pipeline
   // reflects the new status + tool type.

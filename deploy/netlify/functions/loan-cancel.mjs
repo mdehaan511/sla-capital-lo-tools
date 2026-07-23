@@ -21,14 +21,13 @@
  * Returns: { success, prevStatus, newStatus, loan }
  */
 import { getStore } from '@netlify/blobs';
-// Deploy 236.373 — clients-index write-through, so a cancel actually
-// disappears from the Pipeline (which reads the materialized index).
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 // Deploy 196: widened from {awaiting_app, approved} to all non-terminal
 // statuses. LOs reported needing to drop dead Quoted leads without
@@ -128,13 +127,12 @@ async function handle(req, context) {
   }
 
   try {
-    await clientsStore.setJSON(clientKey, client);
-    await upsertClientStrict(ownerKey, client); // Deploy 236.373
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient.
     // allowDemotion on restore only (Phase C4): un-cancelling moves
     // cancelled → _cancelledFrom (often 'active'), a terminal → non-
     // terminal demotion the DB trigger would otherwise reject. The
     // cancel direction is a promotion and keeps the default.
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, client, { allowDemotion: isRestore }); // Phase 2 dual-write
+    await writeClient(ownerKey, client, { clientsStore, allowDemotion: isRestore });
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

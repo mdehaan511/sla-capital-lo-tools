@@ -43,7 +43,10 @@ import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs'
 // still references the old (owner, client) tuple redirects in one
 // blob read instead of forcing loan-locate to scan the index.
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write (kept for deleteClientStrict)
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try {
@@ -227,16 +230,15 @@ async function handle(req, context) {
   // borrower via Change Primary Guarantor.
   let srcPlaceholderDeleted = false;
   try {
-    const destKey = ownerKey + '/' + keySafe(destClient.id);
-    await clientsStore.setJSON(destKey, destClient);
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, destClient);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    await writeClient(ownerKey, destClient, { clientsStore });
     if (srcClient._isBrokerPlaceholder && srcClient.loans.length === 0) {
       await clientsStore.delete(srcKey);
       await pgMirror.deleteClientStrict(srcClient.id);
       srcPlaceholderDeleted = true;
     } else {
-      await clientsStore.setJSON(srcKey, srcClient);
-      await pgMirror.upsertClientWithLoansStrict(ownerKey, srcClient);
+      // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+      await writeClient(ownerKey, srcClient, { clientsStore });
     }
   } catch (e) {
     return json(500, { error: 'Failed to write client records: ' + (e.message || 'unknown') });

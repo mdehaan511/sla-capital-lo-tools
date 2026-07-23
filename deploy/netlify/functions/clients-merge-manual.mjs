@@ -44,8 +44,11 @@ import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 // and my auto-redirect in loan-details bounced right back to the
 // dead URL. Update the index in-flight so subsequent reads are
 // consistent.
-import { upsertClient as indexUpsertClient, removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+import { removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write (kept for deleteClientStrict)
+// Deploy 236.402 (C2 slice 2): winner persists route through the shared
+// PG-first writeClient helper (covers blob + pg + clients-index).
+import { writeClient } from './_shared/client-write.mjs';
 
 function _isEmpty(v) {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
@@ -307,25 +310,25 @@ async function handle(req, context) {
 
   // 7. Persist winner + delete loser.
   try {
-    await clientsStore.setJSON(winnerKey, winner);
-    await pgMirror.upsertClientWithLoansStrict(winnerOwnerKey, winner);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient —
+    // also covers the winner's clients-index upsert that used to run
+    // after this block (Deploy 236.363).
+    await writeClient(winnerOwnerKey, winner, { clientsStore });
     await clientsStore.delete(loserKey);
     await pgMirror.deleteClientStrict(loser.id);
   } catch (e) {
     return json(500, { error: 'Failed to persist merge: ' + (e && e.message) });
   }
 
-  // Deploy 236.363 — index sync. Without these two calls the
+  // Deploy 236.363 — index sync (loser removal). Without this the
   // materialized clients-index still shows the loser (with its old
-  // loans) and a pre-merge winner, which causes loan-locate to
-  // resolve the loan under the deleted loser and my auto-redirect
-  // in loan-details to bounce back to the dead URL. Both helpers
-  // swallow errors so an index-write blip doesn't roll back the
-  // successful merge.
+  // loans), which causes loan-locate to resolve the loan under the
+  // deleted loser. The winner's index upsert now happens inside
+  // writeClient above (Deploy 236.402). removeClient swallows errors
+  // so an index-write blip doesn't roll back the successful merge.
   //
-  // Deploy 236.370 — cross-owner-aware. Upsert winner under its own
-  // owner; remove loser under its own owner (which may differ).
-  await indexUpsertClient(winnerOwnerKey, winner);
+  // Deploy 236.370 — cross-owner-aware: remove loser under its own
+  // owner (which may differ from the winner's).
   await indexRemoveClient(loserOwnerKey, loser.id);
 
   return json(200, {

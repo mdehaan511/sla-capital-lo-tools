@@ -24,7 +24,9 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 const HOUSE_ACCOUNT_EMAIL = 'chance@slacapital.com';
 const MAX_BODY_BYTES = 4 * 1024;
@@ -103,10 +105,10 @@ export default async (req, context) => {
     loans: [],
   };
 
-  const key = ownerKey + '/' + keySafe(clientId);
   try {
-    await clientsStore.setJSON(key, record);
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    // (helper derives the blob key from ownerKey + client.id)
+    await writeClient(ownerKey, record, { clientsStore });
   } catch (e) {
     console.error('borrower-register: setJSON failed:', e && e.message);
     return json(500, { error: 'Failed to save registration' });

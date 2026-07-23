@@ -29,8 +29,9 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs'; // Deploy 236.341
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 // Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
 // advances a loan to approved (the safety-valve path for when the
 // borrower-info auto-advance silently bailed). Same helper as
@@ -155,16 +156,15 @@ async function handle(req, context) {
   }
 
   try {
-    await clientsStore.setJSON(clientKey, client);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient.
+    // allowDemotion (Phase C4): this endpoint's moves are explicit user
+    // actions and already role-gated above (admins may set any status,
+    // including terminal → active). Without the flag the DB trigger
+    // would reject those legitimate demotions.
+    await writeClient(ownerKey, client, { clientsStore, allowDemotion: true });
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
-  await upsertClientStrict(ownerKey, client);
-  // allowDemotion (Phase C4): this endpoint's moves are explicit user
-  // actions and already role-gated above (admins may set any status,
-  // including terminal → active). Without the flag the DB trigger
-  // would reject those legitimate demotions.
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, client, { allowDemotion: true });
 
   // Now sync the matching quote(s). We're more permissive than
   // borrower-info-save's auto-transition: we match by loanAmt + address

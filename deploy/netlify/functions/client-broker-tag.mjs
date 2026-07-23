@@ -18,7 +18,9 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -84,9 +86,9 @@ async function handle(req, context) {
   }
   client.updatedAt = now;
 
-  try { await clientsStore.setJSON(key, client); }
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to save client: ' + (e && e.message) }); }
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   return json(200, { ok: true, client });
 }

@@ -37,8 +37,9 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { upsertClient as indexUpsertClient } from './_shared/clients-index.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -112,9 +113,8 @@ async function handle(req, context) {
     });
   }
 
-  await clientsStore.setJSON(primaryKey, primary);
-  indexUpsertClient(ownerKey, primary).catch(() => {});
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  await writeClient(ownerKey, primary, { clientsStore });
 
   // Clean up the backref on the guarantor client. The guarantor may
   // live under a different owner (linked cross-LO); walk all
@@ -135,12 +135,11 @@ async function handle(req, context) {
       if (after.length !== before.length) {
         rec._guarantorOnLoans = after;
         rec.updatedAt = now;
-        await clientsStore.setJSON(key, rec);
-        // Refresh index for this guarantor's owner too.
+        // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+        // (also refreshes the guarantor's owner index).
         const slash = key.indexOf('/');
         const gOwner = slash > 0 ? key.slice(0, slash) : ownerKey;
-        indexUpsertClient(gOwner, rec).catch(() => {});
-        pgMirror.upsertClientWithLoans(gOwner, rec).catch(() => {});
+        await writeClient(gOwner, rec, { clientsStore });
         removedBackrefs += (before.length - after.length);
       }
       // Also nuke any pending subform token entries for this loan
@@ -152,10 +151,10 @@ async function handle(req, context) {
           !(t && t.primaryClientId === primary.id && t.loanId === body.loanId)
         );
         if (rec._guarantorSubformTokens.length !== beforeT) {
-          await clientsStore.setJSON(key, rec);
           const _slash2 = key.indexOf('/');
           const _gOwner2 = _slash2 > 0 ? key.slice(0, _slash2) : ownerKey;
-          pgMirror.upsertClientWithLoans(_gOwner2, rec).catch(() => {});
+          // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+          await writeClient(_gOwner2, rec, { clientsStore });
         }
       }
       break;

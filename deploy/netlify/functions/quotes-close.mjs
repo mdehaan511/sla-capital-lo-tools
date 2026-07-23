@@ -16,14 +16,13 @@
  * Loan Details page reflects it.
  */
 import { getStore } from '@netlify/blobs';
-// Deploy 236.373 — clients-index write-through, so closing a loan is
-// reflected on the Pipeline (which reads the materialized index).
-import { upsertClient, upsertClientStrict } from './_shared/clients-index.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 // Deploy 236.382 — quotes-index write-through. This endpoint mutated
 // the quote blob but never touched the materialized quotes-index, so
 // closed.html / pipeline.html in admin All-LOs scope (which read the
@@ -205,9 +204,8 @@ async function syncToClientLoan(ownerKey, quote) {
       }
     }
     if (changed) {
-      await clientsStore.setJSON(key, c);
-      await upsertClientStrict(ownerKey, c); // Deploy 236.373
-      await pgMirror.upsertClientWithLoansStrict(ownerKey, c); // Phase 2 dual-write
+      // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+      await writeClient(ownerKey, c, { clientsStore });
     }
   }
   if (loansUpdated === 0) {

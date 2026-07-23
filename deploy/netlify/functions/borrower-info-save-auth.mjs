@@ -26,7 +26,9 @@ import { regenerateSignedApplicationPDF } from './_shared/signed-app-regenerate.
 // Deploy 236.56 — use the coalesced variant so back-to-back autosaves
 // don't bury Notes & Activity in duplicate entries.
 import { appendCoalescedNoteEntry } from './_shared/notes-log.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try {
@@ -158,8 +160,8 @@ async function handle(req, context) {
               });
               if (added) {
                 clientForLog.updatedAt = new Date().toISOString();
-                await clientsStore2.setJSON(clientKey, clientForLog);
-                await pgMirror.upsertClientWithLoansStrict(ownerKey, clientForLog);
+                // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+                await writeClient(ownerKey, clientForLog, { clientsStore: clientsStore2 });
               }
             }
           }
@@ -279,7 +281,7 @@ async function syncBorrowerFieldsToClient(record) {
   });
   if (changed) {
     client.updatedAt = new Date().toISOString();
-    await clientsStore.setJSON(clientKey, client);
-    await pgMirror.upsertClientWithLoansStrict(record.ownerKey, client);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    await writeClient(record.ownerKey, client, { clientsStore });
   }
 }

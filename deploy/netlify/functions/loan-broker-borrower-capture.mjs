@@ -37,7 +37,9 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -164,11 +166,11 @@ async function handle(req, context) {
       loan.guarantorOwnership[clientRec.id] = parseFloat(g.ownershipPct);
     }
 
-    try { await clientsStore.setJSON(clientKey, clientRec); }
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    try { await writeClient(ownerKey, clientRec, { clientsStore }); }
     catch (e) {
       return json(500, { error: 'Failed to save guarantor client ' + (i + 1) + ': ' + (e && e.message) });
     }
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, clientRec);
     createdOrLinked.push({ index: i, mode, clientId: clientRec.id, name: clientRec.firstName + ' ' + clientRec.lastName, email });
   }
 
@@ -195,8 +197,8 @@ async function handle(req, context) {
             createdAt: now,
           });
           g1Client.updatedAt = now;
-          try { await clientsStore.setJSON(g1Key, g1Client); } catch (_) {}
-          await pgMirror.upsertClientWithLoansStrict(ownerKey, g1Client);
+          // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+          await writeClient(ownerKey, g1Client, { clientsStore });
         }
       }
     }
@@ -223,9 +225,9 @@ async function handle(req, context) {
   primary.loans[loanIdx] = loan;
   primary.updatedAt = now;
 
-  try { await clientsStore.setJSON(primaryKey, primary); }
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  try { await writeClient(ownerKey, primary, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e && e.message) }); }
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, primary);
 
   return json(200, { ok: true, loan, guarantors: createdOrLinked });
 }

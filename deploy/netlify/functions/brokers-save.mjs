@@ -25,7 +25,9 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { splitBrokerName, clientAsBroker } from './_shared/broker-client.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -72,12 +74,12 @@ export default async (req, context) => {
   });
 
   try {
-    await clientsStore.setJSON(key, record);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    await writeClient(ownerKey, record, { clientsStore });
   } catch (e) {
     console.error('brokers-save error:', e);
     return json(500, { error: 'Failed to save broker' });
   }
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, record);
 
   // Best-effort: if a legacy broker record still exists for this id,
   // delete it so we don't dual-list.

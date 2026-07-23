@@ -18,7 +18,9 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 const ALLOWED_KINDS = new Set([
   'manual', 'submit', 'pre_discussed', 'reprice',
@@ -90,11 +92,13 @@ async function handle(req, context) {
   loan.updatedAt = new Date().toISOString();
 
   try {
-    await clientsStore.setJSON(key, client);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient.
+    // (Note: the PG mirror used to be keyed by the raw owner email
+    // here — now normalized to ownerKey like every other endpoint.)
+    await writeClient(ownerKey, client, { clientsStore });
   } catch (e) {
     return json(500, { error: 'Failed to save client' });
   }
-  await pgMirror.upsertClientWithLoansStrict(owner, client);
 
   return json(200, { ok: true, entry, loan });
 }

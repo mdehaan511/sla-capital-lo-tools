@@ -27,7 +27,9 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper.
+import { writeClient } from './_shared/client-write.mjs';
 
 const VALID_STAGES = ['', 'new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 
@@ -206,9 +208,9 @@ async function handle(req, context) {
   client.loans[idx] = loan;
   client.updatedAt = new Date().toISOString();
 
-  try { await clientsStore.setJSON(clientKey, client); }
+  // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+  try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
-  await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
 
   // Deploy 236.378 — when the stage move changed loan.status, sweep the
   // matching quote(s) too so the Leads board reflects it. Strict loanId

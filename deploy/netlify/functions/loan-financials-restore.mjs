@@ -20,11 +20,12 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.222 Phase 5 — mirror the restored loan onto the QuoteStore too.
+// (Kept non-strict: the sweep is best-effort and its count feeds the
+// quotesSynced response field.)
 import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
-// QC pass — this endpoint wrote to blob but never called pg-mirror
-// or clients-index. Every restore silently drifted PG. Fixed.
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
-import { upsertClientStrict as indexUpsertClientStrict } from './_shared/clients-index.mjs';
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -117,9 +118,8 @@ async function handle(req, context) {
   client.updatedAt = now;
 
   try {
-    await clientsStore.setJSON(clientKey, client);
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
-    await indexUpsertClientStrict(ownerKey, client);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    await writeClient(ownerKey, client, { clientsStore });
   }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
 

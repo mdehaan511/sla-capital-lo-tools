@@ -45,7 +45,10 @@ import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
 // still references the old (owner, client) tuple redirects in one
 // blob read instead of forcing loan-locate to scan the index.
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write (kept for deleteClientStrict)
+// Deploy 236.402 (C2 slice 2): client persists route through the shared
+// PG-first writeClient helper (covers blob + clients-index + pg-mirror).
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -143,14 +146,14 @@ async function handle(req, context) {
 
   try {
     // Write dest FIRST — if src write fails, at least the loan lives somewhere.
-    await clientsStore.setJSON(destKey, destClient);
-    await pgMirror.upsertClientWithLoansStrict(newOwnerKey, destClient);
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+    await writeClient(newOwnerKey, destClient, { clientsStore });
     if (deleteSrcClient) {
       await clientsStore.delete(srcKey);
       await pgMirror.deleteClientStrict(srcClient.id);
     } else {
-      await clientsStore.setJSON(srcKey, srcClient);
-      await pgMirror.upsertClientWithLoansStrict(oldOwnerKey, srcClient);
+      // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+      await writeClient(oldOwnerKey, srcClient, { clientsStore });
     }
   } catch (e) {
     return json(500, { error: 'Failed to persist client records: ' + (e.message || 'unknown') });
