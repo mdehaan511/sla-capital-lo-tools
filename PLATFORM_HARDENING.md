@@ -167,14 +167,22 @@ Netlify Identity is deprecated by Netlify. Half-migrated already.
 
 ## Phase G — Pricing golden tests  *(2–3 days; any time)*
 
-- [ ] **G1.** Extract DSCR + RTL pricing math into importable modules the
-      sizers `<script src>` (no build step — plain JS files, same pattern as
-      sla-api.js).
-- [ ] **G2.** Fixture file: ~30 scenarios (FICO × LTV × product × IO/cash-out/
-      UPB/PPP/buydown) with expected rate + points, verified against the
-      current rate sheet by hand once.
-- [ ] **G3.** `scripts/pricing-test.mjs` runs fixtures on every deploy (and in
-      the B4 smoke suite). Every future rate-sheet update is self-verifying.
+- [x] **G1–G3 (DSCR)** — Deploys 236.406/407. Engine extracted to
+      `deploy/dscr-pricing.js` (IIFE, single SLA_DSCR global), 42 golden
+      scenarios captured from the ORIGINAL inline code pre-extraction
+      (`scripts/dscr-golden-capture.mjs`), replayed via
+      `scripts/pricing-test.mjs` — 42/42 exactly identical. Rate-sheet
+      procedure: edit dscr-pricing.js → run pricing tests → only intended
+      diffs → re-baseline → deploy. `scripts/check-inline-js.mjs` added
+      (parse-checks a page's inline blocks).
+- [ ] **G1–G3 (RTL)** — NOT a mechanical repeat. rtl-sizer.html's
+      calculate() is entangled with rendering (renderTransactional),
+      validate()'s DOM reads, and async page state (detectedState /
+      geoWarning from ZHVI lookups) that pricing consumes. Plan: first
+      carve a pure core (leverage calc + rate stack: PRICING/SPREAD/
+      LTV_COLS/floors/adjustments) behind an inputs object where
+      detectedState/geoWarning are passed IN, golden-capture with a
+      stubbed DOM+state, then extract to rtl-pricing.js. Own session.
 
 ---
 
