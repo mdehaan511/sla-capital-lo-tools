@@ -55,9 +55,10 @@ async function _pgCount(table) {
   return count;
 }
 
-async function runChecks() {
+async function runChecks(opts) {
   const problems = [];
   const report = { ranAt: new Date().toISOString(), checks: {} };
+  const skipDrift = !!(opts && opts.skipDrift);
 
   // 1. PG reachable
   try {
@@ -87,14 +88,16 @@ async function runChecks() {
   } catch (e) { problems.push('prospects-index read threw: ' + (e && e.message)); }
 
   // 3. blob↔PG count drift (clients + loans)
-  // Deploy 236.396: skipped off production. Netlify Blob stores are
-  // SITE-scoped — branch deploys (staging) share them with prod while
-  // pointing at their own Postgres, so blob-vs-PG counts diverge by
-  // design there until Phase C2 retires blob reads. Comparing them
-  // would alarm forever.
-  if (process.env.CONTEXT && process.env.CONTEXT !== 'production') {
-    report.checks.drift = 'skipped (context=' + process.env.CONTEXT +
-      ' — blob stores are shared with production on branch deploys)';
+  // Deploy 236.397: skipped on branch deploys. Netlify Blob stores
+  // are SITE-scoped — staging shares them with prod while pointing at
+  // its own Postgres, so blob-vs-PG counts diverge there by design
+  // until Phase C2 retires blob reads. Detection is host-based (the
+  // caller passes skipDrift from the request hostname) because
+  // CONTEXT is a build-time var that 236.396 wrongly assumed exists
+  // at function runtime. The cron itself only ever runs on the
+  // published production deploy, so this only affects manual GETs.
+  if (skipDrift) {
+    report.checks.drift = 'skipped (branch deploy — blob stores are shared with production)';
     report.ok = problems.length === 0;
     report.problems = problems;
     return report;
@@ -153,9 +156,17 @@ export default async (req, context) => {
     if (!isAdmin(user)) return json(403, { error: 'Admin only' });
   }
 
+  // Branch-deploy hostnames always carry the "--" infix
+  // (staging--slaloantools.netlify.app); prod serves from the bare
+  // site domain or a custom domain. Scheduled runs only ever execute
+  // on the published production deploy, so this matters for manual
+  // GETs against staging.
+  let skipDrift = false;
+  try { skipDrift = new URL(req.url).host.includes('--'); } catch (_) {}
+
   let report;
   try {
-    report = await runChecks();
+    report = await runChecks({ skipDrift });
   } catch (e) {
     report = { ok: false, problems: ['health check itself threw: ' + (e && e.message)] };
   }
