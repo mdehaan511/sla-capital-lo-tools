@@ -22,7 +22,13 @@
  *
  * The sizer aliases these back into page scope, so all existing
  * renderResult / PDF / save code is untouched.
+ *
+ * IIFE-wrapped (Deploy 236.407): top-level `const` in a classic
+ * script binds page-wide and collided with the sizer's `var DIYA`
+ * aliases ("Identifier 'DIYA' has already been declared"). Only
+ * SLA_DSCR escapes this file; the page reaches everything through it.
  */
+(function () {
 const DIYA = {
   // Deploy 236.374 — Diya 1-4 Unit Rate Sheet effective 7.22.26.
   // Changes vs the 6.12.26 sheet:
@@ -545,3 +551,4 @@ var _SLA_DSCR_API = {
 };
 if (typeof window !== 'undefined') window.SLA_DSCR = _SLA_DSCR_API;
 if (typeof module !== 'undefined' && module.exports) module.exports = _SLA_DSCR_API;
+})();
