@@ -1,0 +1,2716 @@
+{
+  "generatedAt": "2026-07-23T23:32:22.828Z",
+  "source": "deploy/dscr-sizer.html (inline, pre-G1-extraction)",
+  "effectiveDate": "July 22, 2026",
+  "scenarios": [
+    {
+      "name": "base-30y-fixed",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "product-10-6-arm",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "10/6 ARM",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "product-7-6-arm",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "7/6 ARM",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "product-5-6-arm",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "5/6 ARM",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "fico-780plus",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "780+",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "fico-760-779",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "760-779",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "fico-720-739",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "720-739",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "fico-700-719",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "700-719",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "fico-680-699",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "680-699",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "fico-660-679",
+      "inputs": {
+        "loanAmt": 350000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "660-679",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ltv-col-50",
+      "inputs": {
+        "loanAmt": 290000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ltv-col-60",
+      "inputs": {
+        "loanAmt": 350000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ltv-col-80",
+      "inputs": {
+        "loanAmt": 475000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ltv-80-fico-700-719-new-tier",
+      "inputs": {
+        "loanAmt": 475000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "700-719",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "io-yes",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "yes",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "io-at-75",
+      "inputs": {
+        "loanAmt": 445000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "yes",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "cashout",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "refi_co",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "cashout-io-combined",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "yes",
+        "loanPurpose": "refi_co",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "prop-nw-condo",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "nw_condo",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "prop-2-4-unit",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "2-4",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 7500,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "prop-portfolio",
+      "inputs": {
+        "loanAmt": 600000,
+        "propValue": 900000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "portfolio",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 9000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ppp-5y6m",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "5y6m",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ppp-54321",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "54321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ppp-320",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "320",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ppp-300",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "300",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "ppp-none",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "none",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "buydown-0.25",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0.25",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "buydown-1.00",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "1.00",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "buydown-2.00",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "2.00",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "upb-75-99k",
+      "inputs": {
+        "loanAmt": 90000,
+        "propValue": 150000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "upb-100-149k",
+      "inputs": {
+        "loanAmt": 120000,
+        "propValue": 200000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "upb-150-199k",
+      "inputs": {
+        "loanAmt": 180000,
+        "propValue": 280000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "upb-600k-plus",
+      "inputs": {
+        "loanAmt": 700000,
+        "propValue": 1000000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 9500,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "dscr-1.00-1.19",
+      "inputs": {
+        "loanAmt": 300000,
+        "propValue": 500000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 2500,
+        "taxes": 200,
+        "insurance": 100,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "broker-fees",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "1.5",
+        "brokerProcFee": "995"
+      }
+    },
+    {
+      "name": "err-sub-660",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "640-659",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "err-ltv-over-80",
+      "inputs": {
+        "loanAmt": 550000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "err-io-at-80",
+      "inputs": {
+        "loanAmt": 475000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "yes",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "err-cashout-at-80",
+      "inputs": {
+        "loanAmt": 475000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "refi_co",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "err-680-at-80",
+      "inputs": {
+        "loanAmt": 475000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "680-699",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "err-dscr-below-1",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 1500,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "warn-ineligible-state",
+      "inputs": {
+        "loanAmt": 400000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "1 Desert Rd, Phoenix, AZ 85001",
+        "brokerFee": "",
+        "brokerProcFee": ""
+      }
+    }
+  ],
+  "results": {
+    "base-30y-fixed": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9846801995171388,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.67,
+      "pi": 2573.1570816596877,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3023.1570816596877,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "product-10-6-arm": {
+      "loanType": "10/6 ARM",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9846801995171388,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.67,
+      "pi": 2573.1570816596877,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3023.1570816596877,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "product-7-6-arm": {
+      "loanType": "7/6 ARM",
+      "ltv": 66.66666666666666,
+      "dscr": 2.00219283642368,
+      "fico": "740-759",
+      "baseRate": 6.275,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.57,
+      "pi": 2546.714347813375,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2996.714347813375,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "product-5-6-arm": {
+      "loanType": "5/6 ARM",
+      "ltv": 66.66666666666666,
+      "dscr": 2.00219283642368,
+      "fico": "740-759",
+      "baseRate": 6.275,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.57,
+      "pi": 2546.714347813375,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2996.714347813375,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "fico-780plus": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.993407427213148,
+      "fico": "780+",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.62,
+      "pi": 2559.9215634950283,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3009.9215634950283,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "fico-760-779": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.989036566614887,
+      "fico": "760-779",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.025
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.6450000000000005,
+      "pi": 2566.5357946190575,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3016.5357946190575,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "fico-720-739": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9760107391629267,
+      "fico": "720-739",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.72,
+      "pi": 2586.4207446269784,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3036.4207446269784,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "fico-700-719": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9673986342539622,
+      "fico": "700-719",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.1
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.7700000000000005,
+      "pi": 2599.712394598261,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3049.712394598261,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "fico-680-699": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9086857339384014,
+      "fico": "680-699",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.45
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 7.12,
+      "pi": 2693.5243074927475,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3143.5243074927475,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "fico-660-679": {
+      "loanType": "30Y Fixed",
+      "ltv": 58.333333333333336,
+      "dscr": 2.0547530461148042,
+      "fico": "660-679",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.9
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 7.595000000000001,
+      "pi": 2470.058939124096,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2920.058939124096,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 350000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 3500,
+      "buydownFee": 0,
+      "totalFees": 5815,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [
+        {
+          "level": "warn",
+          "msg": "FICO 660-679 is eligible but requires pre-approval, 1.10x minimum DSCR, and additional liquidity reserves."
+        }
+      ]
+    },
+    "ltv-col-50": {
+      "loanType": "30Y Fixed",
+      "ltv": 48.333333333333336,
+      "dscr": 2.601972231121286,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.075
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.62,
+      "pi": 1855.9431335338954,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2305.9431335338954,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 290000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 2900,
+      "buydownFee": 0,
+      "totalFees": 5215,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ltv-col-60": {
+      "loanType": "30Y Fixed",
+      "ltv": 58.333333333333336,
+      "dscr": 2.2257514228990707,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.6450000000000005,
+      "pi": 2245.718820291675,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2695.718820291675,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 350000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 3500,
+      "buydownFee": 0,
+      "totalFees": 5815,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ltv-col-80": {
+      "loanType": "30Y Fixed",
+      "ltv": 79.16666666666666,
+      "dscr": 1.6924947046666592,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.175
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.125
+        }
+      ],
+      "finalRate": 6.795,
+      "pi": 3095.062790126551,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3545.062790126551,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 475000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4750,
+      "buydownFee": 0,
+      "totalFees": 7065,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ltv-80-fico-700-719-new-tier": {
+      "loanType": "30Y Fixed",
+      "ltv": 79.16666666666666,
+      "dscr": 1.644484347425152,
+      "fico": "700-719",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.5
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.125
+        }
+      ],
+      "finalRate": 7.12,
+      "pi": 3198.5601151476376,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3648.5601151476376,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 475000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4750,
+      "buydownFee": 0,
+      "totalFees": 7065,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "io-yes": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.176541717049577,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Interest Only",
+          "value": 0.25
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.92,
+      "pi": 2306.6666666666665,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2756.6666666666665,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": true,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "io-at-75": {
+      "loanType": "30Y Fixed",
+      "ltv": 74.16666666666667,
+      "dscr": 1.9831842502117463,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.05
+        },
+        {
+          "label": "Interest Only",
+          "value": 0.25
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.1
+        }
+      ],
+      "finalRate": 6.945,
+      "pi": 2575.4375,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3025.4375,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 445000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": true,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4450,
+      "buydownFee": 0,
+      "totalFees": 6765,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "cashout": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9760107391629267,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Cash-Out Refi",
+          "value": 0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.72,
+      "pi": 2586.4207446269784,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3036.4207446269784,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "refi_co",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "cashout-io-combined": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.1634615384615388,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Interest Only",
+          "value": 0.25
+        },
+        {
+          "label": "Cash-Out Refi",
+          "value": 0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.97,
+      "pi": 2323.333333333333,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2773.333333333333,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": true,
+      "purpose": "refi_co",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "prop-nw-condo": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9588434751766586,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Non-Warrantable Condo",
+          "value": 0.15
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.82,
+      "pi": 2613.031873671728,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3063.031873671728,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "nw_condo",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "prop-2-4-unit": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.459248292817453,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "2&ndash;4 Unit",
+          "value": 0.1
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.7700000000000005,
+      "pi": 2599.712394598261,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3049.712394598261,
+      "rent": 7500,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "2-4",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "prop-portfolio": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.0597096977306006,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Portfolio",
+          "value": 0.2
+        },
+        {
+          "label": "Loan amount (UPB)",
+          "value": -0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.82,
+      "pi": 3919.5478105075917,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 4369.547810507592,
+      "rent": 9000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 600000,
+      "propVal": 900000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "portfolio",
+      "origFee": 6000,
+      "buydownFee": 0,
+      "totalFees": 8315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ppp-5y6m": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.0199398674153506,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (5y6m)",
+          "value": -0.15
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.47,
+      "pi": 2520.3854539379954,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2970.3854539379954,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "5y6m",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ppp-54321": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.0110368435902948,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (54321)",
+          "value": -0.1
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.5200000000000005,
+      "pi": 2533.5355921616174,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2983.5355921616174,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "54321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ppp-320": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9673986342539622,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (320)",
+          "value": 0.15
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.7700000000000005,
+      "pi": 2599.712394598261,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3049.712394598261,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "320",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ppp-300": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9503448546067215,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (300)",
+          "value": 0.25
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.87,
+      "pi": 2626.3790238572315,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3076.3790238572315,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "300",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "ppp-none": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9086857339384014,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (none)",
+          "value": 0.5
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 7.12,
+      "pi": 2693.5243074927475,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3143.5243074927475,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "none",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "buydown-0.25": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9925320931270631,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.625,
+      "pi": 2561.2438443004703,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3011.2438443004703,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0.25,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 1000,
+      "totalFees": 7315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "buydown-1.00": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.0163715489955445,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.49,
+      "pi": 2525.642065069258,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2975.642065069258,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 1,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 4000,
+      "totalFees": 10315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "buydown-2.00": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.048831053237121,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.31,
+      "pi": 2478.4991510257005,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2928.4991510257005,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 2,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 8000,
+      "totalFees": 14315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "upb-75-99k": {
+      "loanType": "30Y Fixed",
+      "ltv": 60,
+      "dscr": 5.608689932407831,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.05
+        },
+        {
+          "label": "Loan amount (UPB)",
+          "value": 0.7
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 7.345000000000001,
+      "pi": 619.768532813897,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 1069.7685328138969,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 90000,
+      "propVal": 150000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 900,
+      "buydownFee": 0,
+      "totalFees": 3215,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [
+        {
+          "level": "error",
+          "msg": "Loan amount $90,000 is below the $100,000 minimum."
+        }
+      ]
+    },
+    "upb-100-149k": {
+      "loanType": "30Y Fixed",
+      "ltv": 60,
+      "dscr": 4.723516731231125,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.05
+        },
+        {
+          "label": "Loan amount (UPB)",
+          "value": 0.625
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 7.2700000000000005,
+      "pi": 820.2400227205665,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 1270.2400227205665,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 120000,
+      "propVal": 200000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 1200,
+      "buydownFee": 0,
+      "totalFees": 3515,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "upb-150-199k": {
+      "loanType": "30Y Fixed",
+      "ltv": 64.28571428571429,
+      "dscr": 3.6699979064741783,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.025
+        },
+        {
+          "label": "Loan amount (UPB)",
+          "value": 0.225
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.8950000000000005,
+      "pi": 1184.878316801082,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 1634.878316801082,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 180000,
+      "propVal": 280000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 1800,
+      "buydownFee": 0,
+      "totalFees": 4115,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "upb-600k-plus": {
+      "loanType": "30Y Fixed",
+      "ltv": 70,
+      "dscr": 1.9270313411370987,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Loan amount (UPB)",
+          "value": -0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.62,
+      "pi": 4479.8627361163,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 4929.8627361163,
+      "rent": 9500,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 700000,
+      "propVal": 1000000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 7000,
+      "buydownFee": 0,
+      "totalFees": 9315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "dscr-1.00-1.19": {
+      "loanType": "30Y Fixed",
+      "ltv": 60,
+      "dscr": 1.1186487885499385,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.00-1.19)",
+          "value": 0
+        }
+      ],
+      "finalRate": 6.695,
+      "pi": 1934.839053677119,
+      "taxes": 200,
+      "ins": 100,
+      "hoa": 0,
+      "totalPayment": 2234.839053677119,
+      "rent": 2500,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 300000,
+      "propVal": 500000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 3000,
+      "buydownFee": 0,
+      "totalFees": 5315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "broker-fees": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9846801995171388,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.67,
+      "pi": 2573.1570816596877,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3023.1570816596877,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 13310,
+      "brokerPts": 1.5,
+      "brokerFeeDol": 6000,
+      "brokerProcFee": 995,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": []
+    },
+    "err-sub-660": {
+      "error": "No DSCR pricing available for FICO 640-659. DIYA's minimum credit score is 660. Reach out to a manager to submit an exception request."
+    },
+    "err-ltv-over-80": {
+      "error": "LTV 91.7% exceeds the 80% maximum. Maximum loan at this property value is $480,000. Reach out to a manager to submit an exception request."
+    },
+    "err-io-at-80": {
+      "error": "Interest Only is not available at 79.2% LTV. Maximum LTV for Interest Only is 75%. Maximum loan at this property value is $450,000. Reach out to a manager to submit an exception request."
+    },
+    "err-cashout-at-80": {
+      "error": "LTV 79.2% is not available for cash-out refi. Maximum LTV for cash-out refi is 75%. Maximum loan at this property value is $450,000. Reach out to a manager to submit an exception request."
+    },
+    "err-680-at-80": {
+      "error": "FICO 680-699 is not available at 79.2% LTV. Maximum LTV for FICO 680-699 is 70%. Maximum loan at this property value is $420,000. Reach out to a manager to submit an exception request."
+    },
+    "err-dscr-below-1": {
+      "error": "DSCR 0.49x is below minimum 1.00x. Reach out to a manager to submit an exception request."
+    },
+    "warn-ineligible-state": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9846801995171388,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.075
+        }
+      ],
+      "finalRate": 6.67,
+      "pi": 2573.1570816596877,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3023.1570816596877,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "1 Desert Rd, Phoenix, AZ 85001",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [
+        {
+          "level": "error",
+          "msg": "State \"AZ\" is not an eligible lending state."
+        }
+      ]
+    }
+  }
+}
