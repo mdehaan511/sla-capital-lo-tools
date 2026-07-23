@@ -60,15 +60,12 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
-import { syncLoanToQuoteStore, syncLoanToQuoteStoreStrict } from './_shared/quote-sync.mjs';
-import { upsertClient as indexUpsertClient, upsertClientStrict as indexUpsertClientStrict } from './_shared/clients-index.mjs';
-import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
-// PG write failures must surface as 500s here — sizer save is the
-// highest-traffic write and Pipeline reads PG-first, so a silent PG
-// failure means the loan never appears even though blob has it.
-// Deploy 236.393 (Phase C1): that's now pgMirror.upsertClientWithLoansStrict
-// (throws on failure, atomic via the upsert_client_with_loans RPC) —
-// the earlier inline db.upsert copy is gone.
+// Deploy 236.401 (Phase C2): all store writes route through the
+// shared writeClient helper — PG-first, atomic RPC, strict on every
+// mirror. Sizer save is the highest-traffic write; failures surface
+// as 500s (→ LO toast + Slack alert), and a DB rejection leaves NO
+// store mutated.
+import { writeClient } from './_shared/client-write.mjs';
 
 const CALLER_CANNOT_SET_ON_LOAN = ['id', 'createdAt'];
 
@@ -125,29 +122,15 @@ function _makeNewClient({ firstName, lastName, email, phone, createdBy }) {
 }
 
 async function _writeClient(clientsStore, ownerKey, client, opts) {
-  const key = ownerKey + '/' + keySafe(client.id);
-  await clientsStore.setJSON(key, client);
-  // Strict PG write. Deploy 236.393 (Phase C1): route through the
-  // strict mirror variant — it throws on failure (what the direct
-  // db.upsert here was for), prefers the atomic upsert_client_with_loans
-  // RPC, and reconciles stale loans, which the old inline copy skipped.
-  try {
-    await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
-  } catch (e) {
-    const msg = (e && e.message) || 'unknown';
-    const err = new Error('Save landed in blob but Postgres write failed: ' + msg);
-    err.pgWriteFailed = true;
-    err.status = 500;
-    err.originalError = e;
-    throw err;
-  }
-  // Full strict discipline: index + quote-store both await + throw.
-  // Any silent index/quote failure would leave Pipeline stale on the
-  // just-saved card, defeating the whole point of surfacing errors.
-  await indexUpsertClientStrict(ownerKey, client);
-  if (opts && opts.loanForQuoteSync) {
-    await syncLoanToQuoteStoreStrict(ownerKey, opts.loanForQuoteSync);
-  }
+  // Deploy 236.401 (Phase C2): PG-first via the shared writeClient
+  // helper — Postgres is the write authority; a DB rejection (CHECK
+  // constraint, demotion trigger, outage) throws before blob/index/
+  // quote-store mutate. Order used to be blob-first, which left blob
+  // newer than PG whenever PG said no.
+  await writeClient(ownerKey, client, {
+    clientsStore,
+    loanForQuoteSync: opts && opts.loanForQuoteSync,
+  });
 }
 
 export default async (req, context) => {
