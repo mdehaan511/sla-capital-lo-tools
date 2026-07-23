@@ -152,6 +152,17 @@ export const db = {
       headers: { Prefer: 'return=representation' },
     });
   },
+
+  // RPC — call a Postgres function (POST /rest/v1/rpc/<fn>). This is
+  // how multi-statement writes become atomic: the function body runs
+  // in one transaction server-side (Hardening Phase C1, Deploy
+  // 236.393). args maps to the function's named parameters. A missing
+  // function surfaces as HTTP 404 with PostgREST code PGRST202 —
+  // callers that need deploy-order independence catch that and fall
+  // back (see pg-mirror.mjs).
+  rpc(fn, args) {
+    return _request('POST', 'rpc/' + fn, { body: args || {} });
+  },
 };
 
 // Convenience: quick health check the admin endpoints can call to

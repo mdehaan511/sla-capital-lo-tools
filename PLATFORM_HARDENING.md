@@ -68,9 +68,18 @@ We test in production with live LOs. Survivable with LOs; not with borrowers.
 
 Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
 
-- [ ] **C1.** Introduce a PG transaction helper (Postgres function / RPC per
-      mutation, or transactional batch endpoint) — client+loans mutations
-      commit atomically.
+- [x] **C1.** PG transaction RPCs (Deploy 236.393). `db/migrations/002_tx_rpcs.sql`
+      defines `upsert_client_with_loans` (client upsert + loans upsert + stale-
+      loan reconcile, one transaction) and `delete_client_tx` (loans + client,
+      one transaction — also fixes the ON DELETE RESTRICT failure on bare
+      client deletes). `db.rpc()` added to supabase-db.mjs;
+      `upsertClientWithLoansStrict` / `deleteClientStrict` prefer the RPC and
+      fall back to the legacy multi-call path until the SQL is run (PGRST202
+      detection, logged once per instance). sizer-save-loan's inline db.upsert
+      copy replaced with the strict mirror call.
+      **Mike: run 002_tx_rpcs.sql in the Supabase SQL editor (prod; staging too
+      once B1 exists).** Warm instances keep using the fallback until they
+      recycle (~minutes) — no restart needed.
 - [ ] **C2.** Flip write order: PG first (authoritative), blob becomes the
       mirrored cache. `PG_MIRROR_DISABLED` lever inverts to `BLOB_MIRROR_*`.
 - [ ] **C3.** Replace materialized index blobs (clients-index, quotes-index,

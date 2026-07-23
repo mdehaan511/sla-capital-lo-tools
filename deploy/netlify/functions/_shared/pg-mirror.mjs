@@ -166,9 +166,47 @@ async function _upsertClientStrict(ownerEmail, client) {
   await db.upsert('clients', row, { onConflict: 'id' });
 }
 
+// Hardening Phase C1 (Deploy 236.393) — the strict client-save path
+// prefers the upsert_client_with_loans RPC (db/migrations/002_tx_rpcs.sql):
+// client upsert + loans upsert + stale-loan reconcile in ONE Postgres
+// transaction instead of four separate REST calls a crash could split.
+// Until the migration has been run, PostgREST answers 404/PGRST202 —
+// we note it once per warm instance and fall back to the legacy
+// multi-call sequence, so deploy order doesn't matter.
+let _txRpcMissing = false;
+
+function _isRpcMissing(e) {
+  return !!(e && (e.status === 404 ||
+    (e.data && e.data.code === 'PGRST202') ||
+    /PGRST202|Could not find the function/i.test(String(e.message || ''))));
+}
+
 async function _upsertClientWithLoansStrict(ownerEmail, client) {
   if (_isDisabled()) return;
   if (!client || !client.id || !ownerEmail) return;
+
+  if (!_txRpcMissing) {
+    const clientRow = projectClient(client, ownerEmail);
+    if (!clientRow) return;
+    const loanRows = [];
+    if (Array.isArray(client.loans)) {
+      for (const loan of client.loans) {
+        if (!loan || !loan.id) continue;
+        const row = projectLoan(loan, client.id, ownerEmail);
+        if (row) loanRows.push(row);
+      }
+    }
+    try {
+      await db.rpc('upsert_client_with_loans', { p_client: clientRow, p_loans: loanRows });
+      return;
+    } catch (e) {
+      if (!_isRpcMissing(e)) throw e; // real failure — strict path surfaces it
+      _txRpcMissing = true;
+      console.warn('[pg-mirror] upsert_client_with_loans RPC missing — run db/migrations/002_tx_rpcs.sql. Falling back to multi-call writes.');
+    }
+  }
+
+  // Legacy multi-call fallback (non-atomic).
   await _upsertClientStrict(ownerEmail, client);
   const currentLoanIds = new Set();
   if (Array.isArray(client.loans)) {
@@ -209,6 +247,20 @@ async function _upsertLoanStrict(ownerEmail, clientId, loan) {
 async function _deleteClientStrict(clientId) {
   if (_isDisabled()) return;
   if (!clientId) return;
+  // Phase C1: delete_client_tx removes loans + client in one
+  // transaction. Also fixes a latent FK bug — loans.client_id is ON
+  // DELETE RESTRICT, so the bare client delete below FAILS whenever
+  // the client still has loan rows in PG.
+  if (!_txRpcMissing) {
+    try {
+      await db.rpc('delete_client_tx', { p_client_id: clientId });
+      return;
+    } catch (e) {
+      if (!_isRpcMissing(e)) throw e;
+      _txRpcMissing = true;
+      console.warn('[pg-mirror] delete_client_tx RPC missing — run db/migrations/002_tx_rpcs.sql. Falling back to bare delete.');
+    }
+  }
   await db.del('clients', { id: clientId });
 }
 

@@ -63,14 +63,12 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 import { syncLoanToQuoteStore, syncLoanToQuoteStoreStrict } from './_shared/quote-sync.mjs';
 import { upsertClient as indexUpsertClient, upsertClientStrict as indexUpsertClientStrict } from './_shared/clients-index.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
-// Bypass pg-mirror's silent-catch for the sizer-save path so PG
-// write failures surface as 500s. pg-mirror was designed for
-// fire-and-forget when PG was purely a mirror; Phase 4 made reads
-// PG-first, so a silent PG failure means Pipeline never sees the
-// loan even though blob has it. Sizer save is the highest-traffic
-// write; failing loudly here is worth the trade-off.
-import { db } from './_shared/supabase-db.mjs';
-import { projectClient, projectLoan } from './_shared/pg-projections.mjs';
+// PG write failures must surface as 500s here — sizer save is the
+// highest-traffic write and Pipeline reads PG-first, so a silent PG
+// failure means the loan never appears even though blob has it.
+// Deploy 236.393 (Phase C1): that's now pgMirror.upsertClientWithLoansStrict
+// (throws on failure, atomic via the upsert_client_with_loans RPC) —
+// the earlier inline db.upsert copy is gone.
 
 const CALLER_CANNOT_SET_ON_LOAN = ['id', 'createdAt'];
 
@@ -129,23 +127,12 @@ function _makeNewClient({ firstName, lastName, email, phone, createdBy }) {
 async function _writeClient(clientsStore, ownerKey, client, opts) {
   const key = ownerKey + '/' + keySafe(client.id);
   await clientsStore.setJSON(key, client);
-  // Strict PG write — go straight to db.upsert so any error surfaces.
-  // pg-mirror's normal path swallows errors and returns success, which
-  // was hiding real PG failures now that Pipeline reads PG-first.
+  // Strict PG write. Deploy 236.393 (Phase C1): route through the
+  // strict mirror variant — it throws on failure (what the direct
+  // db.upsert here was for), prefers the atomic upsert_client_with_loans
+  // RPC, and reconciles stale loans, which the old inline copy skipped.
   try {
-    const cRow = projectClient(client, ownerKey);
-    if (cRow) await db.upsert('clients', cRow, { onConflict: 'id' });
-    if (Array.isArray(client.loans) && client.loans.length) {
-      const loanRows = [];
-      for (const l of client.loans) {
-        if (!l || !l.id) continue;
-        const row = projectLoan(l, client.id, ownerKey);
-        if (row) loanRows.push(row);
-      }
-      if (loanRows.length) {
-        await db.upsert('loans', loanRows, { onConflict: 'id' });
-      }
-    }
+    await pgMirror.upsertClientWithLoansStrict(ownerKey, client);
   } catch (e) {
     const msg = (e && e.message) || 'unknown';
     const err = new Error('Save landed in blob but Postgres write failed: ' + msg);
