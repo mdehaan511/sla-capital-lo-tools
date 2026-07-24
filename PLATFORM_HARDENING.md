@@ -148,11 +148,33 @@ One deal = one record. "Quoted" is a status, the sizer snapshot is a field.
       repaired via admin status move + spot-fold (`keys` param).
       Quotes are marked _foldedAt/_foldedIntoLoanId; store stays until
       D4.
-- [ ] **D2.** Pipeline/closed/decisions/saved-quotes read loans (PG) directly.
-- [ ] **D3.** Delete the quote-sync machinery: `syncLoanToQuoteStore`, the
-      quote sweeps in loan-cancel/decline/advance-status/change-type/
-      processing-stage, QuoteStore dual-write in the sizers.
-- [ ] **D4.** Retire the `quotes` store + quotes-index.
+- [x] **D2.** DONE (Deploys 236.423-424, live 2026-07-24). /api/quotes now
+      SERVES FROM LOANS (PG + client embed) in the exact v2-projection
+      shape — Leads pipeline, closed.html, decisions.html, and the
+      sizers' saved-quotes panel all cut over with zero frontend changes.
+      Ids stable via loan._quoteId (folded) else q_ln_<loanId>; orphan
+      drafts merge in from the store until triaged; loan-backed store
+      copies dedupe away. Borrower name/status/amount render from the
+      loan+client — the stale-snapshot class is structurally dead.
+      Bonus fix 236.424: loan-update-from-sizer's preservation map was
+      missing formData (partial updates silently wiped the sizer
+      snapshot — invisible in the quote era, caught by the D2 gate).
+- [~] **D3.** STARTED. 236.425 removed the quote-status inherit walk in
+      sizer-save (obsolete + the walk family's last member). REMAINING
+      (pure waste-removal, zero display impact since nothing renders
+      loan-backed quote records): delete the quote sweeps in
+      loan-advance-status / loan-cancel / loan-decline / loan-change-type
+      / loan-processing-stage / loan-financials-edit / -restore, the
+      loanForQuoteSync opts (sizer-save, loan-create-on-client, writeClient
+      step 4), then the quotes.js frontend dual-write. Mechanical; gate
+      each batch with smoke.
+- [ ] **D4 (revised).** The quotes store CANNOT fully retire yet: it holds
+      the orphan drafts (sizer saves with no client — the only home for
+      that flow) and the legacy records that give folded deals their
+      stable row-action ids. After D3 + orphan triage: demote it formally
+      to "drafts + legacy archive", teach quotes-close/decide to resolve
+      q_ln_* synthetic ids (write the LOAN only), then retire quotes-index
+      once the orphan-merge reads move off it.
 
 ## Phase E — Auth consolidation  *(≈1 week; before borrower launch)*
 
