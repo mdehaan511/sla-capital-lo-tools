@@ -1165,6 +1165,14 @@
   status = 200
   force = true
 
+# Deploy 236.421 — Phase D1: the quote→loan fold migration. Batched,
+# resumable, dry-run default; loan/client side wins all conflicts.
+[[redirects]]
+  from = "/api/admin-quote-loan-fold"
+  to = "/.netlify/functions/admin-quote-loan-fold"
+  status = 200
+  force = true
+
 [functions."admin-blob-pg-sync"]
   timeout = 26
 
