@@ -138,6 +138,19 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
 .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
 .toast.show { opacity: 1; }
+/* Deploy 236.412 — LLC percent-ownership fields: hide the number-input
+   spinner arrows. Borrowers were nudging carefully entered percentages
+   with stray clicks/keys; the companion keydown/wheel guards below the
+   applyMask code kill the arrow-key and scroll-wheel increments. */
+input[name$="_ownership"]::-webkit-outer-spin-button,
+input[name$="_ownership"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[name$="_ownership"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
 </style>
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <script src="sla-api.js"></script>
@@ -1953,6 +1966,25 @@ document.addEventListener('focusout', function(e) {
     el.removeAttribute('data-ssn-heldmask');
   }
 }, true);
+
+// Deploy 236.412 — percent-ownership fields: number inputs increment on
+// ArrowUp/ArrowDown and (in some browsers) on scroll-wheel while
+// focused. Borrowers were unknowingly changing ownership percentages
+// that way. Spinner arrows are hidden in CSS; these guards kill the
+// key/wheel increments. Typing digits is unaffected. Delegated
+// (capture) because steps re-render their DOM.
+function _isOwnershipInput(el) {
+  return !!(el && el.name && /_ownership$/.test(el.name));
+}
+document.addEventListener('keydown', function(e) {
+  if (!_isOwnershipInput(e.target)) return;
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+}, true);
+document.addEventListener('wheel', function(e) {
+  if (_isOwnershipInput(e.target) && document.activeElement === e.target) {
+    e.target.blur(); // let the page scroll; just don't change the value
+  }
+}, { capture: true, passive: true });
 
 // Format strings for the three masks we support. Strips non-digits, then
 // inserts separators at the right positions. Truncates to mask max length.
