@@ -291,6 +291,18 @@ function hydrateGuarantorFields(data) {
         data[prefix + k] = g[k];
       }
     });
+    // Deploy 236.411 — returning borrowers used to find the SSN field
+    // EMPTY (the load endpoint strips the real SSN for security and
+    // only returns ssn_masked), which read as "my SSN was deleted"
+    // and forced re-typing every SSN on every visit. Seed the visible
+    // field with the mask instead: the borrower sees ***-**-1234 (on
+    // file, last 4 for confidence), required-validation passes, and
+    // the save endpoints already detect the mask round-tripping and
+    // preserve the stored encrypted SSN untouched. Typing a new SSN
+    // still replaces it (see the focus-clear handler near applyMask).
+    if ((data[prefix + 'ssn'] === undefined || data[prefix + 'ssn'] === '') && g.ssn_masked) {
+      data[prefix + 'ssn'] = g.ssn_masked;
+    }
   });
 }
 
@@ -1915,9 +1927,41 @@ function moneyBlur(el) {
   if (el.name) STATE.data[el.name] = raw;
 }
 
+// Deploy 236.411 — SSN fields holding the preserved mask (***-**-1234)
+// clear themselves on focus so the borrower can type a replacement
+// without fighting the mask, and restore the mask on blur if they
+// leave the field empty — so an accidental click can never lose the
+// on-file SSN. Delegated (capture) because steps re-render their DOM.
+document.addEventListener('focusin', function(e) {
+  var el = e.target;
+  if (!el || !el.getAttribute || el.getAttribute('data-mask') !== 'ssn') return;
+  if (/^\*/.test(el.value || '')) {
+    el.setAttribute('data-ssn-heldmask', el.value);
+    el.value = '';
+  }
+}, true);
+document.addEventListener('focusout', function(e) {
+  var el = e.target;
+  if (!el || !el.getAttribute || el.getAttribute('data-mask') !== 'ssn') return;
+  var held = el.getAttribute('data-ssn-heldmask');
+  if (held && !(el.value || '').trim()) {
+    el.value = held;
+    el.removeAttribute('data-ssn-heldmask');
+    if (typeof onFieldChange === 'function') onFieldChange(el);
+  } else if (held && (el.value || '').trim()) {
+    // Borrower typed a real replacement — drop the held mask.
+    el.removeAttribute('data-ssn-heldmask');
+  }
+}, true);
+
 // Format strings for the three masks we support. Strips non-digits, then
 // inserts separators at the right positions. Truncates to mask max length.
 function applyMask(s, mask) {
+  // Deploy 236.411 — a preserved-SSN mask (***-**-1234) must survive
+  // any formatting pass untouched: stripping its non-digits would
+  // mangle it into "123-4" and the save would then store THAT as a
+  // real SSN. Values starting with * are the mask, never user typing.
+  if (mask === 'ssn' && /^\*/.test(String(s || ''))) return s;
   var digits = String(s || '').replace(/\D/g, '');
   if (mask === 'ssn') {
     digits = digits.slice(0, 9);
