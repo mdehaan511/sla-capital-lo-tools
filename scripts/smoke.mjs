@@ -150,6 +150,10 @@ async function writeSuite() {
       loanPurpose: 'purchase',
       rate: 7.5,
       ltv: 70,
+      // Real sizer saves always carry the formData snapshot; the D2
+      // quotes-from-loans filter uses it to distinguish sized deals
+      // from never-quoted baseline imports.
+      formData: { loanAmt: 100000, _finalRate: '7.500', propType: 'sfr' },
     },
   });
   const saved = ok('sizer-save-loan creates client + loan',
