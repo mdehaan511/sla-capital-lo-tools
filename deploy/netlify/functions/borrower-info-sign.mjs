@@ -66,12 +66,27 @@ const B2_TOKEN_TTL_DAYS = 30;
 // function log; if an invocation dies, the LAST mark printed names the
 // slow step. Remove once the incident is closed (Deploy 194 rule).
 let _signT0 = 0;
+let _marks = [];
 function _mark(label) {
-  console.log('[sign-timing] ' + label + ' t+' + (Date.now() - _signT0) + 'ms');
+  const line = label + ' t+' + (Date.now() - _signT0) + 'ms';
+  _marks.push(line);
+  console.log('[sign-timing] ' + line);
+}
+// Deploy 236.415 — self-imposed deadline UNDER the platform's 10s
+// kill timer. Instead of dying as a naked 504, the handler:
+//   - pre-signature: aborts with its own step timings in the error
+//     (diagnosis without Netlify log access), nothing half-committed;
+//   - post-signature: SKIPS remaining housekeeping (advance, emails)
+//     and returns success — the signature is durable, the borrower is
+//     done, skipped steps are flagged on the record for follow-up.
+const SIGN_DEADLINE_MS = 7200;
+function _pastDeadline() {
+  return (Date.now() - _signT0) > SIGN_DEADLINE_MS;
 }
 
 export default async (req, context) => {
   _signT0 = Date.now();
+  _marks = [];
   try {
     return await handle(req, context);
   } catch (e) {
@@ -79,6 +94,16 @@ export default async (req, context) => {
     return json(500, { error: 'Server error: ' + (e.message || 'unknown') });
   }
 };
+
+// Pre-signature abort: nothing durable has been written yet, so a
+// clean retryable error carrying our own timings beats a platform 504.
+function _deadlineAbort(where) {
+  console.warn('[sign-timing] DEADLINE pre-signature at ' + where + ' — ' + _marks.join(' | '));
+  return json(503, {
+    error: 'Signing timed out while preparing your documents (at: ' + where + '). ' +
+           'Nothing was lost — please try again. Diagnostic: ' + _marks.join(' → '),
+  });
+}
 
 async function handle(req) {
   const pre = handleOptions(req); if (pre) return pre;
@@ -125,6 +150,10 @@ async function handle(req) {
   if (record.signedAt || record.b1SignedAt) {
     return json(409, { error: 'This application has already been signed.' });
   }
+
+  // Deploy 236.415 — steps skipped to protect the signature from the
+  // platform timeout. Attached to the record + response for follow-up.
+  const _housekeepingSkipped = [];
 
   // ── 2. Make sure there's actually data to sign ─────────────────
   if (!record.data || Object.keys(record.data).length === 0) {
@@ -213,6 +242,7 @@ async function handle(req) {
   const pdfStatus = hasB2 ? 'awaiting_borrower2' : 'complete';
   let pdfBuffer;
   try {
+    if (_pastDeadline()) return _deadlineAbort('before-pdf-render');
     _mark('pdf-render-start');
     pdfBuffer = await renderSignedApplicationPDF({
       record,
@@ -397,8 +427,11 @@ async function handle(req) {
         if (isFinite(ownPct)) ownershipFromGuarantors[justAddedId] = ownPct;
       }
       // Persist every client we touched — new and updated.
+      // Deploy 236.415: each write is deadline-guarded — client-record
+      // housekeeping must never cost the borrower their signature.
       _mark('guarantor-writes-start n=' + guarantorClientChanges.length);
       for (const ch of guarantorClientChanges) {
+        if (_pastDeadline()) { _housekeepingSkipped.push('guarantor-client-writes'); break; }
         // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
         await writeClient(record.ownerKey, ch.client, { clientsStore });
       }
@@ -443,8 +476,12 @@ async function handle(req) {
           }
           ln.updatedAt = signedAt;
           primaryClient.updatedAt = signedAt;
-          // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
-          await writeClient(record.ownerKey, primaryClient, { clientsStore });
+          if (_pastDeadline()) {
+            _housekeepingSkipped.push('primary-client-write');
+          } else {
+            // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
+            await writeClient(record.ownerKey, primaryClient, { clientsStore });
+          }
         }
       }
     } catch (e) {
@@ -539,7 +576,9 @@ async function handle(req) {
   record.signedAuditKey = signedKey;
   record.updatedAt = signedAt;
   try {
+    if (_housekeepingSkipped.length) record._housekeepingSkipped = _housekeepingSkipped;
     await biStore.setJSON(recordKey, record);
+    _mark('record-signed-durable');
   } catch (e) {
     console.warn('borrower-info-sign: borrower-info record save failed (signed record already stored):', e);
     // The signed PDF is the canonical record. Continue.
@@ -552,6 +591,12 @@ async function handle(req) {
   // required signatures is still missing.
   let advanceResult = null;
   if (!hasB2) {
+    // Deploy 236.415 — signature is durable past this point: every
+    // remaining step is best-effort housekeeping and must not cost
+    // the borrower a 504.
+    if (_pastDeadline()) {
+      _housekeepingSkipped.push('property-sync', 'advance');
+    } else {
     _mark('property-sync-start');
     try { await syncPropertyFieldsToLoan(record); }
     catch (e) { console.warn('borrower-info-sign: property sync failed:', e); }
@@ -565,6 +610,7 @@ async function handle(req) {
       console.warn('borrower-info-sign: advance threw:', e);
       advanceResult = { ok: false, reason: 'exception: ' + (e.message || 'unknown') };
     }
+    } // end deadline-guard else (Deploy 236.415)
   }
 
   // ── 9. Emails ──────────────────────────────────────────────────
@@ -575,7 +621,10 @@ async function handle(req) {
   let emailedB1 = false;
   let emailedB2 = false;
   let emailedSecondaryCount = 0;
-  try {
+  // Deploy 236.415 — deadline guard: skip emails rather than 504.
+  if (_pastDeadline()) {
+    _housekeepingSkipped.push('emails');
+  } else try {
     if (hasB2) {
       // The interim notice to b1 lists every secondary signer they're
       // waiting on so they understand which links are out.
@@ -628,7 +677,9 @@ async function handle(req) {
   // failure but doesn\u2019t throw \u2014 a borrower\u2019s signing should never
   // fail because of a downstream LO-side email.
   let loNotified = false;
-  try {
+  if (_pastDeadline()) {
+    _housekeepingSkipped.push('lo-notify');
+  } else try {
     loNotified = await notifyLOOfSignedApp(record, b1Audit, {
       hasB2,
       b2Name: b2Block && b2Block.name,
@@ -638,8 +689,23 @@ async function handle(req) {
     console.warn('borrower-info-sign: LO notify failed:', e && e.message);
   }
 
+  // Deploy 236.415 — persist any skips recorded after the signed-
+  // record write so the LO/repair side can see what needs a follow-up.
+  if (_housekeepingSkipped.length && record._housekeepingSkipped !== _housekeepingSkipped) {
+    try {
+      record._housekeepingSkipped = _housekeepingSkipped;
+      await biStore.setJSON(recordKey, record);
+    } catch (_) {}
+  }
+
   _mark('handler-complete');
+  if (_housekeepingSkipped.length) {
+    console.warn('[sign-timing] housekeeping skipped to protect the signature: ' +
+      _housekeepingSkipped.join(', ') + ' — ' + _marks.join(' | '));
+  }
   return json(200, {
+    housekeepingSkipped: _housekeepingSkipped.length ? _housekeepingSkipped : undefined,
+    diag: _housekeepingSkipped.length ? _marks.join(' → ') : undefined,
     ok: true,
     signedAt,
     status: pdfStatus,
