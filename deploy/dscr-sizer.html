@@ -875,6 +875,29 @@ var $ = function(id) { return document.getElementById(id); };
 // Deploy 236.406 (G1) — ltvCol/calcPI/EXCEPTION_HINT live in
 // dscr-pricing.js now; aliased for the render/PDF code below.
 var ltvCol = SLA_DSCR.ltvCol;
+
+// Deploy 236.410 (HOTFIX) — these four page formatters lived in the
+// same line range as ltvCol/calcPI and were accidentally removed with
+// the 236.406 extraction (they're rendering helpers, not pricing, so
+// they belong here, not in dscr-pricing.js). Without them renderResult
+// threw "ac is not defined" on every successful price, which killed
+// edit-mode hydration mid-flight — LOs saw a stuck "Enter a loan
+// amount" card with locked fields. Caught by the Phase A frontend
+// beacon (#platform-errors) on the Loan Details → sizer flow.
+function ac(v) {
+  if (v===null||v===undefined||isNaN(v)) return 'zero';
+  return v>0?'pos':v<0?'neg':'zero';
+}
+function fa(v) {
+  if (v===null||v===undefined||isNaN(v)) return 'N/A';
+  if (v===0) return '&mdash;';
+  return (v>0?'+':'')+v.toFixed(3)+'%';
+}
+function fmtD(n) {
+  if (n==null) return '&mdash;';
+  return '$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function fmtX(n) { return n!=null?n.toFixed(2)+'x':'&mdash;'; }
 var calcPI = SLA_DSCR.calcPI;
 var EXCEPTION_HINT = SLA_DSCR.EXCEPTION_HINT;
 
