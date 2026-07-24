@@ -334,25 +334,15 @@ async function handle(req, context) {
     // → LO opens sizer to price it → save creates the loan record for
     // the first time), inherit the quote's status so Pipeline stays
     // consistent with Loan Details. Otherwise default to 'active'.
+    // Deploy 236.425 (D3) — the quote-status inherit walk is gone. It
+    // existed for the era when a deal's status could live on a QUOTE
+    // record that predated its loan (apply-flow quotes). Post-D1/D2
+    // the loan IS the record: apply-flow deals get their loan (with
+    // status) created by upsertClientFromProspect before any sizer
+    // save, so a genuinely brand-new loan here has no prior status to
+    // inherit. The walk was also the last owner-book scan in the save
+    // path (the 504 family).
     let inheritedStatus = null;
-    try {
-      const qStore = getStore({ name: 'quotes', consistency: 'strong' });
-      const { blobs: qBlobs } = await qStore.list({ prefix: ownerKey + '/' });
-      const wantAddr = String(body.loan.address || '').trim().toLowerCase();
-      for (const { key } of qBlobs) {
-        const q = await qStore.get(key, { type: 'json' }).catch(() => null);
-        if (!q || !q.status) continue;
-        const qAddr = String(q.address || (q.formData && q.formData.address) || '').trim().toLowerCase();
-        if (qAddr !== wantAddr) continue;
-        // Only inherit if the quote's status is "further along" than
-        // the sizer's default ('active'). Prevents pulling in an old
-        // closed/cancelled quote's status for a brand-new loan.
-        if (q.status !== 'active' && q.status !== 'on_hold') {
-          inheritedStatus = q.status;
-          break;
-        }
-      }
-    } catch (_) { /* non-fatal — fall back to default */ }
 
     const fresh = Object.assign({}, _sanitizedLoan(body.loan, null), {
       id:        _newLoanId(),
