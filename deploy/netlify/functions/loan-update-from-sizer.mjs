@@ -202,6 +202,15 @@ async function handle(req, context) {
     _test:                      (incoming._test === true || prior._test === true) || undefined,
     slaDisplayId:               incoming.slaDisplayId               || prior.slaDisplayId               || '',
     appraisedValue:             incoming.appraisedValue             || prior.appraisedValue             || '',
+    // Deploy 236.424 (D2) — formData was never on this preservation
+    // list, so any PARTIAL update (API rate edit, programmatic field
+    // tweak) silently wiped the loan's sizer snapshot. Invisible in
+    // the quote era (pages read the QUOTE's formData copy); fatal now
+    // that /api/quotes renders from the loan. Same bug class 236.141
+    // fixed for guarantors/processing fields.
+    formData: (incoming.formData && typeof incoming.formData === 'object' && Object.keys(incoming.formData).length
+      ? incoming.formData
+      : (prior.formData && typeof prior.formData === 'object' ? prior.formData : undefined)),
   });
 
   // Strip transient meta fields that shouldn't persist.
