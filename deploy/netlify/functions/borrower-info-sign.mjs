@@ -33,7 +33,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, readJsonBody,
 } from './_shared/auth.mjs';
-import { lookupTokenKey } from './_shared/borrower-info-token-index.mjs';
+import { lookupTokenKey, writeTokenIndex } from './_shared/borrower-info-token-index.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 import {
   ESIGN_CONSENT_VERSION, hashFormData, sealAudit, getClientIp, getUserAgent,
@@ -60,7 +60,18 @@ const B2_SIGNED_AUTHS = ['prequal_credit'];
 // in the wild.
 const B2_TOKEN_TTL_DAYS = 30;
 
+// Deploy 236.413 — step timing. A borrower has been getting a platform
+// HTML error page (not our JSON) on every sign attempt, which smells
+// like the 10s function timeout. These marks land in the Netlify
+// function log; if an invocation dies, the LAST mark printed names the
+// slow step. Remove once the incident is closed (Deploy 194 rule).
+let _signT0 = 0;
+function _mark(label) {
+  console.log('[sign-timing] ' + label + ' t+' + (Date.now() - _signT0) + 'ms');
+}
+
 export default async (req, context) => {
+  _signT0 = Date.now();
   try {
     return await handle(req, context);
   } catch (e) {
@@ -99,11 +110,33 @@ async function handle(req) {
       if (r && r.token === body.t) { record = r; recordKey = fastKey; }
     } catch (_) { /* fall through */ }
   }
+  _mark(record ? 'token-index-hit' : 'token-index-MISS');
   if (!record) {
+    // Deploy 236.413 — the old fallback walked the whole store with
+    // one sequential get() per blob; at current store size that alone
+    // can blow the 10s function timeout, which surfaces to the
+    // borrower as a platform HTML error page on EVERY attempt (their
+    // token isn't indexed, so every retry walks again). Chunked
+    // parallel gets + self-heal: once found, write the index entry so
+    // the next attempt takes the fast path.
     const { blobs } = await biStore.list();
-    for (const { key } of blobs) {
-      const r = await biStore.get(key, { type: 'json' });
-      if (r && r.token === body.t) { record = r; recordKey = key; break; }
+    console.log('[sign-timing] index-miss fallback walking ' + blobs.length + ' records');
+    const CHUNK = 25;
+    for (let i = 0; i < blobs.length && !record; i += CHUNK) {
+      const slice = blobs.slice(i, i + CHUNK);
+      const loaded = await Promise.all(slice.map(function (b) {
+        return biStore.get(b.key, { type: 'json' }).then(function (r) {
+          return { key: b.key, r: r };
+        }).catch(function () { return { key: b.key, r: null }; });
+      }));
+      for (const it of loaded) {
+        if (it.r && it.r.token === body.t) { record = it.r; recordKey = it.key; break; }
+      }
+    }
+    _mark('fallback-walk-done found=' + !!record);
+    if (record && recordKey) {
+      await writeTokenIndex(body.t, recordKey, record); // never throws (logs internally)
+      _mark('token-index-healed');
     }
   }
   if (!record) return json(404, { error: 'Link not found or expired' });
@@ -202,6 +235,7 @@ async function handle(req) {
   const pdfStatus = hasB2 ? 'awaiting_borrower2' : 'complete';
   let pdfBuffer;
   try {
+    _mark('pdf-render-start');
     pdfBuffer = await renderSignedApplicationPDF({
       record,
       client,
@@ -385,10 +419,12 @@ async function handle(req) {
         if (isFinite(ownPct)) ownershipFromGuarantors[justAddedId] = ownPct;
       }
       // Persist every client we touched — new and updated.
+      _mark('guarantor-writes-start n=' + guarantorClientChanges.length);
       for (const ch of guarantorClientChanges) {
         // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
         await writeClient(record.ownerKey, ch.client, { clientsStore });
       }
+      _mark('guarantor-writes-done');
       // Flush sub-form token index entries to the lookup store.
       if (subFormIndexEntries.length) {
         try {
@@ -538,8 +574,10 @@ async function handle(req) {
   // required signatures is still missing.
   let advanceResult = null;
   if (!hasB2) {
+    _mark('property-sync-start');
     try { await syncPropertyFieldsToLoan(record); }
     catch (e) { console.warn('borrower-info-sign: property sync failed:', e); }
+    _mark('advance-start');
     try {
       advanceResult = await advanceQuoteToInProcessing(record);
       if (advanceResult && !advanceResult.ok) {
@@ -622,6 +660,7 @@ async function handle(req) {
     console.warn('borrower-info-sign: LO notify failed:', e && e.message);
   }
 
+  _mark('handler-complete');
   return json(200, {
     ok: true,
     signedAt,

@@ -1778,7 +1778,36 @@
         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }).then(function (r) {
-        return r.json().then(function (d) {
+        // Deploy 236.413 — non-JSON responses (a borrower kept hitting
+        // "Unexpected token '<'" here) mean the PLATFORM or the
+        // borrower's NETWORK answered, not our function: a gateway
+        // timeout page, or a corporate/AV proxy interception. Read as
+        // text first so we can (a) beacon the status + body head to
+        // #platform-errors for diagnosis, (b) show the borrower an
+        // actionable message instead of a JSON parse error.
+        return r.text().then(function (raw) {
+          var d = null;
+          try { d = JSON.parse(raw); } catch (_) {}
+          if (d === null) {
+            try {
+              var payload = JSON.stringify({
+                message: 'sign-non-json-response: HTTP ' + r.status,
+                stack: 'content-type: ' + (r.headers.get('content-type') || '?') +
+                       ' | body: ' + String(raw || '').slice(0, 140),
+                page: '/borrower-info.html [sign]',
+                ua: String(navigator.userAgent || '').slice(0, 120),
+              });
+              if (navigator.sendBeacon) navigator.sendBeacon('/api/client-error-log', new Blob([payload], { type: 'application/json' }));
+              else fetch('/api/client-error-log', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: payload }).catch(function () {});
+            } catch (_) {}
+            var nj = new Error(
+              'The signing service returned an unexpected response (HTTP ' + r.status + '). ' +
+              'Your application data IS saved. Please try again in a moment — and if this repeats, ' +
+              'try a different network (e.g. phone hotspot instead of office Wi-Fi) or browser.'
+            );
+            nj.status = r.status;
+            throw nj;
+          }
           if (!r.ok) {
             var err = new Error(d.error || ('HTTP ' + r.status));
             err.status = r.status; err.data = d;
