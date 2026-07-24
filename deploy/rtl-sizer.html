@@ -1856,7 +1856,14 @@ function _syncTargetsToPurchase() {
 function autoCalc() {
   // Toggle save button regardless of whether results have been shown yet
   if (typeof toggleSaveButton === 'function') toggleSaveButton();
-  if (!_resultsShown) return;
+  // Deploy 236.409 — auto-show pricing like the DSCR sizer. Old
+  // behavior: live re-pricing only started AFTER the first Get Rate
+  // click (_resultsShown gate). Now: the moment every required field
+  // is filled (rtlAllRequiredFilled — product/refi/broker-mode aware),
+  // pricing renders on its own. Incomplete forms stay quiet, so no
+  // premature validation noise while the LO is still typing; once
+  // results exist, any change re-prices immediately (unchanged).
+  if (!_resultsShown && !rtlAllRequiredFilled()) return;
   runCalculate();
 }
 
