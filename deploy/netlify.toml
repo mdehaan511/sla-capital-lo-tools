@@ -1156,6 +1156,15 @@
   status = 200
   force = true
 
+# Deploy 236.420 — Phase D reconnaissance: read-only report mapping
+# every quote against PG loans (matches, orphans, snapshot
+# divergences). Drives the D1 quote→loan fold migration design.
+[[redirects]]
+  from = "/api/admin-quote-loan-audit"
+  to = "/.netlify/functions/admin-quote-loan-audit"
+  status = 200
+  force = true
+
 [functions."admin-blob-pg-sync"]
   timeout = 26
 
