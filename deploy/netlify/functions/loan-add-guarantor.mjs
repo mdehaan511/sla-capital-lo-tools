@@ -34,6 +34,7 @@ import { loadRecord } from './_shared/borrower-info-keys.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { findClientByEmail, findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -92,23 +93,14 @@ async function handle(req, context) {
   // We adopt the discovered ownerKey for the rest of the write so the
   // record lands in the correct namespace.
   if (!primary && canOverrideOwner(user).ok) {
-    try {
-      const { blobs } = await clientsStore.list();
-      const wantSuffix = '/' + keySafe(clientId);
-      for (const { key } of blobs) {
-        if (!key.endsWith(wantSuffix)) continue;
-        const rec = await clientsStore.get(key, { type: 'json' });
-        if (rec && rec.id === clientId) {
-          primary = rec;
-          primaryKey = key;
-          const slash = key.indexOf('/');
-          if (slash > 0) ownerKey = key.slice(0, slash);
-          console.warn(`loan-add-guarantor: cross-namespace recovery — clientId=${clientId} found under ownerKey=${ownerKey} (request had none)`);
-          break;
-        }
-      }
-    } catch (e) {
-      console.warn('loan-add-guarantor: cross-namespace scan failed (non-fatal):', e && e.message);
+    // Deploy 236.418 — was a full-store walk (sequential blob gets
+    // across every namespace); now one indexed PG lookup by id.
+    const hit = await findClientById(clientId, clientsStore);
+    if (hit) {
+      primary = hit.client;
+      primaryKey = hit.key;
+      ownerKey = hit.ownerKey;
+      console.warn(`loan-add-guarantor: cross-namespace recovery — clientId=${clientId} found under ownerKey=${ownerKey} (request had none)`);
     }
   }
   if (!primary) return json(404, { error: 'Primary client not found' });
@@ -123,19 +115,14 @@ async function handle(req, context) {
   let matchedExistingClient = false;
   let guarantor = null;
   let guarantorKey = null;
-  try {
-    const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
-    for (const { key } of blobs) {
-      const c = await clientsStore.get(key, { type: 'json' });
-      if (c && String(c.email || '').toLowerCase().trim() === email) {
-        guarantor = c;
-        guarantorKey = key;
-        matchedExistingClient = true;
-        break;
-      }
-    }
-  } catch (e) {
-    console.warn('loan-add-guarantor: client scan failed (non-fatal, will create new):', e && e.message);
+  // Deploy 236.418 — was a sequential walk of the owner's ENTIRE
+  // client book per click (the 504 / "Inactivity Timeout" Mike hit
+  // re-adding Juliette's guarantor #2). Now one indexed PG lookup.
+  const emailHit = await findClientByEmail(ownerKey, email, clientsStore);
+  if (emailHit) {
+    guarantor = emailHit.client;
+    guarantorKey = emailHit.key;
+    matchedExistingClient = true;
   }
 
   const now = new Date().toISOString();

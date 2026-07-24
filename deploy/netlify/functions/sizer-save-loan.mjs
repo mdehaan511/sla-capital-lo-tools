@@ -66,6 +66,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // as 500s (→ LO toast + Slack alert), and a DB rejection leaves NO
 // store mutated.
 import { writeClient } from './_shared/client-write.mjs';
+import { findClientByEmail } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 const CALLER_CANNOT_SET_ON_LOAN = ['id', 'createdAt'];
 
@@ -89,18 +90,11 @@ function _sanitizedLoan(incoming, existing) {
 
 // Best-effort: find a client under `ownerKey` whose email matches `email`.
 // Returns { key, record } or null. Case-insensitive on email.
+// Deploy 236.418 — was a sequential walk of the owner's entire client
+// book; now the shared indexed PG lookup (see _shared/client-lookup.mjs).
 async function _findClientByEmail(clientsStore, ownerKey, email) {
-  if (!email) return null;
-  const wanted = _normEmail(email);
-  try {
-    const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
-    for (const { key } of blobs) {
-      const rec = await clientsStore.get(key, { type: 'json' }).catch(() => null);
-      if (!rec) continue;
-      if (_normEmail(rec.email) === wanted) return { key, record: rec };
-    }
-  } catch (_) {}
-  return null;
+  const hit = await findClientByEmail(ownerKey, email, clientsStore);
+  return hit ? { key: hit.key, record: hit.client } : null;
 }
 
 // Create a fresh client blob with just the contact info. Used when

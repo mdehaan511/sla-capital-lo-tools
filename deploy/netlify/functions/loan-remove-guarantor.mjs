@@ -40,6 +40,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -122,24 +123,22 @@ async function handle(req, context) {
   // eventually be reconciled by other flows.
   let removedBackrefs = 0;
   try {
-    const { blobs } = await clientsStore.list();
-    const wantSuffix = '/' + keySafe(body.guarantorClientId);
-    for (const { key } of blobs) {
-      if (!key.endsWith(wantSuffix)) continue;
-      const rec = await clientsStore.get(key, { type: 'json' }).catch(() => null);
-      if (!rec || rec.id !== body.guarantorClientId) continue;
+    // Deploy 236.418 — was a full-store walk (sequential blob gets
+    // across every namespace) to find the guarantor's client record;
+    // now one indexed PG lookup by id.
+    const hit = await findClientById(body.guarantorClientId, clientsStore);
+    if (hit) {
+      const rec = hit.client;
+      const gOwner = hit.ownerKey;
       const before = Array.isArray(rec._guarantorOnLoans) ? rec._guarantorOnLoans : [];
       const after = before.filter((b) =>
         !(b && b.primaryClientId === primary.id && b.loanId === body.loanId)
       );
+      let dirty = false;
       if (after.length !== before.length) {
         rec._guarantorOnLoans = after;
         rec.updatedAt = now;
-        // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
-        // (also refreshes the guarantor's owner index).
-        const slash = key.indexOf('/');
-        const gOwner = slash > 0 ? key.slice(0, slash) : ownerKey;
-        await writeClient(gOwner, rec, { clientsStore });
+        dirty = true;
         removedBackrefs += (before.length - after.length);
       }
       // Also nuke any pending subform token entries for this loan
@@ -150,14 +149,13 @@ async function handle(req, context) {
         rec._guarantorSubformTokens = rec._guarantorSubformTokens.filter((t) =>
           !(t && t.primaryClientId === primary.id && t.loanId === body.loanId)
         );
-        if (rec._guarantorSubformTokens.length !== beforeT) {
-          const _slash2 = key.indexOf('/');
-          const _gOwner2 = _slash2 > 0 ? key.slice(0, _slash2) : ownerKey;
-          // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
-          await writeClient(_gOwner2, rec, { clientsStore });
-        }
+        if (rec._guarantorSubformTokens.length !== beforeT) dirty = true;
       }
-      break;
+      if (dirty) {
+        // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient.
+        // One write instead of the old up-to-two.
+        await writeClient(gOwner, rec, { clientsStore });
+      }
     }
   } catch (e) {
     console.warn('loan-remove-guarantor: backref cleanup failed (non-fatal):', e && e.message);

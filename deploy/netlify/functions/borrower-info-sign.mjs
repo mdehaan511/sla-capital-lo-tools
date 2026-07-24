@@ -34,6 +34,7 @@ import {
   handleOptions, json, readJsonBody,
 } from './_shared/auth.mjs';
 import { resolveByToken } from './_shared/borrower-info-token-index.mjs';
+import { findClientByEmail } from './_shared/client-lookup.mjs'; // Deploy 236.418
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 import {
   ESIGN_CONSENT_VERSION, hashFormData, sealAudit, getClientIp, getUserAgent,
@@ -286,12 +287,14 @@ async function handle(req) {
   let _pendingGuarantorOwnership = {};
   if (secondaryBlocks.length) {
     try {
-      const { blobs } = await clientsStore.list({ prefix: record.ownerKey + '/' });
+      // Deploy 236.418 — the old preload here walked the owner's ENTIRE
+      // client book (sequential blob gets) before touching a single
+      // guarantor; on a large book that alone blew the function budget
+      // — THE reason 2-guarantor signings 504'd while 1-guarantor ones
+      // squeaked through. Now a per-guarantor indexed PG lookup; the
+      // Map survives as an intra-request cache (also holds clients
+      // created earlier in this same loop).
       const existingByEmail = new Map();
-      for (const { key } of blobs) {
-        const c = await clientsStore.get(key, { type: 'json' });
-        if (c && c.email) existingByEmail.set(String(c.email).toLowerCase().trim(), { key, client: c });
-      }
       // Deploy 236.85 — copy the FULL guarantor field set onto each
       // client (DOB, FICO, home address, marital status, US citizen,
       // flips, rentals, etc.) so the client record matches what the
@@ -344,6 +347,10 @@ async function handle(req) {
           fields.homeAddress.state && fields.homeAddress.zip;
         const subFormToken = 'gsf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
         let existing = existingByEmail.get(email);
+        if (!existing) {
+          existing = await findClientByEmail(record.ownerKey, email, clientsStore);
+          if (existing) existingByEmail.set(email, existing);
+        }
         if (existing) {
           const c = existing.client;
           Object.keys(fields).forEach(function (k) {

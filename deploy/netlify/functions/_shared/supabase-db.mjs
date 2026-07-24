@@ -81,6 +81,14 @@ function _qs(opts) {
       parts.push(encodeURIComponent(k) + '=in.(' + list + ')');
     }
   }
+  // Deploy 236.418 — case-insensitive match (PostgREST ilike). Caller
+  // is responsible for escaping % and _ in the value if a literal
+  // match is intended.
+  if (opts.ilike) {
+    for (const [k, v] of Object.entries(opts.ilike)) {
+      parts.push(encodeURIComponent(k) + '=ilike.' + encodeURIComponent(v));
+    }
+  }
   if (opts.order) {
     for (const [k, dir] of Object.entries(opts.order)) {
       parts.push('order=' + encodeURIComponent(k) + '.' + (dir === 'desc' ? 'desc' : 'asc'));

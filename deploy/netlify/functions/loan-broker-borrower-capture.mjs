@@ -40,6 +40,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
+import { findClientByEmail } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -93,18 +94,11 @@ async function handle(req, context) {
   loan.guarantors    = Array.isArray(loan.guarantors) ? loan.guarantors : [];
   loan.guarantorClientIds = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
 
-  // Preload all clients for this owner once so per-guarantor email
-  // matching doesn't do N list() calls.
+  // Deploy 236.418 — the old "preload" here walked the owner's ENTIRE
+  // client book (sequential blob gets) before matching a single
+  // guarantor. Now the Map is a lazy intra-request cache backed by
+  // per-guarantor indexed PG lookups (see the loop below).
   const ownerClientsIdx = new Map(); // email -> { client, key }
-  try {
-    const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
-    for (const { key } of blobs) {
-      const c = await clientsStore.get(key, { type: 'json' }).catch(() => null);
-      if (!c) continue;
-      const em = String(c.email || '').toLowerCase().trim();
-      if (em) ownerClientsIdx.set(em, { client: c, key });
-    }
-  } catch (_) { /* non-fatal */ }
 
   // For each incoming guarantor: match-or-create the client, flatten
   // the data onto loan.guarantors[i], push the id onto guarantorClientIds.
@@ -113,6 +107,12 @@ async function handle(req, context) {
     const g = guarantors[i];
     const email = String(g.email).toLowerCase().trim();
     let matched = ownerClientsIdx.get(email);
+    if (!matched) {
+      // Deploy 236.418 — indexed PG lookup replaces the retired
+      // whole-book preload; cache for intra-request reuse.
+      matched = await findClientByEmail(ownerKey, email, clientsStore);
+      if (matched) ownerClientsIdx.set(email, matched);
+    }
     let clientRec;
     let clientKey;
     let mode;
