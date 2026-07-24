@@ -629,11 +629,27 @@
     // round-trip, no visible slow load. Callers that need immediate
     // freshness verification still use `forceFresh: true`.
     if (_BASELINE_MUTATIONS.test(path)) { cache.markStale('clients'); return; }
-    // Standard /api/<prefix>-<verb> pattern.
-    var m = /^\/api\/([a-z-]+?)(?=-[a-z]+(?:\?|$))/i.exec(path);
-    if (!m) return;
-    var prefix = m[1].toLowerCase();
-    var slot = _MUTATION_PREFIX_TO_SLOT[prefix];
+    // Deploy 236.419 — longest-prefix match against the map keys.
+    // The old regex derived the prefix lazily-up-to-the-LAST-hyphen-
+    // word, so any endpoint with a multi-word verb parsed to a key
+    // the map doesn't have: loan-add-guarantor → "loan-add",
+    // loan-advance-status → "loan-advance", loan-note-add →
+    // "loan-note" — NONE of them ever invalidated, despite the
+    // comment above claiming coverage. Symptom: "I just did X but
+    // the page still shows the old data" for up to the 5-minute TTL
+    // (Mike hit it as "Borrower record not found" right after
+    // adding a guarantor — the pane searched a pre-add cached list).
+    var lower = path.toLowerCase();
+    var slot = null, bestLen = 0;
+    Object.keys(_MUTATION_PREFIX_TO_SLOT).forEach(function (key) {
+      if (key.length > bestLen &&
+          (lower.indexOf('/api/' + key + '-') === 0 ||
+           lower === '/api/' + key ||
+           lower.indexOf('/api/' + key + '?') === 0)) {
+        slot = _MUTATION_PREFIX_TO_SLOT[key];
+        bestLen = key.length;
+      }
+    });
     if (!slot) return;
     // Deploy 236.379 — slots may be a single name or an array (loan-*
     // mutations invalidate both clients AND quotes).
