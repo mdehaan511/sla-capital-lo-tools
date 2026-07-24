@@ -111,9 +111,13 @@ Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
       design. `PG_MIRROR_DISABLED=true` still restores blob-first in a PG
       outage. Bonus fixes: un-decline C4-trigger block, six endpoints that
       never wrote clients-index, raw-email PG keying in two endpoints.
-- [ ] **C3.** Replace materialized index blobs (clients-index, quotes-index,
-      prospects-index) with PG queries/views — they cannot drift from rows
-      they're computed from.
+- [x] **C3 (clients-index).** Reads cut to PG (236.404 /api/clients,
+      236.405 loan-locate); write-through RETIRED (236.417 — it was a
+      multi-MB RMW on every client mutation and the accumulator behind
+      the multi-guarantor signing timeouts / "Inactivity Timeout" pages).
+      Stale index = expected; emergency fallback only; health-check
+      updated. quotes-index + prospects-index remain until Phase D gives
+      their stores PG tables.
 - [x] **C4.** DB-enforced integrity (Deploy 236.394). `db/migrations/003_integrity.sql`
       (run AFTER 002): CHECK constraints on loans.status + processing_stage
       (validated against prod data 2026-07-22), trg_loans_no_demotion blocks
