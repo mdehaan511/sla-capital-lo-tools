@@ -137,73 +137,15 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
 
-  // Mirror the status change onto matching quotes (best-effort). Same
-  // address-aware fuzzy match as loan-advance-status. Failure is
-  // non-fatal \u2014 the client.loans record is what Pipeline/Loans read
-  // from, so the LO sees the change immediately even if quote sync lags.
-  const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-  let quotesUpdated = 0;
+  // Deploy 236.426 (D3): quote sweep retired \u2014 /api/quotes renders from
+  // loans (D2), so store copies no longer need freshening.
   const newStatus = targetLoan.status;
-  const aggrNorm = (s) => {
-    let x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    x = x.replace(/,\s*(usa|us|united states)\.?$/i, '');
-    x = x.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave')
-         .replace(/\bboulevard\b/g, 'blvd').replace(/\bdrive\b/g, 'dr')
-         .replace(/\broad\b/g, 'rd').replace(/\blane\b/g, 'ln')
-         .replace(/\bcourt\b/g, 'ct').replace(/\bcircle\b/g, 'cir')
-         .replace(/\bplace\b/g, 'pl').replace(/\bparkway\b/g, 'pkwy')
-         .replace(/\btrail\b/g, 'trl').replace(/\bterrace\b/g, 'ter');
-    x = x.replace(/[.,]/g, '');
-    return x.trim();
-  };
-  const targetAddr = aggrNorm(targetLoan.address || '');
-  // Deploy 236.41 — see loan-advance-status.mjs for the rationale.
-  const validLoanIds = new Set((client.loans || []).map((l) => l && l.id).filter(Boolean));
-
-  try {
-    const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
-    for (const { key } of blobs) {
-      const q = await quotesStore.get(key, { type: 'json' });
-      if (!q) continue;
-      // Deploy 236.21 / 236.41 — loanId match plus legacy + stale
-      // loanId fallback. Same logic as loan-advance-status.
-      const matchById         = q.loanId === body.loanId;
-      const quoteLoanIdIsStale = q.loanId && !validLoanIds.has(q.loanId);
-      const addrMatches        = aggrNorm(q.address || '') === targetAddr;
-      const matchByLegacy     = (!q.loanId || quoteLoanIdIsStale) && addrMatches;
-      if (!matchById && !matchByLegacy) continue;
-      if (matchByLegacy) q.loanId = body.loanId;
-      q.status = newStatus;
-      q.updatedAt = now;
-      if (isRestore) {
-        q._restoredAt = now;
-        q._restoredBy = selfEmail;
-      } else {
-        q._cancelledAt = now;
-        q._cancelledBy = selfEmail;
-        q._cancelledFrom = prevStatus;
-        if (reason) q._cancelReason = reason;
-      }
-      await quotesStore.setJSON(key, q);
-      quotesUpdated += 1;
-    }
-  } catch (e) {
-    console.warn('loan-cancel: quote sync failed:', e);
-    return json(200, {
-      success: true,
-      prevStatus,
-      newStatus,
-      loan: targetLoan,
-      quotesUpdated,
-      warning: 'Loan updated, but quote sync failed: ' + (e.message || 'unknown'),
-    });
-  }
 
   return json(200, {
     success: true,
     prevStatus,
     newStatus,
     loan: targetLoan,
-    quotesUpdated,
+    quotesUpdated: 0, // D3 (236.426): quote sweeps retired — display reads loans
   });
 }

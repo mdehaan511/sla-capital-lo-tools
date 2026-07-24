@@ -25,6 +25,8 @@ import { writeClient } from './_shared/client-write.mjs';
 // decisions mutated the quote blob but the All-LOs index kept the old
 // status until something else re-indexed the quote).
 import { quotesIndex } from './_shared/quotes-index.mjs';
+// Deploy 236.426 (D4) — loan-first decisions for synthetic q_ln_* ids.
+import { db } from './_shared/supabase-db.mjs';
 
 const ALLOWED = new Set(['approved', 'denied', 'on_hold']);
 
@@ -52,6 +54,48 @@ export default async (req, context) => {
   }
   const cleanId    = keySafe(String(quoteId));
   const key = `${cleanOwner}/${cleanId}`;
+
+  // Deploy 236.426 (D4) — synthetic loan-backed row ids (q_ln_<loanId>).
+  // Post-D2 the decisions board renders rows synthesized from LOANS;
+  // deals without a legacy quote record decide LOAN-FIRST: the status
+  // mapping + decision audit land on the loan, no quote store involved.
+  if (String(quoteId).indexOf('q_ln_') === 0) {
+    const loanId = String(quoteId).slice(5);
+    const row = await db.first('loans', { select: 'id,client_id,owner_email', eq: { id: loanId } }).catch(() => null);
+    if (!row) return json(404, { error: 'Loan not found for ' + quoteId });
+    const loanOwnerKey = keySafe(normalizeEmail(row.owner_email || ''));
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    const cKey = loanOwnerKey + '/' + keySafe(row.client_id);
+    const client = await clientsStore.get(cKey, { type: 'json' }).catch(() => null);
+    if (!client) return json(404, { error: 'Client record not found for loan ' + loanId });
+    const loan = (client.loans || []).find((l) => l && l.id === loanId);
+    if (!loan) return json(404, { error: 'Loan ' + loanId + ' not on client record' });
+
+    const persisted = (status === 'approved') ? 'awaiting_app' : status;
+    const now2 = new Date().toISOString();
+    const prev = loan.status || '';
+    loan.status = persisted;
+    loan.updatedAt = now2;
+    loan.decidedAt = now2;
+    loan.decidedBy = user.email || '';
+    if (reason != null && String(reason).trim()) loan.decisionNotes = String(reason).trim();
+    appendNoteEntry(loan, {
+      kind: 'status',
+      text: 'Decision: ' + (prev || '—') + ' → ' + persisted + (reason ? ' — ' + String(reason).trim() : ''),
+      author: user.email || '', authorEmail: user.email || '',
+      meta: { from: prev, to: persisted, via: 'quotes-decide' },
+    });
+    client.updatedAt = now2;
+    // allowDemotion: approve maps submitted → awaiting_app (terminal →
+    // non-terminal) by DESIGN — the admin's explicit decision moves the
+    // deal into the borrower-application stage. Same justification as
+    // loan-advance-status admin moves (C4).
+    await writeClient(loanOwnerKey, client, { clientsStore, allowDemotion: true });
+    return json(200, {
+      ok: true, loansUpdated: 1,
+      quote: { id: quoteId, loanId, status: persisted, decidedAt: now2, decisionNotes: loan.decisionNotes || '' },
+    });
+  }
 
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
   let quote;

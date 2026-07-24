@@ -231,8 +231,12 @@ async function writeSuite() {
   //    update the quote AND flip the loan (loansUpdated ≥ 1: the
   //    Trevor St bug class).
   if (quoteId) {
+    // D4 (236.426): close via the LIST ROW's id — for a fresh loan
+    // that's the synthetic q_ln_<loanId>, exercising the loan-first
+    // close path (deals without legacy quote records).
+    const closeId = (loanRow && loanRow.id) || quoteId;
     const close = await api('POST', '/api/quotes-close', {
-      ownerKey, quoteId, finalLoanAmount: 100000, commissionRate: 50,
+      ownerKey, quoteId: closeId, finalLoanAmount: 100000, commissionRate: 50,
     });
     ok('quotes-close succeeds and updates the loan',
       close.status === 200 && close.body && (close.body.loansUpdated || 0) >= 1,

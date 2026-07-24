@@ -17,8 +17,6 @@
  *      becomes pure cache as C3/C5 retire those readers.
  *   3. clients-index blob. Pipeline's materialized index — C3 deletes
  *      this layer entirely; until then it stays write-through.
- *   4. Optional quote-store sync (loanForQuoteSync) — Phase D kills
- *      the quote/loan duality; until then, same rules as before.
  *
  * All steps awaited, all throw on failure (strict-write discipline —
  * see memory/PLATFORM_HARDENING.md). The caller's try/catch turns
@@ -33,13 +31,11 @@
  *   allowDemotion    — pass true ONLY for explicit user-intended
  *                      terminal-status demotions (restore, admin
  *                      moves, curated merges). See C4.
- *   loanForQuoteSync — loan record to mirror into the quotes store.
  *   clientsStore     — reuse the caller's store handle (optional).
  */
 import { getStore } from '@netlify/blobs';
 import { keySafe } from './auth.mjs';
 import { mirror as pgMirror } from './pg-mirror.mjs';
-import { syncLoanToQuoteStoreStrict } from './quote-sync.mjs';
 
 export async function writeClient(ownerKey, client, opts) {
   opts = opts || {};
@@ -66,8 +62,7 @@ export async function writeClient(ownerKey, client, opts) {
   //    index survives only as an emergency fallback that clients-list
   //    can rebuild inline on demand).
 
-  // 4. Quote-store sync (retired by Phase D).
-  if (opts.loanForQuoteSync) {
-    await syncLoanToQuoteStoreStrict(ownerKey, opts.loanForQuoteSync);
-  }
+  // 4. Quote-store sync — RETIRED. Deploy 236.426 (D3): quote sweep
+  //    retired — /api/quotes renders from loans (D2), so store copies
+  //    no longer need freshening. (opts.loanForQuoteSync is ignored.)
 }

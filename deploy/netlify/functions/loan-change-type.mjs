@@ -175,39 +175,8 @@ async function handle(req, context) {
   // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
   await writeClient(ownerKey, client, { clientsStore });
 
-  // Also touch the matching quote in QuoteStore (if any) so Pipeline
-  // reflects the new status + tool type.
-  //
-  // QC pass — STRICT loanId match when the quote carries one, exactly
-  // like quotes-close (Deploy 236.371) and quotes-decide (236.13).
-  // The old address-only first-match-wins loop could clobber ANOTHER
-  // loan's quote at the same property: reset its status to active,
-  // overwrite its toolType + formData. Address matching is retained
-  // ONLY for legacy quotes that never had a loanId stamped.
-  try {
-    const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-    const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
-    const targetAddr = normAddr(loan.address);
-    for (const { key } of blobs) {
-      const q = await quotesStore.get(key, { type: 'json' });
-      if (!q) continue;
-      const matchesLoanId  = q.loanId && q.loanId === loan.id;
-      const matchesAddress = !q.loanId && normAddr(q.address) === targetAddr;
-      if (!matchesLoanId && !matchesAddress) continue;
-      q.toolType = newType;
-      q.status = 'active';
-      q.updatedAt = now;
-      // Wipe stale formData snapshot — sizer will re-save when LO recalculates
-      q.formData = carryOver.formData;
-      // Don't preserve old submittedAt etc on the quote
-      delete q.submitNotes;
-      delete q.submitNotesAt;
-      await quotesStore.setJSON(key, q);
-      break;
-    }
-  } catch (e) {
-    console.warn('loan-change-type: quote update failed (non-fatal):', e && e.message);
-  }
+  // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
+  // loans (D2), so store copies no longer need freshening.
 
   // Build the redirect URL — open the loan in the NEW sizer prefilled
   // from the (now-cleared) loan record. `typeChanged=1` tells the sizer
@@ -236,10 +205,6 @@ function appendSystemNote(existing, oldType, newType, email, when) {
   const header = '— Loan type changed ' + oldType.toUpperCase() + ' → ' + newType.toUpperCase() + ' (' + ts + ', by ' + email + ') —';
   const note = header + '\nLoan rebuilt in the ' + newType.toUpperCase() + ' sizer. Previous pricing and any sent envelopes from before this change are superseded.';
   return existing.trim() ? (existing.trim() + '\n\n' + note) : note;
-}
-
-function normAddr(s) {
-  return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
 function extractStreet(fullAddr) {

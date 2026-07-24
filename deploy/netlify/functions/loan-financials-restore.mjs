@@ -19,10 +19,6 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { appendNoteEntry } from './_shared/notes-log.mjs';
-// Deploy 236.222 Phase 5 — mirror the restored loan onto the QuoteStore too.
-// (Kept non-strict: the sweep is best-effort and its count feeds the
-// quotesSynced response field.)
-import { syncLoanToQuoteStore } from './_shared/quote-sync.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
@@ -123,14 +119,9 @@ async function handle(req, context) {
   }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
 
-  // Deploy 236.222 Phase 5 — mirror the restored values onto the QuoteStore.
-  let quotesSynced = 0;
-  try {
-    const sync = await syncLoanToQuoteStore(ownerKey, loan);
-    quotesSynced = sync.updated || 0;
-  } catch (e) {
-    console.warn('loan-financials-restore: quote sync failed (non-fatal):', e && e.message);
-  }
+  // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
+  // loans (D2), so store copies no longer need freshening.
 
-  return json(200, { ok: true, loan, restored, quotesSynced });
+  // D3 (236.426): quote sweeps retired — display reads loans
+  return json(200, { ok: true, loan, restored, quotesSynced: 0 });
 }

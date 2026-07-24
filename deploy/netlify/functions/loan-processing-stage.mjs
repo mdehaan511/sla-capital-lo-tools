@@ -212,50 +212,13 @@ async function handle(req, context) {
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
 
-  // Deploy 236.378 — when the stage move changed loan.status, sweep the
-  // matching quote(s) too so the Leads board reflects it. Strict loanId
-  // match + stale-loanId address fallback, same pattern as
-  // loan-cancel / quotes-close (236.21/236.41/236.377). Best-effort:
-  // a quote-sweep failure never fails the stage move (the loan-side
-  // write above is the authoritative one).
-  let quotesUpdated = 0;
-  if (statusChanged) {
-    try {
-      const aggrNorm = (s) => {
-        let x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-        x = x.replace(/,\s*(usa|us|united states)\.?$/i, '');
-        x = x.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave')
-             .replace(/\bboulevard\b/g, 'blvd').replace(/\bdrive\b/g, 'dr')
-             .replace(/\broad\b/g, 'rd').replace(/\blane\b/g, 'ln')
-             .replace(/\bcourt\b/g, 'ct').replace(/\bcircle\b/g, 'cir')
-             .replace(/\bplace\b/g, 'pl').replace(/\bparkway\b/g, 'pkwy')
-             .replace(/\btrail\b/g, 'trl').replace(/\bterrace\b/g, 'ter');
-        return x.replace(/[.,]/g, '').trim();
-      };
-      const targetAddr = aggrNorm(loan.address || '');
-      const validLoanIds = new Set((client.loans || []).map((l) => l && l.id).filter(Boolean));
-      const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-      const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
-      for (const { key } of blobs) {
-        const q = await quotesStore.get(key, { type: 'json' }).catch(() => null);
-        if (!q) continue;
-        const matchById          = q.loanId === loanId;
-        const quoteLoanIdIsStale = q.loanId && !validLoanIds.has(q.loanId);
-        const addrMatches        = targetAddr && aggrNorm(q.address || '') === targetAddr;
-        const matchByLegacy      = (!q.loanId || quoteLoanIdIsStale) && addrMatches;
-        if (!matchById && !matchByLegacy) continue;
-        if (matchByLegacy) q.loanId = loanId; // re-stamp for future strict matches
-        q.status = loan.status;
-        q.updatedAt = new Date().toISOString();
-        await quotesStore.setJSON(key, q);
-        quotesUpdated++;
-      }
-    } catch (e) {
-      console.warn('loan-processing-stage: quote sweep failed (non-fatal):', e && e.message);
-    }
-  }
+  // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
+  // loans (D2), so store copies no longer need freshening.
+  // (quotesUpdated hard-coded below; the pp_closed status promotion on
+  // the LOAN above is untouched — that's the authoritative record.)
 
-  return json(200, { ok: true, loan, clientId: client.id, autoTasks, statusChanged, quotesUpdated });
+  // D3 (236.426): quote sweeps retired — display reads loans
+  return json(200, { ok: true, loan, clientId: client.id, autoTasks, statusChanged, quotesUpdated: 0 });
 }
 
 // Auto-task creator. Reads settings.task_templates[stage] and

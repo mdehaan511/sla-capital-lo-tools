@@ -29,6 +29,8 @@ import { writeClient } from './_shared/client-write.mjs';
 // index since 236.343) showed the PRE-close copy — blank financials,
 // stale status — until something else happened to re-index the quote.
 import { quotesIndex } from './_shared/quotes-index.mjs';
+// Deploy 236.426 (D4) — loan-first close for synthetic q_ln_* row ids.
+import { db } from './_shared/supabase-db.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -51,6 +53,57 @@ export default async (req, context) => {
   const cleanOwner = keySafe(String(ownerKey).toLowerCase());
   const cleanId    = keySafe(String(quoteId));
   const key = `${cleanOwner}/${cleanId}`;
+
+  // Deploy 236.426 (D4) — synthetic loan-backed row ids. Since D2 the
+  // boards render rows synthesized from LOANS; deals created after the
+  // D1 fold have no legacy quote record, so their row id is
+  // q_ln_<loanId>. Close those LOAN-FIRST: all close fields + status
+  // land on the loan (the single record), no quote store involved.
+  if (String(quoteId).indexOf('q_ln_') === 0) {
+    const loanId = String(quoteId).slice(5);
+    const row = await db.first('loans', { select: 'id,client_id,owner_email', eq: { id: loanId } }).catch(() => null);
+    if (!row) return json(404, { error: 'Loan not found for ' + quoteId });
+    const loanOwnerKey = keySafe(normalizeEmail(row.owner_email || ''));
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    const cKey = loanOwnerKey + '/' + keySafe(row.client_id);
+    const client = await clientsStore.get(cKey, { type: 'json' }).catch(() => null);
+    if (!client) return json(404, { error: 'Client record not found for loan ' + loanId });
+    const loan = (client.loans || []).find((l) => l && l.id === loanId);
+    if (!loan) return json(404, { error: 'Loan ' + loanId + ' not on client record' });
+
+    const now2 = new Date().toISOString();
+    const firstClose = !loan.closedAt;
+    if (!loan.originalLoanAmt) loan.originalLoanAmt = loan.loanAmt || '';
+    loan.status           = 'closed'; // promotion — trigger-safe
+    loan.finalLoanAmount  = Number(finalLoanAmount);
+    loan.commissionRate   = Number(commissionRate);
+    loan.commissionAmount = Math.round(Number(finalLoanAmount) * Number(commissionRate)) / 10000;
+    loan.closedAt         = loan.closedAt || now2;
+    loan.closedBy         = loan.closedBy || (user.email || '');
+    if (notes != null && String(notes).trim()) loan.closeNotes = String(notes).trim();
+    loan.updatedAt        = now2;
+    client.updatedAt      = now2;
+    await writeClient(loanOwnerKey, client, { clientsStore });
+
+    let emailed2 = false;
+    if (firstClose) {
+      try {
+        emailed2 = await notifyLO({
+          address: loan.address, loanAmt: loan.loanAmt,
+          finalLoanAmount: loan.finalLoanAmount, commissionRate: loan.commissionRate,
+          commissionAmount: loan.commissionAmount, closedAt: loan.closedAt,
+          borrower: client.firstName ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim() : '',
+        }, user.email || '');
+      } catch (e) { console.warn('quotes-close (q_ln_): email failed:', e); }
+    }
+    return json(200, {
+      ok: true, emailed: emailed2, firstClose,
+      loansUpdated: 1, loanMatchedBy: 'loanId', loanSyncError: null,
+      quote: { id: quoteId, loanId, status: 'closed', finalLoanAmount: loan.finalLoanAmount,
+               commissionRate: loan.commissionRate, commissionAmount: loan.commissionAmount,
+               closedAt: loan.closedAt, closeNotes: loan.closeNotes || '' },
+    });
+  }
 
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
   let quote;

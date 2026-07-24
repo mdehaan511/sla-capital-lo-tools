@@ -15,8 +15,7 @@
  *               specifically for breaking loans out of `awaiting_app`.
  *   owner    — admin cross-LO override; same pattern as elsewhere.
  *
- * Updates both the client.loans[*] record and the matching quote(s) in
- * the quotes blob store. Stamps audit fields:
+ * Updates the client.loans[*] record. Stamps audit fields:
  *   _manualAdvanceAt   - timestamp
  *   _manualAdvanceBy   - LO email
  *   _manualAdvanceFrom - prior status
@@ -166,106 +165,8 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
 
-  // Now sync the matching quote(s). We're more permissive than
-  // borrower-info-save's auto-transition: we match by loanAmt + address
-  // and tolerate normalization quirks. Update ALL quotes that match
-  // (typically just one, but in case of duplicates from older bugs).
-  const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
-  let quotesUpdated = 0;
-
-  // Address normalization that's more aggressive than borrower-info-save:
-  // strips ", USA"/", US" tails, normalizes Street/St, Avenue/Ave, etc.
-  const aggrNorm = (s) => {
-    let x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    x = x.replace(/,\s*(usa|us|united states)\.?$/i, '');
-    x = x.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave')
-         .replace(/\bboulevard\b/g, 'blvd').replace(/\bdrive\b/g, 'dr')
-         .replace(/\broad\b/g, 'rd').replace(/\blane\b/g, 'ln')
-         .replace(/\bcourt\b/g, 'ct').replace(/\bcircle\b/g, 'cir')
-         .replace(/\bplace\b/g, 'pl').replace(/\bparkway\b/g, 'pkwy')
-         .replace(/\btrail\b/g, 'trl').replace(/\bterrace\b/g, 'ter');
-    x = x.replace(/[.,]/g, '');
-    return x.trim();
-  };
-  const targetAddr = aggrNorm(targetLoan.address || '');
-  // Deploy 236.41 — set of every loanId that exists on this client right
-  // now. Used to detect quotes whose loanId is STALE (points at a loan
-  // that no longer exists on the record). Same-address two-loan
-  // contamination is still impossible: that case has two valid loanIds,
-  // both in this set, so neither quote falls through to the address
-  // fallback.
-  const validLoanIds = new Set((client.loans || []).map((l) => l && l.id).filter(Boolean));
-
-  try {
-    const { blobs } = await quotesStore.list({ prefix: ownerKey + '/' });
-    for (const { key } of blobs) {
-      const q = await quotesStore.get(key, { type: 'json' });
-      if (!q) continue;
-      // Deploy 236.21 / 236.41 — loanId match with safe legacy +
-      // stale-loanId fallback. Strict loanId-only (236.13) was too
-      // aggressive: it missed (a) pre-Deploy-236.7 quotes which had no
-      // loanId at all, and (b) quotes whose stored loanId was stamped
-      // incorrectly or pointed at a loan that no longer exists.
-      // Mike: changed a declined loan back to active, pipeline briefly
-      // showed it then reverted to declined — root cause was the
-      // matching quote had a stale loanId so this sync silently
-      // skipped it. The quote stayed at 'denied' and pipeline
-      // (reading quote.status) kept showing it as declined.
-      const matchById         = q.loanId === body.loanId;
-      const quoteLoanIdIsStale = q.loanId && !validLoanIds.has(q.loanId);
-      const addrMatches        = aggrNorm(q.address || '') === targetAddr;
-      const matchByLegacy     = (!q.loanId || quoteLoanIdIsStale) && addrMatches;
-      if (!matchById && !matchByLegacy) continue;
-      // Opportunistic loanId stamp (or refresh) so future transitions
-      // hit the strict-loanId path directly.
-      if (matchByLegacy) q.loanId = body.loanId;
-      // Update — but don't downgrade. If the quote is already at a
-      // "further along" status (e.g. closed), leave it alone.
-      //
-      // Deploy 236.66 (bug fix) — rank guard now ONLY applies to
-      // non-admin callers (who can only target 'approved' anyway,
-      // making the guard mostly a safety net against
-      // re-advancing already-closed loans). Admins explicitly pick
-      // the target status from the Move Status dropdown and need to
-      // be able to send a loan to side-track statuses (on_hold,
-      // denied, cancelled) which aren't in the linear rank map.
-      // The original code treated on_hold / denied / cancelled as
-      // rank 0 because they weren't in the map, so any move from a
-      // higher rank silently skipped the quote-side sync — leaving
-      // the loan record correctly on_hold but the quote stuck on the
-      // prior status, which is what the pipeline reads from for
-      // column placement.
-      if (!isAdmin(user)) {
-        const RANK = { active: 0, submitted: 1, awaiting_app: 2, approved: 3, closed: 4 };
-        const currentRank = RANK[q.status] || 0;
-        const newRank     = RANK[body.newStatus] || 0;
-        if (newRank < currentRank) continue;
-      }
-      q.status = body.newStatus;
-      q.updatedAt = now;
-      q._manualAdvanceAt   = now;
-      q._manualAdvanceBy   = selfEmail;
-      q._manualAdvanceFrom = q.status === body.newStatus ? prevStatus : q.status;
-      if (body.newStatus === 'approved' && !q.borrowerInfoCompletedAt) {
-        q.borrowerInfoCompletedAt = now;
-      }
-      await quotesStore.setJSON(key, q);
-      quotesUpdated += 1;
-    }
-  } catch (e) {
-    // Quote sync failure is non-fatal — the client.loans record is
-    // already updated, which is what Pipeline reads from for its
-    // column placement. Surface a warning in the response so the LO
-    // knows the quote may need a manual touch.
-    console.warn('loan-advance-status: quote sync failed:', e);
-    return json(200, {
-      success: true,
-      prevStatus,
-      newStatus: body.newStatus,
-      quotesUpdated,
-      warning: 'Loan record updated, but quote sync failed: ' + (e.message || 'unknown'),
-    });
-  }
+  // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
+  // loans (D2), so store copies no longer need freshening.
 
   // Deploy 236.311 — fire a Slack notification when a loan enters the
   // Processing Pipeline via 'submitted'. Non-blocking: any failure is
@@ -283,7 +184,7 @@ async function handle(req, context) {
     success: true,
     prevStatus,
     newStatus: body.newStatus,
-    quotesUpdated,
+    quotesUpdated: 0, // D3 (236.426): quote sweeps retired — display reads loans
   });
 }
 

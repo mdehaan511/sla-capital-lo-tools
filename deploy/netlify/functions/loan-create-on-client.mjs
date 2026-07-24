@@ -26,11 +26,10 @@
  * (loan-update-from-sizer) rather than repeatedly falling through
  * upsert.
  *
- * Fires the same three write-throughs as loan-update-from-sizer:
- *   - Postgres mirror (Phase 2 dual-write)
- *   - clients-index materialized cache (Deploy 236.341)
- *   - quote-store sync (Deploy 236.249)
- * All fire-and-forget — the primary blob write is what mattered.
+ * Persists via the shared writeClient helper (PG-first, blob mirror).
+ * The clients-index write-through (236.341) and quote-store sync
+ * (236.249) that used to ride along are both retired — C3 and D3
+ * respectively.
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -41,8 +40,7 @@ import { canOverrideOwner } from './_shared/access.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
-// PG-first writeClient helper (covers blob + pg + clients-index +
-// quote-store sync).
+// PG-first writeClient helper (covers blob + pg mirrors).
 import { writeClient } from './_shared/client-write.mjs';
 
 // Same shape as loan-details.js's loan ID minter.
@@ -143,10 +141,12 @@ async function handle(req, context) {
   }
 
   try {
-    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient —
-    // one call covers blob + pg + clients-index + quote-store sync,
+    // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient,
     // all strict, all awaited.
-    await writeClient(ownerKey, client, { clientsStore, loanForQuoteSync: newLoan });
+    // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders
+    // from loans (D2), so store copies no longer need freshening. The
+    // loanForQuoteSync option is gone with it.
+    await writeClient(ownerKey, client, { clientsStore });
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }

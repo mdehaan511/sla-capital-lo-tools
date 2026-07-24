@@ -115,16 +115,16 @@ function _makeNewClient({ firstName, lastName, email, phone, createdBy }) {
   };
 }
 
-async function _writeClient(clientsStore, ownerKey, client, opts) {
+async function _writeClient(clientsStore, ownerKey, client) {
   // Deploy 236.401 (Phase C2): PG-first via the shared writeClient
   // helper — Postgres is the write authority; a DB rejection (CHECK
   // constraint, demotion trigger, outage) throws before blob/index/
   // quote-store mutate. Order used to be blob-first, which left blob
   // newer than PG whenever PG said no.
-  await writeClient(ownerKey, client, {
-    clientsStore,
-    loanForQuoteSync: opts && opts.loanForQuoteSync,
-  });
+  // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
+  // loans (D2), so store copies no longer need freshening. The
+  // loanForQuoteSync option is gone with it.
+  await writeClient(ownerKey, client, { clientsStore });
 }
 
 export default async (req, context) => {
@@ -381,7 +381,7 @@ async function handle(req, context) {
   }
 
   try {
-    await _writeClient(clientsStore, ownerKey, client, { loanForQuoteSync: loanRecord });
+    await _writeClient(clientsStore, ownerKey, client);
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
