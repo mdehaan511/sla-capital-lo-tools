@@ -22,7 +22,7 @@
 import { getStore } from '@netlify/blobs';
 import { json, requireAuth, isAdmin, handleOptions } from './_shared/auth.mjs';
 import { db, ping } from './_shared/supabase-db.mjs';
-import { readIndex as readClientsIndex } from './_shared/clients-index.mjs';
+// (clients-index import removed — Deploy 236.417, C3 deletion slice.)
 import { quotesIndex } from './_shared/quotes-index.mjs';
 import { prospectsIndex } from './_shared/prospects-index.mjs';
 import { postSlack } from './_shared/slack.mjs';
@@ -71,11 +71,12 @@ async function runChecks(opts) {
   }
 
   // 2. Indexes exist at current version
-  try {
-    const c = await readClientsIndex();
-    report.checks.clientsIndex = c.exists ? 'ok' : 'missing/stale-version';
-    if (!c.exists) problems.push('clients-index missing or version-mismatched');
-  } catch (e) { problems.push('clients-index read threw: ' + (e && e.message)); }
+  // Deploy 236.417 (C3 deletion slice): the clients-index presence
+  // check is gone — its write-through is retired, so staleness is the
+  // EXPECTED state (it survives only as an emergency fallback that
+  // clients-list rebuilds inline on demand). Quotes/prospects indexes
+  // are still maintained and still checked.
+  report.checks.clientsIndex = 'retired (C3) — not checked';
   try {
     const q = await quotesIndex.readIndex();
     report.checks.quotesIndex = q.exists ? 'ok' : 'missing/stale-version';
@@ -113,30 +114,16 @@ async function runChecks(opts) {
         ' — run /api/admin-blob-pg-sync (dryRun) to diagnose');
     }
   } catch (e) { problems.push('clients drift check threw: ' + (e && e.message)); }
+  // Deploy 236.417: the loans drift comparison used the clients-index
+  // (now retired/stale) as its blob-side count — comparing against a
+  // stale index would alarm forever. Loan-level drift detection stays
+  // available via /api/admin-blob-pg-sync dry runs; the clients count
+  // drift above still catches gross write-path failure within hours.
   try {
-    // Loans live nested in client blobs, so the blob-side count needs
-    // the clients-index (summary rows carry loans[]). Cheap: sum from
-    // the index we already read is not exposed here — use PG-only
-    // count + compare against the clients-index total if available.
     const pgLoans = await _pgCount('loans');
     report.checks.loansPg = String(pgLoans);
-    let idxLoans = null;
-    const c = await readClientsIndex();
-    if (c.exists && c.index && c.index.byOwner) {
-      idxLoans = 0;
-      for (const o of Object.keys(c.index.byOwner)) {
-        for (const cl of (c.index.byOwner[o] || [])) {
-          idxLoans += (cl && Array.isArray(cl.loans)) ? cl.loans.length : 0;
-        }
-      }
-      const diff = Math.abs(idxLoans - pgLoans);
-      report.checks.loansDrift = 'index=' + idxLoans + ' pg=' + pgLoans + ' (Δ' + diff + ')';
-      if (diff > DRIFT_THRESHOLD) {
-        problems.push('LOAN drift: clients-index=' + idxLoans + ' vs pg=' + pgLoans +
-          ' — run /api/admin-blob-pg-sync (dryRun) to diagnose');
-      }
-    }
-  } catch (e) { problems.push('loans drift check threw: ' + (e && e.message)); }
+    report.checks.loansDrift = 'skipped (clients-index retired — use admin-blob-pg-sync for deep diff)';
+  } catch (e) { problems.push('loans PG count threw: ' + (e && e.message)); }
 
   report.ok = problems.length === 0;
   report.problems = problems;

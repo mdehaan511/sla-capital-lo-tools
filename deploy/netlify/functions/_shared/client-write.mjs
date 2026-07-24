@@ -39,7 +39,6 @@
 import { getStore } from '@netlify/blobs';
 import { keySafe } from './auth.mjs';
 import { mirror as pgMirror } from './pg-mirror.mjs';
-import { upsertClientStrict as indexUpsertClientStrict } from './clients-index.mjs';
 import { syncLoanToQuoteStoreStrict } from './quote-sync.mjs';
 
 export async function writeClient(ownerKey, client, opts) {
@@ -57,8 +56,15 @@ export async function writeClient(ownerKey, client, opts) {
   const store = opts.clientsStore || getStore({ name: 'clients', consistency: 'strong' });
   await store.setJSON(ownerKey + '/' + keySafe(client.id), client);
 
-  // 3. clients-index (retired by C3).
-  await indexUpsertClientStrict(ownerKey, client);
+  // 3. clients-index — RETIRED (Deploy 236.417, Hardening C3 deletion
+  //    slice). The write-through was a read-modify-write of a multi-
+  //    megabyte blob on EVERY client mutation — the single most
+  //    expensive operation in the write path, and the accumulation
+  //    that pushed multi-guarantor borrower signings and Add Guarantor
+  //    past gateway timeouts. Nothing hot reads the index since C3
+  //    slice 1-2 (Pipeline/clients/locate serve from Postgres; the
+  //    index survives only as an emergency fallback that clients-list
+  //    can rebuild inline on demand).
 
   // 4. Quote-store sync (retired by Phase D).
   if (opts.loanForQuoteSync) {
