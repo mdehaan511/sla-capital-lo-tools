@@ -116,7 +116,17 @@ async function handle(req, context) {
 
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_DAYS * 86400000).toISOString();
-  const token = generateToken();
+  // Deploy 236.414 — REUSE the existing token on resend instead of
+  // rotating. Rotation silently killed every previously sent email and
+  // open tab, which created a vicious cycle: borrower hits an error →
+  // LO resends → borrower retries from the OLDER email → dead token →
+  // (pre-236.414) full-store walk → 504 → LO resends again. Now every
+  // email ever sent for this application keeps working; the expiry
+  // window slides forward with each resend. A fresh token is only
+  // minted when there's no live one (first send, or expired).
+  const tokenReusable = !!(existing && existing.token &&
+    (!existing.expiresAt || new Date(existing.expiresAt) > new Date()));
+  const token = tokenReusable ? existing.token : generateToken();
 
   // Pre-fill from what we already know about the client + loan
   const prefill = buildPrefill(client, loan, { loName, loEmail: owner });

@@ -33,7 +33,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, readJsonBody,
 } from './_shared/auth.mjs';
-import { lookupTokenKey, writeTokenIndex } from './_shared/borrower-info-token-index.mjs';
+import { resolveByToken } from './_shared/borrower-info-token-index.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 import {
   ESIGN_CONSENT_VERSION, hashFormData, sealAudit, getClientIp, getUserAgent,
@@ -102,44 +102,22 @@ async function handle(req) {
   let record = null;
   let recordKey = null;
 
-  // Fast path via token index. Falls back to a walk if the index miss.
-  const fastKey = await lookupTokenKey(body.t);
-  if (fastKey) {
-    try {
-      const r = await biStore.get(fastKey, { type: 'json' });
-      if (r && r.token === body.t) { record = r; recordKey = fastKey; }
-    } catch (_) { /* fall through */ }
-  }
-  _mark(record ? 'token-index-hit' : 'token-index-MISS');
+  // Deploy 236.414 — shared bounded resolver (fast index path, budgeted
+  // chunked walk, index self-heal). A stale token — e.g. an OLDER email
+  // after the LO resent the application, which used to ROTATE the token —
+  // now fails fast with an actionable message instead of walking the
+  // whole store into a 504.
+  const resolved = await resolveByToken(biStore, body.t);
+  record = resolved.record;
+  recordKey = resolved.recordKey;
+  _mark('token-resolved found=' + !!record + ' timedOut=' + resolved.timedOut);
   if (!record) {
-    // Deploy 236.413 — the old fallback walked the whole store with
-    // one sequential get() per blob; at current store size that alone
-    // can blow the 10s function timeout, which surfaces to the
-    // borrower as a platform HTML error page on EVERY attempt (their
-    // token isn't indexed, so every retry walks again). Chunked
-    // parallel gets + self-heal: once found, write the index entry so
-    // the next attempt takes the fast path.
-    const { blobs } = await biStore.list();
-    console.log('[sign-timing] index-miss fallback walking ' + blobs.length + ' records');
-    const CHUNK = 25;
-    for (let i = 0; i < blobs.length && !record; i += CHUNK) {
-      const slice = blobs.slice(i, i + CHUNK);
-      const loaded = await Promise.all(slice.map(function (b) {
-        return biStore.get(b.key, { type: 'json' }).then(function (r) {
-          return { key: b.key, r: r };
-        }).catch(function () { return { key: b.key, r: null }; });
-      }));
-      for (const it of loaded) {
-        if (it.r && it.r.token === body.t) { record = it.r; recordKey = it.key; break; }
-      }
-    }
-    _mark('fallback-walk-done found=' + !!record);
-    if (record && recordKey) {
-      await writeTokenIndex(body.t, recordKey, record); // never throws (logs internally)
-      _mark('token-index-healed');
-    }
+    return json(404, {
+      error: 'This signing link is no longer active — it may have been replaced by a newer email. ' +
+             'Please open the MOST RECENT application email from your loan officer and use that link, ' +
+             'or ask them to resend it.',
+    });
   }
-  if (!record) return json(404, { error: 'Link not found or expired' });
 
   if (record.expiresAt && new Date(record.expiresAt) < new Date()) {
     return json(410, { error: 'This link has expired' });

@@ -57,6 +57,58 @@ export async function writeTokenIndex(token, recordKey, recordMeta) {
 }
 
 /**
+ * Deploy 236.414 — resolveByToken: the ONE way to turn a borrower
+ * token into its record. Fast path via the index; on miss, a
+ * chunked-parallel walk of the store BOUNDED by a time budget, with
+ * index self-heal on find. The unbounded sequential walk this
+ * replaces (copied into sign/load/save individually) could exceed
+ * the 10s function limit and surface to borrowers as a naked 504 —
+ * which is exactly what a borrower stuck in the resend-rotation
+ * cycle hit for weeks.
+ *
+ * Returns { record, recordKey, timedOut }:
+ *   record null + timedOut false → token genuinely unknown (stale/rotated)
+ *   record null + timedOut true  → walk ran out of budget (treat as unknown,
+ *                                  message-wise; logged for diagnosis)
+ */
+export async function resolveByToken(store, token, opts) {
+  const budgetMs = (opts && opts.budgetMs) || 6500;
+  const t0 = Date.now();
+  if (!token) return { record: null, recordKey: null, timedOut: false };
+
+  const fastKey = await lookupTokenKey(token);
+  if (fastKey) {
+    try {
+      const r = await store.get(fastKey, { type: 'json' });
+      if (r && r.token === token) return { record: r, recordKey: fastKey, timedOut: false };
+    } catch (_) { /* fall through to walk */ }
+  }
+
+  const { blobs } = await store.list();
+  console.log('[token-resolve] index miss — walking ' + blobs.length + ' records (budget ' + budgetMs + 'ms)');
+  const CHUNK = 25;
+  for (let i = 0; i < blobs.length; i += CHUNK) {
+    if (Date.now() - t0 > budgetMs) {
+      console.warn('[token-resolve] budget exhausted at ' + i + '/' + blobs.length);
+      return { record: null, recordKey: null, timedOut: true };
+    }
+    const slice = blobs.slice(i, i + CHUNK);
+    const loaded = await Promise.all(slice.map((b) =>
+      store.get(b.key, { type: 'json' })
+        .then((r) => ({ key: b.key, r }))
+        .catch(() => ({ key: b.key, r: null }))
+    ));
+    for (const it of loaded) {
+      if (it.r && it.r.token === token) {
+        await writeTokenIndex(token, it.key, it.r); // self-heal, never throws
+        return { record: it.r, recordKey: it.key, timedOut: false };
+      }
+    }
+  }
+  return { record: null, recordKey: null, timedOut: false };
+}
+
+/**
  * Look up a record by token via the index. Returns the record key, or
  * null if the token isn't indexed. The caller should fall back to the
  * legacy full-scan if this returns null.

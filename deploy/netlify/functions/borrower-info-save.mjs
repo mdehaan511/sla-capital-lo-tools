@@ -12,7 +12,7 @@
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, readJsonBody } from './_shared/auth.mjs';
 import { encryptField } from './_shared/crypto.mjs';
-import { lookupTokenKey, writeTokenIndex } from './_shared/borrower-info-token-index.mjs';
+import { resolveByToken } from './_shared/borrower-info-token-index.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 import { getOwnerReplyTo } from './_shared/email.mjs';
@@ -44,39 +44,20 @@ async function handle(req) {
   // a full store walk for legacy tokens that pre-date the index. After
   // a successful walk-fallback we write the index entry so subsequent
   // lookups for the same token use the fast path.
-  let recordKey = null;
-  let record = null;
-  const fastKey = await lookupTokenKey(body.t);
-  if (fastKey) {
-    try {
-      const r = await store.get(fastKey, { type: 'json' });
-      // Defensive: the index entry could point at a key whose record
-      // no longer matches the token (e.g. token rotated, index entry
-      // wasn't cleaned up, or the record was deleted). Verify before
-      // trusting it.
-      if (r && r.token === body.t) {
-        record = r;
-        recordKey = fastKey;
-      }
-    } catch (_) { /* fall through to slow path */ }
-  }
-
-  // Slow path: walk the entire store. Only fires when the token index
-  // didn't resolve (legacy token, or index out of sync).
+  // Deploy 236.414 — shared bounded resolver (index fast path, budgeted
+  // chunked walk, self-heal). Replaces the unbounded sequential walk
+  // that could 504 on stale/rotated tokens — and this endpoint fires
+  // on every autosave, so a borrower with an unindexed token was
+  // paying the walk cost every few SECONDS while filling the form.
+  const resolved = await resolveByToken(store, body.t);
+  const record = resolved.record;
+  const recordKey = resolved.recordKey;
   if (!record) {
-    const { blobs } = await store.list();
-    for (const { key } of blobs) {
-      const r = await store.get(key, { type: 'json' });
-      if (r && r.token === body.t) { record = r; recordKey = key; break; }
-    }
-    // Backfill the index so the next save is fast. Best-effort.
-    if (record && recordKey) {
-      writeTokenIndex(body.t, recordKey, {
-        ownerKey: record.ownerKey, clientId: record.clientId, loanId: record.loanId,
-      }).catch(function() {});
-    }
+    return json(404, {
+      error: 'This application link is no longer active — it may have been replaced by a newer email. ' +
+             'Please open the MOST RECENT application email from your loan officer and use that link.',
+    });
   }
-  if (!record) return json(404, { error: 'Link not found or expired' });
   if (record.expiresAt && new Date(record.expiresAt) < new Date()) {
     return json(410, { error: 'This link has expired' });
   }
