@@ -83,6 +83,11 @@ export default async (req, context) => {
     const dryRun = body.dryRun !== false; // default TRUE
     const limit = Math.min(Math.max(parseInt(body.limit, 10) || 8, 1), 25);
     const cursor = String(body.cursor || '');
+    // Deploy 236.422 — spot-fold: process exactly these quote keys,
+    // ignoring the _foldedAt skip. For re-applying folds whose client
+    // flush failed (e.g. blocked by the demotion trigger on a stale
+    // blob status, repaired since).
+    const onlyKeys = Array.isArray(body.keys) && body.keys.length ? body.keys : null;
 
     const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
     const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
@@ -90,7 +95,8 @@ export default async (req, context) => {
     // Stable ordering for the cursor: full sorted key list each call
     // (cheap — list() is one paginated API call, no per-blob gets).
     const { blobs } = await quotesStore.list();
-    const keys = blobs.map((b) => b.key).filter((k) => k.indexOf('/') > 0).sort();
+    let keys = blobs.map((b) => b.key).filter((k) => k.indexOf('/') > 0).sort();
+    if (onlyKeys) keys = keys.filter((k) => onlyKeys.indexOf(k) >= 0);
     const startIdx = cursor ? keys.findIndex((k) => k > cursor) : 0;
     if (startIdx < 0) {
       return json(200, { done: true, nextCursor: null, note: 'cursor past end' });
@@ -134,7 +140,7 @@ export default async (req, context) => {
       catch (e) { report.errors.push({ qKey, error: 'quote read: ' + e.message }); continue; }
       if (!quote) continue;
 
-      if (quote._foldedAt) { report.skippedAlreadyFolded++; continue; }
+      if (quote._foldedAt && !onlyKeys) { report.skippedAlreadyFolded++; continue; }
 
       // Resolve the loan.
       let loanRow = quote.loanId ? loanById.get(quote.loanId) : null;
