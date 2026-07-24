@@ -136,9 +136,18 @@ Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
 
 One deal = one record. "Quoted" is a status, the sizer snapshot is a field.
 
-- [ ] **D1.** Schema: fold quote-only fields (formData snapshot, TPO/buydown
-      display state) onto `loans`; migration script converts orphan quotes
-      via the auto-recover logic, then maps every quote onto its loan.
+- [x] **D1.** DONE (Deploys 236.420-422, run 2026-07-24). Audit endpoint
+      (admin-quote-loan-audit) + batched fold migration
+      (admin-quote-loan-fold, dry-run default, cursor-resumable):
+      190 quotes folded onto their loans (formData where the loan had
+      none, close/decision fields where blank, _quoteId stamp), all 38
+      legacy address-keyed quotes healed to loanId linkage —
+      post-audit: 204/204 matched by loanId, 0 by address. 23 orphans
+      triaged manually via /orphaned-sizers.html. One fold was blocked
+      by the C4 demotion trigger (stale blob status vs PG truth) —
+      repaired via admin status move + spot-fold (`keys` param).
+      Quotes are marked _foldedAt/_foldedIntoLoanId; store stays until
+      D4.
 - [ ] **D2.** Pipeline/closed/decisions/saved-quotes read loans (PG) directly.
 - [ ] **D3.** Delete the quote-sync machinery: `syncLoanToQuoteStore`, the
       quote sweeps in loan-cancel/decline/advance-status/change-type/
