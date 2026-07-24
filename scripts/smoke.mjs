@@ -207,10 +207,14 @@ async function writeSuite() {
   });
   ok('quotes-save stores the quote', qSave.status === 200,
     'got ' + qSave.status + ' ' + JSON.stringify(qSave.body));
+  // D2 (236.423): /api/quotes serves loan-backed rows — the stored
+  // draft dedupes away in favor of the loan's synthesized row, so
+  // visibility is asserted by loanId (what the pages key on now).
   const quotes = await api('GET', '/api/quotes');
-  ok('quote visible in quotes list',
-    !!(quotes.body && (quotes.body.quotes || []).find((q) => q.id === quoteId)),
-    'quote ' + quoteId + ' not in list');
+  const loanRow = quotes.body && (quotes.body.quotes || []).find((q) => q.loanId === loanId);
+  ok('deal visible in quotes list (loan-backed row)', !!loanRow,
+    'no row with loanId=' + loanId + ' — ids present: ' +
+    JSON.stringify(((quotes.body && quotes.body.quotes) || []).slice(0, 3).map((q) => q.id)));
 
   // 5. Status advance (admin path).
   const adv = await api('POST', '/api/loan-advance-status', {
