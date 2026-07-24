@@ -252,8 +252,14 @@ async function syncToClientLoan(ownerKey, quote, status, audit) {
       }
     }
     if (changed) {
-      // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
-      await writeClient(ownerKey, c, { clientsStore });
+      // Deploy 236.427 — allowDemotion, same justification as the
+      // q_ln_ branch above: approve maps submitted → awaiting_app
+      // (terminal → non-terminal) BY DESIGN. Without the flag the C4
+      // trigger silently blocked this best-effort sync: the QUOTE
+      // record updated but the LOAN (what the boards render since D2)
+      // stayed 'submitted' — Mike's "approved it but it reappears in
+      // the queue" report, caught on his logoff check.
+      await writeClient(ownerKey, c, { clientsStore, allowDemotion: true });
     }
   }
 }
