@@ -705,7 +705,12 @@ async function handle(req) {
   }
   return json(200, {
     housekeepingSkipped: _housekeepingSkipped.length ? _housekeepingSkipped : undefined,
-    diag: _housekeepingSkipped.length ? _marks.join(' → ') : undefined,
+    // Deploy 236.416 — diag always included while the multi-guarantor
+    // timeout investigation is open (remove after; Deploy 194 rule).
+    // Mike proved 2 guarantors → timeout, 1 guarantor → success: death
+    // by accumulation, and this trace shows exactly where the seconds
+    // go on every future signing.
+    diag: _marks.join(' → '),
     ok: true,
     signedAt,
     status: pdfStatus,
