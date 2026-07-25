@@ -32,6 +32,8 @@ import {
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.429 — heal stale index ghosts on recover-miss.
+import { quotesIndex } from './_shared/quotes-index.mjs';
 
 function normAddr(s) {
   return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
@@ -121,7 +123,17 @@ async function handle(req, context) {
 
   // 1) Fetch the quote
   const quote = await quotesStore.get(quoteKey, { type: 'json' });
-  if (!quote) return json(404, { error: 'Quote not found (may have been deleted): ' + quoteKey });
+  if (!quote) {
+    // Deploy 236.429 — the orphan list renders from the quotes-index,
+    // which historically drifted on deletes (236.428 ghost class). A
+    // recover on an already-deleted draft would 404 forever; heal the
+    // stale index entry so the row drops off the list on next load.
+    const slash = quoteKey.indexOf('/');
+    if (slash > 0) {
+      await quotesIndex.removeRecord(quoteKey.slice(0, slash), quoteKey.slice(slash + 1));
+    }
+    return json(404, { error: 'Quote no longer exists (already deleted) — stale row cleaned up: ' + quoteKey });
+  }
 
   const fd = quote.formData || {};
   const borrowerEmail = String(fd.borrowerEmail || quote.borrowerEmail || '').toLowerCase().trim();
