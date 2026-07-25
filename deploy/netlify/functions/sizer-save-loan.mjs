@@ -380,6 +380,59 @@ async function handle(req, context) {
     console.warn('sizer-save-loan: broker-link non-fatal:', e && e.message);
   }
 
+  // Deploy 236.431 — sizerHistory[] append, ported from
+  // loan-update-from-sizer.mjs (236.255-257). The unified endpoint
+  // (7/21) consolidated every sizer save path but never inherited the
+  // history append, so the Sizer History panel silently stopped
+  // recording — AND the raw _sizerFormData payload (meant to be
+  // consumed into the snapshot then stripped) was persisting whole on
+  // every loan record. Snapshot from loanRecord AFTER all merge +
+  // broker-link logic so history reflects what actually persisted.
+  // Capped at 50 entries (~1KB each) per the original design.
+  const PREPAY_LABEL = {
+    '5y6m':  '5Yr/6Mo', '54321': '5-Year', '321': '3-Year',
+    '320':   '2-Year',  '300':   '1-Year', 'none': 'None',
+  };
+  const priorHistory = Array.isArray(loanRecord.sizerHistory) ? loanRecord.sizerHistory : [];
+  const rawFormData = (loanRecord._sizerFormData && typeof loanRecord._sizerFormData === 'object')
+    ? loanRecord._sizerFormData
+    : null;
+  const snapshotFormData = rawFormData || {
+    loanAmt:          loanRecord.loanAmt          || '',
+    propValue:        loanRecord.propValue        || '',
+    loanType:         loanRecord.loanType         || '',
+    fico:             loanRecord.fico             || '',
+    rent:             loanRecord.rent             || '',
+    taxes:            loanRecord.taxes            || '',
+    insurance:        loanRecord.insurance        || '',
+    hoa:              loanRecord.hoa              || '',
+    prepay:           loanRecord.prepay           || '',
+    buydown:          loanRecord.buydown          || '',
+    isIO:             loanRecord.isIO             || '',
+    loanPurpose:      loanRecord.loanPurpose      || '',
+    propType:         loanRecord.propType         || '',
+    currentLoanAmt:   loanRecord.currentLoanAmt   || '',
+    brokerFee:        loanRecord.brokerFee        || '',
+    _rateOverride:    loanRecord._rateOverride    || '',
+    _ltvOverride:     loanRecord._ltvOverride     || '',
+    _pointsOverride:  loanRecord._pointsOverride  || '',
+    _finalRate:       loanRecord._finalRate       || '',
+    _points:          loanRecord._points          || '',
+  };
+  loanRecord.sizerHistory = [{
+    savedAt:     now,
+    savedBy:     authorEmail,
+    loanAmt:     loanRecord.loanAmt     || '',
+    rate:        loanRecord.rate        || '',
+    points:      loanRecord.points      || '',
+    prepay:      loanRecord.prepay      || '',
+    prepayLabel: PREPAY_LABEL[String(loanRecord.prepay || '').toLowerCase()] || '',
+    formData:    snapshotFormData,
+  }].concat(priorHistory).slice(0, 50);
+  // Strip the raw payload — the snapshot inside sizerHistory is its
+  // persistent home; leaving it inline bloats every record load.
+  if (loanRecord._sizerFormData) delete loanRecord._sizerFormData;
+
   try {
     await _writeClient(clientsStore, ownerKey, client);
   } catch (e) {
