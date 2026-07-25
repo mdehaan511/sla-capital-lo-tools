@@ -2762,9 +2762,10 @@ function bulkOnHold() {
   // them. The old .catch() RESOLVED, so Promise.all always succeeded and
   // the toast reported the whole selection as "put on hold" even when
   // every call 400'd / 403'd / 404'd — the real errors only ever reached
-  // the console. Note on-hold routes through /api/quotes-decide, which
-  // requires a QUOTE record, so loan-only tiles 404 here; the LO now
-  // sees that instead of a false success.
+  // the console. On-hold routes through /api/quotes-decide, which since
+  // Deploy 236.429 handles loan-only tiles loan-first (q_ln_ ids AND
+  // folded _quoteId ids whose store record is gone) — no more 404s for
+  // loan-backed rows; real failures still surface here.
   var failures = [];
   var promises = groups.quotes.map(function(q) {
     return SLA.Admin.decideQuote(q.ownerKey, q.id, 'on_hold', 'Placed on hold via bulk action.')

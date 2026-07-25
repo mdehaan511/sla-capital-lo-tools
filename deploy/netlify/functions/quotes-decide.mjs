@@ -59,42 +59,13 @@ export default async (req, context) => {
   // Post-D2 the decisions board renders rows synthesized from LOANS;
   // deals without a legacy quote record decide LOAN-FIRST: the status
   // mapping + decision audit land on the loan, no quote store involved.
+  // Deploy 236.429 — branch body extracted to decideLoanFirst so the
+  // store-miss fallback below can share it.
   if (String(quoteId).indexOf('q_ln_') === 0) {
     const loanId = String(quoteId).slice(5);
     const row = await db.first('loans', { select: 'id,client_id,owner_email', eq: { id: loanId } }).catch(() => null);
     if (!row) return json(404, { error: 'Loan not found for ' + quoteId });
-    const loanOwnerKey = keySafe(normalizeEmail(row.owner_email || ''));
-    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-    const cKey = loanOwnerKey + '/' + keySafe(row.client_id);
-    const client = await clientsStore.get(cKey, { type: 'json' }).catch(() => null);
-    if (!client) return json(404, { error: 'Client record not found for loan ' + loanId });
-    const loan = (client.loans || []).find((l) => l && l.id === loanId);
-    if (!loan) return json(404, { error: 'Loan ' + loanId + ' not on client record' });
-
-    const persisted = (status === 'approved') ? 'awaiting_app' : status;
-    const now2 = new Date().toISOString();
-    const prev = loan.status || '';
-    loan.status = persisted;
-    loan.updatedAt = now2;
-    loan.decidedAt = now2;
-    loan.decidedBy = user.email || '';
-    if (reason != null && String(reason).trim()) loan.decisionNotes = String(reason).trim();
-    appendNoteEntry(loan, {
-      kind: 'status',
-      text: 'Decision: ' + (prev || '—') + ' → ' + persisted + (reason ? ' — ' + String(reason).trim() : ''),
-      author: user.email || '', authorEmail: user.email || '',
-      meta: { from: prev, to: persisted, via: 'quotes-decide' },
-    });
-    client.updatedAt = now2;
-    // allowDemotion: approve maps submitted → awaiting_app (terminal →
-    // non-terminal) by DESIGN — the admin's explicit decision moves the
-    // deal into the borrower-application stage. Same justification as
-    // loan-advance-status admin moves (C4).
-    await writeClient(loanOwnerKey, client, { clientsStore, allowDemotion: true });
-    return json(200, {
-      ok: true, loansUpdated: 1,
-      quote: { id: quoteId, loanId, status: persisted, decidedAt: now2, decisionNotes: loan.decisionNotes || '' },
-    });
+    return decideLoanFirst(row, { quoteId: String(quoteId), status, reason, user, userKey });
   }
 
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
@@ -104,7 +75,26 @@ export default async (req, context) => {
   } catch (e) {
     return json(500, { error: 'Failed to load quote' });
   }
-  if (!quote) return json(404, { error: 'Quote not found' });
+  if (!quote) {
+    // Deploy 236.429 — loan-first fallback for REAL quote ids whose
+    // store record is gone. Post-D2 a board row can carry the folded
+    // quote id (loan.extra._quoteId) while the store copy was deleted
+    // or moved — decline / on-hold then died on a blanket 404 (the
+    // "on-hold requires a QUOTE record, loan-only tiles 404 here"
+    // limitation the 236.371 pipeline comment documented). The loan is
+    // the record of truth now: find it by its _quoteId back-reference
+    // and decide it loan-first, exactly like a q_ln_ row.
+    const row = await db.first('loans', {
+      select: 'id,client_id,owner_email',
+      eq: { 'extra->>_quoteId': String(quoteId) },
+    }).catch(() => null);
+    if (row) return decideLoanFirst(row, { quoteId: String(quoteId), status, reason, user, userKey });
+    // No store record AND no loan references this id: a stale
+    // quotes-index ghost (same class 236.428 healed in quotes-delete).
+    // Clean the entry so the row stops rendering, then report clearly.
+    await quotesIndex.removeRecord(cleanOwner, String(quoteId));
+    return json(404, { error: 'This quote no longer exists — stale row cleaned up. Refresh the board.' });
+  }
 
   // The admin clicks "Approve" but the persisted status is `awaiting_app`
   // (loan moves to the "Awaiting Application" pipeline column). When the
@@ -157,6 +147,53 @@ export default async (req, context) => {
 };
 
 // ── Helpers ──────────────────────────────────────────────────
+
+// Deploy 236.429 — the loan-first decision path, shared by q_ln_
+// synthetic ids (236.426) and real quote ids whose store record is
+// gone. Status mapping + decision audit land on the LOAN — the single
+// record of truth since D2.
+async function decideLoanFirst(row, { quoteId, status, reason, user, userKey }) {
+  const loanId = row.id;
+  const loanOwnerKey = keySafe(normalizeEmail(row.owner_email || ''));
+  // Re-check self-or-admin against the LOAN's real owner. The gate at
+  // the top of the handler only validated body.ownerKey — without this
+  // check a non-admin could decide another LO's loan by naming their
+  // own ownerKey alongside someone else's loan id.
+  if (!isAdmin(user) && loanOwnerKey !== userKey) {
+    return json(403, { error: 'Cannot decide another LO\'s loan' });
+  }
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const cKey = loanOwnerKey + '/' + keySafe(row.client_id);
+  const client = await clientsStore.get(cKey, { type: 'json' }).catch(() => null);
+  if (!client) return json(404, { error: 'Client record not found for loan ' + loanId });
+  const loan = (client.loans || []).find((l) => l && l.id === loanId);
+  if (!loan) return json(404, { error: 'Loan ' + loanId + ' not on client record' });
+
+  const persisted = (status === 'approved') ? 'awaiting_app' : status;
+  const now2 = new Date().toISOString();
+  const prev = loan.status || '';
+  loan.status = persisted;
+  loan.updatedAt = now2;
+  loan.decidedAt = now2;
+  loan.decidedBy = user.email || '';
+  if (reason != null && String(reason).trim()) loan.decisionNotes = String(reason).trim();
+  appendNoteEntry(loan, {
+    kind: 'status',
+    text: 'Decision: ' + (prev || '—') + ' → ' + persisted + (reason ? ' — ' + String(reason).trim() : ''),
+    author: user.email || '', authorEmail: user.email || '',
+    meta: { from: prev, to: persisted, via: 'quotes-decide' },
+  });
+  client.updatedAt = now2;
+  // allowDemotion: approve maps submitted → awaiting_app and on_hold
+  // moves submitted → on_hold — terminal → non-terminal BY DESIGN; the
+  // admin's explicit decision moves the deal. Same justification as
+  // loan-advance-status admin moves (C4).
+  await writeClient(loanOwnerKey, client, { clientsStore, allowDemotion: true });
+  return json(200, {
+    ok: true, loansUpdated: 1,
+    quote: { id: quoteId, loanId, status: persisted, decidedAt: now2, decisionNotes: loan.decisionNotes || '' },
+  });
+}
 
 async function syncToClientLoan(ownerKey, quote, status, audit) {
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });

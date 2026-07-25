@@ -59,50 +59,13 @@ export default async (req, context) => {
   // D1 fold have no legacy quote record, so their row id is
   // q_ln_<loanId>. Close those LOAN-FIRST: all close fields + status
   // land on the loan (the single record), no quote store involved.
+  // Deploy 236.429 — branch body extracted to closeLoanFirst so the
+  // store-miss fallback below can share it.
   if (String(quoteId).indexOf('q_ln_') === 0) {
     const loanId = String(quoteId).slice(5);
     const row = await db.first('loans', { select: 'id,client_id,owner_email', eq: { id: loanId } }).catch(() => null);
     if (!row) return json(404, { error: 'Loan not found for ' + quoteId });
-    const loanOwnerKey = keySafe(normalizeEmail(row.owner_email || ''));
-    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-    const cKey = loanOwnerKey + '/' + keySafe(row.client_id);
-    const client = await clientsStore.get(cKey, { type: 'json' }).catch(() => null);
-    if (!client) return json(404, { error: 'Client record not found for loan ' + loanId });
-    const loan = (client.loans || []).find((l) => l && l.id === loanId);
-    if (!loan) return json(404, { error: 'Loan ' + loanId + ' not on client record' });
-
-    const now2 = new Date().toISOString();
-    const firstClose = !loan.closedAt;
-    if (!loan.originalLoanAmt) loan.originalLoanAmt = loan.loanAmt || '';
-    loan.status           = 'closed'; // promotion — trigger-safe
-    loan.finalLoanAmount  = Number(finalLoanAmount);
-    loan.commissionRate   = Number(commissionRate);
-    loan.commissionAmount = Math.round(Number(finalLoanAmount) * Number(commissionRate)) / 10000;
-    loan.closedAt         = loan.closedAt || now2;
-    loan.closedBy         = loan.closedBy || (user.email || '');
-    if (notes != null && String(notes).trim()) loan.closeNotes = String(notes).trim();
-    loan.updatedAt        = now2;
-    client.updatedAt      = now2;
-    await writeClient(loanOwnerKey, client, { clientsStore });
-
-    let emailed2 = false;
-    if (firstClose) {
-      try {
-        emailed2 = await notifyLO({
-          address: loan.address, loanAmt: loan.loanAmt,
-          finalLoanAmount: loan.finalLoanAmount, commissionRate: loan.commissionRate,
-          commissionAmount: loan.commissionAmount, closedAt: loan.closedAt,
-          borrower: client.firstName ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim() : '',
-        }, user.email || '');
-      } catch (e) { console.warn('quotes-close (q_ln_): email failed:', e); }
-    }
-    return json(200, {
-      ok: true, emailed: emailed2, firstClose,
-      loansUpdated: 1, loanMatchedBy: 'loanId', loanSyncError: null,
-      quote: { id: quoteId, loanId, status: 'closed', finalLoanAmount: loan.finalLoanAmount,
-               commissionRate: loan.commissionRate, commissionAmount: loan.commissionAmount,
-               closedAt: loan.closedAt, closeNotes: loan.closeNotes || '' },
-    });
+    return closeLoanFirst(row, { quoteId: String(quoteId), finalLoanAmount, commissionRate, notes, user });
   }
 
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
@@ -112,7 +75,22 @@ export default async (req, context) => {
   } catch (e) {
     return json(500, { error: 'Failed to load quote' });
   }
-  if (!quote) return json(404, { error: 'Quote not found' });
+  if (!quote) {
+    // Deploy 236.429 — loan-first fallback for REAL quote ids whose
+    // store record is gone (same fix as quotes-decide): post-D2 a
+    // board row can carry the folded quote id (loan.extra._quoteId)
+    // while the store copy was deleted or moved. Close the LOAN — the
+    // record of truth — exactly like a q_ln_ row.
+    const row = await db.first('loans', {
+      select: 'id,client_id,owner_email',
+      eq: { 'extra->>_quoteId': String(quoteId) },
+    }).catch(() => null);
+    if (row) return closeLoanFirst(row, { quoteId: String(quoteId), finalLoanAmount, commissionRate, notes, user });
+    // No store record AND no loan references this id: stale index
+    // ghost (236.428 class). Heal the index so the row stops rendering.
+    await quotesIndex.removeRecord(cleanOwner, String(quoteId));
+    return json(404, { error: 'This quote no longer exists — stale row cleaned up. Refresh the board.' });
+  }
 
   const commissionAmount = Math.round(finalAmt * rateBps) / 10000;
   const now = new Date().toISOString();
@@ -175,6 +153,56 @@ export default async (req, context) => {
     loanSyncError: loanSync.error || null,
   });
 };
+
+// Deploy 236.429 — the loan-first close path, shared by q_ln_
+// synthetic ids (236.426) and real quote ids whose store record is
+// gone. All close fields + status land on the LOAN — the single
+// record of truth since D2. Admin-only is enforced at the top of the
+// handler before either caller runs.
+async function closeLoanFirst(row, { quoteId, finalLoanAmount, commissionRate, notes, user }) {
+  const loanId = row.id;
+  const loanOwnerKey = keySafe(normalizeEmail(row.owner_email || ''));
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const cKey = loanOwnerKey + '/' + keySafe(row.client_id);
+  const client = await clientsStore.get(cKey, { type: 'json' }).catch(() => null);
+  if (!client) return json(404, { error: 'Client record not found for loan ' + loanId });
+  const loan = (client.loans || []).find((l) => l && l.id === loanId);
+  if (!loan) return json(404, { error: 'Loan ' + loanId + ' not on client record' });
+
+  const now2 = new Date().toISOString();
+  const firstClose = !loan.closedAt;
+  if (!loan.originalLoanAmt) loan.originalLoanAmt = loan.loanAmt || '';
+  loan.status           = 'closed'; // promotion — trigger-safe
+  loan.finalLoanAmount  = Number(finalLoanAmount);
+  loan.commissionRate   = Number(commissionRate);
+  loan.commissionAmount = Math.round(Number(finalLoanAmount) * Number(commissionRate)) / 10000;
+  loan.closedAt         = loan.closedAt || now2;
+  loan.closedBy         = loan.closedBy || (user.email || '');
+  if (notes != null && String(notes).trim()) loan.closeNotes = String(notes).trim();
+  loan.updatedAt        = now2;
+  client.updatedAt      = now2;
+  await writeClient(loanOwnerKey, client, { clientsStore });
+
+  let emailed2 = false;
+  if (firstClose) {
+    try {
+      emailed2 = await notifyLO({
+        address: loan.address, loanAmt: loan.loanAmt,
+        finalLoanAmount: loan.finalLoanAmount, commissionRate: loan.commissionRate,
+        commissionAmount: loan.commissionAmount, closedAt: loan.closedAt,
+        borrower: client.firstName ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim() : '',
+        createdBy: normalizeEmail(row.owner_email || ''),
+      }, user.email || '');
+    } catch (e) { console.warn('quotes-close (loan-first): email failed:', e); }
+  }
+  return json(200, {
+    ok: true, emailed: emailed2, firstClose,
+    loansUpdated: 1, loanMatchedBy: 'loanId', loanSyncError: null,
+    quote: { id: quoteId, loanId, status: 'closed', finalLoanAmount: loan.finalLoanAmount,
+             commissionRate: loan.commissionRate, commissionAmount: loan.commissionAmount,
+             closedAt: loan.closedAt, closeNotes: loan.closeNotes || '' },
+  });
+}
 
 async function syncToClientLoan(ownerKey, quote) {
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
