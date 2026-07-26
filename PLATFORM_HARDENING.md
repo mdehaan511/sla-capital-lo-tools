@@ -128,9 +128,28 @@ Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
       repair tools) have no hatch by design — a blocked repair is a real
       conflict surfacing. **Mike: run 003_integrity.sql in the SQL editor.**
       NOT NULLs deferred to C2 (flip of write authority is the natural time).
-- [ ] **C5.** Bake-off period with `admin-blob-pg-sync` dry-runs daily (cron
-      from A3 already reports drift); then retire blob reads entirely (old
-      Phase 6).
+- [ ] **C5.** Bake-off period, then retire blob serving reads. **Bake-off
+      STARTED 2026-07-26** (Deploy 236.432): `drift-report-cron` runs the
+      full presence diff daily at 3am PT and posts to #platform-errors —
+      every day, clean or not, so the evidence trail is visible and a dead
+      cron is distinguishable from a quiet one. Diff logic shared with
+      admin-blob-pg-sync via `_shared/blob-pg-drift.mjs`. Manual run:
+      GET /api/drift-report (admin).
+      **Flip criterion:** 7 consecutive clean daily reports; any drift
+      resets the clock after diagnosis.
+      **Cut list when the bake completes** (serving reads only — mutation
+      working-copy reads + admin repair tools keep the blob until the
+      "blob as pure cache" end state):
+      - `clients-list.mjs` — remove the legacy blob-walk/index fallback
+        (auto-fires on PG error today)
+      - `loan-locate.mjs` — remove the direct-walk blob fallback
+      - `client-get.mjs` — legacy pure-blob serve; retire or redirect to
+        client-get-pg (check for remaining callers first)
+      - `borrower-portal-loans.mjs` — convert guarantor-linked client
+        reads to PG
+      - `client-get-pg.mjs` is already PG-only; pg-projections carry ALL
+        unpromoted fields in `extra` jsonb, so PG rows reconstruct full
+        records — the flip is architecturally safe.
 
 ## Phase D — Kill the quote/loan duality  *(1–2 weeks; right after C)*
 

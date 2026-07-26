@@ -1176,6 +1176,19 @@
 [functions."admin-blob-pg-sync"]
   timeout = 26
 
+# Deploy 236.432 (Hardening C5) — daily blob↔PG deep drift report.
+# Scheduled (10:00 UTC = 3am PT) via the function's own config export;
+# posts the bake-off evidence line to #platform-errors every day.
+# Manual GET with admin auth returns the full JSON report.
+[[redirects]]
+  from = "/api/drift-report"
+  to = "/.netlify/functions/drift-report-cron"
+  status = 200
+  force = true
+
+[functions."drift-report-cron"]
+  timeout = 26
+
 # Fix orphaned brokerId references on loans (blob + PG). Some loans
 # carry a brokerId pointing at a client that doesn't exist — harmless
 # under blob-only reads, but the PG loans_broker_id_fkey constraint
