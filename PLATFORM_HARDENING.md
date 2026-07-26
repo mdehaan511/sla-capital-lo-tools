@@ -210,15 +210,45 @@ One deal = one record. "Quoted" is a status, the sizer snapshot is a field.
 
 ## Phase E — Auth consolidation  *(≈1 week; before borrower launch)*
 
-Netlify Identity is deprecated by Netlify. Half-migrated already.
+Netlify Identity is deprecated by Netlify. Approach (Mike 2026-07-26):
+**additive-first, gated**. Audit findings 2026-07-26: only 1 of 14 active
+LOs has a Supabase account (mdehaan51@gmail.com); Google OAuth is NOT
+configured in Supabase; Supabase issues ES256/JWKS.
 
-- [ ] **E1.** Finish LO auth on Supabase (users-*-supabase endpoints exist);
-      migrate remaining Identity-only flows (identity-login/signup event
-      handlers, token refresh path in sla-api.js).
-- [ ] **E2.** Borrower auth fully on Supabase Auth (magic links already
-      partially built via activate.html).
-- [ ] **E3.** Remove the netlify-identity-widget script tags + dual-token
-      juggling in sla-api.js.
+**KEY ARCHITECTURE FINDING (236.433 prod probes):** while Netlify Identity
+is ENABLED, Netlify's edge validates every well-formed JWT's signature
+against the Netlify secret and returns platform-level 400 for mismatches
+BEFORE the function runs. So (a) forged tokens are edge-400'd today — the
+old decode-only "hole" was latent, not live; (b) real Supabase tokens are
+ALSO edge-400'd — Supabase auth CANNOT reach /api until Netlify Identity
+is DISABLED. requireAuth's Supabase verification (E-step-1) is the guard
+that must be live BEFORE the edge is removed. Disabling Netlify Identity
+in Netlify settings is therefore the pivotal, all-at-once cutover — not a
+gradual per-user move.
+
+- [x] **E — step 1 (Deploy 236.433, live 2026-07-26): backend verifies
+      Supabase JWTs.** `requireAuth` async + ES256/JWKS verification via
+      `verifySupabaseToken`; 176 call sites → await. Netlify path
+      unchanged. Local 6/6 + staging smoke 24/24; prod can't exercise the
+      Supabase path yet (edge shields it — see finding above). Zero user
+      impact, no lockout (Mike's real token still 200).
+- [ ] **E1.** Configure Google OAuth provider in Supabase (dashboard:
+      Google Cloud client id/secret → Auth → Providers). Then move the
+      index.html "Sign in with Google" button from netlifyIdentity.open
+      to supabase.auth.signInWithOAuth. Migrate identity-login/signup
+      event handlers + token-refresh path in sla-api.js.
+- [ ] **E2.** Provision the 13 Netlify-only LOs in Supabase, roles
+      preserved (carl.davis, chance, milk.delcorio, dan, dru.wolcott,
+      eric.clunn, jeremy, jojo.scherer, marianne.wentzel, mason.bridges,
+      mike, randy.dargan, sara.s — all @slacapital.com). Google OAuth
+      auto-creates on first sign-in; seed roles/app_metadata so they
+      don't lose access. Borrower auth on Supabase (magic links via
+      activate.html).
+- [ ] **E3.** THE CUTOVER: disable Netlify Identity (edge stops
+      validating → Supabase tokens reach functions → requireAuth's
+      verification becomes load-bearing). Remove netlify-identity-widget
+      script tags + dual-token juggling in sla-api.js. Do only after ALL
+      14 confirmed working on Supabase, since it's all-at-once.
 
 ## Phase F — Borrower-portal hardening  *(before invite emails go out)*
 
