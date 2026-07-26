@@ -297,6 +297,17 @@ export async function requireSupabaseAuth(req) {
 // ── Role extraction (Supabase app_metadata → array) ───────────
 
 function _extractRoles(payload) {
+  // Deploy 236.434 (Hardening E): the custom_access_token_hook
+  // (db/migrations/004) stamps roles as a top-level `sla_roles` array
+  // claim from the sla_user_roles source-of-truth table. Read it FIRST
+  // so authorization is driven by that one list, independent of however
+  // the Supabase account was created (Google-linked, fresh, magic-link).
+  // Falls back to app_metadata.roles/role for tokens minted before the
+  // hook was enabled — purely additive, nothing pre-existing changes.
+  if (payload && Array.isArray(payload.sla_roles)) {
+    const r = payload.sla_roles.filter((x) => typeof x === 'string' && x.length);
+    if (r.length) return r;
+  }
   const am = (payload && payload.app_metadata) || {};
   if (Array.isArray(am.roles)) return am.roles.filter((r) => typeof r === 'string' && r.length);
   if (typeof am.role === 'string' && am.role) return [am.role];
