@@ -242,18 +242,29 @@ gradual per-user move.
       cannot ship independently — a Supabase session's token is 400'd by
       the Netlify edge until Identity is disabled (E3), so login would
       break. Button-move + E3 cutover are one coordinated operation.
-- [ ] **E2.** Provision the 13 Netlify-only LOs in Supabase, roles
-      preserved (carl.davis, chance, milk.delcorio, dan, dru.wolcott,
-      eric.clunn, jeremy, jojo.scherer, marianne.wentzel, mason.bridges,
-      mike, randy.dargan, sara.s — all @slacapital.com). Google OAuth
-      auto-creates on first sign-in; seed roles/app_metadata so they
-      don't lose access. Borrower auth on Supabase (magic links via
-      activate.html).
-- [ ] **E3.** THE CUTOVER: disable Netlify Identity (edge stops
-      validating → Supabase tokens reach functions → requireAuth's
-      verification becomes load-bearing). Remove netlify-identity-widget
-      script tags + dual-token juggling in sla-api.js. Do only after ALL
-      14 confirmed working on Supabase, since it's all-at-once.
+- [x] **E2. Role-injection hook — DONE + verified 2026-07-26 (Deploy
+      236.434 + db/migrations/004, live in prod Supabase).** PIVOTED from
+      pre-seed (fragile: Google-link-vs-duplicate could lock users out) to
+      a `custom_access_token_hook` that stamps `sla_roles` by email at
+      token mint, from the `sla_user_roles` table (13-row seed; roles
+      preserve current access exactly). `supabase-auth.mjs _extractRoles`
+      reads the `sla_roles` claim first (smoke 24/24). Verified via direct
+      function call in SQL: dan→["super_admin"], chance→["admin"],
+      carl→["user"], unlisted→[] (no back door). No pre-seeding, no
+      linking dependency, no lockout path — any Supabase user (Google,
+      fresh, magic-link) gets the right role by email. To change access
+      later: upsert a row in sla_user_roles (takes effect next login).
+- [ ] **E3. THE CUTOVER (all-at-once, dedicated session):** (a) move
+      index.html "Sign in with Google" from netlifyIdentity.open →
+      supabase.auth.signInWithOAuth; (b) DISABLE Netlify Identity in
+      Netlify settings (edge stops 400ing Supabase tokens → they reach
+      functions → requireAuth's verification + the role hook become
+      load-bearing together); (c) remove netlify-identity-widget script
+      tags + dual-token juggling in sla-api.js. Canary the FIRST login
+      (confirm token carries sla_roles + access works) before it's live
+      for all 14. Rollback = re-enable Netlify Identity + revert the
+      button. Everything BELOW the cutover line is now ready; only this
+      coordinated flip remains.
 
 ## Phase F — Borrower-portal hardening  *(before invite emails go out)*
 
