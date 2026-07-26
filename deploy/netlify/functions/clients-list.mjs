@@ -27,7 +27,7 @@ export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
 
-  const user = requireAuth(context, req);
+  const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
 
   // Deploy 236.404 (Hardening C3 slice 1) — PG-first. This endpoint

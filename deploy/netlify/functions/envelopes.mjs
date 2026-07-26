@@ -273,7 +273,7 @@ async function handleList(req, user) {
 export default async (req, context) => {
   try {
     const pre = handleOptions(req); if (pre) return pre;
-    const user = requireAuth(context, req);
+    const user = await requireAuth(context, req);
     if (!user) return json(401, { error: 'Not authenticated' });
     if (req.method === 'GET')  return await handleList(req, user);
     if (req.method === 'POST') return await handleCreate(req, context, user);

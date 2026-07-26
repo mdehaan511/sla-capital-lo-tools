@@ -4,11 +4,17 @@
  * Usage from a function (modern Request/Response style):
  *   import { requireAuth, json, getRoles, isAdmin } from './_shared/auth.js';
  *   export default async (req, context) => {
- *     const user = requireAuth(context);
+ *     const user = await requireAuth(context, req); // async since Deploy 236.433
  *     if (!user) return json(401, { error: 'Not authenticated' });
  *     ...
  *   };
  */
+
+// Deploy 236.433 (Hardening Phase E, step 1): Supabase JWT verification.
+// requireAuth now cryptographically verifies Supabase tokens instead of
+// trusting a decoded payload. See the requireAuth body for the full
+// rationale.
+import { verifySupabaseToken } from './supabase-auth.mjs';
 
 export function corsHeaders() {
   return {
@@ -58,18 +64,66 @@ export function handleOptions(req) {
  * populated), falls back to parsing the Authorization header's JWT
  * payload ourselves.
  */
-export function requireAuth(context, req) {
+export async function requireAuth(context, req) {
+  // 1. Netlify Identity: context.clientContext.user is populated AND
+  //    signature-validated by Netlify's edge. Trust it.
   const ccUser = context && context.clientContext && context.clientContext.user;
   if (ccUser) return ccUser;
 
-  // Fallback: decode JWT from Authorization header
+  // 2. Bearer token in the Authorization header.
   if (!req) return null;
   const authHeader = req.headers.get
     ? (req.headers.get('authorization') || req.headers.get('Authorization'))
     : '';
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const token = authHeader.slice(7).trim();
+
+  // Deploy 236.433 (Hardening E, step 1): a token that CLAIMS to be from
+  // Supabase (asymmetric alg or a supabase issuer) MUST pass real
+  // cryptographic verification — no decode-only fallback. This closes
+  // the signature-forgery hole: before today the backend base64-decoded
+  // the payload and trusted it, so a forged JWT carrying admin claims
+  // was accepted at all 175 endpoints. verifySupabaseToken checks the
+  // ES256 signature against the project JWKS + exp/nbf and returns a
+  // normalized (netlify-shaped) user, or null on any failure.
+  if (_looksLikeSupabaseToken(token)) {
+    return await verifySupabaseToken(token);
+  }
+
+  // Netlify Identity token presented in the header WITHOUT clientContext
+  // (some site-config paths don't populate it). Decode-only, unchanged.
+  // This is a KNOWN, deliberately-temporary gap: Netlify Identity is
+  // retired in Phase E's final step, at which point this branch — the
+  // last unverified path — is deleted. Netlify's HS256 secret is
+  // Netlify-internal so we can't verify these here; legitimate Netlify
+  // sessions are edge-verified via clientContext above, so this only
+  // covers the header-only edge case.
   return decodeJwtPayload(token);
+}
+
+// Deploy 236.433 — peek (WITHOUT verifying) at a JWT to decide whether
+// it must go through Supabase verification. Discriminating on CLAIMED
+// identity (not on verification success) is what makes the gate real:
+// a forged Supabase token cannot dodge verification by also looking
+// like a Netlify token, because a supabase issuer or an asymmetric alg
+// forces the Supabase path where the bad signature is rejected.
+function _looksLikeSupabaseToken(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) return false;
+  try {
+    const header = JSON.parse(_b64uDecode(parts[0]));
+    if (header && (header.alg === 'ES256' || header.alg === 'RS256')) return true;
+    const payload = JSON.parse(_b64uDecode(parts[1]));
+    const iss = String((payload && payload.iss) || '');
+    if (/supabase|\/auth\/v1(\/|$)/i.test(iss)) return true;
+  } catch (_) { /* malformed → not a recognizable Supabase token */ }
+  return false;
+}
+
+function _b64uDecode(b64u) {
+  let b64 = String(b64u || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  return typeof atob === 'function' ? atob(b64) : Buffer.from(b64, 'base64').toString('utf8');
 }
 
 /**

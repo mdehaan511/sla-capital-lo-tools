@@ -25,7 +25,7 @@ export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
 
-  const user = requireAuth(context, req);
+  const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isSuperAdmin(user)) return json(403, { error: 'Super-admin only' });
 

@@ -32,7 +32,7 @@ export default async (req, context) => {
 
     let who = 'anonymous';
     try {
-      const user = requireAuth(context, req);
+      const user = await requireAuth(context, req);
       if (user && user.email) who = user.email;
     } catch (_) {}
 

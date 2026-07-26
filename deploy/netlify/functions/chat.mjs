@@ -65,7 +65,7 @@ export default async (req, context) => {
       status: 405, headers: { 'Content-Type': 'application/json' },
     });
   }
-  const user = requireAuth(context, req);
+  const user = await requireAuth(context, req);
   if (!user) {
     return new Response(JSON.stringify({ error: 'Not authenticated' }), {
       status: 401, headers: { 'Content-Type': 'application/json' },

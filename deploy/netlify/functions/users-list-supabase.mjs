@@ -31,7 +31,7 @@ export default async (req, context) => {
 
   // Pass req so requireAuth can fall back to Authorization-header
   // decode when context.clientContext.user is empty.
-  const user = requireAuth(context, req);
+  const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isAdmin(user)) return json(403, { error: 'Admin required' });
 

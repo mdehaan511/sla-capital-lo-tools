@@ -56,7 +56,7 @@ async function _allLoansPG() {
 export default async (req, context) => {
   try {
     const pre = handleOptions(req); if (pre) return pre;
-    const user = requireAuth(context, req);
+    const user = await requireAuth(context, req);
     if (!user) return json(401, { error: 'Not authenticated' });
     if (!isAdmin(user)) return json(403, { error: 'Admin only' });
 
