@@ -38,7 +38,6 @@ comment on table public.sla_user_roles is
 insert into public.sla_user_roles (email, roles) values
   ('dan@slacapital.com',              array['super_admin']),
   ('mike@slacapital.com',             array['super_admin']),
-  ('mdehaan51@gmail.com',             array['super_admin']),  -- Mike's personal Google; was 'processor' in Supabase (stale) — corrected to match his work identity
   ('chance@slacapital.com',           array['admin']),
   ('jeremy@slacapital.com',           array['admin']),
   ('carl.davis@slacapital.com',       array['user']),
