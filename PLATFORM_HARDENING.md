@@ -137,6 +137,15 @@ Strict writes made multi-store drift LOUD; transactions make it IMPOSSIBLE.
       GET /api/drift-report (admin).
       **Flip criterion:** 7 consecutive clean daily reports; any drift
       resets the clock after diagnosis.
+      **Day-zero baseline (2026-07-26): CLEAN** — 2,838 clients / 521
+      loans / 14 owners, zero drift both directions. One pre-C2 relic
+      found and repaired first: loan l_1784775969617_r0j1 (chance@,
+      7/22 8pm PT — before strict writes) carried a dangling brokerId
+      the fire-and-forget mirror silently tripped on
+      (loans_broker_id_fkey). admin-fix-broker-fks nulled the ref
+      (inline broker fields intact — relinks on next save), then
+      admin-blob-pg-sync wrote the loan to PG. Every write since the
+      C2 flip has mirrored correctly.
       **Cut list when the bake completes** (serving reads only — mutation
       working-copy reads + admin repair tools keep the blob until the
       "blob as pure cache" end state):
