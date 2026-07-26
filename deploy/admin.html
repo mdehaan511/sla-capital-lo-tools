@@ -505,7 +505,8 @@ netlifyIdentity.on('init', function(user) {
     var origin = location.origin;
     function rowHtml(u, isDeleted) {
       var role = (u.roles[0] || 'user');
-      var roleLabel = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
+      // Deploy 236.435 — company titles for display (access roles unchanged).
+      var roleLabel = role === 'super_admin' ? 'Owner' : role === 'admin' ? 'Sales Manager' : 'Loan Officer';
       var roleClass = role;
       var name = u.fullName || humanizeEmail(u.email);
       var lastActive = formatLastActive(u.last_seen_at);

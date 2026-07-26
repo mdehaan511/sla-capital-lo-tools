@@ -442,7 +442,11 @@ function initProfile() {
   var roles = SLA.getRoles(_user);
   var role = (roles[0] || 'user');
   document.getElementById('fldRole').value =
-    role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
+    // Deploy 236.435 — display company titles, not permission levels.
+    // Access roles (super_admin/admin/user) are unchanged; this is the
+    // label only. Current roster: super_admins are Owners, admins are
+    // Sales Managers, everyone else is a Loan Officer.
+    role === 'super_admin' ? 'Owner' : role === 'admin' ? 'Sales Manager' : 'Loan Officer';
 
   var url = (window.location.origin || '') + '/apply.html?lo=' + encodeURIComponent(_user.email);
   document.getElementById('applyUrl').textContent = url;
@@ -684,7 +688,8 @@ function renderVolumeTable(sorted) {
 
   sorted.forEach(function(u) {
     var role = (u.roles && u.roles[0]) || 'user';
-    var roleLabel = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'User';
+    // Deploy 236.435 — company titles for display (access roles unchanged).
+    var roleLabel = role === 'super_admin' ? 'Owner' : role === 'admin' ? 'Sales Manager' : 'Loan Officer';
     var name = u.fullName || humanizeEmail(u.email);
     var applyUrl = u.email ? (window.location.origin + '/apply.html?lo=' + encodeURIComponent(u.email)) : '';
     html += '<tr>' +
