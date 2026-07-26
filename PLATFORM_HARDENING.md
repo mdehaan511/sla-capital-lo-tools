@@ -232,11 +232,16 @@ gradual per-user move.
       unchanged. Local 6/6 + staging smoke 24/24; prod can't exercise the
       Supabase path yet (edge shields it — see finding above). Zero user
       impact, no lockout (Mike's real token still 200).
-- [ ] **E1.** Configure Google OAuth provider in Supabase (dashboard:
-      Google Cloud client id/secret → Auth → Providers). Then move the
-      index.html "Sign in with Google" button from netlifyIdentity.open
-      to supabase.auth.signInWithOAuth. Migrate identity-login/signup
-      event handlers + token-refresh path in sla-api.js.
+- [~] **E1.** Google OAuth provider in Supabase CONFIGURED + verified
+      2026-07-26 (client 829012909372-…, redirect_uri
+      https://ppvzipckztqervyoyzgv.supabase.co/auth/v1/callback reaches
+      Google's account picker). REMAINING: move the index.html "Sign in
+      with Google" button from netlifyIdentity.open to
+      supabase.auth.signInWithOAuth, and migrate identity-login/signup
+      handlers + token-refresh path in sla-api.js. NOTE: the button move
+      cannot ship independently — a Supabase session's token is 400'd by
+      the Netlify edge until Identity is disabled (E3), so login would
+      break. Button-move + E3 cutover are one coordinated operation.
 - [ ] **E2.** Provision the 13 Netlify-only LOs in Supabase, roles
       preserved (carl.davis, chance, milk.delcorio, dan, dru.wolcott,
       eric.clunn, jeremy, jojo.scherer, marianne.wentzel, mason.bridges,
