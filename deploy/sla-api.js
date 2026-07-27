@@ -469,13 +469,34 @@
         // localStorage — auth.signOut is async and we want the sign
         // out to feel instant. `sb-<project-ref>-auth-token` is the
         // v2 SDK's canonical key format.
+        var _hadSupabase = false;
         try {
           for (var i = localStorage.length - 1; i >= 0; i--) {
             var k = localStorage.key(i);
-            if (k && /^sb-.+-auth-token$/.test(k)) localStorage.removeItem(k);
+            if (k && /^sb-.+-auth-token$/.test(k)) { localStorage.removeItem(k); _hadSupabase = true; }
           }
         } catch (_) {}
-        return _origLogout();
+        var _r;
+        try { _r = _origLogout(); } catch (_) {}
+        // Deploy 236.444 — force the UI to the login screen. A
+        // Supabase-only session fires NO Netlify 'logout' event (there's
+        // no Netlify user to revoke), so the page's on('logout') →
+        // redirect never runs and Sign Out appears to do nothing until
+        // the next navigation. Redirect here so the reset is immediate.
+        // The local session is already cleared above, so landing on '/'
+        // shows the login screen. Netlify sessions also go to '/' on
+        // logout, so this is harmless for them (same destination).
+        try {
+          var _p = window.location.pathname;
+          var _onLoginPage = (_p === '/' || _p === '/index.html' || _p === '/index');
+          if (_onLoginPage) {
+            // Already on the login page — just re-render the login card.
+            if (typeof window.showLogin === 'function') { try { window.showLogin(); } catch (_) {} }
+          } else {
+            window.location.replace('/');
+          }
+        } catch (_) { try { window.location.replace('/'); } catch (__) {} }
+        return _r;
       };
     }
 
