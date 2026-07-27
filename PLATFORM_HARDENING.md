@@ -254,17 +254,29 @@ gradual per-user move.
       linking dependency, no lockout path — any Supabase user (Google,
       fresh, magic-link) gets the right role by email. To change access
       later: upsert a row in sla_user_roles (takes effect next login).
-- [ ] **E3. THE CUTOVER (all-at-once, dedicated session):** (a) move
-      index.html "Sign in with Google" from netlifyIdentity.open →
-      supabase.auth.signInWithOAuth; (b) DISABLE Netlify Identity in
-      Netlify settings (edge stops 400ing Supabase tokens → they reach
-      functions → requireAuth's verification + the role hook become
-      load-bearing together); (c) remove netlify-identity-widget script
-      tags + dual-token juggling in sla-api.js. Canary the FIRST login
-      (confirm token carries sla_roles + access works) before it's live
-      for all 14. Rollback = re-enable Netlify Identity + revert the
-      button. Everything BELOW the cutover line is now ready; only this
-      coordinated flip remains.
+- [~] **E3. CUTOVER — attempted + reverted 2026-07-26 (236.436→440);
+      re-scoped and DE-RISKED.** Live canary proved:
+      - Role hook works ONLY with SECURITY DEFINER (migrations 005-007);
+        it runs as supabase_auth_admin which couldn't read
+        sla_user_roles until 007. mike's Google login now stamps
+        sla_roles:["super_admin"].
+      - **Netlify Identity does NOT need to be disabled.** A real
+        Supabase token returns 200 on prod /api with Identity ENABLED —
+        the edge only 400s forged/bad-sig tokens, not valid Supabase
+        ones. Earlier "edge blocks Supabase tokens" was a wrong inference
+        from forged-token probes. So NO all-at-once flip, NO forced-
+        logout risk, NO widget-removal coupling. The two auth systems
+        coexist.
+      - **Remaining blocker (frontend only):** the sla-api dual-auth
+        bridge (Deploys 236.265-319) does not persist the Supabase
+        session on app pages — navigating cleared the session + bounced
+        to login. So the Supabase-OAuth button was a broken loop →
+        reverted to netlifyIdentity.open.
+      **Next:** fix the bridge's Supabase-session persistence (suspect a
+      logout-on-init-null race or storage-key mismatch), re-verify the
+      full UI flow, then swap the Google button ALONE (no Identity
+      disable). Widget removal / Identity-disable become optional later
+      tech-debt cleanups, not cutover blockers.
 
 ## Phase F — Borrower-portal hardening  *(before invite emails go out)*
 
