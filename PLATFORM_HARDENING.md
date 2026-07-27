@@ -298,9 +298,18 @@ gradual per-user move.
 
 ## Phase F — Borrower-portal hardening  *(before invite emails go out)*
 
-- [ ] **F1.** Rate limiting on every public endpoint (apply, borrower-info-*,
-      borrower2-*, token lookups, client-error-log). Netlify rate-limit rules
-      + per-token attempt counters.
+- [x] **F1. DONE 2026-07-26 (Deploy 236.445).** `_shared/rate-limit.mjs`
+      — per-IP fixed-window counter in a Netlify Blob store (bucket +
+      x-nf-client-connection-ip), fails OPEN on any storage error so a
+      blip never locks a borrower out. Applied to all 14 public /
+      token-gated endpoints: apply form (prospects-save) 10/min (the open
+      spam target); token reads 200/5min; autosave 300/5min; signing
+      (borrower-info-sign, borrower2, envelope) 30/5min; doc-downloads /
+      consent 60/5min. Verified live: apply form let 10 through then 429.
+      (Borrower tokens are already 128-bit random w/ 14-day expiry — this
+      is spam/abuse defense + defense-in-depth, not the token guard.)
+      NOTE: client-error-log stays unlimited on purpose (it's the Phase A
+      error beacon; throttling it would blind us during an incident).
 - [ ] **F2.** Token hygiene: aggressive expiry on borrower links, single-
       purpose tokens, rotation on use where sensible.
 - [ ] **F3.** PII access audit log: who viewed which SSN/document, when.
