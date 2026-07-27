@@ -1242,7 +1242,22 @@ function processResults(results) {
         // apply.html auto-create that the LO hasn't quoted yet.
         // Leaving prospectId out of the worked set keeps the prospect
         // visible in the New Application column.
-        if (!_quotedLoanIds[owner] || !_quotedLoanIds[owner][l.id]) return;
+        // Deploy 236.448 (the permanent fix) — a prospect is "worked"
+        // (→ hidden from New Application) when its loan has a quote OR is
+        // PRICED. Post-D2 a deal lives as a LOAN with no quote-store
+        // record, so the old quote-only gate stranded a priced loan's
+        // prospect in New Application while the loan's SYNTHETIC tile
+        // showed in Quoted — the recurring duplicate (Brazeehouse:
+        // prospectId matched, but _quotedLoanIds had no entry). "Priced"
+        // mirrors the synthetic-tile gate exactly (_isUnpricedAutoCreate,
+        // 236.292: l.rate || formData._finalRate), so the prospect now
+        // hides precisely when the loan becomes visible in Quoted — the
+        // two conditions can never disagree again. An unpriced apply.html
+        // auto-create (no rate, no quote) still keeps the prospect
+        // visible, preserving the 236.36 intent.
+        var _loanHasQuote = _quotedLoanIds[owner] && _quotedLoanIds[owner][l.id];
+        var _loanPriced   = !!(l.rate || (l.formData && l.formData._finalRate));
+        if (!_loanHasQuote && !_loanPriced) return;
         if (!_workedProspectIds[owner]) _workedProspectIds[owner] = {};
         _workedProspectIds[owner][l.prospectId] = true;
       });
