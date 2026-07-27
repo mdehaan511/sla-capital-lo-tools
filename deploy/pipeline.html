@@ -1149,6 +1149,30 @@ function processResults(results) {
     function _normAddr(s) {
       return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
     }
+    // Deploy 236.447 — normalize property-type SYNONYMS so the
+    // prospect↔quote dedup treats apply.html's slug (sfh = "Single
+    // Family Home") and the sizer's slug (sfr = "SFR / 1–4 Units") as
+    // the same type. Without it, a Single Family prospect and its own
+    // quoted loan showed as TWO cards (New Application + Quoted) because
+    // the propType-aware dedup (236.280) compared 'sfh' !== 'sfr' as raw
+    // strings. Mirrors normalizePropType() in
+    // _shared/borrower-info-sync.mjs — keep the two in sync. Only
+    // synonyms collapse; genuinely distinct types (sfr vs condo) stay
+    // distinct, so the 236.280 "two different deals at one address"
+    // behavior is preserved.
+    function _normPropType(pt) {
+      if (!pt) return '';
+      var map = {
+        sfh: 'sfr', sfr: 'sfr', townhome: 'sfr', manufactured: 'sfr', rural: 'sfr',
+        '2-4': '2-4',
+        '5+': 'multi', mfr: 'multi', multi: 'multi',
+        condo: 'condo', condo_w: 'condo',
+        nw_condo: 'nw_condo', condo_nw: 'nw_condo',
+        portfolio: 'portfolio',
+      };
+      var k = String(pt).toLowerCase().trim();
+      return map[k] || k;
+    }
     // Deploy 236.22 — dedup prospects by BOTH address AND prospectId.
     // Address dedup silently breaks when the LO corrects the address
     // on the sizer (the loan/quote update, the prospect's propAddress
@@ -1192,7 +1216,7 @@ function processResults(results) {
       if (addr) {
         if (!_workedByOwner[item.owner]) _workedByOwner[item.owner] = {};
         if (!_workedByOwner[item.owner][addr]) _workedByOwner[item.owner][addr] = {};
-        var qPt = String((item.quote.formData && item.quote.formData.propType) || item.quote.propType || '').toLowerCase().trim();
+        var qPt = _normPropType((item.quote.formData && item.quote.formData.propType) || item.quote.propType || ''); // Deploy 236.447 — normalize sfh/sfr synonyms
         _workedByOwner[item.owner][addr][qPt || '_nopt_'] = true;
       }
       var lid = item.quote.loanId;
@@ -1246,7 +1270,7 @@ function processResults(results) {
       if (addr && _workedByOwner[item.owner] && _workedByOwner[item.owner][addr]) {
         // Deploy 236.280 — propType-aware match.
         var seenPts = _workedByOwner[item.owner][addr];
-        var pPt = String(item.prospect.propType || '').toLowerCase().trim();
+        var pPt = _normPropType(item.prospect.propType || ''); // Deploy 236.447 — normalize sfh/sfr synonyms
         if (pPt) {
           // Prospect has propType. Hide only when the same propType
           // is present, or when a quote at this address has no
