@@ -267,16 +267,25 @@ gradual per-user move.
         from forged-token probes. So NO all-at-once flip, NO forced-
         logout risk, NO widget-removal coupling. The two auth systems
         coexist.
-      - **Remaining blocker (frontend only):** the sla-api dual-auth
-        bridge (Deploys 236.265-319) does not persist the Supabase
-        session on app pages — navigating cleared the session + bounced
-        to login. So the Supabase-OAuth button was a broken loop →
-        reverted to netlifyIdentity.open.
-      **Next:** fix the bridge's Supabase-session persistence (suspect a
-      logout-on-init-null race or storage-key mismatch), re-verify the
-      full UI flow, then swap the Google button ALONE (no Identity
-      disable). Widget removal / Identity-disable become optional later
-      tech-debt cleanups, not cutover blockers.
+      - **The real frontend bug (fixed 236.441):** the sla-api bridge
+        read roles from the Supabase user's app_metadata (empty for a
+        Google user) instead of the token's sla_roles claim — so a valid
+        super_admin looked like no-access. The "session cleared" symptom
+        was a TEST ARTIFACT (my repeated refreshSession rotating the
+        one-time refresh token), not the app.
+- [x] **E3. CUTOVER DONE 2026-07-26 (236.443).** Google button →
+      supabase.auth.signInWithOAuth (redirectTo /activate.html). Verified
+      live end-to-end with a clean Google login: landed in app, roles
+      ['super_admin'], isAdmin true, session PERSISTED across
+      pipeline→clients, /api 200, no Netlify modal. Netlify Identity left
+      ENABLED (coexists; disable is optional). Supporting: 236.441
+      (frontend roles from token), 236.442 (activate.html reads role +
+      auto-forwards), 236.444 (sign-out resets UI immediately for
+      Supabase-only sessions). OPTIONAL polish: (a) Google OAuth consent
+      screen shows raw supabase.co domain — set App name "SLA Capital" +
+      Internal user type in Google Cloud; (b) later, retire
+      netlify-identity-widget + dual-token juggling once all 14 LOs have
+      signed in via Google once.
 
 ## Phase F — Borrower-portal hardening  *(before invite emails go out)*
 
