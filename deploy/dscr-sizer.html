@@ -2311,7 +2311,10 @@ function _generateRateSheetPDF(opts) {
       var ovP = (window._dscrOverrides && window._dscrOverrides.points);
       var t = (typeof ovP === 'number' && isFinite(ovP)) ? ovP : (1 + (r.buydown||0));
       return (typeof ovP === 'number' && isFinite(ovP))
-        ? t.toFixed(2)+' pts (manager-approved override)'
+        // Deploy 236.446 — drop the "(manager-approved override)" note
+        // from the rate sheet; just print the points value (matches the
+        // RTL sheet, which shows the effective value with no annotation).
+        ? t.toFixed(2)+' pts'
         : t.toFixed(2)+' pts (1.00 base'+(r.buydown>0?' + '+r.buydown.toFixed(2)+' buy-down':'')+')';
     })()],
   ];
