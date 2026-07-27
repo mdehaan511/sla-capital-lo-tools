@@ -46,6 +46,8 @@ import { getOwnerReplyTo } from './_shared/email.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
+import { checkRateLimit } from './_shared/rate-limit.mjs';
 
 // Which forms each signer signed in their single signing event.
 // Borrower 1\u2019s session covers all three forms (their own); borrower 2\u2019s
@@ -109,6 +111,10 @@ function _deadlineAbort(where) {
 async function handle(req) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+  const _rl = await checkRateLimit(req, null, { bucket: 'binfo-sign', max: 30, windowSec: 300 });
+  if (!_rl.allowed) {
+    return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  }
 
   const body = await readJsonBody(req);
   if (body === null) return json(400, { error: 'Invalid JSON' });

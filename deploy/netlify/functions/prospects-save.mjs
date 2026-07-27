@@ -31,6 +31,8 @@ import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.34
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.445 (Hardening F1) — abuse ceiling on the OPEN apply form.
+import { checkRateLimit } from './_shared/rate-limit.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -44,6 +46,15 @@ const HOUSE_ACCOUNT_EMAIL = 'chance@slacapital.com';
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+
+  // Deploy 236.445 (F1) — the apply form is fully open (no token). Cap
+  // submissions per IP so it can't be spammed. 10/min tolerates a real
+  // applicant's retries while stopping bulk abuse. Fails open on a
+  // storage blip (see rate-limit.mjs).
+  const _rl = await checkRateLimit(req, context, { bucket: 'apply', max: 10, windowSec: 60 });
+  if (!_rl.allowed) {
+    return json(429, { error: 'Too many submissions. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  }
 
   // Size guard
   const cl = req.headers.get('content-length');

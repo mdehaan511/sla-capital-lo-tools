@@ -11,6 +11,8 @@ import { getStore } from '@netlify/blobs';
 import { handleOptions, json } from './_shared/auth.mjs';
 import { decryptField, maskSSN } from './_shared/crypto.mjs';
 import { resolveByToken } from './_shared/borrower-info-token-index.mjs';
+// Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
+import { checkRateLimit } from './_shared/rate-limit.mjs';
 
 export default async (req, context) => {
   try {
@@ -24,6 +26,10 @@ export default async (req, context) => {
 async function handle(req) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
+  const _rl = await checkRateLimit(req, null, { bucket: 'binfo-load', max: 200, windowSec: 300 });
+  if (!_rl.allowed) {
+    return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  }
 
   const url = new URL(req.url);
   const token = url.searchParams.get('t');

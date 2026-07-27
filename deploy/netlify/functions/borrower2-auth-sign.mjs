@@ -25,6 +25,8 @@ import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 import { getOwnerReplyTo } from './_shared/email.mjs';
+// Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
+import { checkRateLimit } from './_shared/rate-limit.mjs';
 
 const B2_SIGNED_AUTHS = ['prequal_credit'];
 
@@ -40,6 +42,10 @@ export default async (req, context) => {
 async function handle(req) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+  const _rl = await checkRateLimit(req, null, { bucket: 'b2-sign', max: 30, windowSec: 300 });
+  if (!_rl.allowed) {
+    return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  }
 
   const body = await readJsonBody(req);
   if (body === null)               return json(400, { error: 'Invalid JSON' });

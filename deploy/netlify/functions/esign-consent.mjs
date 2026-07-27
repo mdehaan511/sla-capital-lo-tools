@@ -15,10 +15,16 @@ import {
   PREQUAL_CREDIT_AUTH_TEXT, PREQUAL_CHECKBOX_LABEL,
   INFO_RELEASE_AUTH_TEXT, INFO_RELEASE_CHECKBOX_LABEL,
 } from './_shared/esign.mjs';
+// Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
+import { checkRateLimit } from './_shared/rate-limit.mjs';
 
-export default async (req) => {
+export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
+  const _rl = await checkRateLimit(req, context, { bucket: 'esign-consent', max: 60, windowSec: 300 });
+  if (!_rl.allowed) {
+    return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  }
   return json(200, {
     version: ESIGN_CONSENT_VERSION,
     // Backwards-compat fields used by borrower-info.html\u2019s Deploy 179 UI

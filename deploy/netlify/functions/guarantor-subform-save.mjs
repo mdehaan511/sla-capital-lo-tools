@@ -39,6 +39,8 @@ import { encryptField } from './_shared/crypto.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
+import { checkRateLimit } from './_shared/rate-limit.mjs';
 
 // Deploy 236.146 — `ssn_enc` removed from the generic top-level
 // whitelist. Frontend sends the raw SSN under `ssn_enc` (legacy
@@ -65,6 +67,10 @@ export default async (req, context) => {
 async function handle(req) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+  const _rl = await checkRateLimit(req, null, { bucket: 'gsub-save', max: 120, windowSec: 300 });
+  if (!_rl.allowed) {
+    return json(429, { error: 'Too many requests. Please wait a moment and try again.', retryAfterSec: _rl.retryAfterSec });
+  }
 
   const body = await readJsonBody(req);
   if (!body) return json(400, { error: 'Invalid JSON' });
