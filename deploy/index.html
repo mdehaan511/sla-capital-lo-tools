@@ -1126,30 +1126,14 @@
       showApp(user);
     });
     netlifyIdentity.on('logout', function() { showLogin(); });
-    // Deploy 236.436 (Phase E cutover) — "Sign in with Google" now goes
-    // through Supabase OAuth instead of Netlify Identity. The redirect
-    // lands on /activate.html, which already detects + persists the
-    // Supabase session (detectSessionInUrl:true); the sla-api dual-auth
-    // bridge then recognizes that session on '/'. The
-    // custom_access_token_hook (db/migrations/004) stamps the correct
-    // role by email at token mint, and the backend verifies the ES256
-    // signature (Deploy 236.433). Password + magic-link buttons below
-    // are unchanged.
-    document.getElementById('loginBtn').addEventListener('click', function() {
-      var msg = document.getElementById('loginMagicMsg');
-      if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--muted)'; msg.textContent = 'Redirecting to Google…'; }
-      _waitForSupabaseClient()
-        .then(function(supabase) {
-          return supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: { redirectTo: window.location.origin + '/activate.html' },
-          });
-        })
-        .then(function(res) { if (res && res.error) throw res.error; })
-        .catch(function(e) {
-          if (msg) { msg.style.color = '#7c1f1f'; msg.textContent = 'Could not start Google sign-in: ' + ((e && e.message) || 'unknown error'); }
-        });
-    });
+    // Deploy 236.440 — REVERTED 236.436's Supabase-OAuth Google button.
+    // The auth mechanics all work (Google→Supabase→role hook→backend
+    // verify→API 200, no Identity-disable needed), but the sla-api
+    // dual-auth bridge does not hold the Supabase session on app pages —
+    // it cleared the session and bounced to login. Back on Netlify
+    // Identity (working) until the frontend session handling is fixed,
+    // then the button cutover is re-attempted.
+    document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
 
     // ── Deploy 236.268 — Supabase sign-in (password OR magic link)
     // Password path (users who set one on the profile page): fast,
