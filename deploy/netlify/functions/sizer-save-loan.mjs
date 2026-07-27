@@ -381,19 +381,30 @@ async function handle(req, context) {
   // Mirrors loan-update-from-sizer's pattern.
   try {
     if (loanRecord && (loanRecord.brokerName || loanRecord.brokerEmail || loanRecord.brokerId)) {
-      const linked = await linkOrCreateBroker(ownerKey, loanRecord);
-      if (linked && linked.id) {
-        loanRecord.brokerId = linked.id;
-        const b = linked.broker || {};
-        if (b.name)    loanRecord.brokerName    = b.name;
-        if (b.company) loanRecord.brokerCompany = b.company;
-        if (b.email)   loanRecord.brokerEmail   = b.email;
-        if (b.phone)   loanRecord.brokerPhone   = b.phone;
+      // Deploy 236.452 — when the loan's PARENT client IS the broker (a
+      // broker-submitted deal: the client resolution above matches/
+      // creates from the broker email FIRST and flags it _isBroker), the
+      // broker already IS the client holding the loan. Point brokerId at
+      // that client and DON'T create a SECOND broker record — that
+      // duplicate (an empty broker-client alongside the loan-bearing
+      // client, same email, both is_broker) is exactly what Mike saw.
+      if (client && client._isBroker && brokerEmail && _normEmail(client.email) === brokerEmail) {
+        loanRecord.brokerId = client.id;
       } else {
-        // No broker resolved/created (e.g. name-only, or a transient
-        // failure). Drop any incoming brokerId so a stale/dangling
-        // pointer can't reach the FK. Inline broker fields are kept.
-        loanRecord.brokerId = '';
+        const linked = await linkOrCreateBroker(ownerKey, loanRecord);
+        if (linked && linked.id) {
+          loanRecord.brokerId = linked.id;
+          const b = linked.broker || {};
+          if (b.name)    loanRecord.brokerName    = b.name;
+          if (b.company) loanRecord.brokerCompany = b.company;
+          if (b.email)   loanRecord.brokerEmail   = b.email;
+          if (b.phone)   loanRecord.brokerPhone   = b.phone;
+        } else {
+          // No broker resolved/created (e.g. name-only, or a transient
+          // failure). Drop any incoming brokerId so a stale/dangling
+          // pointer can't reach the FK. Inline broker fields are kept.
+          loanRecord.brokerId = '';
+        }
       }
     }
   } catch (e) {
