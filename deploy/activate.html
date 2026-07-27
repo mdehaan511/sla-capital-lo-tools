@@ -54,24 +54,48 @@
       if (!SUPABASE_URL || !SUPABASE_PUB_KEY) throw new Error('Supabase env vars missing on the server. Ask an admin.');
     }
 
-    function renderOk(user) {
+    // Deploy 236.442 — roles come from the access token's sla_roles
+    // claim (the custom_access_token_hook stamps them by email at mint),
+    // NOT the user's app_metadata. Decode them for an accurate display,
+    // and map to the company titles used elsewhere (super_admin→Owner,
+    // admin→Sales Manager, else→Loan Officer). Also auto-forward into
+    // the app so there's no dead-end "Enter the app" click.
+    function _rolesFromToken(jwt) {
+      try {
+        var parts = String(jwt || '').split('.');
+        if (parts.length !== 3) return [];
+        var p = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        while (p.length % 4) p += '=';
+        var payload = JSON.parse(atob(p));
+        if (payload && Array.isArray(payload.sla_roles) && payload.sla_roles.length) return payload.sla_roles;
+        var am = (payload && payload.app_metadata) || {};
+        if (Array.isArray(am.roles)) return am.roles;
+        if (am.role) return [am.role];
+        return [];
+      } catch (_) { return []; }
+    }
+
+    function renderOk(user, roles) {
       var card = document.getElementById('card');
       var meta = (user && user.user_metadata) || {};
-      var am   = (user && user.app_metadata)  || {};
       var name = meta.full_name || meta.name || '';
-      var role = (Array.isArray(am.roles) && am.roles[0]) || am.role || '';
-      var humanRole = role === 'admin' ? 'Admin' : role === 'loan_officer' ? 'Loan Officer' : role === 'processor' ? 'Processor' : (role || '(no role)');
+      var role = (Array.isArray(roles) && roles[0]) || '';
+      var humanRole = role === 'super_admin' ? 'Owner' : role === 'admin' ? 'Sales Manager'
+        : role === 'processor' ? 'Processor' : 'Loan Officer';
       card.className = 'card status-ok';
       card.innerHTML =
         '<div class="logo">Sir Lends A Lot LLC</div>' +
-        '<div class="tagline">Account Activated</div>' +
+        '<div class="tagline">Signed in</div>' +
         '<h1>You\'re signed in' + (name ? ', ' + escH(name) : '') + '.</h1>' +
-        '<p>Your account is active.</p>' +
+        '<p>Taking you to the app…</p>' +
         '<div class="details">' +
           '<div class="row"><strong>Email</strong>' + escH(user.email || '') + '</div>' +
           '<div class="row"><strong>Role</strong>' + escH(humanRole) + '</div>' +
         '</div>' +
         '<p style="margin-top:20px"><a href="/" style="display:inline-block;padding:10px 24px;background:var(--gold);color:#fff;border-radius:6px;font-weight:600;text-decoration:none;font-size:13px">Enter the app →</a></p>';
+      // Auto-forward once the session is persisted (short beat so the
+      // confirmation is visible). The manual link above is the fallback.
+      setTimeout(function () { window.location.replace('/'); }, 1200);
     }
 
     function renderErr(msg) {
@@ -109,7 +133,7 @@
           renderErr('No active session detected. If you clicked an invitation link and got here, the link may have expired. Ask for a fresh one.');
           return;
         }
-        renderOk(data.session.user);
+        renderOk(data.session.user, _rolesFromToken(data.session.access_token));
       } catch (e) {
         console.error('[activate] boot failed:', e);
         renderErr((e && e.message) || 'unknown error');
