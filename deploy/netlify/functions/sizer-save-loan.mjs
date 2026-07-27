@@ -372,10 +372,30 @@ async function handle(req, context) {
     });
   } catch (_) {}
 
-  // Auto-link broker if inline broker fields are set but no brokerId
-  // (same logic loan-update-from-sizer uses).
+  // Auto-link broker if inline broker fields are set.
+  // Deploy 236.451 — STAMP the resolved brokerId back onto the loan
+  // (this endpoint previously ignored the return, so the loan never got
+  // the link — and a dangling incoming brokerId survived to violate the
+  // FK). broker-link now returns a live broker-CLIENT id (236.450), so
+  // stamping it makes loan.broker_id resolve and the link persist.
+  // Mirrors loan-update-from-sizer's pattern.
   try {
-    await linkOrCreateBroker(ownerKey, loanRecord);
+    if (loanRecord && (loanRecord.brokerName || loanRecord.brokerEmail || loanRecord.brokerId)) {
+      const linked = await linkOrCreateBroker(ownerKey, loanRecord);
+      if (linked && linked.id) {
+        loanRecord.brokerId = linked.id;
+        const b = linked.broker || {};
+        if (b.name)    loanRecord.brokerName    = b.name;
+        if (b.company) loanRecord.brokerCompany = b.company;
+        if (b.email)   loanRecord.brokerEmail   = b.email;
+        if (b.phone)   loanRecord.brokerPhone   = b.phone;
+      } else {
+        // No broker resolved/created (e.g. name-only, or a transient
+        // failure). Drop any incoming brokerId so a stale/dangling
+        // pointer can't reach the FK. Inline broker fields are kept.
+        loanRecord.brokerId = '';
+      }
+    }
   } catch (e) {
     console.warn('sizer-save-loan: broker-link non-fatal:', e && e.message);
   }
