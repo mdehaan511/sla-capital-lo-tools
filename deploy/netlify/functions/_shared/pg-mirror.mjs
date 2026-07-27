@@ -188,6 +188,45 @@ function _isRpcMissing(e) {
 // loan-advance-status, curated merges. Everything else (sizer saves,
 // prospect flows, quote sync) defaults to false — that's the
 // stale-snapshot bug class the trigger exists to kill.
+// Deploy 236.449 — broker-FK self-heal. A loan can carry a brokerId
+// that isn't a live PG client: brokers live in the 'brokers' store and
+// aren't always mirrored into `clients`, or the broker was deleted/
+// merged. The loans.broker_id → clients(id) FK then rejects the whole
+// save with `loans_broker_id_fkey` (HTTP 409), 500ing the LO's save.
+// Recurring (Chance's C5 loan, then a live sizer save). We null the
+// dangling pointer(s) and retry: inline brokerName/email are kept, and
+// the FK re-links on the next broker save once the broker is a client.
+function _isBrokerFkError(e) {
+  const m = String((e && (e.message || e.msg)) || e || '');
+  return /loans_broker_id_fkey/i.test(m) ||
+         (/broker_id/i.test(m) && /foreign key/i.test(m));
+}
+
+// Validate each distinct broker_id against `clients`; null the ones that
+// don't resolve — on BOTH the projected rows (for the PG retry) and the
+// original loan objects (so the blob mirror + the endpoint's response
+// stay consistent with PG). Returns the count of dangling ids nulled.
+async function _nullDanglingBrokerIds(loanRows, client) {
+  const ids = [...new Set((loanRows || []).map((r) => r && r.broker_id).filter(Boolean))];
+  if (!ids.length) return 0;
+  const live = new Set();
+  for (const id of ids) {
+    const hit = await db.first('clients', { select: 'id', eq: { id } }).catch(() => null);
+    if (hit && hit.id) live.add(id);
+  }
+  const dangling = new Set(ids.filter((id) => !live.has(id)));
+  if (!dangling.size) return 0;
+  for (const r of loanRows) {
+    if (r && r.broker_id && dangling.has(r.broker_id)) r.broker_id = null;
+  }
+  if (client && Array.isArray(client.loans)) {
+    for (const l of client.loans) {
+      if (l && dangling.has(String(l.brokerId || ''))) l.brokerId = null;
+    }
+  }
+  return dangling.size;
+}
+
 async function _upsertClientWithLoansStrict(ownerEmail, client, opts) {
   if (_isDisabled()) return;
   if (!client || !client.id || !ownerEmail) return;
@@ -215,6 +254,19 @@ async function _upsertClientWithLoansStrict(ownerEmail, client, opts) {
       await db.rpc('upsert_client_with_loans', rpcArgs);
       return;
     } catch (e) {
+      // Deploy 236.449 — self-heal a dangling broker_id rather than
+      // failing the whole save, then retry the atomic write ONCE.
+      if (_isBrokerFkError(e)) {
+        const nulled = await _nullDanglingBrokerIds(loanRows, client).catch(() => 0);
+        if (nulled > 0) {
+          const retryArgs = { p_client: clientRow, p_loans: loanRows };
+          if (opts && opts.allowDemotion) retryArgs.p_allow_demotion = true;
+          await db.rpc('upsert_client_with_loans', retryArgs);
+          console.warn('[pg-mirror] nulled ' + nulled + ' dangling broker_id(s) on ' + client.id + ' and retried the save.');
+          return;
+        }
+        throw e; // FK error but no dangling broker identified — surface it
+      }
       if (!_isRpcMissing(e)) throw e; // real failure — strict path surfaces it
       _txRpcMissing = true;
       console.warn('[pg-mirror] upsert_client_with_loans RPC missing — run db/migrations/002_tx_rpcs.sql. Falling back to multi-call writes.');
