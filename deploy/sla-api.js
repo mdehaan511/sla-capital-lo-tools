@@ -657,7 +657,18 @@
     // nothing until the cache TTL expired.
     'loan':          ['clients', 'quotes'],   // covers loan-*, loan-note-add, loan-add-guarantor, etc.
     'loans':         ['clients', 'quotes'],
-    'borrower-info': ['clients', 'quotes'],
+    // Deploy 236.454 — add 'borrower_info' to the borrower-info slot. It
+    // was invalidating clients + quotes but NOT the borrower_info cache
+    // itself, which is the slot BorrowerInfo.list()/pipeline read to pick
+    // the "Send Loan App" → "Loan App Pending"/"In Progress" button label.
+    // Symptom (Mike): send the long app via the Loan Details ACTIONS menu,
+    // then open the Pipeline — the card still showed "Send Loan App"
+    // because loadAll()'s BorrowerInfo.list() got the pre-send SWR cache
+    // (not forceFresh, not marked stale) for up to the 5-min TTL. Marking
+    // borrower_info stale on any borrower-info-* POST forces list() to do
+    // a fresh read, so the button flips right after the send from ANY page.
+    // markStale() also covers the paired borrower_info_all admin slot.
+    'borrower-info': ['clients', 'quotes', 'borrower_info'],
     'brokers':       'brokers',
     'prospects':     'prospects',
     'quotes':        'quotes',
