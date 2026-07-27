@@ -1126,14 +1126,31 @@
       showApp(user);
     });
     netlifyIdentity.on('logout', function() { showLogin(); });
-    // Deploy 236.440 — REVERTED 236.436's Supabase-OAuth Google button.
-    // The auth mechanics all work (Google→Supabase→role hook→backend
-    // verify→API 200, no Identity-disable needed), but the sla-api
-    // dual-auth bridge does not hold the Supabase session on app pages —
-    // it cleared the session and bounced to login. Back on Netlify
-    // Identity (working) until the frontend session handling is fixed,
-    // then the button cutover is re-attempted.
-    document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
+    // Deploy 236.443 (Phase E cutover — re-landed, now fully verified) —
+    // "Sign in with Google" goes through Supabase OAuth. The 236.436
+    // attempt was reverted only because the frontend read roles from the
+    // wrong place (fixed 236.441: roles come from the token's sla_roles
+    // claim) — the "session cleared" symptom was a test artifact, not the
+    // app. Verified end-to-end 2026-07-26: Google→Supabase→activate.html
+    // →app, role super_admin, session persists across navigation, API
+    // 200. No Netlify Identity disable needed (the two coexist; the edge
+    // only rejects forged tokens, not valid Supabase ones). Redirect
+    // lands on /activate.html which persists the session + auto-forwards.
+    document.getElementById('loginBtn').addEventListener('click', function() {
+      var msg = document.getElementById('loginMagicMsg');
+      if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--muted)'; msg.textContent = 'Redirecting to Google…'; }
+      _waitForSupabaseClient()
+        .then(function(supabase) {
+          return supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.origin + '/activate.html' },
+          });
+        })
+        .then(function(res) { if (res && res.error) throw res.error; })
+        .catch(function(e) {
+          if (msg) { msg.style.color = '#7c1f1f'; msg.textContent = 'Could not start Google sign-in: ' + ((e && e.message) || 'unknown error'); }
+        });
+    });
 
     // ── Deploy 236.268 — Supabase sign-in (password OR magic link)
     // Password path (users who set one on the profile page): fast,
