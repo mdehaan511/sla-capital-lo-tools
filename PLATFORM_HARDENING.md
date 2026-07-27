@@ -281,11 +281,20 @@ gradual per-user move.
       ENABLED (coexists; disable is optional). Supporting: 236.441
       (frontend roles from token), 236.442 (activate.html reads role +
       auto-forwards), 236.444 (sign-out resets UI immediately for
-      Supabase-only sessions). OPTIONAL polish: (a) Google OAuth consent
-      screen shows raw supabase.co domain — set App name "SLA Capital" +
-      Internal user type in Google Cloud; (b) later, retire
-      netlify-identity-widget + dual-token juggling once all 14 LOs have
-      signed in via Google once.
+      Supabase-only sessions).
+      FUTURE POLISH (noted, not blocking, 2026-07-26):
+      (a) **Google account-picker shows "continue to
+      ppvzipckztqervyoyzgv.supabase.co".** Confirmed via the OAuth URL's
+      `app_domain` param — that line is driven by the REDIRECT domain
+      (Supabase's), NOT the consent-screen App name. The App name Mike
+      set DOES brand the permissions screen ("SLA Capital wants access…"),
+      just not the picker line. Only fix for the picker line: a Supabase
+      **custom auth domain** (Project Settings → Custom Domains, ~$10/mo
+      add-on + a CNAME, then update the Google redirect URI + Supabase
+      Google provider to auth.slacapital.com). Cosmetic, first-sign-in
+      only — Mike chose to leave it for now.
+      (b) Retire netlify-identity-widget + dual-token juggling once all
+      14 LOs have signed in via Google at least once.
 
 ## Phase F — Borrower-portal hardening  *(before invite emails go out)*
 
