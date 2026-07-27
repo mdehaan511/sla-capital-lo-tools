@@ -113,7 +113,14 @@
     if (!cache || !cache.user) return null;
     var sUser = cache.user;
     var am = sUser.app_metadata || {};
-    var roles = Array.isArray(am.roles) ? am.roles : (am.role ? [am.role] : []);
+    // Deploy 236.441 — roles for a Supabase user live in the
+    // custom_access_token_hook's `sla_roles` claim on the ACCESS TOKEN
+    // (db/migrations/007 stamps them by email at mint), NOT on the
+    // user's app_metadata column — a Google-created user has an empty
+    // app_metadata.roles. Read them off the token first; fall back to
+    // app_metadata for legacy/invited users whose roles were set there.
+    var roles = _rolesFromToken(cache.session && cache.session.access_token);
+    if (!roles.length) roles = Array.isArray(am.roles) ? am.roles : (am.role ? [am.role] : []);
     return {
       id: sUser.id,
       email: sUser.email || '',
@@ -151,6 +158,31 @@
   // no race. The 401 → refresh → retry path in api() catches anything
   // that slips through this narrower gate.
   var REFRESH_MARGIN_SEC = 30;
+
+  // Deploy 236.441 — extract SLA roles from a Supabase access token.
+  // The custom_access_token_hook injects a top-level `sla_roles` array
+  // claim (by email, at mint); it is the authoritative role source for
+  // Supabase-authenticated users. Falls back to the token's
+  // app_metadata.roles/role for tokens minted before the hook or for
+  // Netlify Identity tokens that happen to be passed here.
+  function _rolesFromToken(jwt) {
+    try {
+      var parts = String(jwt || '').split('.');
+      if (parts.length !== 3) return [];
+      var p = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (p.length % 4) p += '=';
+      var payload = JSON.parse(atob(p));
+      if (payload && Array.isArray(payload.sla_roles)) {
+        var r = payload.sla_roles.filter(function (x) { return typeof x === 'string' && x.length; });
+        if (r.length) return r;
+      }
+      var am = (payload && payload.app_metadata) || {};
+      if (Array.isArray(am.roles)) return am.roles;
+      if (am.role) return [am.role];
+      return [];
+    } catch (_) { return []; }
+  }
+
   function _tokenNeedsRefresh(jwt) {
     try {
       var parts = String(jwt || '').split('.');
