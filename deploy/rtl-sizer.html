@@ -824,7 +824,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
     </div><!-- /form-body -->
 
-    <button class="submit-btn" onclick="runCalculate()">Calculate Pricing →</button>
+    <button class="submit-btn" onclick="runCalculate(true)">Calculate Pricing →</button>
 
     <!-- Deploy 236.258 — Sizer History panel (mirrors DSCR 236.255-257).
          RTL variant drops the Prepayment column since RTL loans don't
@@ -1952,7 +1952,7 @@ function restoreSizerHistory(idx) {
     window._rtlOverrides.dp     = (fd._dpOverride     && !isNaN(parseFloat(fd._dpOverride)))     ? parseFloat(fd._dpOverride)     : null;
     window._rtlOverrides.warningAcknowledged = true;
   } catch (e) { console.warn('[SLA] RTL sizer-history restore: field populate failed:', e); }
-  try { runCalculate(); } catch (_) {}
+  try { runCalculate(true); } catch (_) {}
   showToast('Restored sizer state from ' + when + '. Save to persist as a new entry.');
   var body = document.getElementById('sizerHistoryBody');
   var btn  = document.querySelector('.sizer-history-toggle');
@@ -1961,7 +1961,15 @@ function restoreSizerHistory(idx) {
 
 // Wrapper for calculate() that surfaces errors visibly. Used by both the
 // "Calculate Pricing" button and autoCalc on input changes.
-function runCalculate() {
+//
+// Deploy 236.453 (UX): `scroll` gates whether the results panel is scrolled
+// into view after rendering. Only EXPLICIT actions pass true — the Calculate
+// Pricing button and history-restore. autoCalc (keystroke re-pricing) passes
+// nothing, so live re-pricing updates the panel IN PLACE without yanking the
+// viewport back up to the results while the LO is editing a field lower down
+// the form. Matches the DSCR sizer, which never auto-scrolls on recalc.
+function runCalculate(scroll) {
+  window._scrollResultsIntoView = !!scroll;
   try {
     calculate();
   } catch (e) {
@@ -2251,7 +2259,10 @@ function calculate(){
   // Deploy 162: apply any active overrides on top of the rendered defaults.
   // Safe to call even when no overrides are set — it's a no-op.
   try { applyOverridesAndRender(); } catch (e) { console.warn('override render failed:', e); }
-  document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+  // Deploy 236.453 (UX): only scroll on an explicit Calculate/restore (flag
+  // set by runCalculate). Keystroke re-pricing leaves the viewport put.
+  if (window._scrollResultsIntoView) document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+  window._scrollResultsIntoView = false;
   toggleSaveButton();
 }
 
@@ -2364,7 +2375,9 @@ function renderTransactional(street, city, state, zip) {
   html += '<div class="disclaimer">Transactional funding is for same-day-close, same-day-repay loans only. Subject to underwriting approval.</div>';
 
   document.getElementById('results').innerHTML = html;
-  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Deploy 236.453 (UX): scroll only on explicit Calculate/restore (see runCalculate).
+  if (window._scrollResultsIntoView) document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  window._scrollResultsIntoView = false;
   toggleSaveButton();
 }
 
