@@ -312,10 +312,26 @@ gradual per-user move.
       error beacon; throttling it would blind us during an incident).
 - [ ] **F2.** Token hygiene: aggressive expiry on borrower links, single-
       purpose tokens, rotation on use where sensible.
-- [ ] **F3.** PII access audit log: who viewed which SSN/document, when.
-      Table in PG, written by client-ssn-reveal + doc-download endpoints.
-- [ ] **F4.** Compliance posture doc: GLBA safeguards inventory now; SOC 2
-      roadmap when partner diligence demands it.
+      NOTE (2026-07-27): held deliberately. Borrower tokens are already
+      128-bit random / 14-day expiry, and Deploy 236.414 REMOVED rotation on
+      resend because it broke live borrower links (killed prior emails/open
+      tabs). Any F2 work must NOT reintroduce resend rotation. Revisit
+      single-purpose scoping + shorter expiry carefully, with Mike present.
+- [x] **F3. DONE 2026-07-27 (Deploy 236.456).** PII access audit log —
+      durable `public.pii_access_log` (migration 008_pii_access_log.sql;
+      RLS on, no policies) written by `_shared/pii-audit.mjs` (FAIL-OPEN:
+      never throws/blocks; awaited so rows survive Lambda freeze). Wired
+      into the six staff-authed PII endpoints, logging only successful
+      disclosures: client-ssn-reveal (ssn), signed-application-get (PDF
+      path), guarantor-application-download, loan-bundle-download,
+      envelope-final-pdf, loan-review-zip-download. Token-gated borrower
+      self-reads intentionally excluded (that's F2 territory).
+      **ACTION REQUIRED: run db/migrations/008 in the Supabase SQL Editor**
+      to activate — until then the code is a safe no-op.
+- [x] **F4. DONE 2026-07-27.** Compliance posture doc — `COMPLIANCE_POSTURE.md`
+      at repo root: data inventory, safeguards mapped to 16 CFR 314.4,
+      honest gap list (service_role rotation, NI retirement, F2, MFA
+      enforcement, retention, qualified-individual/IR plan), SOC 2 roadmap.
 
 ## Phase G — Pricing golden tests  *(2–3 days; any time)*
 
