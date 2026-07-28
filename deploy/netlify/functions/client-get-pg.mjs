@@ -17,6 +17,7 @@
  * PG lookups are by primary key, not by (owner, id) tuple, so the
  * clientId alone is enough.
  */
+import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
@@ -154,8 +155,31 @@ async function handle(req, context) {
     }
   }
 
+  const clientShape = _clientRowToBlobShape(row);
+
+  // Deploy 236.459 — SSN blob-fallback (resilience). The borrower profile
+  // shows the SSN + Reveal button off hasSSN (= !!ssn_enc). After the C3
+  // read-cutover to Postgres we found PG is missing ssn_enc for most
+  // clients even though the blob (source of truth) has it — so profiles
+  // wrongly showed "no SSN." Until the PG SSN mirror is fully repaired,
+  // when PG has no ssn_enc, consult the blob: if it holds an encrypted
+  // SSN, report hasSSN=true (and fill ssnLast4). client-ssn-reveal already
+  // reads the blob, so Reveal works. Self-disables once PG is correct
+  // (this branch only runs when row.ssn_enc is null). One extra blob read
+  // on a single-client endpoint — negligible.
+  if (!row.ssn_enc) {
+    try {
+      const cstore = getStore({ name: 'clients', consistency: 'strong' });
+      const blob = await cstore.get(keySafe(row.owner_email) + '/' + keySafe(row.id), { type: 'json' });
+      if (blob && blob.ssn_enc) {
+        clientShape.hasSSN = true;
+        if (!clientShape.ssnLast4 && blob.ssnLast4) clientShape.ssnLast4 = blob.ssnLast4;
+      }
+    } catch (_) { /* fallback is best-effort; never block the response */ }
+  }
+
   return json(200, {
-    client:   _clientRowToBlobShape(row),
+    client:   clientShape,
     ownerKey: keySafe(row.owner_email),
     _source:  'postgres',
   });
