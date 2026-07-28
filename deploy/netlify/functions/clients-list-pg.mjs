@@ -77,6 +77,11 @@ function _clientRowToApi(row, opts) {
     out.notesLog       = row.notes_log || [];
     // Extra JSONB round-trips anything we haven't promoted.
     Object.assign(out, row.extra || {});
+    // Deploy 236.461 — re-derive SSN read-fields AFTER the extra merge so a
+    // stale `hasSSN` that leaked into extra (from a read-shape record saved
+    // back to the blob) can't clobber the authoritative ssn_enc column.
+    out.hasSSN   = !!row.ssn_enc;
+    out.ssnLast4 = row.ssn_last4 || '';
   } else {
     // Deploy 236.404 (C3): summary parity with clients-list.mjs's
     // projectSummary — these legacy fields live in the extra JSONB

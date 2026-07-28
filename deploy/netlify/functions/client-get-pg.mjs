@@ -64,6 +64,15 @@ function _clientRowToBlobShape(c) {
   Object.assign(out, c.extra || {});
   // Re-set loans in case extra had a stale key.
   out.loans = loans;
+  // Deploy 236.461 — RE-DERIVE the SSN read-fields from the authoritative
+  // columns AFTER the extra merge. `hasSSN` is a read-shape boolean (not a
+  // promoted column), so when a PG-shaped record gets round-tripped back to
+  // the blob it lands in `extra` as `hasSSN:false` — and the Object.assign
+  // above then clobbered the correct value, hiding SSNs that ARE in PG. The
+  // ssn_enc column is the source of truth; let it win. (THE bug behind
+  // "SSNs not showing on borrower profiles".)
+  out.hasSSN   = !!c.ssn_enc;
+  out.ssnLast4 = c.ssn_last4 || '';
   return out;
 }
 
@@ -167,26 +176,23 @@ async function handle(req, context) {
   // reads the blob, so Reveal works. Self-disables once PG is correct
   // (this branch only runs when row.ssn_enc is null). One extra blob read
   // on a single-client endpoint — negligible.
-  let _ssnDbg = null;
+  // Safety net: if PG genuinely has no ssn_enc (e.g. a round-trip nulled it),
+  // consult the blob (source of truth) so the Reveal button still appears —
+  // client-ssn-reveal reads the blob anyway. No-op once PG is authoritative.
   if (!row.ssn_enc) {
-    const blobKey = keySafe(row.owner_email) + '/' + keySafe(row.id);
-    _ssnDbg = { pgSsn: false, blobKey, blobFound: false, blobSsn: false, err: null };
     try {
       const cstore = getStore({ name: 'clients', consistency: 'strong' });
-      const blob = await cstore.get(blobKey, { type: 'json' });
-      _ssnDbg.blobFound = !!blob;
-      _ssnDbg.blobSsn = !!(blob && blob.ssn_enc);
+      const blob = await cstore.get(keySafe(row.owner_email) + '/' + keySafe(row.id), { type: 'json' });
       if (blob && blob.ssn_enc) {
         clientShape.hasSSN = true;
         if (!clientShape.ssnLast4 && blob.ssnLast4) clientShape.ssnLast4 = blob.ssnLast4;
       }
-    } catch (e) { _ssnDbg.err = String(e && e.message || e); }
+    } catch (_) { /* best-effort */ }
   }
 
   return json(200, {
     client:   clientShape,
     ownerKey: keySafe(row.owner_email),
     _source:  'postgres',
-    _ssnDbg,
   });
 }
