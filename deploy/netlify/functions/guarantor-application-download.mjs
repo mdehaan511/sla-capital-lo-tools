@@ -31,6 +31,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { synthRecordForGuarantor } from './_shared/guarantor-synth.mjs';
+import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -131,6 +132,15 @@ async function handle(req, context) {
     'Content-Length':      String(outBytes.length),
     'Content-Disposition': 'attachment; filename="' + filename + '"',
     'Cache-Control':       'private, no-store',
+  });
+  // Deploy 236.456 (F3) — audit the guarantor packet disclosure (loan-app
+  // render + stitched Credit Auth, both PII-heavy). Fail-open.
+  await logPiiAccess(req, context, {
+    action: 'doc_download', resource: 'guarantor_application',
+    actorEmail: user.email, actorRole: isAdmin(user) ? 'admin' : 'lo',
+    ownerEmail: ownerP ? normalizeEmail(ownerP) : selfEmail,
+    clientId: primaryClientId, loanId, resourceId: guarantorClientId,
+    detail: filename,
   });
   return new Response(outBytes, { status: 200, headers });
 }

@@ -11,6 +11,7 @@ import {
   handleOptions, json, requireAuth, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
+import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
 
 export default async (req, context) => {
   try {
@@ -51,6 +52,13 @@ export default async (req, context) => {
     const pdfBytes = Buffer.from(b64, 'base64');
     const safeName = (env.docs[docIdx].name || 'document')
       .replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 80);
+    // Deploy 236.456 (F3) — audit the signed-envelope PDF disclosure. Fail-open.
+    await logPiiAccess(req, context, {
+      action: 'doc_download', resource: 'envelope_final_pdf',
+      actorEmail: user.email, actorRole: isAdmin(user) ? 'admin' : 'lo',
+      ownerEmail: owner, clientId: env.clientId || null, loanId: env.loanId || null,
+      resourceId: envelopeId, detail: safeName + '_Signed.pdf (doc ' + docIdx + ')',
+    });
     return new Response(pdfBytes, {
       status: 200,
       headers: {

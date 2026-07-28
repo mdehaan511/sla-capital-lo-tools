@@ -12,6 +12,7 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { decryptField } from './_shared/crypto.mjs';
+import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
 
 export default async (req, context) => {
   try {
@@ -47,8 +48,14 @@ async function handle(req, context) {
   try { ssn = decryptField(client.ssn_enc); }
   catch (e) { return json(500, { error: 'Decrypt failed' }); }
 
-  // Audit trail (best-effort, non-blocking)
+  // Audit trail. Deploy 236.456 (F3) — durable PG row in addition to the
+  // console line. Fail-open: a log failure never blocks the reveal.
   console.log('[ssn-reveal] user=', user.email, 'clientId=', body.clientId, 'at=', new Date().toISOString());
+  await logPiiAccess(req, context, {
+    action: 'ssn_reveal', resource: 'ssn',
+    actorEmail: user.email, actorRole: isAdmin(user) ? 'admin' : 'lo',
+    ownerEmail: owner, clientId: body.clientId,
+  });
 
   return json(200, { ssn });
 }

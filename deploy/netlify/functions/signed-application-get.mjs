@@ -18,6 +18,7 @@ import {
   handleOptions, json, requireAuth, normalizeEmail, isAdmin, keySafe,
 } from './_shared/auth.mjs';
 import { verifyAudit } from './_shared/esign.mjs';
+import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
 
 export default async (req, context) => {
   try {
@@ -101,6 +102,14 @@ async function handle(req, context) {
   const filenameSafe = (rec.propertyAddress || 'signed-application')
     .replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 80);
   const pdfBytes = Buffer.from(rec.pdfBase64, 'base64');
+  // Deploy 236.456 (F3) — audit the signed-app PDF disclosure (not the
+  // meta=1 status peek above, which returns no PII payload). Fail-open.
+  await logPiiAccess(req, context, {
+    action: 'doc_download', resource: 'signed_application',
+    actorEmail: user.email, actorRole: isAdmin(user) ? 'admin' : 'lo',
+    ownerEmail: owner, clientId, loanId,
+    detail: filenameSafe + '_SLA_Signed_Application.pdf',
+  });
   return new Response(pdfBytes, {
     status: 200,
     headers: {

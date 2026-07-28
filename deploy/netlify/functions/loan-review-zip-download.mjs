@@ -23,6 +23,7 @@ import JSZip from 'jszip';
 import {
   handleOptions, json, requireAuth, isProcessor, keySafe, corsHeaders,
 } from './_shared/auth.mjs';
+import { logPiiAccess } from './_shared/pii-audit.mjs';   // Deploy 236.456 (F3)
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -159,6 +160,15 @@ async function handle(req, context) {
   // " - Full Loan File". The investor / closing-package context
   // is what matters; "Documents" was too generic.
   const filename = (safeStreet ? safeStreet + ' - Full Loan File' : 'Loan File - ' + reviewId) + '.zip';
+
+  // Deploy 236.456 (F3) — audit the full-loan-file zip disclosure (contains
+  // the complete document package). Processor/admin-gated. Fail-open.
+  await logPiiAccess(req, context, {
+    action: 'doc_download', resource: 'loan_review_zip',
+    actorEmail: user.email, actorRole: 'processor',
+    clientId: review.clientId || null, loanId: review.loanId || null,
+    resourceId: reviewId, detail: filename,
+  });
 
   return new Response(out, {
     status: 200,
