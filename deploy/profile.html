@@ -893,28 +893,17 @@ function runDedupeLoans(dryRun) {
     status.textContent = '';
     return;
   }
-  netlifyIdentity.currentUser().jwt().then(function(token) {
-    return fetch('/api/clients-dedupe-loans', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ dryRun: !!dryRun }),
-    });
-  }).then(function(r) {
-    return r.json().then(function(d) { return { ok: r.ok, data: d }; });
-  }).then(function(resp) {
-    if (!resp.ok) {
-      status.className = 'save-status err';
-      status.textContent = 'Failed: ' + (resp.data.error || 'unknown');
-      return;
-    }
-    var d = resp.data;
+  // Deploy 236.463 — SLA.api (auth-agnostic Supabase/Netlify token). Was
+  // netlifyIdentity.currentUser().jwt(), which is null for Supabase logins.
+  // On error SLA.api throws with err.data (parsed body) + err.status set.
+  SLA.api('POST', '/api/clients-dedupe-loans', { dryRun: !!dryRun }).then(function(d) {
     status.className = 'save-status ok';
     status.textContent = (d.dryRun ? '[Dry Run] ' : '✓ ') +
       'Touched ' + d.clientsTouched + ' client(s), removed ' + d.loansRemoved + ' duplicate loan(s).' +
       (d.samples && d.samples.length ? ' Samples: ' + d.samples.map(function(s){ return s.client + ' (' + s.before + '→' + s.after + ')'; }).join(', ') : '');
   }).catch(function(err) {
     status.className = 'save-status err';
-    status.textContent = 'Failed: ' + (err.message || 'unknown');
+    status.textContent = 'Failed: ' + ((err.data && err.data.error) || err.message || 'unknown');
   });
 }
 
@@ -932,21 +921,8 @@ function runReassign(dryRun) {
     return;
   }
   status.textContent = dryRun ? 'Scanning…' : 'Reassigning…';
-  netlifyIdentity.currentUser().jwt().then(function(token) {
-    return fetch('/api/users-reassign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ fromEmail: fromEmail, dryRun: !!dryRun }),
-    });
-  }).then(function(r) {
-    return r.json().then(function(d) { return { ok: r.ok, data: d }; });
-  }).then(function(resp) {
-    if (!resp.ok) {
-      status.className = 'save-status err';
-      status.textContent = 'Failed: ' + (resp.data.error || 'unknown');
-      return;
-    }
-    var d = resp.data;
+  // Deploy 236.463 — SLA.api (auth-agnostic; see runDedupeLoans).
+  SLA.api('POST', '/api/users-reassign', { fromEmail: fromEmail, dryRun: !!dryRun }).then(function(d) {
     status.className = 'save-status ok';
     var lines = Object.keys(d.stores || {}).map(function(s) {
       var info = d.stores[s];
@@ -958,7 +934,7 @@ function runReassign(dryRun) {
       lines.join('<br>');
   }).catch(function(err) {
     status.className = 'save-status err';
-    status.textContent = 'Failed: ' + (err.message || 'unknown');
+    status.textContent = 'Failed: ' + ((err.data && err.data.error) || err.message || 'unknown');
   });
 }
 
@@ -981,33 +957,10 @@ function runUserPurge() {
   if (!confirm(promptText)) return;
 
   status.textContent = 'Removing…';
-  netlifyIdentity.currentUser().jwt().then(function(token) {
-    return fetch('/api/users-purge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ email: email, force: force }),
-    });
-  }).then(function(r) {
-    return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; });
-  }).then(function(resp) {
-    if (!resp.ok) {
-      status.className = 'save-status err';
-      var msg = resp.data && resp.data.error ? resp.data.error : ('HTTP ' + resp.status);
-      // Special-case the "still owns data" error so the user knows what to do
-      if (resp.data && resp.data.totalOwned) {
-        var counts = resp.data.dataCounts || {};
-        var detail = Object.keys(counts).map(function(k){
-          return k + ': ' + counts[k];
-        }).filter(function(s){ return !/: 0$/.test(s); }).join(', ');
-        status.innerHTML = 'Cannot remove — user still owns data: ' +
-          (detail || resp.data.totalOwned + ' records') +
-          '. Reassign first, or check Force.';
-      } else {
-        status.textContent = 'Failed: ' + msg;
-      }
-      return;
-    }
-    var d = resp.data;
+  // Deploy 236.463 — SLA.api (auth-agnostic; see runDedupeLoans). The "still
+  // owns data" case is a 4xx whose body carries totalOwned/dataCounts; SLA.api
+  // throws with that body on err.data, so the special-case survives in .catch.
+  SLA.api('POST', '/api/users-purge', { email: email, force: force }).then(function(d) {
     status.className = 'save-status ok';
     if (d.profilePurged) {
       status.innerHTML = '✓ Profile removed for <strong>' + escAttr(d.email) + '</strong>. ' +
@@ -1020,7 +973,19 @@ function runUserPurge() {
     if (typeof loadStats === 'function') loadStats();
   }).catch(function(err) {
     status.className = 'save-status err';
-    status.textContent = 'Failed: ' + (err.message || 'unknown');
+    var ed = err.data || {};
+    // Special-case the "still owns data" error so the user knows what to do
+    if (ed.totalOwned) {
+      var counts = ed.dataCounts || {};
+      var detail = Object.keys(counts).map(function(k){
+        return k + ': ' + counts[k];
+      }).filter(function(s){ return !/: 0$/.test(s); }).join(', ');
+      status.innerHTML = 'Cannot remove — user still owns data: ' +
+        (detail || ed.totalOwned + ' records') +
+        '. Reassign first, or check Force.';
+    } else {
+      status.textContent = 'Failed: ' + (ed.error || err.message || 'unknown');
+    }
   });
 }
 
