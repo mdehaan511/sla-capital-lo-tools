@@ -30,6 +30,10 @@ import {
 import { generateToken } from './_shared/crypto.mjs';
 import { newRecordKey, loadRecord } from './_shared/borrower-info-keys.mjs';
 import { writeTokenIndex, deleteTokenIndex } from './_shared/borrower-info-token-index.mjs';
+// Deploy 236.455 — the byOwner materialized index (Deploy 236.343). The
+// admin all-scope borrower-info-list reads from this index, so a SEND must
+// write through to it or admins never see the new 'pending' record.
+import { borrowerInfoIndex } from './_shared/borrower-info-index.mjs';
 // Deploy 223 — reply_to header set to the LO who owns the lead so
 // borrower replies go to the right inbox (not noreply@).
 import { getOwnerReplyTo } from './_shared/email.mjs';
@@ -155,6 +159,24 @@ async function handle(req, context) {
     await store.setJSON(recordKey, record);
   } catch (e) {
     return json(500, { error: 'Failed to save request' });
+  }
+
+  // Deploy 236.455 — write through the byOwner borrower-info index so the
+  // admin all-scope pipeline reflects the newly-sent 'pending' app right
+  // away. borrower-info-list serves admins from this index (Deploy 236.343),
+  // and until now ONLY borrower-info-save upserted it — so a SENT app never
+  // entered the index until the BORROWER opened the link and saved. Symptom
+  // (Mike, super_admin on all-scope): send the long app from Loan Details
+  // ACTIONS, then open the Pipeline — the card stayed on "Send Loan App"
+  // (never flipped to "Loan App Pending"/"In Progress") because the index
+  // the pipeline reads never learned about the send. Self-scope LOs read a
+  // live store walk, so they saw it — that was the asymmetry. Awaited (not
+  // fire-and-forget) so the index is current before we return; the Lambda
+  // can freeze right after the response, dropping a detached promise.
+  try {
+    await borrowerInfoIndex.upsertRecord(record.ownerKey, record);
+  } catch (e) {
+    console.warn('borrower-info-request: index upsert failed (non-fatal):', e && e.message);
   }
 
   // Deploy 172: write the token→recordKey index entry so subsequent
