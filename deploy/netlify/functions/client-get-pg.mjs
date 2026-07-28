@@ -167,20 +167,26 @@ async function handle(req, context) {
   // reads the blob, so Reveal works. Self-disables once PG is correct
   // (this branch only runs when row.ssn_enc is null). One extra blob read
   // on a single-client endpoint — negligible.
+  let _ssnDbg = null;
   if (!row.ssn_enc) {
+    const blobKey = keySafe(row.owner_email) + '/' + keySafe(row.id);
+    _ssnDbg = { pgSsn: false, blobKey, blobFound: false, blobSsn: false, err: null };
     try {
       const cstore = getStore({ name: 'clients', consistency: 'strong' });
-      const blob = await cstore.get(keySafe(row.owner_email) + '/' + keySafe(row.id), { type: 'json' });
+      const blob = await cstore.get(blobKey, { type: 'json' });
+      _ssnDbg.blobFound = !!blob;
+      _ssnDbg.blobSsn = !!(blob && blob.ssn_enc);
       if (blob && blob.ssn_enc) {
         clientShape.hasSSN = true;
         if (!clientShape.ssnLast4 && blob.ssnLast4) clientShape.ssnLast4 = blob.ssnLast4;
       }
-    } catch (_) { /* fallback is best-effort; never block the response */ }
+    } catch (e) { _ssnDbg.err = String(e && e.message || e); }
   }
 
   return json(200, {
     client:   clientShape,
     ownerKey: keySafe(row.owner_email),
     _source:  'postgres',
+    _ssnDbg,
   });
 }
