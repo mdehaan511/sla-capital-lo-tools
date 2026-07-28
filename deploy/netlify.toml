@@ -1057,6 +1057,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/admin-backfill-ssn-pg"
+  to = "/.netlify/functions/admin-backfill-ssn-pg"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/admin-pg-diff"
   to = "/.netlify/functions/admin-pg-diff"
   status = 200
