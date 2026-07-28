@@ -519,6 +519,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 var _loSlug = '';
 var _loEmail = '';
 var _loDisplay = '';
+// Deploy 236.464 — marketing referral source from ?ref= (e.g. a campaign
+// or affiliate tag on links from slacapital.ai). Captured + persisted like
+// _loSlug and attached to the prospect on submit.
+var _ref = '';
 
 (function(){
   var params = new URLSearchParams(window.location.search);
@@ -543,6 +547,21 @@ var _loDisplay = '';
     }).join(' ');
     document.getElementById('loName').textContent = _loDisplay || _loSlug;
     document.getElementById('loBadge').style.display = 'inline-flex';
+  }
+
+  // Deploy 236.464 — capture ?ref= (marketing referral source) the same way
+  // as ?lo=: persist to sessionStorage so it survives an accidental reload,
+  // back-button, or session restore that drops the query string, then attach
+  // it to the prospect on submit. Length-capped since it's a public form.
+  var refFromUrl = (params.get('ref') || '').trim();
+  if (refFromUrl) {
+    _ref = refFromUrl.slice(0, 200);
+    try { sessionStorage.setItem('sla_apply_ref', _ref); } catch (_) {}
+  } else {
+    try {
+      var cachedRef = sessionStorage.getItem('sla_apply_ref');
+      if (cachedRef) _ref = String(cachedRef).slice(0, 200);
+    } catch (_) {}
   }
 })();
 
@@ -892,6 +911,9 @@ function submitApp() {
     brokerCompany: (_submitterType === 'broker') ? gv('brokerCompany') : '',
     brokerEmail:   (_submitterType === 'broker') ? gv('brokerEmail')   : '',
     brokerPhone:   (_submitterType === 'broker') ? gv('brokerPhone')   : '',
+    // Deploy 236.464 — marketing referral source (?ref=). '' when the
+    // borrower reached apply.html without a ref tag.
+    ref:           _ref,
   };
 
   // Lock the submit button while the request is in flight

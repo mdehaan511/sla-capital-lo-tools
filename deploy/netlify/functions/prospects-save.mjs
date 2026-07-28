@@ -136,6 +136,11 @@ export default async (req, context) => {
     brokerCompany: String(body.brokerCompany || ''),
     brokerEmail:   String(body.brokerEmail   || '').toLowerCase().trim(),
     brokerPhone:   String(body.brokerPhone   || ''),
+    // Deploy 236.464 — marketing referral source captured from ?ref= on
+    // apply.html (links from slacapital.ai). MUST be in this allowlist or
+    // it's silently dropped (see the broker-fields note above). Length-
+    // capped since this is a public, unauthenticated endpoint.
+    ref:           String(body.ref || '').slice(0, 200),
   };
 
   // Deploy 236.282 (neutral-apply auto-routing) — decide who owns this lead.
