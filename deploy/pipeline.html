@@ -1522,6 +1522,11 @@ function processResults(results) {
         var syntheticQuote = {
           id:        'syn_' + l.id, // avoid collision with real quote ids
           loanId:    l.id,
+          // Deploy 236.471 — carry clientId so bulkCancel resolves the loan
+          // directly (clientId+loanId) instead of relying on the address-based
+          // _loanLookup fallback, which silently skipped tiles whose address
+          // didn't match. loan-cancel.mjs needs both ids.
+          clientId:  c.id,
           address:   l.address || '',
           status:    st,
           updatedAt: l.updatedAt || l.createdAt || '',

@@ -68,6 +68,21 @@ export default async (req, context) => {
     return decideLoanFirst(row, { quoteId: String(quoteId), status, reason, user, userKey });
   }
 
+  // Deploy 236.471 — the LEADS PIPELINE (pipeline.html) builds its loan-backed
+  // tile ids as 'syn_<loanId>' (id: 'syn_' + l.id), NOT 'q_ln_'. So bulk On
+  // Hold / Decline from the Leads board sent 'syn_l_...' ids, which fell past
+  // the q_ln_ branch above into the store lookup, found no quote record, and
+  // returned a 404 "this quote no longer exists" — the exact "LOs can't put
+  // loans On Hold / Cancel with mass-select" bug. The 236.429 fix only covered
+  // the decisions board's q_ln_ ids. Handle syn_ identically: strip the 4-char
+  // 'syn_' prefix to get the loan id and decide loan-first.
+  if (String(quoteId).indexOf('syn_') === 0) {
+    const loanId = String(quoteId).slice(4);
+    const row = await db.first('loans', { select: 'id,client_id,owner_email', eq: { id: loanId } }).catch(() => null);
+    if (!row) return json(404, { error: 'Loan not found for ' + quoteId });
+    return decideLoanFirst(row, { quoteId: String(quoteId), status, reason, user, userKey });
+  }
+
   const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
   let quote;
   try {
