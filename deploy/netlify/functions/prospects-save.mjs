@@ -352,6 +352,10 @@ async function upsertClientFromProspect(prospect, loEmail) {
     brokerPhone:   prospect.brokerPhone   || '',
     brokerFee:     prospect.brokerFee     || '',
     fromApplication: true,
+    // Deploy 236.465 — carry the marketing referral source (?ref= captured on
+    // apply.html) onto the loan so it's visible on the deal, not just the
+    // prospect record. Also stamped on the client below.
+    ref:           prospect.ref || '',
     // Deploy 236.227 (Broker Phase D) — flag broker submissions so
     // the loan starts with guarantors[] empty and Loan Details knows
     // to require borrower info at Advance to Approved.
@@ -448,6 +452,10 @@ async function upsertClientFromProspect(prospect, loEmail) {
     };
     existingKey = ownerKey + '/' + keySafe(record.id);
   }
+  // Deploy 236.465 — stamp the marketing referral source (?ref=) on the client
+  // too, across all branches. First ref wins — don't overwrite an existing one
+  // on a returning contact who came back through a different link.
+  if (prospect.ref && !record.ref) record.ref = prospect.ref;
   try {
     // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
     await writeClient(ownerKey, record, { clientsStore });

@@ -2690,10 +2690,13 @@ function prefillRTLFromProspect(p) {
   if (p.loanPurpose === 'refinance') {
     var lpEl = document.getElementById('loanPurpose');
     if (lpEl) {
-      // RTL refi options: 'refi_co' (cash out) or 'refi_rt'. The short-app
-      // form doesn't ask which; default to cash out as the more common case.
-      // The LO can change it after if needed.
-      lpEl.value = 'refi_co';
+      // Deploy 236.465 — the RTL loanPurpose options are purchase / cashout /
+      // rateterm. This prefill was copied from the DSCR side and still set the
+      // DSCR value 'refi_co', which does NOT exist in the RTL dropdown — so a
+      // refinance short-app landed with a blank Loan Purpose. The short-app
+      // doesn't ask which refi flavor; default to cash-out as the more common
+      // case (LO can switch to Rate/Term after).
+      lpEl.value = 'cashout';
       if (typeof onRtlPurposeChange === 'function') {
         try { onRtlPurposeChange(); } catch(_) {}
       }
