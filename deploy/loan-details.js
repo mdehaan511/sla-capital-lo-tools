@@ -1667,7 +1667,7 @@ function render() {
       '<div class="section-head"><h2>Additional Contacts</h2><span class="section-tag tag-editable">Editable</span></div>' +
       '<div class="section-body">' +
         '<div class="contacts-toolbar">' +
-          '<button class="btn-add-contact" onclick="openAddContactModal()">+ Add Contact</button>' +
+          '<button class="btn-add-contact" onclick="openAddContactModal()">+ Add Vendor</button>' +
         '</div>' +
         '<div class="contacts-list" id="loanContactsList"><div class="contacts-empty">Loading contacts…</div></div>' +
       '</div>' +
@@ -4046,17 +4046,22 @@ function _renderLoanContactRow(c) {
 // that was too cramped to read.
 function openAddContactModal() {
   document.getElementById('ctModalEditId').value = '';
-  document.getElementById('ctModalTitle').textContent = 'Add Contact';
-  document.getElementById('ctModalSaveBtn').textContent = 'Save Contact';
+  document.getElementById('ctModalTitle').textContent = 'Add Vendor';
+  document.getElementById('ctModalSaveBtn').textContent = 'Save Vendor';
   document.getElementById('ctModalRole').value = 'title';
   ['ctModalName','ctModalCompany','ctModalEmail','ctModalPhone'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
+  // Deploy 236.470 — show + reset the vendor search and load the directory.
+  var _sw = document.getElementById('ctvSearchWrap'); if (_sw) _sw.style.display = '';
+  var _si = document.getElementById('ctvSearch');     if (_si) _si.value = '';
+  var _ss = document.getElementById('ctvSuggest');    if (_ss) { _ss.innerHTML = ''; _ss.classList.remove('show'); }
+  _loadVendorPool();
   _resetContactModalStatus();
   document.getElementById('ctAddModal').classList.add('show');
   _wireContactModalEnter();
-  setTimeout(function(){ var n = document.getElementById('ctModalName'); if (n) n.focus(); }, 30);
+  setTimeout(function(){ var n = document.getElementById('ctvSearch') || document.getElementById('ctModalName'); if (n) n.focus(); }, 30);
 }
 // Deploy 236.326 — Enter submits the Add-Contact modal. Wire once
 // per modal open; guard against duplicate handlers via _slaEnterBound.
@@ -4078,7 +4083,9 @@ function openEditContactModal(contactId) {
   var c = _loanContacts.find(function(x) { return x.id === contactId; });
   if (!c) return;
   document.getElementById('ctModalEditId').value = contactId;
-  document.getElementById('ctModalTitle').textContent = 'Edit Contact';
+  // Deploy 236.470 — no directory search when editing an existing vendor.
+  var _sw = document.getElementById('ctvSearchWrap'); if (_sw) _sw.style.display = 'none';
+  document.getElementById('ctModalTitle').textContent = 'Edit Vendor';
   document.getElementById('ctModalSaveBtn').textContent = 'Save Changes';
   document.getElementById('ctModalRole').value    = String(c.role || 'other').toLowerCase();
   document.getElementById('ctModalName').value    = c.name    || '';
@@ -4091,6 +4098,61 @@ function openEditContactModal(contactId) {
 }
 function closeAddContactModal() {
   document.getElementById('ctAddModal').classList.remove('show');
+}
+
+// ── Deploy 236.470 — vendor directory search inside the Add Vendor modal ──
+// Type a name / company / email to auto-search every vendor already on file
+// (deduped across loans); pick one to prefill the fields, or ignore it and
+// type a brand-new vendor. Picking still creates a fresh loan-tied record on
+// Save — it's a prefill convenience, not a link.
+var _vendorSearchPool = null;   // deduped [{role,name,company,email,phone}]
+var _vendorMatches    = [];     // current on-screen matches (for click lookup)
+function _loadVendorPool() {
+  if (_vendorSearchPool) return; // load once per page
+  var qs = (window.SLA && SLA.isAdmin && SLA.isAdmin(_user)) ? '?all=1' : '';
+  SLA.api('GET', '/api/loan-contacts-list' + qs).then(function(resp) {
+    var all = (resp && resp.contacts) || [];
+    var seen = {}, out = [];
+    all.forEach(function(c) {
+      var key = ((c.name || '') + '|' + (c.company || '') + '|' + (c.email || '')).toLowerCase().trim();
+      if (key === '||' || seen[key]) return;   // skip blanks + dupes
+      seen[key] = true;
+      out.push({ role: c.role || 'other', name: c.name || '', company: c.company || '', email: c.email || '', phone: c.phone || '' });
+    });
+    _vendorSearchPool = out;
+  }).catch(function() { _vendorSearchPool = []; });
+}
+function onVendorSearch() {
+  var box = document.getElementById('ctvSuggest');
+  var q = (document.getElementById('ctvSearch').value || '').toLowerCase().trim();
+  if (!q) { box.innerHTML = ''; box.classList.remove('show'); return; }
+  _vendorMatches = (_vendorSearchPool || []).filter(function(c) {
+    var hay = ((c.name || '') + ' ' + (c.company || '') + ' ' + (c.email || '') + ' ' + (ROLE_LABELS[c.role] || c.role || '')).toLowerCase();
+    return hay.indexOf(q) >= 0;
+  }).slice(0, 8);
+  if (!_vendorMatches.length) {
+    box.innerHTML = '<div class="ctv-suggest-empty">No matching vendor — fill the fields below to add a new one.</div>';
+    box.classList.add('show'); return;
+  }
+  box.innerHTML = _vendorMatches.map(function(c, i) {
+    var meta = [ROLE_LABELS[c.role] || c.role, c.company, c.email].filter(Boolean).join(' · ');
+    return '<div class="ctv-suggest-row" data-i="' + i + '" onclick="pickVendor(' + i + ')">' +
+      '<div class="ctv-suggest-name">' + escH(c.name || c.company || '(no name)') + '</div>' +
+      '<div class="ctv-suggest-meta">' + escH(meta) + '</div>' +
+    '</div>';
+  }).join('');
+  box.classList.add('show');
+}
+function pickVendor(i) {
+  var c = _vendorMatches[i];
+  if (!c) return;
+  document.getElementById('ctModalRole').value    = String(c.role || 'other').toLowerCase();
+  document.getElementById('ctModalName').value    = c.name    || '';
+  document.getElementById('ctModalCompany').value = c.company || '';
+  document.getElementById('ctModalEmail').value   = c.email   || '';
+  document.getElementById('ctModalPhone').value   = c.phone   || '';
+  document.getElementById('ctvSearch').value = '';
+  var box = document.getElementById('ctvSuggest'); box.innerHTML = ''; box.classList.remove('show');
 }
 function _resetContactModalStatus() {
   var s = document.getElementById('ctModalStatus');

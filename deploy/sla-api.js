@@ -2754,3 +2754,20 @@
     );
   });
 })();
+
+// Deploy 236.469 — THE standard US phone-number input mask, global so every
+// page can wire it with oninput="applyPhoneMask(this)" and get identical
+// (XXX) XXX-XXXX formatting as the user types. sla-api.js loads on every page,
+// so this makes it the default everywhere. Pages that already define their own
+// local applyPhoneMask keep it (their definition simply overrides this on that
+// page); this covers every page that didn't have one (Vendors modal, loan
+// Additional Contacts modal, etc.). New phone fields should use this.
+if (typeof window !== 'undefined' && typeof window.applyPhoneMask !== 'function') {
+  window.applyPhoneMask = function (el) {
+    if (!el) return;
+    var digits = String(el.value || '').replace(/\D/g, '').slice(0, 10);
+    if (digits.length <= 3)      el.value = digits;
+    else if (digits.length <= 6) el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+    else                         el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+  };
+}

@@ -288,6 +288,16 @@
     .ct-modal-actions button.primary { background: var(--warn); border-color: var(--warn); color: #fff; }
     .ct-modal-actions button.primary:hover { background: #5e3f12; border-color: #5e3f12; }
     .ct-modal-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* Deploy 236.470 — vendor search dropdown in the Add Vendor modal. */
+    .ctv-search-wrap { position: relative; }
+    .ctv-suggest { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 24px rgba(0,0,0,0.12); margin-top: 4px; max-height: 220px; overflow-y: auto; display: none; }
+    .ctv-suggest.show { display: block; }
+    .ctv-suggest-row { padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--border); }
+    .ctv-suggest-row:last-child { border-bottom: none; }
+    .ctv-suggest-row:hover { background: var(--bg); }
+    .ctv-suggest-name { font-size: 13px; font-weight: 500; color: var(--text); }
+    .ctv-suggest-meta { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .ctv-suggest-empty { padding: 10px 11px; font-size: 12px; color: var(--muted); }
     .term-sheet-btn { background: var(--gold); border-color: var(--gold); color: #fff; margin-top: 8px; }
     .term-sheet-btn:hover { background: var(--gold-mid); border-color: var(--gold-mid); color: #fff; }
     .borrower-info-btn { background: var(--surface); border-color: var(--gold-border); color: var(--gold-mid); margin-top: 8px; }
@@ -407,6 +417,12 @@
     <h3 id="ctModalTitle">Add Contact</h3>
     <p class="ct-modal-sub" id="ctModalSub">Use this for Title Co, Insurance Agent, Inspector, etc. The LO, Borrower, Guarantors, and Broker each have their own sections above.</p>
     <input type="hidden" id="ctModalEditId" value="" />
+    <!-- Deploy 236.470 — search the existing vendor directory to prefill. -->
+    <div class="ct-modal-field ctv-search-wrap" id="ctvSearchWrap">
+      <label for="ctvSearch">Search existing vendors <span style="font-weight:400;color:var(--muted);font-size:11px">(pick to prefill, or just type a new one below)</span></label>
+      <input type="text" id="ctvSearch" placeholder="Type a name, company, or email…" autocomplete="off" oninput="onVendorSearch()" />
+      <div class="ctv-suggest" id="ctvSuggest"></div>
+    </div>
     <div class="ct-modal-field">
       <label for="ctModalRole">Role</label>
       <select id="ctModalRole">
@@ -438,7 +454,7 @@
       </div>
       <div class="ct-modal-field">
         <label for="ctModalPhone">Phone</label>
-        <input type="tel" id="ctModalPhone" placeholder="(555) 123-4567" />
+        <input type="tel" id="ctModalPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)" />
       </div>
     </div>
     <div class="ct-modal-actions">

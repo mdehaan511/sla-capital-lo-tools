@@ -145,7 +145,7 @@
       <div class="vm-field"><label>Name</label><input type="text" id="vmName" placeholder="e.g. Janet Smith"></div>
       <div class="vm-field"><label>Company</label><input type="text" id="vmCompany" placeholder="e.g. First American Title"></div>
       <div class="vm-field"><label>Email</label><input type="email" id="vmEmail" placeholder="name@company.com"></div>
-      <div class="vm-field"><label>Phone</label><input type="tel" id="vmPhone" placeholder="(555) 123-4567"></div>
+      <div class="vm-field"><label>Phone</label><input type="tel" id="vmPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)"></div>
       <div class="vm-status" id="vmStatus"></div>
       <div class="vm-actions">
         <button onclick="closeVendorModal()">Cancel</button>
