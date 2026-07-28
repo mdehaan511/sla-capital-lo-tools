@@ -3974,6 +3974,10 @@ var ROLE_LABELS = {
   appraiser: 'Appraiser',
   surveyor:  'Surveyor',
   attorney:  'Attorney',
+  contractor:'Contractor',
+  realtor:   'Realtor',
+  lender:    'Lender',
+  escrow:    'Escrow',
   other:     'Other',
 };
 function _contactOwnerParam() {

@@ -36,7 +36,10 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 
-const VALID_ROLES = ['title', 'insurance', 'inspector', 'appraiser', 'surveyor', 'attorney', 'other'];
+// Deploy 236.467 — expanded vendor roles (Mike). contractor/realtor/lender/
+// escrow added alongside the original set. Keep in sync with ROLE_LABELS in
+// contacts.html (Vendors page) + loan-details.js + the ctModalRole <select>.
+const VALID_ROLES = ['title', 'insurance', 'inspector', 'appraiser', 'surveyor', 'attorney', 'contractor', 'realtor', 'lender', 'escrow', 'other'];
 
 export default async (req, context) => {
   try { return await handle(req, context); }

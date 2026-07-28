@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Contacts — SLA Capital</title>
+  <title>Vendors — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
   <script src="sla-nav.js"></script>
@@ -68,6 +68,10 @@
     .ct-role-pill.appraiser { background: rgba(122,82,24,0.10);  color: var(--warn); }
     .ct-role-pill.surveyor  { background: rgba(74,122,138,0.10); color: #4a7a8a; }
     .ct-role-pill.attorney  { background: rgba(124,31,31,0.10);  color: var(--danger); }
+    .ct-role-pill.contractor{ background: rgba(180,83,9,0.10);   color: #9a5a12; }
+    .ct-role-pill.realtor   { background: rgba(47,95,208,0.10);  color: #2f5fd0; }
+    .ct-role-pill.lender    { background: rgba(16,110,80,0.10);  color: #106e50; }
+    .ct-role-pill.escrow    { background: rgba(124,58,180,0.10); color: #7c3ab4; }
     .ct-role-pill.other     { background: rgba(122,116,136,0.10); color: var(--muted); }
     .c-name { font-weight: 500; word-break: break-word; }
     .c-company { font-size: 12px; color: var(--muted); word-break: break-word; }
@@ -99,7 +103,7 @@
   <div class="page" id="appWrap" style="display:none">
     <div class="page-header">
       <div>
-        <h1>Contacts</h1>
+        <h1>Vendors</h1>
         <p>Title companies, insurance agents, inspectors, and other contacts across all your loans.</p>
       </div>
       <div class="ctrl-row">
@@ -129,9 +133,11 @@ var _roleFilter = 'all';
 
 var ROLE_LABELS = {
   title: 'Title Co', insurance: 'Insurance', inspector: 'Inspector',
-  appraiser: 'Appraiser', surveyor: 'Surveyor', attorney: 'Attorney', other: 'Other',
+  appraiser: 'Appraiser', surveyor: 'Surveyor', attorney: 'Attorney',
+  contractor: 'Contractor', realtor: 'Realtor', lender: 'Lender', escrow: 'Escrow',
+  other: 'Other',
 };
-var ROLES = ['title','insurance','inspector','appraiser','surveyor','attorney','other'];
+var ROLES = ['title','insurance','inspector','appraiser','surveyor','attorney','contractor','realtor','lender','escrow','other'];
 
 window.netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
