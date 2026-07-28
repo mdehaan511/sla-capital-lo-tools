@@ -61,8 +61,13 @@ async function handle(req, context) {
 
   const clientId = String(body.clientId || '').trim();
   const loanId   = String(body.loanId   || '').trim();
-  if (!clientId) return json(400, { error: 'clientId required' });
-  if (!loanId)   return json(400, { error: 'loanId required' });
+  // Deploy 236.468 — standalone vendors: clientId + loanId are now OPTIONAL.
+  // A vendor with neither is a directory entry not tied to any deal, created
+  // + managed on the Vendors page. Loan-tied contacts still pass both (from
+  // the Loan Details → Additional Contacts flow) and behave exactly as before.
+  // The record stores whatever is passed ('' for standalone); the Vendors
+  // page lists everything, and the per-loan filter naturally excludes
+  // standalone vendors (their loanId never matches a loan).
 
   const selfEmail = normalizeEmail(user.email);
   const selfKey   = keySafe(selfEmail);

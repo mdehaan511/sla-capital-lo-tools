@@ -94,6 +94,21 @@
       .contacts-table-head .h-loan, .contacts-table-head .h-creator { display: none; }
       .contacts-table-row .c-company, .contacts-table-row .c-info, .contacts-table-row .c-loan, .contacts-table-row .c-creator { display: none; }
     }
+    /* Deploy 236.468 — Add Vendor button + standalone-vendor modal. */
+    .add-vendor-btn { padding: 7px 16px; border: 1px solid var(--gold); background: var(--gold); color: #fff; border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .add-vendor-btn:hover { background: var(--gold-mid); border-color: var(--gold-mid); }
+    .vm-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.45); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+    .vm-card { background: var(--surface); border-radius: 14px; padding: 1.75rem; width: 100%; max-width: 440px; box-shadow: 0 24px 48px rgba(0,0,0,0.25); }
+    .vm-card h3 { font-family: 'Lora', serif; font-size: 18px; margin-bottom: 1rem; color: var(--text); }
+    .vm-field { margin-bottom: 12px; }
+    .vm-field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+    .vm-field input, .vm-field select { width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+    .vm-field input:focus, .vm-field select:focus { outline: none; border-color: var(--gold); }
+    .vm-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.25rem; }
+    .vm-actions button { padding: 9px 18px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    .vm-actions button.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .vm-status { font-size: 12px; margin-top: 8px; min-height: 16px; }
+    .vm-status.err { color: var(--danger); }
   </style>
 </head>
 <body>
@@ -112,11 +127,31 @@
           <button id="scopeMyBtn"  class="active" onclick="setScope('me')">My loans</button>
           <button id="scopeAllBtn"             onclick="setScope('all')">All users</button>
         </div>
+        <!-- Deploy 236.468 — add a standalone vendor (not tied to a loan). -->
+        <button class="add-vendor-btn" onclick="openVendorModal()">+ Add Vendor</button>
       </div>
     </div>
 
     <div class="role-filters" id="roleFilters"></div>
     <div class="contacts-table" id="contactsTable"><div class="loading">Loading contacts…</div></div>
+  </div>
+
+  <!-- Deploy 236.468 — Add/Edit standalone vendor (not tied to a loan). -->
+  <div class="vm-bg" id="vendorModalBg" onclick="if(event.target===this)closeVendorModal()">
+    <div class="vm-card">
+      <h3 id="vmTitle">Add Vendor</h3>
+      <input type="hidden" id="vmId"><input type="hidden" id="vmOwnerKey">
+      <div class="vm-field"><label>Role</label><select id="vmRole"></select></div>
+      <div class="vm-field"><label>Name</label><input type="text" id="vmName" placeholder="e.g. Janet Smith"></div>
+      <div class="vm-field"><label>Company</label><input type="text" id="vmCompany" placeholder="e.g. First American Title"></div>
+      <div class="vm-field"><label>Email</label><input type="email" id="vmEmail" placeholder="name@company.com"></div>
+      <div class="vm-field"><label>Phone</label><input type="tel" id="vmPhone" placeholder="(555) 123-4567"></div>
+      <div class="vm-status" id="vmStatus"></div>
+      <div class="vm-actions">
+        <button onclick="closeVendorModal()">Cancel</button>
+        <button class="primary" id="vmSaveBtn" onclick="saveVendor()">Save Vendor</button>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -256,8 +291,8 @@ function render() {
     document.getElementById('contactsTable').innerHTML =
       '<div class="empty-state">' +
         (search || _roleFilter !== 'all'
-          ? 'No contacts match the current filter.'
-          : 'No additional contacts yet. Open any loan\'s Details page → Additional Contacts → + Add Contact.') +
+          ? 'No vendors match the current filter.'
+          : 'No vendors yet. Click <strong>+ Add Vendor</strong> above to add one, or add contacts on any loan\'s Details page → Additional Contacts.') +
       '</div>';
     return;
   }
@@ -279,18 +314,28 @@ function render() {
 function renderRow(c) {
   var role = String(c.role || 'other').toLowerCase();
   var roleLabel = c.roleLabel || ROLE_LABELS[role] || role;
-  var loan = _loansById[c.clientId + '|' + c.loanId];
-  var loanCell = loan
-    ? '<div class="c-loan">' +
-        '<a href="' + escAttr(_loanHref(loan)) + '">' +
-          '<span class="c-loan-addr">' + escH(loan.address) + '</span>' +
-          '<span class="c-loan-meta">' + escH(loan.borrowerName || '') + (loan.status ? ' · ' + escH(loan.status) : '') + '</span>' +
-        '</a>' +
-      '</div>'
-    : '<div class="c-loan"><span class="c-info muted">(loan not found)</span></div>';
+  // Deploy 236.468 — a vendor with no loanId is a standalone directory entry.
+  var isStandalone = !c.loanId;
+  var loan = isStandalone ? null : _loansById[c.clientId + '|' + c.loanId];
+  var loanCell = isStandalone
+    ? '<div class="c-loan"><span class="c-info muted">Standalone vendor</span></div>'
+    : (loan
+        ? '<div class="c-loan">' +
+            '<a href="' + escAttr(_loanHref(loan)) + '">' +
+              '<span class="c-loan-addr">' + escH(loan.address) + '</span>' +
+              '<span class="c-loan-meta">' + escH(loan.borrowerName || '') + (loan.status ? ' · ' + escH(loan.status) : '') + '</span>' +
+            '</a>' +
+          '</div>'
+        : '<div class="c-loan"><span class="c-info muted">(loan not found)</span></div>');
   var emailHtml = c.email ? '<a href="mailto:' + escAttr(c.email) + '" onclick="event.stopPropagation()">' + escH(c.email) + '</a>' : '<span class="muted">—</span>';
   var phoneHtml = c.phone ? '<a href="tel:' + escAttr(String(c.phone).replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(c.phone) + '</a>' : '<span class="muted">—</span>';
-  return '<div class="contacts-table-row" data-contact-id="' + escAttr(c.id) + '" onclick="openContactLoan(\'' + escAttr(c.clientId) + '\',\'' + escAttr(c.loanId) + '\',\'' + escAttr(c.ownerKey || '') + '\')" title="Open the loan to edit this contact">' +
+  // Standalone vendors are edited in-place via the modal; loan-tied contacts
+  // jump to the loan (edited there in Additional Contacts).
+  var onclick = isStandalone
+    ? 'openVendorModalById(\'' + escAttr(c.id) + '\')'
+    : 'openContactLoan(\'' + escAttr(c.clientId) + '\',\'' + escAttr(c.loanId) + '\',\'' + escAttr(c.ownerKey || '') + '\')';
+  var title = isStandalone ? 'Click to edit this vendor' : 'Open the loan to edit this contact';
+  return '<div class="contacts-table-row" data-contact-id="' + escAttr(c.id) + '" onclick="' + onclick + '" title="' + escAttr(title) + '">' +
     '<div><span class="ct-role-pill ' + escAttr(role) + '">' + escH(roleLabel) + '</span></div>' +
     '<div class="c-name">' + escH(c.name || '(no name)') + '</div>' +
     '<div class="c-company">' + escH(c.company || '') + '</div>' +
@@ -321,6 +366,65 @@ function del(contactId, ownerKey) {
     _contacts.splice(idx, 0, removed);
     render();
     showToast('Failed to delete: ' + (err && err.message || 'unknown'));
+  });
+}
+
+// ── Deploy 236.468 — standalone vendor add/edit ──────────────────────
+function _vmRoleOptions(sel) {
+  return ROLES.map(function(r) {
+    return '<option value="' + r + '"' + (r === sel ? ' selected' : '') + '>' + escH(ROLE_LABELS[r]) + '</option>';
+  }).join('');
+}
+function openVendorModal(c) {
+  c = c || null;
+  document.getElementById('vmTitle').textContent   = c ? 'Edit Vendor' : 'Add Vendor';
+  document.getElementById('vmId').value             = c ? (c.id || '') : '';
+  document.getElementById('vmOwnerKey').value       = c ? (c.ownerKey || '') : '';
+  document.getElementById('vmRole').innerHTML       = _vmRoleOptions(c ? String(c.role || 'other').toLowerCase() : 'title');
+  document.getElementById('vmName').value           = c ? (c.name    || '') : '';
+  document.getElementById('vmCompany').value        = c ? (c.company || '') : '';
+  document.getElementById('vmEmail').value          = c ? (c.email   || '') : '';
+  document.getElementById('vmPhone').value          = c ? (c.phone   || '') : '';
+  var st = document.getElementById('vmStatus'); st.textContent = ''; st.className = 'vm-status';
+  document.getElementById('vendorModalBg').style.display = 'flex';
+}
+function openVendorModalById(id) {
+  var c = _contacts.find(function(x) { return x.id === id; });
+  if (c) openVendorModal(c);
+}
+function closeVendorModal() { document.getElementById('vendorModalBg').style.display = 'none'; }
+function saveVendor() {
+  var status = document.getElementById('vmStatus');
+  var name    = document.getElementById('vmName').value.trim();
+  var company = document.getElementById('vmCompany').value.trim();
+  var email   = document.getElementById('vmEmail').value.trim();
+  var phone   = document.getElementById('vmPhone').value.trim();
+  if (!name && !company && !email && !phone) {
+    status.className = 'vm-status err'; status.textContent = 'Enter at least a name or company.'; return;
+  }
+  var id       = document.getElementById('vmId').value;
+  var ownerKey = document.getElementById('vmOwnerKey').value;
+  // No clientId/loanId → the backend (236.468) files this as a standalone
+  // vendor. Editing another user's vendor (admin all-scope) passes its owner
+  // so the write lands in the right namespace; new vendors default to self.
+  var body = { role: document.getElementById('vmRole').value, name: name, company: company, email: email, phone: phone };
+  if (id) body.contactId = id;
+  if (id && ownerKey) body.owner = ownerKey;
+  var btn = document.getElementById('vmSaveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
+  SLA.api('POST', '/api/loan-contacts-save', body).then(function(resp) {
+    btn.disabled = false; btn.textContent = 'Save Vendor';
+    var saved = (resp && resp.contact) || null;
+    if (saved && saved.id) {
+      var idx = _contacts.findIndex(function(x) { return x.id === saved.id; });
+      if (idx >= 0) _contacts[idx] = saved; else _contacts.push(saved);
+      closeVendorModal(); render();
+    } else {
+      // No echo of the saved record — reload to be safe.
+      closeVendorModal(); loadAll();
+    }
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = 'Save Vendor';
+    status.className = 'vm-status err'; status.textContent = 'Save failed: ' + (err && err.message || 'unknown');
   });
 }
 </script>
