@@ -943,6 +943,8 @@ function render() {
       '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(loanType||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
+      // Deploy 236.466 — marketing referral source (?ref= from the apply link).
+      (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
       '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">' +
         (_liveDscrStr ? _liveDscrStr + 'x' : (dscr ? dscr + 'x' : '<span class="empty">Not yet quoted</span>')) +
       '</div></div>' +
@@ -1037,6 +1039,8 @@ function render() {
       (loanType ? '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+escH(loanType)+'</div></div>' : '') +
       (loanTerm ? '<div class="fin-cell"><div class="fin-label">Loan Term</div><div class="fin-val">'+escH(loanTerm)+' mo</div></div>' : '') +
       (experienceDisplay ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experienceDisplay)+'</div></div>' : '') +
+      // Deploy 236.466 — marketing referral source (?ref= from the apply link).
+      (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
       (downPayment
         ? '<div class="fin-cell"><div class="fin-label">Down Payment'+(_hasDpOv ? ' ' + _ovTag : '')+'</div><div class="fin-val">'+fmtM(downPayment)+'</div></div>'
         : '') +

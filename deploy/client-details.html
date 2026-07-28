@@ -365,6 +365,13 @@ function render() {
               : '') +
           '</div>' +
         '</div>' +
+        // Deploy 236.466 — marketing referral source (?ref= from the apply
+        // link, e.g. slacapital.ai campaigns). Read-only; only shown when set.
+        (c.ref
+          ? '<div class="field" style="grid-column:1/-1"><label>Referral source ' +
+              '<span style="font-size:11px;font-weight:400;color:var(--muted)">(from application link)</span></label>' +
+              '<input type="text" value="'+escAttr(c.ref)+'" readonly style="background:var(--bg);color:var(--muted)" /></div>'
+          : '') +
       '</div>' +
 
       // Home address (item #1 — was missing entirely)
