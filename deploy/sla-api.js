@@ -2519,6 +2519,11 @@
 
   window.SLA = {
     api: api,
+    // Deploy 236.474 — expose the auth-agnostic token getter (Supabase session
+    // OR Netlify Identity, with 401 refresh) so raw-fetch callers that can't use
+    // api() — e.g. the SSE chat stream in sla-chat.js — still authenticate for
+    // Google/Supabase logins instead of falling back to a null Netlify jwt.
+    getToken: getToken,
     cache: cache,
     toast: _slaToast,
     Clients: Clients,

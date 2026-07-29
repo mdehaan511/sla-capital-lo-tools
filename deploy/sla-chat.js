@@ -269,16 +269,24 @@
 
   function streamFromAPI(assistantIdx) {
     return new Promise(function(resolve, reject) {
-      var token = '';
-      try { token = (netlifyIdentity && netlifyIdentity.currentUser() && netlifyIdentity.currentUser().token && netlifyIdentity.currentUser().token.access_token) || ''; } catch (_) {}
-      // Refresh token if expired (best effort)
+      // Deploy 236.474 — auth-agnostic token. Was netlifyIdentity.currentUser()
+      // .jwt(), which is null for LOs signed in via Google/Supabase → /api/chat
+      // 401'd with "Not authenticated" in the chat panel. Prefer sla-api.js's
+      // shared getToken (Supabase session OR Netlify Identity, with refresh);
+      // fall back to the old Netlify path only if SLA isn't loaded.
       var jwtPromise;
-      try {
-        jwtPromise = (netlifyIdentity && netlifyIdentity.currentUser())
-          ? netlifyIdentity.currentUser().jwt()
-          : Promise.resolve(token);
-      } catch (_) {
-        jwtPromise = Promise.resolve(token);
+      if (window.SLA && typeof SLA.getToken === 'function') {
+        jwtPromise = SLA.getToken().catch(function () { return ''; });
+      } else {
+        var token = '';
+        try { token = (netlifyIdentity && netlifyIdentity.currentUser() && netlifyIdentity.currentUser().token && netlifyIdentity.currentUser().token.access_token) || ''; } catch (_) {}
+        try {
+          jwtPromise = (netlifyIdentity && netlifyIdentity.currentUser())
+            ? netlifyIdentity.currentUser().jwt()
+            : Promise.resolve(token);
+        } catch (_) {
+          jwtPromise = Promise.resolve(token);
+        }
       }
 
       jwtPromise.then(function(jwt) {
