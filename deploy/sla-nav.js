@@ -60,6 +60,8 @@
         { label: 'Clients',  href: '/clients.html'  },
         { label: 'Brokers',  href: '/brokers.html'  },
         { label: 'Vendors', href: '/contacts.html' },
+        // Deploy 236.475 — admin-only investor book.
+        { label: 'Investors', href: '/investors.html', requires: 'admin' },
       ],
     },
     // Deploy 236.188 — replaces the standalone Submissions link.

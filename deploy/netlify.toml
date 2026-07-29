@@ -545,6 +545,23 @@
   status = 200
   force = true
 
+# Deploy 236.475 — Investors admin book (org-wide investor directory)
+[[redirects]]
+  from = "/api/investors-list"
+  to = "/.netlify/functions/investors-list"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/investors-save"
+  to = "/.netlify/functions/investors-save"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/investors-delete"
+  to = "/.netlify/functions/investors-delete"
+  status = 200
+  force = true
+
 # Deploy 236.119 (Phase D.1) — per-loan Documents tab CRUD
 [[redirects]]
   from = "/api/loan-docs-upload"

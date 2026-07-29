@@ -2542,6 +2542,14 @@
     Reminders: Reminders,
     Brokers: Brokers,
     Loans: Loans,
+    // Deploy 236.475 — org-wide Investors book. list() is readable by any LO
+    // (they pick an investor on a loan's Funding Plan); save()/del() are
+    // admin-gated server-side.
+    Investors: {
+      list: function ()     { return api('GET',  '/api/investors-list'); },
+      save: function (data) { return api('POST', '/api/investors-save', data || {}); },
+      del:  function (id)   { return api('POST', '/api/investors-delete', { id: id }); },
+    },
     LoanReviews: LoanReviews,
     Search: Search,
     urls: urls,

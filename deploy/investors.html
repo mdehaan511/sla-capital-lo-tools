@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Investors — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="/sla-api.js"></script>
+  <script src="/sla-nav.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --success: #166534; --danger: #7c1f1f; --r: 12px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .page { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+    nav.nav { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.5rem 0; }
+    #auth-gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .gate-msg { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 2rem 2.5rem; text-align: center; font-size: 14px; color: var(--muted); }
+    .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+    .gate-msg a { color: var(--gold); }
+
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin: 2rem 0 1.5rem; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 26px; font-weight: 600; color: var(--text); }
+    .page-header p { font-size: 13px; color: var(--muted); margin-top: 4px; max-width: 640px; }
+    .ctrl-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
+    .search-box:focus { outline: none; border-color: var(--gold); }
+    .add-btn { padding: 7px 16px; border: 1px solid var(--gold); background: var(--gold); color: #fff; border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .add-btn:hover { background: var(--gold-mid); border-color: var(--gold-mid); }
+
+    .inv-table { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .inv-head, .inv-row { display: grid; grid-template-columns: 1.4fr 1.2fr 1.2fr 1fr 130px 30px; gap: 12px; padding: 12px 16px; align-items: center; }
+    .inv-head { background: rgba(38,26,54,0.04); border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: var(--muted); }
+    .inv-row { border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer; transition: background 0.10s; }
+    .inv-row:last-child { border-bottom: none; }
+    .inv-row:hover { background: var(--bg); }
+    .inv-name { font-weight: 600; color: var(--text); }
+    .inv-sub { font-size: 12px; color: var(--muted); }
+    .inv-del { background: transparent; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 0; }
+    .inv-del:hover { color: var(--danger); }
+    .loading, .empty-state { padding: 3rem 1rem; text-align: center; color: var(--muted); font-size: 13px; }
+
+    .vm-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.45); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+    .vm-card { background: var(--surface); border-radius: 14px; padding: 1.75rem; width: 100%; max-width: 480px; box-shadow: 0 24px 48px rgba(0,0,0,0.25); max-height: 92vh; overflow-y: auto; }
+    .vm-card h3 { font-family: 'Lora', serif; font-size: 18px; margin-bottom: 1rem; color: var(--text); }
+    .vm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .vm-field { margin-bottom: 12px; }
+    .vm-field.full { grid-column: 1 / -1; }
+    .vm-field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+    .vm-field input, .vm-field textarea { width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+    .vm-field textarea { min-height: 64px; resize: vertical; }
+    .vm-field input:focus, .vm-field textarea:focus { outline: none; border-color: var(--gold); }
+    .vm-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.25rem; }
+    .vm-actions button { padding: 9px 18px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    .vm-actions button.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .vm-status { font-size: 12px; margin-top: 8px; min-height: 16px; }
+    .vm-status.err { color: var(--danger); }
+    @media (max-width: 720px) {
+      .inv-head, .inv-row { grid-template-columns: 1.4fr 1fr 30px; }
+      .inv-head .h-poc, .inv-head .h-email, .inv-row .c-poc, .inv-row .c-email { display: none; }
+      .vm-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking access.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Investors</h1>
+        <p>Your primary capital partners. Store the investor's contact + criteria here; loan officers pick from this list on a deal's Funding Plan so we can track volume by investor.</p>
+      </div>
+      <div class="ctrl-row">
+        <input type="text" class="search-box" id="searchBox" placeholder="Search name, company, contact…" oninput="render()" />
+        <button class="add-btn" onclick="openInvestorModal()">+ Add Investor</button>
+      </div>
+    </div>
+    <div class="inv-table" id="invTable"><div class="loading">Loading investors…</div></div>
+  </div>
+
+  <!-- Add / Edit investor -->
+  <div class="vm-bg" id="invModalBg" onclick="if(event.target===this)closeInvestorModal()">
+    <div class="vm-card">
+      <h3 id="imTitle">Add Investor</h3>
+      <input type="hidden" id="imId">
+      <div class="vm-grid">
+        <div class="vm-field"><label>Investor Name</label><input type="text" id="imName" placeholder="e.g. King Arthur Fund"></div>
+        <div class="vm-field"><label>Company</label><input type="text" id="imCompany" placeholder="Legal / DBA name"></div>
+        <div class="vm-field"><label>Contact Name</label><input type="text" id="imPocName" placeholder="Main point of contact"></div>
+        <div class="vm-field"><label>Contact Phone</label><input type="tel" id="imPocPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)"></div>
+        <div class="vm-field full"><label>Contact Email</label><input type="email" id="imPocEmail" placeholder="name@investor.com"></div>
+        <div class="vm-field full"><label>Buy-Box / Criteria</label><textarea id="imCriteria" placeholder="What they buy — product types, LTV/DSCR limits, states, min/max loan, etc."></textarea></div>
+        <div class="vm-field full"><label>Notes</label><textarea id="imNotes" placeholder="Anything else worth remembering"></textarea></div>
+      </div>
+      <div class="vm-status" id="imStatus"></div>
+      <div class="vm-actions">
+        <button onclick="closeInvestorModal()">Cancel</button>
+        <button class="primary" id="imSaveBtn" onclick="saveInvestor()">Save Investor</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+var _user = null;
+var _investors = [];
+
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Auth + admin gate (Supabase-safe via SLA.getCurrentUser).
+(function init() {
+  if (!(window.SLA && SLA.getCurrentUser)) { setTimeout(init, 120); return; }
+  SLA.getCurrentUser().then(function (user) {
+    if (!user) { window.location.replace('/'); return; }
+    if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+      document.getElementById('auth-gate').innerHTML =
+        '<div class="gate-msg"><strong>Admin access required.</strong>The Investors book is admin-only. <a href="/">Back to home</a></div>';
+      return;
+    }
+    _user = user;
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('appWrap').style.display = 'block';
+    loadAll();
+  }).catch(function () { window.location.replace('/'); });
+})();
+
+function loadAll() {
+  document.getElementById('invTable').innerHTML = '<div class="loading">Loading investors…</div>';
+  SLA.Investors.list().then(function (r) {
+    _investors = (r && r.investors) || [];
+    render();
+  }).catch(function (err) {
+    document.getElementById('invTable').innerHTML =
+      '<div class="empty-state" style="color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+
+function render() {
+  var q = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  var rows = _investors.slice();
+  if (q) {
+    rows = rows.filter(function (i) {
+      return ((i.name || '') + ' ' + (i.company || '') + ' ' + (i.pocName || '') + ' ' + (i.pocEmail || '') + ' ' + (i.pocPhone || '')).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  if (!rows.length) {
+    document.getElementById('invTable').innerHTML =
+      '<div class="empty-state">' + (q ? 'No investors match your search.' : 'No investors yet. Click <strong>+ Add Investor</strong> to add your first capital partner.') + '</div>';
+    return;
+  }
+  var html =
+    '<div class="inv-head">' +
+      '<div>Investor</div><div class="h-poc">Contact</div><div class="h-email">Email</div><div>Phone</div><div>Updated</div><div></div>' +
+    '</div>';
+  html += rows.map(renderRow).join('');
+  document.getElementById('invTable').innerHTML = html;
+}
+
+function renderRow(i) {
+  var updated = i.updatedAt ? new Date(i.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  var emailHtml = i.pocEmail ? '<a href="mailto:' + escAttr(i.pocEmail) + '" onclick="event.stopPropagation()">' + escH(i.pocEmail) + '</a>' : '<span class="inv-sub">—</span>';
+  var phoneHtml = i.pocPhone ? '<a href="tel:' + escAttr(String(i.pocPhone).replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(i.pocPhone) + '</a>' : '<span class="inv-sub">—</span>';
+  return '<div class="inv-row" onclick="openInvestorModalById(\'' + escAttr(i.id) + '\')" title="Click to edit">' +
+    '<div><div class="inv-name">' + escH(i.name || i.company || '(unnamed)') + '</div>' + (i.company && i.name ? '<div class="inv-sub">' + escH(i.company) + '</div>' : '') + '</div>' +
+    '<div class="c-poc">' + escH(i.pocName || '') + '</div>' +
+    '<div class="c-email">' + emailHtml + '</div>' +
+    '<div>' + phoneHtml + '</div>' +
+    '<div class="inv-sub">' + escH(updated) + '</div>' +
+    '<button class="inv-del" onclick="event.stopPropagation();delInvestor(\'' + escAttr(i.id) + '\')" title="Delete">✕</button>' +
+  '</div>';
+}
+
+function openInvestorModal(inv) {
+  inv = inv || null;
+  document.getElementById('imTitle').textContent = inv ? 'Edit Investor' : 'Add Investor';
+  document.getElementById('imId').value       = inv ? (inv.id || '') : '';
+  document.getElementById('imName').value      = inv ? (inv.name    || '') : '';
+  document.getElementById('imCompany').value   = inv ? (inv.company || '') : '';
+  document.getElementById('imPocName').value   = inv ? (inv.pocName || '') : '';
+  document.getElementById('imPocPhone').value  = inv ? (inv.pocPhone|| '') : '';
+  document.getElementById('imPocEmail').value  = inv ? (inv.pocEmail|| '') : '';
+  document.getElementById('imCriteria').value  = inv ? (inv.criteria|| '') : '';
+  document.getElementById('imNotes').value     = inv ? (inv.notes   || '') : '';
+  var st = document.getElementById('imStatus'); st.textContent = ''; st.className = 'vm-status';
+  document.getElementById('invModalBg').style.display = 'flex';
+}
+function openInvestorModalById(id) {
+  var inv = _investors.find(function (x) { return x.id === id; });
+  if (inv) openInvestorModal(inv);
+}
+function closeInvestorModal() { document.getElementById('invModalBg').style.display = 'none'; }
+
+function saveInvestor() {
+  var status = document.getElementById('imStatus');
+  var name = document.getElementById('imName').value.trim();
+  var company = document.getElementById('imCompany').value.trim();
+  if (!name && !company) { status.className = 'vm-status err'; status.textContent = 'Enter an investor name or company.'; return; }
+  var body = {
+    name: name,
+    company: company,
+    pocName:  document.getElementById('imPocName').value.trim(),
+    pocPhone: document.getElementById('imPocPhone').value.trim(),
+    pocEmail: document.getElementById('imPocEmail').value.trim(),
+    criteria: document.getElementById('imCriteria').value.trim(),
+    notes:    document.getElementById('imNotes').value.trim(),
+  };
+  var id = document.getElementById('imId').value;
+  if (id) body.id = id;
+  var btn = document.getElementById('imSaveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
+  SLA.Investors.save(body).then(function (resp) {
+    btn.disabled = false; btn.textContent = 'Save Investor';
+    var saved = (resp && resp.investor) || null;
+    if (saved && saved.id) {
+      var idx = _investors.findIndex(function (x) { return x.id === saved.id; });
+      if (idx >= 0) _investors[idx] = saved; else _investors.push(saved);
+    }
+    closeInvestorModal(); render();
+  }).catch(function (err) {
+    btn.disabled = false; btn.textContent = 'Save Investor';
+    status.className = 'vm-status err'; status.textContent = 'Save failed: ' + (err && err.message || 'unknown');
+  });
+}
+
+function delInvestor(id) {
+  var inv = _investors.find(function (x) { return x.id === id; });
+  if (!inv) return;
+  if (!confirm('Delete "' + (inv.name || inv.company || 'this investor') + '"? Loans already tagged to them keep their record; this only removes the directory entry.')) return;
+  var idx = _investors.findIndex(function (x) { return x.id === id; });
+  var removed = _investors.splice(idx, 1)[0];
+  render();
+  SLA.Investors.del(id).catch(function (err) {
+    _investors.splice(idx, 0, removed); render();
+    alert('Failed to delete: ' + (err && err.message || 'unknown'));
+  });
+}
+</script>
+</body>
+</html>
