@@ -108,6 +108,35 @@ async function handle(req, context) {
     durationMs: 0,
   };
 
+  // ── Deploy 236.479 — enrich the orphan-client report so a dryRun is
+  // actually actionable. An opaque id list can't tell a junk shell from
+  // a real client, which is why the "35 orphan clients" nag went
+  // undiagnosed for days. Pull a few identifying columns for each orphan
+  // (bounded) so they can be classified at a glance — most importantly
+  // whether they're broker placeholder rows (is_broker_placeholder),
+  // which are loanless by nature and the likeliest source of a stable
+  // "N orphan clients / 0 orphan loans" drift.
+  if (orphanClientIds.length) {
+    const idsToFetch = orphanClientIds.slice(0, 200);
+    try {
+      const rows = await db.select('clients', {
+        select: 'id,owner_email,first_name,last_name,email,is_broker,is_broker_placeholder,created_at,updated_at',
+        in: { id: idsToFetch },
+      });
+      result.pgOrphans.clientDetails = rows || [];
+      let brokers = 0;
+      for (const r of (rows || [])) if (r && (r.is_broker || r.is_broker_placeholder)) brokers++;
+      result.pgOrphans.summary = {
+        total: orphanClientIds.length,
+        detailed: (rows || []).length,
+        brokerPlaceholders: brokers,
+        nonBroker: (rows || []).length - brokers,
+      };
+    } catch (e) {
+      result.errors.push({ phase: 'orphan detail fetch', message: (e && e.message) });
+    }
+  }
+
   if (dryRun) {
     result.durationMs = Date.now() - startedAt;
     return json(200, result);
