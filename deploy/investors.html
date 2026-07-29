@@ -71,6 +71,19 @@
     .vm-actions button.primary { background: var(--gold); border-color: var(--gold); color: #fff; }
     .vm-status { font-size: 12px; margin-top: 8px; min-height: 16px; }
     .vm-status.err { color: var(--danger); }
+
+    /* Deploy 236.478 — Loan Type multi-select (checkbox dropdown). */
+    .ms-dd { position: relative; }
+    .ms-dd-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--text); cursor: pointer; text-align: left; }
+    .ms-dd-btn:focus { outline: none; border-color: var(--gold); }
+    .ms-dd-btn.placeholder { color: var(--muted); }
+    .ms-dd-btn span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ms-dd-caret { color: var(--muted); font-size: 11px; flex: none; }
+    .ms-dd-panel { display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 28px rgba(0,0,0,0.16); padding: 6px; z-index: 20; }
+    .ms-dd-panel.open { display: block; }
+    .ms-dd-opt { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 6px; font-size: 13px; color: var(--text); cursor: pointer; user-select: none; }
+    .ms-dd-opt:hover { background: var(--bg); }
+    .ms-dd-opt input { width: 15px; height: 15px; accent-color: var(--gold); cursor: pointer; margin: 0; }
     @media (max-width: 720px) {
       .inv-head, .inv-row { grid-template-columns: 1.4fr 1fr 30px; }
       .inv-head .h-poc, .inv-head .h-email, .inv-row .c-poc, .inv-row .c-email { display: none; }
@@ -89,7 +102,7 @@
         <p>Your primary capital partners. Store the investor's contact + criteria here; loan officers pick from this list on a deal's Funding Plan so we can track volume by investor.</p>
       </div>
       <div class="ctrl-row">
-        <input type="text" class="search-box" id="searchBox" placeholder="Search name, company, contact…" oninput="render()" />
+        <input type="text" class="search-box" id="searchBox" placeholder="Search name, loan type, contact…" oninput="render()" />
         <button class="add-btn" onclick="openInvestorModal()">+ Add Investor</button>
       </div>
     </div>
@@ -103,7 +116,15 @@
       <input type="hidden" id="imId">
       <div class="vm-grid">
         <div class="vm-field"><label>Investor Name</label><input type="text" id="imName" placeholder="e.g. King Arthur Fund"></div>
-        <div class="vm-field"><label>Company</label><input type="text" id="imCompany" placeholder="Legal / DBA name"></div>
+        <div class="vm-field"><label>Loan Type</label>
+          <div class="ms-dd">
+            <button type="button" class="ms-dd-btn placeholder" id="imLoanTypesBtn" onclick="toggleLoanTypesDD(event)">
+              <span id="imLoanTypesLabel">Select loan types…</span>
+              <span class="ms-dd-caret">▾</span>
+            </button>
+            <div class="ms-dd-panel" id="imLoanTypesPanel"></div>
+          </div>
+        </div>
         <div class="vm-field"><label>Contact Name</label><input type="text" id="imPocName" placeholder="Main point of contact"></div>
         <div class="vm-field"><label>Contact Phone</label><input type="tel" id="imPocPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)"></div>
         <div class="vm-field full"><label>Contact Email</label><input type="email" id="imPocEmail" placeholder="name@investor.com"></div>
@@ -123,8 +144,66 @@
 var _user = null;
 var _investors = [];
 
+// Deploy 236.478 — "Company" replaced by "Loan Type" (multi-select). These
+// are the fixed options; the same list is whitelisted server-side in
+// investors-save.mjs so the two can't drift.
+var LOAN_TYPE_OPTS = ['RTL', 'DSCR', 'New Construction', 'Multifamily', 'Other'];
+
 function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Loan Type multi-select dropdown ─────────────────────────────────
+function buildLoanTypePanel() {
+  var panel = document.getElementById('imLoanTypesPanel');
+  if (!panel) return;
+  var html = '';
+  for (var i = 0; i < LOAN_TYPE_OPTS.length; i++) {
+    var v = LOAN_TYPE_OPTS[i];
+    html += '<label class="ms-dd-opt"><input type="checkbox" value="' + escAttr(v) + '" onchange="updateLoanTypesLabel()">' + escH(v) + '</label>';
+  }
+  panel.innerHTML = html;
+}
+function toggleLoanTypesDD(event) {
+  if (event) event.stopPropagation();
+  var panel = document.getElementById('imLoanTypesPanel');
+  if (panel) panel.classList.toggle('open');
+}
+function closeLoanTypesDD() {
+  var panel = document.getElementById('imLoanTypesPanel');
+  if (panel) panel.classList.remove('open');
+}
+// Close the panel when clicking anywhere outside it.
+document.addEventListener('click', function (e) {
+  var panel = document.getElementById('imLoanTypesPanel');
+  if (!panel || !panel.classList.contains('open')) return;
+  var wrap = panel.parentNode; // .ms-dd
+  if (wrap && !wrap.contains(e.target)) closeLoanTypesDD();
+});
+function getSelectedLoanTypes() {
+  var panel = document.getElementById('imLoanTypesPanel');
+  if (!panel) return [];
+  var boxes = panel.querySelectorAll('input[type=checkbox]');
+  var out = [];
+  for (var i = 0; i < boxes.length; i++) { if (boxes[i].checked) out.push(boxes[i].value); }
+  return out;
+}
+function setSelectedLoanTypes(arr) {
+  arr = Array.isArray(arr) ? arr : [];
+  var panel = document.getElementById('imLoanTypesPanel');
+  if (!panel) return;
+  var boxes = panel.querySelectorAll('input[type=checkbox]');
+  for (var i = 0; i < boxes.length; i++) { boxes[i].checked = arr.indexOf(boxes[i].value) >= 0; }
+  updateLoanTypesLabel();
+}
+function updateLoanTypesLabel() {
+  var sel = getSelectedLoanTypes();
+  var lbl = document.getElementById('imLoanTypesLabel');
+  var btn = document.getElementById('imLoanTypesBtn');
+  if (!lbl || !btn) return;
+  if (sel.length) { lbl.textContent = sel.join(', '); btn.classList.remove('placeholder'); }
+  else { lbl.textContent = 'Select loan types…'; btn.classList.add('placeholder'); }
+}
+buildLoanTypePanel();
 
 // Auth + admin gate (Supabase-safe via SLA.getCurrentUser).
 (function init() {
@@ -159,7 +238,8 @@ function render() {
   var rows = _investors.slice();
   if (q) {
     rows = rows.filter(function (i) {
-      return ((i.name || '') + ' ' + (i.company || '') + ' ' + (i.pocName || '') + ' ' + (i.pocEmail || '') + ' ' + (i.pocPhone || '')).toLowerCase().indexOf(q) >= 0;
+      var lt = Array.isArray(i.loanTypes) ? i.loanTypes.join(' ') : '';
+      return ((i.name || '') + ' ' + lt + ' ' + (i.pocName || '') + ' ' + (i.pocEmail || '') + ' ' + (i.pocPhone || '')).toLowerCase().indexOf(q) >= 0;
     });
   }
   if (!rows.length) {
@@ -179,8 +259,9 @@ function renderRow(i) {
   var updated = i.updatedAt ? new Date(i.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
   var emailHtml = i.pocEmail ? '<a href="mailto:' + escAttr(i.pocEmail) + '" onclick="event.stopPropagation()">' + escH(i.pocEmail) + '</a>' : '<span class="inv-sub">—</span>';
   var phoneHtml = i.pocPhone ? '<a href="tel:' + escAttr(String(i.pocPhone).replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(i.pocPhone) + '</a>' : '<span class="inv-sub">—</span>';
+  var ltSub = (Array.isArray(i.loanTypes) && i.loanTypes.length) ? i.loanTypes.join(', ') : '';
   return '<div class="inv-row" onclick="openInvestorModalById(\'' + escAttr(i.id) + '\')" title="Click to edit">' +
-    '<div><div class="inv-name">' + escH(i.name || i.company || '(unnamed)') + '</div>' + (i.company && i.name ? '<div class="inv-sub">' + escH(i.company) + '</div>' : '') + '</div>' +
+    '<div><div class="inv-name">' + escH(i.name || '(unnamed)') + '</div>' + (ltSub ? '<div class="inv-sub">' + escH(ltSub) + '</div>' : '') + '</div>' +
     '<div class="c-poc">' + escH(i.pocName || '') + '</div>' +
     '<div class="c-email">' + emailHtml + '</div>' +
     '<div>' + phoneHtml + '</div>' +
@@ -194,7 +275,8 @@ function openInvestorModal(inv) {
   document.getElementById('imTitle').textContent = inv ? 'Edit Investor' : 'Add Investor';
   document.getElementById('imId').value       = inv ? (inv.id || '') : '';
   document.getElementById('imName').value      = inv ? (inv.name    || '') : '';
-  document.getElementById('imCompany').value   = inv ? (inv.company || '') : '';
+  setSelectedLoanTypes(inv ? (inv.loanTypes || []) : []);
+  closeLoanTypesDD();
   document.getElementById('imPocName').value   = inv ? (inv.pocName || '') : '';
   document.getElementById('imPocPhone').value  = inv ? (inv.pocPhone|| '') : '';
   document.getElementById('imPocEmail').value  = inv ? (inv.pocEmail|| '') : '';
@@ -212,11 +294,10 @@ function closeInvestorModal() { document.getElementById('invModalBg').style.disp
 function saveInvestor() {
   var status = document.getElementById('imStatus');
   var name = document.getElementById('imName').value.trim();
-  var company = document.getElementById('imCompany').value.trim();
-  if (!name && !company) { status.className = 'vm-status err'; status.textContent = 'Enter an investor name or company.'; return; }
+  if (!name) { status.className = 'vm-status err'; status.textContent = 'Enter an investor name.'; return; }
   var body = {
     name: name,
-    company: company,
+    loanTypes: getSelectedLoanTypes(),
     pocName:  document.getElementById('imPocName').value.trim(),
     pocPhone: document.getElementById('imPocPhone').value.trim(),
     pocEmail: document.getElementById('imPocEmail').value.trim(),
@@ -243,7 +324,7 @@ function saveInvestor() {
 function delInvestor(id) {
   var inv = _investors.find(function (x) { return x.id === id; });
   if (!inv) return;
-  if (!confirm('Delete "' + (inv.name || inv.company || 'this investor') + '"? Loans already tagged to them keep their record; this only removes the directory entry.')) return;
+  if (!confirm('Delete "' + (inv.name || 'this investor') + '"? Loans already tagged to them keep their record; this only removes the directory entry.')) return;
   var idx = _investors.findIndex(function (x) { return x.id === id; });
   var removed = _investors.splice(idx, 1)[0];
   render();

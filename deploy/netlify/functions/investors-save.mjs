@@ -8,13 +8,15 @@
  * Unlike clients, investors are NOT owner-scoped — they're a single shared
  * namespace in the `investors` blob store, keyed by the investor id.
  *
- * Body: { id?, name, company?, pocName?, pocEmail?, pocPhone?, criteria?, notes? }
+ * Body: { id?, name, loanTypes?[], pocName?, pocEmail?, pocPhone?, criteria?, notes? }
  *   id present  → update that investor
  *   id absent   → create (id = inv_<ts>_<rand>)
  *
- * v1 stores name + company + point-of-contact + free-text criteria/notes. The
- * record shape is intentionally roomy so pricing-sheet uploads and per-investor
- * KPIs can slot in later without a rewrite. Returns { ok, investor }.
+ * Deploy 236.478 — "company" was replaced by "loanTypes" (multi-select of the
+ * products this investor buys: RTL / DSCR / New Construction / Multifamily /
+ * Other). Stores name + loanTypes + point-of-contact + free-text criteria/
+ * notes. The record shape is intentionally roomy so pricing-sheet uploads and
+ * per-investor KPIs can slot in later without a rewrite. Returns { ok, investor }.
  */
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth, isAdmin, keySafe } from './_shared/auth.mjs';
@@ -35,16 +37,23 @@ async function handle(req, context) {
   const body = await req.json().catch(() => null);
   if (!body) return json(400, { error: 'Invalid JSON' });
 
-  const name    = String(body.name    || '').trim();
-  const company = String(body.company || '').trim();
-  if (!name && !company) return json(400, { error: 'Investor name or company is required' });
+  const name = String(body.name || '').trim();
+  if (!name) return json(400, { error: 'Investor name is required' });
+
+  // Deploy 236.478 — "Company" replaced by "Loan Type" (multi-select).
+  // Investors are tracked by which products they buy, not a legal name.
+  // Whitelist to the fixed option set so nothing junk lands in the store.
+  const LOAN_TYPES_ALLOWED = ['RTL', 'DSCR', 'New Construction', 'Multifamily', 'Other'];
+  const loanTypes = Array.isArray(body.loanTypes)
+    ? body.loanTypes.map((x) => String(x)).filter((x) => LOAN_TYPES_ALLOWED.indexOf(x) >= 0)
+    : [];
 
   const store = getStore({ name: 'investors', consistency: 'strong' });
   const now = new Date().toISOString();
 
   const fields = {
     name,
-    company,
+    loanTypes,
     pocName:  String(body.pocName  || '').trim(),
     pocEmail: String(body.pocEmail || '').trim().toLowerCase(),
     pocPhone: String(body.pocPhone || '').trim(),

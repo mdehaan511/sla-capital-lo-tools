@@ -1065,73 +1065,10 @@ function render() {
     '</div>';
   }
 
-  // ── Deploy 236.477 (feat): Funding Plan box ───────────────────────
-  // Per Mike — capture how the loan will be funded, right under the
-  // financial grid. Three inputs plus a product-specific pricing field:
-  //   • Funding Source dropdown (Stride / King Arthur Fund / SLA Capital
-  //     / Correspondent / Other). "Other" reveals a one-time free-text
-  //     name that is NOT added to any universal list — it lives only on
-  //     this loan (l.fundingSourceOther).
-  //   • Investor — picked from the admin-managed Investors book. Options
-  //     load async (populateFundingPlanInvestors); we snapshot the name
-  //     onto the loan (l.investorName) so it renders even if the investor
-  //     is later removed from the book.
-  //   • DSCR → "TPO" (premium; 1 TPO = 1 point, stored l.tpo).
-  //     RTL  → "Buy Rate" (yield spread, stored l.buyRate).
-  // No pricing math yet — stored only. Saved via saveFundingPlan()
-  // (whole-client save, same path as the App form fields).
-  var _fpSrc   = String(l.fundingSource || '');
-  var _fpOther = String(l.fundingSourceOther || '');
-  var _fpSrcOpts = [
-    ['', '— Select —'],
-    ['stride', 'Stride'],
-    ['king_arthur', 'King Arthur Fund'],
-    ['sla_capital', 'SLA Capital'],
-    ['correspondent', 'Correspondent'],
-    ['other', 'Other'],
-  ];
-  var _fpSrcOptHtml = '';
-  for (var _fpi = 0; _fpi < _fpSrcOpts.length; _fpi++) {
-    var _fpo = _fpSrcOpts[_fpi];
-    _fpSrcOptHtml += '<option value="' + _fpo[0] + '"' + (_fpo[0] === _fpSrc ? ' selected' : '') + '>' + escH(_fpo[1]) + '</option>';
-  }
-  var _fpPriceLabel = isDscr ? 'TPO (points)' : 'Buy Rate (%)';
-  var _fpPriceVal   = isDscr ? (l.tpo != null ? l.tpo : '') : (l.buyRate != null ? l.buyRate : '');
-  var _fpPriceHint  = isDscr
-    ? 'Third-party origination premium. 1 TPO = 1 point.'
-    : 'Yield spread — the rate this loan is bought at.';
-  html += '<div id="fundingPlanBox" style="margin-top:18px;border:1px solid var(--border);border-radius:12px;padding:14px 16px;background:var(--surface)">' +
-    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">' +
-      '<h2 style="font-size:15px;margin:0">Funding Plan</h2>' +
-      '<span class="section-tag tag-editable">Editable</span>' +
-    '</div>' +
-    '<div class="app-grid">' +
-      '<div class="field"><label>Funding Source</label>' +
-        '<select id="fp-fundingSource" onchange="onFundingSourceChange()">' + _fpSrcOptHtml + '</select>' +
-      '</div>' +
-      '<div class="field" id="fp-otherWrap"' + (_fpSrc === 'other' ? '' : ' style="display:none"') + '><label>Other Source (one-time)</label>' +
-        '<input type="text" id="fp-fundingSourceOther" value="' + escAttr(_fpOther) + '" placeholder="e.g. private lender name" maxlength="80" />' +
-      '</div>' +
-      '<div class="field"><label>Investor</label>' +
-        '<select id="fp-investorId" data-current="' + escAttr(String(l.investorId || '')) + '">' +
-          '<option value="">— None —</option>' +
-          // Seed the current selection so it shows before the async book
-          // loads; populateFundingPlanInvestors() replaces these options.
-          (l.investorId ? '<option value="' + escAttr(String(l.investorId)) + '" selected>' + escH(l.investorName || 'Selected investor') + '</option>' : '') +
-        '</select>' +
-      '</div>' +
-      '<div class="field"><label>' + _fpPriceLabel + '</label>' +
-        '<input type="text" id="fp-pricing" value="' + escAttr(String(_fpPriceVal)) + '" placeholder="0" inputmode="decimal" />' +
-        '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + _fpPriceHint + '</div>' +
-      '</div>' +
-    '</div>' +
-    '<div style="margin-top:14px;display:flex;align-items:center;gap:10px">' +
-      '<button class="save-app-btn" onclick="saveFundingPlan()">Save Funding Plan</button>' +
-      '<span id="fundingPlanStatus" style="display:none;color:var(--success);font-size:13px">Saved ✓</span>' +
-    '</div>' +
-  '</div>';
+  // Deploy 236.478 — the Funding Plan box moved OUT of here into its own
+  // section directly below Property & Application (see fundingPlanSection).
 
-  html += '<a href="'+escAttr(sizerUrl)+'" class="open-sizer-btn" style="margin-top:16px">' +
+  html += '<a href="'+escAttr(sizerUrl)+'" class="open-sizer-btn">' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 7.5h11M8.5 3l4 4.5-4 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
     'Open in '+(isDscr?'DSCR':'RTL')+' Sizer to Modify Financials' +
   '</a>';
@@ -1526,6 +1463,70 @@ function render() {
       '<span id="appStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
     '</div>' +
   '</div></div>'; // close section
+
+  // ── Deploy 236.478 (feat): Funding Plan — its own section, directly
+  // below Property & Application (per Mike's screenshot; moved out of the
+  // Loan Financials card). Captures how the loan will be funded:
+  //   • Funding Source dropdown (Stride / King Arthur Fund / SLA Capital
+  //     / Correspondent / Other). "Other" reveals a one-time free-text
+  //     name that is NOT added to any universal list (l.fundingSourceOther).
+  //   • Investor — picked from the admin-managed Investors book. Options
+  //     load async (populateFundingPlanInvestors); we snapshot the name
+  //     onto the loan (l.investorName) so it survives the investor being
+  //     removed from the book.
+  //   • DSCR → "TPO" (premium; 1 TPO = 1 point, stored l.tpo).
+  //     RTL  → "Buy Rate" (yield spread, stored l.buyRate).
+  // No pricing math yet — stored only. Saved via saveFundingPlan()
+  // (whole-client save, same path as the App-form fields).
+  var _fpSrc   = String(l.fundingSource || '');
+  var _fpOther = String(l.fundingSourceOther || '');
+  var _fpSrcOpts = [
+    ['', '— Select —'],
+    ['stride', 'Stride'],
+    ['king_arthur', 'King Arthur Fund'],
+    ['sla_capital', 'SLA Capital'],
+    ['correspondent', 'Correspondent'],
+    ['other', 'Other'],
+  ];
+  var _fpSrcOptHtml = '';
+  for (var _fpi = 0; _fpi < _fpSrcOpts.length; _fpi++) {
+    var _fpo = _fpSrcOpts[_fpi];
+    _fpSrcOptHtml += '<option value="' + _fpo[0] + '"' + (_fpo[0] === _fpSrc ? ' selected' : '') + '>' + escH(_fpo[1]) + '</option>';
+  }
+  var _fpPriceLabel = isDscr ? 'TPO (points)' : 'Buy Rate (%)';
+  var _fpPriceVal   = isDscr ? (l.tpo != null ? l.tpo : '') : (l.buyRate != null ? l.buyRate : '');
+  var _fpPriceHint  = isDscr
+    ? 'Third-party origination premium. 1 TPO = 1 point.'
+    : 'Yield spread — the rate this loan is bought at.';
+  html += '<div class="section" id="fundingPlanSection">' +
+    '<div class="section-head"><h2>Funding Plan</h2><span class="section-tag tag-editable">Editable</span></div>' +
+    '<div class="section-body">' +
+      '<div class="app-grid">' +
+        '<div class="field"><label>Funding Source</label>' +
+          '<select id="fp-fundingSource" onchange="onFundingSourceChange()">' + _fpSrcOptHtml + '</select>' +
+        '</div>' +
+        '<div class="field" id="fp-otherWrap"' + (_fpSrc === 'other' ? '' : ' style="display:none"') + '><label>Other Source (one-time)</label>' +
+          '<input type="text" id="fp-fundingSourceOther" value="' + escAttr(_fpOther) + '" placeholder="e.g. private lender name" maxlength="80" />' +
+        '</div>' +
+        '<div class="field"><label>Investor</label>' +
+          '<select id="fp-investorId" data-current="' + escAttr(String(l.investorId || '')) + '">' +
+            '<option value="">— None —</option>' +
+            // Seed the current selection so it shows before the async book
+            // loads; populateFundingPlanInvestors() replaces these options.
+            (l.investorId ? '<option value="' + escAttr(String(l.investorId)) + '" selected>' + escH(l.investorName || 'Selected investor') + '</option>' : '') +
+          '</select>' +
+        '</div>' +
+        '<div class="field"><label>' + _fpPriceLabel + '</label>' +
+          '<input type="text" id="fp-pricing" value="' + escAttr(String(_fpPriceVal)) + '" placeholder="0" inputmode="decimal" />' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + _fpPriceHint + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
+        '<button class="save-app-btn" onclick="saveFundingPlan()">Save Funding Plan</button>' +
+        '<span id="fundingPlanStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
 
   // Deploy 226 — Notes / audit log section. Replaces the old free-form
   // notes textarea with a scrollable timestamped log. Renders below the
@@ -5205,7 +5206,9 @@ function populateFundingPlanInvestors() {
       var inv = list[i];
       if (!inv || !inv.id) continue;
       var idStr = String(inv.id);
-      var label = String(inv.name || inv.company || 'Investor') + (inv.company && inv.name ? ' (' + inv.company + ')' : '');
+      // Deploy 236.478 — show the loan types the investor buys (was company).
+      var _lt = (Array.isArray(inv.loanTypes) && inv.loanTypes.length) ? ' (' + inv.loanTypes.join(', ') + ')' : '';
+      var label = String(inv.name || 'Investor') + _lt;
       var isCur = (idStr === current);
       if (isCur) found = true;
       html += '<option value="' + escAttr(idStr) + '"' + (isCur ? ' selected' : '') + '>' + escH(label) + '</option>';
@@ -5260,7 +5263,7 @@ function saveFundingPlan() {
   if (_loEmail && _user && _loEmail !== _user.email) {
     saveOpts = Object.assign({}, _client, { _owner: _loEmail });
   }
-  var btn = document.querySelector('#fundingPlanBox .save-app-btn');
+  var btn = document.querySelector('#fundingPlanSection .save-app-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   SLA.Clients.save(saveOpts).then(function() {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Funding Plan'; }
