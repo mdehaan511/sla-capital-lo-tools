@@ -2569,7 +2569,9 @@ function bulkDecline() {
     });
     if (!item) return;
     promises.push(
-      SLA.Admin.decideQuote(q.ownerKey, q.id, 'denied', 'Declined via bulk action.')
+      // Deploy 236.473 — pass loanId so quotes-decide takes the fast
+      // loan-first path (no slow legacy store+email path → no 504).
+      SLA.Admin.decideQuote(q.ownerKey, q.id, 'denied', 'Declined via bulk action.', item.quote && item.quote.loanId)
         .catch(function(err) { console.warn('decideQuote failed for', q.id, err); })
     );
   });
@@ -2812,7 +2814,11 @@ function bulkOnHold() {
   // loan-backed rows; real failures still surface here.
   var failures = [];
   var promises = groups.quotes.map(function(q) {
-    return SLA.Admin.decideQuote(q.ownerKey, q.id, 'on_hold', 'Placed on hold via bulk action.')
+    // Deploy 236.473 — resolve the tile's loanId so quotes-decide takes the
+    // fast loan-first path (skips the legacy store+email path that 504'd).
+    var _item = (_items[q.colKey] || []).find(function(it) { return it.id === q.id && it.ownerKey === q.ownerKey; });
+    var _lid  = _item && _item.quote && _item.quote.loanId;
+    return SLA.Admin.decideQuote(q.ownerKey, q.id, 'on_hold', 'Placed on hold via bulk action.', _lid)
       .catch(function(err) {
         console.warn('on_hold failed for', q.id, err);
         failures.push(err);

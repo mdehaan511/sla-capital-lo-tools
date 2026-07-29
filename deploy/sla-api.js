@@ -1446,13 +1446,18 @@
   // ── Admin ───────────────────────────────────────────────────────
   var Admin = {
     userStats: function () { return api('GET', '/api/users-stats'); },
-    decideQuote: function (ownerKey, quoteId, status, reason) {
-      return api('POST', '/api/quotes-decide', {
+    // Deploy 236.473 — optional loanId lets quotes-decide take the fast
+    // loan-first path (skips the slow legacy store+email path that 504'd
+    // under bulk decline/on-hold). Callers pass the tile's loanId when known.
+    decideQuote: function (ownerKey, quoteId, status, reason, loanId) {
+      var body = {
         ownerKey: ownerKey,
         quoteId: quoteId,
         status: status,
         reason: reason || '',
-      });
+      };
+      if (loanId) body.loanId = loanId;
+      return api('POST', '/api/quotes-decide', body);
     },
     closeQuote: function (ownerKey, quoteId, finalLoanAmount, commissionRate, notes) {
       return api('POST', '/api/quotes-close', {

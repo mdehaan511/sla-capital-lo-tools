@@ -52,6 +52,28 @@ export default async (req, context) => {
   if (!isAdmin(user) && cleanOwner !== userKey) {
     return json(403, { error: 'Cannot decide another LO\'s quote' });
   }
+
+  // Deploy 236.473 — LOAN-ID FAST PATH. The pipeline + decisions tiles are
+  // loan-backed and now pass the loan id. Resolve it by primary key and decide
+  // LOAN-FIRST, skipping (a) the legacy store path, whose per-quote
+  // syncToClientLoan + AWAITED Resend email were the 504 'Inactivity Timeout'
+  // under bulk decline/on-hold (N concurrent email sends hang the gateway),
+  // and (b) the unindexed extra->>_quoteId fallback scan (009 index helps that
+  // path, but stored quotes never reach it — they hit the slow legacy path).
+  // decideLoanFirst is a direct client-blob read + writeClient, no email.
+  // Re-verify ownership against the loan's true owner (the gate above only
+  // checked the passed ownerKey).
+  if (body.loanId) {
+    const lrow = await db.first('loans', { select: 'id,client_id,owner_email', eq: { id: String(body.loanId) } }).catch(() => null);
+    if (lrow) {
+      if (!isAdmin(user) && keySafe(normalizeEmail(lrow.owner_email || '')) !== userKey) {
+        return json(403, { error: 'Cannot decide another LO\'s loan' });
+      }
+      return decideLoanFirst(lrow, { quoteId: String(quoteId), status, reason, user, userKey });
+    }
+    // loanId didn't resolve → fall through to id-based resolution below.
+  }
+
   const cleanId    = keySafe(String(quoteId));
   const key = `${cleanOwner}/${cleanId}`;
 
