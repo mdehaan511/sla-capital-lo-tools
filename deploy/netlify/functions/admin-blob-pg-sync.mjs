@@ -175,6 +175,26 @@ async function handle(req, context) {
 
   // ── 5. Optional: delete PG rows that no longer exist in blob ───
   if (deleteOrphans) {
+    // Deploy 236.481 — safety filter. When onlyBrokerPlaceholders is set,
+    // restrict client deletion to orphans confirmed as broker placeholder
+    // husks (is_broker_placeholder), using the details fetched above. This
+    // protects a REAL client that is transiently PG-only (in the sub-second
+    // window between writeClient's PG write and its blob mirror) from being
+    // swept — such a client is never a broker placeholder. Use this when
+    // clearing the known broker-placeholder backlog.
+    let clientIdsToDelete = orphanClientIds;
+    if (body.onlyBrokerPlaceholders === true) {
+      const details = result.pgOrphans.clientDetails || [];
+      const phSet = new Set(
+        details.filter((r) => r && r.is_broker_placeholder).map((r) => r.id)
+      );
+      clientIdsToDelete = orphanClientIds.filter((id) => phSet.has(id));
+      result.deleteFilter = {
+        onlyBrokerPlaceholders: true,
+        eligible: clientIdsToDelete.length,
+        skippedNonPlaceholder: orphanClientIds.length - clientIdsToDelete.length,
+      };
+    }
     // Delete loans first (FK constraint — loans reference clients).
     for (const id of orphanLoanIds) {
       try {
@@ -184,7 +204,7 @@ async function handle(req, context) {
         result.errors.push({ phase: 'loan delete', id, message: (e && e.message) });
       }
     }
-    for (const id of orphanClientIds) {
+    for (const id of clientIdsToDelete) {
       try {
         await db.del('clients', { id });
         result.deleted.clients++;
