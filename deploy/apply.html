@@ -765,6 +765,23 @@ function _looksLikeFullAddress(s) {
   return stRe.test(v);
 }
 
+// Deploy 236.484 — states SLA Capital can't originate in yet. If the
+// property address falls in one of these, the short app blocks submit
+// with a clear message (see validate()). Keyed by 2-letter code → full
+// name so the borrower sees a friendly message.
+var RESTRICTED_STATES = {
+  CA: 'California', AZ: 'Arizona', NV: 'Nevada', UT: 'Utah',
+  MN: 'Minnesota', ND: 'North Dakota', SD: 'South Dakota', VT: 'Vermont'
+};
+// Pull the 2-letter state that precedes the trailing ZIP — same anchor
+// _looksLikeFullAddress validates, so extraction and validation agree.
+function _stateFromAddress(s) {
+  if (!s) return '';
+  var v = String(s).trim().replace(/,?\s*USA\.?$/i, '').trim();
+  var m = v.match(/(?:\b|^)([A-Za-z]{2})(?:,\s*|\s+)\d{5}(-\d{4})?\s*$/);
+  return m ? m[1].toUpperCase() : '';
+}
+
 function validate() {
   var ok = true;
   var lp = gv('loanProduct');
@@ -790,6 +807,14 @@ function validate() {
   if (addr && !_looksLikeFullAddress(addr)) {
     showE('propAddress', 'Please pick your address from the dropdown so it includes the city, state, and ZIP code.');
     ok = false;
+  } else if (addr) {
+    // Deploy 236.484 — block property states we can't originate in yet,
+    // with a clear message instead of letting a dead-end prospect through.
+    var _propSt = _stateFromAddress(addr);
+    if (_propSt && RESTRICTED_STATES[_propSt]) {
+      showE('propAddress', 'We’re sorry — SLA Capital isn’t able to originate loans on properties in ' + RESTRICTED_STATES[_propSt] + ' yet. Please reach out to your loan officer with any questions.');
+      ok = false;
+    }
   }
   // propertyValue is required only for DSCR — the field is hidden for the
   // entire RTL family (fix_flip, bridge, transactional) since the LO
