@@ -38,6 +38,10 @@ import {
   handleOptions, json, requireAuth, isAdmin,
 } from './_shared/auth.mjs';
 import { removeClient as indexRemoveClient } from './_shared/clients-index.mjs';
+// Deploy 236.480 — this cleanup previously deleted husks from BLOB only,
+// stranding the PG row as an orphan (the exact source of the stable
+// "N orphan clients / 0 orphan loans" drift). Delete from PG too.
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
 const REDIRECTS_STORE = 'loan_redirects';
 
@@ -143,6 +147,11 @@ async function handle(req, context) {
       continue;
     }
     try {
+      // Deploy 236.480 — delete PG FIRST, then blob. If the second step
+      // fails, the husk is left in blob (a "PG missing"), which THIS
+      // tool's blob scan re-finds and retries next run — self-healing.
+      // The old blob-first order left PG orphans that nothing re-scanned.
+      await pgMirror.deleteClientStrict(clientId);
       await clientsStore.delete(key);
       indexRemoveClient(ownerKey, clientId).catch(() => {});
       deleted++;
