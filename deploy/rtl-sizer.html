@@ -4393,7 +4393,15 @@ function _synthRtlSnapFromFD(fd) {
   var snap = { _synthFallback: true, finalRate: ratePct / 100 };
   var pts = parseFloat(String(fd._points || '').replace(/[^0-9.]/g, ''));
   if (isFinite(pts) && pts > 0) snap.points = pts;
-  var maxL = parseFloat(fd._maxLoan || fd.loanAmt || '');
+  // Deploy 236.488 — prefer the loan's ACTUAL amount (loanAmt) over the
+  // theoretical maximum (_maxLoan). The rate sheet must reflect the loan
+  // ON FILE — what Loan Details shows / what the LO set — not the recomputed
+  // max. When the LO overrides the loan amount DOWN from the max, reading
+  // _maxLoan first printed the higher max on the SENT rate sheet (e.g.
+  // $219,179 instead of $208,079) — the exact "rate sheet doesn't match
+  // Loan Details" bug. With no override loanAmt == _maxLoan, so this is a
+  // no-op in the normal case.
+  var maxL = parseFloat(fd.loanAmt || fd._maxLoan || '');
   if (isFinite(maxL) && maxL > 0) snap.maxLoan = maxL;
   return snap;
 }
@@ -4916,6 +4924,27 @@ function _generateRTLRateSheetPDF(opts) {
     if (typeof _snap.monthlyMax   === 'number' && isFinite(_snap.monthlyMax))   pdfMoMax   = _snap.monthlyMax;
     if (typeof _snap.initialAdvance === 'number' && isFinite(_snap.initialAdvance)) pdfInitAdv = _snap.initialAdvance;
     if (typeof _snap.dutchInterest === 'string') pdfIsDutch = (_snap.dutchInterest === 'dutch');
+    // Deploy 236.488 — synth snapshots (_synthFallback) carry rate/points/
+    // loanAmt but NO monthly, so pdfMoStart/pdfMoMax are still the LIVE
+    // calc's values at the PRE-OVERRIDE loan amount + rate. Monthly is
+    // linear in both (Dutch = loan×rate/12; non-Dutch = advance×rate/12),
+    // so re-scale from the raw calc to the corrected amount + rate. Without
+    // this the sheet showed the overridden loan amount + rate but a payment
+    // computed on the old (higher) principal — e.g. $1,907/mo instead of
+    // $1,821. Skipped for real saved snapshots (they set monthly* above).
+    if (_snap._synthFallback) {
+      var _rawLoan = (typeof _calcSnap.bMax === 'number' && _calcSnap.bMax > 0) ? _calcSnap.bMax : null;
+      var _rawRate = (typeof _calcSnap.rate === 'number' && _calcSnap.rate > 0) ? _calcSnap.rate : null;
+      var _corrRate = (typeof _snap.finalRate === 'number' && _snap.finalRate > 0) ? _snap.finalRate : _rawRate;
+      if (_rawLoan && _rawRate && _corrRate && bMaxNum > 0) {
+        var _moScale = (bMaxNum / _rawLoan) * (_corrRate / _rawRate);
+        if (isFinite(_moScale) && _moScale > 0) {
+          if (pdfMoStart !== null) pdfMoStart = pdfMoStart * _moScale;
+          if (pdfMoMax   !== null) pdfMoMax   = pdfMoMax   * _moScale;
+          if (pdfMoMax !== null) moDisp = '$' + Math.round(pdfMoMax).toLocaleString() + '/mo';
+        }
+      }
+    }
     pdfHasDraw = pdfMoStart !== null && pdfMoMax !== null && Math.round(pdfMoStart) !== Math.round(pdfMoMax);
     window._snapshotConsumed = true;
   }
