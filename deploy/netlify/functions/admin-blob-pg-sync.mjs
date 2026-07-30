@@ -124,13 +124,35 @@ async function handle(req, context) {
         in: { id: idsToFetch },
       });
       result.pgOrphans.clientDetails = rows || [];
-      let brokers = 0;
-      for (const r of (rows || [])) if (r && (r.is_broker || r.is_broker_placeholder)) brokers++;
+      // Deploy 236.482 — break the flags out PROPERLY. The old summary
+      // lumped is_broker with is_broker_placeholder under one label,
+      // which mis-classified real broker records as placeholders. Report
+      // each flag separately plus owner + created-date grouping so the
+      // orphans' origin (a migration? a purged LO?) is obvious in one run.
+      let isBroker = 0, isPlaceholder = 0, neither = 0, withNameOrEmail = 0;
+      const byOwner = {};
+      let minCreated = null, maxCreated = null;
+      for (const r of (rows || [])) {
+        if (r.is_broker_placeholder) isPlaceholder++;
+        else if (r.is_broker) isBroker++;
+        else neither++;
+        if (r.first_name || r.last_name || r.email) withNameOrEmail++;
+        const o = r.owner_email || '(none)';
+        byOwner[o] = (byOwner[o] || 0) + 1;
+        if (r.created_at) {
+          if (!minCreated || r.created_at < minCreated) minCreated = r.created_at;
+          if (!maxCreated || r.created_at > maxCreated) maxCreated = r.created_at;
+        }
+      }
       result.pgOrphans.summary = {
         total: orphanClientIds.length,
         detailed: (rows || []).length,
-        brokerPlaceholders: brokers,
-        nonBroker: (rows || []).length - brokers,
+        isBroker,
+        isBrokerPlaceholder: isPlaceholder,
+        neither,
+        withNameOrEmail,
+        byOwner,
+        createdRange: { min: minCreated, max: maxCreated },
       };
     } catch (e) {
       result.errors.push({ phase: 'orphan detail fetch', message: (e && e.message) });
