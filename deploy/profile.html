@@ -203,6 +203,19 @@
     </div>
   </div>
 
+  <!-- Deploy 236.486 — admin User Management entry point. The full invite
+       + role / resend / remove controls live on users-admin.html, which
+       isn't linked in the nav; this card makes it discoverable from the
+       profile page. Admins only (un-hidden in the _isAdmin block). -->
+  <div class="card" id="userMgmtCard" style="display:none">
+    <div class="card-header">
+      <div><h2>User Management</h2><p>Invite new loan officers, processors, and admins, change roles, resend invites, or remove users. Each invite is emailed as a magic sign-in link with the role already assigned.</p></div>
+    </div>
+    <div class="card-body">
+      <button type="button" class="save-btn" onclick="window.location.href='/users-admin.html'">Open User Management →</button>
+    </div>
+  </div>
+
   <!-- Deploy 236.131 — admin test fixture. Creates a fully-formed
        loan + guarantors + sub-form tokens so admins can iterate on
        Loan Details / Contacts / sub-form UI without filling the
@@ -415,6 +428,8 @@ netlifyIdentity.on('init', function(user) {
     var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
     // Deploy 236.131 — surface the Test Loan Fixtures card for admins.
     var tf = document.getElementById('testFixturesCard'); if (tf) tf.style.display = 'block';
+    // Deploy 236.486 — surface the User Management entry point for admins.
+    var um = document.getElementById('userMgmtCard'); if (um) um.style.display = 'block';
   }
   // Deploy 236.268 — expose the sign-in password card only for
   // Supabase-authenticated users. Netlify Identity users manage
