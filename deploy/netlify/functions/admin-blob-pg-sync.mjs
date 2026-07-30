@@ -41,6 +41,7 @@
  *
  * Admin only. Timeout 26s (set in netlify.toml).
  */
+import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, isAdmin, readJsonBody,
   keySafe, normalizeEmail,
@@ -57,6 +58,90 @@ import { computeDrift } from './_shared/blob-pg-drift.mjs';
 // the whole run.
 const CLIENT_CHUNK = 50;
 const LOAN_CHUNK   = 100;
+
+// ── Deploy 236.482 — PG→blob reverse projection for the backfill step.
+// Faithful to client-get-pg.mjs's _clientRowToBlobShape (that's the read
+// shape used everywhere), with two write-specific additions: carry ssn_enc
+// so a backfilled blob is COMPLETE (the blob is still the SSN source of
+// truth per 236.459), and preserve loanAmtLocked etc. via the loan shape.
+// Keep in sync with client-get-pg if that projection changes.
+function _pgLoanToBlob(l) {
+  if (!l) return null;
+  const out = {
+    id:                 l.id,
+    address:            l.address           || '',
+    status:             l.status            || 'active',
+    processingStage:    l.processing_stage  || '',
+    toolType:           l.tool_type         || '',
+    loanType:           l.loan_type         || '',
+    loanAmt:            l.loan_amt          || '',
+    loanAmtLocked:      !!l.loan_amt_locked,
+    rate:               l.rate              || '',
+    points:             l.points            || '',
+    purchasePrice:      l.purchase_price    || '',
+    propValue:          l.prop_value        || '',
+    rehabBudget:        l.rehab_budget      || '',
+    arv:                l.arv               || '',
+    propType:           l.prop_type         || '',
+    fico:               l.fico              || '',
+    prepay:             l.prepay            || '',
+    dscr:               l.dscr              || '',
+    brokerId:           l.broker_id         || '',
+    _isBrokerLoan:      !!l.is_broker_loan,
+    fromApplication:    !!l.from_application,
+    prospectId:         l.prospect_id       || '',
+    fundingDate:        l.funding_date      || '',
+    maturityDate:       l.maturity_date     || '',
+    servicerName:       l.servicer_name     || '',
+    servicerUrl:        l.servicer_url      || '',
+    slaDisplayId:       l.sla_display_id    || '',
+    guarantorClientIds: l.guarantor_client_ids || [],
+    guarantorOwnership: l.guarantor_ownership || {},
+    vestingLLCs:        l.vesting_llcs || [],
+    formData:           l.form_data || {},
+    notes:              l.notes || '',
+    notesLog:           l.notes_log || [],
+    createdAt:          l.created_at,
+    updatedAt:          l.updated_at,
+    savedAt:            l.saved_at || l.updated_at,
+  };
+  Object.assign(out, l.extra || {});
+  return out;
+}
+function _pgClientToBlob(c) {
+  if (!c) return null;
+  const loans = Array.isArray(c.loans) ? c.loans.map(_pgLoanToBlob).filter(Boolean) : [];
+  const out = {
+    id:                   c.id,
+    firstName:            c.first_name  || '',
+    lastName:             c.last_name   || '',
+    email:                c.email       || '',
+    phone:                c.phone       || '',
+    entityName:           c.entity_name || '',
+    displayName:          c.display_name || '',
+    companies:            c.companies || [],
+    homeAddress:          c.home_address || null,
+    mailingAddress:       c.mailing_address || null,
+    ssnLast4:             c.ssn_last4 || '',
+    fico:                 c.fico || '',
+    dob:                  c.dob || '',
+    _isBroker:            !!c.is_broker,
+    _isBrokerPlaceholder: !!c.is_broker_placeholder,
+    notes:                c.notes || '',
+    notesLog:             c.notes_log || [],
+    createdAt:            c.created_at,
+    updatedAt:            c.updated_at,
+    createdBy:            c.created_by || '',
+    loans,
+  };
+  Object.assign(out, c.extra || {});
+  out.loans = loans;
+  // Authoritative promoted fields win over any stale key that rode in
+  // via extra (same discipline as the 236.461 SSN clobber fix).
+  out.ssnLast4 = c.ssn_last4 || '';
+  if (c.ssn_enc) out.ssn_enc = c.ssn_enc; else delete out.ssn_enc;
+  return out;
+}
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -232,6 +317,41 @@ async function handle(req, context) {
         result.deleted.clients++;
       } catch (e) {
         result.errors.push({ phase: 'client delete', id, message: (e && e.message) });
+      }
+    }
+  }
+
+  // ── 6. Optional: backfill orphan PG clients INTO blob (PG→blob) ──
+  // Deploy 236.482 — the inverse of step 4. Use when PG holds authoritative
+  // client records the blob mirror is missing (e.g. is_broker records
+  // created before the broker write paths moved onto writeClient). Purely
+  // ADDITIVE: writes a blob copy of a row that already exists in PG, so
+  // there's no destructive edge. onlyBrokerOrphans restricts it to real
+  // broker records (is_broker && !placeholder) — the confirmed backlog.
+  if (body.backfillOrphansToBlob === true && orphanClientIds.length) {
+    const details = result.pgOrphans.clientDetails || [];
+    let ids = orphanClientIds.slice(0, 500);
+    if (body.onlyBrokerOrphans === true) {
+      const brokerSet = new Set(
+        details.filter((r) => r && r.is_broker && !r.is_broker_placeholder).map((r) => r.id)
+      );
+      ids = ids.filter((id) => brokerSet.has(id));
+    }
+    result.backfill = {
+      onlyBrokerOrphans: body.onlyBrokerOrphans === true,
+      attempted: ids.length,
+      wroteToBlob: 0,
+    };
+    const store = getStore({ name: 'clients', consistency: 'strong' });
+    for (const id of ids) {
+      try {
+        const row = await db.first('clients', { eq: { id }, select: '*,loans!client_id(*)' });
+        if (!row) { result.errors.push({ phase: 'backfill fetch', id, message: 'row not found' }); continue; }
+        const blobShape = _pgClientToBlob(row);
+        await store.setJSON(keySafe(row.owner_email) + '/' + keySafe(row.id), blobShape);
+        result.backfill.wroteToBlob++;
+      } catch (e) {
+        result.errors.push({ phase: 'backfill write', id, message: (e && e.message) });
       }
     }
   }
