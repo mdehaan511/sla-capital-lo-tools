@@ -891,6 +891,16 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="fees-row total"><span>Total</span><span id="feesCardTotal">$2,150</span></div>
       <div class="fees-foot">Reference only — see rate sheet for current pricing.</div>
     </div>
+    <!-- Deploy 236.485 — Cash Reserve Requirement, surfaced on-screen so
+         LOs don't have to generate the term sheet PDF to see it. Populated
+         by renderReserveCard() on each calc; hidden until there's a quote
+         (and always hidden for Transactional). -->
+    <div class="fees-card" id="reserveCard" style="display:none;margin-top:14px">
+      <div class="fees-head">Cash Reserve Requirement</div>
+      <div id="reserveCardRows"></div>
+      <div class="fees-row total"><span>Total Required</span><span id="reserveCardTotal">$0</span></div>
+      <div class="fees-foot">Required liquid reserves the borrower must show prior to closing.</div>
+    </div>
   </div>
 
 </div><!-- /page -->
@@ -919,6 +929,57 @@ var ei = SLA_RTL.ei;
 var pts = SLA_RTL.pts;
 var colchisRate = SLA_RTL.colchisRate;
 function fmt(n){ return '$'+Math.round(n).toLocaleString(); }
+
+// ── Deploy 236.485 — on-screen Cash Reserve Requirement ─────────────
+// Surfaces the same liquid-reserve figure the RTL term sheet PDF shows,
+// so LOs can see it without generating the rate sheet. Mirrors the PDF
+// math in generatePdf(): Cash to Close + (6 × monthly interest) + (20% ×
+// rehab budget). Hidden for Transactional (a 1-day product; its separate
+// PDF omits this block). Reads the DOM directly — gv() is NOT global here
+// (it's defined inside the PDF/other functions), so don't call it.
+function renderReserveCard() {
+  var card = document.getElementById('reserveCard');
+  if (!card) return;
+  var calc = window._rtlLastCalc || {};
+  var loanAmt = calc.bMax || 0;
+  if (calc.isTransactional || loanAmt <= 0) { card.style.display = 'none'; return; }
+  function _num(id){ var el = document.getElementById(id); return el ? (parseFloat(el.value) || 0) : 0; }
+
+  // Total fees = origination (points × loan) + flat schedule ($2,150) +
+  // any broker fee — same components the term sheet's fee block totals.
+  var ptsRate = (typeof calc.points === 'number') ? calc.points : 0;
+  var origFee = loanAmt * (ptsRate / 100);
+  var flatFees = 2150; // 600 + 900 + 500 + 150
+  var brokerDol = loanAmt * (_num('brokerFee') / 100);
+  var brokerProc = (typeof brokerProcFeeAmount === 'function') ? brokerProcFeeAmount() : 0;
+  var totalFees = origFee + flatFees + brokerDol + brokerProc;
+
+  // Cash to close: refi = the amount (if any) the borrower must BRING
+  // (0 when they net cash out); purchase = fees + down payment.
+  var purp = calc.purpose || '';
+  var isRefi = (purp === 'cashout' || purp === 'rateterm');
+  var cashToClose;
+  if (isRefi) {
+    var net = loanAmt - _num('currentLoanAmt') - totalFees; // + = borrower receives
+    cashToClose = net < 0 ? -net : 0;
+  } else {
+    var dp = (typeof calc.downPayment === 'number' && calc.downPayment > 0) ? calc.downPayment : 0;
+    cashToClose = totalFees + dp;
+  }
+
+  var moInt = (typeof calc.monthlyMax === 'number' && calc.monthlyMax > 0) ? calc.monthlyMax
+            : (typeof calc.monthlyStart === 'number' ? calc.monthlyStart : 0);
+  var holding = moInt * 6;
+  var rehab = _num('rehabBudget') * 0.20;
+  var total = cashToClose + holding + rehab;
+
+  document.getElementById('reserveCardRows').innerHTML =
+    '<div class="fees-row"><span>Cash to Close</span><span>' + fmt(cashToClose) + '</span></div>' +
+    '<div class="fees-row"><span>6 Months Holding (Interest × 6)</span><span>' + fmt(holding) + '</span></div>' +
+    '<div class="fees-row"><span>20% of Renovation Budget</span><span>' + fmt(rehab) + '</span></div>';
+  document.getElementById('reserveCardTotal').textContent = fmt(total);
+  card.style.display = '';
+}
 
 // Format a phone input as (XXX) XXX-XXXX while the user types.
 // Mirrors the same helper in apply.html so the borrower-experience and
@@ -2063,12 +2124,17 @@ function calculate(){
     initAdv: initAdv,
     monthlyStart: moStart,
     monthlyMax: moMax,
+    // Deploy 236.485 — needed by renderReserveCard() for the purchase
+    // cash-to-close leg of the reserve requirement.
+    downPayment: (typeof dp === 'number' ? dp : null),
   };
 
   // Refresh the right-side fees card now that the canonical loan amount
   // has been computed. Without this, the broker-fee $ shown would reflect
   // the purchase-price fallback instead of the actual loan size.
   try { renderBrokerFeesCardRows(); } catch (_) {}
+  // Deploy 236.485 — refresh the on-screen Cash Reserve Requirement card.
+  try { renderReserveCard(); } catch (_) {}
 
   // ── Render results ─────────────────────────────────────────
   var html='';
@@ -2316,6 +2382,9 @@ function renderTransactional(street, city, state, zip) {
     dailyInterest:   dailyInterest,
     monthlyInterest: monthlyInterest,
   };
+  // Deploy 236.485 — Transactional has no reserve requirement; this hides
+  // the Cash Reserve card if it was left showing from a prior program.
+  try { renderReserveCard(); } catch (_) {}
 
   var rateOvrClass = (_ovTx.rate   !== null && _ovTx.rate   !== undefined) ? ' overridden' : '';
   var ptsOvrClass  = (_ovTx.points !== null && _ovTx.points !== undefined) ? ' overridden' : '';
