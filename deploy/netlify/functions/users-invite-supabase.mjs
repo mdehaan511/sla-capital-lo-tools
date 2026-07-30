@@ -200,9 +200,17 @@ export default async (req, context) => {
   }
 
   // 3. Send the invite email via Resend directly.
+  // Deploy 236.487 — capture the Resend message id so an invite is
+  // traceable in the Resend dashboard (delivered / bounced / blocked).
+  // Delivery problems here are almost always downstream of Resend
+  // accepting the send (spam, or a Google Workspace quarantine when the
+  // recipient is on the same org domain as our leads.slacapital.com
+  // subdomain sender), so having the id to look up is the fast path.
+  let resendId = '';
   try {
     const mail = _buildInviteEmail(email, fullName, role, actionLink);
-    await _sendViaResend(email, mail.subject, mail.text, mail.html);
+    const sendResult = await _sendViaResend(email, mail.subject, mail.text, mail.html);
+    resendId = (sendResult && sendResult.id) || '';
   } catch (e) {
     console.error('users-invite-supabase resend error:', e);
     return json(500, {
@@ -216,6 +224,7 @@ export default async (req, context) => {
     ok: true,
     user: { id: supabaseUserId, email: email, role: role },
     emailedVia: 'resend',
+    resendId: resendId,
     roleStamped: true,
   });
 };
