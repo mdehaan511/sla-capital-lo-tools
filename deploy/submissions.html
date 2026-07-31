@@ -226,7 +226,15 @@ function loadSubmissions(force) {
           _rows.push({
             ownerKey: ownerKey,
             quote:    q,
-            loanLink: loanMap[ownerKey + '|' + norm(q.address || '')] || null,
+            // Deploy 236.514 — resolve "View loan" by the quote's OWN loanId,
+            // not by address. The address-keyed loanMap collides when two
+            // loans share a street (the 2nd overwrites the 1st), so both
+            // cards linked to the SAME loan. Synthesized quotes now carry
+            // loanId + clientId, so use those; fall back to the address map
+            // only for orphan drafts with no loanId.
+            loanLink: (q.loanId && q.clientId)
+              ? { clientId: q.clientId, loanId: q.loanId, ownerKey: ownerKey }
+              : (loanMap[ownerKey + '|' + norm(q.address || '')] || null),
           });
         }
       });
