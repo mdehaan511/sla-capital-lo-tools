@@ -14,12 +14,12 @@
  *   ltarv                = Loan ÷ ARV
  *   ltc                  = same as the term sheet (Loan ÷ (Purchase + Reno))
  *   ltaiv                = Loan ÷ As-is Value
- *   prepaidInterest      = Loan × Rate ÷ 365 × days   (365-day basis)
+ *   prepaidInterest      = Loan × Rate ÷ 365 × days, where days = funding
+ *                          date → end of that month (365-day basis)
  *   liquidityTotal       = Σ(account balance × its weight) + EMD paid
  *   liquidityRequirement = Cash to Close + 20% × Renovation + 6 months
  *                          interest  (= RTL sizer Cash Reserve, 236.485)
- *   OPEN (assumption, confirm): assignmentToPurchase = Assignment Fee ÷
- *   Purchase Price; prepaidInterest day-count = funding date → month end.
+ *   assignmentToPurchase = Assignment Fee ÷ Purchase Price  (RED if > 15%)
  * HUD Balancing + Profit Analysis are OUT (separate manual tabs later).
  *
  * Every field carries a `source` tier that drives HOW it gets populated —
@@ -134,7 +134,7 @@
     { key: 'ltarv',          label: 'LTARV',          section: 'Ratios', source: 'calc',  calc: 'ltarv',           sourceNote: 'Calculated', flag: true },
     { key: 'ltc',            label: 'LTC',            section: 'Ratios', source: 'calc',  calc: 'ltc',             sourceNote: 'Calculated', flag: true },
     { key: 'ltaiv',          label: 'LTAIV',          section: 'Ratios', source: 'calc',  calc: 'ltaiv',           sourceNote: 'Calculated', flag: true },
-    { key: 'assignmentToPurchase', label: 'Assignment to Purchase', section: 'Ratios', source: 'calc', calc: 'assignmentToPurchase', sourceNote: 'Calculated', flag: true },
+    { key: 'assignmentToPurchase', label: 'Assignment to Purchase', section: 'Ratios', source: 'calc', calc: 'assignmentToPurchase', sourceNote: 'RED if > 15%', flag: true },
 
     // — Liquidity —
     // Each account carries { type, balance, weight }. The type picks the
@@ -171,7 +171,7 @@
     { type: 'Stocks/Mutual Funds',         weight: 0.50, note: '100% if 63 y/o' },
     { type: 'IRA/401k/Retirement Plans',   weight: 0.00, note: '' },
     { type: 'HELOC',                       weight: 0.00, note: '0–100% by % business ownership' },
-    { type: 'Business Checking Acct.',     weight: null, note: 'weight per deal — confirm with Mike' },
+    { type: 'Business Checking Acct.',     weight: 1.00, note: '100%' },
   ];
 
   var _API = {
