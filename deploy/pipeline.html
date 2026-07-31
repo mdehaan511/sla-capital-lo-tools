@@ -1899,8 +1899,19 @@ function buildQuoteCard(it, colKey) {
   // loans (so the LO can pick a different one if this card routed to
   // the wrong dupe). The chooser is stored on window keyed by
   // an ephemeral id so onclick can reach it without JSON-escaping.
+  // Deploy 236.512 — when the card resolved to a SPECIFIC loan by its own
+  // loanId (deterministic: stamps verified live, or the |id| lookup hit),
+  // it's definitively the right loan — do NOT offer the dupe-chooser just
+  // because another distinct loan shares the street. Two legitimately
+  // different loans at one address (different loanIds) now each resolve by
+  // ID and open cleanly, no "Choose loan…". The chooser stays ONLY for
+  // ambiguous address/street resolutions (quote has no live loanId).
+  var _resolvedByLoanId = !!(quoteLoanId && (
+    _stampsAreLive(quoteClientId, quoteLoanId) ||
+    _loanLookup[it.ownerKey + '|id|' + quoteLoanId]
+  ));
   var showChooser = (!detailsUrl && _uniqCandidates.length > 0)
-                 || (detailsUrl && _uniqCandidates.length >= 2);
+                 || (detailsUrl && _uniqCandidates.length >= 2 && !_resolvedByLoanId);
   var chooserId = '';
   if (showChooser) {
     chooserId = 'ch_' + Math.floor(Math.random() * 1e9).toString(36) + '_' + (window._chSeq = (window._chSeq || 0) + 1);

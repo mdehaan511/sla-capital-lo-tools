@@ -57,7 +57,17 @@ async function _loansPG(selfEmail) {
 function loanToQuoteShape(l) {
   const fd = (l.form_data && typeof l.form_data === 'object') ? l.form_data : {};
   const ex = (l.extra && typeof l.extra === 'object') ? l.extra : {};
-  const sized = Object.keys(fd).length > 0 || !!ex._quoteId;
+  // Deploy 236.512 — a loan that's been WORKED (submitted for UW / decided /
+  // in processing) must ALWAYS surface here, even if it never went through
+  // the sizer (empty form_data + no folded _quoteId). Without this, an LO who
+  // submits a baseline- or prospect-created loan for UW review never appears
+  // in the Submissions queue — which reads status from these synthesized rows.
+  // 'active' baseline imports that were never worked stay excluded (Leads
+  // clutter). Reported: 2 of sara.s's submitted loans missing from Submissions.
+  const WORKED_STATUSES = ['submitted', 'approved', 'awaiting_app', 'on_hold', 'denied', 'closed', 'cancelled'];
+  const sized = Object.keys(fd).length > 0
+             || !!ex._quoteId
+             || WORKED_STATUSES.indexOf(String(l.status || '')) >= 0;
   if (!sized) return null;
   const c = l.clients || {};
   const borrower = ((c.first_name || '') + ' ' + (c.last_name || '')).trim();
