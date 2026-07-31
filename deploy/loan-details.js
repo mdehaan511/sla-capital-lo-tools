@@ -1883,7 +1883,9 @@ function render() {
   // Deploy 236.493 — Underwriting + Lightning Docs tabs. RTL loans only
   // for now (this field set is the RTL sheet; DSCR comes later). The
   // panes are filled by loan-uw-tab.js's SLA_UW_TAB.mount() post-render.
-  var _isRtlLoan = String((l && l.toolType) || '').toLowerCase() === 'rtl';
+  // Deploy 236.511 — Underwriting + Lightning tabs now cover RTL AND DSCR.
+  var _uwTt = String((l && l.toolType) || '').toLowerCase();
+  var _isRtlLoan = (_uwTt === 'rtl' || _uwTt === 'dscr');
   var _uwTabBtns = _isRtlLoan
     ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' +
       '<button type="button" class="ld-tab" data-ld-tab="lightning" onclick="switchLdTab(\'lightning\')"><span class="ld-tab-icon">\u{26A1}</span>Lightning Docs</button>'
@@ -2183,7 +2185,7 @@ function render() {
   // Self-contained in loan-uw-tab.js; fills #ldPaneUnderwriting +
   // #ldPaneLightning. refreshLoan keeps _loan/_client in sync on save.
   try {
-    if (window.SLA_UW_TAB && String((_loan && _loan.toolType) || '').toLowerCase() === 'rtl') {
+    if (window.SLA_UW_TAB && (function(){ var t=String((_loan && _loan.toolType) || '').toLowerCase(); return t === 'rtl' || t === 'dscr'; })()) {
       SLA_UW_TAB.mount({
         loan: _loan, clientId: _clientId, loanId: _loanId,
         // Deploy 236.510 — the borrowing entity name lives on the CLIENT

@@ -178,9 +178,124 @@
     { type: 'Business Checking Acct.',     weight: 1.00, note: '100%' },
   ];
 
+  // ══════════════════════════════════════════════════════════════════
+  // DSCR field sets (Deploy 236.511) — from Mike's DSCR UW sheet. Same
+  // F/H + J/L layout as RTL; the differences are the Underwriting side:
+  // LTV + DSCR (not LTP/LTC/LTARV), amortizing Monthly P&I, PITIA, tax/
+  // HOI/HOA impounds, and reserves scaled by loan size. `editableLoan:
+  // true` = pre-filled from the loan/sizer but overridable (a saved entry
+  // wins) so the underwriter can reconcile against the doc.
+  // ══════════════════════════════════════════════════════════════════
+  var DSCR_LIGHTNING_FIELDS = [
+    // — Borrower / Entity —
+    { key: 'borrowerName',       label: 'Borrower Name',        section: 'Borrower / Entity', source: 'loan', loanField: 'entityName', sourceNote: 'AOO (entity name)' },
+    { key: 'organizationState',  label: 'Organization State',   section: 'Borrower / Entity', source: 'doc',  docType: 'AOO', sourceNote: 'AOO' },
+    { key: 'borrowerAddress',    label: 'Borrower Address',     section: 'Borrower / Entity', source: 'doc',  docType: 'Application/Baseline', sourceNote: 'Application/Baseline' },
+    { key: 'entityManagerTitle', label: 'Entity Manager Title', section: 'Borrower / Entity', source: 'doc', docType: 'Operating Agreement', sourceNote: 'Operating Agreement' },
+    // — Guarantors —
+    { key: 'guarantor1Name',     label: 'Guarantor 1 Name',     section: 'Guarantors', source: 'doc', docType: 'Application/Baseline', sourceNote: 'Application/Baseline' },
+    { key: 'guarantor2Name',     label: 'Guarantor 2 Name',     section: 'Guarantors', source: 'doc', docType: 'Application/Baseline', sourceNote: 'Application/Baseline' },
+    { key: 'guarantor1Address',  label: 'Guarantor 1 Address',  section: 'Guarantors', source: 'doc', docType: 'Application/Baseline', sourceNote: 'Application/Baseline' },
+    { key: 'guarantor2Address',  label: 'Guarantor 2 Address',  section: 'Guarantors', source: 'doc', docType: 'Application/Baseline', sourceNote: 'Application/Baseline' },
+    // — Broker —
+    { key: 'brokerName',         label: 'Broker Name',          section: 'Broker', source: 'loan', loanField: 'brokerName', sourceNote: 'Baseline' },
+    { key: 'brokerLicense',      label: 'Broker License #',     section: 'Broker', source: 'doc', docType: 'Baseline', sourceNote: 'Baseline' },
+    { key: 'brokerAddress',      label: 'Broker Address',       section: 'Broker', source: 'doc', docType: 'Baseline', sourceNote: 'Baseline' },
+    // — Property / Title —
+    { key: 'subjectPropertyAddress', label: 'Subject Property Address', section: 'Property / Title', source: 'loan', loanField: 'address', sourceNote: 'Title Commitment' },
+    { key: 'parcelNumber',       label: 'Parcel #',             section: 'Property / Title', source: 'doc', docType: 'Title Commitment', sourceNote: 'Title Commitment' },
+    { key: 'propertyCounty',     label: 'Property County',      section: 'Property / Title', source: 'doc', docType: 'Title Commitment', sourceNote: 'Title Commitment' },
+    { key: 'earliestSigningDate', label: 'Earliest Signing Date', section: 'Property / Title', source: 'doc', docType: 'PSA or Assignment', sourceNote: 'PSA or Assignment' },
+    { key: 'titleCompanyName',   label: 'Title Company Name',   section: 'Property / Title', source: 'doc', docType: 'Title Commitment', sourceNote: 'Title Commitment' },
+    { key: 'titleOfficerName',   label: 'Title Officer Name',   section: 'Property / Title', source: 'doc', docType: 'Title Commitment', sourceNote: 'Title Commitment' },
+    { key: 'titleOfficerEmail',  label: 'Title Officer Email',  section: 'Property / Title', source: 'doc', docType: 'Baseline', sourceNote: 'Baseline' },
+    { key: 'titleCommitmentNumber', label: 'Title Commitment Number', section: 'Property / Title', source: 'doc', docType: 'Title Commitment', sourceNote: 'Title Commitment' },
+    { key: 'titleCommitmentDate', label: 'Title Commitment Date', section: 'Property / Title', source: 'doc', docType: 'Title Commitment', sourceNote: 'Title Commitment' },
+    { key: 'exceptionsToDelete', label: 'Exceptions to be Deleted', section: 'Property / Title', source: 'doc', docType: 'Underwriting', sourceNote: 'Underwriting' },
+    { key: 'additionalEndorsements', label: 'Additional Endorsements', section: 'Property / Title', source: 'doc', docType: 'Underwriting', sourceNote: 'Underwriting' },
+    // — Loan Terms —
+    { key: 'slaLoanNumber',      label: 'SLA Loan Number',      section: 'Loan Terms', source: 'loan', loanField: 'slaDisplayId', sourceNote: 'Baseline' },
+    { key: 'loanTermMonths',     label: 'Loan Term (Months)',   section: 'Loan Terms', source: 'const', const: '360', sourceNote: 'Term Sheet' },
+    { key: 'loanAmount',         label: 'Loan Amount',          section: 'Loan Terms', source: 'loan', loanField: 'loanAmt', sourceNote: 'Term Sheet' },
+    { key: 'interestRate',       label: 'Interest Rate',        section: 'Loan Terms', source: 'loan', loanField: 'rate', sourceNote: 'Term Sheet' },
+    { key: 'interestOnlyPeriod', label: 'Interest Only Period (if any)', section: 'Loan Terms', source: 'manual', sourceNote: 'Term Sheet' },
+    { key: 'amortizationPeriod', label: 'Amortization Period',  section: 'Loan Terms', source: 'const', const: '360', sourceNote: 'Term Sheet' },
+    { key: 'prepaymentPenalty',  label: 'Prepayment Penalty Option', section: 'Loan Terms', source: 'loan', loanField: 'prepay', sourceNote: 'Term Sheet' },
+    // — Impounds —
+    { key: 'initialTaxImpound',       label: 'Initial Tax Impound',       section: 'Impounds', source: 'manual', sourceNote: 'From Underwriter' },
+    { key: 'initialInsuranceImpound', label: 'Initial Insurance Impound', section: 'Impounds', source: 'manual', sourceNote: 'From Underwriter' },
+    { key: 'monthlyTaxImpound',       label: 'Monthly Tax Impound',       section: 'Impounds', source: 'manual', sourceNote: 'From Underwriter' },
+    { key: 'monthlyInsuranceImpound', label: 'Monthly Insurance Impound', section: 'Impounds', source: 'manual', sourceNote: 'From Underwriter' },
+    // — Fees —
+    { key: 'brokerOriginationPoints', label: 'Broker Origination Points', section: 'Fees', source: 'loan', loanField: 'brokerFee', sourceNote: 'Term Sheet' },
+    { key: 'brokerOriginationFee', label: 'Broker Fees',        section: 'Fees', source: 'calc', calc: 'brokerOriginationFee', sourceNote: 'Broker % × loan' },
+    { key: 'originationFee',     label: 'Origination Fee',      section: 'Fees', source: 'calc', calc: 'originationFee', sourceNote: 'Loan × 1%' },
+    { key: 'documentPrepFee',    label: 'Document Prep Fee',    section: 'Fees', source: 'const', const: '700', sourceNote: 'Term Sheet' },
+    { key: 'underwritingFee',    label: 'Underwriting Fee',     section: 'Fees', source: 'const', const: '995', sourceNote: 'Term Sheet' },
+    { key: 'processingFee',      label: 'Processing Fee',       section: 'Fees', source: 'const', const: '500', sourceNote: 'Term Sheet' },
+    { key: 'cdaFee',             label: 'CDA Fee',              section: 'Fees', source: 'const', const: '120', sourceNote: 'Term Sheet' },
+    { key: 'prepaidInterest',    label: 'Prepaid Interest',     section: 'Fees', source: 'calc', calc: 'prepaidInterest', sourceNote: 'Calculated' },
+    // — Servicing —
+    { key: 'mortgageeClause',    label: 'Mortgagee Clause',     section: 'Servicing', source: 'const', const: 'Sir Lends A Lot, LLC ISAOA/ATIMA', sourceNote: 'Baseline' },
+  ];
+
+  var DSCR_UNDERWRITING_FIELDS = [
+    // — Valuation — (pre-filled from the sizer, overridable against the doc)
+    { key: 'appraisedValue', label: 'Appraised Value', section: 'Valuation', source: 'loan', loanField: 'propValue', editableLoan: true, sourceNote: 'BPO/Valuation' },
+    { key: 'rents',          label: 'Rents',           section: 'Valuation', source: 'loan', loanField: 'rent', editableLoan: true, sourceNote: 'Appraisal or lease (lower of two)' },
+
+    // — Deal —
+    { key: 'purchasePrice',  label: 'Purchase Price',  section: 'Deal', source: 'loan', loanField: 'purchasePrice', sourceNote: 'PSA/Assignment' },
+    { key: 'downPayment',    label: 'Down Payment',    section: 'Deal', source: 'doc',  docType: 'Term Sheet', sourceNote: 'Term Sheet' },
+    { key: 'loanAmount',     label: 'Loan Amount',     section: 'Deal', source: 'loan', loanField: 'loanAmt', sourceNote: 'Term Sheet' },
+    { key: 'payoffDemand',   label: 'Payoff Demand (refi only)', section: 'Deal', source: 'doc', docType: 'Payoff Demand', sourceNote: '' },
+
+    // — Borrower / Credit —
+    { key: 'creditScoreTermSheet', label: 'Credit Score (Term Sheet)', section: 'Borrower', source: 'loan', loanField: 'fico', sourceNote: 'Term Sheet' },
+    { key: 'lowCredit',      label: 'Low Credit',      section: 'Borrower', source: 'doc', docType: 'Credit Report', sourceNote: 'Credit Report' },
+    { key: 'middleCredit',   label: 'Middle Credit',   section: 'Borrower', source: 'doc', docType: 'Credit Report', sourceNote: 'Credit Report' },
+    { key: 'usCitizen',      label: 'US Citizen',      section: 'Borrower', source: 'doc', docType: 'Loan Application', sourceNote: 'Loan Application' },
+
+    // — Payment & Ratios — (tax/HOI/HOA pre-filled from the sizer, overridable)
+    { key: 'monthlyTax',     label: 'Monthly Tax',     section: 'Payment', source: 'loan', loanField: 'taxes', editableLoan: true, sourceNote: 'Tax Certificate' },
+    { key: 'monthlyHOI',     label: 'Monthly HOI',     section: 'Payment', source: 'loan', loanField: 'insurance', editableLoan: true, sourceNote: 'EOI or Declarations' },
+    { key: 'monthlyHOA',     label: 'Monthly HOA',     section: 'Payment', source: 'loan', loanField: 'hoa', editableLoan: true, sourceNote: 'Title Commitment' },
+    { key: 'monthlyPI',      label: 'Monthly P&I',     section: 'Payment', source: 'calc', calc: 'monthlyPI', sourceNote: 'Calculated' },
+    { key: 'monthlyPayment', label: 'Monthly Payment (PITIA)', section: 'Payment', source: 'calc', calc: 'monthlyPayment', sourceNote: 'P&I + Tax + HOI + HOA' },
+    { key: 'ltv',            label: 'LTV',             section: 'Payment', source: 'calc', calc: 'ltv', sourceNote: 'Loan ÷ Appraised', flag: true },
+    { key: 'dscr',           label: 'DSCR',            section: 'Payment', source: 'calc', calc: 'dscr', sourceNote: 'Rents ÷ PITIA (RED < 1.00x)', flag: true },
+    { key: 'prepaidDays',    label: 'Prepaid Days',    section: 'Payment', source: 'calc', calc: 'prepaidDays', sourceNote: 'Calculated' },
+    { key: 'prepaidInterest', label: 'Prepaid Interest', section: 'Payment', source: 'calc', calc: 'prepaidInterest', sourceNote: 'Calculated' },
+
+    // — Dates —
+    { key: 'propertyTaxDueDate', label: 'Property Tax Due Date', section: 'Dates', source: 'doc', docType: 'Tax Certificate', sourceNote: 'Tax Certificate' },
+    { key: 'hoiDueDate',     label: 'HOI Due Date',    section: 'Dates', source: 'doc', docType: 'EOI or Declarations', sourceNote: 'EOI or Declarations' },
+
+    // — Liquidity —
+    { key: 'account1', label: 'Account 1', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Current Month Account Statement', sourceNote: 'Current Month Account Statement' },
+    { key: 'account2', label: 'Account 2', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Current Month Account Statement', sourceNote: 'Current Month Account Statement' },
+    { key: 'account3', label: 'Account 3', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Current Month Account Statement', sourceNote: 'Current Month Account Statement' },
+    { key: 'account4', label: 'Account 4', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Current Month Account Statement', sourceNote: 'Current Month Account Statement' },
+    { key: 'account5', label: 'Account 5', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Current Month Account Statement', sourceNote: 'Current Month Account Statement' },
+    { key: 'emd',            label: 'EMD (earnest money paid)', section: 'Liquidity', source: 'doc', docType: 'HUD', sourceNote: 'HUD' },
+    { key: 'liquidityTotal', label: 'Total (weighted liquidity)', section: 'Liquidity', source: 'calc', calc: 'liquidityTotal', sourceNote: 'Σ(account × weight) + EMD' },
+    { key: 'reservesRequirement', label: 'Reserves Requirement', section: 'Liquidity', source: 'calc', calc: 'reservesRequirement', sourceNote: 'PITIA × 3/6/9 mo by loan size', flag: true },
+    { key: 'liquidityNotes', label: 'Liquidity Notes', section: 'Liquidity', source: 'manual', sourceNote: '' },
+  ];
+
+  // Program selector — the tab passes the loan's toolType.
+  function fieldsFor(program, dataset) {
+    var isDscr = String(program || '').toLowerCase() === 'dscr';
+    if (dataset === 'uw') return isDscr ? DSCR_UNDERWRITING_FIELDS : UNDERWRITING_FIELDS;
+    return isDscr ? DSCR_LIGHTNING_FIELDS : LIGHTNING_DOCS_FIELDS;
+  }
+
   var _API = {
     LIGHTNING_DOCS_FIELDS: LIGHTNING_DOCS_FIELDS,
     UNDERWRITING_FIELDS: UNDERWRITING_FIELDS,
+    DSCR_LIGHTNING_FIELDS: DSCR_LIGHTNING_FIELDS,
+    DSCR_UNDERWRITING_FIELDS: DSCR_UNDERWRITING_FIELDS,
+    fieldsFor: fieldsFor,
     ACCOUNT_WEIGHTS: ACCOUNT_WEIGHTS,
   };
   if (typeof window !== 'undefined') window.SLA_UW_FIELDS = _API;

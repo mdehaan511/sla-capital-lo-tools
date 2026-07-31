@@ -37,7 +37,11 @@
     brokerOtherFees:1, originationFee:1, documentPrepFee:1, underwritingFee:1, processingFee:1,
     creditBackgroundFee:1, prepaidInterest:1,
     asIsPrice:1, purchasePrice:1, assignmentContractPrice:1, assignmentFee:1,
-    downPayment:1, titleEscrowFees:1, emd:1
+    downPayment:1, titleEscrowFees:1, emd:1,
+    // Deploy 236.511 — DSCR money fields.
+    appraisedValue:1, rents:1, monthlyTax:1, monthlyHOI:1, monthlyHOA:1, monthlyPI:1,
+    payoffDemand:1, cdaFee:1,
+    initialTaxImpound:1, initialInsuranceImpound:1, monthlyTaxImpound:1, monthlyInsuranceImpound:1
   };
   function looksNumeric(v){ return /^[$\s]*-?[\d,]+(\.\d+)?[\s]*$/.test(String(v)); }
   function fmtDisplay(key, value){
@@ -84,8 +88,15 @@
   // caps the row-level reds use, so the banner and the cells never disagree.
   function buildChecksSummary(loan, calc) {
     var v = calc.values || {}, f = calc.flags || {};
-    var caps = loanCaps(loan);
     var out = [];
+    if (programOf(loan) === 'dscr') {
+      var dcaps = dscrCaps(loan);
+      if (f.dscr) out.push({ key:'dscr', label:'DSCR', detail: (v.dscr!=null?v.dscr.toFixed(2)+'x':'—') + ' — below the 1.00x minimum' });
+      if (f.ltv)  out.push({ key:'ltv',  label:'LTV',  detail: pct(v.ltv) + ' — over the ' + pct(dcaps.maxLtv) + ' cap' });
+      if (f.liquidity) out.push({ key:'reservesRequirement', label:'Reserves', detail: money(v.liquidityTotal) + ' available vs ' + money(v.reservesRequirement) + ' required (' + v.reserveMonths + ' mo PITIA)' });
+      return out;
+    }
+    var caps = loanCaps(loan);
     if (f.ltarv) out.push({ key:'ltarv', label:'LTARV', detail: pct(v.ltarv) + ' — over the ' + pct(caps.maxLtarv) + ' cap' });
     if (f.ltc)   out.push({ key:'ltc',   label:'LTC',   detail: pct(v.ltc)   + ' — over the ' + pct(caps.maxLtc)   + ' cap' });
     if (f.ltaiv) out.push({ key:'ltaiv', label:'LTAIV', detail: pct(v.ltaiv) + ' — over the ' + pct(caps.maxLtaiv || 0.90) + ' cap' });
@@ -136,11 +147,68 @@
     };
   }
 
+  // ── DSCR (Deploy 236.511) ──────────────────────────────────────────
+  function programOf(loan) {
+    return String((loan && loan.toolType) || '').toLowerCase() === 'dscr' ? 'dscr' : 'rtl';
+  }
+  // Parse account1..5 rows out of the saved uw entries → engine input.
+  function accountsFrom(uwData) {
+    var accounts = [];
+    ['account1','account2','account3','account4','account5'].forEach(function(k){
+      var x = uwData[k] && uwData[k].value;
+      if (x && typeof x === 'object' && (num(x.balance) > 0 || x.type)) {
+        accounts.push({ type: x.type||'', balance: num(x.balance), weight: (x.weight==null?0:num(x.weight)) });
+      }
+    });
+    return accounts;
+  }
+  // DSCR max-LTV cap from SLA_DSCR.GUIDELINES.maxLTV (FICO floor → purpose).
+  function dscrCaps(loan) {
+    var caps = {};
+    var D = window.SLA_DSCR;
+    if (!D || !D.GUIDELINES || !D.GUIDELINES.maxLTV) return caps;
+    var g = D.GUIDELINES.maxLTV;
+    var fico = parseInt(String(loan.fico || '').replace(/[^\d]/g, ''), 10);
+    if (!isFinite(fico)) return caps;
+    var floors = Object.keys(g).map(Number).sort(function(a,b){return b-a;});
+    var band = null;
+    for (var i = 0; i < floors.length; i++) { if (fico >= floors[i]) { band = g[floors[i]]; break; } }
+    if (!band) return caps;
+    var purp = String(loan.loanPurpose || '').toLowerCase();
+    var maxLtv = (purp === 'cashout') ? band.cashOut : (purp === 'rateterm' ? band.rateTerm : band.purchase);
+    if (typeof maxLtv === 'number') caps.maxLtv = maxLtv;
+    return caps;
+  }
+  function dscrCalcContext(loan, uwData) {
+    uwData = uwData || {};
+    function e(k){ var x=uwData[k]; return x&&x.value!=null?x.value:''; }
+    return {
+      loanAmt: num(loan.loanAmt), rate: rateDecimal(loan),
+      isIO: String(loan.isIO||'').toLowerCase()==='yes' || loan.isIO===true,
+      amortMonths: 360,
+      appraisedValue: num(e('appraisedValue')) || num(loan.propValue),
+      rents:      num(e('rents'))      || num(loan.rent),
+      monthlyTax: num(e('monthlyTax')) || num(loan.taxes),
+      monthlyHOI: num(e('monthlyHOI')) || num(loan.insurance),
+      monthlyHOA: num(e('monthlyHOA')) || num(loan.hoa),
+      fundingDate: e('earliestSigningDate') || loan.fundingDate || '',
+      emdPaid: num(e('emd')), accounts: accountsFrom(uwData),
+      points: num(loan.points), brokerFeePct: num(loan.brokerFee), origPct: 1,
+      caps: dscrCaps(loan),
+    };
+  }
+  // Dispatch to the right engine by program.
+  function computeCalc(loan, uwData) {
+    return programOf(loan) === 'dscr'
+      ? CALC.computeDscrCalcs(dscrCalcContext(loan, uwData))
+      : CALC.computeUwCalcs(calcContext(loan, uwData));
+  }
+
   // Resolve a field's display value + provenance + editability.
   function resolve(field, loan, data, calc) {
     var entry = data && data[field.key];
     if (entry && entry.value !== undefined && entry.value !== '') {
-      return { value: entry.value, entry: entry, editable: field.source==='doc'||field.source==='manual', prov: provText(entry) };
+      return { value: entry.value, entry: entry, editable: field.source==='doc'||field.source==='manual'||field.editableLoan===true, prov: provText(entry) };
     }
     if (field.source === 'const') {
       return { value: field.const, editable: false, prov: 'Constant' };
@@ -153,7 +221,9 @@
       if (field.key === 'interestAccrualType') {
         v = (v == null || v === '') ? '' : (String(v).toLowerCase() === 'dutch' ? 'Dutch' : 'Non-Dutch');
       }
-      return { value: (v==null?'':v), editable: false, prov: 'From loan record' };
+      // Deploy 236.511 — editableLoan: pre-filled from the loan but the
+      // underwriter can override it (a saved entry then wins, above).
+      return { value: (v==null?'':v), editable: field.editableLoan===true, prov: field.editableLoan ? 'From loan (verify vs. doc)' : 'From loan record' };
     }
     if (field.source === 'calc') {
       return calcDisplay(field, calc);
@@ -186,6 +256,12 @@
       case 'prepaidInterest':     return { value: money(v.prepaidInterest), editable:false, prov: v.prepaidInterestDays+' days × per-diem (365)', calc:true };
       case 'liquidityTotal':      return { value: money(v.liquidityTotal), editable:false, prov:'Σ(account × weight) + EMD', calc:true };
       case 'liquidityRequirement':return { value: money(v.liquidityRequirement), editable:false, prov:'Cash to Close + 20% Reno + 6mo', calc:true, flag:!!flg.liquidity };
+      // Deploy 236.511 — DSCR calc fields.
+      case 'monthlyPI':           return { value: money(v.monthlyPI), editable:false, prov:'Amortizing P&I (30yr) or IO', calc:true };
+      case 'ltv':                 return { value: pct(v.ltv), editable:false, prov:'Loan ÷ Appraised · vs LTV cap', calc:true, flag:!!flg.ltv };
+      case 'dscr':                return { value: (v.dscr==null?'—':v.dscr.toFixed(2)+'x'), editable:false, prov:'Rents ÷ PITIA (RED < 1.00x)', calc:true, flag:!!flg.dscr };
+      case 'prepaidDays':         return { value: (v.prepaidInterestDays!=null?String(v.prepaidInterestDays):'—'), editable:false, prov:'Funding → month end', calc:true };
+      case 'reservesRequirement': return { value: money(v.reservesRequirement), editable:false, prov: v.reserveMonths+' mo PITIA (by loan size)', calc:true, flag:!!flg.liquidity };
       default:                    return { value:'', editable:false, prov:'Calculated', calc:true };
     }
   }
@@ -194,8 +270,9 @@
   function renderDataset(dataset) {
     var loan = _ctx.loan || {};
     var data = dataset==='uw' ? (loan.uwData||{}) : (loan.lightningData||{});
-    var fields = dataset==='uw' ? F.UNDERWRITING_FIELDS : F.LIGHTNING_DOCS_FIELDS;
-    var calc = CALC.computeUwCalcs(calcContext(loan, loan.uwData||{}));
+    // Deploy 236.511 — program-aware field set + calc engine (RTL vs DSCR).
+    var fields = F.fieldsFor ? F.fieldsFor(programOf(loan), dataset) : (dataset==='uw' ? F.UNDERWRITING_FIELDS : F.LIGHTNING_DOCS_FIELDS);
+    var calc = computeCalc(loan, loan.uwData||{});
 
     // Group by section (preserve declaration order).
     var order = [], bySection = {};
@@ -282,12 +359,14 @@
     // fold it onto the loan so the source:'loan' field resolves. Re-applied
     // every mount, so it survives the server-loan swap after a field save.
     if (_ctx.loan && !_ctx.loan.entityName && _ctx.entityName) _ctx.loan.entityName = _ctx.entityName;
-    var isRtl = String((_ctx.loan&&_ctx.loan.toolType)||'').toLowerCase() === 'rtl';
+    // Deploy 236.511 — RTL + DSCR both supported now.
+    var tt = String((_ctx.loan&&_ctx.loan.toolType)||'').toLowerCase();
+    var supported = (tt === 'rtl' || tt === 'dscr');
     ['underwriting','lightning'].forEach(function(which){
       var pane = document.getElementById(which==='underwriting'?'ldPaneUnderwriting':'ldPaneLightning');
       if (!pane) return;
-      if (!isRtl) {
-        pane.innerHTML = '<div class="uw-gate">These tabs are set up for RTL loans. DSCR underwriting is coming next.</div>';
+      if (!supported) {
+        pane.innerHTML = '<div class="uw-gate">These tabs are set up for RTL and DSCR loans.</div>';
         return;
       }
       pane.innerHTML = renderDataset(which==='underwriting'?'uw':'lightning');

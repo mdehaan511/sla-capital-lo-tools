@@ -157,8 +157,88 @@
     return { values: values, flags: flags };
   }
 
+  // ── DSCR amortizing / interest-only monthly P&I ─────────────────────
+  // Mirrors dscr-pricing.js calcPI EXACTLY so the Underwriting tab and the
+  // DSCR sizer never disagree: r = annualRate/12; IO = loan×r; amortizing =
+  // loan×r×(1+r)^n / ((1+r)^n − 1), n = amort months (default 360 = 30yr).
+  function calcPI(loanAmt, annualRate, isIO, amortMonths) {
+    if (!loanAmt || !annualRate) return 0;
+    var r = annualRate / 12;
+    if (isIO) return loanAmt * r;
+    var n = amortMonths || 360;
+    return loanAmt * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
+  }
+
+  /**
+   * DSCR underwriting engine (Deploy 236.511). PURE. Mirrors the DSCR sizer.
+   *   monthlyPI            = calcPI(loan, rate, isIO, amort)
+   *   monthlyPayment(PITIA)= PI + monthlyTax + monthlyHOI + monthlyHOA
+   *   dscr                 = rents ÷ PITIA          (RED < 1.00x)
+   *   ltv                  = loan ÷ appraisedValue  (RED > FICO/purpose cap)
+   *   reservesRequirement  = reserveMonths × PITIA; reserveMonths scales by
+   *                          loan size (Mike): ≤$1M→3, $1–2M→6, >$2M→9
+   *   prepaidInterest      = loan × rate ÷ 365 × daysFundingToMonthEnd
+   * @param {Object} ctx  loanAmt, rate(dec), isIO(bool), amortMonths,
+   *   appraisedValue, rents, monthlyTax, monthlyHOI, monthlyHOA,
+   *   fundingDate, emdPaid, accounts, points, brokerFeePct,
+   *   caps?:{ maxLtv }
+   */
+  function computeDscrCalcs(ctx) {
+    ctx = ctx || {};
+    var loanAmt = num(ctx.loanAmt);
+    var rate    = num(ctx.rate); // decimal
+    var isIO    = ctx.isIO === true || String(ctx.isIO).toLowerCase() === 'yes';
+    var amort   = num(ctx.amortMonths) || 360;
+
+    var monthlyPI  = calcPI(loanAmt, rate, isIO, amort);
+    var tax = num(ctx.monthlyTax), hoi = num(ctx.monthlyHOI), hoa = num(ctx.monthlyHOA);
+    var pitia = monthlyPI + tax + hoi + hoa;
+
+    var rents = num(ctx.rents);
+    var dscr  = (pitia > 0 && rents > 0) ? rents / pitia : null;
+    var ltv   = ratio(loanAmt, ctx.appraisedValue);
+
+    // Reserves scale by loan size (Mike): ≤$1M→3mo, $1–2M→6mo, >$2M→9mo PITIA.
+    var reserveMonths = loanAmt > 2000000 ? 9 : (loanAmt > 1000000 ? 6 : 3);
+    var reservesRequirement = reserveMonths * pitia;
+
+    var days = daysFundingToMonthEnd(ctx.fundingDate);
+    var prepaidInterest = (loanAmt > 0 && rate > 0 && days > 0) ? (loanAmt * rate / 365 * days) : 0;
+
+    var accounts = Array.isArray(ctx.accounts) ? ctx.accounts : [];
+    var liquidityTotal = num(ctx.emdPaid);
+    for (var i = 0; i < accounts.length; i++) {
+      var a = accounts[i] || {};
+      var w = (a.weight === null || a.weight === undefined) ? 0 : num(a.weight);
+      liquidityTotal += num(a.balance) * w;
+    }
+
+    var values = {
+      monthlyPI: monthlyPI, monthlyTax: tax, monthlyHOI: hoi, monthlyHOA: hoa,
+      monthlyPayment: pitia, dscr: dscr, ltv: ltv,
+      reserveMonths: reserveMonths, reservesRequirement: reservesRequirement,
+      liquidityTotal: liquidityTotal,
+      prepaidInterest: prepaidInterest, prepaidInterestDays: days,
+      // DSCR origination is a flat % of the loan (1% per the DIYA sheet),
+      // NOT the buydown "points". Broker fee is broker % × loan.
+      originationFee: loanAmt * num(ctx.origPct != null ? ctx.origPct : 1) / 100,
+      brokerOriginationFee: loanAmt * num(ctx.brokerFeePct) / 100,
+    };
+
+    var caps = ctx.caps || {};
+    var flags = {
+      dscr: (dscr !== null && dscr < 1.0),
+      liquidity: (liquidityTotal < reservesRequirement - 0.005),
+    };
+    if (typeof caps.maxLtv === 'number' && ltv !== null) flags.ltv = ltv > caps.maxLtv + 1e-6;
+    // Credit intentionally NOT flagged — validated manually (Mike).
+
+    return { values: values, flags: flags };
+  }
+
   var _API = {
     computeUwCalcs: computeUwCalcs,
+    computeDscrCalcs: computeDscrCalcs,
     daysFundingToMonthEnd: daysFundingToMonthEnd,
     _num: num,
   };
