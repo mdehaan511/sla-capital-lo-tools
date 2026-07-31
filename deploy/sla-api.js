@@ -2380,6 +2380,22 @@
     uploadDoc: function (reviewId, slug, file, opts) {
       opts = opts || {};
       return new Promise(function (resolve, reject) {
+        // Deploy 236.501 — fail fast on files too big for the upload path.
+        // Uploads go as base64 JSON to a Netlify Function, whose request
+        // body is capped at ~6MB. base64 inflates raw bytes by ~33%, so
+        // anything over ~4.3MB raw is rejected by the platform BEFORE our
+        // handler runs — surfacing as a cryptic HTTP 413 (or 400 when the
+        // oversized body is truncated). Catch it here with a clear message
+        // instead. (Real fix — direct-to-blob signed uploads — is a
+        // separate project; this stops silent/confusing failures now.)
+        var MAX_UPLOAD_RAW = 4.2 * 1024 * 1024; // ~5.6MB base64, safely < 6MB
+        var sz = (file && file.size) || 0;
+        if (sz > MAX_UPLOAD_RAW) {
+          var mb = (sz / 1024 / 1024).toFixed(1);
+          return reject(new Error(
+            '“' + ((file && file.name) || 'file') + '” is ' + mb + ' MB. Files over ~4 MB can’t go through the browser upload (server limit). Please compress or split it, then re-upload.'
+          ));
+        }
         var reader = new FileReader();
         reader.onload = function () {
           var dataUrl = reader.result || '';

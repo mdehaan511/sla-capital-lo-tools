@@ -205,6 +205,12 @@
       // Deploy 236.162 — "+ Add Document" gets a slightly more
       // pronounced look so it doesn't blend with the hidden toggle.
       '.dr-root .dr-add-doc-btn { color:var(--gold-mid); border-color:var(--gold-border, rgba(200,129,58,0.28)); }',
+      // Deploy 236.501 — per-section "Other Documents" area: a subtle
+      // dashed-top band that separates catch-all docs from the checklist.
+      '.dr-root .dr-other-block { margin-top:14px; padding-top:12px; border-top:1px dashed var(--border); }',
+      '.dr-root .dr-other-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }',
+      '.dr-root .dr-other-title { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }',
+      '.dr-root .dr-other-empty { font-size:12px; color:var(--muted); font-style:italic; padding:6px 2px 2px; }',
       // Deploy 236.164 — bulk-approve button uses the green palette
       // so it reads as a "safe positive action" at a glance.
       '.dr-root .dr-bulk-approve-btn { color:var(--dr-green); border-color:var(--dr-green-border); }',
@@ -753,11 +759,10 @@
       var hiddenHtml = (showHidden && hiddenInSec.length)
         ? hiddenInSec.map(renderTray).join('')
         : '';
-      // Deploy 236.162 — "+ Add Document" creates a custom tray
-      // in this section. The new tray's name is editable later
-      // via a pencil next to it. Sub-note explains it's a manual
-      // doc not in the standard checklist.
-      var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escAttr(sec.key) + '\',\'' + escAttr(sec.label) + '\')">+ Add Document</button>';
+      // Deploy 236.162 — "+ Add Document" creates a custom tray in this
+      // section. Deploy 236.501 — relabeled "+ Add Other Document" and
+      // moved into the per-section "Other Documents" area below.
+      var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escAttr(sec.key) + '\',\'' + escAttr(sec.label) + '\')">+ Add Other Document</button>';
       // Deploy 236.164 — bulk "Approve all pending" per section.
       // Counts trays in this section that have a doc uploaded AND
       // verdict is still pending (i.e. awaiting processor click).
@@ -773,15 +778,50 @@
       var bulkBtn = bulkable.length
         ? '<button class="dr-section-toggle dr-bulk-approve-btn" onclick="dr_bulkApprove(\'' + escAttr(sec.key) + '\')" title="Approve every uploaded doc in this section that\'s still pending">✓ Approve ' + bulkable.length + ' pending</button>'
         : '';
+
+      // Deploy 236.501 — split this section's visible slugs into standard
+      // checklist docs and "Other" (custom / uncategorized) docs so every
+      // category gets a standing "Other Documents" area. The Add button +
+      // empty-state hint only render on the Pending tab (the working view);
+      // on the Reviewed tab we still group any reviewed Other docs here.
+      var standardInSec = slugsInSec.filter(function(s) { return !_isOtherSlug(s); });
+      var otherInSec    = slugsInSec.filter(function(s) { return _isOtherSlug(s); });
+      var showOtherAdd  = (_activeTab === 'pending');
+      var otherBlock = '';
+      if (otherInSec.length || showOtherAdd) {
+        otherBlock =
+          '<div class="dr-other-block">' +
+            '<div class="dr-other-head">' +
+              '<span class="dr-other-title">Other Documents</span>' +
+              (showOtherAdd ? addBtn : '') +
+            '</div>' +
+            (otherInSec.length
+              ? otherInSec.map(renderTray).join('')
+              : (showOtherAdd
+                  ? '<div class="dr-other-empty">Nothing here yet. Use “+ Add Other Document” for a doc that isn’t on the checklist, or route uncategorized files here from an “Upload ZIP”.</div>'
+                  : '')) +
+          '</div>';
+      }
+
       return '<div class="dr-section">' +
         '<div class="section-title-row">' +
           '<div class="section-title">' + escHtml(sec.label) + '</div>' +
-          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + bulkBtn + hiddenToggle + addBtn + '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + bulkBtn + hiddenToggle + '</div>' +
         '</div>' +
-        slugsInSec.map(renderTray).join('') +
+        standardInSec.map(renderTray).join('') +
+        otherBlock +
         hiddenHtml +
       '</div>';
     }).join('');
+  }
+
+  // Deploy 236.501 — a slug is an "Other" (non-checklist) doc when it was
+  // created via the Add-Other flow or a bulk-zip Other route. Standard
+  // checklist slugs live in DOC_META; custom ones carry isCustom + a
+  // custom_/other_ prefix.
+  function _isOtherSlug(slug) {
+    var d = (_review.docs && _review.docs[slug]) || {};
+    return d.isCustom === true || /^(custom_|other_)/.test(String(slug || ''));
   }
 
   function renderTray(slug) {
@@ -1379,15 +1419,11 @@
     var modal = document.getElementById('dr-addDocModal');
     if (modal) modal.classList.remove('show');
   };
-  global.dr_confirmAddDoc = function() {
-    if (!_pendingAddDoc) return;
-    var inp = document.getElementById('dr-addDocName');
-    var name = (inp && inp.value || '').trim();
-    if (!name) { showToast('Enter a document name.', 'error'); return; }
-    var section = _pendingAddDoc.sectionKey;
-    var slug = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-    var patch = { docs: {} };
-    patch.docs[slug] = {
+  // Deploy 236.501 — the blank custom-doc shape, shared by the manual
+  // Add-Other flow and the bulk-zip "Other" route so both mint identical
+  // trays the renderer + upload endpoint understand.
+  function _blankCustomDoc(slug, name, section) {
+    return {
       slug:             slug,
       isCustom:         true,
       label:            name,
@@ -1413,6 +1449,29 @@
       approvedBy:       '',
       history:          [],
     };
+  }
+  // Deploy 236.501 — create an "Other" tray in a section and return its
+  // slug. Patches the review (merges into review.docs) then updates the
+  // in-memory copy so a follow-up upload can target the new slug.
+  function _createOtherTray(sectionKey, name) {
+    var slug = 'other_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    var patch = { docs: {} };
+    patch.docs[slug] = _blankCustomDoc(slug, name, sectionKey);
+    return global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      return slug;
+    });
+  }
+
+  global.dr_confirmAddDoc = function() {
+    if (!_pendingAddDoc) return;
+    var inp = document.getElementById('dr-addDocName');
+    var name = (inp && inp.value || '').trim();
+    if (!name) { showToast('Enter a document name.', 'error'); return; }
+    var section = _pendingAddDoc.sectionKey;
+    var slug = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    var patch = { docs: {} };
+    patch.docs[slug] = _blankCustomDoc(slug, name, section);
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
       global.dr_closeAddDocModal();
@@ -1851,14 +1910,21 @@
 
   // Picker modal for ambiguous files — one row per file with a
   // <select> of every checklist slug on this review + a Skip option.
+  // Deploy 236.501 — added an "Other" choice: when picked, a category
+  // (section) selector appears and the file is routed into a new "Other
+  // Documents" tray in that section instead of a checklist slug.
+  var _OTHER_PICK = '__other__';
   function _bulkZipAmbiguousPicker(items) {
     return new Promise(function(resolve) {
       var body = document.getElementById('dr-bulkZipBody');
       var footer = document.getElementById('dr-bulkZipFooter');
       _bulkZipStatus(items.length + ' file' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' your input — pick a category or skip.');
       var slugOptions = _allSlugsForPicker();
+      var sectionOptions = SECTIONS.map(function(s) {
+        return '<option value="' + escAttr(s.key) + '">' + escH(s.label) + '</option>';
+      }).join('');
       body.innerHTML =
-        '<div style="font-size:12px;color:#7a7488;margin-bottom:1rem">The AI wasn\'t confident on these files. Pick which category they belong to, or leave as Skip to ignore them.</div>' +
+        '<div style="font-size:12px;color:#7a7488;margin-bottom:1rem">The AI wasn\'t confident on these files. Pick which category they belong to, choose <strong>Other</strong> to file it under a section as a non-checklist doc, or leave as Skip to ignore them.</div>' +
         '<div style="display:flex;flex-direction:column;gap:10px">' +
         items.map(function(it, i) {
           var suggested = it.slug || '';
@@ -1868,31 +1934,78 @@
           return '<div style="border:1px solid #ddd8d0;border-radius:8px;padding:10px 12px">' +
             '<div style="font-size:13px;font-weight:600;color:#1a1520;word-break:break-all">' + escH(it.filename) + '</div>' +
             suggestedNote +
-            '<div style="margin-top:8px"><select id="dr-bulk-pick-' + i + '" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #ddd8d0;border-radius:6px;background:#fff">' +
+            '<div style="margin-top:8px"><select id="dr-bulk-pick-' + i + '" onchange="dr_bulkOtherToggle(' + i + ')" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #ddd8d0;border-radius:6px;background:#fff">' +
               '<option value="">— Skip this file —</option>' +
+              '<option value="' + _OTHER_PICK + '">📁 Other — file under a category…</option>' +
               slugOptions.map(function(o) {
                 var sel = o.slug === suggested ? ' selected' : '';
                 return '<option value="' + escAttr(o.slug) + '"' + sel + '>' + escH(o.label) + '</option>';
               }).join('') +
             '</select></div>' +
+            '<div id="dr-bulk-secwrap-' + i + '" style="display:none;margin-top:6px">' +
+              '<div style="font-size:11px;color:#7a7488;margin-bottom:3px">Which category should this go in?</div>' +
+              '<select id="dr-bulk-sec-' + i + '" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #ddd8d0;border-radius:6px;background:#fff">' +
+                sectionOptions +
+              '</select>' +
+            '</div>' +
           '</div>';
         }).join('') +
         '</div>';
       footer.innerHTML =
         '<button class="dr-modal-btn" onclick="dr_bulkZipCancel()">Cancel</button>' +
         '<button class="dr-modal-btn primary" onclick="dr_bulkZipConfirm()">Upload selected</button>';
+      global.dr_bulkOtherToggle = function(i) {
+        var sel = document.getElementById('dr-bulk-pick-' + i);
+        var wrap = document.getElementById('dr-bulk-secwrap-' + i);
+        if (wrap) wrap.style.display = (sel && sel.value === _OTHER_PICK) ? 'block' : 'none';
+      };
       global.dr_bulkZipCancel = function() { resolve([]); };
       global.dr_bulkZipConfirm = function() {
-        var picked = [];
+        var picked = [];       // files mapped straight to an existing slug
+        var otherPicks = [];   // { it, section } → need an Other tray minted first
         items.forEach(function(it, i) {
           var sel = document.getElementById('dr-bulk-pick-' + i);
           var val = sel && sel.value;
-          if (val) picked.push(Object.assign({}, it, { slug: val }));
-          else _bulkZipInFlight.skipped++;
+          if (val === _OTHER_PICK) {
+            var secSel = document.getElementById('dr-bulk-sec-' + i);
+            var section = (secSel && secSel.value) || 'loan';
+            otherPicks.push({ it: it, section: section });
+          } else if (val) {
+            picked.push(Object.assign({}, it, { slug: val }));
+          } else {
+            _bulkZipInFlight.skipped++;
+          }
         });
-        resolve(picked);
+        if (!otherPicks.length) { resolve(picked); return; }
+        // Mint an "Other" tray per file (named from the filename), then
+        // queue those uploads alongside the straight matches. Sequential
+        // so each patch builds on the prior review state.
+        _bulkZipStatus('Creating ' + otherPicks.length + ' Other document tray' + (otherPicks.length === 1 ? '' : 's') + '…');
+        var idx = 0;
+        function nextOther() {
+          if (idx >= otherPicks.length) { resolve(picked); return; }
+          var op = otherPicks[idx++];
+          var name = _filenameToDocName(op.it.filename);
+          _createOtherTray(op.section, name).then(function(slug) {
+            picked.push(Object.assign({}, op.it, { slug: slug }));
+          }).catch(function(err) {
+            console.warn('Other tray create failed for', op.it.filename, err);
+            var row = _findRowByFilename(op.it.filename);
+            if (row) { row.status = 'failed'; row.error = 'Could not create Other tray: ' + ((err && err.message) || 'unknown'); }
+            _bulkZipInFlight.failed++;
+          }).then(nextOther);
+        }
+        nextOther();
       };
     });
+  }
+
+  // Deploy 236.501 — turn a filename into a readable Other-doc label:
+  // strip the extension + a leading version tag, collapse separators.
+  function _filenameToDocName(filename) {
+    var base = String(filename || 'Document').replace(/\.[^.]+$/, '');
+    base = base.replace(/[_]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    return base || 'Document';
   }
 
   function _allSlugsForPicker() {
@@ -1906,7 +2019,12 @@
   }
   function _slugLabel(slug) {
     var meta = DOC_META[slug];
-    return (meta && meta.label) || slug;
+    if (meta && meta.label) return meta.label;
+    // Deploy 236.501 — custom / Other trays aren't in DOC_META; use the
+    // label captured on the doc record so the progress table reads nicely.
+    var d = (_review && _review.docs && _review.docs[slug]);
+    if (d && d.label) return d.label;
+    return slug;
   }
 
   global.dr_saveNotes = function(slug, value) {
