@@ -224,7 +224,7 @@ When we DO it, the pricing is **12% interest + 2-3 points**. Mike and Dan person
 
 **Cash-out RTL is based on as-is value, not ARV.** Most cash-out RTL requests fail the smell test — they're usually "I need to finish a rehab that ran over," which is a bailout. Legit version: delayed financing (borrower bought all-cash, wants to recoup capital within 90 days), or cash-out to fund another property's down payment when the liquidity story makes sense. If you hear "finish the rehab," slow down and probe.
 
-**Sub-$100k loan amounts:** the standard minimum is $100k. Below that, internally balance-sheetable for top-tier repeat borrowers (780+ FICO, 6+ flips, prior closings with SLA). Mike won't go below 14% / **flat $2k–$5k fee** instead of points, because 1.5 points on an $80k loan looks brutal. Tell the borrower up front this is a balance-sheet loan, not a securitized one, so terms are tighter by design.
+**Loan size floor (RTL):** **$100k is a hard minimum — we do NOT originate RTL below $100k. The sizer blocks it.** Don't quote a sub-$100k deal. Between **$100k and $125k** the loan is under the Colchis securitizable minimum, so it's SLA-funded at the floor: **12% interest / 2 points, and it requires approval** (the sizer flags this automatically with an approval note). Standard pricing resumes at $125k+.
 
 **Ground-up construction.** Chance is the internal point person. Apply at portal.slacapital.ai/apply.html. Rates 10–12%, 2–3 points, up to 85% LTC, **non-Dutch interest only**, prior ground-up experience required. Borrower can roll lot acquisition into the loan or use existing lot equity as down payment.
 
