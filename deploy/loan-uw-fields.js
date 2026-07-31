@@ -118,8 +118,12 @@
   var UNDERWRITING_FIELDS = [
     // — Deal terms —
     { key: 'asIsPrice',      label: 'As-is Price',    section: 'Deal',   source: 'doc',    docType: 'BPO/Valuation',   sourceNote: 'BPO/Valuation' },
-    { key: 'purchasePrice',  label: 'Purchase Price', section: 'Deal',   source: 'loan',   loanField: 'purchasePrice', sourceNote: 'PSA/Assignment' },
-    { key: 'assignmentFee',  label: 'Assignment Fee', section: 'Deal',   source: 'doc',    docType: 'PSA/Assignment',  sourceNote: 'PSA/Assignment' },
+    { key: 'purchasePrice',  label: 'Purchase Price (PSA)', section: 'Deal', source: 'loan', loanField: 'purchasePrice', sourceNote: 'PSA' },
+    { key: 'assignmentContractPrice', label: 'Assignment Contract Price', section: 'Deal', source: 'doc', docType: 'Assignment Contract', sourceNote: 'Assignment Contract' },
+    { key: 'assignmentFee',  label: 'Assignment Fee (listed)', section: 'Deal', source: 'doc', docType: 'Assignment Contract', sourceNote: 'Assignment Contract' },
+    // Effective assignment fee: the listed fee if present & ≤ purchase price,
+    // else (Assignment Contract Price − PSA Purchase Price). Drives A/P ratio.
+    { key: 'assignmentFeeEffective', label: 'Assignment Fee (used)', section: 'Deal', source: 'calc', calc: 'assignmentFeeEffective', sourceNote: 'listed, or Assign price − PSA price' },
     { key: 'downPayment',    label: 'Down Payment',   section: 'Deal',   source: 'loan',   loanField: 'downPayment' /*?*/, sourceNote: 'Term Sheet' },
     { key: 'titleEscrowFees', label: 'Title/Escrow Fees', section: 'Deal', source: 'doc',  docType: 'HUD Statement',   sourceNote: 'HUD Statement' },
 

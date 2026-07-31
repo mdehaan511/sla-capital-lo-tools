@@ -79,7 +79,24 @@
     var ltarv = ratio(loanAmt, ctx.arv);
     var ltc   = ratio(loanAmt, num(ctx.purchasePrice) + reno);
     var ltaiv = ratio(loanAmt, ctx.asIsValue);
-    var a2p   = ratio(ctx.assignmentFee, ctx.purchasePrice);
+
+    // Assignment Fee (Mike): use the fee explicitly listed on the assignment
+    // contract ONLY when it's present AND not larger than the purchase price.
+    // Otherwise the effective fee = (assignment-contract price) − (PSA
+    // purchase price). assignmentToPurchase uses the EFFECTIVE fee.
+    var psaPrice    = num(ctx.purchasePrice);
+    var explicitFee = num(ctx.assignmentFee);
+    var acPrice     = num(ctx.assignmentContractPrice);
+    var assignmentFeeEff, assignmentDerived = false;
+    if (explicitFee > 0 && explicitFee <= psaPrice) {
+      assignmentFeeEff = explicitFee;
+    } else if (acPrice > 0 && psaPrice > 0) {
+      assignmentFeeEff = Math.max(0, acPrice - psaPrice);
+      assignmentDerived = true;
+    } else {
+      assignmentFeeEff = explicitFee; // nothing to derive from yet
+    }
+    var a2p = ratio(assignmentFeeEff, psaPrice);
 
     var days = daysFundingToMonthEnd(ctx.fundingDate);
     var prepaidInterest = (loanAmt > 0 && rate > 0 && days > 0)
@@ -102,6 +119,8 @@
       ltarv: ltarv,
       ltc: ltc,
       ltaiv: ltaiv,
+      assignmentFeeEffective: assignmentFeeEff,
+      assignmentDerived: assignmentDerived,
       assignmentToPurchase: a2p,
       prepaidInterest: prepaidInterest,
       prepaidInterestDays: days,

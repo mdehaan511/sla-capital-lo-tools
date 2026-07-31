@@ -29,6 +29,23 @@
   function money(n){ return '$'+Math.round(num(n)).toLocaleString(); }
   function pct(x){ return (x==null)?'—':(x*100).toFixed(2)+'%'; }
 
+  // Currency fields — displayed with $ and commas (Mike). Calc money fields
+  // are already money-formatted in calcDisplay; this covers input/loan/const
+  // values + account balances.
+  var MONEY_KEYS = {
+    arv:1, bpoValuation:1, loanAmount:1, constructionHoldback:1, brokerOriginationFee:1,
+    brokerOtherFees:1, originationFee:1, documentPrepFee:1, underwritingFee:1, processingFee:1,
+    creditBackgroundFee:1, prepaidInterest:1,
+    asIsPrice:1, purchasePrice:1, assignmentContractPrice:1, assignmentFee:1,
+    downPayment:1, titleEscrowFees:1, emd:1
+  };
+  function looksNumeric(v){ return /^[$\s]*-?[\d,]+(\.\d+)?[\s]*$/.test(String(v)); }
+  function fmtDisplay(key, value){
+    if (value === '' || value == null) return value;
+    if (MONEY_KEYS[key] && looksNumeric(value)) return money(value);
+    return value;
+  }
+
   // Loan rate may be stored as a percent (10.5) or decimal (0.105).
   function rateDecimal(loan){ var r=num(loan&&loan.rate); return r>1 ? r/100 : r; }
 
@@ -65,6 +82,7 @@
     return {
       loanAmt: loanAmt, rate: rate, arv: num(loan.arv), purchasePrice: purchase,
       renovation: reno, asIsValue: num(e('asIsPrice')), assignmentFee: num(e('assignmentFee')),
+      assignmentContractPrice: num(e('assignmentContractPrice')),
       fundingDate: e('earliestSigningDate') || loan.fundingDate || '',
       cashToClose: cashToClose, emdPaid: num(e('emd')), accounts: accounts,
       middleCredit: num(e('middleCredit')),
@@ -109,6 +127,7 @@
       case 'ltarv':               return { value: pct(v.ltarv), editable:false, prov:'Loan ÷ ARV', calc:true, flag:!!flg.ltarv };
       case 'ltc':                 return { value: pct(v.ltc), editable:false, prov:'Loan ÷ (Purchase + Reno)', calc:true, flag:!!flg.ltc };
       case 'ltaiv':               return { value: pct(v.ltaiv), editable:false, prov:'Loan ÷ As-is', calc:true, flag:!!flg.ltaiv };
+      case 'assignmentFeeEffective': return { value: money(v.assignmentFeeEffective), editable:false, prov: v.assignmentDerived ? 'Derived: Assign price − PSA price' : 'Listed on contract', calc:true };
       case 'assignmentToPurchase':return { value: pct(v.assignmentToPurchase), editable:false, prov:'Assign ÷ Purchase (RED > 15%)', calc:true, flag:!!flg.assignmentToPurchase };
       case 'prepaidInterest':     return { value: money(v.prepaidInterest), editable:false, prov: v.prepaidInterestDays+' days × per-diem (365)', calc:true };
       case 'liquidityTotal':      return { value: money(v.liquidityTotal), editable:false, prov:'Σ(account × weight) + EMD', calc:true };
@@ -138,7 +157,7 @@
         var editAttr = r.editable ? ' onclick="SLA_UW_TAB._edit(\''+dataset+'\',\''+f.key+'\')" title="Click to edit"' : '';
         html += '<div class="'+cls+'"'+editAttr+' data-key="'+escA(f.key)+'">'
           + '<div class="uw-label">'+esc(f.label)+'</div>'
-          + '<div class="uw-value">'+ (r.value===''||r.value==null ? '<span class="uw-empty">—</span>' : esc(r.value)) +'</div>'
+          + '<div class="uw-value">'+ (r.value===''||r.value==null ? '<span class="uw-empty">—</span>' : esc(r.calc ? r.value : fmtDisplay(f.key, r.value))) +'</div>'
           + '<div class="uw-prov">'+esc(r.prov||'')
           + (data[f.key] ? ' <a href="#" class="uw-hist" onclick="event.stopPropagation();SLA_UW_TAB._history(\''+dataset+'\',\''+f.key+'\');return false">history</a>' : '')
           + '</div>'
@@ -161,7 +180,7 @@
       + '<div class="uw-label">'+esc(f.label)+'</div>'
       + '<div class="uw-acct-row">'
       +   '<select class="uw-acct-type" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')">'+opts+'</select>'
-      +   '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="balance" value="'+escA(val.balance!=null?val.balance:'')+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" />'
+      +   '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="balance" value="'+escA(val.balance!=null&&val.balance!==''?money(val.balance):'')+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" />'
       +   '<input class="uw-acct-wt" type="text" placeholder="wt %" value="'+escA(wDisp)+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" title="weight % (defaults from type)" />'
       + '</div>'
       + '<div class="uw-prov">'+esc(data[f.key]?provText(data[f.key]):'Most Recent Account Statement')+'</div>'

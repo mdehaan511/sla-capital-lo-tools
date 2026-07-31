@@ -1008,7 +1008,12 @@ function render() {
     // as-is property value, so LTP becomes LTV; LTC/LTARV don't apply on
     // refis (no rehab/ARV path) — same convention as the sizer.
     var _rtlIsRefi      = (loanPurpose === 'cashout' || loanPurpose === 'rateterm');
-    var _rtlLtpPct      = (_rtlPurchaseNum > 0) ? (_rtlLoanAmtNum / _rtlPurchaseNum * 100) : null;
+    // Deploy 236.494 — LTP is the PURCHASE-side financing ÷ price, so it
+    // must EXCLUDE the rehab holdback. Using the total loan (which bundles
+    // the rehab escrow) made fix-flips read > 100% (e.g. 134.3%).
+    // _rtlInitAdv = loanAmt − rehab holdback (= loanAmt when no rehab, so
+    // this reduces to loan/price on bridge purchases and loan/as-is on refis).
+    var _rtlLtpPct      = (_rtlPurchaseNum > 0) ? (_rtlInitAdv / _rtlPurchaseNum * 100) : null;
     var _rtlLtcPct      = (!_rtlIsRefi && (_rtlPurchaseNum + _rtlRehabNum) > 0)
                             ? (_rtlLoanAmtNum / (_rtlPurchaseNum + _rtlRehabNum) * 100) : null;
     var _rtlLtarvPct    = (!_rtlIsRefi && _rtlArvNum > 0)
