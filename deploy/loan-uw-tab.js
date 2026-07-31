@@ -49,6 +49,35 @@
   // Loan rate may be stored as a percent (10.5) or decimal (0.105).
   function rateDecimal(loan){ var r=num(loan&&loan.rate); return r>1 ? r/100 : r; }
 
+  // Leverage caps for the loan, from the SAME Colchis matrix the sizer
+  // uses (SLA_RTL). LTAIV cap is a fixed 90% (Mike). LTARV/LTC come from
+  // MAX_LTARV/MAX_LTC by program × propType × FICO × experience. These are
+  // the BASE caps (geo/ZHVI reductions aren't reconstructed here), so a
+  // reduced-cap deal could read under — flagged as a known refinement.
+  // Refis have no LTC/LTARV (LTV only), so only the LTAIV cap applies.
+  function loanCaps(loan) {
+    var caps = { maxLtaiv: 0.90 };
+    var R = window.SLA_RTL;
+    if (!R || !R.MAX_LTC || !R.MAX_LTARV) return caps;
+    var program = String(loan.loanType || '').toLowerCase();
+    if (program.indexOf('light') >= 0) program = 'light';
+    else if (program.indexOf('heavy') >= 0) program = 'heavy';
+    else if (program.indexOf('construction') >= 0) program = 'construction';
+    else if (program.indexOf('bridge') >= 0) program = 'bridge';
+    var pt = /mfr|multi|5-20/i.test(String(loan.propType || '')) ? 'mfr' : 'sfr';
+    var fico = parseInt(String(loan.fico || '').replace(/[^\d]/g, ''), 10);
+    var exp  = parseInt(String(loan.experience || '').replace(/[^\d]/g, ''), 10);
+    if (!isFinite(fico) || !isFinite(exp)) return caps;
+    var purp = String(loan.loanPurpose || '').toLowerCase();
+    if (purp === 'cashout' || purp === 'rateterm') return caps; // refi: LTV only
+    var fkey = R.fk(fico), eidx = R.ei(exp);
+    var lc = R.MAX_LTC[program]   && R.MAX_LTC[program][pt]   && R.MAX_LTC[program][pt][fkey];
+    var la = R.MAX_LTARV[program] && R.MAX_LTARV[program][pt] && R.MAX_LTARV[program][pt][fkey];
+    if (lc && lc[eidx] > 0) caps.maxLtc = lc[eidx];
+    if (la && la[eidx] > 0) caps.maxLtarv = la[eidx];
+    return caps;
+  }
+
   // ── Build the calc-engine context from loan + saved uw entries ─────
   function calcContext(loan, uwData) {
     uwData = uwData || {};
@@ -86,6 +115,7 @@
       fundingDate: e('earliestSigningDate') || loan.fundingDate || '',
       cashToClose: cashToClose, emdPaid: num(e('emd')), accounts: accounts,
       middleCredit: num(e('middleCredit')),
+      caps: loanCaps(loan),
     };
   }
 
@@ -124,9 +154,9 @@
     var v = calc.values, flg = calc.flags;
     switch (field.key) {
       case 'monthlyPayment':      return { value: money(v.monthlyPayment), editable:false, prov:'Calculated', calc:true };
-      case 'ltarv':               return { value: pct(v.ltarv), editable:false, prov:'Loan ÷ ARV', calc:true, flag:!!flg.ltarv };
-      case 'ltc':                 return { value: pct(v.ltc), editable:false, prov:'Loan ÷ (Purchase + Reno)', calc:true, flag:!!flg.ltc };
-      case 'ltaiv':               return { value: pct(v.ltaiv), editable:false, prov:'Loan ÷ As-is', calc:true, flag:!!flg.ltaiv };
+      case 'ltarv':               return { value: pct(v.ltarv), editable:false, prov:'Loan ÷ ARV · vs Colchis cap', calc:true, flag:!!flg.ltarv };
+      case 'ltc':                 return { value: pct(v.ltc), editable:false, prov:'Loan ÷ (Purchase + Reno) · vs Colchis cap', calc:true, flag:!!flg.ltc };
+      case 'ltaiv':               return { value: pct(v.ltaiv), editable:false, prov:'Loan ÷ As-is (RED > 90%)', calc:true, flag:!!flg.ltaiv };
       case 'assignmentFeeEffective': return { value: money(v.assignmentFeeEffective), editable:false, prov: v.assignmentDerived ? 'Derived: Assign price − PSA price' : 'Listed on contract', calc:true };
       case 'assignmentToPurchase':return { value: pct(v.assignmentToPurchase), editable:false, prov:'Assign ÷ Purchase (RED > 15%)', calc:true, flag:!!flg.assignmentToPurchase };
       case 'prepaidInterest':     return { value: money(v.prepaidInterest), editable:false, prov: v.prepaidInterestDays+' days × per-diem (365)', calc:true };

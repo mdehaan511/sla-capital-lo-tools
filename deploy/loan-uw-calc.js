@@ -137,12 +137,14 @@
       assignmentToPurchase: (a2p !== null && a2p > 0.15),
       liquidity: (liquidityTotal < liquidityRequirement - 0.005),
     };
+    // LTARV / LTC caps come from the loan's Colchis matrix (passed in);
+    // flag only when a cap is supplied so we never invent a threshold.
     if (typeof caps.maxLtarv === 'number' && ltarv !== null) flags.ltarv = ltarv > caps.maxLtarv + 1e-6;
     if (typeof caps.maxLtc   === 'number' && ltc   !== null) flags.ltc   = ltc   > caps.maxLtc   + 1e-6;
-    if (typeof caps.maxLtaiv === 'number' && ltaiv !== null) flags.ltaiv = ltaiv > caps.maxLtaiv + 1e-6;
-    if (typeof caps.minMiddleCredit === 'number' && ctx.middleCredit != null && num(ctx.middleCredit) > 0) {
-      flags.middleCredit = num(ctx.middleCredit) < caps.minMiddleCredit;
-    }
+    // LTAIV cap is a fixed 90% guideline (Mike), always applied.
+    var ltaivCap = (typeof caps.maxLtaiv === 'number') ? caps.maxLtaiv : 0.90;
+    if (ltaiv !== null) flags.ltaiv = ltaiv > ltaivCap + 1e-6;
+    // Credit is intentionally NOT flagged — validated manually (Mike).
 
     return { values: values, flags: flags };
   }
