@@ -144,9 +144,11 @@ const FEES = {
 // DIYA GUIDELINE VALIDATION  (Source: Diya_Guideline_Matrix_2026_01_29)
 // ══════════════════════════════════════════════════════════════════
 const GUIDELINES = {
-  // Eligible states (AZ, CA, ID, ND, NV, SD, UT, VT are NOT eligible)
+  // Deploy 236.507 — no-lend list now matches apply.html (the source of
+  // truth per Mike): AZ, CA, MN, ND, NV, SD, UT, VT are NOT eligible.
+  // (Was ...ID... — ID is now eligible; MN is now excluded.)
   eligibleStates: ['AK','AL','AR','CO','CT','DC','DE','FL','GA','HI',
-    'IA','IL','IN','KS','KY','LA','MA','MD','ME','MI','MN','MO','MS','MT',
+    'IA','ID','IL','IN','KS','KY','LA','MA','MD','ME','MI','MO','MS','MT',
     'NC','NE','NH','NJ','NM','NY','OH','OK','OR','PA','RI','SC',
     'TN','TX','VA','WA','WI','WV','WY'],
 
@@ -157,7 +159,7 @@ const GUIDELINES = {
     'TN','TX','UT','VA','VT','WA','WI','WV','WY'],
 
   // Property value limits (1-4 Unit SFR)
-  minPropertyValue: 125000,   // $125,000 single property
+  minPropertyValue: 100000,   // Deploy 236.507 — $100,000 (was $125,000; matches guidelines.html)
   maxPropertyValue_1unit: 3000000,   // $3,000,000 for 1-unit
   maxPropertyValue_24unit: 5000000,  // $5,000,000 for 2-4 unit
   // Deploy 236.65 — portfolio loans are aggregate-of-properties, so the
@@ -227,7 +229,7 @@ function validateGuidelines(params) {
   // 1. Property value
   if (propVal > 0) {
     if (propVal < GUIDELINES.minPropertyValue) {
-      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' is below the $125,000 minimum.'});
+      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' is below the $100,000 minimum.'});
     }
     // Deploy 236.65 — portfolio gets its own property-value cap
     // (aggregate of pool, sized to support a $5M loan at 80% LTV).

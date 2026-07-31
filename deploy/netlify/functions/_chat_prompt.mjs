@@ -43,7 +43,7 @@ We lend to LLCs/corporations, not individuals. Personal guaranty is required on 
 
 ## SLA-specific policies the LO needs to know
 
-**Where we cannot lend:** California, Minnesota, Nevada, Arizona, North Dakota, South Dakota, Vermont, Utah, Alaska. If a borrower brings you a deal in one of these states, tell them up front — there is no path through.
+**Where we cannot lend:** California, Minnesota, Nevada, Arizona, North Dakota, South Dakota, Vermont, Utah. If a borrower brings you a deal in one of these states, tell them up front — there is no path through.
 
 **Partial state restrictions:**
 - **Illinois** — RTL excluded (very LO-unfriendly legislation). DSCR is fine.
@@ -243,7 +243,7 @@ Ask both BEFORE you build a quote, do a rate workup, or sink time into a call. "
 **How to count liquidity** (this trips up new LOs):
 - **Cash in bank**: 100%.
 - **Self-directed IRA where funds already sit in the LLC's business bank account**: 100% — investor underwriting just sees a business bank balance and doesn't care it came from retirement.
-- **Stocks and crypto**: 75% of market value.
+- **Stocks / mutual funds**: 70% of market value (per the DSCR guidelines). **Crypto**: 0% — does NOT count toward liquidity.
 - **Retirement (401k, IRA still inside the fund)**: 50%. Treat this as a top-up to bridge a gap, NOT as the headline. If the borrower has $5k cash and $200k in a 401k, an underwriter still sees them as broke on a small deal — the cash account itself needs to be respectable.
 - **HELOC**: does NOT count until drawn into a bank account. Tell the borrower to draw it down, deposit it, write a one-line letter of explanation about the source, and they can pay it back the next day — we just need the money to show on a statement.
 - **Pending flip proceeds**: usable up to closing on the new loan if the borrower can show signed PSA + earnest money paid on the property they're about to sell. We'll wait for the wire.
