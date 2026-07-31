@@ -2186,6 +2186,10 @@ function render() {
     if (window.SLA_UW_TAB && String((_loan && _loan.toolType) || '').toLowerCase() === 'rtl') {
       SLA_UW_TAB.mount({
         loan: _loan, clientId: _clientId, loanId: _loanId,
+        // Deploy 236.510 — the borrowing entity name lives on the CLIENT
+        // (loans don't always carry it), so pass it through for the UW
+        // "Borrower Name" field (= entity name, per Mike).
+        entityName: (_client && _client.entityName) || (_loan && _loan.entityName) || '',
         owner: (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null,
         refreshLoan: function (updated) {
           _loan = updated;

@@ -114,8 +114,16 @@
     // Requirement = Cash to Close + 20% reno + 6 months interest.
     var liquidityRequirement = num(ctx.cashToClose) + 0.20 * reno + 6 * monthly;
 
+    // Deploy 236.510 (Mike): Origination Fee = the loan's points in dollars
+    // (loanAmt × points%). Broker Origination Fee = broker % × loanAmt
+    // (≈ 1 point). Both are $ amounts derived from the loan, not typed.
+    var originationFee       = loanAmt * num(ctx.points) / 100;
+    var brokerOriginationFee = loanAmt * num(ctx.brokerFeePct) / 100;
+
     var values = {
       monthlyPayment: monthly,
+      originationFee: originationFee,
+      brokerOriginationFee: brokerOriginationFee,
       ltarv: ltarv,
       ltc: ltc,
       ltaiv: ltaiv,

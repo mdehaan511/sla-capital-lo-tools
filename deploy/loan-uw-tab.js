@@ -52,9 +52,10 @@
   // Leverage caps for the loan, from the SAME Colchis matrix the sizer
   // uses (SLA_RTL). LTAIV cap is a fixed 90% (Mike). LTARV/LTC come from
   // MAX_LTARV/MAX_LTC by program × propType × FICO × experience. These are
-  // the BASE caps (geo/ZHVI reductions aren't reconstructed here), so a
-  // reduced-cap deal could read under — flagged as a known refinement.
-  // Refis have no LTC/LTARV (LTV only), so only the LTAIV cap applies.
+  // the BASE caps — geo/ZHVI reductions are intentionally NOT reconstructed
+  // (Mike, 236.510: skip geo/ZHVI). A high-ZHVI deal could read slightly
+  // under its geo-trimmed cap; that's an accepted lenient edge, never a
+  // false red. Refis have no LTC/LTARV (LTV only), so only LTAIV applies.
   function loanCaps(loan) {
     var caps = { maxLtaiv: 0.90 };
     var R = window.SLA_RTL;
@@ -130,6 +131,7 @@
       fundingDate: e('earliestSigningDate') || loan.fundingDate || '',
       cashToClose: cashToClose, emdPaid: num(e('emd')), accounts: accounts,
       middleCredit: num(e('middleCredit')),
+      points: num(loan.points), brokerFeePct: num(loan.brokerFee),
       caps: loanCaps(loan),
     };
   }
@@ -146,6 +148,11 @@
     if (field.source === 'loan' && field.loanField) {
       var v = loan[field.loanField];
       if (field.key === 'interestRate' && v != null && v !== '') v = (num(v)>1? num(v): num(v)*100).toFixed(3) + '%';
+      // Deploy 236.510 — loan stores dutchInterest as 'dutch'/'nondutch';
+      // display it as the human "Dutch" / "Non-Dutch" the sheet expects.
+      if (field.key === 'interestAccrualType') {
+        v = (v == null || v === '') ? '' : (String(v).toLowerCase() === 'dutch' ? 'Dutch' : 'Non-Dutch');
+      }
       return { value: (v==null?'':v), editable: false, prov: 'From loan record' };
     }
     if (field.source === 'calc') {
@@ -169,6 +176,8 @@
     var v = calc.values, flg = calc.flags;
     switch (field.key) {
       case 'monthlyPayment':      return { value: money(v.monthlyPayment), editable:false, prov:'Calculated', calc:true };
+      case 'originationFee':      return { value: money(v.originationFee), editable:false, prov:'Loan × points', calc:true };
+      case 'brokerOriginationFee':return { value: money(v.brokerOriginationFee), editable:false, prov:'Broker % × loan', calc:true };
       case 'ltarv':               return { value: pct(v.ltarv), editable:false, prov:'Loan ÷ ARV · vs Colchis cap', calc:true, flag:!!flg.ltarv };
       case 'ltc':                 return { value: pct(v.ltc), editable:false, prov:'Loan ÷ (Purchase + Reno) · vs Colchis cap', calc:true, flag:!!flg.ltc };
       case 'ltaiv':               return { value: pct(v.ltaiv), editable:false, prov:'Loan ÷ As-is (RED > 90%)', calc:true, flag:!!flg.ltaiv };
@@ -269,6 +278,10 @@
   function mount(ctx) {
     _ctx = ctx || {};
     if (!F || !CALC) { console.warn('[SLA UW] registry/calc not loaded'); return; }
+    // Deploy 236.510 — the entity name (Borrower Name) lives on the client;
+    // fold it onto the loan so the source:'loan' field resolves. Re-applied
+    // every mount, so it survives the server-loan swap after a field save.
+    if (_ctx.loan && !_ctx.loan.entityName && _ctx.entityName) _ctx.loan.entityName = _ctx.entityName;
     var isRtl = String((_ctx.loan&&_ctx.loan.toolType)||'').toLowerCase() === 'rtl';
     ['underwriting','lightning'].forEach(function(which){
       var pane = document.getElementById(which==='underwriting'?'ldPaneUnderwriting':'ldPaneLightning');

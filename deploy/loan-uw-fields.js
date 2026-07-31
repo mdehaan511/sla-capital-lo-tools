@@ -52,7 +52,7 @@
   // column H so the closer sees where each value is expected to come from.
   var LIGHTNING_DOCS_FIELDS = [
     // — Borrower / Entity —
-    { key: 'borrowerName',       label: 'Borrower Name',        section: 'Borrower / Entity', source: 'loan',   loanField: 'entityName' /*?*/,   sourceNote: '' },
+    { key: 'borrowerName',       label: 'Borrower Name',        section: 'Borrower / Entity', source: 'loan',   loanField: 'entityName',         sourceNote: 'AOO (entity name)' },
     { key: 'aooOrDl',            label: 'AOO or DL',            section: 'Borrower / Entity', source: 'doc',    docType: 'AOO / DL',             sourceNote: '' },
     { key: 'organizationState',  label: 'Organization State',   section: 'Borrower / Entity', source: 'doc',    docType: 'AOO',                  sourceNote: 'AOO' },
     { key: 'borrowerAddress',    label: 'Borrower Address',     section: 'Borrower / Entity', source: 'doc',    docType: 'Application/Baseline', sourceNote: 'Application/Baseline' },
@@ -92,13 +92,13 @@
     { key: 'loanAmount',         label: 'Loan Amount',          section: 'Loan Terms',       source: 'loan',   loanField: 'loanAmt',            sourceNote: 'Term Sheet' },
     { key: 'interestRate',       label: 'Interest Rate',        section: 'Loan Terms',       source: 'loan',   loanField: 'rate',               sourceNote: 'Term Sheet' },
     { key: 'interestOnlyPeriod', label: 'Interest Only Period', section: 'Loan Terms',       source: 'const',  const: '12',                     sourceNote: 'Term Sheet' },
-    { key: 'interestAccrualType', label: 'Interest Accrual Type', section: 'Loan Terms',     source: 'loan',   loanField: 'dutchInterest' /*?*/, sourceNote: 'Term Sheet' },
-    { key: 'constructionHoldback', label: 'Construction Holdback', section: 'Loan Terms',    source: 'loan',   loanField: 'rehabBudget' /*?*/,  sourceNote: 'Term Sheet' },
+    { key: 'interestAccrualType', label: 'Interest Accrual Type', section: 'Loan Terms',     source: 'loan',   loanField: 'dutchInterest',      sourceNote: 'Term Sheet' },
+    { key: 'constructionHoldback', label: 'Construction Holdback', section: 'Loan Terms',    source: 'loan',   loanField: 'rehabBudget',        sourceNote: 'Term Sheet' },
 
     // — Fees (all from the term sheet / our fee schedule) —
-    { key: 'brokerOriginationFee', label: 'Broker Origination Fee', section: 'Fees',         source: 'loan',   loanField: 'brokerFee' /*?*/,    sourceNote: 'Term Sheet' },
+    { key: 'brokerOriginationFee', label: 'Broker Origination Fee', section: 'Fees',         source: 'calc',   calc: 'brokerOriginationFee',    sourceNote: 'Broker % × loan' },
     { key: 'brokerOtherFees',    label: 'Broker Other Fees',    section: 'Fees',             source: 'manual',                                  sourceNote: 'Term Sheet' },
-    { key: 'originationFee',     label: 'Origination Fee',      section: 'Fees',             source: 'loan',   loanField: '_calcOrigFee' /*?*/, sourceNote: 'Term Sheet' },
+    { key: 'originationFee',     label: 'Origination Fee',      section: 'Fees',             source: 'calc',   calc: 'originationFee',          sourceNote: 'Loan × points' },
     { key: 'documentPrepFee',    label: 'Document Prep Fee',    section: 'Fees',             source: 'const',  const: '900',                    sourceNote: 'Term Sheet' },
     { key: 'underwritingFee',    label: 'Underwriting Fee',     section: 'Fees',             source: 'const',  const: '600',                    sourceNote: 'Term Sheet' },
     { key: 'processingFee',      label: 'Processing Fee',       section: 'Fees',             source: 'const',  const: '500',                    sourceNote: 'Term Sheet' },
@@ -124,13 +124,13 @@
     // Effective assignment fee: the listed fee if present & ≤ purchase price,
     // else (Assignment Contract Price − PSA Purchase Price). Drives A/P ratio.
     { key: 'assignmentFeeEffective', label: 'Assignment Fee (used)', section: 'Deal', source: 'calc', calc: 'assignmentFeeEffective', sourceNote: 'listed, or Assign price − PSA price' },
-    { key: 'downPayment',    label: 'Down Payment',   section: 'Deal',   source: 'loan',   loanField: 'downPayment' /*?*/, sourceNote: 'Term Sheet' },
+    { key: 'downPayment',    label: 'Down Payment',   section: 'Deal',   source: 'doc',    docType: 'Term Sheet',          sourceNote: 'Term Sheet' },
     { key: 'titleEscrowFees', label: 'Title/Escrow Fees', section: 'Deal', source: 'doc',  docType: 'HUD Statement',   sourceNote: 'HUD Statement' },
 
     // — Borrower / Credit —
     { key: 'lowCredit',      label: 'Low Credit',     section: 'Borrower', source: 'doc',  docType: 'Credit Report',   sourceNote: 'Credit Report', flag: true },
     { key: 'middleCredit',   label: 'Middle Credit',  section: 'Borrower', source: 'doc',  docType: 'Credit Report',   sourceNote: 'Credit Report', flag: true },
-    { key: 'usCitizen',      label: 'US Citizen',     section: 'Borrower', source: 'doc',  docType: 'Loan Application', sourceNote: 'Loan Application', flag: true },
+    { key: 'usCitizen',      label: 'US Citizen',     section: 'Borrower', source: 'doc',  docType: 'Loan Application', sourceNote: 'Loan Application' },
     { key: 'maritalStatus',  label: 'Marital Status', section: 'Borrower', source: 'doc',  docType: 'Loan Application', sourceNote: 'Loan Application' },
 
     // — Ratios (all calculated; red-flagged vs guidelines) —
