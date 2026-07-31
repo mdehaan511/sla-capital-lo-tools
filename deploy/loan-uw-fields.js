@@ -2,9 +2,25 @@
  * loan-uw-fields.js — Field registry for the Underwriting + Lightning Docs
  * tabs (Deploy 236.489, Phase 1a of the AI Underwriting / Doc-Prep tool).
  *
+ * SCOPE: RTL loans only (this sheet is the RTL one). A separate DSCR field
+ * set + calcs come later — the tab shell will branch on loan.toolType.
+ *
  * This is the SPEC BACKBONE, transcribed from Mike's Google Sheet:
  *   - Lightning Docs = sheet columns F (item) / G (value) / H (source)
  *   - Underwriting   = sheet columns J (item) / K (value) / L (source)
+ *
+ * LOCKED CALC FORMULAS (Mike, RTL):
+ *   monthlyPayment       = Loan × Rate ÷ 12
+ *   ltarv                = Loan ÷ ARV
+ *   ltc                  = same as the term sheet (Loan ÷ (Purchase + Reno))
+ *   ltaiv                = Loan ÷ As-is Value
+ *   prepaidInterest      = Loan × Rate ÷ 365 × days   (365-day basis)
+ *   liquidityTotal       = Σ(account balance × its weight) + EMD paid
+ *   liquidityRequirement = Cash to Close + 20% × Renovation + 6 months
+ *                          interest  (= RTL sizer Cash Reserve, 236.485)
+ *   OPEN (assumption, confirm): assignmentToPurchase = Assignment Fee ÷
+ *   Purchase Price; prepaidInterest day-count = funding date → month end.
+ * HUD Balancing + Profit Analysis are OUT (separate manual tabs later).
  *
  * Every field carries a `source` tier that drives HOW it gets populated —
  * this ordering is the accuracy safeguard (most-trustworthy source wins):
@@ -120,52 +136,48 @@
     { key: 'ltaiv',          label: 'LTAIV',          section: 'Ratios', source: 'calc',  calc: 'ltaiv',           sourceNote: 'Calculated', flag: true },
     { key: 'assignmentToPurchase', label: 'Assignment to Purchase', section: 'Ratios', source: 'calc', calc: 'assignmentToPurchase', sourceNote: 'Calculated', flag: true },
 
-    // — Liquidity: accounts, weighting factors, and requirement —
-    { key: 'account1', label: 'Account 1', section: 'Liquidity', source: 'doc', docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
-    { key: 'account2', label: 'Account 2', section: 'Liquidity', source: 'doc', docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
-    { key: 'account3', label: 'Account 3', section: 'Liquidity', source: 'doc', docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
-    { key: 'account4', label: 'Account 4', section: 'Liquidity', source: 'doc', docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
-    { key: 'account5', label: 'Account 5', section: 'Liquidity', source: 'doc', docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
-    { key: 'emd',            label: 'EMD',            section: 'Liquidity', source: 'doc', docType: 'EMD Receipt from Title', sourceNote: 'EMD Receipt from Title' },
-    { key: 'liquidityTotal', label: 'Total (weighted liquidity)', section: 'Liquidity', source: 'calc', calc: 'liquidityTotal', sourceNote: 'Calculated' },
-    { key: 'liquidityRequirement', label: 'Liquidity Requirement', section: 'Liquidity', source: 'calc', calc: 'liquidityRequirement', sourceNote: 'Calculated', flag: true },
+    // — Liquidity —
+    // Each account carries { type, balance, weight }. The type picks the
+    // weight from ACCOUNT_WEIGHTS (sheet cols N/O); weight is editable per
+    // account to cover the exceptions (100% joint checking, 100% stocks if
+    // 63+, HELOC by % business ownership). `accountRow: true` tells the UI
+    // to render the type-dropdown + balance + weight triple.
+    { key: 'account1', label: 'Account 1', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
+    { key: 'account2', label: 'Account 2', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
+    { key: 'account3', label: 'Account 3', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
+    { key: 'account4', label: 'Account 4', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
+    { key: 'account5', label: 'Account 5', section: 'Liquidity', source: 'doc', accountRow: true, docType: 'Most Recent Account Statement', sourceNote: 'Most Recent Account Statement' },
+    // Earnest Money PAID counts toward liquidity at 100% (Mike). Source is
+    // the PSA / Assignment contract, not the title EMD receipt.
+    { key: 'emd',            label: 'EMD (earnest money paid)', section: 'Liquidity', source: 'doc', docType: 'PSA / Assignment', sourceNote: 'PSA or Assignment' },
+    // Available liquidity = Σ(account balance × its weight) + EMD paid.
+    { key: 'liquidityTotal', label: 'Total (weighted liquidity)', section: 'Liquidity', source: 'calc', calc: 'liquidityTotal', sourceNote: 'Σ(account × weight) + EMD' },
+    // Requirement (Mike) = Cash to Close + 20% × Renovation + 6 months
+    // interest — identical to the RTL sizer's Cash Reserve (Deploy 236.485).
+    // RED-flagged when weighted liquidity Total < Requirement.
+    { key: 'liquidityRequirement', label: 'Liquidity Requirement', section: 'Liquidity', source: 'calc', calc: 'liquidityRequirement', sourceNote: 'Cash to Close + 20% Reno + 6mo interest', flag: true },
     { key: 'liquidityNotes', label: 'Liquidity Notes', section: 'Liquidity', source: 'manual', sourceNote: '' },
-    // Weighting factors — constants (may be overridden per the sheet notes).
-    { key: 'wtCheckingSavings', label: 'Weight: Checking/Savings', section: 'Liquidity', source: 'const', const: '70%', sourceNote: '*100% if joint checking' },
-    { key: 'wtStocksMutual',    label: 'Weight: Stocks/Mutual Funds', section: 'Liquidity', source: 'const', const: '50%', sourceNote: '*100% if 63 y/o' },
-    { key: 'wtRetirement',      label: 'Weight: IRA/401k/Retirement', section: 'Liquidity', source: 'const', const: '0%', sourceNote: '' },
-    { key: 'wtHeloc',           label: 'Weight: HELOC', section: 'Liquidity', source: 'const', const: '0%-100%', sourceNote: '*based on % ownership in business' },
 
-    // — HUD Balancing —
-    { key: 'hudPurchasePrice',   label: 'Purchase Price',   section: 'HUD Balancing', source: 'calc', calc: 'ref:purchasePrice', sourceNote: 'HUD Balancing' },
-    { key: 'hudEmd',             label: 'EMD',              section: 'HUD Balancing', source: 'calc', calc: 'ref:emd',            sourceNote: 'HUD Balancing' },
-    { key: 'hudLoanAmount',      label: 'Loan Amount',      section: 'HUD Balancing', source: 'calc', calc: 'ref:loanAmount',     sourceNote: 'HUD Balancing' },
-    { key: 'hudConstructionHoldback', label: 'Construction Holdback', section: 'HUD Balancing', source: 'calc', calc: 'ref:constructionHoldback', sourceNote: 'HUD Balancing' },
-    { key: 'hudBrokerOtherFees', label: 'Broker Other Fees', section: 'HUD Balancing', source: 'calc', calc: 'ref:brokerOtherFees', sourceNote: 'HUD Balancing' },
-    { key: 'hudOriginationFee',  label: 'Origination Fee',  section: 'HUD Balancing', source: 'calc', calc: 'ref:originationFee', sourceNote: 'HUD Balancing' },
-    { key: 'hudDocumentPrepFee', label: 'Document Prep Fee', section: 'HUD Balancing', source: 'calc', calc: 'ref:documentPrepFee', sourceNote: 'HUD Balancing' },
-    { key: 'hudUnderwritingFee', label: 'Underwriting Fee', section: 'HUD Balancing', source: 'calc', calc: 'ref:underwritingFee', sourceNote: 'HUD Balancing' },
-    { key: 'hudProcessingFee',   label: 'Processing Fee',   section: 'HUD Balancing', source: 'calc', calc: 'ref:processingFee',  sourceNote: 'HUD Balancing' },
-    { key: 'hudCreditBackgroundFee', label: 'Credit & Background Fee', section: 'HUD Balancing', source: 'calc', calc: 'ref:creditBackgroundFee', sourceNote: 'HUD Balancing' },
-    { key: 'hudPrepaidInterest', label: 'Prepaid Interest', section: 'HUD Balancing', source: 'calc', calc: 'ref:prepaidInterest', sourceNote: 'HUD Balancing' },
-    { key: 'hudTitleEscrowFees', label: 'Title/Escrow Fees', section: 'HUD Balancing', source: 'calc', calc: 'ref:titleEscrowFees', sourceNote: 'HUD Balancing' },
-    { key: 'borrowerCashToClose', label: 'Borrower Cash to Close', section: 'HUD Balancing', source: 'calc', calc: 'borrowerCashToClose', sourceNote: 'Calculated' },
-    { key: 'wireFromLender',     label: 'Wire From Lender', section: 'HUD Balancing', source: 'calc', calc: 'wireFromLender', sourceNote: 'Calculated' },
+    // NOTE (Mike, RTL sheet): HUD Balancing + Profit Analysis are NOT part
+    // of underwriting — they'll be their own manually-entered tabs later,
+    // so they're intentionally omitted from this field set.
+  ];
 
-    // — Profit Analysis —
-    { key: 'paArv',          label: 'ARV',              section: 'Profit Analysis', source: 'calc', calc: 'ref:arv',        sourceNote: 'Profit Analysis' },
-    { key: 'paPurchase',     label: 'Purchase',         section: 'Profit Analysis', source: 'calc', calc: 'ref:purchasePrice', sourceNote: 'Profit Analysis' },
-    { key: 'paTitleEscrow',  label: 'Title/Escrow Fees', section: 'Profit Analysis', source: 'calc', calc: 'ref:titleEscrowFees', sourceNote: 'Profit Analysis' },
-    { key: 'paLenderCosts',  label: 'Lender Costs',     section: 'Profit Analysis', source: 'calc', calc: 'lenderCosts', sourceNote: 'Includes 6 months carry' },
-    { key: 'paRehabFees',    label: 'Rehab Fees',       section: 'Profit Analysis', source: 'loan', loanField: 'rehabBudget', sourceNote: 'Profit Analysis' },
-    { key: 'paSaleCosts',    label: 'Sale Costs',       section: 'Profit Analysis', source: 'calc', calc: 'saleCosts', sourceNote: 'Calculated' },
-    { key: 'paProfitDollar', label: 'Profit $',         section: 'Profit Analysis', source: 'calc', calc: 'profitDollar', sourceNote: 'Calculated' },
-    { key: 'paProfitPercent', label: 'Profit %',        section: 'Profit Analysis', source: 'calc', calc: 'profitPercent', sourceNote: '15% min required', flag: true },
+  // Account-type → liquidity weight (sheet cols N/O). `weight` is the
+  // DEFAULT; each account's weight is editable per deal for the noted
+  // exceptions. Order = the account-type dropdown order.
+  var ACCOUNT_WEIGHTS = [
+    { type: 'Checking/Savings',            weight: 0.70, note: '100% if joint checking' },
+    { type: 'Stocks/Mutual Funds',         weight: 0.50, note: '100% if 63 y/o' },
+    { type: 'IRA/401k/Retirement Plans',   weight: 0.00, note: '' },
+    { type: 'HELOC',                       weight: 0.00, note: '0–100% by % business ownership' },
+    { type: 'Business Checking Acct.',     weight: null, note: 'weight per deal — confirm with Mike' },
   ];
 
   var _API = {
     LIGHTNING_DOCS_FIELDS: LIGHTNING_DOCS_FIELDS,
     UNDERWRITING_FIELDS: UNDERWRITING_FIELDS,
+    ACCOUNT_WEIGHTS: ACCOUNT_WEIGHTS,
   };
   if (typeof window !== 'undefined') window.SLA_UW_FIELDS = _API;
   if (typeof module !== 'undefined' && module.exports) module.exports = _API;
