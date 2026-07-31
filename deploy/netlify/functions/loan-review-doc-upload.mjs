@@ -92,18 +92,16 @@ async function handle(req, context) {
   const docKey = keySafe(body.reviewId) + '/' + docId;
   const now = new Date().toISOString();
 
-  // Deploy 236.163 — version the filename BEFORE the blob write
-  // when this is an "add" upload to a tray that already has a doc,
-  // so the blob metadata + the docState.documents[] entry agree.
-  // _autoVersionFilename strips any trailing " V<N>" from the
-  // existing primary's name to find the base, then appends
-  // " V<N+1>" derived from the total docs ever on the tray.
+  // Deploy 236.503 — filename is now finalized AFTER the AI review (once we
+  // know the business / individual the doc names), via _finalizeDocName().
+  // At storage time we just keep the incoming filename as a provisional; the
+  // old " V<N>"-on-every-add behavior (_autoVersionFilename) is retired — a
+  // V-suffix is only added on a REPLACE, and the smart name is derived from
+  // the doc's OWN extracted entity, not a sibling tray doc's filename.
   const _existingDocState = review.docs[body.slug];
   const _incomingMode     = String(body.mode || '').toLowerCase();
   const _incomingFilename = String(body.filename || '');
-  const computedFilename  = _incomingMode === 'add'
-    ? _autoVersionFilename(_existingDocState, _incomingFilename)
-    : _incomingFilename;
+  const computedFilename  = _incomingFilename;
 
   // Store the raw bytes alongside metadata.
   const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
@@ -367,6 +365,24 @@ async function handle(req, context) {
     docState.aiReviewedAt = now;
   }
 
+  // Deploy 236.503 — finalize the smart display name now that the AI has
+  // (maybe) extracted the business / individual this doc names. Format:
+  // "DOC TYPE - Business or Individual on the doc - Category". Applied to
+  // BOTH the tray's current* fields and the documents[] entry so the UI,
+  // single-doc downloads, and the closer's ZIP all agree. A V-version is
+  // added only on a REPLACE (never on an add). Best-effort — never throws.
+  try {
+    _finalizeDocName(docState, docId, {
+      mode:             incomingMode,
+      typeLabel:        (docState.isCustom && docState.label) ? docState.label : (docMeta.label || docState.label || body.slug),
+      section:          (docMeta.section || docState.section || 'loan'),
+      incomingFilename: _incomingFilename,
+      entities:         docState.aiExtractedEntities || {},
+    });
+  } catch (e) {
+    console.warn('loan-review-doc-upload: name finalize failed:', e && e.message);
+  }
+
   review.docs[body.slug] = docState;
   review.updatedAt = now;
   review.lastEditedBy = normalizeEmail(user.email);
@@ -486,31 +502,91 @@ function buildLoanContext(review) {
   };
 }
 
-// Deploy 236.163 — derive "<base> V<N>.<ext>" for an "in addition"
-// upload. The base is taken from the tray's primary doc (or the
-// incoming filename if the tray's empty), stripped of any trailing
-// " V<N>". N = total docs ever on the tray (live + hidden + history)
-// + 1, so version numbers never collide even after hides.
-function _autoVersionFilename(docState, incomingFilename) {
-  const ext = _extOf(incomingFilename) || _extOf(docState && docState.currentFilename) || 'pdf';
-  const primaryName = (docState && docState.currentFilename) || incomingFilename || '';
-  const baseFromPrimary = _stripExt(primaryName).replace(/\s+V\d+\s*$/i, '').trim();
-  const base = baseFromPrimary || _stripExt(incomingFilename) || 'Document';
-  // Count everything we've ever seen on this tray: documents[] +
-  // any history entries. This way V<N> stays unique even when the
-  // LO has hidden earlier versions.
-  const docsCount = Array.isArray(docState && docState.documents) ? docState.documents.length : 0;
-  const histCount = Array.isArray(docState && docState.history)   ? docState.history.length   : 0;
-  const totalSeen = docsCount + histCount + (docsCount === 0 && (docState && docState.currentDocId) ? 1 : 0);
-  const version = totalSeen + 1;
-  return base + ' V' + version + '.' + ext;
-}
+// Deploy 236.503 — _autoVersionFilename (which appended " V<N>" to EVERY
+// add, deriving the base from a sibling doc's filename) is retired. Naming
+// is now finalized post-AI by _finalizeDocName below; V-versions only on a
+// replace. _extOf / _stripExt remain — used by the new namer.
 function _extOf(name) {
   const m = String(name || '').match(/\.([a-z0-9]{1,8})$/i);
   return m ? m[1].toLowerCase() : '';
 }
 function _stripExt(name) {
   return String(name || '').replace(/\.[a-z0-9]{1,8}$/i, '');
+}
+
+// ── Deploy 236.503 — smart document naming ──────────────────────────
+// "DOC TYPE - Business or Individual named on the doc - Category". The
+// entity comes from the doc's OWN AI extraction (llcName / borrowerName),
+// NOT from a sibling tray doc's filename (the old bug). Docs that don't
+// name a business/individual (tax certs, wire instructions, etc.) keep
+// their source filename rather than get a misleading label.
+// Short category label for the filename (Mike's spec: "Borrower", "Loan
+// Docs", …) — distinct from the full section titles ("Borrower Documents").
+const _SECTION_SHORT = {
+  borrower:   'Borrower',
+  guarantor:  'Guarantor',
+  collateral: 'Collateral',
+  loan:       'Loan Docs',
+  closing:    'Closing',
+};
+
+function _finalizeDocName(docState, docId, opts) {
+  const ext = _extOf(opts.incomingFilename) || _extOf(docState.currentFilename) || 'pdf';
+  const entity = _pickEntity(opts.section, opts.entities);
+  let base;
+  if (entity) {
+    base = [_cleanNamePart(opts.typeLabel), entity, _cleanNamePart(_SECTION_SHORT[opts.section] || '')]
+      .filter(Boolean).join(' - ');
+  } else {
+    // No business/individual on the doc → keep the source name (minus any
+    // stray trailing " V<N>"); don't invent a misleading label.
+    base = _stripExt(opts.incomingFilename).replace(/\s+V\d+\s*$/i, '').trim()
+        || _cleanNamePart(opts.typeLabel) || 'Document';
+  }
+  // Only a REPLACE gets a V-version; an "add" keeps its own distinct name.
+  if (opts.mode === 'replace') {
+    const hiddenCount = (docState.documents || []).filter((d) => d && d.hidden).length;
+    base = base + ' V' + (hiddenCount + 1);
+  }
+  const finalName = _dedupeTrayFilename(docState, docId, base + '.' + ext);
+  docState.currentFilename = finalName;
+  const d0 = (docState.documents || []).find((d) => d && d.docId === docId);
+  if (d0) d0.filename = finalName;
+  return finalName;
+}
+
+// Guarantor / individual docs name the person; everything else names the
+// business (LLC), each falling back to the other. Property-only docs with
+// no named entity return '' (caller keeps the source filename).
+function _pickEntity(section, ee) {
+  ee = ee || {};
+  const llc = _cleanNamePart(ee.llcName);
+  const person = _cleanNamePart(ee.borrowerName);
+  if (section === 'guarantor') return person || llc;
+  return llc || person;
+}
+
+function _cleanNamePart(s) {
+  if (!s) return '';
+  const t = String(s).replace(/[\/\\:*?"<>|]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  if (!t || /^(null|n\/?a|none|unknown)$/i.test(t)) return '';
+  return t;
+}
+
+// Avoid two docs on the same tray sharing a filename (they'd collide when
+// the closer extracts the ZIP). On an exact clash append " (2)", " (3)"…
+function _dedupeTrayFilename(docState, selfId, name) {
+  const taken = {};
+  (docState.documents || []).forEach((d) => {
+    if (d && d.docId !== selfId && d.filename) taken[String(d.filename).toLowerCase()] = true;
+  });
+  if (!taken[name.toLowerCase()]) return name;
+  const dot = name.lastIndexOf('.');
+  const nameBase = dot > 0 ? name.slice(0, dot) : name;
+  const nameExt  = dot > 0 ? name.slice(dot) : '';
+  let i = 2;
+  while (taken[(nameBase + ' (' + i + ')' + nameExt).toLowerCase()]) i++;
+  return nameBase + ' (' + i + ')' + nameExt;
 }
 
 // Deploy 236.165 — per-doc-type validity windows. Each rule is the
