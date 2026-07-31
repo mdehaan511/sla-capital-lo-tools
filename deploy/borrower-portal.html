@@ -177,10 +177,24 @@
     }
     function doLogout() { netlifyIdentity.logout(); }
 
+    // Deploy 236.505 — borrowers authenticate via Netlify Identity ONLY (no
+    // Supabase/Google here), so currentUser() is normally valid. But if the
+    // session is lost/expired while the app screen is up, currentUser() is
+    // null and .jwt() would throw an uncaught TypeError. Guard it: bounce to
+    // the sign-in screen with a friendly message instead of crashing.
+    function _borrowerJwt() {
+      var u = (window.netlifyIdentity && netlifyIdentity.currentUser && netlifyIdentity.currentUser());
+      if (!u || typeof u.jwt !== 'function') {
+        try { showLogin(); } catch (_) {}
+        return Promise.reject(new Error('Your session expired — please sign in again.'));
+      }
+      return u.jwt();
+    }
+
     // ── Loans ──
     function loadLoans() {
       var container = document.getElementById('loansContainer');
-      netlifyIdentity.currentUser().jwt().then(function(token) {
+      _borrowerJwt().then(function(token) {
         return fetch('/api/borrower-portal-loans', {
           headers: { 'Authorization': 'Bearer ' + token }
         });
@@ -265,7 +279,7 @@
         var dataUrl = String(reader.result || '');
         var idx = dataUrl.indexOf(',');
         var b64 = idx >= 0 ? dataUrl.slice(idx + 1) : '';
-        netlifyIdentity.currentUser().jwt().then(function(token) {
+        _borrowerJwt().then(function(token) {
           return fetch('/api/borrower-doc-upload', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
