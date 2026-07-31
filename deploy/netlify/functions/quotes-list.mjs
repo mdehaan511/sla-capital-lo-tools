@@ -95,16 +95,31 @@ function loanToQuoteShape(l) {
     decidedBy:        ex.decidedBy        || '',
     decisionNotes:    ex.decisionNotes    || '',
     submittedAt:      ex.submittedAt      || '',
+    // Deploy 236.513 — surface the LO's submit notes + the detail fields the
+    // Submissions / pipeline cards show (ARV, rehab, experience, FICO, LTV).
+    // For never-sized loans these live in `extra`, not form_data — read both
+    // (form_data wins when present) so the cards aren't full of em-dashes.
+    submitNotes:      ex.submitNotes      || '',
     formData: {
-      propType:      fd.propType,
-      _finalRate:    fd._finalRate,
-      _points:       fd._points,
-      loanAmt:       fd.loanAmt,
-      purchasePrice: fd.purchasePrice,
-      brokerName:    fd.brokerName,
-      brokerCompany: fd.brokerCompany,
-      brokerEmail:   fd.brokerEmail,
-      _isBrokerLoan: fd._isBrokerLoan,
+      propType:        fd.propType        ?? ex.propType,
+      _finalRate:      fd._finalRate       ?? ex._finalRate,
+      _points:         fd._points          ?? ex._points,
+      loanAmt:         fd.loanAmt          ?? ex.loanAmt,
+      purchasePrice:   fd.purchasePrice    ?? ex.purchasePrice,
+      propValue:       fd.propValue        ?? ex.propValue,
+      loanType:        fd.loanType         ?? ex.loanType,
+      arv:             fd.arv              ?? ex.arv,
+      estimatedARV:    fd.estimatedARV     ?? ex.estimatedARV,
+      rehabBudget:     fd.rehabBudget      ?? ex.rehabBudget,
+      rehabCost:       fd.rehabCost        ?? ex.rehabCost,
+      experience:      fd.experience       ?? ex.experience,
+      experienceLabel: fd.experienceLabel  ?? ex.experienceLabel,
+      fico:            fd.fico             ?? ex.fico,
+      ficoLabel:       fd.ficoLabel        ?? ex.ficoLabel,
+      brokerName:      fd.brokerName       ?? ex.brokerName,
+      brokerCompany:   fd.brokerCompany    ?? ex.brokerCompany,
+      brokerEmail:     fd.brokerEmail      ?? ex.brokerEmail,
+      _isBrokerLoan:   fd._isBrokerLoan    ?? ex._isBrokerLoan,
     },
     _fromLoan: true, // D2 marker (debugging; pages ignore it)
   };
