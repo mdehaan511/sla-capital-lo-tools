@@ -1875,17 +1875,31 @@ function render() {
   // JS (relocateSectionsToTabs) physically moves each into the
   // appropriate pane. Notes & Envelopes stay in the right sidebar
   // and are visible across all tabs.
+  // Deploy 236.493 — Underwriting + Lightning Docs tabs. RTL loans only
+  // for now (this field set is the RTL sheet; DSCR comes later). The
+  // panes are filled by loan-uw-tab.js's SLA_UW_TAB.mount() post-render.
+  var _isRtlLoan = String((l && l.toolType) || '').toLowerCase() === 'rtl';
+  var _uwTabBtns = _isRtlLoan
+    ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' +
+      '<button type="button" class="ld-tab" data-ld-tab="lightning" onclick="switchLdTab(\'lightning\')"><span class="ld-tab-icon">\u{26A1}</span>Lightning Docs</button>'
+    : '';
+  var _uwPanes = _isRtlLoan
+    ? '<div class="ld-pane" data-ld-pane="underwriting" id="ldPaneUnderwriting"></div>' +
+      '<div class="ld-pane" data-ld-pane="lightning" id="ldPaneLightning"></div>'
+    : '';
   var tabsHtml =
     '<div class="ld-tabs" role="tablist">' +
       '<button type="button" class="ld-tab active" data-ld-tab="loan"      onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
       '<button type="button" class="ld-tab"        data-ld-tab="contacts"  onclick="switchLdTab(\'contacts\')"><span class="ld-tab-icon">\u{1F465}</span>Contacts</button>' +
       '<button type="button" class="ld-tab"        data-ld-tab="documents" onclick="switchLdTab(\'documents\')"><span class="ld-tab-icon">\u{1F4C4}</span>Documents</button>' +
       '<button type="button" class="ld-tab"        data-ld-tab="tasks"     onclick="switchLdTab(\'tasks\')"><span class="ld-tab-icon">\u{2705}</span>Tasks<span class="ld-tab-count" id="ldTabTasksCount" hidden></span></button>' +
+      _uwTabBtns +
     '</div>' +
     '<div class="ld-pane active" data-ld-pane="loan"      id="ldPaneLoan"></div>' +
     '<div class="ld-pane"        data-ld-pane="contacts"  id="ldPaneContacts"></div>' +
     '<div class="ld-pane"        data-ld-pane="documents" id="ldPaneDocuments"></div>' +
-    '<div class="ld-pane"        data-ld-pane="tasks"     id="ldPaneTasks"></div>';
+    '<div class="ld-pane"        data-ld-pane="tasks"     id="ldPaneTasks"></div>' +
+    _uwPanes;
   // Deploy 236.126 — top-of-page warning banner placeholder.
   // computeGuarantorOwnershipBanner() fills this slot after render
   // based on loan.guarantorOwnership values + linked guarantor count.
@@ -2159,6 +2173,23 @@ function render() {
   // Funding Plan box's Investor dropdown. Async; the box already shows
   // the seeded current selection until this lands.
   populateFundingPlanInvestors();
+
+  // Deploy 236.493 — mount the Underwriting + Lightning Docs tabs (RTL).
+  // Self-contained in loan-uw-tab.js; fills #ldPaneUnderwriting +
+  // #ldPaneLightning. refreshLoan keeps _loan/_client in sync on save.
+  try {
+    if (window.SLA_UW_TAB && String((_loan && _loan.toolType) || '').toLowerCase() === 'rtl') {
+      SLA_UW_TAB.mount({
+        loan: _loan, clientId: _clientId, loanId: _loanId,
+        owner: (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null,
+        refreshLoan: function (updated) {
+          _loan = updated;
+          var i = (_client && _client.loans || []).findIndex(function (x) { return x && x.id === _loanId; });
+          if (i >= 0) _client.loans[i] = updated;
+        },
+      });
+    }
+  } catch (e) { console.warn('[SLA] UW tab mount failed:', e); }
 }
 
 // Deploy 236.112 — Borrower Info pane populator. The primary

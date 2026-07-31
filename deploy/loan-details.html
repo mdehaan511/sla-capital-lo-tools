@@ -1123,10 +1123,39 @@
 .pp-input.past { color: var(--danger, #7c1f1f); background: rgba(124,31,31,0.04); border-color: rgba(124,31,31,0.30); }
 .pp-input.soon { color: #c98e1a; background: rgba(201,142,26,0.06); border-color: rgba(201,142,26,0.30); }
 .pp-empty { font-size: 12px; color: var(--muted); font-style: italic; padding: 4px 0; }
+
+/* Deploy 236.493 — Underwriting + Lightning Docs tabs */
+.uw-wrap { display: flex; flex-direction: column; gap: 18px; }
+.uw-gate { padding: 2rem; text-align: center; color: var(--muted); font-size: 14px; }
+.uw-section { border: 1px solid var(--border, #E4DFD4); border-radius: 12px; overflow: hidden; background: var(--surface, #fff); }
+.uw-section-head { padding: 10px 16px; background: rgba(38,26,54,0.04); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted, #7a7488); border-bottom: 1px solid var(--border, #E4DFD4); }
+.uw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1px; background: var(--border, #E4DFD4); }
+.uw-cell { background: var(--surface, #fff); padding: 10px 14px; min-height: 62px; }
+.uw-cell.uw-editable { cursor: pointer; }
+.uw-cell.uw-editable:hover { background: var(--bg, #f7f5f1); }
+.uw-cell.uw-calc { background: rgba(38,26,54,0.02); }
+.uw-cell.uw-flag { background: rgba(124,31,31,0.08); box-shadow: inset 3px 0 0 var(--danger, #7c1f1f); }
+.uw-label { font-size: 11px; color: var(--muted, #7a7488); text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; }
+.uw-value { font-size: 15px; font-weight: 600; color: var(--text, #1a1520); font-family: 'DM Mono', monospace; margin-top: 2px; word-break: break-word; }
+.uw-cell.uw-flag .uw-value { color: var(--danger, #7c1f1f); }
+.uw-empty { color: var(--muted, #7a7488); font-weight: 400; }
+.uw-prov { font-size: 10px; color: var(--muted, #7a7488); margin-top: 3px; }
+.uw-hist { color: var(--gold-mid, #b5712d); text-decoration: none; }
+.uw-acct-row { display: flex; gap: 6px; margin-top: 4px; }
+.uw-acct-type { flex: 1.4; }
+.uw-acct-bal { flex: 1; min-width: 0; }
+.uw-acct-wt { width: 54px; }
+.uw-acct select, .uw-acct input { padding: 5px 7px; border: 1px solid var(--border, #E4DFD4); border-radius: 6px; font-size: 12px; font-family: 'DM Sans', sans-serif; background: #fff; }
 </style>
 
 <div class="toast" id="toast"></div>
 
+<!-- Deploy 236.493 — Underwriting / Lightning Docs tabs. Load before
+     loan-details.js so SLA_UW_FIELDS / SLA_UW_CALC / SLA_UW_TAB exist
+     when render() mounts the panes. -->
+<script src="/loan-uw-fields.js"></script>
+<script src="/loan-uw-calc.js"></script>
+<script src="/loan-uw-tab.js"></script>
 <script src="/loan-details.js"></script>
 </body>
 </html>
