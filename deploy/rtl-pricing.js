@@ -583,6 +583,16 @@ function priceRTL(I) {
   }
 
   var p=pts(fr);
+  // Deploy 236.498 — sub-$125k loans are below the Colchis minimum
+  // ($125,000). SLA will still fund them, but at a floor of 12% / 2 points,
+  // and they require manager approval. Applied AFTER normal pricing so it
+  // overrides the computed rate/points; surfaced as a flag for the LO.
+  if (!rErr && bMax && bMax > 0 && bMax < 125000) {
+    if (rate == null || rate < 0.12) rate = 0.12;
+    if (p < 2) p = 2;
+    floor = true;
+    flags.push('⚠ Loan under $125,000 — priced at the SLA minimum (12% / 2 pts). Requires approval.');
+  }
   var pDol=bMax?bMax*p/100:null;
   // Deploy 196: Dutch vs Non-Dutch monthly payment math.
   //   Maximum monthly = interest on the full loan amount (max draw scenario).
