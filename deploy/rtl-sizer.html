@@ -50,8 +50,13 @@ window.ClientBook = {
       // Sizer financials (read-only on Loan Details)
       // Item #4: when sizer computes a max-allowable loan, that becomes the
       // saved loanAmt. LO can override on Loan Details (loanAmtLocked flag).
-      loanAmt:     formData._maxLoan || formData.loanAmt || formData.purchasePrice || '',
+      // Deploy 236.515 — Transactional Funding loans carry their amount in
+      // transactionalAmt (no purchase/rehab/max-loan math), so it must be in
+      // the loanAmt fallback — otherwise the loan saved with an EMPTY loanAmt
+      // and Loan Details / the UW tab had nothing to calculate.
+      loanAmt:     formData._maxLoan || formData.loanAmt || formData.transactionalAmt || formData.purchasePrice || '',
       loanType:    formData.loanType    || '',
+      transactionalAmt: formData.transactionalAmt || '',
       fico:        formData.fico        || '',
       rate:        formData._finalRate  || '',
       points:      formData._points     || '',
