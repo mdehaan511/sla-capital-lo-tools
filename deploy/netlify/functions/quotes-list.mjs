@@ -34,6 +34,10 @@ import { quotesIndex } from './_shared/quotes-index.mjs'; // orphan-draft merge
 import { db } from './_shared/supabase-db.mjs';
 
 const LOAN_SELECT = 'id,client_id,owner_email,address,status,tool_type,loan_amt,' +
+  // Deploy 236.516 — these are dedicated loan COLUMNS (not in form_data /
+  // extra). The Submissions + pipeline cards need them (ARV, Rehab, FICO,
+  // purchase price, prop value, rate, points), so fetch + project them.
+  'rate,points,purchase_price,prop_value,rehab_budget,arv,prop_type,fico,' +
   'created_at,updated_at,saved_at,form_data,extra,clients!client_id(first_name,last_name,email)';
 
 async function _loansPG(selfEmail) {
@@ -101,20 +105,23 @@ function loanToQuoteShape(l) {
     // (form_data wins when present) so the cards aren't full of em-dashes.
     submitNotes:      ex.submitNotes      || '',
     formData: {
-      propType:        fd.propType        ?? ex.propType,
+      // Deploy 236.516 — these are promoted loan COLUMNS; use them as the
+      // final fallback (form_data / extra win when present) so real RTL
+      // fix-and-flip loans surface ARV / Rehab / FICO / price on the cards.
+      propType:        fd.propType        ?? ex.propType       ?? l.prop_type,
       _finalRate:      fd._finalRate       ?? ex._finalRate,
       _points:         fd._points          ?? ex._points,
-      loanAmt:         fd.loanAmt          ?? ex.loanAmt,
-      purchasePrice:   fd.purchasePrice    ?? ex.purchasePrice,
-      propValue:       fd.propValue        ?? ex.propValue,
-      loanType:        fd.loanType         ?? ex.loanType,
-      arv:             fd.arv              ?? ex.arv,
+      loanAmt:         fd.loanAmt          ?? ex.loanAmt        ?? l.loan_amt,
+      purchasePrice:   fd.purchasePrice    ?? ex.purchasePrice  ?? l.purchase_price,
+      propValue:       fd.propValue        ?? ex.propValue      ?? l.prop_value,
+      loanType:        fd.loanType         ?? ex.loanType       ?? l.tool_type,
+      arv:             fd.arv              ?? ex.arv            ?? l.arv,
       estimatedARV:    fd.estimatedARV     ?? ex.estimatedARV,
-      rehabBudget:     fd.rehabBudget      ?? ex.rehabBudget,
+      rehabBudget:     fd.rehabBudget      ?? ex.rehabBudget    ?? l.rehab_budget,
       rehabCost:       fd.rehabCost        ?? ex.rehabCost,
       experience:      fd.experience       ?? ex.experience,
       experienceLabel: fd.experienceLabel  ?? ex.experienceLabel,
-      fico:            fd.fico             ?? ex.fico,
+      fico:            fd.fico             ?? ex.fico           ?? l.fico,
       ficoLabel:       fd.ficoLabel        ?? ex.ficoLabel,
       brokerName:      fd.brokerName       ?? ex.brokerName,
       brokerCompany:   fd.brokerCompany    ?? ex.brokerCompany,
@@ -131,18 +138,29 @@ function _sortRows(rows) {
   return rows;
 }
 
+function _normAddr(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 // Orphan drafts from the quotes index: any stored quote whose loanId
 // is empty or not among the synthesized loan rows. (Folded quotes all
 // carry a valid loanId since D1 healed linkage, so they dedupe away.)
-async function _orphanDrafts(knownLoanIds) {
+async function _orphanDrafts(knownLoanIds, knownLoanAddrs) {
   try {
     const { index, exists } = await quotesIndex.readIndex();
     if (!exists || !index || !index.byOwner) return {};
     const out = {};
     for (const owner of Object.keys(index.byOwner)) {
+      const ownerNorm = normalizeEmail(owner);
       for (const q of (index.byOwner[owner] || [])) {
         if (!q) continue;
         if (q.loanId && knownLoanIds.has(q.loanId)) continue; // loan-backed → synthesized
+        // Deploy 236.516 — an orphan quote at the SAME address as a known
+        // loan (same owner) is a stale/unlinked duplicate of that loan — a
+        // genuinely distinct deal has its OWN loan row. Skip it so the
+        // pipeline doesn't show a phantom second card that links right back
+        // to the same Loan Details. Fixes the duplicate-after-save report.
+        if (q.address && knownLoanAddrs && knownLoanAddrs.has(ownerNorm + '|' + _normAddr(q.address))) continue;
         (out[owner] = out[owner] || []).push(q);
       }
     }
@@ -167,7 +185,13 @@ export default async (req, context) => {
   try {
     const loans = await _loansPG(wantAll ? null : selfEmail);
     const knownLoanIds = new Set(loans.map((l) => l.id));
-    const orphansByOwner = await _orphanDrafts(knownLoanIds);
+    // Deploy 236.516 — owner|address set so orphan quotes at a known loan's
+    // address are deduped away (they're stale/unlinked copies of that loan).
+    const knownLoanAddrs = new Set(
+      loans.filter((l) => l.address)
+           .map((l) => normalizeEmail(l.owner_email || '') + '|' + _normAddr(l.address))
+    );
+    const orphansByOwner = await _orphanDrafts(knownLoanIds, knownLoanAddrs);
 
     if (wantAll) {
       const byOwner = {};
