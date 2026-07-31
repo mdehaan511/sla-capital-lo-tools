@@ -212,13 +212,55 @@
   function _rerender(){ if (_ctx) mount(_ctx); }
 
   // ── Inline edit ────────────────────────────────────────────────────
+  // Field → input type for inline editing. Keeps money/date/enum entry
+  // clean and mistake-resistant (a domain where mistakes are costly).
+  function inputType(key) {
+    if (MONEY_KEYS[key]) return { kind: 'money' };
+    if (key === 'titleCommitmentDate' || key === 'earliestSigningDate') return { kind: 'date' };
+    if (key === 'usCitizen')          return { kind: 'select', opts: ['', 'Yes', 'No'] };
+    if (key === 'maritalStatus')      return { kind: 'select', opts: ['', 'Single', 'Married', 'Divorced', 'Widowed'] };
+    if (key === 'interestAccrualType')return { kind: 'select', opts: ['', 'Dutch', 'Non-Dutch'] };
+    return { kind: 'text' };
+  }
+
+  // Inline edit: turn the Value cell into a typed input in place. Enter /
+  // blur / select-change commits; Escape reverts. No prompt boxes.
   function _edit(dataset, key) {
+    var cell = document.querySelector('.uw-r-value[data-key="' + key + '"]');
+    if (!cell || cell.querySelector('.uw-edit-input')) return; // already editing
     var loan = _ctx.loan || {};
-    var data = dataset==='uw' ? (loan.uwData||{}) : (loan.lightningData||{});
+    var data = dataset === 'uw' ? (loan.uwData || {}) : (loan.lightningData || {});
     var cur = data[key] && data[key].value != null ? data[key].value : '';
-    var next = window.prompt('Enter value:', String(cur));
-    if (next === null) return; // cancelled
-    _save(dataset, key, next);
+    var t = inputType(key);
+    var vspan = cell.querySelector('.uw-v');
+    if (!vspan) return;
+
+    var html;
+    if (t.kind === 'select') {
+      html = '<select class="uw-edit-input">' + t.opts.map(function (o) {
+        return '<option value="' + escA(o) + '"' + (String(cur) === o ? ' selected' : '') + '>' + esc(o || '—') + '</option>';
+      }).join('') + '</select>';
+    } else if (t.kind === 'date') {
+      html = '<input class="uw-edit-input" type="date" value="' + escA(cur) + '" />';
+    } else if (t.kind === 'money') {
+      html = '<input class="uw-edit-input" type="text" inputmode="decimal" value="' + escA(cur !== '' ? num(cur) : '') + '" />';
+    } else {
+      html = '<input class="uw-edit-input" type="text" value="' + escA(cur) + '" />';
+    }
+    vspan.innerHTML = html;
+    var inp = vspan.querySelector('.uw-edit-input');
+    var done = false;
+    function commit(save) {
+      if (done) return; done = true;
+      if (save) { _save(dataset, key, inp.value); } else { _rerender(); }
+    }
+    try { inp.focus(); if (inp.select) inp.select(); } catch (_) {}
+    inp.onkeydown = function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+      else if (e.key === 'Escape') { commit(false); }
+    };
+    inp.onblur = function () { commit(true); };
+    if (inp.tagName === 'SELECT') inp.onchange = function () { commit(true); };
   }
 
   function _acct(dataset, key) {
@@ -253,15 +295,26 @@
   function _history(dataset, key) {
     var loan = _ctx.loan || {};
     var audit = (dataset==='uw' ? loan.uwAudit : loan.lightningAudit) || [];
-    var rows = audit.filter(function(a){return a.key===key;}).slice().reverse();
-    if (!rows.length) { alert('No change history yet.'); return; }
-    var msg = rows.map(function(a){
-      var who = a.isAI ? ('AI'+(a.aiNote?' ('+a.aiNote+')':'')) : (a.byName||a.by||'?');
+    var rows = audit.filter(function(a){ return a.key===key; }).slice().reverse();
+    var fields = dataset==='uw' ? F.UNDERWRITING_FIELDS : F.LIGHTNING_DOCS_FIELDS;
+    var field = fields.filter(function(f){ return f.key===key; })[0];
+    var title = field ? field.label : key;
+    var body = rows.length ? rows.map(function(a){
+      var who = a.isAI ? ('AI' + (a.aiNote ? ' — ' + esc(a.aiNote) : '')) : esc(a.byName || a.by || '?');
       var when = a.at ? new Date(a.at).toLocaleString() : '';
-      var val = (a.to && typeof a.to==='object') ? JSON.stringify(a.to) : String(a.to==null?'':a.to);
-      return '• ' + val + '   — ' + who + (when?'  ['+when+']':'');
-    }).join('\n');
-    alert('Change history — '+key+'\n\n'+msg);
+      var val = (a.to && typeof a.to==='object') ? esc(JSON.stringify(a.to))
+              : esc(MONEY_KEYS[key] && looksNumeric(a.to) ? money(a.to) : String(a.to==null?'':a.to));
+      return '<div class="uw-hrow"><div class="uw-hval">' + (val||'<span class="uw-empty">—</span>') + '</div>'
+        + '<div class="uw-hmeta">' + who + (when ? ' · ' + esc(when) : '') + '</div></div>';
+    }).join('') : '<div class="uw-hempty">No changes recorded yet.</div>';
+    var bg = document.createElement('div');
+    bg.className = 'uw-hist-bg';
+    bg.onclick = function(e){ if (e.target===bg) bg.remove(); };
+    bg.innerHTML = '<div class="uw-hist-card"><div class="uw-hist-hd">Change history — ' + esc(title)
+      + '<button type="button" class="uw-hist-x" title="Close">✕</button></div>'
+      + '<div class="uw-hist-body">' + body + '</div></div>';
+    bg.querySelector('.uw-hist-x').onclick = function(){ bg.remove(); };
+    document.body.appendChild(bg);
   }
 
   window.SLA_UW_TAB = { mount:mount, _edit:_edit, _acct:_acct, _history:_history };
