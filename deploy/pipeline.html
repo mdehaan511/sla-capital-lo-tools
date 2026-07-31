@@ -6,6 +6,9 @@
   <title>Pipeline — SLA Capital</title>
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="sla-api.js"></script>
+  <!-- Deploy 236.499 — RTL pricing engine, so New Application cards can show
+       the estimated max loan (not the purchase price). Sets window.SLA_RTL. -->
+  <script src="rtl-pricing.js"></script>
   <script src="sla-forms.js"></script>
   <!-- Deploy 236.325 — defer non-critical shell scripts so they don't
        block first paint. Navbar / notifications / chat all install
@@ -1677,10 +1680,14 @@ function buildProspectCard(it) {
     ? (brokerDisplay || 'Broker')
     : (borrowerName || 'Borrower');
   var addr = p.propAddress || '';
-  var amt  = fmtMoney(num(p.purchasePrice || p.propertyValue));
   var tool = (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl'
            || p.loanProduct === 'bridge'   || p.loanProduct === 'transactional')
     ? 'rtl' : 'dscr';
+  // Deploy 236.499 — RTL New Application cards show the estimated MAX LOAN
+  // (computed from the application via the sizer's engine), not the purchase
+  // price. Falls back to purchase price when it can't be computed.
+  var _rtlMax = (tool === 'rtl') ? computeRtlProspectMax(p) : null;
+  var amt  = fmtMoney(num(_rtlMax || p.purchasePrice || p.propertyValue));
   var loName = loDisplay(it.ownerKey);
   var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
 
@@ -3684,6 +3691,41 @@ function fmtMoney(n) {
   if (n >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
   if (n >= 1e3) return '$' + Math.round(n).toLocaleString();
   return '$' + Math.round(n);
+}
+
+// Deploy 236.499 — estimated MAX LOAN for an RTL New Application (prospect),
+// computed from the application's inputs via the SAME pricing engine the RTL
+// sizer uses (SLA_RTL). Mirrors the sizer's prospect→form mapping
+// (prefillRTLFromProspect + applyFormCreditToRTLFico) so the card matches
+// what the LO sees on opening the sizer. fix_flip defaults to Light Rehab;
+// transactional's loan = purchase amount. Returns null if it can't compute
+// (missing engine/inputs) so the caller falls back to the purchase price.
+function _rtlCreditToFico(cs) {
+  var map = { '780+':740,'760-779':740,'740-759':740,'720-739':720,'700-719':700,
+              '680-699':680,'660-679':660,'640-659':640,'620-639':620,'550-619':550,'below-660':640 };
+  if (map[cs] != null) return map[cs];
+  var n = parseInt(String(cs || '').replace(/[^\d]/g, ''), 10);
+  return isFinite(n) ? n : 740; // default to the top bucket when unknown
+}
+function computeRtlProspectMax(p) {
+  if (!window.SLA_RTL || !p) return null;
+  var product = String(p.loanProduct || '').toLowerCase();
+  var pp = num(p.purchasePrice);
+  if (product === 'transactional') return pp || null; // txn loan = purchase amount
+  var lt = product === 'bridge' ? 'bridge' : 'light'; // fix_flip / rtl → Light Rehab
+  var flips = parseInt(p.flipsCompleted, 10);
+  var exp = isFinite(flips) ? (flips >= 8 ? 8 : flips >= 4 ? 5 : 1) : 1;
+  var pt = /multi|mfr|5.?20/i.test(String(p.propType || '')) ? 'mfr' : 'sfr';
+  var purp = String(p.loanPurpose || 'purchase').toLowerCase();
+  if (purp === 'refinance') purp = 'cashout';
+  try {
+    var res = window.SLA_RTL.priceRTL({
+      lt: lt, fr: _rtlCreditToFico(p.creditScore), exp: exp, pt: pt,
+      pp: pp, arv: num(p.estimatedARV || p.propertyValue), rb: num(p.rehabCost),
+      term: 12, purp: purp, state: '',
+    });
+    return (res && res.bMax) ? res.bMax : null;
+  } catch (e) { return null; }
 }
 
 function relDate(iso) {
