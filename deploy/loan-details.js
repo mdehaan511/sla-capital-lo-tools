@@ -2555,7 +2555,7 @@ function downloadGuarantorApplication(btn, guarantorClientId) {
            '&guarantorClientId=' + encodeURIComponent(guarantorClientId) +
            ((_loEmail && _user && _loEmail !== _user.email)
              ? '&owner=' + encodeURIComponent(_loEmail) : '');
-  netlifyIdentity.currentUser().jwt().then(function(token) {
+  SLA.getToken().then(function(token) {
     return fetch('/api/guarantor-application-download' + qs, {
       headers: { 'Authorization': 'Bearer ' + token },
     });
@@ -5521,11 +5521,11 @@ function moveToInProcessing() {
   // Cross-LO admin: include owner override when acting on another LO's loan
   if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
 
-  // Use the netlifyIdentity.currentUser().jwt() pattern — same as
-  // generateLoanApp and other authed POSTs on this page. Earlier
-  // Deploy 167 reached into _user.token.access_token which isn't
-  // reliably populated when this function fires.
-  netlifyIdentity.currentUser().jwt().then(function(token) {
+  // Deploy 236.504 — use SLA.getToken() (Supabase-aware) for the Bearer
+  // token, NOT netlifyIdentity.currentUser().jwt() which is null (→ crash)
+  // for Google/Supabase-logged-in LOs. getToken() handles both auth
+  // systems and returns '' (clean 401) rather than throwing.
+  SLA.getToken().then(function(token) {
     return fetch('/api/loan-advance-status', {
       method: 'POST',
       headers: {
@@ -5601,7 +5601,7 @@ function adminMoveStatus() {
   var body = { clientId: _client.id, loanId: _loanId, newStatus: target };
   if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
 
-  netlifyIdentity.currentUser().jwt().then(function(token) {
+  SLA.getToken().then(function(token) {
     return fetch('/api/loan-advance-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
@@ -7283,7 +7283,7 @@ function postSlackNotification(webhookUrl, notes) {
 function downloadTermSheet() {
   if (!_loan || !_client) { showToast('Loan not loaded yet'); return; }
   showToast('Generating term sheet…');
-  netlifyIdentity.currentUser().jwt().then(function(token) {
+  SLA.getToken().then(function(token) {
     var body = {
       clientId: _client.id,
       loanId: _loan.id,
@@ -7730,7 +7730,7 @@ function downloadSignedApp() {
            '&loanId='   + encodeURIComponent(_loanId) +
            ((_loEmail && _user && _loEmail !== _user.email)
              ? '&owner=' + encodeURIComponent(_loEmail) : '');
-  netlifyIdentity.currentUser().jwt().then(function(token) {
+  SLA.getToken().then(function(token) {
     return fetch('/api/loan-bundle-download' + qs, {
       headers: { 'Authorization': 'Bearer ' + token },
     });
