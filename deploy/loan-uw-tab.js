@@ -147,25 +147,30 @@
     var order = [], bySection = {};
     fields.forEach(function(f){ if(!bySection[f.section]){bySection[f.section]=[];order.push(f.section);} bySection[f.section].push(f); });
 
-    var html = '<div class="uw-wrap">';
+    // 3-column table (Item | Value | Location) mirroring the spreadsheet.
+    // Section names span all three columns; provenance/audit rides as small
+    // subtext under the Value so the audit stays without cluttering the grid.
+    var html = '<div class="uw-wrap"><div class="uw-table">'
+      + '<div class="uw-thead"><div>Item</div><div>Value</div><div>Location</div></div>';
     order.forEach(function(sec){
-      html += '<div class="uw-section"><div class="uw-section-head">'+esc(sec)+'</div><div class="uw-grid">';
+      html += '<div class="uw-srow">'+esc(sec)+'</div>';
       bySection[sec].forEach(function(f){
         if (f.accountRow) { html += accountRowHtml(dataset, f, data); return; }
         var r = resolve(f, loan, data, calc);
-        var cls = 'uw-cell' + (r.flag?' uw-flag':'') + (r.calc?' uw-calc':'') + (r.editable?' uw-editable':'');
+        var valCls = 'uw-r-value' + (r.flag?' uw-flag':'') + (r.calc?' uw-calc':'') + (r.editable?' uw-editable':'');
         var editAttr = r.editable ? ' onclick="SLA_UW_TAB._edit(\''+dataset+'\',\''+f.key+'\')" title="Click to edit"' : '';
-        html += '<div class="'+cls+'"'+editAttr+' data-key="'+escA(f.key)+'">'
-          + '<div class="uw-label">'+esc(f.label)+'</div>'
-          + '<div class="uw-value">'+ (r.value===''||r.value==null ? '<span class="uw-empty">—</span>' : esc(r.calc ? r.value : fmtDisplay(f.key, r.value))) +'</div>'
-          + '<div class="uw-prov">'+esc(r.prov||'')
-          + (data[f.key] ? ' <a href="#" class="uw-hist" onclick="event.stopPropagation();SLA_UW_TAB._history(\''+dataset+'\',\''+f.key+'\');return false">history</a>' : '')
-          + '</div>'
-          + '</div>';
+        var disp = (r.value===''||r.value==null) ? '<span class="uw-empty">—</span>' : esc(r.calc ? r.value : fmtDisplay(f.key, r.value));
+        var prov = r.prov
+          ? '<span class="uw-prov">'+esc(r.prov)
+            + (data[f.key] ? ' · <a href="#" class="uw-hist" onclick="event.stopPropagation();SLA_UW_TAB._history(\''+dataset+'\',\''+f.key+'\');return false">history</a>' : '')
+            + '</span>'
+          : '';
+        html += '<div class="uw-r-item">'+esc(f.label)+'</div>'
+          + '<div class="'+valCls+'"'+editAttr+' data-key="'+escA(f.key)+'"><span class="uw-v">'+disp+'</span>'+prov+'</div>'
+          + '<div class="uw-r-loc">'+esc(f.sourceNote||'')+'</div>';
       });
-      html += '</div></div>';
     });
-    html += '</div>';
+    html += '</div></div>';
     return html;
   }
 
@@ -176,15 +181,16 @@
       return '<option value="'+escA(w.type)+'"'+(val.type===w.type?' selected':'')+'>'+esc(w.type)+'</option>';
     }).join('');
     var wDisp = (val.weight==null||val.weight==='') ? '' : (num(val.weight)*100)+'%';
-    return '<div class="uw-cell uw-acct" data-key="'+escA(f.key)+'">'
-      + '<div class="uw-label">'+esc(f.label)+'</div>'
-      + '<div class="uw-acct-row">'
-      +   '<select class="uw-acct-type" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')">'+opts+'</select>'
-      +   '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="balance" value="'+escA(val.balance!=null&&val.balance!==''?money(val.balance):'')+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" />'
-      +   '<input class="uw-acct-wt" type="text" placeholder="wt %" value="'+escA(wDisp)+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" title="weight % (defaults from type)" />'
+    return '<div class="uw-r-item">'+esc(f.label)+'</div>'
+      + '<div class="uw-r-value uw-acct" data-key="'+escA(f.key)+'">'
+      +   '<div class="uw-acct-row">'
+      +     '<select class="uw-acct-type" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')">'+opts+'</select>'
+      +     '<input class="uw-acct-bal" type="text" inputmode="decimal" placeholder="balance" value="'+escA(val.balance!=null&&val.balance!==''?money(val.balance):'')+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" />'
+      +     '<input class="uw-acct-wt" type="text" placeholder="wt %" value="'+escA(wDisp)+'" onchange="SLA_UW_TAB._acct(\''+dataset+'\',\''+f.key+'\')" title="weight % (defaults from type)" />'
+      +   '</div>'
+      +   (data[f.key] ? '<span class="uw-prov">'+esc(provText(data[f.key]))+'</span>' : '')
       + '</div>'
-      + '<div class="uw-prov">'+esc(data[f.key]?provText(data[f.key]):'Most Recent Account Statement')+'</div>'
-      + '</div>';
+      + '<div class="uw-r-loc">Most Recent Account Statement</div>';
   }
 
   // ── Mount / re-render ──────────────────────────────────────────────
