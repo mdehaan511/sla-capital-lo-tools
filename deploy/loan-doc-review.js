@@ -211,6 +211,8 @@
       '.dr-root .dr-other-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }',
       '.dr-root .dr-other-title { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }',
       '.dr-root .dr-other-empty { font-size:12px; color:var(--muted); font-style:italic; padding:6px 2px 2px; }',
+      // Deploy 236.502 — auto-compressed badge (amber, informational).
+      '.dr-root .dr-comp-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--gold-mid); background:rgba(200,129,58,0.10); border:1px solid var(--gold-border, rgba(200,129,58,0.28)); border-radius:20px; padding:2px 9px; cursor:help; }',
       // Deploy 236.164 — bulk-approve button uses the green palette
       // so it reads as a "safe positive action" at a glance.
       '.dr-root .dr-bulk-approve-btn { color:var(--dr-green); border-color:var(--dr-green-border); }',
@@ -988,6 +990,11 @@
     // 14 days; gray = future, just informational. Click goes to
     // the tray body so the LO can see the AI's dateNotes.
     var expBadge = _expirationBadge(d);
+    // Deploy 236.502 — flag docs the browser auto-compressed to fit the
+    // upload limit so the processor verifies legibility vs. the original.
+    var compBadge = d.autoCompressed
+      ? '<div class="dr-comp-badge" title="This file was too large for direct upload, so it was auto-compressed in the browser. Verify small print is legible against the borrower’s original.">↓ Auto-compressed' + (d.originalSizeBytes ? ' from ' + (d.originalSizeBytes / 1024 / 1024).toFixed(1) + ' MB' : '') + ' — verify legibility</div>'
+      : '';
 
     return '<div class="tray ' + effectiveVerdict + (d.hidden ? ' is-hidden' : '') + '" id="dr-tray_' + escAttr(slug) + '">' +
       '<div class="tray-head" onclick="dr_toggleExpand(\'' + escAttr(slug) + '\')">' +
@@ -995,6 +1002,7 @@
           '<div class="tray-name" id="dr-tray-name_' + escAttr(slug) + '">' + trayNameHtml + '</div>' +
           '<div class="tray-conditions">' + escHtml(meta.conditions) + '</div>' +
           expBadge +
+          compBadge +
         '</div>' +
         '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
       '</div>' +
@@ -1115,17 +1123,32 @@
     _uploadingSlug = slug;
     _expanded[slug] = true;
     render();
-    showToast('Uploading ' + file.name + '…', 'info');
+    // Deploy 236.502 — large files get auto-compressed in the browser
+    // before upload; warn up front since it can take a few seconds.
+    if ((file.size || 0) > 4.2 * 1024 * 1024) {
+      showToast('Large file — compressing before upload…', 'info');
+    } else {
+      showToast('Uploading ' + file.name + '…', 'info');
+    }
     var uploadOpts = {};
     if (opts.mode)           uploadOpts.mode = opts.mode;
     if (opts.replaceDocIds)  uploadOpts.replaceDocIds = opts.replaceDocIds;
     global.SLA.LoanReviews.uploadDoc(_review.id, slug, file, uploadOpts).then(function(r) {
       _review = r.review;
       _uploadingSlug = null;
-      var verdict = (r.review.docs[slug] && r.review.docs[slug].aiVerdict) || '';
-      if (verdict === 'approved')      showToast('Uploaded — AI says looks good.', 'success');
-      else if (verdict === 'issues')   showToast('Uploaded — AI flagged issues. Review below.', 'info');
-      else                             showToast('Uploaded.', 'success');
+      var dd = r.review.docs[slug] || {};
+      // Deploy 236.502 — surface that the stored copy was auto-compressed
+      // so the processor knows to verify legibility against the original.
+      if (dd.autoCompressed) {
+        var wasMb = dd.originalSizeBytes ? (dd.originalSizeBytes / 1024 / 1024).toFixed(1) : '';
+        var nowMb = dd.currentSize ? (dd.currentSize / 1024 / 1024).toFixed(1) : '';
+        showToast('Uploaded — auto-compressed' + (wasMb ? ' from ' + wasMb + ' MB to ' + nowMb + ' MB' : '') + ' to fit. Please verify legibility.', 'info');
+      } else {
+        var verdict = dd.aiVerdict || '';
+        if (verdict === 'approved')      showToast('Uploaded — AI says looks good.', 'success');
+        else if (verdict === 'issues')   showToast('Uploaded — AI flagged issues. Review below.', 'info');
+        else                             showToast('Uploaded.', 'success');
+      }
       render();
     }).catch(function(err) {
       _uploadingSlug = null;
@@ -1799,7 +1822,14 @@
       return item.entry.async('blob').then(function(blob) {
         var mime = _mimeFromFilename(item.filename) || blob.type || 'application/octet-stream';
         var f = new File([blob], item.filename, { type: mime });
-        return global.SLA.LoanReviews.uploadDoc(_review.id, item.slug, f, { mode: 'add' });
+        // Deploy 236.502 — auto-compress oversize files; surface progress
+        // on the shared status line + the row so a slow pass isn't silent.
+        var onStatus = function(m) {
+          if (row) { row.status = 'compressing'; row.note = m; }
+          _bulkZipStatus(m);
+          _bulkZipRenderProgress();
+        };
+        return global.SLA.LoanReviews.uploadDoc(_review.id, item.slug, f, { mode: 'add', onStatus: onStatus });
       }).then(function(r) {
         if (r && r.review) _review = r.review;
         _bulkZipInFlight.uploaded++;
@@ -1856,6 +1886,7 @@
   function _bulkZipStatusBadge(status) {
     var map = {
       queued:    { text: 'Queued',    color: '#7a7488', bg: 'rgba(122,116,136,0.10)' },
+      compressing: { text: 'Compressing', color: '#b5712d', bg: 'rgba(200,129,58,0.10)' },
       uploading: { text: 'Uploading', color: '#b5712d', bg: 'rgba(200,129,58,0.10)' },
       done:      { text: 'Uploaded',  color: '#166534', bg: 'rgba(21,128,61,0.10)' },
       failed:    { text: 'Failed',    color: '#991b1b', bg: 'rgba(153,27,27,0.10)' },

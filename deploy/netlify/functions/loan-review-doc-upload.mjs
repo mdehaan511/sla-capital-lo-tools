@@ -195,6 +195,11 @@ async function handle(req, context) {
   docState.currentSize       = bytes.length;
   docState.currentMimeType   = String(body.mimeType || 'application/pdf');
   docState.currentUploadedAt = now;
+  // Deploy 236.502 — record when the browser auto-compressed this file to
+  // fit the upload limit, so the tray can flag it and a human knows the
+  // stored copy is a reduced-resolution version of the original.
+  docState.autoCompressed     = body.autoCompressed === true;
+  docState.originalSizeBytes  = Number(body.originalSizeBytes) || 0;
   // New upload resets verdict — even if AI re-runs auto-approve, the
   // processor still has to click Approve again on the new doc.
   docState.verdict = 'pending';

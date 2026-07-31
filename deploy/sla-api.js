@@ -2346,6 +2346,240 @@
     },
   };
 
+  // ── Deploy 236.502 — client-side auto-compression for big uploads ───
+  // Doc uploads travel as base64 JSON to a Netlify Function whose request
+  // body the platform caps ~6MB. Rather than reject a large scan, we shrink
+  // it in the browser first: PDFs re-rasterized (pdf.js → jsPDF), images
+  // re-encoded (canvas). ACCURACY GUARDRAIL — this is an underwriting tool,
+  // so we start at HIGH resolution and only step DOWN to a legibility floor;
+  // if it still won't fit, we DON'T upload a degraded doc — uploadDoc rejects
+  // and a human handles it (split / rescan). Libraries load on demand from
+  // cdnjs (same source as the JSZip / jsPDF already in the app), so there's
+  // no cost unless a file is actually too big.
+  var _CDN_LIBS = {
+    pdfjs:  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+    pdfjsW: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+    jspdf:  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  };
+  var _libLoads = {};
+  function _loadScriptOnce(src) {
+    if (_libLoads[src]) return _libLoads[src];
+    _libLoads[src] = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function () { resolve(); };
+      s.onerror = function () { _libLoads[src] = null; reject(new Error('Failed to load ' + src)); };
+      document.head.appendChild(s);
+    });
+    return _libLoads[src];
+  }
+  function _fileArrayBuffer(file) {
+    if (file.arrayBuffer) return file.arrayBuffer();
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(r.result); };
+      r.onerror = function () { reject(new Error('read failed')); };
+      r.readAsArrayBuffer(file);
+    });
+  }
+  function _canvasToBlob(canvas, type, quality) {
+    return new Promise(function (resolve) {
+      if (canvas.toBlob) { canvas.toBlob(function (b) { resolve(b); }, type, quality); return; }
+      try {
+        var durl = canvas.toDataURL(type, quality);
+        var bin = atob(durl.split(',')[1]);
+        var arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        resolve(new Blob([arr], { type: type }));
+      } catch (e) { resolve(null); }
+    });
+  }
+  function _compressedName(name, ext) {
+    return String(name || 'document').replace(/\.[^.]+$/, '') + ' (compressed).' + ext;
+  }
+  function _mbStr(bytes) { return (bytes / 1024 / 1024).toFixed(1); }
+  // Run async fn over items in sequence; stop + return the first truthy result.
+  function _seqFind(items, fn) {
+    var i = 0;
+    function step() {
+      if (i >= items.length) return Promise.resolve(null);
+      return Promise.resolve(fn(items[i++])).then(function (r) { return r ? r : step(); });
+    }
+    return step();
+  }
+
+  // Dispatch. Resolves { file, compressed, attempted } — never rejects
+  // (falls back to the original file so uploadDoc makes the final call).
+  function _compressForUpload(file, maxBytes, onStatus) {
+    var sz = (file && file.size) || 0;
+    if (sz <= maxBytes) return Promise.resolve({ file: file, compressed: false, attempted: false });
+    var type = ((file && file.type) || '').toLowerCase();
+    var name = ((file && file.name) || '').toLowerCase();
+    var isPdf = type === 'application/pdf' || /\.pdf$/.test(name);
+    var isImg = /^image\/(jpe?g|png|webp)$/.test(type) || /\.(jpe?g|png|webp)$/.test(name);
+    if (!isPdf && !isImg) {
+      // Word / Excel / HEIC etc. — can't safely re-compress; leave as-is.
+      return Promise.resolve({ file: file, compressed: false, attempted: false });
+    }
+    if (onStatus) onStatus('Compressing ' + ((file && file.name) || 'file') + ' (' + _mbStr(sz) + ' MB)…');
+    var work = isImg ? _compressImageFile(file, maxBytes) : _compressPdfFile(file, maxBytes, onStatus);
+    return work.then(function (out) {
+      if (out && (out.size || 0) > 0 && out.size < sz) return { file: out, compressed: true, attempted: true };
+      return { file: file, compressed: false, attempted: true };
+    }).catch(function (err) {
+      if (window.console) console.warn('[SLA] compress failed:', err && err.message);
+      return { file: file, compressed: false, attempted: true };
+    });
+  }
+
+  // ---- Images: canvas downscale + JPEG re-encode ----
+  function _fileToImage(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () { resolve({ img: img, url: url }); };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('image decode failed')); };
+      img.src = url;
+    });
+  }
+  function _compressImageFile(file, maxBytes) {
+    return _fileToImage(file).then(function (h) {
+      var img = h.img;
+      var w0 = img.naturalWidth || img.width;
+      var h0 = img.naturalHeight || img.height;
+      var combos = [
+        { scale: 1.0, q: 0.82 }, { scale: 1.0, q: 0.7 },
+        { scale: 0.85, q: 0.68 }, { scale: 0.7, q: 0.62 },
+        { scale: 0.6, q: 0.58 }, { scale: 0.5, q: 0.55 },
+      ];
+      var best = null;
+      return _seqFind(combos, function (c) {
+        // Legibility floor: don't shrink the longest side below ~1400px.
+        if (Math.max(w0, h0) * c.scale < 1400 && best) return null;
+        var w = Math.max(1, Math.round(w0 * c.scale));
+        var hh = Math.max(1, Math.round(h0 * c.scale));
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = hh;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, hh);
+        ctx.drawImage(img, 0, 0, w, hh);
+        return _canvasToBlob(canvas, 'image/jpeg', c.q).then(function (blob) {
+          canvas.width = canvas.height = 0;
+          if (!blob) return null;
+          if (!best || blob.size < best.size) best = blob;
+          return (blob.size <= maxBytes) ? blob : null;
+        });
+      }).then(function (hit) {
+        URL.revokeObjectURL(h.url);
+        var chosen = hit || best;
+        if (!chosen || chosen.size > maxBytes) return null; // couldn't fit within floor
+        return new File([chosen], _compressedName(file.name, 'jpg'), { type: 'image/jpeg' });
+      });
+    });
+  }
+
+  // ---- PDFs: pdf.js render → JPEG pages → jsPDF reassemble ----
+  function _loadPdfLibs() {
+    return _loadScriptOnce(_CDN_LIBS.pdfjs).then(function () {
+      if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = _CDN_LIBS.pdfjsW;
+      }
+      return _loadScriptOnce(_CDN_LIBS.jspdf);
+    });
+  }
+  function _jsPDFctor() { return (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || null; }
+  function _renderPdfToJpegPdf(pdf, scale, quality) {
+    var Ctor = _jsPDFctor();
+    if (!Ctor) return Promise.reject(new Error('jsPDF unavailable'));
+    var doc = null, n = 1;
+    function nextPage() {
+      if (n > pdf.numPages) return Promise.resolve(doc ? doc.output('blob') : null);
+      return pdf.getPage(n).then(function (page) {
+        var vp1 = page.getViewport({ scale: 1 });      // point (72dpi) page size
+        var vp  = page.getViewport({ scale: scale });  // render resolution
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(vp.width);
+        canvas.height = Math.ceil(vp.height);
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+          var dataUrl = canvas.toDataURL('image/jpeg', quality);
+          var wPt = vp1.width, hPt = vp1.height;
+          var orient = wPt > hPt ? 'landscape' : 'portrait';
+          if (!doc) doc = new Ctor({ unit: 'pt', format: [wPt, hPt], orientation: orient });
+          else doc.addPage([wPt, hPt], orient);
+          doc.addImage(dataUrl, 'JPEG', 0, 0, wPt, hPt);
+          canvas.width = canvas.height = 0; // release memory before next page
+          n++;
+          return nextPage();
+        });
+      });
+    }
+    return nextPage();
+  }
+  function _compressPdfFile(file, maxBytes, onStatus) {
+    return _loadPdfLibs().then(function () {
+      return _fileArrayBuffer(file);
+    }).then(function (buf) {
+      return window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    }).then(function (pdf) {
+      // Highest-quality-that-fits, floored at ~1.15 scale (≈83 DPI) / q0.5 so
+      // fine print stays legible. If the floor still won't fit → give up
+      // (return best; uploadDoc will reject rather than ship a degraded doc).
+      var combos = [
+        { scale: 2.0, q: 0.72 }, { scale: 1.6, q: 0.64 },
+        { scale: 1.35, q: 0.58 }, { scale: 1.15, q: 0.5 },
+      ];
+      var best = null, idx = 0;
+      function tryNext() {
+        if (idx >= combos.length) return Promise.resolve(best);
+        var c = combos[idx++];
+        if (onStatus) onStatus('Compressing PDF — ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's') + ', pass ' + idx + '…');
+        return _renderPdfToJpegPdf(pdf, c.scale, c.q).then(function (blob) {
+          if (!blob) return tryNext();
+          if (!best || blob.size < best.size) best = blob;
+          return (blob.size <= maxBytes) ? blob : tryNext();
+        });
+      }
+      return tryNext();
+    }).then(function (blob) {
+      if (!blob || blob.size > maxBytes) return null; // couldn't fit within floor
+      return new File([blob], _compressedName(file.name, 'pdf'), { type: 'application/pdf' });
+    });
+  }
+
+  // The base64 JSON POST that actually reaches the upload endpoint. Split
+  // out of uploadDoc (236.502) so the compression step can wrap it.
+  function _postDocUpload(reviewId, slug, file, opts, extra) {
+    opts = opts || {}; extra = extra || {};
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var dataUrl = reader.result || '';
+        var commaIdx = String(dataUrl).indexOf(',');
+        var b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+        if (!b64) return reject(new Error('Failed to read file'));
+        var body = {
+          reviewId: reviewId,
+          slug: slug,
+          filename: file.name || 'upload.pdf',
+          mimeType: file.type || 'application/pdf',
+          sizeBytes: file.size || 0,
+          contentBase64: b64,
+        };
+        if (opts.mode) body.mode = opts.mode;
+        if (opts.replaceDocIds) body.replaceDocIds = opts.replaceDocIds;
+        if (extra.autoCompressed) {
+          body.autoCompressed = true;
+          if (extra.originalSizeBytes) body.originalSizeBytes = extra.originalSizeBytes;
+        }
+        api('POST', '/api/loan-review-doc-upload', body).then(resolve, reject);
+      };
+      reader.onerror = function () { reject(new Error('Failed to read file')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
   // ── Loan Doc Review (Deploy 236.71) ─────────────────────────────
   // Phase 1 of the Loan Doc Review tool — processor-tier workflow for
   // reviewing the doc package on a loan before it ships to the
@@ -2379,43 +2613,28 @@
     // the new fields still works.
     uploadDoc: function (reviewId, slug, file, opts) {
       opts = opts || {};
-      return new Promise(function (resolve, reject) {
-        // Deploy 236.501 — fail fast on files too big for the upload path.
-        // Uploads go as base64 JSON to a Netlify Function, whose request
-        // body is capped at ~6MB. base64 inflates raw bytes by ~33%, so
-        // anything over ~4.3MB raw is rejected by the platform BEFORE our
-        // handler runs — surfacing as a cryptic HTTP 413 (or 400 when the
-        // oversized body is truncated). Catch it here with a clear message
-        // instead. (Real fix — direct-to-blob signed uploads — is a
-        // separate project; this stops silent/confusing failures now.)
-        var MAX_UPLOAD_RAW = 4.2 * 1024 * 1024; // ~5.6MB base64, safely < 6MB
-        var sz = (file && file.size) || 0;
-        if (sz > MAX_UPLOAD_RAW) {
-          var mb = (sz / 1024 / 1024).toFixed(1);
-          return reject(new Error(
-            '“' + ((file && file.name) || 'file') + '” is ' + mb + ' MB. Files over ~4 MB can’t go through the browser upload (server limit). Please compress or split it, then re-upload.'
-          ));
+      // Deploy 236.501/236.502 — uploads go as base64 JSON to a Netlify
+      // Function whose request body is capped ~6MB by the platform (base64
+      // inflates raw bytes ~33%), so files over ~4.2MB raw fail with a
+      // cryptic 413/400 BEFORE our handler runs. 236.502: instead of just
+      // rejecting, we first try to auto-compress the file in the browser
+      // (PDFs re-rasterized, images re-encoded). If it still won't fit
+      // under the limit without dropping below a legibility floor, we
+      // reject with a clear message rather than upload a degraded doc.
+      var MAX_UPLOAD_RAW = 4.2 * 1024 * 1024; // ~5.6MB base64, safely < 6MB
+      return _compressForUpload(file, MAX_UPLOAD_RAW, opts.onStatus).then(function (res) {
+        var f = res.file;
+        if (((f && f.size) || 0) > MAX_UPLOAD_RAW) {
+          var mb = (((file && file.size) || 0) / 1024 / 1024).toFixed(1);
+          var extra = res.attempted
+            ? ' We tried to compress it, but it can’t get under the ~4 MB upload limit without losing legibility.'
+            : '';
+          throw new Error('“' + ((file && file.name) || 'file') + '” is ' + mb + ' MB — too large for the browser upload (server limit).' + extra + ' Please split it, or upload a smaller / clearer scan.');
         }
-        var reader = new FileReader();
-        reader.onload = function () {
-          var dataUrl = reader.result || '';
-          var commaIdx = String(dataUrl).indexOf(',');
-          var b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
-          if (!b64) return reject(new Error('Failed to read file'));
-          var body = {
-            reviewId: reviewId,
-            slug: slug,
-            filename: file.name || 'upload.pdf',
-            mimeType: file.type || 'application/pdf',
-            sizeBytes: file.size || 0,
-            contentBase64: b64,
-          };
-          if (opts.mode) body.mode = opts.mode;
-          if (opts.replaceDocIds) body.replaceDocIds = opts.replaceDocIds;
-          api('POST', '/api/loan-review-doc-upload', body).then(resolve, reject);
-        };
-        reader.onerror = function () { reject(new Error('Failed to read file')); };
-        reader.readAsDataURL(file);
+        return _postDocUpload(reviewId, slug, f, opts, {
+          autoCompressed: !!res.compressed,
+          originalSizeBytes: res.compressed ? ((file && file.size) || 0) : 0,
+        });
       });
     },
     deleteDoc: function (reviewId, slug, docId) {
