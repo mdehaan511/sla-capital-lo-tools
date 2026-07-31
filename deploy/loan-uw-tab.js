@@ -187,14 +187,22 @@
       bySection[sec].forEach(function(f){
         if (f.accountRow) { html += accountRowHtml(dataset, f, data); return; }
         var r = resolve(f, loan, data, calc);
-        var valCls = 'uw-r-value' + (r.flag?' uw-flag':'') + (r.calc?' uw-calc':'') + (r.editable?' uw-editable':'');
+        // Deploy 236.500 — an AI proposal a human hasn't confirmed yet gets a
+        // distinct amber cell + a one-click Confirm. Until confirmed it reads
+        // as a suggestion, not fact (costly-mistake domain).
+        var unverAI = !!(r.entry && r.entry.isAI && !r.entry.verified);
+        var valCls = 'uw-r-value' + (r.flag?' uw-flag':'') + (r.calc?' uw-calc':'') + (r.editable?' uw-editable':'') + (unverAI?' uw-unverified':'');
         var editAttr = r.editable ? ' onclick="SLA_UW_TAB._edit(\''+dataset+'\',\''+f.key+'\')" title="Click to edit"' : '';
         var disp = (r.value===''||r.value==null) ? '<span class="uw-empty">—</span>' : esc(r.calc ? r.value : fmtDisplay(f.key, r.value));
+        var confirmBtn = unverAI
+          ? ' · <a href="#" class="uw-confirm" onclick="event.stopPropagation();SLA_UW_TAB._confirm(\''+dataset+'\',\''+f.key+'\');return false">✓ Confirm</a>'
+          : '';
         var prov = r.prov
           ? '<span class="uw-prov">'+esc(r.prov)
             + (data[f.key] ? ' · <a href="#" class="uw-hist" onclick="event.stopPropagation();SLA_UW_TAB._history(\''+dataset+'\',\''+f.key+'\');return false">history</a>' : '')
+            + confirmBtn
             + '</span>'
-          : '';
+          : (confirmBtn ? '<span class="uw-prov">'+confirmBtn.replace(/^ · /,'')+'</span>' : '');
         html += '<div class="uw-r-item">'+esc(f.label)+'</div>'
           + '<div class="'+valCls+'"'+editAttr+' data-key="'+escA(f.key)+'"><span class="uw-v">'+disp+'</span>'+prov+'</div>'
           + '<div class="uw-r-loc">'+esc(f.sourceNote||'')+'</div>';
@@ -322,6 +330,23 @@
     }
   }
 
+  // Deploy 236.500 — confirm an AI proposal. Sends confirm:true so the
+  // backend keeps the AI's value + provenance and stamps the confirming
+  // human (never retypes/mutates the value). Cell flips from amber to plain.
+  function _confirm(dataset, key) {
+    var body = { clientId:_ctx.clientId, loanId:_ctx.loanId, dataset:dataset, key:key, confirm:true };
+    if (_ctx.owner) body.owner = _ctx.owner;
+    if (window.SLA && SLA.api) {
+      SLA.api('POST','/api/loan-uw-field-save', body).then(function(r){
+        if (r && r.loan) { _ctx.loan = r.loan; if (_ctx.refreshLoan) _ctx.refreshLoan(r.loan); }
+        _rerender();
+        if (typeof showToast==='function') showToast('Confirmed');
+      }).catch(function(err){
+        if (typeof showToast==='function') showToast('Confirm failed: '+(err&&err.message||'unknown'));
+      });
+    }
+  }
+
   function _history(dataset, key) {
     var loan = _ctx.loan || {};
     var audit = (dataset==='uw' ? loan.uwAudit : loan.lightningAudit) || [];
@@ -347,5 +372,5 @@
     document.body.appendChild(bg);
   }
 
-  window.SLA_UW_TAB = { mount:mount, _edit:_edit, _acct:_acct, _history:_history };
+  window.SLA_UW_TAB = { mount:mount, _edit:_edit, _acct:_acct, _history:_history, _confirm:_confirm };
 })();

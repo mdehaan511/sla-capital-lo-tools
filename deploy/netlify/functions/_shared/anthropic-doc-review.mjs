@@ -246,6 +246,10 @@ export async function reviewDocument(opts) {
     summary: String(parsed.summary || ''),
     findings: Array.isArray(parsed.findings) ? parsed.findings.map(normalizeFinding).filter(Boolean) : [],
     extractedEntities: (parsed.extracted_entities && typeof parsed.extracted_entities === 'object') ? parsed.extracted_entities : {},
+    // Deploy 236.500 — targeted field extraction for the Underwriting /
+    // Lightning Docs auto-grab. Present only when opts.extractFields was
+    // passed. Shape: { key: { value, found, where } }.
+    extractedFields: (parsed.extracted_fields && typeof parsed.extracted_fields === 'object') ? parsed.extracted_fields : {},
     inputTokens, outputTokens, costCents,
   };
 }
@@ -301,6 +305,19 @@ function buildPrompt(opts) {
   if (ctx.address)       ctxLines.push('- Property address: ' + ctx.address);
   const hasLoanApp = !!(opts.loanAppBytes && opts.loanAppBytes.length);
 
+  // Deploy 236.500 — targeted field extraction (UW / Lightning auto-grab).
+  // Builds an `extracted_fields` schema block from opts.extractFields so the
+  // SAME review call also pulls the specific values this doc type holds.
+  let _extractSchema = '';
+  let _extractRule = '';
+  if (Array.isArray(opts.extractFields) && opts.extractFields.length) {
+    const fl = opts.extractFields.map(function (f) {
+      return '    "' + f.key + '": {"value": <' + f.label + '>, "found": true|false, "where": "<where on the doc you found it, or null>"}';
+    }).join(',\n');
+    _extractSchema = '  "extracted_fields": {\n' + fl + '\n  }';
+    _extractRule = '- extracted_fields: pull EACH listed field ONLY if it literally appears on THIS document. Set found:false and value:null when it is absent — NEVER guess or infer. Numbers as plain numbers (no $, no commas). Dates as YYYY-MM-DD.';
+  }
+
   return [
     'You are reviewing a loan document for SLA Capital.',
     '',
@@ -350,7 +367,8 @@ function buildPrompt(opts) {
     '    "documentDate":    "<YYYY-MM-DD of the doc\'s print / statement / issue date, or null>",',
     '    "expirationDate":  "<YYYY-MM-DD of an explicit expiration printed on the doc, or null>",',
     '    "dateNotes":       "<one-line explanation of where you found the date(s), or null>"',
-    '  }',
+    '  }' + (_extractSchema ? ',' : ''),
+    _extractSchema,
     '}',
     '',
     'Verdict rules:',
@@ -358,6 +376,7 @@ function buildPrompt(opts) {
     '- If a rubric condition is "not_met" with material concern, verdict MUST be "issues".',
     '- Extracted entities are used downstream to cross-check consistency. Use null if the field is not naturally present on this doc — that is normal and not an issue on its own.',
     '- For documentDate / expirationDate: only fill these in if the date is LITERALLY visible on the doc. Do not infer. Bank statements have a statement period (use the statement end date). Certificates of Good Standing typically have a "printed on" or "as of" date. Insurance / drivers licenses / passports have explicit expirations. If you cannot see a date, return null — that is not a finding by itself.',
+    _extractRule,
   ].join('\n');
 }
 

@@ -31,6 +31,12 @@ import {
 } from './_shared/auth.mjs';
 import { getChecklist } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
+// Deploy 236.500 (Phase 3) — AI auto-grab of Underwriting / Lightning Docs
+// fields. When a reviewed doc's slug maps to specific UW/Lightning fields,
+// we ask the SAME review call to also extract them, then write each one onto
+// the loan as an UNVERIFIED proposal for a human to confirm.
+import { fieldsForSlug } from './_shared/uw-field-map.mjs';
+import { writeClient } from './_shared/client-write.mjs';
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
 // are < 5MB; appraisals can run larger. If this becomes a problem we'll
@@ -258,6 +264,10 @@ async function handle(req, context) {
   // (Word / Excel / CSV / HEIC). Claude's vision endpoint only handles
   // PDF + JPG/PNG/WEBP/GIF natively. For everything else we skip AI
   // review, store the file, and mark the doc as pending manual review.
+  // Deploy 236.500 — staged UW/Lightning field proposals from this doc.
+  // Filled inside the AI branch; written to the loan AFTER the review is
+  // persisted so a proposal-write failure can never block the review.
+  let _fieldProposals = null;   // Array<{ dataset, key, value, aiNote }>
   const mime = String(docState.currentMimeType || '').toLowerCase();
   const aiReviewable = (
     mime === 'application/pdf' ||
@@ -270,6 +280,17 @@ async function handle(req, context) {
     docState.aiReviewedAt = new Date().toISOString();
     docState.aiSkippedForMimeType = true;
   } else try {
+    // Deploy 236.500 — if this doc type carries specific UW/Lightning
+    // fields, fold their extraction into the same review call (no extra
+    // latency — the review already spends most of the Netlify budget).
+    // Only meaningful for reviews tied to a real loan (existing source).
+    const _canWriteFields = !!(review.source && review.source.kind === 'existing' &&
+      review.source.clientId && review.source.loanId && review.source.ownerKey);
+    const _extractSpec = _canWriteFields ? fieldsForSlug(body.slug) : null;
+    const _extractFields = (Array.isArray(_extractSpec) && _extractSpec.length)
+      ? _extractSpec.map(function (f) { return { key: f.key, label: f.label }; })
+      : undefined;
+
     const aiResult = await reviewDocument({
       bytes,
       mimeType: docState.currentMimeType,
@@ -279,6 +300,7 @@ async function handle(req, context) {
       investor: review.investor || '',
       guidelinesBytes,
       loanAppBytes,
+      extractFields: _extractFields,
     });
     docState.aiVerdict = aiResult.verdict;
     docState.aiNotes = aiResult.summary;
@@ -307,6 +329,31 @@ async function handle(req, context) {
     const staleAfter = _staleAfterFor(body.slug, docState.documentDate, docState.expirationDate);
     if (staleAfter) docState.staleByDate = staleAfter;
     if (typeof ee.dateNotes === 'string') docState.dateNotes = ee.dateNotes;
+
+    // Deploy 236.500 — collect the AI's per-field extraction so it can be
+    // written to the loan as UNVERIFIED proposals. We keep only fields the
+    // AI actually FOUND on this doc (found:true + a non-empty value); a
+    // "not on this document" answer must never overwrite an existing value.
+    const ef = aiResult.extractedFields || {};
+    docState.aiExtractedFields = ef; // keep raw for audit/debug
+    if (_extractFields && Object.keys(ef).length) {
+      const specByKey = {};
+      (_extractSpec || []).forEach(function (s) { specByKey[s.key] = s; });
+      const props = [];
+      Object.keys(ef).forEach(function (k) {
+        const spec = specByKey[k];
+        const got  = ef[k];
+        if (!spec || !got || got.found !== true) return;
+        if (got.value === null || got.value === undefined || got.value === '') return;
+        props.push({
+          dataset: spec.dataset,
+          key:     k,
+          value:   got.value,
+          aiNote:  docMeta.label + (got.where ? ' — ' + got.where : ''),
+        });
+      });
+      if (props.length) _fieldProposals = props;
+    }
   } catch (e) {
     console.error('loan-review-doc-upload: AI review threw, continuing:', e && e.message);
     docState.aiVerdict = 'issues';
@@ -322,7 +369,91 @@ async function handle(req, context) {
 
   await reviewStore.setJSON(keySafe(body.reviewId), review);
 
-  return json(200, { ok: true, review, docId });
+  // Deploy 236.500 — write the AI's field extractions onto the loan as
+  // UNVERIFIED proposals. Done AFTER the review save + wrapped so any
+  // failure is logged but never fails the upload (the review is the
+  // primary deliverable; the auto-grab is a bonus the human confirms).
+  let fieldsWritten = 0;
+  if (_fieldProposals && _fieldProposals.length) {
+    try {
+      fieldsWritten = await writeFieldProposals(review.source, _fieldProposals);
+    } catch (e) {
+      console.error('loan-review-doc-upload: field-proposal write failed:', e && e.message);
+    }
+  }
+
+  return json(200, { ok: true, review, docId, fieldsWritten });
+}
+
+// Deploy 236.500 — persist AI-extracted UW/Lightning fields onto the loan
+// as unverified proposals (verified:false, isAI:true) with a provenance
+// note + append-only audit entry, mirroring loan-uw-field-save.mjs's write
+// shape so the UW tab renders them identically ("AI — UNVERIFIED"). We do
+// NOT overwrite a field a human has already verified — human truth wins.
+const _UW_AUDIT_CAP = 2000;
+async function writeFieldProposals(source, proposals) {
+  const ownerKey  = keySafe(source.ownerKey);
+  const clientId  = source.clientId;
+  const loanId    = source.loanId;
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const clientKey = ownerKey + '/' + keySafe(clientId);
+
+  const client = await clientsStore.get(clientKey, { type: 'json' });
+  if (!client || !Array.isArray(client.loans)) return 0;
+  const idx = client.loans.findIndex(function (l) { return l && l.id === loanId; });
+  if (idx < 0) return 0;
+
+  const loan = client.loans[idx];
+  const now = new Date().toISOString();
+  let wrote = 0;
+
+  proposals.forEach(function (p) {
+    const dataField  = p.dataset === 'uw' ? 'uwData'  : 'lightningData';
+    const auditField = p.dataset === 'uw' ? 'uwAudit' : 'lightningAudit';
+    loan[dataField]  = (loan[dataField] && typeof loan[dataField] === 'object') ? loan[dataField] : {};
+    loan[auditField] = Array.isArray(loan[auditField]) ? loan[auditField] : [];
+
+    const prior = loan[dataField][p.key] || null;
+    // Human truth wins: never clobber a value a person has verified.
+    if (prior && prior.verified === true && prior.isAI !== true) return;
+    // Don't churn the audit if the AI would write the exact same value.
+    if (prior && prior.isAI === true && String(prior.value) === String(p.value)) return;
+
+    const entry = {
+      value:      p.value,
+      source:     'doc',
+      sourceNote: '',
+      isAI:       true,
+      aiNote:     p.aiNote || '',
+      verified:   false,
+      by:         'ai',
+      byName:     'AI',
+      at:         now,
+    };
+    loan[dataField][p.key] = entry;
+    loan[auditField].push({
+      key:    p.key,
+      from:   prior ? prior.value : undefined,
+      to:     entry.value,
+      by:     'ai',
+      byName: 'AI',
+      isAI:   true,
+      aiNote: entry.aiNote,
+      at:     now,
+    });
+    if (loan[auditField].length > _UW_AUDIT_CAP) {
+      loan[auditField] = loan[auditField].slice(loan[auditField].length - _UW_AUDIT_CAP);
+    }
+    wrote++;
+  });
+
+  if (!wrote) return 0;
+
+  loan.updatedAt = now;
+  client.loans[idx] = loan;
+  client.updatedAt = now;
+  await writeClient(ownerKey, client, { clientsStore });
+  return wrote;
 }
 
 // Build the loan-context object sent to Claude. Pulls from the

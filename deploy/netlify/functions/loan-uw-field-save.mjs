@@ -102,6 +102,33 @@ async function handle(req, context) {
 
   const prior = loan[dataField][key] || null;
 
+  // Deploy 236.500 (Phase 3) — CONFIRM path. A human is validating an
+  // existing (typically AI-proposed) value without retyping it. We keep the
+  // original value + AI provenance intact and stamp WHO confirmed + when, so
+  // the audit shows both "AI proposed" and "human confirmed". Costly-mistake
+  // domain: a confirm must never silently mutate the value.
+  if (body.confirm === true) {
+    if (!prior) return json(404, { error: 'Nothing to confirm for ' + key });
+    prior.verified       = true;
+    prior.verifiedBy     = user.email || '';
+    prior.verifiedByName = authorName;
+    prior.verifiedAt     = now;
+    loan[dataField][key] = prior;
+    loan[auditField].push({
+      key: key, action: 'confirm', to: prior.value,
+      by: user.email || '', byName: authorName, isAI: false, at: now,
+    });
+    if (loan[auditField].length > AUDIT_CAP) {
+      loan[auditField] = loan[auditField].slice(loan[auditField].length - AUDIT_CAP);
+    }
+    loan.updatedAt = now;
+    client.loans[idx] = loan;
+    client.updatedAt = now;
+    try { await writeClient(ownerKey, client, { clientsStore }); }
+    catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
+    return json(200, { ok: true, loan, entry: prior });
+  }
+
   // AI-proposed values start UNVERIFIED unless the caller explicitly
   // confirms; human edits are verified by definition (a person typed them).
   const isAI = body.isAI === true;
