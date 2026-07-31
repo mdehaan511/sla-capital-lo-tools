@@ -78,6 +78,21 @@
     return caps;
   }
 
+  // Deploy 236.509 — collect every Underwriting item currently OUT of
+  // guideline, for the at-a-glance red banner. Reads the SAME calc.flags +
+  // caps the row-level reds use, so the banner and the cells never disagree.
+  function buildChecksSummary(loan, calc) {
+    var v = calc.values || {}, f = calc.flags || {};
+    var caps = loanCaps(loan);
+    var out = [];
+    if (f.ltarv) out.push({ key:'ltarv', label:'LTARV', detail: pct(v.ltarv) + ' — over the ' + pct(caps.maxLtarv) + ' cap' });
+    if (f.ltc)   out.push({ key:'ltc',   label:'LTC',   detail: pct(v.ltc)   + ' — over the ' + pct(caps.maxLtc)   + ' cap' });
+    if (f.ltaiv) out.push({ key:'ltaiv', label:'LTAIV', detail: pct(v.ltaiv) + ' — over the ' + pct(caps.maxLtaiv || 0.90) + ' cap' });
+    if (f.assignmentToPurchase) out.push({ key:'assignmentToPurchase', label:'Assignment to Purchase', detail: pct(v.assignmentToPurchase) + ' — over the 15% limit' });
+    if (f.liquidity) out.push({ key:'liquidityRequirement', label:'Liquidity', detail: money(v.liquidityTotal) + ' available vs ' + money(v.liquidityRequirement) + ' required' });
+    return out;
+  }
+
   // ── Build the calc-engine context from loan + saved uw entries ─────
   function calcContext(loan, uwData) {
     uwData = uwData || {};
@@ -177,10 +192,29 @@
     var order = [], bySection = {};
     fields.forEach(function(f){ if(!bySection[f.section]){bySection[f.section]=[];order.push(f.section);} bySection[f.section].push(f); });
 
+    // Deploy 236.509 — checks summary banner (Underwriting only). Lists
+    // every item currently out of guideline with a jump-to link, so the
+    // underwriter sees all reds at a glance instead of scanning rows.
+    var banner = '';
+    if (dataset === 'uw') {
+      var checks = buildChecksSummary(loan, calc);
+      if (checks.length) {
+        banner = '<div class="uw-checks uw-checks-fail">'
+          + '<div class="uw-checks-hd">⚠ ' + checks.length + ' item' + (checks.length===1?'':'s') + ' out of guideline</div>'
+          + '<ul class="uw-checks-list">'
+          + checks.map(function(c){
+              return '<li><a href="#" onclick="SLA_UW_TAB._jump(\''+escA(c.key)+'\');return false"><strong>'+esc(c.label)+'</strong> — '+esc(c.detail)+'</a></li>';
+            }).join('')
+          + '</ul></div>';
+      } else {
+        banner = '<div class="uw-checks uw-checks-pass">✓ All underwriting checks are within guideline.</div>';
+      }
+    }
+
     // 3-column table (Item | Value | Location) mirroring the spreadsheet.
     // Section names span all three columns; provenance/audit rides as small
     // subtext under the Value so the audit stays without cluttering the grid.
-    var html = '<div class="uw-wrap"><div class="uw-table">'
+    var html = '<div class="uw-wrap">' + banner + '<div class="uw-table">'
       + '<div class="uw-thead"><div>Item</div><div>Value</div><div>Location</div></div>';
     order.forEach(function(sec){
       html += '<div class="uw-srow">'+esc(sec)+'</div>';
@@ -372,5 +406,15 @@
     document.body.appendChild(bg);
   }
 
-  window.SLA_UW_TAB = { mount:mount, _edit:_edit, _acct:_acct, _history:_history, _confirm:_confirm };
+  // Deploy 236.509 — jump from a checks-summary item to its row + flash it.
+  function _jump(key) {
+    var pane = document.getElementById('ldPaneUnderwriting');
+    var cell = pane && pane.querySelector('.uw-r-value[data-key="' + key + '"]');
+    if (!cell) return;
+    if (cell.scrollIntoView) cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    cell.classList.add('uw-jump-flash');
+    setTimeout(function(){ cell.classList.remove('uw-jump-flash'); }, 1600);
+  }
+
+  window.SLA_UW_TAB = { mount:mount, _edit:_edit, _acct:_acct, _history:_history, _confirm:_confirm, _jump:_jump };
 })();

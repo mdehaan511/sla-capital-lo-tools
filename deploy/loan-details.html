@@ -1148,6 +1148,17 @@
 .uw-r-value.uw-unverified .uw-prov { color: var(--gold-mid, #b5712d); }
 .uw-confirm { color: #fff; background: var(--gold-mid, #b5712d); text-decoration: none; padding: 1px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
 .uw-confirm:hover { background: #935a20; }
+/* Deploy 236.509 — checks summary banner (Underwriting tab). */
+.uw-checks { border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; }
+.uw-checks-fail { background: rgba(124,31,31,0.08); border: 1px solid rgba(124,31,31,0.28); }
+.uw-checks-pass { background: rgba(21,128,61,0.08); border: 1px solid rgba(21,128,61,0.25); color: var(--dr-green, #166534); font-weight: 600; }
+.uw-checks-hd { font-weight: 700; color: var(--danger, #7c1f1f); margin-bottom: 8px; font-family: 'Lora', serif; }
+.uw-checks-list { margin: 0; padding-left: 18px; }
+.uw-checks-list li { margin: 3px 0; }
+.uw-checks-list a { color: var(--danger, #7c1f1f); text-decoration: none; }
+.uw-checks-list a:hover { text-decoration: underline; }
+.uw-jump-flash { animation: uwJumpFlash 1.6s ease; }
+@keyframes uwJumpFlash { 0%, 100% { box-shadow: none; } 15% { box-shadow: inset 0 0 0 3px var(--gold-mid, #b5712d); } }
 .uw-r-loc { padding: 9px 14px; font-size: 11px; color: var(--muted, #7a7488); border-top: 1px solid rgba(0,0,0,0.05); display: flex; align-items: center; }
 .uw-acct-row { display: flex; gap: 5px; }
 .uw-acct-type { flex: 1.5; min-width: 0; }
