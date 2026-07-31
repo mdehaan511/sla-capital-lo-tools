@@ -512,6 +512,12 @@
   to = "/.netlify/functions/loan-financials-edit"
   status = 200
   force = true
+# Deploy 236.492 — Underwriting / Lightning Docs field save (with audit).
+[[redirects]]
+  from = "/api/loan-uw-field-save"
+  to = "/.netlify/functions/loan-uw-field-save"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/loan-financials-restore"
   to = "/.netlify/functions/loan-financials-restore"
