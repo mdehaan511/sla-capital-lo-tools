@@ -993,6 +993,11 @@
   to = "/.netlify/functions/borrower-intake-manual-review"
   status = 200
   force = true
+[[redirects]]
+  from = "/api/borrower-intake-invite"
+  to = "/.netlify/functions/borrower-intake-invite"
+  status = 200
+  force = true
 # Deploy 236.175 — per-loan Baseline diagnostic. Fetches a single
 # loan straight from Baseline, diffs against the mirror, optionally
 # writes back.

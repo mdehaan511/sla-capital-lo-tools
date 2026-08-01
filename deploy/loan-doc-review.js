@@ -206,6 +206,11 @@
       // Deploy 236.162 — "+ Add Document" gets a slightly more
       // pronounced look so it doesn't blend with the hidden toggle.
       '.dr-root .dr-add-doc-btn { color:var(--gold-mid); border-color:var(--gold-border, rgba(200,129,58,0.28)); }',
+      // Deploy 236.520 — invite-borrower button + borrower/manual-review badges.
+      '.dr-root .dr-invite-btn { margin-top:10px; font-size:12px; font-weight:600; padding:7px 14px; border-radius:20px; cursor:pointer; color:#fff; background:var(--gold-mid, #b5712d); border:1px solid var(--gold-mid, #b5712d); font-family:"DM Sans", sans-serif; }',
+      '.dr-root .dr-invite-btn:hover { background:#935a20; }',
+      '.dr-root .dr-mr-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#1e40af; background:rgba(30,64,175,0.10); border:1px solid rgba(30,64,175,0.25); border-radius:20px; padding:2px 9px; }',
+      '.dr-root .dr-br-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); background:var(--bg, #f7f5f1); border:1px solid var(--border); border-radius:20px; padding:2px 9px; }',
       // Deploy 236.501 — per-section "Other Documents" area: a subtle
       // dashed-top band that separates catch-all docs from the checklist.
       '.dr-root .dr-other-block { margin-top:14px; padding-top:12px; border-top:1px dashed var(--border); }',
@@ -547,6 +552,9 @@
             ' &middot; LO: ' + escHtml(lo) +
             ' &middot; Processor: ' + escHtml(proc) +
           '</div>' +
+          // Deploy 236.520 — invite the borrower (or broker) to submit their
+          // documents through the portal, with real-time AI review.
+          '<button type="button" class="dr-invite-btn" onclick="dr_inviteBorrower()">✉ Invite Borrower to Submit Documents</button>' +
         '</div>' +
         '<div class="summary-stats">' +
           '<div class="summary-stat"><div class="v">' + amt + '</div><div class="l">Loan Amount</div></div>' +
@@ -726,6 +734,28 @@
       '<div class="dr-cc-rows">' + rows + '</div>' +
     '</div>';
   }
+
+  // Deploy 236.520 — invite the borrower/broker to submit docs via the portal.
+  global.dr_inviteBorrower = function() {
+    var src = (_review && _review.source) || {};
+    var loanId = src.loanId || '', clientId = src.clientId || '';
+    if (!loanId || !clientId) { showToast('This review has no loan reference to invite against.', 'error'); return; }
+    var email = window.prompt(
+      'Send a document-submission invite.\n\nLeave blank to use the email on file (the broker’s email for broker loans, otherwise the borrower’s application email), or type a specific email to use:',
+      ''
+    );
+    if (email === null) return; // cancelled
+    var body = { loanId: loanId, primaryClientId: clientId };
+    if (_review.loEmail) body.owner = _review.loEmail;
+    if (email && email.trim()) body.emailOverride = email.trim();
+    showToast('Sending invite…', 'info');
+    global.SLA.api('POST', '/api/borrower-intake-invite', body).then(function(r) {
+      if (r && r.ok) showToast('✓ Invite sent to ' + (r.email || 'the borrower') + (r.emailed ? '' : ' (portal access granted; email pending)'), 'success');
+      else showToast('Invite failed.', 'error');
+    }).catch(function(err) {
+      showToast('Invite failed: ' + ((err && err.message) || 'unknown'), 'error');
+    });
+  };
 
   function renderSourcePanel() {
     var loan = _review.sourceLoanSnapshot;
@@ -1131,6 +1161,13 @@
     var compBadge = d.autoCompressed
       ? '<div class="dr-comp-badge" title="This file was too large for direct upload, so it was auto-compressed in the browser. Verify small print is legible against the borrower’s original.">↓ Auto-compressed' + (d.originalSizeBytes ? ' from ' + (d.originalSizeBytes / 1024 / 1024).toFixed(1) + ' MB' : '') + ' — verify legibility</div>'
       : '';
+    // Deploy 236.520 — borrower-intake signals: manual-review request wins the
+    // slot; otherwise flag borrower-uploaded docs so the processor knows the
+    // source. Accepting the tray (verdict → approved) clears it from the
+    // borrower's portal list.
+    var mrBadge = d.manualReviewRequested
+      ? '<div class="dr-mr-badge" title="' + escAttr(d.manualReviewNote || 'The borrower asked for a manual review of this document.') + '">⚠ Manual review requested by borrower</div>'
+      : (d.uploadedByBorrower ? '<div class="dr-br-badge">⬆ Uploaded by borrower</div>' : '');
 
     return '<div class="tray ' + effectiveVerdict + (d.hidden ? ' is-hidden' : '') + '" id="dr-tray_' + escAttr(slug) + '">' +
       '<div class="tray-head" onclick="dr_toggleExpand(\'' + escAttr(slug) + '\')">' +
@@ -1139,6 +1176,7 @@
           '<div class="tray-conditions">' + escHtml(meta.conditions) + '</div>' +
           expBadge +
           compBadge +
+          mrBadge +
         '</div>' +
         '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
       '</div>' +
