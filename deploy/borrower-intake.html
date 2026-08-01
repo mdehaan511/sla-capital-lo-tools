@@ -54,6 +54,14 @@
     .empty{ text-align:center; color:var(--muted); padding:40px 20px; }
     .done-note{ font-size:12px; color:var(--muted); margin-top:6px; }
     .err-box{ background:var(--red-bg); border:1px solid rgba(124,31,31,.28); color:var(--red); padding:12px 14px; border-radius:8px; font-size:13px; }
+    .vendors{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+    .vend-title{ font-size:17px; font-weight:600; margin:0 0 4px; }
+    .vend-card{ border:1px solid var(--border); border-radius:12px; padding:15px 16px; margin-bottom:14px; background:var(--card); }
+    .vend-h{ font-size:14px; font-weight:600; margin-bottom:10px; }
+    .vend-in{ width:100%; box-sizing:border-box; font-size:14px; padding:9px 11px; margin-bottom:8px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); }
+    .vend-in:focus{ outline:none; border-color:var(--gold-mid); }
+    .vend-row{ display:flex; align-items:center; gap:10px; margin-top:2px; }
+    .vend-stat{ font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body>
@@ -76,6 +84,27 @@
     <div class="progress"><div class="bar"><div id="progressBar" style="width:0%"></div></div><div class="lbl" id="progressLbl"></div></div>
     <div id="itemsContainer"></div>
     <div class="done-note" id="doneNote"></div>
+
+    <div class="vendors">
+      <h2 class="vend-title">Your Agents</h2>
+      <div class="sub" style="margin-bottom:14px">Tell us who your title/escrow and insurance agents are so we can coordinate with them directly.</div>
+      <div class="vend-card">
+        <div class="vend-h">Title / Escrow Agent</div>
+        <input class="vend-in" id="esc-name" placeholder="Agent name" />
+        <input class="vend-in" id="esc-company" placeholder="Company" />
+        <input class="vend-in" id="esc-email" type="email" placeholder="Email" />
+        <input class="vend-in" id="esc-phone" placeholder="Phone" />
+        <div class="vend-row"><button class="btn primary" onclick="saveVendor('escrow')">Save Title / Escrow Agent</button><span class="vend-stat" id="esc-stat"></span></div>
+      </div>
+      <div class="vend-card">
+        <div class="vend-h">Insurance Agent</div>
+        <input class="vend-in" id="ins-name" placeholder="Agent name" />
+        <input class="vend-in" id="ins-company" placeholder="Company / carrier" />
+        <input class="vend-in" id="ins-email" type="email" placeholder="Email" />
+        <input class="vend-in" id="ins-phone" placeholder="Phone" />
+        <div class="vend-row"><button class="btn primary" onclick="saveVendor('insurance')">Save Insurance Agent</button><span class="vend-stat" id="ins-stat"></span></div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -222,6 +251,30 @@
     }).then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
       .then(function(){ loadStatus(); })
       .catch(function(err){ alert('Could not submit the request: ' + (err && err.message || 'unknown')); });
+  };
+
+  // Title/Escrow + Insurance agents → written as loan Vendors (loan-contacts).
+  function _vendVal(id){ var e = document.getElementById(id); return e ? String(e.value||'').trim() : ''; }
+  window.saveVendor = function(role){
+    var p = (role === 'insurance') ? 'ins' : 'esc';
+    var stat = document.getElementById(p + '-stat');
+    var body = {
+      loanId:_loanId, primaryClientId:_clientId, ownerKey:_owner, role:role,
+      name:_vendVal(p+'-name'), company:_vendVal(p+'-company'),
+      email:_vendVal(p+'-email'), phone:_vendVal(p+'-phone'),
+    };
+    if (!body.name && !body.company && !body.email && !body.phone) {
+      if (stat) stat.textContent = 'Enter at least one field first.'; return;
+    }
+    if (stat) stat.textContent = 'Saving…';
+    _borrowerJwt().then(function(token){
+      return fetch('/api/borrower-intake-vendor', {
+        method:'POST', headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+        body: JSON.stringify(body),
+      });
+    }).then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
+      .then(function(){ if (stat) stat.textContent = 'Saved ✓'; })
+      .catch(function(err){ if (stat) stat.textContent = 'Could not save: ' + (err && err.message || 'unknown'); });
   };
 
   // Downscale large phone photos client-side (IDs / checks). PDFs pass through.
