@@ -347,6 +347,27 @@
       '.dr-root .consistency-card h3 { font-size:14px; font-weight:600; margin-bottom:6px; }',
       '.dr-root .consistency-card p { font-size:12px; color:var(--muted); line-height:1.5; }',
       '.dr-root .ai-soon { display:inline-block; font-size:10px; font-weight:600; color:var(--gold-mid); background:var(--gold-light); border:1px solid var(--gold-border); padding:2px 8px; border-radius:10px; text-transform:uppercase; letter-spacing:0.04em; margin-left:6px; }',
+      // Deploy 236.517 — cross-document consistency check.
+      '.dr-root .consistency-card.has-mismatch { border-color:var(--dr-red-border, rgba(124,31,31,0.28)); box-shadow:inset 3px 0 0 var(--danger, #7c1f1f); }',
+      '.dr-root .dr-cc-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px; }',
+      '.dr-root .dr-cc-head h3 { margin:0; }',
+      '.dr-root .dr-cc-badge { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; padding:3px 10px; border-radius:20px; white-space:nowrap; }',
+      '.dr-root .dr-cc-badge.fail { color:var(--danger, #7c1f1f); background:rgba(124,31,31,0.10); border:1px solid rgba(124,31,31,0.28); }',
+      '.dr-root .dr-cc-badge.ok { color:var(--dr-green, #166534); background:rgba(21,128,61,0.10); border:1px solid rgba(21,128,61,0.25); }',
+      '.dr-root .dr-cc-badge.none { color:var(--muted); background:var(--bg, #f7f5f1); border:1px solid var(--border); }',
+      '.dr-root .dr-cc-sub { font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:12px; }',
+      '.dr-root .dr-cc-rows { display:flex; flex-direction:column; }',
+      '.dr-root .dr-cc-row { display:grid; grid-template-columns:180px 1fr; gap:12px; padding:9px 0; border-top:1px solid rgba(0,0,0,0.05); font-size:13px; }',
+      '.dr-root .dr-cc-row:first-child { border-top:0; }',
+      '.dr-root .dr-cc-field { font-weight:600; color:var(--text, #1a1520); }',
+      '.dr-root .dr-cc-row.mismatch .dr-cc-field { color:var(--danger, #7c1f1f); }',
+      '.dr-root .dr-cc-row.ok .dr-cc-field { color:var(--dr-green, #166534); }',
+      '.dr-root .dr-cc-row.none .dr-cc-field, .dr-root .dr-cc-row.single .dr-cc-field { color:var(--muted); font-weight:500; }',
+      '.dr-root .dr-cc-val { font-family:"DM Mono", monospace; font-weight:600; }',
+      '.dr-root .dr-cc-agree, .dr-root .dr-cc-only { color:var(--muted); font-size:12px; }',
+      '.dr-root .dr-cc-variant { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; padding:3px 8px; margin-bottom:4px; background:rgba(124,31,31,0.06); border-radius:6px; }',
+      '.dr-root .dr-cc-variant:last-child { margin-bottom:0; }',
+      '.dr-root .dr-cc-srcs { font-size:11px; color:var(--muted); }',
       '.dr-root .loading-page { padding:4rem; text-align:center; color:var(--muted); font-size:13px; }',
 
       // Modals — body-mounted, dr- prefixed so they don't collide with
@@ -570,11 +591,7 @@
     }
     var traysHtml = renderSections(activeSlugs);
 
-    var bottom =
-      '<div class="consistency-card">' +
-        '<h3>Cross-Document Consistency Check <span class="ai-soon">AI · Phase 2</span></h3>' +
-        '<p>Once Phase 2 ships, this section will use AI to cross-check the LLC name, borrower name, property address, and loan amount across the Articles of Organization, Operating Agreement, OFAC reports, Loan Application, and Title Commitment to surface any inconsistencies before closing.</p>' +
-      '</div>';
+    var bottom = renderConsistencyCard(_review);
     // Deploy 236.161 — removed Delete Review + Finalize buttons per
     // Mike. The handlers + modals remain in the DOM (commented
     // refs only) so a future re-add doesn't have to re-wire the
@@ -590,6 +607,124 @@
         try { input.setSelectionRange(len, len); } catch (e) {}
       }
     }
+  }
+
+  // ── Deploy 236.517 — Cross-Document Consistency Check (Phase 2) ──────
+  // Deterministic, NO new AI call: compares the entities each document's
+  // review ALREADY extracted (aiExtractedEntities) against each other AND
+  // against the loan of record. Flags when the same LLC / borrower name /
+  // property address / loan amount disagrees across documents — the class
+  // of typo/mismatch that's expensive to catch at the closing table.
+  // Values are grouped by a normalized form so trivial formatting diffs
+  // ("123 Main St" vs "123 Main Street") don't false-flag; the RAW value
+  // each doc reported is shown so the underwriter sees exactly what differs.
+  function _ccNormName(s) {
+    return String(s == null ? '' : s).toUpperCase().replace(/[.,'"]/g, '').replace(/\s+/g, ' ').trim();
+  }
+  function _ccNormAddr(s) {
+    var t = String(s == null ? '' : s).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim();
+    t = t.replace(/\bstreet\b/g, 'st').replace(/\bavenue\b/g, 'ave').replace(/\broad\b/g, 'rd')
+         .replace(/\bdrive\b/g, 'dr').replace(/\blane\b/g, 'ln').replace(/\bboulevard\b/g, 'blvd')
+         .replace(/\bcourt\b/g, 'ct').replace(/\bplace\b/g, 'pl').replace(/\bhighway\b/g, 'hwy')
+         .replace(/\bapartment\b/g, 'unit').replace(/\bapt\b/g, 'unit').replace(/\bsuite\b/g, 'unit').replace(/\bste\b/g, 'unit')
+         .replace(/\bnorth\b/g, 'n').replace(/\bsouth\b/g, 's').replace(/\beast\b/g, 'e').replace(/\bwest\b/g, 'w');
+    return t.replace(/\s+/g, ' ').trim();
+  }
+  function _ccNormMoney(v) {
+    var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+    return (isFinite(n) && n > 0) ? String(Math.round(n)) : '';
+  }
+  function _ccMoney(v) {
+    var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+    return isFinite(n) ? '$' + Math.round(n).toLocaleString() : String(v);
+  }
+  function _ccIsBlank(v) {
+    var t = String(v == null ? '' : v).trim();
+    return t === '' || /^(null|n\/?a|none|unknown|not (found|present|specified))$/i.test(t);
+  }
+
+  function buildConsistencyReport(review) {
+    review = review || {};
+    var docs = review.docs || {};
+    var client = review.sourceClientSnapshot || {};
+    var FIELDS = [
+      { key: 'llcName',         label: 'Entity / LLC Name', norm: _ccNormName, loanRef: client.entityName },
+      { key: 'borrowerName',    label: 'Borrower Name',     norm: _ccNormName, loanRef: review.borrowerName },
+      { key: 'propertyAddress', label: 'Property Address',  norm: _ccNormAddr, loanRef: review.address },
+      { key: 'loanAmount',      label: 'Loan Amount',       norm: _ccNormMoney, money: true, loanRef: review.loanAmount },
+    ];
+    return FIELDS.map(function(f) {
+      var sources = []; // { label, raw, norm, isRef }
+      if (!_ccIsBlank(f.loanRef)) {
+        sources.push({ label: 'Loan File (of record)', raw: String(f.loanRef), norm: f.norm(f.loanRef), isRef: true });
+      }
+      Object.keys(docs).forEach(function(slug) {
+        var d = docs[slug];
+        if (!d || d.hidden) return;
+        var ee = d.aiExtractedEntities || {};
+        var v = ee[f.key];
+        if (_ccIsBlank(v)) return;
+        var label = (DOC_META[slug] && DOC_META[slug].label) || d.label || slug;
+        sources.push({ label: label, raw: String(v), norm: f.norm(v) });
+      });
+      // Group by normalized value.
+      var groups = [], byNorm = {};
+      sources.forEach(function(s) {
+        if (!s.norm) return;
+        if (!byNorm[s.norm]) { byNorm[s.norm] = { norm: s.norm, raw: s.raw, labels: [] }; groups.push(byNorm[s.norm]); }
+        byNorm[s.norm].labels.push(s.label);
+      });
+      var comparable = sources.filter(function(s) { return s.norm; }).length;
+      // Biggest group first so the "majority" value reads at the top.
+      groups.sort(function(a, b) { return b.labels.length - a.labels.length; });
+      return {
+        key: f.key, label: f.label, money: !!f.money, groups: groups, comparable: comparable,
+        status: groups.length > 1 ? 'mismatch' : (comparable >= 2 ? 'ok' : (comparable === 1 ? 'single' : 'none')),
+      };
+    });
+  }
+
+  function renderConsistencyCard(review) {
+    var report = buildConsistencyReport(review);
+    var mism = report.filter(function(r) { return r.status === 'mismatch'; });
+    var okCount = report.filter(function(r) { return r.status === 'ok'; }).length;
+
+    var headBadge = mism.length
+      ? '<span class="dr-cc-badge fail">⚠ ' + mism.length + ' mismatch' + (mism.length === 1 ? '' : 'es') + '</span>'
+      : (okCount ? '<span class="dr-cc-badge ok">✓ consistent</span>' : '<span class="dr-cc-badge none">awaiting docs</span>');
+
+    var rows = report.map(function(r) {
+      if (r.status === 'none') {
+        return '<div class="dr-cc-row none"><div class="dr-cc-field">' + escHtml(r.label) + '</div>' +
+          '<div class="dr-cc-detail">Not extracted from any document yet.</div></div>';
+      }
+      var fmt = function(g) { return r.money ? _ccMoney(g.raw) : g.raw; };
+      if (r.status === 'single') {
+        var g0 = r.groups[0];
+        return '<div class="dr-cc-row single"><div class="dr-cc-field">' + escHtml(r.label) + '</div>' +
+          '<div class="dr-cc-detail"><span class="dr-cc-val">' + escHtml(fmt(g0)) + '</span> ' +
+          '<span class="dr-cc-only">— only on ' + escHtml(g0.labels.join(', ')) + '; nothing to cross-check yet</span></div></div>';
+      }
+      if (r.status === 'ok') {
+        var gk = r.groups[0];
+        return '<div class="dr-cc-row ok"><div class="dr-cc-field">✓ ' + escHtml(r.label) + '</div>' +
+          '<div class="dr-cc-detail"><span class="dr-cc-val">' + escHtml(fmt(gk)) + '</span> ' +
+          '<span class="dr-cc-agree">— matches across ' + gk.labels.length + ' sources</span></div></div>';
+      }
+      // mismatch
+      var gl = r.groups.map(function(g) {
+        return '<div class="dr-cc-variant"><span class="dr-cc-val">' + escHtml(fmt(g)) + '</span>' +
+          '<span class="dr-cc-srcs">' + escHtml(g.labels.join(', ')) + '</span></div>';
+      }).join('');
+      return '<div class="dr-cc-row mismatch"><div class="dr-cc-field">⚠ ' + escHtml(r.label) + '</div>' +
+        '<div class="dr-cc-detail">' + gl + '</div></div>';
+    }).join('');
+
+    return '<div class="consistency-card' + (mism.length ? ' has-mismatch' : '') + '">' +
+      '<div class="dr-cc-head"><h3>Cross-Document Consistency Check</h3>' + headBadge + '</div>' +
+      '<div class="dr-cc-sub">Compares the LLC name, borrower name, property address, and loan amount the AI read off each document — and the loan of record — and flags anything that disagrees before closing.</div>' +
+      '<div class="dr-cc-rows">' + rows + '</div>' +
+    '</div>';
   }
 
   function renderSourcePanel() {
