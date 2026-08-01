@@ -977,6 +977,22 @@
   to = "/.netlify/functions/borrower-doc-upload"
   status = 200
   force = true
+# Deploy 236.518 — Borrower Document Intake (checklist + real-time AI review).
+[[redirects]]
+  from = "/api/borrower-intake-status"
+  to = "/.netlify/functions/borrower-intake-status"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/borrower-intake-upload"
+  to = "/.netlify/functions/borrower-intake-upload"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/borrower-intake-manual-review"
+  to = "/.netlify/functions/borrower-intake-manual-review"
+  status = 200
+  force = true
 # Deploy 236.175 — per-loan Baseline diagnostic. Fetches a single
 # loan straight from Baseline, diffs against the mirror, optionally
 # writes back.
