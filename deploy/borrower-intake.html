@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submit Your Documents — SLA Capital</title>
+  <link rel="icon" href="/favicon.ico" />
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{ --bg:#f4f1ea; --card:#fff; --text:#1a1520; --muted:#7a7488; --border:#e4dfd4;
+      --gold:#c8813a; --gold-mid:#b5712d; --green:#166534; --green-bg:rgba(21,128,61,.09);
+      --red:#7c1f1f; --red-bg:rgba(124,31,31,.08); --amber:#b5712d; --amber-bg:rgba(200,129,58,.10); }
+    *{ box-sizing:border-box; } html,body{ margin:0; padding:0; }
+    body{ font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+    a{ color:var(--gold-mid); }
+    .wrap{ max-width:720px; margin:0 auto; padding:24px 18px 80px; }
+    .topbar{ display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); background:var(--card); }
+    .brand{ font-family:'Lora',serif; font-weight:600; font-size:16px; }
+    .topbar .who{ font-size:12px; color:var(--muted); }
+    .signout{ font-size:12px; background:none; border:1px solid var(--border); border-radius:20px; padding:5px 12px; cursor:pointer; color:var(--muted); margin-left:10px; }
+    #login-screen{ min-height:80vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .login-card{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:2rem; max-width:420px; text-align:center; }
+    .login-card h1{ font-family:'Lora',serif; font-size:22px; margin:0 0 8px; }
+    .login-card p{ color:var(--muted); font-size:14px; }
+    .login-btn{ margin-top:14px; background:var(--gold-mid); color:#fff; border:none; border-radius:10px; padding:11px 22px; font-size:15px; font-weight:600; cursor:pointer; }
+    h1.page-title{ font-family:'Lora',serif; font-size:22px; margin:6px 0 2px; }
+    .sub{ color:var(--muted); font-size:13px; margin-bottom:18px; }
+    .progress{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:18px; display:flex; align-items:center; gap:14px; }
+    .progress .bar{ flex:1; height:9px; background:#eee7d8; border-radius:5px; overflow:hidden; }
+    .progress .bar > div{ height:100%; background:var(--green); transition:width .3s; }
+    .progress .lbl{ font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .item{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:12px; }
+    .item-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .item-name{ font-weight:600; font-size:15px; }
+    .item-hint{ font-size:12px; color:var(--muted); margin-top:2px; }
+    .pill{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:3px 9px; border-radius:20px; white-space:nowrap; }
+    .pill.todo{ color:var(--muted); background:var(--bg); border:1px solid var(--border); }
+    .pill.submitted{ color:var(--gold-mid); background:var(--amber-bg); border:1px solid rgba(200,129,58,.28); }
+    .pill.needs_fix{ color:var(--red); background:var(--red-bg); border:1px solid rgba(124,31,31,.28); }
+    .pill.manual_review{ color:#1e40af; background:rgba(30,64,175,.08); border:1px solid rgba(30,64,175,.25); }
+    .pill.optional{ color:var(--muted); background:transparent; border:1px dashed var(--border); }
+    .item-msg{ font-size:13px; margin-top:10px; padding:9px 12px; border-radius:8px; }
+    .item-msg.ok{ color:var(--green); background:var(--green-bg); }
+    .item-msg.fix{ color:var(--red); background:var(--red-bg); }
+    .item-msg.info{ color:var(--muted); background:var(--bg); }
+    .item-actions{ margin-top:11px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .btn{ font-size:13px; font-weight:600; border-radius:9px; padding:8px 14px; cursor:pointer; border:1px solid var(--border); background:var(--card); color:var(--text); }
+    .btn.primary{ background:var(--gold-mid); color:#fff; border-color:var(--gold-mid); }
+    .btn.ghost{ background:transparent; color:var(--muted); }
+    .btn:disabled{ opacity:.6; cursor:default; }
+    .tmpl-link{ font-size:12px; }
+    .files{ font-size:11px; color:var(--muted); margin-top:6px; }
+    .empty{ text-align:center; color:var(--muted); padding:40px 20px; }
+    .done-note{ font-size:12px; color:var(--muted); margin-top:6px; }
+    .err-box{ background:var(--red-bg); border:1px solid rgba(124,31,31,.28); color:var(--red); padding:12px 14px; border-radius:8px; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="brand">SLA Capital</span>
+    <span><span class="who" id="who"></span><button class="signout" id="signout" style="display:none" onclick="doLogout()">Sign out</button></span>
+  </div>
+
+  <div id="login-screen">
+    <div class="login-card">
+      <h1>Submit Your Documents</h1>
+      <p>Sign in with the email on your application to upload your loan documents. If this is your first time, use the invite email we sent to create your password.</p>
+      <button class="login-btn" id="loginBtn">Sign In</button>
+    </div>
+  </div>
+
+  <div id="app-screen" class="wrap" style="display:none">
+    <h1 class="page-title" id="pageTitle">Your Documents</h1>
+    <div class="sub" id="pageSub"></div>
+    <div class="progress"><div class="bar"><div id="progressBar" style="width:0%"></div></div><div class="lbl" id="progressLbl"></div></div>
+    <div id="itemsContainer"></div>
+    <div class="done-note" id="doneNote"></div>
+  </div>
+
+  <script>
+  var _user = null;
+  var _params = new URLSearchParams(window.location.search);
+  var _loanId  = _params.get('loanId') || '';
+  var _clientId = _params.get('clientId') || _params.get('primaryClientId') || '';
+  var _owner   = _params.get('owner') || _params.get('ownerKey') || '';
+  var _items = [];
+
+  function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function _borrowerJwt(){
+    var u = (window.netlifyIdentity && netlifyIdentity.currentUser && netlifyIdentity.currentUser());
+    if (!u || typeof u.jwt !== 'function') { showLogin(); return Promise.reject(new Error('Your session expired — please sign in again.')); }
+    return u.jwt();
+  }
+  function showApp(user){
+    _user = user;
+    document.getElementById('login-screen').style.display='none';
+    document.getElementById('app-screen').style.display='block';
+    document.getElementById('who').textContent = user.email || '';
+    document.getElementById('signout').style.display='inline-block';
+    loadStatus();
+  }
+  function showLogin(){
+    document.getElementById('login-screen').style.display='flex';
+    document.getElementById('app-screen').style.display='none';
+    document.getElementById('signout').style.display='none';
+  }
+  function doLogout(){ netlifyIdentity.logout(); }
+
+  function _qs(){ return '?loanId=' + encodeURIComponent(_loanId) + '&primaryClientId=' + encodeURIComponent(_clientId) + '&ownerKey=' + encodeURIComponent(_owner); }
+
+  function loadStatus(){
+    var c = document.getElementById('itemsContainer');
+    c.innerHTML = '<div class="empty">Loading your document list…</div>';
+    if (!_loanId){ c.innerHTML = '<div class="err-box">This link is missing its loan reference. Please use the link from your invite email.</div>'; return; }
+    _borrowerJwt().then(function(token){
+      return fetch('/api/borrower-intake-status' + _qs(), { headers:{ 'Authorization':'Bearer '+token } });
+    }).then(function(r){
+      if (!r.ok) return r.json().catch(function(){return{};}).then(function(d){ throw new Error(d.error || ('HTTP '+r.status)); });
+      return r.json();
+    }).then(function(data){
+      _items = (data && data.items) || [];
+      document.getElementById('pageSub').textContent = (data.address ? data.address + ' · ' : '') + (String(data.loanType||'').toUpperCase()) + ' loan';
+      render();
+    }).catch(function(err){
+      c.innerHTML = '<div class="err-box">Couldn’t load your documents: ' + escH(err && err.message || 'unknown') + '</div>';
+    });
+  }
+
+  function render(){
+    var c = document.getElementById('itemsContainer');
+    // Accepted items drop off the list.
+    var active = _items.filter(function(it){ return it.status !== 'accepted'; });
+    var accepted = _items.filter(function(it){ return it.status === 'accepted'; });
+    var total = _items.length;
+    var doneCount = accepted.length;
+    var pct = total ? Math.round((doneCount/total)*100) : 0;
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressLbl').textContent = doneCount + ' of ' + total + ' accepted';
+
+    if (!active.length){
+      c.innerHTML = '<div class="empty"><div style="font-size:28px">✓</div><div style="margin-top:8px;font-weight:600;color:var(--green)">All documents received.</div><div style="margin-top:4px">Thanks! Your loan team has everything they need for now.</div></div>';
+      document.getElementById('doneNote').textContent = '';
+      return;
+    }
+    c.innerHTML = active.map(renderItem).join('');
+    document.getElementById('doneNote').textContent = accepted.length
+      ? (accepted.length + ' document' + (accepted.length===1?'':'s') + ' already accepted and cleared from this list.') : '';
+  }
+
+  function renderItem(it){
+    var pill = it.status === 'needs_fix' ? '<span class="pill needs_fix">Needs fix</span>'
+             : it.status === 'manual_review' ? '<span class="pill manual_review">Manual review</span>'
+             : it.status === 'submitted' ? '<span class="pill submitted">Submitted</span>'
+             : (it.optional ? '<span class="pill optional">If applicable</span>' : '<span class="pill todo">Needed</span>');
+    var msg = '';
+    if (it.message){
+      var cls = it.status === 'needs_fix' ? 'fix' : (it.status === 'submitted' && it.aiVerdict === 'approved') ? 'ok' : 'info';
+      msg = '<div class="item-msg ' + cls + '">' + escH(it.message) + '</div>';
+    }
+    var tmpl = it.templateUrl ? '<a class="tmpl-link" href="' + escH(it.templateUrl) + '" download>⬇ Download the template</a>' : '';
+    var uploadLabel = it.uploaded ? (it.multi ? 'Add / replace file' : 'Upload a corrected version') : 'Upload';
+    var manualBtn = (it.status === 'needs_fix')
+      ? '<button class="btn ghost" onclick="requestManual(\'' + escH(it.slug) + '\')">Request manual review</button>' : '';
+    var files = it.uploadedCount ? '<div class="files">' + it.uploadedCount + ' file' + (it.uploadedCount===1?'':'s') + ' uploaded</div>' : '';
+    return '<div class="item" id="item-' + escH(it.slug) + '">' +
+      '<div class="item-head"><div><div class="item-name">' + escH(it.label) + '</div>' +
+        (it.hint ? '<div class="item-hint">' + escH(it.hint) + '</div>' : '') + tmpl + '</div>' + pill + '</div>' +
+      msg + files +
+      '<div class="item-actions">' +
+        '<button class="btn primary" onclick="pickFile(\'' + escH(it.slug) + '\')">' + uploadLabel + '</button>' +
+        manualBtn +
+        '<input type="file" id="file-' + escH(it.slug) + '" accept="application/pdf,image/*" style="display:none" onchange="onFilePicked(event,\'' + escH(it.slug) + '\')" />' +
+        '<span class="upstat" id="upstat-' + escH(it.slug) + '" style="font-size:12px;color:var(--muted)"></span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  window.pickFile = function(slug){ var el = document.getElementById('file-'+slug); if (el) el.click(); };
+
+  window.onFilePicked = function(e, slug){
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    var stat = document.getElementById('upstat-'+slug);
+    var setStat = function(t){ if (stat) stat.textContent = t; };
+    setStat('Preparing…');
+    _shrinkIfImage(f).then(function(file){
+      if ((file.size||0) > 4.2*1024*1024){
+        setStat('');
+        alert('That file is a bit large to upload here. Please upload a smaller or clearer photo/scan (under ~4 MB).');
+        return;
+      }
+      setStat('Uploading & checking…');
+      return _toB64(file).then(function(b64){
+        return _borrowerJwt().then(function(token){
+          return fetch('/api/borrower-intake-upload', {
+            method:'POST', headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+            body: JSON.stringify({ loanId:_loanId, primaryClientId:_clientId, ownerKey:_owner, slug:slug,
+              filename:file.name, mimeType:file.type||'application/pdf', contentBase64:b64 }),
+          });
+        });
+      }).then(function(r){
+        return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; });
+      }).then(function(d){
+        setStat('');
+        loadStatus(); // re-render with the fresh verdict
+      });
+    }).catch(function(err){
+      setStat('');
+      alert('Upload failed: ' + (err && err.message || 'unknown'));
+    });
+  };
+
+  window.requestManual = function(slug){
+    if (!confirm('Ask a person to review this document instead of re-uploading?')) return;
+    _borrowerJwt().then(function(token){
+      return fetch('/api/borrower-intake-manual-review', {
+        method:'POST', headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+        body: JSON.stringify({ loanId:_loanId, primaryClientId:_clientId, ownerKey:_owner, slug:slug }),
+      });
+    }).then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
+      .then(function(){ loadStatus(); })
+      .catch(function(err){ alert('Could not submit the request: ' + (err && err.message || 'unknown')); });
+  };
+
+  // Downscale large phone photos client-side (IDs / checks). PDFs pass through.
+  function _shrinkIfImage(file){
+    return new Promise(function(resolve){
+      if (!/^image\//.test(file.type) || (file.size||0) <= 1.2*1024*1024) return resolve(file);
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function(){
+        var maxW = 2000, scale = Math.min(1, maxW / (img.naturalWidth||img.width||maxW));
+        var w = Math.round((img.naturalWidth||img.width)*scale), h = Math.round((img.naturalHeight||img.height)*scale);
+        var cv = document.createElement('canvas'); cv.width=w; cv.height=h;
+        var ctx = cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function(blob){
+          if (!blob || blob.size >= file.size) return resolve(file);
+          resolve(new File([blob], (file.name||'photo').replace(/\.[^.]+$/,'') + '.jpg', { type:'image/jpeg' }));
+        }, 'image/jpeg', 0.82);
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+  function _toB64(file){
+    return new Promise(function(resolve, reject){
+      var r = new FileReader();
+      r.onload = function(){ var s=String(r.result||''); var i=s.indexOf(','); resolve(i>=0?s.slice(i+1):''); };
+      r.onerror = function(){ reject(new Error('Could not read the file')); };
+      r.readAsDataURL(file);
+    });
+  }
+
+  netlifyIdentity.on('init',  function(u){ if (u) showApp(u); else showLogin(); });
+  netlifyIdentity.on('login', function(u){ netlifyIdentity.close(); showApp(u); });
+  netlifyIdentity.on('logout', showLogin);
+  document.getElementById('loginBtn').addEventListener('click', function(){ netlifyIdentity.open('login'); });
+  </script>
+</body>
+</html>

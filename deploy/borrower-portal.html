@@ -73,6 +73,11 @@
     .fact-value { font-size:13px; font-weight:600; color:var(--text); margin-top:2px; word-break:break-word; }
 
     /* Upload area */
+    /* Deploy 236.519 — guided-intake CTA */
+    .intake-cta { display:block; text-align:center; background:var(--gold-mid, #b5712d); color:#fff;
+                  font-weight:600; font-size:14px; text-decoration:none; padding:12px 16px; border-radius:10px;
+                  margin:14px 0 10px; }
+    .intake-cta:hover { background:#935a20; }
     .upload-zone { border:2px dashed var(--gold-border); border-radius:10px; padding:1.5rem; text-align:center;
                    background:#fff; transition: all .15s; cursor:pointer; position:relative; }
     .upload-zone:hover, .upload-zone.dragover { border-color:var(--gold); background:var(--gold-light); }
@@ -233,6 +238,12 @@
           '<div><div class="fact-label">Property Value</div><div class="fact-value">' + fmtMoney(loan.propValue) + '</div></div>' +
           '<div><div class="fact-label">Target Close</div><div class="fact-value">' + fmtDate(loan.fundingDate) + '</div></div>' +
         '</div>' +
+        // Deploy 236.519 — primary CTA into the guided document-submission page
+        // (checklist + real-time review). The free-form drop zone stays below
+        // as a fallback for anything not on the checklist.
+        '<a class="intake-cta" href="borrower-intake.html?loanId=' + encodeURIComponent(loan.loanId) +
+          '&clientId=' + encodeURIComponent(loan.primaryClientId || '') +
+          '&owner=' + encodeURIComponent(loan.ownerKey || '') + '">📄 Submit Documents for This Loan &rarr;</a>' +
         _renderUploadZone(loan) +
       '</div>';
     }
