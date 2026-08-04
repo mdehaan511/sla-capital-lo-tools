@@ -4944,8 +4944,27 @@ function _generateRTLRateSheetPDF(opts) {
       if (_rawLoan && _rawRate && _corrRate && bMaxNum > 0) {
         var _moScale = (bMaxNum / _rawLoan) * (_corrRate / _rawRate);
         if (isFinite(_moScale) && _moScale > 0) {
-          if (pdfMoStart !== null) pdfMoStart = pdfMoStart * _moScale;
-          if (pdfMoMax   !== null) pdfMoMax   = pdfMoMax   * _moScale;
+          // Maximum payment = interest on the FULL loan, so it scales linearly
+          // with the loan amount (and rate). This one is correct on the ratio.
+          if (pdfMoMax !== null) pdfMoMax = pdfMoMax * _moScale;
+          // Deploy 236.522 — the STARTING payment is NOT linear in the loan
+          // amount for a Non-Dutch rehab loan. It's interest on the initial
+          // advance = loan − rehab holdback, and the holdback is a FIXED dollar
+          // amount (the SOW rehab budget sitting in escrow). When the loan is
+          // overridden/re-derived to a different amount, the advance moves
+          // dollar-for-dollar, not proportionally — so multiplying moStart by
+          // the loan ratio over/under-states it (e.g. printed $2,208/mo when
+          // the true starting payment at the on-file amount is $2,161/mo).
+          // Recompute from the corrected advance instead. Dutch loans pay the
+          // max from day one (start === max), so they stay on the linear scale.
+          if (!pdfIsDutch && pdfInitAdv !== null) {
+            var _holdback = Math.max(0, _rawLoan - pdfInitAdv); // rehab escrow (fixed)
+            var _corrAdv  = Math.max(0, bMaxNum - _holdback);   // advance at the on-file amount
+            pdfInitAdv = _corrAdv;
+            if (pdfMoStart !== null) pdfMoStart = _corrAdv * _corrRate / 12;
+          } else if (pdfMoStart !== null) {
+            pdfMoStart = pdfMoStart * _moScale;
+          }
           if (pdfMoMax !== null) moDisp = '$' + Math.round(pdfMoMax).toLocaleString() + '/mo';
         }
       }
