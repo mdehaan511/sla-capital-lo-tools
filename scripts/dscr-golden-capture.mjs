@@ -22,17 +22,22 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import vm from 'node:vm';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const html = readFileSync(join(root, 'deploy', 'dscr-sizer.html'), 'utf8');
 
-// ── Slice the two pricing regions out of the HTML ───────────────────
-// Region A: const DIYA … through validateGuidelines/getFICOMin, up to
-//   the </script> that closes that block.
-// Region B: function ltvCol … up to (not including) renderResult.
-// The `$` DOM helper between the regions is deliberately excluded —
-// the sandbox provides its own fed from scenario inputs.
+// Two capture sources, selected by flag:
+//   --from-module : run the EXTRACTED engine (deploy/dscr-pricing.js). This is
+//     the mode for every rate-sheet re-baseline now that the pricing math lives
+//     in the module (post-G1). priceDSCR(inputs) returns the same object
+//     calculate() always did, so the golden shape is unchanged.
+//   (default)     : LEGACY — slice the pricing regions out of the inline
+//     dscr-sizer.html <script> and run them in a vm. Only meaningful BEFORE the
+//     extraction; the sizer no longer holds `const DIYA` inline, so this mode
+//     now errors with a pointer to --from-module. Kept for historical record.
+const FROM_MODULE = process.argv.includes('--from-module');
+
 function slice(src, startMarker, endMarker, label) {
   const s = src.indexOf(startMarker);
   if (s < 0) throw new Error('capture: start marker not found for ' + label);
@@ -40,21 +45,39 @@ function slice(src, startMarker, endMarker, label) {
   if (e < 0) throw new Error('capture: end marker not found for ' + label);
   return src.slice(s, e);
 }
-// NB: '"const DIYA = {" below' also appears in an HTML comment — anchor
-// on the <script> tag immediately preceding the real declaration.
-const aTag = html.match(/<script>\s*const DIYA = \{/);
-if (!aTag) throw new Error('capture: <script>const DIYA anchor not found');
-const sliceA = slice(html.slice(aTag.index + '<script>'.length), 'const DIYA = {', '</script>', 'region A (constants)');
-const sliceB = slice(html, 'function ltvCol', '\nfunction renderResult', 'region B (calculate)');
 
-// ── Sandbox with a stubbed DOM ──────────────────────────────────────
-let currentInputs = {};
-const sandbox = {
-  $: (id) => ({ value: String(currentInputs[id] !== undefined ? currentInputs[id] : '') }),
-  console,
-};
-vm.createContext(sandbox);
-vm.runInContext(sliceA + '\n' + sliceB + '\n;__calc = calculate;', sandbox);
+// runScenario(inputs) -> full result object; getEffectiveDate() -> string.
+let runScenario, getEffectiveDate, captureSource;
+
+if (FROM_MODULE) {
+  const require = createRequire(import.meta.url);
+  const engine = require(join(root, 'deploy', 'dscr-pricing.js'));
+  runScenario = (inputs) => engine.priceDSCR(inputs);
+  getEffectiveDate = () => engine.DIYA.effectiveDate;
+  captureSource = 'deploy/dscr-pricing.js (extracted module, --from-module)';
+} else {
+  const html = readFileSync(join(root, 'deploy', 'dscr-sizer.html'), 'utf8');
+  // NB: '"const DIYA = {" below' also appears in an HTML comment — anchor
+  // on the <script> tag immediately preceding the real declaration.
+  const aTag = html.match(/<script>\s*const DIYA = \{/);
+  if (!aTag) {
+    throw new Error('capture: <script>const DIYA anchor not found in dscr-sizer.html — ' +
+      'the pricing constants now live in deploy/dscr-pricing.js. Re-baseline with:\n' +
+      '  node scripts/dscr-golden-capture.mjs --from-module');
+  }
+  const sliceA = slice(html.slice(aTag.index + '<script>'.length), 'const DIYA = {', '</script>', 'region A (constants)');
+  const sliceB = slice(html, 'function ltvCol', '\nfunction renderResult', 'region B (calculate)');
+  let currentInputs = {};
+  const sandbox = {
+    $: (id) => ({ value: String(currentInputs[id] !== undefined ? currentInputs[id] : '') }),
+    console,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(sliceA + '\n' + sliceB + '\n;__calc = calculate;', sandbox);
+  runScenario = (inputs) => { currentInputs = inputs; return sandbox.__calc(); };
+  getEffectiveDate = () => vm.runInContext('DIYA.effectiveDate', sandbox);
+  captureSource = 'deploy/dscr-sizer.html (inline, pre-G1-extraction)';
+}
 
 // ── Scenario matrix ─────────────────────────────────────────────────
 // Base: eligible state, healthy DSCR, mid UPB band (200-599k = no adj).
@@ -128,18 +151,19 @@ const SCENARIOS = [
 // ── Run + record ────────────────────────────────────────────────────
 const results = {};
 for (const sc of SCENARIOS) {
-  currentInputs = sc.inputs;
   let out;
-  try { out = sandbox.__calc(); }
+  try { out = runScenario(sc.inputs); }
   catch (e) { out = { __threw: String(e && e.message) }; }
   results[sc.name] = out;
 }
 
+let effectiveDate = 'unknown';
+try { effectiveDate = getEffectiveDate(); } catch (_) {}
+
 const fixture = {
   generatedAt: new Date().toISOString(),
-  source: 'deploy/dscr-sizer.html (inline, pre-G1-extraction)',
-  effectiveDate: (results['base-30y-fixed'] && results['base-30y-fixed'].baseRate) !== undefined
-    ? (vm.runInContext('DIYA.effectiveDate', sandbox)) : 'unknown',
+  source: captureSource,
+  effectiveDate,
   scenarios: SCENARIOS,
   results,
 };

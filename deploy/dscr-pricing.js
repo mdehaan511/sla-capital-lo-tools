@@ -30,6 +30,16 @@
  */
 (function () {
 const DIYA = {
+  // Deploy 236.523 — Diya 1-4 Unit Rate Sheet effective 8.4.26.
+  // Only two grids moved vs the 7.22.26 sheet:
+  //   Portfolio: 0.200 -> 0.250 across all LTVs (reverts the 7.22.26 cut)
+  //   DSCR 1.20+: high-LTV cols flattened to -0.050 —
+  //     65-70 -0.075 -> -0.050, 70-75 -0.100 -> -0.050, 75-80 -0.125 -> -0.050
+  //     (the <=65 LTV cols were already -0.050, unchanged)
+  //   Unchanged: base rates, FICO, IO, Cash-Out, NW Condo, 2-4 Unit, UPB,
+  //     PPP, TPO Premium (1.00% still 0.320 -> HIDDEN_TPO_ADJ), Rate Buydown,
+  //     and the (still-unwired) TPO/Buydown caps.
+  //
   // Deploy 236.374 — Diya 1-4 Unit Rate Sheet effective 7.22.26.
   // Changes vs the 6.12.26 sheet:
   //   Base rates -0.025: 30Y/10-6 6.400 -> 6.375, 7/6 & 5/6 6.300 -> 6.275
@@ -57,7 +67,7 @@ const DIYA = {
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "July 22, 2026",
+  effectiveDate: "August 4, 2026",
   baseRate: { "30Y Fixed": 6.375, "10/6 ARM": 6.375, "7/6 ARM": 6.275, "5/6 ARM": 6.275 },
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
@@ -73,7 +83,7 @@ const DIYA = {
   cashOut:   [0.050, 0.050, 0.050, 0.050, 0.050, 0.050,  null],
   nwCondo:   [0.150, 0.150, 0.150, 0.150, 0.150, 0.150, 0.150],
   multiUnit: [0.000, 0.025, 0.050, 0.075, 0.100, 0.100, 0.100],
-  portfolio: [0.200, 0.200, 0.200, 0.200, 0.200, 0.200, 0.200],
+  portfolio: [0.250, 0.250, 0.250, 0.250, 0.250, 0.250, 0.250], // 236.523: 0.200 -> 0.250 (8.4.26 sheet)
   upb: [
     { min:  75000, max:  99999, adj:[0.700,0.700,0.700,0.750,0.750,0.750,0.750] },
     // Deploy 236.39 -- UPB 100k-149k flattened from 0.650/0.675 split
@@ -84,7 +94,7 @@ const DIYA = {
   ],
   dscr: {
     "1.00-1.19": [0,0,0,0,0,0,0],
-    "1.20+":     [-0.050,-0.050,-0.050,-0.050,-0.075,-0.100,-0.125],
+    "1.20+":     [-0.050,-0.050,-0.050,-0.050,-0.050,-0.050,-0.050], // 236.523: high-LTV cols flattened to -0.050 (8.4.26 sheet)
   },
   // Deploy 236.216 — "No Prepayment" option added. Placeholder
   // adjustment of +0.500% reflects the typical premium lenders
