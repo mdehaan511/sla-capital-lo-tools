@@ -634,6 +634,13 @@ async function handle(req) {
   let emailedB1 = false;
   let emailedB2 = false;
   let emailedSecondaryCount = 0;
+  // Deploy 236.524 — an LO signing on behalf of the borrower can choose NOT
+  // to email the borrower their signed copy (front-end modal sends
+  // sendBorrowerCopy:false). Only suppresses B1's courtesy copy — the LO
+  // notification (step 10) and any co-borrower signing links still go out,
+  // since those are functional, not a courtesy. Absent/true => send (the
+  // borrower-self-sign and legacy default).
+  const suppressBorrowerCopy = !!(body && body.sendBorrowerCopy === false);
   // Deploy 236.415 — deadline guard: skip emails rather than 504.
   if (_pastDeadline()) {
     _housekeepingSkipped.push('emails');
@@ -642,7 +649,7 @@ async function handle(req) {
       // The interim notice to b1 lists every secondary signer they're
       // waiting on so they understand which links are out.
       const coNames = secondaryBlocks.map(function (sb) { return sb.block.name; });
-      emailedB1 = await emailSignedCopy({
+      emailedB1 = suppressBorrowerCopy ? false : await emailSignedCopy({
         toEmail: b1Audit.signerEmail,
         toName: b1Audit.signerName,
         propertyAddress: signedRecord.propertyAddress,
@@ -671,7 +678,7 @@ async function handle(req) {
       }
       emailedB2 = emailedSecondaryCount > 0;
     } else {
-      emailedB1 = await emailSignedCopy({
+      emailedB1 = suppressBorrowerCopy ? false : await emailSignedCopy({
         toEmail: b1Audit.signerEmail,
         toName: b1Audit.signerName,
         propertyAddress: signedRecord.propertyAddress,
@@ -679,6 +686,9 @@ async function handle(req) {
         isInterim: false,
         ownerKey: record.ownerKey,
       });
+    }
+    if (suppressBorrowerCopy) {
+      console.log('[borrower-info-sign] borrower copy suppressed by LO signing on behalf');
     }
   } catch (e) {
     console.warn('borrower-info-sign: email failed:', e && e.message);
@@ -728,6 +738,7 @@ async function handle(req) {
     signedAt,
     status: pdfStatus,
     emailedBorrower: emailedB1,
+    borrowerCopySuppressed: suppressBorrowerCopy,
     emailedCoBorrower: emailedB2,
     emailedCoBorrowerCount: emailedSecondaryCount,
     secondaryCount: secondaryBlocks.length,

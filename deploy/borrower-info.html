@@ -179,6 +179,33 @@ var REVIEW_CLIENT_ID = new URLSearchParams(window.location.search).get('clientId
 var REVIEW_LOAN_ID   = new URLSearchParams(window.location.search).get('loanId')   || '';
 var REVIEW_OWNER     = new URLSearchParams(window.location.search).get('owner')    || '';
 var REVIEW_MODE      = !TOKEN && !!REVIEW_CLIENT_ID;
+
+// Deploy 236.524 — LO-signs-on-behalf: when a logged-in staff user (LO/admin)
+// signs the application on the borrower's token link, we ask whether to email
+// the borrower a copy of the signed application. A borrower signing their own
+// app is NOT logged into the portal, so they never see this and always get
+// their copy (unchanged behavior). `_signerIsLO` resolves async at boot;
+// `_sendBorrowerCopyChoice` caches the modal decision (null = not yet asked)
+// so the re-entrant signApplication() doesn't re-prompt.
+var _signerIsLO = false;
+var _sendBorrowerCopyChoice = null;
+function _isStaffUser(u) {
+  if (!u) return false;
+  var am = u.app_metadata || {};
+  var roles = Array.isArray(am.roles) ? am.roles : (am.role ? [am.role] : []);
+  // Borrowers only ever carry the 'borrower' role (intake / loan-access grants).
+  // Anyone else who is logged in is staff — including Google-created LOs whose
+  // app_metadata.roles is empty (their roles live on the access token instead).
+  var borrowerOnly = roles.length > 0 && roles.every(function (r) { return String(r).toLowerCase() === 'borrower'; });
+  return !borrowerOnly;
+}
+// Only meaningful on the token (signing) path — REVIEW_MODE has no inline sign.
+if (TOKEN && window.SLA && typeof SLA.getCurrentUser === 'function') {
+  try {
+    SLA.getCurrentUser().then(function (u) { _signerIsLO = _isStaffUser(u); }).catch(function () {});
+  } catch (_) {}
+}
+
 // In review mode the page is loaded by the LO from Loan Details. We use
 // authed endpoints, show all data including SSN (with reveal toggle),
 // and bypass the "completed → thank you screen" wall.
@@ -572,6 +599,11 @@ function showComplete(opts) {
   } else {
     heading = 'Information submitted';
     body = 'Thank you. Your loan officer has been notified and will be in touch shortly. You can close this page.';
+  }
+  // Deploy 236.524 — LO signed on behalf and chose not to send the borrower a
+  // copy; confirm the choice took effect (only ever set on the LO path).
+  if (opts.borrowerCopySuppressed) {
+    body += ' <em>(A copy was not emailed to the borrower, per your choice.)</em>';
   }
   document.getElementById('root').innerHTML =
     '<div class="complete-msg">' +
@@ -1704,6 +1736,18 @@ function signApplication() {
     }
   }
 
+  // Deploy 236.524 \u2014 LO signing on behalf: ask whether to email the borrower
+  // their signed copy before we submit. Only for a logged-in staff signer; a
+  // borrower signing their own app never sees this. Re-entrant \u2014 the modal
+  // records the choice in _sendBorrowerCopyChoice then re-calls signApplication.
+  if (_signerIsLO && _sendBorrowerCopyChoice === null) {
+    _openSendCopyModal(function (choice) {
+      _sendBorrowerCopyChoice = choice;
+      signApplication();
+    });
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Signing\u2026';
 
@@ -1736,6 +1780,9 @@ function signApplication() {
   }).then(function (geoloc) {
     var opts = { consentVersion: ESIGN_CONSENT_LOADED.version };
     if (geoloc) opts.geolocation = geoloc;
+    // LO-on-behalf copy choice (see _openSendCopyModal). Absent for a borrower
+    // self-signing → backend defaults to sending the copy.
+    if (_signerIsLO && _sendBorrowerCopyChoice !== null) opts.sendBorrowerCopy = _sendBorrowerCopyChoice;
     return SLA.BorrowerInfo.sign(TOKEN, signerName, opts);
   }).then(function (resp) {
     // Differentiate the thank-you message based on whether a co-borrower
@@ -1745,6 +1792,7 @@ function signApplication() {
       signed: true,
       signedAt: resp.signedAt,
       emailedBorrower: resp.emailedBorrower,
+      borrowerCopySuppressed: resp.borrowerCopySuppressed,
       awaitingBorrower2: resp.awaitingBorrower2,
       emailedCoBorrower: resp.emailedCoBorrower,
     });
@@ -2301,6 +2349,33 @@ function _computeGuarantorOwnershipTotal() {
     total += pct;
   }
   return { total: total, count: n, any: any };
+}
+
+// Deploy 236.524 — LO-on-behalf "send the borrower a copy?" modal. Calls
+// onDecide(true) to email the borrower their signed application, onDecide(false)
+// to skip it. The LO always gets their own notification copy either way.
+function _openSendCopyModal(onDecide) {
+  var existing = document.getElementById('sendCopyDecisionBg');
+  if (existing) existing.remove();
+  var bg = document.createElement('div');
+  bg.id = 'sendCopyDecisionBg';
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(38,26,54,0.55);display:flex;align-items:center;justify-content:center;z-index:9000;padding:1rem';
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:#fff;border-radius:10px;padding:24px 28px;max-width:500px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.18);font-family:"DM Sans",sans-serif';
+  modal.innerHTML =
+    '<h3 style="font-family:\'Lora\',serif;font-size:18px;color:#7a5218;margin:0 0 8px">Email the borrower a copy?</h3>' +
+    '<p style="font-size:13px;color:#1a1520;line-height:1.55;margin:0 0 18px">' +
+      'You\'re signing this application on the borrower\'s behalf. Would you like to email them a copy of the signed application for their records? ' +
+      'You\'ll receive your own copy either way.' +
+    '</p>' +
+    '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+      '<button type="button" id="sendCopyNo"  style="padding:9px 18px;background:#fff;border:1px solid #ddd8d0;border-radius:5px;font-size:13px;font-weight:600;color:#7a7488;cursor:pointer;font-family:inherit">No, don\'t send</button>' +
+      '<button type="button" id="sendCopyYes" style="padding:9px 18px;background:#C8813A;border:1px solid #C8813A;border-radius:5px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:inherit">Yes, email a copy</button>' +
+    '</div>';
+  bg.appendChild(modal);
+  document.body.appendChild(bg);
+  document.getElementById('sendCopyYes').onclick = function () { bg.remove(); onDecide(true); };
+  document.getElementById('sendCopyNo').onclick  = function () { bg.remove(); onDecide(false); };
 }
 
 function _openOwnershipDecisionModal(info, resumeFn) {

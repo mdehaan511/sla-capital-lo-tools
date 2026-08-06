@@ -1857,6 +1857,11 @@
       };
       if (opts.signerEmail) body.signerEmail = opts.signerEmail;
       if (opts.geolocation) body.geolocation = opts.geolocation;
+      // Deploy 236.524 — when an LO signs the app on behalf of the borrower
+      // they get a modal choice about whether to email the borrower a copy.
+      // Only sent when explicitly decided (boolean); absent for a borrower
+      // self-signing, where the backend defaults to sending the copy.
+      if (typeof opts.sendBorrowerCopy === 'boolean') body.sendBorrowerCopy = opts.sendBorrowerCopy;
       // No-auth call — bypasses the api() helper's token logic.
       return fetch('/api/borrower-info-sign', {
         method: 'POST',
