@@ -110,6 +110,9 @@ const SCENARIOS = [
   S('ltv-col-60', { loanAmt: 350000 }),                      // 58.3
   S('ltv-col-80', { loanAmt: 475000 }),                      // 79.2 — 740-759 80-col
   S('ltv-80-fico-700-719-new-tier', { loanAmt: 475000, fico: '700-719' }), // the 7/22 sheet's new 75.01-80 tier
+  // Deploy 236.526 — Admin Sandbox: LTV above the 80% cap prices instead of
+  // erroring (column clamps to the 80 tier; guideline errors downgrade to warn).
+  S('admin-sandbox-over-ltv', { loanAmt: 520000, adminSandbox: true }), // LTV 86.7%
   // IO + cash-out
   S('io-yes', { isIO: 'yes' }),
   S('io-at-75', { isIO: 'yes', loanAmt: 445000 }),           // 74.2 → col 75

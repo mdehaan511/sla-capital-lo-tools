@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-23T23:50:07.127Z",
-  "source": "deploy/rtl-sizer.html (inline, pre-extraction)",
+  "generatedAt": "2026-08-08T14:26:36.921Z",
+  "source": "deploy/rtl-pricing.js (extracted module, --from-module)",
   "scenarios": [
     {
       "name": "base-bridge-740-tier1",
@@ -654,6 +654,28 @@
       }
     },
     {
+      "name": "admin-sandbox-over-cap",
+      "inputs": {
+        "lt": "light",
+        "fr": 740,
+        "exp": 8,
+        "pt": "sfr",
+        "pp": 300000,
+        "arv": 550000,
+        "rb": 100000,
+        "term": 12,
+        "purp": "purchase",
+        "zhvi": "",
+        "sa": "other",
+        "state": "WA",
+        "geoWarning": "",
+        "geoReductionLabel": "",
+        "targetLoanAmt": 900000,
+        "dutchInterest": "",
+        "adminSandbox": true
+      }
+    },
+    {
       "name": "dutch-interest-light",
       "inputs": {
         "lt": "light",
@@ -810,7 +832,8 @@
       "moMax": 2531.2499999999995,
       "moStart": 2531.2499999999995,
       "mo": 2531.2499999999995,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "bridge-fico-720": {
       "rErr": null,
@@ -841,7 +864,8 @@
       "moMax": 2593.75,
       "moStart": 2593.75,
       "mo": 2593.75,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "bridge-fico-700": {
       "rErr": null,
@@ -872,7 +896,8 @@
       "moMax": 2656.2499999999995,
       "moStart": 2656.2499999999995,
       "mo": 2656.2499999999995,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "bridge-fico-680": {
       "rErr": null,
@@ -903,7 +928,8 @@
       "moMax": 2566.6666666666665,
       "moStart": 2566.6666666666665,
       "mo": 2566.6666666666665,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "light-rehab": {
       "rErr": null,
@@ -934,7 +960,8 @@
       "moMax": 3198.9583333333335,
       "moStart": 2334.375,
       "mo": 3198.9583333333335,
-      "progLabel": "Light Rehab · WA"
+      "progLabel": "Light Rehab · WA",
+      "sandbox": false
     },
     "heavy-rehab": {
       "rErr": null,
@@ -965,7 +992,8 @@
       "moMax": 3116.6666666666665,
       "moStart": 2200,
       "mo": 3116.6666666666665,
-      "progLabel": "Heavy Rehab · WA"
+      "progLabel": "Heavy Rehab · WA",
+      "sandbox": false
     },
     "construction": {
       "rErr": null,
@@ -996,7 +1024,8 @@
       "moMax": 4958.333333333333,
       "moStart": 1416.6666666666667,
       "mo": 4958.333333333333,
-      "progLabel": "Construction · WA"
+      "progLabel": "Construction · WA",
+      "sandbox": false
     },
     "construction-90ltc-rb-over-500k": {
       "rErr": null,
@@ -1029,7 +1058,8 @@
       "moMax": 7437.5,
       "moStart": 2125,
       "mo": 7437.5,
-      "progLabel": "Construction · WA"
+      "progLabel": "Construction · WA",
+      "sandbox": false
     },
     "exp-tier2": {
       "rErr": null,
@@ -1054,7 +1084,8 @@
       "moMax": 2593.75,
       "moStart": 2593.75,
       "mo": 2593.75,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "exp-tier3": {
       "rErr": null,
@@ -1085,7 +1116,8 @@
       "moMax": 2656.25,
       "moStart": 2656.25,
       "mo": 2656.25,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "exp-tier3-light": {
       "rErr": null,
@@ -1116,7 +1148,8 @@
       "moMax": 3262.5,
       "moStart": 2356.25,
       "mo": 3262.5,
-      "progLabel": "Light Rehab · WA"
+      "progLabel": "Light Rehab · WA",
+      "sandbox": false
     },
     "mfr-bridge": {
       "rErr": null,
@@ -1152,7 +1185,8 @@
       "moMax": 2479.1666666666665,
       "moStart": 2479.1666666666665,
       "mo": 2479.1666666666665,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "mfr-heavy": {
       "rErr": "No eligible loan amount for this combination. Reach out to a manager to submit an exception request.",
@@ -1177,7 +1211,8 @@
       "moMax": null,
       "moStart": null,
       "mo": null,
-      "progLabel": "Heavy Rehab · WA"
+      "progLabel": "Heavy Rehab · WA",
+      "sandbox": false
     },
     "region-nynj": {
       "rErr": null,
@@ -1213,7 +1248,8 @@
       "moMax": 2593.75,
       "moStart": 2593.75,
       "mo": 2593.75,
-      "progLabel": "Bridge · NJ"
+      "progLabel": "Bridge · NJ",
+      "sandbox": false
     },
     "region-ca": {
       "rErr": null,
@@ -1249,7 +1285,8 @@
       "moMax": 2500,
       "moStart": 2500,
       "mo": 2500,
-      "progLabel": "Bridge · CA"
+      "progLabel": "Bridge · CA",
+      "sandbox": false
     },
     "zhvi-200": {
       "rErr": null,
@@ -1287,7 +1324,8 @@
       "moMax": 2420.8333333333335,
       "moStart": 2420.8333333333335,
       "mo": 2420.8333333333335,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "zhvi-300": {
       "rErr": null,
@@ -1325,7 +1363,8 @@
       "moMax": 2275,
       "moStart": 2275,
       "mo": 2275,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "term-19-24": {
       "rErr": null,
@@ -1361,7 +1400,8 @@
       "moMax": 2562.4999999999995,
       "moStart": 2562.4999999999995,
       "mo": 2562.4999999999995,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "refi-cashout": {
       "rErr": null,
@@ -1397,7 +1437,8 @@
       "moMax": 3026.0416666666665,
       "moStart": 3026.0416666666665,
       "mo": 3026.0416666666665,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "refi-rateterm": {
       "rErr": null,
@@ -1428,7 +1469,8 @@
       "moMax": 3164.0625,
       "moStart": 3164.0625,
       "mo": 3164.0625,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "refi-zhvi-200": {
       "rErr": null,
@@ -1471,7 +1513,8 @@
       "moMax": 2877.6041666666665,
       "moStart": 2877.6041666666665,
       "mo": 2877.6041666666665,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "refi-geo-reduction": {
       "rErr": null,
@@ -1509,7 +1552,8 @@
       "moMax": 2809.8958333333335,
       "moStart": 2809.8958333333335,
       "mo": 2809.8958333333335,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "err-refi-sub-680": {
       "rErr": "Refinance not supported (665 FICO). Minimum 680 FICO required for any RTL refinance. Reach out to a manager to submit an exception request.",
@@ -1534,7 +1578,8 @@
       "moMax": null,
       "moStart": null,
       "mo": null,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "sub680-660-679": {
       "rErr": null,
@@ -1559,7 +1604,8 @@
       "moMax": 2600,
       "moStart": 2600,
       "mo": 2600,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "sub680-640-659": {
       "rErr": null,
@@ -1584,7 +1630,8 @@
       "moMax": 2500,
       "moStart": 2500,
       "mo": 2500,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "sub680-620-639": {
       "rErr": null,
@@ -1609,7 +1656,8 @@
       "moMax": 2600,
       "moStart": 2600,
       "mo": 2600,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "sub680-550-619": {
       "rErr": null,
@@ -1634,7 +1682,8 @@
       "moMax": 2566.666666666667,
       "moStart": 2566.666666666667,
       "mo": 2566.666666666667,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "err-fico-below-550": {
       "rErr": "FICO below 550 is outside all program guidelines. Reach out to a manager to submit an exception request.",
@@ -1659,7 +1708,8 @@
       "moMax": null,
       "moStart": null,
       "mo": null,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "geo-reduction-purchase": {
       "rErr": null,
@@ -1692,7 +1742,8 @@
       "moMax": 2362.4999999999995,
       "moStart": 2362.4999999999995,
       "mo": 2362.4999999999995,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "geo-warning-flag": {
       "rErr": null,
@@ -1725,7 +1776,8 @@
       "moMax": 2531.2499999999995,
       "moStart": 2531.2499999999995,
       "mo": 2531.2499999999995,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "target-loan-cap": {
       "rErr": null,
@@ -1756,7 +1808,40 @@
       "moMax": 1687.5,
       "moStart": 1687.5,
       "mo": 1687.5,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
+    },
+    "admin-sandbox-over-cap": {
+      "rErr": null,
+      "rate": 0.10375,
+      "floor": false,
+      "bMax": 900000,
+      "bLabel": "Admin Override",
+      "mLtp": 0.9,
+      "mLtc": 0.925,
+      "mLarv": 0.75,
+      "refiLtv": null,
+      "defMax": 370000,
+      "mByLtc": 370000,
+      "mByLarv": 412500,
+      "dp": 0,
+      "adjs": [
+        {
+          "l": "Experience: Tier 1 (8+ projects)",
+          "v": -0.0025,
+          "c": "neg"
+        }
+      ],
+      "flags": [],
+      "p": 1.5,
+      "pDol": 13500,
+      "isDutch": false,
+      "initAdv": 800000,
+      "moMax": 7781.25,
+      "moStart": 6916.666666666667,
+      "mo": 7781.25,
+      "progLabel": "Light Rehab · WA",
+      "sandbox": true
     },
     "dutch-interest-light": {
       "rErr": null,
@@ -1787,7 +1872,8 @@
       "moMax": 3198.9583333333335,
       "moStart": 3198.9583333333335,
       "mo": 3198.9583333333335,
-      "progLabel": "Light Rehab · WA"
+      "progLabel": "Light Rehab · WA",
+      "sandbox": false
     },
     "non-dutch-light": {
       "rErr": null,
@@ -1818,7 +1904,8 @@
       "moMax": 3198.9583333333335,
       "moStart": 2334.375,
       "mo": 3198.9583333333335,
-      "progLabel": "Light Rehab · WA"
+      "progLabel": "Light Rehab · WA",
+      "sandbox": false
     },
     "size-over-2m": {
       "rErr": null,
@@ -1849,7 +1936,8 @@
       "moMax": 20249.999999999996,
       "moStart": 20249.999999999996,
       "mo": 20249.999999999996,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "size-over-3m": {
       "rErr": null,
@@ -1885,7 +1973,8 @@
       "moMax": 29179.6875,
       "moStart": 29179.6875,
       "mo": 29179.6875,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "size-cap-3.5m": {
       "rErr": null,
@@ -1921,7 +2010,8 @@
       "moMax": 30260.416666666668,
       "moStart": 30260.416666666668,
       "mo": 30260.416666666668,
-      "progLabel": "Bridge · WA"
+      "progLabel": "Bridge · WA",
+      "sandbox": false
     },
     "stack-heavy-mfr-zhvi300-tier3": {
       "rErr": "No eligible loan amount for this combination. Reach out to a manager to submit an exception request.",
@@ -1948,7 +2038,8 @@
       "moMax": null,
       "moStart": null,
       "mo": null,
-      "progLabel": "Heavy Rehab · WA"
+      "progLabel": "Heavy Rehab · WA",
+      "sandbox": false
     }
   }
 }

@@ -345,6 +345,11 @@ function priceRTL(I) {
       rb = I.rb, term = I.term, purp = I.purp, zhvi = I.zhvi, sa = I.sa,
       state = I.state;
   var isR = lt !== 'bridge';
+  // Deploy 236.526 — Admin Sandbox. Set ONLY by the sizer's Admin Mode
+  // (admin-gated). Defaults off, so all golden scenarios / normal pricing are
+  // unaffected. When on, a Target Loan Amount above the guideline max is
+  // honored instead of floored to the cap.
+  var adminSandbox = I.adminSandbox === true;
   var geoWarning = I.geoWarning || '';
   var geoReductionLabel = I.geoReductionLabel || '';
   var fkey=fk(fr); var eidx=ei(exp);
@@ -473,9 +478,18 @@ function priceRTL(I) {
   var targetLoanEl = { value: (I.targetLoanAmt !== undefined ? String(I.targetLoanAmt) : '') };
   if (targetLoanEl) {
     var targetLoan = parseFloat(targetLoanEl.value);
-    if (isFinite(targetLoan) && targetLoan > 0 && bMax && targetLoan < bMax) {
-      bMax = Math.round(targetLoan);
-      bLabel = 'LO Target';
+    if (isFinite(targetLoan) && targetLoan > 0 && bMax) {
+      if (targetLoan < bMax) {
+        bMax = Math.round(targetLoan);
+        bLabel = 'LO Target';
+      } else if (adminSandbox && targetLoan > bMax) {
+        // Deploy 236.526 — Admin Sandbox: honor a Target Loan Amount ABOVE the
+        // guideline max (and above the $3.5M program cap applied just above).
+        // Admins build rate sheets at any leverage; the normal path still
+        // floors to the cap because the `targetLoan < bMax` branch owns it.
+        bMax = Math.round(targetLoan);
+        bLabel = 'Admin Override';
+      }
     }
   }
 
@@ -626,7 +640,7 @@ function priceRTL(I) {
     defMax: defMax, mByLtc: mByLtc, mByLarv: mByLarv, dp: dp,
     adjs: adjs, flags: flags, p: p, pDol: pDol,
     isDutch: isDutch, initAdv: initAdv, moMax: moMax, moStart: moStart,
-    mo: mo, progLabel: progLabel,
+    mo: mo, progLabel: progLabel, sandbox: adminSandbox,
   };
 }
 

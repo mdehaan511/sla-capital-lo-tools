@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T04:00:46.487Z",
+  "generatedAt": "2026-08-08T14:26:36.851Z",
   "source": "deploy/dscr-pricing.js (extracted module, --from-module)",
   "effectiveDate": "August 4, 2026",
   "scenarios": [
@@ -323,6 +323,30 @@
         "propAddress": "123 Fixture St, Spokane, WA 99208",
         "brokerFee": "",
         "brokerProcFee": ""
+      }
+    },
+    {
+      "name": "admin-sandbox-over-ltv",
+      "inputs": {
+        "loanAmt": 520000,
+        "propValue": 600000,
+        "loanType": "30Y Fixed",
+        "isIO": "no",
+        "loanPurpose": "purchase",
+        "propType": "sfr",
+        "fico": "740-759",
+        "prepay": "321",
+        "buydown": "0",
+        "rent": 6000,
+        "taxes": 300,
+        "insurance": 150,
+        "hoa": 0,
+        "borrowerName": "Golden Fixture",
+        "borrowerEmail": "golden@example.com",
+        "propAddress": "123 Fixture St, Spokane, WA 99208",
+        "brokerFee": "",
+        "brokerProcFee": "",
+        "adminSandbox": true
       }
     },
     {
@@ -1015,7 +1039,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "product-10-6-arm": {
       "loanType": "10/6 ARM",
@@ -1061,7 +1086,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "product-7-6-arm": {
       "loanType": "7/6 ARM",
@@ -1107,7 +1133,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "product-5-6-arm": {
       "loanType": "5/6 ARM",
@@ -1153,7 +1180,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "fico-780plus": {
       "loanType": "30Y Fixed",
@@ -1199,7 +1227,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "fico-760-779": {
       "loanType": "30Y Fixed",
@@ -1245,7 +1274,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "fico-720-739": {
       "loanType": "30Y Fixed",
@@ -1291,7 +1321,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "fico-700-719": {
       "loanType": "30Y Fixed",
@@ -1337,7 +1368,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "fico-680-699": {
       "loanType": "30Y Fixed",
@@ -1383,7 +1415,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "fico-660-679": {
       "loanType": "30Y Fixed",
@@ -1434,7 +1467,8 @@
           "level": "warn",
           "msg": "FICO 660-679 is eligible but requires pre-approval, 1.10x minimum DSCR, and additional liquidity reserves."
         }
-      ]
+      ],
+      "sandbox": false
     },
     "ltv-col-50": {
       "loanType": "30Y Fixed",
@@ -1480,7 +1514,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ltv-col-60": {
       "loanType": "30Y Fixed",
@@ -1526,7 +1561,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ltv-col-80": {
       "loanType": "30Y Fixed",
@@ -1572,7 +1608,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ltv-80-fico-700-719-new-tier": {
       "loanType": "30Y Fixed",
@@ -1618,7 +1655,60 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "admin-sandbox-over-ltv": {
+      "loanType": "30Y Fixed",
+      "ltv": 86.66666666666667,
+      "dscr": 1.5526774024764327,
+      "fico": "740-759",
+      "baseRate": 6.375,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.175
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.87,
+      "pi": 3414.292731014401,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3864.292731014401,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 520000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 5200,
+      "buydownFee": 0,
+      "totalFees": 7515,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [
+        {
+          "level": "warn",
+          "msg": "LTV 86.7% exceeds the 80% maximum for 740-759 FICO and purchase. Maximum loan at this LTV is $480,000."
+        }
+      ],
+      "sandbox": true
     },
     "io-yes": {
       "loanType": "30Y Fixed",
@@ -1668,7 +1758,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "io-at-75": {
       "loanType": "30Y Fixed",
@@ -1718,7 +1809,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "cashout": {
       "loanType": "30Y Fixed",
@@ -1768,7 +1860,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "cashout-io-combined": {
       "loanType": "30Y Fixed",
@@ -1822,7 +1915,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "prop-nw-condo": {
       "loanType": "30Y Fixed",
@@ -1872,7 +1966,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "prop-2-4-unit": {
       "loanType": "30Y Fixed",
@@ -1922,7 +2017,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "prop-portfolio": {
       "loanType": "30Y Fixed",
@@ -1976,7 +2072,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ppp-5y6m": {
       "loanType": "30Y Fixed",
@@ -2022,7 +2119,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ppp-54321": {
       "loanType": "30Y Fixed",
@@ -2068,7 +2166,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ppp-320": {
       "loanType": "30Y Fixed",
@@ -2114,7 +2213,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ppp-300": {
       "loanType": "30Y Fixed",
@@ -2160,7 +2260,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "ppp-none": {
       "loanType": "30Y Fixed",
@@ -2206,7 +2307,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "buydown-0.25": {
       "loanType": "30Y Fixed",
@@ -2252,7 +2354,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "buydown-1.00": {
       "loanType": "30Y Fixed",
@@ -2298,7 +2401,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "buydown-2.00": {
       "loanType": "30Y Fixed",
@@ -2344,7 +2448,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "upb-75-99k": {
       "loanType": "30Y Fixed",
@@ -2399,7 +2504,8 @@
           "level": "error",
           "msg": "Loan amount $90,000 is below the $100,000 minimum."
         }
-      ]
+      ],
+      "sandbox": false
     },
     "upb-100-149k": {
       "loanType": "30Y Fixed",
@@ -2449,7 +2555,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "upb-150-199k": {
       "loanType": "30Y Fixed",
@@ -2499,7 +2606,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "upb-600k-plus": {
       "loanType": "30Y Fixed",
@@ -2549,7 +2657,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "dscr-1.00-1.19": {
       "loanType": "30Y Fixed",
@@ -2595,7 +2704,8 @@
       "brokerFeeDol": 0,
       "brokerProcFee": 0,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "broker-fees": {
       "loanType": "30Y Fixed",
@@ -2641,7 +2751,8 @@
       "brokerFeeDol": 6000,
       "brokerProcFee": 995,
       "netHiddenTpoPct": 1,
-      "guidelineWarnings": []
+      "guidelineWarnings": [],
+      "sandbox": false
     },
     "err-sub-660": {
       "error": "No DSCR pricing available for FICO 640-659. DIYA's minimum credit score is 660. Reach out to a manager to submit an exception request."
@@ -2710,7 +2821,8 @@
           "level": "error",
           "msg": "State \"AZ\" is not an eligible lending state."
         }
-      ]
+      ],
+      "sandbox": false
     }
   }
 }

@@ -18,50 +18,70 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import vm from 'node:vm';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const html = readFileSync(join(root, 'deploy', 'rtl-sizer.html'), 'utf8');
-const lines = html.split('\n');
 
-function findLine(pred, label, from) {
-  for (let i = from || 0; i < lines.length; i++) if (pred(lines[i])) return i;
-  throw new Error('rtl-capture: anchor not found: ' + label);
+// Two capture sources, selected by flag:
+//   --from-module : run the EXTRACTED engine (deploy/rtl-pricing.js). This is
+//     the mode for every rate-sheet / behavior re-baseline now that the pricing
+//     math lives in the module (post-G1). priceRTL(inputs) returns the full
+//     result object the golden compares against.
+//   (default)     : LEGACY — slice the pure segment out of rtl-sizer.html's
+//     inline calculate() and run it in a vm. Only meaningful pre-extraction; the
+//     sizer no longer holds that inline segment, so this mode now errors with a
+//     pointer to --from-module. Kept for historical record.
+const FROM_MODULE = process.argv.includes('--from-module');
+let runScenario, captureSource;
+
+if (FROM_MODULE) {
+  const require = createRequire(import.meta.url);
+  const engine = require(join(root, 'deploy', 'rtl-pricing.js'));
+  runScenario = (inputs) => engine.priceRTL(inputs);
+  captureSource = 'deploy/rtl-pricing.js (extracted module, --from-module)';
+} else {
+  const html = readFileSync(join(root, 'deploy', 'rtl-sizer.html'), 'utf8');
+  const lines = html.split('\n');
+  const findLine = (pred, label, from) => {
+    for (let i = from || 0; i < lines.length; i++) if (pred(lines[i])) return i;
+    throw new Error('rtl-capture: anchor not found: ' + label +
+      ' — the pricing math now lives in deploy/rtl-pricing.js. Re-baseline with:\n' +
+      '  node scripts/rtl-golden-capture.mjs --from-module');
+  };
+  const cStart = findLine((l) => l.indexOf('── Pricing data — Colchis') >= 0, 'pricing-data comment');
+  const cEndDetect = findLine((l) => l.indexOf('var detectedState=') === 0, 'detectedState');
+  const sliceC = lines.slice(cStart, cEndDetect).join('\n');
+  const segStart = findLine((l) => l.indexOf('var fkey=fk(fr); var eidx=ei(exp);') >= 0, 'fkey/eidx');
+  const segEnd = findLine((l) => l.indexOf('var mo = moMax;') >= 0, 'mo = moMax', segStart);
+  const segment = lines.slice(segStart, segEnd + 1).join('\n');
+  const harness =
+    sliceC + '\n' +
+    'function __core(I){\n' +
+    "  var lt=I.lt, fr=I.fr, exp=I.exp, pt=I.pt, pp=I.pp, arv=I.arv, rb=I.rb, term=I.term, purp=I.purp, zhvi=I.zhvi, sa=I.sa, state=I.state;\n" +
+    "  var isR = lt!=='bridge';\n" +
+    segment + '\n' +
+    '  return {rErr:rErr, rate:rate, floor:floor, bMax:bMax, bLabel:bLabel, mLtp:mLtp, mLtc:mLtc, mLarv:mLarv,\n' +
+    '    refiLtv:refiLtv, defMax:defMax, mByLtc:mByLtc, mByLarv:mByLarv, dp:dp, adjs:adjs, flags:flags,\n' +
+    '    p:p, pDol:pDol, isDutch:isDutch, initAdv:initAdv, moMax:moMax, moStart:moStart, mo:mo, progLabel:progLabel};\n' +
+    '}\n';
+  let domVals = {};
+  const sandbox = {
+    console,
+    document: { getElementById: (id) => ({ value: String(domVals[id] !== undefined ? domVals[id] : '') }) },
+    geoWarning: '',
+    geoReductionLabel: '',
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(harness, sandbox);
+  runScenario = (inputs) => {
+    domVals = { targetLoanAmt: inputs.targetLoanAmt, dutchInterest: inputs.dutchInterest };
+    sandbox.geoWarning = inputs.geoWarning || '';
+    sandbox.geoReductionLabel = inputs.geoReductionLabel || '';
+    return sandbox.__core(inputs);
+  };
+  captureSource = 'deploy/rtl-sizer.html (inline, pre-extraction)';
 }
-
-// Slice C: constants + tables + fk/ei/pts/colchisRate. Starts right
-// after the <script> that precedes the '── Pricing data' comment,
-// ends at colchisRate's closing brace (the line before the
-// detectedState declaration).
-const cStart = findLine((l) => l.indexOf('── Pricing data — Colchis') >= 0, 'pricing-data comment');
-const cEndDetect = findLine((l) => l.indexOf("var detectedState=") === 0, 'detectedState');
-const sliceC = lines.slice(cStart, cEndDetect).join('\n');
-
-// Pure segment of calculate(): fkey/eidx init through `var mo = moMax;`.
-const segStart = findLine((l) => l.indexOf('var fkey=fk(fr); var eidx=ei(exp);') >= 0, 'fkey/eidx');
-const segEnd = findLine((l) => l.indexOf('var mo = moMax;') >= 0, 'mo = moMax', segStart);
-const segment = lines.slice(segStart, segEnd + 1).join('\n');
-
-const harness =
-  sliceC + '\n' +
-  'function __core(I){\n' +
-  "  var lt=I.lt, fr=I.fr, exp=I.exp, pt=I.pt, pp=I.pp, arv=I.arv, rb=I.rb, term=I.term, purp=I.purp, zhvi=I.zhvi, sa=I.sa, state=I.state;\n" +
-  "  var isR = lt!=='bridge';\n" +
-  segment + '\n' +
-  '  return {rErr:rErr, rate:rate, floor:floor, bMax:bMax, bLabel:bLabel, mLtp:mLtp, mLtc:mLtc, mLarv:mLarv,\n' +
-  '    refiLtv:refiLtv, defMax:defMax, mByLtc:mByLtc, mByLarv:mByLarv, dp:dp, adjs:adjs, flags:flags,\n' +
-  '    p:p, pDol:pDol, isDutch:isDutch, initAdv:initAdv, moMax:moMax, moStart:moStart, mo:mo, progLabel:progLabel};\n' +
-  '}\n';
-
-let domVals = {};
-const sandbox = {
-  console,
-  document: { getElementById: (id) => ({ value: String(domVals[id] !== undefined ? domVals[id] : '') }) },
-  geoWarning: '',
-  geoReductionLabel: '',
-};
-vm.createContext(sandbox);
-vm.runInContext(harness, sandbox);
 
 // ── Scenario matrix ─────────────────────────────────────────────────
 const BASE = {
@@ -117,6 +137,9 @@ const SCENARIOS = [
   S('geo-warning-flag', { geoWarning: 'Orange County NY — guideline-excluded geography.' }),
   // LO target + Dutch
   S('target-loan-cap', { targetLoanAmt: 200000 }),
+  // Deploy 236.526 — Admin Sandbox: Target Loan Amount ABOVE the guideline max
+  // is honored (bLabel 'Admin Override'). Normal path floors to the cap.
+  S('admin-sandbox-over-cap', { ...REHAB, targetLoanAmt: 900000, adminSandbox: true }),
   S('dutch-interest-light', { ...REHAB, dutchInterest: 'dutch' }),
   S('non-dutch-light',     { ...REHAB, dutchInterest: 'nondutch' }),
   // Size tiers
@@ -129,11 +152,8 @@ const SCENARIOS = [
 
 const results = {};
 for (const sc of SCENARIOS) {
-  domVals = { targetLoanAmt: sc.inputs.targetLoanAmt, dutchInterest: sc.inputs.dutchInterest };
-  sandbox.geoWarning = sc.inputs.geoWarning || '';
-  sandbox.geoReductionLabel = sc.inputs.geoReductionLabel || '';
   let out;
-  try { out = sandbox.__core(sc.inputs); }
+  try { out = runScenario(sc.inputs); }
   catch (e) { out = { __threw: String(e && e.message) }; }
   results[sc.name] = out;
 }
@@ -142,7 +162,7 @@ mkdirSync(join(root, 'scripts', 'fixtures'), { recursive: true });
 const outPath = join(root, 'scripts', 'fixtures', 'rtl-golden.json');
 writeFileSync(outPath, JSON.stringify({
   generatedAt: new Date().toISOString(),
-  source: 'deploy/rtl-sizer.html (inline, pre-extraction)',
+  source: captureSource,
   scenarios: SCENARIOS,
   results,
 }, null, 2));

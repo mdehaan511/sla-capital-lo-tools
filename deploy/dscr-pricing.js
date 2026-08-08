@@ -235,6 +235,10 @@ function validateGuidelines(params) {
   var address  = params.address  || '';
   var purpose  = params.purpose  || 'purchase';
   var propType = params.propType || 'sfr';
+  // Deploy 236.526 — Admin Sandbox: in admin mode every guideline breach is
+  // intentional, so downgrade all 'error' messages to non-blocking 'warn' at
+  // the end (the admin still sees what they're exceeding, in amber not red).
+  var adminSandbox = params.adminSandbox === true;
 
   // 1. Property value
   if (propVal > 0) {
@@ -321,6 +325,14 @@ function validateGuidelines(params) {
     }
   }
 
+  // Deploy 236.526 — sandbox: nothing blocks. Downgrade errors to warnings so
+  // the admin can proceed while still seeing every breached guideline.
+  if (adminSandbox) {
+    for (var mi = 0; mi < msgs.length; mi++) {
+      if (msgs[mi].level === 'error') msgs[mi] = { level: 'warn', msg: msgs[mi].msg };
+    }
+  }
+
   return msgs;
 }
 
@@ -388,6 +400,11 @@ function priceDSCR(raw) {
   var borrower  = String(raw.borrowerName || '').trim();
   var borrowerEmail = String(raw.borrowerEmail || '').trim();
   var address   = String(raw.propAddress || '').trim();
+  // Deploy 236.526 — Admin Sandbox. Set ONLY by the sizer's Admin Mode
+  // (admin-gated). Defaults off, so every non-admin path and all golden
+  // scenarios are unaffected. When on, LTV caps become non-blocking so an
+  // admin can build a rate sheet at any leverage.
+  var adminSandbox = raw.adminSandbox === true;
 
   if (loan<=0) return {error:'Enter a loan amount'};
 
@@ -419,15 +436,19 @@ function priceDSCR(raw) {
     return ml ? ' Maximum loan at this property value is $' + ml.toLocaleString() + '.' : '';
   }
 
-  if (ltv<=0||ltv>80) {
-    if (ltv > 80) {
-      return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80) + EXCEPTION_HINT};
-    }
-    return {error:'Enter property value'};
+  if (ltv<=0) return {error:'Enter property value'};
+  if (ltv>80 && !adminSandbox) {
+    return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80) + EXCEPTION_HINT};
   }
 
   var ci = ltvCol(ltv);
-  if (ci===null) return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80) + EXCEPTION_HINT};
+  if (ci===null) {
+    // Above the top LTV column. In the sandbox, clamp the pricing lookup to the
+    // top tier (rate/points are overridden manually in Admin Mode anyway) so we
+    // return a priceable result instead of erroring; otherwise keep the cap.
+    if (adminSandbox) ci = DIYA.ltvCols.length - 1;
+    else return {error:'LTV '+ltv.toFixed(1)+'% exceeds the 80% maximum.' + maxLoanMsg(80) + EXCEPTION_HINT};
+  }
 
   var baseRate = DIYA.baseRate[loanType]||DIYA.baseRate['30Y Fixed'];
   var adjs = [];
@@ -539,7 +560,8 @@ function priceDSCR(raw) {
   // Guideline validation
   var guidelineWarnings = validateGuidelines({
     loan: loan, propVal: propVal, ltv: ltv, fico: fico,
-    address: address, purpose: purpose, propType: propType
+    address: address, purpose: purpose, propType: propType,
+    adminSandbox: adminSandbox,
   });
 
   return {
@@ -550,6 +572,7 @@ function priceDSCR(raw) {
     origFee, buydownFee, totalFees,
     brokerPts, brokerFeeDol, brokerProcFee,
     netHiddenTpoPct, guidelineWarnings,
+    sandbox: adminSandbox,
   };
 }
 
