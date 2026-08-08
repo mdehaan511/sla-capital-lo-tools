@@ -90,8 +90,16 @@
       toggleDrop();
     });
     document.addEventListener('click', function(e) {
-      if (!document.getElementById('slaNotifWrap').contains(e.target)) {
-        document.getElementById('slaNotifDrop').style.display = 'none';
+      // Deploy 236.525 — null-guard. This listener is bound to `document`,
+      // so it outlives the widget: on pages that re-render their navbar
+      // (pipeline.html, loan-details) the #slaNotifWrap element gets
+      // removed while this handler stays live, and every click then threw
+      // "Cannot read properties of null (reading 'contains')". No-op when
+      // the widget isn't in the DOM.
+      var wrap = document.getElementById('slaNotifWrap');
+      var drop = document.getElementById('slaNotifDrop');
+      if (wrap && drop && !wrap.contains(e.target)) {
+        drop.style.display = 'none';
       }
     });
 

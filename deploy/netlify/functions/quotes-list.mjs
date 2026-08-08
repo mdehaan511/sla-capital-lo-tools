@@ -40,6 +40,26 @@ const LOAN_SELECT = 'id,client_id,owner_email,address,status,tool_type,loan_amt,
   'rate,points,purchase_price,prop_value,rehab_budget,arv,prop_type,fico,' +
   'created_at,updated_at,saved_at,form_data,extra,clients!client_id(first_name,last_name,email)';
 
+// Deploy 236.525 — retry transient DB failures. db.select() throws on any
+// non-OK PostgREST response (and on fetch network errors) with NO retry, so a
+// transient pooler reset / cold-start blip surfaced straight to the LO as a
+// 500 "Failed to load quotes" (reported in #platform-errors). Retry only
+// transient failures — network errors (no .status) or 5xx — never 4xx (a bad
+// query shouldn't be hammered). Small backoff; caps added latency at ~750ms.
+async function _selectWithRetry(table, opts, tries = 3) {
+  let lastErr;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try { return await db.select(table, opts); }
+    catch (e) {
+      lastErr = e;
+      const st = e && e.status;
+      if (st && st < 500) throw e; // 4xx = our bug, don't retry
+      if (attempt < tries - 1) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 async function _loansPG(selfEmail) {
   const PAGE = 1000;
   const out = [];
@@ -47,7 +67,7 @@ async function _loansPG(selfEmail) {
   for (;;) {
     const opts = { select: LOAN_SELECT, limit: PAGE, offset };
     if (selfEmail) opts.eq = { owner_email: selfEmail };
-    const rows = await db.select('loans', opts);
+    const rows = await _selectWithRetry('loans', opts);
     out.push(...(rows || []));
     if (!rows || rows.length < PAGE) break;
     offset += PAGE;
@@ -221,6 +241,9 @@ export default async (req, context) => {
     return json(200, { quotes: _sortRows(rows), _source: 'loans' });
   } catch (e) {
     console.error('quotes-list error:', e);
-    return json(500, { error: 'Failed to load quotes' });
+    // Deploy 236.525 — surface the underlying reason so a non-transient
+    // recurrence is diagnosable from #platform-errors (endpoint is auth-gated
+    // to LOs/admins, so echoing the message is fine).
+    return json(500, { error: 'Failed to load quotes', reason: (e && e.message) || 'unknown' });
   }
 };
