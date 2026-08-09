@@ -427,6 +427,16 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .admin-mode-hint.on { color: #281D28; font-weight: 500; }
 #adminModeInputs { display: none; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
 #adminModeInputs.on { display: grid; }
+/* Deploy 236.526 — custom fee editor */
+.admin-fee-note { font-weight: 400; font-size: 11px; color: var(--muted); }
+#adminFeeList { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.admin-fee-row { display: flex; gap: 8px; align-items: center; }
+.admin-fee-row input.afl { flex: 1; min-width: 0; }
+.admin-fee-row input.afa { width: 120px; flex-shrink: 0; }
+.admin-fee-row .afx { flex-shrink: 0; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.admin-fee-row .afx:hover { color: #7c1f1f; border-color: #7c1f1f; }
+.admin-fee-add { margin-top: 8px; font-size: 12px; font-weight: 600; padding: 6px 12px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--gold-mid); cursor: pointer; font-family: inherit; }
+.admin-fee-add:hover { border-color: var(--gold-mid); }
 </style>
 </head>
 <body>
@@ -484,7 +494,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
           </label>
           <div class="admin-mode-label">
             <span class="admin-mode-title">Admin Mode</span>
-            <span class="admin-mode-hint" id="adminModeHint">Manual pricing — skip pricing lookups, enter rate and origination points directly. Rate sheets print with your inputs.</span>
+            <span class="admin-mode-hint" id="adminModeHint">Sandbox — manual rate &amp; points, fully editable fees, and Target Loan Amount can exceed the guideline cap. Build any rate sheet; it prints with your inputs.</span>
           </div>
         </div>
         <div id="adminModeInputs">
@@ -499,6 +509,13 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
               <label>Origination Points <span class="req">*</span></label>
               <input type="number" step="0.001" id="adminPointsInput" placeholder="e.g. 2.000" oninput="onAdminManualInput()" />
             </div>
+          </div>
+          <!-- Deploy 236.526 — custom fee editor. Add / rename / remove any
+               closing-cost line. Origination stays points-driven (above). -->
+          <div class="field span2" id="adminFeeEditorWrap" style="grid-column:1/-1">
+            <label>Custom Fees <span class="admin-fee-note">— origination is driven by the points above</span></label>
+            <div id="adminFeeList"></div>
+            <button type="button" class="admin-fee-add" onclick="addAdminFeeRow()">+ Add fee line</button>
           </div>
         </div>
       </div>
@@ -954,7 +971,9 @@ function renderReserveCard() {
   // any broker fee — same components the term sheet's fee block totals.
   var ptsRate = (typeof calc.points === 'number') ? calc.points : 0;
   var origFee = loanAmt * (ptsRate / 100);
-  var flatFees = 2150; // 600 + 900 + 500 + 150
+  // Deploy 236.526 — Admin Sandbox: flat fees come from the custom fee editor
+  // when Admin Mode is on; otherwise the standard $2,150 RTL schedule.
+  var flatFees = window._rtlAdminMode ? _rtlFlatFeesTotal() : 2150;
   var brokerDol = loanAmt * (_num('brokerFee') / 100);
   var brokerProc = (typeof brokerProcFeeAmount === 'function') ? brokerProcFeeAmount() : 0;
   var totalFees = origFee + flatFees + brokerDol + brokerProc;
@@ -1176,6 +1195,8 @@ function onAdminModeToggle() {
   }
   if (on) {
     window._rtlOverrides.warningAcknowledged = true;
+    _rtlEnsureFeesSeeded();
+    renderAdminFeeList();
     onAdminManualInput();
   } else {
     window._rtlOverrides.rate = null;
@@ -1203,6 +1224,67 @@ function onAdminManualInput() {
   try { if (typeof autoCalc === 'function') autoCalc(); } catch (_) {}
 }
 
+// ── Deploy 236.526 — Admin Sandbox custom fee editor ───────────────
+// window._rtlAdminFees is an array of {label, amount} the admin can add /
+// rename / remove. When Admin Mode is on it REPLACES the four hardcoded RTL
+// flat closing fees everywhere they're consumed (on-screen reserve/fee math +
+// the rate-sheet PDF fee table). Origination stays points-driven. RTL has no
+// engine fee constant, so the defaults are literal (600/900/500/150).
+function _rtlDefaultFees() {
+  return [
+    { label: 'Underwriting Fee',        amount: 600 },
+    { label: 'Doc Prep Fee',            amount: 900 },
+    { label: 'Legal / Document Review', amount: 500 },
+    { label: 'Desktop Analysis',        amount: 150 },
+  ];
+}
+function _rtlEnsureFeesSeeded() {
+  if (!Array.isArray(window._rtlAdminFees)) window._rtlAdminFees = _rtlDefaultFees();
+}
+function _rtlEffectiveFees() { _rtlEnsureFeesSeeded(); return window._rtlAdminFees; }
+function _rtlFlatFeesTotal() {
+  return _rtlEffectiveFees().reduce(function (s, f) {
+    var a = parseFloat(f && f.amount); return s + (isFinite(a) ? a : 0);
+  }, 0);
+}
+function _rtlEscAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+function _rtlRefresh() {
+  try { if (typeof calculate === 'function') calculate(); } catch (_) {}
+  try { if (typeof autoCalc === 'function') autoCalc(); } catch (_) {}
+}
+function renderAdminFeeList() {
+  var box = document.getElementById('adminFeeList');
+  if (!box) return;
+  _rtlEnsureFeesSeeded();
+  var html = '';
+  window._rtlAdminFees.forEach(function (f, i) {
+    html += '<div class="admin-fee-row">' +
+      '<input class="afl" type="text" placeholder="Fee label" value="' + _rtlEscAttr(f.label) + '" oninput="_rtlAdminFeeSet(' + i + ',\'label\',this.value)" />' +
+      '<input class="afa" type="number" step="1" min="0" placeholder="$0" value="' + _rtlEscAttr(f.amount) + '" oninput="_rtlAdminFeeSet(' + i + ',\'amount\',this.value)" />' +
+      '<button type="button" class="afx" title="Remove" onclick="removeAdminFeeRow(' + i + ')">&times;</button>' +
+    '</div>';
+  });
+  box.innerHTML = html;
+}
+function _rtlAdminFeeSet(i, field, val) {
+  _rtlEnsureFeesSeeded();
+  if (!window._rtlAdminFees[i]) return;
+  window._rtlAdminFees[i][field] = (field === 'amount') ? (val === '' ? '' : parseFloat(val)) : val;
+  _rtlRefresh(); // no re-render so focus holds
+}
+function addAdminFeeRow() {
+  _rtlEnsureFeesSeeded();
+  window._rtlAdminFees.push({ label: '', amount: 0 });
+  renderAdminFeeList();
+  _rtlRefresh();
+}
+function removeAdminFeeRow(i) {
+  _rtlEnsureFeesSeeded();
+  window._rtlAdminFees.splice(i, 1);
+  renderAdminFeeList();
+  _rtlRefresh();
+}
+
 function autoEnableAdminModeFrom(source) {
   if (!source || source._adminMode !== true) return;
   if (!window._userIsAdmin) return;
@@ -1215,6 +1297,14 @@ function autoEnableAdminModeFrom(source) {
   var pEl = document.getElementById('adminPointsInput');
   if (rEl && source.rate  != null && source.rate  !== '') rEl.value = source.rate;
   if (pEl && source.points != null && source.points !== '') pEl.value = source.points;
+  // Deploy 236.526 — restore the custom fee schedule if this loan was saved
+  // with one; otherwise the seed-from-default (set by onAdminModeToggle) stands.
+  if (Array.isArray(source._adminFees) && source._adminFees.length) {
+    window._rtlAdminFees = source._adminFees.map(function (f) {
+      return { label: (f && f.label) || '', amount: (f && f.amount != null) ? f.amount : 0 };
+    });
+    renderAdminFeeList();
+  }
   onAdminManualInput();
 }
 
@@ -2098,6 +2188,9 @@ function calculate(){
     geoWarning: geoWarning, geoReductionLabel: geoReductionLabel,
     targetLoanAmt: targetLoanEl ? targetLoanEl.value : '',
     dutchInterest: dutchEl ? dutchEl.value : '',
+    // Deploy 236.526 — Admin Sandbox: honor a Target Loan Amount above the
+    // guideline cap. Admin-gated (the toggle only renders for admins).
+    adminSandbox: !!window._rtlAdminMode,
   });
   var isRefi = (purp === 'cashout' || purp === 'rateterm');
   var rErr = __core.rErr, rate = __core.rate, floor = __core.floor;
@@ -2482,7 +2575,8 @@ function renderCashoutSummary() {
 
   var ptsRate = (typeof calc.points === 'number' ? calc.points : 1.5); // FICO-tier points (1.5/2.0/3.0)
   var ptsFee = loanAmt * (ptsRate / 100);
-  var flatFees = 600 + 900 + 500 + 150; // RTL fee schedule = $2,150
+  // Deploy 236.526 — Admin Sandbox: custom fee editor drives flats in Admin Mode.
+  var flatFees = window._rtlAdminMode ? _rtlFlatFeesTotal() : (600 + 900 + 500 + 150);
   // Broker fee (if any) further reduces the borrower's net cash. Comes
   // out of proceeds at funding just like origination.
   var brokerPts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
@@ -3265,7 +3359,13 @@ function saveCurrentQuote() {
     // save can never clobber the flag.
     if (window._userIsAdmin) {
       loanRec._adminMode = !!window._rtlAdminMode;
-      if (loanRec._sizerFormData) loanRec._sizerFormData._adminMode = !!window._rtlAdminMode;
+      // Deploy 236.526 — persist the custom fee schedule so the sandbox rate
+      // sheet reprints identically on reopen. Cleared when Admin Mode is off.
+      loanRec._adminFees = window._rtlAdminMode ? (window._rtlAdminFees || null) : null;
+      if (loanRec._sizerFormData) {
+        loanRec._sizerFormData._adminMode = !!window._rtlAdminMode;
+        loanRec._sizerFormData._adminFees = loanRec._adminFees;
+      }
     }
     var rNameParts = (formData.borrowerName || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
@@ -3576,6 +3676,9 @@ function loadRTLQuote(formData) {
       _adminMode: formData._adminMode === true,
       rate:   formData._finalRate || formData.rate   || '',
       points: formData._points    || formData.points || '',
+      // Deploy 236.526 — restore the custom fee schedule (sibling of _adminMode
+      // on the saved record; round-trips the same way).
+      _adminFees: formData._adminFees || null,
     });
   }
   // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
@@ -5179,14 +5282,22 @@ function _generateRTLRateSheetPDF(opts) {
   // Prior version of this PDF block had DSCR fees ($995/$700/$500/$120 =
   // $2,315) pasted in by mistake — every cashout figure on the PDF was
   // $165 off from the live UI as a result.
-  var feeRows=[
-    ['Origination ('+ptsLabel+')', fmtD(origFee)],
-    ['Underwriting Fee',           '$600'],
-    ['Doc Prep Fee',               '$900'],
-    ['Legal / Document Review',    '$500'],
-    ['Desktop Analysis',           '$150'],
-  ];
-  var totalFees=origFee+600+900+500+150;
+  // Deploy 236.526 — Admin Sandbox: flat closing-cost lines come from the
+  // custom fee editor when Admin Mode is on; otherwise the standard RTL
+  // schedule. Origination stays points-driven.
+  var __rtlFlatRows = window._rtlAdminMode
+    ? _rtlEffectiveFees().map(function (f) {
+        var a = parseFloat(f && f.amount);
+        return [(f && f.label) || 'Fee', fmtD(isFinite(a) ? a : 0)];
+      })
+    : [
+        ['Underwriting Fee',           '$600'],
+        ['Doc Prep Fee',               '$900'],
+        ['Legal / Document Review',    '$500'],
+        ['Desktop Analysis',           '$150'],
+      ];
+  var feeRows=[['Origination ('+ptsLabel+')', fmtD(origFee)]].concat(__rtlFlatRows);
+  var totalFees=origFee+(window._rtlAdminMode ? _rtlFlatFeesTotal() : (600+900+500+150));
   // Broker fee: when set, the rate-sheet PDF shows it as an additional
   // line item but never names the broker (per policy — the borrower
   // receives this doc and shouldn't see the broker's identity).
