@@ -312,6 +312,14 @@ function render() {
     (_isBrokerFlag
       ? '<span style="display:inline-flex;align-items:center;padding:6px 12px;background:rgba(200,129,58,0.10);color:#b5712d;border:1px solid rgba(200,129,58,0.40);border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase">Broker</span>'
       : '') +
+    // Deploy 236.533 — invite this borrower to the portal (all their loans).
+    '<div style="display:flex;flex-direction:column;gap:2px">' +
+      '<button type="button" class="action-btn" id="portalInviteBtn" onclick="invitePortal()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer" title="Give this borrower portal access to all their loans and email a one-click sign-in link">' +
+        '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 7.5a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5zM2.5 12c0-2 2-3 4.5-3s4.5 1 4.5 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' +
+        'Invite to Borrower Portal' +
+      '</button>' +
+      '<div id="portalInviteStatus" style="font-size:11px;color:var(--muted);padding:0 4px;line-height:1.4"></div>' +
+    '</div>' +
   '</div>' +
   '<div style="height:1rem"></div>';
 
@@ -886,6 +894,32 @@ function toggleBrokerTag() {
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = willBeBroker ? 'Tag as Broker' : 'Remove Broker Tag'; }
     showToast('Broker tag failed: ' + (err && err.message || 'unknown'));
+  });
+}
+
+// Deploy 236.533 — invite this borrower to the portal: portal access to ALL
+// their loans + a one-click magic-link sign-in (or Google). No password.
+function invitePortal() {
+  if (!_client) { showToast('Client not loaded'); return; }
+  var email = (_client.email || '').trim();
+  if (!email) { showToast('This client has no email on file — add one first.'); return; }
+  if (!confirm('Invite ' + email + ' to the borrower portal?\n\nThey get portal access to all their loans and a one-click sign-in link (Google or magic link — no password).')) return;
+  var btn = document.getElementById('portalInviteBtn');
+  var status = document.getElementById('portalInviteStatus');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Sending invite…';
+  var body = { clientId: _clientId };
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+  SLA.api('POST', '/api/borrower-portal-invite', body).then(function(r) {
+    if (btn) btn.disabled = false;
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    var when = new Date(r.sentAt || Date.now()).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    if (status) status.innerHTML = '&#10003; Invited ' + escH(r.email) + ' &middot; ' + (r.loanCount || 0) + ' loan' + ((r.loanCount === 1) ? '' : 's') + ' &middot; ' + when + (r.emailed ? '' : ' (email pending)');
+    showToast('Borrower portal invite sent to ' + r.email);
+  }).catch(function(err) {
+    if (btn) btn.disabled = false;
+    if (status) status.textContent = 'Invite failed: ' + (err && err.message || 'unknown');
+    showToast('Invite failed: ' + (err && err.message || 'unknown'));
   });
 }
 

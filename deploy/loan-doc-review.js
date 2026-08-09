@@ -209,6 +209,13 @@
       // Deploy 236.520 — invite-borrower button + borrower/manual-review badges.
       '.dr-root .dr-invite-btn { margin-top:10px; font-size:12px; font-weight:600; padding:7px 14px; border-radius:20px; cursor:pointer; color:#fff; background:var(--gold-mid, #b5712d); border:1px solid var(--gold-mid, #b5712d); font-family:"DM Sans", sans-serif; }',
       '.dr-root .dr-invite-btn:hover { background:#935a20; }',
+      // Deploy 236.533 — invite box (borrower/broker) + status line.
+      '.dr-root .dr-invite-box { margin-top:12px; }',
+      '.dr-root .dr-invite-status { font-size:12px; color:var(--muted,#7a7488); margin-bottom:6px; line-height:1.55; }',
+      '.dr-root .dr-invite-status .who { font-weight:600; color:var(--text,#1a1520); }',
+      '.dr-root .dr-invite-status .never { color:#b5712d; font-weight:600; }',
+      '.dr-root .dr-invite-btn.secondary { color:var(--gold-mid,#b5712d); background:#fff; margin-left:8px; }',
+      '.dr-root .dr-invite-btn.secondary:hover { background:#faf3ea; }',
       '.dr-root .dr-mr-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#1e40af; background:rgba(30,64,175,0.10); border:1px solid rgba(30,64,175,0.25); border-radius:20px; padding:2px 9px; }',
       '.dr-root .dr-br-badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); background:var(--bg, #f7f5f1); border:1px solid var(--border); border-radius:20px; padding:2px 9px; }',
       // Deploy 236.501 — per-section "Other Documents" area: a subtle
@@ -552,9 +559,19 @@
             ' &middot; LO: ' + escHtml(lo) +
             ' &middot; Processor: ' + escHtml(proc) +
           '</div>' +
-          // Deploy 236.520 — invite the borrower (or broker) to submit their
-          // documents through the portal, with real-time AI review.
-          '<button type="button" class="dr-invite-btn" onclick="dr_inviteBorrower()">✉ Invite Borrower to Submit Documents</button>' +
+          // Deploy 236.533 — invite the borrower OR broker to the portal, with
+          // a persistent status line (recipient · date sent · last sign-in).
+          (function(){
+            var _cl = _review.sourceClientSnapshot || {};
+            var _ln = _review.sourceLoanSnapshot || {};
+            var _brok = (_ln && _ln.brokerEmail) || '';
+            var _borr = (_cl && _cl.email) || '';
+            return '<div class="dr-invite-box">' +
+              '<div class="dr-invite-status" id="dr-invite-status"></div>' +
+              '<button type="button" class="dr-invite-btn" onclick="dr_invite(\'borrower\')" title="' + escAttr(_borr || 'borrower on file') + '">✉ Invite Borrower to Portal</button>' +
+              (_brok ? '<button type="button" class="dr-invite-btn secondary" onclick="dr_invite(\'broker\')" title="' + escAttr(_brok) + '">✉ Invite Broker</button>' : '') +
+            '</div>';
+          })() +
         '</div>' +
         '<div class="summary-stats">' +
           '<div class="summary-stat"><div class="v">' + amt + '</div><div class="l">Loan Amount</div></div>' +
@@ -606,6 +623,9 @@
     // backend path.
 
     _root.innerHTML = summary + sourcePanel + tabs + toolbar + traysHtml + bottom;
+
+    // Deploy 236.533 — fill the borrower/broker invite status line async.
+    try { dr_loadInviteStatus(); } catch (_) {}
 
     if (_docSearch) {
       var input = document.getElementById('dr-docSearch');
@@ -735,27 +755,44 @@
     '</div>';
   }
 
-  // Deploy 236.520 — invite the borrower/broker to submit docs via the portal.
-  global.dr_inviteBorrower = function() {
+  // Deploy 236.533 — invite the borrower OR broker to the portal + show status.
+  global.dr_invite = function(recipient) {
     var src = (_review && _review.source) || {};
     var loanId = src.loanId || '', clientId = src.clientId || '';
     if (!loanId || !clientId) { showToast('This review has no loan reference to invite against.', 'error'); return; }
-    var email = window.prompt(
-      'Send a document-submission invite.\n\nLeave blank to use the email on file (the broker’s email for broker loans, otherwise the borrower’s application email), or type a specific email to use:',
-      ''
-    );
-    if (email === null) return; // cancelled
-    var body = { loanId: loanId, primaryClientId: clientId };
+    var body = { loanId: loanId, primaryClientId: clientId, recipient: recipient };
     if (_review.loEmail) body.owner = _review.loEmail;
-    if (email && email.trim()) body.emailOverride = email.trim();
     showToast('Sending invite…', 'info');
     global.SLA.api('POST', '/api/borrower-intake-invite', body).then(function(r) {
-      if (r && r.ok) showToast('✓ Invite sent to ' + (r.email || 'the borrower') + (r.emailed ? '' : ' (portal access granted; email pending)'), 'success');
+      if (r && r.ok) { showToast('✓ Invite sent to ' + (r.email || recipient) + (r.emailed ? '' : ' (access granted; email pending)'), 'success'); dr_loadInviteStatus(); }
       else showToast('Invite failed.', 'error');
     }).catch(function(err) {
       showToast('Invite failed: ' + ((err && err.message) || 'unknown'), 'error');
     });
   };
+
+  function dr_loadInviteStatus() {
+    var el = document.getElementById('dr-invite-status'); if (!el) return;
+    var src = (_review && _review.source) || {};
+    if (!src.loanId) { el.innerHTML = ''; return; }
+    var url = '/api/borrower-intake-invite?loanId=' + encodeURIComponent(src.loanId) +
+      (_review.loEmail ? '&owner=' + encodeURIComponent(_review.loEmail) : '');
+    global.SLA.api('GET', url).then(function(st) {
+      el.innerHTML = dr_renderInviteStatus(st);
+    }).catch(function() { el.innerHTML = ''; });
+  }
+  function dr_renderInviteStatus(st) {
+    var lines = [];
+    ['borrower', 'broker'].forEach(function(who) {
+      var e = st && st[who];
+      if (!e || !e.email) return;
+      var sent = e.sentAt ? formatDateOnly(e.sentAt) : '—';
+      var last = e.lastSignInAt ? formatDateOnly(e.lastSignInAt) : '<span class="never">not yet logged in</span>';
+      lines.push('<span class="who">' + (who === 'broker' ? 'Broker' : 'Borrower') + ':</span> ' +
+        escHtml(e.email) + ' &middot; invited ' + sent + ' &middot; last login ' + last);
+    });
+    return lines.join('<br>');
+  }
 
   function renderSourcePanel() {
     var loan = _review.sourceLoanSnapshot;
