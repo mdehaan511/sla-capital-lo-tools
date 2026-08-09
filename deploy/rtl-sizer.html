@@ -427,15 +427,16 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .admin-mode-hint.on { color: #281D28; font-weight: 500; }
 #adminModeInputs { display: none; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
 #adminModeInputs.on { display: grid; }
-/* Deploy 236.526 — custom fee editor */
+/* Deploy 236.526 — custom fee editor. Inputs reuse the standard
+   .field .wrap box so they match every other input on the form. */
 .admin-fee-note { font-weight: 400; font-size: 11px; color: var(--muted); }
-#adminFeeList { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+#adminFeeList { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .admin-fee-row { display: flex; gap: 8px; align-items: center; }
-.admin-fee-row input.afl { flex: 1; min-width: 0; }
-.admin-fee-row input.afa { width: 120px; flex-shrink: 0; }
-.admin-fee-row .afx { flex-shrink: 0; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
-.admin-fee-row .afx:hover { color: #7c1f1f; border-color: #7c1f1f; }
-.admin-fee-add { margin-top: 8px; font-size: 12px; font-weight: 600; padding: 6px 12px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--gold-mid); cursor: pointer; font-family: inherit; }
+.admin-fee-row .afl-field { flex: 1; min-width: 0; }
+.admin-fee-row .afa-field { width: 130px; flex-shrink: 0; }
+.admin-fee-row .afx { flex-shrink: 0; width: 34px; height: 52px; border: 1px solid var(--border); border-radius: var(--r-xs); background: var(--surface); color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.15s; }
+.admin-fee-row .afx:hover { color: var(--danger); border-color: var(--danger); }
+.admin-fee-add { margin-top: 8px; font-size: 12px; font-weight: 600; padding: 8px 14px; border: 1px dashed var(--border); border-radius: var(--r-xs); background: transparent; color: var(--gold-mid); cursor: pointer; font-family: inherit; }
 .admin-fee-add:hover { border-color: var(--gold-mid); }
 </style>
 </head>
@@ -1259,8 +1260,8 @@ function renderAdminFeeList() {
   var html = '';
   window._rtlAdminFees.forEach(function (f, i) {
     html += '<div class="admin-fee-row">' +
-      '<input class="afl" type="text" placeholder="Fee label" value="' + _rtlEscAttr(f.label) + '" oninput="_rtlAdminFeeSet(' + i + ',\'label\',this.value)" />' +
-      '<input class="afa" type="number" step="1" min="0" placeholder="$0" value="' + _rtlEscAttr(f.amount) + '" oninput="_rtlAdminFeeSet(' + i + ',\'amount\',this.value)" />' +
+      '<div class="field afl-field"><div class="wrap"><input type="text" placeholder="Fee label" value="' + _rtlEscAttr(f.label) + '" oninput="_rtlAdminFeeSet(' + i + ',\'label\',this.value)" /></div></div>' +
+      '<div class="field afa-field"><div class="wrap"><input type="number" step="1" min="0" placeholder="$0" value="' + _rtlEscAttr(f.amount) + '" oninput="_rtlAdminFeeSet(' + i + ',\'amount\',this.value)" /></div></div>' +
       '<button type="button" class="afx" title="Remove" onclick="removeAdminFeeRow(' + i + ')">&times;</button>' +
     '</div>';
   });
