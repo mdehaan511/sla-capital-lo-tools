@@ -181,7 +181,7 @@ function loadAll() {
 
   // Direct fetch — only this page uses this endpoint, no need to add a
   // helper to sla-api.js. Token comes from netlifyIdentity.
-  _user.jwt().then(function(token) {
+  SLA.getToken().then(function(token) {
     return fetch('/api/orphaned-quotes-list', {
       headers: { 'Authorization': 'Bearer ' + token },
     });
@@ -312,7 +312,7 @@ function recoverOne(idx) {
   // quote without the frontend Clients.upsert helper's owner-coupling
   // limitations). The endpoint re-fetches the quote, builds the loan
   // record, merges with existing client (if any), and persists.
-  return _user.jwt().then(function(token) {
+  return SLA.getToken().then(function(token) {
     return fetch('/api/orphaned-quote-recover', {
       method: 'POST',
       headers: {

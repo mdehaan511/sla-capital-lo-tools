@@ -1487,9 +1487,12 @@
   };
   global.dr_downloadOneDoc = function(docId, filename) {
     if (!_review || !_review.id) return;
-    var u = global.netlifyIdentity && global.netlifyIdentity.currentUser();
-    if (!u || !u.jwt) { showToast('Not signed in.', 'error'); return; }
-    u.jwt().then(function(token) {
+    // Deploy 236.530 — token via SLA.getToken() (Supabase + Netlify). The old
+    // netlifyIdentity.currentUser() gate wrongly showed "Not signed in" to
+    // Supabase-logged-in processors.
+    var _tok = (global.SLA && global.SLA.getToken) ? global.SLA.getToken() : Promise.resolve('');
+    _tok.then(function(token) {
+      if (!token) { showToast('Not signed in.', 'error'); return; }
       return fetch('/api/loan-review-doc-get?reviewId=' + encodeURIComponent(_review.id) +
                    '&docId=' + encodeURIComponent(docId), {
         headers: { 'Authorization': 'Bearer ' + token },
@@ -1814,13 +1817,14 @@
     if (!_review || !_review.id) return;
     var originalHTML = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = 'Building ZIP…'; }
-    var u = global.netlifyIdentity && global.netlifyIdentity.currentUser();
-    if (!u || !u.jwt) {
-      if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
-      showToast('Not signed in.', 'error');
-      return;
-    }
-    u.jwt().then(function(token) {
+    // Deploy 236.530 — token via SLA.getToken() (Supabase + Netlify safe).
+    var _tok = (global.SLA && global.SLA.getToken) ? global.SLA.getToken() : Promise.resolve('');
+    _tok.then(function(token) {
+      if (!token) {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+        showToast('Not signed in.', 'error');
+        return;
+      }
       return fetch('/api/loan-review-zip-download?reviewId=' + encodeURIComponent(_review.id), {
         headers: { 'Authorization': 'Bearer ' + token },
       });

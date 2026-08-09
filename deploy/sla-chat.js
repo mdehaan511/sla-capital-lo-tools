@@ -281,9 +281,12 @@
         var token = '';
         try { token = (netlifyIdentity && netlifyIdentity.currentUser() && netlifyIdentity.currentUser().token && netlifyIdentity.currentUser().token.access_token) || ''; } catch (_) {}
         try {
-          jwtPromise = (netlifyIdentity && netlifyIdentity.currentUser())
-            ? netlifyIdentity.currentUser().jwt()
-            : Promise.resolve(token);
+          // Deploy 236.530 — prefer SLA.getToken() (Supabase + Netlify safe).
+          jwtPromise = (window.SLA && SLA.getToken)
+            ? SLA.getToken().then(function (t) { return t || token; })
+            : ((netlifyIdentity && netlifyIdentity.currentUser())
+                ? netlifyIdentity.currentUser().jwt()
+                : Promise.resolve(token));
         } catch (_) {
           jwtPromise = Promise.resolve(token);
         }

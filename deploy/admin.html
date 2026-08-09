@@ -374,8 +374,13 @@ netlifyIdentity.on('init', function(user) {
       return;
     }
     if (!isAdmin(user)) {
-      // Token may be stale — try refreshing it once before giving up
-      user.jwt(true).then(function() {
+      // Token may be stale — try refreshing it once before giving up.
+      // Deploy 236.530 — .jwt(true) exists only on Netlify users; a Supabase
+      // user has no such method (it would throw synchronously). Supabase
+      // tokens already carry roles from the access-token hook, so there's
+      // nothing to refresh — reject straight to the access-denied path.
+      var _retry = (user && typeof user.jwt === 'function') ? user.jwt(true) : Promise.reject();
+      _retry.then(function() {
         // Re-fetch the current user after token refresh
         var refreshed = netlifyIdentity.currentUser();
         if (!refreshed || !isAdmin(refreshed)) {

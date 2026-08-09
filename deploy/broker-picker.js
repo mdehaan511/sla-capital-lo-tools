@@ -78,6 +78,11 @@
   // the SLA.api auth flow.
   function getJwt() {
     try {
+      // Deploy 236.530 — use SLA.getToken() (handles Supabase + Netlify).
+      // netlifyIdentity.currentUser().jwt() returned null for Supabase logins.
+      if (window.SLA && SLA.getToken) {
+        return SLA.getToken().then(function (t) { return t || ''; }).catch(function () { return ''; });
+      }
       var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
       if (!u || !u.jwt) return Promise.resolve('');
       return u.jwt().then(function (t) { return t || ''; });
