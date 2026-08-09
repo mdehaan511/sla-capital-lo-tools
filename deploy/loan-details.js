@@ -3325,16 +3325,62 @@ function _buildBorrowerAccessSection() {
   section.innerHTML =
     '<div class="section-head"><h2>Borrower Portal Access</h2><span class="section-tag tag-editable">Editable</span></div>' +
     '<div class="section-body">' +
-      '<p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Invite the borrower (or a co-borrower) to log in to the SLA portal to view this loan and upload requested documents. They\'ll get an email invitation and see only the loans they\'re granted access to.</p>' +
+      '<p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Invite the borrower or broker to the SLA portal to view this loan and upload requested documents. They sign in with Google or a one-click email link — no password.</p>' +
+      // Deploy 236.534 — Supabase invite with Borrower / Broker choice + a status
+      // line (recipient · date sent · last sign-in). Same as the doc-review panel.
+      '<div id="ldInviteStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.55;min-height:14px"></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
+        '<button type="button" class="save-btn" onclick="ldInvite(\'borrower\')" style="white-space:nowrap">✉ Invite Borrower</button>' +
+        (_ldHasBrokerEmail() ? '<button type="button" class="save-btn" onclick="ldInvite(\'broker\')" style="white-space:nowrap;background:#fff;color:var(--gold-mid,#b5712d);border:1px solid var(--gold-mid,#b5712d)">✉ Invite Broker</button>' : '') +
+      '</div>' +
       '<div id="borrowerAccessList" style="margin-bottom:12px"><div style="font-size:12px;color:var(--muted);font-style:italic">Loading…</div></div>' +
       '<div style="display:flex;gap:8px;align-items:stretch">' +
-        '<input type="email" id="borrowerAccessEmail" placeholder="borrower@example.com" style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:\'DM Sans\',sans-serif" />' +
+        '<input type="email" id="borrowerAccessEmail" placeholder="Or invite another email…" style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:\'DM Sans\',sans-serif" />' +
         '<button type="button" class="save-btn" onclick="inviteBorrowerAccess()" style="white-space:nowrap">Send Invite</button>' +
       '</div>' +
       '<div id="borrowerAccessStatus" style="margin-top:10px;font-size:12px;min-height:14px"></div>' +
     '</div>';
-  setTimeout(refreshBorrowerAccessList, 0);
+  setTimeout(function() { refreshBorrowerAccessList(); ldLoadInviteStatus(); }, 0);
   return section;
+}
+// Deploy 236.534 — Borrower/Broker portal invite (Supabase) + live status,
+// mirroring the doc-review panel's dr_invite. Reuses /api/borrower-intake-invite.
+function _ldHasBrokerEmail() {
+  return !!(_loan && ((_loan.brokerEmail && String(_loan.brokerEmail).trim()) ||
+    (_loan.formData && _loan.formData.brokerEmail && String(_loan.formData.brokerEmail).trim())));
+}
+function ldInvite(recipient) {
+  if (!_client || !_loanId) { showToast('Loan not loaded.'); return; }
+  var el = document.getElementById('ldInviteStatus');
+  if (el) el.textContent = 'Sending invite…';
+  var body = { loanId: _loanId, primaryClientId: _client.id, recipient: recipient };
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+  SLA.api('POST', '/api/borrower-intake-invite', body).then(function(r) {
+    if (r && r.ok) { showToast('Invite sent to ' + (r.email || recipient)); ldLoadInviteStatus(); refreshBorrowerAccessList(); }
+    else if (el) el.textContent = 'Invite failed.';
+  }).catch(function(err) {
+    if (el) el.textContent = 'Invite failed: ' + (err && err.message || 'unknown');
+  });
+}
+function ldLoadInviteStatus() {
+  var el = document.getElementById('ldInviteStatus'); if (!el || !_loanId) return;
+  var url = '/api/borrower-intake-invite?loanId=' + encodeURIComponent(_loanId) +
+    (_loEmail && _user && _loEmail !== _user.email ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.api('GET', url).then(function(st) { el.innerHTML = ldRenderInviteStatus(st); }).catch(function() { el.innerHTML = ''; });
+}
+function ldRenderInviteStatus(st) {
+  var lines = [];
+  ['borrower', 'broker'].forEach(function(who) {
+    var e = st && st[who];
+    if (!e || !e.email) return;
+    var sent = e.sentAt ? new Date(e.sentAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
+    var last = e.lastSignInAt
+      ? new Date(e.lastSignInAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+      : '<span style="color:#b5712d;font-weight:600">not yet logged in</span>';
+    lines.push('<span style="font-weight:600;color:var(--text,#1a1520)">' + (who === 'broker' ? 'Broker' : 'Borrower') + ':</span> ' +
+      escH(e.email) + ' &middot; invited ' + sent + ' &middot; last login ' + last);
+  });
+  return lines.join('<br>');
 }
 function refreshBorrowerAccessList() {
   var listEl = document.getElementById('borrowerAccessList');

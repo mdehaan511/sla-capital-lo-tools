@@ -11,13 +11,22 @@
  *          loan_access, email a one-click magic-link sign-in, record the invite.
  *   GET  ?loanId=&owner=  → { borrower?: {email,sentAt,sentBy,lastSignInAt},
  *                             broker?: {...} }  (invite status for the loan)
- * Auth: processor/admin (canReviewDocs).
+ * Auth: any staff (owning LO, processor, or admin). POST is owner-scoped —
+ *   a plain LO can only invite on loans in their own book.
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, readJsonBody, isAdmin, normalizeEmail, keySafe,
+  handleOptions, json, requireAuth, readJsonBody, isAdmin, isProcessor, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { canReviewDocs } from './_shared/access.mjs';
+
+// Deploy 236.534 — any staff member (not a borrower-only account) may invite.
+// POST is naturally owner-scoped: non-admin/processor callers resolve the loan
+// under their OWN owner key, so they can only invite on loans in their book.
+function _isStaff(user) {
+  const am = (user && user.app_metadata) || {};
+  const roles = Array.isArray(am.roles) ? am.roles : (am.role ? [am.role] : []);
+  return !(roles.length > 0 && roles.every((r) => String(r).toLowerCase() === 'borrower'));
+}
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
@@ -38,8 +47,7 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  const gate = canReviewDocs(user);
-  if (!gate.ok) return json(gate.status || 403, { error: gate.reason || 'Processor only' });
+  if (!_isStaff(user)) return json(403, { error: 'Staff only' });
 
   const sb = getSb();
   if (!sb) return json(500, { error: 'Supabase env not configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)' });
@@ -72,7 +80,9 @@ async function handle(req, context) {
   const primaryClientId = String(body.primaryClientId).trim();
   const recipient = body.recipient === 'broker' ? 'broker' : 'borrower';
   const selfEmail = normalizeEmail(user.email);
-  const ownerEmail = (body.owner && isAdmin(user)) ? normalizeEmail(body.owner) : selfEmail;
+  // Owner override (act on another LO's loan) is allowed for admins + processors;
+  // a plain LO always resolves to their own book.
+  const ownerEmail = (body.owner && (isAdmin(user) || isProcessor(user))) ? normalizeEmail(body.owner) : selfEmail;
   const ownerKey = keySafe(ownerEmail);
 
   // Load loan + client to resolve the recipient email + name.
