@@ -352,6 +352,13 @@
   status = 200
   force = true
 
+# Deploy 236.532 — borrower admin view (list + revoke + resend login link)
+[[redirects]]
+  from = "/api/borrowers-list-supabase"
+  to = "/.netlify/functions/borrowers-list-supabase"
+  status = 200
+  force = true
+
 # Path A Phase 1 extension (Deploy 236.262) — delete, role change, resend invite.
 [[redirects]]
   from = "/api/users-delete-supabase"

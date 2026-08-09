@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Borrowers — SLA Capital</title>
+  <link rel="icon" href="/favicon.ico" />
+  <!-- Deploy 236.532 — borrower admin view. Netlify widget kept only for
+       sla-api.js's shim; auth resolves via Supabase (SLA.getCurrentUser). -->
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@600&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{ --bg:#f0ece5; --surface:#fff; --text:#1a1520; --muted:#7a7488; --border:#ddd8d0;
+      --gold:#c8813a; --gold-mid:#b5712d; --gold-light:rgba(200,129,58,.10); --dark:#261a36;
+      --green:#166534; --red:#7c1f1f; }
+    *{ box-sizing:border-box; } body{ margin:0; font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); }
+    .topbar{ display:flex; align-items:center; justify-content:space-between; padding:1rem 1.5rem; background:var(--surface); border-bottom:1px solid var(--border); }
+    .topbar .brand{ font-family:'Lora',serif; font-size:18px; font-weight:600; }
+    .topbar .who{ font-size:12px; color:var(--muted); margin-right:12px; }
+    .signout{ font-size:12px; font-weight:600; color:var(--muted); background:transparent; border:1px solid var(--border); padding:5px 12px; border-radius:20px; cursor:pointer; font-family:inherit; }
+    .wrap{ max-width:1000px; margin:0 auto; padding:2rem 1.5rem 5rem; }
+    h1{ font-family:'Lora',serif; font-size:24px; margin:0 0 4px; }
+    .sub{ color:var(--muted); font-size:13px; margin-bottom:1.5rem; }
+    .card{ background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    table{ width:100%; border-collapse:collapse; font-size:13px; }
+    th{ text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); padding:12px 16px; border-bottom:1px solid var(--border); font-weight:600; }
+    td{ padding:14px 16px; border-bottom:1px solid var(--border); vertical-align:top; }
+    tr:last-child td{ border-bottom:none; }
+    .b-name{ font-weight:600; }
+    .b-email{ font-family:'DM Mono',monospace; font-size:12px; color:var(--muted); }
+    .loan-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+    .loan-row:last-child{ margin-bottom:0; }
+    .loan-addr{ font-size:12px; }
+    .loan-none{ color:var(--muted); font-style:italic; font-size:12px; }
+    .pill{ font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
+    .pill.signed{ background:rgba(21,128,61,.10); color:var(--green); }
+    .pill.never{ background:rgba(120,116,136,.10); color:var(--muted); }
+    .btn-x{ font-size:11px; font-weight:600; padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--muted); cursor:pointer; font-family:inherit; }
+    .btn-x:hover{ border-color:var(--red); color:var(--red); }
+    .btn-resend{ font-size:12px; font-weight:600; padding:6px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--gold-mid); cursor:pointer; font-family:inherit; }
+    .btn-resend:hover{ border-color:var(--gold-mid); }
+    .msg{ font-size:11px; color:var(--muted); margin-top:6px; }
+    .empty,.loading{ text-align:center; color:var(--muted); padding:40px; font-size:13px; }
+    #auth-gate{ position:fixed; inset:0; background:var(--dark); display:flex; align-items:center; justify-content:center; z-index:9999; padding:2rem; }
+    .gate-card{ background:var(--surface); border-radius:16px; padding:2.5rem; max-width:400px; text-align:center; }
+    .gate-card h2{ font-family:'Lora',serif; margin:0 0 10px; }
+    .gate-card p{ font-size:13px; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-card"><h2 id="gateTitle">Checking access…</h2><p id="gateBody"></p><div id="gateActions" style="display:none;margin-top:16px"></div></div></div>
+
+  <div id="app" style="display:none">
+    <div class="topbar">
+      <span class="brand">SLA Capital · Borrowers</span>
+      <span><span class="who" id="who"></span><button class="signout" onclick="doLogout()">Sign out</button></span>
+    </div>
+    <div class="wrap">
+      <h1>Borrowers</h1>
+      <div class="sub">Everyone with borrower portal access (Supabase accounts). Revoke a loan or re-send a one-click login link.</div>
+      <div class="card"><div id="tableWrap"><div class="loading">Loading borrowers…</div></div></div>
+    </div>
+  </div>
+
+  <script>
+  var _user = null;
+
+  function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fmtDate(iso){ if(!iso) return '—'; try{ return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }catch(_){ return iso; } }
+
+  function doLogout(){
+    try { if (window._slaSupabase && window._slaSupabase.auth) window._slaSupabase.auth.signOut(); } catch(_){}
+    try { if (window.netlifyIdentity && netlifyIdentity.logout) netlifyIdentity.logout(); } catch(_){}
+    location.href = '/';
+  }
+
+  function gateDenied(title, body){
+    document.getElementById('gateTitle').textContent = title;
+    document.getElementById('gateBody').innerHTML = body;
+    var a = document.getElementById('gateActions');
+    a.style.display=''; a.innerHTML = '<a href="/" style="padding:8px 20px;border-radius:6px;background:var(--gold);color:#fff;text-decoration:none;font-weight:600;font-size:13px">← Back to tools</a>';
+  }
+
+  function loadBorrowers(){
+    var wrap = document.getElementById('tableWrap');
+    SLA.api('GET', '/api/borrowers-list-supabase').then(function(data){
+      var list = (data && data.borrowers) || [];
+      if (!list.length){ wrap.innerHTML = '<div class="empty">No borrowers yet. They appear here once a processor invites one from a loan\'s document review.</div>'; return; }
+      var rows = list.map(function(b){
+        var loans = (b.loans && b.loans.length)
+          ? b.loans.map(function(l){
+              var label = l.address || l.loanId;
+              return '<div class="loan-row"><span class="loan-addr">' + escH(label) + '</span>' +
+                '<button class="btn-x" title="Revoke access" onclick="revoke(\'' + escH(b.email) + '\',\'' + escH(l.loanId) + '\', this)">Revoke</button></div>';
+            }).join('')
+          : '<span class="loan-none">No active loans</span>';
+        var last = b.lastSignInAt
+          ? '<span class="pill signed">' + fmtDate(b.lastSignInAt) + '</span>'
+          : '<span class="pill never">never</span>';
+        return '<tr>' +
+          '<td><div class="b-name">' + escH(b.fullName || '—') + '</div><div class="b-email">' + escH(b.email) + '</div></td>' +
+          '<td>' + loans + '</td>' +
+          '<td>' + last + '<div class="msg">invited ' + fmtDate(b.createdAt) + '</div></td>' +
+          '<td><button class="btn-resend" onclick="resend(\'' + escH(b.email) + '\', this)">Resend link</button></td>' +
+        '</tr>';
+      }).join('');
+      wrap.innerHTML = '<table><thead><tr><th>Borrower</th><th>Loan Access</th><th>Last Sign-In</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }).catch(function(err){
+      wrap.innerHTML = '<div class="empty">Couldn\'t load borrowers: ' + escH(err && err.message || 'unknown') + '</div>';
+    });
+  }
+
+  window.revoke = function(email, loanId, btn){
+    if (!confirm('Revoke this borrower\'s access to this loan? They keep their account but can no longer see this loan.')) return;
+    btn.disabled = true; btn.textContent = 'Revoking…';
+    SLA.api('POST', '/api/borrowers-list-supabase', { action:'revoke', email:email, loanId:loanId })
+      .then(function(){ loadBorrowers(); })
+      .catch(function(err){ btn.disabled=false; btn.textContent='Revoke'; alert('Revoke failed: ' + (err && err.message || 'unknown')); });
+  };
+
+  window.resend = function(email, btn){
+    btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Sending…';
+    SLA.api('POST', '/api/borrowers-list-supabase', { action:'resend', email:email })
+      .then(function(res){ btn.textContent = (res && res.emailed) ? 'Link sent ✓' : 'Sent'; setTimeout(function(){ btn.disabled=false; btn.textContent=orig; }, 2500); })
+      .catch(function(err){ btn.disabled=false; btn.textContent=orig; alert('Could not resend: ' + (err && err.message || 'unknown')); });
+  };
+
+  // ── Boot: admin gate ──
+  (function boot(){
+    SLA.getCurrentUser().then(function(user){
+      if (!user){ gateDenied('Sign in required', 'This page is admin-only. <a href="/" style="color:var(--gold)">Sign in</a> with your admin account.'); return; }
+      _user = user;
+      var isAdmin = window.SLA && SLA.isAdmin && SLA.isAdmin(user);
+      if (!isAdmin){
+        var roles = (window.SLA && SLA.getRoles) ? SLA.getRoles(user) : [];
+        gateDenied('Admins only', 'Signed in as <strong>' + escH(user.email||'') + '</strong>' + (roles && roles.length ? ' (role: ' + escH(roles.join(', ')) + ')' : '') + ', but this page requires an admin role.');
+        return;
+      }
+      document.getElementById('auth-gate').style.display = 'none';
+      document.getElementById('app').style.display = '';
+      document.getElementById('who').textContent = user.email || '';
+      loadBorrowers();
+    }).catch(function(){ gateDenied('Sign in required', 'Could not verify your session. <a href="/" style="color:var(--gold)">Sign in</a>.'); });
+  })();
+  </script>
+</body>
+</html>
