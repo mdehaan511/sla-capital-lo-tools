@@ -81,21 +81,31 @@
       var name = meta.full_name || meta.name || '';
       var role = (Array.isArray(roles) && roles[0]) || '';
       var humanRole = role === 'super_admin' ? 'Owner' : role === 'admin' ? 'Sales Manager'
-        : role === 'processor' ? 'Processor' : 'Loan Officer';
+        : role === 'processor' ? 'Processor' : role === 'borrower' ? 'Borrower' : 'Loan Officer';
+      // Deploy 236.531 — route borrowers to their portal, staff to the app.
+      // A same-origin ?next= path (single leading slash) wins, for deep-links.
+      var STAFF = ['super_admin', 'admin', 'loan_officer', 'processor'];
+      var isStaff = Array.isArray(roles) && roles.some(function (r) { return STAFF.indexOf(r) >= 0; });
+      var isBorrower = Array.isArray(roles) && roles.indexOf('borrower') >= 0;
+      var dest = (!isStaff && isBorrower) ? '/borrower-portal.html' : '/';
+      try {
+        var nx = new URLSearchParams(window.location.search).get('next');
+        if (nx && nx.charAt(0) === '/' && nx.charAt(1) !== '/') dest = nx; // same-origin path only
+      } catch (_) {}
       card.className = 'card status-ok';
       card.innerHTML =
         '<div class="logo">Sir Lends A Lot LLC</div>' +
         '<div class="tagline">Signed in</div>' +
         '<h1>You\'re signed in' + (name ? ', ' + escH(name) : '') + '.</h1>' +
-        '<p>Taking you to the app…</p>' +
+        '<p>Taking you to ' + (dest === '/' ? 'the app' : 'your portal') + '…</p>' +
         '<div class="details">' +
           '<div class="row"><strong>Email</strong>' + escH(user.email || '') + '</div>' +
           '<div class="row"><strong>Role</strong>' + escH(humanRole) + '</div>' +
         '</div>' +
-        '<p style="margin-top:20px"><a href="/" style="display:inline-block;padding:10px 24px;background:var(--gold);color:#fff;border-radius:6px;font-weight:600;text-decoration:none;font-size:13px">Enter the app →</a></p>';
+        '<p style="margin-top:20px"><a href="' + escH(dest) + '" style="display:inline-block;padding:10px 24px;background:var(--gold);color:#fff;border-radius:6px;font-weight:600;text-decoration:none;font-size:13px">Continue →</a></p>';
       // Auto-forward once the session is persisted (short beat so the
       // confirmation is visible). The manual link above is the fallback.
-      setTimeout(function () { window.location.replace('/'); }, 1200);
+      setTimeout(function () { window.location.replace(dest); }, 1200);
     }
 
     function renderErr(msg) {

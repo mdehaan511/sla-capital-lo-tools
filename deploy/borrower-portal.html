@@ -4,7 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SLA Capital — Borrower Portal</title>
+  <!-- Deploy 236.531 — borrower auth on Supabase (Google + magic link). The
+       Netlify widget stays loaded only so sla-api.js's compatibility shim has
+       it; login goes through Supabase. sla-api.js brings the Supabase client
+       + SLA.getToken()/getCurrentUser(). -->
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="/sla-api.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=Lora:wght@600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -30,6 +35,15 @@
                  border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px;
                  font-weight:600; cursor:pointer; transition:background .15s; }
     .login-btn:hover { background: var(--gold); }
+    .login-btn.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); margin-top: 0; }
+    .login-btn.secondary:hover { background: var(--gold-light); border-color: var(--gold-border); color: var(--text); }
+    .login-or { display:flex; align-items:center; gap:10px; margin: 14px 0 12px; color: var(--muted); font-size: 11px; }
+    .login-or::before, .login-or::after { content:''; flex:1; height:1px; background: var(--border); }
+    .login-email { width:100%; height:46px; padding:0 14px; border:1px solid var(--border); border-radius:8px;
+                   font-family:'DM Sans',sans-serif; font-size:14px; color:var(--text); background:var(--surface);
+                   margin-bottom:10px; outline:none; }
+    .login-email:focus { border-color: var(--gold); }
+    .login-msg { min-height: 16px; margin-top: 12px; font-size: 12px; color: var(--muted); line-height: 1.4; }
     .login-footer { margin-top: 1.5rem; font-size: 11px; color: var(--muted); }
 
     /* App screen */
@@ -108,7 +122,11 @@
            onerror="this.style.display='none'" />
       <h1>SLA Capital — Borrower Portal</h1>
       <p>Sign in to view your loan and upload requested documents.<br>Use the email your loan officer invited.</p>
-      <button class="login-btn" id="loginBtn">Sign In</button>
+      <button class="login-btn" id="googleBtn">Continue with Google</button>
+      <div class="login-or"><span>or</span></div>
+      <input class="login-email" id="loginEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
+      <button class="login-btn secondary" id="magicBtn">Email me a login link</button>
+      <div class="login-msg" id="loginMsg"></div>
       <p class="login-footer">SLA Capital · Sir Lends A Lot LLC</p>
     </div>
   </div>
@@ -180,20 +198,55 @@
       document.getElementById('login-screen').style.display = 'flex';
       document.getElementById('app-screen').style.display = 'none';
     }
-    function doLogout() { netlifyIdentity.logout(); }
+    function doLogout() {
+      try { if (window._slaSupabase && window._slaSupabase.auth) window._slaSupabase.auth.signOut(); } catch (_) {}
+      try { if (window.netlifyIdentity && netlifyIdentity.logout) netlifyIdentity.logout(); } catch (_) {}
+      showLogin();
+    }
 
-    // Deploy 236.505 — borrowers authenticate via Netlify Identity ONLY (no
-    // Supabase/Google here), so currentUser() is normally valid. But if the
-    // session is lost/expired while the app screen is up, currentUser() is
-    // null and .jwt() would throw an uncaught TypeError. Guard it: bounce to
-    // the sign-in screen with a friendly message instead of crashing.
+    // Deploy 236.531 — borrowers authenticate via SUPABASE (Google + magic
+    // link). SLA.getToken() returns the Supabase access token (or the Netlify
+    // one, if any); null means the session lapsed → bounce to sign-in.
     function _borrowerJwt() {
-      var u = (window.netlifyIdentity && netlifyIdentity.currentUser && netlifyIdentity.currentUser());
-      if (!u || typeof u.jwt !== 'function') {
-        try { showLogin(); } catch (_) {}
-        return Promise.reject(new Error('Your session expired — please sign in again.'));
-      }
-      return u.jwt();
+      return SLA.getToken().then(function (token) {
+        if (!token) { try { showLogin(); } catch (_) {} throw new Error('Your session expired — please sign in again.'); }
+        return token;
+      });
+    }
+
+    // sla-api.js creates the Supabase client asynchronously (window._slaSupabase).
+    function _borrowerSupabase() {
+      return new Promise(function (resolve, reject) {
+        var n = 0;
+        (function poll() {
+          if (window._slaSupabase && window._slaSupabase.auth) return resolve(window._slaSupabase);
+          if (n++ > 120) return reject(new Error('Sign-in is still loading — please refresh.'));
+          setTimeout(poll, 50);
+        })();
+      });
+    }
+    // Google + magic-link both redirect to /activate.html, which establishes
+    // the Supabase session and routes borrowers back to this portal.
+    function _startGoogle() {
+      var msg = document.getElementById('loginMsg');
+      if (msg) msg.textContent = 'Opening Google…';
+      _borrowerSupabase().then(function (sb) {
+        return sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/activate.html' } });
+      }).catch(function (e) { if (msg) msg.textContent = (e && e.message) || 'Could not start Google sign-in.'; });
+    }
+    function _startMagic() {
+      var msg = document.getElementById('loginMsg');
+      var email = (document.getElementById('loginEmail').value || '').trim().toLowerCase();
+      if (!email || email.indexOf('@') < 0) { if (msg) msg.textContent = 'Enter the email your loan officer invited.'; return; }
+      if (msg) msg.textContent = 'Sending your login link…';
+      _borrowerSupabase().then(function (sb) {
+        return sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: location.origin + '/activate.html', shouldCreateUser: false } });
+      }).then(function (res) {
+        if (res && res.error) throw res.error;
+        if (msg) msg.textContent = 'Check your email for a login link.';
+      }).catch(function (e) {
+        if (msg) msg.textContent = (e && e.message) ? e.message : 'Could not send the link. Ask your loan officer to re-invite you.';
+      });
     }
 
     // ── Loans ──
@@ -324,11 +377,15 @@
       reader.readAsDataURL(file);
     }
 
-    // ── Identity events ──
-    netlifyIdentity.on('init',  function(u) { if (u) showApp(u); else showLogin(); });
-    netlifyIdentity.on('login', function(u) { netlifyIdentity.close(); showApp(u); });
-    netlifyIdentity.on('logout', showLogin);
-    document.getElementById('loginBtn').addEventListener('click', function() { netlifyIdentity.open('login'); });
+    // ── Boot: existing Supabase session → app, else the sign-in screen ──
+    (function boot() {
+      var gb = document.getElementById('googleBtn');  if (gb) gb.addEventListener('click', _startGoogle);
+      var mb = document.getElementById('magicBtn');   if (mb) mb.addEventListener('click', _startMagic);
+      var le = document.getElementById('loginEmail'); if (le) le.addEventListener('keydown', function (e) { if (e.key === 'Enter') _startMagic(); });
+      SLA.getCurrentUser().then(function (u) {
+        if (u && u.email) showApp(u); else showLogin();
+      }).catch(function () { showLogin(); });
+    })();
   </script>
 </body>
 </html>

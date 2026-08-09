@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Submit Your Documents — SLA Capital</title>
   <link rel="icon" href="/favicon.ico" />
+  <!-- Deploy 236.531 — borrower auth on Supabase (Google + magic link). Netlify
+       widget stays only for sla-api.js's shim; login goes through Supabase. -->
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="/sla-api.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root{ --bg:#f4f1ea; --card:#fff; --text:#1a1520; --muted:#7a7488; --border:#e4dfd4;
@@ -23,7 +26,14 @@
     .login-card{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:2rem; max-width:420px; text-align:center; }
     .login-card h1{ font-family:'Lora',serif; font-size:22px; margin:0 0 8px; }
     .login-card p{ color:var(--muted); font-size:14px; }
-    .login-btn{ margin-top:14px; background:var(--gold-mid); color:#fff; border:none; border-radius:10px; padding:11px 22px; font-size:15px; font-weight:600; cursor:pointer; }
+    .login-btn{ margin-top:14px; display:block; width:100%; background:var(--gold-mid); color:#fff; border:none; border-radius:10px; padding:11px 22px; font-size:15px; font-weight:600; cursor:pointer; }
+    .login-btn.secondary{ background:var(--card); color:var(--text); border:1px solid var(--border); }
+    .login-btn.secondary:hover{ background:var(--amber-bg); }
+    .login-or{ display:flex; align-items:center; gap:10px; margin:14px 0 4px; color:var(--muted); font-size:11px; }
+    .login-or::before, .login-or::after{ content:''; flex:1; height:1px; background:var(--border); }
+    .login-email{ width:100%; box-sizing:border-box; margin-top:10px; padding:11px 14px; border:1px solid var(--border); border-radius:10px; font-size:14px; color:var(--text); background:var(--bg); outline:none; }
+    .login-email:focus{ border-color:var(--gold-mid); }
+    .login-msg{ min-height:16px; margin-top:12px; font-size:12px; color:var(--muted); line-height:1.4; }
     h1.page-title{ font-family:'Lora',serif; font-size:22px; margin:6px 0 2px; }
     .sub{ color:var(--muted); font-size:13px; margin-bottom:18px; }
     .progress{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:18px; display:flex; align-items:center; gap:14px; }
@@ -73,8 +83,12 @@
   <div id="login-screen">
     <div class="login-card">
       <h1>Submit Your Documents</h1>
-      <p>Sign in with the email on your application to upload your loan documents. If this is your first time, use the invite email we sent to create your password.</p>
-      <button class="login-btn" id="loginBtn">Sign In</button>
+      <p>Sign in with the email your loan officer invited to upload your loan documents.</p>
+      <button class="login-btn" id="googleBtn">Continue with Google</button>
+      <div class="login-or"><span>or</span></div>
+      <input class="login-email" id="loginEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
+      <button class="login-btn secondary" id="magicBtn">Email me a login link</button>
+      <div class="login-msg" id="loginMsg"></div>
     </div>
   </div>
 
@@ -116,10 +130,40 @@
   var _items = [];
 
   function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  // Deploy 236.531 — borrowers authenticate via SUPABASE (Google + magic link).
   function _borrowerJwt(){
-    var u = (window.netlifyIdentity && netlifyIdentity.currentUser && netlifyIdentity.currentUser());
-    if (!u || typeof u.jwt !== 'function') { showLogin(); return Promise.reject(new Error('Your session expired — please sign in again.')); }
-    return u.jwt();
+    return SLA.getToken().then(function(token){
+      if (!token) { showLogin(); throw new Error('Your session expired — please sign in again.'); }
+      return token;
+    });
+  }
+  function _borrowerSupabase(){
+    return new Promise(function(resolve, reject){
+      var n = 0;
+      (function poll(){
+        if (window._slaSupabase && window._slaSupabase.auth) return resolve(window._slaSupabase);
+        if (n++ > 120) return reject(new Error('Sign-in is still loading — please refresh.'));
+        setTimeout(poll, 50);
+      })();
+    });
+  }
+  function _startGoogle(){
+    var msg = document.getElementById('loginMsg'); if (msg) msg.textContent = 'Opening Google…';
+    _borrowerSupabase().then(function(sb){
+      return sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + '/activate.html' } });
+    }).catch(function(e){ if (msg) msg.textContent = (e && e.message) || 'Could not start Google sign-in.'; });
+  }
+  function _startMagic(){
+    var msg = document.getElementById('loginMsg');
+    var email = (document.getElementById('loginEmail').value || '').trim().toLowerCase();
+    if (!email || email.indexOf('@') < 0) { if (msg) msg.textContent = 'Enter the email your loan officer invited.'; return; }
+    if (msg) msg.textContent = 'Sending your login link…';
+    _borrowerSupabase().then(function(sb){
+      return sb.auth.signInWithOtp({ email: email, options:{ emailRedirectTo: location.origin + '/activate.html', shouldCreateUser:false } });
+    }).then(function(res){
+      if (res && res.error) throw res.error;
+      if (msg) msg.textContent = 'Check your email for a login link.';
+    }).catch(function(e){ if (msg) msg.textContent = (e && e.message) ? e.message : 'Could not send the link. Ask your loan officer to re-invite you.'; });
   }
   function showApp(user){
     _user = user;
@@ -134,7 +178,11 @@
     document.getElementById('app-screen').style.display='none';
     document.getElementById('signout').style.display='none';
   }
-  function doLogout(){ netlifyIdentity.logout(); }
+  function doLogout(){
+    try { if (window._slaSupabase && window._slaSupabase.auth) window._slaSupabase.auth.signOut(); } catch(_){}
+    try { if (window.netlifyIdentity && netlifyIdentity.logout) netlifyIdentity.logout(); } catch(_){}
+    showLogin();
+  }
 
   function _qs(){ return '?loanId=' + encodeURIComponent(_loanId) + '&primaryClientId=' + encodeURIComponent(_clientId) + '&ownerKey=' + encodeURIComponent(_owner); }
 
@@ -306,10 +354,15 @@
     });
   }
 
-  netlifyIdentity.on('init',  function(u){ if (u) showApp(u); else showLogin(); });
-  netlifyIdentity.on('login', function(u){ netlifyIdentity.close(); showApp(u); });
-  netlifyIdentity.on('logout', showLogin);
-  document.getElementById('loginBtn').addEventListener('click', function(){ netlifyIdentity.open('login'); });
+  // Deploy 236.531 — boot on Supabase: existing session → app, else sign-in.
+  (function boot(){
+    var gb = document.getElementById('googleBtn');  if (gb) gb.addEventListener('click', _startGoogle);
+    var mb = document.getElementById('magicBtn');   if (mb) mb.addEventListener('click', _startMagic);
+    var le = document.getElementById('loginEmail'); if (le) le.addEventListener('keydown', function(e){ if (e.key === 'Enter') _startMagic(); });
+    SLA.getCurrentUser().then(function(u){
+      if (u && u.email) showApp(u); else showLogin();
+    }).catch(function(){ showLogin(); });
+  })();
   </script>
 </body>
 </html>
