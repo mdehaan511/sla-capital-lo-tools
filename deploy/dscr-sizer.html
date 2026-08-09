@@ -388,6 +388,16 @@
     .admin-mode-hint.on { color: #281D28; font-weight: 500; }
     #adminModeInputs { display: none; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
     #adminModeInputs.on { display: grid; }
+    /* Deploy 236.526 — custom fee editor */
+    .admin-fee-note { font-weight: 400; font-size: 11px; color: var(--muted); }
+    #adminFeeList { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+    .admin-fee-row { display: flex; gap: 8px; align-items: center; }
+    .admin-fee-row input.afl { flex: 1; min-width: 0; }
+    .admin-fee-row input.afa { width: 120px; flex-shrink: 0; }
+    .admin-fee-row .afx { flex-shrink: 0; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+    .admin-fee-row .afx:hover { color: var(--danger); border-color: var(--danger); }
+    .admin-fee-add { margin-top: 8px; font-size: 12px; font-weight: 600; padding: 6px 12px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--gold-mid); cursor: pointer; font-family: inherit; }
+    .admin-fee-add:hover { border-color: var(--gold-mid); }
   </style>
 </head>
 <body>
@@ -501,7 +511,7 @@ var getFICOMin = SLA_DSCR.getFICOMin;
           </label>
           <div class="admin-mode-label">
             <span class="admin-mode-title">Admin Mode</span>
-            <span class="admin-mode-hint" id="adminModeHint">Manual pricing — skip DIYA adjustments, enter rate and origination points directly. Rate sheets print with your inputs.</span>
+            <span class="admin-mode-hint" id="adminModeHint">Sandbox — manual rate &amp; points, LTV caps off, fully editable fees. Build any rate sheet; it prints with your inputs.</span>
           </div>
         </div>
         <div id="adminModeInputs">
@@ -516,6 +526,13 @@ var getFICOMin = SLA_DSCR.getFICOMin;
               <label>Origination Points <span class="req">*</span></label>
               <input type="number" step="0.001" id="adminPointsInput" placeholder="e.g. 1.000" oninput="onAdminManualInput()" />
             </div>
+          </div>
+          <!-- Deploy 236.526 — custom fee editor. Add / rename / remove any
+               closing-cost line. Origination stays points-driven (above). -->
+          <div class="field span2" id="adminFeeEditorWrap" style="grid-column:1/-1">
+            <label>Custom Fees <span class="admin-fee-note">— origination is driven by the points above</span></label>
+            <div id="adminFeeList"></div>
+            <button type="button" class="admin-fee-add" onclick="addAdminFeeRow()">+ Add fee line</button>
           </div>
         </div>
       </div>
@@ -850,10 +867,15 @@ var getFICOMin = SLA_DSCR.getFICOMin;
     <!-- Fee schedule (informational, always visible) -->
     <div class="fees-card">
       <div class="fees-head">SLA Capital Fees</div>
-      <div class="fees-row"><span>Underwriting Fee</span><span>$995</span></div>
-      <div class="fees-row"><span>Doc Prep Fee</span><span>$700</span></div>
-      <div class="fees-row"><span>Legal Fee</span><span>$500</span></div>
-      <div class="fees-row"><span>Desktop Analysis</span><span>$120</span></div>
+      <!-- Deploy 236.526 — these SLA flat-fee rows are re-rendered from the
+           Admin Sandbox custom fee list when Admin Mode is on (see
+           _renderSlaFeesCardRows). Static defaults otherwise. -->
+      <div id="slaFeesCardRows">
+        <div class="fees-row"><span>Underwriting Fee</span><span>$995</span></div>
+        <div class="fees-row"><span>Doc Prep Fee</span><span>$700</span></div>
+        <div class="fees-row"><span>Legal Fee</span><span>$500</span></div>
+        <div class="fees-row"><span>Desktop Analysis</span><span>$120</span></div>
+      </div>
       <!-- Broker fee row(s) appear when a broker fee is entered.
            Populated by renderBrokerFeesCardRows(). -->
       <div id="brokerFeesCardRows"></div>
@@ -924,6 +946,9 @@ function calculate() {
     propAddress:   $('propAddress').value,
     brokerFee:     ($('brokerFee') || {}).value,
     brokerProcFee: ($('brokerProcFee') || {}).value,
+    // Deploy 236.526 — Admin Sandbox: bypass the 80% LTV cap. Admin-gated
+    // (the toggle only renders for admins), so this is false for everyone else.
+    adminSandbox:  !!window._dscrAdminMode,
   });
 }
 
@@ -1057,7 +1082,9 @@ function renderCashToCloseCard(r, effLoan) {
     ? _ovP / 100
     : (1 + (r.buydown || 0)) / 100; // origination + buy-down
   var ptsFee = effLoan * pts;
-  var flatFees = 995 + 700 + 500 + 120; // DSCR schedule = $2,315
+  // Deploy 236.526 — Admin Sandbox: flat fees come from the custom fee editor
+  // when Admin Mode is on; otherwise the standard $2,315 DSCR schedule.
+  var flatFees = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 120);
   var brokerPts = (typeof r.brokerPts === 'number' ? r.brokerPts : (parseFloat(($('brokerFee')||{}).value) || 0));
   var brokerDol = effLoan * brokerPts / 100;
   // Deploy 236.376 — flat broker processing fee, labeled with the
@@ -1084,7 +1111,7 @@ function renderCashToCloseCard(r, effLoan) {
           '<tr><td>Purchase Price</td><td class="bv base">'+fmtD(price)+'</td></tr>'+
           '<tr><td>− Loan Amount</td><td class="bv neg">'+fmtD(effLoan)+'</td></tr>'+
           '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
-          '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
+          '<tr><td>+ Flat Fees</td><td class="bv base">'+fmtD(flatFees)+'</td></tr>'+
           brokerRow+
           brokerProcRowPlus+
         '</tbody></table>'+
@@ -1109,7 +1136,7 @@ function renderCashToCloseCard(r, effLoan) {
           '<tr><td>Requested Loan Amount</td><td class="bv base">'+fmtD(effLoan)+'</td></tr>'+
           '<tr><td>− Current Loan Payoff</td><td class="bv neg">'+fmtD(currentLoan)+'</td></tr>'+
           '<tr><td>− Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv neg">'+fmtD(ptsFee)+'</td></tr>'+
-          '<tr><td>− Flat Fees</td><td class="bv neg">$2,315</td></tr>'+
+          '<tr><td>− Flat Fees</td><td class="bv neg">'+fmtD(flatFees)+'</td></tr>'+
           (brokerPts > 0
             ? '<tr><td>− Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv neg">'+fmtD(brokerDol)+'</td></tr>'
             : '')+
@@ -1141,7 +1168,7 @@ function renderCashToCloseCard(r, effLoan) {
           '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Cash to Close Estimate</td><td></td></tr>'+
           '<tr><td>Current Loan Payoff</td><td class="bv base">'+fmtD(currentLoan)+'</td></tr>'+
           '<tr><td>+ Origination Points ('+(pts*100).toFixed(2)+'%)</td><td class="bv base">'+fmtD(ptsFee)+'</td></tr>'+
-          '<tr><td>+ Flat Fees</td><td class="bv base">$2,315</td></tr>'+
+          '<tr><td>+ Flat Fees</td><td class="bv base">'+fmtD(flatFees)+'</td></tr>'+
           (brokerPts > 0
             ? '<tr><td>+ Broker Fee ('+brokerPts.toFixed(2)+' pts)</td><td class="bv base">'+fmtD(brokerDol)+'</td></tr>'
             : '')+
@@ -1388,6 +1415,8 @@ function onAdminModeToggle() {
     // Auto-acknowledge so setting overrides doesn't pop the "you're
     // about to override pricing" modal.
     window._dscrOverrides.warningAcknowledged = true;
+    _dscrEnsureFeesSeeded();
+    renderAdminFeeList();
     onAdminManualInput();
   } else {
     // Turning off — clear the manual overrides so DIYA takes over again.
@@ -1417,6 +1446,90 @@ function onAdminManualInput() {
   try { run(); } catch (_) {}
 }
 
+// ── Deploy 236.526 — Admin Sandbox custom fee editor ───────────────
+// window._dscrAdminFees is an array of {label, amount} the admin can
+// add / rename / remove. When Admin Mode is on it REPLACES the four
+// hardcoded flat closing fees everywhere they're consumed (on-screen
+// cash-to-close + the rate-sheet PDF fee table). Origination stays
+// points-driven. Seeded from FEES the first time Admin Mode is enabled.
+function _dscrDefaultFees() {
+  var F = (typeof FEES !== 'undefined' && FEES) ? FEES : { underwriting: 995, doc_prep: 700, legal_doc: 500, desktop_analysis: 120 };
+  return [
+    { label: 'Underwriting Fee',        amount: F.underwriting },
+    { label: 'Doc Prep Fee',            amount: F.doc_prep },
+    { label: 'Legal / Document Review', amount: F.legal_doc },
+    { label: 'Desktop Analysis',        amount: F.desktop_analysis },
+  ];
+}
+function _dscrEnsureFeesSeeded() {
+  if (!Array.isArray(window._dscrAdminFees)) window._dscrAdminFees = _dscrDefaultFees();
+}
+// Effective flat-fee list used by the calc/PDF. Only meaningful in Admin
+// Mode; callers gate on window._dscrAdminMode before using it.
+function _dscrEffectiveFees() {
+  _dscrEnsureFeesSeeded();
+  return window._dscrAdminFees;
+}
+function _dscrFlatFeesTotal() {
+  return _dscrEffectiveFees().reduce(function (s, f) {
+    var a = parseFloat(f && f.amount); return s + (isFinite(a) ? a : 0);
+  }, 0);
+}
+function _escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+function renderAdminFeeList() {
+  var box = document.getElementById('adminFeeList');
+  if (!box) return;
+  _dscrEnsureFeesSeeded();
+  var html = '';
+  window._dscrAdminFees.forEach(function (f, i) {
+    html += '<div class="admin-fee-row">' +
+      '<input class="afl" type="text" placeholder="Fee label" value="' + _escAttr(f.label) + '" oninput="_dscrAdminFeeSet(' + i + ',\'label\',this.value)" />' +
+      '<input class="afa" type="number" step="1" min="0" placeholder="$0" value="' + _escAttr(f.amount) + '" oninput="_dscrAdminFeeSet(' + i + ',\'amount\',this.value)" />' +
+      '<button type="button" class="afx" title="Remove" onclick="removeAdminFeeRow(' + i + ')">&times;</button>' +
+    '</div>';
+  });
+  box.innerHTML = html;
+}
+function _dscrAdminFeeSet(i, field, val) {
+  _dscrEnsureFeesSeeded();
+  if (!window._dscrAdminFees[i]) return;
+  window._dscrAdminFees[i][field] = (field === 'amount') ? (val === '' ? '' : parseFloat(val)) : val;
+  try { run(); } catch (_) {} // refresh cash-to-close; no re-render so focus holds
+}
+function addAdminFeeRow() {
+  _dscrEnsureFeesSeeded();
+  window._dscrAdminFees.push({ label: '', amount: 0 });
+  renderAdminFeeList();
+  try { run(); } catch (_) {}
+}
+function removeAdminFeeRow(i) {
+  _dscrEnsureFeesSeeded();
+  window._dscrAdminFees.splice(i, 1);
+  renderAdminFeeList();
+  try { run(); } catch (_) {}
+}
+// Re-render the informational "SLA Capital Fees" side card: itemized custom
+// fees in Admin Mode, the standard four SLA fees otherwise. The non-admin
+// branch reproduces the original static labels EXACTLY so the LO-facing card
+// is byte-identical to before (this runs on every calc via
+// renderBrokerFeesCardRows).
+function _renderSlaFeesCardRows() {
+  var box = document.getElementById('slaFeesCardRows');
+  if (!box) return;
+  var list = window._dscrAdminMode ? _dscrEffectiveFees() : [
+    { label: 'Underwriting Fee', amount: 995 },
+    { label: 'Doc Prep Fee',     amount: 700 },
+    { label: 'Legal Fee',        amount: 500 },
+    { label: 'Desktop Analysis', amount: 120 },
+  ];
+  var html = '';
+  list.forEach(function (f) {
+    var a = parseFloat(f && f.amount);
+    html += '<div class="fees-row"><span>' + escHtml((f && f.label) || 'Fee') + '</span><span>$' + (isFinite(a) ? Math.round(a).toLocaleString() : '0') + '</span></div>';
+  });
+  box.innerHTML = html;
+}
+
 function autoEnableAdminModeFrom(source) {
   if (!source || source._adminMode !== true) return;
   if (!window._userIsAdmin) return; // guard — non-admin viewing an admin-mode loan doesn't flip on
@@ -1430,6 +1543,15 @@ function autoEnableAdminModeFrom(source) {
   var pEl = document.getElementById('adminPointsInput');
   if (rEl && source.rate  != null && source.rate  !== '') rEl.value = source.rate;
   if (pEl && source.points != null && source.points !== '') pEl.value = source.points;
+  // Deploy 236.526 — rehydrate the custom fee schedule if this loan was saved
+  // with one; otherwise the seed-from-FEES default (set by onAdminModeToggle)
+  // stands. Re-render so the editor shows the restored lines.
+  if (Array.isArray(source._adminFees) && source._adminFees.length) {
+    window._dscrAdminFees = source._adminFees.map(function (f) {
+      return { label: (f && f.label) || '', amount: (f && f.amount != null) ? f.amount : 0 };
+    });
+    renderAdminFeeList();
+  }
   onAdminManualInput();
 }
 
@@ -1456,10 +1578,14 @@ function renderBrokerFeesCardRows() {
   if (!rowsEl || !totalEl) return;
   var pts = parseFloat(($('brokerFee')||{}).value) || 0;
   var proc = parseFloat(($('brokerProcFee')||{}).value) || 0;
-  var FLAT = 995 + 700 + 500 + 120; // $2,315
+  // Deploy 236.526 — Admin Sandbox: SLA flat fees come from the custom fee
+  // editor when Admin Mode is on. Re-render the itemized rows to match, and
+  // total from the same source.
+  _renderSlaFeesCardRows();
+  var FLAT = window._dscrAdminMode ? _dscrFlatFeesTotal() : (995 + 700 + 500 + 120);
   if (pts <= 0 && proc <= 0) {
     rowsEl.innerHTML = '';
-    totalEl.textContent = '$' + FLAT.toLocaleString();
+    totalEl.textContent = '$' + Math.round(FLAT).toLocaleString();
     return;
   }
   // Prefer the override-effective loan amount when an LTV override is
@@ -2607,33 +2733,31 @@ function _generateRateSheetPDF(opts) {
     ? __ovPtsFee
     : (1 + (r.buydown||0));
   var totalPtsAmt = r.loan * __effPtsFee / 100;
+  // Deploy 236.526 — Admin Sandbox: the flat closing-cost lines come from the
+  // custom fee editor when Admin Mode is on; otherwise the standard SLA
+  // schedule. Origination stays points-driven (the branches below).
+  var __flatFeeRows = window._dscrAdminMode
+    ? _dscrEffectiveFees().map(function (f) {
+        var a = parseFloat(f && f.amount);
+        return [(f && f.label) || 'Fee', isFinite(a) ? a : 0];
+      })
+    : [
+        ['Underwriting Fee',        995],
+        ['Doc Prep Fee',            700],
+        ['Legal / Document Review', 500],
+        ['Desktop Analysis',        120],
+      ];
   var feeRows;
   if (typeof __ovPtsFee === 'number' && isFinite(__ovPtsFee)) {
-    feeRows = [
-      ['Origination Points (' + __effPtsFee.toFixed(2) + ' pts — override)', totalPtsAmt],
-      ['Underwriting Fee',                                                   995],
-      ['Doc Prep Fee',                                                       700],
-      ['Legal / Document Review',                                            500],
-      ['Desktop Analysis',                                                   120],
-    ];
+    feeRows = [['Origination Points (' + __effPtsFee.toFixed(2) + ' pts — override)', totalPtsAmt]].concat(__flatFeeRows);
   } else if (r.buydown > 0) {
     // Break out the buydown separately under origination
     feeRows = [
       ['Origination — 1.00 pt (base)',       r.loan * 1 / 100],
       ['Origination — '+r.buydown.toFixed(2)+' pts (buy-down)', r.loan * r.buydown / 100],
-      ['Underwriting Fee',                    995],
-      ['Doc Prep Fee',                        700],
-      ['Legal / Document Review',             500],
-      ['Desktop Analysis',                    120],
-    ];
+    ].concat(__flatFeeRows);
   } else {
-    feeRows = [
-      ['Origination Points (' + __effPtsFee.toFixed(2) + ' pts)', totalPtsAmt],
-      ['Underwriting Fee',                                          995],
-      ['Doc Prep Fee',                                              700],
-      ['Legal / Document Review',                                   500],
-      ['Desktop Analysis',                                          120],
-    ];
+    feeRows = [['Origination Points (' + __effPtsFee.toFixed(2) + ' pts)', totalPtsAmt]].concat(__flatFeeRows);
   }
   // Broker fee line on the rate-sheet PDF. Per policy the broker's
   // name/contact is NOT printed on the PDF (the borrower sees this doc);
@@ -3499,7 +3623,13 @@ function saveCurrentQuote() {
     // it and can never unset an existing admin-mode flag by accident.
     if (window._userIsAdmin) {
       loanRecord._adminMode = !!window._dscrAdminMode;
-      if (loanRecord._sizerFormData) loanRecord._sizerFormData._adminMode = !!window._dscrAdminMode;
+      // Deploy 236.526 — persist the custom fee schedule so the sandbox rate
+      // sheet reprints identically on reopen. Cleared when Admin Mode is off.
+      loanRecord._adminFees = window._dscrAdminMode ? (window._dscrAdminFees || null) : null;
+      if (loanRecord._sizerFormData) {
+        loanRecord._sizerFormData._adminMode = !!window._dscrAdminMode;
+        loanRecord._sizerFormData._adminFees = loanRecord._adminFees;
+      }
     }
     var nameParts = (formData.borrower || '').trim().split(' ');
     if (window._originalAddress && window._originalAddress !== formData.address) {
@@ -3812,6 +3942,9 @@ function loadQuoteIntoForm(formData) {
       // admin input parser will re-normalize.
       rate:   formData._finalRate || formData.rate || '',
       points: formData._points    || formData.points  || '',
+      // Deploy 236.526 — restore the custom fee schedule (sibling of
+      // _adminMode on the saved record; round-trips the same way).
+      _adminFees: formData._adminFees || null,
     });
   }
   // Deploy 236 (Brokers Phase 2): if this loan has a brokerId stored,
