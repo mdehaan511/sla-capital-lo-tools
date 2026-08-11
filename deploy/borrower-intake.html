@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Submit Your Documents — SLA Capital</title>
   <link rel="icon" href="/favicon.ico" />
-  <!-- Deploy 236.531 — borrower auth on Supabase (Google + magic link). Netlify
-       widget stays only for sla-api.js's shim; login goes through Supabase. -->
-  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <!-- Deploy 236.542 (Auth Phase 4) — borrower auth is fully on Supabase
+       (Google + magic link); the Netlify Identity widget has been REMOVED.
+       sla-api.js's netlifyIdentity refs are all guarded, so its absence is a
+       clean no-op; the page bootstraps via SLA.getCurrentUser(). -->
   <script src="/sla-api.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -179,8 +180,8 @@
     document.getElementById('signout').style.display='none';
   }
   function doLogout(){
+    // Deploy 236.542 — Supabase-only sign-out (Netlify widget removed).
     try { if (window._slaSupabase && window._slaSupabase.auth) window._slaSupabase.auth.signOut(); } catch(_){}
-    try { if (window.netlifyIdentity && netlifyIdentity.logout) netlifyIdentity.logout(); } catch(_){}
     showLogin();
   }
 

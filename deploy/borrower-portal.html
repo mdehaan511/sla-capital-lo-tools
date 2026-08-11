@@ -4,11 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SLA Capital — Borrower Portal</title>
-  <!-- Deploy 236.531 — borrower auth on Supabase (Google + magic link). The
-       Netlify widget stays loaded only so sla-api.js's compatibility shim has
-       it; login goes through Supabase. sla-api.js brings the Supabase client
-       + SLA.getToken()/getCurrentUser(). -->
-  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <!-- Deploy 236.542 (Auth Phase 4) — borrower auth is fully on Supabase
+       (Google + magic link); the Netlify Identity widget has been REMOVED.
+       Every netlifyIdentity ref inside sla-api.js is `window.netlifyIdentity &&`
+       guarded, so its absence is a clean no-op. sla-api.js brings the Supabase
+       client + SLA.getToken()/getCurrentUser(); the page bootstraps auth via
+       SLA.getCurrentUser() (below), never the old widget init/login events. -->
   <script src="/sla-api.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=Lora:wght@600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -206,8 +207,8 @@
       document.getElementById('app-screen').style.display = 'none';
     }
     function doLogout() {
+      // Deploy 236.542 — Supabase-only sign-out (Netlify widget removed).
       try { if (window._slaSupabase && window._slaSupabase.auth) window._slaSupabase.auth.signOut(); } catch (_) {}
-      try { if (window.netlifyIdentity && netlifyIdentity.logout) netlifyIdentity.logout(); } catch (_) {}
       showLogin();
     }
 
