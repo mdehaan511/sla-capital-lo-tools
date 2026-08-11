@@ -107,7 +107,7 @@
         <input class="vend-in" id="esc-name" placeholder="Agent name" />
         <input class="vend-in" id="esc-company" placeholder="Company" />
         <input class="vend-in" id="esc-email" type="email" placeholder="Email" />
-        <input class="vend-in" id="esc-phone" placeholder="Phone" />
+        <input class="vend-in" id="esc-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 123-4567" oninput="_fmtPhone(this)" />
         <div class="vend-row"><button class="btn primary" onclick="saveVendor('escrow')">Save Title / Escrow Agent</button><span class="vend-stat" id="esc-stat"></span></div>
       </div>
       <div class="vend-card">
@@ -115,7 +115,7 @@
         <input class="vend-in" id="ins-name" placeholder="Agent name" />
         <input class="vend-in" id="ins-company" placeholder="Company / carrier" />
         <input class="vend-in" id="ins-email" type="email" placeholder="Email" />
-        <input class="vend-in" id="ins-phone" placeholder="Phone" />
+        <input class="vend-in" id="ins-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 123-4567" oninput="_fmtPhone(this)" />
         <div class="vend-row"><button class="btn primary" onclick="saveVendor('insurance')">Save Insurance Agent</button><span class="vend-stat" id="ins-stat"></span></div>
       </div>
     </div>
@@ -302,6 +302,14 @@
   };
 
   // Title/Escrow + Insurance agents → written as loan Vendors (loan-contacts).
+  // Deploy 236.536 — live US phone formatting on the agent phone inputs:
+  // digits only, capped at 10, formatted (555) 123-4567 as the borrower types.
+  window._fmtPhone = function(el){
+    var d = String(el.value || '').replace(/\D/g, '').slice(0, 10);
+    if (d.length <= 3) el.value = d;
+    else if (d.length <= 6) el.value = '(' + d.slice(0,3) + ') ' + d.slice(3);
+    else el.value = '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+  };
   function _vendVal(id){ var e = document.getElementById(id); return e ? String(e.value||'').trim() : ''; }
   window.saveVendor = function(role){
     var p = (role === 'insurance') ? 'ins' : 'esc';
