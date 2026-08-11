@@ -6618,7 +6618,12 @@ function confirmChangeType() {
   // Cross-owner — admin acting on another LO's loan
   if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
 
-  _user.jwt().then(function(token) {
+  // Deploy 236.541 — use SLA.getToken() (Supabase-aware), NOT _user.jwt():
+  // for Google/Supabase-logged-in LOs _user has no .jwt() (or is null), so the
+  // old call threw and the "Change loan type" button hung on "Rebuilding…".
+  // getToken() handles both auth systems and returns '' (clean 401) not a crash.
+  // Last unguarded .jwt() callsite in this file ([[project_netlify_jwt_crash_class]]).
+  SLA.getToken().then(function(token) {
     return fetch('/api/loan-change-type', {
       method: 'POST',
       headers: {
