@@ -66,6 +66,13 @@
     .section-heading { font-family:'Lora',serif; font-size:14px; font-weight:600; color:var(--dark);
                        margin-bottom:12px; letter-spacing:0.01em; }
     .loans-list { display:flex; flex-direction:column; gap:14px; }
+    /* Deploy 236.537 — Active vs Closed & Denied tabs */
+    .portal-tabs { display:flex; gap:8px; margin-bottom:16px; border-bottom:1px solid var(--border); }
+    .portal-tab { background:none; border:none; border-bottom:2px solid transparent; padding:8px 4px; margin-bottom:-1px;
+                  font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; }
+    .portal-tab:hover { color:var(--text); }
+    .portal-tab.active { color:var(--gold-mid); border-bottom-color:var(--gold-mid); }
+    #tab-active > .loan-card, #tab-archived > .loan-card { margin-bottom:14px; }
     .loan-card { background:var(--surface); border:1px solid var(--gold-border); border-radius:14px;
                  padding: 1.5rem; transition: border-color .15s, box-shadow .15s; }
     .loan-card:hover { border-color: var(--gold); box-shadow: 0 4px 16px rgba(200,129,58,0.10); }
@@ -261,19 +268,48 @@
         return r.json();
       }).then(function(data) {
         _loans = (data && data.loans) || [];
-        if (!_loans.length) {
-          container.innerHTML =
-            '<div class="empty-state">' +
-              'You don\'t have access to any loans yet. Ask your loan officer to send you a portal invitation for the loan you need to upload documents on.' +
-            '</div>';
-          return;
-        }
-        container.innerHTML = _loans.map(renderLoanCard).join('');
-        _loans.forEach(function(l) { _wireUpload(l.loanId); });
+        renderLoans();
       }).catch(function(err) {
         container.innerHTML = '<div class="error-box">Failed to load your loans: ' + escH(err && err.message || 'unknown') + '</div>';
       });
     }
+
+    // Deploy 236.537 — split into an Active list and a "Closed & Denied" tab.
+    // Denied + closed loans are hidden from the main view; the archive tab only
+    // appears when there's something in it.
+    function renderLoans() {
+      var container = document.getElementById('loansContainer');
+      if (!_loans.length) {
+        container.innerHTML =
+          '<div class="empty-state">' +
+            'You don\'t have access to any loans yet. Ask your loan officer to send you a portal invitation for the loan you need to upload documents on.' +
+          '</div>';
+        return;
+      }
+      var active   = _loans.filter(function(l) { return !_isArchived(l); });
+      var archived = _loans.filter(_isArchived);
+      var html = '';
+      if (archived.length) {
+        html += '<div class="portal-tabs">' +
+          '<button type="button" class="portal-tab active" data-tab="active" onclick="_switchTab(\'active\')">Active (' + active.length + ')</button>' +
+          '<button type="button" class="portal-tab" data-tab="archived" onclick="_switchTab(\'archived\')">Closed &amp; Denied (' + archived.length + ')</button>' +
+        '</div>';
+      }
+      html += '<div id="tab-active">' +
+        (active.length ? active.map(renderLoanCard).join('')
+                       : '<div class="empty-state">No active loans right now.</div>') + '</div>';
+      html += '<div id="tab-archived" style="display:none">' + archived.map(renderLoanCard).join('') + '</div>';
+      container.innerHTML = html;
+    }
+    window._switchTab = function(tab) {
+      var a = document.getElementById('tab-active'), z = document.getElementById('tab-archived');
+      if (a) a.style.display = (tab === 'active') ? 'block' : 'none';
+      if (z) z.style.display = (tab === 'archived') ? 'block' : 'none';
+      var btns = document.querySelectorAll('.portal-tab');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('active', btns[i].getAttribute('data-tab') === tab);
+      }
+    };
 
     function renderLoanCard(loan) {
       var scls = statusClass(loan.status);
@@ -291,26 +327,20 @@
           '<div><div class="fact-label">Property Value</div><div class="fact-value">' + fmtMoney(loan.propValue) + '</div></div>' +
           '<div><div class="fact-label">Target Close</div><div class="fact-value">' + fmtDate(loan.fundingDate) + '</div></div>' +
         '</div>' +
-        // Deploy 236.519 — primary CTA into the guided document-submission page
-        // (checklist + real-time review). The free-form drop zone stays below
-        // as a fallback for anything not on the checklist.
-        '<a class="intake-cta" href="borrower-intake.html?loanId=' + encodeURIComponent(loan.loanId) +
-          '&clientId=' + encodeURIComponent(loan.primaryClientId || '') +
-          '&owner=' + encodeURIComponent(loan.ownerKey || '') + '">📄 Submit Documents for This Loan &rarr;</a>' +
-        _renderUploadZone(loan) +
+        // Deploy 236.537 — single doc-submission path (the guided page). The
+        // redundant free-form drop zone was removed. Denied/closed loans are
+        // read-only — no submit button.
+        (_isArchived(loan) ? '' :
+          '<a class="intake-cta" href="borrower-intake.html?loanId=' + encodeURIComponent(loan.loanId) +
+            '&clientId=' + encodeURIComponent(loan.primaryClientId || '') +
+            '&owner=' + encodeURIComponent(loan.ownerKey || '') + '">📄 Submit Documents for This Loan &rarr;</a>') +
       '</div>';
     }
-
-    function _renderUploadZone(loan) {
-      var id = 'up_' + loan.loanId.replace(/[^a-zA-Z0-9_]/g, '_');
-      return '<div class="section-heading" style="margin-bottom:8px;font-size:12px">Upload a document</div>' +
-        '<div class="upload-zone" id="' + id + '_zone" ondragover="_dragOver(event, \'' + id + '\')" ondragleave="_dragLeave(event, \'' + id + '\')" ondrop="_drop(event, \'' + escAttr(loan.loanId) + '\', \'' + id + '\')">' +
-          '<div class="upload-icon">⬆</div>' +
-          '<div class="upload-text">Drop a file here, or click to browse</div>' +
-          '<div class="upload-hint">PDF or image · max 25 MB · goes straight to your loan officer</div>' +
-          '<input type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic" data-loan-id="' + escAttr(loan.loanId) + '" data-zone-id="' + id + '" />' +
-        '</div>' +
-        '<div class="upload-status info" id="' + id + '_status"></div>';
+    // Denied + closed loans are archived — hidden from the Active tab and
+    // read-only (no uploads).
+    function _isArchived(loan) {
+      var s = String(loan && loan.status || '').toLowerCase();
+      return s === 'denied' || s === 'closed';
     }
 
     function _wireUpload(loanId) {
