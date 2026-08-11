@@ -506,6 +506,7 @@ function render() {
   if (window.SLAForms && SLAForms.reformatExisting) {
     SLAForms.reformatExisting(document.getElementById('pageContent'));
   }
+  loadPortalInviteStatus(); // Deploy 236.538 — persistent "invited / last login" line
 }
 
 function _isValidClientEmail(s) {
@@ -916,11 +917,36 @@ function invitePortal() {
     var when = new Date(r.sentAt || Date.now()).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
     if (status) status.innerHTML = '&#10003; Invited ' + escH(r.email) + ' &middot; ' + (r.loanCount || 0) + ' loan' + ((r.loanCount === 1) ? '' : 's') + ' &middot; ' + when + (r.emailed ? '' : ' (email pending)');
     showToast('Borrower portal invite sent to ' + r.email);
+    loadPortalInviteStatus(); // refresh the persistent line (sent + last login)
   }).catch(function(err) {
     if (btn) btn.disabled = false;
     if (status) status.textContent = 'Invite failed: ' + (err && err.message || 'unknown');
     showToast('Invite failed: ' + (err && err.message || 'unknown'));
   });
+}
+
+// Deploy 236.538 — persistent portal-invite status: which borrower was invited,
+// when it was sent, and the last time they signed in. Reads the per-loan
+// borrower-invites store (written by BOTH this page's invite and the Loan
+// Details Borrower/Broker invite buttons), so the status reflects the invite no
+// matter which button sent it — previously the line only appeared right after
+// this page's own invite click.
+function loadPortalInviteStatus() {
+  var status = document.getElementById('portalInviteStatus');
+  if (!status || !_clientId || !window.SLA || !SLA.api) return;
+  var url = '/api/borrower-portal-invite?clientId=' + encodeURIComponent(_clientId) +
+    (_loEmail && _user && _loEmail !== _user.email ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.api('GET', url).then(function(r) {
+    if (!r || !r.invited) { status.innerHTML = ''; return; } // no invite yet — leave blank
+    var sent = r.sentAt
+      ? new Date(r.sentAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+      : '—';
+    var last = r.lastSignInAt
+      ? new Date(r.lastSignInAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+      : '<span style="color:#b5712d;font-weight:600">not yet logged in</span>';
+    status.innerHTML = '&#10003; Portal invited ' + escH(r.email || '') +
+      ' &middot; invited ' + sent + ' &middot; last login ' + last;
+  }).catch(function() { /* non-fatal — the status line is a hint, not critical */ });
 }
 
 function sendLoanPrequal() {

@@ -849,10 +849,15 @@
 .ct-modal-btn.primary { background: var(--dark, #261a36); border-color: var(--dark, #261a36); color: #fff; }
 .ct-modal-btn.primary:hover:not(:disabled) { background: #1c1227; }
 .contacts-empty { font-size: 12px; color: rgba(122,116,136,0.7); font-style: italic; padding: 14px 6px; text-align: center; }
-.contacts-list { display: flex; flex-direction: column; gap: 6px; }
-.contact-row { display: grid; grid-template-columns: 130px 1.4fr 1fr 150px 130px 30px; gap: 10px; align-items: center; padding: 10px 12px; background: var(--bg, #f0ece5); border: 1px solid var(--border, #ddd8d0); border-radius: 6px; transition: border-color 0.10s; }
+.contacts-list { display: flex; flex-direction: column; gap: 8px; }
+/* Deploy 236.538 — tighter, aligned vendor rows. Dropped the redundant empty
+   column; email truncates with ellipsis (full value on hover); phone gets its
+   own no-wrap column. */
+.contact-row { display: grid; grid-template-columns: 132px minmax(0,1.5fr) minmax(0,1.6fr) 140px 28px; gap: 14px; align-items: center; padding: 12px 14px; background: var(--bg, #f0ece5); border: 1px solid var(--border, #ddd8d0); border-radius: 8px; transition: border-color 0.10s; }
 .contact-row:hover { border-color: var(--gold, #C8813A); }
-@media (max-width: 1100px) { .contact-row { grid-template-columns: 1fr 30px; } .contact-row > div { grid-column: 1; } .contact-row .ct-delete { grid-column: 2; grid-row: 1; } }
+.contact-row .ct-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contact-row .ct-phone { white-space: nowrap; }
+@media (max-width: 900px) { .contact-row { grid-template-columns: 1fr 28px; gap: 6px 12px; } .contact-row > div { grid-column: 1; } .contact-row .ct-email { white-space: normal; overflow-wrap: anywhere; } .contact-row .ct-delete { grid-column: 2; grid-row: 1; align-self: start; } }
 .ct-role { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; background: rgba(74,122,138,0.10); color: #4a7a8a; display: inline-block; text-align: center; }
 .ct-role.title     { background: rgba(200,129,58,0.10); color: var(--gold-mid); }
 .ct-role.insurance { background: rgba(37,105,64,0.10);  color: var(--success); }

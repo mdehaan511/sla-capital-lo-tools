@@ -16,7 +16,8 @@ import {
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
-  getSb, ensureBorrowerUser, borrowerMagicLink, sendBorrowerEmail, writeLoanInvite, escHtml,
+  getSb, ensureBorrowerUser, borrowerMagicLink, sendBorrowerEmail, writeLoanInvite,
+  readLoanInvites, lastSignInByUserId, escHtml,
 } from './_shared/borrower-invite-core.mjs';
 
 export default async (req, context) => {
@@ -29,19 +30,30 @@ export default async (req, context) => {
 
 async function handle(req, context) {
   const pre = handleOptions(req); if (pre) return pre;
-  if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+  const method = req.method;
+  if (method !== 'POST' && method !== 'GET') return json(405, { error: 'Method not allowed' });
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
 
-  const body = await readJsonBody(req);
-  if (!body || !body.clientId) return json(400, { error: 'clientId required' });
-  const clientId = String(body.clientId).trim();
+  // Resolve clientId + owner from the query string (GET status) or the body (POST invite).
+  let body = null, clientId = '', ownerParam = '';
+  if (method === 'GET') {
+    const q = new URL(req.url).searchParams;
+    clientId = String(q.get('clientId') || '').trim();
+    ownerParam = q.get('owner') || '';
+  } else {
+    body = await readJsonBody(req);
+    clientId = body && body.clientId ? String(body.clientId).trim() : '';
+    ownerParam = (body && body.owner) || '';
+  }
+  if (!clientId) return json(400, { error: 'clientId required' });
+
   const selfEmail = normalizeEmail(user.email);
-  const ownerEmail = body.owner ? normalizeEmail(body.owner) : selfEmail;
+  const ownerEmail = ownerParam ? normalizeEmail(ownerParam) : selfEmail;
   const ownerKey = keySafe(ownerEmail);
 
-  // Only the client's owner (or an admin) may invite.
+  // Only the client's owner (or an admin) may view status / invite.
   if (ownerEmail !== selfEmail && !isAdmin(user)) {
     return json(403, { error: 'Only the client\'s loan officer or an admin can invite.' });
   }
@@ -55,7 +67,40 @@ async function handle(req, context) {
   }
   if (!client) return json(404, { error: 'Client not found' });
 
-  const inviteEmail = normalizeEmail(String(body.emailOverride || client.email || '').trim());
+  const loans = Array.isArray(client.loans) ? client.loans.filter((l) => l && l.id) : [];
+
+  // ── GET → persistent portal-invite status for this client ──
+  // The borrower invite is recorded per-loan (borrower-invites store) by BOTH the
+  // client-level invite here and the per-loan invite on Loan Details, so we surface
+  // the most recent borrower invite across all of the client's loans — that way the
+  // status reflects the invite no matter which button sent it.
+  if (method === 'GET') {
+    let latest = null; // most-recent {email,userId,sentAt,sentBy}
+    for (const l of loans) {
+      let rec = null;
+      try { rec = await readLoanInvites(l.id); } catch (_) {}
+      const e = rec && rec.borrower;
+      if (e && e.email && e.sentAt) {
+        if (!latest || String(e.sentAt) > String(latest.sentAt)) latest = e;
+      }
+    }
+    if (!latest) return json(200, { invited: false });
+    let lastSignInAt = '';
+    try {
+      const sbGet = getSb();
+      if (sbGet) lastSignInAt = await lastSignInByUserId(sbGet, latest.userId || '');
+    } catch (_) {}
+    return json(200, {
+      invited: true,
+      email: latest.email,
+      sentAt: latest.sentAt || '',
+      sentBy: latest.sentBy || '',
+      lastSignInAt: lastSignInAt || '',
+    });
+  }
+
+  // ── POST → invite borrower to the portal ──
+  const inviteEmail = normalizeEmail(String((body && body.emailOverride) || client.email || '').trim());
   if (!inviteEmail || inviteEmail.indexOf('@') < 0) {
     return json(400, { error: 'This client has no email on file. Add one first.' });
   }
@@ -69,7 +114,7 @@ async function handle(req, context) {
   const { userId } = await ensureBorrowerUser(sb, inviteEmail, fullName);
 
   // 2. Grant access to every loan on the client + record a per-loan invite.
-  const loans = Array.isArray(client.loans) ? client.loans.filter((l) => l && l.id) : [];
+  //    (`loans` was resolved above, shared with the GET status branch.)
   const sentAt = new Date().toISOString();
   let granted = 0;
   for (const l of loans) {

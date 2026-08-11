@@ -4177,15 +4177,23 @@ function renderLoanContactsList() {
   }
   inner.innerHTML = rows.map(_renderLoanContactRow).join('');
 }
+function _fmtPhoneDisplay(p) {
+  var d = String(p == null ? '' : p).replace(/\D/g, '');
+  if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+  if (d.length === 10) return '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+  return String(p || '');
+}
 function _renderLoanContactRow(c) {
   var role = String(c.role || 'other').toLowerCase();
   var roleLabel = c.roleLabel || ROLE_LABELS[role] || role;
-  var name = c.name || '(no name)';
+  // When there's no name, promote company to the primary line so the row isn't
+  // "(no name)". Company shows as a sub-line only when both are present.
+  var name = c.name || c.company || '(no name)';
   var emailHtml = c.email
-    ? '<a href="mailto:' + escAttr(c.email) + '" onclick="event.stopPropagation()">' + escH(c.email) + '</a>'
+    ? '<a href="mailto:' + escAttr(c.email) + '" onclick="event.stopPropagation()" title="' + escAttr(c.email) + '">' + escH(c.email) + '</a>'
     : '<span class="muted">—</span>';
   var phoneHtml = c.phone
-    ? '<a href="tel:' + escAttr(c.phone.replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(c.phone) + '</a>'
+    ? '<a href="tel:' + escAttr(String(c.phone).replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()">' + escH(_fmtPhoneDisplay(c.phone)) + '</a>'
     : '<span class="muted">—</span>';
   // Deploy 236.114 — row is clickable to edit; the delete button
   // stops propagation so clicking the X doesn't also open the modal.
@@ -4193,11 +4201,10 @@ function _renderLoanContactRow(c) {
     '<div><span class="ct-role ' + escAttr(role) + '">' + escH(roleLabel) + '</span></div>' +
     '<div class="ct-name">' +
       '<span class="ct-name-name">' + escH(name) + '</span>' +
-      (c.company ? '<span class="ct-name-company">' + escH(c.company) + '</span>' : '') +
+      (c.company && c.name ? '<span class="ct-name-company">' + escH(c.company) + '</span>' : '') +
     '</div>' +
-    '<div class="ct-info">' + (c.company && !c.name ? escH(c.company) : '<span class="muted">&nbsp;</span>') + '</div>' +
-    '<div class="ct-info">' + emailHtml + '</div>' +
-    '<div class="ct-info">' + phoneHtml + '</div>' +
+    '<div class="ct-info ct-email">' + emailHtml + '</div>' +
+    '<div class="ct-info ct-phone">' + phoneHtml + '</div>' +
     '<button class="ct-delete" onclick="event.stopPropagation();deleteLoanContact(\'' + escAttr(c.id) + '\')" title="Delete contact">✕</button>' +
   '</div>';
 }
