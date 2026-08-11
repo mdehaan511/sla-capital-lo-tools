@@ -1194,6 +1194,14 @@
 <script src="/loan-uw-fields.js"></script>
 <script src="/loan-uw-calc.js"></script>
 <script src="/loan-uw-tab.js"></script>
-<script src="/loan-details.js"></script>
+<!-- Deploy 236.539 — version-pin loan-details.js to this deploy. loan-details.js
+     is cached `max-age=300, stale-while-revalidate` while the inline CSS above
+     ships with the (60s) HTML, so a deploy that changes BOTH (like 236.538's
+     vendor-row grid) would briefly pair new CSS with stale JS — the phone/email
+     columns collapsed and stacked one character per line. Pinning ?v= makes the
+     browser fetch JS matching the HTML it just loaded, so CSS + JS are always a
+     matched pair. BUMP THIS whenever a loan-details.js change is coupled to the
+     inline CSS/markup in this file. -->
+<script src="/loan-details.js?v=236539"></script>
 </body>
 </html>
