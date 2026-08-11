@@ -124,10 +124,48 @@ async function _request(method, table, { qs = '', body, headers } = {}) {
   return data;
 }
 
+// Deploy 236.540 — transient-failure retry for READS. Supabase's connection
+// pooler occasionally drops/resets a connection (cold start, brief maintenance,
+// a load spike); PostgREST then answers 5xx, or fetch() rejects outright before
+// any response. With no retry that momentary blip surfaced straight to the LO
+// as a 500 — "Failed to load brokers" / "Failed to load quotes", both reported
+// in #platform-errors even though the drift reports were clean (the DATA was
+// fine; the READ just blipped). This lives in the shared request layer so EVERY
+// read endpoint is covered, not only the one that happened to get reported
+// (quotes-list carried a local retry since 236.525; brokers-list had none).
+//
+// Scope is GET only: a read is always safe to replay. Writes keep
+// throw-on-first-failure on purpose — replaying a non-idempotent insert could
+// duplicate rows, and the write paths already surface + handle failure via the
+// strict-write discipline. Retryable = a network error (no .status) or HTTP
+// >= 500; a 4xx (bad query / PGRST error / 404) is our own bug and is never
+// retried. Backoff is bounded so worst-case added latency stays well under the
+// function timeout.
+const _READ_RETRY_BACKOFF_MS = [250, 600, 1400]; // 3 retries → 4 attempts, ~2.25s worst case
+
+function _isTransient(e) {
+  const st = e && e.status;
+  return !st || st >= 500; // no status = fetch/network failure; 5xx = server-side transient
+}
+
+async function _selectWithRetry(table, opts) {
+  const req = { qs: _qs(opts || { select: '*' }) };
+  let lastErr;
+  for (let attempt = 0; attempt <= _READ_RETRY_BACKOFF_MS.length; attempt++) {
+    try { return await _request('GET', table, req); }
+    catch (e) {
+      lastErr = e;
+      if (!_isTransient(e) || attempt === _READ_RETRY_BACKOFF_MS.length) throw e;
+      await new Promise((r) => setTimeout(r, _READ_RETRY_BACKOFF_MS[attempt]));
+    }
+  }
+  throw lastErr; // unreachable — loop either returns or throws
+}
+
 export const db = {
-  // SELECT — returns array of rows.
+  // SELECT — returns array of rows. Transient reads are retried (see above).
   select(table, opts) {
-    return _request('GET', table, { qs: _qs(opts || { select: '*' }) });
+    return _selectWithRetry(table, opts);
   },
 
   // Single row shortcut. Returns null if no match.

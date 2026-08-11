@@ -151,7 +151,13 @@ export default async (req, context) => {
     return json(200, { brokers });
   } catch (e) {
     console.error('brokers-list error:', e);
-    return json(500, { error: 'Failed to load brokers' });
+    // Deploy 236.540 — echo the underlying reason (parity with quotes-list
+    // 236.525) so a non-transient recurrence is diagnosable straight from
+    // #platform-errors. Transient PG blips are now retried in db.select
+    // (_shared/supabase-db.mjs); anything that still reaches here is a real,
+    // repeatable failure worth the detail. Endpoint is auth-gated, so echoing
+    // the message leaks nothing.
+    return json(500, { error: 'Failed to load brokers', reason: (e && e.message) || 'unknown' });
   }
 };
 
