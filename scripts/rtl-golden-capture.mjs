@@ -140,6 +140,10 @@ const SCENARIOS = [
   // Deploy 236.526 — Admin Sandbox: Target Loan Amount ABOVE the guideline max
   // is honored (bLabel 'Admin Override'). Normal path floors to the cap.
   S('admin-sandbox-over-cap', { ...REHAB, targetLoanAmt: 900000, adminSandbox: true }),
+  // Deploy 236.535 — Admin Sandbox: an INELIGIBLE combo (low-experience Heavy
+  // Rehab, no matrix tier) still prices — bMax falls back to 100% of cost, no
+  // eligibility error. Normal path errors "No eligible loan amount".
+  S('admin-sandbox-ineligible', { ...REHAB, lt: 'heavy', exp: 1, adminSandbox: true }),
   S('dutch-interest-light', { ...REHAB, dutchInterest: 'dutch' }),
   S('non-dutch-light',     { ...REHAB, dutchInterest: 'nondutch' }),
   // Size tiers

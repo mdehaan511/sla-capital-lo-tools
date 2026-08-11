@@ -369,7 +369,7 @@ function priceRTL(I) {
   // Purchases only — refis at sub-680 are blocked entirely.
   // Deploy 236.48 — standardized exception-request wording. See EXCEPTION_HINT
   // at the top of this file (mirror of DSCR sizer).
-  if (isRefi && fr < 680) {
+  if (isRefi && fr < 680 && !adminSandbox) {
     // Display label kept around for future use — current rErr message uses
     // the raw FICO number, not this label. Updated to reflect new buckets.
     var ficoLabel = (fr<620?'<620':fr<640?'620-639':fr<660?'640-659':fr<680?'660-679':String(fr)+'+');
@@ -466,6 +466,16 @@ function priceRTL(I) {
   if (bMax && mByLarv && mByLarv < bMax){ bMax = mByLarv; bLabel = 'LTARV'; }
   if (bMax && bMax > 3500000)          { bMax = 3500000; bLabel = 'Program max $3.5M'; }
 
+  // Deploy 236.535 — Admin Sandbox: a true sandbox never blocks on eligibility.
+  // When the guideline caps yield NO loan amount (e.g. a low-experience Heavy
+  // Rehab combo has no matrix tier), fall back to a sensible default — 100% of
+  // total cost for a rehab loan, else the purchase / as-is value — so the sheet
+  // still prices. The admin can then set any Target Loan Amount to override it.
+  if (adminSandbox && !bMax) {
+    var _fbMax = isRefi ? pp : (isR ? ((pp || 0) + (rb || 0)) : pp);
+    if (_fbMax && isFinite(_fbMax) && _fbMax > 0) { bMax = Math.round(_fbMax); bLabel = 'Admin Override'; }
+  }
+
   // Deploy 236.350 — Target Loan Amount cap. When the LO fills the
   // optional Target Loan Amount / Target LTV inputs on the form, the
   // sizer prices at that dollar figure instead of the guideline max.
@@ -515,14 +525,14 @@ function priceRTL(I) {
   //   550-619 = .14    (unchanged)
   if (rErr) {
     // already set — skip rate path
-  } else if (fr < 550) {
+  } else if (fr < 550 && !adminSandbox) {
     rErr = 'FICO below 550 is outside all program guidelines.' + EXCEPTION_HINT;
   } else if (fr < 620) { rate = .14; }
   else if (fr < 640) { rate = .13; }
   else if (fr < 660) { rate = .125; }
   else if (fr < 680) { rate = .12; }
   else {
-    if(!bMax){ rErr='No eligible loan amount for this combination.' + EXCEPTION_HINT; }
+    if(!bMax){ if(!adminSandbox){ rErr='No eligible loan amount for this combination.' + EXCEPTION_HINT; } }
     else {
       var ltpF=isR?Math.round(pp*mLtp):bMax;
       var ltvF=ltpF/pp;
@@ -538,7 +548,13 @@ function priceRTL(I) {
         adjs.push({l:'SLA Sub-680 program ('+bandLabel+')',v:rate,c:'pos'});
       } else {
         var cbResult = colchisRate(lt,pt,fkey,ltvF);
-        if(!cbResult){ rErr='No pricing available for this FICO/LTV combination.' + EXCEPTION_HINT; }
+        if(!cbResult){
+          // Deploy 236.535 — Admin Sandbox: no matrix cell for this FICO/LTV is
+          // not a blocker; drop a program-floor placeholder (the sizer's manual
+          // rate/points override it anyway) instead of erroring.
+          if(!adminSandbox){ rErr='No pricing available for this FICO/LTV combination.' + EXCEPTION_HINT; }
+          else { rate = (lt==='bridge')?0.08625:(lt==='light')?0.0875:(lt==='heavy')?0.09375:(lt==='construction')?0.09125:0.08625; }
+        }
         else {
           var cb = cbResult.rate;
           var ltvIdx = cbResult.ltvIdx;

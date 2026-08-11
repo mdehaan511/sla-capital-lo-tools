@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T14:26:36.921Z",
+  "generatedAt": "2026-08-11T04:45:13.292Z",
   "source": "deploy/rtl-pricing.js (extracted module, --from-module)",
   "scenarios": [
     {
@@ -671,6 +671,28 @@
         "geoWarning": "",
         "geoReductionLabel": "",
         "targetLoanAmt": 900000,
+        "dutchInterest": "",
+        "adminSandbox": true
+      }
+    },
+    {
+      "name": "admin-sandbox-ineligible",
+      "inputs": {
+        "lt": "heavy",
+        "fr": 740,
+        "exp": 1,
+        "pt": "sfr",
+        "pp": 300000,
+        "arv": 550000,
+        "rb": 100000,
+        "term": 12,
+        "purp": "purchase",
+        "zhvi": "",
+        "sa": "other",
+        "state": "WA",
+        "geoWarning": "",
+        "geoReductionLabel": "",
+        "targetLoanAmt": "",
         "dutchInterest": "",
         "adminSandbox": true
       }
@@ -1841,6 +1863,38 @@
       "moStart": 6916.666666666667,
       "mo": 7781.25,
       "progLabel": "Light Rehab · WA",
+      "sandbox": true
+    },
+    "admin-sandbox-ineligible": {
+      "rErr": null,
+      "rate": 0.11375,
+      "floor": false,
+      "bMax": 400000,
+      "bLabel": "Admin Override",
+      "mLtp": 0,
+      "mLtc": 0,
+      "mLarv": 0,
+      "refiLtv": null,
+      "defMax": null,
+      "mByLtc": null,
+      "mByLarv": null,
+      "dp": 0,
+      "adjs": [
+        {
+          "l": "Experience: Tier 3 (0–3 projects)",
+          "v": 0.0025,
+          "c": "pos"
+        }
+      ],
+      "flags": [],
+      "p": 1.5,
+      "pDol": 6000,
+      "isDutch": false,
+      "initAdv": 300000,
+      "moMax": 3791.6666666666665,
+      "moStart": 2843.75,
+      "mo": 3791.6666666666665,
+      "progLabel": "Heavy Rehab · WA",
       "sandbox": true
     },
     "dutch-interest-light": {
