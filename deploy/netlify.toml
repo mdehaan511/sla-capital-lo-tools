@@ -984,6 +984,12 @@
   to = "/.netlify/functions/borrower-doc-upload"
   status = 200
   force = true
+# Deploy 236.545 — borrower self-service profile editing (phone/address/SSN/entity).
+[[redirects]]
+  from = "/api/borrower-profile"
+  to = "/.netlify/functions/borrower-profile"
+  status = 200
+  force = true
 # Deploy 236.518 — Borrower Document Intake (checklist + real-time AI review).
 [[redirects]]
   from = "/api/borrower-intake-status"

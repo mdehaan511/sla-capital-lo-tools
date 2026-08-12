@@ -119,6 +119,46 @@
                   border-radius:10px; font-size:13px; }
 
     .footer { font-size:12px; color:#aaa; margin-top:3rem; text-align:center; }
+
+    /* Deploy 236.545 — My Information (borrower self-service profile) */
+    .pf-btn { font-size:12px; font-weight:600; color:var(--muted); background:transparent;
+              border:1px solid var(--border); padding:5px 12px; border-radius:20px; cursor:pointer;
+              font-family:'DM Sans',sans-serif; }
+    .pf-btn:hover { border-color:var(--gold); color:var(--gold); }
+    .pf-overlay { position:fixed; inset:0; background:rgba(38,26,54,0.55); display:none;
+                  align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; z-index:100; }
+    .pf-overlay.open { display:flex; }
+    .pf-modal { background:var(--surface); border-radius:16px; width:100%; max-width:560px;
+                padding:26px 28px 22px; box-shadow:0 20px 60px rgba(0,0,0,0.25); }
+    .pf-modal h2 { font-family:'Lora',serif; font-size:20px; color:var(--dark); margin-bottom:4px; }
+    .pf-sub { font-size:13px; color:var(--muted); margin-bottom:20px; line-height:1.5; }
+    .pf-group { margin-bottom:18px; }
+    .pf-group-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;
+                      color:var(--gold-mid); margin-bottom:10px; }
+    .pf-field { margin-bottom:10px; }
+    .pf-field label { display:block; font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px; }
+    .pf-field input { width:100%; box-sizing:border-box; font-size:14px; padding:9px 11px;
+                      border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text);
+                      font-family:'DM Sans',sans-serif; }
+    .pf-field input:focus { outline:none; border-color:var(--gold-mid); }
+    .pf-row { display:flex; gap:10px; }
+    .pf-row .pf-field { flex:1; }
+    .pf-ssn-note { font-size:12px; color:var(--muted); margin-top:2px; }
+    .pf-entity { border:1px solid var(--border); border-radius:10px; padding:14px 14px 4px;
+                 margin-bottom:10px; position:relative; }
+    .pf-entity-del { position:absolute; top:10px; right:10px; font-size:11px; color:#7c1f1f;
+                     background:transparent; border:1px solid rgba(124,31,31,0.20); border-radius:4px;
+                     padding:3px 9px; cursor:pointer; font-family:'DM Sans',sans-serif; }
+    .pf-add { font-size:13px; font-weight:600; color:var(--gold-mid); background:var(--gold-light);
+              border:1px dashed var(--gold-border); border-radius:8px; padding:9px 14px; cursor:pointer; width:100%; }
+    .pf-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+    .pf-save { background:var(--dark); color:#fff; border:none; padding:11px 22px; border-radius:10px;
+               font-weight:600; font-size:14px; cursor:pointer; font-family:'DM Sans',sans-serif; }
+    .pf-save:hover { background:var(--gold); }
+    .pf-save:disabled { opacity:0.6; cursor:default; }
+    .pf-cancel { background:transparent; color:var(--text); border:1px solid var(--border); padding:11px 20px;
+                 border-radius:10px; font-weight:600; font-size:14px; cursor:pointer; font-family:'DM Sans',sans-serif; }
+    .pf-status { font-size:13px; margin-top:12px; min-height:16px; }
   </style>
 </head>
 <body>
@@ -146,8 +186,9 @@
         <img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" />
         <div class="topbar-title">Borrower Portal</div>
       </div>
-      <div style="display:flex;align-items:center">
+      <div style="display:flex;align-items:center;gap:10px">
         <div class="topbar-user" id="topbarUser"></div>
+        <button class="pf-btn" onclick="openProfile()">My Information</button>
         <button class="logout-btn" onclick="doLogout()">Sign out</button>
       </div>
     </div>
@@ -159,6 +200,44 @@
         <div class="loading">Loading your loans…</div>
       </div>
       <p class="footer">SLA Capital · Sir Lends A Lot LLC · Secure Borrower Portal</p>
+    </div>
+
+    <!-- Deploy 236.545 — My Information (borrower self-service profile) -->
+    <div class="pf-overlay" id="pfOverlay">
+      <div class="pf-modal">
+        <h2>My Information</h2>
+        <div class="pf-sub">Keep your contact and entity details current — your loan officer sees changes right away.</div>
+        <div id="pfBody">
+          <div class="pf-group">
+            <div class="pf-group-title">Contact</div>
+            <div class="pf-field"><label>Phone</label><input type="tel" id="pf-phone" placeholder="(509) 555-0100" oninput="_pfPhone(this)" /></div>
+          </div>
+          <div class="pf-group">
+            <div class="pf-group-title">Mailing Address</div>
+            <div class="pf-field"><label>Street</label><input type="text" id="pf-street" placeholder="1234 Main St" /></div>
+            <div class="pf-row">
+              <div class="pf-field"><label>City</label><input type="text" id="pf-city" /></div>
+              <div class="pf-field"><label>State</label><input type="text" id="pf-state" maxlength="2" placeholder="WA" /></div>
+              <div class="pf-field"><label>Zip</label><input type="text" id="pf-zip" inputmode="numeric" /></div>
+            </div>
+          </div>
+          <div class="pf-group">
+            <div class="pf-group-title">Social Security Number</div>
+            <div class="pf-field"><label>SSN</label><input type="text" id="pf-ssn" inputmode="numeric" autocomplete="off" placeholder="XXX-XX-XXXX" oninput="_pfSsn(this)" /></div>
+            <div class="pf-ssn-note" id="pfSsnNote"></div>
+          </div>
+          <div class="pf-group">
+            <div class="pf-group-title">Business Entities</div>
+            <div id="pfEntities"></div>
+            <button type="button" class="pf-add" onclick="addEntity()">+ Add an entity</button>
+          </div>
+        </div>
+        <div class="pf-status" id="pfStatus"></div>
+        <div class="pf-actions">
+          <button type="button" class="pf-cancel" onclick="closeProfile()">Close</button>
+          <button type="button" class="pf-save" id="pfSaveBtn" onclick="saveProfile()">Save changes</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -256,6 +335,123 @@
         if (msg) msg.textContent = (e && e.message) ? e.message : 'Could not send the link. Ask your loan officer to re-invite you.';
       });
     }
+
+    // ── My Information (borrower self-service profile) — Deploy 236.545 ──
+    var _profile = null;
+    var _entities = [];
+    window.openProfile = function () {
+      var ov = document.getElementById('pfOverlay'); if (ov) ov.classList.add('open');
+      var st = document.getElementById('pfStatus'); if (st) st.textContent = '';
+      loadProfile();
+    };
+    window.closeProfile = function () {
+      var ov = document.getElementById('pfOverlay'); if (ov) ov.classList.remove('open');
+    };
+    function _pfVal(id) { var e = document.getElementById(id); return e ? e.value : ''; }
+    function _pfSet(id, v) { var e = document.getElementById(id); if (e) e.value = (v == null ? '' : v); }
+    // Light input formatters (this page doesn't load sla-forms.js).
+    window._pfPhone = function (el) {
+      var d = el.value.replace(/\D/g, '').slice(0, 10), o = d;
+      if (d.length > 6) o = '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+      else if (d.length > 3) o = '(' + d.slice(0,3) + ') ' + d.slice(3);
+      else if (d.length > 0) o = '(' + d;
+      el.value = o;
+    };
+    window._pfSsn = function (el) {
+      var d = el.value.replace(/\D/g, '').slice(0, 9), o = d;
+      if (d.length > 5) o = d.slice(0,3) + '-' + d.slice(3,5) + '-' + d.slice(5);
+      else if (d.length > 3) o = d.slice(0,3) + '-' + d.slice(3);
+      el.value = o;
+    };
+    function loadProfile() {
+      var pbody = document.getElementById('pfBody');
+      if (pbody) pbody.style.opacity = '0.5';
+      _borrowerJwt().then(function (token) {
+        return fetch('/api/borrower-profile', { headers: { 'Authorization': 'Bearer ' + token } });
+      }).then(function (r) {
+        if (!r.ok) return r.json().then(function (j) { throw new Error((j && j.error) || ('HTTP ' + r.status)); });
+        return r.json();
+      }).then(function (data) {
+        _profile = (data && data.profile) || null;
+        fillProfile();
+        if (pbody) pbody.style.opacity = '1';
+      }).catch(function (err) {
+        if (pbody) pbody.style.opacity = '1';
+        var st = document.getElementById('pfStatus');
+        if (st) { st.style.color = '#991b1b'; st.textContent = 'Could not load your information: ' + (err && err.message || 'unknown'); }
+      });
+    }
+    function fillProfile() {
+      if (!_profile) return;
+      _pfSet('pf-phone', _profile.phone);
+      var h = _profile.homeAddress || {};
+      _pfSet('pf-street', h.street); _pfSet('pf-city', h.city); _pfSet('pf-state', h.state); _pfSet('pf-zip', h.zip);
+      _pfSet('pf-ssn', '');
+      var note = document.getElementById('pfSsnNote');
+      if (note) note.textContent = _profile.hasSSN
+        ? ('On file (ending ' + (_profile.ssnLast4 || '••••') + '). Enter a new SSN only if you need to replace it.')
+        : 'No SSN on file yet. Optional — enter it to add.';
+      _entities = (_profile.companies || []).map(function (c) {
+        return { name:c.name||'', ein:c.ein||'', address:c.address||'', city:c.city||'', state:c.state||'', zip:c.zip||'' };
+      });
+      renderEntities();
+    }
+    function renderEntities() {
+      var wrap = document.getElementById('pfEntities'); if (!wrap) return;
+      if (!_entities.length) { wrap.innerHTML = ''; return; }
+      wrap.innerHTML = _entities.map(function (c, i) {
+        return '<div class="pf-entity">' +
+          '<button type="button" class="pf-entity-del" onclick="removeEntity(' + i + ')">Remove</button>' +
+          '<div class="pf-field"><label>Entity Name</label><input type="text" data-ent="name" data-i="' + i + '" value="' + escAttr(c.name) + '" placeholder="e.g. Spokane Holdings LLC" /></div>' +
+          '<div class="pf-field"><label>EIN</label><input type="text" data-ent="ein" data-i="' + i + '" value="' + escAttr(c.ein) + '" placeholder="XX-XXXXXXX" /></div>' +
+          '<div class="pf-field"><label>Address</label><input type="text" data-ent="address" data-i="' + i + '" value="' + escAttr(c.address) + '" placeholder="500 Main St" /></div>' +
+          '<div class="pf-row">' +
+            '<div class="pf-field"><label>City</label><input type="text" data-ent="city" data-i="' + i + '" value="' + escAttr(c.city) + '" /></div>' +
+            '<div class="pf-field"><label>State</label><input type="text" data-ent="state" data-i="' + i + '" maxlength="2" value="' + escAttr(c.state) + '" placeholder="WA" /></div>' +
+            '<div class="pf-field"><label>Zip</label><input type="text" data-ent="zip" data-i="' + i + '" value="' + escAttr(c.zip) + '" /></div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+    function _syncEntities() {
+      var inputs = document.querySelectorAll('#pfEntities [data-ent]');
+      for (var k = 0; k < inputs.length; k++) {
+        var el = inputs[k], i = +el.getAttribute('data-i'), f = el.getAttribute('data-ent');
+        if (_entities[i]) _entities[i][f] = el.value;
+      }
+    }
+    window.addEntity = function () { _syncEntities(); _entities.push({ name:'', ein:'', address:'', city:'', state:'', zip:'' }); renderEntities(); };
+    window.removeEntity = function (i) { _syncEntities(); _entities.splice(i, 1); renderEntities(); };
+    window.saveProfile = function () {
+      _syncEntities();
+      var st = document.getElementById('pfStatus');
+      if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Saving…'; }
+      var payload = {
+        clientId: _profile && _profile.clientId,
+        phone: _pfVal('pf-phone'),
+        homeAddress: { street:_pfVal('pf-street'), city:_pfVal('pf-city'), state:_pfVal('pf-state'), zip:_pfVal('pf-zip') },
+        companies: _entities,
+      };
+      var ssn = _pfVal('pf-ssn').replace(/\D/g, '');
+      if (ssn.length === 9) payload.ssn = ssn; // only a full SSN replaces what's on file
+      var btn = document.getElementById('pfSaveBtn'); if (btn) btn.disabled = true;
+      _borrowerJwt().then(function (token) {
+        return fetch('/api/borrower-profile', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+        .then(function (resp) {
+          if (btn) btn.disabled = false;
+          if (resp.status !== 200 || !resp.body || !resp.body.ok) throw new Error((resp.body && resp.body.error) || ('HTTP ' + resp.status));
+          _profile = resp.body.profile; fillProfile();
+          if (st) { st.style.color = '#166534'; st.textContent = '✓ Saved.'; }
+        }).catch(function (err) {
+          if (btn) btn.disabled = false;
+          if (st) { st.style.color = '#991b1b'; st.textContent = 'Save failed: ' + (err && err.message || 'unknown'); }
+        });
+    };
 
     // ── Loans ──
     function loadLoans() {
