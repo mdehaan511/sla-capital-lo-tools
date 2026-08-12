@@ -525,10 +525,14 @@ function priceRTL(I) {
   //   550-619 = .14    (unchanged)
   if (rErr) {
     // already set — skip rate path
-  } else if (fr < 550 && !adminSandbox) {
-    rErr = 'FICO below 550 is outside all program guidelines.' + EXCEPTION_HINT;
-  } else if (fr < 620) { rate = .14; }
-  else if (fr < 640) { rate = .13; }
+  } else if (fr < 640 && !adminSandbox) {
+    // Deploy 236.543 — Mike: cap RTL at 640 FICO; HIDE all pricing below it.
+    // Was a 550 floor with 550-619 (.14) and 620-639 (.13) SLA-funded bands.
+    // Those two branches below now fire ONLY in Admin Sandbox, which bypasses
+    // this gate (consistent with 236.535's sandbox-ignores-eligibility rule).
+    rErr = 'RTL pricing is not available below 640 FICO.' + EXCEPTION_HINT;
+  } else if (fr < 620) { rate = .14; }   // 550-619 — Admin Sandbox only (see gate above)
+  else if (fr < 640) { rate = .13; }     // 620-639 — Admin Sandbox only (see gate above)
   else if (fr < 660) { rate = .125; }
   else if (fr < 680) { rate = .12; }
   else {

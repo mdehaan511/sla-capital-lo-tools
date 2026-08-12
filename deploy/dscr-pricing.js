@@ -30,6 +30,14 @@
  */
 (function () {
 const DIYA = {
+  // Deploy 236.543 — Diya 1-4 Unit Rate Sheet effective 8.12.26.
+  // ONLY the base rates moved vs the 8.4.26 sheet (+0.075 across the board):
+  //   30Y Fixed & 10/6 ARM: 6.375 -> 6.45
+  //   7/6 ARM & 5/6 ARM:    6.275 -> 6.35
+  //   Everything else byte-identical: FICO grid, IO, Cash-Out, NW Condo,
+  //   2-4 Unit, Portfolio, UPB, DSCR adj, PPP, TPO Premium (1.00% still 0.320
+  //   -> HIDDEN_TPO_ADJ), Rate Buydown, and the (still-unwired) TPO/Buydown caps.
+  //
   // Deploy 236.523 — Diya 1-4 Unit Rate Sheet effective 8.4.26.
   // Only two grids moved vs the 7.22.26 sheet:
   //   Portfolio: 0.200 -> 0.250 across all LTVs (reverts the 7.22.26 cut)
@@ -67,8 +75,8 @@ const DIYA = {
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "August 4, 2026",
-  baseRate: { "30Y Fixed": 6.375, "10/6 ARM": 6.375, "7/6 ARM": 6.275, "5/6 ARM": 6.275 },
+  effectiveDate: "August 12, 2026",
+  baseRate: { "30Y Fixed": 6.45, "10/6 ARM": 6.45, "7/6 ARM": 6.35, "5/6 ARM": 6.35 }, // 236.543: +0.075 (8.12.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.075,-0.050,-0.025, 0.100],

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T04:45:13.292Z",
+  "generatedAt": "2026-08-12T05:20:50.771Z",
   "source": "deploy/rtl-pricing.js (extracted module, --from-module)",
   "scenarios": [
     {
@@ -1656,8 +1656,8 @@
       "sandbox": false
     },
     "sub680-620-639": {
-      "rErr": null,
-      "rate": 0.13,
+      "rErr": "RTL pricing is not available below 640 FICO. Reach out to a manager to submit an exception request.",
+      "rate": null,
       "floor": false,
       "bMax": 240000,
       "bLabel": "LTP/LTV",
@@ -1675,15 +1675,15 @@
       "pDol": 4800,
       "isDutch": false,
       "initAdv": 240000,
-      "moMax": 2600,
-      "moStart": 2600,
-      "mo": 2600,
+      "moMax": null,
+      "moStart": null,
+      "mo": null,
       "progLabel": "Bridge · WA",
       "sandbox": false
     },
     "sub680-550-619": {
-      "rErr": null,
-      "rate": 0.14,
+      "rErr": "RTL pricing is not available below 640 FICO. Reach out to a manager to submit an exception request.",
+      "rate": null,
       "floor": false,
       "bMax": 220000,
       "bLabel": "LTP/LTV",
@@ -1701,14 +1701,14 @@
       "pDol": 6600,
       "isDutch": false,
       "initAdv": 220000,
-      "moMax": 2566.666666666667,
-      "moStart": 2566.666666666667,
-      "mo": 2566.666666666667,
+      "moMax": null,
+      "moStart": null,
+      "mo": null,
       "progLabel": "Bridge · WA",
       "sandbox": false
     },
     "err-fico-below-550": {
-      "rErr": "FICO below 550 is outside all program guidelines. Reach out to a manager to submit an exception request.",
+      "rErr": "RTL pricing is not available below 640 FICO. Reach out to a manager to submit an exception request.",
       "rate": null,
       "floor": false,
       "bMax": 220000,
