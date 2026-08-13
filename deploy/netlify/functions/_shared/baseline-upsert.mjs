@@ -25,6 +25,12 @@
  */
 import { getStore } from '@netlify/blobs';
 import { keySafe, normalizeEmail } from './auth.mjs';
+// Deploy 236.552 — client writes MUST go through the PG-first strict writer
+// (blob + pg-mirror), NOT raw store.setJSON. The old blob-only writes caused
+// the overnight CLIENT drift (blob=3037 vs pg=2991, 46 l_baseline_* loans in
+// blob but missing from PG) once baseline-migrate-cron (236.551) started running
+// this upsert every 30 min. Same discipline every other mutation follows.
+import { writeClient } from './client-write.mjs';
 
 // Pseudo-owner all imported loans land under. Admins can reassign
 // in bulk via the existing users-reassign flow when the processing
@@ -210,7 +216,10 @@ export async function upsertBaselineLoan(baselineRecord, opts) {
   }
 
   if (!opts.dryRun && action !== 'no_change') {
-    await store.setJSON(clientsKey, mergedClient);
+    // Deploy 236.552 — PG-first strict write (blob + pg-mirror) so imported
+    // baseline clients land in Postgres too. Was store.setJSON (blob only) →
+    // CLIENT drift. writeClient derives the key from ownerKey + client.id.
+    await writeClient(IMPORT_OWNER_KEY, mergedClient, { clientsStore: store });
   }
 
   return {
@@ -272,11 +281,14 @@ async function _upsertLinked(baselineRecord, externalId, link, opts) {
   if (!opts.dryRun && changes.length) {
     const loans = client.loans.slice();
     loans[idx] = mergedLoan;
-    await store.setJSON(clientsKey, Object.assign({}, client, {
+    const updatedClient = Object.assign({}, client, {
       loans,
       updatedAt: now,
       _baselineImport: true, // mark client too so future dedupe back-fills recognize it
-    }));
+    });
+    // Deploy 236.552 — PG-first strict write (was store.setJSON, blob only →
+    // CLIENT drift on every stage change synced from Baseline).
+    await writeClient(link.ownerKey, updatedClient, { clientsStore: store });
   }
   return {
     action,
