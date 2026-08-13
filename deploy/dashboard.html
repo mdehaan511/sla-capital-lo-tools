@@ -3166,7 +3166,11 @@ function _dashGetFiltered() {
   var q = (document.getElementById('loanSearch') && document.getElementById('loanSearch').value || '').toLowerCase();
   return _loans.filter(function(l) {
     if (_tab === 'active' && !isOpen(l))   return false;
-    if (_tab === 'sold'   && !isWon(l))    return false;
+    // Deploy 236.550 — the Sold tab is the "offloaded" view; include Liquidated
+    // here too (its label/comment always said so, but isWon — used for revenue —
+    // intentionally excludes liquidated, so the tab was silently dropping them).
+    // This is the master-list home for Sold + Liquidated (no processing pipeline).
+    if (_tab === 'sold'   && !isWon(l) && String(l.Status || '').toLowerCase() !== 'liquidated') return false;
     // Deploy 236.32 — Closed tab now means LITERAL Status === 'Closed'
     // only, not the broader isClosed() (which also included Sold /
     // Funded / In Servicing / Liquidated). Mike: "When CLOSED is

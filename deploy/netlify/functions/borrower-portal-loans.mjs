@@ -64,10 +64,31 @@ async function handle(req, context) {
   return json(200, { loans: loans.filter(Boolean) });
 }
 
+// Deploy 236.550 — borrower-facing stage bucket. Collapses the internal
+// processing stage (processingStage, authoritative) — falling back to
+// status/baselineStatus — into a small, friendly set borrowers see:
+//   In Review → Document Collection → Underwriting → Clear to Close → Closed/Funded
+// "Processing" shows as "Document Collection" per Mike; "Approved" = "Clear to
+// Close". Internal stage renames never leak to borrowers.
+function _borrowerStage(loan) {
+  const ps = String(loan.processingStage || '').toLowerCase().trim();
+  const st = String(loan.status || '').toLowerCase().trim();
+  const bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+  if (ps === 'pp_closed' || st === 'closed' || bl === 'closed' || bl === 'sold' ||
+      bl === 'liquidated' || bl === 'servicing' || bl === 'in servicing' || bl === 'paid off') {
+    return { key: 'closed', label: 'Closed / Funded' };
+  }
+  if (ps === 'pp_approved' || st === 'approved' || bl === 'approved') return { key: 'cleartoclose', label: 'Clear to Close' };
+  if (ps === 'underwriting' || bl === 'underwriting') return { key: 'underwriting', label: 'Underwriting' };
+  if (ps === 'processing' || bl === 'processing') return { key: 'processing', label: 'Document Collection' };
+  return { key: 'review', label: 'In Review' };
+}
+
 // Strip fields the borrower shouldn't see. Whitelist approach —
 // only fields listed here make it into the response.
 function _sanitize(loan, client, grant) {
   return {
+    borrowerStage:   _borrowerStage(loan),
     loanId:          loan.id,
     slaDisplayId:    loan.slaDisplayId || '',
     address:         loan.address || '',

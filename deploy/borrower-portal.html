@@ -516,7 +516,7 @@
             '<div class="loan-addr">' + escH(loan.address || 'No address on file') + '</div>' +
             '<div class="loan-sub">Loan ID: ' + escH(loan.slaDisplayId || loan.loanId) + '</div>' +
           '</div>' +
-          '<span class="loan-status ' + scls + '">' + escH(statusLabel(loan.status)) + '</span>' +
+          '<span class="loan-status ' + scls + '">' + escH((loan.borrowerStage && loan.borrowerStage.label) || statusLabel(loan.status)) + '</span>' +
         '</div>' +
         '<div class="loan-facts">' +
           '<div><div class="fact-label">Loan Type</div><div class="fact-value">' + escH(loan.loanType || '—') + '</div></div>' +
