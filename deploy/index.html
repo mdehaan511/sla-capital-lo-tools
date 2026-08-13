@@ -492,12 +492,20 @@
       // the authoritative signal; the domain check is a belt-and-
       // suspenders backstop so a legacy LO whose role wasn't stamped
       // still lands on the internal dashboard.
+      //
+      // Deploy 236.546 — send borrowers to /borrower-portal.html (the current
+      // self-service portal: loan list, document intake, My Information) instead
+      // of the older /my-loans/ view. Invited borrowers already land there via
+      // activate.html; this closes the one fork where a borrower who logs in at
+      // the LO login screen used to get the thinner /my-loans/ page. /my-loans/
+      // stays live for the admin "view as borrower" impersonation tool (236.306).
+      // Staff are unaffected — they never enter this branch.
       if (user) {
         var _em = String(user.email || '').toLowerCase();
         var _isStaff = isProcessor(user) || isAdmin(user) || isSuperAdmin(user)
                      || _em.endsWith('@slacapital.com');
         if (!_isStaff) {
-          window.location.replace('/my-loans/');
+          window.location.replace('/borrower-portal.html');
           return;
         }
       }
