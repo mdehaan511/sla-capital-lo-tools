@@ -85,6 +85,55 @@ export async function listNativeLinks() {
   } catch (_) { return []; }
 }
 
+// Deploy 236.553 — fallback native-loan index for the two-way sync. Maps a
+// Baseline external id -> the native SLA loan that carries it in _baselineLoanId
+// (set by the outbound push, baseline-sync). Used ONLY when the link store has
+// no entry, so a pushed loan whose setNativeLink write was missed still routes
+// to an UPDATE instead of forking a duplicate import copy. Memoized with a
+// short TTL: the full-client walk happens at most once per window, and only if
+// something actually needs the fallback (steady state: link store has the
+// entry, this is never consulted).
+let _nativeIdxCache = null;
+let _nativeIdxAt = 0;
+const _NATIVE_IDX_TTL_MS = 30 * 60 * 1000; // rebuild at most ~once per cron cycle
+
+async function _nativeLoanByBaselineId(externalId) {
+  const wantKey = String(externalId || '').trim().toLowerCase();
+  if (!wantKey) return null;
+  const fresh = _nativeIdxCache && (Date.now() - _nativeIdxAt) < _NATIVE_IDX_TTL_MS;
+  if (!fresh) {
+    const map = {};
+    try {
+      const store = getStore({ name: 'clients', consistency: 'strong' });
+      const { blobs } = await store.list();
+      const CONC = 25;
+      for (let i = 0; i < blobs.length; i += CONC) {
+        const chunk = blobs.slice(i, i + CONC);
+        const recs = await Promise.all(chunk.map(async ({ key }) => ({
+          key, client: await store.get(key, { type: 'json' }).catch(() => null),
+        })));
+        for (const { key, client } of recs) {
+          const slash = key.indexOf('/');
+          if (slash < 0) continue;
+          const ownerKey = key.slice(0, slash);
+          if (ownerKey === IMPORT_OWNER_KEY) continue; // native loans only
+          const clientId = key.slice(slash + 1);
+          if (!client || !Array.isArray(client.loans)) continue;
+          for (const loan of client.loans) {
+            const bid = loan && loan._baselineLoanId;
+            if (bid && String(bid).startsWith('SLA-')) {
+              map[String(bid).trim().toLowerCase()] = { ownerKey, clientId, loanId: loan.id };
+            }
+          }
+        }
+      }
+    } catch (_) { /* keep whatever we had; a miss just means an import copy */ }
+    _nativeIdxCache = map;
+    _nativeIdxAt = Date.now();
+  }
+  return _nativeIdxCache[wantKey] || null;
+}
+
 // Baseline-authored fields on a loan record. These get overwritten
 // on every sync (Baseline stays authoritative until cutover). Any
 // field NOT listed here is SLA-authored and preserved verbatim.
@@ -144,6 +193,27 @@ export async function upsertBaselineLoan(baselineRecord, opts) {
   if (link) {
     const linked = await _upsertLinked(baselineRecord, externalId, link, opts);
     if (linked) return linked; // fell through to normal path only if link was stale
+  }
+
+  // Deploy 236.553 — fallback matcher (two-way-sync backstop). No link-store
+  // entry, but a native loan may carry this Baseline id in _baselineLoanId — an
+  // outbound-pushed loan (baseline-sync) whose setNativeLink write was missed.
+  // Match it directly + backfill the link so we UPDATE that loan instead of
+  // forking a duplicate import copy. This is what makes the cron + Migrate
+  // safe to run while the outbound push is live (SLA-as-hub transition).
+  //
+  // Gated on outbound being LIVE (BASELINE_DRY_RUN=false): that's the only time
+  // SLA-pushed loans exist to match, so while the push is still dry-run this
+  // stays dormant and the index walk is never paid.
+  const _fbLink = (process.env.BASELINE_DRY_RUN === 'false')
+    ? await _nativeLoanByBaselineId(externalId)
+    : null;
+  if (_fbLink) {
+    if (!opts.dryRun) {
+      try { await setNativeLink(externalId, Object.assign({}, _fbLink, { source: 'fallback-match' })); } catch (_) {}
+    }
+    const linked = await _upsertLinked(baselineRecord, externalId, _fbLink, opts);
+    if (linked) return linked;
   }
 
   const safeExt  = _keySafeExt(externalId);

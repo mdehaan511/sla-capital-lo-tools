@@ -47,6 +47,9 @@ import { getStore } from '@netlify/blobs';
 import { decryptField } from './crypto.mjs';
 import { keySafe } from './auth.mjs';
 import { postSlack } from './slack.mjs';
+// Deploy 236.553 — register the native link the instant we create a Baseline
+// loan (two-way sync pairing). One-way import; baseline-upsert doesn't import us.
+import { setNativeLink } from './baseline-upsert.mjs';
 
 const DEFAULT_BASE_URL = 'https://production.baselinesoftware.com/production/api';
 
@@ -232,6 +235,21 @@ export async function syncOnApproval(client, targetLoan, ownerKey, triggerUserEm
     targetLoan._baselineGuarantor1Id = result.refs.baselineGuarantor1Id || null;
     targetLoan._baselineGuarantor2Id = result.refs.baselineGuarantor2Id || null;
     targetLoan._baselineLoanId       = result.refs.baselineLoanId       || null;
+
+    // Deploy 236.553 — the two-way-sync PAIRING step. Register the native link
+    // (Baseline extId -> this SLA loan) the moment we create the Baseline loan.
+    // When it mirrors back ~15-30 min later, the inbound migrate (getNativeLink)
+    // routes the update to THIS loan instead of forking a duplicate import copy.
+    // Best-effort: if the write blips, the in-upsert fallback matcher backstops
+    // it (upsertBaselineLoan matches native loans by _baselineLoanId too).
+    const _blId = result.refs.baselineLoanId;
+    if (_blId && String(_blId).startsWith('SLA-') && client.id && targetLoan.id) {
+      try {
+        await setNativeLink(_blId, { ownerKey, clientId: client.id, loanId: targetLoan.id, source: 'outbound-push' });
+      } catch (e) {
+        console.warn('baseline-sync: setNativeLink on push failed (fallback matcher will backstop):', e && e.message);
+      }
+    }
   }
   targetLoan._baselineSyncStatus    = summaryStatus;
   targetLoan._baselineSyncMode      = result.mode;
