@@ -58,8 +58,15 @@
     .lo-filter.has-value { border-color: var(--gold); background-color: rgba(200,129,58,0.06); color: var(--gold); font-weight: 600; }
 
     .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; min-height: 60vh; }
-    @media (max-width: 1400px) { .board { grid-template-columns: repeat(3, 1fr); } }
-    @media (max-width: 900px)  { .board { grid-template-columns: 1fr; } }
+    .board.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 1400px) { .board, .board.cols-4 { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 900px)  { .board, .board.cols-4 { grid-template-columns: 1fr; } }
+    /* Deploy 236.549 — Active / Closed pipeline view tabs */
+    .pp-views { display: flex; gap: 8px; margin-bottom: 14px; }
+    .pp-view-tab { background: none; border: 1px solid var(--border); color: var(--muted); padding: 6px 16px; border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .pp-view-tab:hover { border-color: var(--gold); color: var(--gold); }
+    .pp-view-tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .col[data-col^="cl_"] .col-head { border-color: var(--col-closed); } .col[data-col^="cl_"] .col-head h3 { color: var(--col-closed); }
 
     .col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; min-height: 50vh; }
     .col-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 2px solid; }
@@ -168,6 +175,12 @@
         <button type="button" class="gear-btn" id="ttGearBtn" style="display:none" onclick="openTaskTemplatesEditor()" title="Edit per-stage task templates (admin)">⚙ Task Templates</button>
       </div>
     </div>
+    <!-- Deploy 236.549 — Active vs Closed pipeline. Closed is its own board
+         with post-close sections; the active board is unchanged. -->
+    <div class="pp-views" id="ppViews">
+      <button type="button" class="pp-view-tab active" data-view="active" onclick="setPipelineView('active')">Active Pipeline</button>
+      <button type="button" class="pp-view-tab" data-view="closed" onclick="setPipelineView('closed')">Closed Pipeline</button>
+    </div>
     <div id="boardWrap"><div class="loading">Loading pipeline…</div></div>
   </div>
 
@@ -219,6 +232,33 @@ var _loFilterValue = '';
 // Loaded from /api/settings on page init. Empty arrays / missing keys
 // = column has no substatuses (no picker rendered).
 var _substatuses = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
+
+// Deploy 236.549 — Closed is its OWN board (Mike). Its 4 columns are the
+// post-close SUBSTATUSES, so a card's column = its substatus and dragging
+// between them just sets the substatus (reuses the existing substatus
+// persistence — no new stage value or endpoint). The ACTIVE board is unchanged;
+// _view gates which board renders.
+var _view = 'active'; // 'active' | 'closed'
+var CLOSED_COLS = [
+  { key: 'cl_close_out', label: 'Data Close Out' },
+  { key: 'cl_investor',  label: 'Submitted to Investor' },
+  { key: 'cl_boarding',  label: 'Boarding to Servicing' },
+  { key: 'cl_servicing', label: 'Servicing' },
+];
+var CLOSE_ORDER = ['cl_close_out', 'cl_investor', 'cl_boarding', 'cl_servicing'];
+var CLOSE_LABEL = { cl_close_out: 'Data Close Out', cl_investor: 'Submitted to Investor', cl_boarding: 'Boarding to Servicing', cl_servicing: 'Servicing' };
+
+// Which Closed column a closed loan sits in, from its post-close substatus
+// (falls back to baselineStatus for the Servicing bucket). Default = Data
+// Close Out (freshly-closed / Post Close Review / no substatus yet).
+function closeColumnFor(loan) {
+  var s  = String(loan.processingSubstatus || loan.baselineSubstatus || '').toLowerCase().trim();
+  var bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+  if (bl === 'servicing' || bl === 'in servicing' || s === 'servicing' || s === 'performing') return 'cl_servicing';
+  if (s.indexOf('investor') >= 0) return 'cl_investor';
+  if (s.indexOf('board') >= 0 || s.indexOf('servicing approval') >= 0) return 'cl_boarding';
+  return 'cl_close_out';
+}
 
 // ── Auth gate ──────────────────────────────────────────────────────
 // Per Phase A scope: any authenticated user can view the Processing
@@ -470,21 +510,31 @@ function render() {
     return true;
   }
 
-  var cols = [
-    { key: 'new_loan',     label: 'Lead' },
-    { key: 'processing',   label: 'Processing' },
-    { key: 'underwriting', label: 'Underwriting' },
-    { key: 'pp_approved',  label: 'Approved' },
-    { key: 'pp_closed',    label: 'Closed' },
-  ];
+  // Deploy 236.549 — pick the board by view. Closed loans (from the active
+  // board's pp_closed bucket) are re-bucketed into the 4 post-close columns.
+  var cols, source;
+  if (_view === 'closed') {
+    cols = CLOSED_COLS;
+    source = { cl_close_out: [], cl_investor: [], cl_boarding: [], cl_servicing: [] };
+    (_items.pp_closed || []).forEach(function(it) { source[closeColumnFor(it.loan)].push(it); });
+  } else {
+    cols = [
+      { key: 'new_loan',     label: 'Lead' },
+      { key: 'processing',   label: 'Processing' },
+      { key: 'underwriting', label: 'Underwriting' },
+      { key: 'pp_approved',  label: 'Approved' },
+      { key: 'pp_closed',    label: 'Closed' },
+    ];
+    source = _items;
+  }
 
   // Deploy 236.100 — column gets drag/drop attributes so tiles can
   // be dropped anywhere inside (including the empty area below the
   // last card). Drop handlers live on the .col itself, not the
   // .cards inner div, so the entire column area accepts the drop.
-  var html = '<div class="board">';
+  var html = '<div class="board' + (_view === 'closed' ? ' cols-4' : '') + '">';
   cols.forEach(function(col) {
-    var items = (_items[col.key] || []).filter(visible);
+    var items = (source[col.key] || []).filter(visible);
     html += '<div class="col" data-col="' + col.key + '"' +
       ' ondragover="onColDragOver(event)"' +
       ' ondragenter="onColDragEnter(event)"' +
@@ -517,8 +567,8 @@ function renderCard(it) {
   // loan is still in flight (any column other than Closed). Funded
   // loans in Closed shouldn't get a red flag just because their
   // original target slipped — the deal is done.
-  var col = columnFor(loan);
-  var isPastDue   = daysOut != null && daysOut < 0 && col !== 'pp_closed';
+  var col = (_view === 'closed') ? closeColumnFor(loan) : columnFor(loan);
+  var isPastDue   = _view !== 'closed' && daysOut != null && daysOut < 0 && col !== 'pp_closed';
   var isClosingSn = daysOut != null && daysOut >= 0 && daysOut <= 5;
 
   // Deploy 236.100 — substatus PILL is the picker. When the column
@@ -559,6 +609,8 @@ function renderCard(it) {
         ' onchange="moveLoanSubstatus(this)">' +
         subOpts +
       '</select>';
+  } else if (_view === 'closed') {
+    substatusHtml = ''; // Closed board: the column already IS the substatus
   } else {
     substatusHtml = substatus
       ? '<div class="card-substatus">' + escH(substatus) + '</div>'
@@ -692,7 +744,65 @@ function onColDrop(e) {
     try { return e.dataTransfer.getData('text/plain'); } catch (_) { return null; }
   })() || _draggingLoanKey;
   if (!loanKey || !newStage) return;
+  // Deploy 236.549 — in the Closed board, a drop sets the post-close substatus
+  // (stage stays pp_closed) instead of a stage move.
+  if (_view === 'closed') { moveClosedByDrop(loanKey, newStage, _draggingFromStage); return; }
   moveLoanByDrop(loanKey, newStage, _draggingFromStage);
+}
+
+// Deploy 236.549 — switch between the Active and Closed boards (client-side; the
+// data is already loaded, so just re-render).
+function setPipelineView(view) {
+  _view = (view === 'closed') ? 'closed' : 'active';
+  var tabs = document.querySelectorAll('.pp-view-tab');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].classList.toggle('active', tabs[i].getAttribute('data-view') === _view);
+  }
+  render();
+}
+
+// Deploy 236.549 — Closed board drop → set the post-close substatus. The 4
+// columns ARE the substatuses, so this reuses the substatus persistence
+// (/api/loan-processing-stage with newStage:'pp_closed' + substatus).
+function moveClosedByDrop(loanKey, newCol, curCol) {
+  if (newCol === curCol) return;
+  var nI = CLOSE_ORDER.indexOf(newCol), cI = CLOSE_ORDER.indexOf(curCol);
+  if (cI >= 0 && nI >= 0 && nI < cI) {
+    if (!confirm('Move this loan BACK to "' + CLOSE_LABEL[newCol] + '"? It is currently in "' + CLOSE_LABEL[curCol] + '".')) return;
+  }
+  var parts = String(loanKey).split('|');
+  if (parts.length < 3) return;
+  var clientId = parts[0], loanId = parts[1], owner = parts[2];
+  var selfKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+  var ownerParam = (owner && owner !== selfKey) ? owner : undefined;
+  var body = { clientId: clientId, loanId: loanId, newStage: 'pp_closed', substatus: CLOSE_LABEL[newCol] };
+  if (ownerParam) body.owner = ownerParam;
+
+  // Optimistic DOM move (same pattern as moveLoanByDrop).
+  var card = (function() {
+    var nodes = document.querySelectorAll('.card[data-loan-key]');
+    for (var i = 0; i < nodes.length; i++) { if (nodes[i].getAttribute('data-loan-key') === loanKey) return nodes[i]; }
+    return null;
+  })();
+  var targetCards = document.querySelector('.col[data-col="' + newCol + '"] .cards');
+  var sourceCards = card && card.parentNode;
+  if (card && targetCards && sourceCards !== targetCards) {
+    var srcEmpty = targetCards.querySelector('.empty-col'); if (srcEmpty) srcEmpty.remove();
+    targetCards.appendChild(card);
+    card.setAttribute('data-stage', newCol);
+    if (sourceCards && !sourceCards.querySelector('.card')) {
+      var ph = document.createElement('div'); ph.className = 'empty-col'; ph.textContent = 'Drop here'; sourceCards.appendChild(ph);
+    }
+    _updateColumnCounts();
+  }
+
+  SLA.api('POST', '/api/loan-processing-stage', body).then(function() {
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    loadAll();
+  }).catch(function(err) {
+    showToast('Failed to update: ' + (err && err.message ? err.message : 'unknown'));
+    loadAll();
+  });
 }
 
 function moveLoanByDrop(loanKey, newStage, currentStage) {
