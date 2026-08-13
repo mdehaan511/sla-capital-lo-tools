@@ -40,6 +40,42 @@ const ALLOWED_KEYS = new Set([
   'slack_webhook', 'slack_webhook_errors', 'slack_webhook_apply', 'slack_webhook_submitted',
 ]);
 
+// Deploy 236.548 — default per-column substatus vocabulary for the Processing
+// Pipeline, seeded from the Baseline stage discovery (236.547) so the card
+// substatus pickers are populated out of the box on both processing-pipeline.html
+// and Loan Details (both read /api/settings.processing_substatuses). Merged
+// (union, defaults first) with any admin-saved lists on GET — the standard set
+// always shows AND admin additions are preserved. Column keys stay the internal
+// ones (new_loan = "Lead" in the UI). pp_closed's post-close substatuses become
+// their own board columns later; kept here as an interim picker.
+const DEFAULT_SUBSTATUSES = {
+  new_loan:     ['New Prequal App', 'New Full Application', 'Application Sent for Borrower Verification', 'Kick Off Email Sent', 'Borrower Screening', 'Term Sheet / LOI Signed'],
+  processing:   ['Document Collection', 'Inspection Scheduled', 'Appraisal Paid', 'Appraisal Complete', 'Conditions Request'],
+  underwriting: ['File Review / Underwriting', 'Full File', 'Final Due Diligence'],
+  pp_approved:  ['Clear to Close', 'Loan Docs Sent'],
+  pp_closed:    ['Post Close Review', 'Submitted to Investor', 'Boarded to Servicer', 'Pending Servicing Approval'],
+};
+const _SUB_COLS = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
+
+// Union the defaults with any admin-saved list, case-insensitive dedup, defaults
+// first so the standard order is stable. A saved list can ADD to a column but
+// removing a default won't persist (the standard set is always available).
+function mergeSubstatuses(saved) {
+  const s = (saved && typeof saved === 'object') ? saved : {};
+  const out = {};
+  for (const col of _SUB_COLS) {
+    const extra = Array.isArray(s[col]) ? s[col].map((x) => String(x || '').trim()).filter(Boolean) : [];
+    const seen = new Set();
+    const merged = [];
+    for (const v of (DEFAULT_SUBSTATUSES[col] || []).concat(extra)) {
+      const k = v.toLowerCase();
+      if (!seen.has(k)) { seen.add(k); merged.push(v); }
+    }
+    out[col] = merged;
+  }
+  return out;
+}
+
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
 
@@ -66,7 +102,11 @@ export default async (req, context) => {
     try {
       const out = {};
       for (const key of ALLOWED_KEYS) {
-        out[key] = (await store.get(key, { type: 'json' })) || null;
+        const stored = (await store.get(key, { type: 'json' })) || null;
+        // Deploy 236.548 — always return the merged substatus vocabulary
+        // (defaults ∪ admin-saved) so both pipeline clients get a populated
+        // picker even before any admin edit.
+        out[key] = (key === 'processing_substatuses') ? mergeSubstatuses(stored) : stored;
       }
       return json(200, out);
     } catch (e) {

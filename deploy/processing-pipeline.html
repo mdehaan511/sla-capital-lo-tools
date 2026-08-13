@@ -471,7 +471,7 @@ function render() {
   }
 
   var cols = [
-    { key: 'new_loan',     label: 'New Loan' },
+    { key: 'new_loan',     label: 'Lead' },
     { key: 'processing',   label: 'Processing' },
     { key: 'underwriting', label: 'Underwriting' },
     { key: 'pp_approved',  label: 'Approved' },
@@ -631,7 +631,7 @@ function openLoanDetails(card, href) {
 // confirm prompt below.
 var STAGE_ORDER = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 var STAGE_LABEL = {
-  'new_loan':     'New Loan',
+  'new_loan':     'Lead',
   'processing':   'Processing',
   'underwriting': 'Underwriting',
   'pp_approved':  'Approved',
@@ -834,7 +834,7 @@ function moveLoanSubstatus(sel) {
 
 // ── Substatus editor (admin only) ─────────────────────────────────
 var SS_COL_LABELS = {
-  'new_loan':     'New Loan',
+  'new_loan':     'Lead',
   'processing':   'Processing',
   'underwriting': 'Underwriting',
   'pp_approved':  'Approved',
