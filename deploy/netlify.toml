@@ -681,6 +681,12 @@
   to = "/.netlify/functions/baseline-mirror-sync"
   status = 200
   force = true
+# Deploy 236.547 — loan-processing-stage migration, Phase 1 discovery.
+[[redirects]]
+  from = "/api/baseline-discover-statuses"
+  to = "/.netlify/functions/baseline-discover-statuses"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/baseline-mirror-list"
   to = "/.netlify/functions/baseline-mirror-list"

@@ -131,6 +131,19 @@
     <div id="mirrorProgress" style="font-size:11.5px;color:var(--muted);margin-top:8px;min-height:14px"></div>
   </div>
 
+  <!-- Deploy 236.547 — Phase 1 discovery: list Baseline's distinct loan Status
+       vocabulary so we can map it to SLA processing stages. Read-only. -->
+  <div style="background:var(--surface);border:1px solid var(--border, #E4DFD4);border-radius:var(--r-xs, 6px);padding:14px 16px;margin-bottom:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:280px">
+        <div style="font-size:13px;font-weight:600;color:var(--dark)">Loan Stage Discovery</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Read-only. Lists the distinct <code>Status</code> values in Baseline so we can map them to SLA processing stages (Phase 1 of the stage migration).</div>
+      </div>
+      <button type="button" id="discoverBtn" onclick="discoverStatuses()" style="padding:8px 16px;background:var(--dark, #261a36);color:#fff;border:none;border-radius:var(--r-xs, 6px);font-family:'DM Sans',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer">Discover Loan Statuses</button>
+    </div>
+    <div id="discoverOut" style="font-size:12px;color:var(--muted);margin-top:10px"></div>
+  </div>
+
   <div class="ctrl-row">
     <input type="text" id="searchBox" class="search-box" placeholder="Search by loanId, owner, step, or error…" oninput="render()" />
     <select id="modeFilter" class="lo-filter" onchange="render()">
@@ -496,6 +509,42 @@ function runMirrorSync() {
     prog.textContent = 'Sync failed: ' + (err && err.message);
     btn.disabled = false;
     btn.textContent = originalLabel;
+  });
+}
+
+// Deploy 236.547 — Phase 1 discovery: pull Baseline's distinct loan Status
+// vocabulary (read-only) so we can build the SLA processing-stage mapping.
+function discoverStatuses() {
+  var btn = document.getElementById('discoverBtn');
+  var out = document.getElementById('discoverOut');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  var lbl = btn.textContent;
+  btn.textContent = 'Querying Baseline…';
+  out.innerHTML = '<span style="color:var(--muted)">Pulling GET /loan from Baseline…</span>';
+  SLA.api('GET', '/api/baseline-discover-statuses').then(function(r) {
+    btn.disabled = false; btn.textContent = lbl;
+    if (!r || !r.ok) { out.innerHTML = '<span style="color:#b00020">' + escH((r && r.error) || 'Discovery failed') + '</span>'; return; }
+    var html = '<div style="margin-bottom:8px;color:var(--dark);font-weight:600">' +
+      r.totalLoans + ' loans · ' + r.distinctStatuses.length + ' distinct Status values</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead>' +
+      '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px">Status</th>' +
+      '<th style="padding:4px 8px">Count</th><th style="padding:4px 8px">Sample loans</th></tr></thead><tbody>';
+    r.distinctStatuses.forEach(function(s) {
+      html += '<tr style="border-top:1px solid var(--border,#E4DFD4)">' +
+        '<td style="padding:5px 8px;font-weight:600;color:var(--dark)">' + escH(s.status) + '</td>' +
+        '<td style="padding:5px 8px">' + s.count + '</td>' +
+        '<td style="padding:5px 8px;color:var(--muted)">' + escH((s.samples || []).join(', ')) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    if (r.distinctSubstatuses && r.distinctSubstatuses.length) {
+      html += '<div style="margin-top:10px;color:var(--muted)">Substatuses: ' +
+        r.distinctSubstatuses.map(function(x) { return escH(x.substatus) + ' (' + x.count + ')'; }).join(' · ') + '</div>';
+    }
+    out.innerHTML = html;
+  }).catch(function(err) {
+    btn.disabled = false; btn.textContent = lbl;
+    out.innerHTML = '<span style="color:#b00020">' + escH(err && err.message || 'Discovery failed') + '</span>';
   });
 }
 </script>
