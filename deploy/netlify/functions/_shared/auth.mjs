@@ -35,11 +35,18 @@ export function json(statusCode, body) {
     // Capture the stack SYNCHRONOUSLY — inside the import callback it
     // would point at the microtask, not the erroring endpoint.
     const _stack = String(new Error().stack || '');
+    // Deploy 236.555 — forward the response's `reason` (and `detail`) into the
+    // alert's extra line. Endpoints echo the underlying cause there (e.g.
+    // quotes-list / brokers-list on a transient PG blip); without this the Slack
+    // alert showed only the generic `error` ("Failed to load quotes"), so a
+    // recurrence had to be diagnosed by inference. Now the real cause rides along.
+    const _diag = body && (body.reason || body.detail);
     import('./error-alert.mjs').then((m) => {
       m.alertServerError({
         source: m.inferSourceFromStack(_stack) || 'unknown-endpoint',
         status: statusCode,
         message: (body && (body.error || body.message)) || 'unknown 5xx',
+        extra: _diag ? ('reason: ' + String(_diag).slice(0, 240)) : undefined,
       });
     }).catch(() => {});
   }
