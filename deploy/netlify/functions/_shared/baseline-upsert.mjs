@@ -160,6 +160,20 @@ const BASELINE_AUTHORED_FIELDS = [
   'slaDisplayId', 'updatedAt',
 ];
 
+// Deploy 236.554 — CHANGE-DETECTION set. Same as the merge set above MINUS the
+// volatile bookkeeping fields: `_baselineMirroredAt` + `updatedAt` are stamped
+// to `now` on EVERY upsert (so they always differ), and `_baselineRaw` is noisy
+// JSON. Leaving them in change detection made every loan look "changed" every
+// run, so upsertBaselineLoan re-wrote all ~348 loans each cron cycle. Cheap as a
+// blob write, but a 348-row PG transactional-write STORM once the upsert went
+// PG-strict (236.552) — that saturated PG at :10/:40 and 500-stormed quotes-list.
+// Real data changes (status/stage/amount/dates/…) still write, via the fields
+// kept here. The bookkeeping fields still get refreshed in the merge whenever a
+// real change triggers a write — they just no longer TRIGGER one on their own.
+const CHANGE_DETECT_FIELDS = BASELINE_AUTHORED_FIELDS.filter(function (f) {
+  return f !== '_baselineMirroredAt' && f !== 'updatedAt' && f !== '_baselineRaw';
+});
+
 /**
  * Upsert a single Baseline loan into the clients store.
  *
@@ -252,7 +266,7 @@ export async function upsertBaselineLoan(baselineRecord, opts) {
     mergedLoan = priorLoan
       ? _mergeLoanPreservingSla(priorLoan, loanFields)
       : loanFields;
-    changes = _fieldChanges(priorLoan || {}, mergedLoan, BASELINE_AUTHORED_FIELDS);
+    changes = _fieldChanges(priorLoan || {}, mergedLoan, CHANGE_DETECT_FIELDS);
 
     mergedClient = Object.assign({}, existing, {
       // Refresh only the fields Baseline is authoritative over on the
@@ -345,7 +359,7 @@ async function _upsertLinked(baselineRecord, externalId, link, opts) {
   mergedLoan.slaDisplayId        = priorLoan.slaDisplayId || externalId;  // native wins; fall back to Baseline if truly missing
   mergedLoan._baselineExternalId = externalId;
 
-  const changes = _fieldChanges(priorLoan, mergedLoan, BASELINE_AUTHORED_FIELDS);
+  const changes = _fieldChanges(priorLoan, mergedLoan, CHANGE_DETECT_FIELDS);
   const action  = changes.length ? 'updated' : 'no_change';
 
   if (!opts.dryRun && changes.length) {
