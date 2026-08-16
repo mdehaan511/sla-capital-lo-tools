@@ -145,7 +145,15 @@ const _READ_RETRY_BACKOFF_MS = [250, 600, 1400]; // 3 retries → 4 attempts, ~2
 
 function _isTransient(e) {
   const st = e && e.status;
-  return !st || st >= 500; // no status = fetch/network failure; 5xx = server-side transient
+  if (!st || st >= 500) return true; // no status = fetch/network failure; 5xx = server-side transient
+  // Deploy 236.557 — "JWT issued at future" is a CLOCK-SKEW transient, not a real
+  // auth failure: PostgREST momentarily rejects our STATIC service-role key with
+  // 401 when a (freshly-scaled/restarted) instance's clock lags the token's iat.
+  // It self-resolves in seconds, so retry it despite being a 4xx. Reported as
+  // recurring quotes-list / clients-list 500s. Narrowly matched on the message so
+  // a genuinely bad/expired key (real 401) still fails fast.
+  if (st === 401 && /issued at future/i.test(String((e && e.message) || ''))) return true;
+  return false;
 }
 
 async function _selectWithRetry(table, opts) {
