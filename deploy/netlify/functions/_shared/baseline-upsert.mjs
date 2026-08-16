@@ -154,7 +154,14 @@ async function _nativeLoanByBaselineId(externalId) {
 const BASELINE_AUTHORED_FIELDS = [
   'address', 'loanAmt', 'loanType', 'loanTypeLabel', 'status', 'processingStage',
   'processingSubstatus',
-  'rate', 'points', 'fundingDate', 'propValue',
+  // Deploy 236.556 — rate + points are SLA-OWNED (the sizer/LO sets them, incl.
+  // manual overrides via _rateOverride/_pointsOverride). They were Baseline-
+  // authored, so the migrate mapped them from Baseline's Rate/Origination_Points
+  // on every linked loan — silently reverting sizer pricing (e.g. LO set 3.5
+  // points, migrate clobbered it back to Baseline's 2). Removed from the
+  // overwrite set so the merge PRESERVES SLA pricing on native loans. Import-only
+  // loans still get Baseline pricing on their initial create (fresh loanFields).
+  'fundingDate', 'propValue',
   'baselineStatus', 'baselineSubstatus', 'baselineOwnerName',
   'baselineArchivedAt', '_baselineRaw', '_baselineMirroredAt',
   'slaDisplayId', 'updatedAt',
