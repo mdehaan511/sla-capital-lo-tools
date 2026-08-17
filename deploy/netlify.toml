@@ -423,6 +423,14 @@
   status = 200
   force = true
 
+# Deploy 236.566 — closing coordination: per-milestone CD/wire/funding tracking
+# on Loan Details (Approved/Closed loans).
+[[redirects]]
+  from = "/api/loan-closing-save"
+  to = "/.netlify/functions/loan-closing-save"
+  status = 200
+  force = true
+
 # Deploy 236.98 (Phase B.1) — narrow field-edit endpoint for Loan
 # Details inline editors (close date today; rate/points/etc. added
 # as the unification work continues).

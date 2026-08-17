@@ -1533,6 +1533,12 @@ function render() {
     '</div>' +
   '</div>';
 
+  // Deploy 236.566 — Closing Coordination panel (CD/wire/funding milestones).
+  // Renders only for Approved/Closed loans (or any loan whose closing has
+  // already been started). Sits right below Funding Plan — same closing
+  // workflow neighborhood. See renderClosingPanel() for the gating logic.
+  html += renderClosingPanel(l);
+
   // Deploy 226 — Notes / audit log section. Replaces the old free-form
   // notes textarea with a scrollable timestamped log. Renders below the
   // Application Form section. Manual notes append via /api/loan-note-add;
@@ -5368,6 +5374,130 @@ function saveFundingPlan() {
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Funding Plan'; }
     showToast('Funding plan save failed: ' + (err && err.message || 'unknown error'));
+  });
+}
+
+// ── Deploy 236.566 — Closing Coordination ────────────────────────────
+// The step order + labels. The backend (loan-closing-save.mjs) whitelists
+// the same keys; keep the two lists in sync if steps change.
+var CLOSING_STEP_DEFS = [
+  ['cd_sent',     'Closing docs / CD sent'],
+  ['docs_signed', 'Docs signed & returned'],
+  ['wire_sent',   'Wire sent'],
+  ['funded',      'Funded'],
+  ['recorded',    'Recorded'],
+];
+
+// Build the Closing Coordination section HTML for a loan. Returns '' when the
+// loan isn't at (or past) the closing table — Approved / Closed stage, a
+// 'closed' status, or a closing already started. Also called by
+// refreshClosingPanel() for in-place updates (no full-page re-render).
+function renderClosingPanel(l) {
+  if (!l) return '';
+  var stage = String(l.processingStage || '').toLowerCase();
+  var obj   = (l.closing && typeof l.closing === 'object') ? l.closing : {};
+  var steps = (obj.steps && typeof obj.steps === 'object') ? obj.steps : {};
+  var started = Object.keys(steps).length > 0;
+  var show = stage === 'pp_approved' || stage === 'pp_closed'
+    || String(l.status || '').toLowerCase() === 'closed' || started;
+  if (!show) return '';
+
+  var done = 0, rows = '';
+  for (var i = 0; i < CLOSING_STEP_DEFS.length; i++) {
+    var key = CLOSING_STEP_DEFS[i][0], label = CLOSING_STEP_DEFS[i][1];
+    var st = steps[key] || {};
+    var isDone = !!st.done;
+    if (isDone) done++;
+    var stamp = (isDone && st.at)
+      ? '<span style="font-size:11px;color:var(--muted);margin-left:8px">' + escH(fmtDateTime(st.at)) + (st.by ? ' · ' + escH(st.by) : '') + '</span>'
+      : '';
+    rows +=
+      '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border,#eee);cursor:pointer">' +
+        '<input type="checkbox" ' + (isDone ? 'checked ' : '') + 'onchange="toggleClosingStep(\'' + key + '\', this)" style="width:16px;height:16px;flex:none" />' +
+        '<span style="flex:1;' + (isDone ? 'text-decoration:line-through;color:var(--muted)' : '') + '">' + escH(label) + '</span>' +
+        stamp +
+      '</label>';
+  }
+  var pct = Math.round((done / CLOSING_STEP_DEFS.length) * 100);
+
+  return '<div class="section" id="closingSection">' +
+    '<div class="section-head"><h2>Closing Coordination</h2><span class="section-tag tag-editable">' + done + '/' + CLOSING_STEP_DEFS.length + '</span></div>' +
+    '<div class="section-body">' +
+      '<div style="height:6px;background:var(--border,#eee);border-radius:3px;overflow:hidden;margin-bottom:14px">' +
+        '<div style="height:100%;width:' + pct + '%;background:var(--success,#166534);transition:width .2s"></div>' +
+      '</div>' +
+      rows +
+      '<div class="app-grid" style="margin-top:16px">' +
+        '<div class="field"><label>Title / Escrow Company</label><input type="text" id="cl-titleCompany" value="' + escAttr(obj.titleCompany || '') + '" maxlength="120" /></div>' +
+        '<div class="field"><label>Title Contact</label><input type="text" id="cl-titleContact" value="' + escAttr(obj.titleContact || '') + '" placeholder="name / phone / email" maxlength="120" /></div>' +
+        '<div class="field"><label>Wire Amount</label><input type="text" id="cl-wireAmount" value="' + escAttr(obj.wireAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+        '<div class="field"><label>Scheduled Funding Date</label><input type="date" id="cl-scheduledFundingDate" value="' + escAttr(obj.scheduledFundingDate || '') + '" /></div>' +
+      '</div>' +
+      '<div class="field" style="margin-top:12px"><label>Closing Notes</label><textarea id="cl-notes" rows="2" placeholder="wire instructions confirmed, funding conditions, etc.">' + escH(obj.notes || '') + '</textarea></div>' +
+      '<div style="margin-top:14px;display:flex;align-items:center;gap:12px">' +
+        '<button class="save-app-btn" onclick="saveClosingFields()">Save Closing Details</button>' +
+        '<span id="closingStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+// Replace the closing section in place (no full-page re-render — the panel is
+// low on the page and a full render would jump the scroll to the top).
+function refreshClosingPanel() {
+  var el = document.getElementById('closingSection');
+  if (!el || !_loan) return;
+  var next = renderClosingPanel(_loan);
+  if (!next) { el.remove(); return; }
+  el.outerHTML = next;
+}
+
+// Owner param for cross-LO admin edits (matches saveFundingPlan's guard).
+function _closingOwner() {
+  return (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+}
+
+// Toggle one milestone. The server stamps at/by; we mirror the returned
+// closing object onto the in-memory loan and refresh just this panel.
+function toggleClosingStep(step, el) {
+  if (!_loan || !_client) return;
+  var done = !!(el && el.checked);
+  var body = { clientId: _client.id, loanId: _loanId, step: step, done: done };
+  var owner = _closingOwner(); if (owner) body.owner = owner;
+  if (el) el.disabled = true;
+  SLA.api('POST', '/api/loan-closing-save', body).then(function(r) {
+    if (r && r.closing) _loan.closing = r.closing;
+    refreshClosingPanel();
+    showToast(done ? 'Marked complete' : 'Marked incomplete');
+  }).catch(function(err) {
+    if (el) { el.disabled = false; el.checked = !done; } // revert the toggle
+    showToast('Closing update failed: ' + (err && err.message || 'unknown'));
+  });
+}
+
+// Save the free-text coordination fields as one batch.
+function saveClosingFields() {
+  if (!_loan || !_client) return;
+  var fields = {
+    titleCompany:         (document.getElementById('cl-titleCompany')        || {}).value || '',
+    titleContact:         (document.getElementById('cl-titleContact')        || {}).value || '',
+    wireAmount:           (document.getElementById('cl-wireAmount')          || {}).value || '',
+    scheduledFundingDate: (document.getElementById('cl-scheduledFundingDate')|| {}).value || '',
+    notes:                (document.getElementById('cl-notes')              || {}).value || '',
+  };
+  var body = { clientId: _client.id, loanId: _loanId, fields: fields };
+  var owner = _closingOwner(); if (owner) body.owner = owner;
+  var btn = document.querySelector('#closingSection .save-app-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  SLA.api('POST', '/api/loan-closing-save', body).then(function(r) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Closing Details'; }
+    if (r && r.closing) _loan.closing = r.closing;
+    var s = document.getElementById('closingStatus');
+    if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
+    showToast('Closing details saved');
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Closing Details'; }
+    showToast('Closing save failed: ' + (err && err.message || 'unknown error'));
   });
 }
 
