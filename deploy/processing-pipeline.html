@@ -232,6 +232,7 @@ var _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], 
 var _loDisplayMap = {}; // ownerKey -> display name
 var _loFilterValue = '';
 var _myLoansOnly = false; // Deploy 236.559 — "My Loans" assignment filter
+var _processors = [];     // Deploy 236.563 — [{email,name}] for the assign picker
 // Deploy 236.97 (Phase F) — admin-configurable substatuses per column.
 // Shape: { new_loan: ['Awaiting docs', ...], processing: [...], ... }
 // Loaded from /api/settings on page init. Empty arrays / missing keys
@@ -295,9 +296,12 @@ window.netlifyIdentity.on('init', function(user) {
     document.getElementById('ssGearBtn').style.display = '';
     document.getElementById('ttGearBtn').style.display = '';
   }
-  // Load substatuses first (non-blocking), then the board. Settings
-  // failure is non-fatal — tiles just don't get a substatus picker.
-  loadSubstatuses().then(loadAll, loadAll);
+  // Load substatuses + the processor directory (both non-fatal), then the
+  // board. Deploy 236.563 — processors feed the per-card assign picker.
+  Promise.all([
+    loadSubstatuses().catch(function(){}),
+    loadProcessors().catch(function(){}),
+  ]).then(loadAll, loadAll);
 });
 
 // ── Substatus settings ────────────────────────────────────────────
@@ -1039,21 +1043,50 @@ function _userDisplayName() {
   return (u.user_metadata && (u.user_metadata.full_name || u.user_metadata.name))
       || u.fullName || u.name || u.email || '';
 }
+// Deploy 236.563 — load the staff directory (any-authenticated, cached) and
+// keep the processor-eligible subset for the per-card assign picker.
+function loadProcessors() {
+  if (!(window.SLA && SLA.Users && SLA.Users.directory)) return Promise.resolve();
+  return SLA.Users.directory().then(function(r) {
+    var us = (r && r.users) || [];
+    _processors = us.filter(function(u) {
+      var rs = u.roles || [];
+      return rs.indexOf('processor') >= 0 || rs.indexOf('admin') >= 0 || rs.indexOf('super_admin') >= 0;
+    }).map(function(u) { return { email: String(u.email || '').toLowerCase(), name: u.name || u.email }; });
+  });
+}
+// Deploy 236.563 — assignee is now a picker: choose any processor, or "— Assign
+// processor —" to unassign. Selecting yourself = claim. Reuses .card-substatus-sel
+// styling for a consistent pill-select look.
 function _assigneeHtml(it) {
   var ap = it.loan && it.loan.assignedProcessor;
+  var cur = (ap && ap.email) ? String(ap.email).toLowerCase() : '';
   var cid = escAttr(it.client.id), lid = escAttr(it.loan.id), own = escAttr(it.ownerKey);
-  if (ap && ap.email) {
-    return '<div style="display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11px;color:var(--col-approved,#256940)" title="Assigned to ' + escAttr(ap.name || ap.email) + '">' +
-        '<span>👤</span>' +
-        '<span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">' + escH(ap.name || ap.email) + '</span>' +
-        '<button type="button" title="Unassign" data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
-          ' onclick="event.stopPropagation();unassignLoan(this)" onmousedown="event.stopPropagation()"' +
-          ' style="margin-left:auto;border:none;background:transparent;color:var(--muted,#7a7488);cursor:pointer;font-size:11px;padding:2px 4px;flex:none">✕</button>' +
-      '</div>';
+  var opts = '<option value="">— Assign processor —</option>';
+  var found = false;
+  (_processors || []).forEach(function(p) {
+    var sel = (p.email === cur) ? ' selected' : '';
+    if (sel) found = true;
+    opts += '<option value="' + escAttr(p.email) + '" data-name="' + escAttr(p.name || p.email) + '"' + sel + '>' + escH(p.name || p.email) + '</option>';
+  });
+  if (cur && !found) {
+    opts = '<option value="' + escAttr(cur) + '" data-name="' + escAttr((ap && ap.name) || cur) + '" selected>' + escH((ap && ap.name) || cur) + '</option>' + opts;
   }
-  return '<button type="button" title="Assign this loan to yourself" data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
-      ' onclick="event.stopPropagation();claimLoan(this)" onmousedown="event.stopPropagation()"' +
-      ' style="margin-top:8px;font-size:11px;font-weight:600;color:var(--gold-mid,#b5712d);background:var(--gold-light,rgba(200,129,58,0.10));border:1px dashed var(--gold-border,rgba(200,129,58,0.28));border-radius:6px;padding:4px 10px;cursor:pointer;width:100%">+ Claim</button>';
+  var hasVal = cur ? ' has-value' : '';
+  return '<select class="card-substatus-sel' + hasVal + '" title="Assign a processor"' +
+      ' data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
+      ' onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" onchange="assignLoanTo(this)"' +
+      ' style="margin-top:8px;width:100%;max-width:100%">' + opts + '</select>';
+}
+function assignLoanTo(sel) {
+  var email = sel.value || '';
+  var opt = sel.options[sel.selectedIndex];
+  var name = (opt && opt.getAttribute('data-name')) || '';
+  var body = { clientId: sel.getAttribute('data-client-id'), loanId: sel.getAttribute('data-loan-id') };
+  var owner = sel.getAttribute('data-owner'); if (owner) body.owner = owner;
+  if (email) { body.processorEmail = email; body.processorName = name; }
+  else { body.unassign = true; }
+  _assignPost(sel, body);
 }
 function _assignPost(btn, body) {
   if (btn) btn.disabled = true;
