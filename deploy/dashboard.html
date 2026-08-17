@@ -162,6 +162,11 @@
         <input type="checkbox" id="mirrorForce" /> force re-fetch all
       </label>
       <button class="btn-primary" id="mirrorSyncBtn" onclick="runMirrorSync()">Sync from Baseline</button>
+      <!-- Deploy 236.574 — restored the Merge Baseline Duplicates button (the
+           one-shot bring-up buttons were pulled in 236.273, but with the migrate
+           cron this is now a recurring cleanup). Opens the existing dry-run →
+           Commit modal; endpoint is drift-safe as of 236.571. -->
+      <button type="button" id="mergeDupesBtn" onclick="openMergeDupesModal()" style="padding:8px 16px;background:#fff;color:#854d0e;border:1px solid rgba(133,77,14,0.40);border-radius:var(--r-xs, 6px);font-family:'DM Sans',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer">Merge Baseline Duplicates</button>
       <!-- Deploy 236.273 — the one-shot Baseline migration tools
            (Detect Ghosts, Migrate from Baseline, Merge Duplicates,
            Consolidate Borrowers, Pull Borrowers from Baseline,
