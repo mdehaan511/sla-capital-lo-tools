@@ -94,6 +94,9 @@
       isUserMenu: true,
       children: [
         { label: 'Profile',  href: '/profile.html' },
+        // Deploy 236.580 — super-admin User Management (invite / roles / edit
+        // name+phone / delete). Lives in the profile menu per Mike.
+        { label: 'User Management', href: '/users-admin.html', requires: 'super_admin' },
         { label: 'Sign out', action: 'logout' },
       ],
     },

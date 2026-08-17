@@ -5645,11 +5645,13 @@ function generatePofLetter() {
     return;
   }
   var known = {
-    propertyAddress:   (_loan.address || '').trim(),
-    borrowerFirstName: (_client.firstName || '').trim(),
-    loEmail:           loEmail,
-    loName:            '',
-    loPhone:           '',
+    propertyAddress: (_loan.address || '').trim(),
+    // Deploy 236.580 — the letter names the GUARANTOR by full name (first +
+    // last), not just a first name.
+    guarantorName:   ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim(),
+    loEmail:         loEmail,
+    loName:          '',
+    loPhone:         '',
   };
   var finish = function () { _pofDecide(known); };
   // Pull the assigned LO's name + phone from the directory (phone added 236.578).
@@ -5670,20 +5672,20 @@ function generatePofLetter() {
 
 function _pofDecide(f) {
   var missing = [];
-  if (!f.propertyAddress)   missing.push('propertyAddress');
-  if (!f.borrowerFirstName) missing.push('borrowerFirstName');
-  if (!f.loName)            missing.push('loName');
-  if (!f.loPhone)           missing.push('loPhone');
+  if (!f.propertyAddress) missing.push('propertyAddress');
+  if (!f.guarantorName)   missing.push('guarantorName');
+  if (!f.loName)          missing.push('loName');
+  if (!f.loPhone)         missing.push('loPhone');
   if (!missing.length) { _pofRender(f); return; }
   _pofOpenModal(f, missing);
 }
 
 function _pofOpenModal(f, missing) {
   var labels = {
-    propertyAddress:   'Property Address',
-    borrowerFirstName: 'Borrower First Name',
-    loName:            'Loan Officer Name',
-    loPhone:           'Loan Officer Phone Number',
+    propertyAddress: 'Property Address',
+    guarantorName:   'Guarantor Name (First & Last)',
+    loName:          'Loan Officer Name',
+    loPhone:         'Loan Officer Phone Number',
   };
   var old = document.getElementById('pofModal'); if (old) old.remove();
   var rows = '';
@@ -5733,7 +5735,7 @@ function _pofModalSubmit() {
     var el = document.getElementById('pof-' + k);
     if (el) f[k] = el.value.trim();
   });
-  var reqLabels = { propertyAddress: 'Property Address', borrowerFirstName: 'Borrower First Name', loName: 'Loan Officer Name', loPhone: 'Loan Officer Phone Number' };
+  var reqLabels = { propertyAddress: 'Property Address', guarantorName: 'Guarantor Name', loName: 'Loan Officer Name', loPhone: 'Loan Officer Phone Number' };
   for (var k in reqLabels) {
     if (!f[k]) { if (err) err.textContent = reqLabels[k] + ' is required.'; return; }
   }
@@ -5795,12 +5797,13 @@ function _pofBuildPdf(f, logoImg) {
       var cx = c.getContext('2d');
       cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, c.width, c.height);
       cx.drawImage(logoImg, 0, 0, c.width, c.height);
-      doc.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', lm, y, logoW, logoH);
+      // Deploy 236.580 — center the letterhead logo.
+      doc.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', (W - logoW) / 2, y, logoW, logoH);
       y += logoH + 26;
     } else { throw new Error('no logo'); }
   } catch (e) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(38, 26, 54);
-    doc.text('SLA Capital', lm, y + 14); y += 42;
+    doc.text('SLA Capital', W / 2, y + 14, { align: 'center' }); y += 42;
   }
 
   doc.setTextColor(30, 30, 30);
@@ -5815,7 +5818,7 @@ function _pofBuildPdf(f, logoImg) {
   line(_pofFmtDate(new Date()), 26);
   doc.setFont('helvetica', 'bold'); line('Re: ' + f.propertyAddress, 22); doc.setFont('helvetica', 'normal');
   line('To whom it may concern,', 20);
-  para('Our client ' + f.borrowerFirstName + ' is preapproved and has funding sources available and is preapproved with our company to purchase the subject.', 12);
+  para('Our client ' + f.guarantorName + ' is preapproved and has funding sources available and is preapproved with our company to purchase the subject.', 12);
   para('These funds are available at the request of Sir Lends A Lot LLC DBA SLA Capital during normal banking hours.', 12);
   para('Please do not hesitate to contact us at our office at ' + f.loPhone + ' at anytime between 9am and 5pm PST Monday through Friday.', 22);
   line('Thank You,', 30);
