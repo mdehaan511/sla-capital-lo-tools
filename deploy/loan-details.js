@@ -488,6 +488,14 @@ var _LD_STAGE_LABELS = {
 function _pipelineBadgeContent(loan, pipelineColFallback) {
   var stage = String(loan && loan.processingStage || '').toLowerCase().trim();
   var sub   = String(loan && loan.processingSubstatus || '').trim();
+  // Deploy 236.583 — a terminally-closed loan reads "Closed" even when its
+  // processingStage was never advanced past an earlier stage (Baseline-closed
+  // loans keep their pre-close stage). Status wins over the stale stage, so the
+  // badge doesn't say "Processing: Underwriting" on a closed loan.
+  var _st = String(loan && loan.status || '').toLowerCase().trim();
+  if ((_st === 'closed' || _st === 'sold' || _st === 'liquidated') && stage !== 'pp_closed') {
+    return { lbl: 'Processing:', val: 'Closed', title: 'Processing Pipeline: Closed' };
+  }
   if (stage && _LD_STAGE_LABELS[stage]) {
     var label = _LD_STAGE_LABELS[stage];
     var val   = sub ? (label + ' \u00b7 ' + sub) : label;

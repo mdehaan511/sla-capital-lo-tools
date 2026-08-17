@@ -415,31 +415,33 @@ function fmtCloseDate(closeDateStr) {
 function columnFor(loan) {
   // Deploy 236.572 — paused / dead loans leave the ACTIVE processing board
   // entirely (On Hold via the drag drop-bar; denied / cancelled). They stay on
-  // the Loans page + Loan Details and reappear here if reactivated. 'closed' is
-  // NOT here — it still buckets into pp_closed below for the Closed Pipeline.
+  // the Loans page + Loan Details and reappear here if reactivated.
   var st0 = String(loan.status || '').toLowerCase().trim();
   if (st0 === 'on_hold' || st0 === 'denied' || st0 === 'cancelled') return null;
+
+  // Deploy 236.583 — a terminal CLOSED status WINS over processingStage. Many
+  // Baseline-closed loans kept a stale pre-close stage (e.g. underwriting), and
+  // because the stage checks ran first, they wrongly showed in an ACTIVE column
+  // instead of the Closed pipeline. Status is the source of truth for "is this
+  // done". Sold / In Servicing / Liquidated / Paid Off are fully offloaded → not
+  // shown at all (SLA rolls all four Baseline states into status='closed', so we
+  // discriminate on baselineStatus).
+  if (st0 === 'closed') {
+    var bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+    if (bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off') {
+      return null; // truly offloaded — live only on the Loans page
+    }
+    return 'pp_closed'; // Baseline 'Closed' or SLA-native close → Closed pipeline
+  }
+  if (st0 === 'sold' || st0 === 'liquidated') return null;
+
   var stage = String(loan.processingStage || '').toLowerCase().trim();
   if (stage === 'processing')   return 'processing';
   if (stage === 'underwriting') return 'underwriting';
   if (stage === 'pp_approved')  return 'pp_approved';
   if (stage === 'pp_closed')    return 'pp_closed';
   if (stage === 'new_loan')     return 'new_loan';
-  var status = String(loan.status || '').toLowerCase().trim();
-  // Deploy 236.206 — refined 236.205's blanket removal. "Closed"
-  // means SLA closed the loan but hasn't handed it off yet — it
-  // belongs in pp_closed. Only Sold / In Servicing / Paid Off
-  // (Liquidated) — the truly-offloaded states — drop off the
-  // pipeline. SLA rolls all four Baseline states into
-  // status='closed', so we discriminate on baselineStatus.
-  if (status === 'closed') {
-    var bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
-    if (bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off') {
-      return null; // truly offloaded — live only on the Loans page
-    }
-    return 'pp_closed'; // Baseline 'Closed' or SLA-native close → stays in the pipeline
-  }
-  if (status === 'approved') return 'new_loan';
+  if (st0 === 'approved') return 'new_loan';
   return null; // not in this pipeline
 }
 
