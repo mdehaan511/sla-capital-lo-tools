@@ -538,7 +538,15 @@ function priceDSCR(raw) {
   var pmt1 = pi1+taxes+ins+hoa;
   var dscr1 = pmt1>0&&rent>0?rent/pmt1:null;
 
-  if (dscr1!==null&&dscr1<1.0) return {error:'DSCR '+dscr1.toFixed(2)+'x is below minimum 1.00x.' + EXCEPTION_HINT};
+  // Deploy 236.584 — DSCR-below-1.0 is a MANAGER-EXCEPTION case, not a hard
+  // stop. Waive the floor when the admin sandbox is on OR a manager exception
+  // has been granted (raw.dscrException, set by the sizer's Below-1.0 ack). The
+  // loan then prices normally through the 1.00-1.19 band below. We still tag the
+  // error return with dscr + dscrBelowMin so the sizer can show a "Submit
+  // manager exception" button on the ineligible card.
+  if (dscr1!==null && dscr1<1.0 && !adminSandbox && raw.dscrException!==true) {
+    return {error:'DSCR '+dscr1.toFixed(2)+'x is below minimum 1.00x.' + EXCEPTION_HINT, dscr: dscr1, dscrBelowMin: true};
+  }
 
   // DSCR adj
   var dscrAdj = 0;

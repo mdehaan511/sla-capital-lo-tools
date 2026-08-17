@@ -428,7 +428,7 @@
   <div class="ow-modal">
     <h3>⚠ DSCR Below 1.0 — Manager Approval Required</h3>
     <div class="ow-body">
-      The calculated DSCR for this loan is <strong id="dscrBelow1Value">below 1.0</strong>. Allowing DSCRs below 1.0 requires managerial approval, and the auto-calculated pricing no longer applies. You must manually enter the manager-approved <strong>Note Rate</strong> and <strong>Origination Points</strong>. Cancel returns to the form so you can adjust the inputs instead.
+      The calculated DSCR for this loan is <strong id="dscrBelow1Value">below 1.0</strong>, which is below the 1.00x program minimum and requires <strong>manager approval</strong> as an exception. Confirming will price the loan so it can be saved; you can still pencil-override the <strong>Note Rate</strong> and <strong>Origination Points</strong> if your manager approved different terms. Cancel returns to the form so you can adjust the inputs instead.
     </div>
     <div class="ow-actions">
       <button type="button" onclick="cancelDscrBelow1()">Cancel</button>
@@ -461,7 +461,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="dscr-pricing.js"></script>
+<script src="dscr-pricing.js?v=236584"></script>
 <script>
 // Deploy 236.406 (Hardening G1) — pricing engine extracted to
 // dscr-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -950,12 +950,22 @@ function calculate() {
     // Deploy 236.526 — Admin Sandbox: bypass the 80% LTV cap. Admin-gated
     // (the toggle only renders for admins), so this is false for everyone else.
     adminSandbox:  !!window._dscrAdminMode,
+    // Deploy 236.584 — manager exception for a sub-1.0 DSCR. Once the LO
+    // acknowledges the Below-1.0 modal (_dscrBelow1), the engine waives the DSCR
+    // floor and prices the loan (LO enters the manager-approved rate/points).
+    dscrException: !!window._dscrBelow1,
   });
 }
 
 function renderResult(r) {
   if (r.error) {
-    return '<div class="rate-card"><div class="rate-header"><div class="rate-header-left"><div class="lender">SLA Capital</div><div class="prog">DSCR &mdash; 1&ndash;4 Unit</div></div></div><div class="rate-body"><div class="inelig">&#9888; '+r.error+'</div></div></div>';
+    // Deploy 236.584 — a sub-1.0 DSCR is a manager-EXCEPTION case, not a dead
+    // end. Show a button that opens the manager-approval modal; on approval the
+    // engine waives the DSCR floor and the loan prices + can be saved.
+    var excBtn = r.dscrBelowMin
+      ? '<div style="margin-top:12px;text-align:center"><button type="button" onclick="_showDscrBelow1Modal(' + (typeof r.dscr === 'number' ? r.dscr : 0) + ')" style="background:var(--gold,#C8813A);color:#fff;border:none;border-radius:6px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Submit manager exception</button></div>'
+      : '';
+    return '<div class="rate-card"><div class="rate-header"><div class="rate-header-left"><div class="lender">SLA Capital</div><div class="prog">DSCR &mdash; 1&ndash;4 Unit</div></div></div><div class="rate-body"><div class="inelig">&#9888; '+r.error+'</div>'+excBtn+'</div></div>';
   }
 
   // Guideline validation banners
@@ -1708,15 +1718,16 @@ function cancelDscrBelow1() {
 }
 function confirmDscrBelow1() {
   window._dscrBelow1 = true;
-  // Pre-authorize the standard override warning so the LO isn't
-  // asked twice — first the below-1.0 modal, then the standard
-  // override modal on the pencil click.
+  // Pre-authorize the standard override warning so the LO isn't asked twice if
+  // they then pencil-edit the manager-approved Note Rate / Origination Points.
   window._dscrOverrides.warningAcknowledged = true;
   var ov = document.getElementById('dscrBelow1Overlay');
   if (ov) ov.classList.remove('open');
-  // Drop the LO straight into the Note Rate input; Origination
-  // Points is then a normal pencil click.
-  _openOverrideInput('rate');
+  // Deploy 236.584 — re-price now that the manager exception is granted. The
+  // engine waives the DSCR floor and the full rate card appears; the LO can
+  // pencil-override the rate/points if the manager approved different terms,
+  // then Save.
+  run();
 }
 
 function enableOverrideEdit(fieldKey) {

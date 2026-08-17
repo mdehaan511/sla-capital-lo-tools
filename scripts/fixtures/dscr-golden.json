@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T05:20:50.614Z",
+  "generatedAt": "2026-08-17T22:45:03.303Z",
   "source": "deploy/dscr-pricing.js (extracted module, --from-module)",
   "effectiveDate": "August 12, 2026",
   "scenarios": [
@@ -2770,7 +2770,9 @@
       "error": "FICO 680-699 is not available at 79.2% LTV. Maximum LTV for FICO 680-699 is 70%. Maximum loan at this property value is $420,000. Reach out to a manager to submit an exception request."
     },
     "err-dscr-below-1": {
-      "error": "DSCR 0.49x is below minimum 1.00x. Reach out to a manager to submit an exception request."
+      "error": "DSCR 0.49x is below minimum 1.00x. Reach out to a manager to submit an exception request.",
+      "dscr": 0.48971086879416464,
+      "dscrBelowMin": true
     },
     "warn-ineligible-state": {
       "loanType": "30Y Fixed",
