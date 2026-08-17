@@ -542,12 +542,16 @@ function render() {
     source = { cl_close_out: [], cl_investor: [], cl_boarding: [], cl_servicing: [] };
     (_items.pp_closed || []).forEach(function(it) { source[closeColumnFor(it.loan)].push(it); });
   } else {
+    // Deploy 236.569 — the active board no longer LISTS closed loans (they
+    // cluttered the processing pipeline; they live in the Closed Pipeline
+    // view now). The pp_closed column stays as a drop-only zone so a loan can
+    // still be dragged to Closed — but its cards aren't rendered here.
     cols = [
       { key: 'new_loan',     label: 'Lead' },
       { key: 'processing',   label: 'Processing' },
       { key: 'underwriting', label: 'Underwriting' },
       { key: 'pp_approved',  label: 'Approved' },
-      { key: 'pp_closed',    label: 'Closed' },
+      { key: 'pp_closed',    label: 'Closed', dropOnly: true },
     ];
     source = _items;
   }
@@ -559,15 +563,24 @@ function render() {
   var html = '<div class="board' + (_view === 'closed' ? ' cols-4' : '') + '">';
   cols.forEach(function(col) {
     var items = (source[col.key] || []).filter(visible);
+    // Deploy 236.569 — drop-only Closed column on the active board: don't list
+    // the closed cards (they belong to the Closed Pipeline). The head shows a
+    // live count that jumps to the Closed view.
+    var dropOnly = _view !== 'closed' && col.dropOnly;
+    var closedCount = dropOnly ? items.length : 0;
+    if (dropOnly) items = [];
+    var headCnt = dropOnly
+      ? '<span class="cnt" title="View the Closed Pipeline" style="cursor:pointer" onclick="setPipelineView(\'closed\')">' + closedCount + ' &rsaquo;</span>'
+      : '<span class="cnt">' + items.length + '</span>';
     html += '<div class="col" data-col="' + col.key + '"' +
       ' ondragover="onColDragOver(event)"' +
       ' ondragenter="onColDragEnter(event)"' +
       ' ondragleave="onColDragLeave(event)"' +
       ' ondrop="onColDrop(event)">' +
-      '<div class="col-head"><h3>' + escH(col.label) + '</h3><span class="cnt">' + items.length + '</span></div>' +
+      '<div class="col-head"><h3>' + escH(col.label) + '</h3>' + headCnt + '</div>' +
       '<div class="cards">';
     if (items.length === 0) {
-      html += '<div class="empty-col">Drop here</div>';
+      html += '<div class="empty-col">' + (dropOnly ? 'Drag a loan here to mark it Closed' : 'Drop here') + '</div>';
     } else {
       items.forEach(function(it) { html += renderCard(it); });
     }
