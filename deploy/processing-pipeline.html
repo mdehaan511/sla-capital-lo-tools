@@ -466,6 +466,46 @@ function _processPipelineClients(clientsResp) {
     });
   }
 
+  // Deploy 236.570 — display-dedup. While Baseline runs in dry-run, the
+  // migrate cron creates an import copy (id "l_baseline_*") for EVERY Baseline
+  // loan — including deals that already exist as a native SLA loan, because the
+  // native-link pairing / fallback matcher stays gated off until dry-run is
+  // disabled. Result: the same property showed as two cards. Suppress the
+  // import copy when a native loan shares its (normalized) address. This is a
+  // DISPLAY fix only — non-destructive, reversible, and import-copy-only deals
+  // (no native counterpart) still show. The permanent record merge is separate.
+  (function dedupeImportCopies() {
+    function normAddr(a) {
+      if (!a) return '';
+      var t = String(a).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      if (!t) return '';
+      var AB = { st:'street', str:'street', ave:'avenue', av:'avenue', rd:'road', dr:'drive',
+        cir:'circle', ct:'court', ln:'lane', pl:'place', blvd:'boulevard', pkwy:'parkway',
+        hwy:'highway', ter:'terrace', terr:'terrace', sq:'square', trl:'trail', n:'north',
+        s:'south', e:'east', w:'west', ne:'northeast', nw:'northwest', se:'southeast', sw:'southwest' };
+      return t.split(/\s+/).map(function(x){ return AB[x] || x; }).join(' ');
+    }
+    function isImport(loan) { return /^l_baseline_/.test(String(loan && loan.id || '')); }
+    var nativeAddrs = {};
+    Object.keys(_items).forEach(function(col) {
+      _items[col].forEach(function(it) {
+        if (isImport(it.loan)) return;
+        var na = normAddr(it.loan.address);
+        if (na && na.length >= 10) nativeAddrs[na] = true;
+      });
+    });
+    var suppressed = 0;
+    Object.keys(_items).forEach(function(col) {
+      _items[col] = _items[col].filter(function(it) {
+        if (!isImport(it.loan)) return true;
+        var na = normAddr(it.loan.address);
+        if (na && na.length >= 10 && nativeAddrs[na]) { suppressed++; return false; }
+        return true;
+      });
+    });
+    if (suppressed) console.log('[SLA] pipeline: suppressed ' + suppressed + ' Baseline import-copy duplicate card(s)');
+  })();
+
   Object.keys(_items).forEach(function(col) {
     _items[col].sort(function(a, b) {
       var aDays = daysUntilClose(a.loan.fundingDate);
