@@ -139,27 +139,42 @@ async function handle(req, context) {
   const allEntries = [];
   let clientCount = 0;
   try {
+    // Deploy 236.581 — the old walk did a SEQUENTIAL store.get() per client
+    // blob (thousands), which blew past even the 26s function timeout → 504.
+    // Read the blobs in bounded-concurrency batches instead (≈40 at a time):
+    // the whole scan drops from ~minutes to a few seconds. We keep reading the
+    // FULL client objects (not a PG projection) so performMerge writes back the
+    // complete record with no field loss.
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
-      clientCount++;
-      const slash = key.indexOf('/');
-      if (slash < 0) continue;
-      const ownerKey = key.slice(0, slash);
-      const clientId = key.slice(slash + 1);
-      const client   = await store.get(key, { type: 'json' });
-      if (!client || !Array.isArray(client.loans)) continue;
-      for (const loan of client.loans) {
-        const entry = { ownerKey, clientId, clientKey: key, loan, client };
-        allEntries.push(entry);
-        const disp = loan && loan.slaDisplayId;
-        if (disp) {
-          if (!idIndex.has(disp)) idIndex.set(disp, []);
-          idIndex.get(disp).push(entry);
-        }
-        const norm = _normAddr(loan && loan.address);
-        if (norm && norm.length >= MIN_ADDR_LEN) {
-          if (!addrIndex.has(norm)) addrIndex.set(norm, []);
-          addrIndex.get(norm).push(entry);
+    const keys = blobs.map((b) => b.key);
+    clientCount = keys.length;
+    const READ_BATCH = 60;
+    for (let i = 0; i < keys.length; i += READ_BATCH) {
+      const slice = keys.slice(i, i + READ_BATCH);
+      const clients = await Promise.all(
+        slice.map((k) => store.get(k, { type: 'json' }).catch(() => null))
+      );
+      for (let j = 0; j < slice.length; j++) {
+        const key = slice[j];
+        const client = clients[j];
+        if (!client || !Array.isArray(client.loans)) continue;
+        const slash = key.indexOf('/');
+        if (slash < 0) continue;
+        const ownerKey = key.slice(0, slash);
+        const clientId = key.slice(slash + 1);
+        for (const loan of client.loans) {
+          const entry = { ownerKey, clientId, clientKey: key, loan, client };
+          allEntries.push(entry);
+          const disp = loan && loan.slaDisplayId;
+          if (disp) {
+            if (!idIndex.has(disp)) idIndex.set(disp, []);
+            idIndex.get(disp).push(entry);
+          }
+          const norm = _normAddr(loan && loan.address);
+          if (norm && norm.length >= MIN_ADDR_LEN) {
+            if (!addrIndex.has(norm)) addrIndex.set(norm, []);
+            addrIndex.get(norm).push(entry);
+          }
         }
       }
     }
@@ -179,7 +194,21 @@ async function handle(req, context) {
   let mergedById = 0, deletedById = 0;
   let mergedByAddr = 0, deletedByAddr = 0;
 
+  // Deploy 236.581 — cap real merges per invocation so a large backlog can't
+  // run past the 26s timeout mid-write. Committed merges are durable and
+  // re-running Commit resumes (merged copies are already gone). Dry-run is
+  // uncapped (no writes) so its report shows the FULL potential count.
+  const MAX_COMMIT_MERGES = 40;
+  let mergesCommitted = 0;
+  let deferredByCap = 0;
+  let capHit = false;
+
   async function performMerge(nativeEntry, importCopies, matchKind, matchValue) {
+    // Only real writes are capped; a dry-run counts everything.
+    if (!dryRun && mergesCommitted >= MAX_COMMIT_MERGES) {
+      capHit = true; deferredByCap++;
+      return { ok: false, capped: true };
+    }
     try {
       const nativeClient = nativeEntry.client;
       const nativeLoan   = nativeEntry.loan;
@@ -220,6 +249,7 @@ async function handle(req, context) {
           });
         }
       }
+      if (!dryRun) mergesCommitted++;
       handled.add(nativeEntry.clientKey);
       for (const ic of importCopies) handled.add(ic.clientKey);
       return { ok: true, pulled, externalId: extId };
@@ -371,6 +401,11 @@ async function handle(req, context) {
     ok: true,
     dryRun,
     clientCount,
+    // Deploy 236.581 — when a commit hit the per-run cap, more duplicates
+    // remain; the dashboard keeps the Commit button live so the admin can run
+    // it again (each run is durable + resumable).
+    hasMore: capHit,
+    remaining: deferredByCap,
     // Aggregate totals for the header tiles.
     merged:  mergedById + mergedByAddr,
     deleted: deletedById + deletedByAddr,

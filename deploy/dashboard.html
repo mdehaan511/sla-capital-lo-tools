@@ -2641,9 +2641,13 @@ function _renderMergeDupesReport(r) {
   var body     = document.getElementById('mergeDupesBody');
   var commit   = document.getElementById('mergeDupesCommitBtn');
   var dryRun   = !!r.dryRun;
+  // Deploy 236.581 — commits are now capped per run (so they never hit the 26s
+  // timeout). When more duplicates remain, the admin just clicks Commit again.
   subtitle.textContent = dryRun
     ? 'Dry-run report — nothing has been merged yet. Review below and click Commit Merge to write.'
-    : '✓ Merge committed. Baseline metadata is now on the LO\'s loans; import-copy client records deleted.';
+    : (r.hasMore
+        ? '✓ Merged a batch. ' + (r.remaining ? r.remaining + '+ ' : '') + 'more duplicate(s) remain — click Commit Merge again to continue.'
+        : '✓ Merge committed. Baseline metadata is now on the LO\'s loans; import-copy client records deleted.');
 
   var byId   = r.byId   || { merged: 0, deleted: 0, ambiguousCount: 0, ambiguous: [], samples: [] };
   var byAddr = r.byAddr || { merged: 0, deleted: 0, ambiguousCount: 0, ambiguous: [], samples: [] };
@@ -2751,7 +2755,12 @@ function _renderMergeDupesReport(r) {
   }
 
   body.innerHTML = summaryTiles + idSamplesHtml + addrSamplesHtml + ambigHtml + errorsHtml + nextStep;
-  commit.disabled = !(dryRun && (r.merged > 0 || links.written > 0));
+  // Deploy 236.581 — dry-run: enable Commit when there's something to do. After
+  // a commit: keep it enabled only if the per-run cap left more to merge.
+  commit.disabled = dryRun ? !(r.merged > 0 || links.written > 0) : !r.hasMore;
+  commit.textContent = (!dryRun && r.hasMore)
+    ? 'Commit Merge (continue' + (r.remaining ? ' — ' + r.remaining + '+ left' : '') + ')'
+    : 'Commit Merge (writes to SLA)';
 }
 
 // Deploy 236.176 — single-loan delete from mirror. Called from
