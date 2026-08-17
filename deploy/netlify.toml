@@ -408,6 +408,12 @@
   to = "/.netlify/functions/loan-processing-stage"
   status = 200
   force = true
+# Deploy 236.559 — processing-team rollout: assign a processor to a loan.
+[[redirects]]
+  from = "/api/loan-assign-processor"
+  to = "/.netlify/functions/loan-assign-processor"
+  status = 200
+  force = true
 
 # Deploy 236.98 (Phase B.1) — narrow field-edit endpoint for Loan
 # Details inline editors (close date today; rate/points/etc. added

@@ -171,6 +171,8 @@
         <select class="lo-filter" id="loFilter" style="display:none">
           <option value="">All Loan Officers</option>
         </select>
+        <!-- Deploy 236.559 — filter to loans assigned to me. -->
+        <button type="button" class="lo-filter" id="myLoansToggle" style="display:none" onclick="toggleMyLoans()" title="Show only loans assigned to me">My Loans</button>
         <button type="button" class="gear-btn" id="ssGearBtn" style="display:none" onclick="openSubstatusEditor()" title="Edit substatuses (admin)">⚙ Substatuses</button>
         <button type="button" class="gear-btn" id="ttGearBtn" style="display:none" onclick="openTaskTemplatesEditor()" title="Edit per-stage task templates (admin)">⚙ Task Templates</button>
       </div>
@@ -227,6 +229,7 @@ var _isStaff = false;
 var _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
 var _loDisplayMap = {}; // ownerKey -> display name
 var _loFilterValue = '';
+var _myLoansOnly = false; // Deploy 236.559 — "My Loans" assignment filter
 // Deploy 236.97 (Phase F) — admin-configurable substatuses per column.
 // Shape: { new_loan: ['Awaiting docs', ...], processing: [...], ... }
 // Loaded from /api/settings on page init. Empty arrays / missing keys
@@ -284,6 +287,7 @@ window.netlifyIdentity.on('init', function(user) {
   // across every LO's pipeline. Settings gears remain admin-only.
   if (_isStaff) {
     document.getElementById('loFilter').style.display = '';
+    var _mlt = document.getElementById('myLoansToggle'); if (_mlt) _mlt.style.display = '';
   }
   if (_isAdmin) {
     document.getElementById('ssGearBtn').style.display = '';
@@ -500,6 +504,12 @@ function render() {
 
   function visible(it) {
     if (loFilter && (it.ownerKey || '').toLowerCase() !== loFilter) return false;
+    // Deploy 236.559 — "My Loans": only loans assigned to the current user.
+    if (_myLoansOnly) {
+      var _ap = it.loan && it.loan.assignedProcessor;
+      var _me = String((_user && _user.email) || '').toLowerCase();
+      if (!_ap || String(_ap.email || '').toLowerCase() !== _me) return false;
+    }
     if (search) {
       var hay = (
         (it.loan.address || '') + ' ' +
@@ -660,6 +670,7 @@ function renderCard(it) {
       substatusHtml +
       '<div class="card-amt">' + escH(amt) + '</div>' +
       '<div class="card-borrower">' + escH(name) + '</div>' +
+      _assigneeHtml(it) +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
         closeInput +
@@ -916,6 +927,63 @@ function editCloseDate(input) {
 // Deploy 236.97 (Phase F) — substatus picker handler. Posts the new
 // substatus alongside the loan's CURRENT stage so the endpoint treats
 // it as a substatus-only change (no stage transition).
+// ── Deploy 236.559 — processor assignment (Claim / Unassign / My Loans) ──
+function _userDisplayName() {
+  var u = _user || {};
+  return (u.user_metadata && (u.user_metadata.full_name || u.user_metadata.name))
+      || u.fullName || u.name || u.email || '';
+}
+function _assigneeHtml(it) {
+  var ap = it.loan && it.loan.assignedProcessor;
+  var cid = escAttr(it.client.id), lid = escAttr(it.loan.id), own = escAttr(it.ownerKey);
+  if (ap && ap.email) {
+    return '<div style="display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11px;color:var(--col-approved,#256940)" title="Assigned to ' + escAttr(ap.name || ap.email) + '">' +
+        '<span>👤</span>' +
+        '<span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">' + escH(ap.name || ap.email) + '</span>' +
+        '<button type="button" title="Unassign" data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
+          ' onclick="event.stopPropagation();unassignLoan(this)" onmousedown="event.stopPropagation()"' +
+          ' style="margin-left:auto;border:none;background:transparent;color:var(--muted,#7a7488);cursor:pointer;font-size:11px;padding:2px 4px;flex:none">✕</button>' +
+      '</div>';
+  }
+  return '<button type="button" title="Assign this loan to yourself" data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
+      ' onclick="event.stopPropagation();claimLoan(this)" onmousedown="event.stopPropagation()"' +
+      ' style="margin-top:8px;font-size:11px;font-weight:600;color:var(--gold-mid,#b5712d);background:var(--gold-light,rgba(200,129,58,0.10));border:1px dashed var(--gold-border,rgba(200,129,58,0.28));border-radius:6px;padding:4px 10px;cursor:pointer;width:100%">+ Claim</button>';
+}
+function _assignPost(btn, body) {
+  if (btn) btn.disabled = true;
+  SLA.api('POST', '/api/loan-assign-processor', body).then(function(r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    return loadAll();
+  }).catch(function(err) {
+    if (btn) btn.disabled = false;
+    showToast('Assignment failed: ' + (err && err.message ? err.message : 'unknown'));
+  });
+}
+function claimLoan(btn) {
+  _assignPost(btn, {
+    clientId: btn.getAttribute('data-client-id'),
+    loanId:   btn.getAttribute('data-loan-id'),
+    owner:    btn.getAttribute('data-owner') || undefined,
+    processorEmail: _user && _user.email,
+    processorName:  _userDisplayName(),
+  });
+}
+function unassignLoan(btn) {
+  _assignPost(btn, {
+    clientId: btn.getAttribute('data-client-id'),
+    loanId:   btn.getAttribute('data-loan-id'),
+    owner:    btn.getAttribute('data-owner') || undefined,
+    unassign: true,
+  });
+}
+function toggleMyLoans() {
+  _myLoansOnly = !_myLoansOnly;
+  var btn = document.getElementById('myLoansToggle');
+  if (btn) btn.classList.toggle('has-value', _myLoansOnly);
+  render();
+}
+
 function moveLoanSubstatus(sel) {
   var newSub  = sel.value || '';
   var current = sel.dataset.current || '';
