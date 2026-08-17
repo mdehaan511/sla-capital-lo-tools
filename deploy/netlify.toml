@@ -431,6 +431,13 @@
   status = 200
   force = true
 
+# Deploy 236.572 — put a loan On Hold from the pipeline drag drop-bar.
+[[redirects]]
+  from = "/api/loan-set-hold"
+  to = "/.netlify/functions/loan-set-hold"
+  status = 200
+  force = true
+
 # Deploy 236.98 (Phase B.1) — narrow field-edit endpoint for Loan
 # Details inline editors (close date today; rate/points/etc. added
 # as the unification work continues).

@@ -125,6 +125,14 @@
     .lo-tag { font-size: 10px; font-weight: 600; color: var(--muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.04em; }
 
     .empty-col { font-size: 11px; color: rgba(122,116,136,0.55); text-align: center; padding: 18px 8px; font-style: italic; }
+    /* Deploy 236.572 — drag drop-bar (On Hold / Closed) */
+    .drag-action-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); display: none; gap: 14px; z-index: 900; opacity: 0; transition: opacity .15s ease, transform .15s ease; pointer-events: none; }
+    .drag-action-bar.show { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+    .drag-action-zone { display: flex; align-items: center; gap: 8px; padding: 16px 28px; border-radius: 14px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; color: var(--muted); background: var(--surface, #fff); border: 2px dashed var(--border); box-shadow: 0 8px 28px rgba(0,0,0,0.14); cursor: copy; user-select: none; }
+    .drag-action-zone .dab-icon { font-size: 18px; }
+    .drag-action-zone strong { font-weight: 800; }
+    .drag-action-zone.hold.drop-target   { border-color: #b5712d; color: #b5712d; background: rgba(181,113,45,0.10); }
+    .drag-action-zone.closed.drop-target  { border-color: var(--col-closed, #4a4a4a); color: var(--col-closed, #4a4a4a); background: var(--col-closed-bg, rgba(74,74,74,0.10)); }
     .loading { font-size: 13px; color: var(--muted); padding: 2rem; text-align: center; }
 
     /* Deploy 236.100 — dropped the Move/substatus dropdown footer on
@@ -186,6 +194,22 @@
       <button type="button" class="pp-view-tab" data-view="overview" onclick="setPipelineView('overview')">Team Overview</button>
     </div>
     <div id="boardWrap"><div class="loading">Loading pipeline…</div></div>
+  </div>
+
+  <!-- Deploy 236.572 — drag drop-bar. Appears at the bottom while a card is
+       being dragged (active board only); drop a loan on a zone to move it to
+       On Hold or Closed. Hidden otherwise. -->
+  <div id="dragActionBar" class="drag-action-bar" aria-hidden="true">
+    <div class="drag-action-zone hold" data-action="hold"
+         ondragover="onDragBarOver(event)" ondragenter="onDragBarEnter(event)"
+         ondragleave="onDragBarLeave(event)" ondrop="onDragBarDrop(event)">
+      <span class="dab-icon">⏸</span> Move to <strong>On Hold</strong>
+    </div>
+    <div class="drag-action-zone closed" data-action="closed"
+         ondragover="onDragBarOver(event)" ondragenter="onDragBarEnter(event)"
+         ondragleave="onDragBarLeave(event)" ondrop="onDragBarDrop(event)">
+      <span class="dab-icon">🏁</span> Move to <strong>Closed</strong>
+    </div>
   </div>
 
   <!-- Deploy 236.97 (Phase F) — admin substatus editor modal. -->
@@ -380,6 +404,12 @@ function fmtCloseDate(closeDateStr) {
 // LO Pipeline. Once stage transitions ship in A.2, processingStage
 // alone will drive placement.
 function columnFor(loan) {
+  // Deploy 236.572 — paused / dead loans leave the ACTIVE processing board
+  // entirely (On Hold via the drag drop-bar; denied / cancelled). They stay on
+  // the Loans page + Loan Details and reappear here if reactivated. 'closed' is
+  // NOT here — it still buckets into pp_closed below for the Closed Pipeline.
+  var st0 = String(loan.status || '').toLowerCase().trim();
+  if (st0 === 'on_hold' || st0 === 'denied' || st0 === 'cancelled') return null;
   var stage = String(loan.processingStage || '').toLowerCase().trim();
   if (stage === 'processing')   return 'processing';
   if (stage === 'underwriting') return 'underwriting';
@@ -582,16 +612,14 @@ function render() {
     source = { cl_close_out: [], cl_investor: [], cl_boarding: [], cl_servicing: [] };
     (_items.pp_closed || []).forEach(function(it) { source[closeColumnFor(it.loan)].push(it); });
   } else {
-    // Deploy 236.569 — the active board no longer LISTS closed loans (they
-    // cluttered the processing pipeline; they live in the Closed Pipeline
-    // view now). The pp_closed column stays as a drop-only zone so a loan can
-    // still be dragged to Closed — but its cards aren't rendered here.
+    // Deploy 236.572 — the active board is 4 columns; there is no Closed column.
+    // Closing a loan is done by dragging it onto the "Closed" zone in the drag
+    // drop-bar (which moves it to the Closed Pipeline). "On Hold" lives there too.
     cols = [
       { key: 'new_loan',     label: 'Lead' },
       { key: 'processing',   label: 'Processing' },
       { key: 'underwriting', label: 'Underwriting' },
       { key: 'pp_approved',  label: 'Approved' },
-      { key: 'pp_closed',    label: 'Closed', dropOnly: true },
     ];
     source = _items;
   }
@@ -603,24 +631,15 @@ function render() {
   var html = '<div class="board' + (_view === 'closed' ? ' cols-4' : '') + '">';
   cols.forEach(function(col) {
     var items = (source[col.key] || []).filter(visible);
-    // Deploy 236.569 — drop-only Closed column on the active board: don't list
-    // the closed cards (they belong to the Closed Pipeline). The head shows a
-    // live count that jumps to the Closed view.
-    var dropOnly = _view !== 'closed' && col.dropOnly;
-    var closedCount = dropOnly ? items.length : 0;
-    if (dropOnly) items = [];
-    var headCnt = dropOnly
-      ? '<span class="cnt" title="View the Closed Pipeline" style="cursor:pointer" onclick="setPipelineView(\'closed\')">' + closedCount + ' &rsaquo;</span>'
-      : '<span class="cnt">' + items.length + '</span>';
     html += '<div class="col" data-col="' + col.key + '"' +
       ' ondragover="onColDragOver(event)"' +
       ' ondragenter="onColDragEnter(event)"' +
       ' ondragleave="onColDragLeave(event)"' +
       ' ondrop="onColDrop(event)">' +
-      '<div class="col-head"><h3>' + escH(col.label) + '</h3>' + headCnt + '</div>' +
+      '<div class="col-head"><h3>' + escH(col.label) + '</h3><span class="cnt">' + items.length + '</span></div>' +
       '<div class="cards">';
     if (items.length === 0) {
-      html += '<div class="empty-col">' + (dropOnly ? 'Drag a loan here to mark it Closed' : 'Drop here') + '</div>';
+      html += '<div class="empty-col">Drop here</div>';
     } else {
       items.forEach(function(it) { html += renderCard(it); });
     }
@@ -887,6 +906,11 @@ function onCardDragStart(e) {
     e.dataTransfer.setData('text/plain', _draggingLoanKey);
   } catch (_) {}
   card.classList.add('dragging');
+  // Deploy 236.572 — reveal the On Hold / Closed drop-bar (active board only).
+  if (_view === 'active') {
+    var bar = document.getElementById('dragActionBar');
+    if (bar) { bar.classList.add('show'); bar.setAttribute('aria-hidden', 'false'); }
+  }
 }
 function onCardDragEnd(e) {
   var card = e.target.closest && e.target.closest('.card');
@@ -899,6 +923,95 @@ function onCardDragEnd(e) {
   _draggingFromStage = null;
   document.querySelectorAll('.col.drop-target').forEach(function(c) {
     c.classList.remove('drop-target');
+  });
+  // Deploy 236.572 — hide the drop-bar + clear any zone highlight.
+  var bar = document.getElementById('dragActionBar');
+  if (bar) {
+    bar.classList.remove('show');
+    bar.setAttribute('aria-hidden', 'true');
+    bar.querySelectorAll('.drag-action-zone.drop-target').forEach(function(z){ z.classList.remove('drop-target'); });
+  }
+}
+
+// ── Deploy 236.572 — drag drop-bar handlers (On Hold / Closed) ──────
+function onDragBarOver(e) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) {} }
+function onDragBarEnter(e) {
+  var z = e.target.closest && e.target.closest('.drag-action-zone');
+  if (z) z.classList.add('drop-target');
+}
+function onDragBarLeave(e) {
+  var z = e.target.closest && e.target.closest('.drag-action-zone');
+  if (!z) return;
+  var to = e.relatedTarget;
+  if (!to || !z.contains(to)) z.classList.remove('drop-target');
+}
+function onDragBarDrop(e) {
+  e.preventDefault();
+  var z = e.target.closest && e.target.closest('.drag-action-zone');
+  if (z) z.classList.remove('drop-target');
+  if (!z) return;
+  var action = z.dataset.action;
+  var loanKey = (function(){ try { return e.dataTransfer.getData('text/plain'); } catch (_) { return null; } })() || _draggingLoanKey;
+  if (!action || !loanKey) return;
+  if (action === 'closed') dropBarClose(loanKey);
+  else if (action === 'hold') dropBarHold(loanKey);
+}
+
+// Pull the card out of the DOM immediately (it's leaving the active board) and
+// refresh the source column count / placeholder. loadAll() reconciles after.
+function _removeCardOptimistic(loanKey) {
+  var nodes = document.querySelectorAll('.card[data-loan-key]');
+  for (var i = 0; i < nodes.length; i++) {
+    if (nodes[i].getAttribute('data-loan-key') === loanKey) {
+      var parent = nodes[i].parentNode;
+      nodes[i].remove();
+      if (parent && !parent.querySelector('.card')) {
+        var ph = document.createElement('div'); ph.className = 'empty-col'; ph.textContent = 'Drop here'; parent.appendChild(ph);
+      }
+      break;
+    }
+  }
+  if (typeof _updateColumnCounts === 'function') _updateColumnCounts();
+}
+
+function _dropBarKeyParts(loanKey) {
+  var parts = String(loanKey).split('|');
+  if (parts.length < 3) return null;
+  var owner = parts[2];
+  var selfKey = (_user.email || '').toLowerCase().replace(/@/g, '_at_').replace(/\./g, '_dot_');
+  return { clientId: parts[0], loanId: parts[1], owner: (owner && owner !== selfKey) ? owner : undefined };
+}
+
+// Closed — reuse the stage endpoint (pp_closed sets status=closed and moves the
+// loan into the Closed Pipeline; it drops off the active board via columnFor).
+function dropBarClose(loanKey) {
+  var p = _dropBarKeyParts(loanKey); if (!p) return;
+  var body = { clientId: p.clientId, loanId: p.loanId, newStage: 'pp_closed' };
+  if (p.owner) body.owner = p.owner;
+  _removeCardOptimistic(loanKey);
+  SLA.api('POST', '/api/loan-processing-stage', body).then(function() {
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    showToast('Loan moved to Closed');
+    loadAll();
+  }).catch(function(err) {
+    showToast('Failed to close: ' + (err && err.message ? err.message : 'unknown'));
+    loadAll();
+  });
+}
+
+// On Hold — status → on_hold via loan-set-hold; drops off the active board.
+function dropBarHold(loanKey) {
+  var p = _dropBarKeyParts(loanKey); if (!p) return;
+  var body = { clientId: p.clientId, loanId: p.loanId, hold: true };
+  if (p.owner) body.owner = p.owner;
+  _removeCardOptimistic(loanKey);
+  SLA.api('POST', '/api/loan-set-hold', body).then(function() {
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    showToast('Loan placed On Hold');
+    loadAll();
+  }).catch(function(err) {
+    showToast('Failed to hold: ' + (err && err.message ? err.message : 'unknown'));
+    loadAll();
   });
 }
 function onColDragOver(e) {
