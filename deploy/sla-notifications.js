@@ -22,6 +22,29 @@
   var _pollingPaused = false;
   var _pollTimer = null;
 
+  // Deploy 236.565 — processing-event alerts (owner follow-up #2). The bell
+  // adds a "Processing" section for processors/admins: loans of theirs that
+  // are closing soon, aging in stage, or carrying open conditions. The alert
+  // endpoint scans the loans table, so we DON'T poll it every 60s like the
+  // reminders/quotes fetch — we cache the result and refetch at most every
+  // PA_TTL. A plain LO never calls it (processor-gated server-side too).
+  var _isProcessor = false;
+  var _paCache = [];
+  var _lastPaFetch = 0;
+  var PA_TTL = 5 * 60 * 1000; // refetch processing alerts at most every 5 min
+
+  // Resolve the caller's role once so refresh() knows whether to fetch the
+  // processing-alerts feed. Kicks a prompt refresh the moment we learn we're
+  // a processor (so the section appears without waiting for the next poll).
+  function resolveRole() {
+    if (!window.SLA || !SLA.getCurrentUser) return;
+    SLA.getCurrentUser().then(function(u) {
+      var proc = !!(u && SLA.isProcessor && SLA.isProcessor(u));
+      if (proc && !_isProcessor) { _isProcessor = true; refresh(); }
+      else _isProcessor = proc;
+    }).catch(function(){});
+  }
+
   function inject() {
     if (document.getElementById('slaNotifWrap')) return;
     var navRight = document.querySelector('.nav-right');
@@ -104,6 +127,7 @@
     });
 
     // Initial fetch + poll
+    resolveRole(); // Deploy 236.565 — learn processor status for the alerts feed
     refresh();
     _pollTimer = setInterval(refresh, POLL_MS);
     // Deploy 236.325 — resume polling on tab focus if the auth back-off
@@ -152,9 +176,32 @@
     }
     var fetchReminders = trackAuth(SLA.Reminders.list()).catch(function(){ return { reminders: [] }; });
     var fetchQuotes = SLA.Quotes ? trackAuth(SLA.Quotes.list()).catch(function(){ return { quotes: [] }; }) : Promise.resolve({ quotes: [] });
-    return Promise.all([fetchReminders, fetchQuotes]).then(function(results) {
+
+    // Deploy 236.565 — processing alerts, throttled to PA_TTL and only for
+    // processors/admins. On off-cycle polls (and for non-processors) we reuse
+    // the cached list so this heavy endpoint is hit at most once per 5 min.
+    var fetchPa;
+    if (_isProcessor && SLA.Processing && SLA.Processing.alerts) {
+      var stale = !_lastPaFetch || (Date.now() - _lastPaFetch) > PA_TTL;
+      if (stale) {
+        fetchPa = trackAuth(SLA.Processing.alerts()).then(function(r) {
+          _paCache = (r && r.alerts) || [];
+          _lastPaFetch = Date.now();
+          return _paCache;
+        }).catch(function(){ return _paCache; });
+      } else {
+        fetchPa = Promise.resolve(_paCache);
+      }
+    } else {
+      fetchPa = Promise.resolve([]);
+    }
+
+    return Promise.all([fetchReminders, fetchQuotes, fetchPa]).then(function(results) {
       var reminders = (results[0] && results[0].reminders) || [];
       var quotes    = (results[1] && results[1].quotes)    || [];
+      var procList  = results[2] || [];
+      // Hide alerts the user snoozed today (localStorage; re-surfaces after 12h).
+      var procAlerts = procList.filter(function(a){ return a && a.id && !isPaSnoozed(a.id); });
       // Loan-app-received notifications: quotes that transitioned to
       // 'approved' in the last 7 days AND have a borrowerInfoCompletedAt
       // timestamp (= the borrower submitted the application).
@@ -179,7 +226,7 @@
         // Hide events the user has already dismissed (persisted in localStorage)
         return !isDismissed(ev.id);
       });
-      render(reminders, loanAppEvents);
+      render(reminders, loanAppEvents, procAlerts);
     }).catch(function() { /* silent */ });
   }
 
@@ -218,8 +265,26 @@
     saveDismissed(d);
   }
 
-  function render(reminders, loanAppEvents) {
+  // Deploy 236.565 — processing alerts are ONGOING conditions (a loan stays
+  // "aging" until it moves), so dismissal is a 12h SNOOZE, not a permanent
+  // hide: the alert re-surfaces the next business day if still true. Stored in
+  // the same localStorage object under a 'pa::' namespace (numeric ts, so the
+  // 30-day GC in loadDismissed still cleans it up).
+  var PA_SNOOZE_MS = 12 * 60 * 60 * 1000;
+  function snoozePa(id) {
+    var d = loadDismissed();
+    d['pa::' + id] = Date.now();
+    saveDismissed(d);
+  }
+  function isPaSnoozed(id) {
+    var d = loadDismissed();
+    var ts = d['pa::' + id];
+    return !!ts && (Date.now() - ts) < PA_SNOOZE_MS;
+  }
+
+  function render(reminders, loanAppEvents, procAlerts) {
     loanAppEvents = loanAppEvents || [];
+    procAlerts = procAlerts || [];
     var today = todayStr();
     var due = [];
     var future = [];
@@ -232,9 +297,10 @@
     future.sort(function(a, b){ return (a.dueDate || '').localeCompare(b.dueDate || ''); });
     loanAppEvents.sort(function(a, b){ return new Date(b.dateIso || 0) - new Date(a.dateIso || 0); });
 
-    // The bell glows red if there's anything due OR a fresh loan-app event
-    var hasAlert = due.length > 0 || loanAppEvents.length > 0;
-    var alertCount = due.length + loanAppEvents.length;
+    // The bell glows red if there's anything due, a fresh loan-app event, or
+    // an actionable processing alert.
+    var hasAlert = due.length > 0 || loanAppEvents.length > 0 || procAlerts.length > 0;
+    var alertCount = due.length + loanAppEvents.length + procAlerts.length;
 
     var btn = document.getElementById('slaNotifBtn');
     var dot = document.getElementById('slaNotifDot');
@@ -248,6 +314,12 @@
     }
 
     var html = '';
+    // Processing alerts first — they're the most time-sensitive (closings,
+    // aging, open conditions). Deploy 236.565.
+    if (procAlerts.length) {
+      html += '<div class="sla-notif-hdr"><span>Processing</span><span class="count">' + procAlerts.length + '</span></div>';
+      procAlerts.forEach(function(a){ html += renderProcItem(a); });
+    }
     if (loanAppEvents.length) {
       html += '<div class="sla-notif-hdr"><span>Loan Apps Received</span><span class="count">' + loanAppEvents.length + '</span></div>';
       loanAppEvents.forEach(function(ev){ html += renderEventItem(ev); });
@@ -260,11 +332,11 @@
       html += '<div class="sla-notif-hdr"><span>Upcoming</span><span>' + future.length + '</span></div>';
       future.forEach(function(r){ html += renderItem(r, 'future'); });
     }
-    if (!due.length && !future.length && !loanAppEvents.length) {
+    if (!due.length && !future.length && !loanAppEvents.length && !procAlerts.length) {
       html = '<div class="sla-notif-empty">All caught up.<br><span style="font-size:11px">Reminders and loan-app completions will appear here.</span></div>';
     }
     // Footer: Clear All button (only if there's anything actionable)
-    if (due.length || loanAppEvents.length) {
+    if (due.length || loanAppEvents.length || procAlerts.length) {
       html += '<div class="sla-notif-footer">' +
         '<button class="sla-notif-clear-all" onclick="window.__slaNotifClearAll()">Clear all notifications</button>' +
       '</div>';
@@ -288,6 +360,31 @@
         '</div>' +
       '</a>' +
       '<button class="sla-notif-done" data-loanapp-id="' + esc(ev.id) + '" title="Dismiss" onclick="window.__slaNotifDismissLoanApp(this)">✓</button>' +
+    '</div>';
+  }
+
+  // Deploy 236.565 — a single processing alert. Links straight to the loan's
+  // Loan Details page (via SLA.urls.loanDetails so admin owner-scope is
+  // preserved). Dismiss button snoozes for 12h.
+  function renderProcItem(a) {
+    var icon = a.kind === 'closing_soon'      ? '🏁'
+             : a.kind === 'aging'             ? '⏳'
+             : a.kind === 'conditions'        ? '🧾'
+             : a.kind === 'unassigned_closing'? '⚠️'
+             : '•';
+    var href = (window.SLA && SLA.urls && SLA.urls.loanDetails)
+      ? SLA.urls.loanDetails(a.loanId, { owner: a.owner })
+      : ('loan-details.html?loanId=' + encodeURIComponent(a.loanId || ''));
+    var cls = (a.severity === 'high') ? 'due' : 'future';
+    return '<div class="sla-notif-item ' + cls + '">' +
+      '<a href="' + esc(href) + '" class="sla-notif-link">' +
+        '<div class="pin"></div>' +
+        '<div class="body">' +
+          '<div class="title">' + icon + ' ' + esc(a.title) + '</div>' +
+          '<div class="meta">' + esc(a.subtitle) + '</div>' +
+        '</div>' +
+      '</a>' +
+      '<button class="sla-notif-done" data-pa-id="' + esc(a.id) + '" title="Snooze until tomorrow" onclick="window.__slaNotifSnoozePa(this)">✓</button>' +
     '</div>';
   }
 
@@ -367,6 +464,17 @@
     refresh();
   };
 
+  // Deploy 236.565 — snooze a processing alert for 12h (localStorage only —
+  // alerts are derived server-side from loan state, nothing to complete).
+  window.__slaNotifSnoozePa = function(btn) {
+    var id = btn.getAttribute('data-pa-id');
+    if (!id) return;
+    snoozePa(id);
+    var row = btn.closest('.sla-notif-item');
+    if (row) row.remove();
+    refresh();
+  };
+
   // Clear all visible notifications: complete every due reminder + dismiss
   // every loan-app event in the dropdown.
   window.__slaNotifClearAll = function() {
@@ -376,9 +484,12 @@
     // Collect IDs from the current dropdown
     var reminderBtns = drop.querySelectorAll('button[data-reminder-id]');
     var loanAppBtns  = drop.querySelectorAll('button[data-loanapp-id]');
+    var paBtns       = drop.querySelectorAll('button[data-pa-id]');
     // Dismiss loan-app events first (synchronous)
     var loanAppIds = Array.from(loanAppBtns).map(function(b) { return b.getAttribute('data-loanapp-id'); });
     if (loanAppIds.length) dismissAllVisible(loanAppIds);
+    // Snooze every visible processing alert for 12h (Deploy 236.565).
+    Array.from(paBtns).forEach(function(b){ var id = b.getAttribute('data-pa-id'); if (id) snoozePa(id); });
     // Complete each reminder via API (parallel)
     var promises = Array.from(reminderBtns).map(function(b) {
       var id = b.getAttribute('data-reminder-id');

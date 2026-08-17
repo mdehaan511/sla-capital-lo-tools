@@ -2791,6 +2791,12 @@
       del:  function (id)   { return api('POST', '/api/investors-delete', { id: id }); },
     },
     LoanReviews: LoanReviews,
+    // Deploy 236.565 — per-processor actionable processing-event alerts
+    // (closing soon / aging / open conditions) for the notification bell.
+    // Processor-gated server-side; the bell only calls it for staff.
+    Processing: {
+      alerts: function () { return api('GET', '/api/processing-alerts'); },
+    },
     Search: Search,
     urls: urls,
     // Deploy 236.351 — LO picker directory (name + email + roles)

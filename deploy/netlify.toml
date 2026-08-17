@@ -415,6 +415,14 @@
   status = 200
   force = true
 
+# Deploy 236.565 — processing-events notifications: per-processor actionable
+# alert feed for the notification bell (closing soon / aging / open conditions).
+[[redirects]]
+  from = "/api/processing-alerts"
+  to = "/.netlify/functions/processing-alerts"
+  status = 200
+  force = true
+
 # Deploy 236.98 (Phase B.1) — narrow field-edit endpoint for Loan
 # Details inline editors (close date today; rate/points/etc. added
 # as the unification work continues).
