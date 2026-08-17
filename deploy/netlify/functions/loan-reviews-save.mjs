@@ -26,6 +26,34 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { getChecklist, getDefaultInvestor } from './_shared/loan-review-checklists.mjs';
+// Deploy 236.564 — denormalize the open-conditions count onto the loan (for the
+// pipeline badge). PG-first strict writer.
+import { writeClient } from './_shared/client-write.mjs';
+
+// Sum non-cleared conditions across all doc trays and mirror the count onto the
+// LOAN record (loan.openConditions / totalConditions) so the Processing Pipeline
+// — which loads loans, not reviews — can show a badge. Only writes on a change.
+async function _syncConditionsCountToLoan(review) {
+  const src = review && review.source;
+  if (!src || src.kind !== 'existing' || !src.clientId || !src.loanId || !src.ownerKey) return;
+  let open = 0, total = 0;
+  const docs = review.docs || {};
+  for (const slug of Object.keys(docs)) {
+    const cs = (docs[slug] && Array.isArray(docs[slug].conditions)) ? docs[slug].conditions : [];
+    for (const c of cs) { total += 1; if (c && c.status !== 'cleared') open += 1; }
+  }
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const ownerKey = keySafe(src.ownerKey);
+  const client = await clientsStore.get(ownerKey + '/' + keySafe(src.clientId), { type: 'json' });
+  if (!client || !Array.isArray(client.loans)) return;
+  const loan = client.loans.find((l) => l && l.id === src.loanId);
+  if (!loan) return;
+  if ((loan.openConditions || 0) === open && (loan.totalConditions || 0) === total) return; // unchanged
+  loan.openConditions = open;
+  loan.totalConditions = total;
+  loan.updatedAt = new Date().toISOString();
+  await writeClient(ownerKey, client, { clientsStore });
+}
 
 const ALLOWED_LOAN_TYPES = ['dscr', 'rtl'];
 
@@ -81,6 +109,9 @@ async function handle(req, context) {
     updated.lastEditedAt = now;
 
     await store.setJSON(keySafe(updated.id), updated);
+    // Deploy 236.564 — keep the loan's open-conditions count fresh for the
+    // pipeline badge. Only when a docs patch landed (conditions live under docs).
+    if (patch.docs) { try { await _syncConditionsCountToLoan(updated); } catch (e) { console.warn('conditions count sync failed:', e && e.message); } }
     return json(200, { ok: true, review: updated });
   }
 
