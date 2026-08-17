@@ -195,6 +195,11 @@ const LOAN_SUMMARY_FIELDS = [
   'servicerName', 'servicerUrl',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
+  // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with
+  // clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS): assignee, funding/investor, and
+  // the open-conditions badge count.
+  'assignedProcessor', 'fundingSource', 'fundingSourceOther', 'investorName',
+  'openConditions', 'totalConditions',
 ];
 function projectLoan(l) {
   if (!l || typeof l !== 'object') return l;

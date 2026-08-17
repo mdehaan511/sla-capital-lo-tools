@@ -26,9 +26,13 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, readJsonBody, isAdmin,
+  handleOptions, json, requireAuth, readJsonBody,
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+// Deploy 236.573 — the Processing Pipeline drag drop-bar lets processors decline
+// a loan (cross-owner). canOverrideOwner allows admin OR processor, matching the
+// rest of the processing suite (loan-set-hold, loan-assign-processor).
+import { canOverrideOwner } from './_shared/access.mjs';
 // Deploy 226 — audit log entry on decline / restore.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
@@ -75,7 +79,7 @@ async function handle(req, context) {
   const selfKey   = keySafe(selfEmail);
   let ownerKey;
   if (body.owner && body.owner !== selfEmail && body.owner !== selfKey) {
-    if (!isAdmin(user)) return json(403, { error: 'Owner override requires admin' });
+    if (!canOverrideOwner(user).ok) return json(403, { error: 'Owner override requires admin or processor' });
     ownerKey = keySafe(normalizeEmail(body.owner));
   } else {
     ownerKey = selfKey;

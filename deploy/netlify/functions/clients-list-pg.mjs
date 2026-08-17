@@ -99,6 +99,12 @@ function _clientRowToApi(row, opts) {
 // Pipeline/Loans render broker attribution from these.
 const LOAN_SUMMARY_EXTRA_KEYS = [
   'brokerName', 'brokerCompany', 'brokerEmail', 'brokerPhone', 'brokerFee',
+  // Deploy 236.573 — Processing Pipeline card needs these (all ride in extra):
+  // the assignee picker (assignedProcessor), the funding/investor tile items,
+  // and the open-conditions badge (236.564, which never showed because the
+  // count was dropped from the summary projection).
+  'assignedProcessor', 'fundingSource', 'fundingSourceOther', 'investorName',
+  'openConditions', 'totalConditions',
 ];
 
 function _loanRowToApi(l, summary) {

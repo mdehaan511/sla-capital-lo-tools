@@ -106,6 +106,9 @@
     .card-substatus-sel:disabled { opacity: 0.5; cursor: wait; }
     .card-amt { font-size: 14px; font-weight: 600; color: var(--text); font-family: 'DM Mono', monospace; margin-bottom: 6px; }
     .card-borrower { font-size: 12px; color: var(--muted); margin-bottom: 6px; word-break: break-word; }
+    /* Deploy 236.573 — funding source + investor chips on the card */
+    .card-fund { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10.5px; color: var(--muted); margin-bottom: 6px; }
+    .card-fund span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
     .card-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .card-meta .tag { padding: 2px 7px; border-radius: 10px; background: rgba(0,0,0,0.05); }
     .card-meta .tag.dscr { background: var(--gold-light); color: var(--gold-mid); }
@@ -133,6 +136,7 @@
     .drag-action-zone strong { font-weight: 800; }
     .drag-action-zone.hold.drop-target   { border-color: #b5712d; color: #b5712d; background: rgba(181,113,45,0.10); }
     .drag-action-zone.closed.drop-target  { border-color: var(--col-closed, #4a4a4a); color: var(--col-closed, #4a4a4a); background: var(--col-closed-bg, rgba(74,74,74,0.10)); }
+    .drag-action-zone.declined.drop-target { border-color: var(--danger, #7c1f1f); color: var(--danger, #7c1f1f); background: rgba(124,31,31,0.10); }
     .loading { font-size: 13px; color: var(--muted); padding: 2rem; text-align: center; }
 
     /* Deploy 236.100 — dropped the Move/substatus dropdown footer on
@@ -209,6 +213,11 @@
          ondragover="onDragBarOver(event)" ondragenter="onDragBarEnter(event)"
          ondragleave="onDragBarLeave(event)" ondrop="onDragBarDrop(event)">
       <span class="dab-icon">🏁</span> Move to <strong>Closed</strong>
+    </div>
+    <div class="drag-action-zone declined" data-action="declined"
+         ondragover="onDragBarOver(event)" ondragenter="onDragBarEnter(event)"
+         ondragleave="onDragBarLeave(event)" ondrop="onDragBarDrop(event)">
+      <span class="dab-icon">🚫</span> Move to <strong>Declined</strong>
     </div>
   </div>
 
@@ -628,7 +637,9 @@ function render() {
   // be dropped anywhere inside (including the empty area below the
   // last card). Drop handlers live on the .col itself, not the
   // .cards inner div, so the entire column area accepts the drop.
-  var html = '<div class="board' + (_view === 'closed' ? ' cols-4' : '') + '">';
+  // Deploy 236.573 — both boards are now 4 columns (active dropped its Closed
+  // column in 236.572), so always use the 4-col grid to fill the full width.
+  var html = '<div class="board cols-4">';
   cols.forEach(function(col) {
     var items = (source[col.key] || []).filter(visible);
     html += '<div class="col" data-col="' + col.key + '"' +
@@ -860,6 +871,7 @@ function renderCard(it) {
       substatusHtml +
       '<div class="card-amt">' + escH(amt) + '</div>' +
       '<div class="card-borrower">' + escH(name) + '</div>' +
+      _fundingInvestorHtml(loan) +
       _assigneeHtml(it) +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
@@ -868,6 +880,27 @@ function renderCard(it) {
       '</div>' +
     '</div>'
   );
+}
+
+// Deploy 236.573 — small Funding Source + Investor line on the pipeline card
+// (from the loan's Funding Plan; both ride in extra, now surfaced in the
+// summary projection). Renders nothing when neither is set.
+var _FUND_SRC_LABELS = {
+  stride: 'Stride', king_arthur: 'King Arthur Fund', sla_capital: 'SLA Capital',
+  correspondent: 'Correspondent', other: 'Other',
+};
+function _fundingInvestorHtml(loan) {
+  if (!loan) return '';
+  var src = String(loan.fundingSource || '');
+  var srcLabel = src === 'other'
+    ? (String(loan.fundingSourceOther || '').trim() || 'Other')
+    : (_FUND_SRC_LABELS[src] || '');
+  var inv = String(loan.investorName || '').trim();
+  var bits = [];
+  if (srcLabel) bits.push('<span title="Funding source">\u{1F4B5} ' + escH(srcLabel) + '</span>');
+  if (inv)      bits.push('<span title="Investor">\u{1F3E6} ' + escH(inv) + '</span>');
+  if (!bits.length) return '';
+  return '<div class="card-fund">' + bits.join('') + '</div>';
 }
 
 // Deploy 236.100 — open loan-details on tile click. Guarded by
@@ -955,6 +988,7 @@ function onDragBarDrop(e) {
   if (!action || !loanKey) return;
   if (action === 'closed') dropBarClose(loanKey);
   else if (action === 'hold') dropBarHold(loanKey);
+  else if (action === 'declined') dropBarDecline(loanKey);
 }
 
 // Pull the card out of the DOM immediately (it's leaving the active board) and
@@ -1011,6 +1045,24 @@ function dropBarHold(loanKey) {
     loadAll();
   }).catch(function(err) {
     showToast('Failed to hold: ' + (err && err.message ? err.message : 'unknown'));
+    loadAll();
+  });
+}
+
+// Declined — status → denied via loan-decline (terminal, so confirm first).
+// Drops off the active board via columnFor.
+function dropBarDecline(loanKey) {
+  var p = _dropBarKeyParts(loanKey); if (!p) return;
+  if (!confirm('Decline this loan? It will be removed from the active pipeline (recoverable from Loan Details).')) return;
+  var body = { clientId: p.clientId, loanId: p.loanId };
+  if (p.owner) body.owner = p.owner;
+  _removeCardOptimistic(loanKey);
+  SLA.api('POST', '/api/loan-decline', body).then(function() {
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    showToast('Loan declined');
+    loadAll();
+  }).catch(function(err) {
+    showToast('Failed to decline: ' + (err && err.message ? err.message : 'unknown'));
     loadAll();
   });
 }
