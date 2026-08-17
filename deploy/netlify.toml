@@ -414,6 +414,12 @@
   to = "/.netlify/functions/loan-assign-processor"
   status = 200
   force = true
+# Deploy 236.560 — processing-team rollout: per-loan underwriting conditions.
+[[redirects]]
+  from = "/api/loan-conditions"
+  to = "/.netlify/functions/loan-conditions"
+  status = 200
+  force = true
 
 # Deploy 236.98 (Phase B.1) — narrow field-edit endpoint for Loan
 # Details inline editors (close date today; rate/points/etc. added
