@@ -112,10 +112,15 @@ async function handle(req, context) {
     delete targetLoan._cancelledFrom; // no longer needed
   } else {
     // Cancel path
-    if (CANCEL_FROM.indexOf(prevStatus) < 0) {
+    // Deploy 236.575 \u2014 allow cancel from ANY non-terminal status (matches the
+    // client's _canEndLoan gate). New / early / empty-status loans were blocked
+    // here, so LOs deleted the whole contact just to clear a dead lead. Cancel
+    // only sets status \u2192 'cancelled' (keeps the loan + client), so the address
+    // survives as a cancelled loan and the contact is retained for marketing.
+    const _terminalCancel = ['cancelled', 'denied', 'closed', 'sold', 'liquidated'];
+    if (_terminalCancel.indexOf(String(prevStatus).toLowerCase()) >= 0) {
       return json(400, {
-        error: 'Loan cannot be cancelled from status \u201c' + prevStatus + '\u201d. ' +
-               'Only Quoted, Submitted, Awaiting Application, or In Processing loans can be cancelled.',
+        error: 'Loan is already \u201c' + (prevStatus || 'terminal') + '\u201d and cannot be cancelled.',
       });
     }
     targetLoan.status = 'cancelled';

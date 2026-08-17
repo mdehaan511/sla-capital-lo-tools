@@ -5950,14 +5950,18 @@ function openCancelLoanModal() {
   // whether the button renders) treats on_hold as non-terminal — so the
   // button appeared and then this guard rejected it with a message that
   // was flatly untrue. Message corrected to name the real terminal set.
-  var allowed = ['active', 'on_hold', 'submitted', 'awaiting_app', 'approved'];
-  if (allowed.indexOf(_loan.status) < 0) {
+  // Deploy 236.575 — allow cancel from ANY non-terminal status (matches
+  // _canEndLoan / loan-cancel.mjs). New / early / empty-status loans were
+  // wrongly rejected here with a misleading "already terminal" toast, so LOs
+  // deleted the contact instead. Cancel keeps the loan + contact.
+  var _termStatuses = ['cancelled', 'denied', 'closed', 'sold', 'liquidated'];
+  if (_termStatuses.indexOf(String(_loan.status || '').toLowerCase()) >= 0) {
     showToast('This loan is already closed, declined, or cancelled and cannot be cancelled again.');
     return;
   }
   var sub = document.getElementById('cancelLoanSub');
   if (sub) {
-    var fromLabel = _STATUS_LABEL_FOR_END[_loan.status] || _loan.status;
+    var fromLabel = _STATUS_LABEL_FOR_END[_loan.status] || _loan.status || 'New';
     sub.innerHTML = 'This loan will be moved from <strong>' + fromLabel + '</strong> to <strong>Cancelled</strong>. ' +
       'It will no longer appear on the Pipeline or in the default Loans view, but stays accessible from the Cancelled view if it needs to be restored later.';
   }
