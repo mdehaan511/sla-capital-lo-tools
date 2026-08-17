@@ -1138,6 +1138,12 @@
         '</textarea>' +
       '</div>';
 
+    // Deploy 236.561 — per-document underwriting Conditions, below the processor
+    // notes. Stored on _review.docs[slug].conditions[] (patched like notes). The
+    // underwriter adds; the processor/closer clears (status outstanding→received
+    // →cleared). Audited (createdBy/clearedBy).
+    var conds = _renderDocConditions(d, slug);
+
     var verdictBtns;
     if (verdict === 'approved' || verdict === 'na') {
       verdictBtns =
@@ -1222,11 +1228,41 @@
         aiHtml +
         dz +
         notes +
+        conds +
         naBlock +
         '<div class="verdict-actions">' + verdictBtns + '</div>' +
         historyHtml +
       '</div>' +
     '</div>';
+  }
+
+  // Deploy 236.561 — per-document underwriting Conditions (below processor notes).
+  function _renderDocConditions(d, slug) {
+    var conds = Array.isArray(d.conditions) ? d.conditions : [];
+    var CS = { outstanding: 'Outstanding', received: 'Received', cleared: 'Cleared' };
+    var rows = conds.map(function(c) {
+      var cleared = c.status === 'cleared';
+      var col = cleared ? '#166534' : (c.status === 'received' ? '#b5712d' : '#7c1f1f');
+      var bg  = cleared ? 'rgba(37,105,64,0.10)' : (c.status === 'received' ? 'rgba(200,129,58,0.10)' : 'rgba(124,31,31,0.08)');
+      var opts = Object.keys(CS).map(function(s){ return '<option value="' + s + '"' + (s === c.status ? ' selected' : '') + '>' + CS[s] + '</option>'; }).join('');
+      var sub = 'prior to ' + (c.priorTo === 'funding' ? 'funding' : 'docs') + (cleared && c.clearedBy ? ' · cleared by ' + escHtml(c.clearedBy) : '');
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border,#ddd8d0);border-radius:6px;margin-bottom:6px;background:' + (cleared ? 'rgba(37,105,64,0.04)' : '#fff') + '">' +
+          '<div style="flex:1;min-width:0;font-size:12px' + (cleared ? ';text-decoration:line-through;opacity:0.7' : '') + '">' + escHtml(c.title || '') +
+            '<span style="color:var(--muted);font-size:10px"> · ' + escHtml(sub) + '</span></div>' +
+          '<select onchange="dr_condStatus(\'' + escAttr(slug) + '\',\'' + escAttr(c.id) + '\',this.value)" style="font-size:11px;padding:3px 6px;border-radius:5px;border:1px solid transparent;color:' + col + ';background:' + bg + ';font-weight:600;font-family:inherit">' + opts + '</select>' +
+          '<button title="Remove condition" onclick="dr_condRemove(\'' + escAttr(slug) + '\',\'' + escAttr(c.id) + '\')" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px">✕</button>' +
+        '</div>';
+    }).join('');
+    var openN = conds.filter(function(c){ return c.status !== 'cleared'; }).length;
+    return '<div class="dr-conds-wrap" style="margin-top:12px">' +
+        '<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">Conditions' + (conds.length ? ' (' + openN + ' open)' : '') + '</div>' +
+        rows +
+        '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">' +
+          '<input id="dr-cond-input_' + escAttr(slug) + '" type="text" placeholder="Add a condition for this document…" onkeydown="if(event.key===\'Enter\')dr_addCond(\'' + escAttr(slug) + '\')" style="flex:1;min-width:160px;font-size:12px;padding:6px 9px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit" />' +
+          '<select id="dr-cond-prior_' + escAttr(slug) + '" style="font-size:12px;padding:6px 8px;border:1px solid var(--border,#ddd8d0);border-radius:6px;font-family:inherit"><option value="docs">Prior to Docs</option><option value="funding">Prior to Funding</option></select>' +
+          '<button onclick="dr_addCond(\'' + escAttr(slug) + '\')" style="font-size:12px;font-weight:600;padding:6px 12px;background:#261a36;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit">+ Add</button>' +
+        '</div>' +
+      '</div>';
   }
 
   function renderAiBlock(d, slug) {
@@ -2272,6 +2308,53 @@
     if (d && d.label) return d.label;
     return slug;
   }
+
+  // Deploy 236.561 — per-document conditions handlers. Persist on
+  // _review.docs[slug].conditions[] via the same LoanReviews.patch path as notes.
+  function _dr_patchConds(slug, conds) {
+    var patch = { docs: {} };
+    patch.docs[slug] = { conditions: conds };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      render();
+    }).catch(function(err) {
+      showToast('Condition save failed: ' + (err && err.message ? err.message : 'Unknown'), 'error');
+    });
+  }
+  global.dr_addCond = function(slug) {
+    var input = document.getElementById('dr-cond-input_' + slug);
+    var title = (input && input.value) ? input.value.trim() : '';
+    if (!title) { if (input) input.focus(); return; }
+    var priorEl = document.getElementById('dr-cond-prior_' + slug);
+    var priorTo = (priorEl && priorEl.value === 'funding') ? 'funding' : 'docs';
+    var d = (_review.docs && _review.docs[slug]) || {};
+    var conds = Array.isArray(d.conditions) ? d.conditions.slice() : [];
+    conds.push({
+      id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      title: title, status: 'outstanding', priorTo: priorTo,
+      createdAt: new Date().toISOString(), createdBy: (_user && _user.email) || '',
+      clearedAt: null, clearedBy: null,
+    });
+    _dr_patchConds(slug, conds);
+  };
+  global.dr_condStatus = function(slug, id, status) {
+    var d = (_review.docs && _review.docs[slug]) || {};
+    var now = new Date().toISOString();
+    var conds = (Array.isArray(d.conditions) ? d.conditions : []).map(function(c) {
+      if (c.id !== id) return c;
+      var nc = {}; for (var k in c) nc[k] = c[k];
+      nc.status = status;
+      if (status === 'cleared') { nc.clearedAt = now; nc.clearedBy = (_user && _user.email) || ''; }
+      else { nc.clearedAt = null; nc.clearedBy = null; }
+      return nc;
+    });
+    _dr_patchConds(slug, conds);
+  };
+  global.dr_condRemove = function(slug, id) {
+    var d = (_review.docs && _review.docs[slug]) || {};
+    var conds = (Array.isArray(d.conditions) ? d.conditions : []).filter(function(c) { return c.id !== id; });
+    _dr_patchConds(slug, conds);
+  };
 
   global.dr_saveNotes = function(slug, value) {
     var patch = { docs: {} };

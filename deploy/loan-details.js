@@ -1387,10 +1387,6 @@ function render() {
 
   // RIGHT COL — Editable application fields
   html += '<div>';
-  // Deploy 236.560 — underwriting Conditions (processing-team rollout). Placed
-  // high: for a processor it's the primary workspace on this page.
-  html += renderConditionsSection();
-
   // Deploy 236.118 — id="propertyAppSection" for tab relocation.
   html += '<div class="section" id="propertyAppSection">' +
     '<div class="section-head"><h2>Property &amp; Application</h2><span class="section-tag tag-editable">Editable</span></div>' +
@@ -4163,104 +4159,6 @@ function refreshLoanContacts() {
     inner.innerHTML = '<div class="contacts-empty" style="color:var(--danger)">Failed to load contacts: ' + escH(err && err.message || 'unknown') + '</div>';
   });
 }
-// ══════════════════════════════════════════════════════════════════
-// Deploy 236.560 — underwriting Conditions (processing-team rollout).
-// Per-loan conditions on _loan.conditions[]. Underwriter adds; processor/
-// closer clears. All staff (admin/processor) may add + clear; audited server-
-// side (createdBy/clearedBy). Persisted via /api/loan-conditions (strict write).
-// ══════════════════════════════════════════════════════════════════
-var _CATS  = { income:'Income', title:'Title', appraisal:'Appraisal', insurance:'Insurance', entity:'Entity', other:'Other' };
-var _COWN  = { borrower:'Borrower', title:'Title', appraiser:'Appraiser', internal:'Internal' };
-var _CSTAT = { outstanding:'Outstanding', received:'Received', cleared:'Cleared' };
-var _CSEL  = 'font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;cursor:pointer';
-
-function _condOpts(map, sel) {
-  return Object.keys(map).map(function(k){ return '<option value="'+k+'"'+(k===sel?' selected':'')+'>'+escH(map[k])+'</option>'; }).join('');
-}
-function renderConditionsSection() {
-  var conds = (_loan && Array.isArray(_loan.conditions)) ? _loan.conditions : [];
-  var openN = conds.filter(function(c){ return c && c.status !== 'cleared'; }).length;
-  var lbl = 'display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px';
-  var h = '<div class="section" id="conditionsSection">' +
-    '<div class="section-head"><h2>Conditions' +
-      (conds.length ? ' <span style="font-size:13px;font-weight:400;color:var(--muted)">' + openN + ' open / ' + conds.length + ' total</span>' : '') +
-    '</h2><span class="section-tag tag-editable">Processing</span></div>' +
-    '<div class="section-body">';
-  h += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:16px">' +
-      '<div style="flex:2;min-width:200px"><label style="' + lbl + '">Condition</label>' +
-        '<input id="condTitle" type="text" placeholder="e.g. 2024 personal tax returns" onkeydown="if(event.key===\'Enter\')addCondition()" style="width:100%;box-sizing:border-box;' + _CSEL + ';cursor:text" /></div>' +
-      '<div><label style="' + lbl + '">Category</label><select id="condCategory" style="' + _CSEL + '">' + _condOpts(_CATS, 'income') + '</select></div>' +
-      '<div><label style="' + lbl + '">Owner</label><select id="condOwner" style="' + _CSEL + '">' + _condOpts(_COWN, 'borrower') + '</select></div>' +
-      '<div><label style="' + lbl + '">Prior to</label><select id="condPriorTo" style="' + _CSEL + '"><option value="docs">Docs</option><option value="funding">Funding</option></select></div>' +
-      '<button type="button" onclick="addCondition()" style="padding:8px 16px;background:var(--dark,#261a36);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">+ Add</button>' +
-    '</div>';
-  if (!conds.length) {
-    h += '<div style="padding:14px;text-align:center;color:var(--muted);font-size:13px;font-style:italic">No conditions yet. The underwriter adds conditions here; processors and closers clear them.</div>';
-  } else {
-    var sorted = conds.slice().sort(function(a, b) {
-      var ac = a.status === 'cleared' ? 1 : 0, bc = b.status === 'cleared' ? 1 : 0;
-      if (ac !== bc) return ac - bc;
-      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
-    });
-    h += sorted.map(renderConditionRow).join('');
-  }
-  h += '</div></div>';
-  return h;
-}
-function renderConditionRow(c) {
-  var cleared = c.status === 'cleared';
-  var stColor = cleared ? '#166534' : (c.status === 'received' ? 'var(--gold-mid,#b5712d)' : '#7c1f1f');
-  var stBg    = cleared ? 'rgba(37,105,64,0.10)' : (c.status === 'received' ? 'rgba(200,129,58,0.10)' : 'rgba(124,31,31,0.08)');
-  var stOpts  = Object.keys(_CSTAT).map(function(k){ return '<option value="'+k+'"'+(k===c.status?' selected':'')+'>'+escH(_CSTAT[k])+'</option>'; }).join('');
-  var meta = escH(_CATS[c.category] || c.category || '') + ' · ' + escH(_COWN[c.owner] || c.owner || '') +
-             ' · Prior to ' + (c.priorTo === 'funding' ? 'Funding' : 'Docs');
-  var clearedInfo = (cleared && c.clearedBy) ? '<span style="color:var(--muted)"> · cleared by ' + escH(c.clearedBy) + '</span>' : '';
-  return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:' + (cleared ? 'rgba(37,105,64,0.04)' : 'var(--surface)') + '">' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="font-size:13px;font-weight:600;color:var(--text)' + (cleared ? ';text-decoration:line-through;opacity:0.7' : '') + '">' + escH(c.title || '') + '</div>' +
-        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + meta + clearedInfo + '</div>' +
-        (c.note ? '<div style="font-size:12px;color:var(--text);margin-top:4px">' + escH(c.note) + '</div>' : '') +
-      '</div>' +
-      '<select onchange="setConditionStatus(\'' + escAttr(c.id) + '\',this.value)" style="' + _CSEL + ';color:' + stColor + ';background:' + stBg + ';border-color:transparent;font-weight:600">' + stOpts + '</select>' +
-      '<button type="button" title="Delete condition" onclick="removeCondition(\'' + escAttr(c.id) + '\')" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;padding:4px 6px;flex:none">✕</button>' +
-    '</div>';
-}
-function _condBase(extra) {
-  var b = { clientId: _clientId, loanId: _loanId };
-  if (_loEmail && _user && _loEmail !== _user.email) b.owner = _loEmail;
-  return Object.assign(b, extra);
-}
-function _condPost(body) {
-  return SLA.api('POST', '/api/loan-conditions', body).then(function(r) {
-    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
-    if (_loan) _loan.conditions = r.conditions || [];
-    var el = document.getElementById('conditionsSection');
-    if (el) el.outerHTML = renderConditionsSection();
-    return r;
-  }).catch(function(err) {
-    var msg = 'Conditions: ' + (err && err.message ? err.message : 'failed');
-    if (window.showToast) showToast(msg); else alert(msg);
-  });
-}
-function addCondition() {
-  var t = document.getElementById('condTitle');
-  var title = (t && t.value) ? t.value.trim() : '';
-  if (!title) { if (t) t.focus(); return; }
-  _condPost(_condBase({ action: 'add', condition: {
-    title: title,
-    category: (document.getElementById('condCategory') || {}).value,
-    owner:    (document.getElementById('condOwner') || {}).value,
-    priorTo:  (document.getElementById('condPriorTo') || {}).value,
-  }}));
-}
-function setConditionStatus(id, status) {
-  _condPost(_condBase({ action: 'update', conditionId: id, patch: { status: status } }));
-}
-function removeCondition(id) {
-  if (!confirm('Delete this condition?')) return;
-  _condPost(_condBase({ action: 'remove', conditionId: id }));
-}
-
 function renderLoanContactsList() {
   var inner = document.getElementById('loanContactsList');
   if (!inner) return;
