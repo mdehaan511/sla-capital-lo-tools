@@ -20,7 +20,7 @@
  * users-list.mjs stays admin-only because it exposes management
  * metadata (confirmed_at, last_sign_in_at, Identity user.id).
  *
- * Response: { users: [{ email, name, slug, roles }] }
+ * Response: { users: [{ email, name, phone, slug, roles }] }
  */
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth } from './_shared/auth.mjs';
@@ -50,6 +50,9 @@ export default async (req, context) => {
     const trimmed = profiles.map((p) => ({
       email: String(p.email || '').toLowerCase(),
       name:  String(p.fullName || p.full_name || (p.user_metadata && p.user_metadata.full_name) || '').trim(),
+      // Deploy 236.578 — expose phone so the Proof-of-Funds letter (and Team
+      // Members) can show the assigned LO's number. Internal directory only.
+      phone: String(p.phone || (p.user_metadata && p.user_metadata.phone) || '').trim(),
       slug:  String(p.slug || (p.user_metadata && p.user_metadata.slug) || '').trim(),
       roles: Array.isArray(p.roles)
         ? p.roles

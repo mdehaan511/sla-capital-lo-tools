@@ -25,7 +25,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, readJsonBody, keySafe, normalizeEmail,
+  handleOptions, json, requireAuth, readJsonBody, keySafe, normalizeEmail, isAdmin,
 } from './_shared/auth.mjs';
 
 export default async (req, context) => {
@@ -47,20 +47,37 @@ export default async (req, context) => {
     return json(400, { error: 'Nothing to update' });
   }
 
+  // Deploy 236.578 — optional owner override. The Proof-of-Funds flow saves the
+  // assigned LO's phone to THEIR profile; when an admin generates the letter for
+  // another LO's loan, they pass owner=<lo email>. Editing anyone else's profile
+  // requires admin. Default target is the caller's own profile.
+  const selfEmail = normalizeEmail(user.email);
+  let targetEmail = selfEmail;
+  if (body.owner) {
+    const reqOwner = normalizeEmail(body.owner);
+    if (reqOwner && reqOwner !== selfEmail) {
+      if (!isAdmin(user)) return json(403, { error: "Editing another user's profile requires admin" });
+      targetEmail = reqOwner;
+    }
+  }
+
   // Mirror to profiles store so other pages reflect the change immediately
   try {
     const store = getStore({ name: 'profiles', consistency: 'strong' });
-    const email = normalizeEmail(user.email);
-    const profileKey = keySafe(email);
+    const profileKey = keySafe(targetEmail);
     let profile = null;
     try { profile = await store.get(profileKey, { type: 'json' }); } catch (_) {}
     if (!profile) {
       profile = {
-        id: user.sub, email, fullName: '', roles: [], confirmed_at: null,
+        id: (targetEmail === selfEmail ? user.sub : ''), email: targetEmail,
+        fullName: '', roles: [], confirmed_at: null,
         last_seen_at: new Date().toISOString(), user_metadata: {},
       };
     }
     if (updates.full_name != null) profile.fullName = updates.full_name;
+    // Promote phone to a top-level field too (users-directory + POF read it
+    // there first), alongside the user_metadata mirror.
+    if (updates.phone != null) profile.phone = updates.phone;
     profile.user_metadata = Object.assign({}, profile.user_metadata || {}, updates);
     profile.last_seen_at = new Date().toISOString();
     await store.setJSON(profileKey, profile);
@@ -69,5 +86,5 @@ export default async (req, context) => {
     return json(500, { error: 'Failed to save profile' });
   }
 
-  return json(200, { ok: true, updated: updates });
+  return json(200, { ok: true, updated: updates, owner: targetEmail });
 };

@@ -1083,6 +1083,14 @@ function render() {
     'Download Rate Sheet' +
   '</a>';
 
+  // Deploy 236.578 — Proof of Funds letter. Generates the SLA POF letter as a
+  // PDF download (jsPDF) for the borrower/broker. Uses the loan's assigned LO;
+  // prompts for any missing fields (mainly the LO's phone) before printing.
+  html += '<button type="button" id="ldPofBtn" class="open-sizer-btn" onclick="generatePofLetter()">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8H3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 2v3h3M5 8h5M5 10.5h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' +
+    'Print Proof of Funds Letter' +
+  '</button>';
+
   // Deploy 236.42 — status gate dropped per Mike. Rate sheet is now
   // sendable in any loan status (previously gated to active /
   // submitted / awaiting_app / approved; terminal statuses were
@@ -1956,6 +1964,7 @@ function render() {
     if (!menu) return;
     var ids = [
       'ldDownloadRateSheetBtn',
+      'ldPofBtn',                 // Deploy 236.578 — Print Proof of Funds Letter
       'ldSendRateSheetBtn',
       'borrowerInfoBtn',          // Send Full Loan Application
       'reviewAppBtn',             // Review Submitted Application
@@ -5606,6 +5615,209 @@ function saveClosingFields() {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Closing Details'; }
     showToast('Closing save failed: ' + (err && err.message || 'unknown error'));
   });
+}
+
+// ── Deploy 236.578 — Proof of Funds Letter ───────────────────────────
+// Generates the SLA Capital POF letter as a downloadable PDF (jsPDF) from the
+// template Mike supplied. Uses the loan's ASSIGNED LO (owner) for the
+// name/email/phone; property address + borrower first name come from the loan.
+// Anything missing (in practice the LO phone) is asked for in a modal first,
+// and a newly-entered phone is saved back to the LO's profile for next time.
+
+function _pofFmtPhone(raw) {
+  var d = String(raw || '').replace(/[^\d]/g, '');
+  if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+  if (d.length === 10) return '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
+  return String(raw || '').trim(); // not a standard 10-digit US number — leave as typed
+}
+function _pofFmtDate(dt) {
+  var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return m[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
+}
+
+// Actions-menu entry point.
+function generatePofLetter() {
+  if (!_loan || !_client) { showToast('Loan not loaded yet.'); return; }
+  var loEmail = String(_loEmail || '').toLowerCase();
+  if (!loEmail) {
+    showToast('Assign a Loan Officer first (Contacts → Team Members), then print the letter.');
+    if (typeof switchLdTab === 'function') switchLdTab('contacts');
+    return;
+  }
+  var known = {
+    propertyAddress:   (_loan.address || '').trim(),
+    borrowerFirstName: (_client.firstName || '').trim(),
+    loEmail:           loEmail,
+    loName:            '',
+    loPhone:           '',
+  };
+  var finish = function () { _pofDecide(known); };
+  // Pull the assigned LO's name + phone from the directory (phone added 236.578).
+  if (window.SLA && SLA.Users && SLA.Users.directory) {
+    SLA.Users.directory().then(function (r) {
+      var users = (r && r.users) || [];
+      for (var i = 0; i < users.length; i++) {
+        if (String(users[i].email).toLowerCase() === loEmail) {
+          known.loName  = (users[i].name  || '').trim();
+          known.loPhone = _pofFmtPhone(users[i].phone || '');
+          break;
+        }
+      }
+      finish();
+    }).catch(finish);
+  } else { finish(); }
+}
+
+function _pofDecide(f) {
+  var missing = [];
+  if (!f.propertyAddress)   missing.push('propertyAddress');
+  if (!f.borrowerFirstName) missing.push('borrowerFirstName');
+  if (!f.loName)            missing.push('loName');
+  if (!f.loPhone)           missing.push('loPhone');
+  if (!missing.length) { _pofRender(f); return; }
+  _pofOpenModal(f, missing);
+}
+
+function _pofOpenModal(f, missing) {
+  var labels = {
+    propertyAddress:   'Property Address',
+    borrowerFirstName: 'Borrower First Name',
+    loName:            'Loan Officer Name',
+    loPhone:           'Loan Officer Phone Number',
+  };
+  var old = document.getElementById('pofModal'); if (old) old.remove();
+  var rows = '';
+  missing.forEach(function (k) {
+    rows += '<div style="margin-bottom:12px">' +
+      '<label style="display:block;font-size:12px;font-weight:600;color:var(--dark,#261A36);margin-bottom:4px">' + escH(labels[k]) + '</label>' +
+      '<input type="text" id="pof-' + k + '" value="' + escAttr(f[k] || '') + '"' +
+        (k === 'loPhone' ? ' placeholder="(555) 123-4567" inputmode="tel"' : '') +
+        ' style="width:100%;padding:9px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box" />' +
+    '</div>';
+  });
+  var phoneNote = (missing.indexOf('loPhone') >= 0)
+    ? '<div style="font-size:11px;color:var(--muted,#7a7488);margin:-2px 0 10px">This number will be saved to the Loan Officer’s profile for next time.</div>'
+    : '';
+  var wrap = document.createElement('div');
+  wrap.id = 'pofModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:460px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:16px 20px;border-bottom:1px solid var(--border,#E4DFD4)">' +
+        '<div style="font-family:\'Lora\',serif;font-size:17px;font-weight:600;color:var(--dark,#261A36)">Proof of Funds Letter</div>' +
+        '<div style="font-size:12px;color:var(--muted,#7a7488);margin-top:2px">A few details are needed before printing.</div>' +
+      '</div>' +
+      '<div style="padding:18px 20px">' + rows + phoneNote +
+        '<div id="pofModalErr" style="font-size:12px;color:var(--danger,#7c1f1f);min-height:14px"></div>' +
+      '</div>' +
+      '<div style="padding:14px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" id="pofCancelBtn" style="font-size:13px;padding:8px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>' +
+        '<button type="button" id="pofGenBtn" style="font-size:13px;padding:8px 18px;border:none;background:var(--accent,#C8813A);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">Generate PDF</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap._pofFields = f;
+  wrap._pofMissing = missing;
+  wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+  document.getElementById('pofCancelBtn').addEventListener('click', function () { wrap.remove(); });
+  document.getElementById('pofGenBtn').addEventListener('click', _pofModalSubmit);
+  var firstInput = wrap.querySelector('input'); if (firstInput) firstInput.focus();
+}
+
+function _pofModalSubmit() {
+  var wrap = document.getElementById('pofModal'); if (!wrap) return;
+  var f = Object.assign({}, wrap._pofFields);
+  var missing = wrap._pofMissing || [];
+  var err = document.getElementById('pofModalErr');
+  missing.forEach(function (k) {
+    var el = document.getElementById('pof-' + k);
+    if (el) f[k] = el.value.trim();
+  });
+  var reqLabels = { propertyAddress: 'Property Address', borrowerFirstName: 'Borrower First Name', loName: 'Loan Officer Name', loPhone: 'Loan Officer Phone Number' };
+  for (var k in reqLabels) {
+    if (!f[k]) { if (err) err.textContent = reqLabels[k] + ' is required.'; return; }
+  }
+  f.loPhone = _pofFmtPhone(f.loPhone);
+
+  var btn = document.getElementById('pofGenBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+
+  var savePhone = (missing.indexOf('loPhone') >= 0 && f.loPhone);
+  var done = function () { wrap.remove(); _pofRender(f); };
+  if (savePhone) { _pofSaveLoPhone(f.loEmail, f.loPhone).then(done, done); }
+  else { done(); }
+}
+
+// Save the LO's phone to their profile. Own profile → full self-save; another
+// LO (admin generating on their behalf) → owner-override endpoint (admin-gated).
+function _pofSaveLoPhone(loEmail, phone) {
+  var self = String((_user && _user.email) || '').toLowerCase();
+  if (loEmail && loEmail === self) {
+    return (window.SLA && SLA.Profile && SLA.Profile.update)
+      ? SLA.Profile.update({ phone: phone }).then(function () { showToast('Saved your phone to your profile.'); })
+      : Promise.resolve();
+  }
+  return SLA.api('POST', '/api/profile-update', { phone: phone, owner: loEmail })
+    .then(function () { showToast('Saved phone to the Loan Officer’s profile.'); })
+    .catch(function () { /* non-fatal — still print the letter */ });
+}
+
+// Render + download the POF letter PDF.
+function _pofRender(f) {
+  if (!(window.jspdf && window.jspdf.jsPDF)) {
+    showToast('PDF library still loading — try again in a moment.');
+    return;
+  }
+  var JsPDF = window.jspdf.jsPDF;
+  var doc = new JsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+  var W = doc.internal.pageSize.getWidth();
+  var lm = 72, rm = W - 72; // 1-inch margins
+  var y = 54;
+
+  // Letterhead — reuse the nav logo the same way the sizer term sheet does.
+  try {
+    var logoEl = document.querySelector('nav img');
+    if (logoEl && logoEl.complete && logoEl.naturalWidth > 0) {
+      var logoW = 120;
+      var logoH = (logoEl.naturalHeight / logoEl.naturalWidth) * logoW;
+      var os = 2;
+      var c = document.createElement('canvas');
+      c.width = Math.round(logoW * os); c.height = Math.round(logoH * os);
+      var cx = c.getContext('2d');
+      cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, c.width, c.height);
+      cx.drawImage(logoEl, 0, 0, c.width, c.height);
+      doc.addImage(c.toDataURL('image/jpeg', 0.9), 'JPEG', lm, y, logoW, logoH);
+      y += logoH + 26;
+    } else { throw new Error('no logo'); }
+  } catch (e) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(38, 26, 54);
+    doc.text('SLA Capital', lm, y + 14); y += 42;
+  }
+
+  doc.setTextColor(30, 30, 30);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+  var line = function (txt, gap) { doc.text(String(txt || ''), lm, y); y += (gap || 16); };
+  var para = function (txt, gap) {
+    var lines = doc.splitTextToSize(String(txt || ''), rm - lm);
+    doc.text(lines, lm, y);
+    y += lines.length * 15 + (gap || 8);
+  };
+
+  line(_pofFmtDate(new Date()), 26);
+  doc.setFont('helvetica', 'bold'); line('Re: ' + f.propertyAddress, 22); doc.setFont('helvetica', 'normal');
+  line('To whom it may concern,', 20);
+  para('Our client ' + f.borrowerFirstName + ' is preapproved and has funding sources available and is preapproved with our company to purchase the subject.', 12);
+  para('These funds are available at the request of Sir Lends A Lot LLC DBA SLA Capital during normal banking hours.', 12);
+  para('Please do not hesitate to contact us at our office at ' + f.loPhone + ' at anytime between 9am and 5pm PST Monday through Friday.', 22);
+  line('Thank You,', 30);
+  doc.setFont('helvetica', 'bold'); line(f.loName, 16); doc.setFont('helvetica', 'normal');
+  line('Loan Officer - Sir Lends A Lot LLC', 16);
+  line(f.loEmail, 16);
+  line(f.loPhone, 16);
+
+  var safeAddr = String(f.propertyAddress || 'Loan').replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'Loan';
+  doc.save('Proof of Funds - ' + safeAddr + '.pdf');
+  showToast('Proof of Funds letter downloaded.');
 }
 
 function deleteThisLoan() {
