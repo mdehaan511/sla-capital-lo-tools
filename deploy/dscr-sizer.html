@@ -3122,8 +3122,12 @@ function prefillFromProspect(p) {
   var _pDefaultLoanAmt = _pIsDscrPurchase && _pPxNum > 0
     ? String(Math.round(_pPxNum * 0.80))
     : (p.purchasePrice || '');
-  var _pDefaultPropVal = p.propertyValue
-    || (_pIsDscrPurchase ? (p.purchasePrice || '') : '');
+  // Deploy 236.576 — DSCR PURCHASE always prices off the PURCHASE PRICE; a
+  // collected current/property value must NOT drive LTV (Mike: "value does not
+  // matter for pricing on a purchase"). Refis still seed from the property value.
+  var _pDefaultPropVal = _pIsDscrPurchase
+    ? (p.purchasePrice || p.propertyValue || '')
+    : (p.propertyValue || '');
 
   // Map prospect fields to DSCR form
   var map = {

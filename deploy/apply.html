@@ -642,6 +642,14 @@ function updatePriceLabels() {
 
   document.getElementById('lbl-purchasePrice').innerHTML = purchaseLabel + ' <span class="req">*</span>';
   document.getElementById('lbl-propertyValue').innerHTML = valueLabel    + ' <span class="req">*</span>';
+
+  // Deploy 236.576 — Current Property Value is only meaningful for a DSCR REFI.
+  // DSCR purchases (and the whole RTL family) build off the purchase price, so
+  // hide the field there. Authoritative visibility rule — both
+  // onLoanProductChange and onLoanPurposeChange call this, so it stays correct
+  // when the purpose flips.
+  var pvField = document.getElementById('field-propertyValue');
+  if (pvField) pvField.style.display = (isDscr && isRefi) ? '' : 'none';
 }
 
 function setShow(id, show) {
@@ -820,7 +828,11 @@ function validate() {
   // entire RTL family (fix_flip, bridge, transactional) since the LO
   // derives the loan amount in the sizer rather than asking the borrower.
   var isRtlFamily = (lp === 'fix_flip' || lp === 'bridge' || lp === 'transactional');
-  if (!isRtlFamily && !gv('propertyValue')) { showE('propertyValue'); ok = false; }
+  // Deploy 236.576 — Current Property Value is required only for a DSCR REFI.
+  // DSCR purchase now hides it (loan builds off purchase price), so don't
+  // require it there either.
+  var _isDscrPurchase = (lp === 'dscr') && (document.getElementById('loanPurpose').value === 'purchase');
+  if (!isRtlFamily && !_isDscrPurchase && !gv('propertyValue')) { showE('propertyValue'); ok = false; }
 
   // Deploy 236.227 (Broker Phase D) — email/citizenship/credit-score
   // are all borrower-owned data, skipped when a broker submits.
