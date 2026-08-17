@@ -1716,11 +1716,34 @@ function cancelDscrBelow1() {
   var ov = document.getElementById('dscrBelow1Overlay');
   if (ov) ov.classList.remove('open');
 }
+// Deploy 236.585 — remember a granted manager exception across navigation
+// (Loan Details → back to the sizer) even BEFORE the loan is re-Saved. The
+// _dscrBelow1 flag otherwise lives only in memory until Save, so leaving the
+// page and returning re-prompted. Keyed by the loanId in the URL (available on
+// every load path) with _editingLoanId as a fallback; session-scoped.
+function _dscrExcKey() {
+  try { return new URLSearchParams(window.location.search).get('loanId') || window._editingLoanId || ''; }
+  catch (_) { return window._editingLoanId || ''; }
+}
+function _dscrExcRemember() {
+  var k = _dscrExcKey(); if (!k) return;
+  try {
+    var s = JSON.parse(sessionStorage.getItem('_dscrExcGranted') || '[]');
+    if (s.indexOf(k) < 0) { s.push(k); sessionStorage.setItem('_dscrExcGranted', JSON.stringify(s)); }
+  } catch (_) {}
+}
+function _dscrExcRemembered() {
+  var k = _dscrExcKey(); if (!k) return false;
+  try { return JSON.parse(sessionStorage.getItem('_dscrExcGranted') || '[]').indexOf(k) >= 0; }
+  catch (_) { return false; }
+}
+
 function confirmDscrBelow1() {
   window._dscrBelow1 = true;
   // Pre-authorize the standard override warning so the LO isn't asked twice if
   // they then pencil-edit the manager-approved Note Rate / Origination Points.
   window._dscrOverrides.warningAcknowledged = true;
+  _dscrExcRemember(); // Deploy 236.585 — survive navigation before Save
   var ov = document.getElementById('dscrBelow1Overlay');
   if (ov) ov.classList.remove('open');
   // Deploy 236.584 — re-price now that the manager exception is granted. The
@@ -4003,7 +4026,9 @@ function loadQuoteIntoForm(formData) {
   // re-fire the modal when the sizer auto-runs calculate(). The
   // saved _rateOverride / _pointsOverride will still round-trip via
   // the standard override rehydration block above.
-  if (formData._dscrBelow1) {
+  // Deploy 236.585 — restore from the saved quote OR a session-remembered grant
+  // (exception approved but not yet Saved before navigating away and back).
+  if (formData._dscrBelow1 || _dscrExcRemembered()) {
     window._dscrBelow1 = true;
     window._dscrOverrides.warningAcknowledged = true;
   }
