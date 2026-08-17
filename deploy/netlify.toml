@@ -372,6 +372,13 @@
   status = 200
   force = true
 
+# Deploy 236.579 — admin edit of a user's display name + phone.
+[[redirects]]
+  from = "/api/users-update-profile-supabase"
+  to = "/.netlify/functions/users-update-profile-supabase"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/users-resend-invite-supabase"
   to = "/.netlify/functions/users-resend-invite-supabase"

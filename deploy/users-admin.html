@@ -285,15 +285,26 @@ async function loadUsers() {
         ? '<button class="icon-btn resend" onclick="resendInvite(\'' + escAttr(u.id) + '\', this)" title="Send a fresh magic-link email">Resend invite</button>'
         : '';
       var deleteBtn = '<button class="icon-btn danger" onclick="deleteUser(\'' + escAttr(u.id) + '\', \'' + escAttr(u.email) + '\', this)" title="Permanently delete this Supabase user">Delete</button>';
+      // Deploy 236.579 — edit a user's display name + phone (super-admin fix for
+      // a wrong number, etc.). Values ride on data-* attrs to dodge onclick
+      // quote-escaping; editUser() reads them.
+      var editBtn = '<button class="icon-btn" onclick="editUser(this)"' +
+        ' data-user-id="' + escAttr(u.id) + '"' +
+        ' data-email="' + escAttr(u.email) + '"' +
+        ' data-name="' + escAttr(u.fullName || '') + '"' +
+        ' data-phone="' + escAttr(u.phone || '') + '"' +
+        ' title="Edit name / phone">Edit</button>';
 
       return '<tr data-user-id="' + escAttr(u.id) + '">' +
-        '<td>' + escH(u.email) + (u.fullName ? '<div class="mono">' + escH(u.fullName) + '</div>' : '') +
+        '<td>' + escH(u.email) +
+          (u.fullName ? '<div class="mono">' + escH(u.fullName) + '</div>' : '') +
+          (u.phone ? '<div class="mono">' + escH(u.phone) + '</div>' : '') +
           '<div class="row-msg" id="rowmsg_' + escAttr(u.id) + '"></div>' +
         '</td>' +
         '<td>' + roleControl + '</td>' +
         '<td>' + statusPill + '</td>' +
         '<td class="mono">' + escH(last) + '</td>' +
-        '<td><div class="row-actions">' + resendBtn + deleteBtn + '</div></td>' +
+        '<td><div class="row-actions">' + resendBtn + editBtn + deleteBtn + '</div></td>' +
       '</tr>';
     }).join('');
     wrap.innerHTML =
@@ -317,6 +328,61 @@ function _rowMsg(userId, kind, text) {
   el.textContent = text;
   if (kind === 'ok') {
     setTimeout(function(){ el.className = 'row-msg'; el.textContent = ''; }, 4000);
+  }
+}
+
+// ── Deploy 236.579 — edit a user's name + phone (admin) ──────────
+function editUser(btn) {
+  var userId = btn.getAttribute('data-user-id');
+  var email  = btn.getAttribute('data-email') || '';
+  var name   = btn.getAttribute('data-name')  || '';
+  var phone  = btn.getAttribute('data-phone') || '';
+  var old = document.getElementById('editUserModal'); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = 'editUserModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:440px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:16px 20px;border-bottom:1px solid #e6e1d8">' +
+        '<div style="font-size:16px;font-weight:700;color:#261A36">Edit user</div>' +
+        '<div style="font-size:12px;color:#7a7488;margin-top:2px">' + escH(email) + '</div>' +
+      '</div>' +
+      '<div style="padding:18px 20px">' +
+        '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#261A36">Full Name</label>' +
+        '<input type="text" id="eu-name" value="' + escAttr(name) + '" style="width:100%;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:12px" />' +
+        '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#261A36">Phone Number</label>' +
+        '<input type="text" id="eu-phone" value="' + escAttr(phone) + '" placeholder="(555) 123-4567" inputmode="tel" style="width:100%;padding:9px 10px;border:1.5px solid #e6e1d8;border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box" />' +
+        '<div style="font-size:11px;color:#7a7488;margin-top:8px">Email can’t be changed here — it’s the account key that owns this user’s loans, so changing it needs a separate re-owning migration.</div>' +
+        '<div id="eu-err" style="font-size:12px;color:#7c1f1f;min-height:14px;margin-top:6px"></div>' +
+      '</div>' +
+      '<div style="padding:14px 20px;border-top:1px solid #e6e1d8;display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" id="eu-cancel" style="font-size:13px;padding:8px 16px;border:1px solid #e6e1d8;background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>' +
+        '<button type="button" id="eu-save" style="font-size:13px;padding:8px 18px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">Save</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+  document.getElementById('eu-cancel').addEventListener('click', function () { wrap.remove(); });
+  document.getElementById('eu-save').addEventListener('click', function () { _saveUserProfile(userId); });
+  var nameEl = document.getElementById('eu-name'); if (nameEl) nameEl.focus();
+}
+
+async function _saveUserProfile(userId) {
+  var name  = (document.getElementById('eu-name').value  || '').trim();
+  var phone = (document.getElementById('eu-phone').value || '').trim();
+  var err = document.getElementById('eu-err');
+  // Normalise a 10-digit US number to (XXX) XXX-XXXX; otherwise leave as typed.
+  var d = phone.replace(/[^\d]/g, ''); if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+  if (d.length === 10) phone = '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
+  var btn = document.getElementById('eu-save'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    var r = await SLA.api('POST', '/api/users-update-profile-supabase', { userId: userId, fullName: name, phone: phone });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    var m = document.getElementById('editUserModal'); if (m) m.remove();
+    loadUsers();
+  } catch (e) {
+    if (err) err.textContent = 'Failed: ' + (e.message || 'unknown');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
   }
 }
 

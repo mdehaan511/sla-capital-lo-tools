@@ -5762,31 +5762,40 @@ function _pofSaveLoPhone(loEmail, phone) {
     .catch(function () { /* non-fatal — still print the letter */ });
 }
 
-// Render + download the POF letter PDF.
+// Render + download the POF letter PDF. Deploy 236.579 — load the SLA logo from
+// its ABSOLUTE path first (the nav <img> uses a RELATIVE src that resolves wrong
+// under the /loan-details/<id> short URL, so grabbing `nav img` produced a
+// broken image → no letterhead). Same-origin image → canvas isn't tainted.
 function _pofRender(f) {
   if (!(window.jspdf && window.jspdf.jsPDF)) {
     showToast('PDF library still loading — try again in a moment.');
     return;
   }
+  var img = new Image();
+  img.onload  = function () { _pofBuildPdf(f, img); };
+  img.onerror = function () { _pofBuildPdf(f, null); };
+  img.src = '/SLA_Capital_Logo_2_1.png';
+}
+
+function _pofBuildPdf(f, logoImg) {
   var JsPDF = window.jspdf.jsPDF;
   var doc = new JsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
   var W = doc.internal.pageSize.getWidth();
   var lm = 72, rm = W - 72; // 1-inch margins
   var y = 54;
 
-  // Letterhead — reuse the nav logo the same way the sizer term sheet does.
+  // Letterhead.
   try {
-    var logoEl = document.querySelector('nav img');
-    if (logoEl && logoEl.complete && logoEl.naturalWidth > 0) {
-      var logoW = 120;
-      var logoH = (logoEl.naturalHeight / logoEl.naturalWidth) * logoW;
+    if (logoImg && logoImg.naturalWidth > 0) {
+      var logoW = 130;
+      var logoH = (logoImg.naturalHeight / logoImg.naturalWidth) * logoW;
       var os = 2;
       var c = document.createElement('canvas');
       c.width = Math.round(logoW * os); c.height = Math.round(logoH * os);
       var cx = c.getContext('2d');
       cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, c.width, c.height);
-      cx.drawImage(logoEl, 0, 0, c.width, c.height);
-      doc.addImage(c.toDataURL('image/jpeg', 0.9), 'JPEG', lm, y, logoW, logoH);
+      cx.drawImage(logoImg, 0, 0, c.width, c.height);
+      doc.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', lm, y, logoW, logoH);
       y += logoH + 26;
     } else { throw new Error('no logo'); }
   } catch (e) {

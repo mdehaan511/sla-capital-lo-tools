@@ -75,6 +75,7 @@ export default async (req, context) => {
         confirmedAt:  u.email_confirmed_at || u.confirmed_at || '',
         lastSignInAt: u.last_sign_in_at || '',
         fullName:     um.full_name || um.name || '',
+        phone:        um.phone || '', // Deploy 236.579 — for the admin profile editor
         provider:     am.provider  || (Array.isArray(am.providers) ? am.providers.join(',') : ''),
         appMetadata:  am,
         userMetadata: um,
