@@ -44,16 +44,23 @@ import { IMPORT_OWNER_KEY, setNativeLink, getNativeLink } from './_shared/baseli
 import { writeClient } from './_shared/client-write.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
-// Deploy 236.184 — status + processingStage added. When we merge
-// an import copy into a native loan, Baseline is authoritative for
-// the loan's stage in the processing pipeline, so we pull those
-// values through. The LO's manual status advances still win via
-// the preservation clause in the upsert path on subsequent syncs.
+// Fields pulled from the import copy onto the native loan during a merge.
+// These are INFORMATIONAL Baseline-mirror fields (baselineStatus/substatus,
+// _baselineRaw, the link id, etc.) — they never touch the loan's real pipeline
+// state.
+//
+// Deploy 236.582 — REMOVED 'status' and 'processingStage'. 236.184 pulled them
+// on the theory that Baseline was authoritative for stage, but SLA now DRIVES
+// the processing pipeline: forcing the import copy's (often stale) Baseline
+// status onto the native loan demoted actively-worked loans (approved → on_hold
+// / active) — which the DB no-demotion guard correctly rejected, breaking the
+// merge (loans_no_demotion). The native loan keeps its own status/stage; the
+// subsequent "Migrate from Baseline" run syncs Baseline status through the
+// upsert path's proper preservation logic (which never demotes silently).
 const BASELINE_METADATA_FIELDS = [
   'baselineStatus', 'baselineSubstatus', 'baselineOwnerName',
   'baselineArchivedAt', '_baselineRaw', '_baselineImport',
   '_baselineImportedAt', '_baselineMirroredAt', '_baselineId',
-  'status', 'processingStage',
 ];
 
 // Address pass — loan amounts within this % count as the same
