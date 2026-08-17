@@ -182,6 +182,8 @@
     <div class="pp-views" id="ppViews">
       <button type="button" class="pp-view-tab active" data-view="active" onclick="setPipelineView('active')">Active Pipeline</button>
       <button type="button" class="pp-view-tab" data-view="closed" onclick="setPipelineView('closed')">Closed Pipeline</button>
+      <!-- Deploy 236.562 — manager dashboard (workload / aging / at-risk). -->
+      <button type="button" class="pp-view-tab" data-view="overview" onclick="setPipelineView('overview')">Team Overview</button>
     </div>
     <div id="boardWrap"><div class="loading">Loading pipeline…</div></div>
   </div>
@@ -521,6 +523,13 @@ function render() {
     return true;
   }
 
+  // Deploy 236.562 — Team Overview: a manager dashboard (workload / aging /
+  // at-risk) instead of the Kanban. Reuses the same loaded _items + filters.
+  if (_view === 'overview') {
+    document.getElementById('boardWrap').innerHTML = renderOverview(visible);
+    return;
+  }
+
   // Deploy 236.549 — pick the board by view. Closed loans (from the active
   // board's pp_closed bucket) are re-bucketed into the 4 post-close columns.
   var cols, source;
@@ -562,6 +571,103 @@ function render() {
   });
   html += '</div>';
   document.getElementById('boardWrap').innerHTML = html;
+}
+
+// ── Deploy 236.562 — Team Overview (processing manager dashboard) ──
+var _OV_STG = [['new_loan','Lead'],['processing','Processing'],['underwriting','Underwriting'],['pp_approved','Approved'],['pp_closed','Closed']];
+function _ovDaysInStage(loan) {
+  var t = loan.processingStageAt || loan.updatedAt;
+  if (!t) return null;
+  var d = new Date(t); if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+function _statCard(label, val, color) {
+  return '<div style="flex:1;min-width:150px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">' +
+    '<div style="font-size:26px;font-weight:800;line-height:1;color:' + (color || 'var(--dark)') + '">' + val + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-top:4px">' + escH(label) + '</div></div>';
+}
+function _ovRow(x, kind, val) {
+  var loan = x.it.loan, client = x.it.client;
+  var name = ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || client.email || '(unknown)';
+  var addr = loan.address || '(no address)';
+  var STGL = { new_loan:'Lead', processing:'Processing', underwriting:'Underwriting', pp_approved:'Approved', pp_closed:'Closed' };
+  var ap = loan.assignedProcessor;
+  var who = (ap && (ap.name || ap.email)) ? escH(ap.name || ap.email) : '<span style="color:var(--gold-mid)">Unassigned</span>';
+  var right;
+  if (kind === 'close') {
+    right = val < 0
+      ? '<span style="color:#7c1f1f;font-weight:700">' + Math.abs(val) + 'd past due</span>'
+      : '<span style="color:' + (val <= 2 ? '#7c1f1f' : '#b5712d') + ';font-weight:700">closes in ' + val + 'd</span>';
+  } else {
+    right = '<span style="color:' + (val >= 14 ? '#7c1f1f' : (val >= 7 ? '#b5712d' : 'var(--muted)')) + ';font-weight:700">' + val + 'd in ' + (STGL[x.stage] || x.stage) + '</span>';
+  }
+  var href = SLA.urls.loanDetails(loan.id, { owner: x.it.ownerKey });
+  return '<a href="' + escAttr(href) + '" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;text-decoration:none;color:var(--text)">' +
+    '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escH(addr) + '</div>' +
+    '<div style="font-size:11px;color:var(--muted)">' + escH(name) + ' · ' + who + '</div></div>' +
+    '<div style="font-size:12px;text-align:right;flex:none">' + right + '</div></a>';
+}
+function renderOverview(visible) {
+  var all = [];
+  _OV_STG.forEach(function(s){ (_items[s[0]] || []).forEach(function(it){ if (visible(it)) all.push({ it: it, stage: s[0] }); }); });
+
+  // Workload by processor
+  var byP = {}, UN = '__un__';
+  all.forEach(function(x){
+    var ap = x.it.loan.assignedProcessor;
+    var key = (ap && ap.email) ? ap.email.toLowerCase() : UN;
+    if (!byP[key]) byP[key] = { name: (ap && (ap.name || ap.email)) || 'Unassigned', total: 0, stages: {} };
+    byP[key].total++;
+    byP[key].stages[x.stage] = (byP[key].stages[x.stage] || 0) + 1;
+  });
+  var procKeys = Object.keys(byP).sort(function(a, b){ if (a === UN) return 1; if (b === UN) return -1; return byP[b].total - byP[a].total; });
+
+  var atRisk = all.filter(function(x){ if (x.stage === 'pp_closed') return false; var d = daysUntilClose(x.it.loan.fundingDate); return d != null && d <= 5; })
+    .sort(function(a, b){ return daysUntilClose(a.it.loan.fundingDate) - daysUntilClose(b.it.loan.fundingDate); });
+  var aging = all.filter(function(x){ return x.stage !== 'pp_closed'; })
+    .map(function(x){ return { x: x, days: _ovDaysInStage(x.it.loan) }; })
+    .filter(function(o){ return o.days != null; })
+    .sort(function(a, b){ return b.days - a.days; }).slice(0, 12);
+
+  var totalActive = all.filter(function(x){ return x.stage !== 'pp_closed'; }).length;
+  var unassignedActive = all.filter(function(x){ return x.stage !== 'pp_closed' && !(x.it.loan.assignedProcessor && x.it.loan.assignedProcessor.email); }).length;
+  var cardCss = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px';
+  var hd = 'font-weight:700;font-size:14px;color:var(--dark);margin-bottom:10px';
+
+  var h = '<div style="display:flex;flex-direction:column;gap:16px;max-width:1100px">';
+  h += '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+    _statCard('Active in processing', totalActive, '') +
+    _statCard('At-risk (≤5d / past due)', atRisk.length, atRisk.length ? '#7c1f1f' : '') +
+    _statCard('Unassigned', unassignedActive, unassignedActive ? '#b5712d' : '') + '</div>';
+
+  h += '<div style="' + cardCss + '"><div style="' + hd + '">Workload by processor</div>';
+  if (!procKeys.length) {
+    h += '<div style="color:var(--muted);font-size:13px;font-style:italic">No loans in processing.</div>';
+  } else {
+    h += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--muted);font-size:11px">' +
+      '<th style="padding:5px 8px">Processor</th>' + _OV_STG.map(function(s){ return '<th style="padding:5px 8px;text-align:center">' + s[1] + '</th>'; }).join('') +
+      '<th style="padding:5px 8px;text-align:center">Total</th></tr></thead><tbody>';
+    procKeys.forEach(function(k){
+      var p = byP[k];
+      h += '<tr style="border-top:1px solid var(--border)">' +
+        '<td style="padding:6px 8px;font-weight:600' + (k === UN ? ';color:var(--muted);font-style:italic' : '') + '">' + escH(p.name) + '</td>' +
+        _OV_STG.map(function(s){ var n = p.stages[s[0]] || 0; return '<td style="padding:6px 8px;text-align:center' + (n ? '' : ';color:var(--border)') + '">' + (n || '·') + '</td>'; }).join('') +
+        '<td style="padding:6px 8px;text-align:center;font-weight:700">' + p.total + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+  h += '</div>';
+
+  h += '<div style="' + cardCss + '"><div style="' + hd + '">At-risk closings</div>' +
+    (atRisk.length ? atRisk.map(function(x){ return _ovRow(x, 'close', daysUntilClose(x.it.loan.fundingDate)); }).join('')
+                   : '<div style="color:var(--muted);font-size:13px;font-style:italic">Nothing closing in the next 5 days.</div>') + '</div>';
+
+  h += '<div style="' + cardCss + '"><div style="' + hd + '">Longest in current stage</div>' +
+    (aging.length ? aging.map(function(o){ return _ovRow(o.x, 'aging', o.days); }).join('')
+                  : '<div style="color:var(--muted);font-size:13px;font-style:italic">No aging data yet.</div>') + '</div>';
+
+  h += '</div>';
+  return h;
 }
 
 function renderCard(it) {
@@ -765,7 +871,7 @@ function onColDrop(e) {
 // Deploy 236.549 — switch between the Active and Closed boards (client-side; the
 // data is already loaded, so just re-render).
 function setPipelineView(view) {
-  _view = (view === 'closed') ? 'closed' : 'active';
+  _view = (view === 'closed' || view === 'overview') ? view : 'active';
   var tabs = document.querySelectorAll('.pp-view-tab');
   for (var i = 0; i < tabs.length; i++) {
     tabs[i].classList.toggle('active', tabs[i].getAttribute('data-view') === _view);

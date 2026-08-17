@@ -100,6 +100,10 @@ async function handle(req, context) {
   const priorSubstatus = String(loan.processingSubstatus || '');
 
   loan.processingStage = newStage;
+  // Deploy 236.562 — stamp when the loan ENTERED this stage, for aging / SLA
+  // metrics on the processing overview. Only on a real stage change; existing
+  // loans without it fall back to updatedAt in the dashboard.
+  if (newStage !== priorStage) loan.processingStageAt = new Date().toISOString();
   if (substatus !== undefined) {
     loan.processingSubstatus = substatus;
   } else if (String(loan.processingStage || '') !== priorStage) {
