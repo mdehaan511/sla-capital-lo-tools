@@ -36,6 +36,13 @@ import {
   handleOptions, json, requireAuth, isAdmin, readJsonBody,
 } from './_shared/auth.mjs';
 import { IMPORT_OWNER_KEY, setNativeLink, getNativeLink } from './_shared/baseline-upsert.mjs';
+// Deploy 236.571 — strict writes. The original merge used raw store.setJSON /
+// store.delete (blob only), which reintroduced the PG-drift bug class: the
+// merged native client's PG row went stale and each deleted import copy left
+// orphaned PG rows. writeClient mirrors blob+PG; deleteClientStrict removes the
+// client + its loans from PG transactionally.
+import { writeClient } from './_shared/client-write.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
 // Deploy 236.184 — status + processingStage added. When we merge
 // an import copy into a native loan, Baseline is authoritative for
@@ -193,9 +200,12 @@ async function handle(req, context) {
       nativeLoan.updatedAt = new Date().toISOString();
 
       if (!dryRun) {
-        await store.setJSON(nativeEntry.clientKey, nativeClient);
+        // Deploy 236.571 — strict blob+PG write for the merged native client.
+        await writeClient(nativeEntry.ownerKey, nativeClient, { clientsStore: store });
         for (const ic of importCopies) {
-          await store.delete(ic.clientKey);
+          await store.delete(ic.clientKey);            // blob
+          try { await pgMirror.deleteClientStrict(ic.clientId); } // PG (txn: loans + client)
+          catch (e) { errors.push({ matchKind, matchValue, error: 'pg delete ' + ic.clientId + ': ' + ((e && e.message) || 'unknown') }); }
         }
         // Deploy 236.184 — write a native link so the NEXT Migrate
         // routes updates to nativeLoan instead of re-forking an
