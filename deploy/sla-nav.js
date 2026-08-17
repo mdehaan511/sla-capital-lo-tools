@@ -39,11 +39,14 @@
     // processing-pipeline.html / tasks.html bounces at the page
     // guards below.
     {
+      // Deploy 236.558 — opened to the PROCESSOR role for the processing-team
+      // rollout. hasRole('processor') includes admins/super_admins, so admins
+      // still see it. Page guards changed to _isStaff to match.
       label: 'Processing',
-      requires: 'admin',
+      requires: 'processor',
       children: [
-        { label: 'Pipeline', href: '/processing-pipeline.html', requires: 'admin' },
-        { label: 'Tasks',    href: '/tasks.html',               requires: 'admin' },
+        { label: 'Pipeline', href: '/processing-pipeline.html', requires: 'processor' },
+        { label: 'Tasks',    href: '/tasks.html',               requires: 'processor' },
       ],
     },
     {

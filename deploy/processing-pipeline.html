@@ -274,9 +274,10 @@ window.netlifyIdentity.on('init', function(user) {
   _user = user;
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
   _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
-  // Deploy 236.275 — Processing Pipeline is admin-only for now per
-  // Mike. Non-admins who bookmark / paste the URL get bounced.
-  if (!_isAdmin) { window.location.replace('/'); return; }
+  // Deploy 236.558 — opened to the PROCESSOR role (admin OR processor =
+  // _isStaff) for the processing-team rollout. Was admin-only (236.275).
+  // Settings gears (⚙ Substatuses / Task Templates) stay admin-only below.
+  if (!_isStaff) { window.location.replace('/'); return; }
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
   // LO filter is useful for both admins and processors — both work

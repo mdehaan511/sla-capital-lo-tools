@@ -127,8 +127,9 @@ window.netlifyIdentity.on('init', function(user) {
   _user = user;
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
   _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
-  // Deploy 236.275 — Tasks page is admin-only for now per Mike.
-  if (!_isAdmin) { window.location.replace('/'); return; }
+  // Deploy 236.558 — opened to the PROCESSOR role (admin OR processor) for the
+  // processing-team rollout. Was admin-only (236.275).
+  if (!_isStaff) { window.location.replace('/'); return; }
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
   if (_isStaff) {
