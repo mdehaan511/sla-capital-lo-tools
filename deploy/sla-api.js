@@ -1748,27 +1748,38 @@
     // reliable for the user's OWN profile.
     update: function (fields) {
       fields = fields || {};
-      var u = window.netlifyIdentity && window.netlifyIdentity.currentUser
-        ? window.netlifyIdentity.currentUser() : null;
-      if (!u) return Promise.reject(new Error('Not signed in'));
-
       // Translate our field names to gotrue's user_metadata keys.
       var meta = {};
       if (typeof fields.fullName === 'string') meta.full_name = fields.fullName;
       if (typeof fields.phone    === 'string') meta.phone     = fields.phone;
 
-      // gotrue's `data` is user_metadata. It merges shallowly so other
-      // user_metadata keys (e.g. set by another flow) survive.
-      return u.update({ data: meta }).then(function () {
-        // Mirror to our blob store. If this fails the toast still says
-        // "Saved" because the user_metadata write succeeded — that's the
-        // canonical record. Admin views that read from the blob will
-        // catch up on the next mirror.
-        return api('POST', '/api/profile-update', fields).catch(function (e) {
-          console.warn('SLA.Profile.update: mirror to blob failed (user_metadata still saved):', e && e.message);
-          return { ok: true, mirrorFailed: true };
+      var nu = (window.netlifyIdentity && window.netlifyIdentity.currentUser)
+        ? window.netlifyIdentity.currentUser() : null;
+
+      // Netlify Identity user: write user_metadata via gotrue (their canonical
+      // store — `data` IS user_metadata, a gotrue naming quirk), then mirror to
+      // the profiles blob so SLA pages reflect the change immediately.
+      if (nu && typeof nu.update === 'function') {
+        return nu.update({ data: meta }).then(function () {
+          return api('POST', '/api/profile-update', fields).catch(function (e) {
+            console.warn('SLA.Profile.update: mirror to blob failed (user_metadata still saved):', e && e.message);
+            return { ok: true, mirrorFailed: true };
+          });
         });
-      });
+      }
+
+      // Deploy 236.577 — Supabase-logged-in users have NO netlifyIdentity
+      // currentUser(), so the old code rejected with "Not signed in" before it
+      // ever tried to save. Write to the profiles blob via the authenticated
+      // endpoint (requireAuth verifies the Supabase JWT), and best-effort mirror
+      // to Supabase user_metadata so getCurrentUser()/admin views pick it up.
+      try {
+        var sb = window._slaSupabase;
+        if (sb && sb.auth && typeof sb.auth.updateUser === 'function') {
+          sb.auth.updateUser({ data: meta }).catch(function () {});
+        }
+      } catch (_) { /* non-fatal */ }
+      return api('POST', '/api/profile-update', fields);
     },
   };
 
