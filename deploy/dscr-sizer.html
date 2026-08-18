@@ -1082,12 +1082,14 @@ function renderResult(r) {
   renderCashToCloseCard(r, r.loan)+
 
   '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>'+
-  // Deploy 236.597 — LO toggle to include the buy-down options table on the rate
-  // sheet PDF. Off by default; state persists in window._dscrIncludeBuydowns for
-  // the session so re-renders keep the choice.
+  // Deploy 236.597/598 — LO toggle to include the buy-down options table on the
+  // rate sheet PDF. Off by default; the session preference persists in
+  // window._dscrBuydownsOnSheet (NOT _dscrIncludeBuydowns — that's the reader
+  // function; 236.598 fixed the name collision). Disabled when points overridden.
   '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:10px 2px 2px;cursor:pointer;user-select:none">'+
-    '<input type="checkbox" id="dscrIncludeBuydowns"'+(window._dscrIncludeBuydowns ? ' checked' : '')+' onchange="window._dscrIncludeBuydowns = this.checked" style="cursor:pointer">'+
+    '<input type="checkbox" id="dscrIncludeBuydowns"'+(window._dscrBuydownsOnSheet ? ' checked' : '')+' onchange="window._dscrBuydownsOnSheet = this.checked" style="cursor:pointer">'+
     'Include buy-down options table on the rate sheet'+
+    '<span id="dscrBuydownHint" style="color:var(--gold-mid,#b5712d)"></span>'+
   '</label>'+
   '<button class="dl-btn" onclick="downloadPDF()">&#8681; Download Rate Sheet PDF</button>';
 }
@@ -2040,6 +2042,9 @@ function applyOverridesAndRender() {
   }
 
   refreshOverrideNotice();
+  // Deploy 236.598 — keep the buy-down toggle in sync with the points-override
+  // lock (disable + uncheck the checkbox when a points override is active).
+  try { _syncBuydownToggle(); } catch (_) {}
 }
 
 function run() {
@@ -2118,12 +2123,38 @@ function fmtDplain(n) {
 }
 
 // Deploy 236.597 — should the rate sheet include the buy-down options table?
-// Reads the live checkbox in the results, falling back to the persisted
-// session flag. Off by default.
+// Reads the live checkbox in the results, falling back to the persisted session
+// flag (window._dscrBuydownsOnSheet — deliberately NOT the same name as this
+// function; 236.598 fixed a collision where the checkbox onchange overwrote the
+// function with a boolean → "_dscrIncludeBuydowns is not a function" on download).
 function _dscrIncludeBuydowns() {
+  // Deploy 236.598 — never include the buy-down table when the origination points
+  // are overridden (manager exception). The table is a standard-tier-by-points
+  // comparison, so a manual points override makes those tiers wrong for this loan.
+  var ovP = window._dscrOverrides && window._dscrOverrides.points;
+  if (typeof ovP === 'number' && isFinite(ovP)) return false;
   var cb = document.getElementById('dscrIncludeBuydowns');
   if (cb) return !!cb.checked;
-  return !!window._dscrIncludeBuydowns;
+  return !!window._dscrBuydownsOnSheet;
+}
+// Deploy 236.598 — reflect the points-override lock in the checkbox UI: when a
+// points override is active, disable + uncheck it (the session preference in
+// window._dscrBuydownsOnSheet is preserved and restored when the override clears).
+function _syncBuydownToggle() {
+  var cb = document.getElementById('dscrIncludeBuydowns');
+  if (!cb) return;
+  var hint = document.getElementById('dscrBuydownHint');
+  var ovP = window._dscrOverrides && window._dscrOverrides.points;
+  var locked = (typeof ovP === 'number' && isFinite(ovP));
+  if (locked) {
+    cb.checked = false;
+    cb.disabled = true;
+    if (hint) hint.textContent = ' — off while points are overridden';
+  } else {
+    cb.disabled = false;
+    cb.checked = !!window._dscrBuydownsOnSheet;
+    if (hint) hint.textContent = '';
+  }
 }
 // Public entrypoint for the LO's "Download Rate Sheet PDF" button.
 function downloadPDF() {
