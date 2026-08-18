@@ -2542,68 +2542,10 @@ function _generateRateSheetPDF(opts) {
 
   y += detailBlockH + 10;
 
-  // ── RATE BREAKDOWN TABLE ────────────────────────────────────
-  // Deploy 191: line-item rate adjustments (FICO, IO, Property Type,
-  // UPB, DSCR, etc.) are no longer surfaced on the borrower-facing
-  // term sheet. The breakdown was useful for LO reference but
-  // confusing for borrowers \u2014 they\u2019d ask "what\u2019s a UPB
-  // adjustment?" or feel nickel-and-dimed by individual line items.
-  // Now the breakdown shows only the base rate \u2192 final rate, with
-  // the buy-down options below. LOs can still see line-item
-  // breakdowns in the sizer\u2019s on-screen results card.
-  // Deploy 236.48 — hide the base-rate row too. Borrowers were getting
-  // hung up on the gap between the displayed base rate and the final
-  // rate, and the adjustment math behind that gap is exactly what 191
-  // already decided to keep off the sheet. The block now jumps straight
-  // to the Final Note Rate; the rate-options-by-points table below
-  // gives the LO room to walk through buy-down choices.
-  var rateRows = [];
-
-  var ROW_C = 18;  // compact row height for comparison table (defined early for rateBlockH)
-  var rateBlockH = rateRows.length*ROW_H + ROW_H + 12 + 14 + ROW_C + 5*ROW_C + 8;
-  doc.setFillColor(255,255,255);
-  doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
-  rr(lm, y, cw, rateBlockH, 4, 'FD');
-
-  var ry = y + 6;
-  rateRows.forEach(function(row, idx) {
-    var isLast = idx === rateRows.length-1;
-    ry = trow(row[0], row[1], ry, {
-      labelColor: MUTED,
-      valueColor: row[2],
-      valueBold: row[3],
-      noLine: isLast
-    });
-  });
-
-  // Final rate total row — heavier line above (only when there were
-  // breakdown rows above it), larger text.
-  // Deploy 236.48 — with the base-rate row removed there's nothing for
-  // the divider to separate from, so skip the line when rateRows is
-  // empty. Otherwise the borrower sees an orphaned horizontal rule at
-  // the very top of the block.
-  if (rateRows.length > 0) {
-    doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
-    doc.line(lm+8, ry, lm+cw-8, ry);
-    ry += 4;
-  }
-  // Deploy 236.48 — Final Note Rate row labels honor the points override
-  // (window._dscrOverrides.points) when active, same as the LOAN
-  // DETAILS table. Without this the borrower sees "1.00 pts" on the
-  // details line but "1.00 pts origination" on the rate block, which
-  // is confusing once a manager-approved override is in play.
-  var __ovP = (window._dscrOverrides && window._dscrOverrides.points);
-  var __effPts = (typeof __ovP === 'number' && isFinite(__ovP)) ? __ovP : (1 + (r.buydown||0));
-  var totalPtsLabel = __effPts.toFixed(2)+' pts origination';
-  ry = trow('Final Note Rate ('+totalPtsLabel+')', r.finalRate.toFixed(3)+'%', ry, {
-    labelColor: TEXT, labelBold: true,
-    valueColor: TEXT, valueBold: true,
-    valueFontSize: 13, noLine: true
-  });
-
-  // Deploy 236.586 — "RATE OPTIONS BY ORIGINATION POINTS" buy-down comparison
-  // table removed from the DSCR rate sheet per Mike.
-  y += rateBlockH + 10;
+  // Deploy 236.596 — RATE BREAKDOWN block removed per Mike. After 236.586 took
+  // out the rate-options-by-points table, this block drew a large white box with
+  // only the "Final Note Rate" line inside it. The final note rate still prints
+  // in the rate-sheet hero at the top of page 1 (r.finalRate), so nothing is lost.
 
   // ── PAYMENT BREAKDOWN always starts on page 2 ───────────────
   doc.addPage();
