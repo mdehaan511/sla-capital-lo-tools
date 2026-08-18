@@ -1064,6 +1064,11 @@
   status = 200
   force = true
 [[redirects]]
+  from = "/api/loan-stage-drift-report"
+  to = "/.netlify/functions/loan-stage-drift-report"
+  status = 200
+  force = true
+[[redirects]]
   from = "/api/borrower-intake-vendor"
   to = "/.netlify/functions/borrower-intake-vendor"
   status = 200
