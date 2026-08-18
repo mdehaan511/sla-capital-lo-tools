@@ -1082,6 +1082,13 @@ function renderResult(r) {
   renderCashToCloseCard(r, r.loan)+
 
   '<button class="save-btn" id="saveQuoteBtn" onclick="saveCurrentQuote()">&#9733; Save Quote</button>'+
+  // Deploy 236.597 — LO toggle to include the buy-down options table on the rate
+  // sheet PDF. Off by default; state persists in window._dscrIncludeBuydowns for
+  // the session so re-renders keep the choice.
+  '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:10px 2px 2px;cursor:pointer;user-select:none">'+
+    '<input type="checkbox" id="dscrIncludeBuydowns"'+(window._dscrIncludeBuydowns ? ' checked' : '')+' onchange="window._dscrIncludeBuydowns = this.checked" style="cursor:pointer">'+
+    'Include buy-down options table on the rate sheet'+
+  '</label>'+
   '<button class="dl-btn" onclick="downloadPDF()">&#8681; Download Rate Sheet PDF</button>';
 }
 
@@ -2110,6 +2117,14 @@ function fmtDplain(n) {
   return '$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 
+// Deploy 236.597 — should the rate sheet include the buy-down options table?
+// Reads the live checkbox in the results, falling back to the persisted
+// session flag. Off by default.
+function _dscrIncludeBuydowns() {
+  var cb = document.getElementById('dscrIncludeBuydowns');
+  if (cb) return !!cb.checked;
+  return !!window._dscrIncludeBuydowns;
+}
 // Public entrypoint for the LO's "Download Rate Sheet PDF" button.
 function downloadPDF() {
   // Deploy 236.277 — mobile back-nav preservation. jsPDF's doc.save()
@@ -2542,10 +2557,81 @@ function _generateRateSheetPDF(opts) {
 
   y += detailBlockH + 10;
 
-  // Deploy 236.596 — RATE BREAKDOWN block removed per Mike. After 236.586 took
-  // out the rate-options-by-points table, this block drew a large white box with
-  // only the "Final Note Rate" line inside it. The final note rate still prints
-  // in the rate-sheet hero at the top of page 1 (r.finalRate), so nothing is lost.
+  // Deploy 236.596 — the empty "Final Note Rate" box was removed; the final note
+  // rate prints in the rate-sheet hero at the top of page 1 (r.finalRate).
+  // Deploy 236.597 — OPTIONAL buy-down options table. Off by default; the LO opts
+  // in via the "Include buy-down options" toggle in the sizer results. When on,
+  // print the RATE OPTIONS BY ORIGINATION POINTS comparison (restored from
+  // pre-236.586) so borrowers can see every tier, with the selected one starred.
+  if (_dscrIncludeBuydowns()) {
+    var bdOptions = [
+      { bd: 0,    pts: 1.00 },
+      { bd: 0.25, pts: 1.25 },
+      { bd: 0.50, pts: 1.50 },
+      { bd: 0.75, pts: 1.75 },
+      { bd: 1.00, pts: 2.00 }
+    ];
+    var BD_ROW = 18;
+    var bdNum  = bdOptions.length;
+    // Selected finalRate already baked in its buydown adjustment; strip it to get
+    // the pre-buydown base, then re-apply each option's adjustment.
+    var selectedBdAdj = Math.abs(DIYA.rateBuydown[(r.buydown).toFixed(2)] || 0);
+    var rateWithoutBd = r.finalRate + selectedBdAdj;
+    var bry = y;
+    // Section label
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+    doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text('RATE OPTIONS BY ORIGINATION POINTS', lm+8, bry+8);
+    bry += 14;
+    // Outer border
+    doc.setFillColor(250,248,245);
+    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.4);
+    rr(lm+4, bry, cw-8, BD_ROW + bdNum*BD_ROW, 3, 'FD');
+    // Columns: Origination | Note Rate | Points Cost | Rate Reduction
+    var bcw = cw - 8;
+    var bc1 = bcw * 0.28, bc2 = bcw * 0.22, bc3 = bcw * 0.26, bc4 = bcw * 0.24;
+    var bcx = lm + 8;
+    var bhb = bry + BD_ROW * 0.72;
+    doc.setFont('helvetica','bold'); doc.setFontSize(7);
+    doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text('Origination', bcx, bhb);
+    doc.text('Note Rate', bcx+bc1, bhb);
+    doc.text('Points Cost', bcx+bc1+bc2, bhb);
+    doc.text('Rate Reduction', bcx+bc1+bc2+bc3, bhb);
+    doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.3);
+    doc.line(lm+6, bry+BD_ROW, lm+cw-6, bry+BD_ROW);
+    bry += BD_ROW;
+    bdOptions.forEach(function(opt, i) {
+      var isSel = Math.abs(opt.bd - (r.buydown||0)) < 0.001;
+      var bdAdj  = Math.abs(DIYA.rateBuydown[opt.bd.toFixed(2)] || 0);
+      var optRate = rateWithoutBd - bdAdj;
+      var ptsCost = r.loan * opt.pts / 100;
+      var rowB = bry + BD_ROW * 0.72;
+      if (isSel) {
+        doc.setFillColor(255, 248, 236);
+        doc.setDrawColor(GOLD[0],GOLD[1],GOLD[2]); doc.setLineWidth(0.5);
+        rr(lm+4, bry, cw-8, BD_ROW, 0, 'FD');
+      }
+      var tc = isSel ? [130, 75, 15] : TEXT;
+      doc.setFont('helvetica', isSel ? 'bold' : 'normal'); doc.setFontSize(8);
+      doc.setTextColor(tc[0], tc[1], tc[2]);
+      doc.text(opt.pts.toFixed(2)+' pts', bcx, rowB);
+      doc.text(optRate.toFixed(3)+'%', bcx+bc1, rowB);
+      doc.text('$'+Math.round(ptsCost).toLocaleString('en-US'), bcx+bc1+bc2, rowB);
+      doc.text(opt.bd > 0 ? '-'+bdAdj.toFixed(3)+'%' : '—', bcx+bc1+bc2+bc3, rowB);
+      if (isSel) {
+        doc.setFont('helvetica','bold'); doc.setFontSize(7);
+        doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
+        doc.text('← selected', bcx+bc1+bc2+bc3+bc4-2, rowB, {align:'right'});
+      }
+      if (i < bdOptions.length - 1) {
+        doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.2);
+        doc.line(lm+8, bry+BD_ROW, lm+cw-8, bry+BD_ROW);
+      }
+      bry += BD_ROW;
+    });
+    y = bry + 10;
+  }
 
   // ── PAYMENT BREAKDOWN always starts on page 2 ───────────────
   doc.addPage();
