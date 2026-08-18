@@ -964,13 +964,24 @@ function renderReserveCard() {
   var card = document.getElementById('reserveCard');
   if (!card) return;
   var calc = window._rtlLastCalc || {};
-  var loanAmt = calc.bMax || 0;
+  // Deploy 236.587 — MATCH the rate sheet. The RTL term-sheet PDF shows the loan
+  // ON FILE (the saved pricing snapshot, honoring overrides / the on-file loan
+  // amount), not the fresh live recompute. This card used the live calc, so for
+  // a saved or overridden loan its Cash-to-Close / holding diverged from the
+  // rate sheet. Prefer the SAME _loadedLoanPricingSnapshot the PDF prefers for
+  // loan amount, points, down payment, and monthly interest — including the
+  // 236.488/236.522 synth-fallback monthly re-scale. rehabBudget stays live.
+  var _snap = window._loadedLoanPricingSnapshot || null;
+  function _snapNum(v){ return (typeof v === 'number' && isFinite(v)) ? v : null; }
+
+  var loanAmt = (_snap && _snapNum(_snap.maxLoan) !== null && _snap.maxLoan > 0) ? _snap.maxLoan : (calc.bMax || 0);
   if (calc.isTransactional || loanAmt <= 0) { card.style.display = 'none'; return; }
   function _num(id){ var el = document.getElementById(id); return el ? (parseFloat(el.value) || 0) : 0; }
 
   // Total fees = origination (points × loan) + flat schedule ($2,150) +
   // any broker fee — same components the term sheet's fee block totals.
-  var ptsRate = (typeof calc.points === 'number') ? calc.points : 0;
+  var ptsRate = (_snap && _snapNum(_snap.points) !== null) ? _snap.points
+              : ((typeof calc.points === 'number') ? calc.points : 0);
   var origFee = loanAmt * (ptsRate / 100);
   // Deploy 236.526 — Admin Sandbox: flat fees come from the custom fee editor
   // when Admin Mode is on; otherwise the standard $2,150 RTL schedule.
@@ -988,12 +999,27 @@ function renderReserveCard() {
     var net = loanAmt - _num('currentLoanAmt') - totalFees; // + = borrower receives
     cashToClose = net < 0 ? -net : 0;
   } else {
-    var dp = (typeof calc.downPayment === 'number' && calc.downPayment > 0) ? calc.downPayment : 0;
+    var dp = (_snap && _snapNum(_snap.downPayment) !== null && _snap.downPayment >= 0) ? _snap.downPayment
+           : ((typeof calc.downPayment === 'number' && calc.downPayment > 0) ? calc.downPayment : 0);
     cashToClose = totalFees + dp;
   }
 
-  var moInt = (typeof calc.monthlyMax === 'number' && calc.monthlyMax > 0) ? calc.monthlyMax
-            : (typeof calc.monthlyStart === 'number' ? calc.monthlyStart : 0);
+  // Monthly interest for the 6-month holding: prefer the on-file snapshot's
+  // Max Payment. A synth-fallback snapshot (override loan) carries no monthly,
+  // so re-scale the live calc's monthly to the on-file loan amount + rate —
+  // identical to generatePdf's pdfMoMax scaling.
+  var moInt;
+  var _liveMo = (typeof calc.monthlyMax === 'number' && calc.monthlyMax > 0) ? calc.monthlyMax
+              : (typeof calc.monthlyStart === 'number' ? calc.monthlyStart : 0);
+  if (_snap && _snapNum(_snap.monthlyMax) !== null && _snap.monthlyMax > 0 && !_snap._synthFallback) {
+    moInt = _snap.monthlyMax;
+  } else if (_snap && _snap._synthFallback && _snapNum(calc.bMax) > 0 && _snapNum(calc.rate) > 0) {
+    var _corrRate = (_snapNum(_snap.finalRate) !== null && _snap.finalRate > 0) ? _snap.finalRate : calc.rate;
+    var _scale = (loanAmt / calc.bMax) * (_corrRate / calc.rate);
+    moInt = (isFinite(_scale) && _scale > 0) ? _liveMo * _scale : _liveMo;
+  } else {
+    moInt = _liveMo;
+  }
   var holding = moInt * 6;
   var rehab = _num('rehabBudget') * 0.20;
   var total = cashToClose + holding + rehab;
