@@ -33,6 +33,9 @@ import {
 } from './_shared/auth.mjs';
 import { canEditLoan, isLoanInProcessing } from './_shared/access.mjs';
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
+import { linkGuarantorToLoan } from './_shared/guarantor-link.mjs';
+import { findClientByEmail } from './_shared/client-lookup.mjs';
+import { writeClient } from './_shared/client-write.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
   getSb, ensureBorrowerUser, borrowerMagicLink, sendBorrowerEmail, writeLoanInvite, escHtml,
@@ -70,9 +73,9 @@ async function handle(req, context) {
 
   // Load the target loan + its client and confirm the caller can edit the
   // loan. Fails closed on any mismatch.
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   let client = null, loan = null;
   try {
-    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
     client = await clientsStore.get(ownerKey + '/' + keySafe(primaryClientId), { type: 'json' });
     if (client && Array.isArray(client.loans)) {
       loan = client.loans.find((l) => l && l.id === loanId) || null;
@@ -93,11 +96,54 @@ async function handle(req, context) {
     return json(409, { error: 'Loan must be In Processing before inviting a borrower.' });
   }
 
+  // ── Resolve the invited person relative to the loan (Deploy 236.591) ──
+  //  - the primary borrower's own email → portal access only (they ARE the
+  //    borrower on this loan; no guarantor needed).
+  //  - an existing OTHER client → auto-attach as a Guarantor now, with their
+  //    name + phone from their client profile. The Supabase account name comes
+  //    from THEM (fixes the 236.589 bug where fullName was the primary's).
+  //  - a brand-new email → grant access only; they become a guarantor via the
+  //    first-login onboarding form (borrower-guarantor-onboard) — see item 3b.
+  const primaryEmail = normalizeEmail(client.email || '');
+  const isPrimaryBorrower = !!primaryEmail && primaryEmail === inviteEmail;
+  let guarantorClient = null;
+  let inviteRole = 'borrower';
+  if (!isPrimaryBorrower) {
+    inviteRole = 'guarantor';
+    try {
+      const emailHit = await findClientByEmail(ownerKey, inviteEmail, clientsStore);
+      if (emailHit && emailHit.client && emailHit.client.id !== primaryClientId) {
+        const res = await linkGuarantorToLoan({
+          ownerKey, primaryClientId, loanId, primary: client, loan, clientsStore,
+          createdVia: '_createdViaBorrowerInvite',
+          guarantor: {
+            email:     inviteEmail,
+            firstName: emailHit.client.firstName || '',
+            lastName:  emailHit.client.lastName  || '',
+            phone:     emailHit.client.phone     || '',
+          },
+        });
+        guarantorClient = res.guarantor;
+        // linkGuarantorToLoan mutated loan.guarantorClientIds on `client`;
+        // persist the primary so the link sticks (PG-first).
+        client.updatedAt = new Date().toISOString();
+        await writeClient(ownerKey, client, { clientsStore });
+      }
+    } catch (e) {
+      console.warn('borrower-invite: guarantor auto-link failed (non-fatal):', e && e.message);
+    }
+  }
+
+  // Account + email name: the guarantor's own name when we linked one, else the
+  // primary borrower's (it's their loan).
+  const fullName = guarantorClient
+    ? [guarantorClient.firstName, guarantorClient.lastName].filter(Boolean).join(' ').trim()
+    : ([client.first_name, client.last_name].filter(Boolean).join(' ').trim() ||
+       [client.firstName, client.lastName].filter(Boolean).join(' ').trim());
+
   // ── Supabase borrower user (role stamped) ─────────────────
   const sb = getSb();
   if (!sb) return json(500, { error: 'Supabase env not configured' });
-  const fullName = [client.first_name, client.last_name].filter(Boolean).join(' ').trim() ||
-                   [client.firstName, client.lastName].filter(Boolean).join(' ').trim();
   const { userId, alreadyMember } = await ensureBorrowerUser(sb, inviteEmail, fullName);
 
   // ── Grant loan access (idempotent) ────────────────────────
@@ -108,7 +154,7 @@ async function handle(req, context) {
       loanId,
       primaryClientId,
       ownerKey,
-      role:            'borrower',
+      role:            inviteRole,
       grantedBy:       selfEmail,
     });
   } catch (e) {
@@ -128,7 +174,12 @@ async function handle(req, context) {
   try { emailed = await sendBorrowerEmail(inviteEmail, mail.subject, mail.text, mail.html, replyTo); }
   catch (e) { console.warn('borrower-invite: email send failed:', e && e.message); }
 
-  return json(200, { ok: true, email: inviteEmail, emailed, alreadyMember, grant, sentAt });
+  return json(200, {
+    ok: true, email: inviteEmail, emailed, alreadyMember, grant, sentAt,
+    role: inviteRole,
+    guarantorLinked: !!guarantorClient,
+    guarantorClientId: guarantorClient ? guarantorClient.id : null,
+  });
 }
 
 // Branded borrower-portal invite email (magic-link sign-in, no password).

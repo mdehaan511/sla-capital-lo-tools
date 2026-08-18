@@ -1059,6 +1059,11 @@
   status = 200
   force = true
 [[redirects]]
+  from = "/api/borrower-guarantor-onboard"
+  to = "/.netlify/functions/borrower-guarantor-onboard"
+  status = 200
+  force = true
+[[redirects]]
   from = "/api/borrower-intake-vendor"
   to = "/.netlify/functions/borrower-intake-vendor"
   status = 200

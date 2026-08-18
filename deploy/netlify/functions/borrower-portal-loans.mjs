@@ -47,21 +47,67 @@ async function handle(req, context) {
 
   const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
 
-  const loans = await Promise.all(grants.map(async (g) => {
+  const results = await Promise.all(grants.map(async (g) => {
     if (!g.ownerKey || !g.primaryClientId || !g.loanId) return null;
     try {
       const client = await clientsStore.get(g.ownerKey + '/' + keySafe(g.primaryClientId), { type: 'json' });
       if (!client || !Array.isArray(client.loans)) return null;
       const loan = client.loans.find((l) => l && l.id === g.loanId);
       if (!loan) return null;
-      return _sanitize(loan, client, g);
+      // Deploy 236.591 — a granted loan is only VISIBLE when the borrower is
+      // actually TIED to it: the primary borrower, or a guarantor client on the
+      // loan. "Granted but not tied" = pending onboarding (item 3) — the portal
+      // shows a first-login form to collect their info and attach them as a
+      // guarantor. This ALSO self-heals item 4: a removed guarantor is no longer
+      // tied, so the loan drops out of their list even if a stale grant lingers.
+      const tied = await _emailTiedToLoan(email, loan, client, g.ownerKey, clientsStore);
+      if (tied) return { kind: 'loan', value: _sanitize(loan, client, g) };
+      return { kind: 'pending', value: {
+        loanId:          loan.id,
+        address:         loan.address || '',
+        primaryClient:   (client.firstName || client.lastName)
+                           ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim()
+                           : (client.email || ''),
+        primaryClientId: client.id || g.primaryClientId || '',
+        ownerKey:        g.ownerKey || '',
+      } };
     } catch (e) {
       console.warn('[borrower-portal-loans] loan fetch failed:', g.loanId, e && e.message);
       return null;
     }
   }));
 
-  return json(200, { loans: loans.filter(Boolean) });
+  const loans = [];
+  const pendingOnboarding = [];
+  for (const r of results) {
+    if (!r) continue;
+    if (r.kind === 'loan') loans.push(r.value);
+    else if (r.kind === 'pending') pendingOnboarding.push(r.value);
+  }
+  return json(200, { loans, pendingOnboarding });
+}
+
+// Deploy 236.591 — is this email tied to the loan (visible in the portal)?
+// True when it's the primary borrower's email, or matches a guarantor on the
+// loan. Guarantors are separate `clients` records linked via guarantorClientIds
+// (the denormalized loan.guarantors[] can drift, so it's only a fast-path — the
+// authoritative check resolves the linked client ids to their emails).
+async function _emailTiedToLoan(email, loan, client, ownerKey, clientsStore) {
+  if (client && normalizeEmail(client.email || '') === email) return true;
+  if (Array.isArray(loan.guarantors)) {
+    for (const g of loan.guarantors) {
+      if (g && normalizeEmail(g.email || '') === email) return true;
+    }
+  }
+  const ids = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
+  for (const gid of ids) {
+    if (!gid) continue;
+    try {
+      const gc = await clientsStore.get(ownerKey + '/' + keySafe(gid), { type: 'json' });
+      if (gc && normalizeEmail(gc.email || '') === email) return true;
+    } catch (_) { /* missing guarantor client → not a match */ }
+  }
+  return false;
 }
 
 // Deploy 236.550 — borrower-facing stage bucket. Collapses the internal

@@ -36,6 +36,7 @@ import {
   keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
+import { revokeLoanAccess } from './_shared/loan-access-store.mjs'; // Deploy 236.591
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
@@ -130,6 +131,16 @@ async function handle(req, context) {
     if (hit) {
       const rec = hit.client;
       const gOwner = hit.ownerKey;
+      // Deploy 236.591 — revoke this guarantor's borrower-portal access to the
+      // loan they were just removed from, so it disappears from their portal.
+      // borrower-portal-loans also self-heals via its guarantor tie-check, but
+      // revoking the grant keeps the loan_access list honest and auditable.
+      try {
+        const gEmail = normalizeEmail(rec.email || '');
+        if (gEmail) await revokeLoanAccess({ email: gEmail, loanId: body.loanId, revokedBy: selfEmail });
+      } catch (e) {
+        console.warn('loan-remove-guarantor: portal-access revoke failed (non-fatal):', e && e.message);
+      }
       const before = Array.isArray(rec._guarantorOnLoans) ? rec._guarantorOnLoans : [];
       const after = before.filter((b) =>
         !(b && b.primaryClientId === primary.id && b.loanId === body.loanId)
