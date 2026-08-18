@@ -2608,6 +2608,14 @@ function renderTransactional(street, city, state, zip) {
 // a $400k property capped at 65% LTV ($260k new loan) was producing a
 // "cashout" computed against $400k. Off by the LTV haircut.
 function renderCashoutSummary() {
+  // Deploy 236.595 — remove any prior cashout card FIRST. This function is
+  // called twice per calc (the main render + the tail of applyOverridesAndRender)
+  // and it APPENDS via insertAdjacentHTML, so without this cleanup a cashout /
+  // rateterm loan rendered the "Cashout Estimate" card twice. Removing first
+  // makes it idempotent (and clears a stale card if the LO switches purpose).
+  var _prevCashout = document.getElementById('rtlCashoutCard');
+  if (_prevCashout && _prevCashout.parentNode) _prevCashout.parentNode.removeChild(_prevCashout);
+
   var rtlPurpose = document.getElementById('loanPurpose');
   if (!rtlPurpose) return;
   var purpose = rtlPurpose.value;
@@ -2640,7 +2648,7 @@ function renderCashoutSummary() {
   var cashColor = estCash >= 0 ? 'var(--success, #256940)' : 'var(--danger, #7c1f1f)';
   var ptsLabel = ptsRate.toFixed(2) + ' pt' + (ptsRate === 1 ? '' : 's');
 
-  var html = '<div class="rate-card" style="margin-top:14px"><div class="rate-body">' +
+  var html = '<div class="rate-card" id="rtlCashoutCard" style="margin-top:14px"><div class="rate-body">' +
     '<div style="font-weight:600;color:var(--text);margin-bottom:8px">Cashout Estimate</div>' +
     '<table class="rate-tbl"><tbody>' +
       '<tr><td>New Loan Amount</td><td class="bv base">$' + Math.round(loanAmt).toLocaleString() + '</td></tr>' +
