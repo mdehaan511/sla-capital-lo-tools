@@ -63,7 +63,7 @@
   function _injectStyles() {
     if (document.getElementById('slaNotesStyles')) return;
     var css =
-      '.sn-card{background:#fff;border:1px solid var(--border,#E4DFD4);border-radius:10px;padding:16px 18px;margin-top:14px}' +
+      '.sn-card{background:#fff;border:1px solid var(--border,#E4DFD4);border-radius:10px;padding:16px 18px}' +
       '.sn-head{font-family:Georgia,serif;font-size:16px;font-weight:600;color:var(--text,#261A36);margin-bottom:10px}' +
       '.sn-card textarea{width:100%;min-height:58px;padding:9px 11px;border:1.5px solid var(--border,#E4DFD4);border-radius:7px;font-size:13px;font-family:"DM Sans",sans-serif;box-sizing:border-box;resize:vertical}' +
       '.sn-addrow{display:flex;justify-content:flex-end;margin-top:8px}' +
@@ -173,7 +173,15 @@
   function refresh() {
     if (!_mounted || !_containerEl) return;
     var ctx = (_ctxGetter && _ctxGetter()) || {};
-    if (!ctx.clientId || !ctx.loanId) { _containerEl.style.display = 'none'; return; }
+    var show = !!(ctx.clientId && ctx.loanId);
+    // Deploy 236.594 — the sizer promotes .page to a 3rd column (notes to the
+    // RIGHT of the pricing, using the empty right-hand space) only while a loan
+    // is loaded, keyed off body.sizer-has-notes (CSS lives in each sizer).
+    try {
+      if (show) document.body.classList.add('sizer-has-notes');
+      else document.body.classList.remove('sizer-has-notes');
+    } catch (_) {}
+    if (!show) { _containerEl.style.display = 'none'; return; }
     _containerEl.style.display = '';
     _notes = Array.isArray(ctx.notesLog) ? ctx.notesLog.slice() : [];
     _renderList();

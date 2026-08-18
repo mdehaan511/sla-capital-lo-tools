@@ -171,6 +171,11 @@
     .date-pill { font-family: 'DM Mono', monospace; font-size: 11px; background: var(--gold-light); color: var(--gold); border: 1px solid var(--gold-border); padding: 3px 10px; border-radius: 20px; }
 
     .page { max-width: 1120px; margin: 0 auto; padding-top: 2.25rem; display: grid; grid-template-columns: 60% 1fr; gap: 24px; align-items: start; }
+    /* Deploy 236.594 — with a loan loaded, sla-notes.js sets body.sizer-has-notes so
+       the page widens to a 3rd column: Notes & Activity to the RIGHT of the pricing. */
+    body.sizer-has-notes .nav, body.sizer-has-notes .page { max-width: 1480px; }
+    body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.05fr) minmax(0,1.05fr); }
+    @media (max-width: 960px) { body.sizer-has-notes .page { grid-template-columns: 1fr; } body.sizer-has-notes .nav, body.sizer-has-notes .page { max-width: 1120px; } }
 
     .input-card { background: var(--surface); border-radius: var(--r); border: 1px solid var(--border); overflow: hidden; }
     .card-top { padding: 1.75rem 1.75rem 0; }
@@ -842,9 +847,6 @@ var getFICOMin = SLA_DSCR.getFICOMin;
         <div id="sizerHistoryTable"></div>
       </div>
     </div>
-    <!-- Deploy 236.593 — Notes & Activity, shared with Loan Details via loan.notesLog.
-         Rendered by sla-notes.js; hidden until a loan is loaded. -->
-    <div id="sizerNotesPanel" style="display:none"></div>
   </div>
 
   <div class="results-col">
@@ -888,6 +890,10 @@ var getFICOMin = SLA_DSCR.getFICOMin;
       <div class="fees-foot">Reference only — see rate sheet for current pricing.</div>
     </div>
   </div>
+  <!-- Deploy 236.594 — Notes & Activity as a 3rd column to the RIGHT of the
+       pricing. Hidden (and .page stays 2-col) until a loan is loaded — sla-notes.js
+       toggles body.sizer-has-notes, which the CSS below promotes to 3 columns. -->
+  <div id="sizerNotesPanel" style="display:none"></div>
 </div>
 
 <div class="config-tip" style="display:none">

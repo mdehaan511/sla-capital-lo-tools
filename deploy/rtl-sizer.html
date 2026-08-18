@@ -196,6 +196,11 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 /* ── Layout ───────────────────────────────────────────────── */
 .page { max-width: 1120px; margin: 0 auto; padding-top: 2.25rem; display: grid; grid-template-columns: 60% 1fr; gap: 24px; align-items: start; }
 @media (max-width: 860px) { .page { grid-template-columns: 1fr; } }
+/* Deploy 236.594 — with a loan loaded, sla-notes.js sets body.sizer-has-notes so
+   the page widens to a 3rd column: Notes & Activity sits to the RIGHT of the pricing. */
+body.sizer-has-notes .nav, body.sizer-has-notes .page { max-width: 1480px; }
+body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.05fr) minmax(0,1.05fr); }
+@media (max-width: 960px) { body.sizer-has-notes .page { grid-template-columns: 1fr; } body.sizer-has-notes .nav, body.sizer-has-notes .page { max-width: 1120px; } }
 
 /* ── Input card ───────────────────────────────────────────── */
 .input-card { background: var(--surface); border-radius: var(--r); border: 1px solid var(--border); overflow: hidden; }
@@ -870,9 +875,6 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
         <div id="sizerHistoryTable"></div>
       </div>
     </div>
-    <!-- Deploy 236.593 — Notes & Activity, shared with Loan Details via loan.notesLog.
-         Rendered by sla-notes.js; hidden until a loan is loaded. -->
-    <div id="sizerNotesPanel" style="display:none"></div>
   </div><!-- /input-card -->
 
   <!-- ── RESULTS COLUMN ──────────────────────────────────── -->
@@ -929,6 +931,10 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="fees-foot">Required liquid reserves the borrower must show prior to closing.</div>
     </div>
   </div>
+  <!-- Deploy 236.594 — Notes & Activity as a 3rd column to the RIGHT of the
+       pricing. Hidden (and .page stays 2-col) until a loan is loaded — sla-notes.js
+       toggles body.sizer-has-notes, which the CSS below promotes to 3 columns. -->
+  <div id="sizerNotesPanel" style="display:none"></div>
 
 </div><!-- /page -->
 
