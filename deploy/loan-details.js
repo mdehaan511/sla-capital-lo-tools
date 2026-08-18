@@ -3552,9 +3552,11 @@ function inviteBorrowerAccess() {
   SLA.BorrowerAccess.invite(payload).then(function(r) {
     input.value = '';
     status.style.color = 'var(--success,#166534)';
+    // Deploy 236.589 — borrower invites now use Supabase magic-link / Google
+    // (no passwords). Copy updated to match; the endpoint emails a sign-in link.
     status.textContent = r.alreadyMember
-      ? '✓ ' + email + ' already has an account — access granted.'
-      : '✓ Invitation sent to ' + email + '. They\'ll get an email to set up their password.';
+      ? '✓ ' + email + ' already has an account — access granted and a sign-in link sent.'
+      : '✓ Invitation sent to ' + email + '. They\'ll get a secure sign-in link (or can log in with Google).';
     refreshBorrowerAccessList();
   }).catch(function(err) {
     status.style.color = 'var(--danger,#7c1f1f)';

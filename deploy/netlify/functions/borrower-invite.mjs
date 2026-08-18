@@ -1,23 +1,30 @@
 /**
  * borrower-invite.mjs — POST /api/borrower-invite
  *
- * Deploy 236.170 — Access Refactor PR #3. Invites an email
- * address to the SLA borrower portal for a SPECIFIC loan:
+ * Per-loan "invite a borrower to the portal" — the Send Invite button in
+ * Loan Details → Borrower Access. Grants loan_access on ONE loanId and sends
+ * the borrower a sign-in.
  *
- *   1. Fires a Netlify Identity /invite email (existing user? we
- *      skip this step and go straight to the grant).
- *   2. Sets app_metadata.roles = ['borrower'] on the newly-
- *      created Identity user so their session paints the portal
- *      shell, not the LO tools.
- *   3. Grants loan_access on the specified loanId so canReadLoan
- *      lets the borrower through when they hit LO-shared endpoints
- *      that have been migrated to access.mjs (currently:
- *      borrower-info-status, loan-review-doc-get, etc.).
+ * Deploy 236.170 — original (Netlify Identity) implementation.
+ * Deploy 236.589 — MIGRATED off Netlify Identity onto Supabase, so borrowers
+ *   invited here land in the SAME auth backbone the portal now uses (Google +
+ *   magic link). The old path created a Netlify Identity user and relied on
+ *   Netlify's invite email — but borrower-portal.html dropped the Netlify
+ *   Identity widget in Deploy 236.542, so anyone invited through here got an
+ *   account they literally could NOT sign in with. Now mirrors
+ *   borrower-portal-invite.mjs / borrower-intake-invite.mjs via the shared
+ *   _shared/borrower-invite-core.mjs: create/find the Supabase borrower user
+ *   (roles:['borrower'] — the custom_access_token_hook falls back to
+ *   app_metadata.roles so the token carries ['borrower'] and LO-vs-borrower
+ *   detection stays correct), grant loan_access, email a magic-link sign-in via
+ *   Resend, and record the per-loan invite audit so the Loan Details status
+ *   line updates. This was the last Netlify-Identity residue in the borrower
+ *   invite flow.
  *
  * Body: { email, loanId, primaryClientId, owner? }
  * Auth: LO who owns the loan, OR admin.
  *
- * Returns: { ok, invitedUser?: { id, email }, grant, alreadyMember }
+ * Returns: { ok, email, emailed, alreadyMember, grant, sentAt }
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -26,6 +33,10 @@ import {
 } from './_shared/auth.mjs';
 import { canEditLoan } from './_shared/access.mjs';
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
+import { getOwnerReplyTo } from './_shared/email.mjs';
+import {
+  getSb, ensureBorrowerUser, borrowerMagicLink, sendBorrowerEmail, writeLoanInvite, escHtml,
+} from './_shared/borrower-invite-core.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -46,23 +57,23 @@ async function handle(req, context) {
   if (!body || !body.email || !body.loanId || !body.primaryClientId) {
     return json(400, { error: 'email, loanId, primaryClientId required' });
   }
-  const inviteEmail    = normalizeEmail(body.email);
-  const loanId         = String(body.loanId).trim();
+  const inviteEmail     = normalizeEmail(body.email);
+  const loanId          = String(body.loanId).trim();
   const primaryClientId = String(body.primaryClientId).trim();
+  if (inviteEmail.indexOf('@') < 0) return json(400, { error: 'Valid email required' });
 
-  // Resolve owner. Admins can invite on any loan; LOs invite on
-  // their own book. Owner override lets an admin do it "on behalf
-  // of" the LO.
+  // Resolve owner. Admins can invite on any loan; LOs invite on their own
+  // book. Owner override lets an admin do it "on behalf of" the LO.
   const selfEmail = normalizeEmail(user.email);
   const ownerEmail = (body.owner && isAdmin(user)) ? normalizeEmail(body.owner) : selfEmail;
   const ownerKey = keySafe(ownerEmail);
 
-  // Load the target loan and confirm the caller can edit it. Fails
-  // closed on any mismatch.
-  let loan = null;
+  // Load the target loan + its client and confirm the caller can edit the
+  // loan. Fails closed on any mismatch.
+  let client = null, loan = null;
   try {
     const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-    const client = await clientsStore.get(ownerKey + '/' + keySafe(primaryClientId), { type: 'json' });
+    client = await clientsStore.get(ownerKey + '/' + keySafe(primaryClientId), { type: 'json' });
     if (client && Array.isArray(client.loans)) {
       loan = client.loans.find((l) => l && l.id === loanId) || null;
     }
@@ -73,59 +84,12 @@ async function handle(req, context) {
   const perm = await canEditLoan(user, loan, { ownerKey });
   if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
 
-  // ── Netlify Identity invite ───────────────────────────────
-  const identity = context && context.clientContext && context.clientContext.identity;
-  if (!identity || !identity.url || !identity.token) {
-    return json(500, { error: 'Identity context unavailable — cannot invite' });
-  }
-
-  let invitedUser = null;
-  let alreadyMember = false;
-  try {
-    const inviteResp = await fetch(`${identity.url}/invite`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${identity.token}`,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify({ email: inviteEmail }),
-    });
-
-    if (inviteResp.ok) {
-      const created = await inviteResp.json().catch(() => ({}));
-      invitedUser = { id: created.id, email: created.email };
-      // Set the borrower role on the newly-created user. Best-effort;
-      // don't fail the whole flow if this PUT fails — the LO can
-      // re-run the invite (which will now hit alreadyMember and
-      // still grant loan access).
-      if (created.id) {
-        try {
-          await fetch(`${identity.url}/admin/users/${encodeURIComponent(created.id)}`, {
-            method: 'PUT',
-            headers: {
-              'Authorization': `Bearer ${identity.token}`,
-              'Content-Type':  'application/json',
-            },
-            body: JSON.stringify({ app_metadata: { roles: ['borrower'] } }),
-          });
-        } catch (e) {
-          console.warn('borrower-invite: role PUT failed:', e && e.message);
-        }
-      }
-    } else if (inviteResp.status === 422) {
-      // Identity returns 422 when the email already has an account
-      // — that's fine, we just skip the invite step and go straight
-      // to the loan_access grant.
-      alreadyMember = true;
-    } else {
-      const txt = await inviteResp.text().catch(() => '');
-      return json(inviteResp.status, {
-        error: `Identity API ${inviteResp.status}: ${txt.slice(0, 200)}`,
-      });
-    }
-  } catch (e) {
-    return json(500, { error: 'Invite request failed: ' + (e.message || 'unknown') });
-  }
+  // ── Supabase borrower user (role stamped) ─────────────────
+  const sb = getSb();
+  if (!sb) return json(500, { error: 'Supabase env not configured' });
+  const fullName = [client.first_name, client.last_name].filter(Boolean).join(' ').trim() ||
+                   [client.firstName, client.lastName].filter(Boolean).join(' ').trim();
+  const { userId, alreadyMember } = await ensureBorrowerUser(sb, inviteEmail, fullName);
 
   // ── Grant loan access (idempotent) ────────────────────────
   let grant;
@@ -142,10 +106,46 @@ async function handle(req, context) {
     return json(500, { error: 'Grant write failed: ' + (e.message || 'unknown') });
   }
 
-  return json(200, {
-    ok:            true,
-    invitedUser,
-    alreadyMember,
-    grant,
-  });
+  // ── Per-loan invite audit + magic-link sign-in email ──────
+  const sentAt = new Date().toISOString();
+  try { await writeLoanInvite(loanId, 'borrower', { email: inviteEmail, userId, sentAt, sentBy: selfEmail }); } catch (_) {}
+
+  const origin = new URL(req.url).origin;
+  const actionLink = await borrowerMagicLink(sb, inviteEmail, origin);
+  let replyTo = '';
+  try { replyTo = await getOwnerReplyTo(ownerKey); } catch (_) {}
+  const mail = _inviteEmail(fullName, actionLink || (origin + '/borrower-portal.html'), !actionLink);
+  let emailed = false;
+  try { emailed = await sendBorrowerEmail(inviteEmail, mail.subject, mail.text, mail.html, replyTo); }
+  catch (e) { console.warn('borrower-invite: email send failed:', e && e.message); }
+
+  return json(200, { ok: true, email: inviteEmail, emailed, alreadyMember, grant, sentAt });
+}
+
+// Branded borrower-portal invite email (magic-link sign-in, no password).
+// Mirrors borrower-portal-invite.mjs's copy so both invite paths read the same.
+function _inviteEmail(name, actionLink, isFallback) {
+  const hi = name ? ('Hi ' + name + ',') : 'Hi there,';
+  const text = [
+    hi, '',
+    'You\'ve been invited to your SLA Capital borrower portal, where you can view your loan and upload requested documents.', '',
+    isFallback
+      ? 'Open your portal here (sign in with Google or request a login link):'
+      : 'Click the link below to sign in — no password needed:',
+    actionLink, '',
+    'You can also sign in any time with Google using this same email address.', '',
+    '— SLA Capital',
+  ].join('\n');
+  const html = `<!doctype html><html><body style="margin:0;background:#f4f1ea;font-family:Arial,Helvetica,sans-serif;color:#1a1520">
+    <div style="max-width:520px;margin:0 auto;padding:28px 22px">
+      <div style="font-family:Georgia,serif;font-size:20px;font-weight:600;margin-bottom:14px">SLA Capital</div>
+      <p style="font-size:15px;line-height:1.55">${escHtml(hi)}</p>
+      <p style="font-size:15px;line-height:1.55">You've been invited to your <strong>SLA Capital borrower portal</strong>, where you can view your loan and upload requested documents.</p>
+      <p style="text-align:center;margin:22px 0">
+        <a href="${escHtml(actionLink)}" style="background:#b5712d;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 26px;border-radius:10px;display:inline-block">Sign in to my portal &rarr;</a>
+      </p>
+      <p style="font-size:13px;line-height:1.55;color:#7a7488">You can also sign in any time with <strong>Google</strong> using this same email address.</p>
+      <p style="font-size:12px;color:#999;margin-top:24px">If the button doesn't work, paste this into your browser:<br>${escHtml(actionLink)}</p>
+    </div></body></html>`;
+  return { subject: 'Your SLA Capital borrower portal', text, html };
 }
