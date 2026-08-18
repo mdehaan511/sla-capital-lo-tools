@@ -10,6 +10,7 @@
 <script src="sla-nav.js"></script>
 <script src="/sla-search.js"></script>
 <script src="sla-sizer-assign-lo.js"></script>
+<script src="sla-notes.js"></script>
   <script src="sla-notifications.js"></script>
 <script src="sla-chat.js"></script>
 <script src="quotes.js"></script>
@@ -869,6 +870,9 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
         <div id="sizerHistoryTable"></div>
       </div>
     </div>
+    <!-- Deploy 236.593 — Notes & Activity, shared with Loan Details via loan.notesLog.
+         Rendered by sla-notes.js; hidden until a loan is loaded. -->
+    <div id="sizerNotesPanel" style="display:none"></div>
   </div><!-- /input-card -->
 
   <!-- ── RESULTS COLUMN ──────────────────────────────────── -->
@@ -4493,6 +4497,25 @@ netlifyIdentity.on('init', function(user) {
         }
         // Deploy 236.359/360 — mount the admin Assign-LO dropdown.
         _mountAssignLo();
+        // Deploy 236.593 — mount the shared Notes & Activity panel. Reads the
+        // loaded loan's notesLog + IDs via getContext; hidden until a loan is
+        // loaded. Available to every LO (not admin-gated like Assign-LO).
+        try {
+          if (window.SLANotes) {
+            SLANotes.mount({
+              containerEl: document.getElementById('sizerNotesPanel'),
+              user: user,
+              getContext: function () {
+                return {
+                  clientId: window._editingClientId || null,
+                  loanId:   window._editingLoanId || null,
+                  owner:    window._ownerOverride || null,
+                  notesLog: (window._loadedLoan && window._loadedLoan.notesLog) || []
+                };
+              }
+            });
+          }
+        } catch (_) {}
       });
     } else if (signatureMode) {
       console.log('[SLA esign] no loadAddr/clientId in URL (RTL), calling handoff');
