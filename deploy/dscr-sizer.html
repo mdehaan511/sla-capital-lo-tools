@@ -2664,9 +2664,12 @@ function _generateRateSheetPDF(opts) {
     y = bry + 10;
   }
 
-  // ── PAYMENT BREAKDOWN always starts on page 2 ───────────────
-  doc.addPage();
-  y = 36;
+  // Deploy 236.599 — the Payment Breakdown no longer force-starts on page 2. When
+  // the buy-down table is hidden the loan-details block leaves room on page 1, so
+  // this block (and the ones after it) flow up onto page 1 when they fit — the
+  // checkPage(pmtBlockH...) below handles the break. When the buy-down table IS
+  // shown, y is already near the bottom of page 1, so checkPage moves it to page 2
+  // exactly as before.
 
   // ── PAYMENT BREAKDOWN TABLE ─────────────────────────────────
   var dscrColor = r.dscr>=1.20?SUCCESS:r.dscr>=1.00?WARN:DANGER;
@@ -2682,6 +2685,9 @@ function _generateRateSheetPDF(opts) {
   ];
 
   var pmtBlockH = 22 + pmtData.length*ROW_H + ROW_H + ROW_H + ROW_H + 14;
+  // Deploy 236.599 — fit this block onto page 1 if there's room (buy-down hidden),
+  // otherwise start a fresh page (buy-down shown → page 1 already full).
+  checkPage(pmtBlockH + 10);
   doc.setFillColor(255,255,255);
   doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
   rr(lm, y, cw, pmtBlockH, 4, 'FD');
