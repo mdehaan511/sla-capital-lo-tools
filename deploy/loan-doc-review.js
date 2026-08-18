@@ -1292,8 +1292,13 @@
       }
       return '';
     }
-    var cls = d.aiVerdict === 'approved' ? 'approved' : 'issues';
-    var icon = d.aiVerdict === 'approved' ? '✓ AI verdict: looks good' : '⚠ AI verdict: issues found';
+    // Deploy 236.590 — 'needs_manual_review' (no rubric to verify against, or a
+    // non-AI-reviewable file type) renders YELLOW ("pending" palette) with a
+    // manual-review label, NOT green "looks good" and NOT red "issues".
+    var cls, icon;
+    if (d.aiVerdict === 'approved') { cls = 'approved'; icon = '✓ AI verdict: looks good'; }
+    else if (d.aiVerdict === 'needs_manual_review') { cls = 'pending'; icon = '⚠ Needs manual review'; }
+    else { cls = 'issues'; icon = '⚠ AI verdict: issues found'; }
     var cost = d.aiCostCents ? '$' + (Number(d.aiCostCents) / 100).toFixed(4) : '';
     var findingsHtml = '';
     if (Array.isArray(d.aiFindings) && d.aiFindings.length) {
@@ -1635,6 +1640,7 @@
     var docs = _review.docs || {};
     var targets = [];
     var aiIssuesSkipped = 0;
+    var manualReviewSkipped = 0;   // Deploy 236.590 — no-rubric / manual-review docs
     Object.keys(docs).forEach(function(s) {
       var dd = docs[s] || {};
       if (dd.hidden) return;
@@ -1644,16 +1650,21 @@
       var hasDoc = !!(dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; })));
       if (!hasDoc) return;
       if (dd.aiVerdict === 'issues') { aiIssuesSkipped++; return; }
+      // Deploy 236.590 — a doc with no rubric (or a non-AI-reviewable file type)
+      // was never actually auto-verified, so it must NOT be swept into a green
+      // bulk-approve. The processor opens it and approves it individually.
+      if (dd.aiVerdict === 'needs_manual_review') { manualReviewSkipped++; return; }
       targets.push(s);
     });
     if (!targets.length) {
-      showToast(aiIssuesSkipped
-        ? 'Nothing to bulk-approve. ' + aiIssuesSkipped + ' doc(s) need a manual AI-issues override.'
+      showToast((aiIssuesSkipped || manualReviewSkipped)
+        ? 'Nothing to bulk-approve. ' + (aiIssuesSkipped + manualReviewSkipped) + ' doc(s) need manual review — open them individually.'
         : 'Nothing to bulk-approve in this section.', 'info');
       return;
     }
     var msg = 'Approve ' + targets.length + ' pending document' + (targets.length === 1 ? '' : 's') + ' in this section?';
     if (aiIssuesSkipped) msg += '\n\n(' + aiIssuesSkipped + ' doc(s) with AI-flagged issues will be SKIPPED — open those individually to override.)';
+    if (manualReviewSkipped) msg += '\n\n(' + manualReviewSkipped + ' doc(s) need manual review — no rubric — and will be SKIPPED. Open them individually to approve.)';
     if (!confirm(msg)) return;
 
     var now = new Date().toISOString();

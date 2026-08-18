@@ -121,6 +121,21 @@ export async function canEditLoan(user, loan, opts) {
   return _deny(403, 'not owner');
 }
 
+// ── Loan lifecycle predicate ─────────────────────────────────
+// Deploy 236.590 — "In Processing" gate for borrower invites. A loan has
+// entered the processing pipeline once its status is 'approved' (the entry
+// point both pipeline boards agree on) or it carries any processingStage
+// value, and it STAYS true through close (late document requests). Mirrors
+// isInProcessing() in loan-details.js — keep the two in sync.
+const _PROCESSING_STAGES = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
+export function isLoanInProcessing(loan) {
+  if (!loan) return false;
+  const st = String(loan.status || '').toLowerCase().trim();
+  if (st === 'approved' || st === 'closed') return true;
+  const stage = String(loan.processingStage || '').toLowerCase().trim();
+  return _PROCESSING_STAGES.indexOf(stage) >= 0;
+}
+
 // ── Doc-review capabilities ──────────────────────────────────
 // Processors + admins can review docs on any loan. Borrowers get
 // a VIEW-only path via canReadReviewDoc (below) — never a review

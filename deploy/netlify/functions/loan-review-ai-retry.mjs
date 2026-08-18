@@ -79,6 +79,24 @@ async function handle(req, context) {
   const docLabel      = (checklistEntry && checklistEntry.label) || docState.label || body.slug;
   const docConditions = (checklistEntry && checklistEntry.conditions) || docState.conditions || '';
 
+  // Deploy 236.590 — mirror the upload path: a document with no static-checklist
+  // rubric (custom / "Other" tray) has nothing to verify against, so flag it for
+  // manual review (yellow) instead of running the AI against empty criteria and
+  // trusting an "approved". Short-circuits before the expensive context fetches.
+  const _retryRubric = String((checklistEntry && checklistEntry.conditions) || '').trim();
+  if (!_retryRubric) {
+    const nrNow = new Date().toISOString();
+    docState.aiVerdict = 'needs_manual_review';
+    docState.aiNotes = 'No verification rubric is configured for this document type, so it could not be auto-reviewed — manual review required.';
+    docState.aiFindings = [];
+    docState.aiExtractedEntities = {};
+    docState.aiReviewedAt = nrNow;
+    docState.aiError = '';
+    docState.aiSkippedNoRubric = true;
+    await _saveReview(reviewStore, review, nrNow);
+    return json(200, { ok: true, review });
+  }
+
   // Optional context PDFs (same lookups the upload flow does).
   let guidelinesBytes = null;
   if (review.investor) {

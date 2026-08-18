@@ -31,7 +31,7 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { canEditLoan } from './_shared/access.mjs';
+import { canEditLoan, isLoanInProcessing } from './_shared/access.mjs';
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
@@ -83,6 +83,15 @@ async function handle(req, context) {
   }
   const perm = await canEditLoan(user, loan, { ownerKey });
   if (!perm.ok) return json(perm.status || 403, { error: perm.reason || 'Not authorized' });
+
+  // Deploy 236.590 — no borrower invites before the loan is In Processing.
+  // Before that there is no rate sheet / signed application to review the
+  // borrower's uploaded documents against, so an invite would let docs show
+  // "looks good" with no point of truth. Enforced server-side so the frontend
+  // grey-out can't be bypassed.
+  if (!isLoanInProcessing(loan)) {
+    return json(409, { error: 'Loan must be In Processing before inviting a borrower.' });
+  }
 
   // ── Supabase borrower user (role stamped) ─────────────────
   const sb = getSb();

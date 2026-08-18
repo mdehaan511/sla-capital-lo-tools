@@ -3460,19 +3460,59 @@ function _buildBorrowerAccessSection() {
       // Deploy 236.534 — Supabase invite with Borrower / Broker choice + a status
       // line (recipient · date sent · last sign-in). Same as the doc-review panel.
       '<div id="ldInviteStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.55;min-height:14px"></div>' +
+      // Deploy 236.590 — borrower invites are gated until the loan is In
+      // Processing (see _gateBorrowerInvites): before that there's no rate
+      // sheet / signed application to review borrower uploads against, so a
+      // premature invite lets docs show "looks good" with no point of truth.
+      // The Broker invite is intentionally NOT gated.
+      '<div id="ldInviteGateNote" style="display:none;font-size:11px;color:var(--gold-mid,#b5712d);margin-bottom:8px;line-height:1.5"></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
-        '<button type="button" class="save-btn" onclick="ldInvite(\'borrower\')" style="white-space:nowrap">✉ Invite Borrower</button>' +
+        '<button type="button" id="ldInviteBorrowerBtn" class="save-btn" onclick="ldInvite(\'borrower\')" style="white-space:nowrap">✉ Invite Borrower</button>' +
         (_ldHasBrokerEmail() ? '<button type="button" class="save-btn" onclick="ldInvite(\'broker\')" style="white-space:nowrap;background:#fff;color:var(--gold-mid,#b5712d);border:1px solid var(--gold-mid,#b5712d)">✉ Invite Broker</button>' : '') +
       '</div>' +
       '<div id="borrowerAccessList" style="margin-bottom:12px"><div style="font-size:12px;color:var(--muted);font-style:italic">Loading…</div></div>' +
       '<div style="display:flex;gap:8px;align-items:stretch">' +
         '<input type="email" id="borrowerAccessEmail" placeholder="Or invite another email…" style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:\'DM Sans\',sans-serif" />' +
-        '<button type="button" class="save-btn" onclick="inviteBorrowerAccess()" style="white-space:nowrap">Send Invite</button>' +
+        '<button type="button" id="borrowerAccessSendBtn" class="save-btn" onclick="inviteBorrowerAccess()" style="white-space:nowrap">Send Invite</button>' +
       '</div>' +
       '<div id="borrowerAccessStatus" style="margin-top:10px;font-size:12px;min-height:14px"></div>' +
     '</div>';
-  setTimeout(function() { refreshBorrowerAccessList(); ldLoadInviteStatus(); }, 0);
+  setTimeout(function() { refreshBorrowerAccessList(); ldLoadInviteStatus(); _gateBorrowerInvites(); }, 0);
   return section;
+}
+// Deploy 236.590 — "In Processing" predicate. A loan has entered the
+// processing pipeline once its status is 'approved' (the entry point both
+// pipeline boards agree on) or it carries any processingStage value, and it
+// STAYS true through close (per Mike — late document requests). 'submitted'
+// / 'active' (pre-approval) are NOT in processing.
+function isInProcessing(loan) {
+  if (!loan) return false;
+  var st = String(loan.status || '').toLowerCase().trim();
+  if (st === 'approved' || st === 'closed') return true;
+  var stage = String(loan.processingStage || '').toLowerCase().trim();
+  return ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'].indexOf(stage) >= 0;
+}
+// Grey out the two BORROWER invite controls until the loan is In Processing.
+// The Broker invite is left alone.
+function _gateBorrowerInvites() {
+  var ok = isInProcessing(_loan);
+  var btn   = document.getElementById('ldInviteBorrowerBtn');
+  var send  = document.getElementById('borrowerAccessSendBtn');
+  var email = document.getElementById('borrowerAccessEmail');
+  var note  = document.getElementById('ldInviteGateNote');
+  var tip = 'Available once the loan reaches In Processing (an approved rate sheet + application to review uploads against).';
+  [btn, send].forEach(function(el) {
+    if (!el) return;
+    el.disabled = !ok;
+    el.style.opacity = ok ? '' : '0.45';
+    el.style.cursor = ok ? '' : 'not-allowed';
+    el.title = ok ? '' : tip;
+  });
+  if (email) { email.disabled = !ok; email.title = ok ? '' : tip; }
+  if (note) {
+    note.style.display = ok ? 'none' : '';
+    note.textContent = ok ? '' : '🔒 Borrower invites unlock once this loan is In Processing.';
+  }
 }
 // Deploy 236.534 — Borrower/Broker portal invite (Supabase) + live status,
 // mirroring the doc-review panel's dr_invite. Reuses /api/borrower-intake-invite.
@@ -3482,6 +3522,11 @@ function _ldHasBrokerEmail() {
 }
 function ldInvite(recipient) {
   if (!_client || !_loanId) { showToast('Loan not loaded.'); return; }
+  // Deploy 236.590 — borrower invites are gated until In Processing; broker is not.
+  if (recipient === 'borrower' && !isInProcessing(_loan)) {
+    showToast('This loan must be In Processing before you can invite the borrower.');
+    return;
+  }
   var el = document.getElementById('ldInviteStatus');
   if (el) el.textContent = 'Sending invite…';
   var body = { loanId: _loanId, primaryClientId: _client.id, recipient: recipient };
@@ -3539,6 +3584,12 @@ function inviteBorrowerAccess() {
   var input = document.getElementById('borrowerAccessEmail');
   var status = document.getElementById('borrowerAccessStatus');
   if (!input || !_client || !_loanId) return;
+  // Deploy 236.590 — gated until In Processing (see _gateBorrowerInvites).
+  if (!isInProcessing(_loan)) {
+    status.style.color = 'var(--danger,#7c1f1f)';
+    status.textContent = 'This loan must be In Processing before you can invite a borrower.';
+    return;
+  }
   var email = (input.value || '').trim().toLowerCase();
   if (!email || email.indexOf('@') < 0) {
     status.style.color = 'var(--danger,#7c1f1f)';

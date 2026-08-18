@@ -28,6 +28,7 @@ function _isStaff(user) {
   return !(roles.length > 0 && roles.every((r) => String(r).toLowerCase() === 'borrower'));
 }
 import { grantLoanAccess } from './_shared/loan-access-store.mjs';
+import { isLoanInProcessing } from './_shared/access.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
   getSb, ensureBorrowerUser, borrowerMagicLink, lastSignInByUserId,
@@ -95,6 +96,13 @@ async function handle(req, context) {
     return json(500, { error: 'Failed to load loan: ' + (e.message || 'unknown') });
   }
   if (!loan) return json(404, { error: 'Loan not found' });
+
+  // Deploy 236.590 — borrower invites require the loan to be In Processing
+  // (no rate sheet / signed application to review uploads against before that).
+  // Broker invites are exempt.
+  if (recipient === 'borrower' && !isLoanInProcessing(loan)) {
+    return json(409, { error: 'Loan must be In Processing before inviting the borrower.' });
+  }
 
   const brokerEmail = loan.brokerEmail || (loan.formData && loan.formData.brokerEmail) || '';
   const appEmail = (client && client.email) || '';

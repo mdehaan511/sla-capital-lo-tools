@@ -223,7 +223,15 @@ async function handle(req, context) {
   // happened to send). Loan context comes from the review's
   // snapshotted client + loan record.
   const checklist = getChecklist(review.loanType || '');
-  const docMeta = checklist.find(function (d) { return d.slug === body.slug; }) || { label: body.slug, conditions: '' };
+  const checklistEntry = checklist.find(function (d) { return d.slug === body.slug; });
+  const docMeta = checklistEntry || { label: body.slug, conditions: '' };
+  // Deploy 236.590 — a document with NO verification rubric (a custom / "Other"
+  // tray whose slug isn't in the static checklist, so there are no conditions to
+  // review against) must NOT be auto-"approved". Every standard checklist item
+  // carries a non-empty conditions string; a missing entry means no rubric, and
+  // we flag such uploads for manual review (yellow) instead of trusting the AI.
+  const _rubric = String((checklistEntry && checklistEntry.conditions) || '').trim();
+  const hasRubric = _rubric.length > 0;
   const ctx = buildLoanContext(review);
   // Deploy 236.77 — attach the investor's underwriting guidelines PDF
   // (if uploaded by an admin via the guidelines-admin page). The
@@ -282,6 +290,14 @@ async function handle(req, context) {
     docState.aiNotes = 'This file type (' + mime + ') cannot be reviewed automatically. Please review manually and approve/override.';
     docState.aiReviewedAt = new Date().toISOString();
     docState.aiSkippedForMimeType = true;
+  } else if (!hasRubric) {
+    // Deploy 236.590 — no rubric to verify against (custom / "Other" tray).
+    // Skip the AI call entirely and flag for manual review (yellow) rather
+    // than letting an unfounded "approved" render as green "looks good".
+    docState.aiVerdict = 'needs_manual_review';
+    docState.aiNotes = 'No verification rubric is configured for this document type, so it could not be auto-reviewed — manual review required.';
+    docState.aiReviewedAt = new Date().toISOString();
+    docState.aiSkippedNoRubric = true;
   } else try {
     // Deploy 236.500 — if this doc type carries specific UW/Lightning
     // fields, fold their extraction into the same review call (no extra
