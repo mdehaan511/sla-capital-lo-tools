@@ -3456,7 +3456,7 @@ function _buildBorrowerAccessSection() {
   section.innerHTML =
     '<div class="section-head"><h2>Borrower Portal Access</h2><span class="section-tag tag-editable">Editable</span></div>' +
     '<div class="section-body">' +
-      '<p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Invite the borrower or broker to the SLA portal to view this loan and upload requested documents. They sign in with Google or a one-click email link — no password.</p>' +
+      '<p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Invite the borrower or a guarantor to the SLA portal to view this loan and upload requested documents. They sign in with Google or a one-click email link — no password.</p>' +
       // Deploy 236.534 — Supabase invite with Borrower / Broker choice + a status
       // line (recipient · date sent · last sign-in). Same as the doc-review panel.
       '<div id="ldInviteStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.55;min-height:14px"></div>' +
@@ -3467,17 +3467,22 @@ function _buildBorrowerAccessSection() {
       // The Broker invite is intentionally NOT gated.
       '<div id="ldInviteGateNote" style="display:none;font-size:11px;color:var(--gold-mid,#b5712d);margin-bottom:8px;line-height:1.5"></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
-        '<button type="button" id="ldInviteBorrowerBtn" class="save-btn" onclick="ldInvite(\'borrower\')" style="white-space:nowrap">✉ Invite Borrower</button>' +
-        (_ldHasBrokerEmail() ? '<button type="button" class="save-btn" onclick="ldInvite(\'broker\')" style="white-space:nowrap;background:#fff;color:var(--gold-mid,#b5712d);border:1px solid var(--gold-mid,#b5712d)">✉ Invite Broker</button>' : '') +
+        '<button type="button" id="ldInviteBorrowerBtn" class="vesting-llc-save-btn" onclick="ldInvite(\'borrower\')" style="white-space:nowrap">✉ Invite Borrower</button>' +
+        (_ldHasBrokerEmail() ? '<button type="button" class="add-guarantor-btn" onclick="ldInvite(\'broker\')" style="white-space:nowrap">✉ Invite Broker</button>' : '') +
       '</div>' +
       '<div id="borrowerAccessList" style="margin-bottom:12px"><div style="font-size:12px;color:var(--muted);font-style:italic">Loading…</div></div>' +
-      '<div style="display:flex;gap:8px;align-items:stretch">' +
-        '<input type="email" id="borrowerAccessEmail" placeholder="Or invite another email…" style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:\'DM Sans\',sans-serif" />' +
-        '<button type="button" id="borrowerAccessSendBtn" class="save-btn" onclick="inviteBorrowerAccess()" style="white-space:nowrap">Send Invite</button>' +
+      // Deploy 236.592 — invite a GUARANTOR from a dropdown (only people already
+      // on the loan can be invited). "+ Add Guarantor" opens the existing modal;
+      // the new guarantor then appears in this dropdown after render().
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Invite a guarantor to the portal:</div>' +
+      '<div style="display:flex;gap:8px;align-items:stretch;flex-wrap:wrap">' +
+        '<select id="borrowerAccessGuarantorSelect" style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:\'DM Sans\',sans-serif;background:#fff"><option value="">Loading guarantors…</option></select>' +
+        '<button type="button" id="borrowerAccessSendBtn" class="vesting-llc-save-btn" onclick="inviteBorrowerAccess()" style="white-space:nowrap">Send Invite</button>' +
+        '<button type="button" class="add-guarantor-btn" onclick="openAddGuarantorModal()" style="white-space:nowrap">+ Add Guarantor</button>' +
       '</div>' +
       '<div id="borrowerAccessStatus" style="margin-top:10px;font-size:12px;min-height:14px"></div>' +
     '</div>';
-  setTimeout(function() { refreshBorrowerAccessList(); ldLoadInviteStatus(); _gateBorrowerInvites(); }, 0);
+  setTimeout(function() { refreshBorrowerAccessList(); ldLoadInviteStatus(); _populateGuarantorSelect(); _gateBorrowerInvites(); }, 0);
   return section;
 }
 // Deploy 236.590 — "In Processing" predicate. A loan has entered the
@@ -3498,7 +3503,7 @@ function _gateBorrowerInvites() {
   var ok = isInProcessing(_loan);
   var btn   = document.getElementById('ldInviteBorrowerBtn');
   var send  = document.getElementById('borrowerAccessSendBtn');
-  var email = document.getElementById('borrowerAccessEmail');
+  var sel   = document.getElementById('borrowerAccessGuarantorSelect');
   var note  = document.getElementById('ldInviteGateNote');
   var tip = 'Available once the loan reaches In Processing (an approved rate sheet + application to review uploads against).';
   [btn, send].forEach(function(el) {
@@ -3508,11 +3513,51 @@ function _gateBorrowerInvites() {
     el.style.cursor = ok ? '' : 'not-allowed';
     el.title = ok ? '' : tip;
   });
-  if (email) { email.disabled = !ok; email.title = ok ? '' : tip; }
+  // The guarantor dropdown is gated too; the "+ Add Guarantor" button is NOT
+  // (adding a guarantor isn't a portal invite, so it's allowed at any stage).
+  if (sel) { sel.disabled = !ok; sel.title = ok ? '' : tip; }
   if (note) {
     note.style.display = ok ? 'none' : '';
     note.textContent = ok ? '' : '🔒 Borrower invites unlock once this loan is In Processing.';
   }
+}
+// Deploy 236.592 — populate the guarantor dropdown from the loan's
+// guarantorClientIds, resolved to client name/email via SLA.Clients.list (same
+// admin-aware pattern as refreshLinkedGuarantors). render() rebuilds this section
+// after a guarantor is added, so a newly-added guarantor appears automatically.
+function _populateGuarantorSelect() {
+  var sel = document.getElementById('borrowerAccessGuarantorSelect');
+  if (!sel || !_loan) return;
+  var ids = Array.isArray(_loan.guarantorClientIds) ? _loan.guarantorClientIds : [];
+  if (!ids.length) {
+    sel.innerHTML = '<option value="">No guarantors on this loan yet — use “+ Add Guarantor” →</option>';
+    return;
+  }
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true }) : SLA.Clients.list({ summary: true });
+  p.then(function(r) {
+    var pool = [];
+    if (r && r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(k) { (r.byOwner[k] || []).forEach(function(c) { pool.push(c); }); });
+    } else {
+      pool = (r && r.clients) || [];
+    }
+    var byId = {};
+    pool.forEach(function(c) { if (c && c.id) byId[c.id] = c; });
+    var opts = ['<option value="">Choose a guarantor to invite…</option>'];
+    var withEmail = 0;
+    ids.forEach(function(id) {
+      var c = byId[id];
+      if (!c || !c.email) return;
+      var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email;
+      opts.push('<option value="' + escAttr(c.email) + '">' + escH(name) + ' — ' + escH(c.email) + '</option>');
+      withEmail++;
+    });
+    if (!withEmail) opts = ['<option value="">Guarantors on file have no email — edit them or add one →</option>'];
+    sel.innerHTML = opts.join('');
+    _gateBorrowerInvites(); // re-apply the In-Processing disabled state
+  }).catch(function() {
+    sel.innerHTML = '<option value="">Could not load guarantors</option>';
+  });
 }
 // Deploy 236.534 — Borrower/Broker portal invite (Supabase) + live status,
 // mirroring the doc-review panel's dr_invite. Reuses /api/borrower-intake-invite.
@@ -3581,19 +3626,21 @@ function refreshBorrowerAccessList() {
   });
 }
 function inviteBorrowerAccess() {
-  var input = document.getElementById('borrowerAccessEmail');
+  // Deploy 236.592 — invite a GUARANTOR chosen from the dropdown (only people
+  // already on the loan). To invite someone new, add them via "+ Add Guarantor".
+  var sel = document.getElementById('borrowerAccessGuarantorSelect');
   var status = document.getElementById('borrowerAccessStatus');
-  if (!input || !_client || !_loanId) return;
+  if (!sel || !_client || !_loanId) return;
   // Deploy 236.590 — gated until In Processing (see _gateBorrowerInvites).
   if (!isInProcessing(_loan)) {
     status.style.color = 'var(--danger,#7c1f1f)';
     status.textContent = 'This loan must be In Processing before you can invite a borrower.';
     return;
   }
-  var email = (input.value || '').trim().toLowerCase();
+  var email = (sel.value || '').trim().toLowerCase();
   if (!email || email.indexOf('@') < 0) {
     status.style.color = 'var(--danger,#7c1f1f)';
-    status.textContent = 'Enter a valid email address.';
+    status.textContent = 'Choose a guarantor to invite (or use “+ Add Guarantor” to add one).';
     return;
   }
   status.style.color = 'var(--muted)';
@@ -3601,7 +3648,7 @@ function inviteBorrowerAccess() {
   var payload = { email: email, loanId: _loanId, primaryClientId: _client.id };
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   SLA.BorrowerAccess.invite(payload).then(function(r) {
-    input.value = '';
+    sel.value = '';
     status.style.color = 'var(--success,#166534)';
     // Deploy 236.589 — borrower invites now use Supabase magic-link / Google
     // (no passwords). Copy updated to match; the endpoint emails a sign-in link.

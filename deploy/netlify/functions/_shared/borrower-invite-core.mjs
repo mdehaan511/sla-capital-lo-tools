@@ -51,6 +51,22 @@ export async function ensureBorrowerUser(sb, email, fullName) {
     }
   } catch (e) { console.warn('[borrower-invite] createUser threw:', e && e.message); }
   if (!userId) { userId = await findUserIdByEmail(sb, email); }
+  // Deploy 236.592 — refresh the display name on re-invite. Once the account
+  // exists the create call above is a no-op (alreadyMember), so without this the
+  // account's full_name stays whatever it was first set to — an earlier
+  // guarantor's name, or the primary borrower's name from a prior invite — and
+  // leaks into the portal greeting ("Welcome, Arthur") and the magic-link email
+  // ("Hi <primary borrower>"). PATCH user_metadata.full_name to the person
+  // actually being invited now.
+  if (userId && fullName && !created) {
+    try {
+      await fetch(sb.base + '/auth/v1/admin/users/' + encodeURIComponent(userId), {
+        method: 'PUT',
+        headers: sb.headers,
+        body: JSON.stringify({ user_metadata: { full_name: fullName } }),
+      });
+    } catch (e) { console.warn('[borrower-invite] name refresh failed:', e && e.message); }
+  }
   return { userId, created, alreadyMember };
 }
 

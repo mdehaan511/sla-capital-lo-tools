@@ -43,71 +43,76 @@ async function handle(req, context) {
 
   const email = normalizeEmail(user.email);
   const grants = await listAccessibleLoans(email);
-  if (!grants.length) return json(200, { loans: [] });
+  if (!grants.length) return json(200, { loans: [], needsVerification: false, borrowerName: '' });
 
   const clientsStore = getStore({ name: 'clients', consistency: 'eventual' });
 
-  const results = await Promise.all(grants.map(async (g) => {
-    if (!g.ownerKey || !g.primaryClientId || !g.loanId) return null;
+  const loans = [];
+  let needsVerification = false;
+  let verifyPrefill = null;
+  let borrowerName = '';
+
+  await Promise.all(grants.map(async (g) => {
+    if (!g.ownerKey || !g.primaryClientId || !g.loanId) return;
     try {
       const client = await clientsStore.get(g.ownerKey + '/' + keySafe(g.primaryClientId), { type: 'json' });
-      if (!client || !Array.isArray(client.loans)) return null;
+      if (!client || !Array.isArray(client.loans)) return;
       const loan = client.loans.find((l) => l && l.id === g.loanId);
-      if (!loan) return null;
-      // Deploy 236.591 — a granted loan is only VISIBLE when the borrower is
-      // actually TIED to it: the primary borrower, or a guarantor client on the
-      // loan. "Granted but not tied" = pending onboarding (item 3) — the portal
-      // shows a first-login form to collect their info and attach them as a
-      // guarantor. This ALSO self-heals item 4: a removed guarantor is no longer
-      // tied, so the loan drops out of their list even if a stale grant lingers.
-      const tied = await _emailTiedToLoan(email, loan, client, g.ownerKey, clientsStore);
-      if (tied) return { kind: 'loan', value: _sanitize(loan, client, g) };
-      return { kind: 'pending', value: {
-        loanId:          loan.id,
-        address:         loan.address || '',
-        primaryClient:   (client.firstName || client.lastName)
-                           ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim()
-                           : (client.email || ''),
-        primaryClientId: client.id || g.primaryClientId || '',
-        ownerKey:        g.ownerKey || '',
-      } };
+      if (!loan) return;
+      // Deploy 236.591/592 — resolve the borrower's OWN client on this loan: the
+      // primary borrower, or the guarantor client whose email matches. null =
+      // granted-but-not-tied → the loan stays hidden AND the onboarding form is
+      // forced (item 3), which also self-heals item 4 (a removed guarantor is no
+      // longer tied, so the loan drops even if a stale grant lingers).
+      const own = await _resolveBorrowerClient(email, loan, client, g.ownerKey, clientsStore);
+      if (!own) { needsVerification = true; return; }
+      loans.push(_sanitize(loan, client, g));
+      if (!borrowerName) borrowerName = ((own.firstName || '') + ' ' + (own.lastName || '')).trim();
+      // Deploy 236.592 — first-login "verify your info" gate: show the form until
+      // the borrower's own client has been verified once (borrowerVerifiedAt).
+      if (!own.borrowerVerifiedAt) {
+        needsVerification = true;
+        if (!verifyPrefill) verifyPrefill = _prefill(own);
+      }
     } catch (e) {
       console.warn('[borrower-portal-loans] loan fetch failed:', g.loanId, e && e.message);
-      return null;
     }
   }));
 
-  const loans = [];
-  const pendingOnboarding = [];
-  for (const r of results) {
-    if (!r) continue;
-    if (r.kind === 'loan') loans.push(r.value);
-    else if (r.kind === 'pending') pendingOnboarding.push(r.value);
-  }
-  return json(200, { loans, pendingOnboarding });
+  return json(200, { loans, needsVerification, verifyPrefill, borrowerName });
 }
 
-// Deploy 236.591 — is this email tied to the loan (visible in the portal)?
-// True when it's the primary borrower's email, or matches a guarantor on the
-// loan. Guarantors are separate `clients` records linked via guarantorClientIds
-// (the denormalized loan.guarantors[] can drift, so it's only a fast-path — the
-// authoritative check resolves the linked client ids to their emails).
-async function _emailTiedToLoan(email, loan, client, ownerKey, clientsStore) {
-  if (client && normalizeEmail(client.email || '') === email) return true;
-  if (Array.isArray(loan.guarantors)) {
-    for (const g of loan.guarantors) {
-      if (g && normalizeEmail(g.email || '') === email) return true;
-    }
-  }
+// Deploy 236.592 — resolve the borrower's OWN client record on a loan (the one
+// whose email matches theirs): the primary borrower, or a guarantor client
+// linked via guarantorClientIds. Returns the client object (so callers can read
+// its verified flag + prefill), or null when they aren't tied to the loan.
+async function _resolveBorrowerClient(email, loan, client, ownerKey, clientsStore) {
+  if (client && normalizeEmail(client.email || '') === email) return client;
   const ids = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
   for (const gid of ids) {
     if (!gid) continue;
     try {
       const gc = await clientsStore.get(ownerKey + '/' + keySafe(gid), { type: 'json' });
-      if (gc && normalizeEmail(gc.email || '') === email) return true;
+      if (gc && normalizeEmail(gc.email || '') === email) return gc;
     } catch (_) { /* missing guarantor client → not a match */ }
   }
-  return false;
+  return null;
+}
+
+// Prefill payload for the first-login verify form (never returns the SSN blob).
+function _prefill(c) {
+  const h = (c.homeAddress && typeof c.homeAddress === 'object') ? c.homeAddress : {};
+  return {
+    firstName: c.firstName || '',
+    lastName:  c.lastName  || '',
+    phone:     c.phone     || '',
+    street:    h.street    || '',
+    city:      h.city      || '',
+    state:     h.state     || '',
+    zip:       h.zip       || '',
+    hasSSN:    !!c.ssn_enc,
+    ssnLast4:  c.ssnLast4  || '',
+  };
 }
 
 // Deploy 236.550 — borrower-facing stage bucket. Collapses the internal

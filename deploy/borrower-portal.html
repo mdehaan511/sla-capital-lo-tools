@@ -244,7 +244,8 @@
   <script>
     var _user = null;
     var _loans = [];
-    var _pendingOnboarding = [];   // Deploy 236.591 — granted loans the borrower isn't yet tied to
+    var _needsVerification = false;   // Deploy 236.592 — first-login "verify your info" gate
+    var _verifyPrefill = null;
 
     function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function escAttr(s) { return escH(s).replace(/"/g,'&quot;'); }
@@ -466,7 +467,16 @@
         return r.json();
       }).then(function(data) {
         _loans = (data && data.loans) || [];
-        _pendingOnboarding = (data && data.pendingOnboarding) || [];
+        _needsVerification = !!(data && data.needsVerification);
+        _verifyPrefill = (data && data.verifyPrefill) || null;
+        // Deploy 236.592 — keep the greeting fresh from the borrower's verified
+        // client name (Supabase full_name can carry a stale name, e.g. an earlier
+        // invite's — the "Welcome, Arthur" bug).
+        var bn = (data && data.borrowerName || '').trim();
+        if (bn) {
+          var wEl = document.getElementById('welcomeName');
+          if (wEl) wEl.textContent = 'Welcome, ' + (bn.split(' ')[0] || bn) + '.';
+        }
         renderLoans();
       }).catch(function(err) {
         container.innerHTML = '<div class="error-box">Failed to load your loans: ' + escH(err && err.message || 'unknown') + '</div>';
@@ -478,21 +488,20 @@
     // appears when there's something in it.
     function renderLoans() {
       var container = document.getElementById('loansContainer');
-      // Deploy 236.591 — a first-time invitee who isn't yet tied to their loan
-      // must complete a short form (name + phone). Submitting it creates their
-      // client record and attaches them as a guarantor to every loan they were
-      // invited to, after which those loans appear below.
-      var onboardHtml = _pendingOnboarding.length ? _renderOnboarding() : '';
+      // Deploy 236.592 — first-login gate: until the borrower verifies their
+      // info (name / email / phone / SSN-optional / mailing address), show ONLY
+      // the verify form — not their loans.
+      if (_needsVerification) { container.innerHTML = _renderVerify(); return; }
       if (!_loans.length) {
-        container.innerHTML = onboardHtml || (
+        container.innerHTML =
           '<div class="empty-state">' +
             'You don\'t have access to any loans yet. Ask your loan officer to send you a portal invitation for the loan you need to upload documents on.' +
-          '</div>');
+          '</div>';
         return;
       }
       var active   = _loans.filter(function(l) { return !_isArchived(l); });
       var archived = _loans.filter(_isArchived);
-      var html = onboardHtml;
+      var html = '';
       if (archived.length) {
         html += '<div class="portal-tabs">' +
           '<button type="button" class="portal-tab active" data-tab="active" onclick="_switchTab(\'active\')">Active (' + active.length + ')</button>' +
@@ -515,54 +524,73 @@
       }
     };
 
-    // Deploy 236.591 — first-login onboarding form (name + phone). Email comes
-    // from the signed-in session (read-only). On submit it POSTs to
-    // /api/borrower-guarantor-onboard, which creates the borrower's client under
-    // the loan's owner and attaches them as a guarantor to every pending loan.
-    function _renderOnboarding() {
-      var addrs = _pendingOnboarding.map(function(p){ return escH(p.address || 'your loan'); });
-      var addrLine = addrs.length === 1 ? addrs[0]
-        : addrs.slice(0, -1).join(', ') + ' and ' + addrs[addrs.length - 1];
+    // Deploy 236.592 — first-login "verify your information" form. Prefilled
+    // from the borrower's client record (_verifyPrefill). Email is read-only from
+    // the session. Name / phone / mailing address are required; SSN is optional.
+    // On submit it POSTs /api/borrower-guarantor-onboard, which updates their
+    // client + stamps borrowerVerifiedAt so the form only shows once.
+    function _renderVerify() {
+      var pf = _verifyPrefill || {};
       var email = (_user && _user.email) ? escH(_user.email) : '';
       var inp = 'width:100%;padding:10px 12px;border:1.5px solid #e0d8c8;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box';
       var lbl = 'display:block;font-size:12px;font-weight:600;color:#7a7488;margin:0 0 4px';
+      function val(v){ return escAttr(v == null ? '' : String(v)); }
       return '<div style="background:#fff;border:1px solid #e8dcc4;border-radius:14px;padding:22px 22px 20px;margin-bottom:22px;box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
-        '<div style="font-family:Georgia,serif;font-size:19px;font-weight:600;color:#1a1520;margin-bottom:6px">Finish setting up your access</div>' +
-        '<div style="font-size:13.5px;color:#7a7488;line-height:1.55;margin-bottom:16px">You’ve been invited to <strong style="color:#1a1520">' + addrLine + '</strong>. Confirm your details so we can add you to the loan and let you upload documents.</div>' +
+        '<div style="font-family:Georgia,serif;font-size:19px;font-weight:600;color:#1a1520;margin-bottom:6px">Verify your information</div>' +
+        '<div style="font-size:13.5px;color:#7a7488;line-height:1.55;margin-bottom:16px">Please confirm your details so we can finish setting up your access. This is a one-time step.</div>' +
         '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
-          '<div style="flex:1;min-width:140px;margin-bottom:12px"><label style="' + lbl + '">First name</label><input type="text" id="ob-first" autocomplete="given-name" style="' + inp + '" /></div>' +
-          '<div style="flex:1;min-width:140px;margin-bottom:12px"><label style="' + lbl + '">Last name</label><input type="text" id="ob-last" autocomplete="family-name" style="' + inp + '" /></div>' +
+          '<div style="flex:1;min-width:140px;margin-bottom:12px"><label style="' + lbl + '">First name</label><input type="text" id="ob-first" value="' + val(pf.firstName) + '" autocomplete="given-name" style="' + inp + '" /></div>' +
+          '<div style="flex:1;min-width:140px;margin-bottom:12px"><label style="' + lbl + '">Last name</label><input type="text" id="ob-last" value="' + val(pf.lastName) + '" autocomplete="family-name" style="' + inp + '" /></div>' +
         '</div>' +
-        '<div style="margin-bottom:12px"><label style="' + lbl + '">Phone</label><input type="tel" id="ob-phone" placeholder="(509) 555-0100" autocomplete="tel" style="' + inp + '" /></div>' +
-        (email ? '<div style="margin-bottom:14px"><label style="' + lbl + '">Email</label><input type="email" value="' + email + '" disabled style="' + inp + ';background:#f4f1ea;color:#7a7488" /></div>' : '') +
-        '<button type="button" id="ob-submit" onclick="_submitOnboarding()" style="background:#b5712d;color:#fff;border:none;font-weight:600;font-size:14px;padding:11px 22px;border-radius:9px;cursor:pointer">Confirm &amp; continue</button>' +
+        (email ? '<div style="margin-bottom:12px"><label style="' + lbl + '">Email</label><input type="email" value="' + email + '" disabled style="' + inp + ';background:#f4f1ea;color:#7a7488" /></div>' : '') +
+        '<div style="margin-bottom:12px"><label style="' + lbl + '">Phone</label><input type="tel" id="ob-phone" value="' + val(pf.phone) + '" placeholder="(509) 555-0100" autocomplete="tel" oninput="_pfPhone(this)" style="' + inp + '" /></div>' +
+        '<div style="font-size:12px;font-weight:600;color:#7a7488;margin:6px 0 8px">Mailing address</div>' +
+        '<div style="margin-bottom:12px"><label style="' + lbl + '">Street</label><input type="text" id="ob-street" value="' + val(pf.street) + '" autocomplete="address-line1" style="' + inp + '" /></div>' +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+          '<div style="flex:2;min-width:140px;margin-bottom:12px"><label style="' + lbl + '">City</label><input type="text" id="ob-city" value="' + val(pf.city) + '" autocomplete="address-level2" style="' + inp + '" /></div>' +
+          '<div style="flex:1;min-width:70px;margin-bottom:12px"><label style="' + lbl + '">State</label><input type="text" id="ob-state" value="' + val(pf.state) + '" maxlength="2" placeholder="WA" autocomplete="address-level1" style="' + inp + '" /></div>' +
+          '<div style="flex:1;min-width:90px;margin-bottom:12px"><label style="' + lbl + '">Zip</label><input type="text" id="ob-zip" value="' + val(pf.zip) + '" inputmode="numeric" autocomplete="postal-code" style="' + inp + '" /></div>' +
+        '</div>' +
+        '<div style="margin-bottom:14px"><label style="' + lbl + '">SSN <span style="font-weight:400;color:#a49e90">(optional)</span></label><input type="text" id="ob-ssn" ' + (pf.hasSSN ? 'placeholder="On file — ends in ' + escAttr(pf.ssnLast4 || '') + '"' : 'placeholder="123-45-6789"') + ' inputmode="numeric" autocomplete="off" oninput="_pfSsn(this)" style="' + inp + '" /></div>' +
+        '<button type="button" id="ob-submit" onclick="_submitVerify()" style="background:#b5712d;color:#fff;border:none;font-weight:600;font-size:14px;padding:11px 22px;border-radius:9px;cursor:pointer">Confirm &amp; continue</button>' +
         '<div id="ob-msg" style="margin-top:10px;font-size:12.5px;min-height:14px"></div>' +
       '</div>';
     }
-    window._submitOnboarding = function() {
-      var first = ((document.getElementById('ob-first') || {}).value || '').trim();
-      var last  = ((document.getElementById('ob-last')  || {}).value || '').trim();
-      var phone = ((document.getElementById('ob-phone') || {}).value || '').trim();
+    window._submitVerify = function() {
+      function v(id){ return ((document.getElementById(id) || {}).value || '').trim(); }
+      var first = v('ob-first'), last = v('ob-last'), phone = v('ob-phone');
+      var street = v('ob-street'), city = v('ob-city'), state = v('ob-state'), zip = v('ob-zip');
+      var ssn = v('ob-ssn');
       var msg = document.getElementById('ob-msg');
       var btn = document.getElementById('ob-submit');
-      if (!first || !last) { if (msg) { msg.style.color = '#b5712d'; msg.textContent = 'Please enter your first and last name.'; } return; }
+      function err(t){ if (msg) { msg.style.color = '#b5712d'; msg.textContent = t; } }
+      if (!first || !last) return err('Please enter your first and last name.');
+      if (!phone) return err('Please enter a phone number.');
+      if (!street || !city || !state || !zip) return err('Please enter your full mailing address.');
+      var ssnDigits = ssn.replace(/\D/g, '');
+      if (ssn && ssnDigits.length !== 9) return err('SSN must be 9 digits, or leave it blank.');
       if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; btn.style.opacity = '0.6'; }
       if (msg) { msg.style.color = '#7a7488'; msg.textContent = 'Saving your details…'; }
       _borrowerJwt().then(function(token) {
         return fetch('/api/borrower-guarantor-onboard', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ firstName: first, lastName: last, phone: phone })
+          body: JSON.stringify({
+            firstName: first, lastName: last, phone: phone,
+            ssn: ssnDigits.length === 9 ? ssnDigits : '',
+            homeAddress: { street: street, city: city, state: state, zip: zip }
+          })
         });
       }).then(function(r) {
         if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(d){ throw new Error(d.error || ('HTTP ' + r.status)); });
         return r.json();
       }).then(function() {
-        _pendingOnboarding = [];
-        loadLoans();   // reload → the newly-linked loan(s) now appear
-      }).catch(function(err) {
+        _needsVerification = false;
+        _verifyPrefill = null;
+        loadLoans();   // reload → verified, loans now show
+      }).catch(function(err2) {
         if (btn) { btn.disabled = false; btn.textContent = 'Confirm & continue'; btn.style.opacity = '1'; }
-        if (msg) { msg.style.color = '#7c1f1f'; msg.textContent = 'Could not save: ' + escH(err && err.message || 'unknown'); }
+        if (msg) { msg.style.color = '#7c1f1f'; msg.textContent = 'Could not save: ' + escH(err2 && err2.message || 'unknown'); }
       });
     };
 
