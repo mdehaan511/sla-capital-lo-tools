@@ -1378,7 +1378,15 @@ function brokerFeeDollars() {
   var pts = parseFloat((document.getElementById('brokerFee')||{}).value) || 0;
   if (pts <= 0) return 0;
   var loanAmt = 0;
-  if (window._rtlLastCalc && window._rtlLastCalc.bMax > 0) {
+  // Deploy 236.600 — prefer the EFFECTIVE (post-override) loan amount so the fees
+  // card matches the rate sheet + Cash Reserve card. A down-payment override
+  // derives a new loan amount into _rtlLastCalcEffective.bMax; the raw
+  // _rtlLastCalc.bMax is the PRE-override amount, so on an override loan the fees
+  // card understated the broker fee (e.g. 1pt on $3.5M instead of $4.4M).
+  var eff = window._rtlLastCalcEffective;
+  if (eff && typeof eff.bMax === 'number' && eff.bMax > 0) {
+    loanAmt = eff.bMax;
+  } else if (window._rtlLastCalc && window._rtlLastCalc.bMax > 0) {
     loanAmt = window._rtlLastCalc.bMax;
   } else {
     var ltEl = document.getElementById('loanType');
