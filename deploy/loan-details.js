@@ -1910,7 +1910,13 @@ function render() {
   // panes are filled by loan-uw-tab.js's SLA_UW_TAB.mount() post-render.
   // Deploy 236.511 — Underwriting + Lightning tabs now cover RTL AND DSCR.
   var _uwTt = String((l && l.toolType) || '').toLowerCase();
-  var _isRtlLoan = (_uwTt === 'rtl' || _uwTt === 'dscr');
+  // Deploy 236.603 — a blank toolType is a DSCR loan by the portal's own default:
+  // isDscr (~677) is (toolType||'') !== 'rtl', and the header badge (~842) reads
+  // (toolType||'dscr'). The old exact rtl|dscr match hid Underwriting + Lightning
+  // Docs on DSCR loans whose toolType was never stamped — the badge still said
+  // DSCR, Documents/Closing still showed, but these two tabs silently vanished.
+  // Treat empty as DSCR so the gate matches the rest of the page.
+  var _isRtlLoan = (_uwTt === 'rtl' || _uwTt === 'dscr' || _uwTt === '');
   // Deploy 236.602 — tab order + processing gate (per Mike). Order is
   // Loan · Contacts · Tasks · Documents · Underwriting · Closing · Lightning Docs.
   // Documents / Underwriting / Closing / Lightning Docs are processing-team tabs:
@@ -2237,7 +2243,7 @@ function render() {
   // Self-contained in loan-uw-tab.js; fills #ldPaneUnderwriting +
   // #ldPaneLightning. refreshLoan keeps _loan/_client in sync on save.
   try {
-    if (window.SLA_UW_TAB && document.getElementById('ldPaneUnderwriting') && (function(){ var t=String((_loan && _loan.toolType) || '').toLowerCase(); return t === 'rtl' || t === 'dscr'; })()) {
+    if (window.SLA_UW_TAB && document.getElementById('ldPaneUnderwriting') && (function(){ var t=String((_loan && _loan.toolType) || '').toLowerCase(); return t === 'rtl' || t === 'dscr' || t === ''; })()) {
       SLA_UW_TAB.mount({
         loan: _loan, clientId: _clientId, loanId: _loanId,
         // Deploy 236.510 — the borrowing entity name lives on the CLIENT
