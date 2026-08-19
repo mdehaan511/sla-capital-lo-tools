@@ -371,16 +371,67 @@ function accordion(dispKey, items, headHtml, bodyHtml){
 }
 function toggleAcc(d){ _openAcc[d] = !_openAcc[d]; render(); }
 
-// TAB: All — 4 disposition accordions, servicing columns + a disposition picker
-// so staff can move a loan between buckets (writes loan.disposition).
+// Deploy 236.621 — one shared column set per disposition, so a disposition's rows
+// look IDENTICAL on the All tab (accordion) and on its own tab. servicing +
+// pending_sale -> Servicing columns; sold -> Sold columns; paid_off -> Payoff
+// columns. Each accordion sorts via its home tab's sort state.
+function _homeTab(disp){ return disp==='sold' ? 'sold' : disp==='paid_off' ? 'payoff' : 'servicing'; }
+function _svcCellsFull(it){
+  var l=it.loan;
+  return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+    '<td>'+escH(clientName(it.client))+'</td>' +
+    '<td><span class="tag '+escAttr(String(l.toolType||'dscr').toLowerCase())+'">'+escH(toolLabel(l))+'</span></td>' +
+    '<td class="cl-num">'+escH(money(l.finalLoanAmount||l.loanAmt))+'</td>' +
+    '<td class="cl-num">'+(l.fundingDate?escH(fmtDate(l.fundingDate)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(l.maturityDate?escH(fmtDate(l.maturityDate)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(num(l.paymentAmount)>0?escH(money(l.paymentAmount)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td>'+(l.servicerName?escH(l.servicerName):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>';
+}
+function _soldCells(it){
+  var l=it.loan;
+  return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+    '<td class="cl-num">'+escH(money(l.finalLoanAmount||l.loanAmt))+'</td>' +
+    '<td class="cl-num">'+(num(l.rate)>0?escH(pct(l.rate)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(l.points!=null&&l.points!==''?escH(String(num(l.points).toFixed(2))):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+((l.soldRate||l.tpo)?escH(String(l.soldRate?pct(l.soldRate):l.tpo)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(l.soldDate?escH(fmtDate(l.soldDate)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td>'+(l.investorName?escH(l.investorName):'<span class="cl-ph">—</span>')+'</td>';
+}
+function _payoffCells(it){
+  var l=it.loan;
+  return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+    '<td>'+escH(clientName(it.client))+'</td>' +
+    '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(l.payoffDate?escH(fmtDate(l.payoffDate)):'<span class="cl-ph">—</span>')+'</td>';
+}
+function _colDesc(disp){
+  var tab=_homeTab(disp);
+  if (disp==='sold') return { tab:tab, sort:soldVal, cells:_soldCells,
+    head: th(tab,'address','Property')+th(tab,'amount','Loan Amount')+th(tab,'rate','Closed Rate')+th(tab,'points','Closed Points')+th(tab,'soldRate','Sold Rate / TPO')+th(tab,'soldDate','Sold Date')+th(tab,'investor','Investor') };
+  if (disp==='paid_off') return { tab:tab, sort:payoffVal, cells:_payoffCells,
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'payoffAmount','Payoff Amount')+th(tab,'payoffDate','Payoff Date') };
+  return { tab:tab, sort:svcVal, cells:_svcCellsFull,
+    head: svcHeadCols(tab,'<th>Servicer</th><th>Servicer Loan #</th>',true) };
+}
+function _dispBody(group, disp, includeDisp){
+  var d=_colDesc(disp);
+  var head='<tr>'+d.head+(includeDisp?'<th>Disposition</th>':'')+'</tr>';
+  var rows=group.map(function(it){
+    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>';
+  }).join('');
+  return '<div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+// TAB: All — one accordion per disposition, each using its home tab's columns +
+// a Disposition picker so staff can move a loan between buckets.
 function renderAll(items){
   var order = ['servicing','pending_sale','sold','paid_off'];
   return order.map(function(d){
-    var group = sortItems(items.filter(function(it){ return dispositionOf(it.loan)===d; }), 'all', svcVal);
-    var body;
-    if (!group.length) body = '<div class="cl-empty">No '+escH(DISP_LABEL[d].toLowerCase())+' loans.</div>';
-    else body = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('all','<th>Disposition</th>')+'</tr></thead><tbody>' +
-      group.map(function(it){ return svcRow(it, dispCell(it)); }).join('') + '</tbody></table></div>';
+    var desc = _colDesc(d);
+    var group = sortItems(items.filter(function(it){ return dispositionOf(it.loan)===d; }), desc.tab, desc.sort);
+    var body = group.length ? _dispBody(group, d, true) : '<div class="cl-empty">No '+escH(DISP_LABEL[d].toLowerCase())+' loans.</div>';
     return accordion(d, group, '', body);
   }).join('');
 }
@@ -529,8 +580,7 @@ function renderServicing(items){
     var body;
     if (!group.length) body = '<div class="cl-empty">None.</div>';
     else body = (sec.note?'<div class="cl-note" style="padding:8px 14px 0">'+escH(sec.note)+'</div>':'') +
-      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('servicing', extraHead, true)+'</tr></thead><tbody>' +
-      group.map(function(it){ return svcRow(it, extraCells(it.loan), true); }).join('') + '</tbody></table></div>';
+      _dispBody(group, 'servicing', false);
     return accordion(sec.d, group, '', body);
   }).join('');
 }
@@ -595,20 +645,7 @@ function soldVal(it, k){
 function renderSold(items){
   var sold = sortItems(items.filter(function(it){ return dispositionOf(it.loan)==='sold'; }), 'sold', soldVal);
   if (!sold.length) return '<div class="cl-empty">No sold loans.</div>';
-  var head = '<tr>'+th('sold','address','Property')+th('sold','amount','Loan Amount')+th('sold','rate','Closed Rate')+th('sold','points','Closed Points')+th('sold','soldRate','Sold Rate / TPO')+th('sold','soldDate','Sold Date')+th('sold','investor','Investor')+'</tr>';
-  var rows = sold.map(function(it){
-    var l=it.loan;
-    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">' +
-      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
-      '<td class="cl-num">'+escH(money(l.finalLoanAmount||l.loanAmt))+'</td>' +
-      '<td class="cl-num">'+(num(l.rate)>0?escH(pct(l.rate)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(l.points!=null&&l.points!==''?escH(String(num(l.points).toFixed(2))):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+((l.soldRate||l.tpo)?escH(String(l.soldRate?pct(l.soldRate):l.tpo)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(l.soldDate?escH(fmtDate(l.soldDate)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td>'+(l.investorName?escH(l.investorName):'<span class="cl-ph">—</span>')+'</td>' +
-    '</tr>';
-  }).join('');
-  return '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div></div>';
+  return '<div class="acc" style="padding:0">' + _dispBody(sold, 'sold', false) + '</div>';
 }
 
 // TAB: Payoff — all paid-off loans
@@ -623,17 +660,7 @@ function payoffVal(it, k){
 function renderPayoff(items){
   var paid = sortItems(items.filter(function(it){ return dispositionOf(it.loan)==='paid_off'; }), 'payoff', payoffVal);
   if (!paid.length) return '<div class="cl-empty">No paid-off loans.</div>';
-  var head = '<tr>'+th('payoff','address','Property')+th('payoff','borrower','Borrower')+th('payoff','payoffAmount','Payoff Amount')+th('payoff','payoffDate','Payoff Date')+'</tr>';
-  var rows = paid.map(function(it){
-    var l=it.loan;
-    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">' +
-      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
-      '<td>'+escH(clientName(it.client))+'</td>' +
-      '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(l.payoffDate?escH(fmtDate(l.payoffDate)):'<span class="cl-ph">—</span>')+'</td>' +
-    '</tr>';
-  }).join('');
-  return '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div></div>';
+  return '<div class="acc" style="padding:0">' + _dispBody(paid, 'paid_off', false) + '</div>';
 }
 </script>
 </body>
