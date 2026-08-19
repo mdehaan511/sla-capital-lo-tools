@@ -106,7 +106,7 @@
     .svc-sub { font-size: 12px; color: var(--muted); margin-bottom: 1.25rem; }
     .svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
     .svc-fld label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
-    .svc-fld input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); }
+    .svc-fld input, .svc-fld select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); }
     .svc-fld input:focus { outline: none; border-color: var(--gold); }
     .svc-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.25rem; align-items: center; }
     .svc-status { font-size: 12px; margin-right: auto; min-height: 16px; }
@@ -168,6 +168,7 @@ var _closed = [];            // [{ ownerKey, client, loan }]
 var _tab = 'all';
 var _openAcc = { servicing: true, pending_sale: true, sold: false, paid_off: false };
 var _openDraws = {};         // loanKey -> bool
+var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
 var _sort = { all: {k:'funded',d:-1}, servicing: {k:'funded',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1} };
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -239,6 +240,12 @@ function loadAll(){
     if (!_closed.length) document.getElementById('paneWrap').innerHTML =
       '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown error') + '</div>';
   });
+  // Deploy 236.620 — platform investor book for the Investor dropdown (non-fatal).
+  if (SLA.Investors && SLA.Investors.list) {
+    SLA.Investors.list().then(function(r){
+      _investors = ((r && r.investors) || []).map(function(iv){ return String(iv.name || iv.company || '').trim(); }).filter(Boolean);
+    }).catch(function(){});
+  }
 }
 
 function ingest(resp){
@@ -327,17 +334,22 @@ function svcVal(it, k){
   return '';
 }
 
-function svcHeadCols(tab, extra){
+// Deploy 236.620 — withLoan inserts Loan Amount + Close Date after Type (used by
+// the Servicing tab; the All tab omits them to stay compact).
+function svcHeadCols(tab, extra, withLoan){
   var cols = th(tab,'address','Property') + th(tab,'borrower','Borrower') + th(tab,'type','Type') +
+             (withLoan ? (th(tab,'amount','Loan Amount') + th(tab,'funded','Close Date')) : '') +
              th(tab,'maturity','Maturity') + th(tab,'payoff','Payoff') + th(tab,'payment','Payment');
   return extra ? cols + extra : cols;
 }
-function svcRow(it, extraCells){
+function svcRow(it, extraCells, withLoan){
   var l=it.loan;
   return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">' +
     '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
     '<td>'+escH(clientName(it.client))+'</td>' +
     '<td><span class="tag '+escAttr(String(l.toolType||'dscr').toLowerCase())+'">'+escH(toolLabel(l))+'</span></td>' +
+    (withLoan ? ('<td class="cl-num">'+escH(money(l.finalLoanAmount||l.loanAmt))+'</td>' +
+                 '<td class="cl-num">'+(l.fundingDate?escH(fmtDate(l.fundingDate)):'<span class="cl-ph">—</span>')+'</td>') : '') +
     '<td class="cl-num">'+(l.maturityDate?escH(fmtDate(l.maturityDate)):'<span class="cl-ph">—</span>')+'</td>' +
     '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
     '<td class="cl-num">'+(num(l.paymentAmount)>0?escH(money(l.paymentAmount)):'<span class="cl-ph">—</span>')+'</td>' +
@@ -411,6 +423,19 @@ var DISP_FIELDS = {
   paid_off:     ['payoffAmount','payoffDate']
 };
 function _svcFieldMeta(k){ for (var i=0;i<SVC_FIELDS.length;i++){ if (SVC_FIELDS[i].k===k) return SVC_FIELDS[i]; } return { k:k, label:k, type:'text' }; }
+// Deploy 236.620 — the Investor field renders as a dropdown of platform investors
+// (from SLA.Investors). A stored value not in the book is kept as a selected option.
+function _investorSelect(id, cur, extraAttr){
+  var opts = '<option value="">— select investor —</option>';
+  var found = false;
+  _investors.forEach(function(nm){ var sel=(nm===cur)?' selected':''; if(sel) found=true; opts += '<option value="'+escAttr(nm)+'"'+sel+'>'+escH(nm)+'</option>'; });
+  if (cur && !found) opts = '<option value="'+escAttr(cur)+'" selected>'+escH(cur)+' (not in book)</option>' + opts;
+  return '<select id="'+id+'" '+(extraAttr||'')+'>'+opts+'</select>';
+}
+function svcInputHtml(k, type, val, extraAttr){
+  if (k === 'investorName') return _investorSelect('svc_'+k, val, extraAttr);
+  return '<input type="'+(type==='date'?'date':'text')+'" id="svc_'+k+'" value="'+escAttr(val)+'"'+(extraAttr||'')+' />';
+}
 function openServicingEditor(clientId, loanId, ownerKey){
   var it=null;
   for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
@@ -422,7 +447,7 @@ function openServicingEditor(clientId, loanId, ownerKey){
   var st = document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
   document.getElementById('svcGrid').innerHTML = SVC_FIELDS.map(function(f){
     var v = l[f.k]!=null ? String(l[f.k]) : '';
-    return '<div class="svc-fld"><label>'+escH(f.label)+'</label><input type="'+(f.type==='date'?'date':'text')+'" id="svc_'+f.k+'" value="'+escAttr(v)+'" /></div>';
+    return '<div class="svc-fld"><label>'+escH(f.label)+'</label>' + svcInputHtml(f.k, f.type, v) + '</div>';
   }).join('');
   var sb = document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save';
   document.getElementById('svcBg').classList.add('show');
@@ -465,7 +490,7 @@ function openDispConfirm(it, newDisp){
   document.getElementById('svcGrid').innerHTML = flds.length ? flds.map(function(k){
     var f=_svcFieldMeta(k), val=(l[k]!=null?String(l[k]):''), missing=!val;
     return '<div class="svc-fld"><label>'+escH(f.label)+(missing?' <span style="color:var(--warn);font-weight:700">• add</span>':'')+'</label>'+
-      '<input type="'+(f.type==='date'?'date':'text')+'" id="svc_'+k+'" value="'+escAttr(val)+'"'+(missing?' style="border-color:var(--warn)"':'')+' /></div>';
+      svcInputHtml(k, f.type, val, missing?' style="border-color:var(--warn)"':'') + '</div>';
   }).join('') : '<div class="cl-ph" style="grid-column:1/-1">No extra details needed for this status.</div>';
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save & move';
   document.getElementById('svcBg').classList.add('show');
@@ -504,8 +529,8 @@ function renderServicing(items){
     var body;
     if (!group.length) body = '<div class="cl-empty">None.</div>';
     else body = (sec.note?'<div class="cl-note" style="padding:8px 14px 0">'+escH(sec.note)+'</div>':'') +
-      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('servicing', extraHead)+'</tr></thead><tbody>' +
-      group.map(function(it){ return svcRow(it, extraCells(it.loan)); }).join('') + '</tbody></table></div>';
+      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('servicing', extraHead, true)+'</tr></thead><tbody>' +
+      group.map(function(it){ return svcRow(it, extraCells(it.loan), true); }).join('') + '</tbody></table></div>';
     return accordion(sec.d, group, '', body);
   }).join('');
 }
