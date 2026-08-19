@@ -826,7 +826,10 @@ function render() {
             '<div class="ld-actions-empty">No actions available.</div>' +
           '</div>' +
         '</div>' +
-        (window.SLA && SLA.isProcessor && SLA.isProcessor(_user)
+        // Deploy 236.602 — the Loan Doc Review button is processing-only (like the
+        // Documents/Underwriting/Closing tabs); it's irrelevant to the sales team
+        // on a pre-processing loan.
+        (window.SLA && SLA.isProcessor && SLA.isProcessor(_user) && isInProcessing(l)
           ? '<button type="button" id="docReviewBtn" onclick="openOrCreateDocReview()" disabled ' +
               'style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--gold, #C8813A);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif;opacity:0.55;transition:opacity 0.15s">' +
               '<svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 9l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
@@ -1908,31 +1911,36 @@ function render() {
   // Deploy 236.511 — Underwriting + Lightning tabs now cover RTL AND DSCR.
   var _uwTt = String((l && l.toolType) || '').toLowerCase();
   var _isRtlLoan = (_uwTt === 'rtl' || _uwTt === 'dscr');
-  var _uwTabBtns = _isRtlLoan
-    ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' +
-      '<button type="button" class="ld-tab" data-ld-tab="lightning" onclick="switchLdTab(\'lightning\')"><span class="ld-tab-icon">\u{26A1}</span>Lightning Docs</button>'
-    : '';
-  var _uwPanes = _isRtlLoan
-    ? '<div class="ld-pane" data-ld-pane="underwriting" id="ldPaneUnderwriting"></div>' +
-      '<div class="ld-pane" data-ld-pane="lightning" id="ldPaneLightning"></div>'
-    : '';
+  // Deploy 236.602 — tab order + processing gate (per Mike). Order is
+  // Loan · Contacts · Tasks · Documents · Underwriting · Closing · Lightning Docs.
+  // Documents / Underwriting / Closing / Lightning Docs are processing-team tabs:
+  // they only appear once the loan is In Processing (pushed to the pipeline) — the
+  // sales team (pre-processing loans) sees just Loan / Contacts / Tasks. The
+  // Funding Plan box now lives inside the Closing tab (relocateSectionsToTabs).
+  // Underwriting + Lightning additionally require an RTL/DSCR loan.
+  var _inProc = isInProcessing(l);
+  var _uwOK   = _inProc && _isRtlLoan;
+  var _tabDocuments    = _inProc ? '<button type="button" class="ld-tab" data-ld-tab="documents" onclick="switchLdTab(\'documents\')"><span class="ld-tab-icon">\u{1F4C4}</span>Documents</button>' : '';
+  var _tabUnderwriting = _uwOK   ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' : '';
+  var _tabClosing      = _inProc ? '<button type="button" class="ld-tab" data-ld-tab="closing" onclick="switchLdTab(\'closing\')"><span class="ld-tab-icon">\u{1F3C1}</span>Closing</button>' : '';
+  var _tabLightning    = _uwOK   ? '<button type="button" class="ld-tab" data-ld-tab="lightning" onclick="switchLdTab(\'lightning\')"><span class="ld-tab-icon">\u{26A1}</span>Lightning Docs</button>' : '';
   var tabsHtml =
     '<div class="ld-tabs" role="tablist">' +
-      '<button type="button" class="ld-tab active" data-ld-tab="loan"      onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
-      '<button type="button" class="ld-tab"        data-ld-tab="contacts"  onclick="switchLdTab(\'contacts\')"><span class="ld-tab-icon">\u{1F465}</span>Contacts</button>' +
-      '<button type="button" class="ld-tab"        data-ld-tab="documents" onclick="switchLdTab(\'documents\')"><span class="ld-tab-icon">\u{1F4C4}</span>Documents</button>' +
-      '<button type="button" class="ld-tab"        data-ld-tab="tasks"     onclick="switchLdTab(\'tasks\')"><span class="ld-tab-icon">\u{2705}</span>Tasks<span class="ld-tab-count" id="ldTabTasksCount" hidden></span></button>' +
-      // Deploy 236.568 — Closing Coordination is now its own tab (shows on
-      // every loan; more fields to come). 🏁 flag icon.
-      '<button type="button" class="ld-tab"        data-ld-tab="closing"   onclick="switchLdTab(\'closing\')"><span class="ld-tab-icon">\u{1F3C1}</span>Closing</button>' +
-      _uwTabBtns +
+      '<button type="button" class="ld-tab active" data-ld-tab="loan"     onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
+      '<button type="button" class="ld-tab"        data-ld-tab="contacts" onclick="switchLdTab(\'contacts\')"><span class="ld-tab-icon">\u{1F465}</span>Contacts</button>' +
+      '<button type="button" class="ld-tab"        data-ld-tab="tasks"    onclick="switchLdTab(\'tasks\')"><span class="ld-tab-icon">\u{2705}</span>Tasks<span class="ld-tab-count" id="ldTabTasksCount" hidden></span></button>' +
+      _tabDocuments +
+      _tabUnderwriting +
+      _tabClosing +
+      _tabLightning +
     '</div>' +
-    '<div class="ld-pane active" data-ld-pane="loan"      id="ldPaneLoan"></div>' +
-    '<div class="ld-pane"        data-ld-pane="contacts"  id="ldPaneContacts"></div>' +
-    '<div class="ld-pane"        data-ld-pane="documents" id="ldPaneDocuments"></div>' +
-    '<div class="ld-pane"        data-ld-pane="tasks"     id="ldPaneTasks"></div>' +
-    '<div class="ld-pane"        data-ld-pane="closing"   id="ldPaneClosing"></div>' +
-    _uwPanes;
+    '<div class="ld-pane active" data-ld-pane="loan"     id="ldPaneLoan"></div>' +
+    '<div class="ld-pane"        data-ld-pane="contacts" id="ldPaneContacts"></div>' +
+    '<div class="ld-pane"        data-ld-pane="tasks"    id="ldPaneTasks"></div>' +
+    (_inProc ? '<div class="ld-pane" data-ld-pane="documents"    id="ldPaneDocuments"></div>' : '') +
+    (_uwOK   ? '<div class="ld-pane" data-ld-pane="underwriting" id="ldPaneUnderwriting"></div>' : '') +
+    (_inProc ? '<div class="ld-pane" data-ld-pane="closing"      id="ldPaneClosing"></div>' : '') +
+    (_uwOK   ? '<div class="ld-pane" data-ld-pane="lightning"    id="ldPaneLightning"></div>' : '');
   // Deploy 236.126 — top-of-page warning banner placeholder.
   // computeGuarantorOwnershipBanner() fills this slot after render
   // based on loan.guarantorOwnership values + linked guarantor count.
@@ -2064,7 +2072,9 @@ function render() {
     var paneDocuments = document.getElementById('ldPaneDocuments');
     var paneTasks     = document.getElementById('ldPaneTasks');
     var paneClosing   = document.getElementById('ldPaneClosing');
-    if (!paneLoan || !paneContacts || !paneDocuments || !paneTasks) return;
+    // Deploy 236.602 — Documents + Closing panes are processing-only, so they
+    // may be absent on a pre-processing loan; only Loan/Contacts/Tasks are required.
+    if (!paneLoan || !paneContacts || !paneTasks) return;
 
     // LOAN tab: the existing .two-col (Financials + Property/App
     // side-by-side) goes here intact. Any "left col" buttons
@@ -2109,17 +2119,25 @@ function render() {
     // (the Loan Doc Review system already exists as its own page;
     // moving/embedding it is the next phase). For now surface a
     // deep link so processors can jump there in one click.
-    paneDocuments.appendChild(_buildDocumentsPlaceholder());
+    if (paneDocuments) paneDocuments.appendChild(_buildDocumentsPlaceholder());
 
     // TASKS tab: the existing #tasksSection moves over wholesale.
     var tasksSect = document.getElementById('tasksSection');
     if (tasksSect) paneTasks.appendChild(tasksSect);
 
-    // CLOSING tab (Deploy 236.568): the Closing Coordination section moves
-    // into its own pane. Always emitted now (renderClosingPanel no longer
-    // stage-gates), so every loan has a working Closing tab.
+    // CLOSING tab (Deploy 236.568; 236.602 — now processing-only, and the
+    // Funding Plan box moved in here per Mike). Funding Plan sits on top, then
+    // Closing Coordination. On a pre-processing loan there's no Closing pane, so
+    // drop both sections entirely (they must not leak into the Loan view).
+    var fpSect      = document.getElementById('fundingPlanSection');
     var closingSect = document.getElementById('closingSection');
-    if (closingSect && paneClosing) paneClosing.appendChild(closingSect);
+    if (paneClosing) {
+      if (fpSect)      paneClosing.appendChild(fpSect);
+      if (closingSect) paneClosing.appendChild(closingSect);
+    } else {
+      if (fpSect)      fpSect.remove();
+      if (closingSect) closingSect.remove();
+    }
     // Sync the tasks count badge on the tab once tasks load. The
     // loadTasksList() called below will trigger a render; hook the
     // existing _tasks state via setTimeout (cheap, no listener
@@ -2219,7 +2237,7 @@ function render() {
   // Self-contained in loan-uw-tab.js; fills #ldPaneUnderwriting +
   // #ldPaneLightning. refreshLoan keeps _loan/_client in sync on save.
   try {
-    if (window.SLA_UW_TAB && (function(){ var t=String((_loan && _loan.toolType) || '').toLowerCase(); return t === 'rtl' || t === 'dscr'; })()) {
+    if (window.SLA_UW_TAB && document.getElementById('ldPaneUnderwriting') && (function(){ var t=String((_loan && _loan.toolType) || '').toLowerCase(); return t === 'rtl' || t === 'dscr'; })()) {
       SLA_UW_TAB.mount({
         loan: _loan, clientId: _clientId, loanId: _loanId,
         // Deploy 236.510 — the borrowing entity name lives on the CLIENT
@@ -3090,6 +3108,10 @@ function refreshOwnershipBanner() {
 // Deploy 236.118 — Loan Details TABS: switcher, hash sync, helpers
 // ════════════════════════════════════════════════════════════════════
 function switchLdTab(name, skipHash) {
+  // Deploy 236.602 — if the requested tab isn't present (e.g. a processing-only
+  // tab requested via a stale #hash on a pre-processing loan), fall back to Loan
+  // so we never blank the pane area.
+  if (!document.querySelector('.ld-tab[data-ld-tab="' + name + '"]')) name = 'loan';
   document.querySelectorAll('.ld-tab').forEach(function(t) {
     t.classList.toggle('active', t.dataset.ldTab === name);
   });
