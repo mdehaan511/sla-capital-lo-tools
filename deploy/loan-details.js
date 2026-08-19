@@ -1856,6 +1856,15 @@ function render() {
           '<div class="field"><label>Servicer Name</label>' +
             '<input type="text" id="sv-servicerName" value="' + escAttr(l.servicerName || '') + '" placeholder="e.g. Servicing Pros" maxlength="80" />' +
           '</div>' +
+          // Deploy 236.618 — full servicing field set (shared with the Closed Loans page).
+          '<div class="field"><label>Servicer Loan #</label><input type="text" id="sv-servicerLoanNumber" value="' + escAttr(l.servicerLoanNumber || '') + '" maxlength="60" /></div>' +
+          '<div class="field"><label>Payment Amount</label><input type="text" id="sv-paymentAmount" value="' + escAttr(l.paymentAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+          '<div class="field"><label>Total UPB</label><input type="text" id="sv-upb" value="' + escAttr(l.upb || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+          '<div class="field"><label>Payoff Amount</label><input type="text" id="sv-payoffAmount" value="' + escAttr(l.payoffAmount || '') + '" placeholder="$" inputmode="decimal" /></div>' +
+          '<div class="field"><label>Payoff Date</label><input type="date" id="sv-payoffDate" value="' + escAttr(l.payoffDate || '') + '" /></div>' +
+          '<div class="field"><label>Investor</label><input type="text" id="sv-investorName" value="' + escAttr(l.investorName || '') + '" maxlength="120" /></div>' +
+          '<div class="field"><label>Sold Rate / TPO</label><input type="text" id="sv-soldRate" value="' + escAttr(l.soldRate || '') + '" /></div>' +
+          '<div class="field"><label>Sold Date</label><input type="date" id="sv-soldDate" value="' + escAttr(l.soldDate || '') + '" /></div>' +
           '<div class="field" style="grid-column:1/-1"><label>Servicer Portal URL</label>' +
             '<input type="url" id="sv-servicerUrl" value="' + escAttr(l.servicerUrl || '') + '" placeholder="https://servicerportal.example.com/" />' +
           '</div>' +
@@ -1930,6 +1939,11 @@ function render() {
   var _tabUnderwriting = _uwOK   ? '<button type="button" class="ld-tab" data-ld-tab="underwriting" onclick="switchLdTab(\'underwriting\')"><span class="ld-tab-icon">\u{1F4CB}</span>Underwriting</button>' : '';
   var _tabClosing      = _inProc ? '<button type="button" class="ld-tab" data-ld-tab="closing" onclick="switchLdTab(\'closing\')"><span class="ld-tab-icon">\u{1F3C1}</span>Closing</button>' : '';
   var _tabLightning    = _uwOK   ? '<button type="button" class="ld-tab" data-ld-tab="lightning" onclick="switchLdTab(\'lightning\')"><span class="ld-tab-icon">\u{26A1}</span>Lightning Docs</button>' : '';
+  // Deploy 236.618 — Servicing tab (after Lightning Docs). Same gate as the
+  // Servicing Info section built above (_isServicingStage / _hasServicing);
+  // relocateSectionsToTabs moves #servicingSection into its pane.
+  var _showServicingTab = (_isServicingStage || _hasServicing);
+  var _tabServicing    = _showServicingTab ? '<button type="button" class="ld-tab" data-ld-tab="servicing" onclick="switchLdTab(\'servicing\')"><span class="ld-tab-icon">\u{1F4C8}</span>Servicing</button>' : '';
   var tabsHtml =
     '<div class="ld-tabs" role="tablist">' +
       '<button type="button" class="ld-tab active" data-ld-tab="loan"     onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
@@ -1939,6 +1953,7 @@ function render() {
       _tabUnderwriting +
       _tabClosing +
       _tabLightning +
+      _tabServicing +
     '</div>' +
     '<div class="ld-pane active" data-ld-pane="loan"     id="ldPaneLoan"></div>' +
     '<div class="ld-pane"        data-ld-pane="contacts" id="ldPaneContacts"></div>' +
@@ -1946,7 +1961,8 @@ function render() {
     (_inProc ? '<div class="ld-pane" data-ld-pane="documents"    id="ldPaneDocuments"></div>' : '') +
     (_uwOK   ? '<div class="ld-pane" data-ld-pane="underwriting" id="ldPaneUnderwriting"></div>' : '') +
     (_inProc ? '<div class="ld-pane" data-ld-pane="closing"      id="ldPaneClosing"></div>' : '') +
-    (_uwOK   ? '<div class="ld-pane" data-ld-pane="lightning"    id="ldPaneLightning"></div>' : '');
+    (_uwOK   ? '<div class="ld-pane" data-ld-pane="lightning"    id="ldPaneLightning"></div>' : '') +
+    (_showServicingTab ? '<div class="ld-pane" data-ld-pane="servicing" id="ldPaneServicing"></div>' : '');
   // Deploy 236.126 — top-of-page warning banner placeholder.
   // computeGuarantorOwnershipBanner() fills this slot after render
   // based on loan.guarantorOwnership values + linked guarantor count.
@@ -2078,6 +2094,7 @@ function render() {
     var paneDocuments = document.getElementById('ldPaneDocuments');
     var paneTasks     = document.getElementById('ldPaneTasks');
     var paneClosing   = document.getElementById('ldPaneClosing');
+    var paneServicing = document.getElementById('ldPaneServicing'); // Deploy 236.618
     // Deploy 236.602 — Documents + Closing panes are processing-only, so they
     // may be absent on a pre-processing loan; only Loan/Contacts/Tasks are required.
     if (!paneLoan || !paneContacts || !paneTasks) return;
@@ -2144,6 +2161,11 @@ function render() {
       if (fpSect)      fpSect.remove();
       if (closingSect) closingSect.remove();
     }
+    // Deploy 236.618 — the Servicing Info section (built inside the Loan two-col)
+    // moves into its own Servicing tab. Same gate as the tab, so paneServicing
+    // exists whenever the section does; if not, leave it in place rather than drop.
+    var servicingSect = document.getElementById('servicingSection');
+    if (servicingSect && paneServicing) paneServicing.appendChild(servicingSect);
     // Sync the tasks count badge on the tab once tasks load. The
     // loadTasksList() called below will trigger a render; hook the
     // existing _tasks state via setTimeout (cheap, no listener
@@ -5455,15 +5477,22 @@ function convertBrokerLoanToStandard() {
 // display update immediately.
 function saveServicingFields() {
   if (!_loan || !_client) return;
-  var maturityDate = (document.getElementById('sv-maturityDate') || {}).value || '';
-  var servicerName = (document.getElementById('sv-servicerName') || {}).value || '';
-  var servicerUrl  = (document.getElementById('sv-servicerUrl')  || {}).value || '';
+  var _sv = function(id){ return (document.getElementById(id) || {}).value || ''; };
   var payload = {
     clientId: _clientId,
     loanId:   _loanId,
-    maturityDate: maturityDate,
-    servicerName: servicerName,
-    servicerUrl:  servicerUrl,
+    maturityDate: _sv('sv-maturityDate'),
+    servicerName: _sv('sv-servicerName'),
+    servicerUrl:  _sv('sv-servicerUrl'),
+    // Deploy 236.618 — the rest of the servicing fields (shared with the Closed Loans page).
+    servicerLoanNumber: _sv('sv-servicerLoanNumber'),
+    paymentAmount:      _sv('sv-paymentAmount'),
+    upb:                _sv('sv-upb'),
+    payoffAmount:       _sv('sv-payoffAmount'),
+    payoffDate:         _sv('sv-payoffDate'),
+    investorName:       _sv('sv-investorName'),
+    soldRate:           _sv('sv-soldRate'),
+    soldDate:           _sv('sv-soldDate'),
   };
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   var status = document.getElementById('servicingStatus');

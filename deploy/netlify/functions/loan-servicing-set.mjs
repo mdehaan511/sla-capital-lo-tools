@@ -138,6 +138,12 @@ async function handle(req, context) {
   if (mat.value  !== undefined) loan.maturityDate = mat.value;
   if (name       !== undefined) loan.servicerName = name;
   if (url.value  !== undefined) loan.servicerUrl  = url.value;
+  // Deploy 236.618 — additional servicing scalars (Loan Details Servicing tab +
+  // Closed Loans page). Dates from the HTML date inputs are already YYYY-MM-DD;
+  // the rest are trimmed strings. Any field omitted is left unchanged.
+  ['servicerLoanNumber', 'paymentAmount', 'upb', 'payoffAmount', 'payoffDate', 'investorName', 'soldRate', 'soldDate'].forEach((k) => {
+    if (body[k] != null) loan[k] = String(body[k]).trim();
+  });
   loan.updatedAt = new Date().toISOString();
 
   // Audit entry — only when something actually changed.
