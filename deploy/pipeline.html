@@ -769,6 +769,19 @@ function _baselineLookup(addr) {
 // terminal hides the tile, checked before we ever rank.
 var _PIPE_PROGRESS = { active: 0, submitted: 1, awaiting_app: 2, approved: 3 };
 var _PIPE_TERMINAL = { on_hold: 1, denied: 1, closed: 1, cancelled: 1 };
+// Deploy 236.605 — the sales→processing HANDOFF line. Once a deal is handed to
+// processing it is OWNED by the Processing pipeline and must NOT also show on the
+// Sales board. The handoff fires when the full long application is signed: the
+// native flow auto-advances awaiting_app → 'approved' AND stamps
+// processingStage='new_loan' at that moment (advanceQuoteToInProcessing in
+// _shared/borrower-info-sync.mjs), so a credit-approved status OR any
+// processingStage both mean "handed off". Previously these loans lived in a Sales
+// "In Processing" column AND on the Processing board — the double-listing Mike hit.
+var _PROC_STAGES = { new_loan: 1, processing: 1, underwriting: 1, pp_approved: 1, pp_closed: 1 };
+function _handedOff(status, processingStage) {
+  if (String(status || '').toLowerCase().trim() === 'approved') return true;
+  return !!_PROC_STAGES[String(processingStage || '').toLowerCase().trim()];
+}
 function _pipelineBucket(quoteStatus, loanStatus) {
   var qs = quoteStatus || 'active';
   var ls = loanStatus  || '';
@@ -776,9 +789,12 @@ function _pipelineBucket(quoteStatus, loanStatus) {
   if (_PIPE_TERMINAL[ls] || _PIPE_TERMINAL[qs]) return null;
   var eff = qs;
   if (ls && (_PIPE_PROGRESS[ls] || 0) > (_PIPE_PROGRESS[qs] || 0)) eff = ls;
+  // Deploy 236.605 — 'approved' = handed off to processing → leaves the Sales
+  // board (the Processing pipeline owns it). Previously mapped to the terminal
+  // "In Processing" column here, which double-listed the loan on both boards.
+  if (eff === 'approved') return null;
   return eff === 'submitted'    ? 'submitted'
        : eff === 'awaiting_app' ? 'awaitingApp'
-       : eff === 'approved'     ? 'approved'
        : 'quoted';
 }
 
@@ -1071,6 +1087,9 @@ function processResults(results) {
             rec.toolType = String(l.toolType || l._toolType || '').toLowerCase();
             rec.updatedAt = l.updatedAt || l.createdAt || '';
             rec.borrower = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '';
+            // Deploy 236.605 — carry the handoff signal so the bucket logic can
+            // drop handed-off loans (any processingStage, or approved status).
+            rec.processingStage = String(l.processingStage || '').toLowerCase().trim();
             _loanLookup[ownerKey + '|id|' + l.id] = rec;
             if (l.address) {
               _loanLookup[ownerKey + '|' + norm(l.address)] = rec;
@@ -1110,6 +1129,8 @@ function processResults(results) {
           rec2.toolType = String(l.toolType || l._toolType || '').toLowerCase();
           rec2.updatedAt = l.updatedAt || l.createdAt || '';
           rec2.borrower = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '';
+          // Deploy 236.605 — see byOwner branch.
+          rec2.processingStage = String(l.processingStage || '').toLowerCase().trim();
           _loanLookup[myKey + '|id|' + l.id] = rec2;
           if (l.address) {
             _loanLookup[myKey + '|' + norm(l.address)] = rec2;
@@ -1432,6 +1453,10 @@ function processResults(results) {
       // quote, whichever is further along. Both the terminal-hide checks
       // that used to live here (loan-side above, quote-side in the null
       // branch below) now live inside _pipelineBucket, unchanged.
+      // Deploy 236.605 — if the loan has been handed off to processing it lives
+      // on the Processing board only; drop it from the Sales board here too
+      // (covers processingStage-present loans whose status isn't yet 'approved').
+      if (loanRec && _handedOff(loanRec.loanStatus, loanRec.processingStage)) return;
       var bucket = _pipelineBucket(s, loanStatus);
       if (!bucket) return;
       _items[bucket].push({
@@ -1504,6 +1529,9 @@ function processResults(results) {
         // the quote path uses above).
         if (st === 'on_hold' || st === 'denied' || st === 'closed' ||
             st === 'cancelled' || st === 'liquidated' || st === 'sold') return;
+        // Deploy 236.605 — handed-off loans (approved status or any
+        // processingStage) live on the Processing board, not the Sales board.
+        if (_handedOff(st, l.processingStage)) return;
         if (_loanIdsWithTile[ownerKey + '|' + l.id]) return;
         // Deploy 236.292 — skip synthetic tiles for auto-created loans
         // that haven't been priced yet. prospects-save.mjs creates a
@@ -1518,7 +1546,6 @@ function processResults(results) {
         if (_isUnpricedAutoCreate) return;
         var bkt = st === 'submitted'     ? 'submitted'
                 : st === 'awaiting_app'  ? 'awaitingApp'
-                : st === 'approved'      ? 'approved'
                 : 'quoted';
         var _tt = String(l.toolType || 'dscr').toLowerCase();
         var _rateN = parseFloat(l.rate);
@@ -1622,7 +1649,6 @@ function render() {
     { key: 'quoted',      title: 'Quoted',                    emptyMsg: 'No quotes yet — load a New Application into the sizer.' },
     { key: 'submitted',   title: 'Submitted - Pending Review', emptyMsg: 'Nothing submitted for review.' },
     { key: 'awaitingApp', title: 'Awaiting Application',       emptyMsg: 'No loans awaiting borrower application.' },
-    { key: 'approved',    title: 'In Processing',              emptyMsg: 'No loans currently in processing.' },
   ];
 
   var html = '<div class="board">';
