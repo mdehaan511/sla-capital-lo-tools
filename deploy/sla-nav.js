@@ -46,8 +46,9 @@
       // Tasks stays processor-only — that's the processor work queue.
       label: 'Processing',
       children: [
-        { label: 'Pipeline', href: '/processing-pipeline.html' },
-        { label: 'Tasks',    href: '/tasks.html',               requires: 'processor' },
+        { label: 'Pipeline',     href: '/processing-pipeline.html' },
+        { label: 'Closed Loans', href: '/closed-loans.html', requires: 'processor' },
+        { label: 'Tasks',        href: '/tasks.html',        requires: 'processor' },
       ],
     },
     {

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Closed Loans — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="/sla-search.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+      /* Deploy 236.610 — disposition accents. Servicing=green, Pending Sale=amber,
+         Sold=blue-gray, Paid Off=gray. Matches the servicing lifecycle. */
+      --d-servicing: #256940;  --d-servicing-bg: rgba(37,105,64,0.08);
+      --d-pending:   #7a5218;  --d-pending-bg:   rgba(122,82,24,0.08);
+      --d-sold:      #4a7a8a;  --d-sold-bg:      rgba(74,122,138,0.08);
+      --d-paid:      #4a4a4a;  --d-paid-bg:      rgba(74,74,74,0.08);
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .page { max-width: 100%; margin: 0 auto; padding-top: 1.25rem; }
+    .page-header { margin-bottom: 1.25rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+    .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
+    .search-box:focus { outline: none; border-color: var(--gold); }
+    .lo-filter { padding: 7px 28px 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); cursor: pointer; appearance: none; -webkit-appearance: none; }
+    .lo-filter:focus { outline: none; border-color: var(--gold); }
+    .loading { padding: 40px; text-align: center; color: var(--muted); }
+
+    /* Tabs */
+    .cl-tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+    .cl-tab { padding: 8px 16px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .cl-tab:hover { border-color: var(--gold); color: var(--gold); }
+    .cl-tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
+
+    /* Accordions */
+    .acc { border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 12px; background: var(--surface); overflow: hidden; }
+    .acc-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; cursor: pointer; }
+    .acc-head .chev { font-size: 12px; transition: transform 0.15s; color: var(--muted); }
+    .acc.open .acc-head .chev { transform: rotate(90deg); }
+    .acc-head .acc-title { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .acc-head .acc-count { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; background: rgba(0,0,0,0.05); color: var(--muted); }
+    .acc-body { display: none; }
+    .acc.open .acc-body { display: block; }
+    .acc[data-d="servicing"] .acc-head { background: var(--d-servicing-bg); } .acc[data-d="servicing"] .acc-title { color: var(--d-servicing); }
+    .acc[data-d="pending_sale"] .acc-head { background: var(--d-pending-bg); } .acc[data-d="pending_sale"] .acc-title { color: var(--d-pending); }
+    .acc[data-d="sold"] .acc-head { background: var(--d-sold-bg); } .acc[data-d="sold"] .acc-title { color: var(--d-sold); }
+    .acc[data-d="paid_off"] .acc-head { background: var(--d-paid-bg); } .acc[data-d="paid_off"] .acc-title { color: var(--d-paid); }
+
+    /* Tables */
+    .cl-scroll { overflow-x: auto; }
+    .cl-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .cl-tbl thead th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; -webkit-user-select: none; user-select: none; }
+    .cl-tbl thead th:hover { color: var(--d-sold); }
+    .cl-tbl thead th .ar { font-size: 9px; margin-left: 4px; }
+    .cl-tbl td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+    .cl-tbl tbody tr.lrow { cursor: pointer; }
+    .cl-tbl tbody tr.lrow:hover { background: var(--d-sold-bg); }
+    .cl-addr { font-weight: 600; }
+    .cl-num { font-family: 'DM Mono', monospace; }
+    .cl-ph { color: var(--muted); }
+    .cl-empty { padding: 26px 14px; text-align: center; color: var(--muted); font-size: 13px; }
+    .tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; letter-spacing: 0.03em; }
+    .tag.rtl { background: rgba(74,122,138,0.12); color: #35606f; }
+    .tag.dscr { background: rgba(200,129,58,0.12); color: #7a4a13; }
+    .tag.guc { background: rgba(106,74,138,0.12); color: #4c3466; }
+    .stpill { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; }
+    .draw-sub { background: var(--bg); }
+    .draw-sub .cl-tbl { font-size: 12px; }
+    .cl-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .sitewire-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; background: rgba(74,122,138,0.12); color: #35606f; margin-left: 6px; }
+    .totbar { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Closed Loans</h1>
+        <p>Funded loans in servicing — trade status, draws, sales, and payoffs.</p>
+      </div>
+      <div class="ctrl-row">
+        <input type="text" class="search-box" id="searchBox" placeholder="Search address, borrower…" oninput="render()" />
+        <select class="lo-filter" id="loFilter" style="display:none" onchange="render()">
+          <option value="">All Loan Officers</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="cl-tabs" id="clTabs">
+      <button type="button" class="cl-tab active" data-tab="all"       onclick="setTab('all')">All</button>
+      <button type="button" class="cl-tab"        data-tab="servicing" onclick="setTab('servicing')">Servicing</button>
+      <button type="button" class="cl-tab"        data-tab="draws"     onclick="setTab('draws')">Draws</button>
+      <button type="button" class="cl-tab"        data-tab="sold"      onclick="setTab('sold')">Sold</button>
+      <button type="button" class="cl-tab"        data-tab="payoff"    onclick="setTab('payoff')">Payoff</button>
+    </div>
+
+    <div class="totbar" id="totBar"></div>
+    <div id="paneWrap"><div class="loading">Loading closed loans…</div></div>
+  </div>
+
+<script>
+'use strict';
+
+var _user = null, _isAdmin = false, _isStaff = false;
+var _closed = [];            // [{ ownerKey, client, loan }]
+var _tab = 'all';
+var _openAcc = { servicing: true, pending_sale: true, sold: false, paid_off: false };
+var _openDraws = {};         // loanKey -> bool
+var _sort = { all: {k:'funded',d:-1}, servicing: {k:'funded',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1} };
+
+// ── Helpers ────────────────────────────────────────────────────────
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function num(v){ var n = parseFloat(String(v==null?'':v).replace(/[$,]/g,'')); return isFinite(n)?n:0; }
+function money(v){ var n=num(v); return n>0 ? '$'+Math.round(n).toLocaleString() : '—'; }
+function parseLocalDate(s){ if(!s) return null; var m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) { var d0=new Date(s); return isNaN(d0.getTime())?null:d0; } return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10)); }
+function fmtDate(s){ var d=parseLocalDate(s); if(!d) return ''; return (d.getMonth()+1)+'/'+d.getDate()+'/'+String(d.getFullYear()).slice(-2); }
+function pct(v){ var n=parseFloat(v); return isFinite(n) ? (n.toFixed(3).replace(/0+$/,'').replace(/\.$/,''))+'%' : '—'; }
+function loDisplay(ownerKey){ if(!ownerKey) return '—'; return String(ownerKey).replace(/_at_/g,'@').replace(/_dot_/g,'.').replace(/_/g,' '); }
+function toolLabel(l){ var t=String(l.toolType||'dscr').toLowerCase(); return t==='rtl'?'RTL':(t==='guc'?'GUC':'DSCR'); }
+function isRtl(l){ return String(l.toolType||'').toLowerCase()==='rtl'; }
+function clientName(c){ return ((c.firstName||'')+' '+(c.lastName||'')).trim() || c.email || '(unknown)'; }
+function loanHref(it){ return SLA.urls.loanDetails(it.loan.id, { owner: it.ownerKey }); }
+function loanKey(it){ return it.ownerKey + '|' + (it.loan.id||''); }
+
+// A loan belongs on Closed Loans if it's funded/done.
+function isClosedLoan(l){
+  var st = String(l.status||'').toLowerCase().trim();
+  if (st==='closed' || st==='sold' || st==='liquidated') return true;
+  if (String(l.processingStage||'').toLowerCase().trim()==='pp_closed') return true;
+  var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  return (bl==='sold'||bl==='in servicing'||bl==='servicing'||bl==='liquidated'||bl==='paid off'||bl==='closed');
+}
+
+// Disposition: manual override (loan.disposition) wins, else derived from
+// baselineStatus/status. Pending Sale has no derived source (manual only).
+function dispositionOf(l){
+  var d = String(l.disposition||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  if (d==='servicing') return 'servicing';
+  if (d==='pending sale') return 'pending_sale';
+  if (d==='sold') return 'sold';
+  if (d==='paid off'||d==='payoff') return 'paid_off';
+  var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  if (bl==='sold') return 'sold';
+  if (bl==='paid off') return 'paid_off';
+  if (bl==='liquidated') return 'paid_off';
+  if (bl==='in servicing'||bl==='servicing') return 'servicing';
+  var st = String(l.status||'').toLowerCase().trim();
+  if (st==='sold') return 'sold';
+  if (st==='liquidated') return 'paid_off';
+  return 'servicing'; // freshly closed → serviced until sold / paid off
+}
+var DISP_LABEL = { servicing:'Servicing', pending_sale:'Pending Sale', sold:'Sold', paid_off:'Paid Off' };
+
+// Draws — Sitewire is not wired yet; read a placeholder array off the loan.
+function drawsForLoan(l){ return Array.isArray(l.draws) ? l.draws : []; }
+
+// ── Auth + load ────────────────────────────────────────────────────
+window.netlifyIdentity.on('init', function(user){
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
+  // Servicing/back-office view — staff only for now (admins + processors).
+  if (!_isStaff) { window.location.replace('/'); return; }
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  if (_isStaff) document.getElementById('loFilter').style.display = '';
+  loadAll();
+});
+
+function loadAll(){
+  var opts = _isStaff ? { all: true } : {};
+  var cached = SLA.Clients.listCached ? SLA.Clients.listCached(opts) : null;
+  if (cached) ingest(cached);
+  SLA.Clients.list(opts).then(ingest).catch(function(err){
+    if (!_closed.length) document.getElementById('paneWrap').innerHTML =
+      '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown error') + '</div>';
+  });
+}
+
+function ingest(resp){
+  _closed = [];
+  var owners = {};
+  function take(ownerKey, client){
+    (client.loans||[]).forEach(function(l){
+      if (!l || !l.id || !isClosedLoan(l)) return;
+      _closed.push({ ownerKey: ownerKey, client: client, loan: l });
+      owners[ownerKey] = true;
+    });
+  }
+  if (resp && resp.byOwner) {
+    Object.keys(resp.byOwner).forEach(function(ok){ (resp.byOwner[ok]||[]).forEach(function(c){ take(ok, c); }); });
+  } else if (resp && resp.clients) {
+    var myKey = String((_user && _user.email)||'').toLowerCase();
+    resp.clients.forEach(function(c){ take(myKey, c); });
+  }
+  // Populate LO filter (staff)
+  var sel = document.getElementById('loFilter');
+  if (sel && _isStaff) {
+    var cur = sel.value;
+    var opts2 = Object.keys(owners).sort().map(function(ok){ return '<option value="'+escAttr(ok)+'">'+escH(loDisplay(ok))+'</option>'; }).join('');
+    sel.innerHTML = '<option value="">All Loan Officers</option>' + opts2;
+    sel.value = cur;
+  }
+  render();
+}
+
+// ── Filtering ──────────────────────────────────────────────────────
+function visibleItems(){
+  var q = (document.getElementById('searchBox').value||'').toLowerCase().trim();
+  var lo = (document.getElementById('loFilter')||{}).value || '';
+  return _closed.filter(function(it){
+    if (lo && it.ownerKey !== lo) return false;
+    if (q) {
+      var hay = ((it.loan.address||'')+' '+clientName(it.client)+' '+(it.client.email||'')).toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  });
+}
+
+// ── Render ─────────────────────────────────────────────────────────
+function setTab(t){ _tab = t; Array.prototype.forEach.call(document.querySelectorAll('.cl-tab'), function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===t); }); render(); }
+
+function render(){
+  var items = visibleItems();
+  document.getElementById('totBar').textContent =
+    items.length + ' closed loan' + (items.length===1?'':'s') + ' · ' +
+    countDisp(items,'servicing') + ' servicing · ' + countDisp(items,'pending_sale') + ' pending sale · ' +
+    countDisp(items,'sold') + ' sold · ' + countDisp(items,'paid_off') + ' paid off';
+  var wrap = document.getElementById('paneWrap');
+  if (_tab==='all')            wrap.innerHTML = renderAll(items);
+  else if (_tab==='servicing') wrap.innerHTML = renderServicing(items);
+  else if (_tab==='draws')     wrap.innerHTML = renderDraws(items);
+  else if (_tab==='sold')      wrap.innerHTML = renderSold(items);
+  else if (_tab==='payoff')    wrap.innerHTML = renderPayoff(items);
+}
+function countDisp(items, d){ return items.filter(function(it){ return dispositionOf(it.loan)===d; }).length; }
+
+function sortItems(items, tab, valFn){
+  var s = _sort[tab];
+  items.sort(function(a,b){
+    var av=valFn(a,s.k), bv=valFn(b,s.k), r;
+    if (typeof av==='number' && typeof bv==='number') r = av-bv;
+    else r = String(av||'').toLowerCase().localeCompare(String(bv||'').toLowerCase());
+    return r * s.d;
+  });
+  return items;
+}
+function th(tab, k, label){ var s=_sort[tab]; var ar = s.k===k ? '<span class="ar">'+(s.d<0?'▼':'▲')+'</span>' : ''; return '<th onclick="sortBy(\''+tab+'\',\''+k+'\')">'+escH(label)+ar+'</th>'; }
+function sortBy(tab, k){ var s=_sort[tab]; if (s.k===k) s.d=-s.d; else { s.k=k; s.d=(k==='funded'||k==='soldDate'||k==='payoffDate'||k==='lastDraw'||k==='amount')?-1:1; } render(); }
+
+// Common row value getter for the servicing-style tables.
+function svcVal(it, k){
+  var l=it.loan;
+  if (k==='address') return l.address||'';
+  if (k==='borrower') return clientName(it.client);
+  if (k==='type') return toolLabel(l);
+  if (k==='funded') return l.fundingDate||'';
+  if (k==='maturity') return l.maturityDate||'';
+  if (k==='payoff') return num(l.payoffAmount);
+  if (k==='payment') return num(l.paymentAmount);
+  if (k==='amount') return num(l.finalLoanAmount||l.loanAmt);
+  return '';
+}
+
+function svcHeadCols(tab, extra){
+  var cols = th(tab,'address','Property') + th(tab,'borrower','Borrower') + th(tab,'type','Type') +
+             th(tab,'maturity','Maturity') + th(tab,'payoff','Payoff') + th(tab,'payment','Payment');
+  return extra ? cols + extra : cols;
+}
+function svcRow(it, extraCells){
+  var l=it.loan;
+  return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">' +
+    '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+    '<td>'+escH(clientName(it.client))+'</td>' +
+    '<td><span class="tag '+escAttr(String(l.toolType||'dscr').toLowerCase())+'">'+escH(toolLabel(l))+'</span></td>' +
+    '<td class="cl-num">'+(l.maturityDate?escH(fmtDate(l.maturityDate)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td class="cl-num">'+(num(l.paymentAmount)>0?escH(money(l.paymentAmount)):'<span class="cl-ph">—</span>')+'</td>' +
+    (extraCells||'') +
+  '</tr>';
+}
+
+// Accordion helper
+function accordion(dispKey, items, headHtml, bodyHtml){
+  var open = _openAcc[dispKey];
+  return '<div class="acc'+(open?' open':'')+'" data-d="'+dispKey+'">' +
+    '<div class="acc-head" onclick="toggleAcc(\''+dispKey+'\')">' +
+      '<span class="chev">▶</span>' +
+      '<span class="acc-title">'+escH(DISP_LABEL[dispKey])+'</span>' +
+      '<span class="acc-count">'+items.length+'</span>' + (headHtml||'') +
+    '</div>' +
+    '<div class="acc-body">'+bodyHtml+'</div>' +
+  '</div>';
+}
+function toggleAcc(d){ _openAcc[d] = !_openAcc[d]; render(); }
+
+// TAB: All — 4 disposition accordions, servicing columns
+function renderAll(items){
+  var order = ['servicing','pending_sale','sold','paid_off'];
+  return order.map(function(d){
+    var group = sortItems(items.filter(function(it){ return dispositionOf(it.loan)===d; }), 'all', svcVal);
+    var body;
+    if (!group.length) body = '<div class="cl-empty">No '+escH(DISP_LABEL[d].toLowerCase())+' loans.</div>';
+    else body = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('all','')+'</tr></thead><tbody>' +
+      group.map(function(it){ return svcRow(it,''); }).join('') + '</tbody></table></div>';
+    return accordion(d, group, '', body);
+  }).join('');
+}
+
+// TAB: Servicing — Servicing + Pending Sale + Sold(RTL only). Extra cols: Servicer, Servicer Loan #.
+function renderServicing(items){
+  var extraHead = '<th>Servicer</th><th>Servicer Loan #</th>';
+  function extraCells(l){ return '<td>'+(l.servicer?escH(l.servicer):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>'; }
+  var sections = [
+    { d:'servicing',    filter:function(it){ return dispositionOf(it.loan)==='servicing'; } },
+    { d:'pending_sale', filter:function(it){ return dispositionOf(it.loan)==='pending_sale'; } },
+    { d:'sold',         filter:function(it){ return dispositionOf(it.loan)==='sold' && isRtl(it.loan); }, note:'Sold RTL loans — SLA still services these.' }
+  ];
+  return sections.map(function(sec){
+    var group = sortItems(items.filter(sec.filter), 'servicing', svcVal);
+    var body;
+    if (!group.length) body = '<div class="cl-empty">None.</div>';
+    else body = (sec.note?'<div class="cl-note" style="padding:8px 14px 0">'+escH(sec.note)+'</div>':'') +
+      '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('servicing', extraHead)+'</tr></thead><tbody>' +
+      group.map(function(it){ return svcRow(it, extraCells(it.loan)); }).join('') + '</tbody></table></div>';
+    return accordion(sec.d, group, '', body);
+  }).join('');
+}
+
+// TAB: Draws — RTL only, rollups + expand to individual draws (Sitewire).
+function drawVal(it, k){
+  var l=it.loan, ds=drawsForLoan(l);
+  if (k==='address') return l.address||'';
+  if (k==='count') return ds.length;
+  if (k==='approved') return ds.reduce(function(s,d){ return s+num(d.approved||d.amount); },0);
+  if (k==='remaining') return ds.reduce(function(s,d){ return s+num(d.remaining); },0);
+  if (k==='lastDraw') { var m=''; ds.forEach(function(d){ if((d.date||'')>m) m=d.date||''; }); return m; }
+  if (k==='upb') return num(l.upb||l.currentBalance);
+  return '';
+}
+function renderDraws(items){
+  var rtl = sortItems(items.filter(function(it){ return isRtl(it.loan); }), 'draws', drawVal);
+  var note = '<div class="cl-note">RTL loans only. Draw data is provided by the Sitewire API <span class="sitewire-tag">Sitewire</span> — not yet connected, so rollups show placeholder zeros. Click a loan to expand its draws.</div>';
+  if (!rtl.length) return note + '<div class="cl-empty">No closed RTL loans.</div>';
+  var head = '<tr><th></th>'+th('draws','address','Property')+th('draws','count','# Draws')+th('draws','approved','Total Approved')+th('draws','remaining','Total Remaining')+th('draws','lastDraw','Last Draw')+th('draws','upb','Total UPB')+'</tr>';
+  var rows = rtl.map(function(it){
+    var l=it.loan, ds=drawsForLoan(l), key=loanKey(it), open=!!_openDraws[key];
+    var appr=ds.reduce(function(s,d){ return s+num(d.approved||d.amount); },0);
+    var rem=ds.reduce(function(s,d){ return s+num(d.remaining); },0);
+    var last=''; ds.forEach(function(d){ if((d.date||'')>last) last=d.date||''; });
+    var main = '<tr class="lrow" onclick="toggleDraws(\''+escAttr(key)+'\')">' +
+      '<td><span class="chev" style="display:inline-block;transition:transform .15s;'+(open?'transform:rotate(90deg)':'')+'">▶</span></td>' +
+      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+      '<td class="cl-num">'+ds.length+'</td>' +
+      '<td class="cl-num">'+(appr>0?escH(money(appr)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(rem>0?escH(money(rem)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(last?escH(fmtDate(last)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(num(l.upb||l.currentBalance)>0?escH(money(l.upb||l.currentBalance)):'<span class="cl-ph">—</span>')+'</td>' +
+    '</tr>';
+    var sub = '';
+    if (open) {
+      var inner;
+      if (!ds.length) inner = '<div class="cl-empty">No draws recorded yet. These will populate from Sitewire.</div>';
+      else inner = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Draw #</th><th>Date</th><th>Amount</th><th>Status</th><th>Inspection</th></tr></thead><tbody>' +
+        ds.map(function(d,i){ return '<tr><td class="cl-num">'+(d.number||i+1)+'</td><td class="cl-num">'+escH(fmtDate(d.date)||'—')+'</td><td class="cl-num">'+escH(money(d.amount||d.approved))+'</td><td>'+escH(d.status||'—')+'</td><td>'+escH(d.inspection||'—')+'</td></tr>'; }).join('') +
+        '</tbody></table></div>';
+      sub = '<tr class="draw-sub"><td></td><td colspan="6" style="padding:0 14px 12px">'+inner+'</td></tr>';
+    }
+    return main + sub;
+  }).join('');
+  return note + '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+function toggleDraws(key){ _openDraws[key] = !_openDraws[key]; render(); }
+
+// TAB: Sold — all sold loans
+function soldVal(it, k){
+  var l=it.loan;
+  if (k==='address') return l.address||'';
+  if (k==='amount') return num(l.finalLoanAmount||l.loanAmt);
+  if (k==='rate') return num(l.rate);
+  if (k==='points') return num(l.points);
+  if (k==='soldRate') return num(l.soldRate||l.tpo);
+  if (k==='soldDate') return l.soldDate||'';
+  if (k==='investor') return l.investorName||'';
+  return '';
+}
+function renderSold(items){
+  var sold = sortItems(items.filter(function(it){ return dispositionOf(it.loan)==='sold'; }), 'sold', soldVal);
+  if (!sold.length) return '<div class="cl-empty">No sold loans.</div>';
+  var head = '<tr>'+th('sold','address','Property')+th('sold','amount','Loan Amount')+th('sold','rate','Closed Rate')+th('sold','points','Closed Points')+th('sold','soldRate','Sold Rate / TPO')+th('sold','soldDate','Sold Date')+th('sold','investor','Investor')+'</tr>';
+  var rows = sold.map(function(it){
+    var l=it.loan;
+    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">' +
+      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+      '<td class="cl-num">'+escH(money(l.finalLoanAmount||l.loanAmt))+'</td>' +
+      '<td class="cl-num">'+(num(l.rate)>0?escH(pct(l.rate)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(l.points!=null&&l.points!==''?escH(String(num(l.points).toFixed(2))):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+((l.soldRate||l.tpo)?escH(String(l.soldRate?pct(l.soldRate):l.tpo)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(l.soldDate?escH(fmtDate(l.soldDate)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td>'+(l.investorName?escH(l.investorName):'<span class="cl-ph">—</span>')+'</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+
+// TAB: Payoff — all paid-off loans
+function payoffVal(it, k){
+  var l=it.loan;
+  if (k==='address') return l.address||'';
+  if (k==='borrower') return clientName(it.client);
+  if (k==='payoffAmount') return num(l.payoffAmount);
+  if (k==='payoffDate') return l.payoffDate||'';
+  return '';
+}
+function renderPayoff(items){
+  var paid = sortItems(items.filter(function(it){ return dispositionOf(it.loan)==='paid_off'; }), 'payoff', payoffVal);
+  if (!paid.length) return '<div class="cl-empty">No paid-off loans.</div>';
+  var head = '<tr>'+th('payoff','address','Property')+th('payoff','borrower','Borrower')+th('payoff','payoffAmount','Payoff Amount')+th('payoff','payoffDate','Payoff Date')+'</tr>';
+  var rows = paid.map(function(it){
+    var l=it.loan;
+    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">' +
+      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
+      '<td>'+escH(clientName(it.client))+'</td>' +
+      '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(l.payoffDate?escH(fmtDate(l.payoffDate)):'<span class="cl-ph">—</span>')+'</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+</script>
+</body>
+</html>
