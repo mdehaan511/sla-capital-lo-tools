@@ -1557,11 +1557,6 @@ function render() {
   // already been started). Sits right below Funding Plan — same closing
   // workflow neighborhood. See renderClosingPanel() for the gating logic.
   html += renderClosingPanel(l);
-  // Deploy 236.613 — Servicing section (closed loans only). Renders the same
-  // servicing fields as the Closed Loans page editor and saves via the same
-  // /api/loan-servicing-update endpoint. relocateSectionsToTabs moves it into
-  // the Closing tab, below Closing Coordination.
-  html += renderServicingPanel(l);
 
   // Deploy 226 — Notes / audit log section. Replaces the old free-form
   // notes textarea with a scrollable timestamped log. Renders below the
@@ -2142,18 +2137,12 @@ function render() {
     // drop both sections entirely (they must not leak into the Loan view).
     var fpSect      = document.getElementById('fundingPlanSection');
     var closingSect = document.getElementById('closingSection');
-    var servicingSect = document.getElementById('servicingSection'); // Deploy 236.613
     if (paneClosing) {
       if (fpSect)      paneClosing.appendChild(fpSect);
       if (closingSect) paneClosing.appendChild(closingSect);
-      if (servicingSect) paneClosing.appendChild(servicingSect);
     } else {
       if (fpSect)      fpSect.remove();
       if (closingSect) closingSect.remove();
-      // Deploy 236.613 — closed loans always have the Closing tab; if a rare
-      // sold/liquidated loan lacks it, keep Servicing in the Loan view rather
-      // than dropping it.
-      if (servicingSect) { if (paneLoan) paneLoan.appendChild(servicingSect); else servicingSect.remove(); }
     }
     // Sync the tasks count badge on the tab once tasks load. The
     // loadTasksList() called below will trigger a render; hook the
@@ -5761,63 +5750,6 @@ function saveClosingFields() {
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Closing Details'; }
     showToast('Closing save failed: ' + (err && err.message || 'unknown error'));
-  });
-}
-
-// ── Deploy 236.613 — Servicing section (closed loans) ─────────────────
-// Same servicing scalar fields + endpoint as the Closed Loans page editor, so
-// they stay in sync. Shown only for closed/done loans; sits in the Closing tab.
-function _isClosedForServicing(l) {
-  if (!l) return false;
-  var st = String(l.status || '').toLowerCase().trim();
-  if (st === 'closed' || st === 'sold' || st === 'liquidated') return true;
-  if (l.disposition) return true;
-  var bl = String(l.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
-  return (bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off' || bl === 'closed');
-}
-function renderServicingPanel(l) {
-  if (!l || !_isClosedForServicing(l)) return '';
-  var v = function (k) { return escAttr(l[k] != null ? String(l[k]) : ''); };
-  return '<div class="section" id="servicingSection">' +
-    '<div class="section-head"><h2>Servicing</h2><span class="section-tag tag-editable">Closed</span></div>' +
-    '<div class="section-body">' +
-      '<div class="app-grid">' +
-        '<div class="field"><label>Servicer</label><input type="text" id="sv-servicer" value="' + v('servicer') + '" maxlength="120" /></div>' +
-        '<div class="field"><label>Servicer Loan #</label><input type="text" id="sv-servicerLoanNumber" value="' + v('servicerLoanNumber') + '" maxlength="60" /></div>' +
-        '<div class="field"><label>Maturity Date</label><input type="date" id="sv-maturityDate" value="' + v('maturityDate') + '" /></div>' +
-        '<div class="field"><label>Payment Amount</label><input type="text" id="sv-paymentAmount" value="' + v('paymentAmount') + '" placeholder="$" inputmode="decimal" /></div>' +
-        '<div class="field"><label>Total UPB</label><input type="text" id="sv-upb" value="' + v('upb') + '" placeholder="$" inputmode="decimal" /></div>' +
-        '<div class="field"><label>Payoff Amount</label><input type="text" id="sv-payoffAmount" value="' + v('payoffAmount') + '" placeholder="$" inputmode="decimal" /></div>' +
-        '<div class="field"><label>Payoff Date</label><input type="date" id="sv-payoffDate" value="' + v('payoffDate') + '" /></div>' +
-        '<div class="field"><label>Investor</label><input type="text" id="sv-investorName" value="' + v('investorName') + '" maxlength="120" /></div>' +
-        '<div class="field"><label>Sold Rate / TPO</label><input type="text" id="sv-soldRate" value="' + v('soldRate') + '" /></div>' +
-        '<div class="field"><label>Sold Date</label><input type="date" id="sv-soldDate" value="' + v('soldDate') + '" /></div>' +
-      '</div>' +
-      '<div style="margin-top:14px;display:flex;align-items:center;gap:12px">' +
-        '<button class="save-app-btn" onclick="saveServicingFields()">Save Servicing Details</button>' +
-        '<span id="servicingStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
-}
-function saveServicingFields() {
-  if (!_loan || !_client) return;
-  var keys = ['servicer','servicerLoanNumber','maturityDate','paymentAmount','upb','payoffAmount','payoffDate','investorName','soldRate','soldDate'];
-  var fields = {};
-  keys.forEach(function (k) { fields[k] = (document.getElementById('sv-' + k) || {}).value || ''; });
-  var body = { clientId: _client.id, loanId: _loanId, fields: fields };
-  var owner = _closingOwner(); if (owner) body.owner = owner;
-  var btn = document.querySelector('#servicingSection .save-app-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  SLA.api('POST', '/api/loan-servicing-update', body).then(function (r) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Servicing Details'; }
-    if (r && r.fields) { keys.forEach(function (k) { if (r.fields[k] != null) _loan[k] = r.fields[k]; }); }
-    var s = document.getElementById('servicingStatus');
-    if (s) { s.style.display = 'inline'; setTimeout(function () { s.style.display = 'none'; }, 2500); }
-    showToast('Servicing details saved');
-  }).catch(function (err) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Servicing Details'; }
-    showToast('Servicing save failed: ' + (err && err.message || 'unknown error'));
   });
 }
 
