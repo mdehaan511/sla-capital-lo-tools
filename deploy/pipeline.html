@@ -109,7 +109,9 @@
     /* Kanban */
     .board {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      /* Deploy 236.608 — 4 columns now (the "In Processing" column moved to the
+         Processing pipeline in 236.605); fill the full width evenly. */
+      grid-template-columns: repeat(4, 1fr);
       gap: 14px;
       align-items: start;
     }
@@ -371,7 +373,7 @@
        kanban. Shown ONLY on cold loads (no cache) — cached-first
        paint from Deploy 236.207 replaces this within the same tick.
        Pulse animation keeps it clear the page hasn't hung. */
-    .skeleton-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; padding: 8px 0; }
+    .skeleton-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 8px 0; }
     .skeleton-col { display: flex; flex-direction: column; gap: 10px; }
     .skeleton-col-head { height: 32px; background: linear-gradient(90deg, #eae5da 0%, #f2eee5 50%, #eae5da 100%); background-size: 200% 100%; border-radius: 6px; animation: sla-skel-pulse 1.4s ease-in-out infinite; }
     .skeleton-card { height: 92px; background: linear-gradient(90deg, #eae5da 0%, #f2eee5 50%, #eae5da 100%); background-size: 200% 100%; border-radius: 10px; animation: sla-skel-pulse 1.4s ease-in-out infinite; }

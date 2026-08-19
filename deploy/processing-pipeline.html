@@ -66,17 +66,21 @@
     .pp-view-tab { background: none; border: 1px solid var(--border); color: var(--muted); padding: 6px 16px; border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; }
     .pp-view-tab:hover { border-color: var(--gold); color: var(--gold); }
     .pp-view-tab.active { background: var(--dark); border-color: var(--dark); color: #fff; }
-    .col[data-col^="cl_"] .col-head { border-color: var(--col-closed); } .col[data-col^="cl_"] .col-head h3 { color: var(--col-closed); }
+    .col[data-col^="cl_"] .col-head { background: var(--col-closed-bg); } .col[data-col^="cl_"] .col-head h3 { color: var(--col-closed); }
 
     .col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; min-height: 50vh; }
-    .col-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 2px solid; }
+    /* Deploy 236.608 — match the Leads board: soft-fill rounded header band
+       (per-column tint below) instead of a bare colored bottom-border. The
+       negative margins break the head out of the .col's 14px padding so the
+       fill spans the full column width with rounded top corners, like Leads. */
+    .col-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -14px -14px 12px -14px; padding: 14px 16px; border-bottom: 1px solid var(--border); border-radius: var(--r) var(--r) 0 0; background: var(--surface); }
     .col-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
     .col-head .cnt { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,0.05); color: var(--muted); }
-    .col[data-col="new_loan"]    .col-head { border-color: var(--col-new); }        .col[data-col="new_loan"]    .col-head h3 { color: var(--col-new); }
-    .col[data-col="processing"]  .col-head { border-color: var(--col-processing); } .col[data-col="processing"]  .col-head h3 { color: var(--col-processing); }
-    .col[data-col="underwriting"].col-head { border-color: var(--col-uw); }         .col[data-col="underwriting"].col-head h3 { color: var(--col-uw); }
-    .col[data-col="pp_approved"] .col-head { border-color: var(--col-approved); }   .col[data-col="pp_approved"] .col-head h3 { color: var(--col-approved); }
-    .col[data-col="pp_closed"]   .col-head { border-color: var(--col-closed); }     .col[data-col="pp_closed"]   .col-head h3 { color: var(--col-closed); }
+    .col[data-col="new_loan"]    .col-head { background: var(--col-new-bg); }        .col[data-col="new_loan"]    .col-head h3 { color: var(--col-new); }
+    .col[data-col="processing"]  .col-head { background: var(--col-processing-bg); } .col[data-col="processing"]  .col-head h3 { color: var(--col-processing); }
+    .col[data-col="underwriting"].col-head { background: var(--col-uw-bg); }         .col[data-col="underwriting"].col-head h3 { color: var(--col-uw); }
+    .col[data-col="pp_approved"] .col-head { background: var(--col-approved-bg); }   .col[data-col="pp_approved"] .col-head h3 { color: var(--col-approved); }
+    .col[data-col="pp_closed"]   .col-head { background: var(--col-closed-bg); }     .col[data-col="pp_closed"]   .col-head h3 { color: var(--col-closed); }
 
     .cards { display: flex; flex-direction: column; gap: 10px; min-height: 40px; }
     /* Deploy 236.100 — card is now a div (not <a>) so HTML5 drag/drop
