@@ -149,13 +149,13 @@
 
   <div class="svc-bg" id="svcBg">
     <div class="svc-modal">
-      <h3>Servicing details</h3>
+      <h3 id="svcTitle">Servicing details</h3>
       <p class="svc-sub" id="svcSub"></p>
       <div class="svc-grid" id="svcGrid"></div>
       <div class="svc-actions">
         <div class="svc-status" id="svcStatus"></div>
         <button type="button" class="svc-btn" onclick="closeServicingEditor()">Cancel</button>
-        <button type="button" class="svc-btn primary" id="svcSaveBtn" onclick="saveServicing()">Save</button>
+        <button type="button" class="svc-btn primary" id="svcSaveBtn" onclick="svcSave()">Save</button>
       </div>
     </div>
   </div>
@@ -400,22 +400,39 @@ var SVC_FIELDS = [
   { k:'soldDate',           label:'Sold Date',         type:'date' }
 ];
 var _svcTarget = null;
+var _svcMode = 'edit';     // 'edit' (✎ full editor) | 'disp' (disposition-change confirm)
+var _dispPending = null;   // { it, newDisp } while confirming a disposition move
+// Deploy 236.617 — the fields worth confirming per disposition; the modal flags any
+// that are still empty and encourages filling them.
+var DISP_FIELDS = {
+  servicing:    ['servicerName','servicerLoanNumber','maturityDate','paymentAmount','upb'],
+  pending_sale: ['investorName','maturityDate','upb'],
+  sold:         ['investorName','soldRate','soldDate'],
+  paid_off:     ['payoffAmount','payoffDate']
+};
+function _svcFieldMeta(k){ for (var i=0;i<SVC_FIELDS.length;i++){ if (SVC_FIELDS[i].k===k) return SVC_FIELDS[i]; } return { k:k, label:k, type:'text' }; }
 function openServicingEditor(clientId, loanId, ownerKey){
   var it=null;
   for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
   if (!it) return;
-  _svcTarget = it;
+  _svcTarget = it; _svcMode = 'edit'; _dispPending = null;
   var l = it.loan;
+  document.getElementById('svcTitle').textContent = 'Servicing details';
   document.getElementById('svcSub').textContent = (l.address||'') + '  ·  ' + clientName(it.client);
   var st = document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
   document.getElementById('svcGrid').innerHTML = SVC_FIELDS.map(function(f){
     var v = l[f.k]!=null ? String(l[f.k]) : '';
     return '<div class="svc-fld"><label>'+escH(f.label)+'</label><input type="'+(f.type==='date'?'date':'text')+'" id="svc_'+f.k+'" value="'+escAttr(v)+'" /></div>';
   }).join('');
-  document.getElementById('svcSaveBtn').disabled=false;
+  var sb = document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save';
   document.getElementById('svcBg').classList.add('show');
 }
-function closeServicingEditor(){ document.getElementById('svcBg').classList.remove('show'); _svcTarget=null; }
+function closeServicingEditor(){
+  document.getElementById('svcBg').classList.remove('show');
+  var wasDisp = (_svcMode === 'disp');
+  _svcTarget=null; _dispPending=null; _svcMode='edit';
+  if (wasDisp) render(); // cancel: restore the picker to the loan's actual disposition (harmless after a save)
+}
 function saveServicing(){
   if (!_svcTarget) return;
   var it=_svcTarget, fields={};
@@ -429,14 +446,47 @@ function saveServicing(){
     setTimeout(closeServicingEditor, 500);
   }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
 }
+// Deploy 236.617 — changing the disposition opens a confirm modal that surfaces the
+// fields relevant to that status (flagging any still-missing) and saves the
+// disposition + those fields together.
 function setDisposition(sel, clientId, loanId, ownerKey){
-  var v = sel.value;
-  sel.disabled = true;
-  SLA.api('POST','/api/loan-set-disposition', { clientId: clientId, loanId: loanId, owner: ownerKey, disposition: v }).then(function(){
-    for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ _closed[i].loan.disposition = v; break; } }
-    _openAcc[v] = true; // reveal the destination bucket so the move is visible
-    render();
-  }).catch(function(e){ alert('Could not update disposition: ' + ((e && e.message) || 'error')); sel.disabled = false; });
+  var it=null;
+  for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
+  if (!it) return;
+  openDispConfirm(it, sel.value);
+}
+function openDispConfirm(it, newDisp){
+  _svcMode='disp'; _dispPending={ it: it, newDisp: newDisp }; _svcTarget=it;
+  var l=it.loan;
+  document.getElementById('svcTitle').textContent = 'Move to ' + DISP_LABEL[newDisp];
+  document.getElementById('svcSub').textContent = (l.address||'') + '  ·  ' + clientName(it.client) + ' — confirm the details for this status.';
+  var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
+  var flds = DISP_FIELDS[newDisp] || [];
+  document.getElementById('svcGrid').innerHTML = flds.length ? flds.map(function(k){
+    var f=_svcFieldMeta(k), val=(l[k]!=null?String(l[k]):''), missing=!val;
+    return '<div class="svc-fld"><label>'+escH(f.label)+(missing?' <span style="color:var(--warn);font-weight:700">• add</span>':'')+'</label>'+
+      '<input type="'+(f.type==='date'?'date':'text')+'" id="svc_'+k+'" value="'+escAttr(val)+'"'+(missing?' style="border-color:var(--warn)"':'')+' /></div>';
+  }).join('') : '<div class="cl-ph" style="grid-column:1/-1">No extra details needed for this status.</div>';
+  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save & move';
+  document.getElementById('svcBg').classList.add('show');
+}
+function svcSave(){ if (_svcMode==='disp') confirmDisposition(); else saveServicing(); }
+function confirmDisposition(){
+  if (!_dispPending) return;
+  var it=_dispPending.it, newDisp=_dispPending.newDisp;
+  var flds=DISP_FIELDS[newDisp]||[], fields={};
+  flds.forEach(function(k){ var el=document.getElementById('svc_'+k); if (el) fields[k]=el.value; });
+  var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
+  btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
+  var pDisp = SLA.api('POST','/api/loan-set-disposition', { clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, disposition:newDisp });
+  var pFields = Object.keys(fields).length ? SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, fields:fields }) : Promise.resolve(null);
+  Promise.all([pDisp, pFields]).then(function(){
+    it.loan.disposition = newDisp;
+    Object.keys(fields).forEach(function(k){ it.loan[k]=fields[k]; });
+    _openAcc[newDisp]=true;
+    st.className='svc-status ok'; st.textContent='Saved';
+    render(); setTimeout(closeServicingEditor, 500);
+  }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
 }
 
 // TAB: Servicing — Servicing + Pending Sale + Sold(RTL only). Extra cols: Servicer, Servicer Loan #.
