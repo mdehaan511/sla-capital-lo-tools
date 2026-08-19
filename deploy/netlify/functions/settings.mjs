@@ -46,7 +46,7 @@ const ALLOWED_KEYS = new Set([
 // and Loan Details (both read /api/settings.processing_substatuses). Merged
 // (union, defaults first) with any admin-saved lists on GET — the standard set
 // always shows AND admin additions are preserved. Column keys stay the internal
-// ones (new_loan = "Lead" in the UI). pp_closed's post-close substatuses become
+// ones (new_loan = "Intake" in the UI). pp_closed's post-close substatuses become
 // their own board columns later; kept here as an interim picker.
 const DEFAULT_SUBSTATUSES = {
   new_loan:     ['New Prequal App', 'New Full Application', 'Application Sent for Borrower Verification', 'Kick Off Email Sent', 'Borrower Screening', 'Term Sheet / LOI Signed'],

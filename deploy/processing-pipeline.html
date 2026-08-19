@@ -627,10 +627,10 @@ function render() {
     // Closing a loan is done by dragging it onto the "Closed" zone in the drag
     // drop-bar (which moves it to the Closed Pipeline). "On Hold" lives there too.
     cols = [
-      { key: 'new_loan',     label: 'Lead' },
+      { key: 'new_loan',     label: 'Intake' },
       { key: 'processing',   label: 'Processing' },
       { key: 'underwriting', label: 'Underwriting' },
-      { key: 'pp_approved',  label: 'Approved' },
+      { key: 'pp_approved',  label: 'Cleared to Close' },
     ];
     source = _items;
   }
@@ -663,7 +663,7 @@ function render() {
 }
 
 // ── Deploy 236.562 — Team Overview (processing manager dashboard) ──
-var _OV_STG = [['new_loan','Lead'],['processing','Processing'],['underwriting','Underwriting'],['pp_approved','Approved'],['pp_closed','Closed']];
+var _OV_STG = [['new_loan','Intake'],['processing','Processing'],['underwriting','Underwriting'],['pp_approved','Cleared to Close'],['pp_closed','Closed']];
 function _ovDaysInStage(loan) {
   var t = loan.processingStageAt || loan.updatedAt;
   if (!t) return null;
@@ -679,7 +679,7 @@ function _ovRow(x, kind, val) {
   var loan = x.it.loan, client = x.it.client;
   var name = ((client.firstName || '') + ' ' + (client.lastName || '')).trim() || client.email || '(unknown)';
   var addr = loan.address || '(no address)';
-  var STGL = { new_loan:'Lead', processing:'Processing', underwriting:'Underwriting', pp_approved:'Approved', pp_closed:'Closed' };
+  var STGL = { new_loan:'Intake', processing:'Processing', underwriting:'Underwriting', pp_approved:'Cleared to Close', pp_closed:'Closed' };
   var ap = loan.assignedProcessor;
   var who = (ap && (ap.name || ap.email)) ? escH(ap.name || ap.email) : '<span style="color:var(--gold-mid)">Unassigned</span>';
   var right;
@@ -921,10 +921,10 @@ function openLoanDetails(card, href) {
 // confirm prompt below.
 var STAGE_ORDER = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 var STAGE_LABEL = {
-  'new_loan':     'Lead',
+  'new_loan':     'Intake',
   'processing':   'Processing',
   'underwriting': 'Underwriting',
-  'pp_approved':  'Approved',
+  'pp_approved':  'Cleared to Close',
   'pp_closed':    'Closed',
 };
 
@@ -1381,10 +1381,10 @@ function moveLoanSubstatus(sel) {
 
 // ── Substatus editor (admin only) ─────────────────────────────────
 var SS_COL_LABELS = {
-  'new_loan':     'Lead',
+  'new_loan':     'Intake',
   'processing':   'Processing',
   'underwriting': 'Underwriting',
-  'pp_approved':  'Approved',
+  'pp_approved':  'Cleared to Close',
   'pp_closed':    'Closed',
 };
 function openSubstatusEditor() {

@@ -72,10 +72,10 @@ function _fmtDays(n) {
 
 function _stageLabel(stage) {
   switch (stage) {
-    case 'new_loan':     return 'Lead';
+    case 'new_loan':     return 'Intake';
     case 'processing':   return 'Processing';
     case 'underwriting': return 'Underwriting';
-    case 'pp_approved':  return 'Approved';
+    case 'pp_approved':  return 'Cleared to Close';
     case 'pp_closed':    return 'Closed';
     default:             return 'Processing';
   }

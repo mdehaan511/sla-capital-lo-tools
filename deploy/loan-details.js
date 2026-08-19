@@ -479,10 +479,10 @@ function _renderLoanNotLocatedScreen(clientId, loanId, ownerHref, diag) {
 // Returns { lbl, val, title } for rendering, or null when the loan
 // isn't tracked in any pipeline column.
 var _LD_STAGE_LABELS = {
-  'new_loan':     'New Loan',
+  'new_loan':     'Intake',
   'processing':   'Processing',
   'underwriting': 'Underwriting',
-  'pp_approved':  'Approved',
+  'pp_approved':  'Cleared to Close',
   'pp_closed':    'Closed',
 };
 function _pipelineBadgeContent(loan, pipelineColFallback) {
@@ -8524,10 +8524,10 @@ document.addEventListener('keydown', function(e) {
 // ════════════════════════════════════════════════════════════════════
 var PP_STAGE_LABELS = {
   '':              '(none)',
-  'new_loan':      'New Loan',
+  'new_loan':      'Intake',
   'processing':    'Processing',
   'underwriting':  'Underwriting',
-  'pp_approved':   'Approved',
+  'pp_approved':   'Cleared to Close',
   'pp_closed':     'Closed',
 };
 var PP_STAGE_ORDER = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
