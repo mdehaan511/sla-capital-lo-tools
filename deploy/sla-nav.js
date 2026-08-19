@@ -40,12 +40,13 @@
     // guards below.
     {
       // Deploy 236.558 — opened to the PROCESSOR role for the processing-team
-      // rollout. hasRole('processor') includes admins/super_admins, so admins
-      // still see it. Page guards changed to _isStaff to match.
+      // rollout. Deploy 236.607 — the Processing menu + its Pipeline link are
+      // now visible to LOs too: LOs get a READ-ONLY, own-loan view of where
+      // their deals sit in processing (the page renders read-only for non-staff).
+      // Tasks stays processor-only — that's the processor work queue.
       label: 'Processing',
-      requires: 'processor',
       children: [
-        { label: 'Pipeline', href: '/processing-pipeline.html', requires: 'processor' },
+        { label: 'Pipeline', href: '/processing-pipeline.html' },
         { label: 'Tasks',    href: '/tasks.html',               requires: 'processor' },
       ],
     },

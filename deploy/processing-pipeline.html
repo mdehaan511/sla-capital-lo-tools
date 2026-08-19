@@ -261,6 +261,7 @@ var _isAdmin = false;
 // both). Use `_isStaff` for scope decisions and `_isAdmin` only for
 // admin-exclusive UI (settings gears, admin-only buttons).
 var _isStaff = false;
+var _canEdit = false; // Deploy 236.607 — true for processors/admins (full edit); false for LOs (read-only own-loan view).
 var _items = { new_loan: [], processing: [], underwriting: [], pp_approved: [], pp_closed: [] };
 var _loDisplayMap = {}; // ownerKey -> display name
 var _loFilterValue = '';
@@ -314,11 +315,25 @@ window.netlifyIdentity.on('init', function(user) {
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
   _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
   // Deploy 236.558 — opened to the PROCESSOR role (admin OR processor =
-  // _isStaff) for the processing-team rollout. Was admin-only (236.275).
-  // Settings gears (⚙ Substatuses / Task Templates) stay admin-only below.
-  if (!_isStaff) { window.location.replace('/'); return; }
+  // _isStaff). Settings gears (⚙ Substatuses / Task Templates) stay admin-only.
+  // Deploy 236.607 — now ALSO open to Loan Officers, but READ-ONLY. _canEdit
+  // gates every mutating control (drag-to-move-stage, substatus pill, close
+  // date, assign-processor). LOs load own-scoped (listOpts below) so they see
+  // only their own loans and exactly where each sits in processing. Borrowers
+  // are bounced by sla-nav.js's borrower redirect before reaching this page.
+  _canEdit = _isStaff;
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
+  if (!_canEdit) {
+    var _h1ro = document.querySelector('h1');
+    if (_h1ro && !document.getElementById('roNote')) {
+      var _roN = document.createElement('div');
+      _roN.id = 'roNote';
+      _roN.textContent = 'Read-only view — your loans and where they sit in processing. Your processor manages stage changes.';
+      _roN.style.cssText = 'font-size:12px;color:var(--muted);margin-top:4px;font-weight:500';
+      _h1ro.parentNode.insertBefore(_roN, _h1ro.nextSibling);
+    }
+  }
   // LO filter is useful for both admins and processors — both work
   // across every LO's pipeline. Settings gears remain admin-only.
   if (_isStaff) {
@@ -788,10 +803,12 @@ function renderCard(it) {
   var substatus = loan.processingSubstatus || loan.baselineSubstatus || '';
   var subs = (_substatuses[col] || []);
   var substatusHtml;
-  if (subs.length > 0) {
+  if (_canEdit && subs.length > 0) {
     // Deploy 236.204 — if the loan's substatus isn't already in the
     // configured picker list, prepend it so the <select> shows the
     // actual value instead of falling back to the placeholder.
+    // Deploy 236.607 — LOs (read-only) never get the <select>; they fall
+    // through to the static substatus text below.
     // Distinguishes real off-list values from missing data.
     var subsWithCurrent = subs.slice();
     if (substatus && subsWithCurrent.indexOf(substatus) < 0) {
@@ -836,17 +853,20 @@ function renderCard(it) {
   // renders the same input (just blank) so the click target is
   // always present and consistent.
   var closeCls = isPastDue ? ' past' : (isClosingSn ? ' soon' : '');
-  var closeInput =
-    '<input type="date" class="card-close-input' + closeCls + '"' +
-      ' value="' + escAttr(closeDate) + '"' +
-      ' data-client-id="' + escAttr(client.id) + '"' +
-      ' data-loan-id="'   + escAttr(loan.id)   + '"' +
-      ' data-owner="'     + escAttr(it.ownerKey) + '"' +
-      ' data-current="'   + escAttr(closeDate) + '"' +
-      ' title="Click to edit close date"' +
-      ' onclick="event.stopPropagation()"' +
-      ' onmousedown="event.stopPropagation()"' +
-      ' onchange="editCloseDate(this)" />';
+  // Deploy 236.607 — editable date input for processors/admins; static text
+  // (formatted close date) for LOs in the read-only view.
+  var closeInput = _canEdit
+    ? '<input type="date" class="card-close-input' + closeCls + '"' +
+        ' value="' + escAttr(closeDate) + '"' +
+        ' data-client-id="' + escAttr(client.id) + '"' +
+        ' data-loan-id="'   + escAttr(loan.id)   + '"' +
+        ' data-owner="'     + escAttr(it.ownerKey) + '"' +
+        ' data-current="'   + escAttr(closeDate) + '"' +
+        ' title="Click to edit close date"' +
+        ' onclick="event.stopPropagation()"' +
+        ' onmousedown="event.stopPropagation()"' +
+        ' onchange="editCloseDate(this)" />'
+    : (closeStr ? '<span class="card-close-input' + closeCls + '" style="cursor:default">' + escH(closeStr) + '</span>' : '');
 
   var cardClass = isPastDue ? ' past-due' : (isClosingSn ? ' closing-soon' : '');
 
@@ -862,19 +882,18 @@ function renderCard(it) {
   // works without fighting native link-drag behavior. Click handler
   // navigates to loan-details unless we just finished dragging.
   return (
-    '<div class="card' + cardClass + '"' +
-      ' draggable="true"' +
+    '<div class="card' + cardClass + (_canEdit ? '' : ' read-only') + '"' +
+      (_canEdit ? ' draggable="true"' : '') +
       ' data-loan-key="' + escAttr(client.id + '|' + loan.id + '|' + it.ownerKey) + '"' +
       ' data-stage="' + escAttr(col || '') + '"' +
-      ' ondragstart="onCardDragStart(event)"' +
-      ' ondragend="onCardDragEnd(event)"' +
+      (_canEdit ? ' ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)"' : '') +
       ' onclick="openLoanDetails(this, \'' + escAttr(href) + '\')">' +
       '<div class="card-addr">' + escH(addr) + '</div>' +
       substatusHtml +
       '<div class="card-amt">' + escH(amt) + '</div>' +
       '<div class="card-borrower">' + escH(name) + '</div>' +
       _fundingInvestorHtml(loan) +
-      _assigneeHtml(it) +
+      _assigneeHtml(it, _canEdit) +
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
         condBadge +
@@ -932,6 +951,7 @@ var _draggingLoanKey = null;
 var _draggingFromStage = null;
 
 function onCardDragStart(e) {
+  if (!_canEdit) return; // Deploy 236.607 — LOs can't move stages (defensive; cards aren't draggable for them).
   var card = e.target.closest && e.target.closest('.card');
   if (!card) return;
   _draggingLoanKey = card.dataset.loanKey || '';
@@ -1086,6 +1106,7 @@ function onColDragLeave(e) {
   if (!to || !col.contains(to)) col.classList.remove('drop-target');
 }
 function onColDrop(e) {
+  if (!_canEdit) return; // Deploy 236.607 — read-only LOs cannot drop/move loans.
   e.preventDefault();
   var col = e.target.closest && e.target.closest('.col');
   if (col) col.classList.remove('drop-target');
@@ -1287,9 +1308,17 @@ function loadProcessors() {
 // Deploy 236.563 — assignee is now a picker: choose any processor, or "— Assign
 // processor —" to unassign. Selecting yourself = claim. Reuses .card-substatus-sel
 // styling for a consistent pill-select look.
-function _assigneeHtml(it) {
+function _assigneeHtml(it, canEdit) {
   var ap = it.loan && it.loan.assignedProcessor;
   var cur = (ap && ap.email) ? String(ap.email).toLowerCase() : '';
+  // Deploy 236.607 — LO read-only view: show the assigned processor as static
+  // text (or nothing), never the picker.
+  if (canEdit === false) {
+    var _nm = (ap && (ap.name || ap.email)) ? (ap.name || ap.email) : '';
+    return _nm
+      ? '<div class="card-assignee-ro" style="margin-top:8px;font-size:11px;color:var(--muted)">\u{1F464} ' + escH(_nm) + '</div>'
+      : '';
+  }
   var cid = escAttr(it.client.id), lid = escAttr(it.loan.id), own = escAttr(it.ownerKey);
   var opts = '<option value="">— Assign processor —</option>';
   var found = false;
