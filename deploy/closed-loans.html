@@ -387,8 +387,9 @@ function dispCell(it){
 
 // ── Servicing-details editor (staff) ───────────────────────────────
 var SVC_FIELDS = [
-  { k:'servicer',           label:'Servicer',          type:'text' },
-  { k:'servicerLoanNumber', label:'Servicer Loan #',   type:'text' },
+  { k:'servicerName',       label:'Servicer',           type:'text' },
+  { k:'servicerLoanNumber', label:'Servicer Loan #',    type:'text' },
+  { k:'servicerUrl',        label:'Servicer Portal URL', type:'text' },
   { k:'maturityDate',       label:'Maturity Date',     type:'date' },
   { k:'paymentAmount',      label:'Payment Amount',    type:'text' },
   { k:'upb',                label:'Total UPB',         type:'text' },
@@ -441,7 +442,7 @@ function setDisposition(sel, clientId, loanId, ownerKey){
 // TAB: Servicing — Servicing + Pending Sale + Sold(RTL only). Extra cols: Servicer, Servicer Loan #.
 function renderServicing(items){
   var extraHead = '<th>Servicer</th><th>Servicer Loan #</th>';
-  function extraCells(l){ return '<td>'+(l.servicer?escH(l.servicer):'<span class="cl-ph">—</span>')+'</td>' +
+  function extraCells(l){ return '<td>'+(l.servicerName?escH(l.servicerName):'<span class="cl-ph">—</span>')+'</td>' +
     '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>'; }
   var sections = [
     { d:'servicing',    filter:function(it){ return dispositionOf(it.loan)==='servicing'; } },

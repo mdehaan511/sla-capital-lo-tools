@@ -17,9 +17,12 @@ import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 
 // Whitelist — only these loan fields may be set here.
+// Field names align with the existing 236.339 Servicing Info section on Loan
+// Details (servicerName / servicerUrl / maturityDate) so both surfaces + the
+// borrower /my-loans card read/write the same loan fields.
 const FIELDS = {
   maturityDate: 1, payoffAmount: 1, payoffDate: 1, paymentAmount: 1,
-  servicer: 1, servicerLoanNumber: 1, soldRate: 1, soldDate: 1,
+  servicerName: 1, servicerUrl: 1, servicerLoanNumber: 1, soldRate: 1, soldDate: 1,
   upb: 1, investorName: 1,
 };
 
