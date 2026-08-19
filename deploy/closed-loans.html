@@ -96,6 +96,24 @@
     .cl-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
     .sitewire-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; background: rgba(74,122,138,0.12); color: #35606f; margin-left: 6px; }
     .totbar { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    /* Deploy 236.612 — servicing-details editor */
+    .svc-edit { padding: 3px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--surface); cursor: pointer; color: var(--muted); margin-left: 6px; }
+    .svc-edit:hover { border-color: var(--gold); color: var(--gold); }
+    .svc-bg { position: fixed; inset: 0; background: rgba(38,26,54,0.55); display: none; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
+    .svc-bg.show { display: flex; }
+    .svc-modal { background: var(--surface); border-radius: var(--r); max-width: 620px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 1.75rem; }
+    .svc-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 4px; }
+    .svc-sub { font-size: 12px; color: var(--muted); margin-bottom: 1.25rem; }
+    .svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+    .svc-fld label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
+    .svc-fld input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); }
+    .svc-fld input:focus { outline: none; border-color: var(--gold); }
+    .svc-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.25rem; align-items: center; }
+    .svc-status { font-size: 12px; margin-right: auto; min-height: 16px; }
+    .svc-status.err { color: var(--danger); } .svc-status.ok { color: var(--success); }
+    .svc-btn { font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 18px; cursor: pointer; font-family: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+    .svc-btn.primary { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .svc-btn:disabled { opacity: 0.5; cursor: wait; }
   </style>
 </head>
 <body>
@@ -127,6 +145,19 @@
 
     <div class="totbar" id="totBar"></div>
     <div id="paneWrap"><div class="loading">Loading closed loans…</div></div>
+  </div>
+
+  <div class="svc-bg" id="svcBg">
+    <div class="svc-modal">
+      <h3>Servicing details</h3>
+      <p class="svc-sub" id="svcSub"></p>
+      <div class="svc-grid" id="svcGrid"></div>
+      <div class="svc-actions">
+        <div class="svc-status" id="svcStatus"></div>
+        <button type="button" class="svc-btn" onclick="closeServicingEditor()">Cancel</button>
+        <button type="button" class="svc-btn primary" id="svcSaveBtn" onclick="saveServicing()">Save</button>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -349,7 +380,53 @@ function dispOptions(cur){
 function dispCell(it){
   return '<td onclick="event.stopPropagation()"><select class="disp-sel" onchange="setDisposition(this,\''+
     escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">'+
-    dispOptions(dispositionOf(it.loan))+'</select></td>';
+    dispOptions(dispositionOf(it.loan))+'</select>' +
+    '<button type="button" class="svc-edit" title="Edit servicing details" onclick="openServicingEditor(\''+
+    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button></td>';
+}
+
+// ── Servicing-details editor (staff) ───────────────────────────────
+var SVC_FIELDS = [
+  { k:'servicer',           label:'Servicer',          type:'text' },
+  { k:'servicerLoanNumber', label:'Servicer Loan #',   type:'text' },
+  { k:'maturityDate',       label:'Maturity Date',     type:'date' },
+  { k:'paymentAmount',      label:'Payment Amount',    type:'text' },
+  { k:'upb',                label:'Total UPB',         type:'text' },
+  { k:'payoffAmount',       label:'Payoff Amount',     type:'text' },
+  { k:'payoffDate',         label:'Payoff Date',       type:'date' },
+  { k:'investorName',       label:'Investor',          type:'text' },
+  { k:'soldRate',           label:'Sold Rate / TPO',   type:'text' },
+  { k:'soldDate',           label:'Sold Date',         type:'date' }
+];
+var _svcTarget = null;
+function openServicingEditor(clientId, loanId, ownerKey){
+  var it=null;
+  for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
+  if (!it) return;
+  _svcTarget = it;
+  var l = it.loan;
+  document.getElementById('svcSub').textContent = (l.address||'') + '  ·  ' + clientName(it.client);
+  var st = document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
+  document.getElementById('svcGrid').innerHTML = SVC_FIELDS.map(function(f){
+    var v = l[f.k]!=null ? String(l[f.k]) : '';
+    return '<div class="svc-fld"><label>'+escH(f.label)+'</label><input type="'+(f.type==='date'?'date':'text')+'" id="svc_'+f.k+'" value="'+escAttr(v)+'" /></div>';
+  }).join('');
+  document.getElementById('svcSaveBtn').disabled=false;
+  document.getElementById('svcBg').classList.add('show');
+}
+function closeServicingEditor(){ document.getElementById('svcBg').classList.remove('show'); _svcTarget=null; }
+function saveServicing(){
+  if (!_svcTarget) return;
+  var it=_svcTarget, fields={};
+  SVC_FIELDS.forEach(function(f){ var el=document.getElementById('svc_'+f.k); if (el) fields[f.k]=el.value; });
+  var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
+  btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
+  SLA.api('POST','/api/loan-servicing-update',{ clientId: it.client.id, loanId: it.loan.id, owner: it.ownerKey, fields: fields }).then(function(){
+    SVC_FIELDS.forEach(function(f){ it.loan[f.k] = fields[f.k]; });
+    st.className='svc-status ok'; st.textContent='Saved';
+    render();
+    setTimeout(closeServicingEditor, 500);
+  }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
 }
 function setDisposition(sel, clientId, loanId, ownerKey){
   var v = sel.value;

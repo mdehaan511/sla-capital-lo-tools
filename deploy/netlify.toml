@@ -429,6 +429,13 @@
   status = 200
   force = true
 
+# Deploy 236.612 — servicing tracking: set a loan's servicing scalar fields.
+[[redirects]]
+  from = "/api/loan-servicing-update"
+  to = "/.netlify/functions/loan-servicing-update"
+  status = 200
+  force = true
+
 # Deploy 236.565 — processing-events notifications: per-processor actionable
 # alert feed for the notification bell (closing soon / aging / open conditions).
 [[redirects]]
