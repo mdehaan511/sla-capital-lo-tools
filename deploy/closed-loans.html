@@ -31,6 +31,14 @@
     #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
     #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
     .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
     .page { max-width: 100%; margin: 0 auto; padding-top: 1.25rem; }
     .page-header { margin-bottom: 1.25rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
     .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
@@ -74,6 +82,9 @@
     .cl-addr { font-weight: 600; }
     .cl-num { font-family: 'DM Mono', monospace; }
     .cl-ph { color: var(--muted); }
+    .disp-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-family: inherit; background: var(--surface); cursor: pointer; color: var(--text); }
+    .disp-sel:focus { outline: none; border-color: var(--gold); }
+    .disp-sel:disabled { opacity: 0.5; cursor: wait; }
     .cl-empty { padding: 26px 14px; text-align: center; color: var(--muted); font-size: 13px; }
     .tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; letter-spacing: 0.03em; }
     .tag.rtl { background: rgba(74,122,138,0.12); color: #35606f; }
@@ -317,17 +328,37 @@ function accordion(dispKey, items, headHtml, bodyHtml){
 }
 function toggleAcc(d){ _openAcc[d] = !_openAcc[d]; render(); }
 
-// TAB: All — 4 disposition accordions, servicing columns
+// TAB: All — 4 disposition accordions, servicing columns + a disposition picker
+// so staff can move a loan between buckets (writes loan.disposition).
 function renderAll(items){
   var order = ['servicing','pending_sale','sold','paid_off'];
   return order.map(function(d){
     var group = sortItems(items.filter(function(it){ return dispositionOf(it.loan)===d; }), 'all', svcVal);
     var body;
     if (!group.length) body = '<div class="cl-empty">No '+escH(DISP_LABEL[d].toLowerCase())+' loans.</div>';
-    else body = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('all','')+'</tr></thead><tbody>' +
-      group.map(function(it){ return svcRow(it,''); }).join('') + '</tbody></table></div>';
+    else body = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr>'+svcHeadCols('all','<th>Disposition</th>')+'</tr></thead><tbody>' +
+      group.map(function(it){ return svcRow(it, dispCell(it)); }).join('') + '</tbody></table></div>';
     return accordion(d, group, '', body);
   }).join('');
+}
+function dispOptions(cur){
+  return ['servicing','pending_sale','sold','paid_off'].map(function(d){
+    return '<option value="'+d+'"'+(d===cur?' selected':'')+'>'+escH(DISP_LABEL[d])+'</option>';
+  }).join('');
+}
+function dispCell(it){
+  return '<td onclick="event.stopPropagation()"><select class="disp-sel" onchange="setDisposition(this,\''+
+    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">'+
+    dispOptions(dispositionOf(it.loan))+'</select></td>';
+}
+function setDisposition(sel, clientId, loanId, ownerKey){
+  var v = sel.value;
+  sel.disabled = true;
+  SLA.api('POST','/api/loan-set-disposition', { clientId: clientId, loanId: loanId, owner: ownerKey, disposition: v }).then(function(){
+    for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ _closed[i].loan.disposition = v; break; } }
+    _openAcc[v] = true; // reveal the destination bucket so the move is visible
+    render();
+  }).catch(function(e){ alert('Could not update disposition: ' + ((e && e.message) || 'error')); sel.disabled = false; });
 }
 
 // TAB: Servicing — Servicing + Pending Sale + Sold(RTL only). Extra cols: Servicer, Servicer Loan #.

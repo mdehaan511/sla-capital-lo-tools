@@ -422,6 +422,13 @@
   status = 200
   force = true
 
+# Deploy 236.611 — servicing tracking: set a closed loan's disposition.
+[[redirects]]
+  from = "/api/loan-set-disposition"
+  to = "/.netlify/functions/loan-set-disposition"
+  status = 200
+  force = true
+
 # Deploy 236.565 — processing-events notifications: per-processor actionable
 # alert feed for the notification bell (closing soon / aging / open conditions).
 [[redirects]]
