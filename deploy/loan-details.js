@@ -1844,12 +1844,18 @@ function render() {
     || _lstat === 'in_servicing' || _lstat === 'servicing' || _lstat === 'liquidated';
   var _hasServicing = !!(l.maturityDate || l.servicerName || l.servicerUrl);
   if (_isServicingStage || _hasServicing) {
+    // Deploy 236.619 — Loan Amount + Loan Close Date shown read-only at the top of
+    // the Servicing tab (reference facts; the canonical fields live on the Loan tab).
+    var _svcAmt = fmtM(l.finalLoanAmount || l.loanAmt);
+    var _svcClose = (function(){ var d = String(l.fundingDate || ''); var m = d.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (parseInt(m[2],10) + '/' + parseInt(m[3],10) + '/' + m[1]) : (d || '—'); })();
     html +=
     '<div class="section" id="servicingSection">' +
       '<div class="section-head"><h2>Servicing Info</h2><span class="section-tag tag-editable">Editable</span></div>' +
       '<div class="section-body">' +
         '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Shown to the borrower on their /my-loans page after close. The Servicer button links out to whatever URL you paste here (e.g. their servicer\'s login page).</div>' +
         '<div class="app-grid">' +
+          '<div class="field"><label>Loan Amount</label><input type="text" value="' + escAttr(_svcAmt) + '" disabled /></div>' +
+          '<div class="field"><label>Loan Close Date</label><input type="text" value="' + escAttr(_svcClose) + '" disabled /></div>' +
           '<div class="field"><label>Maturity Date</label>' +
             '<input type="date" id="sv-maturityDate" value="' + escAttr(l.maturityDate || '') + '" />' +
           '</div>' +
