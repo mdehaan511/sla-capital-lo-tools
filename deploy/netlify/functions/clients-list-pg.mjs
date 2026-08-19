@@ -105,6 +105,11 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // count was dropped from the summary projection).
   'assignedProcessor', 'fundingSource', 'fundingSourceOther', 'investorName',
   'openConditions', 'totalConditions',
+  // Deploy 236.616 — servicing-tracking fields (Closed Loans page); all ride in
+  // extra. Without these the PG summary dropped disposition + the servicing
+  // scalars, so edits reverted on the next list fetch.
+  'disposition', 'servicerLoanNumber', 'paymentAmount', 'upb',
+  'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
 ];
 
 function _loanRowToApi(l, summary) {

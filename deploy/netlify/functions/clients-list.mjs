@@ -193,6 +193,11 @@ const LOAN_SUMMARY_FIELDS = [
   'brokerEmail', 'brokerPhone', 'brokerFee', '_isBrokerLoan',
   'fromApplication', 'prospectId', 'fundingDate', 'maturityDate',
   'servicerName', 'servicerUrl',
+  // Deploy 236.616 — servicing-tracking fields for the Closed Loans page. Without
+  // these the summary dropped disposition + the servicing scalars on every list
+  // fetch, so edits looked like they didn't save (they reverted on reload).
+  'disposition', 'servicerLoanNumber', 'paymentAmount', 'upb',
+  'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
   // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with
