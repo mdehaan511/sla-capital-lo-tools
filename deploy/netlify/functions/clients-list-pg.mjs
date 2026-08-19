@@ -110,6 +110,9 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // scalars, so edits reverted on the next list fetch.
   'disposition', 'servicerLoanNumber', 'paymentAmount', 'upb',
   'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
+  // Deploy 236.622 — collateral tracking fields (all ride in extra).
+  'signedOriginalsDate', 'signedOriginalsLocation', 'recordedDotDate',
+  'recordedDotLocation', 'titlePolicyDate', 'titlePolicyLocation',
 ];
 
 function _loanRowToApi(l, summary) {

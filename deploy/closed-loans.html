@@ -141,6 +141,7 @@
       <button type="button" class="cl-tab"        data-tab="draws"     onclick="setTab('draws')">Draws</button>
       <button type="button" class="cl-tab"        data-tab="sold"      onclick="setTab('sold')">Sold</button>
       <button type="button" class="cl-tab"        data-tab="payoff"    onclick="setTab('payoff')">Payoff</button>
+      <button type="button" class="cl-tab"        data-tab="collateral" onclick="setTab('collateral')">Collateral</button>
     </div>
 
     <div class="totbar" id="totBar"></div>
@@ -169,7 +170,7 @@ var _tab = 'all';
 var _openAcc = { servicing: true, pending_sale: true, sold: false, paid_off: false };
 var _openDraws = {};         // loanKey -> bool
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
-var _sort = { all: {k:'funded',d:-1}, servicing: {k:'funded',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1} };
+var _sort = { all: {k:'funded',d:-1}, servicing: {k:'funded',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1}, collateral:{k:'status',d:1} };
 
 // ── Helpers ────────────────────────────────────────────────────────
 function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -304,6 +305,7 @@ function render(){
   else if (_tab==='draws')     wrap.innerHTML = renderDraws(items);
   else if (_tab==='sold')      wrap.innerHTML = renderSold(items);
   else if (_tab==='payoff')    wrap.innerHTML = renderPayoff(items);
+  else if (_tab==='collateral') wrap.innerHTML = renderCollateral(items);
 }
 function countDisp(items, d){ return items.filter(function(it){ return dispositionOf(it.loan)===d; }).length; }
 
@@ -485,6 +487,7 @@ function _investorSelect(id, cur, extraAttr){
 }
 function svcInputHtml(k, type, val, extraAttr){
   if (k === 'investorName') return _investorSelect('svc_'+k, val, extraAttr);
+  if (type === 'location') return _locationSelect('svc_'+k, val, extraAttr);
   return '<input type="'+(type==='date'?'date':'text')+'" id="svc_'+k+'" value="'+escAttr(val)+'"'+(extraAttr||'')+' />';
 }
 function openServicingEditor(clientId, loanId, ownerKey){
@@ -546,7 +549,7 @@ function openDispConfirm(it, newDisp){
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save & move';
   document.getElementById('svcBg').classList.add('show');
 }
-function svcSave(){ if (_svcMode==='disp') confirmDisposition(); else saveServicing(); }
+function svcSave(){ if (_svcMode==='disp') confirmDisposition(); else if (_svcMode==='collateral') saveCollateral(); else saveServicing(); }
 function confirmDisposition(){
   if (!_dispPending) return;
   var it=_dispPending.it, newDisp=_dispPending.newDisp;
@@ -661,6 +664,88 @@ function renderPayoff(items){
   var paid = sortItems(items.filter(function(it){ return dispositionOf(it.loan)==='paid_off'; }), 'payoff', payoffVal);
   if (!paid.length) return '<div class="cl-empty">No paid-off loans.</div>';
   return '<div class="acc" style="padding:0">' + _dispBody(paid, 'paid_off', false) + '</div>';
+}
+
+// ── TAB: Collateral — replicates the collateral Google Sheet (Deploy 236.622) ──
+// 3 fixed documents per loan (Signed Originals / Recorded DOT / Final Title Policy),
+// each a date + a location (custodian). Stored as scalar loan fields; edited via the
+// same servicing endpoint. Loans missing any of the three are flagged.
+var COLL_LOCATIONS = ['Westover']; // extend as custodians are added
+var COLL_FIELDS = [
+  { k:'signedOriginalsDate',     label:'Signed Originals',              type:'date' },
+  { k:'signedOriginalsLocation', label:'Signed Originals — Location',   type:'location' },
+  { k:'recordedDotDate',         label:'Recorded DOT',                  type:'date' },
+  { k:'recordedDotLocation',     label:'Recorded DOT — Location',       type:'location' },
+  { k:'titlePolicyDate',         label:'Final Title Policy',            type:'date' },
+  { k:'titlePolicyLocation',     label:'Final Title Policy — Location', type:'location' }
+];
+function _locationSelect(id, cur, extraAttr){
+  var opts='<option value="">— location —</option>';
+  var found=false;
+  COLL_LOCATIONS.forEach(function(nm){ var sel=(nm===cur)?' selected':''; if(sel) found=true; opts+='<option value="'+escAttr(nm)+'"'+sel+'>'+escH(nm)+'</option>'; });
+  if (cur && !found) opts='<option value="'+escAttr(cur)+'" selected>'+escH(cur)+'</option>'+opts;
+  return '<select id="'+id+'" '+(extraAttr||'')+'>'+opts+'</select>';
+}
+function _collComplete(l){ return !!(l.signedOriginalsDate && l.recordedDotDate && l.titlePolicyDate); }
+function collVal(it, k){
+  var l=it.loan;
+  if (k==='address') return l.address||'';
+  if (k==='status') return _collComplete(l) ? 1 : 0;
+  return '';
+}
+function renderCollateral(items){
+  var rows = sortItems(items.slice(), 'collateral', collVal);
+  if (!rows.length) return '<div class="cl-empty">No closed loans.</div>';
+  var note = '<div class="cl-note">Physical collateral per loan. Loans missing any of the three documents are flagged. Location is the custodian holding the original. Click ✎ to edit.</div>';
+  var head = '<tr>'+th('collateral','address','Property')+
+    '<th>Signed Originals</th><th>Location</th>'+
+    '<th>Recorded DOT</th><th>Location</th>'+
+    '<th>Final Title Policy</th><th>Location</th>'+
+    th('collateral','status','Status')+'<th></th></tr>';
+  var body = rows.map(function(it){
+    var l=it.loan;
+    function dc(dk){ return '<td class="cl-num">'+(l[dk]?escH(fmtDate(l[dk])):'<span class="cl-ph">—</span>')+'</td>'; }
+    function lc(lk){ return '<td>'+(l[lk]?escH(l[lk]):'<span class="cl-ph">—</span>')+'</td>'; }
+    var status = _collComplete(l)
+      ? '<span class="stpill" style="background:var(--d-servicing-bg);color:var(--d-servicing)">Complete</span>'
+      : '<span class="stpill" style="background:var(--d-pending-bg);color:var(--d-pending)">Missing</span>';
+    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+
+      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>'+
+      dc('signedOriginalsDate')+lc('signedOriginalsLocation')+
+      dc('recordedDotDate')+lc('recordedDotLocation')+
+      dc('titlePolicyDate')+lc('titlePolicyLocation')+
+      '<td>'+status+'</td>'+
+      '<td onclick="event.stopPropagation()"><button type="button" class="svc-edit" title="Edit collateral" onclick="openCollateralEditor(\''+escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button></td>'+
+    '</tr>';
+  }).join('');
+  return note + '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
+}
+function openCollateralEditor(clientId, loanId, ownerKey){
+  var it=null; for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
+  if (!it) return;
+  _svcTarget=it; _svcMode='collateral'; _dispPending=null;
+  var l=it.loan;
+  document.getElementById('svcTitle').textContent='Collateral';
+  document.getElementById('svcSub').textContent=(l.address||'')+'  ·  '+clientName(it.client);
+  var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
+  document.getElementById('svcGrid').innerHTML = COLL_FIELDS.map(function(f){
+    var v=l[f.k]!=null?String(l[f.k]):'';
+    return '<div class="svc-fld"><label>'+escH(f.label)+'</label>'+svcInputHtml(f.k, f.type, v)+'</div>';
+  }).join('');
+  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save';
+  document.getElementById('svcBg').classList.add('show');
+}
+function saveCollateral(){
+  if (!_svcTarget) return;
+  var it=_svcTarget, fields={};
+  COLL_FIELDS.forEach(function(f){ var el=document.getElementById('svc_'+f.k); if (el) fields[f.k]=el.value; });
+  var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
+  btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
+  SLA.api('POST','/api/loan-servicing-update',{ clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, fields:fields }).then(function(){
+    COLL_FIELDS.forEach(function(f){ it.loan[f.k]=fields[f.k]; });
+    st.className='svc-status ok'; st.textContent='Saved';
+    render(); setTimeout(closeServicingEditor, 500);
+  }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
 }
 </script>
 </body>

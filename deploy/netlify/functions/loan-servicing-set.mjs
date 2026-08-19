@@ -141,7 +141,10 @@ async function handle(req, context) {
   // Deploy 236.618 — additional servicing scalars (Loan Details Servicing tab +
   // Closed Loans page). Dates from the HTML date inputs are already YYYY-MM-DD;
   // the rest are trimmed strings. Any field omitted is left unchanged.
-  ['servicerLoanNumber', 'paymentAmount', 'upb', 'payoffAmount', 'payoffDate', 'investorName', 'soldRate', 'soldDate'].forEach((k) => {
+  ['servicerLoanNumber', 'paymentAmount', 'upb', 'payoffAmount', 'payoffDate', 'investorName', 'soldRate', 'soldDate',
+   // Deploy 236.622 — collateral tracking: 3 docs × date + location(custodian).
+   'signedOriginalsDate', 'signedOriginalsLocation', 'recordedDotDate', 'recordedDotLocation',
+   'titlePolicyDate', 'titlePolicyLocation'].forEach((k) => {
     if (body[k] != null) loan[k] = String(body[k]).trim();
   });
   loan.updatedAt = new Date().toISOString();
