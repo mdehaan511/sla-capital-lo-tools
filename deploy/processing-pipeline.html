@@ -96,6 +96,20 @@
     .card.past-due:hover { border-color: var(--danger); }
     /* Drop target highlight on the column the user is hovering. */
     .col.drop-target { background: rgba(200,129,58,0.06); border-color: var(--gold); box-shadow: inset 0 0 0 2px rgba(200,129,58,0.20); }
+    /* Deploy 236.609 — Closed Pipeline list view (replaces the 4-col kanban). */
+    .closed-list-count { font-size: 12px; color: var(--muted); margin: 2px 0 10px; }
+    .closed-list-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow-x: auto; }
+    .closed-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .closed-list th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 12px 14px; border-bottom: 2px solid var(--border); white-space: nowrap; cursor: pointer; -webkit-user-select: none; user-select: none; }
+    .closed-list th:hover { color: var(--col-processing); }
+    .closed-list th .sort-ar { font-size: 9px; margin-left: 4px; }
+    .closed-list td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+    .closed-list tbody tr { cursor: pointer; }
+    .closed-list tbody tr:hover { background: var(--col-new-bg); }
+    .closed-list .cl-addr { font-weight: 600; }
+    .closed-list .cl-amt { font-family: 'DM Mono', monospace; }
+    .closed-list .cl-pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; background: var(--col-closed-bg); color: var(--col-closed); }
+    .closed-list-empty { padding: 40px 14px; text-align: center; color: var(--muted); }
 
     .card-addr { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.35; margin-bottom: 8px; word-break: break-word; }
     /* Deploy 236.100 — substatus pill IS the picker. When the column
@@ -634,25 +648,21 @@ function render() {
     return;
   }
 
-  // Deploy 236.549 — pick the board by view. Closed loans (from the active
-  // board's pp_closed bucket) are re-bucketed into the 4 post-close columns.
-  var cols, source;
-  if (_view === 'closed') {
-    cols = CLOSED_COLS;
-    source = { cl_close_out: [], cl_investor: [], cl_boarding: [], cl_servicing: [] };
-    (_items.pp_closed || []).forEach(function(it) { source[closeColumnFor(it.loan)].push(it); });
-  } else {
-    // Deploy 236.572 — the active board is 4 columns; there is no Closed column.
-    // Closing a loan is done by dragging it onto the "Closed" zone in the drag
-    // drop-bar (which moves it to the Closed Pipeline). "On Hold" lives there too.
-    cols = [
-      { key: 'new_loan',     label: 'Intake' },
-      { key: 'processing',   label: 'Processing' },
-      { key: 'underwriting', label: 'Underwriting' },
-      { key: 'pp_approved',  label: 'Cleared to Close' },
-    ];
-    source = _items;
-  }
+  // Deploy 236.609 — the Closed Pipeline is now a LIST view (sortable table), not
+  // a kanban. renderClosedList reuses the same visible() filter (search + LO +
+  // My Loans). The active board below stays a 4-column kanban.
+  if (_view === 'closed') { renderClosedList(visible); return; }
+
+  // Deploy 236.572 — the active board is 4 columns; there is no Closed column.
+  // Closing a loan is done by dragging it onto the "Closed" zone in the drag
+  // drop-bar (which moves it to the Closed Pipeline). "On Hold" lives there too.
+  var cols = [
+    { key: 'new_loan',     label: 'Intake' },
+    { key: 'processing',   label: 'Processing' },
+    { key: 'underwriting', label: 'Underwriting' },
+    { key: 'pp_approved',  label: 'Cleared to Close' },
+  ];
+  var source = _items;
 
   // Deploy 236.100 — column gets drag/drop attributes so tiles can
   // be dropped anywhere inside (including the empty area below the
@@ -679,6 +689,95 @@ function render() {
   });
   html += '</div>';
   document.getElementById('boardWrap').innerHTML = html;
+}
+
+// ── Deploy 236.609 — Closed Pipeline LIST view ─────────────────────
+// One row per closed loan, current data, sortable columns, row -> Loan Details.
+// Step 1 of servicing tracking: the servicing columns (investor trade status,
+// maturity, payoff, draws, balance) slot in here as those loan fields + child
+// tables land (see project_servicing_tracking). Active board stays kanban.
+var _closedSort = { key: 'funded', dir: -1 };
+var _CLOSED_LIST_COLS = [
+  { key: 'address',     label: 'Property' },
+  { key: 'borrower',    label: 'Borrower' },
+  { key: 'type',        label: 'Type' },
+  { key: 'amount',      label: 'Amount', num: true },
+  { key: 'funded',      label: 'Funded' },
+  { key: 'investor',    label: 'Investor / Source' },
+  { key: 'servicing',   label: 'Servicing Status' },
+  { key: 'disposition', label: 'Disposition' },
+  { key: 'owner',       label: 'LO' },
+];
+function _closedDisposition(l) {
+  var bl = String(l.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+  if (bl === 'sold') return 'Sold';
+  if (bl === 'in servicing' || bl === 'servicing') return 'In Servicing';
+  if (bl === 'liquidated') return 'Liquidated';
+  if (bl === 'paid off') return 'Paid Off';
+  return 'Closed';
+}
+function _closedRow(it) {
+  var l = it.loan, c = it.client;
+  var tool = String(l.toolType || 'dscr').toLowerCase();
+  var inv = String(l.investorName || '').trim();
+  var src = inv || _FUND_SRC_LABELS[String(l.fundingSource || '')] ||
+            (String(l.fundingSource || '') === 'other' ? (String(l.fundingSourceOther || '').trim() || 'Other') : '');
+  return {
+    address: l.address || '(no address)',
+    borrower: ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email || '(unknown)',
+    type: tool === 'rtl' ? 'RTL' : (tool === 'guc' ? 'GUC' : 'DSCR'),
+    toolCls: tool,
+    amount: Number(l.finalLoanAmount || l.loanAmt || 0),
+    funded: l.fundingDate || '',
+    investor: src,
+    servicing: CLOSE_LABEL[closeColumnFor(l)] || 'Data Close Out',
+    disposition: _closedDisposition(l),
+    owner: _loDisplayMap[it.ownerKey] || it.ownerKey,
+    href: SLA.urls.loanDetails(l.id, { owner: it.ownerKey })
+  };
+}
+function renderClosedList(visible) {
+  var rows = (_items.pp_closed || []).filter(visible).map(_closedRow);
+  var sk = _closedSort.key, dir = _closedSort.dir;
+  var def = null;
+  for (var i = 0; i < _CLOSED_LIST_COLS.length; i++) { if (_CLOSED_LIST_COLS[i].key === sk) { def = _CLOSED_LIST_COLS[i]; break; } }
+  rows.sort(function(a, b) {
+    var r;
+    if (def && def.num) r = (a[sk] || 0) - (b[sk] || 0);
+    else r = String(a[sk] || '').toLowerCase().localeCompare(String(b[sk] || '').toLowerCase());
+    return r * dir;
+  });
+  var head = '<tr>' + _CLOSED_LIST_COLS.map(function(d) {
+    var ar = (d.key === sk) ? '<span class="sort-ar">' + (dir < 0 ? '▼' : '▲') + '</span>' : '';
+    return '<th onclick="sortClosed(\'' + d.key + '\')">' + escH(d.label) + ar + '</th>';
+  }).join('') + '</tr>';
+  var body;
+  if (!rows.length) {
+    var searching = (document.getElementById('searchBox').value || '').trim();
+    body = '<tr><td colspan="' + _CLOSED_LIST_COLS.length + '"><div class="closed-list-empty">No closed loans' + (searching ? ' match your search' : ' yet') + '.</div></td></tr>';
+  } else {
+    body = rows.map(function(r) {
+      return '<tr onclick="window.location.href=\'' + escAttr(r.href) + '\'">' +
+        '<td class="cl-addr">' + escH(r.address) + '</td>' +
+        '<td>' + escH(r.borrower) + '</td>' +
+        '<td><span class="tag ' + escAttr(r.toolCls) + '">' + escH(r.type) + '</span></td>' +
+        '<td class="cl-amt">' + escH(fmtMoney(r.amount)) + '</td>' +
+        '<td>' + (r.funded ? escH(fmtCloseDate(r.funded)) : '—') + '</td>' +
+        '<td>' + escH(r.investor || '—') + '</td>' +
+        '<td><span class="cl-pill">' + escH(r.servicing) + '</span></td>' +
+        '<td>' + escH(r.disposition) + '</td>' +
+        '<td>' + escH(r.owner || '—') + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+  document.getElementById('boardWrap').innerHTML =
+    '<div class="closed-list-count">' + rows.length + ' closed loan' + (rows.length === 1 ? '' : 's') + '</div>' +
+    '<div class="closed-list-wrap"><table class="closed-list"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+}
+function sortClosed(key) {
+  if (_closedSort.key === key) _closedSort.dir = -_closedSort.dir;
+  else { _closedSort.key = key; _closedSort.dir = (key === 'amount' || key === 'funded') ? -1 : 1; }
+  render();
 }
 
 // ── Deploy 236.562 — Team Overview (processing manager dashboard) ──
