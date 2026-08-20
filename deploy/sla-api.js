@@ -2016,6 +2016,14 @@
       if (opts.owner) body.owner = opts.owner;
       return api('POST', '/api/borrower2-auth-resend', body);
     },
+    // Deploy 236.629 — send a signing link to a guarantor added AFTER Borrower 1
+    // signed (no secondary block existed for them). Creates the block + emails.
+    sendCosignerLink: function (clientId, loanId, guarantorClientId, opts) {
+      opts = opts || {};
+      var body = { clientId: clientId, loanId: loanId, guarantorClientId: guarantorClientId };
+      if (opts.owner) body.owner = opts.owner;
+      return api('POST', '/api/borrower-cosigner-add', body);
+    },
   };
 
   // ── Brokers ─────────────────────────────────────────────────────

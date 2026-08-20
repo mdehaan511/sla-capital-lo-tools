@@ -2516,6 +2516,15 @@ function _renderEditGuarantorButton(clientId, isPrimary) {
        'title="Download this guarantor\'s full application as PDF (includes decrypted SSN and signed Credit Authorization if on file).">' +
       '<span class="bw-edit-icon">⬇</span> Download Application' +
     '</button>';
+  // Deploy 236.629 — Send Signing Link. For a guarantor added AFTER the primary
+  // borrower signed, no co-signer auth link was ever generated. This emails them
+  // one (creates the secondary signer block on the signed application). Non-primary
+  // only; the endpoint returns a clear message if Borrower 1 hasn't signed yet.
+  var sendLinkBtn = isPrimary ? '' :
+    '<button type="button" class="bw-edit-guarantor-btn" onclick="sendGuarantorSigningLink(\'' + escAttr(clientId) + '\', this)" ' +
+       'title="Email this guarantor a link to sign their own credit &amp; background authorization. Use this if they were added after the primary borrower signed.">' +
+      '<span class="bw-edit-icon">✉</span> Send Signing Link' +
+    '</button>';
   // Deploy 236.366 — Remove Guarantor. Non-primary only (removing
   // the primary would orphan the loan). Mike's original use case:
   // broker loans get a co-guarantor added by accident before ready.
@@ -2542,6 +2551,7 @@ function _renderEditGuarantorButton(clientId, isPrimary) {
       '</button>'
     : '';
   return '<div class="bw-pane-footer" style="gap:8px;flex-wrap:wrap">' +
+    sendLinkBtn +
     downloadBtn +
     '<a class="bw-edit-guarantor-btn" href="' + escAttr(href) + '" target="_blank" rel="noopener" ' +
        'title="Open this guarantor\'s Client Details page in a new tab. Changes there sync to every loan this client is tied to.">' +
@@ -8628,6 +8638,28 @@ function resendBorrower2Link() {
     btn.disabled = false;
     btn.textContent = originalText;
     showToast('Resend failed: ' + ((err && err.message) || 'unknown'));
+  });
+}
+
+// Deploy 236.629 — send a signing link to a guarantor added AFTER Borrower 1
+// signed. Called from the "Send Signing Link" button on a guarantor's tab. The
+// backend creates the co-signer block on the signed application + emails them.
+function sendGuarantorSigningLink(clientId, btn) {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  if (!confirm('Email this guarantor a link to sign their own credit & background authorization?')) return;
+  var original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  var opts = {};
+  if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
+  SLA.SignedApplication.sendCosignerLink(_client.id, _loanId, clientId, opts).then(function(resp) {
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    showToast(resp && resp.emailedAt
+      ? ('✓ Signing link sent to ' + (resp.email || 'the guarantor'))
+      : 'Link created, but email delivery may have failed — check the guarantor’s email address.');
+    refreshSignedApplicationStatus();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    showToast('Could not send: ' + ((err && err.message) || 'unknown'));
   });
 }
 

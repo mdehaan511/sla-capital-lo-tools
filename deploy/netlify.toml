@@ -900,6 +900,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/borrower-cosigner-add"
+  to = "/.netlify/functions/borrower-cosigner-add"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/borrower-info-status"
   to = "/.netlify/functions/borrower-info-status"
   status = 200
