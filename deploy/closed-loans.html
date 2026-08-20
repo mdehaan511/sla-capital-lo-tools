@@ -85,6 +85,9 @@
     .tr-pill { font-size: 11px; font-weight: 700; padding: 3px 13px; border-radius: 12px; border: 1px solid transparent; cursor: pointer; font-family: inherit; }
     .tr-pill.yes { background: var(--d-servicing-bg); color: var(--d-servicing); }
     .tr-pill.no  { background: var(--d-pending-bg);   color: var(--d-pending); }
+    /* Deploy 236.625 — required-field markers in the lifecycle modals. */
+    .req { color: var(--danger); font-weight: 700; }
+    .svc-hint { color: var(--muted); font-weight: 400; font-size: 10px; text-transform: none; letter-spacing: 0; }
 
     /* Tables */
     .cl-scroll { overflow-x: auto; }
@@ -604,6 +607,38 @@ var DISP_FIELDS = {
   sold:         ['investorName','soldRate','soldDate'],
   paid_off:     ['payoffAmount','payoffDate']
 };
+// Deploy 236.625 — REQUIRED-field gate. A lifecycle change that needs specific
+// info to route/record correctly must not proceed until that info is present.
+// The rest of DISP_FIELDS stay "• add" encouragements; only these BLOCK. Each
+// modal that collects input registers its required inputs in _svcRequired
+// (id + human label); the confirm handler calls _validateRequired() first and
+// refuses to submit while any are empty (also red-outlining the offenders).
+var _svcRequired = [];   // [{ id, label }] — the required inputs in the open modal
+var DISP_REQUIRED = {
+  pending_sale: ['investorName'],
+  sold:         ['investorName','soldDate'],
+  paid_off:     ['payoffAmount','payoffDate']
+};
+function _reqRegister(id, label){ _svcRequired.push({ id:id, label:label }); }
+function _validateRequired(){
+  var missing = [];
+  for (var i=0;i<_svcRequired.length;i++){
+    var r=_svcRequired[i], el=document.getElementById(r.id);
+    var v = el ? String(el.value==null?'':el.value).trim() : '';
+    if (!v){ missing.push(r); if (el) el.style.borderColor='var(--danger)'; }
+    else if (el){ el.style.borderColor=''; }
+  }
+  return missing;
+}
+// Returns true if OK to proceed; otherwise flags the missing fields in the status line.
+function _requireGate(){
+  var miss = _validateRequired();
+  if (!miss.length) return true;
+  var st=document.getElementById('svcStatus'); st.className='svc-status err';
+  st.textContent = 'Fill in the highlighted field' + (miss.length>1?'s':'') + ': ' + miss.map(function(m){ return m.label; }).join(', ');
+  var first=document.getElementById(miss[0].id); if (first && first.focus) first.focus();
+  return false;
+}
 function _svcFieldMeta(k){ for (var i=0;i<SVC_FIELDS.length;i++){ if (SVC_FIELDS[i].k===k) return SVC_FIELDS[i]; } return { k:k, label:k, type:'text' }; }
 // Deploy 236.620 — the Investor field renders as a dropdown of platform investors
 // (from SLA.Investors). A stored value not in the book is kept as a selected option.
@@ -637,8 +672,8 @@ function openServicingEditor(clientId, loanId, ownerKey){
 }
 function closeServicingEditor(){
   document.getElementById('svcBg').classList.remove('show');
-  var wasDisp = (_svcMode === 'disp');
-  _svcTarget=null; _dispPending=null; _svcMode='edit';
+  var wasDisp = (_svcMode === 'disp' || _svcMode === 'closeout' || _svcMode === 'marksold');
+  _svcTarget=null; _dispPending=null; _svcMode='edit'; _svcRequired=[];
   if (wasDisp) render(); // cancel: restore the picker to the loan's actual disposition (harmless after a save)
 }
 function saveServicing(){
@@ -664,16 +699,19 @@ function setDisposition(sel, clientId, loanId, ownerKey){
   openDispConfirm(it, sel.value);
 }
 function openDispConfirm(it, newDisp){
-  _svcMode='disp'; _dispPending={ it: it, newDisp: newDisp }; _svcTarget=it;
+  _svcMode='disp'; _dispPending={ it: it, newDisp: newDisp }; _svcTarget=it; _svcRequired=[];
   var l=it.loan;
+  var req = DISP_REQUIRED[newDisp] || [];   // Deploy 236.625 — these BLOCK; the rest just "• add".
   document.getElementById('svcTitle').textContent = 'Move to ' + DISP_LABEL[newDisp];
   document.getElementById('svcSub').textContent = (l.address||'') + '  ·  ' + clientName(it.client) + ' — confirm the details for this status.';
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
   var flds = DISP_FIELDS[newDisp] || [];
   document.getElementById('svcGrid').innerHTML = flds.length ? flds.map(function(k){
-    var f=_svcFieldMeta(k), val=(l[k]!=null?String(l[k]):''), missing=!val;
-    return '<div class="svc-fld"><label>'+escH(f.label)+(missing?' <span style="color:var(--warn);font-weight:700">• add</span>':'')+'</label>'+
-      svcInputHtml(k, f.type, val, missing?' style="border-color:var(--warn)"':'') + '</div>';
+    var f=_svcFieldMeta(k), val=(l[k]!=null?String(l[k]):''), missing=!val, required=(req.indexOf(k)>=0);
+    if (required) _reqRegister('svc_'+k, f.label);
+    var tag = required ? ' <span class="req">*</span>' : (missing ? ' <span style="color:var(--warn);font-weight:700">• add</span>' : '');
+    var attr = ' oninput="_validateRequired()" onchange="_validateRequired()"' + (missing ? ' style="border-color:var(--warn)"' : '');
+    return '<div class="svc-fld"><label>'+escH(f.label)+tag+'</label>'+ svcInputHtml(k, f.type, val, attr) + '</div>';
   }).join('') : '<div class="cl-ph" style="grid-column:1/-1">No extra details needed for this status.</div>';
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save & move';
   document.getElementById('svcBg').classList.add('show');
@@ -687,6 +725,7 @@ function svcSave(){
 }
 function confirmDisposition(){
   if (!_dispPending) return;
+  if (!_requireGate()) return;   // Deploy 236.625 — block until required fields are filled.
   var it=_dispPending.it, newDisp=_dispPending.newDisp;
   var flds=DISP_FIELDS[newDisp]||[], fields={};
   flds.forEach(function(k){ var el=document.getElementById('svc_'+k); if (el) fields[k]=el.value; });
@@ -704,32 +743,67 @@ function confirmDisposition(){
 }
 
 // ── Close Out (Post Close → Pending Sale) ──────────────────────────
-// Deploy 236.624 — collects the Investor (always), the Note Servicer (RTL) or the
-// TPO spread + rate-sheet closing fees (DSCR), then moves the loan to Pending
-// Sale. RTLs additionally surface in Servicing (derived). Routing follows the
-// loan type shown in the modal header — correct the loan's type first if wrong.
+// Deploy 236.624/625 — collects the Loan Type (REQUIRED — it routes RTL vs DSCR;
+// Baseline imports arrive blank so we ask rather than silently defaulting), the
+// Investor (required), then the Note Servicer (RTL) or the TPO spread + rate-sheet
+// closing fees (DSCR). Accept moves the loan to Pending Sale (RTLs also surface in
+// Servicing, derived). Changing the type re-renders the type-specific fields.
+function _closeOutHtml(it, typeVal, keepInvestor){
+  _svcRequired = [];
+  var l=it.loan;
+  var t = (typeVal!=null) ? String(typeVal).toLowerCase() : String(l.toolType||'').toLowerCase();
+  if (t!=='rtl' && t!=='dscr') t=''; // guc/blank → force an explicit routing choice
+  var inv = (keepInvestor!=null) ? keepInvestor : (l.investorName||'');
+  _reqRegister('co_toolType','Loan Type');
+  _reqRegister('co_investorName','Investor');
+  var typeSel = '<select id="co_toolType" onchange="_rerenderCloseOut()">' +
+    '<option value=""'+(t?'':' selected')+'>— select —</option>' +
+    '<option value="rtl"'+(t==='rtl'?' selected':'')+'>RTL</option>' +
+    '<option value="dscr"'+(t==='dscr'?' selected':'')+'>DSCR</option>' +
+  '</select>';
+  var html = '<div class="svc-fld" style="grid-column:1/-1"><label>Loan Type <span class="req">*</span> <span class="svc-hint">— routes the loan</span></label>'+typeSel+'</div>' +
+    '<div class="svc-fld" style="grid-column:1/-1"><label>Investor (buying the loan) <span class="req">*</span></label>' +
+      _investorSelect('co_investorName', inv, 'onchange="_validateRequired()"') + '</div>';
+  if (t==='rtl'){
+    _reqRegister('co_servicerName','Note Servicer');
+    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer <span class="req">*</span></label>' +
+      '<input type="text" id="co_servicerName" value="'+escAttr(l.servicerName||'')+'" placeholder="servicer the note goes to" oninput="_validateRequired()" /></div>';
+  } else if (t==='dscr'){
+    var tpo = (l.tpoSpread!=null && l.tpoSpread!=='') ? String(l.tpoSpread) : String(_defaultTpo());
+    _reqRegister('co_tpoSpread','TPO Spread');
+    html += '<div class="svc-fld"><label>TPO Spread (points) <span class="req">*</span> <span class="svc-hint">verify</span></label>' +
+        '<input type="text" id="co_tpoSpread" value="'+escAttr(tpo)+'" oninput="_validateRequired()" /></div>' +
+      '<div class="svc-fld"><label>Closing Fees <span class="svc-hint">rate sheet</span></label>' +
+        '<input type="text" value="'+escAttr(money(rateSheetClosingFees()))+'" readonly style="opacity:.7;cursor:not-allowed" /></div>';
+  } else {
+    html += '<div class="svc-fld" style="grid-column:1/-1"><div class="cl-note" style="margin:0">Select the loan type to continue — RTL routes to Servicing + Pending Sale (with a Note Servicer); DSCR routes to Pending Sale (with a TPO spread).</div></div>';
+  }
+  return html;
+}
+function _rerenderCloseOut(){
+  if (!_svcTarget) return;
+  var t = (document.getElementById('co_toolType')||{}).value || '';
+  var inv = (document.getElementById('co_investorName')||{}).value || '';
+  document.getElementById('svcGrid').innerHTML = _closeOutHtml(_svcTarget, t, inv);
+}
 function openCloseOut(clientId, loanId, ownerKey){
   var it=_find(clientId, loanId, ownerKey); if (!it) return;
   _svcTarget=it; _svcMode='closeout'; _dispPending=null;
-  var l=it.loan, rtl=isRtl(l);
+  var l=it.loan;
   document.getElementById('svcTitle').textContent = 'Close Out — ' + (l.address||'');
-  document.getElementById('svcSub').textContent = 'Loan type: ' + toolLabel(l) + ' · moves to Pending Sale' + (rtl?' + Servicing':'') + '.';
+  document.getElementById('svcSub').textContent = 'Choose the loan type, investor, and servicing details — then move to Pending Sale.';
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
-  var html = '<div class="svc-fld" style="grid-column:1/-1"><label>Investor (buying the loan)</label>' + _investorSelect('co_investorName', l.investorName||'') + '</div>';
-  if (rtl){
-    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer</label><input type="text" id="co_servicerName" value="'+escAttr(l.servicerName||'')+'" placeholder="servicer the note goes to" /></div>';
-  } else {
-    var tpo = (l.tpoSpread!=null && l.tpoSpread!=='') ? String(l.tpoSpread) : String(_defaultTpo());
-    html += '<div class="svc-fld"><label>TPO Spread (points) — verify</label><input type="text" id="co_tpoSpread" value="'+escAttr(tpo)+'" /></div>' +
-      '<div class="svc-fld"><label>Closing Fees (rate sheet)</label><input type="text" value="'+escAttr(money(rateSheetClosingFees()))+'" readonly style="opacity:.7;cursor:not-allowed" /></div>';
-  }
-  document.getElementById('svcGrid').innerHTML = html;
+  document.getElementById('svcGrid').innerHTML = _closeOutHtml(it, null, null);
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Close Out';
   document.getElementById('svcBg').classList.add('show');
 }
 function confirmCloseOut(){
   if (!_svcTarget) return;
-  var it=_svcTarget, l=it.loan, rtl=isRtl(l), fields={};
+  if (!_requireGate()) return;   // Deploy 236.625 — needs type + investor (+ servicer/TPO) before it can route.
+  var it=_svcTarget, l=it.loan, fields={};
+  var type = String((document.getElementById('co_toolType')||{}).value || '').toLowerCase();
+  var rtl = (type==='rtl');
+  fields.toolType = type;
   fields.investorName = (document.getElementById('co_investorName')||{}).value || '';
   if (rtl){ fields.servicerName = (document.getElementById('co_servicerName')||{}).value || ''; }
   else { fields.tpoSpread = (document.getElementById('co_tpoSpread')||{}).value || ''; fields.closingFees = String(rateSheetClosingFees()); }
@@ -750,20 +824,25 @@ function confirmCloseOut(){
 // monthly yield spread) and routes to Sold-RTL (still serviced) or Sold-DSCR.
 function openMarkSold(clientId, loanId, ownerKey){
   var it=_find(clientId, loanId, ownerKey); if (!it) return;
-  _svcTarget=it; _svcMode='marksold'; _dispPending=null;
+  _svcTarget=it; _svcMode='marksold'; _dispPending=null; _svcRequired=[];
   var l=it.loan, rtl=isRtl(l);
   document.getElementById('svcTitle').textContent = 'Mark Sold — ' + (l.address||'');
   document.getElementById('svcSub').textContent = 'Records the sale and moves this loan to ' + (rtl?'Sold – RTL (still serviced)':'Sold – DSCR') + '.';
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
-  var html = '<div class="svc-fld"><label>Sold Date</label><input type="date" id="ms_soldDate" value="'+escAttr(l.soldDate||'')+'" /></div>' +
-    '<div class="svc-fld"><label>Investor</label>' + _investorSelect('ms_investorName', l.investorName||'') + '</div>';
-  if (rtl) html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) — for yield spread</label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||'')+'" placeholder="e.g. 8.5" /></div>';
+  _reqRegister('ms_soldDate','Sold Date'); _reqRegister('ms_investorName','Investor');
+  var html = '<div class="svc-fld"><label>Sold Date <span class="req">*</span></label><input type="date" id="ms_soldDate" value="'+escAttr(l.soldDate||'')+'" oninput="_validateRequired()" /></div>' +
+    '<div class="svc-fld"><label>Investor <span class="req">*</span></label>' + _investorSelect('ms_investorName', l.investorName||'', 'onchange="_validateRequired()"') + '</div>';
+  if (rtl){
+    _reqRegister('ms_soldRate','Sold Rate');
+    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) <span class="req">*</span> <span class="svc-hint">drives yield spread</span></label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||'')+'" placeholder="e.g. 8.5" oninput="_validateRequired()" /></div>';
+  }
   document.getElementById('svcGrid').innerHTML = html;
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Mark Sold';
   document.getElementById('svcBg').classList.add('show');
 }
 function confirmMarkSold(){
   if (!_svcTarget) return;
+  if (!_requireGate()) return;   // Deploy 236.625 — needs sold date + investor (+ sold rate for RTL).
   var it=_svcTarget, l=it.loan, rtl=isRtl(l), fields={};
   fields.soldDate = (document.getElementById('ms_soldDate')||{}).value || '';
   fields.investorName = (document.getElementById('ms_investorName')||{}).value || '';

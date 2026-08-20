@@ -33,6 +33,10 @@ const FIELDS = {
   // Sold-DSCR profitability; activelyTrading ('yes'/'no') is the Pending-Sale
   // trade-ready flag.
   tpoSpread: 1, closingFees: 1, activelyTrading: 1,
+  // Deploy 236.625 — Close Out lets staff set the loan type when it's missing
+  // (Baseline imports arrive blank), since type routes RTL vs DSCR. projectLoan
+  // maps loan.toolType -> the tool_type PG column, so this persists in the list.
+  toolType: 1,
 };
 
 export default async (req, context) => {
