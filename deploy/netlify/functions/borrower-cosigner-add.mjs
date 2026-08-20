@@ -11,8 +11,11 @@
  * emails them their link, putting the record into the normal awaiting-secondary
  * state (borrower2-auth-sign completes it exactly as for an original co-borrower).
  *
- * Body: { clientId (primary), loanId, guarantorClientId, owner? }
- * Returns: { ok, pos, emailedAt, email, resent }
+ * Body: { clientId (primary), loanId, guarantorClientId, owner?,
+ *         sendEmail? (default true), email? (override the address to send to) }
+ * Returns: { ok, pos, emailedAt, email, resent, link }
+ * Deploy 236.630 — returns the signing `link` (so the LO can copy/send it directly)
+ * and honors sendEmail:false to just generate the link without emailing.
  *
  * Requires the primary borrower to have signed (a signed_applications record must
  * exist). Idempotent-ish: if the guarantor is already a pending secondary, it just
@@ -72,12 +75,19 @@ async function handle(req, context) {
   try { g = await clientsStore.get(`${ownerKey}/${keySafe(body.guarantorClientId)}`, { type: 'json' }); } catch (_) {}
   if (!g) return json(404, { error: 'Guarantor client not found for this owner.' });
   const gEmail = String(g.email || '').trim().toLowerCase();
-  if (!gEmail) return json(400, { error: 'This guarantor has no email on file. Add one on their Client Details page first.' });
-  const gName = ((g.firstName || '') + ' ' + (g.lastName || '')).trim() || gEmail;
+  // Deploy 236.630 — sendEmail defaults on; `email` overrides the send/record
+  // address. When sendEmail is off we still create the token + return the link.
+  const wantEmail = body.sendEmail !== false;
+  const overrideEmail = String(body.email || '').trim().toLowerCase();
+  const targetEmail = overrideEmail || gEmail;
+  const gName = ((g.firstName || '') + ' ' + (g.lastName || '')).trim() || targetEmail || 'Co-Borrower';
+  if (wantEmail && (!targetEmail || targetEmail.indexOf('@') < 0)) {
+    return json(400, { error: 'A valid email is required to send the link. Add one for the guarantor, type one in, or turn off the email option to just get the link.' });
+  }
 
   // Don't offer to "co-sign" the primary borrower back to themselves.
   const b1Email = String((rec.borrower1 && rec.borrower1.email) || '').trim().toLowerCase();
-  if (gEmail && gEmail === b1Email) {
+  if (targetEmail && targetEmail === b1Email) {
     return json(409, { error: 'This is the primary borrower — they already signed the application.' });
   }
 
@@ -88,7 +98,12 @@ async function handle(req, context) {
   let pos = null, resent = false;
   for (const p of [2, 3, 4]) {
     const bf = rec['borrower' + p];
-    if (bf && String(bf.email || '').trim().toLowerCase() === gEmail) {
+    if (!bf) continue;
+    const bfEmail = String(bf.email || '').trim().toLowerCase();
+    const same = (bf.guarantorClientId && bf.guarantorClientId === body.guarantorClientId)
+      || (gEmail && bfEmail === gEmail)
+      || (targetEmail && bfEmail === targetEmail);
+    if (same) {
       if (bf.audit && bf.audit.signedAt) {
         return json(409, { error: gName + ' has already signed their authorization.' });
       }
@@ -108,7 +123,7 @@ async function handle(req, context) {
   rec['borrower' + pos] = {
     role: 'borrower' + pos,
     name: existing.name || gName,
-    email: gEmail,
+    email: targetEmail || gEmail || '',
     phone: g.phone || existing.phone || '',
     token: newToken,
     tokenExpiresAt: newExpiresAt,
@@ -135,19 +150,26 @@ async function handle(req, context) {
   catch (e) { console.warn('borrower-cosigner-add: idx write failed (lookup will walk):', e && e.message); }
   if (oldToken) { try { await idx.delete(oldToken); } catch (_) {} }
 
-  // ── Email the guarantor their signing link ─────────────────────────
-  const emailedAt = await emailCosignerLink({ req, rec, toEmail: gEmail, toName: gName, token: newToken });
+  // ── Build the link; email it only when requested ───────────────────
+  const link = buildAuthLink(req, newToken);
+  let emailedAt = null;
+  if (wantEmail && targetEmail) {
+    emailedAt = await emailCosignerLink({ rec, toEmail: targetEmail, toName: gName, link });
+  }
 
-  return json(200, { ok: true, pos, emailedAt, email: gEmail, resent });
+  return json(200, { ok: true, pos, emailedAt, email: targetEmail, resent, link });
 }
 
-async function emailCosignerLink({ req, rec, toEmail, toName, token }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey || !toEmail) return null;
+function buildAuthLink(req, token) {
   const proto = (req.headers.get ? req.headers.get('x-forwarded-proto') : req.headers['x-forwarded-proto']) || 'https';
   const host  = (req.headers.get ? req.headers.get('host') : req.headers.host) || '';
   const base  = host ? `${proto}://${host}` : (process.env.URL || 'https://slaloantools.netlify.app');
-  const link  = `${base}/borrower2-auth.html?t=${encodeURIComponent(token)}`;
+  return `${base}/borrower2-auth.html?t=${encodeURIComponent(token)}`;
+}
+
+async function emailCosignerLink({ rec, toEmail, toName, link }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey || !toEmail) return null;
 
   const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const b1Name = (rec.borrower1 && rec.borrower1.name) || 'your co-borrower';

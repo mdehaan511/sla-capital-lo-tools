@@ -2393,7 +2393,8 @@ function refreshBorrowerInfoPanes() {
         // every loan this guarantor is tied to on next page load.
         // Deploy 236.147 — additional guarantors ALSO get the
         // Download Application button (isPrimary=false).
-        _renderEditGuarantorButton(c.id, false);
+        // Deploy 236.630 — pass email + name so the Send Signing Link modal prefills.
+        _renderEditGuarantorButton(c.id, false, c.email, name);
       if (tab) {
         var lbl = tab.querySelector('.bw-tab-label');
         var sub2 = tab.querySelector('.bw-tab-sub');
@@ -2506,7 +2507,7 @@ function saveVestingLLCs() {
 // — the "Download Signed Application (PDF)" button on Financials
 // is the right entry point. Only additional guarantors (2/3/4)
 // have a separate sub-application worth downloading.
-function _renderEditGuarantorButton(clientId, isPrimary) {
+function _renderEditGuarantorButton(clientId, isPrimary, gEmail, gName) {
   if (!clientId) return '';
   var ownerSuffix = (_loEmail && _user && _loEmail !== _user.email)
     ? '&owner=' + encodeURIComponent(_loEmail) : '';
@@ -2521,8 +2522,8 @@ function _renderEditGuarantorButton(clientId, isPrimary) {
   // one (creates the secondary signer block on the signed application). Non-primary
   // only; the endpoint returns a clear message if Borrower 1 hasn't signed yet.
   var sendLinkBtn = isPrimary ? '' :
-    '<button type="button" class="bw-edit-guarantor-btn" onclick="sendGuarantorSigningLink(\'' + escAttr(clientId) + '\', this)" ' +
-       'title="Email this guarantor a link to sign their own credit &amp; background authorization. Use this if they were added after the primary borrower signed.">' +
+    '<button type="button" class="bw-edit-guarantor-btn" data-cs-client="' + escAttr(clientId) + '" data-cs-email="' + escAttr(gEmail || '') + '" data-cs-name="' + escAttr(gName || '') + '" onclick="openCosignerModal(this)" ' +
+       'title="Send this guarantor a link to sign their own credit &amp; background authorization — email it and/or copy it to send manually. Use this if they were added after the primary borrower signed.">' +
       '<span class="bw-edit-icon">✉</span> Send Signing Link' +
     '</button>';
   // Deploy 236.366 — Remove Guarantor. Non-primary only (removing
@@ -8641,25 +8642,81 @@ function resendBorrower2Link() {
   });
 }
 
-// Deploy 236.629 — send a signing link to a guarantor added AFTER Borrower 1
-// signed. Called from the "Send Signing Link" button on a guarantor's tab. The
-// backend creates the co-signer block on the signed application + emails them.
-function sendGuarantorSigningLink(clientId, btn) {
+// Deploy 236.629/630 — send a signing link to a guarantor added AFTER Borrower 1
+// signed. Opens a modal (mirroring the "Send Full Loan Application" modal) where
+// the LO verifies/edits the email, chooses whether to email it, and always gets
+// the copyable link to send manually. The backend creates the co-signer block on
+// the signed application + (optionally) emails them.
+var _csGuarantorId = '';
+function openCosignerModal(btn) {
   if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
-  if (!confirm('Email this guarantor a link to sign their own credit & background authorization?')) return;
-  var original = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-  var opts = {};
+  _csGuarantorId = (btn && btn.dataset && btn.dataset.csClient) || (typeof btn === 'string' ? btn : '');
+  if (!_csGuarantorId) return;
+  var email = (btn && btn.dataset && btn.dataset.csEmail) || '';
+  var name  = (btn && btn.dataset && btn.dataset.csName) || '';
+  document.getElementById('csTitle').textContent = 'Send Signing Link' + (name ? ' — ' + name : '');
+  document.getElementById('csEmailInput').value = email;
+  var cb = document.getElementById('csSendEmailCb');
+  cb.checked = true;
+  document.getElementById('csEmailRow').style.display = 'block';
+  document.getElementById('csLinkRow').style.display = 'none';
+  document.getElementById('csLinkInput').value = '';
+  var st = document.getElementById('csStatusMsg'); st.textContent = ''; st.className = 'bi-status';
+  var sb = document.getElementById('csSendBtn'); sb.disabled = false; sb.textContent = 'Send & Get Link';
+  cb.onchange = function() {
+    document.getElementById('csEmailRow').style.display = this.checked ? 'block' : 'none';
+    document.getElementById('csSendBtn').textContent = this.checked ? 'Send & Get Link' : 'Get Link';
+  };
+  document.getElementById('csModal').classList.add('show');
+}
+function closeCosignerModal() {
+  document.getElementById('csModal').classList.remove('show');
+}
+function csCopyLink() {
+  var url = document.getElementById('csLinkInput').value;
+  if (!url) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function() {
+      var b = document.getElementById('csCopyBtn');
+      var orig = b.textContent; b.textContent = 'Copied!';
+      setTimeout(function() { b.textContent = orig; }, 1500);
+    }).catch(function() { prompt('Copy this link:', url); });
+  } else {
+    prompt('Copy this link:', url);
+  }
+}
+function csSendOrGenerate() {
+  if (!_client || !_loanId || !_csGuarantorId) return;
+  var sendEmail = document.getElementById('csSendEmailCb').checked;
+  var email = document.getElementById('csEmailInput').value.trim();
+  var st = document.getElementById('csStatusMsg');
+  if (sendEmail && (!email || email.indexOf('@') < 0)) {
+    st.className = 'bi-status err';
+    st.textContent = 'Enter a valid email, or turn off the email option to just get the link.';
+    return;
+  }
+  var btn = document.getElementById('csSendBtn');
+  btn.disabled = true; btn.textContent = sendEmail ? 'Sending…' : 'Generating…';
+  st.className = 'bi-status'; st.textContent = '';
+  var opts = { sendEmail: sendEmail };
+  if (email) opts.email = email;
   if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
-  SLA.SignedApplication.sendCosignerLink(_client.id, _loanId, clientId, opts).then(function(resp) {
-    if (btn) { btn.disabled = false; btn.innerHTML = original; }
-    showToast(resp && resp.emailedAt
-      ? ('✓ Signing link sent to ' + (resp.email || 'the guarantor'))
-      : 'Link created, but email delivery may have failed — check the guarantor’s email address.');
+  SLA.SignedApplication.sendCosignerLink(_client.id, _loanId, _csGuarantorId, opts).then(function(resp) {
+    btn.disabled = false; btn.textContent = sendEmail ? 'Resend & Get Link' : 'Get Link';
+    if (resp && resp.link) {
+      document.getElementById('csLinkInput').value = resp.link;
+      document.getElementById('csLinkRow').style.display = 'flex';
+    }
+    st.className = 'bi-status ok';
+    st.textContent = sendEmail
+      ? (resp && resp.emailedAt ? '✓ Signing link sent to ' + (resp.email || email) + ' — link is below to share too.'
+                                : 'Link ready below. (The email may not have gone through — copy the link to send it manually.)')
+      : '✓ Link ready — copy it below to send however you like.';
     refreshSignedApplicationStatus();
   }).catch(function(err) {
-    if (btn) { btn.disabled = false; btn.innerHTML = original; }
-    showToast('Could not send: ' + ((err && err.message) || 'unknown'));
+    btn.disabled = false; btn.textContent = sendEmail ? 'Send & Get Link' : 'Get Link';
+    st.className = 'bi-status err';
+    st.textContent = (err && err.message) || 'Could not create the link.';
   });
 }
 

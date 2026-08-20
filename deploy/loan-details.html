@@ -501,6 +501,41 @@
   </div>
 </div>
 
+<!-- Deploy 236.630 — Co-signer signing-link modal. Mirrors the "Send Full Loan
+     Application" modal: verify/edit the email, optionally email it, and always
+     get the copyable link so the LO can send it manually. -->
+<div class="bi-modal-bg" id="csModal">
+  <div class="bi-modal">
+    <h3 id="csTitle">Send Signing Link</h3>
+    <p id="csSub" class="bi-sub">Sends this guarantor their own credit &amp; background authorization to sign — and gives you the link to share manually if you'd rather.</p>
+
+    <div id="csContent">
+      <div class="bi-link-row" id="csLinkRow" style="display:none">
+        <input type="text" id="csLinkInput" readonly />
+        <button type="button" id="csCopyBtn" onclick="csCopyLink()">Copy</button>
+      </div>
+
+      <div class="bi-options">
+        <label class="bi-checkbox">
+          <input type="checkbox" id="csSendEmailCb" checked />
+          <span>Email the signing link to this guarantor</span>
+        </label>
+        <div class="bi-email-row" id="csEmailRow">
+          <input type="email" id="csEmailInput" placeholder="guarantor@example.com" />
+          <span class="bi-email-hint">We'll send the authorization link to this address.</span>
+        </div>
+      </div>
+
+      <div class="bi-status" id="csStatusMsg"></div>
+    </div>
+
+    <div class="bi-actions">
+      <button class="bi-btn cancel" onclick="closeCosignerModal()">Close</button>
+      <button class="bi-btn primary" id="csSendBtn" onclick="csSendOrGenerate()">Send &amp; Get Link</button>
+    </div>
+  </div>
+</div>
+
 <!-- Send for Signature modal — Deploy 236.156 redesign. Mirrors
      the Send Full Loan Application flow (biModal): single
      borrower, "Email this link" toggle, copyable link display
@@ -1206,6 +1241,6 @@
 <!-- Deploy 236.578 — jsPDF for the Proof of Funds letter download (same CDN the
      sizers use for term sheets). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/loan-details.js?v=236629"></script>
+<script src="/loan-details.js?v=236630"></script>
 </body>
 </html>

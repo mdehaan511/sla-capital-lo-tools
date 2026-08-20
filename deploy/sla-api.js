@@ -2022,6 +2022,8 @@
       opts = opts || {};
       var body = { clientId: clientId, loanId: loanId, guarantorClientId: guarantorClientId };
       if (opts.owner) body.owner = opts.owner;
+      if (opts.sendEmail === false) body.sendEmail = false;
+      if (opts.email) body.email = opts.email;
       return api('POST', '/api/borrower-cosigner-add', body);
     },
   };
