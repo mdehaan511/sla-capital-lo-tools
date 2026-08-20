@@ -1089,9 +1089,13 @@ function render() {
     'Open in '+(isDscr?'DSCR':'RTL')+' Sizer to Modify Financials' +
   '</a>';
 
-  html += '<a id="ldDownloadRateSheetBtn" href="'+escAttr(sizerUrl + '&download=1')+'" class="open-sizer-btn term-sheet-btn">' +
+  // Deploy 236.626 — if a signed rate-sheet envelope exists, this button downloads
+  // the SIGNED copy instead of regenerating the unsigned sheet from the sizer.
+  // refreshEnvelopes() sets _signedRateSheet + relabels the button once envelopes
+  // load; downloadRateSheet() intercepts the click when a signed version is present.
+  html += '<a id="ldDownloadRateSheetBtn" href="'+escAttr(sizerUrl + '&download=1')+'" class="open-sizer-btn term-sheet-btn" onclick="return downloadRateSheet(event)">' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2v8M3.5 7l4 4 4-4M2 13h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    'Download Rate Sheet' +
+    '<span id="ldRateSheetLabel">Download Rate Sheet</span>' +
   '</a>';
 
   // Deploy 236.578 — Proof of Funds letter. Generates the SLA POF letter as a
@@ -7675,6 +7679,50 @@ function esSubmit() {
 }
 
 // Re-pull this loan's envelopes from the server and render the panel.
+// Deploy 236.626 — the Download Rate Sheet button prefers the SIGNED copy.
+// _signedRateSheet is { envelopeId, docIdx } when a completed envelope for this
+// loan contains a signed rate-sheet doc; null otherwise. Set by refreshEnvelopes().
+var _signedRateSheet = null;
+function _findSignedRateSheet(envs) {
+  var best = null, bestTs = -1;
+  (envs || []).forEach(function(e) {
+    if (!e || e.status !== 'completed') return;   // only fully-signed + stamped
+    var docs = e.docs || [];
+    for (var i = 0; i < docs.length; i++) {
+      if (docs[i] && docs[i].kind === 'rate_sheet') {
+        var ts = new Date(e.completedAt || e.updatedAt || e.createdAt || 0).getTime();
+        if (ts >= bestTs) { bestTs = ts; best = { envelopeId: e.id, docIdx: i }; }
+        break;
+      }
+    }
+  });
+  return best;
+}
+function _applyRateSheetBtn() {
+  var label = document.getElementById('ldRateSheetLabel');
+  var btn = document.getElementById('ldDownloadRateSheetBtn');
+  if (!label || !btn) return;
+  if (_signedRateSheet) {
+    label.textContent = 'Download Signed Rate Sheet';
+    btn.title = 'Downloads the fully-signed rate sheet.';
+  } else {
+    label.textContent = 'Download Rate Sheet';
+    btn.removeAttribute('title');
+  }
+}
+// Called from the button's inline onclick. Returns false (and downloads the signed
+// PDF) when a signed rate sheet exists; returns true to let the href regenerate the
+// unsigned sheet from the sizer otherwise.
+function downloadRateSheet(ev) {
+  if (_signedRateSheet) {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    showToast('Downloading signed rate sheet…');
+    downloadEnvelopeFinal(_signedRateSheet.envelopeId, _signedRateSheet.docIdx, null);
+    return false;
+  }
+  return true;
+}
+
 function refreshEnvelopes() {
   if (!_clientId || !_loanId) return;
   // Feature-flagged: ESIGN_FEATURE at the top of this file. Default
@@ -7700,6 +7748,10 @@ function refreshEnvelopes() {
         return envTs > changeTs;
       });
     }
+    // Deploy 236.626 — surface a signed rate sheet for the Download button (runs
+    // even when the panel is empty, so the button resets correctly).
+    _signedRateSheet = _findSignedRateSheet(envs);
+    _applyRateSheetBtn();
     if (!envs.length) {
       panel.style.display = 'none';
       return;

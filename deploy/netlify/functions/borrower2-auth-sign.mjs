@@ -24,7 +24,8 @@ import {
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
-import { getOwnerReplyTo } from './_shared/email.mjs';
+// Deploy 236.626 — resolveOwnerEmail = robust LO-email resolution for the notify.
+import { getOwnerReplyTo, resolveOwnerEmail } from './_shared/email.mjs';
 // Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
 import { checkRateLimit } from './_shared/rate-limit.mjs';
 
@@ -382,8 +383,9 @@ async function notifyLOOfB2Signed(biRecord, signedRec, b2Audit, opts) {
     console.warn('notifyLOOfB2Signed: RESEND_API_KEY not configured');
     return false;
   }
-  // Fallback to ownerEmail if requestedBy is missing.
-  const loEmail = biRecord.requestedBy || biRecord.ownerEmail || '';
+  // Deploy 236.626 — robust resolution (requestedBy → ownerEmail → LO profile →
+  // ownerKey) so a record missing the first two still notifies the LO.
+  const loEmail = await resolveOwnerEmail(biRecord);
   if (!loEmail) {
     console.warn('notifyLOOfB2Signed: no LO email on record', biRecord.ownerKey);
     return false;

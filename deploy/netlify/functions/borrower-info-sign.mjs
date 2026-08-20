@@ -42,7 +42,8 @@ import {
 } from './_shared/esign.mjs';
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
-import { getOwnerReplyTo } from './_shared/email.mjs';
+// Deploy 236.626 — resolveOwnerEmail = robust LO-email resolution for the notify.
+import { getOwnerReplyTo, resolveOwnerEmail } from './_shared/email.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
@@ -931,7 +932,10 @@ async function notifyLOOfSignedApp(record, audit, opts) {
   // older or LO-side-created records may only have `ownerEmail`.
   // `ownerKey` is a sanitized version of the email path-safe; not a
   // real email, so it doesn\u2019t serve as a fallback for emailing.
-  const loEmail = record.requestedBy || record.ownerEmail || '';
+  // Deploy 236.626 — robust resolution (requestedBy → ownerEmail → LO profile →
+  // ownerKey). Previously a record missing requestedBy AND ownerEmail bailed here
+  // and the LO was never told their borrower signed.
+  const loEmail = await resolveOwnerEmail(record);
   if (!loEmail) {
     console.warn('notifyLOOfSignedApp: no LO email on record', record.ownerKey);
     return false;

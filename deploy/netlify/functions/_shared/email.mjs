@@ -32,6 +32,35 @@
  */
 import { getStore } from '@netlify/blobs';
 
+// Deploy 236.626 — robustly resolve the loan officer's email for LO-facing
+// notifications (e.g. "borrower signed the application"). Records created via
+// borrower-info-request carry requestedBy + ownerEmail, but older records,
+// re-saved records, or records created through an alternate path may lack both —
+// in which case the LO notification used to silently bail ("no LO email on
+// record") and the LO never heard the app was signed.
+//
+// Resolution order:
+//   1. record.requestedBy  (the LO who sent the application link)
+//   2. record.ownerEmail   (the loan owner captured at creation)
+//   3. the LO profile email (profiles store, keyed by ownerKey) — canonical
+//   4. record.ownerKey itself — ownerKey is keySafe(normalizeEmail(loEmail)),
+//      and keySafe is a no-op for ordinary emails, so it IS a valid address.
+export async function resolveOwnerEmail(record) {
+  if (!record) return '';
+  const pick = (v) => { const s = String(v == null ? '' : v).trim().toLowerCase(); return s.includes('@') ? s : ''; };
+  const direct = pick(record.requestedBy) || pick(record.ownerEmail);
+  if (direct) return direct;
+  try {
+    const store = getStore({ name: 'profiles', consistency: 'eventual' });
+    const profile = await store.get(record.ownerKey, { type: 'json' });
+    const pe = pick(profile && profile.email);
+    if (pe) return pe;
+  } catch (e) {
+    console.warn('resolveOwnerEmail: profile lookup failed:', e && e.message);
+  }
+  return pick(record.ownerKey);
+}
+
 export async function getOwnerReplyTo(ownerKey) {
   if (!ownerKey) return null;
   try {
