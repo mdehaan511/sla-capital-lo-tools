@@ -110,6 +110,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // scalars, so edits reverted on the next list fetch.
   'disposition', 'servicerLoanNumber', 'paymentAmount', 'upb',
   'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
+  // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle fields (all in extra).
+  'tpoSpread', 'closingFees', 'activelyTrading',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

@@ -28,6 +28,11 @@ const FIELDS = {
   signedOriginalsDate: 1, signedOriginalsLocation: 1, signedOriginalsTracking: 1,
   recordedDotDate: 1, recordedDotLocation: 1, recordedDotTracking: 1,
   titlePolicyDate: 1, titlePolicyLocation: 1, titlePolicyTracking: 1,
+  // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle:
+  // tpoSpread (DSCR, points) + closingFees (DSCR rate-sheet snapshot) drive
+  // Sold-DSCR profitability; activelyTrading ('yes'/'no') is the Pending-Sale
+  // trade-ready flag.
+  tpoSpread: 1, closingFees: 1, activelyTrading: 1,
 };
 
 export default async (req, context) => {

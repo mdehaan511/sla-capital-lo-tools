@@ -198,6 +198,8 @@ const LOAN_SUMMARY_FIELDS = [
   // fetch, so edits looked like they didn't save (they reverted on reload).
   'disposition', 'servicerLoanNumber', 'paymentAmount', 'upb',
   'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
+  // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle fields.
+  'tpoSpread', 'closingFees', 'activelyTrading',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

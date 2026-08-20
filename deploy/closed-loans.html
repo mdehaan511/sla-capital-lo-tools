@@ -10,6 +10,9 @@
   <script src="/sla-search.js"></script>
   <script src="sla-notifications.js"></script>
   <script src="sla-chat.js"></script>
+  <!-- Deploy 236.624 — DSCR rate-sheet constants (SLA_DSCR.FEES) are the single
+       source of truth for the closing-fees figure in Sold-DSCR profitability. -->
+  <script src="/dscr-pricing.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,6 +27,8 @@
       --d-pending:   #7a5218;  --d-pending-bg:   rgba(122,82,24,0.08);
       --d-sold:      #4a7a8a;  --d-sold-bg:      rgba(74,122,138,0.08);
       --d-paid:      #4a4a4a;  --d-paid-bg:      rgba(74,74,74,0.08);
+      /* Deploy 236.624 — Post Close (pre-Close-Out) accent = purple. */
+      --d-postclose: #6a4a8a;  --d-postclose-bg: rgba(106,74,138,0.08);
       --r: 12px; --r-xs: 8px;
     }
     body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
@@ -68,7 +73,18 @@
     .acc[data-d="servicing"] .acc-head { background: var(--d-servicing-bg); } .acc[data-d="servicing"] .acc-title { color: var(--d-servicing); }
     .acc[data-d="pending_sale"] .acc-head { background: var(--d-pending-bg); } .acc[data-d="pending_sale"] .acc-title { color: var(--d-pending); }
     .acc[data-d="sold"] .acc-head { background: var(--d-sold-bg); } .acc[data-d="sold"] .acc-title { color: var(--d-sold); }
+    .acc[data-d="sold_rtl"] .acc-head, .acc[data-d="sold_dscr"] .acc-head { background: var(--d-sold-bg); }
+    .acc[data-d="sold_rtl"] .acc-title, .acc[data-d="sold_dscr"] .acc-title { color: var(--d-sold); }
     .acc[data-d="paid_off"] .acc-head { background: var(--d-paid-bg); } .acc[data-d="paid_off"] .acc-title { color: var(--d-paid); }
+    .acc[data-d="post_close"] .acc-head { background: var(--d-postclose-bg); } .acc[data-d="post_close"] .acc-title { color: var(--d-postclose); }
+    /* Deploy 236.624 — row action buttons (Close Out / Mark Sold) + the Actively-Trading toggle. */
+    .cl-act { padding: 4px 12px; border: 1px solid var(--border); border-radius: 14px; font-size: 12px; font-weight: 600; background: var(--surface); color: var(--muted); cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .cl-act:hover { border-color: var(--gold); color: var(--gold); }
+    .cl-act.primary { background: var(--d-postclose); border-color: var(--d-postclose); color: #fff; }
+    .cl-act.primary:hover { color: #fff; opacity: 0.9; }
+    .tr-pill { font-size: 11px; font-weight: 700; padding: 3px 13px; border-radius: 12px; border: 1px solid transparent; cursor: pointer; font-family: inherit; }
+    .tr-pill.yes { background: var(--d-servicing-bg); color: var(--d-servicing); }
+    .tr-pill.no  { background: var(--d-pending-bg);   color: var(--d-pending); }
 
     /* Tables */
     .cl-scroll { overflow-x: auto; }
@@ -136,12 +152,14 @@
     </div>
 
     <div class="cl-tabs" id="clTabs">
-      <button type="button" class="cl-tab active" data-tab="all"       onclick="setTab('all')">All</button>
-      <button type="button" class="cl-tab"        data-tab="servicing" onclick="setTab('servicing')">Servicing</button>
-      <button type="button" class="cl-tab"        data-tab="draws"     onclick="setTab('draws')">Draws</button>
-      <button type="button" class="cl-tab"        data-tab="sold"      onclick="setTab('sold')">Sold</button>
-      <button type="button" class="cl-tab"        data-tab="payoff"    onclick="setTab('payoff')">Payoff</button>
-      <button type="button" class="cl-tab"        data-tab="collateral" onclick="setTab('collateral')">Collateral</button>
+      <button type="button" class="cl-tab active" data-tab="all"          onclick="setTab('all')">All</button>
+      <button type="button" class="cl-tab"        data-tab="servicing"    onclick="setTab('servicing')">Servicing</button>
+      <button type="button" class="cl-tab"        data-tab="pending_sale" onclick="setTab('pending_sale')">Pending Sale</button>
+      <button type="button" class="cl-tab"        data-tab="sold_rtl"     onclick="setTab('sold_rtl')">Sold – RTL</button>
+      <button type="button" class="cl-tab"        data-tab="sold_dscr"    onclick="setTab('sold_dscr')">Sold – DSCR</button>
+      <button type="button" class="cl-tab"        data-tab="payoff"       onclick="setTab('payoff')">Payoff</button>
+      <button type="button" class="cl-tab"        data-tab="draws"        onclick="setTab('draws')">Draws</button>
+      <button type="button" class="cl-tab"        data-tab="collateral"   onclick="setTab('collateral')">Collateral</button>
     </div>
 
     <div class="totbar" id="totBar"></div>
@@ -167,10 +185,11 @@
 var _user = null, _isAdmin = false, _isStaff = false;
 var _closed = [];            // [{ ownerKey, client, loan }]
 var _tab = 'all';
-var _openAcc = { servicing: true, pending_sale: true, sold: false, paid_off: false };
+var _openAcc = { post_close: true, servicing: true, pending_sale: true, sold_rtl: false, sold_dscr: false, paid_off: false };
 var _openDraws = {};         // loanKey -> bool
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
-var _sort = { all: {k:'funded',d:-1}, servicing: {k:'funded',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1}, collateral:{k:'status',d:1} };
+var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'funded',d:-1}, pending_sale:{k:'funded',d:-1},
+  sold_rtl:{k:'soldDate',d:-1}, sold_dscr:{k:'soldDate',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1}, collateral:{k:'status',d:1} };
 
 // ── Helpers ────────────────────────────────────────────────────────
 function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -197,9 +216,14 @@ function isClosedLoan(l){
 }
 
 // Disposition: manual override (loan.disposition) wins, else derived from
-// baselineStatus/status. Pending Sale has no derived source (manual only).
+// baselineStatus/status. Deploy 236.624 — the derived DEFAULT is now post_close
+// (freshly closed → Post Close until staff "Close Out"), NOT servicing. A loan is
+// exactly ONE primary disposition; the RTL/DSCR sold split + the Servicing view
+// are DERIVED (see displayBucket / the Servicing tab), so no loan is tagged two
+// things. 'sold' is the primary value; sold_rtl/sold_dscr are display buckets.
 function dispositionOf(l){
   var d = String(l.disposition||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  if (d==='post close') return 'post_close';
   if (d==='servicing') return 'servicing';
   if (d==='pending sale') return 'pending_sale';
   if (d==='sold') return 'sold';
@@ -212,9 +236,58 @@ function dispositionOf(l){
   var st = String(l.status||'').toLowerCase().trim();
   if (st==='sold') return 'sold';
   if (st==='liquidated') return 'paid_off';
-  return 'servicing'; // freshly closed → serviced until sold / paid off
+  return 'post_close'; // freshly closed → Post Close until staff clicks Close Out
 }
-var DISP_LABEL = { servicing:'Servicing', pending_sale:'Pending Sale', sold:'Sold', paid_off:'Paid Off' };
+// Display bucket = primary disposition, with sold split by loan type.
+function displayBucket(l){
+  var d = dispositionOf(l);
+  if (d==='sold') return isRtl(l) ? 'sold_rtl' : 'sold_dscr';
+  return d;
+}
+var DISP_LABEL = { post_close:'Post Close', servicing:'Servicing', pending_sale:'Pending Sale',
+  sold:'Sold', sold_rtl:'Sold – RTL', sold_dscr:'Sold – DSCR', paid_off:'Paid Off' };
+
+// ── Computed servicing metrics (Deploy 236.624) ───────────────────
+// First payment = the 1st of the month TWO months after the close month (close
+// any day in Aug → Oct 1). Standard note convention.
+function firstPaymentDate(l){
+  var d = parseLocalDate(l.fundingDate); if (!d) return null;
+  var y = d.getFullYear(), m = d.getMonth() + 2; y += Math.floor(m/12); m = ((m % 12) + 12) % 12;
+  return new Date(y, m, 1);
+}
+function firstPaymentStr(l){ var d = firstPaymentDate(l); return d ? ((d.getMonth()+1)+'/'+d.getDate()+'/'+String(d.getFullYear()).slice(-2)) : ''; }
+// Monthly yield spread (Sold-RTL) = (originated rate − sold rate)% × balance / 12.
+// Balance = current UPB if we have it, else the funded loan amount.
+function monthlyYieldSpread(l){
+  var orig = num(l.rate), sold = num(l.soldRate);
+  if (!(orig > 0) || !(sold > 0)) return null;
+  var bal = num(l.upb) || num(l.finalLoanAmount) || num(l.loanAmt);
+  if (!(bal > 0)) return null;
+  return (orig - sold) / 100 * bal / 12;
+}
+// Rate-sheet closing fees (DSCR) — single source of truth is dscr-pricing.js FEES
+// (underwriting + doc_prep + legal_doc + desktop_analysis). Origination is counted
+// separately via the loan's Points, so it is NOT included here (no double count).
+function rateSheetClosingFees(){
+  try { var F = window.SLA_DSCR && SLA_DSCR.FEES;
+    if (F) return num(F.underwriting) + num(F.doc_prep) + num(F.legal_doc) + num(F.desktop_analysis);
+  } catch(e){}
+  return 2315; // fallback = 995 + 700 + 500 + 120 (7.22.26 sheet)
+}
+function _defaultTpo(){ try { return window.SLA_DSCR && SLA_DSCR.DIYA ? num(SLA_DSCR.DIYA.HIDDEN_TPO_PCT) : 1; } catch(e){ return 1; } }
+// Profitability (Sold-DSCR) = (TPO spread + origination points)% × loan + closing fees.
+function dscrProfitability(l){
+  var amt = num(l.finalLoanAmount) || num(l.loanAmt); if (!(amt > 0)) return null;
+  var tpo = (l.tpoSpread != null && l.tpoSpread !== '') ? num(l.tpoSpread) : _defaultTpo();
+  var pts = num(l.points);
+  var fees = (l.closingFees != null && l.closingFees !== '') ? num(l.closingFees) : rateSheetClosingFees();
+  return (tpo + pts) / 100 * amt + fees;
+}
+function _find(clientId, loanId, ownerKey){
+  for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey) return _closed[i]; }
+  return null;
+}
+function moneySigned(v){ var n = Math.round(num(v)); return (n<0?'-$':'$') + Math.abs(n).toLocaleString(); }
 
 // Draws — Sitewire is not wired yet; read a placeholder array off the loan.
 function drawsForLoan(l){ return Array.isArray(l.draws) ? l.draws : []; }
@@ -297,17 +370,19 @@ function render(){
   var items = visibleItems();
   document.getElementById('totBar').textContent =
     items.length + ' closed loan' + (items.length===1?'':'s') + ' · ' +
-    countDisp(items,'servicing') + ' servicing · ' + countDisp(items,'pending_sale') + ' pending sale · ' +
-    countDisp(items,'sold') + ' sold · ' + countDisp(items,'paid_off') + ' paid off';
+    countBucket(items,'post_close') + ' post close · ' + countBucket(items,'pending_sale') + ' pending sale · ' +
+    (countBucket(items,'sold_rtl')+countBucket(items,'sold_dscr')) + ' sold · ' + countBucket(items,'paid_off') + ' paid off';
   var wrap = document.getElementById('paneWrap');
-  if (_tab==='all')            wrap.innerHTML = renderAll(items);
-  else if (_tab==='servicing') wrap.innerHTML = renderServicing(items);
-  else if (_tab==='draws')     wrap.innerHTML = renderDraws(items);
-  else if (_tab==='sold')      wrap.innerHTML = renderSold(items);
-  else if (_tab==='payoff')    wrap.innerHTML = renderPayoff(items);
-  else if (_tab==='collateral') wrap.innerHTML = renderCollateral(items);
+  if (_tab==='all')              wrap.innerHTML = renderAll(items);
+  else if (_tab==='servicing')   wrap.innerHTML = renderServicing(items);
+  else if (_tab==='pending_sale')wrap.innerHTML = renderPendingSale(items);
+  else if (_tab==='sold_rtl')    wrap.innerHTML = renderBucketTab(items,'sold_rtl');
+  else if (_tab==='sold_dscr')   wrap.innerHTML = renderBucketTab(items,'sold_dscr');
+  else if (_tab==='draws')       wrap.innerHTML = renderDraws(items);
+  else if (_tab==='payoff')      wrap.innerHTML = renderPayoff(items);
+  else if (_tab==='collateral')  wrap.innerHTML = renderCollateral(items);
 }
-function countDisp(items, d){ return items.filter(function(it){ return dispositionOf(it.loan)===d; }).length; }
+function countBucket(items, b){ return items.filter(function(it){ return displayBucket(it.loan)===b; }).length; }
 
 function sortItems(items, tab, valFn){
   var s = _sort[tab];
@@ -320,7 +395,7 @@ function sortItems(items, tab, valFn){
   return items;
 }
 function th(tab, k, label){ var s=_sort[tab]; var ar = s.k===k ? '<span class="ar">'+(s.d<0?'▼':'▲')+'</span>' : ''; return '<th onclick="sortBy(\''+tab+'\',\''+k+'\')">'+escH(label)+ar+'</th>'; }
-function sortBy(tab, k){ var s=_sort[tab]; if (s.k===k) s.d=-s.d; else { s.k=k; s.d=(k==='funded'||k==='soldDate'||k==='payoffDate'||k==='lastDraw'||k==='amount')?-1:1; } render(); }
+function sortBy(tab, k){ var s=_sort[tab]; if (s.k===k) s.d=-s.d; else { s.k=k; s.d=(k==='funded'||k==='soldDate'||k==='payoffDate'||k==='lastDraw'||k==='amount'||k==='firstpay'||k==='spread'||k==='profit'||k==='trading')?-1:1; } render(); }
 
 // Common row value getter for the servicing-style tables.
 function svcVal(it, k){
@@ -373,49 +448,95 @@ function accordion(dispKey, items, headHtml, bodyHtml){
 }
 function toggleAcc(d){ _openAcc[d] = !_openAcc[d]; render(); }
 
-// Deploy 236.621 — one shared column set per disposition, so a disposition's rows
-// look IDENTICAL on the All tab (accordion) and on its own tab. servicing +
-// pending_sale -> Servicing columns; sold -> Sold columns; paid_off -> Payoff
-// columns. Each accordion sorts via its home tab's sort state.
-function _homeTab(disp){ return disp==='sold' ? 'sold' : disp==='paid_off' ? 'payoff' : 'servicing'; }
-function _svcCellsFull(it){
-  var l=it.loan;
+// Deploy 236.621/624 — one shared column set per DISPLAY BUCKET, so a bucket's
+// rows look IDENTICAL on the All tab (accordion) and on its own tab. Buckets:
+// post_close (All only, "Close Out" action) · servicing (derived view, full
+// servicing cols) · pending_sale (+ Actively Trading toggle + Mark Sold) ·
+// sold_rtl (+ Monthly Yield Spread) · sold_dscr (+ Profitability) · paid_off.
+function _homeTab(b){
+  if (b==='post_close')   return 'post_close';
+  if (b==='pending_sale') return 'pending_sale';
+  if (b==='sold_rtl')     return 'sold_rtl';
+  if (b==='sold_dscr')    return 'sold_dscr';
+  if (b==='paid_off')     return 'payoff';
+  return 'servicing';
+}
+// ── Small cell fragments ──
+function _tdMoney(v){ return '<td class="cl-num">'+(num(v)>0?escH(money(v)):'<span class="cl-ph">—</span>')+'</td>'; }
+function _tdPct(v){ return '<td class="cl-num">'+(num(v)>0?escH(pct(v)):'<span class="cl-ph">—</span>')+'</td>'; }
+function _tdPts(v){ return '<td class="cl-num">'+(v!=null&&v!==''?escH(num(v).toFixed(2)):'<span class="cl-ph">—</span>')+'</td>'; }
+function _tdDate(v){ return '<td class="cl-num">'+(v?escH(fmtDate(v)):'<span class="cl-ph">—</span>')+'</td>'; }
+function _tdText(v){ return '<td>'+(v?escH(v):'<span class="cl-ph">—</span>')+'</td>'; }
+function _actTd(inner){ return '<td onclick="event.stopPropagation()">'+inner+'</td>'; }
+function _pbt(it){ return escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey); } // packed args
+function _cName(it){ var l=it.loan;
   return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
     '<td>'+escH(clientName(it.client))+'</td>' +
-    '<td><span class="tag '+escAttr(String(l.toolType||'dscr').toLowerCase())+'">'+escH(toolLabel(l))+'</span></td>' +
-    '<td class="cl-num">'+escH(money(l.finalLoanAmount||l.loanAmt))+'</td>' +
-    '<td class="cl-num">'+(l.fundingDate?escH(fmtDate(l.fundingDate)):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td class="cl-num">'+(l.maturityDate?escH(fmtDate(l.maturityDate)):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td class="cl-num">'+(num(l.paymentAmount)>0?escH(money(l.paymentAmount)):'<span class="cl-ph">—</span>')+'</td>' +
+    '<td><span class="tag '+escAttr(String(l.toolType||'dscr').toLowerCase())+'">'+escH(toolLabel(l))+'</span></td>';
+}
+// ── Full servicing columns (Servicing tab + derived view) ──
+function _svcCellsFull(it){ var l=it.loan;
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdDate(l.maturityDate) +
+    _tdMoney(l.payoffAmount) + _tdMoney(l.paymentAmount) +
     '<td>'+(l.servicerName?escH(l.servicerName):'<span class="cl-ph">—</span>')+'</td>' +
     '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>';
 }
-function _soldCells(it){
-  var l=it.loan;
-  return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
-    '<td class="cl-num">'+escH(money(l.finalLoanAmount||l.loanAmt))+'</td>' +
-    '<td class="cl-num">'+(num(l.rate)>0?escH(pct(l.rate)):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td class="cl-num">'+(l.points!=null&&l.points!==''?escH(String(num(l.points).toFixed(2))):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td class="cl-num">'+((l.soldRate||l.tpo)?escH(String(l.soldRate?pct(l.soldRate):l.tpo)):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td class="cl-num">'+(l.soldDate?escH(fmtDate(l.soldDate)):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td>'+(l.investorName?escH(l.investorName):'<span class="cl-ph">—</span>')+'</td>';
+// ── Post Close ── Property · Borrower · Type · Loan Amt · Rate · Points · Close · First Pay · [Close Out]
+function _postCells(it){ var l=it.loan;
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdPct(l.rate) + _tdPts(l.points) + _tdDate(l.fundingDate) +
+    '<td class="cl-num">'+(firstPaymentStr(l)?escH(firstPaymentStr(l)):'<span class="cl-ph">—</span>')+'</td>' +
+    _actTd('<button type="button" class="cl-act primary" onclick="event.stopPropagation();openCloseOut(\''+_pbt(it)+'\')">Close Out</button>');
 }
-function _payoffCells(it){
-  var l=it.loan;
+// ── Pending Sale ── ... Investor · Actively Trading? (toggle) · [Mark Sold]
+function _pendCells(it){ var l=it.loan;
+  var trading = String(l.activelyTrading||'').toLowerCase()==='yes';
+  var pill = '<button type="button" class="tr-pill '+(trading?'yes':'no')+'" onclick="event.stopPropagation();toggleTrading(\''+_pbt(it)+'\')">'+(trading?'Yes':'No')+'</button>';
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(l.rate) + _tdPts(l.points) + _tdText(l.investorName) +
+    _actTd(pill) +
+    _actTd('<button type="button" class="cl-act" onclick="event.stopPropagation();openMarkSold(\''+_pbt(it)+'\')">Mark Sold</button>');
+}
+// ── Sold – RTL ── ... Investor · Monthly Yield Spread
+function _soldRtlCells(it){ var l=it.loan; var s=monthlyYieldSpread(l);
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(l.rate) + _tdPts(l.points) + _tdText(l.investorName) +
+    '<td class="cl-num">'+(s!=null?escH(moneySigned(s)+'/mo'):'<span class="cl-ph">—</span>')+'</td>';
+}
+// ── Sold – DSCR ── ... Investor · Profitability
+function _soldDscrCells(it){ var l=it.loan; var p=dscrProfitability(l);
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(l.rate) + _tdPts(l.points) + _tdText(l.investorName) +
+    '<td class="cl-num">'+(p!=null?escH(moneySigned(p)):'<span class="cl-ph">—</span>')+'</td>';
+}
+function _payoffCells(it){ var l=it.loan;
   return '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
     '<td>'+escH(clientName(it.client))+'</td>' +
-    '<td class="cl-num">'+(num(l.payoffAmount)>0?escH(money(l.payoffAmount)):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td class="cl-num">'+(l.payoffDate?escH(fmtDate(l.payoffDate)):'<span class="cl-ph">—</span>')+'</td>';
+    _tdMoney(l.payoffAmount) + _tdDate(l.payoffDate);
 }
-function _colDesc(disp){
-  var tab=_homeTab(disp);
-  if (disp==='sold') return { tab:tab, sort:soldVal, cells:_soldCells,
-    head: th(tab,'address','Property')+th(tab,'amount','Loan Amount')+th(tab,'rate','Closed Rate')+th(tab,'points','Closed Points')+th(tab,'soldRate','Sold Rate / TPO')+th(tab,'soldDate','Sold Date')+th(tab,'investor','Investor') };
-  if (disp==='paid_off') return { tab:tab, sort:payoffVal, cells:_payoffCells,
+// ── Sort value getters for the sale-lifecycle buckets ──
+function _saleValCommon(it,k){ var l=it.loan;
+  if (k==='address') return l.address||''; if (k==='borrower') return clientName(it.client); if (k==='type') return toolLabel(l);
+  if (k==='amount') return num(l.finalLoanAmount||l.loanAmt); if (k==='funded') return l.fundingDate||'';
+  if (k==='rate') return num(l.rate); if (k==='points') return num(l.points); if (k==='investor') return l.investorName||''; return '';
+}
+function postVal(it,k){ var l=it.loan;
+  if (k==='firstpay'){ var d=firstPaymentDate(l); return d?d.getTime():0; }
+  return _saleValCommon(it,k);
+}
+function pendVal(it,k){ if (k==='trading') return String(it.loan.activelyTrading||'').toLowerCase()==='yes'?1:0; return _saleValCommon(it,k); }
+function soldRtlVal(it,k){ if (k==='spread'){ var s=monthlyYieldSpread(it.loan); return s==null?-1e15:s; } return _saleValCommon(it,k); }
+function soldDscrVal(it,k){ if (k==='profit'){ var p=dscrProfitability(it.loan); return p==null?-1e15:p; } return _saleValCommon(it,k); }
+function _colDesc(b){
+  var tab=_homeTab(b);
+  if (b==='post_close') return { tab:tab, sort:postVal, cells:_postCells,
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'rate','Rate')+th(tab,'points','Points')+th(tab,'funded','Close Date')+th(tab,'firstpay','First Payment')+'<th>Close Out</th>' };
+  if (b==='pending_sale') return { tab:tab, sort:pendVal, cells:_pendCells,
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'trading','Actively Trading?')+'<th></th>' };
+  if (b==='sold_rtl') return { tab:tab, sort:soldRtlVal, cells:_soldRtlCells,
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'spread','Monthly Yield Spread') };
+  if (b==='sold_dscr') return { tab:tab, sort:soldDscrVal, cells:_soldDscrCells,
+    head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'type','Type')+th(tab,'amount','Loan Amount')+th(tab,'funded','Close Date')+th(tab,'rate','Interest Rate')+th(tab,'points','Points')+th(tab,'investor','Investor')+th(tab,'profit','Profitability') };
+  if (b==='paid_off') return { tab:tab, sort:payoffVal, cells:_payoffCells,
     head: th(tab,'address','Property')+th(tab,'borrower','Borrower')+th(tab,'payoffAmount','Payoff Amount')+th(tab,'payoffDate','Payoff Date') };
-  return { tab:tab, sort:svcVal, cells:_svcCellsFull,
-    head: svcHeadCols(tab,'<th>Servicer</th><th>Servicer Loan #</th>',true) };
+  return { tab:'servicing', sort:svcVal, cells:_svcCellsFull,
+    head: svcHeadCols('servicing','<th>Servicer</th><th>Servicer Loan #</th>',true) };
 }
 function _dispBody(group, disp, includeDisp){
   var d=_colDesc(disp);
@@ -426,20 +547,28 @@ function _dispBody(group, disp, includeDisp){
   return '<div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>';
 }
 
-// TAB: All — one accordion per disposition, each using its home tab's columns +
-// a Disposition picker so staff can move a loan between buckets.
+// TAB: All — one accordion per display bucket, each using its own columns + a
+// Disposition picker so staff can move a loan between buckets. Post Close leads
+// (freshly closed → Close Out). 'servicing' (legacy manual tag) only shows if a
+// loan is actually tagged that way, so it doesn't double-list Pending Sale RTLs.
 function renderAll(items){
-  var order = ['servicing','pending_sale','sold','paid_off'];
+  var order = ['post_close','pending_sale','sold_rtl','sold_dscr','paid_off'];
+  if (items.some(function(it){ return displayBucket(it.loan)==='servicing'; })) order.splice(1,0,'servicing');
   return order.map(function(d){
     var desc = _colDesc(d);
-    var group = sortItems(items.filter(function(it){ return dispositionOf(it.loan)===d; }), desc.tab, desc.sort);
-    var body = group.length ? _dispBody(group, d, true) : '<div class="cl-empty">No '+escH(DISP_LABEL[d].toLowerCase())+' loans.</div>';
+    var group = sortItems(items.filter(function(it){ return displayBucket(it.loan)===d; }), desc.tab, desc.sort);
+    var body = group.length ? _dispBody(group, d, true) : '<div class="cl-empty">No '+escH((DISP_LABEL[d]||d).toLowerCase())+' loans.</div>';
     return accordion(d, group, '', body);
   }).join('');
 }
+// Manual disposition picker (All tab). 'sold' is the primary value staff pick;
+// the RTL/DSCR split is derived. Legacy 'servicing' is offered only if the loan
+// is already tagged that way (so the select shows the right current value).
 function dispOptions(cur){
-  return ['servicing','pending_sale','sold','paid_off'].map(function(d){
-    return '<option value="'+d+'"'+(d===cur?' selected':'')+'>'+escH(DISP_LABEL[d])+'</option>';
+  var base = ['post_close','pending_sale','sold','paid_off'];
+  if (cur==='servicing') base.splice(1,0,'servicing');
+  return base.map(function(d){
+    return '<option value="'+d+'"'+(d===cur?' selected':'')+'>'+escH(DISP_LABEL[d]||d)+'</option>';
   }).join('');
 }
 function dispCell(it){
@@ -549,7 +678,13 @@ function openDispConfirm(it, newDisp){
   var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Save & move';
   document.getElementById('svcBg').classList.add('show');
 }
-function svcSave(){ if (_svcMode==='disp') confirmDisposition(); else if (_svcMode==='collateral') saveCollateral(); else saveServicing(); }
+function svcSave(){
+  if (_svcMode==='disp') confirmDisposition();
+  else if (_svcMode==='collateral') saveCollateral();
+  else if (_svcMode==='closeout') confirmCloseOut();
+  else if (_svcMode==='marksold') confirmMarkSold();
+  else saveServicing();
+}
 function confirmDisposition(){
   if (!_dispPending) return;
   var it=_dispPending.it, newDisp=_dispPending.newDisp;
@@ -568,15 +703,101 @@ function confirmDisposition(){
   }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
 }
 
-// TAB: Servicing — Servicing + Pending Sale + Sold(RTL only). Extra cols: Servicer, Servicer Loan #.
+// ── Close Out (Post Close → Pending Sale) ──────────────────────────
+// Deploy 236.624 — collects the Investor (always), the Note Servicer (RTL) or the
+// TPO spread + rate-sheet closing fees (DSCR), then moves the loan to Pending
+// Sale. RTLs additionally surface in Servicing (derived). Routing follows the
+// loan type shown in the modal header — correct the loan's type first if wrong.
+function openCloseOut(clientId, loanId, ownerKey){
+  var it=_find(clientId, loanId, ownerKey); if (!it) return;
+  _svcTarget=it; _svcMode='closeout'; _dispPending=null;
+  var l=it.loan, rtl=isRtl(l);
+  document.getElementById('svcTitle').textContent = 'Close Out — ' + (l.address||'');
+  document.getElementById('svcSub').textContent = 'Loan type: ' + toolLabel(l) + ' · moves to Pending Sale' + (rtl?' + Servicing':'') + '.';
+  var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
+  var html = '<div class="svc-fld" style="grid-column:1/-1"><label>Investor (buying the loan)</label>' + _investorSelect('co_investorName', l.investorName||'') + '</div>';
+  if (rtl){
+    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer</label><input type="text" id="co_servicerName" value="'+escAttr(l.servicerName||'')+'" placeholder="servicer the note goes to" /></div>';
+  } else {
+    var tpo = (l.tpoSpread!=null && l.tpoSpread!=='') ? String(l.tpoSpread) : String(_defaultTpo());
+    html += '<div class="svc-fld"><label>TPO Spread (points) — verify</label><input type="text" id="co_tpoSpread" value="'+escAttr(tpo)+'" /></div>' +
+      '<div class="svc-fld"><label>Closing Fees (rate sheet)</label><input type="text" value="'+escAttr(money(rateSheetClosingFees()))+'" readonly style="opacity:.7;cursor:not-allowed" /></div>';
+  }
+  document.getElementById('svcGrid').innerHTML = html;
+  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Close Out';
+  document.getElementById('svcBg').classList.add('show');
+}
+function confirmCloseOut(){
+  if (!_svcTarget) return;
+  var it=_svcTarget, l=it.loan, rtl=isRtl(l), fields={};
+  fields.investorName = (document.getElementById('co_investorName')||{}).value || '';
+  if (rtl){ fields.servicerName = (document.getElementById('co_servicerName')||{}).value || ''; }
+  else { fields.tpoSpread = (document.getElementById('co_tpoSpread')||{}).value || ''; fields.closingFees = String(rateSheetClosingFees()); }
+  var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
+  btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
+  var pDisp = SLA.api('POST','/api/loan-set-disposition', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:'pending_sale' });
+  var pFields = SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, fields:fields });
+  Promise.all([pDisp, pFields]).then(function(){
+    l.disposition='pending_sale'; Object.keys(fields).forEach(function(k){ l[k]=fields[k]; });
+    _openAcc.pending_sale=true;
+    st.className='svc-status ok'; st.textContent='Closed out';
+    render(); setTimeout(closeServicingEditor, 600);
+  }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
+}
+
+// ── Mark Sold (Pending Sale → Sold) ────────────────────────────────
+// Captures the sale (Sold Date + Investor; Sold Rate for RTL, which drives the
+// monthly yield spread) and routes to Sold-RTL (still serviced) or Sold-DSCR.
+function openMarkSold(clientId, loanId, ownerKey){
+  var it=_find(clientId, loanId, ownerKey); if (!it) return;
+  _svcTarget=it; _svcMode='marksold'; _dispPending=null;
+  var l=it.loan, rtl=isRtl(l);
+  document.getElementById('svcTitle').textContent = 'Mark Sold — ' + (l.address||'');
+  document.getElementById('svcSub').textContent = 'Records the sale and moves this loan to ' + (rtl?'Sold – RTL (still serviced)':'Sold – DSCR') + '.';
+  var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
+  var html = '<div class="svc-fld"><label>Sold Date</label><input type="date" id="ms_soldDate" value="'+escAttr(l.soldDate||'')+'" /></div>' +
+    '<div class="svc-fld"><label>Investor</label>' + _investorSelect('ms_investorName', l.investorName||'') + '</div>';
+  if (rtl) html += '<div class="svc-fld" style="grid-column:1/-1"><label>Sold Rate (%) — for yield spread</label><input type="text" id="ms_soldRate" value="'+escAttr(l.soldRate||'')+'" placeholder="e.g. 8.5" /></div>';
+  document.getElementById('svcGrid').innerHTML = html;
+  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Mark Sold';
+  document.getElementById('svcBg').classList.add('show');
+}
+function confirmMarkSold(){
+  if (!_svcTarget) return;
+  var it=_svcTarget, l=it.loan, rtl=isRtl(l), fields={};
+  fields.soldDate = (document.getElementById('ms_soldDate')||{}).value || '';
+  fields.investorName = (document.getElementById('ms_investorName')||{}).value || '';
+  if (rtl) fields.soldRate = (document.getElementById('ms_soldRate')||{}).value || '';
+  var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
+  btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
+  var pDisp = SLA.api('POST','/api/loan-set-disposition', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:'sold' });
+  var pFields = SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, fields:fields });
+  Promise.all([pDisp, pFields]).then(function(){
+    l.disposition='sold'; Object.keys(fields).forEach(function(k){ l[k]=fields[k]; });
+    _openAcc[rtl?'sold_rtl':'sold_dscr']=true;
+    st.className='svc-status ok'; st.textContent='Marked sold';
+    render(); setTimeout(closeServicingEditor, 600);
+  }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });
+}
+
+// ── Actively Trading toggle (Pending Sale) — optimistic, one-field write ──
+function toggleTrading(clientId, loanId, ownerKey){
+  var it=_find(clientId, loanId, ownerKey); if (!it) return;
+  var l=it.loan, prev=String(l.activelyTrading||'').toLowerCase()==='yes'?'yes':'no', next=(prev==='yes')?'no':'yes';
+  l.activelyTrading=next; render();
+  SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, fields:{ activelyTrading:next } })
+    .catch(function(){ l.activelyTrading=prev; render(); });
+}
+
+// TAB: Servicing — the loans SLA services: legacy Servicing tag + RTL Pending
+// Sale + Sold-RTL (DSCRs never appear here). Deploy 236.624 — the Pending Sale
+// section is now RTL-ONLY (DSCRs pending sale live only in Pending Sale). All
+// sections use the full servicing columns.
 function renderServicing(items){
-  var extraHead = '<th>Servicer</th><th>Servicer Loan #</th>';
-  function extraCells(l){ return '<td>'+(l.servicerName?escH(l.servicerName):'<span class="cl-ph">—</span>')+'</td>' +
-    '<td>'+(l.servicerLoanNumber?escH(l.servicerLoanNumber):'<span class="cl-ph">—</span>')+'</td>'; }
   var sections = [
-    { d:'servicing',    filter:function(it){ return dispositionOf(it.loan)==='servicing'; } },
-    { d:'pending_sale', filter:function(it){ return dispositionOf(it.loan)==='pending_sale'; } },
-    { d:'sold',         filter:function(it){ return dispositionOf(it.loan)==='sold' && isRtl(it.loan); }, note:'Sold RTL loans — SLA still services these.' }
+    { d:'servicing',    filter:function(it){ return displayBucket(it.loan)==='servicing'; } },
+    { d:'pending_sale', filter:function(it){ return displayBucket(it.loan)==='pending_sale' && isRtl(it.loan); }, note:'RTL loans pending sale — SLA services these until they trade.' },
+    { d:'sold_rtl',     filter:function(it){ return displayBucket(it.loan)==='sold_rtl'; }, note:'Sold RTL loans — SLA still services these.' }
   ];
   return sections.map(function(sec){
     var group = sortItems(items.filter(sec.filter), 'servicing', svcVal);
@@ -586,6 +807,17 @@ function renderServicing(items){
       _dispBody(group, 'servicing', false);
     return accordion(sec.d, group, '', body);
   }).join('');
+}
+// Generic single-bucket tab (Sold-RTL / Sold-DSCR). Pending Sale wraps this with a note.
+function renderBucketTab(items, b){
+  var desc = _colDesc(b);
+  var group = sortItems(items.filter(function(it){ return displayBucket(it.loan)===b; }), desc.tab, desc.sort);
+  if (!group.length) return '<div class="cl-empty">No '+escH((DISP_LABEL[b]||b).toLowerCase())+' loans.</div>';
+  return '<div class="acc" style="padding:0">' + _dispBody(group, b, false) + '</div>';
+}
+function renderPendingSale(items){
+  var note = '<div class="cl-note">Loans closed out and awaiting sale. Toggle <strong>Actively Trading?</strong> once conditions are cleared and the loan is ready to trade. (Trade-tape export coming.)</div>';
+  return note + renderBucketTab(items, 'pending_sale');
 }
 
 // TAB: Draws — RTL only, rollups + expand to individual draws (Sitewire).
@@ -633,23 +865,8 @@ function renderDraws(items){
 }
 function toggleDraws(key){ _openDraws[key] = !_openDraws[key]; render(); }
 
-// TAB: Sold — all sold loans
-function soldVal(it, k){
-  var l=it.loan;
-  if (k==='address') return l.address||'';
-  if (k==='amount') return num(l.finalLoanAmount||l.loanAmt);
-  if (k==='rate') return num(l.rate);
-  if (k==='points') return num(l.points);
-  if (k==='soldRate') return num(l.soldRate||l.tpo);
-  if (k==='soldDate') return l.soldDate||'';
-  if (k==='investor') return l.investorName||'';
-  return '';
-}
-function renderSold(items){
-  var sold = sortItems(items.filter(function(it){ return dispositionOf(it.loan)==='sold'; }), 'sold', soldVal);
-  if (!sold.length) return '<div class="cl-empty">No sold loans.</div>';
-  return '<div class="acc" style="padding:0">' + _dispBody(sold, 'sold', false) + '</div>';
-}
+// TABS: Sold – RTL / Sold – DSCR are rendered via renderBucketTab (see above);
+// the old single 'Sold' tab was split by loan type in Deploy 236.624.
 
 // TAB: Payoff — all paid-off loans
 function payoffVal(it, k){
@@ -739,7 +956,9 @@ function saveCollateral(){
   var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
   btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
   SLA.api('POST','/api/loan-servicing-update',{ clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, fields:fields }).then(function(){
-    COLL_FIELDS.forEach(function(f){ it.loan[f.k]=fields[f.k]; });
+    // Deploy 236.624 — was COLL_FIELDS (renamed to COLL_DOCS in 236.623); the stale
+    // name threw a ReferenceError here, so collateral saves surfaced a false error.
+    COLL_DOCS.forEach(function(d){ [d.dateK, d.locK, d.trackK].forEach(function(k){ it.loan[k]=fields[k]; }); });
     st.className='svc-status ok'; st.textContent='Saved';
     render(); setTimeout(closeServicingEditor, 500);
   }).catch(function(e){ btn.disabled=false; st.className='svc-status err'; st.textContent=(e&&e.message)||'Save failed'; });

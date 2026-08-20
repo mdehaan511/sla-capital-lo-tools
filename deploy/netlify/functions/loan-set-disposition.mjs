@@ -3,7 +3,9 @@
  *
  * Deploy 236.611 — servicing tracking. Sets a closed loan's servicing
  * DISPOSITION so staff can move it between the Closed Loans buckets:
- *   servicing | pending_sale | sold | paid_off
+ *   post_close | servicing | pending_sale | sold | paid_off
+ * Deploy 236.624 — added post_close (freshly-closed loans land here until
+ * staff "Close Out"; that action moves them to pending_sale).
  *
  * Body: { clientId, loanId, owner?, disposition }
  *
@@ -21,7 +23,7 @@ import {
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 
-const VALID = { servicing: 1, pending_sale: 1, sold: 1, paid_off: 1 };
+const VALID = { post_close: 1, servicing: 1, pending_sale: 1, sold: 1, paid_off: 1 };
 
 export default async (req, context) => {
   try { return await handle(req, context); }
