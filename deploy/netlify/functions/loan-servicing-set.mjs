@@ -143,8 +143,9 @@ async function handle(req, context) {
   // the rest are trimmed strings. Any field omitted is left unchanged.
   ['servicerLoanNumber', 'paymentAmount', 'upb', 'payoffAmount', 'payoffDate', 'investorName', 'soldRate', 'soldDate',
    // Deploy 236.622 — collateral tracking: 3 docs × date + location(custodian).
-   'signedOriginalsDate', 'signedOriginalsLocation', 'recordedDotDate', 'recordedDotLocation',
-   'titlePolicyDate', 'titlePolicyLocation'].forEach((k) => {
+   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
+   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
+   'titlePolicyDate', 'titlePolicyLocation', 'titlePolicyTracking'].forEach((k) => {
     if (body[k] != null) loan[k] = String(body[k]).trim();
   });
   loan.updatedAt = new Date().toISOString();

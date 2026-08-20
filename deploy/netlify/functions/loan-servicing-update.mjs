@@ -25,8 +25,9 @@ const FIELDS = {
   servicerName: 1, servicerUrl: 1, servicerLoanNumber: 1, soldRate: 1, soldDate: 1,
   upb: 1, investorName: 1,
   // Deploy 236.622 — collateral tracking: 3 docs × date + location(custodian).
-  signedOriginalsDate: 1, signedOriginalsLocation: 1, recordedDotDate: 1,
-  recordedDotLocation: 1, titlePolicyDate: 1, titlePolicyLocation: 1,
+  signedOriginalsDate: 1, signedOriginalsLocation: 1, signedOriginalsTracking: 1,
+  recordedDotDate: 1, recordedDotLocation: 1, recordedDotTracking: 1,
+  titlePolicyDate: 1, titlePolicyLocation: 1, titlePolicyTracking: 1,
 };
 
 export default async (req, context) => {

@@ -1878,10 +1878,13 @@ function render() {
           '<div class="field" style="grid-column:1/-1;border-top:1px solid var(--border,#eee);margin-top:6px;padding-top:10px"><label style="font-weight:700">Collateral</label></div>' +
           '<div class="field"><label>Signed Originals</label><input type="date" id="sv-signedOriginalsDate" value="' + escAttr(l.signedOriginalsDate || '') + '" /></div>' +
           '<div class="field"><label>Signed Originals — Location</label><input type="text" id="sv-signedOriginalsLocation" value="' + escAttr(l.signedOriginalsLocation || '') + '" placeholder="e.g. Westover" maxlength="60" /></div>' +
+          '<div class="field" style="grid-column:1/-1"><label>Signed Originals — Tracking #</label><input type="text" id="sv-signedOriginalsTracking" value="' + escAttr(l.signedOriginalsTracking || '') + '" placeholder="carrier tracking number" maxlength="60" /></div>' +
           '<div class="field"><label>Recorded DOT</label><input type="date" id="sv-recordedDotDate" value="' + escAttr(l.recordedDotDate || '') + '" /></div>' +
           '<div class="field"><label>Recorded DOT — Location</label><input type="text" id="sv-recordedDotLocation" value="' + escAttr(l.recordedDotLocation || '') + '" placeholder="e.g. Westover" maxlength="60" /></div>' +
+          '<div class="field" style="grid-column:1/-1"><label>Recorded DOT — Tracking #</label><input type="text" id="sv-recordedDotTracking" value="' + escAttr(l.recordedDotTracking || '') + '" placeholder="carrier tracking number" maxlength="60" /></div>' +
           '<div class="field"><label>Final Title Policy</label><input type="date" id="sv-titlePolicyDate" value="' + escAttr(l.titlePolicyDate || '') + '" /></div>' +
           '<div class="field"><label>Final Title Policy — Location</label><input type="text" id="sv-titlePolicyLocation" value="' + escAttr(l.titlePolicyLocation || '') + '" placeholder="e.g. Westover" maxlength="60" /></div>' +
+          '<div class="field" style="grid-column:1/-1"><label>Final Title Policy — Tracking #</label><input type="text" id="sv-titlePolicyTracking" value="' + escAttr(l.titlePolicyTracking || '') + '" placeholder="carrier tracking number" maxlength="60" /></div>' +
         '</div>' +
         '<div style="margin-top:14px;display:flex;align-items:center;gap:10px">' +
           '<button class="save-app-btn" onclick="saveServicingFields()">Save Changes</button>' +
@@ -5510,10 +5513,13 @@ function saveServicingFields() {
     // Deploy 236.622 — collateral tracking (3 docs × date + location).
     signedOriginalsDate:     _sv('sv-signedOriginalsDate'),
     signedOriginalsLocation: _sv('sv-signedOriginalsLocation'),
+    signedOriginalsTracking: _sv('sv-signedOriginalsTracking'),
     recordedDotDate:         _sv('sv-recordedDotDate'),
     recordedDotLocation:     _sv('sv-recordedDotLocation'),
+    recordedDotTracking:     _sv('sv-recordedDotTracking'),
     titlePolicyDate:         _sv('sv-titlePolicyDate'),
     titlePolicyLocation:     _sv('sv-titlePolicyLocation'),
+    titlePolicyTracking:     _sv('sv-titlePolicyTracking'),
   };
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   var status = document.getElementById('servicingStatus');

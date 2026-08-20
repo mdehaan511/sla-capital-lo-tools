@@ -198,9 +198,10 @@ const LOAN_SUMMARY_FIELDS = [
   // fetch, so edits looked like they didn't save (they reverted on reload).
   'disposition', 'servicerLoanNumber', 'paymentAmount', 'upb',
   'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
-  // Deploy 236.622 — collateral tracking fields.
-  'signedOriginalsDate', 'signedOriginalsLocation', 'recordedDotDate',
-  'recordedDotLocation', 'titlePolicyDate', 'titlePolicyLocation',
+  // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
+  'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
+  'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
+  'titlePolicyDate', 'titlePolicyLocation', 'titlePolicyTracking',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
   // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with
