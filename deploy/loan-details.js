@@ -1863,8 +1863,12 @@ function render() {
           '<div class="field"><label>Maturity Date</label>' +
             '<input type="date" id="sv-maturityDate" value="' + escAttr(l.maturityDate || '') + '" />' +
           '</div>' +
+          // Deploy 236.628 — Servicer Name suggests Note Servicers from the Vendors
+          // book (role note_servicer). datalist keeps free entry while offering the
+          // shared list; refreshNoteServicers() fills #sv-servicerList after load.
           '<div class="field"><label>Servicer Name</label>' +
-            '<input type="text" id="sv-servicerName" value="' + escAttr(l.servicerName || '') + '" placeholder="e.g. Servicing Pros" maxlength="80" />' +
+            '<input type="text" id="sv-servicerName" list="sv-servicerList" value="' + escAttr(l.servicerName || '') + '" placeholder="e.g. Servicing Pros" maxlength="80" />' +
+            '<datalist id="sv-servicerList"></datalist>' +
           '</div>' +
           // Deploy 236.618 — full servicing field set (shared with the Closed Loans page).
           '<div class="field"><label>Servicer Loan #</label><input type="text" id="sv-servicerLoanNumber" value="' + escAttr(l.servicerLoanNumber || '') + '" maxlength="60" /></div>' +
@@ -2242,6 +2246,8 @@ function render() {
 
   // Async-load the envelope history for this loan. Doesn't block render.
   refreshEnvelopes();
+  // Deploy 236.628 — populate the Note Servicer datalist if the Servicing section rendered.
+  refreshNoteServicers();
 
   // Deploy 226 — render the Notes audit log into the section we just
   // emitted. Pulled into its own function so we can re-render after each
@@ -4463,6 +4469,7 @@ var ROLE_LABELS = {
   realtor:   'Realtor',
   lender:    'Lender',
   escrow:    'Escrow',
+  note_servicer: 'Note Servicer',
   other:     'Other',
 };
 function _contactOwnerParam() {
@@ -7744,6 +7751,26 @@ function downloadRateSheet(ev) {
     return false;
   }
   return true;
+}
+
+// Deploy 236.628 — fill the Note Servicer datalist (#sv-servicerList in the
+// Servicing section) from the org-wide Vendors note-servicer list. No-op if the
+// section isn't rendered. Cached across renders in _noteServicerNames.
+var _noteServicerNames = null;
+function refreshNoteServicers() {
+  var dl = document.getElementById('sv-servicerList');
+  if (!dl) return;
+  function fill(names) {
+    dl.innerHTML = (names || []).map(function(nm) {
+      return '<option value="' + escAttr(nm) + '"></option>';
+    }).join('');
+  }
+  if (_noteServicerNames) { fill(_noteServicerNames); return; }
+  if (!(window.SLA && SLA.NoteServicers && SLA.NoteServicers.list)) return;
+  SLA.NoteServicers.list().then(function(r) {
+    _noteServicerNames = (r && r.names) || [];
+    fill(_noteServicerNames);
+  }).catch(function() {});
 }
 
 function refreshEnvelopes() {

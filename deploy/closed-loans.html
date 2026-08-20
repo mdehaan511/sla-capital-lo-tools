@@ -191,6 +191,7 @@ var _tab = 'all';
 var _openAcc = { post_close: true, servicing: true, pending_sale: true, sold_rtl: false, sold_dscr: false, paid_off: false };
 var _openDraws = {};         // loanKey -> bool
 var _investors = [];         // Deploy 236.620 — platform investor names for the Investor dropdown
+var _noteServicers = [];     // Deploy 236.628 — org-wide Note Servicer names (Vendors, role note_servicer)
 var _sort = { all: {k:'funded',d:-1}, post_close:{k:'funded',d:-1}, servicing: {k:'funded',d:-1}, pending_sale:{k:'funded',d:-1},
   sold_rtl:{k:'soldDate',d:-1}, sold_dscr:{k:'soldDate',d:-1}, draws:{k:'lastDraw',d:-1}, sold:{k:'soldDate',d:-1}, payoff:{k:'payoffDate',d:-1}, collateral:{k:'status',d:1} };
 
@@ -321,6 +322,13 @@ function loadAll(){
   if (SLA.Investors && SLA.Investors.list) {
     SLA.Investors.list().then(function(r){
       _investors = ((r && r.investors) || []).map(function(iv){ return String(iv.name || iv.company || '').trim(); }).filter(Boolean);
+    }).catch(function(){});
+  }
+  // Deploy 236.628 — Note Servicer book (Vendors, role note_servicer) for the
+  // Note Servicer dropdowns. Re-render on load so open datalists pick them up.
+  if (SLA.NoteServicers && SLA.NoteServicers.list) {
+    SLA.NoteServicers.list().then(function(r){
+      _noteServicers = (r && r.names) || [];
     }).catch(function(){});
   }
 }
@@ -649,8 +657,20 @@ function _investorSelect(id, cur, extraAttr){
   if (cur && !found) opts = '<option value="'+escAttr(cur)+'" selected>'+escH(cur)+' (not in book)</option>' + opts;
   return '<select id="'+id+'" '+(extraAttr||'')+'>'+opts+'</select>';
 }
+// Deploy 236.628 — the Note Servicer field renders as a dropdown of platform note
+// servicers (Vendors with role note_servicer, via SLA.NoteServicers). Same pattern
+// as _investorSelect: a stored value not in the book is preserved as selected.
+// Add new servicers on the Vendors page (role = Note Servicer).
+function _servicerSelect(id, cur, extraAttr){
+  var opts = '<option value="">— select note servicer —</option>';
+  var found = false;
+  _noteServicers.forEach(function(nm){ var sel=(nm===cur)?' selected':''; if(sel) found=true; opts += '<option value="'+escAttr(nm)+'"'+sel+'>'+escH(nm)+'</option>'; });
+  if (cur && !found) opts = '<option value="'+escAttr(cur)+'" selected>'+escH(cur)+' (not in Vendors)</option>' + opts;
+  return '<select id="'+id+'" '+(extraAttr||'')+'>'+opts+'</select>';
+}
 function svcInputHtml(k, type, val, extraAttr){
   if (k === 'investorName') return _investorSelect('svc_'+k, val, extraAttr);
+  if (k === 'servicerName') return _servicerSelect('svc_'+k, val, extraAttr);
   if (type === 'location') return _locationSelect('svc_'+k, val, extraAttr);
   return '<input type="'+(type==='date'?'date':'text')+'" id="svc_'+k+'" value="'+escAttr(val)+'"'+(extraAttr||'')+' />';
 }
@@ -766,8 +786,8 @@ function _closeOutHtml(it, typeVal, keepInvestor){
       _investorSelect('co_investorName', inv, 'onchange="_validateRequired()"') + '</div>';
   if (t==='rtl'){
     _reqRegister('co_servicerName','Note Servicer');
-    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer <span class="req">*</span></label>' +
-      '<input type="text" id="co_servicerName" value="'+escAttr(l.servicerName||'')+'" placeholder="servicer the note goes to" oninput="_validateRequired()" /></div>';
+    html += '<div class="svc-fld" style="grid-column:1/-1"><label>Note Servicer <span class="req">*</span> <span class="svc-hint">— from Vendors</span></label>' +
+      _servicerSelect('co_servicerName', l.servicerName||'', 'onchange="_validateRequired()"') + '</div>';
   } else if (t==='dscr'){
     var tpo = (l.tpoSpread!=null && l.tpoSpread!=='') ? String(l.tpoSpread) : String(_defaultTpo());
     _reqRegister('co_tpoSpread','TPO Spread');

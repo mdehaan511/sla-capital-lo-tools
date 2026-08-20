@@ -603,6 +603,11 @@
   status = 200
   force = true
 [[redirects]]
+  from = "/api/note-servicers-list"
+  to = "/.netlify/functions/note-servicers-list"
+  status = 200
+  force = true
+[[redirects]]
   from = "/api/loan-contacts-delete"
   to = "/.netlify/functions/loan-contacts-delete"
   status = 200

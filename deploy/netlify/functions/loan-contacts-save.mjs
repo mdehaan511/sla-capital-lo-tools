@@ -39,7 +39,10 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 // Deploy 236.467 — expanded vendor roles (Mike). contractor/realtor/lender/
 // escrow added alongside the original set. Keep in sync with ROLE_LABELS in
 // contacts.html (Vendors page) + loan-details.js + the ctModalRole <select>.
-const VALID_ROLES = ['title', 'insurance', 'inspector', 'appraiser', 'surveyor', 'attorney', 'contractor', 'realtor', 'lender', 'escrow', 'other'];
+// Deploy 236.628 — 'note_servicer' added: Note Servicers are managed in the
+// Vendors book and feed the Note Servicer dropdowns (Close Out / Servicing) via
+// /api/note-servicers-list.
+const VALID_ROLES = ['title', 'insurance', 'inspector', 'appraiser', 'surveyor', 'attorney', 'contractor', 'realtor', 'lender', 'escrow', 'note_servicer', 'other'];
 
 export default async (req, context) => {
   try { return await handle(req, context); }

@@ -2796,6 +2796,12 @@
     // Deploy 236.475 — org-wide Investors book. list() is readable by any LO
     // (they pick an investor on a loan's Funding Plan); save()/del() are
     // admin-gated server-side.
+    // Deploy 236.628 — org-wide Note Servicers list (Vendors with role
+    // 'note_servicer'). Read-only wrapper; management is via the Vendors flow
+    // (loan-contacts-save/-delete). Feeds the Note Servicer dropdowns app-wide.
+    NoteServicers: {
+      list: function () { return api('GET', '/api/note-servicers-list'); },
+    },
     Investors: {
       list: function ()     { return api('GET',  '/api/investors-list'); },
       save: function (data) { return api('POST', '/api/investors-save', data || {}); },

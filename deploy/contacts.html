@@ -170,9 +170,9 @@ var ROLE_LABELS = {
   title: 'Title Co', insurance: 'Insurance', inspector: 'Inspector',
   appraiser: 'Appraiser', surveyor: 'Surveyor', attorney: 'Attorney',
   contractor: 'Contractor', realtor: 'Realtor', lender: 'Lender', escrow: 'Escrow',
-  other: 'Other',
+  note_servicer: 'Note Servicer', other: 'Other',
 };
-var ROLES = ['title','insurance','inspector','appraiser','surveyor','attorney','contractor','realtor','lender','escrow','other'];
+var ROLES = ['title','insurance','inspector','appraiser','surveyor','attorney','contractor','realtor','lender','escrow','note_servicer','other'];
 
 window.netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
