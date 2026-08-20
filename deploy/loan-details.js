@@ -3600,8 +3600,25 @@ function _populateGuarantorSelect() {
   var sel = document.getElementById('borrowerAccessGuarantorSelect');
   if (!sel || !_loan) return;
   var ids = Array.isArray(_loan.guarantorClientIds) ? _loan.guarantorClientIds : [];
+  // Deploy 236.627 — the PRIMARY borrower/guarantor (the _client, shown as
+  // "Guarantor 1 (Primary)" in the Guarantor Info box above) belongs in this
+  // list too. Previously the dropdown listed ONLY the additional
+  // guarantorClientIds, so a loan whose only guarantor is the primary read "No
+  // guarantors on this loan" even though one was clearly displayed — Mike's bug.
+  // The Send Invite handler accepts any email; the backend recognizes the
+  // primary's email as the borrower grant, so inviting them here is the same as
+  // the "Invite Borrower" button.
+  var primaryOpt = '';
+  if (_client && _client.email) {
+    var pname = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim() || _client.email;
+    primaryOpt = '<option value="' + escAttr(_client.email) + '">' + escH(pname) + ' — ' + escH(_client.email) + ' (Primary)</option>';
+  }
   if (!ids.length) {
-    sel.innerHTML = '<option value="">No guarantors on this loan yet — use “+ Add Guarantor” →</option>';
+    // No ADDITIONAL guarantors — still offer the primary if we have their email.
+    sel.innerHTML = primaryOpt
+      ? ('<option value="">Choose a guarantor to invite…</option>' + primaryOpt)
+      : '<option value="">No guarantors on this loan yet — use “+ Add Guarantor” →</option>';
+    _gateBorrowerInvites();
     return;
   }
   var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true }) : SLA.Clients.list({ summary: true });
@@ -3616,7 +3633,9 @@ function _populateGuarantorSelect() {
     pool.forEach(function(c) { if (c && c.id) byId[c.id] = c; });
     var opts = ['<option value="">Choose a guarantor to invite…</option>'];
     var withEmail = 0;
+    if (primaryOpt) { opts.push(primaryOpt); withEmail++; }
     ids.forEach(function(id) {
+      if (_client && id === _client.id) return; // don't list the primary twice
       var c = byId[id];
       if (!c || !c.email) return;
       var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.email;
@@ -3627,7 +3646,11 @@ function _populateGuarantorSelect() {
     sel.innerHTML = opts.join('');
     _gateBorrowerInvites(); // re-apply the In-Processing disabled state
   }).catch(function() {
-    sel.innerHTML = '<option value="">Could not load guarantors</option>';
+    // Even if the additional-guarantor lookup fails, keep the primary invitable.
+    sel.innerHTML = primaryOpt
+      ? ('<option value="">Choose a guarantor to invite…</option>' + primaryOpt)
+      : '<option value="">Could not load guarantors</option>';
+    _gateBorrowerInvites();
   });
 }
 // Deploy 236.534 — Borrower/Broker portal invite (Supabase) + live status,
