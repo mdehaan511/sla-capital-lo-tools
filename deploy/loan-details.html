@@ -392,6 +392,9 @@
     .field textarea { min-height: 80px; resize: vertical; }
     .save-app-btn { height: 42px; padding: 0 22px; background: var(--dark); color: #fff; border: none; border-radius: var(--r-xs); font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
     .save-app-btn:hover { background: var(--gold); }
+    /* Deploy 236.640 — monthly/annual segmented toggle for carrying costs */
+    .pc-seg { padding: 7px 16px; border: none; background: transparent; color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; }
+    .pc-seg.active { background: var(--dark); color: #fff; }
 
     .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 9999; white-space: nowrap; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -1241,6 +1244,6 @@
 <!-- Deploy 236.578 — jsPDF for the Proof of Funds letter download (same CDN the
      sizers use for term sheets). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/loan-details.js?v=236634"></script>
+<script src="/loan-details.js?v=236640"></script>
 </body>
 </html>

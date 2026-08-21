@@ -1564,6 +1564,119 @@ function render() {
     '</div>' +
   '</div>';
 
+  // ── Deploy 236.640 (feat): Loan Terms + Property / Collateral detail
+  // sections — the manual-entry surface for the Baseline→SLA processor
+  // migration. Staff-only (processors / admins, mirroring loan-fields-save's
+  // canOverrideOwner gate). These capture the term-mechanic + collateral
+  // fields Baseline shows that SLA didn't previously persist, REUSING
+  // existing field names so nothing duplicates another editor:
+  //   • loanAmt / rate / points / purchasePrice / arv / rehabBudget →
+  //     Loan Financials (shown here as a read-through note, not re-edited)
+  //   • maturityDate → Servicing section owns it
+  //   • tpo (TPO premium) → Funding Plan owns it
+  //   • beds / baths / sqft / propType / rentalType → Property & Application
+  //   • monthlyTaxes / monthlyInsurance / monthlyHoa → also inline-editable in
+  //     Financials; surfaced here WITH the monthly/annual toggle Mike asked for
+  // Saved via SLA.Loans.saveFields → /api/loan-fields-save (deterministic
+  // clientId+loanId write, strict PG-first). Both blocks are physically
+  // relocated onto the Loan tab in relocateSectionsToTabs().
+  var _isStaffLD = !!(window.SLA && SLA.isProcessor && SLA.isProcessor(_user));
+  if (_isStaffLD) {
+    // Amortization: read l.isIO DIRECTLY (the `isIO` render var above loses a
+    // stored boolean false through its `|| ''` fallback). Map to the select.
+    var _amortRaw = (l.isIO != null && l.isIO !== '') ? l.isIO : (fd.isIO != null ? fd.isIO : '');
+    var _amortVal = (_amortRaw === true || _amortRaw === 'yes' || _amortRaw === 'io' || _amortRaw === 'interest_only' || _amortRaw === '1' || _amortRaw === 1) ? 'io'
+                  : (_amortRaw === false || _amortRaw === 'no' || _amortRaw === 'amortized' || _amortRaw === '0' || _amortRaw === 0) ? 'amortized'
+                  : '';
+    var _lien = String(l.lienPosition || '').toLowerCase();
+    if (_lien === '1' || _lien === '1st') _lien = 'first';
+    if (_lien === '2' || _lien === '2nd') _lien = 'second';
+    // Prepay dropdown — reuse the DSCR sizer's exact option set (dscr-sizer.html:732)
+    var _ppList = [['', '— Select —'], ['5y6m', '5-Year / 6-Month (5Yr/6Mo)'], ['54321', '5-Year (54321)'], ['321', '3-Year (321)'], ['320', '2-Year (320)'], ['300', '1-Year (300)'], ['none', 'No Prepayment Penalty']];
+    var _prepayOpts = '';
+    for (var _ppi = 0; _ppi < _ppList.length; _ppi++) {
+      var _ppo = _ppList[_ppi];
+      _prepayOpts += '<option value="' + _ppo[0] + '"' + (_ppo[0] === String(prepay) ? ' selected' : '') + '>' + escH(_ppo[1]) + '</option>';
+    }
+    // Carrying costs render MONTHLY first (SLA's canonical unit); the toggle
+    // converts the display and stores back to monthly. Reuse the taxes/
+    // insurance/hoa render vars (already monthly-normalized above).
+    var _mTaxes = String(taxes || '');
+    var _mIns   = String(insurance || '');
+    var _mHoa   = String(hoa || '');
+
+    // ---- Loan Terms ----
+    html += '<div class="section" id="loanTermsSection">' +
+      '<div class="section-head"><h2>Loan Terms</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Loan Amount, Rate &amp; Points are managed in <strong>Loan Financials</strong>; Maturity Date in <strong>Servicing</strong>' + (isDscr ? '; TPO premium in <strong>Funding Plan</strong>.' : '.') + '</div>' +
+        '<div class="app-grid">' +
+          '<div class="field"><label>Loan Term (months)</label><input type="number" id="lt-loanTerm" value="' + escAttr(String(l.loanTerm || '')) + '" placeholder="' + (isDscr ? '360' : '12') + '" min="0" /></div>' +
+          '<div class="field"><label>Amortization</label><select id="lt-isIO">' +
+            '<option value=""' + (_amortVal === '' ? ' selected' : '') + '>— Select —</option>' +
+            '<option value="amortized"' + (_amortVal === 'amortized' ? ' selected' : '') + '>Fully Amortized</option>' +
+            '<option value="io"' + (_amortVal === 'io' ? ' selected' : '') + '>Interest-Only</option>' +
+          '</select></div>' +
+          '<div class="field"><label>Lien Position</label><select id="lt-lienPosition">' +
+            '<option value=""' + (_lien === '' ? ' selected' : '') + '>— Select —</option>' +
+            '<option value="first"' + (_lien === 'first' ? ' selected' : '') + '>First</option>' +
+            '<option value="second"' + (_lien === 'second' ? ' selected' : '') + '>Second</option>' +
+          '</select></div>' +
+          '<div class="field"><label>Origination Date</label><input type="date" id="lt-originationDate" value="' + escAttr(String(l.originationDate || '')) + '" /></div>' +
+          '<div class="field"><label>First Payment Date</label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(String(l.firstPaymentDate || '')) + '" /></div>' +
+          (isDscr
+            ? '<div class="field"><label>Prepayment Penalty</label><select id="lt-prepay">' + _prepayOpts + '</select></div>'
+            : '<div class="field"><label>Holdback</label><input type="text" id="lt-holdback" value="' + escAttr(String(l.holdback || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+              '<div class="field"><label>Initial Advance</label><input type="text" id="lt-initialAdvance" value="' + escAttr(String(l.initialAdvance || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+              '<div class="field"><label>Down Payment</label><input type="text" id="lt-downPayment" value="' + escAttr(String(l.downPayment || downPayment || '')) + '" inputmode="decimal" placeholder="$" /></div>') +
+        '</div>' +
+        '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
+          '<button class="save-app-btn" onclick="saveLoanTerms()">Save Loan Terms</button>' +
+          '<span id="loanTermsStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+    // ---- Property / Collateral ----
+    html += '<div class="section" id="propertyCollateralSection">' +
+      '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Beds, baths, sq ft, property type &amp; rental type are in <strong>Property &amp; Application</strong>.</div>' +
+        '<div class="app-grid">' +
+          '<div class="field"><label>Units</label><input type="number" id="pc-numUnits" value="' + escAttr(String(l.numUnits || '')) + '" min="0" /></div>' +
+          '<div class="field"><label>Year Built</label><input type="number" id="pc-yearBuilt" value="' + escAttr(String(l.yearBuilt || '')) + '" min="0" placeholder="e.g. 1998" /></div>' +
+          '<div class="field"><label>Stories / Floors</label><input type="number" id="pc-stories" value="' + escAttr(String(l.stories || '')) + '" min="0" step="0.5" /></div>' +
+          '<div class="field"><label>Lot Size (sq ft)</label><input type="text" id="pc-lotSize" value="' + escAttr(String(l.lotSize || '')) + '" inputmode="decimal" /></div>' +
+          '<div class="field"><label>County</label><input type="text" id="pc-propertyCounty" value="' + escAttr(String(l.propertyCounty || '')) + '" /></div>' +
+          '<div class="field"><label>Flood Zone</label><input type="text" id="pc-floodZone" value="' + escAttr(String(l.floodZone || '')) + '" placeholder="e.g. X, AE, or No" /></div>' +
+          '<div class="field"><label>Purchase Date</label><input type="date" id="pc-purchaseDate" value="' + escAttr(String(l.purchaseDate || '')) + '" /></div>' +
+        '</div>' +
+        '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Valuation</h3>' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. AIV / ARV BPO values drive the loan terms.</div>' +
+        '<div class="app-grid">' +
+          '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(String(l.propValue || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+          '<div class="field"><label>AIV BPO</label><input type="text" id="pc-aivBpo" value="' + escAttr(String(l.aivBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+          (!isDscr ? '<div class="field"><label>ARV BPO</label><input type="text" id="pc-arvBpo" value="' + escAttr(String(l.arvBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' : '') +
+          '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(String(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+        '</div>' +
+        '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Carrying Costs <span id="pc-carryModeLabel" style="text-transform:none;font-weight:500;letter-spacing:0">(monthly)</span></h3>' +
+        '<div style="display:inline-flex;border:1px solid var(--border,#ddd8d0);border-radius:8px;overflow:hidden;margin-bottom:12px">' +
+          '<button type="button" id="pc-carryMonthlyBtn" class="pc-seg active" onclick="pcCarryToggle(\'monthly\')">Monthly</button>' +
+          '<button type="button" id="pc-carryAnnualBtn" class="pc-seg" onclick="pcCarryToggle(\'annual\')">Annual</button>' +
+        '</div>' +
+        '<div class="app-grid">' +
+          '<div class="field"><label>Property Taxes</label><input type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_mTaxes) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
+          '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_mIns) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
+          '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_mHoa) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
+        '</div>' +
+        '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
+          '<button class="save-app-btn" onclick="savePropertyCollateral()">Save Property / Collateral</button>' +
+          '<span id="propCollStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   // Deploy 236.566 — Closing Coordination panel (CD/wire/funding milestones).
   // Renders only for Approved/Closed loans (or any loan whose closing has
   // already been started). Sits right below Funding Plan — same closing
@@ -2139,6 +2252,15 @@ function render() {
     var stage = document.querySelector('.ld-stage');
     var twoCol = stage && stage.querySelector('.two-col');
     if (twoCol) paneLoan.appendChild(twoCol);
+
+    // Deploy 236.640 — Loan Terms + Property/Collateral (staff migration
+    // entry) sit on the Loan tab, just under the Financials/Property two-col.
+    // They're rendered outside .two-col, so move them explicitly (like every
+    // other relocated section). Absent for non-staff → getElementById null → skip.
+    ['loanTermsSection', 'propertyCollateralSection'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) paneLoan.appendChild(el);
+    });
 
     // CONTACTS tab: vesting LLC info (top) / guarantor info /
     // linked guarantors / additional contacts / broker info. Plus a
@@ -5736,6 +5858,157 @@ function saveFundingPlan() {
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Funding Plan'; }
     showToast('Funding plan save failed: ' + (err && err.message || 'unknown error'));
+  });
+}
+
+// ── Deploy 236.640 — Loan Terms + Property/Collateral saves ──────────
+// Both POST to /api/loan-fields-save (SLA.Loans.saveFields) — the
+// deterministic clientId+loanId write, staff-only server-side. On success
+// we merge the applied fields into the in-memory _loan/_client so re-renders
+// + sibling sections stay consistent without a full refetch. Carrying costs
+// are stored MONTHLY regardless of the display toggle.
+var _pcCarryMode = 'monthly';
+
+function _ldOwnerOverride() {
+  return (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+}
+function _ldMergeLoan(fields) {
+  if (!_client || !Array.isArray(_client.loans)) return;
+  var idx = _client.loans.findIndex(function(l){ return l.id === _loanId; });
+  if (idx < 0) return;
+  _client.loans[idx] = Object.assign({}, _client.loans[idx], fields);
+  _loan = _client.loans[idx];
+}
+// Read a numeric field — strip currency/formatting, keep digits/./-.
+function _ldNum(id) {
+  var el = document.getElementById(id);
+  if (!el) return '';
+  return String(el.value == null ? '' : el.value).replace(/[^0-9.\-]/g, '').trim();
+}
+function _ldVal(id) {
+  var el = document.getElementById(id);
+  return el ? String(el.value == null ? '' : el.value).trim() : '';
+}
+function _pcFmt(n) {
+  n = Math.round(n * 100) / 100;
+  return (n % 1 === 0) ? String(n) : n.toFixed(2);
+}
+// Keep each carrying input's canonical MONTHLY value on data-monthly as the
+// user edits, so the monthly/annual toggle never accumulates rounding error.
+function pcCarryInput(el) {
+  if (!el) return;
+  var raw = String(el.value == null ? '' : el.value).replace(/[^0-9.\-]/g, '').trim();
+  if (raw === '') { el.setAttribute('data-monthly', ''); return; }
+  var v = parseFloat(raw);
+  if (!isFinite(v)) { el.setAttribute('data-monthly', ''); return; }
+  var monthly = (_pcCarryMode === 'annual') ? v / 12 : v;
+  el.setAttribute('data-monthly', String(Math.round(monthly * 100) / 100));
+}
+// Toggle the display between monthly and annual. Recomputes each input from
+// its data-monthly base (×12 for annual) so repeated toggles are lossless.
+function pcCarryToggle(mode) {
+  _pcCarryMode = (mode === 'annual') ? 'annual' : 'monthly';
+  var annual = _pcCarryMode === 'annual';
+  var ids = ['pc-taxes', 'pc-insurance', 'pc-hoa'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (!el) continue;
+    var dm = el.getAttribute('data-monthly');
+    if (dm == null || dm === '') { el.value = ''; continue; }
+    var base = parseFloat(dm) || 0;
+    el.value = _pcFmt(annual ? base * 12 : base);
+  }
+  var mb = document.getElementById('pc-carryMonthlyBtn');
+  var ab = document.getElementById('pc-carryAnnualBtn');
+  if (mb && ab) {
+    if (annual) { ab.classList.add('active'); mb.classList.remove('active'); }
+    else { mb.classList.add('active'); ab.classList.remove('active'); }
+  }
+  var lbl = document.getElementById('pc-carryModeLabel');
+  if (lbl) lbl.textContent = annual ? '(annual)' : '(monthly)';
+}
+// The monthly value to persist for a carrying-cost field (data-monthly is kept
+// current by pcCarryInput; fall back to converting the raw display).
+function _pcCarryMonthly(id) {
+  var el = document.getElementById(id);
+  if (!el) return '';
+  var dm = el.getAttribute('data-monthly');
+  if (dm != null && dm !== '') return String(dm);
+  var raw = String(el.value == null ? '' : el.value).replace(/[^0-9.\-]/g, '').trim();
+  if (raw === '') return '';
+  var v = parseFloat(raw);
+  if (!isFinite(v)) return '';
+  return String(Math.round((_pcCarryMode === 'annual' ? v / 12 : v) * 100) / 100);
+}
+
+function saveLoanTerms() {
+  if (!_loan || !_client) return;
+  var isDscr = (_loan.toolType || '') !== 'rtl';
+  var fields = {
+    loanTerm:         _ldNum('lt-loanTerm'),
+    lienPosition:     _ldVal('lt-lienPosition'),
+    originationDate:  _ldVal('lt-originationDate'),
+    firstPaymentDate: _ldVal('lt-firstPaymentDate'),
+  };
+  // Amortization: only send when explicitly chosen — a blank select must not
+  // stamp isIO=false (the backend's _truthy('') would wrongly mark amortized).
+  var amort = _ldVal('lt-isIO');
+  if (amort === 'io' || amort === 'amortized') fields.isIO = amort;
+  if (isDscr) {
+    fields.prepay = _ldVal('lt-prepay');
+  } else {
+    fields.holdback       = _ldNum('lt-holdback');
+    fields.initialAdvance = _ldNum('lt-initialAdvance');
+    fields.downPayment    = _ldNum('lt-downPayment');
+  }
+  var btn = document.querySelector('#loanTermsSection .save-app-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function() {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Loan Terms'; }
+    var merged = Object.assign({}, fields);
+    if (fields.isIO === 'io') merged.isIO = true;
+    else if (fields.isIO === 'amortized') merged.isIO = false;
+    else delete merged.isIO;
+    _ldMergeLoan(merged);
+    var s = document.getElementById('loanTermsStatus');
+    if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
+    showToast('Loan terms saved');
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Loan Terms'; }
+    showToast('Save failed: ' + (err && err.message || 'unknown error'));
+  });
+}
+
+function savePropertyCollateral() {
+  if (!_loan || !_client) return;
+  var isDscr = (_loan.toolType || '') !== 'rtl';
+  var fields = {
+    numUnits:         _ldNum('pc-numUnits'),
+    yearBuilt:        _ldNum('pc-yearBuilt'),
+    stories:          _ldNum('pc-stories'),
+    lotSize:          _ldNum('pc-lotSize'),
+    propertyCounty:   _ldVal('pc-propertyCounty'),
+    floodZone:        _ldVal('pc-floodZone'),
+    purchaseDate:     _ldVal('pc-purchaseDate'),
+    propValue:        _ldNum('pc-propValue'),
+    aivBpo:           _ldNum('pc-aivBpo'),
+    currentLoanAmt:   _ldNum('pc-currentLoanAmt'),
+    monthlyTaxes:     _pcCarryMonthly('pc-taxes'),
+    monthlyInsurance: _pcCarryMonthly('pc-insurance'),
+    monthlyHoa:       _pcCarryMonthly('pc-hoa'),
+  };
+  if (!isDscr) fields.arvBpo = _ldNum('pc-arvBpo');
+  var btn = document.querySelector('#propertyCollateralSection .save-app-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function() {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Property / Collateral'; }
+    _ldMergeLoan(fields);
+    var s = document.getElementById('propCollStatus');
+    if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
+    showToast('Property / collateral saved');
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Property / Collateral'; }
+    showToast('Save failed: ' + (err && err.message || 'unknown error'));
   });
 }
 
