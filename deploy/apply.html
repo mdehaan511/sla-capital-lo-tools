@@ -207,6 +207,39 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       </div>
     </div>
 
+    <!-- Deploy 236.635 — Borrower Information for BROKER submissions. Shown only
+         in broker mode, directly below Broker Information. The broker names the
+         borrower they're representing; on submit the borrower is added as a
+         Guarantor client on the loan, and their name + email flow onto the Rate
+         Sheet + Loan Application PDFs (instead of the broker's). -->
+    <div class="card" id="brokerBorrowerCard" style="display:none">
+      <div class="card-head"><div class="step">B2</div>Borrower Information</div>
+      <div class="card-body">
+        <p style="font-size:12.5px;color:var(--muted);margin:-2px 0 14px;line-height:1.5">The borrower you're representing. They'll be added as a guarantor on the loan, and their name is what appears on the rate sheet and loan application.</p>
+        <div class="field">
+          <div class="wrap" id="wrap-bkBorrowerFirst">
+            <label>Borrower First Name <span class="req">*</span></label>
+            <input type="text" id="bkBorrowerFirst" oninput="clearE('bkBorrowerFirst')" />
+          </div>
+          <div class="err-msg" id="err-bkBorrowerFirst">Required</div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-bkBorrowerLast">
+            <label>Borrower Last Name <span class="req">*</span></label>
+            <input type="text" id="bkBorrowerLast" oninput="clearE('bkBorrowerLast')" />
+          </div>
+          <div class="err-msg" id="err-bkBorrowerLast">Required</div>
+        </div>
+        <div class="field">
+          <div class="wrap" id="wrap-bkBorrowerEmail">
+            <label>Borrower Email <span class="req">*</span></label>
+            <input type="email" id="bkBorrowerEmail" oninput="clearE('bkBorrowerEmail')" />
+          </div>
+          <div class="err-msg" id="err-bkBorrowerEmail">Valid borrower email required</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Step 1: Your Information -->
     <!-- Deploy 236.227 (Broker Phase D) — this whole card hides when
          the submitter is a broker. Brokers no longer collect borrower
@@ -688,6 +721,10 @@ function setSubmitter(type) {
   // captured at Advance to Approved (Phase E).
   var borrowerInfoCard = document.getElementById('borrowerInfoCard');
   if (borrowerInfoCard) borrowerInfoCard.style.display = (type === 'broker') ? 'none' : '';
+  // Deploy 236.635 — the broker's Borrower Information card is the mirror image:
+  // shown ONLY in broker mode (the broker names the borrower they represent).
+  var brokerBorrowerCard = document.getElementById('brokerBorrowerCard');
+  if (brokerBorrowerCard) brokerBorrowerCard.style.display = (type === 'broker') ? '' : 'none';
   // Re-label Step 1 — "Your Information" for the borrower-self path.
   // (Broker path hides the card; label is moot in that state.)
   var bct = document.getElementById('borrowerCardTitle');
@@ -883,6 +920,17 @@ function validate() {
     // on Phase E's borrower-info capture.
     if (!gv('brokerUsCitizen'))    { showE('brokerUsCitizen'); ok=false; }
     if (!gv('brokerCreditScore'))  { showE('brokerCreditScore', 'Please select a credit score range'); ok=false; }
+    // Deploy 236.635 — the borrower the broker is representing. First/Last/Email
+    // are required. The borrower's email must be their OWN — if it matches the
+    // broker's email, the borrower's email is effectively missing.
+    if (!gv('bkBorrowerFirst')) { showE('bkBorrowerFirst'); ok=false; }
+    if (!gv('bkBorrowerLast'))  { showE('bkBorrowerLast');  ok=false; }
+    var bbem = gv('bkBorrowerEmail');
+    if (!bbem || !bbem.includes('@')) {
+      showE('bkBorrowerEmail', 'Valid borrower email required'); ok=false;
+    } else if (bbem.toLowerCase() === String(bem || '').toLowerCase()) {
+      showE('bkBorrowerEmail', "The borrower's email is required — it can't be the same as the broker's email."); ok=false;
+    }
   }
 
   return ok;
@@ -948,6 +996,11 @@ function submitApp() {
     brokerCompany: (_submitterType === 'broker') ? gv('brokerCompany') : '',
     brokerEmail:   (_submitterType === 'broker') ? gv('brokerEmail')   : '',
     brokerPhone:   (_submitterType === 'broker') ? gv('brokerPhone')   : '',
+    // Deploy 236.635 — the borrower the broker is representing. Server adds them
+    // as a Guarantor client on the loan + uses their name/email on the PDFs.
+    borrowerFirstName: _isBroker ? gv('bkBorrowerFirst') : '',
+    borrowerLastName:  _isBroker ? gv('bkBorrowerLast')  : '',
+    borrowerEmail:     _isBroker ? gv('bkBorrowerEmail') : '',
     // Deploy 236.464 — marketing referral source (?ref=). '' when the
     // borrower reached apply.html without a ref tag.
     ref:           _ref,

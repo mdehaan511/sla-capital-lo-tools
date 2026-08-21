@@ -33,6 +33,9 @@ import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.34
 import { writeClient } from './_shared/client-write.mjs';
 // Deploy 236.445 (Hardening F1) — abuse ceiling on the OPEN apply form.
 import { checkRateLimit } from './_shared/rate-limit.mjs';
+// Deploy 236.635 — broker submissions name the borrower they represent; link that
+// borrower to the loan as a Guarantor client (shared dedupe-by-email helper).
+import { linkGuarantorToLoan } from './_shared/guarantor-link.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -84,6 +87,14 @@ export default async (req, context) => {
     if (!brokerEmail || !brokerEmail.includes('@')) return json(400, { error: 'Valid broker email required' });
     if (!brokerName) return json(400, { error: 'Broker name required' });
     if (brokerEmail.length > 200) return json(400, { error: 'Invalid broker email' });
+    // Deploy 236.635 — the borrower the broker represents. Their email must be
+    // their OWN; matching the broker's email means the borrower email is missing.
+    // (Lenient on absent fields so a stale cached form still submits — the
+    // guarantor is only created when borrower info is present.)
+    const _bbEmail = normalizeEmail(body.borrowerEmail);
+    if (_bbEmail && _bbEmail === brokerEmail) {
+      return json(400, { error: "The borrower's email is required — it can't be the same as the broker's email." });
+    }
   } else {
     if (!email || !email.includes('@')) return json(400, { error: 'Valid email required' });
     if (!firstName && !lastName) return json(400, { error: 'Name required' });
@@ -136,6 +147,13 @@ export default async (req, context) => {
     brokerCompany: String(body.brokerCompany || ''),
     brokerEmail:   String(body.brokerEmail   || '').toLowerCase().trim(),
     brokerPhone:   String(body.brokerPhone   || ''),
+    // Deploy 236.635 — the borrower a broker is representing. MUST be allowlisted
+    // here or it's silently dropped (see the broker-fields note above).
+    // upsertClientFromProspect stamps these onto the loan + links the borrower as
+    // a Guarantor client.
+    borrowerFirstName: String(body.borrowerFirstName || '').trim().slice(0, 100),
+    borrowerLastName:  String(body.borrowerLastName  || '').trim().slice(0, 100),
+    borrowerEmail:     String(body.borrowerEmail     || '').toLowerCase().trim().slice(0, 200),
     // Deploy 236.464 — marketing referral source captured from ?ref= on
     // apply.html (links from slacapital.ai). MUST be in this allowlist or
     // it's silently dropped (see the broker-fields note above). Length-
@@ -351,6 +369,12 @@ async function upsertClientFromProspect(prospect, loEmail) {
     brokerEmail:   prospect.brokerEmail   || '',
     brokerPhone:   prospect.brokerPhone   || '',
     brokerFee:     prospect.brokerFee     || '',
+    // Deploy 236.635 — for broker submissions, the borrower the broker named. The
+    // primary client is the broker, so the Rate Sheet + Loan Application PDFs read
+    // these to show the BORROWER (not the broker). The borrower is also linked as
+    // a Guarantor client below.
+    borrowerName:  isBrokerSubmission ? ((prospect.borrowerFirstName || '') + ' ' + (prospect.borrowerLastName || '')).trim() : '',
+    borrowerEmail: isBrokerSubmission ? normalizeEmail(prospect.borrowerEmail || '') : '',
     fromApplication: true,
     // Deploy 236.465 — carry the marketing referral source (?ref= captured on
     // apply.html) onto the loan so it's visible on the deal, not just the
@@ -456,6 +480,37 @@ async function upsertClientFromProspect(prospect, loEmail) {
   // too, across all branches. First ref wins — don't overwrite an existing one
   // on a returning contact who came back through a different link.
   if (prospect.ref && !record.ref) record.ref = prospect.ref;
+
+  // Deploy 236.635 — add the borrower the broker named as a Guarantor client on
+  // this loan. Non-fatal: a link failure must not cost the LO the loan. The
+  // dedupe-by-email helper mutates loan.guarantorClientIds on `loan` (which lives
+  // in record.loans) + writes the guarantor client; the writeClient(record) below
+  // then persists the primary (broker) client with the link in place.
+  if (isBrokerSubmission && prospect.borrowerEmail) {
+    const _bEmail = normalizeEmail(prospect.borrowerEmail);
+    if (_bEmail && _bEmail !== lookupEmail) {
+      try {
+        await linkGuarantorToLoan({
+          ownerKey,
+          primaryClientId: record.id,
+          loanId: loan.id,
+          primary: record,
+          loan,
+          clientsStore,
+          guarantor: {
+            firstName: prospect.borrowerFirstName || '',
+            lastName:  prospect.borrowerLastName  || '',
+            email:     _bEmail,
+          },
+          createdVia: '_createdViaBrokerApply',
+        });
+        console.log(`${tag} linked borrower guarantor ${_bEmail} to loan ${loan.id}`);
+      } catch (e) {
+        console.warn(`${tag} borrower guarantor link failed (non-fatal):`, e && e.message);
+      }
+    }
+  }
+
   try {
     // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
     await writeClient(ownerKey, record, { clientsStore });
