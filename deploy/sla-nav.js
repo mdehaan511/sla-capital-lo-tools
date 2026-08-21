@@ -65,8 +65,9 @@
         { label: 'Clients',  href: '/clients.html'  },
         { label: 'Brokers',  href: '/brokers.html'  },
         { label: 'Vendors', href: '/contacts.html' },
-        // Deploy 236.475 — admin-only investor book.
-        { label: 'Investors', href: '/investors.html', requires: 'admin' },
+        // Deploy 236.475 — investor book. Deploy 236.645 — opened to processors
+        // (read-only; the Funding Plan investor picker already reads this list).
+        { label: 'Investors', href: '/investors.html', requires: 'processor' },
       ],
     },
     // Deploy 236.188 — replaces the standalone Submissions link.
@@ -84,7 +85,9 @@
     // Deploy 236.121 — standalone Doc Review pages deleted; the
     // experience lives inside the Documents tab on Loan Details now.
     // Processors get to a review by opening any loan → Documents.
-    { label: 'Dashboard',   href: '/dashboard.html',   requires: 'admin' },
+    // Deploy 236.645 — opened to processors (reporting charts; the Baseline
+    // migration tools inside the page stay admin-only and hide for processors).
+    { label: 'Dashboard',   href: '/dashboard.html',   requires: 'processor' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile
     // page for admins (same surface). Keeping it as a separate top-level
     // link was redundant.

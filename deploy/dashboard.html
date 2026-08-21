@@ -652,14 +652,29 @@ function loanClosedInRange(loan) {
 // ── Init ──────────────────────────────────────────────────────────
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
-  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+  // Deploy 236.645 — opened to processors (staff). The reporting charts read the
+  // Baseline mirror, which canListAllClients already grants processors. The
+  // Baseline migration tools (Sync / Merge Duplicates) stay admin-only and are
+  // hidden below for non-admins.
+  if (!(SLA.isProcessor && SLA.isProcessor(user))) {
     document.getElementById('auth-gate').innerHTML =
-      '<div class="gate-msg"><strong>Access denied.</strong><br/>This page is for admins only.</div>';
+      '<div class="gate-msg"><strong>Access denied.</strong><br/>This page is for staff (processors &amp; admins) only.</div>';
     return;
   }
   _user = user;
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('page').style.display = '';
+  // Deploy 236.645 — hide the admin-only Baseline migration controls from
+  // non-admin staff (processors). They're server-side admin-gated too, but
+  // processors shouldn't see the buttons at all.
+  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+    ['mirrorSyncBtn', 'mergeDupesBtn', 'mirrorForce'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var host = (el.parentElement && el.parentElement.tagName === 'LABEL') ? el.parentElement : el;
+      host.style.display = 'none';
+    });
+  }
   loadMirror();
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });

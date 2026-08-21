@@ -89,6 +89,12 @@
       .inv-head .h-poc, .inv-head .h-email, .inv-row .c-poc, .inv-row .c-email { display: none; }
       .vm-grid { grid-template-columns: 1fr; }
     }
+    /* Deploy 236.645 — processor (non-admin) read-only view: no add / delete /
+       save controls, and rows aren't click-to-edit. */
+    .inv-readonly .add-btn,
+    .inv-readonly .inv-del,
+    .inv-readonly #imSaveBtn { display: none !important; }
+    .inv-readonly .inv-row { cursor: default; }
   </style>
 </head>
 <body>
@@ -210,12 +216,16 @@ buildLoanTypePanel();
   if (!(window.SLA && SLA.getCurrentUser)) { setTimeout(init, 120); return; }
   SLA.getCurrentUser().then(function (user) {
     if (!user) { window.location.replace('/'); return; }
-    if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+    // Deploy 236.645 — opened to processors (staff). Processors get a READ-ONLY
+    // view (investors-save / investors-delete are admin-only server-side); the
+    // add / edit-save / delete controls are hidden for non-admins via CSS.
+    if (!(SLA.isProcessor && SLA.isProcessor(user))) {
       document.getElementById('auth-gate').innerHTML =
-        '<div class="gate-msg"><strong>Admin access required.</strong>The Investors book is admin-only. <a href="/">Back to home</a></div>';
+        '<div class="gate-msg"><strong>Staff access required.</strong>The Investors book is for processors &amp; admins. <a href="/">Back to home</a></div>';
       return;
     }
     _user = user;
+    if (!(SLA.isAdmin && SLA.isAdmin(user))) document.body.classList.add('inv-readonly');
     document.getElementById('auth-gate').style.display = 'none';
     document.getElementById('appWrap').style.display = 'block';
     loadAll();
