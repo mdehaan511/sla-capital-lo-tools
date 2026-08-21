@@ -677,6 +677,9 @@ function render() {
   var isDscr = (l.toolType||'') !== 'rtl';
   var status = l.status || 'active';
   var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
+  // Deploy 236.643 — hoisted so the header status dropdown (next to Actions)
+  // and the Actions-menu Merge button both see it.
+  var _isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
 
   // Map loan status → Pipeline column label, mirroring pipeline.html's
   // own bucket logic (lines ~717). Terminal statuses (on_hold, denied,
@@ -819,6 +822,24 @@ function render() {
         '</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:10px">' +
+        // Deploy 236.643 — Change Status dropdown, admin-only, sits at the top
+        // right next to the Actions dropdown (moved here from Loan Financials
+        // per Mike). onchange → adminMoveStatus() (confirm-gated, audit-logged,
+        // bypasses flow gates); a cancelled confirm resets the select.
+        (_isAdminUser
+          ? '<select id="adminStatusPick" onchange="adminMoveStatus()" title="Change loan status (admin) — bypasses flow gates, audit-logged in Notes" ' +
+              'style="padding:9px 12px;border:1.5px solid var(--border, #E4DFD4);border-radius:8px;font-family:DM Sans,sans-serif;font-size:12px;font-weight:600;color:var(--dark);background:#fff;cursor:pointer;max-width:180px">' +
+              '<option value="">Change Status…</option>' +
+              '<option value="active">Quoted (active)</option>' +
+              '<option value="on_hold">On Hold</option>' +
+              '<option value="submitted">Submitted - Pending Review</option>' +
+              '<option value="awaiting_app">Awaiting Application</option>' +
+              '<option value="approved">In Processing (approved)</option>' +
+              '<option value="closed">Closed</option>' +
+              '<option value="denied">Declined</option>' +
+              '<option value="cancelled">Cancelled</option>' +
+            '</select>'
+          : '') +
         // Deploy 236.102 — Actions dropdown aggregates the Rate Sheet
         // + Loan App buttons that used to clutter the Financials box.
         // The 6 buttons get moved into #ldActionsMenu by JS after
@@ -895,33 +916,9 @@ function render() {
     '<div class="section-head"><h2>Loan Financials</h2></div>' +
     '<div class="section-body">';
 
-  // Deploy 236.641 — Loan Status changer moved to the TOP of Loan Financials
-  // (was the "Manual Status Move" at the bottom of the dismantled Change Loan
-  // Status box). Admin-only + audit-logged since it bypasses flow gates. The
-  // everyday Change-Type / Cancel / Decline / Merge / Delete actions moved to
-  // the Actions menu; the Baseline sync log is hidden.
-  var _isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
-  if (_isAdminUser) {
-    html += '<div style="margin:0 0 16px;padding:10px 12px;border:1px solid var(--border, #E4DFD4);border-radius:var(--r-xs, 6px);background:var(--surface, #fff)">' +
-      '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Loan Status</div>' +
-      '<div style="display:flex;gap:8px;align-items:center">' +
-        '<select id="adminStatusPick" style="flex:1;padding:9px 10px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:\'DM Sans\',sans-serif;font-size:13px;background:#fff">' +
-          '<option value="">Change status…</option>' +
-          '<option value="active">Quoted (active)</option>' +
-          '<option value="on_hold">On Hold</option>' +
-          '<option value="submitted">Submitted - Pending Review</option>' +
-          '<option value="awaiting_app">Awaiting Application</option>' +
-          '<option value="approved">In Processing (approved)</option>' +
-          '<option value="closed">Closed</option>' +
-          '<option value="denied">Declined</option>' +
-          '<option value="cancelled">Cancelled</option>' +
-        '</select>' +
-        '<button type="button" onclick="adminMoveStatus()" class="open-sizer-btn" style="margin:0;padding:9px 16px;background:var(--accent, #C8813A);color:#fff;border-color:var(--accent, #C8813A);width:auto;white-space:nowrap">Move</button>' +
-      '</div>' +
-      '<div id="adminStatusMsg" style="font-size:11px;min-height:14px;margin-top:6px;color:var(--muted)"></div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:4px;font-style:italic">Bypasses normal flow gates — audit-logged on the loan and visible in Notes.</div>' +
-    '</div>';
-  }
+  // Deploy 236.643 — the Loan Status changer moved OUT of Loan Financials up
+  // to the page header, right next to the Actions dropdown (rendered in the
+  // header build above). `_isAdminUser` is declared near the top of render().
 
   if (isDscr) {
     // Format loan purpose for display (e.g., "purchase" -> "Purchase")
@@ -6615,16 +6612,14 @@ function adminMoveStatus() {
   }
   var sel = document.getElementById('adminStatusPick');
   var msg = document.getElementById('adminStatusMsg');
+  // Deploy 236.643 — the control lives in the page header now (next to Actions)
+  // with no inline message line, so fall back to a toast when #adminStatusMsg
+  // is absent.
+  function _say(t, err){ if (msg) { msg.textContent = t; msg.style.color = err ? '#7c1f1f' : 'var(--muted)'; } else if (err) { showToast(t); } }
   if (!sel) return;
   var target = sel.value;
-  if (!target) {
-    if (msg) { msg.textContent = 'Pick a target status first.'; msg.style.color = '#7c1f1f'; }
-    return;
-  }
-  if (target === _loan.status) {
-    if (msg) { msg.textContent = 'Loan is already in that status.'; msg.style.color = '#7c1f1f'; }
-    return;
-  }
+  if (!target) return;
+  if (target === _loan.status) { _say('Loan is already in that status.', true); sel.value = ''; return; }
   var labelMap = {
     active: 'Quoted', on_hold: 'On Hold', submitted: 'Submitted',
     awaiting_app: 'Awaiting Application', approved: 'In Processing',
@@ -6637,9 +6632,9 @@ function adminMoveStatus() {
     openBrokerBorrowerCaptureModal(function onCaptured() { adminMoveStatus(); });
     return;
   }
-  if (!confirm('Manually move this loan to "' + human + '"?\n\nThis bypasses the normal flow. The change will be visible in the Notes audit log.')) return;
+  if (!confirm('Manually move this loan to "' + human + '"?\n\nThis bypasses the normal flow. The change will be visible in the Notes audit log.')) { sel.value = ''; return; }
 
-  if (msg) { msg.textContent = 'Moving…'; msg.style.color = 'var(--muted)'; }
+  _say('Moving…', false);
   var body = { clientId: _client.id, loanId: _loanId, newStatus: target };
   if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
 
@@ -6654,7 +6649,8 @@ function adminMoveStatus() {
   .then(function(resp) {
     if (!resp.ok || !resp.body.success) {
       var emsg = (resp.body && resp.body.error) || ('Request failed (' + resp.status + ')');
-      if (msg) { msg.textContent = 'Failed: ' + emsg; msg.style.color = '#7c1f1f'; }
+      _say('Failed: ' + emsg, true);
+      if (sel) sel.value = '';
       return;
     }
     showToast('Status moved to ' + human);
@@ -6663,7 +6659,8 @@ function adminMoveStatus() {
     setTimeout(function(){ window.location.reload(); }, 600);
   })
   .catch(function(err) {
-    if (msg) { msg.textContent = 'Failed: ' + (err.message || 'unknown'); msg.style.color = '#7c1f1f'; }
+    _say('Failed: ' + (err.message || 'unknown'), true);
+    if (sel) sel.value = '';
   });
 }
 
