@@ -282,8 +282,11 @@ function buildPrefill(client, loan, loInfo) {
   const fd = (loan && loan.formData) || {};
   let borrowerSrc;
   if (isBrokerLoan) {
-    // Split loan.formData.borrower name string into first/last if present.
-    const borrowerName = String(fd.borrower || fd.borrowerName || loan.borrower || '').trim();
+    // Split the broker-named borrower into first/last if present.
+    // Deploy 236.636 — include loan.borrowerName (stamped by prospects-save when a
+    // broker names the borrower on the short app), so the loan application prefills
+    // with the BORROWER, not the broker. Email already reads loan.borrowerEmail.
+    const borrowerName = String(fd.borrower || fd.borrowerName || loan.borrower || loan.borrowerName || '').trim();
     const nameParts = borrowerName.split(/\s+/);
     borrowerSrc = {
       firstName: nameParts.slice(0, -1).join(' ') || nameParts[0] || '',
