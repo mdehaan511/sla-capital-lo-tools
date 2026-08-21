@@ -2245,6 +2245,18 @@
       });
     },
     /**
+     * Deploy 236.639 — save the Loan Terms / Property-Collateral section fields.
+     * { clientId, loanId, owner?, fields:{...whitelisted} }. Staff-only server-side.
+     */
+    saveFields: function (clientId, loanId, fields, ownerOverride) {
+      var body = { clientId: clientId, loanId: loanId, fields: fields || {} };
+      if (ownerOverride) body.owner = ownerOverride;
+      return api('POST', '/api/loan-fields-save', body).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
+    /**
      * Deploy 195: cancel a loan that\u2019s in awaiting_app or approved.
      * For approved loans that ended up not closing. Backend records a
      * full audit trail (_cancelledAt, _cancelledBy, _cancelledFrom,

@@ -1267,6 +1267,13 @@
   status = 200
   force = true
 
+# Deploy 236.639 — Loan Terms + Property/Collateral section save (manual detail entry).
+[[redirects]]
+  from = "/api/loan-fields-save"
+  to = "/.netlify/functions/loan-fields-save"
+  status = 200
+  force = true
+
 # Hardening Phase A2 — frontend error beacon. Accepts anonymous posts
 # (public borrower pages need coverage most); throttled server-side.
 [[redirects]]

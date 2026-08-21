@@ -103,6 +103,13 @@ export async function syncPropertyFieldsToLoan(record) {
   if (data.planDescription) loanUpdates.projectDescription = String(data.planDescription);
   if (data.dscrCloseDate) loanUpdates.fundingDate = String(data.dscrCloseDate);
   if (data.ffCloseDate)   loanUpdates.fundingDate = String(data.ffCloseDate);
+  // Deploy 236.639 — property facts the long app collects that used to be dropped
+  // on the floor. These map onto the loan's Property/Collateral section so a NEW
+  // application populates the same fields a processor would fill in manually.
+  if (data.floodZone) loanUpdates.floodZone = String(data.floodZone);
+  if (data.lotSize)   loanUpdates.lotSize   = String(data.lotSize);
+  if (data.numUnits)  loanUpdates.numUnits  = String(data.numUnits);
+  if (data.originalPurchaseDate) loanUpdates.purchaseDate = String(data.originalPurchaseDate);
 
   // Deploy 236.127 — guarantor ownership propagation. The long
   // app's % ownership field per guarantor (g0_ownership /
