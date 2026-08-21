@@ -4248,13 +4248,26 @@ netlifyIdentity.on('init', function(user) {
         // Matches the DSCR fix + the 228.1 pattern already in
         // applyLockedOverrideIfAny for the loadFromQuote path.
         if (clientRec) {
-          var _freshName  = ((clientRec.firstName || '') + ' ' + (clientRec.lastName || '')).trim();
-          var _freshEmail = (clientRec.email || '').toLowerCase();
-          var _freshPhone = clientRec.phone || '';
           fd = Object.assign({}, fd);
-          if (_freshName)  { fd.borrower      = _freshName; fd.borrowerName = _freshName; }
-          if (_freshEmail) fd.borrowerEmail = _freshEmail;
-          if (_freshPhone) fd.borrowerPhone = _freshPhone;
+          // Deploy 236.637 — for a BROKER loan the client record is the BROKER,
+          // not the borrower; refreshing the borrower fields from it put the
+          // broker's name/email on the rate sheet. Broker loans use the loan's
+          // stamped borrower (loan.borrowerName/borrowerEmail, set by the broker
+          // short app). Normal loans (borrower IS the client) keep the refresh.
+          var _isBrokerLoanRec = !!(found._isBrokerLoan || found.brokerId || found.brokerName);
+          if (_isBrokerLoanRec) {
+            var _bName  = String(found.borrowerName || fd.borrowerName || fd.borrower || '').trim();
+            var _bEmail = String(found.borrowerEmail || fd.borrowerEmail || '').toLowerCase();
+            if (_bName)  { fd.borrower = _bName; fd.borrowerName = _bName; }
+            if (_bEmail) fd.borrowerEmail = _bEmail;
+          } else {
+            var _freshName  = ((clientRec.firstName || '') + ' ' + (clientRec.lastName || '')).trim();
+            var _freshEmail = (clientRec.email || '').toLowerCase();
+            var _freshPhone = clientRec.phone || '';
+            if (_freshName)  { fd.borrower      = _freshName; fd.borrowerName = _freshName; }
+            if (_freshEmail) fd.borrowerEmail = _freshEmail;
+            if (_freshPhone) fd.borrowerPhone = _freshPhone;
+          }
         }
         // If address is one combined string but no street/city/state fields,
         // try to parse them so the form fields populate correctly. Otherwise
