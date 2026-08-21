@@ -130,6 +130,8 @@
   function bind() {
     var input = document.getElementById('slaSearchInput');
     var results = document.getElementById('slaSearchResults');
+    // Deploy 236.631 — confirm the bar mounted + whether the search API is present.
+    try { console.log('[SLA search] mounted; SLA?', !!window.SLA, 'Search.query?', !!(window.SLA && SLA.Search && SLA.Search.query)); } catch (_) {}
 
     _detectStaff();
     if (window.netlifyIdentity) {
@@ -197,9 +199,14 @@
     _memo[key] = resp;
   }
 
+  function _showErr(results, msg) {
+    if (results) results.innerHTML = '<div class="empty" style="color:#7c1f1f">' + escH(msg || 'Search failed') + '</div>';
+  }
+
   function runSearch(q) {
     _lastQ = q;
     var results = document.getElementById('slaSearchResults');
+    if (!results) return;
     results.style.display = 'block';
     var memoKey = _scope + '|' + q.toLowerCase();
     if (_memo[memoKey]) {
@@ -212,17 +219,42 @@
       results.innerHTML = '<div class="empty">Searching…</div>';
     }, 250);
 
-    SLA.Search.query(q, { all: _scope === 'all' }).then(function (resp) {
+    // Deploy 236.631 — surface failures instead of failing silently. Previously a
+    // synchronous throw here (e.g. SLA / SLA.Search not ready, or api() throwing
+    // before returning a promise) escaped into the debounce setTimeout and left the
+    // box empty with nothing rendered ("typing does nothing"). Now every failure
+    // mode renders a visible reason + logs it.
+    try {
+      if (!(window.SLA && SLA.Search && typeof SLA.Search.query === 'function')) {
+        clearTimeout(slowTimer);
+        _showErr(results, 'Search is still loading — refresh the page if this persists.');
+        console.warn('[SLA search] SLA.Search.query unavailable at query time; SLA?', !!window.SLA, 'Search?', !!(window.SLA && SLA.Search));
+        return;
+      }
+      var p = SLA.Search.query(q, { all: _scope === 'all' });
+      if (!p || typeof p.then !== 'function') {
+        clearTimeout(slowTimer);
+        _showErr(results, 'Search failed to start.');
+        console.warn('[SLA search] SLA.Search.query did not return a promise:', p);
+        return;
+      }
+      p.then(function (resp) {
+        clearTimeout(slowTimer);
+        _memoPut(memoKey, resp);
+        // Drop stale responses if user kept typing
+        var input = document.getElementById('slaSearchInput');
+        if (input && input.value.trim() !== q) return;
+        render(resp || {});
+      }).catch(function (err) {
+        clearTimeout(slowTimer);
+        _showErr(results, (err && err.message) || 'Search failed');
+        console.warn('[SLA search] query rejected:', err);
+      });
+    } catch (e) {
       clearTimeout(slowTimer);
-      _memoPut(memoKey, resp);
-      // Drop stale responses if user kept typing
-      var input = document.getElementById('slaSearchInput');
-      if (input.value.trim() !== q) return;
-      render(resp);
-    }).catch(function (err) {
-      clearTimeout(slowTimer);
-      results.innerHTML = '<div class="empty" style="color:#7c1f1f">' + escH(err.message || 'Search failed') + '</div>';
-    });
+      _showErr(results, (e && e.message) || 'Search failed');
+      console.warn('[SLA search] query threw synchronously:', e);
+    }
   }
 
   function loanLink(r) {
