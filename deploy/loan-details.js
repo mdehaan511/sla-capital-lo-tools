@@ -700,12 +700,20 @@ function render() {
   var sizerUrl  = sizerPage + '?' + sizerParams;
   // Deploy 236.157 — Back now goes to the appropriate pipeline
   // (the page the LO most often arrived from), not to the
-  // borrower's Client Details page. Closed loans route to
-  // closed.html; everything else routes to pipeline.html. The
-  // breadcrumb's middle link mirrors this; the borrower's
-  // name is still a click away via the Contacts tab.
-  var backPage  = (status === 'closed') ? '/closed.html' : '/pipeline.html';
-  var backLabel = (status === 'closed') ? 'Closed Loans' : 'Pipeline';
+  // borrower's Client Details page. The breadcrumb's middle link
+  // mirrors this; the borrower's name is still a click away via
+  // the Contacts tab.
+  // Deploy 236.634 — loans that have moved into the Processing pipeline
+  // (approved / any processing stage) go BACK to processing-pipeline.html,
+  // not the Leads pipeline — that's where they now live after the
+  // sales→processing handoff. Closed → closed.html; leads → pipeline.html.
+  var _backProcessing = (status !== 'closed') && isInProcessing(l);
+  var backPage  = (status === 'closed') ? '/closed.html'
+                : _backProcessing        ? '/processing-pipeline.html'
+                :                          '/pipeline.html';
+  var backLabel = (status === 'closed') ? 'Closed Loans'
+                : _backProcessing        ? 'Processing Pipeline'
+                :                          'Pipeline';
   var backUrl   = backPage;
   if (_loEmail && _user && _loEmail !== _user.email) backUrl += '?owner=' + encodeURIComponent(_loEmail);
 
