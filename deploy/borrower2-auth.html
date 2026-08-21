@@ -45,9 +45,30 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .status-banner.error{background:#fdebec;border:1px solid #f3c1c4;color:var(--danger)}
 .status-banner.success{background:#e6f4ec;border:1px solid #b9dcc7;color:var(--success)}
 .loading{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
+/* Deploy 236.642 — co-signer "Your Information" verify/complete form */
+.info-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:20px 22px;margin:22px 0}
+.info-card h2{font-family:'Lora',serif;font-size:17px;font-weight:600;color:var(--dark);margin-bottom:4px}
+.info-card .sub{font-size:12.5px;color:var(--muted);margin-bottom:16px;line-height:1.5}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.fgrid .full{grid-column:1 / -1}
+.fld label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:5px}
+.fld input,.fld select{width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);background:#fff}
+.fld input:focus,.fld select:focus{outline:none;border-color:var(--gold)}
+.fld .fldhint{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4}
+.radio-row{display:flex;gap:8px;flex-wrap:wrap}
+.radio-opt{flex:1;min-width:76px}
+.radio-opt input{display:none}
+.radio-opt label{display:block;text-align:center;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;text-transform:none;letter-spacing:0;margin:0}
+.radio-opt input:checked + label{border-color:var(--gold);background:var(--gold-light);color:var(--gold-mid);font-weight:600}
+.decl-q{padding:11px 0;border-bottom:1px solid var(--border)}
+.decl-q:last-child{border-bottom:0}
+.decl-q .q{font-size:13px;line-height:1.45;margin-bottom:7px}
+.ssn-onfile{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--text);padding:9px 11px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg)}
+.ssn-onfile button{background:none;border:0;color:var(--gold-mid);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;padding:0}
 @media (max-width:600px){
   .page{padding-top:1rem}
   .page-header h1{font-size:20px}
+  .fgrid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -68,6 +89,131 @@ var CONSENT = null;
 var INFO = null;
 
 function escH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escA(s){return escH(s).replace(/"/g,'&quot;');}
+
+// ── Deploy 236.642 — "Your Information" verify/complete form helpers ──
+function pf(k){ return (INFO && INFO.prefill && INFO.prefill[k] != null) ? INFO.prefill[k] : ''; }
+function fldText(id, label, type, opts){
+  opts = opts || {};
+  var key = opts.key || id.replace(/^gi_/, '');
+  return '<div class="fld' + (opts.full ? ' full' : '') + '"><label>' + escH(label) + '</label>' +
+    '<input id="' + id + '" type="' + (type || 'text') + '" value="' + escA(pf(key)) + '"' +
+    (opts.ph ? ' placeholder="' + escA(opts.ph) + '"' : '') + (opts.attr || '') + ' autocomplete="off" />' +
+    (opts.hint ? '<div class="fldhint">' + escH(opts.hint) + '</div>' : '') + '</div>';
+}
+function fldRadio(id, label, options, opts){
+  opts = opts || {};
+  var cur = pf(opts.key || id.replace(/^gi_/, ''));
+  var r = '<div class="fld' + (opts.full ? ' full' : '') + '"><label>' + escH(label) + '</label><div class="radio-row">';
+  options.forEach(function(o, i){
+    r += '<div class="radio-opt"><input type="radio" id="' + id + '_' + i + '" name="' + id + '" value="' + escA(o.v) + '"' +
+      (cur === o.v ? ' checked' : '') + (opts.onchange ? ' onchange="' + opts.onchange + '"' : '') + '/>' +
+      '<label for="' + id + '_' + i + '">' + escH(o.l) + '</label></div>';
+  });
+  return r + '</div></div>';
+}
+function ssnField(){
+  var hasSSN = !!(INFO.prefill && INFO.prefill.hasSSN);
+  var last4 = (INFO.prefill && INFO.prefill.ssnLast4) || '';
+  if (hasSSN) {
+    return '<div class="fld"><label>Social Security Number</label>' +
+      '<div class="ssn-onfile" id="ssnOnFile"><span>On file' + (last4 ? (' (ending ' + escH(last4) + ')') : '') + '</span>' +
+      '<button type="button" onclick="showSsnInput()">Update</button></div>' +
+      '<input id="gi_ssn" type="text" inputmode="numeric" placeholder="XXX-XX-XXXX" style="display:none;margin-top:8px" oninput="maskSsn(this)" maxlength="11" autocomplete="off" />' +
+      '</div>';
+  }
+  return '<div class="fld"><label>Social Security Number</label>' +
+    '<input id="gi_ssn" type="text" inputmode="numeric" placeholder="XXX-XX-XXXX" oninput="maskSsn(this)" maxlength="11" autocomplete="off" />' +
+    '<div class="fldhint">Securely encrypted at rest. Used only for the loan application document.</div></div>';
+}
+function showSsnInput(){ var o = document.getElementById('ssnOnFile'), i = document.getElementById('gi_ssn'); if (o) o.style.display = 'none'; if (i) { i.style.display = 'block'; i.focus(); } }
+function maskSsn(el){ var v = el.value.replace(/\D/g, '').slice(0, 9); var out = v; if (v.length > 5) out = v.slice(0, 3) + '-' + v.slice(3, 5) + '-' + v.slice(5); else if (v.length > 3) out = v.slice(0, 3) + '-' + v.slice(3); el.value = out; }
+function togglePrevAddr(){ var wrap = document.getElementById('prevAddrWrap'); if (!wrap) return; var sel = document.querySelector('input[name="gi_twoYearAddress"]:checked'); wrap.style.display = (sel && sel.value === 'no') ? 'block' : 'none'; }
+
+function buildInfoForm(){
+  var lt = (INFO && INFO.loanType) || '';
+  var h = '<div class="info-card">' +
+    '<h2>Your Information</h2>' +
+    '<div class="sub">Please review and complete your information below — it becomes part of the loan application you are signing. Anything already on file is pre-filled; just confirm it is accurate.</div>' +
+    '<div class="fgrid">' +
+      fldText('gi_firstName', 'First Name') +
+      fldText('gi_lastName', 'Last Name') +
+      fldText('gi_email', 'Email', 'email') +
+      fldText('gi_phone', 'Phone', 'tel', { ph: '(XXX) XXX-XXXX' }) +
+      fldText('gi_dob', 'Date of Birth', 'date') +
+      fldText('gi_fico', 'Estimated Credit Score', 'text', { ph: 'e.g. 740' }) +
+      ssnField() +
+    '</div>' +
+    '<div class="fgrid" style="margin-top:14px">' +
+      fldText('gi_address', 'Home Street Address', 'text', { full: true, ph: '123 Main St' }) +
+      fldText('gi_city', 'City') + fldText('gi_state', 'State') + fldText('gi_zip', 'ZIP') +
+    '</div>' +
+    '<div style="margin-top:14px">' + fldRadio('gi_twoYearAddress', 'Have you lived at this address for 2 or more years?', [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }], { onchange: 'togglePrevAddr()', full: true }) + '</div>' +
+    '<div id="prevAddrWrap" style="display:none;margin-top:12px"><div class="fgrid">' +
+      fldText('gi_prevAddress', 'Previous Street Address', 'text', { full: true }) +
+      fldText('gi_prevCity', 'City') + fldText('gi_prevState', 'State') + fldText('gi_prevZip', 'ZIP') +
+    '</div></div>' +
+    '<div class="fgrid" style="margin-top:14px">' +
+      fldRadio('gi_marital', 'Marital Status', [{ v: 'married', l: 'Married' }, { v: 'single', l: 'Not Married' }]) +
+      fldRadio('gi_usCitizen', 'U.S. Citizen?', [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }]) +
+    '</div>';
+  if (lt === 'fix_flip' || lt === 'construction') h += '<div class="fgrid" style="margin-top:14px">' + fldText('gi_flips', '# of flips completed in last 36 months', 'number') + '</div>';
+  if (lt === 'dscr' || lt === 'dscr_2nd')          h += '<div class="fgrid" style="margin-top:14px">' + fldText('gi_rentals', '# of rental properties currently owned', 'number') + '</div>';
+  if (INFO && INFO.hasLLC === 'yes')               h += '<div class="fgrid" style="margin-top:14px">' + fldText('gi_ownership', 'Percent ownership of the vesting LLC', 'number', { ph: 'e.g. 50', hint: 'Enter 0–100.' }) + '</div>';
+  h += '<h2 style="margin-top:22px;font-size:15px">Declarations</h2>' +
+    '<div class="sub">Answer truthfully — these statements form part of your loan application.</div>';
+  var decls = [
+    ['gi_bankruptcy7yr', 'Have you been declared bankrupt in the past 7 years?'],
+    ['gi_foreclosure7yr', 'Have you had a property foreclosed upon or given title or deed in lieu thereof in the last 7 years?'],
+    ['gi_partyToLawsuit', 'Are you a party to a lawsuit?'],
+    ['gi_delinquentFederalDebt', 'Are you presently delinquent or in default on any Federal debt or any other loan, mortgage, financial obligation, bond, or loan guarantee?'],
+    ['gi_obligatedToForeclosed', 'Have you directly or indirectly been obligated on any loan which resulted in foreclosure?'],
+    ['gi_outstandingJudgments', 'Are there any outstanding judgments against you?'],
+    ['gi_intendToOccupy', 'Do you intend to occupy the subject property?'],
+  ];
+  decls.forEach(function(d){
+    var cur = pf(d[0].replace(/^gi_/, ''));
+    h += '<div class="decl-q"><div class="q">' + escH(d[1]) + '</div><div class="radio-row">' +
+      '<div class="radio-opt"><input type="radio" id="' + d[0] + '_y" name="' + d[0] + '" value="yes"' + (cur === 'yes' ? ' checked' : '') + '/><label for="' + d[0] + '_y">Yes</label></div>' +
+      '<div class="radio-opt"><input type="radio" id="' + d[0] + '_n" name="' + d[0] + '" value="no"' + (cur === 'no' ? ' checked' : '') + '/><label for="' + d[0] + '_n">No</label></div>' +
+      '</div></div>';
+  });
+  return h + '</div>';
+}
+function giText(id){ var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+function radioVal(name){ var el = document.querySelector('input[name="' + name + '"]:checked'); return el ? el.value : ''; }
+function collectInfo(){
+  var info = {
+    firstName: giText('gi_firstName'), lastName: giText('gi_lastName'), email: giText('gi_email'), phone: giText('gi_phone'),
+    dob: giText('gi_dob'), fico: giText('gi_fico'),
+    address: giText('gi_address'), city: giText('gi_city'), state: giText('gi_state'), zip: giText('gi_zip'),
+    twoYearAddress: radioVal('gi_twoYearAddress'),
+    prevAddress: giText('gi_prevAddress'), prevCity: giText('gi_prevCity'), prevState: giText('gi_prevState'), prevZip: giText('gi_prevZip'),
+    marital: radioVal('gi_marital'), usCitizen: radioVal('gi_usCitizen'),
+    flips: giText('gi_flips'), rentals: giText('gi_rentals'), ownership: giText('gi_ownership'),
+    bankruptcy7yr: radioVal('gi_bankruptcy7yr'), foreclosure7yr: radioVal('gi_foreclosure7yr'),
+    partyToLawsuit: radioVal('gi_partyToLawsuit'), delinquentFederalDebt: radioVal('gi_delinquentFederalDebt'),
+    obligatedToForeclosed: radioVal('gi_obligatedToForeclosed'), outstandingJudgments: radioVal('gi_outstandingJudgments'),
+    intendToOccupy: radioVal('gi_intendToOccupy'),
+  };
+  var ssnEl = document.getElementById('gi_ssn');
+  if (ssnEl && ssnEl.value.trim()) info.ssn = ssnEl.value.trim();
+  return info;
+}
+function validateInfo(info){
+  var missing = [];
+  function need(v, label){ if (!v) missing.push(label); }
+  need(info.firstName, 'First Name'); need(info.lastName, 'Last Name'); need(info.email, 'Email'); need(info.phone, 'Phone');
+  need(info.dob, 'Date of Birth'); need(info.fico, 'Estimated Credit Score');
+  need(info.address, 'Home Street Address'); need(info.city, 'City'); need(info.state, 'State'); need(info.zip, 'ZIP');
+  need(info.twoYearAddress, '2+ years at address');
+  if (info.twoYearAddress === 'no') need(info.prevAddress, 'Previous Street Address');
+  need(info.marital, 'Marital Status'); need(info.usCitizen, 'U.S. Citizen');
+  if (!(INFO.prefill && INFO.prefill.hasSSN) && !info.ssn) missing.push('Social Security Number');
+  var declKeys = ['bankruptcy7yr', 'foreclosure7yr', 'partyToLawsuit', 'delinquentFederalDebt', 'obligatedToForeclosed', 'outstandingJudgments', 'intendToOccupy'];
+  if (declKeys.some(function(k){ return !info[k]; })) missing.push('all Declarations');
+  return missing;
+}
 
 function renderError(msg, expired) {
   document.getElementById('root').innerHTML =
@@ -110,6 +256,10 @@ function renderForm() {
   html += '<div class="row"><div class="lbl">Email</div><div class="val">' + escH(INFO.b2Email) + '</div></div>';
   html += '</div>';
 
+  // Deploy 236.642 — collect/verify the co-signer's own info before signing;
+  // it gets written onto the loan application by borrower2-auth-sign.
+  html += buildInfoForm();
+
   html += '<div class="auth-section-title">Authorization to Conduct Prequal Credit &amp; Background Checks</div>';
   html += '<div class="consent-box">' + escH(CONSENT.prequalText) + '</div>';
 
@@ -135,6 +285,7 @@ function renderForm() {
   html += '<div class="err" id="errEl"></div>';
 
   document.getElementById('root').innerHTML = html;
+  togglePrevAddr(); // reflect a pre-filled "2+ years = no"
 }
 
 function updateBtn() {
@@ -151,6 +302,19 @@ function signNow() {
   var err = document.getElementById('errEl');
   var nm = document.getElementById('sigName');
   err.style.display = 'none'; err.textContent = '';
+
+  // Deploy 236.642 \u2014 validate the "Your Information" form before signing so
+  // the application is complete. Blocks (without disabling the button) and
+  // lists what's missing.
+  var info = collectInfo();
+  var missing = validateInfo(info);
+  if (missing.length) {
+    err.textContent = 'Please complete your information above \u2014 missing: ' + missing.join(', ') + '.';
+    err.style.display = 'block';
+    if (typeof err.scrollIntoView === 'function') err.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Signing\u2026';
 
@@ -177,6 +341,7 @@ function signNow() {
       body: JSON.stringify({
         t: TOKEN,
         signerName: nm.value.trim(),
+        guarantorInfo: info, // Deploy 236.642 — verified/completed co-signer info
         consentAccepted: true,
         consentVersion: CONSENT.version,
         geolocation: geo,

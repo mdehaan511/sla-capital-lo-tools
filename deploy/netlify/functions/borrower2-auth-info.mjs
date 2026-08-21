@@ -88,6 +88,69 @@ async function handle(req) {
   const expired = bField.tokenExpiresAt && new Date(bField.tokenExpiresAt) < new Date();
   const alreadySigned = !!(bField.audit && bField.audit.signedAt);
 
+  // ── Deploy 236.642 — prefill the co-signer's OWN info so the landing page
+  // asks them to VERIFY (or complete) it before signing, then writes it onto
+  // the application. Priority: existing application data > their client profile
+  // > the cosigner block. SSN is NEVER returned — presence + last-4 only.
+  let prefill = {};
+  let loanType = '';
+  let hasLLC = '';
+  try {
+    const safe = (s) => String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+    const biKey = `${rec.ownerKey}/${safe(rec.clientId)}/${rec.loanId ? safe(rec.loanId) : '_no_loan'}`;
+    let biRecord = null;
+    try { biRecord = await biStore.get(biKey, { type: 'json' }); } catch (_) {}
+    const bdata = (biRecord && biRecord.data) || {};
+    loanType = bdata.loanType || '';
+    hasLLC = bdata.hasLLC || '';
+    const gEx = (Array.isArray(bdata.guarantors) && bdata.guarantors[pos - 1]) || {};
+
+    let gClient = null;
+    if (bField.guarantorClientId) {
+      try {
+        const cStore = getStore({ name: 'clients', consistency: 'strong' });
+        gClient = await cStore.get(`${rec.ownerKey}/${safe(bField.guarantorClientId)}`, { type: 'json' });
+      } catch (_) {}
+    }
+    const gc = gClient || {};
+    const ha = gc.homeAddress || {};
+    const nameParts = String(bField.name || '').trim().split(/\s+/).filter(Boolean);
+    const pv = (a, b, c) => (a != null && a !== '') ? a : ((b != null && b !== '') ? b : (c != null ? c : ''));
+
+    prefill = {
+      firstName: pv(gEx.firstName, gc.firstName, nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : (nameParts[0] || '')),
+      lastName:  pv(gEx.lastName,  gc.lastName,  nameParts.length > 1 ? nameParts[nameParts.length - 1] : ''),
+      email:     pv(gEx.email, gc.email, bField.email),
+      phone:     pv(gEx.phone, gc.phone, bField.phone),
+      dob:       pv(gEx.dob, gc.dob, ''),
+      fico:      pv(gEx.fico, gc.fico, ''),
+      marital:   pv(gEx.marital, gc.maritalStatus, ''),
+      usCitizen: pv(gEx.usCitizen, gc.usCitizen, ''),
+      address:   pv(gEx.address, ha.street, ''),
+      city:      pv(gEx.city, ha.city, ''),
+      state:     pv(gEx.state, ha.state, ''),
+      zip:       pv(gEx.zip, ha.zip, ''),
+      twoYearAddress: gEx.twoYearAddress || '',
+      prevAddress: gEx.prevAddress || '', prevCity: gEx.prevCity || '', prevState: gEx.prevState || '', prevZip: gEx.prevZip || '',
+      flips:   pv(gEx.flips, gc.flips, ''),
+      rentals: pv(gEx.rentals, gc.rentals, ''),
+      ownership: gEx.ownership || '',
+      bankruptcy7yr: gEx.bankruptcy7yr || '', foreclosure7yr: gEx.foreclosure7yr || '',
+      partyToLawsuit: gEx.partyToLawsuit || '', delinquentFederalDebt: gEx.delinquentFederalDebt || '',
+      obligatedToForeclosed: gEx.obligatedToForeclosed || '', outstandingJudgments: gEx.outstandingJudgments || '',
+      intendToOccupy: gEx.intendToOccupy || '',
+    };
+    const encPresent = !!(gEx.ssn_enc || gc.ssn_enc);
+    let last4 = gc.ssnLast4 || '';
+    const maskMatch = String(gEx.ssn || '').match(/(\d{4})\s*$/);
+    if (!last4 && maskMatch) last4 = maskMatch[1];
+    prefill.hasSSN = encPresent || !!last4;
+    prefill.ssnLast4 = last4;
+  } catch (e) {
+    console.warn('borrower2-auth-info prefill failed:', e && e.message);
+  }
+
   return json(200, {
     propertyAddress: rec.propertyAddress || '',
     b1Name: (rec.borrower1 && rec.borrower1.name) || '',
@@ -99,6 +162,10 @@ async function handle(req) {
     name: bField.name || '',
     email: bField.email || '',
     borrowerPos: pos,
+    // Deploy 236.642 — verify-or-complete prefill for the info form.
+    prefill,
+    loanType,
+    hasLLC,
     alreadySigned,
     expired,
   });

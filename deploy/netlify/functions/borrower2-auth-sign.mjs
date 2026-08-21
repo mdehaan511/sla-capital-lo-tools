@@ -23,6 +23,9 @@ import {
 } from './_shared/esign.mjs';
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { syncPropertyFieldsToLoan, advanceQuoteToInProcessing } from './_shared/borrower-info-sync.mjs';
+// Deploy 236.642 — the co-signer verifies/completes their own info before
+// signing; SSN is encrypted at rest, mirroring borrower-info-save.mergeData.
+import { encryptField } from './_shared/crypto.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 // Deploy 236.626 — resolveOwnerEmail = robust LO-email resolution for the notify.
 import { getOwnerReplyTo, resolveOwnerEmail } from './_shared/email.mjs';
@@ -120,6 +123,33 @@ async function handle(req) {
     const ckey = `${rec.ownerKey}/${(rec.clientId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     client = await clientsStore.get(ckey, { type: 'json' });
   } catch (_) {}
+
+  // ── 2b. Deploy 236.642 — capture / verify the co-signer's OWN info and
+  // write it onto the application (biRecord.data.guarantors[pos-1]) BEFORE we
+  // hash + render, so their identity + declarations land on the signed PDF and
+  // the signer attests over their own data. SSN is encrypted (real value only,
+  // a mask is ignored) exactly like borrower-info-save.mergeData. Optional —
+  // omitting guarantorInfo keeps the legacy signature-only behavior.
+  const gi = (body.guarantorInfo && typeof body.guarantorInfo === 'object') ? body.guarantorInfo : null;
+  if (gi) {
+    if (!biRecord.data || typeof biRecord.data !== 'object') biRecord.data = {};
+    if (!Array.isArray(biRecord.data.guarantors)) biRecord.data.guarantors = [];
+    while (biRecord.data.guarantors.length < pos) biRecord.data.guarantors.push({});
+    const g = Object.assign({}, biRecord.data.guarantors[pos - 1] || {});
+    const STR = (v) => (v == null ? '' : String(v)).slice(0, 300);
+    const ALLOW = ['firstName', 'lastName', 'email', 'phone', 'dob', 'fico', 'marital', 'usCitizen',
+      'address', 'city', 'state', 'zip', 'twoYearAddress', 'prevAddress', 'prevCity', 'prevState', 'prevZip',
+      'mailingSameAsHome', 'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip',
+      'flips', 'rentals', 'ownership',
+      'bankruptcy7yr', 'foreclosure7yr', 'partyToLawsuit', 'delinquentFederalDebt',
+      'obligatedToForeclosed', 'outstandingJudgments', 'intendToOccupy'];
+    ALLOW.forEach((k) => { if (gi[k] != null && gi[k] !== '') g[k] = STR(gi[k]); });
+    const incomingSSN = String(gi.ssn || '').trim();
+    const looksLikeMask = /^\*{3}-?\*{2}-?\d{4}$/.test(incomingSSN) || incomingSSN.startsWith('***');
+    if (incomingSSN && !looksLikeMask) g.ssn_enc = encryptField(incomingSSN);
+    delete g.ssn; // never persist plaintext
+    biRecord.data.guarantors[pos - 1] = g;
+  }
 
   // ── 3. Build this borrower's audit ─────────────────────────────
   const signedAt = new Date().toISOString();
