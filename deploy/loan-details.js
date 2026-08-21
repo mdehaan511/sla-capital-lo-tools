@@ -1413,13 +1413,13 @@ function render() {
   if (_lien === '2' || _lien === '2nd') _lien = 'second';
   if (!_lien) _lien = 'first';
   var _ltTerm     = String(l.loanTerm || (isDscr ? '360' : '12'));
-  var _ltPrepayV  = String(l.prepay || (isDscr ? '54321' : ''));
-  var _ltOrig     = String(l.originationDate || l.fundingDate || '');
-  var _ltFirstPay = String(l.firstPaymentDate || _computeFirstPayment(_ltOrig) || '');
-  var _ltMaturity = String(l.maturityDate || _addMonths(_ltOrig, parseInt(_ltTerm, 10)) || '');
-  var _ppList = [['', '— Select —'], ['5y6m', '5-Year / 6-Month (5Yr/6Mo)'], ['54321', '5-Year (54321)'], ['321', '3-Year (321)'], ['320', '2-Year (320)'], ['300', '1-Year (300)'], ['none', 'No Prepayment Penalty']];
-  var _prepayOpts = '';
-  for (var _ppi = 0; _ppi < _ppList.length; _ppi++) { var _ppo = _ppList[_ppi]; _prepayOpts += '<option value="' + _ppo[0] + '"' + (_ppo[0] === _ltPrepayV ? ' selected' : '') + '>' + escH(_ppo[1]) + '</option>'; }
+  // Deploy 236.644 — Origination Date === Closing Date (no separate field), and
+  // First Payment + Maturity are non-editable, ALWAYS derived from the Closing
+  // Date + Loan Term (recomputed live by recalcTermDates + on save). Prepayment
+  // Penalty dropdown removed — it already shows in Loan Financials.
+  var _ltOrig     = String(l.fundingDate || l.originationDate || '');
+  var _ltFirstPay = _computeFirstPayment(_ltOrig) || '';
+  var _ltMaturity = _addMonths(_ltOrig, parseInt(_ltTerm, 10)) || '';
 
   html += '<div class="section" id="loanTermsSection">' +
     '<div class="section-head"><h2>Loan Terms</h2><span class="section-tag tag-editable">Editable</span></div>' +
@@ -1435,7 +1435,7 @@ function render() {
           '<option value="refinance"'+(l.loanPurpose==='refinance'?' selected':'')+'>Refinance</option>' +
         '</select>' +
       '</div>' +
-      '<div class="field"><label>Loan Term (months)</label><input type="number" id="lt-loanTerm" value="' + escAttr(_ltTerm) + '" min="0" /></div>' +
+      '<div class="field"><label>Loan Term (months)</label><input type="number" id="lt-loanTerm" value="' + escAttr(_ltTerm) + '" min="0" oninput="recalcTermDates()" /></div>' +
       '<div class="field"><label>Amortization</label><select id="lt-isIO">' +
         '<option value="amortized"' + (_amortVal === 'amortized' ? ' selected' : '') + '>Fully Amortized</option>' +
         '<option value="io"' + (_amortVal === 'io' ? ' selected' : '') + '>Interest-Only</option>' +
@@ -1444,14 +1444,16 @@ function render() {
         '<option value="first"' + (_lien === 'first' ? ' selected' : '') + '>First</option>' +
         '<option value="second"' + (_lien === 'second' ? ' selected' : '') + '>Second</option>' +
       '</select></div>' +
-      '<div class="field"><label>Origination Date</label><input type="date" id="lt-originationDate" value="' + escAttr(_ltOrig) + '" /></div>' +
-      '<div class="field"><label>First Payment Date</label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(_ltFirstPay) + '" /></div>' +
-      '<div class="field"><label>Maturity Date</label><input type="date" id="lt-maturityDate" value="' + escAttr(_ltMaturity) + '" /></div>' +
-      (isDscr
-        ? '<div class="field"><label>Prepayment Penalty</label><select id="lt-prepay">' + _prepayOpts + '</select></div>'
-        : '<div class="field"><label>Holdback</label><input type="text" id="lt-holdback" value="' + escAttr(String(l.holdback || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+      // First Payment + Maturity — non-editable (Deploy 236.644); auto-calculated
+      // from Closing Date + Loan Term by recalcTermDates(). Kept as disabled date
+      // inputs so their .value is still readable in JS but the user can't edit.
+      '<div class="field"><label>First Payment Date <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto)</span></label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(_ltFirstPay) + '" disabled title="Calculated from Closing Date + Loan Term" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
+      '<div class="field"><label>Maturity Date <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto)</span></label><input type="date" id="lt-maturityDate" value="' + escAttr(_ltMaturity) + '" disabled title="Calculated from Closing Date + Loan Term" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
+      (!isDscr
+        ? '<div class="field"><label>Holdback</label><input type="text" id="lt-holdback" value="' + escAttr(String(l.holdback || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
           '<div class="field"><label>Initial Advance</label><input type="text" id="lt-initialAdvance" value="' + escAttr(String(l.initialAdvance || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-          '<div class="field"><label>Down Payment</label><input type="text" id="lt-downPayment" value="' + escAttr(String(l.downPayment || downPayment || '')) + '" inputmode="decimal" placeholder="$" /></div>') +
+          '<div class="field"><label>Down Payment</label><input type="text" id="lt-downPayment" value="' + escAttr(String(l.downPayment || downPayment || '')) + '" inputmode="decimal" placeholder="$" /></div>'
+        : '') +
       // Deploy 236.61 — annotate the Desired Close Date input with
       // Baseline's Estimated_Close_Date when the address is known to
       // the mirror. Shown as a small line under the input so the LO
@@ -1464,7 +1466,7 @@ function render() {
        // _ldCloseDateClass and updateCloseDateClass keep it in sync
        // when the LO edits the date.
       '<div class="field"><label>Closing Date<span class="past-due-label" id="ld-closeDateLabel" style="display:' + (_ldIsCloseDatePastDue(l) ? 'inline' : 'none') + '">Past Due</span></label>' +
-        '<input type="date" id="af-fundingDate" class="' + _ldCloseDateClass(l) + '" value="'+escAttr(l.fundingDate||'')+'" oninput="updateCloseDateClass()" />' +
+        '<input type="date" id="af-fundingDate" class="' + _ldCloseDateClass(l) + '" value="'+escAttr(l.fundingDate||'')+'" oninput="updateCloseDateClass();recalcTermDates()" />' +
         (function(){
           var bcd = getBaselineCloseDateForLoan();
           if (!bcd) return '';
@@ -1568,7 +1570,7 @@ function render() {
   // Application box — REUSING their af-* ids so downstream references + the
   // long-app sync keep working. Carrying costs carry the monthly/annual toggle
   // (stored monthly). Saved via savePropertyCollateral() → loan-fields-save
-  // (owner-editable since 236.641). _amortVal/_lien/_prepayOpts were computed
+  // (owner-editable since 236.641). _amortVal/_lien were computed
   // for the Loan Terms right-col above; only the carrying-cost bases are new.
   var _mTaxes = String(taxes || '');
   var _mIns   = String(insurance || '');
@@ -5857,6 +5859,16 @@ function _computeFirstPayment(ymd) {
   if (!d) return '';
   return _ldToYmd(new Date(d.getFullYear(), d.getMonth() + 2, 1, 12, 0, 0));
 }
+// Deploy 236.644 — keep the non-editable First Payment + Maturity fields in
+// sync with the current Closing Date + Loan Term inputs (wired to their oninput).
+function recalcTermDates() {
+  var closing = _ldVal('af-fundingDate');
+  var term = _ldNum('lt-loanTerm');
+  var fp = document.getElementById('lt-firstPaymentDate');
+  var mt = document.getElementById('lt-maturityDate');
+  if (fp) fp.value = _computeFirstPayment(closing) || '';
+  if (mt) mt.value = _addMonths(closing, parseInt(term, 10)) || '';
+}
 
 function _ldOwnerOverride() {
   return (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
@@ -5933,25 +5945,28 @@ function _pcCarryMonthly(id) {
 function saveLoanTerms() {
   if (!_loan || !_client) return;
   var isDscr = (_loan.toolType || '') !== 'rtl';
+  // Deploy 236.644 — Origination Date === Closing Date; First Payment + Maturity
+  // are non-editable and recomputed here from Closing Date + Loan Term so a save
+  // always persists dates consistent with the current inputs. Prepay removed.
+  var _closing = _ldVal('af-fundingDate');
+  var _termN = _ldNum('lt-loanTerm');
   var fields = {
-    loanTerm:         _ldNum('lt-loanTerm'),
+    loanTerm:         _termN,
     lienPosition:     _ldVal('lt-lienPosition'),
-    originationDate:  _ldVal('lt-originationDate'),
-    firstPaymentDate: _ldVal('lt-firstPaymentDate'),
-    maturityDate:     _ldVal('lt-maturityDate'),
+    originationDate:  _closing,
+    firstPaymentDate: _computeFirstPayment(_closing) || '',
+    maturityDate:     _addMonths(_closing, parseInt(_termN, 10)) || '',
     // Deploy 236.641 — Loan Purpose / Closing Date / Description moved into
     // the Loan Terms box from the retired Property & Application section.
     loanPurpose:        _ldVal('af-loanPurpose'),
-    fundingDate:        _ldVal('af-fundingDate'),
+    fundingDate:        _closing,
     projectDescription: _ldVal('af-projectDescription'),
   };
   // Amortization: only send when explicitly chosen — a blank select must not
   // stamp isIO=false (the backend's _truthy('') would wrongly mark amortized).
   var amort = _ldVal('lt-isIO');
   if (amort === 'io' || amort === 'amortized') fields.isIO = amort;
-  if (isDscr) {
-    fields.prepay = _ldVal('lt-prepay');
-  } else {
+  if (!isDscr) {
     fields.holdback       = _ldNum('lt-holdback');
     fields.initialAdvance = _ldNum('lt-initialAdvance');
     fields.downPayment    = _ldNum('lt-downPayment');
