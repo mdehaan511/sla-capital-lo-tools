@@ -1260,6 +1260,13 @@
   status = 200
   force = true
 
+# Deploy 236.638 — manual "New Loan → Processing" creator (processor migration).
+[[redirects]]
+  from = "/api/loan-create-manual"
+  to = "/.netlify/functions/loan-create-manual"
+  status = 200
+  force = true
+
 # Hardening Phase A2 — frontend error beacon. Accepts anonymous posts
 # (public borrower pages need coverage most); throttled server-side.
 [[redirects]]

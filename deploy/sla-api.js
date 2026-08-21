@@ -2231,6 +2231,20 @@
   // (Reads still go through Clients.list() since loans are nested.)
   var Loans = {
     /**
+     * Deploy 236.638 \u2014 manual "New Loan \u2192 Processing" creation (processor
+     * Baseline migration). Creates the borrower client (find-or-create by email)
+     * + a loan dropped straight onto the Processing board. Staff-only server-side.
+     * data = { owner?, borrower:{firstName,lastName,email,phone},
+     *          loanData:{address,toolType,loanAmt,...}, processingStage?,
+     *          assignedProcessor?:{email,name} }.
+     */
+    createManual: function (data) {
+      return api('POST', '/api/loan-create-manual', data || {}).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
+    /**
      * Deploy 195: cancel a loan that\u2019s in awaiting_app or approved.
      * For approved loans that ended up not closing. Backend records a
      * full audit trail (_cancelledAt, _cancelledBy, _cancelledFrom,

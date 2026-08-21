@@ -170,6 +170,10 @@
     .ss-modal { background: var(--surface); border-radius: var(--r); max-width: 720px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 1.75rem; }
     .ss-modal h3 { font-family: 'Lora', serif; font-size: 19px; margin-bottom: 4px; }
     .ss-modal .ss-sub { font-size: 12px; color: var(--muted); margin-bottom: 1.25rem; }
+    /* Deploy 236.638 — manual New Loan form fields. */
+    .nl-fld label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
+    .nl-fld input, .nl-fld select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+    .nl-fld input:focus, .nl-fld select:focus { outline: none; border-color: var(--gold); }
     .ss-col { margin-bottom: 1.25rem; padding: 12px; background: var(--bg); border-radius: var(--r-xs); }
     .ss-col h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; color: var(--text); }
     .ss-col textarea { width: 100%; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: 'DM Mono', monospace; font-size: 12px; resize: vertical; }
@@ -203,6 +207,8 @@
         </select>
         <!-- Deploy 236.559 — filter to loans assigned to me. -->
         <button type="button" class="lo-filter" id="myLoansToggle" style="display:none" onclick="toggleMyLoans()" title="Show only loans assigned to me">My Loans</button>
+        <!-- Deploy 236.638 — manually add a loan to Processing (Baseline migration). -->
+        <button type="button" class="gear-btn" id="newLoanBtn" style="display:none" onclick="openNewLoanModal()" title="Manually add a loan to the processing pipeline">+ New Loan</button>
         <button type="button" class="gear-btn" id="ssGearBtn" style="display:none" onclick="openSubstatusEditor()" title="Edit substatuses (admin)">⚙ Substatuses</button>
         <button type="button" class="gear-btn" id="ttGearBtn" style="display:none" onclick="openTaskTemplatesEditor()" title="Edit per-stage task templates (admin)">⚙ Task Templates</button>
       </div>
@@ -268,6 +274,32 @@
     </div>
   </div>
 
+  <!-- Deploy 236.638 — manual "New Loan → Processing" creator (processor
+       migration off Baseline). Reuses the .ss-bg / .ss-modal styling. -->
+  <div class="ss-bg" id="nlBg">
+    <div class="ss-modal">
+      <h3>Add Loan to Processing</h3>
+      <p class="ss-sub">Manually create a loan on the Processing board — for bringing a deal over from Baseline. Enter the essentials here; fill in the full details on Loan Details after it's created (documents, conditions, closing, etc.).</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+        <div class="nl-fld" style="grid-column:1/-1"><label>Owner — Loan Officer <span style="color:var(--danger)">*</span></label><select id="nlOwner"></select></div>
+        <div class="nl-fld"><label>Borrower First Name <span style="color:var(--danger)">*</span></label><input type="text" id="nlFirst" maxlength="100" /></div>
+        <div class="nl-fld"><label>Borrower Last Name <span style="color:var(--danger)">*</span></label><input type="text" id="nlLast" maxlength="100" /></div>
+        <div class="nl-fld"><label>Borrower Email <span style="color:var(--danger)">*</span></label><input type="email" id="nlEmail" /></div>
+        <div class="nl-fld"><label>Borrower Phone</label><input type="tel" id="nlPhone" /></div>
+        <div class="nl-fld" style="grid-column:1/-1"><label>Property Address <span style="color:var(--danger)">*</span></label><input type="text" id="nlAddress" placeholder="123 Main St, City, ST 00000" /></div>
+        <div class="nl-fld"><label>Loan Type</label><select id="nlToolType"><option value="dscr">DSCR</option><option value="rtl">RTL / Bridge / Fix &amp; Flip</option></select></div>
+        <div class="nl-fld"><label>Loan Amount</label><input type="text" id="nlLoanAmt" placeholder="$" inputmode="decimal" /></div>
+        <div class="nl-fld"><label>Starting Stage</label><select id="nlStage"><option value="new_loan">Intake</option><option value="processing">Processing</option><option value="underwriting">Underwriting</option><option value="pp_approved">Cleared to Close</option></select></div>
+        <div class="nl-fld"><label>Assign Processor</label><select id="nlProcessor"><option value="">— Unassigned —</option></select></div>
+      </div>
+      <div class="ss-actions">
+        <div class="ss-status" id="nlStatus"></div>
+        <button type="button" class="ss-btn" onclick="closeNewLoanModal()">Cancel</button>
+        <button type="button" class="ss-btn primary" id="nlSaveBtn" onclick="submitNewLoan()">Create Loan</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 'use strict';
 
@@ -285,6 +317,7 @@ var _loDisplayMap = {}; // ownerKey -> display name
 var _loFilterValue = '';
 var _myLoansOnly = false; // Deploy 236.559 — "My Loans" assignment filter
 var _processors = [];     // Deploy 236.563 — [{email,name}] for the assign picker
+var _los = [];            // Deploy 236.638 — [{email,name}] all staff, for the New Loan owner picker
 // Deploy 236.97 (Phase F) — admin-configurable substatuses per column.
 // Shape: { new_loan: ['Awaiting docs', ...], processing: [...], ... }
 // Loaded from /api/settings on page init. Empty arrays / missing keys
@@ -357,6 +390,8 @@ window.netlifyIdentity.on('init', function(user) {
   if (_isStaff) {
     document.getElementById('loFilter').style.display = '';
     var _mlt = document.getElementById('myLoansToggle'); if (_mlt) _mlt.style.display = '';
+    // Deploy 236.638 — staff (processors + admins) can manually add a loan.
+    var _nlb = document.getElementById('newLoanBtn'); if (_nlb) _nlb.style.display = '';
   }
   if (_isAdmin) {
     document.getElementById('ssGearBtn').style.display = '';
@@ -1406,6 +1441,74 @@ function loadProcessors() {
       var rs = u.roles || [];
       return rs.indexOf('processor') >= 0 || rs.indexOf('admin') >= 0 || rs.indexOf('super_admin') >= 0;
     }).map(function(u) { return { email: String(u.email || '').toLowerCase(), name: u.name || u.email }; });
+    // Deploy 236.638 — all staff can OWN a migrated loan (the LO whose book it's
+    // in), so the New Loan owner picker lists everyone in the directory.
+    _los = us.map(function(u) { return { email: String(u.email || '').toLowerCase(), name: u.name || u.email }; })
+      .filter(function(u) { return u.email; })
+      .sort(function(a, b) { return String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()); });
+  });
+}
+
+// ── Deploy 236.638 — manual "New Loan → Processing" creator ──────────
+function openNewLoanModal() {
+  if (!_canEdit) return;
+  var meEmail = String((_user && _user.email) || '').toLowerCase();
+  // Owner picker — default to the current user if they're in the list.
+  var ownerOpts = '<option value="">— Select loan officer —</option>';
+  (_los || []).forEach(function(u) {
+    ownerOpts += '<option value="' + escAttr(u.email) + '"' + (u.email === meEmail ? ' selected' : '') + '>' + escH(u.name) + '</option>';
+  });
+  document.getElementById('nlOwner').innerHTML = ownerOpts;
+  // Processor picker.
+  var procOpts = '<option value="">— Unassigned —</option>';
+  (_processors || []).forEach(function(p) {
+    procOpts += '<option value="' + escAttr(p.email) + '" data-name="' + escAttr(p.name) + '">' + escH(p.name) + '</option>';
+  });
+  document.getElementById('nlProcessor').innerHTML = procOpts;
+  ['nlFirst','nlLast','nlEmail','nlPhone','nlAddress','nlLoanAmt'].forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('nlToolType').value = 'dscr';
+  document.getElementById('nlStage').value = 'new_loan';
+  var st = document.getElementById('nlStatus'); st.textContent = ''; st.style.color = 'var(--muted)';
+  var sb = document.getElementById('nlSaveBtn'); sb.disabled = false; sb.textContent = 'Create Loan';
+  document.getElementById('nlBg').classList.add('show');
+}
+function closeNewLoanModal() { document.getElementById('nlBg').classList.remove('show'); }
+function submitNewLoan() {
+  var st = document.getElementById('nlStatus');
+  function err(msg) { st.style.color = 'var(--danger,#7c1f1f)'; st.textContent = msg; }
+  var owner = (document.getElementById('nlOwner').value || '').trim();
+  var first = (document.getElementById('nlFirst').value || '').trim();
+  var last  = (document.getElementById('nlLast').value || '').trim();
+  var email = (document.getElementById('nlEmail').value || '').trim().toLowerCase();
+  var address = (document.getElementById('nlAddress').value || '').trim();
+  if (!owner) return err('Choose the owning loan officer.');
+  if (!first && !last) return err('Borrower name is required.');
+  if (!email || email.indexOf('@') < 0) return err('A valid borrower email is required.');
+  if (!address) return err('Property address is required.');
+  var procSel = document.getElementById('nlProcessor');
+  var procEmail = procSel.value || '';
+  var procName = procEmail ? ((procSel.options[procSel.selectedIndex] || {}).getAttribute('data-name') || '') : '';
+  var payload = {
+    owner: owner,
+    borrower: { firstName: first, lastName: last, email: email, phone: (document.getElementById('nlPhone').value || '').trim() },
+    loanData: {
+      address: address,
+      toolType: document.getElementById('nlToolType').value || 'dscr',
+      loanAmt: (document.getElementById('nlLoanAmt').value || '').replace(/[^0-9.]/g, ''),
+    },
+    processingStage: document.getElementById('nlStage').value || 'new_loan',
+  };
+  if (procEmail) payload.assignedProcessor = { email: procEmail, name: procName };
+  var sb = document.getElementById('nlSaveBtn'); sb.disabled = true; sb.textContent = 'Creating…';
+  st.style.color = 'var(--muted)'; st.textContent = 'Creating loan…';
+  SLA.Loans.createManual(payload).then(function(r) {
+    st.style.color = 'var(--success,#166534)'; st.textContent = '✓ Created — opening loan…';
+    var href = (SLA.urls && SLA.urls.loanDetails) ? SLA.urls.loanDetails(r.loanId, { owner: r.owner }) :
+      ('/loan-details/' + encodeURIComponent(r.loanId) + '?owner=' + encodeURIComponent(r.owner));
+    setTimeout(function() { window.location.href = href; }, 500);
+  }).catch(function(e) {
+    sb.disabled = false; sb.textContent = 'Create Loan';
+    err((e && e.message) || 'Could not create the loan.');
   });
 }
 // Deploy 236.563 — assignee is now a picker: choose any processor, or "— Assign
