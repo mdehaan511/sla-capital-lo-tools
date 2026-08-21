@@ -895,6 +895,34 @@ function render() {
     '<div class="section-head"><h2>Loan Financials</h2></div>' +
     '<div class="section-body">';
 
+  // Deploy 236.641 — Loan Status changer moved to the TOP of Loan Financials
+  // (was the "Manual Status Move" at the bottom of the dismantled Change Loan
+  // Status box). Admin-only + audit-logged since it bypasses flow gates. The
+  // everyday Change-Type / Cancel / Decline / Merge / Delete actions moved to
+  // the Actions menu; the Baseline sync log is hidden.
+  var _isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
+  if (_isAdminUser) {
+    html += '<div style="margin:0 0 16px;padding:10px 12px;border:1px solid var(--border, #E4DFD4);border-radius:var(--r-xs, 6px);background:var(--surface, #fff)">' +
+      '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Loan Status</div>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        '<select id="adminStatusPick" style="flex:1;padding:9px 10px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:\'DM Sans\',sans-serif;font-size:13px;background:#fff">' +
+          '<option value="">Change status…</option>' +
+          '<option value="active">Quoted (active)</option>' +
+          '<option value="on_hold">On Hold</option>' +
+          '<option value="submitted">Submitted - Pending Review</option>' +
+          '<option value="awaiting_app">Awaiting Application</option>' +
+          '<option value="approved">In Processing (approved)</option>' +
+          '<option value="closed">Closed</option>' +
+          '<option value="denied">Declined</option>' +
+          '<option value="cancelled">Cancelled</option>' +
+        '</select>' +
+        '<button type="button" onclick="adminMoveStatus()" class="open-sizer-btn" style="margin:0;padding:9px 16px;background:var(--accent, #C8813A);color:#fff;border-color:var(--accent, #C8813A);width:auto;white-space:nowrap">Move</button>' +
+      '</div>' +
+      '<div id="adminStatusMsg" style="font-size:11px;min-height:14px;margin-top:6px;color:var(--muted)"></div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:4px;font-style:italic">Bypasses normal flow gates — audit-logged on the loan and visible in Notes.</div>' +
+    '</div>';
+  }
+
   if (isDscr) {
     // Format loan purpose for display (e.g., "purchase" -> "Purchase")
     var purposeLabel = loanPurpose
@@ -1241,7 +1269,10 @@ function render() {
   // the literal string 'false' to enable real Baseline calls.
   // Deploy 200 also surfaces per-step pass/fail pills from
   // _baselineLastSteps so the LO can see which step needs attention.
-  var _showBaseline = (loanStatus === 'approved') || !!l._baselineSyncStatus;
+  // Deploy 236.641 — Baseline LOS sync log hidden for the Baseline→SLA
+  // cutover (Mike). Code kept intact; flip this back to the commented
+  // expression to re-enable if a sync ever needs surfacing again.
+  var _showBaseline = false; // was: (loanStatus === 'approved') || !!l._baselineSyncStatus;
   if (_showBaseline) {
     var _bStatus = l._baselineSyncStatus || 'not_synced';
     var _bMode   = l._baselineSyncMode   || null;
@@ -1329,115 +1360,75 @@ function render() {
   // discoverable in context instead of stranded up at the loan
   // header. See _renderChangePrimaryGuarantorRow() below.
 
-  // Deploy 227 — Change-Type, Cancel, Decline, Delete buttons are now
-  // tucked inside a collapsible "Change Loan Status" section so they
-  // don't compete for visual attention with the everyday actions
-  // (download rate sheet, send for signature, etc.). Admins get an
-  // additional dropdown to manually set the loan to ANY status — used
-  // when a loan got stuck in an unusual state and needs to be nudged.
+  // Deploy 236.641 — the collapsible "Change Loan Status" box is dismantled:
+  // its status <select> moved to the TOP of Loan Financials (admin), the
+  // Baseline log is hidden, and these action buttons move into the Actions
+  // menu at the top of the page. They render in a hidden holder so the
+  // existing conditional-visibility (_canEndLoan / admin) is preserved;
+  // relocateActions() moves them by id into #ldActionsMenu after render.
   var otherType = isDscr ? 'RTL' : 'DSCR';
-  var _isAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
-
-  html += '<details class="change-status-wrap" style="margin-top:14px;border:1px solid var(--border, #E4DFD4);border-radius:var(--r-xs, 6px);background:var(--surface, #fff)">' +
-    '<summary style="padding:11px 14px;cursor:pointer;font-size:13px;font-weight:600;color:var(--dark);user-select:none;list-style:none;display:flex;align-items:center;gap:8px">' +
-      '<svg width="11" height="11" viewBox="0 0 15 15" fill="none" style="transition:transform 0.18s"><path d="M5 3l5 4.5-5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-      '<span>Change Loan Status</span>' +
-      '<span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400">advanced actions</span>' +
-    '</summary>' +
-    '<div style="padding:12px 14px;border-top:1px solid var(--border, #E4DFD4)">' +
-      // Change Type — DSCR ↔ RTL. Rebuilds the loan in the other sizer.
-      // Borrower / address info carries over; pricing + product-specific
-      // fields get cleared. Status reverts to active (Quoted) and any
-      // sent envelopes are hidden as superseded.
-      '<button type="button" class="change-type-btn" onclick="openChangeTypeModal()" style="width:100%">' +
+  html += '<div id="ldStatusActionsHolder" style="display:none">' +
+      '<button type="button" id="ldChangeTypeBtn" class="change-type-btn" onclick="openChangeTypeModal()" style="width:100%">' +
         '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 5h7l-2-2M12 10H5l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
         'Change to ' + otherType + ' Loan' +
       '</button>' +
-      // Cancel + Decline — only for non-terminal statuses.
       (_canEndLoan
-        ? '<button type="button" class="open-sizer-btn" onclick="openCancelLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
+        ? '<button type="button" id="ldCancelLoanBtn" class="open-sizer-btn" onclick="openCancelLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
             '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M5 5l5 5M10 5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
             'Cancel Loan' +
           '</button>' +
-          '<button type="button" class="open-sizer-btn" onclick="openDeclineLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
+          '<button type="button" id="ldDeclineLoanBtn" class="open-sizer-btn" onclick="openDeclineLoanModal()" style="margin-top:8px;background:#7C1F1F;color:#fff;border-color:#7C1F1F">' +
             '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M4 7.5h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' +
             'Decline Loan' +
           '</button>'
         : '') +
-      // Admin-only: manual move to any status. The selected status is
-      // sent to /api/loan-advance-status which (Deploy 227) accepts any
-      // status when the caller is admin / super-admin. Audit-logged on
-      // the loan.
       (_isAdminUser
-        ? '<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border, #E4DFD4)">' +
-            '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Admin — Manual Status Move</div>' +
-            '<div style="display:flex;gap:8px;align-items:center">' +
-              '<select id="adminStatusPick" style="flex:1;padding:9px 10px;border:1.5px solid var(--border, #E4DFD4);border-radius:6px;font-family:\'DM Sans\',sans-serif;font-size:13px;background:#fff">' +
-                '<option value="">Select target status…</option>' +
-                '<option value="active">Quoted (active)</option>' +
-                '<option value="on_hold">On Hold</option>' +
-                '<option value="submitted">Submitted - Pending Review</option>' +
-                '<option value="awaiting_app">Awaiting Application</option>' +
-                '<option value="approved">In Processing (approved)</option>' +
-                '<option value="closed">Closed</option>' +
-                '<option value="denied">Declined</option>' +
-                '<option value="cancelled">Cancelled</option>' +
-              '</select>' +
-              '<button type="button" onclick="adminMoveStatus()" class="open-sizer-btn" style="margin:0;padding:9px 16px;background:var(--accent, #C8813A);color:#fff;border-color:var(--accent, #C8813A);width:auto;white-space:nowrap">Move</button>' +
-            '</div>' +
-            '<div id="adminStatusMsg" style="font-size:11px;min-height:14px;margin-top:6px;color:var(--muted)"></div>' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:6px;font-style:italic">Use sparingly — bypasses normal flow gates. Audit-logged on the loan and visible in Notes.</div>' +
-          '</div>'
-        : '') +
-      // Deploy 236.232 — admin-only manual loan merge. Opens a picker
-      // showing every OTHER loan at the same street address across
-      // owners; admin chooses a loser and this loan becomes the winner.
-      // Calls /api/loans-merge-manual which gap-fills winner fields
-      // and removes the loser from its client's loans[]. Useful when
-      // the same subject property got quoted twice (different LOs,
-      // different tools, borrower-typed vs Google-canonical address)
-      // and the pipeline card resolution can't disambiguate them.
-      (_isAdminUser
-        ? '<button type="button" class="open-sizer-btn" onclick="openMergeLoanModal()" style="margin-top:8px;background:rgba(133,77,14,0.10);color:#854d0e;border-color:rgba(133,77,14,0.40)">' +
+        ? '<button type="button" id="ldMergeLoanBtn" class="open-sizer-btn" onclick="openMergeLoanModal()" style="margin-top:8px;background:rgba(133,77,14,0.10);color:#854d0e;border-color:rgba(133,77,14,0.40)">' +
             '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M4 3h3l2 2h3M4 12h3l2-2h3M11 5l-2-2M11 5l-2 2M11 10l-2-2M11 10l-2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
             'Merge with another loan…' +
           '</button>'
         : '') +
-      // Delete loan — destructive. Kept inside this section so it's
-      // intentional to find but explicit when chosen.
-      '<button type="button" class="delete-loan-btn" onclick="deleteThisLoan()" style="margin-top:14px">' +
+      '<button type="button" id="ldDeleteLoanBtn" class="delete-loan-btn" onclick="deleteThisLoan()" style="margin-top:14px">' +
         '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="vertical-align:-1px;margin-right:5px"><path d="M3 4h9M6 4V3a1 1 0 011-1h1a1 1 0 011 1v1M5 4l.5 8a1 1 0 001 1h3a1 1 0 001-1L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
         'Delete this loan' +
       '</button>' +
-    '</div>' +
-  '</details>';
+  '</div>';
 
   html += '</div></div>'; // close section-body, section
 
   html += '</div>'; // close left col
 
-  // RIGHT COL — Editable application fields
+  // RIGHT COL — Loan Terms (Deploy 236.641). This replaces the retired
+  // "Property & Application" box: its physical fields (beds/baths/sqft/type/
+  // rental) moved to the new Property tab, and Loan Purpose / Closing Date /
+  // Description moved here. Term mechanics AUTO-DERIVE from the sizer/loan
+  // when blank (fill-blanks only — a stored value always wins) and persist
+  // via saveLoanTerms(). All users can edit their own loan (loan-fields-save
+  // now allows owners; cross-owner override still needs staff).
   html += '<div>';
-  // Deploy 236.118 — id="propertyAppSection" for tab relocation.
-  html += '<div class="section" id="propertyAppSection">' +
-    '<div class="section-head"><h2>Property &amp; Application</h2><span class="section-tag tag-editable">Editable</span></div>' +
-    '<div class="section-body">' +
-    '<div class="app-grid">' +
-      '<div class="field"><label>Bedrooms</label><input type="number" id="af-bedrooms" value="'+escAttr(l.bedrooms||'')+'" placeholder="3" min="0" /></div>' +
-      '<div class="field"><label>Bathrooms</label><input type="number" id="af-bathrooms" value="'+escAttr(l.bathrooms||'')+'" placeholder="2" min="0" step="0.5" /></div>' +
-      '<div class="field"><label>Sq Footage</label><input type="number" id="af-sqft" value="'+escAttr(l.sqft||'')+'" placeholder="1800" min="0" /></div>' +
-      '<div class="field"><label>Property Type</label>' +
-        '<select id="af-propType">' +
-          '<option value="">Select…</option>' +
-          '<option value="sfr"'+(l.propType==='sfr'?' selected':'')+'>SFR (1 Unit)</option>' +
-          '<option value="2-4"'+(l.propType==='2-4'?' selected':'')+'>2–4 Unit</option>' +
-          '<option value="condo"'+(l.propType==='condo'?' selected':'')+'>Condo</option>' +
-          '<option value="nw_condo"'+(l.propType==='nw_condo'?' selected':'')+'>Non-Warrantable Condo</option>' +
-          '<option value="multi"'+(l.propType==='multi'?' selected':'')+'>Multifamily</option>' +
-          '<option value="portfolio"'+(l.propType==='portfolio'?' selected':'')+'>Portfolio</option>' +
-        '</select>' +
-      '</div>' +
+  // ---- auto-derive Loan Terms defaults (blank-fill) ----
+  var _amortRaw = (l.isIO != null && l.isIO !== '') ? l.isIO : (fd.isIO != null ? fd.isIO : '');
+  var _amortVal = (_amortRaw === true || _amortRaw === 'yes' || _amortRaw === 'io' || _amortRaw === 'interest_only' || _amortRaw === '1' || _amortRaw === 1) ? 'io'
+                : (_amortRaw === false || _amortRaw === 'no' || _amortRaw === 'amortized' || _amortRaw === '0' || _amortRaw === 0) ? 'amortized' : '';
+  if (!_amortVal) _amortVal = isDscr ? 'amortized' : 'io';
+  var _lien = String(l.lienPosition || '').toLowerCase();
+  if (_lien === '1' || _lien === '1st') _lien = 'first';
+  if (_lien === '2' || _lien === '2nd') _lien = 'second';
+  if (!_lien) _lien = 'first';
+  var _ltTerm     = String(l.loanTerm || (isDscr ? '360' : '12'));
+  var _ltPrepayV  = String(l.prepay || (isDscr ? '54321' : ''));
+  var _ltOrig     = String(l.originationDate || l.fundingDate || '');
+  var _ltFirstPay = String(l.firstPaymentDate || _computeFirstPayment(_ltOrig) || '');
+  var _ltMaturity = String(l.maturityDate || _addMonths(_ltOrig, parseInt(_ltTerm, 10)) || '');
+  var _ppList = [['', '— Select —'], ['5y6m', '5-Year / 6-Month (5Yr/6Mo)'], ['54321', '5-Year (54321)'], ['321', '3-Year (321)'], ['320', '2-Year (320)'], ['300', '1-Year (300)'], ['none', 'No Prepayment Penalty']];
+  var _prepayOpts = '';
+  for (var _ppi = 0; _ppi < _ppList.length; _ppi++) { var _ppo = _ppList[_ppi]; _prepayOpts += '<option value="' + _ppo[0] + '"' + (_ppo[0] === _ltPrepayV ? ' selected' : '') + '>' + escH(_ppo[1]) + '</option>'; }
 
+  html += '<div class="section" id="loanTermsSection">' +
+    '<div class="section-head"><h2>Loan Terms</h2><span class="section-tag tag-editable">Editable</span></div>' +
+    '<div class="section-body">' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Loan Amount, Rate &amp; Points are managed in <strong>Loan Financials</strong>' + (isDscr ? '; TPO premium in <strong>Funding Plan</strong>.' : '.') + ' Blank terms auto-fill from the sizer.</div>' +
+    '<div class="app-grid">' +
       '<div class="field"><label>Loan Purpose</label>' +
         '<select id="af-loanPurpose">' +
           '<option value="">Select…</option>' +
@@ -1447,14 +1438,23 @@ function render() {
           '<option value="refinance"'+(l.loanPurpose==='refinance'?' selected':'')+'>Refinance</option>' +
         '</select>' +
       '</div>' +
-      '<div class="field"><label>Rental Type</label>' +
-        '<select id="af-rentalType">' +
-          '<option value="">Select…</option>' +
-          '<option value="ltr"'+(l.rentalType==='ltr'?' selected':'')+'>Long-Term Rental</option>' +
-          '<option value="str"'+(l.rentalType==='str'?' selected':'')+'>Short-Term / Airbnb</option>' +
-          '<option value="mtr"'+(l.rentalType==='mtr'?' selected':'')+'>Mid-Term Rental</option>' +
-        '</select>' +
-      '</div>' +
+      '<div class="field"><label>Loan Term (months)</label><input type="number" id="lt-loanTerm" value="' + escAttr(_ltTerm) + '" min="0" /></div>' +
+      '<div class="field"><label>Amortization</label><select id="lt-isIO">' +
+        '<option value="amortized"' + (_amortVal === 'amortized' ? ' selected' : '') + '>Fully Amortized</option>' +
+        '<option value="io"' + (_amortVal === 'io' ? ' selected' : '') + '>Interest-Only</option>' +
+      '</select></div>' +
+      '<div class="field"><label>Lien Position</label><select id="lt-lienPosition">' +
+        '<option value="first"' + (_lien === 'first' ? ' selected' : '') + '>First</option>' +
+        '<option value="second"' + (_lien === 'second' ? ' selected' : '') + '>Second</option>' +
+      '</select></div>' +
+      '<div class="field"><label>Origination Date</label><input type="date" id="lt-originationDate" value="' + escAttr(_ltOrig) + '" /></div>' +
+      '<div class="field"><label>First Payment Date</label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(_ltFirstPay) + '" /></div>' +
+      '<div class="field"><label>Maturity Date</label><input type="date" id="lt-maturityDate" value="' + escAttr(_ltMaturity) + '" /></div>' +
+      (isDscr
+        ? '<div class="field"><label>Prepayment Penalty</label><select id="lt-prepay">' + _prepayOpts + '</select></div>'
+        : '<div class="field"><label>Holdback</label><input type="text" id="lt-holdback" value="' + escAttr(String(l.holdback || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+          '<div class="field"><label>Initial Advance</label><input type="text" id="lt-initialAdvance" value="' + escAttr(String(l.initialAdvance || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+          '<div class="field"><label>Down Payment</label><input type="text" id="lt-downPayment" value="' + escAttr(String(l.downPayment || downPayment || '')) + '" inputmode="decimal" placeholder="$" /></div>') +
       // Deploy 236.61 — annotate the Desired Close Date input with
       // Baseline's Estimated_Close_Date when the address is known to
       // the mirror. Shown as a small line under the input so the LO
@@ -1495,10 +1495,10 @@ function render() {
       // button (so app-form saves no longer touch loan.notes).
     '</div>' +
     '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
-      '<button class="save-app-btn" onclick="saveAppFields()">Save Changes</button>' +
-      '<span id="appStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+      '<button class="save-app-btn" onclick="saveLoanTerms()">Save Loan Terms</button>' +
+      '<span id="loanTermsStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
     '</div>' +
-  '</div></div>'; // close section
+  '</div></div>'; // close section (Loan Terms)
 
   // ── Deploy 236.478 (feat): Funding Plan — its own section, directly
   // below Property & Application (per Mike's screenshot; moved out of the
@@ -1564,118 +1564,78 @@ function render() {
     '</div>' +
   '</div>';
 
-  // ── Deploy 236.640 (feat): Loan Terms + Property / Collateral detail
-  // sections — the manual-entry surface for the Baseline→SLA processor
-  // migration. Staff-only (processors / admins, mirroring loan-fields-save's
-  // canOverrideOwner gate). These capture the term-mechanic + collateral
-  // fields Baseline shows that SLA didn't previously persist, REUSING
-  // existing field names so nothing duplicates another editor:
-  //   • loanAmt / rate / points / purchasePrice / arv / rehabBudget →
-  //     Loan Financials (shown here as a read-through note, not re-edited)
-  //   • maturityDate → Servicing section owns it
-  //   • tpo (TPO premium) → Funding Plan owns it
-  //   • beds / baths / sqft / propType / rentalType → Property & Application
-  //   • monthlyTaxes / monthlyInsurance / monthlyHoa → also inline-editable in
-  //     Financials; surfaced here WITH the monthly/annual toggle Mike asked for
-  // Saved via SLA.Loans.saveFields → /api/loan-fields-save (deterministic
-  // clientId+loanId write, strict PG-first). Both blocks are physically
-  // relocated onto the Loan tab in relocateSectionsToTabs().
-  var _isStaffLD = !!(window.SLA && SLA.isProcessor && SLA.isProcessor(_user));
-  if (_isStaffLD) {
-    // Amortization: read l.isIO DIRECTLY (the `isIO` render var above loses a
-    // stored boolean false through its `|| ''` fallback). Map to the select.
-    var _amortRaw = (l.isIO != null && l.isIO !== '') ? l.isIO : (fd.isIO != null ? fd.isIO : '');
-    var _amortVal = (_amortRaw === true || _amortRaw === 'yes' || _amortRaw === 'io' || _amortRaw === 'interest_only' || _amortRaw === '1' || _amortRaw === 1) ? 'io'
-                  : (_amortRaw === false || _amortRaw === 'no' || _amortRaw === 'amortized' || _amortRaw === '0' || _amortRaw === 0) ? 'amortized'
-                  : '';
-    var _lien = String(l.lienPosition || '').toLowerCase();
-    if (_lien === '1' || _lien === '1st') _lien = 'first';
-    if (_lien === '2' || _lien === '2nd') _lien = 'second';
-    // Prepay dropdown — reuse the DSCR sizer's exact option set (dscr-sizer.html:732)
-    var _ppList = [['', '— Select —'], ['5y6m', '5-Year / 6-Month (5Yr/6Mo)'], ['54321', '5-Year (54321)'], ['321', '3-Year (321)'], ['320', '2-Year (320)'], ['300', '1-Year (300)'], ['none', 'No Prepayment Penalty']];
-    var _prepayOpts = '';
-    for (var _ppi = 0; _ppi < _ppList.length; _ppi++) {
-      var _ppo = _ppList[_ppi];
-      _prepayOpts += '<option value="' + _ppo[0] + '"' + (_ppo[0] === String(prepay) ? ' selected' : '') + '>' + escH(_ppo[1]) + '</option>';
-    }
-    // Carrying costs render MONTHLY first (SLA's canonical unit); the toggle
-    // converts the display and stores back to monthly. Reuse the taxes/
-    // insurance/hoa render vars (already monthly-normalized above).
-    var _mTaxes = String(taxes || '');
-    var _mIns   = String(insurance || '');
-    var _mHoa   = String(hoa || '');
-
-    // ---- Loan Terms ----
-    html += '<div class="section" id="loanTermsSection">' +
-      '<div class="section-head"><h2>Loan Terms</h2><span class="section-tag tag-editable">Editable</span></div>' +
-      '<div class="section-body">' +
-        '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Loan Amount, Rate &amp; Points are managed in <strong>Loan Financials</strong>; Maturity Date in <strong>Servicing</strong>' + (isDscr ? '; TPO premium in <strong>Funding Plan</strong>.' : '.') + '</div>' +
-        '<div class="app-grid">' +
-          '<div class="field"><label>Loan Term (months)</label><input type="number" id="lt-loanTerm" value="' + escAttr(String(l.loanTerm || '')) + '" placeholder="' + (isDscr ? '360' : '12') + '" min="0" /></div>' +
-          '<div class="field"><label>Amortization</label><select id="lt-isIO">' +
-            '<option value=""' + (_amortVal === '' ? ' selected' : '') + '>— Select —</option>' +
-            '<option value="amortized"' + (_amortVal === 'amortized' ? ' selected' : '') + '>Fully Amortized</option>' +
-            '<option value="io"' + (_amortVal === 'io' ? ' selected' : '') + '>Interest-Only</option>' +
-          '</select></div>' +
-          '<div class="field"><label>Lien Position</label><select id="lt-lienPosition">' +
-            '<option value=""' + (_lien === '' ? ' selected' : '') + '>— Select —</option>' +
-            '<option value="first"' + (_lien === 'first' ? ' selected' : '') + '>First</option>' +
-            '<option value="second"' + (_lien === 'second' ? ' selected' : '') + '>Second</option>' +
-          '</select></div>' +
-          '<div class="field"><label>Origination Date</label><input type="date" id="lt-originationDate" value="' + escAttr(String(l.originationDate || '')) + '" /></div>' +
-          '<div class="field"><label>First Payment Date</label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(String(l.firstPaymentDate || '')) + '" /></div>' +
-          (isDscr
-            ? '<div class="field"><label>Prepayment Penalty</label><select id="lt-prepay">' + _prepayOpts + '</select></div>'
-            : '<div class="field"><label>Holdback</label><input type="text" id="lt-holdback" value="' + escAttr(String(l.holdback || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-              '<div class="field"><label>Initial Advance</label><input type="text" id="lt-initialAdvance" value="' + escAttr(String(l.initialAdvance || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-              '<div class="field"><label>Down Payment</label><input type="text" id="lt-downPayment" value="' + escAttr(String(l.downPayment || downPayment || '')) + '" inputmode="decimal" placeholder="$" /></div>') +
+  // ── Deploy 236.641 — Property / Collateral section. Rendered here after the
+  // two-col, then relocated to the new PROPERTY TAB (relocateSectionsToTabs).
+  // Holds all collateral detail PLUS the physical fields (beds/baths/sq ft/
+  // property type/rental type) that used to live in the now-retired Property &
+  // Application box — REUSING their af-* ids so downstream references + the
+  // long-app sync keep working. Carrying costs carry the monthly/annual toggle
+  // (stored monthly). Saved via savePropertyCollateral() → loan-fields-save
+  // (owner-editable since 236.641). _amortVal/_lien/_prepayOpts were computed
+  // for the Loan Terms right-col above; only the carrying-cost bases are new.
+  var _mTaxes = String(taxes || '');
+  var _mIns   = String(insurance || '');
+  var _mHoa   = String(hoa || '');
+  html += '<div class="section" id="propertyCollateralSection">' +
+    '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span></div>' +
+    '<div class="section-body">' +
+      // Physical characteristics — beds/baths/sq ft/type/rental moved here from
+      // the retired Property & Application box (af-* ids preserved).
+      '<div class="app-grid">' +
+        '<div class="field"><label>Bedrooms</label><input type="number" id="af-bedrooms" value="'+escAttr(l.bedrooms||'')+'" placeholder="3" min="0" /></div>' +
+        '<div class="field"><label>Bathrooms</label><input type="number" id="af-bathrooms" value="'+escAttr(l.bathrooms||'')+'" placeholder="2" min="0" step="0.5" /></div>' +
+        '<div class="field"><label>Sq Footage</label><input type="number" id="af-sqft" value="'+escAttr(l.sqft||'')+'" placeholder="1800" min="0" /></div>' +
+        '<div class="field"><label>Units</label><input type="number" id="pc-numUnits" value="' + escAttr(String(l.numUnits || '')) + '" min="0" /></div>' +
+        '<div class="field"><label>Property Type</label>' +
+          '<select id="af-propType">' +
+            '<option value="">Select…</option>' +
+            '<option value="sfr"'+(l.propType==='sfr'?' selected':'')+'>SFR (1 Unit)</option>' +
+            '<option value="2-4"'+(l.propType==='2-4'?' selected':'')+'>2–4 Unit</option>' +
+            '<option value="condo"'+(l.propType==='condo'?' selected':'')+'>Condo</option>' +
+            '<option value="nw_condo"'+(l.propType==='nw_condo'?' selected':'')+'>Non-Warrantable Condo</option>' +
+            '<option value="multi"'+(l.propType==='multi'?' selected':'')+'>Multifamily</option>' +
+            '<option value="portfolio"'+(l.propType==='portfolio'?' selected':'')+'>Portfolio</option>' +
+          '</select>' +
         '</div>' +
-        '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
-          '<button class="save-app-btn" onclick="saveLoanTerms()">Save Loan Terms</button>' +
-          '<span id="loanTermsStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+        '<div class="field"><label>Rental Type</label>' +
+          '<select id="af-rentalType">' +
+            '<option value="">Select…</option>' +
+            '<option value="ltr"'+(l.rentalType==='ltr'?' selected':'')+'>Long-Term Rental</option>' +
+            '<option value="str"'+(l.rentalType==='str'?' selected':'')+'>Short-Term / Airbnb</option>' +
+            '<option value="mtr"'+(l.rentalType==='mtr'?' selected':'')+'>Mid-Term Rental</option>' +
+          '</select>' +
         '</div>' +
+        '<div class="field"><label>Year Built</label><input type="number" id="pc-yearBuilt" value="' + escAttr(String(l.yearBuilt || '')) + '" min="0" placeholder="e.g. 1998" /></div>' +
+        '<div class="field"><label>Stories / Floors</label><input type="number" id="pc-stories" value="' + escAttr(String(l.stories || '')) + '" min="0" step="0.5" /></div>' +
+        '<div class="field"><label>Lot Size (sq ft)</label><input type="text" id="pc-lotSize" value="' + escAttr(String(l.lotSize || '')) + '" inputmode="decimal" /></div>' +
+        '<div class="field"><label>County</label><input type="text" id="pc-propertyCounty" value="' + escAttr(String(l.propertyCounty || '')) + '" /></div>' +
+        '<div class="field"><label>Flood Zone</label><input type="text" id="pc-floodZone" value="' + escAttr(String(l.floodZone || '')) + '" placeholder="e.g. X, AE, or No" /></div>' +
+        '<div class="field"><label>Purchase Date</label><input type="date" id="pc-purchaseDate" value="' + escAttr(String(l.purchaseDate || '')) + '" /></div>' +
       '</div>' +
-    '</div>';
-
-    // ---- Property / Collateral ----
-    html += '<div class="section" id="propertyCollateralSection">' +
-      '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span></div>' +
-      '<div class="section-body">' +
-        '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Beds, baths, sq ft, property type &amp; rental type are in <strong>Property &amp; Application</strong>.</div>' +
-        '<div class="app-grid">' +
-          '<div class="field"><label>Units</label><input type="number" id="pc-numUnits" value="' + escAttr(String(l.numUnits || '')) + '" min="0" /></div>' +
-          '<div class="field"><label>Year Built</label><input type="number" id="pc-yearBuilt" value="' + escAttr(String(l.yearBuilt || '')) + '" min="0" placeholder="e.g. 1998" /></div>' +
-          '<div class="field"><label>Stories / Floors</label><input type="number" id="pc-stories" value="' + escAttr(String(l.stories || '')) + '" min="0" step="0.5" /></div>' +
-          '<div class="field"><label>Lot Size (sq ft)</label><input type="text" id="pc-lotSize" value="' + escAttr(String(l.lotSize || '')) + '" inputmode="decimal" /></div>' +
-          '<div class="field"><label>County</label><input type="text" id="pc-propertyCounty" value="' + escAttr(String(l.propertyCounty || '')) + '" /></div>' +
-          '<div class="field"><label>Flood Zone</label><input type="text" id="pc-floodZone" value="' + escAttr(String(l.floodZone || '')) + '" placeholder="e.g. X, AE, or No" /></div>' +
-          '<div class="field"><label>Purchase Date</label><input type="date" id="pc-purchaseDate" value="' + escAttr(String(l.purchaseDate || '')) + '" /></div>' +
-        '</div>' +
-        '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Valuation</h3>' +
-        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. AIV / ARV BPO values drive the loan terms.</div>' +
-        '<div class="app-grid">' +
-          '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(String(l.propValue || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-          '<div class="field"><label>AIV BPO</label><input type="text" id="pc-aivBpo" value="' + escAttr(String(l.aivBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-          (!isDscr ? '<div class="field"><label>ARV BPO</label><input type="text" id="pc-arvBpo" value="' + escAttr(String(l.arvBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' : '') +
-          '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(String(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-        '</div>' +
-        '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Carrying Costs <span id="pc-carryModeLabel" style="text-transform:none;font-weight:500;letter-spacing:0">(monthly)</span></h3>' +
-        '<div style="display:inline-flex;border:1px solid var(--border,#ddd8d0);border-radius:8px;overflow:hidden;margin-bottom:12px">' +
-          '<button type="button" id="pc-carryMonthlyBtn" class="pc-seg active" onclick="pcCarryToggle(\'monthly\')">Monthly</button>' +
-          '<button type="button" id="pc-carryAnnualBtn" class="pc-seg" onclick="pcCarryToggle(\'annual\')">Annual</button>' +
-        '</div>' +
-        '<div class="app-grid">' +
-          '<div class="field"><label>Property Taxes</label><input type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_mTaxes) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
-          '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_mIns) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
-          '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_mHoa) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
-        '</div>' +
-        '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
-          '<button class="save-app-btn" onclick="savePropertyCollateral()">Save Property / Collateral</button>' +
-          '<span id="propCollStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
-        '</div>' +
+      '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Valuation</h3>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. AIV / ARV BPO values drive the loan terms.</div>' +
+      '<div class="app-grid">' +
+        '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(String(l.propValue || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+        '<div class="field"><label>AIV BPO</label><input type="text" id="pc-aivBpo" value="' + escAttr(String(l.aivBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+        (!isDscr ? '<div class="field"><label>ARV BPO</label><input type="text" id="pc-arvBpo" value="' + escAttr(String(l.arvBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' : '') +
+        '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(String(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
       '</div>' +
-    '</div>';
-  }
+      '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Carrying Costs <span id="pc-carryModeLabel" style="text-transform:none;font-weight:500;letter-spacing:0">(monthly)</span></h3>' +
+      '<div style="display:inline-flex;border:1px solid var(--border,#ddd8d0);border-radius:8px;overflow:hidden;margin-bottom:12px">' +
+        '<button type="button" id="pc-carryMonthlyBtn" class="pc-seg active" onclick="pcCarryToggle(\'monthly\')">Monthly</button>' +
+        '<button type="button" id="pc-carryAnnualBtn" class="pc-seg" onclick="pcCarryToggle(\'annual\')">Annual</button>' +
+      '</div>' +
+      '<div class="app-grid">' +
+        '<div class="field"><label>Property Taxes</label><input type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_mTaxes) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_mIns) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_mHoa) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
+      '</div>' +
+      '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
+        '<button class="save-app-btn" onclick="savePropertyCollateral()">Save Property / Collateral</button>' +
+        '<span id="propCollStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
 
   // Deploy 236.566 — Closing Coordination panel (CD/wire/funding milestones).
   // Renders only for Approved/Closed loans (or any loan whose closing has
@@ -2093,6 +2053,9 @@ function render() {
   var tabsHtml =
     '<div class="ld-tabs" role="tablist">' +
       '<button type="button" class="ld-tab active" data-ld-tab="loan"     onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
+      // Deploy 236.641 — Property tab (to the right of Loan): all collateral +
+      // the physical fields that used to live in Property & Application.
+      '<button type="button" class="ld-tab"        data-ld-tab="property" onclick="switchLdTab(\'property\')"><span class="ld-tab-icon">\u{1F3E0}</span>Property</button>' +
       '<button type="button" class="ld-tab"        data-ld-tab="contacts" onclick="switchLdTab(\'contacts\')"><span class="ld-tab-icon">\u{1F465}</span>Contacts</button>' +
       '<button type="button" class="ld-tab"        data-ld-tab="tasks"    onclick="switchLdTab(\'tasks\')"><span class="ld-tab-icon">\u{2705}</span>Tasks<span class="ld-tab-count" id="ldTabTasksCount" hidden></span></button>' +
       _tabDocuments +
@@ -2102,6 +2065,7 @@ function render() {
       _tabServicing +
     '</div>' +
     '<div class="ld-pane active" data-ld-pane="loan"     id="ldPaneLoan"></div>' +
+    '<div class="ld-pane"        data-ld-pane="property" id="ldPaneProperty"></div>' +
     '<div class="ld-pane"        data-ld-pane="contacts" id="ldPaneContacts"></div>' +
     '<div class="ld-pane"        data-ld-pane="tasks"    id="ldPaneTasks"></div>' +
     (_inProc ? '<div class="ld-pane" data-ld-pane="documents"    id="ldPaneDocuments"></div>' : '') +
@@ -2154,6 +2118,15 @@ function render() {
       'reviewAppBtn',             // Review Submitted Application
       'downloadSignedAppBtn',     // Download Signed App (PDF)
       'downloadUnsignedAppBtn',   // Generate Application PDF (Unsigned)
+      // Deploy 236.641 — loan-level actions from the dismantled Change Loan
+      // Status box now live in the Actions menu (Change Type + Merge, then the
+      // destructive Cancel / Decline / Delete). Conditional buttons that
+      // weren't rendered (non-admin, terminal status) simply aren't found.
+      'ldChangeTypeBtn',
+      'ldMergeLoanBtn',
+      'ldCancelLoanBtn',
+      'ldDeclineLoanBtn',
+      'ldDeleteLoanBtn',
     ];
     var moved = 0;
     ids.forEach(function(id) {
@@ -2236,6 +2209,7 @@ function render() {
   // already-attached refreshers; only the visual position moves.
   (function relocateSectionsToTabs() {
     var paneLoan      = document.getElementById('ldPaneLoan');
+    var paneProperty  = document.getElementById('ldPaneProperty'); // Deploy 236.641
     var paneContacts  = document.getElementById('ldPaneContacts');
     var paneDocuments = document.getElementById('ldPaneDocuments');
     var paneTasks     = document.getElementById('ldPaneTasks');
@@ -2253,14 +2227,13 @@ function render() {
     var twoCol = stage && stage.querySelector('.two-col');
     if (twoCol) paneLoan.appendChild(twoCol);
 
-    // Deploy 236.640 — Loan Terms + Property/Collateral (staff migration
-    // entry) sit on the Loan tab, just under the Financials/Property two-col.
-    // They're rendered outside .two-col, so move them explicitly (like every
-    // other relocated section). Absent for non-staff → getElementById null → skip.
-    ['loanTermsSection', 'propertyCollateralSection'].forEach(function(id) {
-      var el = document.getElementById(id);
-      if (el) paneLoan.appendChild(el);
-    });
+    // Deploy 236.641 — Loan Terms now lives in the two-col right column (it
+    // replaced the Property & Application box), so it rides into paneLoan with
+    // the two-col above. The Property / Collateral section is rendered after
+    // the two-col and moves to the new PROPERTY tab. Fallback to paneLoan if
+    // (defensively) the Property pane is missing.
+    var _propColl = document.getElementById('propertyCollateralSection');
+    if (_propColl) (paneProperty || paneLoan).appendChild(_propColl);
 
     // CONTACTS tab: vesting LLC info (top) / guarantor info /
     // linked guarantors / additional contacts / broker info. Plus a
@@ -5714,34 +5687,22 @@ function saveServicingFields() {
   });
 }
 
+// Deploy 236.641 — saveAppFields is now ONLY the Broker Info (Contacts tab)
+// save. The property/application fields it used to write moved to the Property
+// tab (savePropertyCollateral) and the Loan Terms box (saveLoanTerms); leaving
+// them here would double-write via the whole-client path and clobber unsaved
+// edits in those tabs. Broker Fee stays out — that's a sizer pricing decision.
 function saveAppFields() {
   if (!_loan || !_client) return;
-  var appFields = {
-    bedrooms:    document.getElementById('af-bedrooms').value.trim(),
-    bathrooms:   document.getElementById('af-bathrooms').value.trim(),
-    sqft:        document.getElementById('af-sqft').value.trim(),
-    propType:    document.getElementById('af-propType').value,
-    loanPurpose: document.getElementById('af-loanPurpose').value,
-    rentalType:  document.getElementById('af-rentalType').value,
-    fundingDate: document.getElementById('af-fundingDate').value,
-    // Deploy 226 — notes moved to the dedicated audit log section. App
-    // form Save no longer touches loan.notes / loan.notesLog so the two
-    // surfaces can evolve independently.
-    projectDescription: (document.getElementById('af-projectDescription') || { value: '' }).value.trim(),
-    updatedAt:   new Date().toISOString(),
-  };
-  // Broker contact fields are editable on Loan Details (Deploy 162).
-  // Only persist them when the inputs actually exist (i.e. this is a
-  // broker loan and the section was rendered). Broker Fee itself is
-  // intentionally NOT updatable here — that's a sizer-level pricing
-  // decision; changing the fee here would orphan the pricing math.
   var bn = document.getElementById('af-brokerName');
-  if (bn) {
-    appFields.brokerName    = bn.value.trim();
-    appFields.brokerCompany = (document.getElementById('af-brokerCompany')||{value:''}).value.trim();
-    appFields.brokerEmail   = (document.getElementById('af-brokerEmail')  ||{value:''}).value.trim().toLowerCase();
-    appFields.brokerPhone   = (document.getElementById('af-brokerPhone')  ||{value:''}).value.trim();
-  }
+  if (!bn) { showToast('Nothing to save here'); return; }
+  var appFields = {
+    brokerName:    bn.value.trim(),
+    brokerCompany: (document.getElementById('af-brokerCompany')||{value:''}).value.trim(),
+    brokerEmail:   (document.getElementById('af-brokerEmail')  ||{value:''}).value.trim().toLowerCase(),
+    brokerPhone:   (document.getElementById('af-brokerPhone')  ||{value:''}).value.trim(),
+    updatedAt:     new Date().toISOString(),
+  };
 
   // Update the loan inside the client and save the whole client back
   var loans = _client.loans || [];
@@ -5757,9 +5718,8 @@ function saveAppFields() {
   }
   SLA.Clients.save(saveOpts).then(function() {
     var s = document.getElementById('appStatus');
-    s.style.display = 'inline';
-    setTimeout(function(){ s.style.display = 'none'; }, 2500);
-    showToast('Changes saved');
+    if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
+    showToast('Broker info saved');
   }).catch(function(err) {
     showToast('Save failed: ' + (err.message || 'unknown error'));
   });
@@ -5869,6 +5829,38 @@ function saveFundingPlan() {
 // are stored MONTHLY regardless of the display toggle.
 var _pcCarryMode = 'monthly';
 
+// ── Deploy 236.641 — Loan Terms auto-derivation date helpers ─────────
+// Used by render() to fill blank term dates from the sizer/loan. Parse
+// YYYY-MM-DD only (the value of <input type="date">); return the same.
+function _ldParseYmd(s) {
+  var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  var d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10), 12, 0, 0);
+  return isNaN(d.getTime()) ? null : d;
+}
+function _ldToYmd(d) {
+  if (!d || isNaN(d.getTime())) return '';
+  var mm = String(d.getMonth() + 1); if (mm.length < 2) mm = '0' + mm;
+  var dd = String(d.getDate());      if (dd.length < 2) dd = '0' + dd;
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+// Add N calendar months to a YYYY-MM-DD (day-of-month preserved; JS Date
+// rolls day overflow forward, which is fine for our term/maturity math).
+function _addMonths(ymd, months) {
+  var d = _ldParseYmd(ymd);
+  if (!d || !isFinite(months)) return '';
+  d.setMonth(d.getMonth() + months);
+  return _ldToYmd(d);
+}
+// First payment = the 1st of the month two months out from the origination/
+// closing date (e.g. close Aug 20 → first payment Oct 1) — the standard
+// full-month-plus convention, matching the closed-loans first-payment logic.
+function _computeFirstPayment(ymd) {
+  var d = _ldParseYmd(ymd);
+  if (!d) return '';
+  return _ldToYmd(new Date(d.getFullYear(), d.getMonth() + 2, 1, 12, 0, 0));
+}
+
 function _ldOwnerOverride() {
   return (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
 }
@@ -5949,6 +5941,12 @@ function saveLoanTerms() {
     lienPosition:     _ldVal('lt-lienPosition'),
     originationDate:  _ldVal('lt-originationDate'),
     firstPaymentDate: _ldVal('lt-firstPaymentDate'),
+    maturityDate:     _ldVal('lt-maturityDate'),
+    // Deploy 236.641 — Loan Purpose / Closing Date / Description moved into
+    // the Loan Terms box from the retired Property & Application section.
+    loanPurpose:        _ldVal('af-loanPurpose'),
+    fundingDate:        _ldVal('af-fundingDate'),
+    projectDescription: _ldVal('af-projectDescription'),
   };
   // Amortization: only send when explicitly chosen — a blank select must not
   // stamp isIO=false (the backend's _truthy('') would wrongly mark amortized).
@@ -5983,6 +5981,12 @@ function savePropertyCollateral() {
   if (!_loan || !_client) return;
   var isDscr = (_loan.toolType || '') !== 'rtl';
   var fields = {
+    // Physical fields moved from the retired Property & Application box (af-* ids)
+    bedrooms:         _ldNum('af-bedrooms'),
+    bathrooms:        _ldNum('af-bathrooms'),
+    sqft:             _ldNum('af-sqft'),
+    propType:         _ldVal('af-propType'),
+    rentalType:       _ldVal('af-rentalType'),
     numUnits:         _ldNum('pc-numUnits'),
     yearBuilt:        _ldNum('pc-yearBuilt'),
     stories:          _ldNum('pc-stories'),

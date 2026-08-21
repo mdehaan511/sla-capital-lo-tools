@@ -20,7 +20,8 @@
  *               the UI toggles monthly/annual and converts before POST)
  *
  * Body: { clientId, loanId, owner?, fields: { <whitelisted>: value } }
- * Auth: staff only (processor OR admin via canOverrideOwner).
+ * Auth: any authenticated user may edit their OWN loan; a cross-owner
+ * override (body.owner ≠ self) requires processor/admin (Deploy 236.641).
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -33,6 +34,8 @@ const FIELDS = {
   // Terms
   loanTerm: 1, loanType: 1, isIO: 1, prepay: 1, originationDate: 1, maturityDate: 1,
   firstPaymentDate: 1, lienPosition: 1, tpoPremium: 1, holdback: 1, initialAdvance: 1, downPayment: 1,
+  // Deploy 236.641 — Loan-tab reorg folded these into the Loan Terms box
+  loanPurpose: 1, fundingDate: 1, projectDescription: 1,
   // Valuation
   purchasePrice: 1, propValue: 1, aivBpo: 1, arv: 1, arvBpo: 1, currentLoanAmt: 1, rehabBudget: 1,
   // Property
@@ -60,7 +63,6 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!canOverrideOwner(user).ok) return json(403, { error: 'Processor or admin only' });
 
   const body = await readJsonBody(req);
   if (!body) return json(400, { error: 'Invalid JSON' });
@@ -69,10 +71,15 @@ async function handle(req, context) {
   if (!loanId)   return json(400, { error: 'loanId required' });
   if (!fields || typeof fields !== 'object') return json(400, { error: 'fields object required' });
 
+  // Deploy 236.641 — these fields now include the everyday Loan-tab inputs
+  // (Loan Purpose / Closing Date / Description), so an OWNER may edit their
+  // OWN loan; only a cross-owner override requires processor/admin (the
+  // standard CLAUDE.md owner-override pattern), no longer a blanket staff gate.
   const selfEmail = normalizeEmail(user.email);
   const selfKey   = keySafe(selfEmail);
   let ownerKey;
-  if (body.owner && body.owner !== selfEmail && body.owner !== selfKey) {
+  if (body.owner && normalizeEmail(body.owner) !== selfEmail && body.owner !== selfKey) {
+    if (!canOverrideOwner(user).ok) return json(403, { error: 'Owner override requires processor or admin' });
     ownerKey = keySafe(normalizeEmail(body.owner));
   } else {
     ownerKey = selfKey;
