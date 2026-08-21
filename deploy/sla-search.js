@@ -115,14 +115,34 @@
   var _isStaff = false;
   var _lastQ = '';
 
+  function _applyStaff(u) {
+    if (!u || !window.SLA) return;
+    var staff = (SLA.isStaff && SLA.isStaff(u)) || (SLA.isAdmin && SLA.isAdmin(u)) || false;
+    if (staff && !_isStaff) {
+      _isStaff = true;
+      // Staff default to all-LO scope — the "find a lost loan" case is usually an
+      // admin hunting across owners. (Non-staff stay on their own book.)
+      _scope = 'all';
+      // If a search is already on screen (typed before detection resolved), re-run
+      // it so the All-LOs results load + the My data / All LOs toggle appears
+      // without the user having to re-type.
+      if (_lastQ) { try { runSearch(_lastQ); } catch (_) {} }
+    }
+  }
   function _detectStaff() {
     try {
-      var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
-      if (u && window.SLA) {
-        _isStaff = (SLA.isStaff && SLA.isStaff(u)) || (SLA.isAdmin && SLA.isAdmin(u)) || false;
-        // Staff default to all-LO scope — the "find a lost loan"
-        // case is usually an admin hunting across owners.
-        if (_isStaff) _scope = 'all';
+      // Deploy 236.632 — resolve the current user via SLA.getCurrentUser(), which
+      // works for BOTH Netlify Identity AND Supabase/Google logins. The old code
+      // read only netlifyIdentity.currentUser(), which is null for Supabase
+      // sessions — so every Google-logged-in staff member was detected as a plain
+      // LO, pinned to the 'mine' scope (searching just their own, often empty,
+      // book) with no All-LOs toggle. That's why universal search "returned
+      // nothing" for admins after the Google-login cutover.
+      if (window.SLA && SLA.getCurrentUser) {
+        SLA.getCurrentUser().then(_applyStaff).catch(function () {});
+      } else {
+        var u = window.netlifyIdentity && window.netlifyIdentity.currentUser && window.netlifyIdentity.currentUser();
+        _applyStaff(u);
       }
     } catch (_) {}
   }
