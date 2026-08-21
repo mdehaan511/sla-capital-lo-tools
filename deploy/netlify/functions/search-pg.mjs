@@ -92,9 +92,15 @@ export default async (req, context) => {
   // loanId alone from PG regardless of any page filter — the "loan
   // disappeared but it's still in the system" recovery path). Clients
   // matching the query split into brokers vs clients on is_broker.
-  const [clientHits, loanRows, loanIdRows, prospectsResult, quotesResult] = await Promise.all([
+  const [clientHits, loanPrefixRows, loanRows, loanIdRows, prospectsResult, quotesResult] = await Promise.all([
     _searchClientsPG(q, wantAll, selfEmail).catch((e) => {
       console.warn('search-pg: clients FTS failed:', e && e.message);
+      return [];
+    }),
+    // Deploy 236.633 — highest-priority loan match: address STARTS WITH the query
+    // (e.g. "430" → "430 Main St"). Runs before FTS + id so it wins the merge.
+    _searchLoansByAddressPrefixPG(q, wantAll, selfEmail).catch((e) => {
+      console.warn('search-pg: loans addr-prefix failed:', e && e.message);
       return [];
     }),
     _searchLoansPG(q, wantAll, selfEmail).catch((e) => {
@@ -115,10 +121,12 @@ export default async (req, context) => {
     }),
   ]);
 
-  // Loans: merge FTS + id-lookup hits, dedupe by loan id.
+  // Loans: merge in PRIORITY order, dedupe by loan id. Deploy 236.633 — address
+  // matches now rank above loan-number matches (Mike): address STARTS-WITH first,
+  // then address/notes FTS (contains), then id / SLA-number lookup last.
   const seenLoans = new Set();
   const loans = [];
-  [].concat(loanIdRows, loanRows).forEach((l) => {
+  [].concat(loanPrefixRows, loanRows, loanIdRows).forEach((l) => {
     if (!l || !l.id || seenLoans.has(l.id)) return;
     seenLoans.add(l.id);
     loans.push(l);
@@ -273,16 +281,43 @@ async function _searchLoansPG(q, wantAll, selfEmail) {
   return rows.map((l) => _rowToLoanResult(l, selfEmail));
 }
 
+// Deploy 236.633 — address STARTS-WITH match (ilike '<q>%'). Ranked above FTS +
+// id so "430" surfaces "430 Main St" before anything that merely contains 430.
+// Most-recently-updated first within the prefix hits.
+async function _searchLoansByAddressPrefixPG(q, wantAll, selfEmail) {
+  const frag = q.replace(/[*%(),]/g, '').trim();
+  if (!frag) return [];
+  const parts = [
+    'select=' + encodeURIComponent(LOAN_SELECT),
+    // PostgREST ilike uses * as the wildcard; a trailing-only * = prefix match.
+    'address=ilike.' + encodeURIComponent(frag + '*'),
+    'limit=' + (PER_CATEGORY * 2),
+    'order=updated_at.desc',
+  ];
+  if (!wantAll) parts.push('owner_email=eq.' + encodeURIComponent(selfEmail));
+  const rows = await _pgSelect('loans', parts.join('&'));
+  return rows.map((l) => _rowToLoanResult(l, selfEmail));
+}
+
 // Deploy 236.383 — direct id / SLA-display-id lookup. The FTS tsv only
 // covers address + notes, so searching "SLA-20260710-7065" or a loan id
-// fragment found nothing. Case-insensitive substring match on both
-// columns; only fires at 3+ chars to keep the ilike cheap.
+// fragment found nothing. Case-insensitive substring match; only fires at
+// 3+ chars to keep the ilike cheap.
+// Deploy 236.633 — a bare number (e.g. "430") is an address/amount, NOT a loan-id
+// fragment. Matching the INTERNAL l_<timestamp>_<rand> id on it was pure noise
+// (timestamps contain those digits) and outranked real address hits. For a purely
+// numeric query, match only the human-facing sla_display_id; keep the internal-id
+// match for id-like queries (letters/underscores/dashes, e.g. an l_… fragment).
 async function _searchLoansByIdPG(q, wantAll, selfEmail) {
   if (q.length < 3) return [];
   const frag = q.replace(/[(),]/g, ''); // strip PostgREST syntax chars
+  const numericOnly = /^\d+$/.test(frag);
+  const orClause = numericOnly
+    ? '(sla_display_id.ilike.*' + frag + '*)'
+    : '(id.ilike.*' + frag + '*,sla_display_id.ilike.*' + frag + '*)';
   const parts = [
     'select=' + encodeURIComponent(LOAN_SELECT),
-    'or=' + encodeURIComponent('(id.ilike.*' + frag + '*,sla_display_id.ilike.*' + frag + '*)'),
+    'or=' + encodeURIComponent(orClause),
     'limit=' + PER_CATEGORY,
     'order=updated_at.desc',
   ];
