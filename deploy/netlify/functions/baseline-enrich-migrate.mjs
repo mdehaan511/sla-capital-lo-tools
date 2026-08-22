@@ -238,12 +238,16 @@ async function handle(req, context) {
   }
   const importTotal = keys.length;
   if (only) {
-    // Fast, direct: the import client id is c_baseline_<extId>.
-    keys = only.map((e) => IMPORT_OWNER_KEY + '/' + keySafe('c_baseline_' + e));
+    // Each entry may be a full client id (c_bl_… / c_baseline_…) or an SLA ext id
+    // (SLA-###…, assumed c_baseline_<extId>). Build the exact blob key either way.
+    keys = only.map((e) => {
+      const cid = /^c_/.test(e) ? e : ('c_baseline_' + e);
+      return IMPORT_OWNER_KEY + '/' + keySafe(cid);
+    });
   }
-  const total = only ? only.length : keys.length;
+  const total = only ? keys.length : importTotal;
   const slice = only ? keys : keys.slice(offset, offset + limit);
-  const wantSet = only ? new Set(only.map((e) => 'l_baseline_' + e)) : null;
+  const wantSet = null;
 
   const counts = { enriched: 0, reassigned: 0, noMirror: 0, noLoan: 0, errors: 0 };
   const samples = [];
