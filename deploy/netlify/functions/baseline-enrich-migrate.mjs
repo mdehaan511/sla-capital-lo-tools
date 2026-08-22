@@ -26,6 +26,7 @@ import {
 import { IMPORT_OWNER_KEY, setNativeLink } from './_shared/baseline-upsert.mjs';
 import { loadMirroredLoan } from './_shared/baseline-mirror.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { linkGuarantorToLoan } from './_shared/guarantor-link.mjs';
 
 const DEST_EMAIL = 'chance@slacapital.com';
 const DEST_KEY = keySafe(normalizeEmail(DEST_EMAIL));
@@ -142,7 +143,12 @@ function mapMirrorToFields(m) {
   const arvL = _num(m.Address_ARV_Lender);        if (arvL != null)    f.arvBpo = String(arvL);
   const debt = _num(m.Address_Existing_Debt);     if (debt != null)    f.currentLoanAmt = String(debt);
   const pp = _num(m.Address_Purchase_Price);      if (pp != null)      f.purchasePrice = String(pp);
-  const rehab = _num(m.Address_Total_Rehab);      if (rehab != null)   f.rehabBudget = String(rehab);
+  // rehab: Baseline RTL loans carry it as Holdback / Rehab_Cost (the escrow),
+  // which Mike says IS the Rehab Budget. Address_Total_Rehab is often blank.
+  const rehab = [m.Address_Total_Rehab, m.Holdback, m.Rehab_Cost].map(_num).find((v) => v != null);
+  if (rehab != null) f.rehabBudget = String(rehab);
+  const initAdv = _num(m.Initial_Advance);        if (initAdv != null) f.initialAdvance = String(initAdv);
+  const down = _num(m.Down_Payment);              if (down != null)    f.downPayment = String(down);
 
   // Property
   const beds = _num(m.Address_Beds);              if (beds != null)    f.bedrooms = String(beds);
@@ -164,6 +170,27 @@ function mapMirrorToFields(m) {
   const rent = _num(m.Address_Actual_Rent);       if (rent != null)    f.monthlyRent = String(rent); // Baseline actual rent is monthly
 
   return f;
+}
+
+// The vesting LLC (entity borrower) + the guarantor person, from the mirror.
+function mapPeople(m) {
+  const out = { llcName: '', guarantor: null };
+  if (String(m.Borrower_Type || '').toLowerCase() === 'entity') {
+    const nm = _str(m.Borrower_Name);
+    if (nm) out.llcName = nm;
+  }
+  const gEmail = String(m.Guarantor_Email || '').toLowerCase().trim();
+  const gName = _str(m.Guarantor_Name);
+  if (gEmail && gName) {
+    const parts = gName.split(/\s+/).filter(Boolean);
+    out.guarantor = {
+      firstName: parts.length > 1 ? parts.slice(0, -1).join(' ') : (parts[0] || ''),
+      lastName: parts.length > 1 ? parts[parts.length - 1] : '',
+      email: gEmail,
+      phone: _str(m.Guarantor_Phone),
+    };
+  }
+  return out;
 }
 
 // Apply the mapped fields to the loan, honoring LO pricing overrides so we never
@@ -196,6 +223,11 @@ async function handle(req, context) {
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
 
+  // Targeted mode: body.only = [SLA-###…] processes just those loans (for a retest).
+  // Their import client id is c_baseline_<extId>; if that isn't found we also scan
+  // the import-owner list to locate the loan by its l_baseline_<extId> id.
+  const only = Array.isArray(body.only) ? body.only.map((s) => String(s).trim()).filter(Boolean) : null;
+
   // List every client blob under the synthetic import owner.
   let keys = [];
   try {
@@ -204,8 +236,14 @@ async function handle(req, context) {
   } catch (e) {
     return json(500, { error: 'Failed to list import-owner clients: ' + (e.message || 'unknown') });
   }
-  const total = keys.length;
-  const slice = keys.slice(offset, offset + limit);
+  const importTotal = keys.length;
+  if (only) {
+    // Fast, direct: the import client id is c_baseline_<extId>.
+    keys = only.map((e) => IMPORT_OWNER_KEY + '/' + keySafe('c_baseline_' + e));
+  }
+  const total = only ? only.length : keys.length;
+  const slice = only ? keys : keys.slice(offset, offset + limit);
+  const wantSet = only ? new Set(only.map((e) => 'l_baseline_' + e)) : null;
 
   const counts = { enriched: 0, reassigned: 0, noMirror: 0, noLoan: 0, errors: 0 };
   const samples = [];
@@ -219,6 +257,7 @@ async function handle(req, context) {
     // These import clients wrap exactly one l_baseline_ loan.
     const loan = client.loans.find((l) => l && String(l.id || '').indexOf('l_baseline_') === 0) || client.loans[0];
     if (!loan) { counts.noLoan++; continue; }
+    if (wantSet && !wantSet.has(String(loan.id || ''))) { counts.noLoan++; continue; }
     // extId = the Baseline external id (e.g. SLA-20260615-2305) = the mirror key.
     // The loan id reliably encodes it (l_baseline_<extId>); the client id may be a
     // c_bl_* / c_baseline_* variant, so derive from slaDisplayId or the loan id.
@@ -234,13 +273,17 @@ async function handle(req, context) {
     if (!mirror) { counts.noMirror++; samples.length < 40 && samples.push({ extId, addr: loan.address, action: 'skip', reason: 'no mirror record' }); continue; }
 
     const fields = mapMirrorToFields(mirror);
-    const before = { toolType: loan.toolType, loanTerm: loan.loanTerm, propValue: loan.propValue, monthlyTaxes: loan.monthlyTaxes };
+    const people = mapPeople(mirror);
+    const primaryEmail = String(client.email || '').toLowerCase().trim();
+    const willLinkG = !!(people.guarantor && people.guarantor.email && people.guarantor.email !== primaryEmail);
+    const before = { toolType: loan.toolType, loanTerm: loan.loanTerm, propValue: loan.propValue, rehabBudget: loan.rehabBudget };
 
     if (dryRun) {
       if (samples.length < 40) samples.push({
         extId, addr: loan.address, clientId: client.id, loanId: loan.id,
-        currentOwner: IMPORT_OWNER_KEY, willReassignTo: DEST_EMAIL,
+        willReassignTo: DEST_EMAIL,
         before, willSet: fields,
+        willSetVestingLLC: !!people.llcName, willLinkGuarantor: willLinkG,
       });
       counts.enriched++; counts.reassigned++;
       continue;
@@ -249,20 +292,43 @@ async function handle(req, context) {
     // ── real write ──────────────────────────────────────────────────
     try {
       applyFields(loan, fields);
-      loan.updatedAt = new Date().toISOString();
-      loan._migratedFromBaseline = { at: loan.updatedAt, by: selfEmail, extId };
+      const now = new Date().toISOString();
+      loan.updatedAt = now;
+      loan._migratedFromBaseline = { at: now, by: selfEmail, extId };
+
+      // Down Payment: the RTL fin-grid reads pricingSnapshot.downPayment.
+      if ('downPayment' in fields) {
+        loan.pricingSnapshot = Object.assign({}, loan.pricingSnapshot || {});
+        if (loan.pricingSnapshot.downPayment == null || loan.pricingSnapshot.downPayment === '') {
+          loan.pricingSnapshot.downPayment = fields.downPayment;
+        }
+      }
+      // Vesting LLC (entity borrower), unless the LO already set one.
+      if (people.llcName && !(Array.isArray(loan.vestingLLCs) && loan.vestingLLCs.length)) {
+        loan.vestingLLCs = [{ name: people.llcName }];
+      }
+      // Link the guarantor person — but not when they ARE the primary client (same
+      // email), to avoid a self-referential duplicate. Writes the guarantor client
+      // under Chance + wires loan.guarantorClientIds; we write the primary next.
+      let guarantorLinked = false;
+      if (willLinkG) {
+        try {
+          await linkGuarantorToLoan({ ownerKey: DEST_KEY, primaryClientId: client.id, loanId: loan.id, primary: client, loan, clientsStore, guarantor: people.guarantor, createdVia: '_createdViaBaselineMigrate' });
+          guarantorLinked = true;
+        } catch (e) { /* non-fatal — enrichment continues */ }
+      }
 
       // PG-first reassign to Chance (keep client id; owner flips in place).
       await writeClient(DEST_KEY, client, { clientsStore });
       // Drop the stale blob under the import owner (same PG id was just re-owned;
       // do NOT deleteClientStrict — that would erase the row we just wrote).
       try { await clientsStore.delete(key); } catch (e) {}
-      // Repoint the Baseline native link so the 30-min migrate cron routes future
-      // syncs to Chance instead of re-forking an import copy.
+      // Repoint the Baseline native link so the migrate cron routes future syncs to
+      // Chance instead of re-forking an import copy.
       try { await setNativeLink(extId, { ownerKey: DEST_KEY, clientId: client.id, loanId: loan.id, source: 'bulk-enrich-migrate' }); } catch (e) {}
 
       counts.enriched++; counts.reassigned++;
-      if (samples.length < 40) samples.push({ extId, addr: loan.address, action: 'enriched+reassigned', setCount: Object.keys(fields).length });
+      if (samples.length < 40) samples.push({ extId, addr: loan.address, action: 'enriched+reassigned', setCount: Object.keys(fields).length, llc: !!people.llcName, guarantor: guarantorLinked });
     } catch (e) {
       counts.errors++;
       if (samples.length < 40) samples.push({ extId, addr: loan.address, action: 'error', error: (e && e.message) || 'unknown' });
@@ -274,7 +340,7 @@ async function handle(req, context) {
   const done = dryRun ? (nextOffset >= total) : (remaining <= 0 || slice.length === 0);
 
   return json(200, {
-    ok: true, dryRun, total, processedThisCall: slice.length,
+    ok: true, dryRun, total, importTotal, targeted: !!only, processedThisCall: slice.length,
     offset, limit, nextOffset, remaining, done,
     dest: DEST_EMAIL, counts, samples,
   });
