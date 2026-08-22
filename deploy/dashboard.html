@@ -831,6 +831,15 @@ function runMirrorSync() {
 
 // ── Render orchestrator ──────────────────────────────────────────
 function renderAll() {
+  // Deploy 236.646 — Chart.js is CDN-loaded with `defer`, so a cache-first
+  // paint (loadMirror renders synchronously when the mirror cache is warm) can
+  // beat it and throw "Chart is not defined", which aborted the WHOLE render
+  // (stats + tables below never painted). Wait briefly for Chart, capped so a
+  // blocked CDN still lets the non-chart panels render (drawStackedBar skips).
+  if (typeof Chart === 'undefined') {
+    renderAll._waits = (renderAll._waits || 0) + 1;
+    if (renderAll._waits <= 60) { setTimeout(renderAll, 50); return; }
+  }
   populateYearSelect();
   renderStats();
   renderRevenueChart();
@@ -1433,6 +1442,9 @@ function parseLoanDate(d) {
 var _lastAgg = null;  // Last aggregation result, for debug panel
 
 function drawStackedBar(canvasId, data, year, kind, fmtTick) {
+  // Deploy 236.646 — degrade gracefully if the Chart.js CDN never loaded
+  // (blocked / offline) instead of throwing and aborting renderAll.
+  if (typeof Chart === 'undefined') return;
   var ctx = document.getElementById(canvasId).getContext('2d');
   if (_charts[canvasId]) _charts[canvasId].destroy();
   var monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
