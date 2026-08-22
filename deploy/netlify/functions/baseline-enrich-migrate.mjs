@@ -223,10 +223,11 @@ async function handle(req, context) {
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
 
-  // Targeted mode: body.only = [SLA-###…] processes just those loans (for a retest).
-  // Their import client id is c_baseline_<extId>; if that isn't found we also scan
-  // the import-owner list to locate the loan by its l_baseline_<extId> id.
+  // Targeted mode: body.only = [clientId | SLA-ext] processes just those (for a
+  // retest). body.onlyOwner names the owner those clients live under (default the
+  // import owner) — e.g. a Baseline import already assigned to a real LO.
   const only = Array.isArray(body.only) ? body.only.map((s) => String(s).trim()).filter(Boolean) : null;
+  const onlyOwnerKey = body.onlyOwner ? keySafe(normalizeEmail(body.onlyOwner)) : IMPORT_OWNER_KEY;
 
   // List every client blob under the synthetic import owner.
   let keys = [];
@@ -242,7 +243,7 @@ async function handle(req, context) {
     // (SLA-###…, assumed c_baseline_<extId>). Build the exact blob key either way.
     keys = only.map((e) => {
       const cid = /^c_/.test(e) ? e : ('c_baseline_' + e);
-      return IMPORT_OWNER_KEY + '/' + keySafe(cid);
+      return onlyOwnerKey + '/' + keySafe(cid);
     });
   }
   const total = only ? keys.length : importTotal;
@@ -262,6 +263,11 @@ async function handle(req, context) {
     const loan = client.loans.find((l) => l && String(l.id || '').indexOf('l_baseline_') === 0) || client.loans[0];
     if (!loan) { counts.noLoan++; continue; }
     if (wantSet && !wantSet.has(String(loan.id || ''))) { counts.noLoan++; continue; }
+    // Reassign to Chance ONLY when the loan is under the synthetic import owner.
+    // A Baseline import already assigned to a real LO is enriched IN PLACE.
+    const srcOwnerKey = key.slice(0, key.indexOf('/'));
+    const isImport = srcOwnerKey === IMPORT_OWNER_KEY;
+    const destKey = isImport ? DEST_KEY : srcOwnerKey;
     // extId = the Baseline external id (e.g. SLA-20260615-2305) = the mirror key.
     // The loan id reliably encodes it (l_baseline_<extId>); the client id may be a
     // c_bl_* / c_baseline_* variant, so derive from slaDisplayId or the loan id.
@@ -285,11 +291,11 @@ async function handle(req, context) {
     if (dryRun) {
       if (samples.length < 40) samples.push({
         extId, addr: loan.address, clientId: client.id, loanId: loan.id,
-        willReassignTo: DEST_EMAIL,
+        willReassignTo: isImport ? DEST_EMAIL : '(keep owner)', currentOwner: srcOwnerKey,
         before, willSet: fields,
         willSetVestingLLC: !!people.llcName, willLinkGuarantor: willLinkG,
       });
-      counts.enriched++; counts.reassigned++;
+      counts.enriched++; if (isImport) counts.reassigned++;
       continue;
     }
 
@@ -317,22 +323,22 @@ async function handle(req, context) {
       let guarantorLinked = false;
       if (willLinkG) {
         try {
-          await linkGuarantorToLoan({ ownerKey: DEST_KEY, primaryClientId: client.id, loanId: loan.id, primary: client, loan, clientsStore, guarantor: people.guarantor, createdVia: '_createdViaBaselineMigrate' });
+          await linkGuarantorToLoan({ ownerKey: destKey, primaryClientId: client.id, loanId: loan.id, primary: client, loan, clientsStore, guarantor: people.guarantor, createdVia: '_createdViaBaselineMigrate' });
           guarantorLinked = true;
         } catch (e) { /* non-fatal — enrichment continues */ }
       }
 
-      // PG-first reassign to Chance (keep client id; owner flips in place).
-      await writeClient(DEST_KEY, client, { clientsStore });
-      // Drop the stale blob under the import owner (same PG id was just re-owned;
-      // do NOT deleteClientStrict — that would erase the row we just wrote).
-      try { await clientsStore.delete(key); } catch (e) {}
-      // Repoint the Baseline native link so the migrate cron routes future syncs to
-      // Chance instead of re-forking an import copy.
-      try { await setNativeLink(extId, { ownerKey: DEST_KEY, clientId: client.id, loanId: loan.id, source: 'bulk-enrich-migrate' }); } catch (e) {}
-
-      counts.enriched++; counts.reassigned++;
-      if (samples.length < 40) samples.push({ extId, addr: loan.address, action: 'enriched+reassigned', setCount: Object.keys(fields).length, llc: !!people.llcName, guarantor: guarantorLinked });
+      // PG-first write. Import owner → reassign to Chance (keep client id; owner
+      // flips in place, drop the stale import blob, repoint the native link so the
+      // migrate cron won't re-fork). Real-LO owner → enrich in place (no move).
+      await writeClient(destKey, client, { clientsStore });
+      if (isImport) {
+        try { await clientsStore.delete(key); } catch (e) {}
+        try { await setNativeLink(extId, { ownerKey: destKey, clientId: client.id, loanId: loan.id, source: 'bulk-enrich-migrate' }); } catch (e) {}
+        counts.reassigned++;
+      }
+      counts.enriched++;
+      if (samples.length < 40) samples.push({ extId, addr: loan.address, action: isImport ? 'enriched+reassigned' : 'enriched-in-place', setCount: Object.keys(fields).length, llc: !!people.llcName, guarantor: guarantorLinked });
     } catch (e) {
       counts.errors++;
       if (samples.length < 40) samples.push({ extId, addr: loan.address, action: 'error', error: (e && e.message) || 'unknown' });
