@@ -134,6 +134,10 @@ async function handle(req, context) {
           bedrooms:         String(p.bedrooms || '').slice(0, 10),
           bathrooms:        String(p.bathrooms || '').slice(0, 10),
           sqft:             String(p.sqft || '').slice(0, 12),
+          // Deploy 236.657 — per-property valuation
+          propValue:        String(p.propValue || '').slice(0, 15),
+          appraisedValue:   String(p.appraisedValue || '').slice(0, 15),
+          existingDebt:     String(p.existingDebt || '').slice(0, 15),
           monthlyRent:      String(p.monthlyRent || '').slice(0, 15),
           monthlyTaxes:     String(p.monthlyTaxes || '').slice(0, 15),
           monthlyInsurance: String(p.monthlyInsurance || '').slice(0, 15),

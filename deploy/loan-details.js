@@ -1703,17 +1703,17 @@ function render() {
   html += '<div class="section" id="propertyCollateralSection">' +
     '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span></div>' +
     '<div class="section-body">' +
+      // Deploy 236.657 — for a PORTFOLIO the property tabs ARE the whole section:
+      // the loan-level physical / valuation / carrying-cost form is hidden and each
+      // property carries its own values (with a Portfolio Total tab summing them).
+      // Non-portfolio loans render the standard single-property form below.
+      (l.isPortfolio ? '' : (
       // Physical characteristics — beds/baths/sq ft/type/rental moved here from
       // the retired Property & Application box (af-* ids preserved).
       '<div class="app-grid">' +
-        // Deploy 236.655 — for a portfolio, per-property Beds/Baths/SqFt live in
-        // the property tabs below (summed on the Portfolio Total tab), so hide the
-        // loan-level fields here to avoid a meaningless single number.
-        (l.isPortfolio ? '' : (
-          '<div class="field"><label>Bedrooms</label><input type="number" id="af-bedrooms" value="'+escAttr(l.bedrooms||'')+'" placeholder="3" min="0" /></div>' +
-          '<div class="field"><label>Bathrooms</label><input type="number" id="af-bathrooms" value="'+escAttr(l.bathrooms||'')+'" placeholder="2" min="0" step="0.5" /></div>' +
-          '<div class="field"><label>Sq Footage</label><input type="number" id="af-sqft" value="'+escAttr(l.sqft||'')+'" placeholder="1800" min="0" /></div>'
-        )) +
+        '<div class="field"><label>Bedrooms</label><input type="number" id="af-bedrooms" value="'+escAttr(l.bedrooms||'')+'" placeholder="3" min="0" /></div>' +
+        '<div class="field"><label>Bathrooms</label><input type="number" id="af-bathrooms" value="'+escAttr(l.bathrooms||'')+'" placeholder="2" min="0" step="0.5" /></div>' +
+        '<div class="field"><label>Sq Footage</label><input type="number" id="af-sqft" value="'+escAttr(l.sqft||'')+'" placeholder="1800" min="0" /></div>' +
         '<div class="field"><label>Units</label><input type="number" id="pc-numUnits" value="' + escAttr(String(l.numUnits || '')) + '" min="0" /></div>' +
         '<div class="field"><label>Property Type</label>' +
           '<select id="af-propType">' +
@@ -1758,9 +1758,11 @@ function render() {
         '<div class="field"><label>Property Taxes</label><input type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_mTaxes) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
         '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_mIns) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
         '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_mHoa) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
-      '</div>' +
-      // Deploy 236.655 — Portfolio properties: numbered tabs (1..N) + a
-      // Portfolio Total tab, with Add/Remove controls. Only for portfolios.
+      '</div>'
+      )) +
+      // Deploy 236.655 / 236.657 — Portfolio properties: Portfolio Total (first,
+      // default) + numbered tabs 1..N, with Add/Remove controls. The whole section
+      // for a portfolio loan.
       (l.isPortfolio ? _portfolioTabsHtml(l) : '') +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
         '<button class="save-app-btn" onclick="savePropertyCollateral()">Save Property / Collateral</button>' +
@@ -6213,6 +6215,11 @@ function _pfPanelHtml(i, p, active) {
       '<div class="field"><label>Bedrooms</label><input type="number" id="pfp_' + i + '_bedrooms" min="0" value="' + escAttr(p.bedrooms || '') + '" oninput="pfRecalcTotals()" /></div>' +
       '<div class="field"><label>Bathrooms</label><input type="number" id="pfp_' + i + '_bathrooms" min="0" step="0.5" value="' + escAttr(p.bathrooms || '') + '" oninput="pfRecalcTotals()" /></div>' +
       '<div class="field"><label>Sq Footage</label><input type="number" id="pfp_' + i + '_sqft" min="0" value="' + escAttr(p.sqft || '') + '" oninput="pfRecalcTotals()" /></div>' +
+      // Deploy 236.657 — per-property valuation (Mike): Property Value, Appraised
+      // Value, Existing Debt. Summed on the Portfolio Total tab.
+      '<div class="field"><label>Property Value</label><input type="text" inputmode="decimal" id="pfp_' + i + '_propValue" value="' + escAttr(p.propValue || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Appraised Value</label><input type="text" inputmode="decimal" id="pfp_' + i + '_appraisedValue" value="' + escAttr(p.appraisedValue || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Existing Debt</label><input type="text" inputmode="decimal" id="pfp_' + i + '_existingDebt" value="' + escAttr(p.existingDebt || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
       '<div class="field"><label>Monthly Rent</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyRent" value="' + escAttr(p.monthlyRent || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
       '<div class="field"><label>Monthly Taxes</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyTaxes" value="' + escAttr(p.monthlyTaxes || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
       '<div class="field"><label>Monthly Insurance</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyInsurance" value="' + escAttr(p.monthlyInsurance || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
@@ -6221,17 +6228,32 @@ function _pfPanelHtml(i, p, active) {
   '</div>';
 }
 
-function _pfTotalsPanelHtml() {
-  function tf(id, lbl) { return '<div class="field"><label>' + lbl + '</label><input type="text" id="' + id + '" readonly /></div>'; }
-  return '<div class="pf-panel pf-total-panel" id="pf-panel-total" style="display:none">' +
+function _pfSumProps(props, field) {
+  var s = 0;
+  for (var i = 0; i < props.length; i++) {
+    var n = parseFloat(String((props[i] || {})[field] || '').replace(/[^0-9.]/g, ''));
+    if (isFinite(n)) s += n;
+  }
+  return s;
+}
+
+function _pfTotalsPanelHtml(active, props) {
+  props = props || [];
+  function tf(id, lbl, val) { return '<div class="field"><label>' + lbl + '</label><input type="text" id="' + id + '" value="' + escAttr(val) + '" readonly /></div>'; }
+  function m(field) { return _pfFmtMoney(_pfSumProps(props, field)); }
+  function num(field) { return String(_pfSumProps(props, field)); }
+  return '<div class="pf-panel pf-total-panel" id="pf-panel-total" style="display:' + (active ? 'block' : 'none') + '">' +
     '<div class="app-grid">' +
-      tf('pft-bedrooms', 'Total Bedrooms') +
-      tf('pft-bathrooms', 'Total Bathrooms') +
-      tf('pft-sqft', 'Total Sq Footage') +
-      tf('pft-monthlyRent', 'Total Monthly Rent') +
-      tf('pft-monthlyTaxes', 'Total Monthly Taxes') +
-      tf('pft-monthlyInsurance', 'Total Monthly Insurance') +
-      tf('pft-monthlyHoa', 'Total Monthly HOA') +
+      tf('pft-bedrooms', 'Total Bedrooms', num('bedrooms')) +
+      tf('pft-bathrooms', 'Total Bathrooms', num('bathrooms')) +
+      tf('pft-sqft', 'Total Sq Footage', num('sqft')) +
+      tf('pft-propValue', 'Total Property Value', m('propValue')) +
+      tf('pft-appraisedValue', 'Total Appraised Value', m('appraisedValue')) +
+      tf('pft-existingDebt', 'Total Existing Debt', m('existingDebt')) +
+      tf('pft-monthlyRent', 'Total Monthly Rent', m('monthlyRent')) +
+      tf('pft-monthlyTaxes', 'Total Monthly Taxes', m('monthlyTaxes')) +
+      tf('pft-monthlyInsurance', 'Total Monthly Insurance', m('monthlyInsurance')) +
+      tf('pft-monthlyHoa', 'Total Monthly HOA', m('monthlyHoa')) +
     '</div>' +
     '<div style="font-size:12px;color:var(--muted);margin-top:8px">Totals are calculated live from the property tabs.</div>' +
   '</div>';
@@ -6239,15 +6261,17 @@ function _pfTotalsPanelHtml() {
 
 function _pfInner(props) {
   var n = props.length;
-  var tabs = '';
-  for (var i = 0; i < n; i++) {
-    tabs += '<button type="button" class="pf-tab' + (i === 0 ? ' active' : '') + '" id="pf-tabbtn-' + i + '" onclick="pfShowTab(' + i + ')">' + (i + 1) + '</button>';
-  }
   var showTotal = n > 1;
-  if (showTotal) tabs += '<button type="button" class="pf-tab pf-tab-total" id="pf-tabbtn-total" onclick="pfShowTab(\'total\')">Portfolio Total</button>';
+  // Deploy 236.657 — Portfolio Total tab is FIRST and the default active tab.
+  var tabs = '';
+  if (showTotal) tabs += '<button type="button" class="pf-tab pf-tab-total active" id="pf-tabbtn-total" onclick="pfShowTab(\'total\')">Portfolio Total</button>';
+  for (var i = 0; i < n; i++) {
+    var propActive = (!showTotal && i === 0);
+    tabs += '<button type="button" class="pf-tab' + (propActive ? ' active' : '') + '" id="pf-tabbtn-' + i + '" onclick="pfShowTab(' + i + ')">' + (i + 1) + '</button>';
+  }
   var panels = '';
-  for (var j = 0; j < n; j++) { panels += _pfPanelHtml(j, props[j], j === 0); }
-  if (showTotal) panels += _pfTotalsPanelHtml();
+  if (showTotal) panels += _pfTotalsPanelHtml(true, props);       // default-visible
+  for (var j = 0; j < n; j++) { panels += _pfPanelHtml(j, props[j], (!showTotal && j === 0)); }
   return '<div id="pfTabs" class="pf-tabs">' + tabs + '</div>' +
          '<div id="pfPanels">' + panels + '</div>' +
          '<div style="margin-top:12px;display:flex;gap:10px">' +
@@ -6257,12 +6281,13 @@ function _pfInner(props) {
 }
 
 function _portfolioTabsHtml(l) {
-  _pfActive = 0;
   var props = (l && Array.isArray(l.properties)) ? l.properties.slice() : [];
   var count = parseInt(l && l.propertyCount, 10) || 0;
   if (count < props.length) count = props.length;
   if (count < 1) count = 1;
   while (props.length < count) props.push({});
+  // Default active tab: Portfolio Total when there's more than one property.
+  _pfActive = (props.length > 1) ? 'total' : 0;
   return '<div class="pf-wrap"><h3 style="margin:20px 0 8px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Portfolio Properties</h3>' +
     '<div id="portfolioTabsWrap">' + _pfInner(props) + '</div></div>';
 }
@@ -6309,6 +6334,8 @@ function pfCollect() {
       address: _pfInputVal(idx, 'address'), propType: _pfInputVal(idx, 'propType'),
       bedrooms: _pfInputVal(idx, 'bedrooms'), bathrooms: _pfInputVal(idx, 'bathrooms'),
       sqft: _pfInputVal(idx, 'sqft'),
+      propValue: _pfInputVal(idx, 'propValue', true), appraisedValue: _pfInputVal(idx, 'appraisedValue', true),
+      existingDebt: _pfInputVal(idx, 'existingDebt', true),
       monthlyRent: _pfInputVal(idx, 'monthlyRent', true), monthlyTaxes: _pfInputVal(idx, 'monthlyTaxes', true),
       monthlyInsurance: _pfInputVal(idx, 'monthlyInsurance', true), monthlyHoa: _pfInputVal(idx, 'monthlyHoa', true)
     });
@@ -6339,6 +6366,9 @@ function pfRecalcTotals() {
   setV('pft-bedrooms', _pfSum('bedrooms'));
   setV('pft-bathrooms', _pfSum('bathrooms'));
   setV('pft-sqft', _pfSum('sqft'));
+  setV('pft-propValue', _pfSum('propValue'), true);
+  setV('pft-appraisedValue', _pfSum('appraisedValue'), true);
+  setV('pft-existingDebt', _pfSum('existingDebt'), true);
   setV('pft-monthlyRent', _pfSum('monthlyRent'), true);
   setV('pft-monthlyTaxes', _pfSum('monthlyTaxes'), true);
   setV('pft-monthlyInsurance', _pfSum('monthlyInsurance'), true);
