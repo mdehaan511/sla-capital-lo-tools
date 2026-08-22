@@ -1072,47 +1072,51 @@ function render() {
     var _liveLtv = (isFinite(_ltvBaseVal) && _ltvBaseVal > 0 && parseFloat(loanAmt) > 0)
       ? (parseFloat(loanAmt) / _ltvBaseVal * 100) : null;
     var _liveLtvStr = (_liveLtv != null) ? _liveLtv.toFixed(1) + '%' : '';
-    // Deploy 236.647 — reorganized to parallel the RTL grid (Mike). DSCR has no
-    // rehab/LTC/LTARV/LTAIV; Down Payment = price − loan (purchase), Initial
-    // Advance = the full loan (funds at closing, no rehab holdback).
-    var _dscrInitAdv = parseFloat(loanAmt) || 0;
-    var _dscrDownVal = (downPayment && parseFloat(downPayment)) ? parseFloat(downPayment)
-      : (((parseFloat(purchasePrice) || 0) > (parseFloat(loanAmt) || 0)) ? (parseFloat(purchasePrice) - parseFloat(loanAmt)) : 0);
-    var _dscrLtFull = _loanTypeLabel(l);
-    var _dscrIsRefi = (loanPurpose === 'refi_co' || loanPurpose === 'refi_rt');
-    var _dscrLtvCell = (_hasDscrLtvOv ? (parseFloat(l._ltvOverride) * 100).toFixed(1) + '%' : (_liveLtvStr || '<span class="empty">—</span>'));
+    // Deploy 236.650 — DSCR grid reordered per Mike. "Property Value" replaces
+    // the old Purchase-Price cell (which showed loanAmt). Existing Loan = 0 on a
+    // purchase; Down Payment = 0 on a refi. "Am Type" (amortization) replaces the
+    // Loan Type cell — Interest-Only, else the term structure (30-Year Fixed…).
+    var _dscrIsRefi   = (loanPurpose === 'refi_co' || loanPurpose === 'refi_rt');
+    var _dscrExisting = _dscrIsRefi ? (parseFloat(currentLoanAmt) || 0) : 0;
+    var _dscrDownVal  = _dscrIsRefi ? 0
+      : ((downPayment && parseFloat(downPayment)) ? parseFloat(downPayment)
+        : (((parseFloat(purchasePrice) || 0) > (parseFloat(loanAmt) || 0)) ? (parseFloat(purchasePrice) - parseFloat(loanAmt)) : 0));
+    var _dscrLtFull   = _loanTypeLabel(l);
+    var _amTypeIsIO   = (isIO === 'yes' || isIO === true || isIO === 'io' || isIO === 'interest_only' || isIO === '1');
+    var _amType       = _amTypeIsIO ? 'Interest-Only' : (_dscrLtFull || '—');
+    var _dscrLtvCell  = (_hasDscrLtvOv ? (parseFloat(l._ltvOverride) * 100).toFixed(1) + '%' : (_liveLtvStr || '<span class="empty">—</span>'));
     var _dscrRatioCell = (_liveDscrStr ? _liveDscrStr + 'x' : (dscr ? dscr + 'x' : '<span class="empty">Not yet quoted</span>'));
+    var _dscrPrepay   = prepay
+      ? (prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay==='5y6m'?'5Yr/6Mo':prepay==='none'?'None':prepay)
+      : '<span class="empty">—</span>';
     html += '<div class="fin-grid">' +
-      // Row 1 — Rate | Points
+      // Row 1 — Note Rate | Points
       '<div class="fin-cell"><div class="fin-label">Note Rate' + (_hasDscrRateOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
-      // Row 2 — Purchase Price | Appraised Value
-      '<div class="fin-cell"><div class="fin-label">Purchase Price</div><div class="fin-val">'+fmtM(purchasePrice||loanAmt)+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Appraised Value</div><div class="fin-val">'+(appraisedValue ? fmtM(appraisedValue) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      // Row 3 — Down Payment | Initial Advance
-      '<div class="fin-cell"><div class="fin-label">Down Payment</div><div class="fin-val">'+fmtM(_dscrDownVal)+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Initial Advance</div><div class="fin-val">'+fmtM(_dscrInitAdv)+'</div></div>' +
-      // Row 4 — Property Value | DSCR
+      // Row 2 — Property Value | Loan Purpose
       '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">'+_dscrRatioCell+'</div></div>' +
-      // Row 5 — Product | Loan Type (full label)
-      '<div class="fin-cell"><div class="fin-label">Product</div><div class="fin-val">'+escH(_productLabel(l))+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(_dscrLtFull ? escH(_dscrLtFull) : '<span class="empty">—</span>')+'</div></div>' +
-      // Row 6 — Loan Purpose | FICO
       '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
-      // Row 7 — LTV | Monthly Rent
+      // Row 3 — Existing Loan | Down Payment
+      '<div class="fin-cell"><div class="fin-label">Existing Loan</div><div class="fin-val">'+_fmtMoney0(_dscrExisting)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Down Payment</div><div class="fin-val">'+_fmtMoney0(_dscrDownVal)+'</div></div>' +
+      // Row 4 — Product | Am Type
+      '<div class="fin-cell"><div class="fin-label">Product</div><div class="fin-val">'+escH(_productLabel(l))+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Am Type</div><div class="fin-val">'+escH(_amType)+'</div></div>' +
+      // Row 5 — LTV | Appraised Value
       '<div class="fin-cell"><div class="fin-label">LTV' + (_hasDscrLtvOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val">'+_dscrLtvCell+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Appraised Value</div><div class="fin-val">'+(appraisedValue ? fmtM(appraisedValue) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      // Row 6 — Monthly Rent | Monthly Taxes
       '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      // Row 8 — Monthly Taxes | Monthly Insurance
       '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      // Row 7 — Monthly Insurance | Monthly HOA
       '<div class="fin-cell"><div class="fin-label">Monthly Insurance</div><div class="fin-val">'+(insurance ? fmtM(insurance) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      // Row 9 — Monthly HOA | Existing Loan (refi only)
       '<div class="fin-cell"><div class="fin-label">Monthly HOA</div><div class="fin-val">'+(hoa ? fmtM(hoa) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Existing Loan</div><div class="fin-val">'+((_dscrIsRefi && currentLoanAmt) ? fmtM(currentLoanAmt) : '<span class="empty">—</span>')+'</div></div>' +
+      // Row 8 — DSCR | Prepayment Penalty
+      '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">'+_dscrRatioCell+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Prepayment Penalty</div><div class="fin-val">'+_dscrPrepay+'</div></div>' +
+      // Row 9 — FICO
+      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
       // Trailing extras (conditional)
-      (isIO==='yes' ? '<div class="fin-cell"><div class="fin-label">Interest Only</div><div class="fin-val">Yes</div></div>' : '') +
-      (prepay ? '<div class="fin-cell"><div class="fin-label">Prepay Penalty</div><div class="fin-val">'+(prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay)+'</div></div>' : '') +
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
       (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
       (parseFloat(l.brokerFee || 0) > 0
@@ -2366,15 +2370,16 @@ function render() {
     var _propColl = document.getElementById('propertyCollateralSection');
     if (_propColl) (paneProperty || paneLoan).appendChild(_propColl);
 
-    // Deploy 236.649 — stack the Fees/Cash-to-Close + Cash Reserve cards in the
-    // RIGHT column, directly below Loan Terms (narrower), per Mike — not the
-    // full page width. loanTermsSection's parent IS the two-col right column.
+    // Deploy 236.650 — keep the boxes narrow (half-width) and balance the two
+    // columns: Fees/Cash-to-Close under Loan Terms (right col); Cash Reserve
+    // under Loan Financials (left col, RTL only). loanTermsSection's parent is
+    // the right column; loanFinancialsSection's parent is the left column.
     var _ltsParent = (function(){ var s = document.getElementById('loanTermsSection'); return s ? s.parentNode : null; })();
-    ['ldFeesSection', 'ldReserveSection'].forEach(function(id) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      (_ltsParent || paneLoan).appendChild(el);
-    });
+    var _finParent = (function(){ var s = document.getElementById('loanFinancialsSection'); return s ? s.parentNode : null; })();
+    var _feesEl = document.getElementById('ldFeesSection');
+    if (_feesEl) (_ltsParent || paneLoan).appendChild(_feesEl);
+    var _resEl = document.getElementById('ldReserveSection');
+    if (_resEl) (_finParent || paneLoan).appendChild(_resEl);
 
     // CONTACTS tab: vesting LLC info (top) / guarantor info /
     // linked guarantors / additional contacts / broker info. Plus a
