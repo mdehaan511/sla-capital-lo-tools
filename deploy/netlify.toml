@@ -1128,6 +1128,13 @@
   status = 200
   force = true
 
+# Deploy 236.652 — bulk enrich the Baseline import loans from the mirror + reassign to Chance
+[[redirects]]
+  from = "/api/baseline-enrich-migrate"
+  to = "/.netlify/functions/baseline-enrich-migrate"
+  status = 200
+  force = true
+
 # Deploy 236.182 — dedupe Baseline-imported loans against SLA-
 # native ones (same slaDisplayId). Merges Baseline metadata onto
 # the SLA-native loan + deletes the import copy. Dry-run default.
