@@ -115,7 +115,9 @@ function mapMirrorToFields(m) {
   // Terms
   const loanAmt = _num(m.Loan_Amount);           if (loanAmt != null) f.loanAmt = loanAmt;
   const rate = _num(m.Rate);                      if (rate != null)    f.rate = rate; // Baseline decimal (0.07005)
-  set('points', _str(m.Origination_Points));
+  // points DELIBERATELY skipped: Baseline's Origination_Points is inconsistent
+  // (whole points like "1" on some loans, decimal fractions like "0.02" on
+  // others) so it can't be scaled reliably. Leave the imported value.
   set('tpoPremium', _str(m.TPO_Premium));
   const term = _num(m.Amortization_Term);         if (term != null)    f.loanTerm = String(term);
   const io = _isIO(m.Amortization_Type);          if (io != null)      f.isIO = io;
