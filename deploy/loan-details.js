@@ -6387,6 +6387,10 @@ function pfRemove() {
   var props = pfCollect();
   if (props.length <= 1) return;
   var idx = (_pfActive === 'total') ? (props.length - 1) : (parseInt(_pfActive, 10) || 0);
+  // Deploy 236.660 — confirm before removing so a stray click doesn't drop a
+  // property. Name the property by address (falls back to its number).
+  var _addr = (props[idx] && props[idx].address) ? props[idx].address : ('Property ' + (idx + 1));
+  if (!confirm('Remove ' + _addr + ' from this loan?\n\nThe property is deleted from the portfolio when you click Save Property / Collateral.')) return;
   props.splice(idx, 1);
   var wrap = document.getElementById('portfolioTabsWrap');
   if (wrap) { wrap.innerHTML = _pfInner(props); pfShowTab(Math.min(idx, props.length - 1)); }
