@@ -3863,6 +3863,33 @@ function saveCurrentQuote() {
 
 function loadQuoteIntoForm(formData) {
   if (!formData) return;
+  // Deploy 236.659 — Portfolio: the per-property data holds the real numbers
+  // (loan-level rent/taxes/value/etc. are blank for a portfolio). Seed the sizer
+  // from the SUM across all properties and force Property Type = Portfolio, so
+  // opening the sizer prices the whole portfolio. Operates on a shallow copy so
+  // the source loan/quote record is never mutated.
+  if (formData.isPortfolio && Array.isArray(formData.properties) && formData.properties.length) {
+    formData = Object.assign({}, formData);
+    var _pfArr = formData.properties;
+    var _pfSumFd = function (field) {
+      var s = 0;
+      for (var _i = 0; _i < _pfArr.length; _i++) {
+        var _n = parseFloat(String((_pfArr[_i] || {})[field] || '').replace(/[^0-9.]/g, ''));
+        if (isFinite(_n)) s += _n;
+      }
+      return s;
+    };
+    var _pvSum = _pfSumFd('propValue'), _edSum = _pfSumFd('existingDebt');
+    var _rtSum = _pfSumFd('monthlyRent'), _txSum = _pfSumFd('monthlyTaxes');
+    var _inSum = _pfSumFd('monthlyInsurance'), _hoSum = _pfSumFd('monthlyHoa');
+    formData.propType = 'portfolio';
+    if (_pvSum > 0) formData.propValue = String(_pvSum);
+    if (_edSum > 0) formData.currentLoanAmt = String(_edSum);
+    if (_rtSum > 0) { formData.rent = String(_rtSum); formData.monthlyRent = String(_rtSum); }
+    if (_txSum > 0) { formData.taxes = String(_txSum); formData.monthlyTaxes = String(_txSum); }
+    if (_inSum > 0) { formData.insurance = String(_inSum); formData.monthlyInsurance = String(_inSum); }
+    if (_hoSum > 0) { formData.hoa = String(_hoSum); formData.monthlyHoa = String(_hoSum); }
+  }
   var fields = {
     borrowerName: formData.borrower      || formData.borrowerName  || '',
     borrowerEmail: formData.borrowerEmail || '',
