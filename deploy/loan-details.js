@@ -2366,10 +2366,14 @@ function render() {
     var _propColl = document.getElementById('propertyCollateralSection');
     if (_propColl) (paneProperty || paneLoan).appendChild(_propColl);
 
-    // Deploy 236.648 — Fees/Cash-to-Close + Cash Reserve cards live on the Loan tab.
+    // Deploy 236.649 — stack the Fees/Cash-to-Close + Cash Reserve cards in the
+    // RIGHT column, directly below Loan Terms (narrower), per Mike — not the
+    // full page width. loanTermsSection's parent IS the two-col right column.
+    var _ltsParent = (function(){ var s = document.getElementById('loanTermsSection'); return s ? s.parentNode : null; })();
     ['ldFeesSection', 'ldReserveSection'].forEach(function(id) {
       var el = document.getElementById(id);
-      if (el) paneLoan.appendChild(el);
+      if (!el) return;
+      (_ltsParent || paneLoan).appendChild(el);
     });
 
     // CONTACTS tab: vesting LLC info (top) / guarantor info /
