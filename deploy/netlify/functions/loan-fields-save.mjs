@@ -34,6 +34,10 @@ const FIELDS = {
   // Terms
   loanTerm: 1, loanType: 1, isIO: 1, prepay: 1, originationDate: 1, maturityDate: 1,
   firstPaymentDate: 1, lienPosition: 1, tpoPremium: 1, holdback: 1, initialAdvance: 1, downPayment: 1,
+  // Deploy 236.651 — toolType (product) so the Baseline→SLA migration can stamp
+  // RTL/DSCR/GUC onto imported l_baseline_* records that came in with it blank.
+  // No Loan-Details UI sends this; it's set programmatically by the migration.
+  toolType: 1,
   // Deploy 236.641 — Loan-tab reorg folded these into the Loan Terms box
   loanPurpose: 1, fundingDate: 1, projectDescription: 1,
   // Valuation
@@ -102,6 +106,13 @@ async function handle(req, context) {
   Object.keys(fields).forEach((k) => {
     if (!FIELDS[k]) return;
     if (k === 'isIO') { loan.isIO = _truthy(fields[k]); applied[k] = loan.isIO; return; }
+    // Deploy 236.651 — toolType is the loan's product; only accept the three
+    // valid values so a migration typo can't corrupt it into a bad product.
+    if (k === 'toolType') {
+      const tt = String(fields[k] == null ? '' : fields[k]).trim().toLowerCase();
+      if (tt !== 'rtl' && tt !== 'dscr' && tt !== 'guc') return;
+      loan.toolType = tt; applied[k] = tt; return;
+    }
     loan[k] = String(fields[k] == null ? '' : fields[k]).trim();
     applied[k] = loan[k];
   });
