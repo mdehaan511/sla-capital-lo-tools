@@ -76,6 +76,92 @@ function _loanTypeLabel(l) {
   return code;
 }
 
+// Deploy 236.648 — read-only "Fees / Cash to Close" + "Cash Reserve Requirement"
+// cards mirroring the sizer's rate sheet. Values recompute from the loan record
+// (they're not stored), so the cards stay locked — no inputs — and always reflect
+// the current pricing. RTL flat fees KEEP IN SYNC with rtl-sizer.html
+// _rtlDefaultFees() ($2,150); DSCR flat fees reuse SLA_DSCR.FEES (dscr-pricing.js).
+var LD_RTL_FLAT_FEES = [
+  { label: 'Underwriting Fee',        amount: 600 },
+  { label: 'Doc Prep Fee',            amount: 900 },
+  { label: 'Legal / Document Review', amount: 500 },
+  { label: 'Desktop Analysis',        amount: 150 },
+];
+function _fmtMoney0(n) {
+  var v = Math.round(parseFloat(n) || 0);
+  return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US');
+}
+function _feeRow(label, amount, strong) {
+  return '<div class="fee-row' + (strong ? ' fee-row-total' : '') + '">' +
+    '<span class="fee-lbl">' + escH(label) + '</span>' +
+    '<span class="fee-amt">' + _fmtMoney0(amount) + '</span></div>';
+}
+function _feesReserveHtml(l, isDscr, p) {
+  var loanAmt   = parseFloat(p.loanAmt) || 0;
+  var ratePct   = parseFloat(p.ratePct) || 0;
+  var pts       = parseFloat(p.pointsNum) || 0;
+  var rehab     = parseFloat(p.rehab) || 0;
+  var down      = parseFloat(p.downPayment) || 0;
+  var curLoan   = parseFloat(p.currentLoanAmt) || 0;
+  var brokerPts = parseFloat(p.brokerFeePts) || 0;
+  var isRefi    = !!p.isRefi;
+  if (!loanAmt || !ratePct) return ''; // not yet priced — no fee sheet
+  var origFee   = loanAmt * pts / 100;
+  var brokerDol = brokerPts > 0 ? loanAmt * brokerPts / 100 : 0;
+  var flat;
+  if (isDscr) {
+    var F = (typeof SLA_DSCR !== 'undefined' && SLA_DSCR.FEES) || { underwriting: 995, doc_prep: 700, legal_doc: 500, desktop_analysis: 120 };
+    flat = [
+      { label: 'Underwriting Fee',        amount: F.underwriting },
+      { label: 'Doc Prep Fee',            amount: F.doc_prep },
+      { label: 'Legal / Document Review', amount: F.legal_doc },
+      { label: 'Desktop Analysis',        amount: F.desktop_analysis },
+    ];
+  } else {
+    flat = (l._adminFees && Array.isArray(l._adminFees) && l._adminFees.length)
+      ? l._adminFees.map(function(f){ return { label: f.label || f.name || 'Fee', amount: parseFloat(f.amount) || 0 }; })
+      : LD_RTL_FLAT_FEES;
+  }
+  var flatTotal = 0; for (var i = 0; i < flat.length; i++) flatTotal += parseFloat(flat[i].amount) || 0;
+  var totalFees = origFee + flatTotal + brokerDol;
+  var ctc, ctcLabel;
+  if (isRefi) {
+    ctc = curLoan + totalFees - loanAmt;           // >0 borrower brings, <0 net TO borrower
+    ctcLabel = ctc >= 0 ? 'Estimated Cash to Close' : 'Estimated Net to Borrower';
+  } else {
+    ctc = down + totalFees;
+    ctcLabel = 'Estimated Cash to Close';
+  }
+  var rows = _feeRow('Origination (' + pts.toFixed(2) + ' pts)', origFee);
+  for (var j = 0; j < flat.length; j++) rows += _feeRow(flat[j].label, flat[j].amount);
+  if (brokerDol > 0) rows += _feeRow('Broker Fee (' + brokerPts.toFixed(2) + ' pts)', brokerDol);
+  rows += _feeRow('Total Fees', totalFees, true);
+  if (!isRefi) rows += _feeRow('Down Payment', down);
+  rows += _feeRow(ctcLabel, Math.abs(ctc), true);
+  var html = '<div class="section" id="ldFeesSection">' +
+    '<div class="section-head"><h2>Fees / Cash to Close</h2><span class="section-tag tag-readonly">🔒 From rate sheet</span></div>' +
+    '<div class="section-body"><div class="fee-card">' + rows + '</div>' +
+    '<div class="fee-note">Calculated from the rate sheet / sizer — locked. Edit in the sizer to change.</div>' +
+    '</div></div>';
+  // Cash Reserve — RTL only, and not for transactional funding.
+  if (!isDscr && String(l.loanType || '') !== 'transactional') {
+    var moInt    = loanAmt * ratePct / 100 / 12;
+    var hold6    = moInt * 6;
+    var rehab20  = rehab * 0.20;
+    var resTotal = ctc + hold6 + rehab20;
+    var rr = _feeRow('Cash to Close', ctc) +
+             _feeRow('6 Months Interest Reserve', hold6) +
+             _feeRow('Rehab Reserve (20%)', rehab20) +
+             _feeRow('Total Cash Reserve Requirement', resTotal, true);
+    html += '<div class="section" id="ldReserveSection">' +
+      '<div class="section-head"><h2>Cash Reserve Requirement</h2><span class="section-tag tag-readonly">🔒 From rate sheet</span></div>' +
+      '<div class="section-body"><div class="fee-card">' + rr + '</div>' +
+      '<div class="fee-note">Cash to Close + 6 months interest + 20% of rehab — from the sizer.</div>' +
+      '</div></div>';
+  }
+  return html;
+}
+
 // Deploy 200: per-step pill strip for the Baseline panel. Steps are
 // persisted on the loan record as a compact array (see baseline-sync-
 // trigger.mjs). Each step is one of: entity / g1 / g2 / connect_g1 /
@@ -1110,10 +1196,11 @@ function render() {
     // Deploy 236.647 — Initial Advance (loan minus rehab holdback) + LTAIV
     // (loan ÷ BPO AIV, l.aivBpo from the Property tab). Reorganized 2-col grid
     // per Mike: fixed rows, both cells always rendered so the pairing is stable.
-    var _initAdvVal = (l.initialAdvance != null && String(l.initialAdvance) !== '')
-      ? parseFloat(l.initialAdvance)
-      : ((l.pricingSnapshot && l.pricingSnapshot.initialAdvance != null && String(l.pricingSnapshot.initialAdvance) !== '')
-          ? parseFloat(l.pricingSnapshot.initialAdvance) : _rtlInitAdv);
+    // Deploy 236.648 — Initial Advance = loanAmt − rehab (Mike's formula, also
+    // = purchasePrice − downPayment). Computed live from the CURRENT loan amount
+    // (_rtlInitAdv, line ~1048), not the sizer's stale pricingSnapshot which was
+    // sized off the quote-time max and drifts when the LO overrides loanAmt.
+    var _initAdvVal = _rtlInitAdv;
     var _aivBpoNum   = parseFloat(l.aivBpo) || 0;
     var _rtlLtaivPct = (_aivBpoNum > 0 && _rtlLoanAmtNum > 0) ? (_rtlLoanAmtNum / _aivBpoNum * 100) : null;
     var _ltFull = _loanTypeLabel(l);
@@ -2019,6 +2106,17 @@ function render() {
   html += '</div>'; // close right col
   html += '</div>'; // close two-col
 
+  // Deploy 236.648 — read-only Fees/Cash-to-Close + Cash Reserve cards, sourced
+  // from the rate sheet (recomputed from the loan record). Relocated onto the
+  // Loan tab in relocateSectionsToTabs().
+  html += _feesReserveHtml(l, isDscr, {
+    loanAmt: loanAmt, ratePct: rate, pointsNum: pointsNum, rehab: rehabBudget,
+    downPayment: (downPayment && parseFloat(downPayment)) ? downPayment
+      : (((parseFloat(purchasePrice) || 0) > (parseFloat(loanAmt) || 0)) ? (parseFloat(purchasePrice) - parseFloat(loanAmt)) : 0),
+    currentLoanAmt: currentLoanAmt, brokerFeePts: l.brokerFee,
+    isRefi: isDscr ? (loanPurpose === 'refi_co' || loanPurpose === 'refi_rt') : (loanPurpose === 'cashout' || loanPurpose === 'rateterm'),
+  });
+
   // Deploy 236.105 (Phase C — Tasks) — per-loan task list. Renders
   // a shell here; the list itself is populated by loadTasksList()
   // after the page paints (mirrors the notesLog pattern).
@@ -2267,6 +2365,12 @@ function render() {
     // (defensively) the Property pane is missing.
     var _propColl = document.getElementById('propertyCollateralSection');
     if (_propColl) (paneProperty || paneLoan).appendChild(_propColl);
+
+    // Deploy 236.648 — Fees/Cash-to-Close + Cash Reserve cards live on the Loan tab.
+    ['ldFeesSection', 'ldReserveSection'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) paneLoan.appendChild(el);
+    });
 
     // CONTACTS tab: vesting LLC info (top) / guarantor info /
     // linked guarantors / additional contacts / broker info. Plus a
