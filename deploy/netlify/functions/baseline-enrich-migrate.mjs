@@ -65,6 +65,15 @@ function _monthly(v) {
 function _titleCase(v) {
   return _str(v).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
+// Origination points — Mike's rule: Baseline stores it inconsistently. A value
+// < 0.1 is actually a decimal fraction (0.02 = 2% = 2 points) → ×100; a value
+// >= 0.1 is already whole points ("1" = 1 point) → as-is.
+function _points(v) {
+  const n = _num(v);
+  if (n == null) return null;
+  const p = n < 0.1 ? n * 100 : n;
+  return String(Math.round(p * 1000) / 1000);
+}
 // "5,4,3,2,1" → "54321"; "3,2,1" → "321"; none → "none".
 function _prepay(v) {
   const s = _str(v).toLowerCase();
@@ -115,9 +124,7 @@ function mapMirrorToFields(m) {
   // Terms
   const loanAmt = _num(m.Loan_Amount);           if (loanAmt != null) f.loanAmt = loanAmt;
   const rate = _num(m.Rate);                      if (rate != null)    f.rate = rate; // Baseline decimal (0.07005)
-  // points DELIBERATELY skipped: Baseline's Origination_Points is inconsistent
-  // (whole points like "1" on some loans, decimal fractions like "0.02" on
-  // others) so it can't be scaled reliably. Leave the imported value.
+  const pts = _points(m.Origination_Points);      if (pts != null)     f.points = pts;
   set('tpoPremium', _str(m.TPO_Premium));
   const term = _num(m.Amortization_Term);         if (term != null)    f.loanTerm = String(term);
   const io = _isIO(m.Amortization_Type);          if (io != null)      f.isIO = io;
