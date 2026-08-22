@@ -816,6 +816,7 @@ function collectPortfolioProperties(){
       address:_pfVal(i,'address'), propType:_pfVal(i,'propType'),
       bedrooms:_pfVal(i,'bedrooms'), bathrooms:_pfVal(i,'bathrooms'),
       sqft:_pfVal(i,'sqft'),
+      propValue:_pfVal(i,'propValue',true), existingDebt:_pfVal(i,'existingDebt',true),
       monthlyRent:_pfVal(i,'monthlyRent',true), monthlyTaxes:_pfVal(i,'monthlyTaxes',true),
       monthlyInsurance:_pfVal(i,'monthlyInsurance',true), monthlyHoa:_pfVal(i,'monthlyHoa',true)
     });
@@ -843,6 +844,10 @@ function _portfolioPropHtml(i, p){
         '<input type="number" id="pf_'+i+'_bathrooms" min="0" step="0.5" value="'+_esc(p.bathrooms)+'"></div></div>'+
       '<div class="field"><div class="wrap"><label>Square Footage</label>'+
         '<input type="number" id="pf_'+i+'_sqft" min="0" step="50" value="'+_esc(p.sqft)+'"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Property Value</label>'+
+        '<input type="text" inputmode="decimal" id="pf_'+i+'_propValue" value="'+_pfMoney(p.propValue)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Existing Debt</label>'+
+        '<input type="text" inputmode="decimal" id="pf_'+i+'_existingDebt" value="'+_pfMoney(p.existingDebt)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
       '<div class="field"><div class="wrap"><label>Monthly Rent</label>'+
         '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyRent" value="'+_pfMoney(p.monthlyRent)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
       '<div class="field"><div class="wrap"><label>Monthly Taxes</label>'+
