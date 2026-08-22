@@ -57,6 +57,24 @@ function fmtDateTime(iso) {
   if (isNaN(d.getTime())) return String(iso);
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
 }
+// Deploy 236.647 — Product (RTL / DSCR / GUC) from toolType, and the FULL loan-
+// type label (not the raw code like "light"). Labels come from FIN_DROPDOWNS
+// (loanType_rtl / loanType_dscr, defined below) so there's one source of truth.
+function _productLabel(l) {
+  var t = String((l && l.toolType) || '').toLowerCase();
+  return t === 'rtl' ? 'RTL' : (t === 'guc' ? 'GUC' : 'DSCR');
+}
+function _loanTypeLabel(l) {
+  var code = String((l && l.loanType) || '');
+  if (!code) return '';
+  var t = String((l && l.toolType) || '').toLowerCase() === 'rtl' ? 'rtl' : 'dscr';
+  var opts = (typeof FIN_DROPDOWNS !== 'undefined' && FIN_DROPDOWNS['loanType_' + t]) || [];
+  for (var i = 0; i < opts.length; i++) { if (opts[i].value === code) return opts[i].label; }
+  if (code === 'transactional') return 'Transactional Funding (1-day)';
+  if (code === 'construction')  return 'Construction';
+  if (code === '30Y Fixed')     return '30-Year Fixed';
+  return code;
+}
 
 // Deploy 200: per-step pill strip for the Baseline panel. Steps are
 // persisted on the loan record as a compact array (see baseline-sync-
@@ -968,38 +986,49 @@ function render() {
     var _liveLtv = (isFinite(_ltvBaseVal) && _ltvBaseVal > 0 && parseFloat(loanAmt) > 0)
       ? (parseFloat(loanAmt) / _ltvBaseVal * 100) : null;
     var _liveLtvStr = (_liveLtv != null) ? _liveLtv.toFixed(1) + '%' : '';
+    // Deploy 236.647 — reorganized to parallel the RTL grid (Mike). DSCR has no
+    // rehab/LTC/LTARV/LTAIV; Down Payment = price − loan (purchase), Initial
+    // Advance = the full loan (funds at closing, no rehab holdback).
+    var _dscrInitAdv = parseFloat(loanAmt) || 0;
+    var _dscrDownVal = (downPayment && parseFloat(downPayment)) ? parseFloat(downPayment)
+      : (((parseFloat(purchasePrice) || 0) > (parseFloat(loanAmt) || 0)) ? (parseFloat(purchasePrice) - parseFloat(loanAmt)) : 0);
+    var _dscrLtFull = _loanTypeLabel(l);
+    var _dscrIsRefi = (loanPurpose === 'refi_co' || loanPurpose === 'refi_rt');
+    var _dscrLtvCell = (_hasDscrLtvOv ? (parseFloat(l._ltvOverride) * 100).toFixed(1) + '%' : (_liveLtvStr || '<span class="empty">—</span>'));
+    var _dscrRatioCell = (_liveDscrStr ? _liveDscrStr + 'x' : (dscr ? dscr + 'x' : '<span class="empty">Not yet quoted</span>'));
     html += '<div class="fin-grid">' +
+      // Row 1 — Rate | Points
       '<div class="fin-cell"><div class="fin-label">Note Rate' + (_hasDscrRateOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
-      // LTV — always shown on DSCR loans (per Mike). Calculated cell;
-      // FIN_READONLY entry already in place so the enhancer adds the
-      // 🔒 + > 80% threshold warning.
-      '<div class="fin-cell"><div class="fin-label">LTV' + (_hasDscrLtvOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val">' +
-        (_hasDscrLtvOv ? (parseFloat(l._ltvOverride) * 100).toFixed(1) + '%' :
-         (_liveLtvStr || '<span class="empty">—</span>')) +
-      '</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
+      // Row 2 — Purchase Price | Appraised Value
+      '<div class="fin-cell"><div class="fin-label">Purchase Price</div><div class="fin-val">'+fmtM(purchasePrice||loanAmt)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Appraised Value</div><div class="fin-val">'+(appraisedValue ? fmtM(appraisedValue) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      // Item #10: existing loan amount, shown when refi
-      ((loanPurpose === 'refi_co' || loanPurpose === 'refi_rt') && currentLoanAmt
-        ? '<div class="fin-cell"><div class="fin-label">Existing Loan Amount</div><div class="fin-val">'+fmtM(currentLoanAmt)+'</div></div>'
-        : '') +
-      '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(loanType||'<span class="empty">—</span>')+'</div></div>' +
+      // Row 3 — Down Payment | Initial Advance
+      '<div class="fin-cell"><div class="fin-label">Down Payment</div><div class="fin-val">'+fmtM(_dscrDownVal)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Initial Advance</div><div class="fin-val">'+fmtM(_dscrInitAdv)+'</div></div>' +
+      // Row 4 — Property Value | DSCR
+      '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">'+_dscrRatioCell+'</div></div>' +
+      // Row 5 — Product | Loan Type (full label)
+      '<div class="fin-cell"><div class="fin-label">Product</div><div class="fin-val">'+escH(_productLabel(l))+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(_dscrLtFull ? escH(_dscrLtFull) : '<span class="empty">—</span>')+'</div></div>' +
+      // Row 6 — Loan Purpose | FICO
       '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
-      // Deploy 236.466 — marketing referral source (?ref= from the apply link).
-      (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
-      '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">' +
-        (_liveDscrStr ? _liveDscrStr + 'x' : (dscr ? dscr + 'x' : '<span class="empty">Not yet quoted</span>')) +
-      '</div></div>' +
+      // Row 7 — LTV | Monthly Rent
+      '<div class="fin-cell"><div class="fin-label">LTV' + (_hasDscrLtvOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val">'+_dscrLtvCell+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      // Row 8 — Monthly Taxes | Monthly Insurance
       '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">— click to add</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Monthly Insurance</div><div class="fin-val">'+(insurance ? fmtM(insurance) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      // Row 9 — Monthly HOA | Existing Loan (refi only)
       '<div class="fin-cell"><div class="fin-label">Monthly HOA</div><div class="fin-val">'+(hoa ? fmtM(hoa) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Existing Loan</div><div class="fin-val">'+((_dscrIsRefi && currentLoanAmt) ? fmtM(currentLoanAmt) : '<span class="empty">—</span>')+'</div></div>' +
+      // Trailing extras (conditional)
       (isIO==='yes' ? '<div class="fin-cell"><div class="fin-label">Interest Only</div><div class="fin-val">Yes</div></div>' : '') +
       (prepay ? '<div class="fin-cell"><div class="fin-label">Prepay Penalty</div><div class="fin-val">'+(prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay)+'</div></div>' : '') +
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
-      // Broker Fee — shown only when non-zero, formatted in points like origination.
+      (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
       (parseFloat(l.brokerFee || 0) > 0
         ? '<div class="fin-cell"><div class="fin-label">Broker Fee</div><div class="fin-val">'+parseFloat(l.brokerFee).toFixed(2)+' pts</div></div>'
         : '') +
@@ -1078,36 +1107,43 @@ function render() {
       _rtlMoCellHtml = '<div class="fin-val">'+_rtlFmtMo(_rtlMoMax)+'</div>';
     }
 
+    // Deploy 236.647 — Initial Advance (loan minus rehab holdback) + LTAIV
+    // (loan ÷ BPO AIV, l.aivBpo from the Property tab). Reorganized 2-col grid
+    // per Mike: fixed rows, both cells always rendered so the pairing is stable.
+    var _initAdvVal = (l.initialAdvance != null && String(l.initialAdvance) !== '')
+      ? parseFloat(l.initialAdvance)
+      : ((l.pricingSnapshot && l.pricingSnapshot.initialAdvance != null && String(l.pricingSnapshot.initialAdvance) !== '')
+          ? parseFloat(l.pricingSnapshot.initialAdvance) : _rtlInitAdv);
+    var _aivBpoNum   = parseFloat(l.aivBpo) || 0;
+    var _rtlLtaivPct = (_aivBpoNum > 0 && _rtlLoanAmtNum > 0) ? (_rtlLoanAmtNum / _aivBpoNum * 100) : null;
+    var _ltFull = _loanTypeLabel(l);
     html += '<div class="fin-grid">' +
+      // Row 1 — Rate | Points
       '<div class="fin-cell"><div class="fin-label">Rate' + (_hasRateOv ? ' ' + _ovTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points' + (_hasPointsOv ? ' ' + _ovTag : '') + '</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
+      // Row 2 — Purchase Price | Rehab Budget
       '<div class="fin-cell"><div class="fin-label">Purchase Price</div><div class="fin-val">'+fmtM(purchasePrice||loanAmt)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Rehab Budget</div><div class="fin-val">'+fmtM(rehabBudget)+'</div></div>' +
+      // Row 3 — Down Payment | Initial Advance
+      '<div class="fin-cell"><div class="fin-label">Down Payment'+(_hasDpOv ? ' ' + _ovTag : '')+'</div><div class="fin-val">'+fmtM(downPayment)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Initial Advance</div><div class="fin-val">'+fmtM(_initAdvVal)+'</div></div>' +
+      // Row 4 — ARV | Monthly Payment
       '<div class="fin-cell"><div class="fin-label">ARV</div><div class="fin-val">'+fmtM(arv)+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
-      (loanType ? '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+escH(loanType)+'</div></div>' : '') +
-      (loanTerm ? '<div class="fin-cell"><div class="fin-label">Loan Term</div><div class="fin-val">'+escH(loanTerm)+' mo</div></div>' : '') +
-      (experienceDisplay ? '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+escH(experienceDisplay)+'</div></div>' : '') +
-      // Deploy 236.466 — marketing referral source (?ref= from the apply link).
-      (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
-      (downPayment
-        ? '<div class="fin-cell"><div class="fin-label">Down Payment'+(_hasDpOv ? ' ' + _ovTag : '')+'</div><div class="fin-val">'+fmtM(downPayment)+'</div></div>'
-        : '') +
-      // Deploy 196: Monthly Payment + LTP/LTV/LTC/LTARV against the
-      // ACTUAL loan amount (not the sizer's max). Each ratio cell only
-      // renders when its denominator is present, so legacy DSCR-style
-      // RTL records with sparse data don't show "—%" placeholders.
       '<div class="fin-cell"><div class="fin-label">Monthly Payment</div>'+_rtlMoCellHtml+'</div>' +
-      (_rtlLtpPct != null
-        ? '<div class="fin-cell"><div class="fin-label">'+_rtlLtpLbl+'</div><div class="fin-val">'+_rtlFmtPct(_rtlLtpPct)+'</div></div>'
-        : '') +
-      (_rtlLtcPct != null
-        ? '<div class="fin-cell"><div class="fin-label">LTC</div><div class="fin-val">'+_rtlFmtPct(_rtlLtcPct)+'</div></div>'
-        : '') +
-      (_rtlLtarvPct != null
-        ? '<div class="fin-cell"><div class="fin-label">LTARV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtarvPct)+'</div></div>'
-        : '') +
-      // Broker Fee — shown only when non-zero, in pts (same unit as Points)
+      // Row 5 — Product | Loan Type (full label)
+      '<div class="fin-cell"><div class="fin-label">Product</div><div class="fin-val">'+escH(_productLabel(l))+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(_ltFull ? escH(_ltFull) : '<span class="empty">—</span>')+'</div></div>' +
+      // Row 6 — Experience | FICO
+      '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+(experienceDisplay ? escH(experienceDisplay) : '<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
+      // Row 7 — LTP/LTV | LTC
+      '<div class="fin-cell"><div class="fin-label">'+_rtlLtpLbl+'</div><div class="fin-val">'+_rtlFmtPct(_rtlLtpPct)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">LTC</div><div class="fin-val">'+_rtlFmtPct(_rtlLtcPct)+'</div></div>' +
+      // Row 8 — LTARV | LTAIV (LTAIV from the BPO AIV; "—" until aivBpo is set)
+      '<div class="fin-cell"><div class="fin-label">LTARV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtarvPct)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">LTAIV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtaivPct)+'</div></div>' +
+      // Trailing extras (conditional) — referral source + broker fee
+      (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
       (parseFloat(l.brokerFee || 0) > 0
         ? '<div class="fin-cell"><div class="fin-label">Broker Fee</div><div class="fin-val">'+parseFloat(l.brokerFee).toFixed(2)+' pts</div></div>'
         : '') +
@@ -1449,11 +1485,9 @@ function render() {
       // inputs so their .value is still readable in JS but the user can't edit.
       '<div class="field"><label>First Payment Date <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto)</span></label><input type="date" id="lt-firstPaymentDate" value="' + escAttr(_ltFirstPay) + '" disabled title="Calculated from Closing Date + Loan Term" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
       '<div class="field"><label>Maturity Date <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto)</span></label><input type="date" id="lt-maturityDate" value="' + escAttr(_ltMaturity) + '" disabled title="Calculated from Closing Date + Loan Term" style="background:var(--bg,#f0ece5);color:var(--muted)" /></div>' +
-      (!isDscr
-        ? '<div class="field"><label>Holdback</label><input type="text" id="lt-holdback" value="' + escAttr(String(l.holdback || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-          '<div class="field"><label>Initial Advance</label><input type="text" id="lt-initialAdvance" value="' + escAttr(String(l.initialAdvance || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-          '<div class="field"><label>Down Payment</label><input type="text" id="lt-downPayment" value="' + escAttr(String(l.downPayment || downPayment || '')) + '" inputmode="decimal" placeholder="$" /></div>'
-        : '') +
+      // Deploy 236.647 — Holdback (= Rehab Budget, already in Financials), Initial
+      // Advance, and Down Payment removed from Loan Terms; Initial Advance + Down
+      // Payment now live in the Loan Financials grid.
       // Deploy 236.61 — annotate the Desired Close Date input with
       // Baseline's Estimated_Close_Date when the address is known to
       // the mirror. Shown as a small line under the input so the LO
@@ -4319,7 +4353,8 @@ function _dscrTierLabel(v) {
 // Calculated fields the LO cannot inline-edit. Note: "LTV" matches
 // the DSCR grid; "LTP" matches the RTL "Loan to Price" cell that
 // some sizers emit. Both lock the same way.
-var FIN_READONLY = ['Down Payment', 'Monthly Payment', 'LTV', 'LTP', 'LTC', 'LTARV'];
+// Deploy 236.647 — Product / Initial Advance / LTAIV are derived, not editable.
+var FIN_READONLY = ['Down Payment', 'Monthly Payment', 'LTV', 'LTP', 'LTP/LTV', 'LTC', 'LTARV', 'LTAIV', 'Product', 'Initial Advance'];
 
 // Strip any trailing "Overridden" / "modified" / lock badge text
 // the existing renderers tack onto the label so the match is exact.
@@ -5966,11 +6001,9 @@ function saveLoanTerms() {
   // stamp isIO=false (the backend's _truthy('') would wrongly mark amortized).
   var amort = _ldVal('lt-isIO');
   if (amort === 'io' || amort === 'amortized') fields.isIO = amort;
-  if (!isDscr) {
-    fields.holdback       = _ldNum('lt-holdback');
-    fields.initialAdvance = _ldNum('lt-initialAdvance');
-    fields.downPayment    = _ldNum('lt-downPayment');
-  }
+  // Deploy 236.647 — Holdback / Initial Advance / Down Payment removed from Loan
+  // Terms (see render). Initial Advance + Down Payment are derived/shown in Loan
+  // Financials; Holdback == Rehab Budget.
   var btn = document.querySelector('#loanTermsSection .save-app-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function() {
