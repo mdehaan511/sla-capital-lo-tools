@@ -405,6 +405,13 @@
     /* Deploy 236.640 — monthly/annual segmented toggle for carrying costs */
     .pc-seg { padding: 7px 16px; border: none; background: transparent; color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; }
     .pc-seg.active { background: var(--dark); color: #fff; }
+    /* Deploy 236.655 — Portfolio (multi-property) tabs inside Property / Collateral */
+    .pf-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; border-bottom: 1px solid var(--border, #e5e0d8); }
+    .pf-tab { background: var(--surface, #faf8f4); border: 1px solid var(--border, #ddd8d0); border-bottom: none; border-radius: 8px 8px 0 0; padding: 6px 14px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; color: var(--muted, #7a7488); cursor: pointer; }
+    .pf-tab.active { background: var(--gold, #C8813A); color: #fff; border-color: var(--gold, #C8813A); }
+    .pf-addbtn, .pf-rmbtn { border: 1px solid var(--border, #ddd8d0); background: var(--surface, #fff); border-radius: 8px; padding: 7px 14px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text, #1a1520); }
+    .pf-addbtn:hover, .pf-rmbtn:hover:not(:disabled) { border-color: var(--gold, #C8813A); color: var(--gold, #C8813A); }
+    .pf-rmbtn:disabled { opacity: .45; cursor: not-allowed; }
 
     .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--dark); color: #fff; font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; z-index: 9999; white-space: nowrap; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -1254,6 +1261,6 @@
 <!-- Deploy 236.578 — jsPDF for the Proof of Funds letter download (same CDN the
      sizers use for term sheets). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/loan-details.js?v=236650"></script>
+<script src="/loan-details.js?v=236655"></script>
 </body>
 </html>

@@ -1706,9 +1706,14 @@ function render() {
       // Physical characteristics — beds/baths/sq ft/type/rental moved here from
       // the retired Property & Application box (af-* ids preserved).
       '<div class="app-grid">' +
-        '<div class="field"><label>Bedrooms</label><input type="number" id="af-bedrooms" value="'+escAttr(l.bedrooms||'')+'" placeholder="3" min="0" /></div>' +
-        '<div class="field"><label>Bathrooms</label><input type="number" id="af-bathrooms" value="'+escAttr(l.bathrooms||'')+'" placeholder="2" min="0" step="0.5" /></div>' +
-        '<div class="field"><label>Sq Footage</label><input type="number" id="af-sqft" value="'+escAttr(l.sqft||'')+'" placeholder="1800" min="0" /></div>' +
+        // Deploy 236.655 — for a portfolio, per-property Beds/Baths/SqFt live in
+        // the property tabs below (summed on the Portfolio Total tab), so hide the
+        // loan-level fields here to avoid a meaningless single number.
+        (l.isPortfolio ? '' : (
+          '<div class="field"><label>Bedrooms</label><input type="number" id="af-bedrooms" value="'+escAttr(l.bedrooms||'')+'" placeholder="3" min="0" /></div>' +
+          '<div class="field"><label>Bathrooms</label><input type="number" id="af-bathrooms" value="'+escAttr(l.bathrooms||'')+'" placeholder="2" min="0" step="0.5" /></div>' +
+          '<div class="field"><label>Sq Footage</label><input type="number" id="af-sqft" value="'+escAttr(l.sqft||'')+'" placeholder="1800" min="0" /></div>'
+        )) +
         '<div class="field"><label>Units</label><input type="number" id="pc-numUnits" value="' + escAttr(String(l.numUnits || '')) + '" min="0" /></div>' +
         '<div class="field"><label>Property Type</label>' +
           '<select id="af-propType">' +
@@ -1754,6 +1759,9 @@ function render() {
         '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_mIns) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
         '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_mHoa) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
       '</div>' +
+      // Deploy 236.655 — Portfolio properties: numbered tabs (1..N) + a
+      // Portfolio Total tab, with Add/Remove controls. Only for portfolios.
+      (l.isPortfolio ? _portfolioTabsHtml(l) : '') +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
         '<button class="save-app-btn" onclick="savePropertyCollateral()">Save Property / Collateral</button>' +
         '<span id="propCollStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
@@ -6160,6 +6168,16 @@ function savePropertyCollateral() {
     monthlyHoa:       _pcCarryMonthly('pc-hoa'),
   };
   if (!isDscr) fields.arvBpo = _ldNum('pc-arvBpo');
+  // Deploy 236.655 — Portfolio: the loan-level Beds/Baths/SqFt fields aren't
+  // rendered (they live per-property), so don't send them (would clobber to 0).
+  // Collect the per-property tabs and persist the array + count instead.
+  if (_loan.isPortfolio) {
+    delete fields.bedrooms; delete fields.bathrooms; delete fields.sqft;
+    var _pfProps = pfCollect();
+    fields.isPortfolio   = true;
+    fields.propertyCount = _pfProps.length;
+    fields.properties    = _pfProps;
+  }
   var btn = document.querySelector('#propertyCollateralSection .save-app-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function() {
@@ -6172,6 +6190,176 @@ function savePropertyCollateral() {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Property / Collateral'; }
     showToast('Save failed: ' + (err && err.message || 'unknown error'));
   });
+}
+
+// ── Deploy 236.655 — Portfolio properties (multi-property loans) ──────
+// Rendered inside the Property / Collateral section for loans where
+// loan.isPortfolio is true. Numbered tabs 1..N (each a full property
+// form) plus a read-only "Portfolio Total" tab that live-sums the
+// numeric fields. Add/Remove controls change the tab count. The tabs are
+// collected + persisted by savePropertyCollateral() (one save button).
+var _pfActive = 0;
+
+function _pfPanelHtml(i, p, active) {
+  p = p || {};
+  function opt(v, o, lbl) { return '<option value="' + o + '"' + (v === o ? ' selected' : '') + '>' + lbl + '</option>'; }
+  var pt = String(p.propType || '');
+  return '<div class="pf-panel pf-prop-panel" id="pf-panel-' + i + '" data-idx="' + i + '" style="display:' + (active ? 'block' : 'none') + '">' +
+    '<div class="app-grid">' +
+      '<div class="field" style="grid-column:1/-1"><label>Address</label><input type="text" id="pfp_' + i + '_address" value="' + escAttr(p.address || '') + '" placeholder="123 Main St, City, ST 00000" /></div>' +
+      '<div class="field"><label>Property Type</label><select id="pfp_' + i + '_propType">' +
+        '<option value="">Select…</option>' + opt(pt, 'sfh', 'Single Family') + opt(pt, '2-4', '2–4 Unit') +
+      '</select></div>' +
+      '<div class="field"><label>Bedrooms</label><input type="number" id="pfp_' + i + '_bedrooms" min="0" value="' + escAttr(p.bedrooms || '') + '" oninput="pfRecalcTotals()" /></div>' +
+      '<div class="field"><label>Bathrooms</label><input type="number" id="pfp_' + i + '_bathrooms" min="0" step="0.5" value="' + escAttr(p.bathrooms || '') + '" oninput="pfRecalcTotals()" /></div>' +
+      '<div class="field"><label>Sq Footage</label><input type="number" id="pfp_' + i + '_sqft" min="0" value="' + escAttr(p.sqft || '') + '" oninput="pfRecalcTotals()" /></div>' +
+      '<div class="field"><label>Monthly Rent</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyRent" value="' + escAttr(p.monthlyRent || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Monthly Taxes</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyTaxes" value="' + escAttr(p.monthlyTaxes || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Monthly Insurance</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyInsurance" value="' + escAttr(p.monthlyInsurance || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+      '<div class="field"><label>Monthly HOA</label><input type="text" inputmode="decimal" id="pfp_' + i + '_monthlyHoa" value="' + escAttr(p.monthlyHoa || '') + '" oninput="pfRecalcTotals()" placeholder="$" /></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function _pfTotalsPanelHtml() {
+  function tf(id, lbl) { return '<div class="field"><label>' + lbl + '</label><input type="text" id="' + id + '" readonly /></div>'; }
+  return '<div class="pf-panel pf-total-panel" id="pf-panel-total" style="display:none">' +
+    '<div class="app-grid">' +
+      tf('pft-bedrooms', 'Total Bedrooms') +
+      tf('pft-bathrooms', 'Total Bathrooms') +
+      tf('pft-sqft', 'Total Sq Footage') +
+      tf('pft-monthlyRent', 'Total Monthly Rent') +
+      tf('pft-monthlyTaxes', 'Total Monthly Taxes') +
+      tf('pft-monthlyInsurance', 'Total Monthly Insurance') +
+      tf('pft-monthlyHoa', 'Total Monthly HOA') +
+    '</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-top:8px">Totals are calculated live from the property tabs.</div>' +
+  '</div>';
+}
+
+function _pfInner(props) {
+  var n = props.length;
+  var tabs = '';
+  for (var i = 0; i < n; i++) {
+    tabs += '<button type="button" class="pf-tab' + (i === 0 ? ' active' : '') + '" id="pf-tabbtn-' + i + '" onclick="pfShowTab(' + i + ')">' + (i + 1) + '</button>';
+  }
+  var showTotal = n > 1;
+  if (showTotal) tabs += '<button type="button" class="pf-tab pf-tab-total" id="pf-tabbtn-total" onclick="pfShowTab(\'total\')">Portfolio Total</button>';
+  var panels = '';
+  for (var j = 0; j < n; j++) { panels += _pfPanelHtml(j, props[j], j === 0); }
+  if (showTotal) panels += _pfTotalsPanelHtml();
+  return '<div id="pfTabs" class="pf-tabs">' + tabs + '</div>' +
+         '<div id="pfPanels">' + panels + '</div>' +
+         '<div style="margin-top:12px;display:flex;gap:10px">' +
+           '<button type="button" class="pf-addbtn" onclick="pfAdd()">+ Add Property</button>' +
+           '<button type="button" class="pf-rmbtn" id="pfRemoveBtn" onclick="pfRemove()"' + (n > 1 ? '' : ' disabled') + '>− Remove Property</button>' +
+         '</div>';
+}
+
+function _portfolioTabsHtml(l) {
+  _pfActive = 0;
+  var props = (l && Array.isArray(l.properties)) ? l.properties.slice() : [];
+  var count = parseInt(l && l.propertyCount, 10) || 0;
+  if (count < props.length) count = props.length;
+  if (count < 1) count = 1;
+  while (props.length < count) props.push({});
+  return '<div class="pf-wrap"><h3 style="margin:20px 0 8px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Portfolio Properties</h3>' +
+    '<div id="portfolioTabsWrap">' + _pfInner(props) + '</div></div>';
+}
+
+function pfShowTab(which) {
+  var wrap = document.getElementById('pfPanels');
+  if (!wrap) return;
+  var panels = wrap.querySelectorAll('.pf-panel');
+  for (var i = 0; i < panels.length; i++) panels[i].style.display = 'none';
+  var tabs = document.querySelectorAll('#pfTabs .pf-tab');
+  for (var j = 0; j < tabs.length; j++) tabs[j].classList.remove('active');
+  if (which === 'total') {
+    var tp = document.getElementById('pf-panel-total'); if (tp) tp.style.display = 'block';
+    var tb = document.getElementById('pf-tabbtn-total'); if (tb) tb.classList.add('active');
+    pfRecalcTotals();
+    _pfActive = 'total';
+  } else {
+    var p = document.getElementById('pf-panel-' + which); if (p) p.style.display = 'block';
+    var b = document.getElementById('pf-tabbtn-' + which); if (b) b.classList.add('active');
+    _pfActive = which;
+  }
+  var rm = document.getElementById('pfRemoveBtn');
+  if (rm) {
+    var propCount = wrap.querySelectorAll('.pf-prop-panel').length;
+    rm.disabled = !(propCount > 1 && which !== 'total');
+  }
+}
+
+function _pfInputVal(i, field, money) {
+  var el = document.getElementById('pfp_' + i + '_' + field);
+  if (!el) return '';
+  var v = String(el.value || '').trim();
+  return money ? v.replace(/[^0-9.]/g, '') : v;
+}
+
+function pfCollect() {
+  var out = [];
+  var wrap = document.getElementById('pfPanels');
+  if (!wrap) return out;
+  var panels = wrap.querySelectorAll('.pf-prop-panel');
+  for (var i = 0; i < panels.length; i++) {
+    var idx = panels[i].getAttribute('data-idx');
+    out.push({
+      address: _pfInputVal(idx, 'address'), propType: _pfInputVal(idx, 'propType'),
+      bedrooms: _pfInputVal(idx, 'bedrooms'), bathrooms: _pfInputVal(idx, 'bathrooms'),
+      sqft: _pfInputVal(idx, 'sqft'),
+      monthlyRent: _pfInputVal(idx, 'monthlyRent', true), monthlyTaxes: _pfInputVal(idx, 'monthlyTaxes', true),
+      monthlyInsurance: _pfInputVal(idx, 'monthlyInsurance', true), monthlyHoa: _pfInputVal(idx, 'monthlyHoa', true)
+    });
+  }
+  return out;
+}
+
+function _pfSum(field) {
+  var wrap = document.getElementById('pfPanels');
+  var sum = 0;
+  if (!wrap) return 0;
+  var panels = wrap.querySelectorAll('.pf-prop-panel');
+  for (var i = 0; i < panels.length; i++) {
+    var idx = panels[i].getAttribute('data-idx');
+    var el = document.getElementById('pfp_' + idx + '_' + field);
+    if (!el) continue;
+    var n = parseFloat(String(el.value || '').replace(/[^0-9.]/g, ''));
+    if (isFinite(n)) sum += n;
+  }
+  return sum;
+}
+
+function _pfFmtMoney(n) { n = parseFloat(n) || 0; return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+
+function pfRecalcTotals() {
+  if (!document.getElementById('pf-panel-total')) return;
+  function setV(id, val, money) { var e = document.getElementById(id); if (e) e.value = money ? _pfFmtMoney(val) : String(val || 0); }
+  setV('pft-bedrooms', _pfSum('bedrooms'));
+  setV('pft-bathrooms', _pfSum('bathrooms'));
+  setV('pft-sqft', _pfSum('sqft'));
+  setV('pft-monthlyRent', _pfSum('monthlyRent'), true);
+  setV('pft-monthlyTaxes', _pfSum('monthlyTaxes'), true);
+  setV('pft-monthlyInsurance', _pfSum('monthlyInsurance'), true);
+  setV('pft-monthlyHoa', _pfSum('monthlyHoa'), true);
+}
+
+function pfAdd() {
+  var props = pfCollect();
+  if (props.length >= 10) { showToast('Maximum of 10 properties'); return; }
+  props.push({});
+  var wrap = document.getElementById('portfolioTabsWrap');
+  if (wrap) { wrap.innerHTML = _pfInner(props); pfShowTab(props.length - 1); }
+}
+
+function pfRemove() {
+  var props = pfCollect();
+  if (props.length <= 1) return;
+  var idx = (_pfActive === 'total') ? (props.length - 1) : (parseInt(_pfActive, 10) || 0);
+  props.splice(idx, 1);
+  var wrap = document.getElementById('portfolioTabsWrap');
+  if (wrap) { wrap.innerHTML = _pfInner(props); pfShowTab(Math.min(idx, props.length - 1)); }
 }
 
 // ── Deploy 236.566 — Closing Coordination ────────────────────────────

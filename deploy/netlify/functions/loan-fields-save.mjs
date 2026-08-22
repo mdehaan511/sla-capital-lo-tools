@@ -47,6 +47,9 @@ const FIELDS = {
   yearBuilt: 1, stories: 1, propertyCounty: 1, floodZone: 1, purchaseDate: 1,
   // Carrying costs (monthly canonical)
   monthlyTaxes: 1, monthlyInsurance: 1, monthlyHoa: 1,
+  // Deploy 236.655 — Portfolio (multiple properties). These need special
+  // handling in the apply loop (boolean / number / array, not a plain string).
+  isPortfolio: 1, propertyCount: 1, properties: 1,
 };
 
 function _truthy(v) {
@@ -112,6 +115,32 @@ async function handle(req, context) {
       const tt = String(fields[k] == null ? '' : fields[k]).trim().toLowerCase();
       if (tt !== 'rtl' && tt !== 'dscr' && tt !== 'guc') return;
       loan.toolType = tt; applied[k] = tt; return;
+    }
+    // Deploy 236.655 — Portfolio: boolean flag, integer count, sanitized array.
+    if (k === 'isPortfolio') { loan.isPortfolio = _truthy(fields[k]); applied[k] = loan.isPortfolio; return; }
+    if (k === 'propertyCount') {
+      let pc = parseInt(fields[k], 10);
+      if (!isFinite(pc) || pc < 0) pc = 0;
+      if (pc > 10) pc = 10;
+      loan.propertyCount = pc; applied[k] = pc; return;
+    }
+    if (k === 'properties') {
+      const arr = Array.isArray(fields[k]) ? fields[k] : [];
+      loan.properties = arr.slice(0, 10).map((p) => {
+        p = (p && typeof p === 'object') ? p : {};
+        return {
+          address:          String(p.address || '').slice(0, 300),
+          propType:         String(p.propType || '').slice(0, 40),
+          bedrooms:         String(p.bedrooms || '').slice(0, 10),
+          bathrooms:        String(p.bathrooms || '').slice(0, 10),
+          sqft:             String(p.sqft || '').slice(0, 12),
+          monthlyRent:      String(p.monthlyRent || '').slice(0, 15),
+          monthlyTaxes:     String(p.monthlyTaxes || '').slice(0, 15),
+          monthlyInsurance: String(p.monthlyInsurance || '').slice(0, 15),
+          monthlyHoa:       String(p.monthlyHoa || '').slice(0, 15),
+        };
+      });
+      applied[k] = loan.properties.length; return;
     }
     loan[k] = String(fields[k] == null ? '' : fields[k]).trim();
     applied[k] = loan[k];

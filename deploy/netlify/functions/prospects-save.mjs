@@ -105,6 +105,31 @@ export default async (req, context) => {
   const now = new Date().toISOString();
   const id = body.id || ('p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
   const loSlug = keySafe(String(body.loSlug || 'unassigned')) || 'unassigned';
+
+  // Deploy 236.655 — Portfolio (multiple properties). This is a public,
+  // unauthenticated endpoint, so hard-sanitize the array: cap at 10 items and
+  // string-cap every field. propertyCount drives the number of tabs on Loan
+  // Details even when the borrower didn't fill any detail in.
+  const _isPortfolio = (String(body.propType || '') === 'portfolio');
+  let _propertyCount = _isPortfolio ? (parseInt(body.propertyCount, 10) || 0) : 0;
+  if (_propertyCount < 0) _propertyCount = 0;
+  if (_propertyCount > 10) _propertyCount = 10;
+  const _rawProps = (_isPortfolio && Array.isArray(body.properties)) ? body.properties : [];
+  const _safeProperties = _rawProps.slice(0, 10).map(function (p) {
+    p = (p && typeof p === 'object') ? p : {};
+    return {
+      address:          String(p.address || '').slice(0, 300),
+      propType:         String(p.propType || '').slice(0, 40),
+      bedrooms:         String(p.bedrooms || '').slice(0, 10),
+      bathrooms:        String(p.bathrooms || '').slice(0, 10),
+      sqft:             String(p.sqft || '').slice(0, 12),
+      monthlyRent:      String(p.monthlyRent || '').slice(0, 15),
+      monthlyTaxes:     String(p.monthlyTaxes || '').slice(0, 15),
+      monthlyInsurance: String(p.monthlyInsurance || '').slice(0, 15),
+      monthlyHoa:       String(p.monthlyHoa || '').slice(0, 15),
+    };
+  });
+
   const prospect = {
     id,
     submittedAt: now,
@@ -120,6 +145,11 @@ export default async (req, context) => {
     bedrooms: String(body.bedrooms || ''),
     bathrooms: String(body.bathrooms || ''),
     sqft: String(body.sqft || ''),
+    // Deploy 236.655 — Portfolio (multiple properties). See sanitizer above.
+    isPortfolio: _isPortfolio,
+    propertyCount: _propertyCount,
+    portfolioSubmitAll: String(body.portfolioSubmitAll || '').slice(0, 8),
+    properties: _safeProperties,
     loanProduct: String(body.loanProduct || ''),
     loanPurpose: String(body.loanPurpose || ''),
     currentLoanAmt: String(body.currentLoanAmt || ''),
@@ -346,6 +376,13 @@ async function upsertClientFromProspect(prospect, loEmail) {
     bathrooms:   prospect.bathrooms || '',
     sqft:        prospect.sqft || '',
     propType:    prospect.propType || '',
+    // Deploy 236.655 — Portfolio (multiple properties). propertyCount drives the
+    // number of Property/Collateral tabs on Loan Details (even when properties[]
+    // is empty, e.g. the borrower chose "submit the totals"). properties[] carries
+    // the per-property detail when the borrower filled each one in.
+    isPortfolio:   !!prospect.isPortfolio,
+    propertyCount: prospect.propertyCount || 0,
+    properties:    Array.isArray(prospect.properties) ? prospect.properties : [],
     usCitizen:   prospect.usCitizen || '',
     loanPurpose: prospect.loanPurpose || '',
     rentalType:  prospect.rentalType || '',

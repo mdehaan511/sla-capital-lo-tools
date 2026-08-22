@@ -56,6 +56,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 /* Conditional sections */
 .cond{display:none}
 .cond.show{display:contents}
+/* Deploy 236.655 — Portfolio (multi-property) short-app block */
+.pf-prop{border:1px solid var(--border);border-radius:var(--r-xs);padding:14px;margin-bottom:12px;background:var(--surface)}
+.pf-prop-head{font-size:12px;font-weight:600;color:var(--gold);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em}
+.pf-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.pf-grid .span2{grid-column:1/-1}
+.pf-yn{display:flex;gap:18px;flex-wrap:wrap}
+.pf-yn-opt{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:500;color:var(--text);cursor:pointer}
+.pf-yn-opt input{width:auto;margin:0}
+@media(max-width:560px){.pf-grid{grid-template-columns:1fr}}
 
 /* Submitter-type segmented control (Deploy 236.6 — apply.html broker
    mode). Lives at the very top of the form. Picking "I am a broker"
@@ -324,10 +333,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="field">
           <div class="wrap" id="wrap-propType">
             <label>Property Type <span class="req">*</span></label>
-            <select id="propType" onchange="clearE('propType')">
+            <select id="propType" onchange="clearE('propType'); onPropTypeChange()">
               <option value="">— Select —</option>
               <option value="sfh">Single Family Home</option>
               <option value="2-4">2–4 Unit</option>
+              <option value="portfolio">Portfolio (Multiple Properties)</option>
               <option value="other">Other</option>
             </select>
           </div>
@@ -350,6 +360,45 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             <label>Square Footage</label>
             <input type="number" id="sqft" min="0" step="50" />
           </div>
+        </div>
+
+        <!-- Deploy 236.655 — Portfolio (multiple properties). Shown only when
+             Property Type = Portfolio. The loan-level Bedrooms/Bathrooms/Square
+             Footage above are hidden for portfolios (collected per-property here). -->
+        <div class="field span2" id="field-portfolio" style="display:none">
+          <div class="wrap" id="wrap-portfolioCount" style="max-width:240px">
+            <label>How many properties? <span class="req">*</span></label>
+            <select id="portfolioCount" onchange="clearE('portfolioCount'); onPortfolioCountChange()">
+              <option value="">— Select —</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+          <div class="err-msg" id="err-portfolioCount">Required</div>
+
+          <!-- Submit-info-for-all question (appears once a count is chosen) -->
+          <div id="portfolioSubmitAllRow" style="display:none;margin-top:14px">
+            <label style="display:block;margin-bottom:8px;font-weight:500;font-size:13.5px;color:var(--text)">Would you like to submit information for all properties now?</label>
+            <div class="pf-yn">
+              <label class="pf-yn-opt"><input type="radio" name="portfolioSubmitAll" value="yes" onchange="onPortfolioSubmitAllChange()"> Yes — enter each property</label>
+              <label class="pf-yn-opt"><input type="radio" name="portfolioSubmitAll" value="no" onchange="onPortfolioSubmitAllChange()"> No — I'll submit the totals</label>
+            </div>
+            <div class="err-msg" id="err-portfolioSubmitAll">Please choose Yes or No</div>
+            <div class="hint" id="portfolioNoNote" style="display:none;margin-top:8px;color:var(--muted);font-size:12.5px">
+              No problem — enter the combined totals for the whole portfolio in Deal Details below. We'll note that these figures are portfolio sums.
+            </div>
+          </div>
+
+          <!-- Dynamic per-property boxes (rendered when "Yes" is chosen) -->
+          <div id="portfolioProperties" style="margin-top:12px"></div>
         </div>
       </div>
     </div>
@@ -698,6 +747,127 @@ function onLoanPurposeChange() {
   updatePriceLabels();
 }
 
+// ── Portfolio (multiple properties) — Deploy 236.655 ───────────
+// When Property Type = Portfolio, the borrower picks a count (1–10) and
+// chooses whether to enter each property now. "Yes" renders that many
+// property boxes (Address, Property Type, Beds/Baths/SqFt, Monthly
+// Rent/Taxes/Insurance/HOA). "No" just leaves a note in Deal Details.
+// The loan-level Bedrooms/Bathrooms/SqFt are hidden for portfolios.
+function _esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _pfMoney(v){ if(v===''||v==null) return ''; var n=parseFloat(String(v).replace(/[^0-9.]/g,'')); if(!isFinite(n)) return ''; return '$'+n.toLocaleString('en-US',{maximumFractionDigits:2}); }
+function _portfolioSubmitAll(){
+  var yn = document.getElementsByName('portfolioSubmitAll');
+  for(var i=0;i<yn.length;i++){ if(yn[i].checked) return yn[i].value; }
+  return '';
+}
+function onPropTypeChange(){
+  var v = document.getElementById('propType').value;
+  var isPf = (v === 'portfolio');
+  var pf = document.getElementById('field-portfolio');
+  if (pf) pf.style.display = isPf ? '' : 'none';
+  // Hide the loan-level beds/baths/sqft for portfolios — captured per-property.
+  ['bedrooms','bathrooms','sqft'].forEach(function(id){
+    var w = document.getElementById('wrap-'+id);
+    var fld = w ? w.parentNode : null;   // the enclosing .field
+    if (fld) fld.style.display = isPf ? 'none' : '';
+  });
+  if (!isPf){
+    // Leaving portfolio — clear its state so nothing rides along on submit.
+    var cnt = document.getElementById('portfolioCount'); if(cnt) cnt.value='';
+    var row = document.getElementById('portfolioSubmitAllRow'); if(row) row.style.display='none';
+    var props = document.getElementById('portfolioProperties'); if(props) props.innerHTML='';
+    var note = document.getElementById('portfolioNoNote'); if(note) note.style.display='none';
+    var yn = document.getElementsByName('portfolioSubmitAll');
+    for(var i=0;i<yn.length;i++) yn[i].checked=false;
+  }
+}
+function onPortfolioCountChange(){
+  var n = parseInt(document.getElementById('portfolioCount').value,10) || 0;
+  var row = document.getElementById('portfolioSubmitAllRow');
+  if (row) row.style.display = (n>0) ? '' : 'none';
+  if (n>0 && _portfolioSubmitAll()==='yes') renderPortfolioProperties(n);
+  else { var b=document.getElementById('portfolioProperties'); if(b) b.innerHTML=''; }
+}
+function onPortfolioSubmitAllChange(){
+  clearE('portfolioSubmitAll');
+  var val = _portfolioSubmitAll();
+  var note = document.getElementById('portfolioNoNote');
+  var n = parseInt(document.getElementById('portfolioCount').value,10) || 0;
+  if (val === 'yes'){
+    if (note) note.style.display='none';
+    renderPortfolioProperties(n);
+  } else if (val === 'no'){
+    if (note) note.style.display='';
+    var b=document.getElementById('portfolioProperties'); if(b) b.innerHTML='';
+  }
+}
+function _pfVal(idx, field, money){
+  var el = document.getElementById('pf_'+idx+'_'+field);
+  if (!el) return '';
+  var v = String(el.value||'').trim();
+  return money ? v.replace(/[^0-9.]/g,'') : v;
+}
+function collectPortfolioProperties(){
+  var out=[]; var box=document.getElementById('portfolioProperties');
+  if(!box) return out;
+  var props=box.querySelectorAll('.pf-prop');
+  for(var i=0;i<props.length;i++){
+    out.push({
+      address:_pfVal(i,'address'), propType:_pfVal(i,'propType'),
+      bedrooms:_pfVal(i,'bedrooms'), bathrooms:_pfVal(i,'bathrooms'),
+      sqft:_pfVal(i,'sqft'),
+      monthlyRent:_pfVal(i,'monthlyRent',true), monthlyTaxes:_pfVal(i,'monthlyTaxes',true),
+      monthlyInsurance:_pfVal(i,'monthlyInsurance',true), monthlyHoa:_pfVal(i,'monthlyHoa',true)
+    });
+  }
+  return out;
+}
+function _portfolioPropHtml(i, p){
+  p = p || {};
+  function sel(v, opt){ return v===opt ? ' selected' : ''; }
+  return ''+
+  '<div class="pf-prop" data-idx="'+i+'">'+
+    '<div class="pf-prop-head">Property '+(i+1)+'</div>'+
+    '<div class="pf-grid">'+
+      '<div class="field span2"><div class="wrap"><label>Property Address</label>'+
+        '<input type="text" id="pf_'+i+'_address" value="'+_esc(p.address)+'" placeholder="123 Main St, City, ST 00000"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Property Type</label>'+
+        '<select id="pf_'+i+'_propType">'+
+          '<option value="">— Select —</option>'+
+          '<option value="sfh"'+sel(p.propType,'sfh')+'>Single Family</option>'+
+          '<option value="2-4"'+sel(p.propType,'2-4')+'>2–4 Unit</option>'+
+        '</select></div></div>'+
+      '<div class="field"><div class="wrap"><label>Bedrooms</label>'+
+        '<input type="number" id="pf_'+i+'_bedrooms" min="0" step="1" value="'+_esc(p.bedrooms)+'"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Bathrooms</label>'+
+        '<input type="number" id="pf_'+i+'_bathrooms" min="0" step="0.5" value="'+_esc(p.bathrooms)+'"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Square Footage</label>'+
+        '<input type="number" id="pf_'+i+'_sqft" min="0" step="50" value="'+_esc(p.sqft)+'"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Monthly Rent</label>'+
+        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyRent" value="'+_pfMoney(p.monthlyRent)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Monthly Taxes</label>'+
+        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyTaxes" value="'+_pfMoney(p.monthlyTaxes)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Monthly Insurance</label>'+
+        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyInsurance" value="'+_pfMoney(p.monthlyInsurance)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+      '<div class="field"><div class="wrap"><label>Monthly HOA</label>'+
+        '<input type="text" inputmode="decimal" id="pf_'+i+'_monthlyHoa" value="'+_pfMoney(p.monthlyHoa)+'" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)"></div></div>'+
+    '</div>'+
+  '</div>';
+}
+function renderPortfolioProperties(n){
+  var box=document.getElementById('portfolioProperties'); if(!box) return;
+  var prev=collectPortfolioProperties();
+  var topAddr = gv('propAddress');
+  var html='';
+  for(var i=0;i<n;i++){
+    var p=prev[i]||{};
+    // Seed the first property's address from the loan address so it isn't blank.
+    if(i===0 && !p.address && topAddr) p.address=topAddr;
+    html+=_portfolioPropHtml(i,p);
+  }
+  box.innerHTML=html;
+}
+
 // ── Submitter toggle (Deploy 236.6) ───────────────────────────
 // _submitterType: 'borrower' (default) or 'broker'. When 'broker',
 // the Broker Information card is revealed and Step 1's title is
@@ -886,18 +1056,31 @@ function validate() {
   if (lp === 'dscr') {
     if (!gv('loanPurpose')) { showE('loanPurpose'); ok=false; }
     if (!gv('rentalType'))  { showE('rentalType');  ok=false; }
-    if (!gv('monthlyRent')) { showE('monthlyRent'); ok=false; }
     // Deploy 236.359 — Taxes + Insurance are required on the short
     // prequal. Without them the DSCR the sizer computes downstream is
     // optimistic, and the LO ends up chasing the borrower for the
     // numbers anyway. Required only for DSCR (they're inside
     // #cond-dscr-fin — bridge/fix-flip don't show them).
-    if (!gv('monthlyTaxes'))     { showE('monthlyTaxes');     ok=false; }
-    if (!gv('monthlyInsurance')) { showE('monthlyInsurance'); ok=false; }
+    // Deploy 236.655 — for a portfolio where the borrower is entering each
+    // property, rent/taxes/insurance are captured per-property (and summed on
+    // the Portfolio Total tab), so don't require the loan-level fields here.
+    var _pfPerProp = (gv('propType')==='portfolio' && _portfolioSubmitAll()==='yes');
+    if (!_pfPerProp) {
+      if (!gv('monthlyRent'))      { showE('monthlyRent');      ok=false; }
+      if (!gv('monthlyTaxes'))     { showE('monthlyTaxes');     ok=false; }
+      if (!gv('monthlyInsurance')) { showE('monthlyInsurance'); ok=false; }
+    }
     if (gv('loanPurpose') === 'refinance' && !gv('currentLoanAmt')) {
       showE('currentLoanAmt');
       ok = false;
     }
+  }
+
+  // Deploy 236.655 — Portfolio: require a count + a Yes/No choice. Individual
+  // property fields stay optional (blank tabs are allowed, per Mike).
+  if (gv('propType') === 'portfolio') {
+    if (!gv('portfolioCount'))  { showE('portfolioCount'); ok=false; }
+    if (!_portfolioSubmitAll()) { showE('portfolioSubmitAll', 'Please choose Yes or No'); ok=false; }
   }
   if (lp === 'fix_flip') {
     if (!gv('rehabCost'))      { showE('rehabCost');      ok=false; }
@@ -970,6 +1153,14 @@ function submitApp() {
     bedrooms:    gv('bedrooms'),
     bathrooms:   gv('bathrooms'),
     sqft:        gv('sqft'),
+    // Deploy 236.655 — Portfolio (multiple properties). isPortfolio marks the
+    // loan; propertyCount drives the number of Property/Collateral tabs on
+    // Loan Details even when detail is blank; properties[] carries per-property
+    // data only when the borrower chose to enter each one ("Yes").
+    isPortfolio:        (gv('propType') === 'portfolio'),
+    propertyCount:      (gv('propType') === 'portfolio') ? (parseInt(gv('portfolioCount'),10) || 0) : 0,
+    portfolioSubmitAll: (gv('propType') === 'portfolio') ? _portfolioSubmitAll() : '',
+    properties:         (gv('propType') === 'portfolio' && _portfolioSubmitAll() === 'yes') ? collectPortfolioProperties() : [],
     // Loan
     loanProduct:     lp,
     loanPurpose:     gv('loanPurpose'),
@@ -1005,6 +1196,15 @@ function submitApp() {
     // borrower reached apply.html without a ref tag.
     ref:           _ref,
   };
+
+  // Deploy 236.655 — portfolio + "No, I'll submit the totals": stamp a note into
+  // Deal Details so the LO knows the figures represent the whole portfolio.
+  if (prospect.isPortfolio && prospect.portfolioSubmitAll === 'no') {
+    var _pfNote = 'Portfolio of ' + prospect.propertyCount + ' properties — submit the sum for all properties.';
+    prospect.projectDescription = prospect.projectDescription
+      ? (prospect.projectDescription + '\n\n' + _pfNote)
+      : _pfNote;
+  }
 
   // Lock the submit button while the request is in flight
   var submitBtn = document.getElementById('submitBtn');
