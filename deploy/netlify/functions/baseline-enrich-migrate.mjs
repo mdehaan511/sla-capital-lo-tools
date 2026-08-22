@@ -210,7 +210,15 @@ async function handle(req, context) {
     // These import clients wrap exactly one l_baseline_ loan.
     const loan = client.loans.find((l) => l && String(l.id || '').indexOf('l_baseline_') === 0) || client.loans[0];
     if (!loan) { counts.noLoan++; continue; }
-    const extId = loan.slaDisplayId || String(client.id || '').replace(/^c_baseline_/, '') || String(loan.id || '').replace(/^l_baseline_/, '');
+    // extId = the Baseline external id (e.g. SLA-20260615-2305) = the mirror key.
+    // The loan id reliably encodes it (l_baseline_<extId>); the client id may be a
+    // c_bl_* / c_baseline_* variant, so derive from slaDisplayId or the loan id.
+    const _lid = String(loan.id || '');
+    const _cid = String(client.id || '');
+    const extId = loan.slaDisplayId
+      || (_lid.indexOf('l_baseline_') === 0 ? _lid.slice('l_baseline_'.length) : '')
+      || (_cid.indexOf('c_baseline_') === 0 ? _cid.slice('c_baseline_'.length) : '');
+    if (!extId) { counts.noMirror++; if (samples.length < 40) samples.push({ clientId: client.id, loanId: loan.id, action: 'skip', reason: 'no external id' }); continue; }
 
     let mirror = null;
     try { mirror = await loadMirroredLoan(extId); } catch (e) {}
