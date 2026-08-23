@@ -1135,6 +1135,13 @@
   status = 200
   force = true
 
+# Deploy 236.664 — promote the individual guarantor to primary on entity Baseline loans
+[[redirects]]
+  from = "/api/baseline-fix-guarantor"
+  to = "/.netlify/functions/baseline-fix-guarantor"
+  status = 200
+  force = true
+
 # Deploy 236.182 — dedupe Baseline-imported loans against SLA-
 # native ones (same slaDisplayId). Merges Baseline metadata onto
 # the SLA-native loan + deletes the import copy. Dry-run default.
