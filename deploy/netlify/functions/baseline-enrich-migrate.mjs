@@ -220,6 +220,11 @@ async function handle(req, context) {
 
   const body = (await readJsonBody(req)) || {};
   const dryRun = body.dryRun !== false && body.dryRun !== 'false' && body.dryRun !== 0;
+  // Deploy 236.661 — 'clampDp' mode: surgical correction that ONLY clamps a
+  // negative downPayment (loan + pricingSnapshot) to 0 and writes in place. Does
+  // NOT re-apply the mirror, so it can't clobber LO edits on already-migrated
+  // loans. Used to fix loans migrated before the negative-clamp landed.
+  const mode = String(body.mode || '').trim();
   const offset = Math.max(0, parseInt(body.offset || 0, 10) || 0);
   const limit = Math.max(1, Math.min(50, parseInt(body.limit || DEFAULT_LIMIT, 10) || DEFAULT_LIMIT));
   const selfEmail = normalizeEmail(user.email);
@@ -271,6 +276,31 @@ async function handle(req, context) {
     const srcOwnerKey = key.slice(0, key.indexOf('/'));
     const isImport = srcOwnerKey === IMPORT_OWNER_KEY;
     const destKey = isImport ? DEST_KEY : srcOwnerKey;
+
+    // Deploy 236.661 — clampDp: surgical negative-downPayment fix, in place, no
+    // mirror re-apply. Writes ONLY when there's a negative to clamp.
+    if (mode === 'clampDp') {
+      const _dpTop = parseFloat(loan.downPayment);
+      const _dpSnap = loan.pricingSnapshot ? parseFloat(loan.pricingSnapshot.downPayment) : NaN;
+      const _neg = (isFinite(_dpTop) && _dpTop < 0) || (isFinite(_dpSnap) && _dpSnap < 0);
+      if (!_neg) { counts.noMirror++; continue; }   // reuse noMirror as "nothing to do"
+      if (dryRun) { counts.enriched++; if (samples.length < 40) samples.push({ loanId: loan.id, addr: loan.address, dpTop: loan.downPayment, dpSnap: loan.pricingSnapshot && loan.pricingSnapshot.downPayment, action: 'would-clamp' }); continue; }
+      try {
+        if (isFinite(_dpTop) && _dpTop < 0) loan.downPayment = '0';
+        if (loan.pricingSnapshot && isFinite(_dpSnap) && _dpSnap < 0) {
+          loan.pricingSnapshot = Object.assign({}, loan.pricingSnapshot);
+          loan.pricingSnapshot.downPayment = '0';
+        }
+        loan.updatedAt = new Date().toISOString();
+        await writeClient(srcOwnerKey, client, { clientsStore });
+        counts.enriched++;
+        if (samples.length < 40) samples.push({ loanId: loan.id, addr: loan.address, action: 'clamped' });
+      } catch (e) {
+        counts.errors++;
+        if (samples.length < 40) samples.push({ loanId: loan.id, addr: loan.address, action: 'error', error: (e && e.message) || 'unknown' });
+      }
+      continue;
+    }
     // extId = the Baseline external id (e.g. SLA-20260615-2305) = the mirror key.
     // The loan id reliably encodes it (l_baseline_<extId>); the client id may be a
     // c_bl_* / c_baseline_* variant, so derive from slaDisplayId or the loan id.
