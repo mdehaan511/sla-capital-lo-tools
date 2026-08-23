@@ -1272,6 +1272,8 @@
                 processingSubstatus:     loanData.processingSubstatus     || prior.processingSubstatus     || '',
                 _templatesAppliedFor:    (loanData._templatesAppliedFor && typeof loanData._templatesAppliedFor === 'object' ? loanData._templatesAppliedFor : (prior._templatesAppliedFor || {})),
                 assignedProcessor:       loanData.assignedProcessor       || prior.assignedProcessor       || '',
+                // Deploy 236.662 — preserve the multi-member processing team.
+                assignedProcessors:      (Array.isArray(loanData.assignedProcessors) ? loanData.assignedProcessors : (Array.isArray(prior.assignedProcessors) ? prior.assignedProcessors : undefined)),
                 slaDisplayId:            loanData.slaDisplayId            || prior.slaDisplayId            || '',
                 appraisedValue:          loanData.appraisedValue          || prior.appraisedValue          || '',
                 // notesLog / prospectId / baselineId / manualAdvance meta —

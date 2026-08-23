@@ -659,11 +659,15 @@ function render() {
 
   function visible(it) {
     if (loFilter && (it.ownerKey || '').toLowerCase() !== loFilter) return false;
-    // Deploy 236.559 — "My Loans": only loans assigned to the current user.
+    // Deploy 236.559 — "My Loans": loans the current user is on. Deploy 236.662 —
+    // match ANY role-tagged team member (processor/closer/manager), not just the
+    // primary, falling back to the legacy single assignee.
     if (_myLoansOnly) {
-      var _ap = it.loan && it.loan.assignedProcessor;
       var _me = String((_user && _user.email) || '').toLowerCase();
-      if (!_ap || String(_ap.email || '').toLowerCase() !== _me) return false;
+      var _team = (it.loan && Array.isArray(it.loan.assignedProcessors) && it.loan.assignedProcessors.length)
+        ? it.loan.assignedProcessors
+        : (it.loan && it.loan.assignedProcessor && it.loan.assignedProcessor.email ? [it.loan.assignedProcessor] : []);
+      if (!_team.some(function (p) { return String(p.email || '').toLowerCase() === _me; })) return false;
     }
     if (search) {
       var hay = (
@@ -1515,7 +1519,11 @@ function submitNewLoan() {
 // processor —" to unassign. Selecting yourself = claim. Reuses .card-substatus-sel
 // styling for a consistent pill-select look.
 function _assigneeHtml(it, canEdit) {
-  var ap = it.loan && it.loan.assignedProcessor;
+  // Deploy 236.662 — the picker owns the PROCESSOR slot specifically. Prefer the
+  // role='processor' member of assignedProcessors[]; fall back to the legacy single.
+  var _arr = (it.loan && Array.isArray(it.loan.assignedProcessors)) ? it.loan.assignedProcessors : null;
+  var ap = _arr ? (_arr.filter(function (p) { return (p.role || 'processor') === 'processor'; })[0] || null)
+                : (it.loan && it.loan.assignedProcessor) || null;
   var cur = (ap && ap.email) ? String(ap.email).toLowerCase() : '';
   // Deploy 236.607 — LO read-only view: show the assigned processor as static
   // text (or nothing), never the picker.
@@ -1537,10 +1545,23 @@ function _assigneeHtml(it, canEdit) {
     opts = '<option value="' + escAttr(cur) + '" data-name="' + escAttr((ap && ap.name) || cur) + '" selected>' + escH((ap && ap.name) || cur) + '</option>' + opts;
   }
   var hasVal = cur ? ' has-value' : '';
-  return '<select class="card-substatus-sel' + hasVal + '" title="Assign a processor"' +
+  var selHtml = '<select class="card-substatus-sel' + hasVal + '" title="Assign the processor"' +
       ' data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
       ' onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" onchange="assignLoanTo(this)"' +
       ' style="margin-top:8px;width:100%;max-width:100%">' + opts + '</select>';
+  // Deploy 236.662 — show read-only badges for any Closer / Processing Manager on
+  // the loan (the select above manages only the Processor slot).
+  var extras = (it.loan && Array.isArray(it.loan.assignedProcessors) ? it.loan.assignedProcessors : [])
+    .filter(function (p) { return p.role && p.role !== 'processor'; });
+  var extrasHtml = extras.length
+    ? '<div class="card-team-extras" style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">' +
+        extras.map(function (p) {
+          var lbl = p.role === 'closer' ? 'Closer' : (p.role === 'manager' ? 'Mgr' : p.role);
+          return '<span class="card-team-badge" style="font-size:10px;font-weight:600;background:rgba(38,26,54,0.08);color:var(--muted);border-radius:8px;padding:1px 6px">' + escH((p.name || p.email || '') + ' · ' + lbl) + '</span>';
+        }).join('') +
+      '</div>'
+    : '';
+  return selHtml + extrasHtml;
 }
 function assignLoanTo(sel) {
   var email = sel.value || '';
@@ -1548,8 +1569,11 @@ function assignLoanTo(sel) {
   var name = (opt && opt.getAttribute('data-name')) || '';
   var body = { clientId: sel.getAttribute('data-client-id'), loanId: sel.getAttribute('data-loan-id') };
   var owner = sel.getAttribute('data-owner'); if (owner) body.owner = owner;
-  if (email) { body.processorEmail = email; body.processorName = name; }
-  else { body.unassign = true; }
+  // Deploy 236.662 — this picker owns only the Processor slot: set with
+  // replaceRole so it swaps the processor without wiping a Closer/Manager;
+  // empty selection clears just the processor role.
+  if (email) { body.processorEmail = email; body.processorName = name; body.role = 'processor'; body.replaceRole = 'processor'; }
+  else { body.clearRole = 'processor'; }
   _assignPost(sel, body);
 }
 function _assignPost(btn, body) {

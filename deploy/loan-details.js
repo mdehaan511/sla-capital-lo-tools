@@ -3525,20 +3525,10 @@ function _buildTeamMembersSection() {
       '<div class="tm-role">Loan Officer</div>' +
       '<div class="tm-name">' + escH(lo || 'Unassigned') + '</div>' +
     '</div>';
-  // Deploy 236.568 — assignedProcessor is an OBJECT {email,name,at,by};
-  // rendering it straight through escH() printed "[object Object]". Pull the
-  // display name, and (for staff) hydrate a working picker below.
-  var _proc = (_loan && _loan.assignedProcessor && typeof _loan.assignedProcessor === 'object')
-    ? _loan.assignedProcessor : null;
-  var procName = _proc ? (_proc.name || _proc.email || 'Assigned') : '';
-  var procCardId = 'teamProcCard_' + Math.random().toString(36).slice(2, 6);
-  // Staff (processor tier = processor/admin/super_admin) may (re)assign.
+  // Deploy 236.662 — the processing team is now a role-tagged LIST (Processor /
+  // Closer / Processing Manager) rendered below the LO card; staff add/remove.
   var canAssignProc = !!(window.SLA && SLA.isProcessor && SLA.isProcessor(_user));
-  var procCard =
-    '<div id="' + procCardId + '" class="team-member' + (procName ? '' : ' unassigned') + '">' +
-      '<div class="tm-role">Processor</div>' +
-      '<div class="tm-name">' + escH(procName || 'Not assigned') + '</div>' +
-    '</div>';
+  var procTeamId = 'procTeam_' + Math.random().toString(36).slice(2, 6);
   section.innerHTML =
     '<div class="section-head"><h2>Team Members</h2>' +
       '<span class="section-tag ' + (isAdminUser ? 'tag-editable' : 'tag-readonly') + '">' +
@@ -3546,104 +3536,123 @@ function _buildTeamMembersSection() {
       '</span>' +
     '</div>' +
     '<div class="section-body">' +
-      '<div class="team-members-grid">' + loCard + procCard + '</div>' +
+      '<div class="team-members-grid">' + loCard + '</div>' +
+      '<div id="' + procTeamId + '" class="proc-team" style="margin-top:14px"></div>' +
       (isAdminUser
-        ? '<div style="font-size:11px;color:var(--muted);margin-top:10px;font-style:italic">Reassigning transfers the loan + all its data (borrower info, quotes, documents) to the new LO and notifies them by email + in-app.</div>'
+        ? '<div style="font-size:11px;color:var(--muted);margin-top:10px;font-style:italic">Reassigning the LO transfers the loan + all its data (borrower info, quotes, documents) to the new LO and notifies them by email + in-app.</div>'
         : ''
       ) +
     '</div>';
-  // Fire the async hydrate — swap email for name, add dropdown for admins.
   setTimeout(function() { _hydrateTeamLoCard(loCardId, isAdminUser); }, 0);
-  // Deploy 236.568 — hydrate the Processor card into a working picker for staff.
-  setTimeout(function() { _hydrateTeamProcCard(procCardId, canAssignProc); }, 0);
+  setTimeout(function() { _hydrateTeamProc(procTeamId, canAssignProc); }, 0);
   return section;
 }
 
-// Deploy 236.568 — render the Processor card. For staff (processor/admin/
-// super_admin) it becomes a <select> of assignable processors (same roster
-// the Processing Pipeline picker uses) + "Not assigned"; picking one POSTs to
-// /api/loan-assign-processor. Non-staff just see the name (read-only).
-function _hydrateTeamProcCard(cardId, canAssign) {
-  if (!window.SLA || !SLA.Users || !SLA.Users.directory) return;
-  var card = document.getElementById(cardId);
-  if (!card) return;
-  var cur = (_loan && _loan.assignedProcessor && typeof _loan.assignedProcessor === 'object')
-    ? _loan.assignedProcessor : null;
-  var curEmail = cur ? String(cur.email || '').toLowerCase() : '';
-  if (!canAssign) {
-    // Read-only: name over email (mirrors the LO read-only card).
-    card.innerHTML =
-      '<div class="tm-role">Processor</div>' +
-      '<div class="tm-name">' + escH(cur ? (cur.name || cur.email || 'Assigned') : 'Not assigned') + '</div>' +
-      (cur && cur.email && cur.name && cur.name !== cur.email
-        ? '<div class="tm-sub" style="font-size:11px;color:var(--muted);margin-top:2px">' + escH(cur.email) + '</div>'
-        : '');
-    return;
+// Deploy 236.662 — role-tagged processing team. A loan can carry multiple
+// members (Processor / Closer / Processing Manager). Source of truth is
+// _loan.assignedProcessors[]; falls back to the legacy single assignedProcessor.
+var PROC_ROLES = [
+  { value: 'processor', label: 'Processor' },
+  { value: 'closer',    label: 'Closer' },
+  { value: 'manager',   label: 'Processing Manager' },
+];
+function _procRoleLabel(r) {
+  for (var i = 0; i < PROC_ROLES.length; i++) { if (PROC_ROLES[i].value === r) return PROC_ROLES[i].label; }
+  return 'Processor';
+}
+function _loanProcessors() {
+  if (_loan && Array.isArray(_loan.assignedProcessors)) return _loan.assignedProcessors;
+  if (_loan && _loan.assignedProcessor && _loan.assignedProcessor.email) {
+    return [{ email: _loan.assignedProcessor.email, name: _loan.assignedProcessor.name || _loan.assignedProcessor.email, role: 'processor' }];
   }
-  SLA.Users.directory().then(function(r) {
-    var users = (r && r.users) || [];
-    // Assignable processors = anyone with a processor/admin/super_admin role
-    // (same filter as processing-pipeline.html loadProcessors).
-    var procs = users.filter(function(u) {
-      var roles = (u.roles || []).map(function(x){ return String(x).toLowerCase(); });
-      return roles.indexOf('processor') >= 0 || roles.indexOf('admin') >= 0 || roles.indexOf('super_admin') >= 0;
-    });
-    // If the current assignee isn't in that set (role changed, etc.), keep them
-    // selectable so the dropdown reflects reality.
-    if (curEmail && !procs.some(function(u){ return String(u.email).toLowerCase() === curEmail; })) {
-      procs.unshift({ email: cur.email, name: cur.name || cur.email });
-    }
-    var opts = '<option value="">— Not assigned —</option>' + procs.map(function(u) {
-      var name = String(u.name || '').trim(), email = String(u.email || '').trim();
-      var isSel = email.toLowerCase() === curEmail;
-      var label = name && name.toLowerCase() !== email.toLowerCase() ? name + ' (' + email + ')' : email;
-      return '<option value="' + escAttr(email) + '"' + (isSel ? ' selected' : '') + '>' + escH(label) + '</option>';
-    }).join('');
-    card.innerHTML =
-      '<div class="tm-role">Processor</div>' +
-      '<select id="teamProcSelect" ' +
-        'style="width:100%;padding:6px 8px;font-size:13px;font-family:inherit;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text);cursor:pointer;margin-top:2px" ' +
-        'onchange="_onTeamProcChange(this)">' + opts +
-      '</select>' +
-      '<div id="teamProcStatus" style="font-size:11px;color:var(--muted);margin-top:4px;min-height:14px"></div>';
-  }).catch(function(err) {
-    console.warn('team processor hydrate failed:', err && err.message);
-  });
+  return [];
 }
 
-// Fired when staff picks a processor (or "Not assigned"). POSTs to
-// loan-assign-processor; no page move (unlike LO reassign) — just updates the
-// in-memory loan + a small status line.
-function _onTeamProcChange(sel) {
-  if (!_loan || !_client) return;
-  var newEmail = sel && sel.value ? String(sel.value) : '';
-  var statusEl = document.getElementById('teamProcStatus');
-  var body = { clientId: _client.id, loanId: _loanId };
-  if (_loEmail) body.owner = _loEmail; // preserve owner-scope (admin cross-LO)
-  if (newEmail) {
-    var label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : newEmail;
-    // Prefer the profile name (strip the "(email)" suffix if present).
-    var name = label.replace(/\s*\([^)]*\)\s*$/, '').trim() || newEmail;
-    body.processorEmail = newEmail;
-    body.processorName = name;
-  } else {
-    body.unassign = true;
+// Render the Processing Team block. Staff (processor/admin/super_admin) get
+// add/remove controls; everyone else sees a read-only list.
+function _hydrateTeamProc(containerId, canAssign) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  window.__procTeamContainer = containerId;
+  var team = _loanProcessors();
+  var listHtml = team.length
+    ? team.map(function (p) {
+        var nm = p.name || p.email || 'Assigned';
+        var role = p.role || 'processor';
+        var badge = '<span class="proc-role-badge proc-role-' + escAttr(role) + '">' + escH(_procRoleLabel(role)) + '</span>';
+        var rm = canAssign ? '<button type="button" class="proc-remove" title="Remove from loan" onclick="_procTeamRemove(\'' + escAttr(String(p.email || '')) + '\')">&times;</button>' : '';
+        return '<div class="proc-chip"><span class="proc-chip-name">' + escH(nm) + '</span>' + badge + rm + '</div>';
+      }).join('')
+    : '<div class="proc-empty">No processing team assigned yet.</div>';
+
+  var html = '<div class="proc-team-head">Processing Team</div>' +
+             '<div class="proc-team-list">' + listHtml + '</div>';
+  if (canAssign) {
+    html +=
+      '<div class="proc-add-row">' +
+        '<select id="' + containerId + '_person" class="proc-add-sel"><option value="">— Add team member —</option></select>' +
+        '<select id="' + containerId + '_role" class="proc-add-sel">' +
+          PROC_ROLES.map(function (r) { return '<option value="' + r.value + '">' + r.label + '</option>'; }).join('') +
+        '</select>' +
+        '<button type="button" class="proc-add-btn" onclick="_procTeamAdd(\'' + containerId + '\')">Add</button>' +
+      '</div>' +
+      '<div id="' + containerId + '_status" class="proc-team-status"></div>';
   }
-  if (statusEl) { statusEl.style.color = 'var(--muted)'; statusEl.textContent = newEmail ? 'Assigning…' : 'Clearing…'; }
-  sel.disabled = true;
-  SLA.api('POST', '/api/loan-assign-processor', body).then(function(resp) {
-    sel.disabled = false;
-    _loan.assignedProcessor = (resp && resp.assignedProcessor) || null;
-    var wrap = sel.closest('.team-member');
-    if (wrap) wrap.classList.toggle('unassigned', !_loan.assignedProcessor);
-    if (statusEl) { statusEl.style.color = 'var(--success)'; statusEl.textContent = _loan.assignedProcessor ? 'Assigned ✓' : 'Unassigned ✓'; setTimeout(function(){ if (statusEl) statusEl.textContent = ''; }, 2500); }
-    if (typeof showToast === 'function') showToast(_loan.assignedProcessor ? ('Processor set to ' + (_loan.assignedProcessor.name || _loan.assignedProcessor.email)) : 'Processor unassigned');
-  }).catch(function(err) {
-    sel.disabled = false;
-    var msg = (err && err.message) || 'unknown error';
+  el.innerHTML = html;
+
+  if (canAssign && window.SLA && SLA.Users && SLA.Users.directory) {
+    SLA.Users.directory().then(function (r) {
+      var users = (r && r.users) || [];
+      var procs = users.filter(function (u) {
+        var roles = (u.roles || []).map(function (x) { return String(x).toLowerCase(); });
+        return roles.indexOf('processor') >= 0 || roles.indexOf('admin') >= 0 || roles.indexOf('super_admin') >= 0;
+      });
+      var sel = document.getElementById(containerId + '_person');
+      if (!sel) return;
+      procs.forEach(function (u) {
+        var email = String(u.email || '').trim(); if (!email) return;
+        var name = String(u.name || '').trim();
+        var opt = document.createElement('option');
+        opt.value = email;
+        opt.setAttribute('data-name', name || email);
+        opt.textContent = (name && name.toLowerCase() !== email.toLowerCase()) ? (name + ' (' + email + ')') : email;
+        sel.appendChild(opt);
+      });
+    }).catch(function (err) { console.warn('proc team roster load failed:', err && err.message); });
+  }
+}
+
+function _procTeamPost(body, containerId) {
+  if (!_loan || !_client) return;
+  body.clientId = _client.id; body.loanId = _loanId;
+  if (_loEmail) body.owner = _loEmail; // preserve owner-scope (admin/processor cross-LO)
+  var statusEl = document.getElementById(containerId + '_status');
+  if (statusEl) { statusEl.style.color = 'var(--muted)'; statusEl.textContent = 'Saving…'; }
+  SLA.api('POST', '/api/loan-assign-processor', body).then(function (resp) {
+    _loan.assignedProcessors = (resp && resp.assignedProcessors) || [];
+    _loan.assignedProcessor  = (resp && resp.assignedProcessor) || null;
+    _hydrateTeamProc(containerId, true);
+    if (typeof showToast === 'function') showToast('Processing team updated');
+  }).catch(function (err) {
+    var msg = (err && err.message) || 'error';
     if (statusEl) { statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'Failed: ' + msg; }
-    if (typeof showToast === 'function') showToast('Processor assign failed: ' + msg);
+    if (typeof showToast === 'function') showToast('Update failed: ' + msg);
   });
+}
+function _procTeamAdd(containerId) {
+  var pSel = document.getElementById(containerId + '_person');
+  var rSel = document.getElementById(containerId + '_role');
+  var email = pSel && pSel.value ? String(pSel.value) : '';
+  if (!email) { return; }
+  var opt = pSel.options[pSel.selectedIndex];
+  var name = (opt && opt.getAttribute('data-name')) || email;
+  var role = (rSel && rSel.value) ? rSel.value : 'processor';
+  _procTeamPost({ processorEmail: email, processorName: name, role: role }, containerId);
+}
+function _procTeamRemove(email) {
+  var containerId = window.__procTeamContainer;
+  if (!containerId) return;
+  _procTeamPost({ removeProcessor: email }, containerId);
 }
 
 // Deploy 236.351 — swap the placeholder LO card for the real one

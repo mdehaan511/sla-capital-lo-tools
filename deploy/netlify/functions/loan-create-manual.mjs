@@ -121,11 +121,14 @@ async function handle(req, context) {
     _manualEntry: true,           // manually-created / migrated — never Baseline-synced
   };
   if (body.assignedProcessor && body.assignedProcessor.email) {
-    loan.assignedProcessor = {
+    const _pe = {
       email: normalizeEmail(body.assignedProcessor.email),
       name:  String(body.assignedProcessor.name || '').trim(),
       at: now, by: user.email || '',
     };
+    loan.assignedProcessor = _pe;
+    // Deploy 236.662 — also seed the multi-member team array (role = processor).
+    loan.assignedProcessors = [{ email: _pe.email, name: _pe.name, role: 'processor', at: now, by: user.email || '' }];
   }
   appendNoteEntry(loan, {
     kind: 'status',

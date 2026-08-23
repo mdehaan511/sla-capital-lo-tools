@@ -199,6 +199,8 @@ async function handle(req, context) {
     processingSubstatus:        incoming.processingSubstatus        || prior.processingSubstatus        || '',
     _templatesAppliedFor:       (incoming._templatesAppliedFor && typeof incoming._templatesAppliedFor === 'object' ? incoming._templatesAppliedFor : prior._templatesAppliedFor || {}),
     assignedProcessor:          incoming.assignedProcessor          || prior.assignedProcessor          || '',
+    // Deploy 236.662 — preserve the multi-member processing team across sizer saves.
+    assignedProcessors:         (Array.isArray(incoming.assignedProcessors) ? incoming.assignedProcessors : (Array.isArray(prior.assignedProcessors) ? prior.assignedProcessors : undefined)),
     _test:                      (incoming._test === true || prior._test === true) || undefined,
     slaDisplayId:               incoming.slaDisplayId               || prior.slaDisplayId               || '',
     appraisedValue:             incoming.appraisedValue             || prior.appraisedValue             || '',

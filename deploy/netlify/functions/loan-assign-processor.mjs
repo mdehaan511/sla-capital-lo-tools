@@ -70,35 +70,87 @@ async function handle(req, context) {
   const loan = client.loans[idx];
 
   const now = new Date().toISOString();
-  const priorAssignee = (loan.assignedProcessor && loan.assignedProcessor.email)
-    ? normalizeEmail(loan.assignedProcessor.email) : '';
-  if (body.unassign === true || !body.processorEmail) {
-    delete loan.assignedProcessor;
-  } else {
+
+  // Deploy 236.662 — a loan can now have MULTIPLE assigned team members, each
+  // role-tagged (Keith = closer, Jessy = processing manager, others = processors).
+  // Source of truth is loan.assignedProcessors[] ({email,name,role,at,by}); the
+  // legacy single loan.assignedProcessor is kept synced to the PRIMARY (the
+  // role='processor' entry, else the first) so every existing reader — pipeline
+  // cards, alerts, PG projection, sizer merge — keeps working untouched.
+  const VALID_ROLES = { processor: 1, closer: 1, manager: 1 };
+  if (!Array.isArray(loan.assignedProcessors)) {
+    // First touch under the new model: migrate any existing single assignee in.
+    loan.assignedProcessors = (loan.assignedProcessor && loan.assignedProcessor.email)
+      ? [{
+          email: normalizeEmail(loan.assignedProcessor.email),
+          name: loan.assignedProcessor.name || loan.assignedProcessor.email,
+          role: 'processor',
+          at: loan.assignedProcessor.at || now,
+          by: loan.assignedProcessor.by || selfEmail,
+        }]
+      : [];
+  }
+  function _syncPrimary() {
+    const arr = loan.assignedProcessors;
+    const p = arr.find((x) => x.role === 'processor') || arr[0] || null;
+    if (p) loan.assignedProcessor = { email: p.email, name: p.name, at: p.at, by: p.by };
+    else delete loan.assignedProcessor;
+  }
+
+  let notifyPerson = null;
+  const removeEmail = body.removeProcessor ? normalizeEmail(body.removeProcessor) : '';
+  if (removeEmail) {
+    // Loan Details "× remove" — drop that specific person.
+    loan.assignedProcessors = loan.assignedProcessors.filter((x) => normalizeEmail(x.email) !== removeEmail);
+  } else if (body.clearRole) {
+    // Pipeline "— Assign processor —" (empty select) — clear that role slot only.
+    const role = String(body.clearRole).toLowerCase();
+    loan.assignedProcessors = loan.assignedProcessors.filter((x) => x.role !== role);
+  } else if (body.unassign === true) {
+    if (body.processorEmail) {
+      const rm = normalizeEmail(body.processorEmail);
+      loan.assignedProcessors = loan.assignedProcessors.filter((x) => normalizeEmail(x.email) !== rm);
+    } else {
+      loan.assignedProcessors = []; // legacy full clear
+    }
+  } else if (body.processorEmail) {
     const email = normalizeEmail(body.processorEmail);
     const name  = String(body.processorName || '').trim() || email;
-    loan.assignedProcessor = { email, name, at: now, by: selfEmail };
+    let role = String(body.role || '').toLowerCase();
+    if (!VALID_ROLES[role]) role = 'processor';
+    // Pipeline single-select sends replaceRole:'processor' so picking a new
+    // processor swaps ONLY the processor slot and never wipes a closer/manager.
+    if (body.replaceRole) {
+      const rr = String(body.replaceRole).toLowerCase();
+      loan.assignedProcessors = loan.assignedProcessors.filter((x) => x.role !== rr || normalizeEmail(x.email) === email);
+    }
+    const existing = loan.assignedProcessors.find((x) => normalizeEmail(x.email) === email);
+    if (existing) {
+      existing.name = name; existing.role = role; existing.at = now; existing.by = selfEmail;
+    } else {
+      loan.assignedProcessors.push({ email, name, role, at: now, by: selfEmail });
+      if (email !== selfEmail) notifyPerson = { email, name };
+    }
+  } else {
+    return json(400, { error: 'Nothing to do: provide processorEmail (with optional role), removeProcessor, clearRole, or unassign' });
   }
+  _syncPrimary();
   loan.updatedAt = now;
 
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to save: ' + (e.message || 'unknown') }); }
 
-  // Deploy 236.575 — email the newly-assigned processor with a link to the
-  // loan (parallels loan-assign-lo's LO-reassign email). Best-effort: a failure
-  // never poisons the assign, which has already committed. Skips unassigns,
-  // self-assigns (claiming your own), and no-op re-assigns to the same person.
-  const newAssignee = loan.assignedProcessor && loan.assignedProcessor.email
-    ? normalizeEmail(loan.assignedProcessor.email) : '';
-  if (newAssignee && newAssignee !== priorAssignee && newAssignee !== selfEmail) {
+  // Deploy 236.575/236.662 — email a NEWLY-added team member (not a role update,
+  // not self). Best-effort: a failure never poisons the assign already committed.
+  if (notifyPerson) {
     try {
-      await _emailAssignedProcessor(req, user, loan, client, ownerKey, loan.assignedProcessor);
+      await _emailAssignedProcessor(req, user, loan, client, ownerKey, notifyPerson);
     } catch (e) {
       console.warn('loan-assign-processor: notify failed (non-fatal):', e && e.message);
     }
   }
 
-  return json(200, { ok: true, assignedProcessor: loan.assignedProcessor || null });
+  return json(200, { ok: true, assignedProcessors: loan.assignedProcessors, assignedProcessor: loan.assignedProcessor || null });
 }
 
 // Deploy 236.575 — Resend email to a newly-assigned processor. ownerKey is the

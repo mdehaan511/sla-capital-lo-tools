@@ -103,7 +103,7 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // the assignee picker (assignedProcessor), the funding/investor tile items,
   // and the open-conditions badge (236.564, which never showed because the
   // count was dropped from the summary projection).
-  'assignedProcessor', 'fundingSource', 'fundingSourceOther', 'investorName',
+  'assignedProcessor', 'assignedProcessors', 'fundingSource', 'fundingSourceOther', 'investorName',
   'openConditions', 'totalConditions',
   // Deploy 236.616 — servicing-tracking fields (Closed Loans page); all ride in
   // extra. Without these the PG summary dropped disposition + the servicing
