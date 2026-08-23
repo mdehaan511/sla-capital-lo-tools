@@ -148,7 +148,10 @@ function mapMirrorToFields(m) {
   const rehab = [m.Address_Total_Rehab, m.Holdback, m.Rehab_Cost].map(_num).find((v) => v != null);
   if (rehab != null) f.rehabBudget = String(rehab);
   const initAdv = _num(m.Initial_Advance);        if (initAdv != null) f.initialAdvance = String(initAdv);
-  const down = _num(m.Down_Payment);              if (down != null)    f.downPayment = String(down);
+  // Deploy 236.661 — Baseline stores a NEGATIVE Down_Payment on cash-out refis
+  // (borrower nets cash). A down payment can't be negative, so clamp to 0 (Mike's
+  // call). Applies to both the field and the pricingSnapshot copy below.
+  const down = _num(m.Down_Payment);              if (down != null)    f.downPayment = String(Math.max(0, down));
 
   // Property
   const beds = _num(m.Address_Beds);              if (beds != null)    f.bedrooms = String(beds);
@@ -307,9 +310,14 @@ async function handle(req, context) {
       loan._migratedFromBaseline = { at: now, by: selfEmail, extId };
 
       // Down Payment: the RTL fin-grid reads pricingSnapshot.downPayment.
+      // Deploy 236.661 — also refresh when the existing snapshot value is NEGATIVE,
+      // so re-running the migration corrects loans imported before the clamp (the
+      // display prefers loan._dpOverride, so a real LO override is never stomped).
       if ('downPayment' in fields) {
         loan.pricingSnapshot = Object.assign({}, loan.pricingSnapshot || {});
-        if (loan.pricingSnapshot.downPayment == null || loan.pricingSnapshot.downPayment === '') {
+        const _existDp = loan.pricingSnapshot.downPayment;
+        const _existDpNum = parseFloat(_existDp);
+        if (_existDp == null || _existDp === '' || (isFinite(_existDpNum) && _existDpNum < 0)) {
           loan.pricingSnapshot.downPayment = fields.downPayment;
         }
       }
