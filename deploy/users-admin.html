@@ -25,7 +25,9 @@
     #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; padding: 2rem; }
     #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
 
-    .page { max-width: 1100px; margin: 0 auto; padding-top: 1rem; }
+    /* Deploy 236.665 — wider so the full row (role, status, last sign-in, actions)
+       shows without horizontal scrolling. */
+    .page { max-width: 1400px; margin: 0 auto; padding-top: 1rem; }
     .page-header { margin-bottom: 1.25rem; }
     .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
     .page-header p { font-size: 13px; color: var(--muted); }
@@ -254,7 +256,12 @@ async function loadUsers() {
     var r = await SLA.api('GET', '/api/users-list-supabase');
     if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
     var users = r.users || [];
-    count.textContent = users.length + ' user' + (users.length === 1 ? '' : 's');
+    // Deploy 236.665 — Borrowers are managed under Clients / the Borrowers page, not
+    // this staff roster (there will be many). Hide role='borrower'.
+    var _hiddenBorrowers = users.filter(function(u){ return String(u.role || '').toLowerCase() === 'borrower'; }).length;
+    users = users.filter(function(u){ return String(u.role || '').toLowerCase() !== 'borrower'; });
+    count.textContent = users.length + ' user' + (users.length === 1 ? '' : 's') +
+      (_hiddenBorrowers ? ' · ' + _hiddenBorrowers + ' borrower' + (_hiddenBorrowers === 1 ? '' : 's') + ' hidden (see Borrowers →)' : '');
     if (!users.length) {
       wrap.innerHTML = '<div class="empty">No users in Supabase yet. Invite someone above to get started.</div>';
       return;
@@ -268,6 +275,16 @@ async function loadUsers() {
         var sel = (u.role === r) ? ' selected' : '';
         return '<option value="' + escAttr(r) + '"' + sel + '>' + escH(r === 'loan_officer' ? 'Loan Officer' : r === 'admin' ? 'Admin' : 'Processor') + '</option>';
       }).join('');
+      // Deploy 236.665 — if the user's actual role isn't one of the three staff
+      // roles above (super_admin/Owner, a legacy 'user', or no role at all), the
+      // <select> would have defaulted to showing "Admin" — the source of borrowers
+      // appearing as Admins. Prepend the real role as the selected option so the
+      // dropdown reflects reality instead of a misleading default.
+      var _curRole = String(u.role || '').toLowerCase();
+      if (!_curRole || ['admin','loan_officer','processor'].indexOf(_curRole) < 0) {
+        var _lbl = _curRole === 'super_admin' ? 'Owner' : (_curRole ? _curRole : '(no role)');
+        roleOpts = '<option value="' + escAttr(_curRole) + '" selected>' + escH(_lbl) + '</option>' + roleOpts;
+      }
       var roleControl = '<select class="role-select" data-user-id="' + escAttr(u.id) + '" data-current-role="' + escAttr(u.role || '') + '" onchange="changeUserRole(this)">' + roleOpts + '</select>';
 
       var statusPill;
