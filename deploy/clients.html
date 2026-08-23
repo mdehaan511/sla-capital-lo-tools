@@ -242,6 +242,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="view-tabs" id="viewTabs" style="display:none">
     <button class="view-tab active" data-view="my" onclick="setView('my')">My Clients</button>
     <button class="view-tab" data-view="admin" onclick="setView('admin')">All Users</button>
+    <!-- Deploy 236.665 — portal borrowers who've registered / signed in live on the
+         Borrowers screen (invite status + last sign-in + revoke/resend). -->
+    <button class="view-tab" onclick="window.location.href='/borrowers-admin.html'" title="Portal borrowers — who's been invited and who has signed in">Borrowers</button>
   </div>
 
   <!-- My Clients -->
