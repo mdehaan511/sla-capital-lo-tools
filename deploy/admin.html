@@ -472,8 +472,19 @@ netlifyIdentity.on('init', function(user) {
     // users render in the main table. Deleted users render under a
     // collapsible "Deleted Users" section to preserve their stats
     // without polluting the active roster.
-    var activeUsers  = users.filter(function(u) { return !u.deleted; });
-    var deletedUsers = users.filter(function(u) { return  u.deleted; });
+    // Deploy 236.663 — Borrowers don't belong on the staff Users Admin roster
+    // (there will be many, and this page is for staff accounts). Hide anyone whose
+    // ONLY role is 'borrower' (a correctly-roled portal borrower). Mis-roled
+    // borrowers who were accidentally given admin/user still show until their role
+    // is corrected — surfaced via the hidden-count note below.
+    function _isBorrowerOnly(u) {
+      var r = (u.roles || []).map(function(x){ return String(x).toLowerCase(); });
+      return r.indexOf('borrower') >= 0 &&
+        !r.some(function(x){ return ['super_admin','admin','processor','user'].indexOf(x) >= 0; });
+    }
+    var _hiddenBorrowers = users.filter(function(u){ return !u.deleted && _isBorrowerOnly(u); }).length;
+    var activeUsers  = users.filter(function(u) { return !u.deleted && !_isBorrowerOnly(u); });
+    var deletedUsers = users.filter(function(u) { return  u.deleted && !_isBorrowerOnly(u); });
 
     // Aggregate totals across ACTIVE users only (active business view)
     var totalClients = 0, totalQuotes = 0, totalLoan = 0;
@@ -504,6 +515,13 @@ netlifyIdentity.on('init', function(user) {
       // users we matched against, so it's obvious the check ran.
       summary += '<div style="margin-bottom:14px;padding:8px 12px;background:rgba(38,26,54,0.04);border:1px solid var(--border);border-radius:var(--r-xs);font-size:11px;color:var(--muted)">' +
         'Identity check: <strong>' + resp.identityFetchUserCount + '</strong> live users in Netlify Identity. Profiles for accounts no longer in Identity are flagged below.' +
+      '</div>';
+    }
+
+    // Deploy 236.663 — note how many portal borrowers are hidden from this roster.
+    if (_hiddenBorrowers > 0) {
+      summary += '<div style="margin-bottom:14px;padding:8px 12px;background:rgba(38,26,54,0.04);border:1px solid var(--border);border-radius:var(--r-xs);font-size:11px;color:var(--muted)">' +
+        '<strong>' + _hiddenBorrowers + '</strong> portal borrower' + (_hiddenBorrowers === 1 ? '' : 's') + ' hidden from this list (borrowers are managed under Clients, not here).' +
       '</div>';
     }
 
