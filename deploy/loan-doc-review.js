@@ -453,12 +453,12 @@
       '</div></div>',
       // Deploy 236.162 — Add Custom Document modal.
       '<div class="dr-modal-bg" id="dr-addDocModal"><div class="dr-modal">',
-        '<h3>Add a new document</h3>',
-        '<p style="font-size:12px;color:#7a7488;margin-bottom:14px">Creates a new tray in the <span id="dr-addDocSection" style="font-weight:600;color:#1a1520"></span> section. You can rename it later by clicking the pencil next to the tray name.</p>',
-        '<input type="text" id="dr-addDocName" class="notes-area" style="min-height:auto;font-size:13px" placeholder="e.g., Investor-specific addendum, Lien waiver, ..." />',
+        '<h3>Add a document category</h3>',
+        '<p style="font-size:12px;color:#7a7488;margin-bottom:14px">Adds a new category (tray) to the <span id="dr-addDocSection" style="font-weight:600;color:#1a1520"></span> section — for a document type that isn\'t listed, or an additional version you need to review. You can rename it later by clicking the pencil next to the tray name, or hide it with "⊘ Hide tray".</p>',
+        '<input type="text" id="dr-addDocName" class="notes-area" style="min-height:auto;font-size:13px" placeholder="e.g., 2nd Appraisal, Investor-specific addendum, Lien waiver, ..." />',
         '<div class="dr-modal-actions">',
           '<button class="dr-modal-btn" onclick="dr_closeAddDocModal()">Cancel</button>',
-          '<button class="dr-modal-btn approve" onclick="dr_confirmAddDoc()">Add Document</button>',
+          '<button class="dr-modal-btn approve" onclick="dr_confirmAddDoc()">Add Category</button>',
         '</div>',
       '</div></div>',
       // Deploy 236.163 — Replace-or-Add modal for multi-doc uploads.
@@ -986,7 +986,7 @@
       // Deploy 236.162 — "+ Add Document" creates a custom tray in this
       // section. Deploy 236.501 — relabeled "+ Add Other Document" and
       // moved into the per-section "Other Documents" area below.
-      var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escAttr(sec.key) + '\',\'' + escAttr(sec.label) + '\')">+ Add Other Document</button>';
+      var addBtn = '<button class="dr-section-toggle dr-add-doc-btn" onclick="dr_openAddDocModal(\'' + escAttr(sec.key) + '\',\'' + escAttr(sec.label) + '\')" title="Add a document category to this section — a type that isn\'t listed, or an additional version to review">+ Add Category</button>';
       // Deploy 236.164 — bulk "Approve all pending" per section.
       // Counts trays in this section that have a doc uploaded AND
       // verdict is still pending (i.e. awaiting processor click).
@@ -1022,7 +1022,7 @@
             (otherInSec.length
               ? otherInSec.map(renderTray).join('')
               : (showOtherAdd
-                  ? '<div class="dr-other-empty">Nothing here yet. Use “+ Add Other Document” for a doc that isn’t on the checklist, or route uncategorized files here from an “Upload ZIP”.</div>'
+                  ? '<div class="dr-other-empty">Nothing here yet. Use “+ Add Category” for a document type that isn’t on the checklist, or route uncategorized files here from an “Upload ZIP”.</div>'
                   : '')) +
           '</div>';
       }
