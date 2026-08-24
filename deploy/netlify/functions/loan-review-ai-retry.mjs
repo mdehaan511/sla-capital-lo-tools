@@ -76,7 +76,13 @@ async function handle(req, context) {
   // via getChecklist(); custom trays carry their own label /
   // conditions on the doc record.
   const checklist = getChecklist(review.loanType || '');
-  const checklistEntry = checklist.find((d) => d.slug === body.slug);
+  let checklistEntry = checklist.find((d) => d.slug === body.slug);
+  // Deploy 236.673 — recover a real rubric for a custom tray by matching its label
+  // to a standard checklist entry (parity with loan-review-doc-upload).
+  if (!checklistEntry && docState.label) {
+    const _lbl = String(docState.label).toLowerCase().replace(/\s+/g, ' ').trim();
+    checklistEntry = checklist.find((d) => String(d.label || '').toLowerCase().replace(/\s+/g, ' ').trim() === _lbl) || null;
+  }
   const docLabel      = (checklistEntry && checklistEntry.label) || docState.label || body.slug;
   const docConditions = (checklistEntry && checklistEntry.conditions) || docState.conditions || '';
 

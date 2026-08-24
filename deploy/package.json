@@ -5,6 +5,7 @@
   "private": true,
   "dependencies": {
     "@netlify/blobs": "^10.0.0",
+    "heic-convert": "^2.1.0",
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.15.0"

@@ -89,6 +89,30 @@ async function handle(req, context) {
     return json(400, { error: 'Empty file' });
   }
 
+  // Deploy 236.673 — auto-convert HEIC/HEIF (iPhone photos of IDs, proof of
+  // citizenship, etc.) to JPEG so the AI review can read them — Anthropic doesn't
+  // accept HEIC. Dynamic import + try/catch so a conversion or bundle failure only
+  // affects HEIC uploads: the file still stores and simply falls back to manual
+  // review. Mutating body.mimeType/filename makes every downstream step (storage,
+  // AI review, integrity check) see the JPEG.
+  {
+    const _mimeLc = String(body.mimeType || '').toLowerCase();
+    const _fnLc = String(body.filename || '').toLowerCase();
+    const _isHeic = _mimeLc === 'image/heic' || _mimeLc === 'image/heif' || /\.(heic|heif)$/.test(_fnLc) ||
+      (_mimeLc === 'application/octet-stream' && /\.(heic|heif)$/.test(_fnLc));
+    if (_isHeic) {
+      try {
+        const heicConvert = (await import('heic-convert')).default;
+        const jpg = await heicConvert({ buffer: bytes, format: 'JPEG', quality: 0.92 });
+        bytes = Buffer.from(jpg);
+        body.mimeType = 'image/jpeg';
+        body.filename = String(body.filename || 'image').replace(/\.(heic|heif)$/i, '') + '.jpg';
+      } catch (e) {
+        console.warn('loan-review-doc-upload: HEIC→JPEG conversion failed (non-fatal):', e && e.message);
+      }
+    }
+  }
+
   const docId = 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const docKey = keySafe(body.reviewId) + '/' + docId;
   const now = new Date().toISOString();
@@ -224,14 +248,20 @@ async function handle(req, context) {
   // happened to send). Loan context comes from the review's
   // snapshotted client + loan record.
   const checklist = getChecklist(review.loanType || '');
-  const checklistEntry = checklist.find(function (d) { return d.slug === body.slug; });
-  const docMeta = checklistEntry || { label: body.slug, conditions: '' };
-  // Deploy 236.590 — a document with NO verification rubric (a custom / "Other"
-  // tray whose slug isn't in the static checklist, so there are no conditions to
-  // review against) must NOT be auto-"approved". Every standard checklist item
-  // carries a non-empty conditions string; a missing entry means no rubric, and
-  // we flag such uploads for manual review (yellow) instead of trusting the AI.
-  const _rubric = String((checklistEntry && checklistEntry.conditions) || '').trim();
+  let checklistEntry = checklist.find(function (d) { return d.slug === body.slug; });
+  // Deploy 236.673 — a doc that landed on a CUSTOM tray (because the category
+  // wasn't recognized on the first upload, or predates a newly-added category)
+  // used to have "no rubric". Recover a real rubric two ways: (1) match the tray's
+  // LABEL to a standard checklist entry (a custom "Appraisal" tray → the standard
+  // appraisal rubric); (2) fall back to the tray's own stored conditions.
+  if (!checklistEntry && docState && docState.label) {
+    const _lbl = String(docState.label).toLowerCase().replace(/\s+/g, ' ').trim();
+    checklistEntry = checklist.find(function (d) { return String(d.label || '').toLowerCase().replace(/\s+/g, ' ').trim() === _lbl; }) || null;
+  }
+  const docMeta = checklistEntry || { label: (docState && docState.label) || body.slug, conditions: (docState && docState.conditions) || '' };
+  // Deploy 236.590/236.673 — no rubric (empty conditions) ⇒ flag for manual review
+  // (yellow) rather than trusting an unfounded AI "approved".
+  const _rubric = String((checklistEntry && checklistEntry.conditions) || (docState && docState.conditions) || '').trim();
   const hasRubric = _rubric.length > 0;
   const ctx = buildLoanContext(review);
   // Deploy 236.77 — attach the investor's underwriting guidelines PDF
