@@ -29,8 +29,12 @@ import {
   loadMirroredLoan, saveMirroredLoan,
 } from './_shared/baseline-mirror.mjs';
 
-// Run every 15 minutes — declared via the Netlify config export.
-export const config = { schedule: '*/15 * * * *' };
+// Deploy 236.687 — Baseline feed CUT as SLA goes independent (Mike). The
+// schedule is removed so Netlify no longer pulls fresh Baseline data
+// automatically; the function still works if triggered manually for a
+// deliberate one-off resync. Re-add the schedule below to resume automation.
+const LEGACY_SCHEDULE = '*/15 * * * *';
+export const config = {};
 
 // Time budget for the whole invocation. Netlify Pro gives 30s; we exit
 // at 24s to leave headroom for the log write. If we hit the budget
@@ -62,8 +66,8 @@ export default async (req) => {
   const startedAt = Date.now();
   const log = {
     startedAt: new Date(startedAt).toISOString(),
-    runBy:     'cron',
-    schedule:  config.schedule,
+    runBy:     'manual',
+    schedule:  LEGACY_SCHEDULE,
     totalCount: 0,
     processed:  0,
     synced:     0,

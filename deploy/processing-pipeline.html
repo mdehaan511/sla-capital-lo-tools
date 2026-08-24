@@ -207,8 +207,8 @@
         </select>
         <!-- Deploy 236.559 — filter to loans assigned to me. -->
         <button type="button" class="lo-filter" id="myLoansToggle" style="display:none" onclick="toggleMyLoans()" title="Show only loans assigned to me">My Loans</button>
-        <!-- Deploy 236.638 — manually add a loan to Processing (Baseline migration). -->
-        <button type="button" class="gear-btn" id="newLoanBtn" style="display:none" onclick="openNewLoanModal()" title="Manually add a loan to the processing pipeline">+ New Loan</button>
+        <!-- Deploy 236.638 — add a new loan to Processing (SLA-native since 236.687). -->
+        <button type="button" class="gear-btn" id="newLoanBtn" style="display:none" onclick="openNewLoanModal()" title="Create a new loan on the processing pipeline">+ New Loan</button>
         <button type="button" class="gear-btn" id="ssGearBtn" style="display:none" onclick="openSubstatusEditor()" title="Edit substatuses (admin)">⚙ Substatuses</button>
         <button type="button" class="gear-btn" id="ttGearBtn" style="display:none" onclick="openTaskTemplatesEditor()" title="Edit per-stage task templates (admin)">⚙ Task Templates</button>
       </div>
@@ -274,12 +274,12 @@
     </div>
   </div>
 
-  <!-- Deploy 236.638 — manual "New Loan → Processing" creator (processor
-       migration off Baseline). Reuses the .ss-bg / .ss-modal styling. -->
+  <!-- Deploy 236.638 — manual "New Loan → Processing" creator. Deploy 236.687 —
+       reframed off Baseline (SLA is now the system of record). Reuses .ss-bg. -->
   <div class="ss-bg" id="nlBg">
     <div class="ss-modal">
       <h3>Add Loan to Processing</h3>
-      <p class="ss-sub">Manually create a loan on the Processing board — for bringing a deal over from Baseline. Enter the essentials here; fill in the full details on Loan Details after it's created (documents, conditions, closing, etc.).</p>
+      <p class="ss-sub">Create a new loan directly on the Processing board. Enter the essentials here; fill in the full details on Loan Details after it's created (documents, conditions, closing, etc.).</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
         <div class="nl-fld" style="grid-column:1/-1"><label>Owner — Loan Officer <span style="color:var(--danger)">*</span></label><select id="nlOwner"></select></div>
         <div class="nl-fld"><label>Borrower First Name <span style="color:var(--danger)">*</span></label><input type="text" id="nlFirst" maxlength="100" /></div>
@@ -505,19 +505,20 @@ function columnFor(loan) {
   var st0 = String(loan.status || '').toLowerCase().trim();
   if (st0 === 'on_hold' || st0 === 'denied' || st0 === 'cancelled') return null;
 
-  // Deploy 236.583 — a terminal CLOSED status WINS over processingStage. Many
-  // Baseline-closed loans kept a stale pre-close stage (e.g. underwriting), and
-  // because the stage checks ran first, they wrongly showed in an ACTIVE column
-  // instead of the Closed pipeline. Status is the source of truth for "is this
-  // done". Sold / In Servicing / Liquidated / Paid Off are fully offloaded → not
-  // shown at all (SLA rolls all four Baseline states into status='closed', so we
-  // discriminate on baselineStatus).
+  // A terminal CLOSED status WINS over processingStage (Deploy 236.583). A loan
+  // that's fully offloaded — Sold / In Servicing / Paid Off / Liquidated — lives
+  // only on the Loans + Closed pages, not this board.
+  // Deploy 236.687 — SLA `disposition` is now the source of truth for that
+  // (Baseline feed cut). `baselineStatus` is a FROZEN legacy fallback: it no
+  // longer updates (mirror-sync cron disabled), so it only helps loans migrated
+  // before disposition was backfilled.
   if (st0 === 'closed') {
-    var bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
-    if (bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off') {
-      return null; // truly offloaded — live only on the Loans page
-    }
-    return 'pp_closed'; // Baseline 'Closed' or SLA-native close → Closed pipeline
+    var disp = String(loan.disposition || '').toLowerCase().replace(/[_\s]+/g, ' ').trim();
+    var bl = String(loan.baselineStatus || '').toLowerCase().replace(/[_\s]+/g, ' ').trim(); // frozen legacy
+    var offloaded = (disp === 'sold' || disp === 'servicing' || disp === 'paid off' || disp === 'liquidated'
+      || bl === 'sold' || bl === 'in servicing' || bl === 'servicing' || bl === 'liquidated' || bl === 'paid off');
+    if (offloaded) return null; // truly offloaded — live only on the Loans/Closed page
+    return 'pp_closed'; // freshly closed / post-close → Closed pipeline
   }
   if (st0 === 'sold' || st0 === 'liquidated') return null;
 

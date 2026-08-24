@@ -24,8 +24,12 @@ import { getStore } from '@netlify/blobs';
 import { listMirroredLoans } from './_shared/baseline-mirror.mjs';
 import { upsertBaselineLoan } from './_shared/baseline-upsert.mjs';
 
-// :10 and :40 — a few minutes after the :00/:15/:30/:45 mirror-cron runs.
-export const config = { schedule: '10,40 * * * *' };
+// Deploy 236.687 — Baseline feed CUT as SLA goes independent (Mike). The
+// schedule is removed so Netlify no longer runs this automatically; the function
+// still works if triggered manually (baseline-sync-trigger / dashboard) for a
+// deliberate one-off resync. Re-add the schedule below to resume automation.
+const LEGACY_SCHEDULE = '10,40 * * * *';
+export const config = {};
 
 const TIME_BUDGET_MS = 24_000; // exit before Netlify's ~30s scheduled-fn kill
 const LOG_STORE = 'baseline-sync-log';
@@ -35,7 +39,7 @@ export default async (req) => {
   const startedAt = Date.now();
   const log = {
     startedAt: new Date(startedAt).toISOString(),
-    runBy: 'cron', schedule: config.schedule, kind: 'migrate',
+    runBy: 'manual', schedule: LEGACY_SCHEDULE, kind: 'migrate',
     mirrorCount: 0, processed: 0, created: 0, updated: 0, noChange: 0, skipped: 0,
     errors: [], truncated: false,
   };
