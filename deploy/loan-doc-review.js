@@ -71,6 +71,11 @@
     lease_agreements:         { label: 'Lease Agreements', section: 'collateral', conditions: '12 months in length? Non-corporate tenant? Signed by landlord and tenant?' },
     property_mgmt_agreement:  { label: 'Property Management Agreement', section: 'collateral', conditions: 'PMA signed; covers the subject property.' },
     property_mgmt_questionnaire: { label: 'Property Management Questionnaire', section: 'collateral', conditions: 'PMQ completed in full.' },
+    // Deploy 236.670 — new categories per Mike (DSCR + RTL).
+    proof_of_security_deposit: { label: 'Proof of Security Deposit', section: 'collateral', conditions: 'Evidence the tenant security deposit(s) are held; amount consistent with the lease(s).', optional: true },
+    insurance_invoice:        { label: 'Insurance Invoice', section: 'collateral', conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured shown.', optional: true },
+    proof_of_citizenship:     { label: 'Proof of Citizenship', section: 'guarantor', conditions: 'Citizenship / permanent-residency evidence for each guarantor (passport, birth certificate, naturalization, or green card); name matches the application.', optional: true },
+    payoff_demand:            { label: 'Payoff Demand', section: 'closing', conditions: 'Payoff statement from the existing lender (refi). Payoff amount, per-diem, and good-through date current.', optional: true },
     psa:                      { label: 'Purchase and Sale Agreement (PSA)', section: 'collateral', conditions: 'Borrower listed as buyer; all parties signed; price matches application.' },
     sow:                      { label: 'Statement of Work (SOW)', section: 'collateral', conditions: 'Budget = Requested rehab $$.' },
     vom:                      { label: 'VOM (Verification of Mortgage)', section: 'collateral', conditions: 'Existing mortgage information verified.', optional: true },

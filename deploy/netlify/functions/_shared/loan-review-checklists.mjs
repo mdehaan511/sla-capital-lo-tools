@@ -68,6 +68,9 @@ export const DSCR_DOCS = [
     conditions: 'Signed by all guarantors. Assets, liabilities, income, contingent liabilities.' },
   { slug: 'guarantor_id', label: 'ID for each Guarantor', section: 'guarantor',
     conditions: 'Driver\'s License or Passport for each guarantor; matches name on application; not expired.' },
+  // Deploy 236.670 — added per Mike.
+  { slug: 'proof_of_citizenship', label: 'Proof of Citizenship', section: 'guarantor',
+    conditions: 'Citizenship / permanent-residency evidence for each guarantor (passport, birth certificate, naturalization certificate, or green card). Name matches the application.', optional: true },
   { slug: 'credit_authorization', label: 'Credit Authorization', section: 'guarantor',
     conditions: 'Signed by all guarantors.' },
   { slug: 'credit_report', label: 'Credit Report', section: 'guarantor',
@@ -82,8 +85,13 @@ export const DSCR_DOCS = [
     conditions: 'Borrower listed as buyer; all parties signed; price matches application.', purchaseOnly: true },
   { slug: 'cost_basis', label: 'Cost Basis', section: 'collateral',
     conditions: 'Documentation of borrower\'s total invested basis (purchase price + rehab + closing costs).', optional: true },
-  { slug: 'lease_agreements', label: 'Leases', section: 'collateral',
+  { slug: 'lease_agreements', label: 'Lease Agreements', section: 'collateral',
     conditions: 'Signed by landlord and tenant; term length; non-corporate tenant; rent verifies to the underwriting.' },
+  // Deploy 236.670 — added per Mike (DSCR docs from the S7 Holdings package).
+  { slug: 'proof_of_security_deposit', label: 'Proof of Security Deposit', section: 'collateral',
+    conditions: 'Evidence the tenant security deposit(s) are held (bank record, ledger, or receipt). Amount is consistent with the lease(s).', optional: true },
+  { slug: 'insurance_invoice', label: 'Insurance Invoice', section: 'collateral',
+    conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured (borrower / LLC) shown; premium reasonable for the coverage.', optional: true },
   { slug: 'property_mgmt_summary', label: 'Property Management Summary', section: 'collateral',
     conditions: 'Summary of PM company\'s scope; fees; contact info.', optional: true },
   { slug: 'property_mgmt_agreement', label: 'Property Management Agreement', section: 'collateral',
@@ -104,7 +112,7 @@ export const DSCR_DOCS = [
     conditions: 'Receipt or endorsement showing policy paid through closing.' },
   { slug: 'property_profile', label: 'Property Profile', section: 'collateral',
     conditions: 'Ownership history, parcel details, tax history, comparable properties.' },
-  { slug: 'appraisal', label: 'Appraisals', section: 'collateral',
+  { slug: 'appraisal', label: 'Appraisal', section: 'collateral',
     conditions: 'Value >= loan amount; does NOT say "subject to"; appraiser certified; comps recent + within 1 mile.' },
   { slug: 'appraisal_receipt', label: 'Appraisal Receipt', section: 'collateral',
     conditions: 'Paid-in-full receipt for the appraisal.' },
@@ -152,6 +160,9 @@ export const DSCR_DOCS = [
     conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
   { slug: 'tax_certificate', label: 'Tax Certificates', section: 'closing',
     conditions: 'Property address; tax rate and/or taxes paid/owed displayed; tax due dates listed.' },
+  // Deploy 236.670 — added per Mike (payoff of the existing lien on a refi).
+  { slug: 'payoff_demand', label: 'Payoff Demand', section: 'closing',
+    conditions: 'Payoff statement from the existing lender (refinance). Payoff amount, per-diem interest, and good-through date are current; lender + loan match the subject property.', optional: true },
   { slug: 'borrower_closing_funds_receipt', label: 'Borrower Closing Funds Receipt', section: 'closing',
     conditions: 'Requested day of closing.', purchaseOnly: true },
   { slug: 'emd_receipt', label: 'EMD Receipt', section: 'closing',
@@ -214,6 +225,11 @@ export const RTL_DOCS = [
     conditions: 'Borrower listed as buyer; all parties signed; price matches application.', purchaseOnly: true },
   { slug: 'sow', label: 'Statement of Work (SOW)', section: 'collateral',
     conditions: 'Budget = Requested rehab $$.' },
+  // Deploy 236.670 — added to RTL per Mike (Appraisal + Insurance Invoice).
+  { slug: 'appraisal', label: 'Appraisal', section: 'collateral',
+    conditions: 'Value >= loan amount; does NOT say "subject to"; appraiser certified; comps recent + within 1 mile.', optional: true },
+  { slug: 'insurance_invoice', label: 'Insurance Invoice', section: 'collateral',
+    conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured (borrower / LLC) shown; premium reasonable for the coverage.', optional: true },
 
   // ── Loan ──────────────────────────────────────────────────────
   { slug: 'loan_application', label: 'Loan Application', section: 'loan',
@@ -234,6 +250,9 @@ export const RTL_DOCS = [
     conditions: 'Final signed settlement statement (HUD / Closing Disclosure) collected AFTER closing. Loan amount, fees, prepaid interest, payoffs, and net wire all reconcile to the approved terms.' },
   { slug: 'tax_certificate', label: 'Tax Certificate', section: 'closing',
     conditions: 'Property address; tax rate and/or taxes paid/owed displayed; tax due dates listed.' },
+  // Deploy 236.670 — added to RTL per Mike (payoff of the existing lien on a refi).
+  { slug: 'payoff_demand', label: 'Payoff Demand', section: 'closing',
+    conditions: 'Payoff statement from the existing lender (refinance). Payoff amount, per-diem interest, and good-through date are current; lender + loan match the subject property.', optional: true },
   { slug: 'title_commitment', label: 'Title Commitment', section: 'closing',
     conditions: 'Mortgagee Clause; loan number; borrower name; property address(es); 125% of loan value; date; 24-month chain of title.' },
   { slug: 'title_eo_insurance', label: 'Title E&O Insurance', section: 'closing',
