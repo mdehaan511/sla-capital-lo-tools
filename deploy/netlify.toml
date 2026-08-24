@@ -6,6 +6,18 @@
   directory = "netlify/functions"
   included_files = ["netlify/functions/_shared/**", "netlify/functions/_templates/**"]
 
+# Deploy 236.679 — the borrower application signing handlers render the signed
+# PDF, stamp signatures, write the client + guarantors, advance the loan to
+# In Processing, and email BOTH the borrower and the LO. At the 10s default this
+# overran on multi-guarantor apps, so an internal 7.2s deadline SKIPPED the LO
+# notification (and the loan advance) to protect the signature write — which is
+# why LOs stopped getting "application completed" emails. Give them the full 26s
+# on-demand budget so nothing gets skipped. (Internal deadline raised to match.)
+[functions."borrower-info-sign"]
+  timeout = 26
+[functions."borrower2-auth-sign"]
+  timeout = 26
+
 # Supabase migration Phase 1 — the backfill walks 2 800+ blobs, does
 # a second pass on the legacy brokers store, then chunk-writes
 # thousands of rows to Postgres. Pro-plan on-demand functions get up

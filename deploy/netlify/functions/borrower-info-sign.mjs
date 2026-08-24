@@ -76,14 +76,20 @@ function _mark(label) {
   _marks.push(line);
   console.log('[sign-timing] ' + line);
 }
-// Deploy 236.415 — self-imposed deadline UNDER the platform's 10s
-// kill timer. Instead of dying as a naked 504, the handler:
+// Deploy 236.415 — self-imposed deadline UNDER the platform's kill
+// timer. Instead of dying as a naked 504, the handler:
 //   - pre-signature: aborts with its own step timings in the error
 //     (diagnosis without Netlify log access), nothing half-committed;
 //   - post-signature: SKIPS remaining housekeeping (advance, emails)
 //     and returns success — the signature is durable, the borrower is
 //     done, skipped steps are flagged on the record for follow-up.
-const SIGN_DEADLINE_MS = 7200;
+// Deploy 236.679 — this function now runs at the 26s on-demand timeout
+// (netlify.toml), not 10s. The old 7.2s deadline was tuned for the 10s
+// kill and was skipping the LO notification + loan advance on any signing
+// that ran a little long (esp. multi-guarantor) — so LOs stopped getting
+// "application completed" emails. Raise to 22s (≈4s of margin under the
+// 26s kill for the signature write + return) so housekeeping runs.
+const SIGN_DEADLINE_MS = 22000;
 function _pastDeadline() {
   return (Date.now() - _signT0) > SIGN_DEADLINE_MS;
 }
