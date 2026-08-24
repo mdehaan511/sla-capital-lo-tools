@@ -1705,7 +1705,12 @@ function render() {
   var _mIns   = String(insurance || '');
   var _mHoa   = String(hoa || '');
   html += '<div class="section" id="propertyCollateralSection">' +
-    '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span></div>' +
+    '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span>' +
+      // Deploy 236.688 — convert a single-property loan into a Portfolio so more
+      // properties can be added. Shown only when the loan isn't already a portfolio.
+      (l.isPortfolio ? '' :
+        '<button type="button" onclick="convertToPortfolio()" title="Convert this single-property loan into a portfolio so you can add multiple property details" style="margin-left:auto;padding:5px 12px;font-size:12px;font-weight:600;border:1px solid var(--border,#ddd8d0);background:#fff;border-radius:8px;cursor:pointer;color:var(--dark);white-space:nowrap">⊞ Convert to Portfolio</button>') +
+    '</div>' +
     '<div class="section-body">' +
       // Deploy 236.657 — for a PORTFOLIO the property tabs ARE the whole section:
       // the loan-level physical / valuation / carrying-cost form is hidden and each
@@ -6210,6 +6215,39 @@ function savePropertyCollateral() {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Property / Collateral'; }
     showToast('Save failed: ' + (err && err.message || 'unknown error'));
   });
+}
+
+// Deploy 236.688 — convert an existing single-property loan into a Portfolio.
+// Seeds Property 1 from the loan's current single-property fields, flips the
+// loan into portfolio mode IN MEMORY (not persisted until the user clicks Save
+// Property / Collateral), re-renders, and lands on the Property tab so they can
+// add the remaining properties. Reversible — navigating away without saving
+// leaves the loan as a single property.
+function convertToPortfolio() {
+  if (!_loan || _loan.isPortfolio) return;
+  if (!confirm('Convert this loan to a Portfolio?\n\nThe loan’s current property becomes Property 1, and you can add more below. Nothing is saved until you click "Save Property / Collateral".')) return;
+  var ptMap = { sfr: 'sfh', sfh: 'sfh', '2-4': '2-4' };
+  var p1 = {
+    address:          _loan.address || '',
+    propType:         ptMap[String(_loan.propType || '').toLowerCase()] || '',
+    bedrooms:         String(_loan.bedrooms || ''),
+    bathrooms:        String(_loan.bathrooms || ''),
+    sqft:             String(_loan.sqft || ''),
+    propValue:        String(_loan.propValue || ''),
+    appraisedValue:   String(_loan.aivBpo || ''),
+    existingDebt:     String(_loan.currentLoanAmt || _loan.existingLoanAmt || ''),
+    monthlyRent:      String(_loan.monthlyRent || _loan.rent || ''),
+    monthlyTaxes:     String(_loan.monthlyTaxes || _loan.taxes || ''),
+    monthlyInsurance: String(_loan.monthlyInsurance || _loan.insurance || ''),
+    monthlyHoa:       String(_loan.monthlyHoa || _loan.hoa || ''),
+  };
+  _loan.isPortfolio   = true;
+  _loan.propType      = 'portfolio';
+  _loan.properties    = [p1];
+  _loan.propertyCount = 1;
+  render();
+  if (typeof switchLdTab === 'function') switchLdTab('property');
+  showToast('Converted to Portfolio — add your other properties, then click Save Property / Collateral.');
 }
 
 // ── Deploy 236.655 — Portfolio properties (multi-property loans) ──────
