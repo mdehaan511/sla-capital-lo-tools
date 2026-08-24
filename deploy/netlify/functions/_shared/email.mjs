@@ -61,6 +61,53 @@ export async function resolveOwnerEmail(record) {
   return pick(record.ownerKey);
 }
 
+// ── Deploy 236.684 — delivery-failure tracking ─────────────────────
+// Resend's send API returns success once an email is QUEUED, not when it's
+// delivered. A hard delivery failure (bad address → bounce) is reported later
+// via a Resend webhook. To notify the loan officer when a borrower-facing loan
+// application or rate sheet fails to deliver, we log every such send keyed by
+// the Resend email id; the webhook (resend-webhook.mjs) looks that id up on an
+// `email.bounced` event and emails the LO. Best-effort throughout — a log-write
+// failure must never break the actual send.
+const RESEND_LOG_STORE = 'resend_send_log';
+
+export async function logBorrowerSend(emailId, meta) {
+  if (!emailId) return;
+  try {
+    const store = getStore({ name: RESEND_LOG_STORE, consistency: 'eventual' });
+    await store.setJSON(String(emailId), Object.assign({
+      emailId: String(emailId),
+      sentAt: new Date().toISOString(),
+    }, meta || {}));
+  } catch (e) {
+    console.warn('logBorrowerSend failed:', e && e.message);
+  }
+}
+
+export async function getBorrowerSend(emailId) {
+  if (!emailId) return null;
+  try {
+    const store = getStore({ name: RESEND_LOG_STORE, consistency: 'eventual' });
+    return await store.get(String(emailId), { type: 'json' });
+  } catch (e) {
+    console.warn('getBorrowerSend failed:', e && e.message);
+    return null;
+  }
+}
+
+// Stamp the log so a duplicate webhook event (Resend can retry / send both a
+// delay and a bounce) doesn't email the LO twice for the same failed send.
+export async function markBorrowerSendNotified(emailId) {
+  if (!emailId) return;
+  try {
+    const store = getStore({ name: RESEND_LOG_STORE, consistency: 'eventual' });
+    const rec = await store.get(String(emailId), { type: 'json' });
+    if (rec) { rec.loNotifiedAt = new Date().toISOString(); await store.setJSON(String(emailId), rec); }
+  } catch (e) {
+    console.warn('markBorrowerSendNotified failed:', e && e.message);
+  }
+}
+
 export async function getOwnerReplyTo(ownerKey) {
   if (!ownerKey) return null;
   try {

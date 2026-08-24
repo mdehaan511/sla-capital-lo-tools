@@ -17,7 +17,7 @@ import {
 } from './_shared/auth.mjs';
 import { generateSignerToken } from './_shared/native-esign.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
-import { getOwnerReplyTo } from './_shared/email.mjs';
+import { getOwnerReplyTo, resolveOwnerEmail, logBorrowerSend } from './_shared/email.mjs';
 
 const TOKEN_TTL_DAYS = 30;
 
@@ -154,7 +154,26 @@ export default async (req, context) => {
             ...(replyTo ? { reply_to: replyTo } : {}),
           }),
         });
-        if (resp.ok) emailedAt = new Date().toISOString();
+        if (resp.ok) {
+          emailedAt = new Date().toISOString();
+          // Deploy 236.684 — log the send so the webhook can alert the LO on a bounce.
+          try {
+            const data = await resp.json().catch(() => null);
+            const emailId = data && data.id;
+            if (emailId) {
+              const kinds = (env.docs || []).map((d) => String((d && d.kind) || 'document'));
+              const loEmail = await resolveOwnerEmail({ ownerKey });
+              await logBorrowerSend(emailId, {
+                kind: 'envelope', docKinds: kinds, docNames: docList,
+                to: signer.email,
+                signerName: [signer.firstName, signer.lastName].filter(Boolean).join(' '),
+                loEmail, ownerKey, loName,
+                address: env.propertyAddress || '',
+                envelopeId: env.id || '', clientId: env.clientId || '', loanId: env.loanId || '',
+              });
+            }
+          } catch (e) { console.warn('envelopes-resend-signer: send-log write failed:', e && e.message); }
+        }
       } catch (e) {
         console.warn('resend email threw:', e && e.message);
       }

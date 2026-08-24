@@ -1035,6 +1035,13 @@
   to = "/.netlify/functions/loan-review-sync-categories"
   status = 200
   force = true
+# Deploy 236.684 — Resend delivery-failure webhook. On email.bounced of a
+# borrower loan application / rate sheet, notify the loan officer.
+[[redirects]]
+  from = "/api/resend-webhook"
+  to = "/.netlify/functions/resend-webhook"
+  status = 200
+  force = true
 # Deploy 236.167 — LO leaderboard for the redesigned home page.
 [[redirects]]
   from = "/api/leaderboard"

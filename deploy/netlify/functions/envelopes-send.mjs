@@ -23,7 +23,7 @@ import {
 } from './_shared/auth.mjs';
 import { generateSignerToken } from './_shared/native-esign.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
-import { getOwnerReplyTo } from './_shared/email.mjs';
+import { getOwnerReplyTo, resolveOwnerEmail, logBorrowerSend } from './_shared/email.mjs';
 
 const TOKEN_TTL_DAYS = 30;
 
@@ -266,6 +266,32 @@ async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, pro
   if (!resp.ok) {
     const t = await resp.text().catch(() => '');
     throw new Error(`Resend ${resp.status}: ${t.slice(0, 200)}`);
+  }
+  // Deploy 236.684 — log this send keyed by the Resend email id so the webhook
+  // can notify the LO if it later bounces. Best-effort; never blocks the send.
+  try {
+    const data = await resp.json().catch(() => null);
+    const emailId = data && data.id;
+    if (emailId) {
+      const kinds = (envelope.docs || []).map((d) => String((d && d.kind) || 'document'));
+      const loEmail = await resolveOwnerEmail({ ownerKey });
+      await logBorrowerSend(emailId, {
+        kind: 'envelope',
+        docKinds: kinds,
+        docNames: docList,
+        to: signer.email,
+        signerName: [signer.firstName, signer.lastName].filter(Boolean).join(' '),
+        loEmail,
+        ownerKey,
+        loName,
+        address: propertyAddress || '',
+        envelopeId: envelope.id || '',
+        clientId: envelope.clientId || '',
+        loanId: envelope.loanId || '',
+      });
+    }
+  } catch (e) {
+    console.warn('envelopes-send: send-log write failed:', e && e.message);
   }
   return true;
 }
