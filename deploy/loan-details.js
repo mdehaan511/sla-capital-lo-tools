@@ -65,14 +65,21 @@ function _productLabel(l) {
   return t === 'rtl' ? 'RTL' : (t === 'guc' ? 'GUC' : 'DSCR');
 }
 function _loanTypeLabel(l) {
-  var code = String((l && l.loanType) || '');
-  if (!code) return '';
+  var fd = (l && l.formData) || {};
   var t = String((l && l.toolType) || '').toLowerCase() === 'rtl' ? 'rtl' : 'dscr';
+  var code = String((l && l.loanType) || fd.loanType || '');
   var opts = (typeof FIN_DROPDOWNS !== 'undefined' && FIN_DROPDOWNS['loanType_' + t]) || [];
   for (var i = 0; i < opts.length; i++) { if (opts[i].value === code) return opts[i].label; }
+  // Deploy 236.692 — the exact label the sizer captured (matches the sizer's box).
+  var storedLbl = String((l && l.loanTypeLabel) || fd.loanTypeLabel || '').trim();
+  if (storedLbl) return storedLbl;
   if (code === 'transactional') return 'Transactional Funding (1-day)';
   if (code === 'construction')  return 'Construction';
   if (code === '30Y Fixed')     return '30-Year Fixed';
+  // Deploy 236.692 — an RTL loan whose loanType isn't a valid RTL tier (the
+  // toolType 'dscr'/'rtl' or blank — never captured by the Baseline migration)
+  // shows UNSET here (matching the sizer) instead of a bogus "dscr".
+  if (t === 'rtl') return '';
   return code;
 }
 // Deploy 236.691 — property-type label (matches the sizer / Property-tab options).
