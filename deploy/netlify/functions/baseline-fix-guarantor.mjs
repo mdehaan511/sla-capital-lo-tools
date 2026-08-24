@@ -133,15 +133,34 @@ async function handle(req, context) {
       }
     }
 
-    // Case B — re-read the Baseline mirror for the individual (name-only ok).
+    // Case B — resolve the individual from Baseline. Reads the LIVE partner-API
+    // /loan (full 129-field response) so it sees Borrower_First/Last/Email that
+    // the cached mirror may not carry; falls back to the mirror if the live fetch
+    // fails. Resolution order: explicit Guarantor → explicit Borrower_First/Last →
+    // an individual-type Borrower whose Borrower_Name IS the person. Entity loans
+    // with no individual in the API stay skipped (owner is a Baseline contact).
     if (!person) {
       const _lid = String(loan.id || '');
       const extId = loan.slaDisplayId || (_lid.indexOf('l_baseline_') === 0 ? _lid.slice('l_baseline_'.length) : '');
       if (extId) {
-        let m = null; try { m = await loadMirroredLoan(extId); } catch (e) {}
+        let m = null;
+        try { const dl = await fetchLoanDetail(extId); if (dl && dl.ok && dl.loan) m = dl.loan; } catch (e) {}
+        if (!m) { try { m = await loadMirroredLoan(extId); } catch (e) {} }
         if (m) {
-          const sp = _splitName(m.Guarantor_Name);
-          if (sp) { person = { firstName: sp.firstName, lastName: sp.lastName, email: _str(m.Guarantor_Email).toLowerCase(), phone: _str(m.Guarantor_Phone) }; source = 'mirror'; }
+          let sp = _splitName(m.Guarantor_Name);
+          let email = _str(m.Guarantor_Email), phone = _str(m.Guarantor_Phone);
+          if (!sp) {
+            const bFirst = _str(m.Borrower_First_Name), bLast = _str(m.Borrower_Last_Name);
+            const bType = String(m.Borrower_Type || '').toLowerCase();
+            if (bFirst || bLast) {
+              sp = { firstName: bFirst, lastName: bLast };
+              email = email || _str(m.Borrower_Email); phone = phone || _str(m.Borrower_Phone);
+            } else if (bType === 'individual' && _str(m.Borrower_Name)) {
+              const s2 = _splitName(m.Borrower_Name);
+              if (s2) { sp = s2; email = email || _str(m.Borrower_Email); phone = phone || _str(m.Borrower_Phone); }
+            }
+          }
+          if (sp) { person = { firstName: sp.firstName, lastName: sp.lastName, email: String(email || '').toLowerCase(), phone: phone }; source = 'mirror'; }
         }
       }
     }
