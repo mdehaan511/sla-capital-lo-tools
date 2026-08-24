@@ -82,6 +82,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 /* Client card */
 .client-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:14px}
+/* Deploy 236.666 — portal-account status pill on borrower cards */
+.acct-pill{display:inline-flex;align-items:center;gap:4px;margin-left:10px;vertical-align:middle;padding:2px 9px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.acct-yes{background:rgba(22,101,52,0.10);color:#166534}
+.acct-invited{background:rgba(200,129,58,0.12);color:#b5712d}
+.acct-none{background:rgba(38,26,54,0.06);color:var(--muted)}
 .client-header{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .1s}
 .client-header:hover{background:#faf8f5}
 .client-header.open{border-bottom:1px solid var(--border)}
@@ -242,9 +247,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="view-tabs" id="viewTabs" style="display:none">
     <button class="view-tab active" data-view="my" onclick="setView('my')">My Clients</button>
     <button class="view-tab" data-view="admin" onclick="setView('admin')">All Users</button>
-    <!-- Deploy 236.665 — portal borrowers who've registered / signed in live on the
-         Borrowers screen (invite status + last sign-in + revoke/resend). -->
-    <button class="view-tab" onclick="window.location.href='/borrowers-admin.html'" title="Portal borrowers — who's been invited and who has signed in">Borrowers</button>
   </div>
 
   <!-- My Clients -->
@@ -258,6 +260,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <button class="filter-btn active" data-tf="all"  onclick="setTF('all')">All</button>
       <button class="filter-btn" data-tf="dscr"  onclick="setTF('dscr')">DSCR</button>
       <button class="filter-btn" data-tf="rtl"   onclick="setTF('rtl')">Fix &amp; Flip</button>
+      <!-- Deploy 236.666 — filter by portal-account status (borrowers who have
+           registered / signed in vs. those who haven't). -->
+      <span style="width:1px;height:20px;background:var(--border);margin:0 2px"></span>
+      <button class="filter-btn" data-acct="yes" onclick="setAcctF('yes')" title="Borrowers who have created a portal account">Has Account</button>
+      <button class="filter-btn" data-acct="no"  onclick="setAcctF('no')"  title="Borrowers with no portal account yet">No Account</button>
       <button class="filter-btn" onclick="downloadClientsCSV()" title="Download visible clients as CSV">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;margin-right:4px;vertical-align:-1px"><path d="M6 1.5v6m0 0L3.5 5M6 7.5L8.5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 9v1.5h8V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         CSV
@@ -330,6 +337,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 // Deploy 236.266 — `_isStaff` (admin OR processor) for cross-LO scope.
 var _user = null, _isAdmin = false, _isStaff = false, _clients = [], _tf = 'all', _view = 'my';
+// Deploy 236.666 — portal-account status: email(lower) -> { last, invited }.
+// null until loaded; _acctF filters cards by account status ('all'|'yes'|'no').
+var _acctMap = null, _acctF = 'all';
 var _adminData = null;
 // Deploy 236.26 — keySafed owner keys for LOs flagged deleted by
 // users-stats. Used to hide them from the admin LO filter.
@@ -402,6 +412,8 @@ netlifyIdentity.on('init', function(user) {
     // would (loads admin data, hides the My view container).
     if (_view === 'admin') setView('admin');
   });
+  // Deploy 236.666 — load borrower portal-account status for the pills/filter.
+  loadAcctMap();
 
   // Deploy 194 (perf): stale-while-revalidate paint. If there\u2019s a
   // recent cached client list in localStorage (populated by any prior
@@ -469,6 +481,45 @@ function setTF(t) {
   _tf = t;
   document.querySelectorAll('[data-tf]').forEach(function(b){ b.classList.toggle('active', b.dataset.tf===t); });
   renderClients();
+}
+
+// ── Deploy 236.666 — portal-account status (pill + filter) ──────────
+// Loads the borrower accounts (Supabase) once and indexes by email so each
+// client card can show whether that borrower has registered + their last login,
+// and the toolbar can filter by account status. Staff-only data; a fetch failure
+// just leaves pills off (map stays {}).
+function loadAcctMap() {
+  if (!(window.SLA && SLA.api)) { _acctMap = {}; return; }
+  SLA.api('GET', '/api/borrowers-list-supabase').then(function(r) {
+    _acctMap = {};
+    var list = (r && (r.borrowers || r.users || r.data)) || [];
+    list.forEach(function(b) {
+      var e = String(b.email || '').toLowerCase().trim();
+      if (!e) return;
+      _acctMap[e] = { last: b.lastSignInAt || b.last_sign_in_at || null, invited: b.invitedAt || b.invited_at || null };
+    });
+    renderClients();
+  }).catch(function() { _acctMap = null; });   // unknown (e.g. non-staff 403) → no pills
+}
+function setAcctF(v) {
+  _acctF = (_acctF === v) ? 'all' : v;   // click again to clear
+  document.querySelectorAll('[data-acct]').forEach(function(b){ b.classList.toggle('active', b.dataset.acct === _acctF); });
+  renderClients();
+}
+function _clientHasAccount(email) {
+  if (!_acctMap) return null;              // unknown until loaded
+  return !!_acctMap[String(email || '').toLowerCase().trim()];
+}
+function _fmtAcctDate(iso) {
+  if (!iso) return '';
+  try { var d = new Date(iso); return (d.getMonth()+1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(2); } catch (e) { return ''; }
+}
+function _acctPill(email) {
+  if (!_acctMap) return '';                // not loaded yet — no pill
+  var a = _acctMap[String(email || '').toLowerCase().trim()];
+  if (!a) return '<span class="acct-pill acct-none" title="No portal account yet">No account</span>';
+  if (a.last) return '<span class="acct-pill acct-yes" title="Registered · last sign-in ' + escH(_fmtAcctDate(a.last)) + '">✓ Account · ' + escH(_fmtAcctDate(a.last)) + '</span>';
+  return '<span class="acct-pill acct-invited" title="Invited — has not signed in yet">Invited</span>';
 }
 
 // CSV export of the LO's clients. Respects the currently-applied search +
@@ -596,6 +647,13 @@ function renderClients() {
     if (_tf !== 'all') {
       var hasType = (c.loans||[]).some(function(l){ return l.toolType===_tf; });
       if (!hasType) return false;
+    }
+    // Deploy 236.666 — portal-account filter (skipped until the map loads, and
+    // never hides brokers, who aren't portal borrowers).
+    if (_acctF !== 'all' && _acctMap && !c._isBroker) {
+      var has = _clientHasAccount(c.email);
+      if (_acctF === 'yes' && !has) return false;
+      if (_acctF === 'no'  &&  has) return false;
     }
     if (search) {
       var hay = [c.firstName,c.lastName,c.email,c.phone,(c.prospectData||{}).propAddress||''].join(' ').toLowerCase();
@@ -792,7 +850,7 @@ function buildClientCard(c, userEmail, readOnly) {
       '<div class="client-header-left" onclick="toggleCard(\''+loansId+'\',\''+cardId+'\')">'+
         '<div class="client-avatar">'+escH(initials)+'</div>' +
         '<div class="client-info">' +
-          '<div class="client-name"><a href="'+clientUrl+'" class="client-name-link" onclick="event.stopPropagation()">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</a>'+brokerBadge+'</div>' +
+          '<div class="client-name"><a href="'+clientUrl+'" class="client-name-link" onclick="event.stopPropagation()">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</a>'+brokerBadge+(c._isBroker?'':_acctPill(c.email))+'</div>' +
           '<div class="client-meta">'+escH(c.email)+(c.phone?' · '+escH(fmtPhoneDisplay(c.phone)):'')+'</div>' +
         '</div>' +
       '</div>' +

@@ -268,7 +268,7 @@ function render() {
     '<div class="client-avatar-lg">'+escH(initials)+'</div>' +
     '<div class="page-header-info">' +
       '<div style="margin-bottom:10px"><a href="clients.html" class="back-btn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> All Clients</a></div>' +
-      '<div class="page-title">'+escH((c.firstName||'')+' '+(c.lastName||''))+'</div>' +
+      '<div class="page-title">'+escH((c.firstName||'')+' '+(c.lastName||''))+' <span id="acctPillSlot"></span></div>' +
       '<div class="page-subtitle">'+escH(c.email||'')+(c.phone?' · '+escH(c.phone):'')+'</div>' +
       '<div class="meta-pills" style="margin-top:8px">' +
         '<span class="meta-pill">'+totalLoans+' loan'+(totalLoans!==1?'s':'')+'</span>' +
@@ -937,6 +937,21 @@ function loadPortalInviteStatus() {
   var url = '/api/borrower-portal-invite?clientId=' + encodeURIComponent(_clientId) +
     (_loEmail && _user && _loEmail !== _user.email ? '&owner=' + encodeURIComponent(_loEmail) : '');
   SLA.api('GET', url).then(function(r) {
+    // Deploy 236.666 — account-status pill next to the borrower name.
+    var slot = document.getElementById('acctPillSlot');
+    if (slot) {
+      var base = 'display:inline-flex;align-items:center;vertical-align:middle;padding:2px 9px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;';
+      if (r && r.invited) {
+        if (r.lastSignInAt) {
+          var d = new Date(r.lastSignInAt); var ds = (d.getMonth()+1)+'/'+d.getDate()+'/'+String(d.getFullYear()).slice(2);
+          slot.innerHTML = '<span title="Registered · last sign-in ' + escH(ds) + '" style="' + base + 'background:rgba(22,101,52,0.10);color:#166534">&#10003; Account &middot; ' + escH(ds) + '</span>';
+        } else {
+          slot.innerHTML = '<span title="Invited — has not signed in yet" style="' + base + 'background:rgba(200,129,58,0.12);color:#b5712d">Invited</span>';
+        }
+      } else {
+        slot.innerHTML = '<span title="No portal account yet" style="' + base + 'background:rgba(38,26,54,0.06);color:var(--muted)">No account</span>';
+      }
+    }
     if (!r || !r.invited) { status.innerHTML = ''; return; } // no invite yet — leave blank
     var sent = r.sentAt
       ? new Date(r.sentAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })

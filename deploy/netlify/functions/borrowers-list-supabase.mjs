@@ -13,7 +13,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, readJsonBody, isAdmin, normalizeEmail, keySafe,
+  handleOptions, json, requireAuth, readJsonBody, isAdmin, isProcessor, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { supabaseBaseUrl } from './_shared/supabase-db.mjs';
 import { listAccessibleLoans, revokeLoanAccess } from './_shared/loan-access-store.mjs';
@@ -33,7 +33,10 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isAdmin(user)) return json(403, { error: 'Admin required' });
+  // Deploy 236.666 — reading the borrower roster (for the Clients account-status
+  // pills/filter) is open to staff (processor/admin); the mutating actions below
+  // (revoke / resend) stay admin-only.
+  if (!isProcessor(user)) return json(403, { error: 'Staff only' });
 
   const SUPABASE_URL = supabaseBaseUrl();
   const SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -43,6 +46,7 @@ async function handle(req, context) {
 
   // ── Actions ──────────────────────────────────────────────────
   if (req.method === 'POST') {
+    if (!isAdmin(user)) return json(403, { error: 'Admin required for this action' });
     const body = await readJsonBody(req) || {};
     const action = String(body.action || '');
     const email = normalizeEmail(body.email || '');
