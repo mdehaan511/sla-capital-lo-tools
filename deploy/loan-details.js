@@ -75,12 +75,11 @@ function _loanTypeLabel(l) {
   if (storedLbl) return storedLbl;
   if (code === 'transactional') return 'Transactional Funding (1-day)';
   if (code === 'construction')  return 'Construction';
-  if (code === '30Y Fixed')     return '30-Year Fixed';
-  // Deploy 236.692 — an RTL loan whose loanType isn't a valid RTL tier (the
-  // toolType 'dscr'/'rtl' or blank — never captured by the Baseline migration)
-  // shows UNSET here (matching the sizer) instead of a bogus "dscr".
-  if (t === 'rtl') return '';
-  return code;
+  // Deploy 236.693 — a loanType that isn't a valid option for the loan's PROGRAM
+  // (the toolType 'dscr'/'rtl' or blank — never captured by the Baseline
+  // migration) shows UNSET (—) here for BOTH DSCR + RTL, matching the sizer,
+  // instead of a bogus broad value like "dscr".
+  return '';
 }
 // Deploy 236.691 — property-type label (matches the sizer / Property-tab options).
 // Property Type is priced in the sizer, so it's shown (read-only) in Loan

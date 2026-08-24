@@ -302,8 +302,9 @@ window.netlifyIdentity.on('init', function(user){
   _user = user;
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
   _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
-  // Servicing/back-office view — staff only for now (admins + processors).
-  if (!_isStaff) { window.location.replace('/'); return; }
+  // Deploy 236.693 — Loan Officers get READ-ONLY access to track their own closed
+  // loans (Mike). Staff (admin/processor) keep the servicing write actions; an LO
+  // sees only their own loans (opts={} in loadAll scopes it) with actions hidden.
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('appWrap').style.display = 'block';
   if (_isStaff) document.getElementById('loFilter').style.display = '';
@@ -496,15 +497,19 @@ function _svcCellsFull(it){ var l=it.loan;
 function _postCells(it){ var l=it.loan;
   return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdPct(l.rate) + _tdPts(l.points) + _tdDate(l.fundingDate) +
     '<td class="cl-num">'+(firstPaymentStr(l)?escH(firstPaymentStr(l)):'<span class="cl-ph">—</span>')+'</td>' +
-    _actTd('<button type="button" class="cl-act primary" onclick="event.stopPropagation();openCloseOut(\''+_pbt(it)+'\')">Close Out</button>');
+    // Deploy 236.693 — write action staff-only; LOs get a read-only view.
+    _actTd(_isStaff ? '<button type="button" class="cl-act primary" onclick="event.stopPropagation();openCloseOut(\''+_pbt(it)+'\')">Close Out</button>' : '<span class="cl-ph">—</span>');
 }
 // ── Pending Sale ── ... Investor · Actively Trading? (toggle) · [Mark Sold]
 function _pendCells(it){ var l=it.loan;
   var trading = String(l.activelyTrading||'').toLowerCase()==='yes';
-  var pill = '<button type="button" class="tr-pill '+(trading?'yes':'no')+'" onclick="event.stopPropagation();toggleTrading(\''+_pbt(it)+'\')">'+(trading?'Yes':'No')+'</button>';
+  // Deploy 236.693 — write actions staff-only; LOs see read-only status.
+  var pill = _isStaff
+    ? '<button type="button" class="tr-pill '+(trading?'yes':'no')+'" onclick="event.stopPropagation();toggleTrading(\''+_pbt(it)+'\')">'+(trading?'Yes':'No')+'</button>'
+    : '<span class="tr-pill '+(trading?'yes':'no')+'" style="cursor:default">'+(trading?'Yes':'No')+'</span>';
   return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(l.rate) + _tdPts(l.points) + _tdText(l.investorName) +
     _actTd(pill) +
-    _actTd('<button type="button" class="cl-act" onclick="event.stopPropagation();openMarkSold(\''+_pbt(it)+'\')">Mark Sold</button>');
+    _actTd(_isStaff ? '<button type="button" class="cl-act" onclick="event.stopPropagation();openMarkSold(\''+_pbt(it)+'\')">Mark Sold</button>' : '');
 }
 // ── Sold – RTL ── ... Investor · Monthly Yield Spread
 function _soldRtlCells(it){ var l=it.loan; var s=monthlyYieldSpread(l);
@@ -583,6 +588,10 @@ function dispOptions(cur){
   }).join('');
 }
 function dispCell(it){
+  // Deploy 236.693 — LOs get a read-only disposition label (no picker / editor).
+  if (!_isStaff) {
+    return '<td>'+escH(DISP_LABEL[displayBucket(it.loan)]||DISP_LABEL[dispositionOf(it.loan)]||'—')+'</td>';
+  }
   return '<td onclick="event.stopPropagation()"><select class="disp-sel" onchange="setDisposition(this,\''+
     escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">'+
     dispOptions(dispositionOf(it.loan))+'</select>' +

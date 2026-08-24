@@ -43,11 +43,13 @@
       // rollout. Deploy 236.607 — the Processing menu + its Pipeline link are
       // now visible to LOs too: LOs get a READ-ONLY, own-loan view of where
       // their deals sit in processing (the page renders read-only for non-staff).
-      // Tasks stays processor-only — that's the processor work queue.
+      // Deploy 236.693 — Closed Loans opened to LOs too (Mike): read-only,
+      // own-loan view so LOs can track their closed deals. Tasks stays
+      // processor-only — that's the processor work queue.
       label: 'Processing',
       children: [
         { label: 'Pipeline',     href: '/processing-pipeline.html' },
-        { label: 'Closed Loans', href: '/closed-loans.html', requires: 'processor' },
+        { label: 'Closed Loans', href: '/closed-loans.html' },
         { label: 'Tasks',        href: '/tasks.html',        requires: 'processor' },
       ],
     },
