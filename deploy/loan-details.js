@@ -1654,7 +1654,11 @@ function render() {
     _fpSrcOptHtml += '<option value="' + _fpo[0] + '"' + (_fpo[0] === _fpSrc ? ' selected' : '') + '>' + escH(_fpo[1]) + '</option>';
   }
   var _fpPriceLabel = isDscr ? 'TPO (points)' : 'Buy Rate (%)';
-  var _fpPriceVal   = isDscr ? (l.tpo != null ? l.tpo : '') : (l.buyRate != null ? l.buyRate : '');
+  // Deploy 236.672 — the Baseline migration stored TPO on loan.tpoPremium; the
+  // Funding Plan's own field is loan.tpo. Fall back to tpoPremium so migrated DSCRs
+  // show their TPO (saving here rewrites it to the canonical loan.tpo).
+  var _fpTpo        = (l.tpo != null && l.tpo !== '') ? l.tpo : (l.tpoPremium != null ? l.tpoPremium : '');
+  var _fpPriceVal   = isDscr ? _fpTpo : (l.buyRate != null ? l.buyRate : '');
   var _fpPriceHint  = isDscr
     ? 'Third-party origination premium. 1 TPO = 1 point.'
     : 'Yield spread — the rate this loan is bought at.';
@@ -1744,10 +1748,10 @@ function render() {
       '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Valuation</h3>' +
       '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. AIV / ARV BPO values drive the loan terms.</div>' +
       '<div class="app-grid">' +
-        '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(String(l.propValue || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-        '<div class="field"><label>AIV BPO</label><input type="text" id="pc-aivBpo" value="' + escAttr(String(l.aivBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
-        (!isDscr ? '<div class="field"><label>ARV BPO</label><input type="text" id="pc-arvBpo" value="' + escAttr(String(l.arvBpo || '')) + '" inputmode="decimal" placeholder="$" /></div>' : '') +
-        '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(String(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" placeholder="$" /></div>' +
+        '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>AIV BPO</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        (!isDscr ? '<div class="field"><label>ARV BPO</label><input type="text" id="pc-arvBpo" value="' + escAttr(_ldUsdInput(l.arvBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' : '') +
+        '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>' +
       '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Carrying Costs <span id="pc-carryModeLabel" style="text-transform:none;font-weight:500;letter-spacing:0">(monthly)</span></h3>' +
       '<div style="display:inline-flex;border:1px solid var(--border,#ddd8d0);border-radius:8px;overflow:hidden;margin-bottom:12px">' +
@@ -1755,9 +1759,9 @@ function render() {
         '<button type="button" id="pc-carryAnnualBtn" class="pc-seg" onclick="pcCarryToggle(\'annual\')">Annual</button>' +
       '</div>' +
       '<div class="app-grid">' +
-        '<div class="field"><label>Property Taxes</label><input type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_mTaxes) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_mIns) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_mHoa) + '" inputmode="decimal" oninput="pcCarryInput(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Property Taxes</label><input type="text" id="pc-taxes" data-monthly="' + escAttr(_mTaxes) + '" value="' + escAttr(_ldUsdInput(_mTaxes)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Insurance</label><input type="text" id="pc-insurance" data-monthly="' + escAttr(_mIns) + '" value="' + escAttr(_ldUsdInput(_mIns)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>HOA</label><input type="text" id="pc-hoa" data-monthly="' + escAttr(_mHoa) + '" value="' + escAttr(_ldUsdInput(_mHoa)) + '" inputmode="decimal" oninput="pcCarryInput(this)" onfocus="_ldMoneyFocus(this)" onblur="pcCarryInput(this);_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>'
       )) +
       // Deploy 236.655 / 236.657 — Portfolio properties: Portfolio Total (first,
@@ -5958,26 +5962,18 @@ function saveFundingPlan() {
     fundingSourceOther: (src === 'other' && otherEl) ? otherEl.value.trim() : '',
     investorId:         invEl ? invEl.value : '',
     investorName:       invName,
-    updatedAt:          new Date().toISOString(),
   };
   var priceRaw = priceEl ? priceEl.value.trim() : '';
   if (isDscr) fields.tpo = priceRaw; else fields.buyRate = priceRaw;
 
-  var loans = _client.loans || [];
-  var idx = loans.findIndex(function(l){ return l.id === _loanId; });
-  if (idx < 0) return;
-  loans[idx] = Object.assign({}, loans[idx], fields);
-  _loan = loans[idx];
-  _client.loans = loans;
-
-  var saveOpts = _client;
-  if (_loEmail && _user && _loEmail !== _user.email) {
-    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
-  }
+  // Deploy 236.672 — was SLA.Clients.save (the brittle upsert that silently dropped
+  // these fields). Now the deterministic clientId+loanId write, exactly like Loan
+  // Terms / Property so it actually persists.
   var btn = document.querySelector('#fundingPlanSection .save-app-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  SLA.Clients.save(saveOpts).then(function() {
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function() {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Funding Plan'; }
+    _ldMergeLoan(fields);
     var s = document.getElementById('fundingPlanStatus');
     if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
     showToast('Funding plan saved');
@@ -6057,9 +6053,22 @@ function _ldVal(id) {
   var el = document.getElementById(id);
   return el ? String(el.value == null ? '' : el.value).trim() : '';
 }
+// Deploy 236.672 — USD display for the editable money fields on the Property tab
+// (As-Is Value, AIV/ARV BPO, Existing Debt, Taxes, Insurance, HOA). Format on blur
+// ($1,234.56), strip to a plain number on focus for easy editing. The savers
+// (_ldNum / _pcCarryMonthly) already strip non-numeric, so this is persist-safe.
+function _ldUsdInput(v) {
+  var raw = String(v == null ? '' : v).replace(/[^0-9.\-]/g, '');
+  if (raw === '' || raw === '-' || raw === '.') return '';
+  var n = parseFloat(raw);
+  if (!isFinite(n)) return '';
+  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+function _ldMoneyFocus(el) { if (el) el.value = String(el.value == null ? '' : el.value).replace(/[^0-9.\-]/g, ''); }
+function _ldMoneyBlur(el)  { if (el) el.value = _ldUsdInput(el.value); }
 function _pcFmt(n) {
-  n = Math.round(n * 100) / 100;
-  return (n % 1 === 0) ? String(n) : n.toFixed(2);
+  // Carrying-cost display (also used by the monthly/annual toggle) — now USD.
+  return _ldUsdInput(n);
 }
 // Keep each carrying input's canonical MONTHLY value on data-monthly as the
 // user edits, so the monthly/annual toggle never accumulates rounding error.

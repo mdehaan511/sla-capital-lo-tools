@@ -40,6 +40,10 @@ const FIELDS = {
   toolType: 1,
   // Deploy 236.641 — Loan-tab reorg folded these into the Loan Terms box
   loanPurpose: 1, fundingDate: 1, projectDescription: 1,
+  // Deploy 236.672 — Funding Plan box (was saving via the brittle Clients.upsert,
+  // which dropped these — now saved deterministically here). tpo = the manual TPO
+  // premium (points) the Funding Plan reads; buyRate = RTL yield.
+  fundingSource: 1, fundingSourceOther: 1, investorId: 1, investorName: 1, tpo: 1, buyRate: 1,
   // Valuation
   purchasePrice: 1, propValue: 1, aivBpo: 1, arv: 1, arvBpo: 1, currentLoanAmt: 1, rehabBudget: 1,
   // Property
