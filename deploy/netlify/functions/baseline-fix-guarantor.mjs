@@ -25,7 +25,7 @@ import {
 } from './_shared/auth.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
-import { loadMirroredLoan } from './_shared/baseline-mirror.mjs';
+import { loadMirroredLoan, fetchLoanDetail } from './_shared/baseline-mirror.mjs';
 
 const DEFAULT_OWNER = 'chance@slacapital.com';
 const DEFAULT_LIMIT = 50;
@@ -56,6 +56,22 @@ async function handle(req, context) {
   if (!isAdmin(user)) return json(403, { error: 'Admin only' });
 
   const body = (await readJsonBody(req)) || {};
+
+  // Deploy 236.666 — diagnostic: dump the LIVE partner-API /loan/{extId} response
+  // key structure (not the cached mirror) to see whether the individual/guarantor
+  // is in a field the mapping never read (e.g. a nested contacts/parties array).
+  if (body.mode === 'dumpLoan' && body.extId) {
+    const dl = await fetchLoanDetail(String(body.extId));
+    if (!dl.ok || !dl.loan) return json(200, { ok: true, mode: 'dumpLoan', fetch: { ok: dl.ok, status: dl.status, error: dl.error } });
+    const loan = dl.loan;
+    const keys = Object.keys(loan);
+    const guarKeys = keys.filter((k) => /guarant|contact|borrower|owner|part(y|ies)|signer|principal|member/i.test(k));
+    const guarVals = {};
+    guarKeys.forEach((k) => { const v = loan[k]; guarVals[k] = (v && typeof v === 'object') ? JSON.stringify(v).slice(0, 400) : v; });
+    const arrayKeys = keys.filter((k) => Array.isArray(loan[k]) && loan[k].length).map((k) => ({ key: k, len: loan[k].length, firstKeys: (loan[k][0] && typeof loan[k][0] === 'object') ? Object.keys(loan[k][0]).slice(0, 20) : typeof loan[k][0] }));
+    return json(200, { ok: true, mode: 'dumpLoan', extId: body.extId, keyCount: keys.length, guarKeys, guarVals, arrayKeys });
+  }
+
   const dryRun = body.dryRun !== false && body.dryRun !== 'false' && body.dryRun !== 0;
   const ownerEmail = normalizeEmail(body.onlyOwner || DEFAULT_OWNER);
   const ownerKey = keySafe(ownerEmail);
