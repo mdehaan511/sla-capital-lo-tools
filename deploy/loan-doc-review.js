@@ -76,6 +76,9 @@
     insurance_invoice:        { label: 'Insurance Invoice', section: 'collateral', conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured shown.', optional: true },
     proof_of_citizenship:     { label: 'Proof of Citizenship', section: 'guarantor', conditions: 'Citizenship / permanent-residency evidence for each guarantor (passport, birth certificate, naturalization, or green card); name matches the application.', optional: true },
     payoff_demand:            { label: 'Payoff Demand', section: 'closing', conditions: 'Payoff statement from the existing lender (refi). Payoff amount, per-diem, and good-through date current.', optional: true },
+    // Deploy 236.681 — condo-specific docs (RTL guidelines C.7/C.8).
+    condo_hoa_docs:           { label: 'Condo HOA Documents', section: 'collateral', conditions: 'Estoppel/resale cert, condo questionnaire, HOA budget, CC&Rs. Dues current; no pending special assessment or Right of First Refusal; no rental restriction blocking investment use.', optional: true },
+    condo_insurance:          { label: 'Condo Insurance (Master + HO-6)', section: 'collateral', conditions: 'Master policy covers 100% of building replacement cost; if not "all-in", HO-6 covers ≥20% of value + loss assessment. Combined coverage meets loan or 100% RC. Mortgagee clause + loan # correct.', optional: true },
     psa:                      { label: 'Purchase and Sale Agreement (PSA)', section: 'collateral', conditions: 'Borrower listed as buyer; all parties signed; price matches application.' },
     sow:                      { label: 'Statement of Work (SOW)', section: 'collateral', conditions: 'Budget = Requested rehab $$.' },
     vom:                      { label: 'VOM (Verification of Mortgage)', section: 'collateral', conditions: 'Existing mortgage information verified.', optional: true },

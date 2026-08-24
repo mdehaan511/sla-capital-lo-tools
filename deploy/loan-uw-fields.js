@@ -126,6 +126,21 @@
     { key: 'assignmentFeeEffective', label: 'Assignment Fee (used)', section: 'Deal', source: 'calc', calc: 'assignmentFeeEffective', sourceNote: 'listed, or Assign price − PSA price' },
     { key: 'downPayment',    label: 'Down Payment',   section: 'Deal',   source: 'doc',    docType: 'Term Sheet',          sourceNote: 'Term Sheet' },
     { key: 'titleEscrowFees', label: 'Title/Escrow Fees', section: 'Deal', source: 'doc',  docType: 'HUD Statement',   sourceNote: 'HUD Statement' },
+    // Deploy 236.681 — SOW / rehab budget (Colchis RTL guidelines C.4). AI-grabbed
+    // from the Statement of Work; the underwriter confirms. contingency ≤10%.
+    { key: 'rehabBudget',        label: 'Rehab Budget (SOW total)', section: 'Deal', source: 'doc', docType: 'Statement of Work', sourceNote: 'SOW · must match Term Sheet' },
+    { key: 'rehabContingencyPct',label: 'Rehab Contingency %',      section: 'Deal', source: 'doc', docType: 'Statement of Work', sourceNote: 'SOW · guideline cap 10%' },
+
+    // — Property Eligibility (Colchis RTL guidelines C.3) — AI-grabbed from the
+    // appraisal/flood cert; the underwriter verifies each against the guidelines.
+    { key: 'propertyType',   label: 'Property Type',    section: 'Property', source: 'doc', docType: 'Appraisal', sourceNote: 'Eligible: SFR / 2–4 unit / PUD / Condo' },
+    { key: 'propertySqFt',   label: 'Square Footage',   section: 'Property', source: 'doc', docType: 'Appraisal', sourceNote: 'Min 700 (single) / 500 per unit' },
+    { key: 'rucaRural',      label: 'Rural / RUCA',     section: 'Property', source: 'doc', docType: 'Appraisal', sourceNote: 'Ineligible if rural OR RUCA > 2' },
+    { key: 'floodZone',      label: 'Flood Zone',       section: 'Property', source: 'doc', docType: 'Flood Certificate', sourceNote: 'Flood insurance required if A/V' },
+
+    // — Insurance (Colchis RTL guidelines C.5) —
+    { key: 'insuranceLiability',   label: 'Liability Coverage',  section: 'Insurance', source: 'doc', docType: 'Evidence of Insurance', sourceNote: 'Min $1,000,000' },
+    { key: 'insuranceDeductible',  label: 'Deductible',          section: 'Insurance', source: 'doc', docType: 'Evidence of Insurance', sourceNote: 'Max 5% of loan or $5,000' },
 
     // — Borrower / Credit —
     { key: 'lowCredit',      label: 'Low Credit',     section: 'Borrower', source: 'doc',  docType: 'Credit Report',   sourceNote: 'Credit Report', flag: true },

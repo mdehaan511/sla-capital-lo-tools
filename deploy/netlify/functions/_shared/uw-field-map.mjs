@@ -66,6 +66,31 @@ export const SLUG_FIELD_MAP = {
   emd_receipt: [
     { dataset: 'uw', key: 'emd', label: 'The earnest money deposit (EMD) amount that was PAID (number only)' },
   ],
+  // Deploy 236.681 — RTL guideline-driven Underwriting-tab auto-grab. These
+  // populate the new RTL UW fields (loan-uw-fields.js) as unverified proposals
+  // for the underwriter to confirm. (Harmless on DSCR reviews — no matching DSCR
+  // registry field, so the proposal simply isn't rendered.)
+  appraisal: [
+    { dataset: 'uw', key: 'asIsPrice',    label: 'The AS-IS / current market value the appraisal concludes (number only)' },
+    { dataset: 'uw', key: 'propertyType', label: 'The property type as stated: "SFR" (single family), "2-4 Unit", "PUD", or "Condo" — or the exact type if none of these' },
+    { dataset: 'uw', key: 'propertySqFt', label: 'The gross living area / square footage of the subject property (number only)' },
+    { dataset: 'uw', key: 'rucaRural',    label: 'Does the appraisal designate the property as Rural? Answer exactly "Yes" or "No" (append the RUCA code if the report states one)' },
+  ],
+  sow: [
+    { dataset: 'uw', key: 'rehabBudget',         label: 'The TOTAL renovation / rehab budget on this Statement of Work (number only)' },
+    { dataset: 'uw', key: 'rehabContingencyPct', label: 'The contingency shown as a percent of the budget (number only, e.g. 10), or null if none is stated' },
+  ],
+  evidence_of_insurance: [
+    { dataset: 'uw', key: 'insuranceLiability',  label: 'The general/personal liability coverage limit on the policy (number only)' },
+    { dataset: 'uw', key: 'insuranceDeductible', label: 'The policy deductible as a number; if it is a percentage, return the percent value (number only)' },
+  ],
+  flood_certificate: [
+    { dataset: 'uw', key: 'floodZone', label: 'The FEMA flood zone stated for the property (e.g. X, A, AE, V), or null if not stated' },
+  ],
+  final_hud: [
+    { dataset: 'uw', key: 'titleEscrowFees', label: 'The total title + escrow / settlement fees charged to the borrower (number only)' },
+    { dataset: 'uw', key: 'downPayment',     label: "The borrower's down payment / cash brought to close (number only)" },
+  ],
 };
 
 // Keys that are source:'loan'/'const'/'calc' in loan-uw-fields.js — pricing
