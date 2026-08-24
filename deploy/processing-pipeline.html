@@ -112,6 +112,8 @@
     .closed-list-empty { padding: 40px 14px; text-align: center; color: var(--muted); }
 
     .card-addr { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.35; margin-bottom: 8px; word-break: break-word; }
+    /* Deploy 236.695 — last-updated date, floated to the card's top-right. */
+    .card-updated { float: right; font-size: 10px; font-weight: 500; color: var(--muted); font-family: 'DM Mono', monospace; margin-left: 8px; letter-spacing: 0.02em; }
     /* Deploy 236.100 — substatus pill IS the picker. When the column
        has substatuses configured, the pill becomes a native <select>
        styled to look like a small pill; click opens the dropdown. */
@@ -202,8 +204,10 @@
       </div>
       <div class="ctrl-row">
         <input type="text" class="search-box" id="searchBox" placeholder="Search address, borrower…" />
+        <!-- Deploy 236.695 — filter is by PROCESSOR (was Loan Officer). The id
+             stays "loFilter" to avoid churn; it now holds a processor email. -->
         <select class="lo-filter" id="loFilter" style="display:none">
-          <option value="">All Loan Officers</option>
+          <option value="">All Processors</option>
         </select>
         <!-- Deploy 236.559 — filter to loans assigned to me. -->
         <button type="button" class="lo-filter" id="myLoansToggle" style="display:none" onclick="toggleMyLoans()" title="Show only loans assigned to me">My Loans</button>
@@ -403,8 +407,8 @@ window.netlifyIdentity.on('init', function(user) {
       _h1ro.parentNode.insertBefore(_roN, _h1ro.nextSibling);
     }
   }
-  // LO filter is useful for both admins and processors — both work
-  // across every LO's pipeline. Settings gears remain admin-only.
+  // Deploy 236.695 — processor filter is useful for both admins and processors —
+  // both work across every LO's pipeline. Settings gears remain admin-only.
   if (_isStaff) {
     document.getElementById('loFilter').style.display = '';
     var _mlt = document.getElementById('myLoansToggle'); if (_mlt) _mlt.style.display = '';
@@ -483,6 +487,16 @@ function isClosingSoon(closeDateStr) {
 function fmtCloseDate(closeDateStr) {
   var d = parseLocalDate(closeDateStr);
   if (!d) return '';
+  var mo = d.getMonth() + 1, day = d.getDate(), yr = String(d.getFullYear()).slice(-2);
+  return mo + '/' + day + '/' + yr;
+}
+// Deploy 236.695 — format a last-updated timestamp (ISO datetime) as M/D/YY for
+// the top-right of each card. Parses the full ISO string (not a bare date), so
+// it uses the real Date constructor rather than parseLocalDate's date-only path.
+function fmtUpdated(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
   var mo = d.getMonth() + 1, day = d.getDate(), yr = String(d.getFullYear()).slice(-2);
   return mo + '/' + day + '/' + yr;
 }
@@ -650,20 +664,35 @@ function _processPipelineClients(clientsResp) {
   });
 
   if (_isStaff) {
+    // Deploy 236.695 — populate the filter with every PROCESSING-TEAM member
+    // (processor/closer/manager) assigned across the board, keyed by email. Was
+    // keyed by loan-officer ownerKey.
     var sel = document.getElementById('loFilter');
     // Rebuild dropdown without adding duplicate options on re-paint.
     while (sel.options.length > 1) sel.remove(1);
     var seen = {};
     Object.keys(_items).forEach(function(col) {
       _items[col].forEach(function(it) {
-        if (!it.ownerKey || seen[it.ownerKey]) return;
-        seen[it.ownerKey] = true;
+        var team = (it.loan && Array.isArray(it.loan.assignedProcessors)) ? it.loan.assignedProcessors : [];
+        team.forEach(function(p) {
+          var em = String((p && p.email) || '').toLowerCase();
+          if (!em || seen[em]) return;
+          seen[em] = (p.name || p.email);
+        });
+        // Legacy single-assignee fallback for loans not yet on the array shape.
+        var ap = it.loan && it.loan.assignedProcessor;
+        if (ap && ap.email) {
+          var e2 = String(ap.email).toLowerCase();
+          if (e2 && !seen[e2]) seen[e2] = (ap.name || ap.email);
+        }
       });
     });
-    Object.keys(seen).sort().forEach(function(ownerKey) {
+    Object.keys(seen).sort(function(a, b) {
+      return String(seen[a]).toLowerCase().localeCompare(String(seen[b]).toLowerCase());
+    }).forEach(function(email) {
       var opt = document.createElement('option');
-      opt.value = ownerKey;
-      opt.textContent = loDisplay(ownerKey);
+      opt.value = email;
+      opt.textContent = seen[email];
       sel.appendChild(opt);
     });
   }
@@ -674,10 +703,18 @@ function _processPipelineClients(clientsResp) {
 // ── Render ─────────────────────────────────────────────────────────
 function render() {
   var search = (document.getElementById('searchBox').value || '').toLowerCase().trim();
-  var loFilter = (_loFilterValue || '').toLowerCase();
+  // Deploy 236.695 — the filter value is now a PROCESSOR email (was a LO ownerKey).
+  var procFilter = (_loFilterValue || '').toLowerCase();
 
   function visible(it) {
-    if (loFilter && (it.ownerKey || '').toLowerCase() !== loFilter) return false;
+    if (procFilter) {
+      // Match any role-tagged team member (processor/closer/manager), falling
+      // back to the legacy single assignee.
+      var _team = (it.loan && Array.isArray(it.loan.assignedProcessors) && it.loan.assignedProcessors.length)
+        ? it.loan.assignedProcessors
+        : (it.loan && it.loan.assignedProcessor && it.loan.assignedProcessor.email ? [it.loan.assignedProcessor] : []);
+      if (!_team.some(function (p) { return String((p && p.email) || '').toLowerCase() === procFilter; })) return false;
+    }
     // Deploy 236.559 — "My Loans": loans the current user is on. Deploy 236.662 —
     // match ANY role-tagged team member (processor/closer/manager), not just the
     // primary, falling back to the legacy single assignee.
@@ -1049,6 +1086,14 @@ function renderCard(it) {
       ' data-stage="' + escAttr(col || '') + '"' +
       (_canEdit ? ' ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)"' : '') +
       ' onclick="openLoanDetails(this, \'' + escAttr(href) + '\')">' +
+      // Deploy 236.695 — last-updated date, floated to the top-right of the tile.
+      // Floated (not absolutely positioned) so a long address wraps around it
+      // instead of colliding with it. Prefer updatedAt; fall back to the stage
+      // timestamp for loans that predate the general updatedAt stamp.
+      (function() {
+        var _upd = fmtUpdated(loan.updatedAt || loan.processingStageAt);
+        return _upd ? '<span class="card-updated" title="Last updated ' + escAttr(_upd) + '">' + escH(_upd) + '</span>' : '';
+      })() +
       '<div class="card-addr">' + escH(addr) + '</div>' +
       substatusHtml +
       '<div class="card-amt">' + escH(amt) + '</div>' +
@@ -1587,6 +1632,28 @@ function submitNewLoan() {
 // Deploy 236.563 — assignee is now a picker: choose any processor, or "— Assign
 // processor —" to unassign. Selecting yourself = claim. Reuses .card-substatus-sel
 // styling for a consistent pill-select look.
+// Deploy 236.695 — render EVERY assigned processing-team member as a pill (a
+// "Name · Role" badge), so the card shows the full team at a glance rather than
+// just the primary processor. `excludeEmail` drops one member (used to avoid
+// duplicating the processor already shown in the assign <select> for editors).
+function _teamPillsHtml(it, excludeEmail) {
+  var arr = (it.loan && Array.isArray(it.loan.assignedProcessors)) ? it.loan.assignedProcessors : [];
+  var ex = String(excludeEmail || '').toLowerCase();
+  var members = arr.filter(function (p) {
+    if (!p || (!p.email && !p.name)) return false;
+    if (ex && String(p.email || '').toLowerCase() === ex) return false;
+    return true;
+  });
+  if (!members.length) return '';
+  return '<div class="card-team-extras" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">' +
+    members.map(function (p) {
+      var role = p.role || 'processor';
+      var lbl = role === 'closer' ? 'Closer' : (role === 'manager' ? 'Mgr' : (role === 'processor' ? 'Processor' : role));
+      var txt = (p.name || p.email || '') + ' · ' + lbl;
+      return '<span class="card-team-badge" title="' + escAttr(txt) + '" style="font-size:10px;font-weight:600;background:rgba(38,26,54,0.08);color:var(--muted);border-radius:8px;padding:1px 6px">\u{1F464} ' + escH(txt) + '</span>';
+    }).join('') +
+  '</div>';
+}
 function _assigneeHtml(it, canEdit) {
   // Deploy 236.662 — the picker owns the PROCESSOR slot specifically. Prefer the
   // role='processor' member of assignedProcessors[]; fall back to the legacy single.
@@ -1594,13 +1661,10 @@ function _assigneeHtml(it, canEdit) {
   var ap = _arr ? (_arr.filter(function (p) { return (p.role || 'processor') === 'processor'; })[0] || null)
                 : (it.loan && it.loan.assignedProcessor) || null;
   var cur = (ap && ap.email) ? String(ap.email).toLowerCase() : '';
-  // Deploy 236.607 — LO read-only view: show the assigned processor as static
-  // text (or nothing), never the picker.
+  // Deploy 236.607 — LO read-only view: no picker. Deploy 236.695 — show the whole
+  // assigned team as pills (was: only the primary processor as static text).
   if (canEdit === false) {
-    var _nm = (ap && (ap.name || ap.email)) ? (ap.name || ap.email) : '';
-    return _nm
-      ? '<div class="card-assignee-ro" style="margin-top:8px;font-size:11px;color:var(--muted)">\u{1F464} ' + escH(_nm) + '</div>'
-      : '';
+    return _teamPillsHtml(it, '');
   }
   var cid = escAttr(it.client.id), lid = escAttr(it.loan.id), own = escAttr(it.ownerKey);
   var opts = '<option value="">— Assign processor —</option>';
@@ -1618,18 +1682,10 @@ function _assigneeHtml(it, canEdit) {
       ' data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
       ' onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" onchange="assignLoanTo(this)"' +
       ' style="margin-top:8px;width:100%;max-width:100%">' + opts + '</select>';
-  // Deploy 236.662 — show read-only badges for any Closer / Processing Manager on
-  // the loan (the select above manages only the Processor slot).
-  var extras = (it.loan && Array.isArray(it.loan.assignedProcessors) ? it.loan.assignedProcessors : [])
-    .filter(function (p) { return p.role && p.role !== 'processor'; });
-  var extrasHtml = extras.length
-    ? '<div class="card-team-extras" style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">' +
-        extras.map(function (p) {
-          var lbl = p.role === 'closer' ? 'Closer' : (p.role === 'manager' ? 'Mgr' : p.role);
-          return '<span class="card-team-badge" style="font-size:10px;font-weight:600;background:rgba(38,26,54,0.08);color:var(--muted);border-radius:8px;padding:1px 6px">' + escH((p.name || p.email || '') + ' · ' + lbl) + '</span>';
-        }).join('') +
-      '</div>'
-    : '';
+  // Deploy 236.695 — pills for the rest of the assigned team (Closer / Manager /
+  // any additional Processors). The primary processor already shows in the <select>
+  // above, so exclude it (`cur`) to avoid a duplicate badge.
+  var extrasHtml = _teamPillsHtml(it, cur);
   return selHtml + extrasHtml;
 }
 function assignLoanTo(sel) {
