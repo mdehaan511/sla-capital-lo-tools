@@ -25,6 +25,12 @@ import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
+// Deploy 236.673 — TEMPORARY (Mike): pause borrower-facing AI feedback. The AI review
+// still RUNS and its verdict/notes are stored for the team (visible in the internal
+// Doc Review tool); the borrower just sees a neutral "received" receipt, not the AI's
+// approve/issues take. Flip back to true once the review quality is verified.
+const BORROWER_AI_FEEDBACK = false;
+
 export default async (req, context) => {
   try { return await handle(req, context); }
   catch (e) {
@@ -105,9 +111,25 @@ async function handle(req, context) {
 
   const now   = new Date().toISOString();
   const docId = 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-  const mimeType  = String(body.mimeType || 'application/pdf');
+  let mimeType    = String(body.mimeType || 'application/pdf');
   const item      = borrowerItem(loanType, slug) || { label: slug };
-  const finalName = String(body.filename || (item.label + '.pdf')).slice(0, 160);
+  let finalName   = String(body.filename || (item.label + '.pdf')).slice(0, 160);
+
+  // Deploy 236.673 — auto-convert HEIC/HEIF (iPhone ID / citizenship photos) to JPEG
+  // so the review can read them. Dynamic import + try/catch: a failure only affects
+  // HEIC uploads, never the whole endpoint.
+  {
+    const _m = mimeType.toLowerCase(), _f = finalName.toLowerCase();
+    if (_m === 'image/heic' || _m === 'image/heif' || /\.(heic|heif)$/.test(_f) ||
+        (_m === 'application/octet-stream' && /\.(heic|heif)$/.test(_f))) {
+      try {
+        const heicConvert = (await import('heic-convert')).default;
+        bytes = Buffer.from(await heicConvert({ buffer: bytes, format: 'JPEG', quality: 0.92 }));
+        mimeType = 'image/jpeg';
+        finalName = finalName.replace(/\.(heic|heif)$/i, '') + '.jpg';
+      } catch (e) { console.warn('[borrower-intake-upload] HEIC→JPEG failed (non-fatal):', e && e.message); }
+    }
+  }
 
   // Resolve the AI rubric: prefer the processor checklist's conditions, else
   // the borrower item's fallback (covers slugs not in getChecklist, e.g. DSCR
@@ -183,19 +205,23 @@ async function handle(req, context) {
       docState.aiError = ai.error || '';
       docState.aiCostCents = Number(docState.aiCostCents || 0) + Number(ai.costCents || 0);
       review.aiCostCents = Number(review.aiCostCents || 0) + Number(ai.costCents || 0);
-      verdict = ai.verdict;
-      findings = (ai.findings || []).filter((f) => f && f.status === 'not_met')
-        .map((f) => ({ condition: f.condition, detail: f.detail }));
-      if (ai.verdict === 'approved') {
-        borrowerMessage = 'Looks good! ✓ Submitted for review.';
-      } else {
-        // Surface the specific problem(s) in borrower-friendly language.
-        const probs = findings.map((f) => f.detail || f.condition).filter(Boolean);
-        borrowerMessage = (ai.summary || 'We spotted a possible issue with this document.')
-          + (probs.length ? ' Specifically: ' + probs.slice(0, 3).join('; ') + '.' : '')
-          + ' You can upload a corrected version, or request a manual review.';
-        borrowerStatus = 'needs_fix';
+      verdict = ai.verdict;   // stored + returned only when borrower feedback is ON
+      if (BORROWER_AI_FEEDBACK) {
+        findings = (ai.findings || []).filter((f) => f && f.status === 'not_met')
+          .map((f) => ({ condition: f.condition, detail: f.detail }));
+        if (ai.verdict === 'approved') {
+          borrowerMessage = 'Looks good! ✓ Submitted for review.';
+        } else {
+          // Surface the specific problem(s) in borrower-friendly language.
+          const probs = findings.map((f) => f.detail || f.condition).filter(Boolean);
+          borrowerMessage = (ai.summary || 'We spotted a possible issue with this document.')
+            + (probs.length ? ' Specifically: ' + probs.slice(0, 3).join('; ') + '.' : '')
+            + ' You can upload a corrected version, or request a manual review.';
+          borrowerStatus = 'needs_fix';
+        }
       }
+      // Paused (default): the AI verdict above is stored on docState for the team;
+      // the borrower keeps the neutral "Received — submitted for review." receipt.
     } catch (e) {
       console.warn('[borrower-intake-upload] AI review threw:', e && e.message);
       docState.aiVerdict = 'needs_manual_review';
@@ -216,7 +242,10 @@ async function handle(req, context) {
 
   return json(200, {
     ok: true, reviewId: review.id, slug, docId, filename: finalName,
-    verdict, borrowerStatus, borrowerMessage, findings,
+    // Deploy 236.673 — while borrower AI feedback is paused, the response carries a
+    // neutral verdict/status/empty findings so the portal shows a plain receipt.
+    verdict: BORROWER_AI_FEEDBACK ? verdict : 'received',
+    borrowerStatus, borrowerMessage, findings,
   });
 }
 
