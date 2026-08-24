@@ -33,6 +33,7 @@ import {
 } from './_shared/auth.mjs';
 import { getChecklist } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
+import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -123,6 +124,15 @@ async function handle(req, context) {
   const ctx = _buildLoanContext(review);
   const now = new Date().toISOString();
 
+  // Deploy 236.669 — mirror the upload path's integrity check on retry.
+  const _docCategory = classifyDocCategory(body.slug, docLabel);
+  const _runIntegrity = (_docCategory === 'financial' || _docCategory === 'id');
+  let _forensics = null;
+  if (_runIntegrity) {
+    try { _forensics = analyzeDocIntegrity(bytes, mimeType, _docCategory); }
+    catch (e) { console.warn('doc-integrity forensics failed (non-fatal):', e && e.message); }
+  }
+
   let aiResult;
   try {
     aiResult = await reviewDocument({
@@ -134,6 +144,8 @@ async function handle(req, context) {
       investor: review.investor || '',
       guidelinesBytes,
       loanAppBytes,
+      integrityCheck: _runIntegrity,
+      docCategory: _docCategory,
     });
   } catch (e) {
     console.error('loan-review-ai-retry: AI review threw:', e && e.message);
@@ -147,6 +159,10 @@ async function handle(req, context) {
     return json(500, { error: 'AI review failed: ' + (e && e.message || 'unknown'), review });
   }
 
+  if (_runIntegrity) {
+    docState.integrity = mergeIntegrity(_forensics, aiResult.integrity);
+    docState.integrity.checkedAt = now;
+  }
   docState.aiVerdict           = aiResult.verdict;
   docState.aiNotes             = aiResult.summary;
   docState.aiFindings          = aiResult.findings || [];

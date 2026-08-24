@@ -250,8 +250,25 @@ export async function reviewDocument(opts) {
     // Lightning Docs auto-grab. Present only when opts.extractFields was
     // passed. Shape: { key: { value, found, where } }.
     extractedFields: (parsed.extracted_fields && typeof parsed.extracted_fields === 'object') ? parsed.extracted_fields : {},
+    // Deploy 236.669 — AI document-integrity assessment (present only when
+    // opts.integrityCheck was set). Shape: { risk, findings:[{level,detail}] }.
+    integrity: _normalizeIntegrity(parsed.integrity),
     inputTokens, outputTokens, costCents,
   };
+}
+
+function _normalizeIntegrity(v) {
+  if (!v || typeof v !== 'object') return null;
+  const risk = (v.risk === 'high' || v.risk === 'medium') ? v.risk : 'low';
+  const findings = Array.isArray(v.findings)
+    ? v.findings.map(function (f) {
+        if (!f) return null;
+        const detail = String((f && f.detail) || '').trim();
+        if (!detail) return null;
+        return { level: (f.level === 'high' ? 'high' : 'medium'), detail: detail };
+      }).filter(Boolean)
+    : [];
+  return { risk: risk, findings: findings };
 }
 
 function buildSystemPrompt(opts) {
@@ -318,6 +335,28 @@ function buildPrompt(opts) {
     _extractRule = '- extracted_fields: pull EACH listed field ONLY if it literally appears on THIS document. Set found:false and value:null when it is absent — NEVER guess or infer. Numbers as plain numbers (no $, no commas). Dates as YYYY-MM-DD.';
   }
 
+  // Deploy 236.669 — document-integrity / tampering assessment (advisory). Only
+  // requested for financial docs + IDs. Adds an "integrity" object to the schema
+  // and a set of conservative, evidence-first instructions.
+  let _integritySchema = '';
+  let _integrityRule = '';
+  if (opts.integrityCheck) {
+    _integritySchema = '  "integrity": {\n' +
+      '    "risk": "low" | "medium" | "high",\n' +
+      '    "findings": [ { "level": "medium" | "high", "detail": "<specific, pointable evidence of possible alteration>" } ]\n' +
+      '  }';
+    _integrityRule = [
+      '',
+      'DOCUMENT INTEGRITY / TAMPERING CHECK (advisory — a human makes the final call; report in the "integrity" object):',
+      'Separately from the rubric, assess whether THIS document shows signs of alteration or forgery.',
+      (opts.docCategory === 'financial'
+        ? '- FINANCIAL doc — RECONCILE THE MATH: do the listed transactions add up to the stated balances? Does (beginning balance +/- the activity) equal the ending balance? Do subtotals/totals match their line items? Arithmetic that does NOT reconcile is a HIGH-risk sign of editing. Also confirm dates are sequential and the statement period is internally consistent.'
+        : '- ID doc — check name / DOB / ID numbers are internally consistent, the layout matches a genuine issuer template, and there are no obvious signs of a pasted photo or altered fields.'),
+      '- Look for VISUAL signs of editing: a figure/word in a different font, weight, size, alignment, or color than the text around it; misaligned rows; halos/smudges around specific numbers; inconsistent decimal alignment.',
+      '- Be CONSERVATIVE and concrete. Raise medium/high ONLY with specific evidence you can point to (e.g. "ending balance shown as $12,431 but transactions sum to $9,204"). If nothing is off, return risk:"low" with an empty findings array. Do NOT guess "AI-generated" from vibes.',
+    ].join('\n');
+  }
+
   return [
     'You are reviewing a loan document for SLA Capital.',
     '',
@@ -367,8 +406,9 @@ function buildPrompt(opts) {
     '    "documentDate":    "<YYYY-MM-DD of the doc\'s print / statement / issue date, or null>",',
     '    "expirationDate":  "<YYYY-MM-DD of an explicit expiration printed on the doc, or null>",',
     '    "dateNotes":       "<one-line explanation of where you found the date(s), or null>"',
-    '  }' + (_extractSchema ? ',' : ''),
-    _extractSchema,
+    '  }' + ((_extractSchema || _integritySchema) ? ',' : ''),
+    _extractSchema ? (_extractSchema + (_integritySchema ? ',' : '')) : '',
+    _integritySchema,
     '}',
     '',
     'Verdict rules:',
@@ -377,6 +417,7 @@ function buildPrompt(opts) {
     '- Extracted entities are used downstream to cross-check consistency. Use null if the field is not naturally present on this doc — that is normal and not an issue on its own.',
     '- For documentDate / expirationDate: only fill these in if the date is LITERALLY visible on the doc. Do not infer. Bank statements have a statement period (use the statement end date). Certificates of Good Standing typically have a "printed on" or "as of" date. Insurance / drivers licenses / passports have explicit expirations. If you cannot see a date, return null — that is not a finding by itself.',
     _extractRule,
+    _integrityRule,
   ].join('\n');
 }
 

@@ -31,6 +31,7 @@ import {
 } from './_shared/auth.mjs';
 import { getChecklist } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
+import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 // Deploy 236.500 (Phase 3) — AI auto-grab of Underwriting / Lightning Docs
 // fields. When a reviewed doc's slug maps to specific UW/Lightning fields,
 // we ask the SAME review call to also extract them, then write each one onto
@@ -310,6 +311,18 @@ async function handle(req, context) {
       ? _extractSpec.map(function (f) { return { key: f.key, label: f.label }; })
       : undefined;
 
+    // Deploy 236.669 — document-integrity / tampering check for financial docs +
+    // IDs (Mike). Deterministic forensics on the raw bytes, plus an AI math /
+    // consistency pass folded into the same review call. Advisory only — surfaced
+    // as a risk badge; never changes the approve/issues verdict or blocks.
+    const _docCategory = classifyDocCategory(body.slug, docMeta.label);
+    const _runIntegrity = (_docCategory === 'financial' || _docCategory === 'id');
+    let _forensics = null;
+    if (_runIntegrity) {
+      try { _forensics = analyzeDocIntegrity(bytes, docState.currentMimeType, _docCategory); }
+      catch (e) { console.warn('doc-integrity forensics failed (non-fatal):', e && e.message); }
+    }
+
     const aiResult = await reviewDocument({
       bytes,
       mimeType: docState.currentMimeType,
@@ -320,7 +333,13 @@ async function handle(req, context) {
       guidelinesBytes,
       loanAppBytes,
       extractFields: _extractFields,
+      integrityCheck: _runIntegrity,
+      docCategory: _docCategory,
     });
+    if (_runIntegrity) {
+      docState.integrity = mergeIntegrity(_forensics, aiResult.integrity);
+      docState.integrity.checkedAt = now;
+    }
     docState.aiVerdict = aiResult.verdict;
     docState.aiNotes = aiResult.summary;
     docState.aiFindings = aiResult.findings || [];

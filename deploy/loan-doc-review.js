@@ -327,6 +327,20 @@
       '.dr-root .ai-block.approved { border-color:var(--dr-green-border); background:var(--dr-green-light); }',
       '.dr-root .ai-block.issues   { border-color:var(--dr-red-border);   background:var(--dr-red-light); }',
       '.dr-root .ai-block.pending  { border-color:var(--gold-border, rgba(200,129,58,0.28));  background:var(--gold-light, rgba(200,129,58,0.10)); }',
+      // Deploy 236.669 — document-integrity / tampering-risk badge
+      '.dr-root .di-block { margin-top:10px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); font-size:12.5px; }',
+      '.dr-root .di-block.di-high { border-color:var(--dr-red-border); background:var(--dr-red-light); }',
+      '.dr-root .di-block.di-med  { border-color:var(--gold-border, rgba(200,129,58,0.28)); background:var(--gold-light, rgba(200,129,58,0.10)); }',
+      '.dr-root .di-block.di-low  { border-color:var(--border); background:#fafafa; }',
+      '.dr-root .di-head { font-weight:700; font-size:12px; }',
+      '.dr-root .di-block.di-high .di-head { color:#b91c1c; }',
+      '.dr-root .di-block.di-med .di-head { color:#b5712d; }',
+      '.dr-root .di-block.di-low .di-head { color:#166534; }',
+      '.dr-root .di-sigs { margin:6px 0 0; padding-left:18px; }',
+      '.dr-root .di-sigs li { margin:2px 0; line-height:1.35; }',
+      '.dr-root .di-sigs li.di-lvl-high { color:#7c1f1f; font-weight:600; }',
+      '.dr-root .di-info { margin-top:6px; font-size:11px; color:var(--muted); }',
+      '.dr-root .di-note { margin-top:7px; font-size:10.5px; color:var(--muted); font-style:italic; }',
       '.dr-root .ai-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; }',
       '.dr-root .ai-label { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }',
       '.dr-root .ai-label.approved { color:var(--dr-green); }',
@@ -1326,6 +1340,33 @@
       '</div>' +
       (d.aiNotes ? '<div class="ai-summary">' + escHtml(d.aiNotes) + '</div>' : '') +
       findingsHtml +
+      _integrityHtml(d) +
+    '</div>';
+  }
+
+  // Deploy 236.669 — document-integrity / tampering-risk badge (advisory). Shown
+  // for financial docs + IDs when the upload endpoint attached d.integrity. High/
+  // medium call for a look; low reassures the processor the check ran.
+  function _integrityHtml(d) {
+    var it = d && d.integrity;
+    if (!it || !it.risk) return '';
+    var all = Array.isArray(it.signals) ? it.signals : [];
+    var flags = all.filter(function(s){ return s && s.level !== 'info'; });
+    var infos = all.filter(function(s){ return s && s.level === 'info'; });
+    var cls, label;
+    if (it.risk === 'high')   { cls = 'di-high'; label = '⚠ Integrity: HIGH — possible tampering'; }
+    else if (it.risk === 'medium') { cls = 'di-med'; label = '⚠ Integrity: review recommended'; }
+    else { cls = 'di-low'; label = '✓ Integrity: no structural red flags'; }
+    var sigHtml = flags.length
+      ? '<ul class="di-sigs">' + flags.map(function(s){ return '<li class="di-lvl-' + (s.level || 'medium') + '">' + escHtml(s.label || '') + '</li>'; }).join('') + '</ul>'
+      : '';
+    var infoHtml = infos.length
+      ? '<div class="di-info">' + infos.map(function(s){ return escHtml(s.label || ''); }).join(' · ') + '</div>'
+      : '';
+    return '<div class="di-block ' + cls + '">' +
+      '<div class="di-head">' + label + '</div>' +
+      sigHtml + infoHtml +
+      '<div class="di-note">Advisory only — a human makes the final call. Based on file metadata + AI consistency checks; not a definitive forgery test.</div>' +
     '</div>';
   }
 
