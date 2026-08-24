@@ -54,6 +54,8 @@ const FIELDS = {
   // Deploy 236.655 — Portfolio (multiple properties). These need special
   // handling in the apply loop (boolean / number / array, not a plain string).
   isPortfolio: 1, propertyCount: 1, properties: 1,
+  // Deploy 236.691 — reprice-as-portfolio flag (boolean).
+  needsRepricePortfolio: 1,
 };
 
 function _truthy(v) {
@@ -122,6 +124,8 @@ async function handle(req, context) {
     }
     // Deploy 236.655 — Portfolio: boolean flag, integer count, sanitized array.
     if (k === 'isPortfolio') { loan.isPortfolio = _truthy(fields[k]); applied[k] = loan.isPortfolio; return; }
+    // Deploy 236.691 — reprice-as-portfolio flag (boolean; can be cleared to false).
+    if (k === 'needsRepricePortfolio') { loan.needsRepricePortfolio = _truthy(fields[k]); applied[k] = loan.needsRepricePortfolio; return; }
     if (k === 'propertyCount') {
       let pc = parseInt(fields[k], 10);
       if (!isFinite(pc) || pc < 0) pc = 0;

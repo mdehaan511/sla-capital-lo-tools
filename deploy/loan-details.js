@@ -75,6 +75,14 @@ function _loanTypeLabel(l) {
   if (code === '30Y Fixed')     return '30-Year Fixed';
   return code;
 }
+// Deploy 236.691 — property-type label (matches the sizer / Property-tab options).
+// Property Type is priced in the sizer, so it's shown (read-only) in Loan
+// Financials and locked on the Property tab — one source of truth.
+var _PROP_TYPE_LABELS = { sfr: 'SFR (1 Unit)', '2-4': '2–4 Unit', condo: 'Condo', nw_condo: 'Non-Warrantable Condo', multi: 'Multifamily', portfolio: 'Portfolio' };
+function _propTypeLabel(l) {
+  var code = String((l && l.propType) || '');
+  return _PROP_TYPE_LABELS[code] || (l && l.propTypeLabel) || code || '—';
+}
 
 // Deploy 236.648 — read-only "Fees / Cash to Close" + "Cash Reserve Requirement"
 // cards mirroring the sizer's rate sheet. Values recompute from the loan record
@@ -1018,6 +1026,15 @@ function render() {
   // can move this section into the Loan tab post-render.
   html += '<div class="section" id="loanFinancialsSection">' +
     '<div class="section-head"><h2>Loan Financials</h2></div>' +
+    // Deploy 236.691 — reprice-as-portfolio warning. Set when a single-property
+    // loan is converted to a portfolio without portfolio pricing; cleared when
+    // re-priced through the sizer as a portfolio (or dismissed here).
+    (l.needsRepricePortfolio
+      ? '<div style="margin:0 0 12px;padding:10px 14px;background:#fdecea;border:1px solid #f5b5ae;border-left:4px solid #d93025;border-radius:8px;font-size:13px;color:#7c1f1f;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+          '<span>⚠ <strong>Reprice as a Portfolio.</strong> This loan was converted to a portfolio but is still priced as a single property. Re-run the sizer as a Portfolio before it advances.</span>' +
+          '<button type="button" onclick="dismissRepriceFlag()" title="Clear this flag (only after you\'ve confirmed the pricing)" style="flex:0 0 auto;padding:5px 10px;font-size:12px;font-weight:600;border:1px solid #f5b5ae;background:#fff;color:#7c1f1f;border-radius:6px;cursor:pointer;white-space:nowrap">Dismiss</button>' +
+        '</div>'
+      : '') +
     '<div class="section-body">';
 
   // Deploy 236.643 — the Loan Status changer moved OUT of Loan Financials up
@@ -1081,9 +1098,11 @@ function render() {
     var _dscrDownVal  = _dscrIsRefi ? 0
       : ((downPayment && parseFloat(downPayment)) ? parseFloat(downPayment)
         : (((parseFloat(purchasePrice) || 0) > (parseFloat(loanAmt) || 0)) ? (parseFloat(purchasePrice) - parseFloat(loanAmt)) : 0));
+    // Deploy 236.691 — the "Am Type" cell shows whatever is in the sizer's Loan
+    // Type box (l.loanType: 30-Year Fixed / 10-6 ARM / …), NOT an Interest-Only
+    // override — the loan type is the amortization structure the sizer priced.
     var _dscrLtFull   = _loanTypeLabel(l);
-    var _amTypeIsIO   = (isIO === 'yes' || isIO === true || isIO === 'io' || isIO === 'interest_only' || isIO === '1');
-    var _amType       = _amTypeIsIO ? 'Interest-Only' : (_dscrLtFull || '—');
+    var _amType       = _dscrLtFull || '—';
     var _dscrLtvCell  = (_hasDscrLtvOv ? (parseFloat(l._ltvOverride) * 100).toFixed(1) + '%' : (_liveLtvStr || '<span class="empty">—</span>'));
     var _dscrRatioCell = (_liveDscrStr ? _liveDscrStr + 'x' : (dscr ? dscr + 'x' : '<span class="empty">Not yet quoted</span>'));
     var _dscrPrepay   = prepay
@@ -1114,8 +1133,9 @@ function render() {
       // Row 8 — DSCR | Prepayment Penalty
       '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">'+_dscrRatioCell+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Prepayment Penalty</div><div class="fin-val">'+_dscrPrepay+'</div></div>' +
-      // Row 9 — FICO
+      // Row 9 — FICO | Property Type (Deploy 236.691 — priced in the sizer, read-only here)
       '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">Property Type</div><div class="fin-val">'+escH(_propTypeLabel(l))+'</div></div>' +
       // Trailing extras (conditional)
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
       (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
@@ -1233,6 +1253,8 @@ function render() {
       // Row 8 — LTARV | LTAIV (LTAIV from the BPO AIV; "—" until aivBpo is set)
       '<div class="fin-cell"><div class="fin-label">LTARV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtarvPct)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">LTAIV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtaivPct)+'</div></div>' +
+      // Property Type (Deploy 236.691 — priced in the sizer; read-only here + on the Property tab)
+      '<div class="fin-cell"><div class="fin-label">Property Type</div><div class="fin-val">'+escH(_propTypeLabel(l))+'</div></div>' +
       // Trailing extras (conditional) — referral source + broker fee
       (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
       (parseFloat(l.brokerFee || 0) > 0
@@ -1724,8 +1746,11 @@ function render() {
         '<div class="field"><label>Bathrooms</label><input type="number" id="af-bathrooms" value="'+escAttr(l.bathrooms||'')+'" placeholder="2" min="0" step="0.5" /></div>' +
         '<div class="field"><label>Sq Footage</label><input type="number" id="af-sqft" value="'+escAttr(l.sqft||'')+'" placeholder="1800" min="0" /></div>' +
         '<div class="field"><label>Units</label><input type="number" id="pc-numUnits" value="' + escAttr(String(l.numUnits || '')) + '" min="0" /></div>' +
-        '<div class="field"><label>Property Type</label>' +
-          '<select id="af-propType">' +
+        // Deploy 236.691 — Property Type is priced in the sizer, so it's LOCKED
+        // here (read-only) and mirrors Loan Financials + the sizer. Disabled so
+        // the value still round-trips through savePropertyCollateral unchanged.
+        '<div class="field"><label>Property Type <span style="text-transform:none;font-weight:400;color:var(--muted)">(from sizer)</span></label>' +
+          '<select id="af-propType" disabled title="Property Type is set in the sizer / Loan Financials. Re-price in the sizer to change it." style="background:var(--bg,#f0ece5);color:var(--muted);cursor:not-allowed">' +
             '<option value="">Select…</option>' +
             '<option value="sfr"'+(l.propType==='sfr'?' selected':'')+'>SFR (1 Unit)</option>' +
             '<option value="2-4"'+(l.propType==='2-4'?' selected':'')+'>2–4 Unit</option>' +
@@ -6200,8 +6225,14 @@ function savePropertyCollateral() {
     delete fields.bedrooms; delete fields.bathrooms; delete fields.sqft;
     var _pfProps = pfCollect();
     fields.isPortfolio   = true;
+    // Deploy 236.691 — a portfolio loan's Property Type is always 'portfolio'
+    // (the single-property af-propType select isn't rendered in portfolio mode,
+    // so set it explicitly instead of clobbering it to empty).
+    fields.propType      = 'portfolio';
     fields.propertyCount = _pfProps.length;
     fields.properties    = _pfProps;
+    // Deploy 236.691 — persist the reprice-as-portfolio flag set at conversion.
+    if (_loan.needsRepricePortfolio) fields.needsRepricePortfolio = true;
   }
   var btn = document.querySelector('#propertyCollateralSection .save-app-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -6225,7 +6256,12 @@ function savePropertyCollateral() {
 // leaves the loan as a single property.
 function convertToPortfolio() {
   if (!_loan || _loan.isPortfolio) return;
-  if (!confirm('Convert this loan to a Portfolio?\n\nThe loan’s current property becomes Property 1, and you can add more below. Nothing is saved until you click "Save Property / Collateral".')) return;
+  var _wasPortfolioPriced = (String(_loan.propType || '').toLowerCase() === 'portfolio');
+  var _msg = 'Convert this loan to a Portfolio?\n\nThe loan’s current property becomes Property 1, and you can add more below. Nothing is saved until you click "Save Property / Collateral".';
+  if (!_wasPortfolioPriced) {
+    _msg += '\n\n⚠ This loan was priced as "' + (_propTypeLabel(_loan) || _loan.propType || 'a single property') + '", not a Portfolio. It will be FLAGGED to be re-priced as a Portfolio so it doesn’t advance with the wrong pricing.';
+  }
+  if (!confirm(_msg)) return;
   var ptMap = { sfr: 'sfh', sfh: 'sfh', '2-4': '2-4' };
   var p1 = {
     address:          _loan.address || '',
@@ -6245,9 +6281,29 @@ function convertToPortfolio() {
   _loan.propType      = 'portfolio';
   _loan.properties    = [p1];
   _loan.propertyCount = 1;
+  // Deploy 236.691 — flag for repricing when it wasn't already priced as a
+  // Portfolio, so it can't quietly advance on single-property pricing.
+  if (!_wasPortfolioPriced) _loan.needsRepricePortfolio = true;
   render();
   if (typeof switchLdTab === 'function') switchLdTab('property');
-  showToast('Converted to Portfolio — add your other properties, then click Save Property / Collateral.');
+  showToast(_wasPortfolioPriced
+    ? 'Converted to Portfolio — add your other properties, then click Save Property / Collateral.'
+    : '⚠ Converted to Portfolio — FLAGGED to be re-priced as a Portfolio. Add properties + Save.');
+}
+
+// Deploy 236.691 — clear the reprice-as-portfolio flag (after confirming pricing).
+function dismissRepriceFlag() {
+  if (!_loan || !_loan.needsRepricePortfolio) return;
+  if (!confirm('Clear the “Reprice as Portfolio” flag?\n\nOnly do this once you’ve confirmed the loan is correctly priced as a portfolio.')) return;
+  _loan.needsRepricePortfolio = false;
+  SLA.Loans.saveFields(_clientId, _loanId, { needsRepricePortfolio: false }, _ldOwnerOverride()).then(function() {
+    showToast('Reprice flag cleared.');
+    render();
+  }).catch(function(err) {
+    _loan.needsRepricePortfolio = true;
+    showToast('Failed to clear: ' + (err && err.message || 'unknown'));
+    render();
+  });
 }
 
 // ── Deploy 236.655 — Portfolio properties (multi-property loans) ──────

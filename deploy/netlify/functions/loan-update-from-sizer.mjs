@@ -213,6 +213,12 @@ async function handle(req, context) {
     formData: (incoming.formData && typeof incoming.formData === 'object' && Object.keys(incoming.formData).length
       ? incoming.formData
       : (prior.formData && typeof prior.formData === 'object' ? prior.formData : undefined)),
+    // Deploy 236.691 — preserve the "reprice as portfolio" flag across sizer
+    // saves (the sizer never sends it), EXCEPT when the loan is now priced as a
+    // portfolio (propType 'portfolio'), which resolves the flag.
+    needsRepricePortfolio: (String(incoming.propType || prior.propType || '').toLowerCase() === 'portfolio')
+      ? false
+      : (incoming.needsRepricePortfolio === true || prior.needsRepricePortfolio === true),
   });
 
   // Strip transient meta fields that shouldn't persist.
