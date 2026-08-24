@@ -43,7 +43,7 @@ import {
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
 // Deploy 236.626 — resolveOwnerEmail = robust LO-email resolution for the notify.
-import { getOwnerReplyTo, resolveOwnerEmail } from './_shared/email.mjs';
+import { getOwnerReplyTo, resolveOwnerEmail, logBorrowerSendFromResponse } from './_shared/email.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
@@ -842,6 +842,8 @@ async function emailSignedCopy({ toEmail, toName, propertyAddress, pdfBuffer, is
     const t = await resp.text().catch(() => '');
     throw new Error(`Resend ${resp.status}: ${t.slice(0, 200)}`);
   }
+  // Deploy 236.685 — track delivery so the LO is alerted if the borrower's signed copy bounces.
+  await logBorrowerSendFromResponse(resp, { kind: 'signed_app_copy', to: toEmail, ownerKey });
   return true;
 }
 
@@ -922,6 +924,8 @@ async function emailBorrower2AuthLink({ toEmail, toName, b1Name, propertyAddress
     const t = await resp.text().catch(() => '');
     throw new Error(`Resend ${resp.status}: ${t.slice(0, 200)}`);
   }
+  // Deploy 236.685 — track delivery so the LO is alerted if the co-signer's auth link bounces.
+  await logBorrowerSendFromResponse(resp, { kind: 'cosigner_invite', to: toEmail, ownerKey });
   return true;
 }
 

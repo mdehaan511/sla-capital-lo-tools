@@ -10,6 +10,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import { supabaseBaseUrl } from './supabase-db.mjs';
+import { logBorrowerSendFromResponse } from './email.mjs';
 
 const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
 const INVITE_STORE = 'borrower-invites'; // keyed by loanId
@@ -113,7 +114,7 @@ export async function borrowerMagicLink(sb, email, origin) {
   } catch (_) { return ''; }
 }
 
-export async function sendBorrowerEmail(toEmail, subject, text, html, replyTo) {
+export async function sendBorrowerEmail(toEmail, subject, text, html, replyTo, logMeta) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return false;
   const payload = { from: INVITE_FROM, to: [toEmail], subject, text, html };
@@ -123,6 +124,9 @@ export async function sendBorrowerEmail(toEmail, subject, text, html, replyTo) {
     headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  // Deploy 236.685 — when the caller passes logMeta, track delivery so the LO is
+  // alerted if this borrower email bounces.
+  if (r.ok && logMeta) await logBorrowerSendFromResponse(r, Object.assign({ to: toEmail }, logMeta));
   return r.ok;
 }
 

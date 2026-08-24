@@ -30,7 +30,7 @@
  */
 import crypto from 'node:crypto';
 import { json, handleOptions } from './_shared/auth.mjs';
-import { getBorrowerSend, markBorrowerSendNotified } from './_shared/email.mjs';
+import { getBorrowerSend, markBorrowerSendNotified, resolveOwnerEmail } from './_shared/email.mjs';
 
 // Event types we treat as a delivery failure worth alerting the LO about.
 const FAILURE_EVENTS = { 'email.bounced': 1, 'email.failed': 1 };
@@ -69,6 +69,11 @@ export default async (req, context) => {
     const rec = await getBorrowerSend(emailId);
     if (!rec) return json(200, { ok: true, note: 'not a tracked borrower send' });
     if (rec.loNotifiedAt) return json(200, { ok: true, note: 'LO already notified' });
+    // Resolve the LO email: prefer the one logged at send time, else derive it
+    // from the ownerKey (sites that only pass ownerKey).
+    if (!rec.loEmail && rec.ownerKey) {
+      try { rec.loEmail = await resolveOwnerEmail({ ownerKey: rec.ownerKey }); } catch (_) {}
+    }
     if (!rec.loEmail) return json(200, { ok: true, note: 'no LO email on record' });
 
     const sent = await notifyLoOfFailure(rec, data);
@@ -107,14 +112,32 @@ function verifySvixSignature(headers, payload, secret) {
   }
 }
 
+// Human phrase for the failed email, by its `kind`. The eSign envelope resolves
+// from its document kinds; everything else maps its kind directly.
+const KIND_LABELS = {
+  long_app_link:      'loan application',
+  prequal:            'prequalification',
+  portal_invite:      'borrower portal invitation',
+  cosigner_invite:    'co-signer invitation',
+  cosigner_resend:    'co-signer signing link',
+  cosigner_info:      'co-signer information request',
+  lo_message:         'message',
+  signed_app_copy:    'signed loan application copy',
+  apply_confirmation: 'application confirmation',
+  payoff:             'payoff request',
+  quote:              'quote',
+};
+
 function docLabel(rec) {
-  const kinds = Array.isArray(rec.docKinds) ? rec.docKinds : [];
-  const hasRate = kinds.some((k) => String(k) === 'rate_sheet');
-  const hasApp = kinds.some((k) => String(k) !== 'rate_sheet');
-  if (hasRate && hasApp) return 'loan application and rate sheet';
-  if (hasRate) return 'rate sheet';
-  if (hasApp) return 'loan application';
-  return rec.docNames || 'documents';
+  if (rec.kind === 'envelope') {
+    const kinds = Array.isArray(rec.docKinds) ? rec.docKinds : [];
+    const hasRate = kinds.some((k) => String(k) === 'rate_sheet');
+    const hasApp = kinds.some((k) => String(k) !== 'rate_sheet');
+    if (hasRate && hasApp) return 'loan application and rate sheet';
+    if (hasRate) return 'rate sheet';
+    if (hasApp) return 'loan application';
+  }
+  return KIND_LABELS[rec.kind] || rec.docNames || 'email';
 }
 
 async function notifyLoOfFailure(rec, data) {

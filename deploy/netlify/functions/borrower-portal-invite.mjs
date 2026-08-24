@@ -132,7 +132,7 @@ async function handle(req, context) {
   try { replyTo = await getOwnerReplyTo(ownerKey); } catch (_) {}
   const mail = _portalEmail(fullName, actionLink || (origin + '/borrower-portal.html'), !actionLink);
   let emailed = false;
-  try { emailed = await sendBorrowerEmail(inviteEmail, mail.subject, mail.text, mail.html, replyTo); }
+  try { emailed = await sendBorrowerEmail(inviteEmail, mail.subject, mail.text, mail.html, replyTo, { kind: 'portal_invite', ownerKey }); }
   catch (e) { console.warn('portal-invite: email send failed:', e && e.message); }
 
   return json(200, { ok: true, email: inviteEmail, emailed, sentAt, loanCount: granted });

@@ -36,6 +36,7 @@ import { checkRateLimit } from './_shared/rate-limit.mjs';
 // Deploy 236.635 — broker submissions name the borrower they represent; link that
 // borrower to the loan as a Guarantor client (shared dedupe-by-email helper).
 import { linkGuarantorToLoan } from './_shared/guarantor-link.mjs';
+import { logBorrowerSendFromResponse } from './_shared/email.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32 KB is plenty for a form payload
 
@@ -1011,6 +1012,8 @@ async function notifyApplicantOfSubmission(prospect) {
     },
     body: payload,
   });
+  // Deploy 236.685 — track delivery so the LO is alerted if the applicant confirmation bounces.
+  await logBorrowerSendFromResponse(resp, { kind: 'apply_confirmation', to: toEmail, loEmail: prospect.loEmail });
   const respBody = await resp.text().catch(() => '');
   console.log(`${tag} Resend ${resp.status}: ${respBody.slice(0, 200)}`);
   if (!resp.ok) {

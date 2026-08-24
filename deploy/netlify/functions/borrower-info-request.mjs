@@ -36,7 +36,7 @@ import { writeTokenIndex, deleteTokenIndex } from './_shared/borrower-info-token
 import { borrowerInfoIndex } from './_shared/borrower-info-index.mjs';
 // Deploy 223 — reply_to header set to the LO who owns the lead so
 // borrower replies go to the right inbox (not noreply@).
-import { getOwnerReplyTo } from './_shared/email.mjs';
+import { getOwnerReplyTo, logBorrowerSendFromResponse } from './_shared/email.mjs';
 // Deploy 226 — audit log entry on the loan when the long app is sent.
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
@@ -430,5 +430,7 @@ async function sendBorrowerEmail({ toEmail, toName, loName, loEmail, link, prope
     const t = await resp.text().catch(() => '');
     throw new Error(`Resend ${resp.status}: ${t.slice(0, 200)}`);
   }
+  // Deploy 236.685 — track delivery so the LO is alerted if the long-app link bounces.
+  await logBorrowerSendFromResponse(resp, { kind: 'long_app_link', to: toEmail, ownerKey, loEmail, loName, address: propertyAddress });
   return true;
 }

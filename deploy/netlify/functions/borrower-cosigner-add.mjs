@@ -27,7 +27,7 @@ import {
   requireAuth, normalizeEmail, isAdmin, keySafe,
 } from './_shared/auth.mjs';
 import { generateBorrower2Token } from './_shared/esign.mjs';
-import { getOwnerReplyTo } from './_shared/email.mjs';
+import { getOwnerReplyTo, logBorrowerSendFromResponse } from './_shared/email.mjs';
 
 const B2_TOKEN_TTL_DAYS = 30;
 
@@ -224,7 +224,11 @@ async function emailCosignerLink({ rec, toEmail, toName, link }) {
         ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
-    if (resp.ok) return new Date().toISOString();
+    if (resp.ok) {
+      // Deploy 236.685 — track delivery so the LO is alerted if the co-signer invite bounces.
+      await logBorrowerSendFromResponse(resp, { kind: 'cosigner_invite', to: toEmail, ownerKey: rec.ownerKey });
+      return new Date().toISOString();
+    }
     const t = await resp.text().catch(() => '');
     console.warn('borrower-cosigner-add: email failed', resp.status, t.slice(0, 200));
     return null;

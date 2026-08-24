@@ -27,7 +27,7 @@ import {
 } from './_shared/auth.mjs';
 import { generateBorrower2Token } from './_shared/esign.mjs';
 // Deploy 223 — reply_to = LO who owns the lead.
-import { getOwnerReplyTo } from './_shared/email.mjs';
+import { getOwnerReplyTo, logBorrowerSendFromResponse } from './_shared/email.mjs';
 
 const B2_TOKEN_TTL_DAYS = 30;
 
@@ -175,8 +175,11 @@ async function handle(req, context) {
           ...(replyTo ? { reply_to: replyTo } : {}),
         }),
       });
-      if (resp.ok) emailedAt = new Date().toISOString();
-      else {
+      if (resp.ok) {
+        emailedAt = new Date().toISOString();
+        // Deploy 236.685 — track delivery so the LO is alerted if the co-signer link bounces.
+        await logBorrowerSendFromResponse(resp, { kind: 'cosigner_resend', to: bField.email, ownerKey: rec.ownerKey });
+      } else {
         const t = await resp.text().catch(() => '');
         console.warn('borrower2-auth-resend: email failed', resp.status, t.slice(0, 200));
       }

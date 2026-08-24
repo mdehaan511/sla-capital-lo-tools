@@ -17,7 +17,7 @@
  */
 import { getStore } from '@netlify/blobs';
 // Deploy 223 — reply_to = LO who owns the lead.
-import { getOwnerReplyTo } from './_shared/email.mjs';
+import { getOwnerReplyTo, logBorrowerSendFromResponse } from './_shared/email.mjs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   keySafe, normalizeEmail,
@@ -172,5 +172,7 @@ async function sendPrequalEmail({ toEmail, toName, loName, loEmail, link, ownerK
     const t = await resp.text().catch(() => '');
     throw new Error(`Resend ${resp.status}: ${t.slice(0, 200)}`);
   }
+  // Deploy 236.685 — track delivery so the LO is alerted if the prequal bounces.
+  await logBorrowerSendFromResponse(resp, { kind: 'prequal', to: toEmail, ownerKey, loEmail, loName });
   return true;
 }

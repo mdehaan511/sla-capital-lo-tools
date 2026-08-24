@@ -84,6 +84,21 @@ export async function logBorrowerSend(emailId, meta) {
   }
 }
 
+// One-liner for a send site: pass the Resend fetch Response (on success) + the
+// log meta; reads the email id off a CLONE (so it never consumes the caller's
+// body) and logs it. Any borrower-facing send can add delivery-failure tracking
+// with a single `await logBorrowerSendFromResponse(resp, {kind, to, ownerKey})`.
+export async function logBorrowerSendFromResponse(resp, meta) {
+  try {
+    if (!resp || !resp.ok) return;
+    const data = await resp.clone().json().catch(() => null);
+    const emailId = data && data.id;
+    if (emailId) await logBorrowerSend(emailId, meta || {});
+  } catch (e) {
+    console.warn('logBorrowerSendFromResponse failed:', e && e.message);
+  }
+}
+
 export async function getBorrowerSend(emailId) {
   if (!emailId) return null;
   try {
