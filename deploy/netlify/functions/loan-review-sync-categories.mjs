@@ -76,10 +76,14 @@ async function handle(req, context) {
   if (!review.docs) review.docs = {};
 
   const checklist = getChecklist(review.loanType || '');
+  // Deploy 236.690 — on a portfolio review, collateral is split into per-property
+  // trays ("<slug>__p<i>"); don't re-add the base single collateral tray.
+  const _isPortfolioReview = Array.isArray(review.properties) && review.properties.length > 1;
   const added = [];
   for (const item of checklist) {
     if (!item || !item.slug) continue;
     if (review.docs[item.slug]) continue;   // already present (incl. hidden) — leave it
+    if (_isPortfolioReview && item.section === 'collateral' && review.docs[item.slug + '__p0']) continue;
     review.docs[item.slug] = _blankStandardTray(item);
     added.push(item.slug);
   }

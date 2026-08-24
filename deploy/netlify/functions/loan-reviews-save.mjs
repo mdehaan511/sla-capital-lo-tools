@@ -221,6 +221,40 @@ async function handle(req, context) {
     }
   }
 
+  // Deploy 236.690 — Portfolio: give the Collateral section per-property trays.
+  // Each single collateral tray is replaced by one per property ("<slug>__p<i>"),
+  // tagged with the property so the doc-review can tab collateral by property.
+  // The rubric (conditions) travels on each tray so upload/retry verify against
+  // it (via the docState.conditions fallback). Non-collateral sections stay single.
+  const _pfLoan = review.sourceLoanSnapshot;
+  if (_pfLoan && _pfLoan.isPortfolio && Array.isArray(_pfLoan.properties) && _pfLoan.properties.length > 1) {
+    const props = _pfLoan.properties;
+    review.properties = props.map((p, i) => ({ index: i, label: 'Property ' + (i + 1), address: (p && p.address) || '' }));
+    const collateralEntries = checklist.filter((it) => it && it.section === 'collateral');
+    for (const it of collateralEntries) {
+      delete review.docs[it.slug];
+      props.forEach((p, i) => {
+        const pslug = it.slug + '__p' + i;
+        review.docs[pslug] = {
+          slug: pslug,
+          section: 'collateral',
+          label: it.label,
+          conditions: it.conditions || '',
+          propertyIndex: i,
+          propertyLabel: 'Property ' + (i + 1),
+          propertyAddress: (p && p.address) || '',
+          verdict: 'pending',
+          required: !(it.optional || it.investor),
+          processorNotes: '',
+          naReason: '',
+          currentDocId: '', currentFilename: '', currentSize: 0, currentUploadedAt: '', currentMimeType: '',
+          aiVerdict: '', aiNotes: '', aiFindings: [], aiExtractedEntities: {}, aiReviewedAt: '', aiError: '', aiCostCents: 0,
+          processorOverrideReason: '', approvedAt: '', approvedBy: '', history: [], documents: [],
+        };
+      });
+    }
+  }
+
   await store.setJSON(keySafe(id), review);
   return json(200, { ok: true, review });
 }

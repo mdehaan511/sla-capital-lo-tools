@@ -114,6 +114,7 @@
   var _user = null;
   var _review = null;
   var _activeTab = 'pending';
+  var _activeCollateralProperty = 0; // Deploy 236.690 — portfolio collateral tab
   var _expanded = {};
   var _pendingOverride = null;
   var _pendingNa = null;
@@ -1053,12 +1054,37 @@
           '</div>';
       }
 
+      // Deploy 236.690 — Portfolio: the Collateral section gets a Property 1 / 2 /…
+      // tab strip; each property has its OWN collateral trays (slug "<base>__p<i>",
+      // tagged with propertyIndex at review-create). Only the active property's
+      // trays render. Non-portfolio reviews (no _review.properties) are unchanged.
+      var _propTabsHtml = '';
+      var _stdToRender = standardInSec;
+      if (sec.key === 'collateral' && Array.isArray(_review.properties) && _review.properties.length > 1) {
+        var _ap = _activeCollateralProperty || 0;
+        if (_ap >= _review.properties.length) _ap = 0;
+        _propTabsHtml = '<div class="dr-prop-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">' +
+          _review.properties.map(function(p, i) {
+            var on = (i === _ap);
+            var lbl = p.label || ('Property ' + (i + 1));
+            return '<button type="button" onclick="dr_setCollateralProperty(' + i + ')" title="' + escAttr(p.address || lbl) + '" ' +
+              'style="padding:6px 12px;font-size:12px;font-weight:600;border:1px solid ' + (on ? '#C8813A' : '#ddd8d0') + ';background:' + (on ? '#C8813A' : '#fff') + ';color:' + (on ? '#fff' : '#1a1520') + ';border-radius:8px;cursor:pointer">' + escHtml(lbl) + '</button>';
+          }).join('') + '</div>';
+        var _apAddr = (_review.properties[_ap] && _review.properties[_ap].address) || '';
+        if (_apAddr) _propTabsHtml += '<div style="font-size:12px;color:#7a7488;margin:0 0 10px">Collateral for <strong>' + escHtml(_apAddr) + '</strong></div>';
+        _stdToRender = standardInSec.filter(function(s) {
+          var pi = (_review.docs[s] || {}).propertyIndex;
+          return (pi == null) || pi === _ap; // untagged collateral (shared) always shows
+        });
+      }
+
       return '<div class="dr-section">' +
         '<div class="section-title-row">' +
           '<div class="section-title">' + escHtml(sec.label) + '</div>' +
           '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + bulkBtn + hiddenToggle + '</div>' +
         '</div>' +
-        standardInSec.map(renderTray).join('') +
+        _propTabsHtml +
+        _stdToRender.map(renderTray).join('') +
         otherBlock +
         hiddenHtml +
       '</div>';
@@ -1673,6 +1699,12 @@
       if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
       showToast('Retry failed: ' + ((err && err.message) || 'unknown'), 'error');
     });
+  };
+
+  // Deploy 236.690 — switch the active Collateral property tab (portfolio loans).
+  global.dr_setCollateralProperty = function(i) {
+    _activeCollateralProperty = i || 0;
+    render();
   };
 
   global.dr_unhideDoc = function(slug, docId) {
