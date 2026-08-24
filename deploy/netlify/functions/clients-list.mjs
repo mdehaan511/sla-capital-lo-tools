@@ -200,6 +200,10 @@ const LOAN_SUMMARY_FIELDS = [
   'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
   // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle fields.
   'tpoSpread', 'closingFees', 'activelyTrading',
+  // Deploy 236.674 — Funding Plan fields (TPO premium migrated from Baseline as
+  // tpoPremium; tpo is the canonical Funding-Plan key). Keep in sync with
+  // clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS.
+  'tpo', 'tpoPremium', 'buyRate', 'investorId',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',

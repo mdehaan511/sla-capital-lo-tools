@@ -112,6 +112,11 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'payoffAmount', 'payoffDate', 'soldRate', 'soldDate',
   // Deploy 236.624 — Close Out / Mark Sold / Pending Sale lifecycle fields (all in extra).
   'tpoSpread', 'closingFees', 'activelyTrading',
+  // Deploy 236.674 — Funding Plan fields (TPO premium migrated from Baseline as
+  // tpoPremium; tpo is the canonical Funding-Plan key). Without these in the summary
+  // projection the Closings/Funding-Plan views loaded a loan object with no TPO, so
+  // the migrated value looked "missing" even though PG had it.
+  'tpo', 'tpoPremium', 'buyRate', 'investorId',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
