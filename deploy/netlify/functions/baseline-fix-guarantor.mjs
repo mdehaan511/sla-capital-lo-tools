@@ -69,7 +69,14 @@ async function handle(req, context) {
     const guarVals = {};
     guarKeys.forEach((k) => { const v = loan[k]; guarVals[k] = (v && typeof v === 'object') ? JSON.stringify(v).slice(0, 400) : v; });
     const arrayKeys = keys.filter((k) => Array.isArray(loan[k]) && loan[k].length).map((k) => ({ key: k, len: loan[k].length, firstKeys: (loan[k][0] && typeof loan[k][0] === 'object') ? Object.keys(loan[k][0]).slice(0, 20) : typeof loan[k][0] }));
-    return json(200, { ok: true, mode: 'dumpLoan', extId: body.extId, keyCount: keys.length, guarKeys, guarVals, arrayKeys });
+    // Deploy 236.676 (diag) — surface LIVE TPO-ish fields (and any body.fields[])
+    // so we can tell whether a DSCR that migrated with a blank TPO genuinely has
+    // no TPO in Baseline, or the CACHED mirror was just stale when we migrated.
+    const tpoKeys = keys.filter((k) => /tpo|premium|spread|buy.?rate/i.test(k));
+    const tpoVals = {}; tpoKeys.forEach((k) => { tpoVals[k] = loan[k]; });
+    const wantFields = Array.isArray(body.fields) ? body.fields : null;
+    const fieldVals = {}; if (wantFields) wantFields.forEach((f) => { fieldVals[f] = loan[f]; });
+    return json(200, { ok: true, mode: 'dumpLoan', extId: body.extId, keyCount: keys.length, guarKeys, guarVals, arrayKeys, tpoKeys, tpoVals, fieldVals });
   }
 
   const dryRun = body.dryRun !== false && body.dryRun !== 'false' && body.dryRun !== 0;
