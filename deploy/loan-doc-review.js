@@ -1092,12 +1092,24 @@
     // "Awaiting Review" instead of "Pending". Mike's call — it
     // makes the AI's pre-screen color signal at-a-glance, while
     // making it clear the processor still has to confirm.
+    // Deploy 236.689 — for a multi-doc tray the badge reflects the WORST live
+    // doc's AI verdict, so a 2nd doc with issues still colours the tray.
+    var _trayAi = d.aiVerdict || '';
+    var _ldsForAgg = _liveDocs(slug);
+    if (_ldsForAgg.length > 1) {
+      var _aiRank = { issues: 3, needs_manual_review: 2, approved: 1 };
+      _trayAi = '';
+      _ldsForAgg.forEach(function(ld) {
+        var v = _docAiSrc(d, ld).aiVerdict || '';
+        if ((_aiRank[v] || 0) > (_aiRank[_trayAi] || 0)) _trayAi = v;
+      });
+    }
     var effectiveVerdict = verdict;
     var verdictLabel;
     if (verdict === 'pending') {
       verdictLabel = hasDoc ? 'Awaiting Review' : 'Pending';
-      if (hasDoc && d.aiVerdict === 'approved') effectiveVerdict = 'awaiting-ok';
-      else if (hasDoc && d.aiVerdict === 'issues') effectiveVerdict = 'awaiting-issues';
+      if (hasDoc && _trayAi === 'approved') effectiveVerdict = 'awaiting-ok';
+      else if (hasDoc && _trayAi === 'issues') effectiveVerdict = 'awaiting-issues';
       else if (hasDoc) effectiveVerdict = 'awaiting';
     } else {
       verdictLabel = verdict === 'approved' ? 'Approved'
@@ -1153,7 +1165,19 @@
       currentHtml += '</details>';
     }
 
-    var aiHtml = renderAiBlock(d, slug);
+    // Deploy 236.689 — per-document AI: a tray with multiple live docs shows one
+    // AI block PER document (each with its own verdict + Retry), so e.g. two
+    // people's IDs both get reviewed. A single-doc tray keeps the one block.
+    var aiHtml;
+    if (liveDocsList.length > 1) {
+      aiHtml = liveDocsList.map(function(ld) {
+        var src = _docAiSrc(d, ld);
+        return '<div class="ai-doc-label" style="font-size:11px;font-weight:700;color:#7a7488;text-transform:uppercase;letter-spacing:.03em;margin:14px 0 3px">📄 ' + escHtml(ld.filename || 'Document') + '</div>' +
+               renderAiBlock(src, slug, ld.docId);
+      }).join('');
+    } else {
+      aiHtml = renderAiBlock(d, slug, (d.currentDocId || ''));
+    }
 
     var dz =
       '<label class="dropzone" id="dr-dz_' + escAttr(slug) + '" ondragover="dr_dzOver(event,\'' + escAttr(slug) + '\')" ondragleave="dr_dzLeave(event,\'' + escAttr(slug) + '\')" ondrop="dr_dzDrop(event,\'' + escAttr(slug) + '\')">' +
@@ -1317,9 +1341,24 @@
       '</div>';
   }
 
-  function renderAiBlock(d, slug) {
-    if (!d.currentDocId && _uploadingSlug !== slug) return '';
-    if (_uploadingSlug === slug) {
+  // Deploy 236.689 — resolve the AI-bearing object for one live doc: its own
+  // per-doc fields if reviewed, else the tray-level result (which belongs to the
+  // current/primary doc), else an empty object (not yet reviewed).
+  function _docAiSrc(d, ld) {
+    if (ld && (ld.aiVerdict || ld.aiError || ld.aiReviewedAt)) return ld;
+    if (ld && d && ld.docId === d.currentDocId) return d;
+    return ld || {};
+  }
+
+  // Deploy 236.689 — renders ONE document's AI result. `src` carries the AI
+  // fields (either the tray docState for a single-doc tray, or a per-document
+  // entry for a multi-doc tray); `docId` (when set) targets the per-doc retry so
+  // each document in a tray gets its own review + Retry.
+  function renderAiBlock(src, slug, docId) {
+    src = src || {};
+    var _retryArgs = "'" + escAttr(slug) + "', this" + (docId ? ", '" + escAttr(docId) + "'" : '');
+    // The "AI is reviewing…" spinner only applies to the current upload (tray-level).
+    if (_uploadingSlug === slug && !docId) {
       return '<div class="ai-block pending">' +
         '<div class="ai-head">' +
           '<span class="ai-label pending"><span class="ai-spinner"></span> AI is reviewing this document…</span>' +
@@ -1327,34 +1366,36 @@
         '<div class="ai-summary">This usually takes 5–15 seconds. The verdict is advisory — you still confirm with Approve / Flag / N/A.</div>' +
       '</div>';
     }
-    if (!d.aiVerdict) {
-      if (d.aiError) {
-        // Deploy 236.166 — "Retry AI Review" button. Visible whenever
-        // the helper errored (Anthropic 400/500/timeout). Also
-        // appears at the bottom of the AI block on successful runs
-        // (below) so the LO can re-run after tweaking processor
-        // notes or replacing the doc.
+    if (!src.aiVerdict) {
+      if (src.aiError) {
         return '<div class="ai-block issues">' +
           '<div class="ai-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
             '<span class="ai-label issues">⚠ AI review failed</span>' +
-            '<button class="small-btn" onclick="dr_retryAi(\'' + escAttr(slug) + '\', this)" title="Re-run the AI against this document">↻ Retry AI Review</button>' +
+            '<button class="small-btn" onclick="dr_retryAi(' + _retryArgs + ')" title="Re-run the AI against this document">↻ Retry AI Review</button>' +
           '</div>' +
-          '<div class="ai-summary">' + escHtml(d.aiNotes || 'No details.') + '</div>' +
+          '<div class="ai-summary">' + escHtml(src.aiNotes || 'No details.') + '</div>' +
+        '</div>';
+      }
+      // Nothing reviewed yet for this doc — offer a Review button when it's a
+      // per-doc block (so a not-yet-reviewed 2nd doc can be reviewed on demand).
+      if (docId) {
+        return '<div class="ai-block pending">' +
+          '<div class="ai-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
+            '<span class="ai-label pending">Not yet reviewed</span>' +
+            '<button class="small-btn" onclick="dr_retryAi(' + _retryArgs + ')" title="Run the AI against this document">↻ Review this doc</button>' +
+          '</div>' +
         '</div>';
       }
       return '';
     }
-    // Deploy 236.590 — 'needs_manual_review' (no rubric to verify against, or a
-    // non-AI-reviewable file type) renders YELLOW ("pending" palette) with a
-    // manual-review label, NOT green "looks good" and NOT red "issues".
+    // 'needs_manual_review' renders YELLOW ("pending"), approved GREEN, else RED.
     var cls, icon;
-    if (d.aiVerdict === 'approved') { cls = 'approved'; icon = '✓ AI verdict: looks good'; }
-    else if (d.aiVerdict === 'needs_manual_review') { cls = 'pending'; icon = '⚠ Needs manual review'; }
+    if (src.aiVerdict === 'approved') { cls = 'approved'; icon = '✓ AI verdict: looks good'; }
+    else if (src.aiVerdict === 'needs_manual_review') { cls = 'pending'; icon = '⚠ Needs manual review'; }
     else { cls = 'issues'; icon = '⚠ AI verdict: issues found'; }
-    var cost = d.aiCostCents ? '$' + (Number(d.aiCostCents) / 100).toFixed(4) : '';
     var findingsHtml = '';
-    if (Array.isArray(d.aiFindings) && d.aiFindings.length) {
-      findingsHtml = '<div class="ai-findings">' + d.aiFindings.map(function(f) {
+    if (Array.isArray(src.aiFindings) && src.aiFindings.length) {
+      findingsHtml = '<div class="ai-findings">' + src.aiFindings.map(function(f) {
         var st = f.status === 'met' ? 'met' : (f.status === 'not_met' ? 'not_met' : 'unclear');
         var ico = st === 'met' ? '✓' : (st === 'not_met' ? '✗' : '?');
         return '<div class="ai-finding ' + st + '">' +
@@ -1370,15 +1411,13 @@
       '<div class="ai-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
         '<span class="ai-label ' + cls + '">' + icon + '</span>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
-          (cost ? '<span class="ai-cost">' + cost + ' • ' + formatDate(d.aiReviewedAt) + '</span>' : '') +
-          // Deploy 236.166 — re-run on demand. Useful after the
-          // processor uploads notes or wants a fresh take.
-          '<button class="small-btn" onclick="dr_retryAi(\'' + escAttr(slug) + '\', this)" title="Re-run the AI against this document">↻ Retry</button>' +
+          (src.aiReviewedAt ? '<span class="ai-cost">' + formatDate(src.aiReviewedAt) + '</span>' : '') +
+          '<button class="small-btn" onclick="dr_retryAi(' + _retryArgs + ')" title="Re-run the AI against this document">↻ Retry</button>' +
         '</div>' +
       '</div>' +
-      (d.aiNotes ? '<div class="ai-summary">' + escHtml(d.aiNotes) + '</div>' : '') +
+      (src.aiNotes ? '<div class="ai-summary">' + escHtml(src.aiNotes) + '</div>' : '') +
       findingsHtml +
-      _integrityHtml(d) +
+      _integrityHtml(src) +
     '</div>';
   }
 
@@ -1611,16 +1650,24 @@
   // branch above) AND on every successful AI block as a "fresh
   // take" button. Updates the AI fields + the 236.165 date
   // badges on success.
-  global.dr_retryAi = function(slug, btn) {
+  // Deploy 236.689 — optional docId reviews a SPECIFIC document in the tray.
+  global.dr_retryAi = function(slug, btn, docId) {
     if (!_review || !_review.id) return;
     var originalHTML = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = 'Reviewing…'; }
-    global.SLA.LoanReviews.retryAi(_review.id, slug).then(function(r) {
+    global.SLA.LoanReviews.retryAi(_review.id, slug, docId).then(function(r) {
       _review = r.review || _review;
-      var v = (_review.docs[slug] && _review.docs[slug].aiVerdict) || '';
-      if (v === 'approved')    showToast('Re-reviewed — AI says looks good.', 'success');
-      else if (v === 'issues') showToast('Re-reviewed — AI flagged issues. See below.', 'info');
-      else                     showToast('Re-reviewed.', 'success');
+      // Report the reviewed doc's verdict (per-doc when a docId was given).
+      var ds = _review.docs[slug] || {};
+      var v = '';
+      if (docId && Array.isArray(ds.documents)) {
+        var de = ds.documents.find(function(x){ return x && x.docId === docId; });
+        v = (de && de.aiVerdict) || '';
+      } else { v = ds.aiVerdict || ''; }
+      if (v === 'approved')                 showToast('Re-reviewed — AI says looks good.', 'success');
+      else if (v === 'issues')              showToast('Re-reviewed — AI flagged issues. See below.', 'info');
+      else if (v === 'needs_manual_review') showToast('Re-reviewed — manual review required.', 'info');
+      else                                  showToast('Re-reviewed.', 'success');
       render();
     }).catch(function(err) {
       if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }

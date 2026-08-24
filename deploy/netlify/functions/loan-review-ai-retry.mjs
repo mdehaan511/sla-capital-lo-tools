@@ -64,13 +64,27 @@ async function handle(req, context) {
   if (!docState) return json(400, { error: 'slug not on this review' });
   if (!docState.currentDocId) return json(400, { error: 'No document uploaded for this tray yet' });
 
+  // Deploy 236.689 — review a SPECIFIC document when body.docId is given, so a
+  // tray holding multiple docs (e.g. two people's IDs) can be reviewed one at a
+  // time. Without docId, review the tray's current (primary) doc as before.
+  const _liveEntries = Array.isArray(docState.documents) ? docState.documents.filter((d) => d && !d.hidden) : [];
+  let targetDocId = docState.currentDocId;
+  let targetEntry = _liveEntries.find((d) => d.docId === docState.currentDocId) || null;
+  if (body.docId) {
+    const t = _liveEntries.find((d) => d.docId === String(body.docId));
+    if (!t) return json(400, { error: 'docId is not a live document on this tray' });
+    targetEntry = t;
+    targetDocId = t.docId;
+  }
+  const isCurrentTarget = (targetDocId === docState.currentDocId);
+
   // Fetch the doc bytes + mime from the blob store.
   const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
-  const blobKey = keySafe(body.reviewId) + '/' + keySafe(docState.currentDocId);
+  const blobKey = keySafe(body.reviewId) + '/' + keySafe(targetDocId);
   const r = await docsStore.getWithMetadata(blobKey, { type: 'arrayBuffer' });
   if (!r || !r.data) return json(404, { error: 'Document bytes not found in storage' });
   const bytes = Buffer.from(r.data);
-  const mimeType = (r.metadata && r.metadata.mimeType) || docState.currentMimeType || 'application/pdf';
+  const mimeType = (r.metadata && r.metadata.mimeType) || (targetEntry && targetEntry.mimeType) || docState.currentMimeType || 'application/pdf';
 
   // Resolve label + conditions. Standard checklist trays look up
   // via getChecklist(); custom trays carry their own label /
@@ -99,13 +113,9 @@ async function handle(req, context) {
   const _retryRubric = String((checklistEntry && checklistEntry.conditions) || (docState && docState.conditions) || '').trim();
   if (!_retryRubric) {
     const nrNow = new Date().toISOString();
-    docState.aiVerdict = 'needs_manual_review';
-    docState.aiNotes = 'No verification rubric is configured for this document type, so it could not be auto-reviewed — manual review required.';
-    docState.aiFindings = [];
-    docState.aiExtractedEntities = {};
-    docState.aiReviewedAt = nrNow;
-    docState.aiError = '';
-    docState.aiSkippedNoRubric = true;
+    const _nr = { aiVerdict: 'needs_manual_review', aiNotes: 'No verification rubric is configured for this document type, so it could not be auto-reviewed — manual review required.', aiFindings: [], aiExtractedEntities: {}, aiReviewedAt: nrNow, aiError: '', aiSkippedNoRubric: true };
+    Object.assign(docState, _nr);
+    if (targetEntry && targetEntry !== docState) Object.assign(targetEntry, _nr);
     await _saveReview(reviewStore, review, nrNow);
     return json(200, { ok: true, review });
   }
@@ -170,38 +180,41 @@ async function handle(req, context) {
     });
   } catch (e) {
     console.error('loan-review-ai-retry: AI review threw:', e && e.message);
-    docState.aiVerdict      = 'issues';
-    docState.aiNotes        = 'AI review threw an exception: ' + (e && e.message || 'unknown');
-    docState.aiFindings     = [];
-    docState.aiExtractedEntities = {};
-    docState.aiReviewedAt   = now;
-    docState.aiError        = (e && e.message) || 'unknown';
+    const _err = { aiVerdict: 'issues', aiNotes: 'AI review threw an exception: ' + (e && e.message || 'unknown'), aiFindings: [], aiExtractedEntities: {}, aiReviewedAt: now, aiError: (e && e.message) || 'unknown' };
+    if (targetEntry) Object.assign(targetEntry, _err);
+    if (isCurrentTarget) Object.assign(docState, _err);
     await _saveReview(reviewStore, review, now);
     return json(500, { error: 'AI review failed: ' + (e && e.message || 'unknown'), review });
   }
 
-  if (_runIntegrity) {
-    docState.integrity = mergeIntegrity(_forensics, aiResult.integrity);
-    docState.integrity.checkedAt = now;
-  }
-  docState.aiVerdict           = aiResult.verdict;
-  docState.aiNotes             = aiResult.summary;
-  docState.aiFindings          = aiResult.findings || [];
-  docState.aiExtractedEntities = aiResult.extractedEntities || {};
-  docState.aiReviewedAt        = now;
-  docState.aiError             = aiResult.error || '';
+  // Deploy 236.689 — write the result to the reviewed doc's OWN entry (always)
+  // and mirror to the tray level only when it's the current/primary doc.
+  const _integrity = _runIntegrity ? Object.assign(mergeIntegrity(_forensics, aiResult.integrity), { checkedAt: now }) : null;
+  const _ok = {
+    aiVerdict: aiResult.verdict,
+    aiNotes: aiResult.summary,
+    aiFindings: aiResult.findings || [],
+    aiExtractedEntities: aiResult.extractedEntities || {},
+    aiReviewedAt: now,
+    aiError: aiResult.error || '',
+  };
+  if (targetEntry) { Object.assign(targetEntry, _ok); if (_integrity) targetEntry.integrity = _integrity; }
+  if (isCurrentTarget) { Object.assign(docState, _ok); if (_integrity) docState.integrity = _integrity; }
   docState.aiCostCents         = Number(docState.aiCostCents || 0) + Number(aiResult.costCents || 0);
   review.aiCostCents           = Number(review.aiCostCents || 0) + Number(aiResult.costCents || 0);
 
-  // Promote 236.165 date fields when the retry returned them.
-  const ee = aiResult.extractedEntities || {};
-  if (typeof ee.documentDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ee.documentDate)) {
-    docState.documentDate = ee.documentDate;
+  // Promote 236.165 date fields when the retry returned them — only for the
+  // current/primary doc (the tray's stale-date badge reflects it).
+  if (isCurrentTarget) {
+    const ee = aiResult.extractedEntities || {};
+    if (typeof ee.documentDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ee.documentDate)) {
+      docState.documentDate = ee.documentDate;
+    }
+    if (typeof ee.expirationDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ee.expirationDate)) {
+      docState.expirationDate = ee.expirationDate;
+    }
+    if (typeof ee.dateNotes === 'string') docState.dateNotes = ee.dateNotes;
   }
-  if (typeof ee.expirationDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ee.expirationDate)) {
-    docState.expirationDate = ee.expirationDate;
-  }
-  if (typeof ee.dateNotes === 'string') docState.dateNotes = ee.dateNotes;
 
   await _saveReview(reviewStore, review, now);
   return json(200, { ok: true, review });

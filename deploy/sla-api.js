@@ -2698,9 +2698,11 @@
     },
     // Deploy 236.166 — re-run Claude vision against the tray's
     // current doc. Used by the per-tray "Retry AI Review" button.
-    retryAi: function (reviewId, slug) {
+    // Deploy 236.689 — optional docId reviews a SPECIFIC document in a tray
+    // (so a tray with multiple docs — e.g. two IDs — can be reviewed one each).
+    retryAi: function (reviewId, slug, docId) {
       return api('POST', '/api/loan-review-ai-retry', {
-        reviewId: reviewId, slug: slug,
+        reviewId: reviewId, slug: slug, docId: docId || undefined,
       });
     },
     // Deploy 236.675 — move a document from one tray to another (e.g. an

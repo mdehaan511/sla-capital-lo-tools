@@ -459,6 +459,21 @@ async function handle(req, context) {
     console.warn('loan-review-doc-upload: name finalize failed:', e && e.message);
   }
 
+  // Deploy 236.689 — mirror this document's AI result onto its OWN documents[]
+  // entry so a tray holding multiple docs (e.g. two people's IDs) keeps a
+  // per-document verdict, not just the last-reviewed one at the tray level. The
+  // tray-level docState.ai* stays as the "primary" (the most-recent upload).
+  const _uploadedEntry = (docState.documents || []).find((x) => x && x.docId === docId);
+  if (_uploadedEntry) {
+    _uploadedEntry.aiVerdict = docState.aiVerdict || '';
+    _uploadedEntry.aiNotes = docState.aiNotes || '';
+    _uploadedEntry.aiFindings = Array.isArray(docState.aiFindings) ? docState.aiFindings : [];
+    _uploadedEntry.aiExtractedEntities = docState.aiExtractedEntities || {};
+    _uploadedEntry.aiReviewedAt = docState.aiReviewedAt || '';
+    _uploadedEntry.aiError = docState.aiError || '';
+    if (docState.integrity) _uploadedEntry.integrity = docState.integrity;
+  }
+
   review.docs[body.slug] = docState;
   review.updatedAt = now;
   review.lastEditedBy = normalizeEmail(user.email);
