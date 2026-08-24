@@ -75,17 +75,23 @@
 
     <div class="breadcrumb"><a href="index.html">← Tools</a></div>
     <div class="page-title">Investor Underwriting Guidelines</div>
-    <div class="page-sub">Upload each investor's underwriting guidelines PDF here. The AI doc-review attaches the matching investor's guidelines on every Claude vision call so verdicts are judged against the actual investor rules — not just the per-doc checklist text. Anthropic prompt caching keeps the per-call cost low even on long guideline PDFs.</div>
+    <div class="page-sub">Upload underwriting guidelines PDFs here. On every doc review the AI attaches the guidelines for that loan's <strong>program</strong> first — <em>All RTL loans</em> or <em>All DSCR loans</em>, so they apply to EVERY loan of that type regardless of which investor funds it — and falls back to an investor-specific PDF only if no program-level one exists. Anthropic prompt caching keeps the per-call cost low even on long guideline PDFs.</div>
 
     <div class="card">
       <h3>Upload / Replace</h3>
       <div class="form-row">
-        <label for="investorSel">Investor</label>
+        <label for="investorSel">Program / Investor</label>
         <select id="investorSel">
-          <option value="diya">Diya (DSCR default)</option>
-          <option value="colchis">Colchis (RTL default)</option>
-          <option value="corrfirst">CorrFirst</option>
-          <option value="other">— Other (type below) —</option>
+          <optgroup label="Loan program (applies to ALL loans of that type)">
+            <option value="rtl">All RTL loans</option>
+            <option value="dscr">All DSCR loans</option>
+          </optgroup>
+          <optgroup label="Investor-specific (fallback only)">
+            <option value="diya">Diya</option>
+            <option value="colchis">Colchis</option>
+            <option value="corrfirst">CorrFirst</option>
+            <option value="other">— Other (type below) —</option>
+          </optgroup>
         </select>
       </div>
       <div class="form-row" id="otherRow" style="display:none">

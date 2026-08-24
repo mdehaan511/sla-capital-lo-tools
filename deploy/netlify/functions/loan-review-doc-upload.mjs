@@ -270,14 +270,25 @@ async function handle(req, context) {
   // calls in the same 5-min window only pay ~10% of the guidelines
   // input cost. Failure to fetch is non-fatal — review still runs
   // against the per-doc rubric alone.
+  // Deploy 236.683 — attach guidelines by loan PROGRAM first (loanType, e.g.
+  // 'rtl' / 'dscr') so a program's underwriting guidelines govern EVERY loan of
+  // that type regardless of which investor funds it, then fall back to an
+  // investor-specific PDF. Mike: multiple investors fund RTLs, so the RTL
+  // guidelines must review ALL RTLs — not just Colchis-funded ones.
   let guidelinesBytes = null;
-  if (review.investor) {
-    try {
-      const guidelinesStore = getStore({ name: 'loan-review-guidelines', consistency: 'eventual' });
-      const g = await guidelinesStore.get(String(review.investor).toLowerCase().trim(), { type: 'arrayBuffer' });
-      if (g) guidelinesBytes = Buffer.from(g);
-    } catch (e) {
-      console.warn('loan-review-doc-upload: guidelines fetch failed:', e && e.message);
+  {
+    const guidelinesStore = getStore({ name: 'loan-review-guidelines', consistency: 'eventual' });
+    const gKeys = [];
+    if (review.loanType) gKeys.push(String(review.loanType).toLowerCase().trim());
+    if (review.investor) gKeys.push(String(review.investor).toLowerCase().trim());
+    for (const k of gKeys) {
+      if (!k) continue;
+      try {
+        const g = await guidelinesStore.get(k, { type: 'arrayBuffer' });
+        if (g) { guidelinesBytes = Buffer.from(g); break; }
+      } catch (e) {
+        console.warn('loan-review-doc-upload: guidelines fetch failed for ' + k + ':', e && e.message);
+      }
     }
   }
   // Deploy 236.78 — also attach the signed Loan Application PDF as

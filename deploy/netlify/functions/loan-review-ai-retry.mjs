@@ -111,14 +111,23 @@ async function handle(req, context) {
   }
 
   // Optional context PDFs (same lookups the upload flow does).
+  // Deploy 236.683 — attach guidelines by loan PROGRAM first (loanType), then
+  // investor, so RTL guidelines review ALL RTLs regardless of investor (parity
+  // with loan-review-doc-upload).
   let guidelinesBytes = null;
-  if (review.investor) {
-    try {
-      const guidelinesStore = getStore({ name: 'loan-review-guidelines', consistency: 'eventual' });
-      const g = await guidelinesStore.get(String(review.investor).toLowerCase().trim(), { type: 'arrayBuffer' });
-      if (g) guidelinesBytes = Buffer.from(g);
-    } catch (e) {
-      console.warn('loan-review-ai-retry: guidelines fetch failed:', e && e.message);
+  {
+    const guidelinesStore = getStore({ name: 'loan-review-guidelines', consistency: 'eventual' });
+    const gKeys = [];
+    if (review.loanType) gKeys.push(String(review.loanType).toLowerCase().trim());
+    if (review.investor) gKeys.push(String(review.investor).toLowerCase().trim());
+    for (const k of gKeys) {
+      if (!k) continue;
+      try {
+        const g = await guidelinesStore.get(k, { type: 'arrayBuffer' });
+        if (g) { guidelinesBytes = Buffer.from(g); break; }
+      } catch (e) {
+        console.warn('loan-review-ai-retry: guidelines fetch failed for ' + k + ':', e && e.message);
+      }
     }
   }
   let loanAppBytes = null;
