@@ -1855,30 +1855,48 @@
     var fromLbl = document.getElementById('dr-moveFromLabel');
     if (fromLbl) fromLbl.textContent = (fromMeta.label || fromSlug);
 
-    var std = [], cust = [];
-    Object.keys(_review.docs).forEach(function(s) {
+    // Destinations: EVERY standard category (from DOC_META, grouped by section) so
+    // a mis-bucketed doc can be filed anywhere — even a category not on this loan's
+    // own checklist (the backend creates it with the right rubric). Plus the
+    // review's existing custom/"Other" trays. Excludes the source + hidden trays.
+    var SEC_LABELS = { borrower: 'Borrower', guarantor: 'Guarantor', collateral: 'Collateral', loan: 'Loan', closing: 'Closing' };
+    var SEC_ORDER = ['borrower', 'guarantor', 'collateral', 'loan', 'closing'];
+    var stdBySec = {}, cust = [];
+    // Standard categories from the client checklist mirror.
+    Object.keys(DOC_META).forEach(function(s) {
       if (s === fromSlug) return;
-      var dd = _review.docs[s] || {};
-      if (dd.hidden) return;            // don't offer hidden trays as a target
-      var lbl = (DOC_META[s] && DOC_META[s].label) || dd.label || s;
-      (_isOtherSlug(s) ? cust : std).push({ slug: s, label: lbl });
+      var onReview = _review.docs[s];
+      if (onReview && onReview.hidden) return;         // hidden on this review — skip
+      var m = DOC_META[s];
+      var sec = (m && m.section) || 'loan';
+      (stdBySec[sec] = stdBySec[sec] || []).push({ slug: s, label: (m && m.label) || s });
     });
-    std.sort(function(a, b) { return a.label.localeCompare(b.label); });
+    // Existing custom trays on the review (not in DOC_META).
+    Object.keys(_review.docs).forEach(function(s) {
+      if (s === fromSlug || DOC_META[s]) return;
+      var dd = _review.docs[s] || {};
+      if (dd.hidden || !_isOtherSlug(s)) return;
+      cust.push({ slug: s, label: dd.label || s });
+    });
+    Object.keys(stdBySec).forEach(function(k) { stdBySec[k].sort(function(a, b) { return a.label.localeCompare(b.label); }); });
     cust.sort(function(a, b) { return a.label.localeCompare(b.label); });
 
     var sel = document.getElementById('dr-moveTarget');
     if (sel) {
       var html = '';
-      if (!std.length && !cust.length) {
+      var anyStd = SEC_ORDER.some(function(k) { return (stdBySec[k] || []).length; });
+      if (!anyStd && !cust.length) {
         html = '<option value="">No other categories available</option>';
       } else {
-        if (std.length) {
-          html += '<optgroup label="Standard categories">';
-          std.forEach(function(o) { html += '<option value="' + escAttr(o.slug) + '">' + escHtml(o.label) + '</option>'; });
+        SEC_ORDER.forEach(function(k) {
+          var list = stdBySec[k] || [];
+          if (!list.length) return;
+          html += '<optgroup label="' + escAttr(SEC_LABELS[k] || k) + '">';
+          list.forEach(function(o) { html += '<option value="' + escAttr(o.slug) + '">' + escHtml(o.label) + '</option>'; });
           html += '</optgroup>';
-        }
+        });
         if (cust.length) {
-          html += '<optgroup label="Custom / Other">';
+          html += '<optgroup label="Custom / Other (on this review)">';
           cust.forEach(function(o) { html += '<option value="' + escAttr(o.slug) + '">' + escHtml(o.label) + '</option>'; });
           html += '</optgroup>';
         }

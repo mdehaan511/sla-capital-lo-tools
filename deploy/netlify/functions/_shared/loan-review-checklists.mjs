@@ -274,3 +274,15 @@ export function getDefaultInvestor(loanType) {
   if (t === 'rtl')  return 'colchis';
   return '';
 }
+
+// Deploy 236.678 — resolve a STANDARD category definition by slug across ALL
+// loan types (union of DSCR + RTL). Used by the doc-move endpoint so a processor
+// can file a mis-bucketed doc into any standard category (with its real rubric)
+// even when that category isn't part of the loan's own checklist — e.g. moving a
+// lease agreement into "Lease Agreements" on an RTL loan. DSCR wins on slug
+// collisions (its rubric text is the fuller of the two).
+export function findCategory(slug) {
+  const s = String(slug || '');
+  if (!s) return null;
+  return DSCR_DOCS.find((d) => d.slug === s) || RTL_DOCS.find((d) => d.slug === s) || null;
+}

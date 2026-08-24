@@ -34,7 +34,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
 } from './_shared/auth.mjs';
-import { getChecklist } from './_shared/loan-review-checklists.mjs';
+import { getChecklist, findCategory } from './_shared/loan-review-checklists.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -98,11 +98,15 @@ async function handle(req, context) {
   const moving = _liveDocs(from);
   if (!moving.length) return json(400, { error: 'No document to move on the source tray' });
 
-  // Resolve (or create) the destination tray.
+  // Resolve (or create) the destination tray. Prefer the loan's own checklist,
+  // but fall back to the GLOBAL standard-category set so a processor can file a
+  // doc into any standard bucket (e.g. Lease Agreements on an RTL loan) and it
+  // still carries the right rubric. Deploy 236.678.
   let to = review.docs[body.toSlug];
   if (!to) {
-    const entry = getChecklist(review.loanType || '').find((d) => d.slug === body.toSlug);
-    if (!entry) return json(400, { error: 'Destination category not found for this loan type' });
+    const entry = getChecklist(review.loanType || '').find((d) => d.slug === body.toSlug)
+      || findCategory(body.toSlug);
+    if (!entry) return json(400, { error: 'Destination category not found' });
     to = review.docs[body.toSlug] = {
       slug:       body.toSlug,
       section:    entry.section || 'loan',
