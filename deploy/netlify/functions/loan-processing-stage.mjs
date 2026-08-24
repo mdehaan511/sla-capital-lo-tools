@@ -30,6 +30,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
+import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 
 const VALID_STAGES = ['', 'new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
 
@@ -139,11 +140,13 @@ async function handle(req, context) {
   //     authoritative for those.
   const priorStatus = String(loan.status || '');
   let statusChanged = false;
+  let freshlyClosed = false; // Deploy 236.694 — drives the LO congrats email
   if (newStage === 'pp_closed' && priorStatus !== 'closed') {
     loan.status = 'closed';
     loan.closedAt = loan.closedAt || new Date().toISOString();
     loan.closedBy = loan.closedBy || (user.email || '');
     statusChanged = true;
+    freshlyClosed = true;
   } else if (priorStage === 'pp_closed' && newStage !== 'pp_closed'
              && priorStatus === 'closed' && !loan.finalLoanAmount) {
     loan.status = 'approved';
@@ -215,6 +218,13 @@ async function handle(req, context) {
   // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.694 — congratulate the LO when their loan just closed. Best-effort
+  // (after the durable write, never blocks the response).
+  if (freshlyClosed) {
+    try { await notifyLoLoanClosed({ ownerKey, loan }); }
+    catch (e) { console.warn('loan-processing-stage: closed-congrats email failed:', e && e.message); }
+  }
 
   // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
   // loans (D2), so store copies no longer need freshening.

@@ -31,6 +31,7 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 // Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
 // advances a loan to approved (the safety-valve path for when the
 // borrower-info auto-advance silently bailed). Same helper as
@@ -167,6 +168,16 @@ async function handle(req, context) {
 
   // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
   // loans (D2), so store copies no longer need freshening.
+
+  // Deploy 236.694 — congratulate the LO when their loan just closed. Fresh-close
+  // only (prevStatus !== 'closed') so a re-save can't re-send; best-effort.
+  if (body.newStatus === 'closed' && prevStatus !== 'closed') {
+    try {
+      await notifyLoLoanClosed({ ownerKey, loan: targetLoan });
+    } catch (e) {
+      console.warn('loan-advance-status: closed-congrats email failed:', e && e.message);
+    }
+  }
 
   // Deploy 236.311 — fire a Slack notification when a loan enters the
   // Processing Pipeline via 'submitted'. Non-blocking: any failure is

@@ -123,6 +123,71 @@ export async function markBorrowerSendNotified(emailId) {
   }
 }
 
+// Deploy 236.694 — congratulate the loan officer (the loan's owner) when their
+// loan closes. Called from the two close paths (loan-processing-stage → pp_closed,
+// loan-advance-status → status 'closed') on the TRANSITION into closed only, so it
+// fires once per close and never on a re-save of an already-closed loan.
+// Best-effort — a failed email must never block the close.
+export async function notifyLoLoanClosed({ ownerKey, loan }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) { console.warn('notifyLoLoanClosed: RESEND_API_KEY not configured'); return false; }
+  const loEmail = await resolveOwnerEmail({ ownerKey });
+  if (!loEmail) { console.warn('notifyLoLoanClosed: no LO email for', ownerKey); return false; }
+
+  const address = String((loan && loan.address) || '').trim();
+  const amtNum = Number((loan && (loan.finalLoanAmount || loan.loanAmt)) || 0);
+  const amt = amtNum ? '$' + amtNum.toLocaleString('en-US') : '';
+  const escH = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const subject = '🎉 Congratulations — a loan just closed!' + (address ? ' (' + address + ')' : '');
+  const text = [
+    'Congratulations! 🎉',
+    '',
+    'Your loan' + (address ? ' at ' + address : '') + ' has officially closed.' + (amt ? '  (' + amt + ')' : ''),
+    '',
+    'Nice work getting this one across the finish line.',
+    '',
+    'SLA Capital',
+  ].join('\n');
+  const html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+    '<div style="max-width:620px;margin:0 auto;font-family:Georgia,serif">' +
+      '<div style="background:#261A36;padding:24px">' +
+        '<h1 style="color:#C8813A;margin:0;font-size:18px">🎉 Congratulations — Your Loan Closed!</h1>' +
+      '</div>' +
+      '<div style="padding:24px;color:#1A1520">' +
+        '<p style="font-size:15px;line-height:1.6">Congratulations! Your loan' +
+          (address ? ' at <strong>' + escH(address) + '</strong>' : '') +
+          ' has officially <strong>closed</strong>' + (amt ? ' — ' + escH(amt) : '') + '.</p>' +
+        '<p style="font-size:14px;line-height:1.6;color:#7A7488">Nice work getting this one across the finish line. 🏁</p>' +
+        '<p style="font-size:12px;color:#7A7488;margin-top:24px">Sir Lends A Lot LLC dba SLA Capital.</p>' +
+      '</div>' +
+    '</div>' +
+    '</body></html>';
+
+  try {
+    const replyTo = await getOwnerReplyTo(ownerKey);
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'SLA Capital <noreply@leads.slacapital.com>',
+        to: [loEmail], subject, text, html,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      console.warn('notifyLoLoanClosed: Resend ' + resp.status, t.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('notifyLoLoanClosed: fetch threw:', e && e.message);
+    return false;
+  }
+}
+
 export async function getOwnerReplyTo(ownerKey) {
   if (!ownerKey) return null;
   try {
