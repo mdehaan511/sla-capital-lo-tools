@@ -300,6 +300,24 @@
     </div>
   </div>
 
+  <!-- Deploy 236.686 — confirm-before-close modal. Moving a loan to Closed is a
+       terminal step, so require an explicit confirmation + attest the loan info
+       was verified. Reuses .ss-bg / .ss-modal. -->
+  <div class="ss-bg" id="closeConfirmBg">
+    <div class="ss-modal" style="max-width:460px">
+      <h3>🏁 Move loan to Closed?</h3>
+      <p class="ss-sub" id="closeConfirmSub">This moves the loan into the Closed pipeline and off the active board.</p>
+      <label style="display:flex;align-items:flex-start;gap:10px;margin:16px 0 4px;font-size:13.5px;line-height:1.5;cursor:pointer">
+        <input type="checkbox" id="closeConfirmVerified" onchange="_closeConfirmToggle()" style="margin-top:2px;width:16px;height:16px;flex:0 0 auto;cursor:pointer" />
+        <span>I have verified that <strong>all of the loan information is correct</strong>.</span>
+      </label>
+      <div class="ss-actions">
+        <button type="button" class="ss-btn" onclick="closeCloseConfirm()">Cancel</button>
+        <button type="button" class="ss-btn primary" id="closeConfirmBtn" onclick="confirmCloseLoan()" disabled>Move to Closed</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 'use strict';
 
@@ -1180,9 +1198,59 @@ function _dropBarKeyParts(loanKey) {
   return { clientId: parts[0], loanId: parts[1], owner: (owner && owner !== selfKey) ? owner : undefined };
 }
 
-// Closed — reuse the stage endpoint (pp_closed sets status=closed and moves the
-// loan into the Closed Pipeline; it drops off the active board via columnFor).
+// Closed — Deploy 236.686: confirm first (moving to Closed is terminal, and we
+// want the user to attest they verified the loan info). The actual stage write
+// happens in _doCloseLoan once they confirm.
 function dropBarClose(loanKey) {
+  openCloseConfirm(loanKey);
+}
+
+var _closePendingKey = null;
+function openCloseConfirm(loanKey) {
+  if (!loanKey) return;
+  _closePendingKey = loanKey;
+  var cb = document.getElementById('closeConfirmVerified'); if (cb) cb.checked = false;
+  var btn = document.getElementById('closeConfirmBtn'); if (btn) btn.disabled = true;
+  var sub = document.getElementById('closeConfirmSub');
+  if (sub) {
+    var addr = _loanAddrForKey(loanKey);
+    sub.innerHTML = (addr ? '<strong>' + escH(addr) + '</strong><br>' : '') +
+      'This moves the loan into the Closed pipeline and off the active board.';
+  }
+  var bg = document.getElementById('closeConfirmBg'); if (bg) bg.classList.add('show');
+}
+function closeCloseConfirm() {
+  _closePendingKey = null;
+  var bg = document.getElementById('closeConfirmBg'); if (bg) bg.classList.remove('show');
+}
+function _closeConfirmToggle() {
+  var cb = document.getElementById('closeConfirmVerified');
+  var btn = document.getElementById('closeConfirmBtn');
+  if (btn) btn.disabled = !(cb && cb.checked);
+}
+function confirmCloseLoan() {
+  var cb = document.getElementById('closeConfirmVerified');
+  if (!cb || !cb.checked) return; // gate on the attestation
+  var key = _closePendingKey;
+  closeCloseConfirm();
+  if (key) _doCloseLoan(key);
+}
+function _loanAddrForKey(loanKey) {
+  try {
+    var loanId = String(loanKey).split('|')[1];
+    var cols = ['new_loan', 'processing', 'underwriting', 'pp_approved', 'pp_closed'];
+    for (var c = 0; c < cols.length; c++) {
+      var arr = _items[cols[c]] || [];
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i].loan && String(arr[i].loan.id) === loanId) return arr[i].loan.address || '';
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+// reuse the stage endpoint (pp_closed sets status=closed and moves the loan into
+// the Closed Pipeline; it drops off the active board via columnFor).
+function _doCloseLoan(loanKey) {
   var p = _dropBarKeyParts(loanKey); if (!p) return;
   var body = { clientId: p.clientId, loanId: p.loanId, newStage: 'pp_closed' };
   if (p.owner) body.owner = p.owner;

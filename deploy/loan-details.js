@@ -7033,36 +7033,78 @@ function adminMoveStatus() {
     openBrokerBorrowerCaptureModal(function onCaptured() { adminMoveStatus(); });
     return;
   }
-  if (!confirm('Manually move this loan to "' + human + '"?\n\nThis bypasses the normal flow. The change will be visible in the Notes audit log.')) { sel.value = ''; return; }
+  function doMove() {
+    _say('Moving…', false);
+    var body = { clientId: _client.id, loanId: _loanId, newStatus: target };
+    if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
 
-  _say('Moving…', false);
-  var body = { clientId: _client.id, loanId: _loanId, newStatus: target };
-  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
-
-  SLA.getToken().then(function(token) {
-    return fetch('/api/loan-advance-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify(body),
-    });
-  })
-  .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
-  .then(function(resp) {
-    if (!resp.ok || !resp.body.success) {
-      var emsg = (resp.body && resp.body.error) || ('Request failed (' + resp.status + ')');
-      _say('Failed: ' + emsg, true);
+    SLA.getToken().then(function(token) {
+      return fetch('/api/loan-advance-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify(body),
+      });
+    })
+    .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
+    .then(function(resp) {
+      if (!resp.ok || !resp.body.success) {
+        var emsg = (resp.body && resp.body.error) || ('Request failed (' + resp.status + ')');
+        _say('Failed: ' + emsg, true);
+        if (sel) sel.value = '';
+        return;
+      }
+      showToast('Status moved to ' + human);
+      // Reload the page to re-render with the new status — easier than
+      // hand-patching every status-dependent block on the page.
+      setTimeout(function(){ window.location.reload(); }, 600);
+    })
+    .catch(function(err) {
+      _say('Failed: ' + (err.message || 'unknown'), true);
       if (sel) sel.value = '';
-      return;
-    }
-    showToast('Status moved to ' + human);
-    // Reload the page to re-render with the new status — easier than
-    // hand-patching every status-dependent block on the page.
-    setTimeout(function(){ window.location.reload(); }, 600);
-  })
-  .catch(function(err) {
-    _say('Failed: ' + (err.message || 'unknown'), true);
-    if (sel) sel.value = '';
-  });
+    });
+  }
+
+  // Deploy 236.686 — closing is terminal, so require an explicit "I verified the
+  // loan info is correct" attestation via a modal (parity with the Processing
+  // Pipeline drag-to-Closed flow) instead of a bare confirm.
+  if (target === 'closed') {
+    _openCloseVerifyModal((_loan && _loan.address) || '', doMove, function(){ if (sel) sel.value = ''; });
+    return;
+  }
+  if (!confirm('Manually move this loan to "' + human + '"?\n\nThis bypasses the normal flow. The change will be visible in the Notes audit log.')) { sel.value = ''; return; }
+  doMove();
+}
+
+// Deploy 236.686 — shared close-confirmation modal (self-contained; no static
+// markup needed). Requires the user to attest the loan info is verified before
+// the "Move to Closed" button enables. onConfirm fires on confirm; onCancel on
+// cancel / backdrop click / X.
+function _openCloseVerifyModal(address, onConfirm, onCancel) {
+  var _e = function(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var bg = document.createElement('div');
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(38,26,54,0.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem';
+  bg.innerHTML =
+    '<div style="background:#fff;border-radius:12px;padding:24px;max-width:460px;width:100%;font-family:DM Sans,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,0.3)">' +
+      '<h3 style="margin:0 0 8px;font-size:16px;color:#1a1520">🏁 Move loan to Closed?</h3>' +
+      '<p style="font-size:13px;color:#7a7488;line-height:1.5;margin:0 0 4px">' +
+        (address ? '<strong style="color:#1a1520">' + _e(address) + '</strong><br>' : '') +
+        'This marks the loan Closed and moves it into the Closed pipeline.</p>' +
+      '<label style="display:flex;align-items:flex-start;gap:10px;margin:16px 0 4px;font-size:13.5px;line-height:1.5;cursor:pointer;color:#1a1520">' +
+        '<input type="checkbox" id="_cvChk" style="margin-top:2px;width:16px;height:16px;flex:0 0 auto;cursor:pointer" />' +
+        '<span>I have verified that <strong>all of the loan information is correct</strong>.</span></label>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">' +
+        '<button type="button" id="_cvCancel" style="padding:9px 16px;font-size:13px;font-weight:600;border:1px solid #ddd8d0;background:#fff;border-radius:8px;cursor:pointer;font-family:DM Sans,sans-serif">Cancel</button>' +
+        '<button type="button" id="_cvOk" disabled style="padding:9px 16px;font-size:13px;font-weight:600;border:none;background:#C8813A;color:#fff;border-radius:8px;cursor:not-allowed;opacity:0.5;font-family:DM Sans,sans-serif">Move to Closed</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(bg);
+  function close() { if (bg.parentNode) bg.parentNode.removeChild(bg); }
+  var chk = bg.querySelector('#_cvChk');
+  var ok = bg.querySelector('#_cvOk');
+  chk.addEventListener('change', function(){ ok.disabled = !chk.checked; ok.style.opacity = chk.checked ? '1' : '0.5'; ok.style.cursor = chk.checked ? 'pointer' : 'not-allowed'; });
+  bg.querySelector('#_cvCancel').addEventListener('click', function(){ close(); if (onCancel) onCancel(); });
+  ok.addEventListener('click', function(){ if (!chk.checked) return; close(); if (onConfirm) onConfirm(); });
+  bg.addEventListener('click', function(e){ if (e.target === bg) { close(); if (onCancel) onCancel(); } });
 }
 
 // ── Cancel Loan / Restore Cancelled Loan ──────────────────────────
