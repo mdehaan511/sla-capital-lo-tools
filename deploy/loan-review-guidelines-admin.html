@@ -146,7 +146,7 @@ function loadList() {
           '<td class="meta">' + kb.toLocaleString() + ' KB</td>' +
           '<td class="meta">' + esc(formatDate(row.uploadedAt)) + (row.uploadedBy ? '<br>by ' + esc(row.uploadedBy.replace(/@.*$/, '')) : '') + '</td>' +
           '<td class="actions">' +
-            '<a class="small-btn" target="_blank" href="/api/loan-review-guidelines-get?investor=' + encodeURIComponent(row.investor) + '">View</a> ' +
+            '<button class="small-btn" onclick="viewGuidelines(\'' + escAttr(row.investor) + '\')">View</button> ' +
             '<button class="small-btn danger" onclick="doDelete(\'' + escAttr(row.investor) + '\')">Delete</button>' +
           '</td>' +
         '</tr>';
@@ -154,6 +154,32 @@ function loadList() {
       '</tbody></table>';
   }).catch(function(err) {
     c.innerHTML = '<div class="empty">Failed to load: ' + esc(err.message || 'Unknown') + '</div>';
+  });
+}
+
+// Deploy 236.682 — /api/loan-review-guidelines-get is bearer-auth-gated, so a
+// plain <a href target=_blank> View link 401'd ("Not authenticated"). Fetch the
+// PDF WITH the JWT and open it as a blob (mirrors the doc-review viewer). Open a
+// blank tab synchronously first so the popup blocker doesn't eat it.
+function viewGuidelines(investor) {
+  var win = window.open('', '_blank');
+  if (win) { try { win.document.write('Loading guidelines…'); } catch (e) {} }
+  var tok = (window.SLA && SLA.getToken) ? SLA.getToken() : Promise.resolve('');
+  tok.then(function(token) {
+    if (!token) { if (win) win.close(); showToast('Not signed in.', 'error'); return; }
+    return fetch('/api/loan-review-guidelines-get?investor=' + encodeURIComponent(investor), {
+      headers: { 'Authorization': 'Bearer ' + token }
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.blob();
+    }).then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      if (win) win.location = url; else window.open(url, '_blank');
+      setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+    });
+  }).catch(function(err) {
+    if (win) win.close();
+    showToast('View failed: ' + (err.message || 'Unknown'), 'error');
   });
 }
 
