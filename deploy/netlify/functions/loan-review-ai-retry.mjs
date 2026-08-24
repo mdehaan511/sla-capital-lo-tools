@@ -90,7 +90,13 @@ async function handle(req, context) {
   // rubric (custom / "Other" tray) has nothing to verify against, so flag it for
   // manual review (yellow) instead of running the AI against empty criteria and
   // trusting an "approved". Short-circuits before the expensive context fetches.
-  const _retryRubric = String((checklistEntry && checklistEntry.conditions) || '').trim();
+  // Deploy 236.680 — fall back to the tray's OWN stored conditions, not just the
+  // loan-type checklist entry. A doc moved into a category that isn't on this
+  // loan's checklist (e.g. Lease Agreements filed onto an RTL loan via
+  // loan-review-doc-move → findCategory) carries its rubric on docState.conditions;
+  // without this fallback the retry wrongly short-circuited to "no rubric". Parity
+  // with the upload path's _rubric resolution.
+  const _retryRubric = String((checklistEntry && checklistEntry.conditions) || (docState && docState.conditions) || '').trim();
   if (!_retryRubric) {
     const nrNow = new Date().toISOString();
     docState.aiVerdict = 'needs_manual_review';
