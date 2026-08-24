@@ -2711,6 +2711,11 @@
         reviewId: reviewId, fromSlug: fromSlug, toSlug: toSlug,
       });
     },
+    // Deploy 236.677 — backfill standard checklist categories missing from an
+    // existing review (self-heal for reviews created before a category existed).
+    syncCategories: function (reviewId) {
+      return api('POST', '/api/loan-review-sync-categories', { reviewId: reviewId });
+    },
     docUrl: function (reviewId, docId) {
       return '/api/loan-review-doc-get?reviewId=' + encodeURIComponent(reviewId)
            + '&docId=' + encodeURIComponent(docId);

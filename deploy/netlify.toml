@@ -1016,6 +1016,13 @@
   to = "/.netlify/functions/loan-review-doc-move"
   status = 200
   force = true
+# Deploy 236.677 — backfill missing standard checklist categories onto an
+# existing review (self-heal reviews created before a category was added).
+[[redirects]]
+  from = "/api/loan-review-sync-categories"
+  to = "/.netlify/functions/loan-review-sync-categories"
+  status = 200
+  force = true
 # Deploy 236.167 — LO leaderboard for the redesigned home page.
 [[redirects]]
   from = "/api/leaderboard"

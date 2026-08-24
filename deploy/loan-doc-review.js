@@ -553,6 +553,18 @@
     global.SLA.LoanReviews.get(_opts.reviewId).then(function(r) {
       _review = r.review;
       render();
+      // Deploy 236.677 — self-heal: backfill any standard checklist categories
+      // this review is missing (created before the category existed). Runs after
+      // the first paint so it never delays load; re-renders only if it added
+      // trays. Idempotent + processor-gated — a non-processor viewer just skips it.
+      if (global.SLA.LoanReviews.syncCategories) {
+        global.SLA.LoanReviews.syncCategories(_opts.reviewId).then(function(sr) {
+          if (sr && sr.review && sr.added && sr.added.length) {
+            _review = sr.review;
+            render();
+          }
+        }).catch(function() { /* non-fatal — page already rendered */ });
+      }
     }).catch(function(err) {
       _root.innerHTML = '<div class="loading-page">Failed to load: ' + escHtml(err.message || 'Unknown error') + '</div>';
     });
