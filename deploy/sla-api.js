@@ -2703,6 +2703,14 @@
         reviewId: reviewId, slug: slug,
       });
     },
+    // Deploy 236.675 — move a document from one tray to another (e.g. an
+    // "Other" tray → the correct standard category) so it can be reviewed
+    // against the destination rubric. The caller follows with retryAi(toSlug).
+    moveDoc: function (reviewId, fromSlug, toSlug) {
+      return api('POST', '/api/loan-review-doc-move', {
+        reviewId: reviewId, fromSlug: fromSlug, toSlug: toSlug,
+      });
+    },
     docUrl: function (reviewId, docId) {
       return '/api/loan-review-doc-get?reviewId=' + encodeURIComponent(reviewId)
            + '&docId=' + encodeURIComponent(docId);

@@ -1009,6 +1009,13 @@
   to = "/.netlify/functions/loan-review-ai-retry"
   status = 200
   force = true
+# Deploy 236.675 — move a document from one tray (e.g. "Other") to another
+# so it can be reviewed against the destination category's rubric.
+[[redirects]]
+  from = "/api/loan-review-doc-move"
+  to = "/.netlify/functions/loan-review-doc-move"
+  status = 200
+  force = true
 # Deploy 236.167 — LO leaderboard for the redesigned home page.
 [[redirects]]
   from = "/api/leaderboard"

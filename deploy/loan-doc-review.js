@@ -461,6 +461,17 @@
           '<button class="dr-modal-btn approve" onclick="dr_confirmAddDoc()">Add Category</button>',
         '</div>',
       '</div></div>',
+      // Deploy 236.675 — Move-to-category modal. Body (the source label +
+      // destination <select>) is rebuilt per-open in dr_openMoveModal.
+      '<div class="dr-modal-bg" id="dr-moveModal"><div class="dr-modal">',
+        '<h3>Move document to another category</h3>',
+        '<p style="font-size:12px;color:#7a7488;margin-bottom:12px">Moves the file(s) from <span id="dr-moveFromLabel" style="font-weight:600;color:#1a1520"></span> into the category you pick, then re-runs the AI review against that category\'s checklist. Useful when a document landed in the wrong bucket (e.g. an appraisal that came in as "Other").</p>',
+        '<select id="dr-moveTarget" class="notes-area" style="min-height:auto;font-size:13px"></select>',
+        '<div class="dr-modal-actions">',
+          '<button class="dr-modal-btn" onclick="dr_closeMoveModal()">Cancel</button>',
+          '<button class="dr-modal-btn approve" onclick="dr_confirmMove()">Move &amp; Review</button>',
+        '</div>',
+      '</div></div>',
       // Deploy 236.163 — Replace-or-Add modal for multi-doc uploads.
       // Body content (the existing-docs list + radios) is rebuilt
       // per-open in dr_openReplaceOrAddModal so it reflects the
@@ -1184,6 +1195,13 @@
     verdictBtns += d.hidden
       ? '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escAttr(slug) + '\', false)" title="Unhide this tray">↩ Unhide</button>'
       : '<button class="v-btn unapprove" onclick="dr_toggleHideTray(\'' + escAttr(slug) + '\', true)" title="Hide this tray (not relevant to this loan)">⊘ Hide tray</button>';
+    // Deploy 236.675 — move this tray's document(s) into a different category.
+    // The point case: a doc that landed on "Other" (no rubric) can be moved to
+    // the correct standard bucket (e.g. Appraisal) and reviewed against its rubric.
+    if (hasDoc) {
+      verdictBtns +=
+        '<button class="v-btn unapprove" onclick="dr_openMoveModal(\'' + escAttr(slug) + '\')" title="Move this document to a different category so it is reviewed against that category&#39;s checklist">⇄ Move to…</button>';
+    }
 
     var naBlock = verdict === 'na' && d.naReason
       ? '<div style="margin-top:10px;padding:10px 14px;background:var(--dr-blue-light);border:1px solid var(--dr-blue-border);border-radius:6px;font-size:12px;color:var(--dr-blue);"><strong>N/A:</strong> ' + escHtml(d.naReason) + '</div>'
@@ -1811,6 +1829,85 @@
       render();
     }).catch(function(err) {
       showToast('Add failed: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+
+  // Deploy 236.675 — move a document into a different category. Populates the
+  // destination <select> with every OTHER (non-hidden) tray on the review,
+  // standard categories first, then custom/"Other" trays.
+  var _pendingMove = null;
+  global.dr_openMoveModal = function(fromSlug) {
+    if (!_review || !_review.docs || !_review.docs[fromSlug]) return;
+    _pendingMove = fromSlug;
+    var fromMeta = DOC_META[fromSlug] || _review.docs[fromSlug] || {};
+    var fromLbl = document.getElementById('dr-moveFromLabel');
+    if (fromLbl) fromLbl.textContent = (fromMeta.label || fromSlug);
+
+    var std = [], cust = [];
+    Object.keys(_review.docs).forEach(function(s) {
+      if (s === fromSlug) return;
+      var dd = _review.docs[s] || {};
+      if (dd.hidden) return;            // don't offer hidden trays as a target
+      var lbl = (DOC_META[s] && DOC_META[s].label) || dd.label || s;
+      (_isOtherSlug(s) ? cust : std).push({ slug: s, label: lbl });
+    });
+    std.sort(function(a, b) { return a.label.localeCompare(b.label); });
+    cust.sort(function(a, b) { return a.label.localeCompare(b.label); });
+
+    var sel = document.getElementById('dr-moveTarget');
+    if (sel) {
+      var html = '';
+      if (!std.length && !cust.length) {
+        html = '<option value="">No other categories available</option>';
+      } else {
+        if (std.length) {
+          html += '<optgroup label="Standard categories">';
+          std.forEach(function(o) { html += '<option value="' + escAttr(o.slug) + '">' + escHtml(o.label) + '</option>'; });
+          html += '</optgroup>';
+        }
+        if (cust.length) {
+          html += '<optgroup label="Custom / Other">';
+          cust.forEach(function(o) { html += '<option value="' + escAttr(o.slug) + '">' + escHtml(o.label) + '</option>'; });
+          html += '</optgroup>';
+        }
+      }
+      sel.innerHTML = html;
+    }
+    var modal = document.getElementById('dr-moveModal');
+    if (modal) modal.classList.add('show');
+  };
+  global.dr_closeMoveModal = function() {
+    _pendingMove = null;
+    var modal = document.getElementById('dr-moveModal');
+    if (modal) modal.classList.remove('show');
+  };
+  global.dr_confirmMove = function() {
+    if (!_pendingMove || !_review || !_review.id) return;
+    var sel = document.getElementById('dr-moveTarget');
+    var toSlug = sel && sel.value;
+    if (!toSlug) { showToast('Pick a destination category.', 'error'); return; }
+    var fromSlug = _pendingMove;
+    var toLabel = (DOC_META[toSlug] && DOC_META[toSlug].label)
+      || (_review.docs[toSlug] && _review.docs[toSlug].label) || toSlug;
+    global.dr_closeMoveModal();
+    showToast('Moving to "' + toLabel + '" — reviewing…', 'info');
+    global.SLA.LoanReviews.moveDoc(_review.id, fromSlug, toSlug).then(function(r) {
+      _review = r.review || _review;
+      _expanded[toSlug] = true;          // expand the destination so the result is visible
+      render();
+      // Re-review the moved doc against the destination's rubric.
+      return global.SLA.LoanReviews.retryAi(_review.id, toSlug);
+    }).then(function(r2) {
+      _review = (r2 && r2.review) || _review;
+      var v = (_review.docs[toSlug] && _review.docs[toSlug].aiVerdict) || '';
+      if (v === 'approved')                 showToast('Moved to "' + toLabel + '" — AI says looks good.', 'success');
+      else if (v === 'issues')              showToast('Moved to "' + toLabel + '" — AI flagged issues. See below.', 'info');
+      else if (v === 'needs_manual_review') showToast('Moved to "' + toLabel + '" — manual review required.', 'info');
+      else                                  showToast('Moved to "' + toLabel + '".', 'success');
+      render();
+    }).catch(function(err) {
+      showToast('Move failed: ' + ((err && err.message) || 'unknown'), 'error');
+      render();
     });
   };
 
