@@ -414,6 +414,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
               <option value="">— Select —</option>
               <option value="dscr">DSCR (Rental / Long-Term Financing)</option>
               <option value="fix_flip">Fix &amp; Flip / Hard Money (RTL)</option>
+              <option value="ground_up">New Construction / Ground-Up</option>
               <option value="bridge">Bridge (Short-Term, No Rehab)</option>
               <option value="transactional">Transactional Funding (Same-Day / 1-Day)</option>
             </select>
@@ -508,6 +509,86 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             <div class="wrap" id="wrap-projectDescription">
               <label>Description of Project</label>
               <textarea id="projectDescription" rows="3" placeholder="Briefly describe the work you plan to complete (e.g., full kitchen + bath renovation, roof replacement, etc.)" oninput="clearE('projectDescription')"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ground-Up / New Construction only — Deploy 236.729. Field names
+             feed the GUC sizer: ownLand/landDebt drive the land-equity
+             credit, constructionBudget lands as rehabBudget, completedValue
+             as ARV, buildsCompleted as the experience tier (6/4/1 match the
+             GUC sizer's dropdown). GC contact is optional — many borrowers
+             haven't selected one at application time. -->
+        <div class="cond" id="cond-guc-fin">
+          <div class="divider" style="grid-column:1/-1"></div>
+          <div class="section-lbl" style="grid-column:1/-1">New Construction Details</div>
+          <div class="field span2" style="grid-column:1/-1">
+            <div class="wrap" id="wrap-ownLand">
+              <label>Do you already own the land? <span class="req">*</span></label>
+              <select id="ownLand" onchange="onOwnLandChange()">
+                <option value="">— Select —</option>
+                <option value="yes">Yes — I own the lot</option>
+                <option value="no">No — I&rsquo;m purchasing the lot</option>
+              </select>
+            </div>
+            <div class="err-msg" id="err-ownLand">Required</div>
+          </div>
+          <div class="cond" id="cond-guc-landdebt">
+            <div class="field span2" style="grid-column:1/-1">
+              <div class="wrap">
+                <label>Current Loan on the Land (if any)</label>
+                <input type="text" inputmode="decimal" id="landDebt" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+              </div>
+            </div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap" id="wrap-constructionBudget">
+              <label>Estimated Construction Budget <span class="req">*</span></label>
+              <input type="text" inputmode="decimal" id="constructionBudget" placeholder="$0" oninput="clearE('constructionBudget'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+            </div>
+            <div class="err-msg" id="err-constructionBudget">Required</div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap" id="wrap-completedValue">
+              <label>Estimated Completed Value <span class="req">*</span></label>
+              <input type="text" inputmode="decimal" id="completedValue" placeholder="$0" oninput="clearE('completedValue'); applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+            </div>
+            <div class="err-msg" id="err-completedValue">Required</div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap">
+              <label># Ground-Up Builds Completed in past 36 months <span class="req">*</span></label>
+              <select id="buildsCompleted" onchange="clearE('buildsCompleted')">
+                <option value="">— Select —</option>
+                <option value="6">6+ builds (Tier 1)</option>
+                <option value="4">4 – 5 builds (Tier 2)</option>
+                <option value="1">0 – 3 builds (Tier 3)</option>
+              </select>
+            </div>
+            <div class="err-msg" id="err-buildsCompleted">Required</div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap">
+              <label>General Contractor Name (if selected)</label>
+              <input type="text" id="gcName" placeholder="GC or company name" />
+            </div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap">
+              <label>GC Phone</label>
+              <input type="tel" id="gcPhone" placeholder="(555) 123-4567" />
+            </div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap">
+              <label>GC Email</label>
+              <input type="email" id="gcEmail" placeholder="gc@company.com" />
+            </div>
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <div class="wrap">
+              <label>Description of Project</label>
+              <textarea id="gucProjectDescription" rows="3" placeholder="Briefly describe the build (e.g., 2,400 sqft single-family, permits approved, breaking ground in June)"></textarea>
             </div>
           </div>
         </div>
@@ -661,6 +742,7 @@ function onLoanProductChange() {
   var isFF        = v === 'fix_flip';
   var isBridge    = v === 'bridge';
   var isTrans     = v === 'transactional';
+  var isGuc       = v === 'ground_up'; // Deploy 236.729 — New Construction
   var isRtlFamily = isFF || isBridge || isTrans;
 
   setShow('cond-dscr',          isDscr);
@@ -672,14 +754,18 @@ function onLoanProductChange() {
   // care about experience on the LO side but the borrower-facing form
   // keeps it light — the LO can fill the tier in the sizer.
   setShow('cond-fixflip-flips', isFF);
+  // Deploy 236.729 — Ground-Up section (land ownership, construction
+  // budget, completed value, builds completed, GC contact).
+  setShow('cond-guc-fin',       isGuc);
+  if (!isGuc) setShow('cond-guc-landdebt', false);
   // Refi field belongs to DSCR; clear if leaving DSCR
   if (!isDscr) setShow('cond-refi', false);
 
-  // Hide the "Property Value / ARV" field for the entire RTL family.
-  // Borrowers reliably get this wrong, and the LO derives the loan from
-  // purchase price + (rehab/ARV when applicable) on the sizer side.
+  // Hide the "Property Value / ARV" field for the entire RTL family AND
+  // Ground-Up. Borrowers reliably get this wrong, and the LO derives the
+  // loan from purchase price + (rehab/ARV when applicable) on the sizer side.
   var pvField = document.getElementById('field-propertyValue');
-  if (pvField) pvField.style.display = isRtlFamily ? 'none' : '';
+  if (pvField) pvField.style.display = (isRtlFamily || isGuc) ? 'none' : '';
 
   // Funding date is half-width when paired with flipsCompleted (FF mode),
   // full-width otherwise so it doesn't look orphaned.
@@ -705,15 +791,18 @@ function updatePriceLabels() {
   var isFF     = lp === 'fix_flip';
   var isBridge = lp === 'bridge';
   var isTrans  = lp === 'transactional';
+  var isGuc    = lp === 'ground_up';
   var isRefi   = isDscr && lpur === 'refinance';
 
   // Purchase Price field label
   //   DSCR refi   → "Requested Loan Amount"
   //   DSCR purchase, Fix&Flip, Bridge → "Purchase Price"
   //   Transactional → "Loan Amount" (it's a same-day pass-through)
+  //   Ground-Up → land value (owned) or lot purchase price (Deploy 236.729)
   var purchaseLabel;
   if (isRefi)        purchaseLabel = 'Requested Loan Amount';
   else if (isTrans)  purchaseLabel = 'Loan Amount';
+  else if (isGuc)    purchaseLabel = (document.getElementById('ownLand') && document.getElementById('ownLand').value === 'yes') ? 'Estimated Land Value' : 'Land Purchase Price';
   else               purchaseLabel = 'Purchase Price';
 
   // Property Value field label (only visible for DSCR; hidden for RTL family)
@@ -737,6 +826,16 @@ function updatePriceLabels() {
 function setShow(id, show) {
   var el = document.getElementById(id);
   if (el) { if (show) el.classList.add('show'); else el.classList.remove('show'); }
+}
+
+// Deploy 236.729 — Ground-Up: owning the land reveals the optional
+// land-debt field (drives the sizer's land-equity credit) and flips the
+// purchase-price label between Land Value and Land Purchase Price.
+function onOwnLandChange() {
+  clearE('ownLand');
+  var owns = document.getElementById('ownLand').value === 'yes';
+  setShow('cond-guc-landdebt', owns);
+  updatePriceLabels();
 }
 
 // Show "Current Loan Amount" only for DSCR refinances
@@ -1039,7 +1138,9 @@ function validate() {
   // propertyValue is required only for DSCR — the field is hidden for the
   // entire RTL family (fix_flip, bridge, transactional) since the LO
   // derives the loan amount in the sizer rather than asking the borrower.
-  var isRtlFamily = (lp === 'fix_flip' || lp === 'bridge' || lp === 'transactional');
+  // Deploy 236.729 — ground_up joins the exemption list: the field is hidden
+  // for it (completed value is captured in the GUC section instead).
+  var isRtlFamily = (lp === 'fix_flip' || lp === 'bridge' || lp === 'transactional' || lp === 'ground_up');
   // Deploy 236.576 — Current Property Value is required only for a DSCR REFI.
   // DSCR purchase now hides it (loan builds off purchase price), so don't
   // require it there either.
@@ -1091,6 +1192,14 @@ function validate() {
     if (!gv('rehabCost'))      { showE('rehabCost');      ok=false; }
     if (!gv('estimatedARV'))   { showE('estimatedARV');   ok=false; }
     if (!gv('flipsCompleted')) { showE('flipsCompleted'); ok=false; }
+  }
+  // Deploy 236.729 — Ground-Up requirements. GC contact stays optional
+  // (many borrowers haven't picked a GC at application time).
+  if (lp === 'ground_up') {
+    if (!gv('ownLand'))            { showE('ownLand');            ok=false; }
+    if (!gv('constructionBudget')) { showE('constructionBudget'); ok=false; }
+    if (!gv('completedValue'))     { showE('completedValue');     ok=false; }
+    if (!gv('buildsCompleted'))    { showE('buildsCompleted');    ok=false; }
   }
 
   // Deploy 236.6 — broker-mode required fields. Name + email + phone
@@ -1173,10 +1282,20 @@ function submitApp() {
     rentalType:      gv('rentalType'),
     purchasePrice:   gv('purchasePrice'),
     propertyValue:   gv('propertyValue'),
-    rehabCost:       gv('rehabCost'),
-    estimatedARV:    gv('estimatedARV'),
-    projectDescription: gv('projectDescription'),
-    flipsCompleted:  gv('flipsCompleted'),
+    // Deploy 236.729 — Ground-Up reuses the same downstream keys the backend
+    // already maps (rehabCost→rehabBudget, estimatedARV→arv, flipsCompleted→
+    // experience) so the GUC sizer picks everything up without new plumbing.
+    rehabCost:       lp === 'ground_up' ? gv('constructionBudget') : gv('rehabCost'),
+    estimatedARV:    lp === 'ground_up' ? gv('completedValue')     : gv('estimatedARV'),
+    projectDescription: lp === 'ground_up' ? gv('gucProjectDescription') : gv('projectDescription'),
+    flipsCompleted:  lp === 'ground_up' ? gv('buildsCompleted')    : gv('flipsCompleted'),
+    // Ground-Up specifics: land ownership + debt drive the sizer's
+    // land-equity credit; GC contact feeds Loan Details → Contacts.
+    ownLand:         lp === 'ground_up' ? gv('ownLand')  : '',
+    landDebt:        lp === 'ground_up' ? gv('landDebt') : '',
+    gcName:          lp === 'ground_up' ? gv('gcName')   : '',
+    gcPhone:         lp === 'ground_up' ? gv('gcPhone')  : '',
+    gcEmail:         lp === 'ground_up' ? gv('gcEmail')  : '',
     monthlyRent:     gv('monthlyRent'),
     monthlyTaxes:    gv('monthlyTaxes'),
     monthlyInsurance:gv('monthlyInsurance'),

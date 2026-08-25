@@ -2987,6 +2987,10 @@ function prefillRTLFromProspect(p) {
   if (p.rehabCost)     { var rb=gEl('rehabBudget');   if(rb) rb.value=p.rehabCost; }
   var arvVal = p.estimatedARV||p.propertyValue||'';
   if (arvVal) { var av=gEl('arv'); if(av) av.value=arvVal; }
+  // Deploy 236.729 — Ground-Up application fields: land ownership + existing
+  // land debt (drives the land-equity credit).
+  if (p.ownLand) { var ol=gEl('ownLand'); if(ol){ ol.value=p.ownLand; if (typeof onOwnLandChange==='function') onOwnLandChange(); } }
+  if (p.landDebt) { var ldb=gEl('landDebt'); if(ldb) ldb.value=p.landDebt; }
   // Deploy 236.700 — re-apply the currency mask to any dollar fields this
   // prefill just set from raw numbers.
   if (typeof _MONEY_FIELDS !== 'undefined') _MONEY_FIELDS.forEach(_maskMoneyId);
@@ -3989,14 +3993,9 @@ netlifyIdentity.on('init', function(user) {
     window.location.replace('/');
   }
   else {
-    // Deploy 236.697 — GUC sizer is ADMIN-ONLY (hidden pilot). Bounce any
-    // non-admin who navigates here directly, before anything initializes.
-    // The index.html tool card is already admin-gated; this backstops the
-    // direct-URL path.
-    if (!(window.SLA && SLA.isAdmin && SLA.isAdmin(user))) {
-      window.location.replace('/');
-      return;
-    }
+    // Deploy 236.697 — GUC sizer launched as an ADMIN-ONLY hidden pilot.
+    // Deploy 236.729 — pilot over (Mike): open to all LOs, same as the other
+    // sizers. Auth (logged-in) is still required by the outer gate above.
     window._loName  = (user.user_metadata && user.user_metadata.full_name) || '';
     window._loPhone = (user.user_metadata && user.user_metadata.phone) || '';
     window._loEmail = user.email || '';

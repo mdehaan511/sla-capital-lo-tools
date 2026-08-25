@@ -1708,8 +1708,11 @@ function buildProspectCard(it) {
     ? (brokerDisplay || 'Broker')
     : (borrowerName || 'Borrower');
   var addr = p.propAddress || '';
-  var tool = (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl'
-           || p.loanProduct === 'bridge'   || p.loanProduct === 'transactional')
+  // Deploy 236.729 — ground_up applications carry the GUC badge + route to
+  // the GUC sizer (openInSizer + the sizerPage picker already handle 'guc').
+  var tool = (p.loanProduct === 'ground_up' || p.loanProduct === 'guc') ? 'guc'
+    : (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl'
+    || p.loanProduct === 'bridge'   || p.loanProduct === 'transactional')
     ? 'rtl' : 'dscr';
   // Deploy 236.499 — RTL New Application cards show the estimated MAX LOAN
   // (computed from the application via the sizer's engine), not the purchase
@@ -1717,7 +1720,7 @@ function buildProspectCard(it) {
   var _rtlMax = (tool === 'rtl') ? computeRtlProspectMax(p) : null;
   var amt  = fmtMoney(num(_rtlMax || p.purchasePrice || p.propertyValue));
   var loName = loDisplay(it.ownerKey);
-  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : tool === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
 
   var loRow = (_scope === 'all' && _isStaff)
     ? '<div class="lo-tag">' + escH(loName) + '</div>'

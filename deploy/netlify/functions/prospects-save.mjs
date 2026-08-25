@@ -166,6 +166,15 @@ export default async (req, context) => {
     rehabCost: String(body.rehabCost || ''),
     estimatedARV: String(body.estimatedARV || ''),
     flipsCompleted: String(body.flipsCompleted || ''),
+    // Deploy 236.729 — Ground-Up (GUC) fields. MUST be allowlisted here or
+    // they're silently dropped (see the broker-fields note below). ownLand +
+    // landDebt drive the GUC sizer's land-equity credit; GC contact lands on
+    // the loan for the Contacts tab's General Contractor card.
+    ownLand:  String(body.ownLand  || '').slice(0, 8),
+    landDebt: String(body.landDebt || '').slice(0, 20),
+    gcName:   String(body.gcName   || '').trim().slice(0, 120),
+    gcPhone:  String(body.gcPhone  || '').trim().slice(0, 40),
+    gcEmail:  String(body.gcEmail  || '').toLowerCase().trim().slice(0, 200),
     monthlyRent: String(body.monthlyRent || ''),
     monthlyTaxes: String(body.monthlyTaxes || ''),
     monthlyInsurance: String(body.monthlyInsurance || ''),
@@ -326,6 +335,8 @@ async function upsertClientFromProspect(prospect, loEmail) {
   // the RTL sizer (toolType=rtl). DSCR is the only non-RTL product today.
   const RTL_PRODUCTS = ['fix_flip', 'rtl', 'bridge', 'transactional'];
   const isRtl = RTL_PRODUCTS.indexOf(prospect.loanProduct) >= 0;
+  // Deploy 236.729 — Ground-Up Construction routes to the GUC sizer.
+  const isGuc = prospect.loanProduct === 'ground_up' || prospect.loanProduct === 'guc';
   // Map prospect.loanProduct → loan.loanType (the RTL sizer's sub-type
   // dropdown). 'bridge' and 'transactional' map directly. 'fix_flip' is
   // intentionally blank — the RTL sizer's auto-pick logic picks light vs
@@ -342,7 +353,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
   // types the loan amount. Doesn't apply to refi (uses currentLoanAmt),
   // and doesn't apply to RTL (Mike: RTL loans size off ARV + rehab,
   // not off purchase price, so this rule is DSCR-purchase-only).
-  const isDscrPurchase = !isRtl
+  const isDscrPurchase = !isRtl && !isGuc
     && String(prospect.loanPurpose || '').toLowerCase() === 'purchase';
   const _pxNum = parseFloat(String(prospect.purchasePrice || '').replace(/[^\d.]/g, '')) || 0;
   const _defaultLoanAmt = isDscrPurchase && _pxNum > 0
@@ -359,7 +370,7 @@ async function upsertClientFromProspect(prospect, loEmail) {
     // it resurfaces as a duplicate tile in "New Application". The
     // prospectId reference doesn't drift on address edits.
     prospectId:  prospect.id || '',
-    toolType:    isRtl ? 'rtl' : 'dscr',
+    toolType:    isGuc ? 'guc' : (isRtl ? 'rtl' : 'dscr'),
     address:     prospect.propAddress || '',
     savedAt:     new Date().toISOString(),
     updatedAt:   new Date().toISOString(),
@@ -397,6 +408,14 @@ async function upsertClientFromProspect(prospect, loEmail) {
     rehabBudget: prospect.rehabCost || '',
     arv:         prospect.estimatedARV || '',
     experience:  prospect.flipsCompleted || '',
+    // Deploy 236.729 — Ground-Up fields (empty for other products). The GUC
+    // sizer reads ownLand/landDebt for the land-equity credit; the GC contact
+    // fills Loan Details → Contacts → General Contractor.
+    ownLand:  isGuc ? (prospect.ownLand  || '') : '',
+    landDebt: isGuc ? (prospect.landDebt || '') : '',
+    gcName:   isGuc ? (prospect.gcName   || '') : '',
+    gcPhone:  isGuc ? (prospect.gcPhone  || '') : '',
+    gcEmail:  isGuc ? (prospect.gcEmail  || '') : '',
     currentLoanAmt: prospect.currentLoanAmt || '',
     projectDescription: prospect.projectDescription || '',
     // Carry the borrower's stated credit-score range onto the loan
@@ -1254,6 +1273,7 @@ async function notifySlack(prospect, ids) {
     if (c === 'transactional') return 'Transactional Funding';
     if (c === 'rtl')           return 'RTL (Bridge / Fix & Flip)';
     if (c === 'new_construction' || c === 'nc') return 'New Construction';
+    if (c === 'ground_up' || c === 'guc') return 'New Construction / Ground-Up';
     return code || '';
   };
   const humanizePurpose = (code) => {
@@ -1302,6 +1322,7 @@ async function notifySlack(prospect, ids) {
                      : String(prospect.loanProduct || '').toLowerCase() === 'bridge'   ? 'Bridge'
                      : String(prospect.loanProduct || '').toLowerCase() === 'transactional' ? 'Transactional'
                      : String(prospect.loanProduct || '').toLowerCase() === 'new_construction' ? 'New Construction'
+                     : String(prospect.loanProduct || '').toLowerCase() === 'ground_up' ? 'Ground-Up Construction'
                      : '';
   let title;
   if (isBroker) {
