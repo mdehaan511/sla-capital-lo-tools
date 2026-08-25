@@ -360,6 +360,11 @@ function buildPrefill(client, loan, loInfo) {
     pf.loan.rentalType      = loan.rentalType || '';
     pf.loan.fundingDate     = loan.fundingDate || '';
     pf.loan.experience      = loan.experience || '';
+    // Deploy 236.740 — GUC / ground-up fields for the long app's New
+    // Construction prefill. Application-created loans carry them top-level;
+    // sizer-saved quotes keep them in formData.
+    pf.loan.ownLand  = loan.ownLand  || (loan.formData && loan.formData.ownLand)  || '';
+    pf.loan.landDebt = loan.landDebt || (loan.formData && loan.formData.landDebt) || '';
     pf.loan.projectDescription = loan.projectDescription || '';
     pf.loan.fico            = loan.fico || pf.borrower.fico || '';
     // Item #5: annualize monthly expenses for the long-app fields

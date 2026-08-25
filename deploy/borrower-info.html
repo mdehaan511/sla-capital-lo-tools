@@ -432,6 +432,9 @@ function applyPrefillToData() {
     // long-app block without having to re-select.
     if (lt === 'transactional' || loanProductHint === 'transactional') {
       d.loanType = 'transactional';
+    } else if (lt === 'guc' || loanProductHint === 'ground_up') {
+      // Deploy 236.740 — GUC loans auto-select New Construction.
+      d.loanType = 'construction';
     } else if (lt === 'rtl') d.loanType = 'fix_flip';
     else if (lt === 'dscr') d.loanType = 'dscr';
   }
@@ -466,6 +469,8 @@ function applyPrefillToData() {
       if (d.loanType === 'dscr')          d.requestedLoanDSCR          = pf.loan.loanAmt;
       // Deploy 236.53 — transactional uses its own requested-loan key.
       if (d.loanType === 'transactional') d.requestedLoanTransactional = pf.loan.loanAmt;
+      // Deploy 236.740 — construction uses its own requested-loan key.
+      if (d.loanType === 'construction')  d.requestedLoanNC            = pf.loan.loanAmt;
     } else {
       // No override: only fill if empty
       if (!d.requestedLoanFF && d.loanType === 'fix_flip') {
@@ -483,6 +488,23 @@ function applyPrefillToData() {
         if (pf.loan.loanAmt)              d.requestedLoanTransactional = pf.loan.loanAmt;
         else if (pf.loan.transactionalAmt) d.requestedLoanTransactional = pf.loan.transactionalAmt;
       }
+      // Deploy 236.740 — construction prefill from the GUC loan record.
+      if (!d.requestedLoanNC && d.loanType === 'construction') {
+        if (pf.loan.loanAmt)      d.requestedLoanNC = pf.loan.loanAmt;
+        else if (pf.loan.maxLoan) d.requestedLoanNC = pf.loan.maxLoan;
+      }
+    }
+    // Deploy 236.740 — New Construction block prefill (GUC loans from the
+    // ground-up application or the GUC sizer). Field names on the loan:
+    // ownLand ('yes'/'no'), landDebt, purchasePrice = land value/price,
+    // rehabBudget = construction budget, arv = completed value.
+    if (d.loanType === 'construction') {
+      if (!d.ownsLand && pf.loan.ownLand)                 d.ownsLand          = pf.loan.ownLand;
+      if (!d.landDebt && pf.loan.landDebt)                d.landDebt          = pf.loan.landDebt;
+      if (!d.landPurchasePrice && pf.loan.purchasePrice)  d.landPurchasePrice = pf.loan.purchasePrice;
+      if (!d.buildBudget && pf.loan.rehabBudget)          d.buildBudget       = pf.loan.rehabBudget;
+      if (!d.estCompleteValue && pf.loan.arv)             d.estCompleteValue  = pf.loan.arv;
+      if (!d.ncCloseDate && pf.loan.fundingDate)          d.ncCloseDate       = pf.loan.fundingDate;
     }
     // Item #9: project description from short app → long app
     if (!d.planDescription && pf.loan.projectDescription) d.planDescription = pf.loan.projectDescription;
