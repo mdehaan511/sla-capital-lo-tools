@@ -64,8 +64,9 @@ export const DSCR_DOCS = [
     conditions: 'Scan of a voided check for the account the loan payments will come from. Account holder should match borrower or a third-party payee form is required.' },
 
   // ── Guarantor ─────────────────────────────────────────────────
+  // Deploy 236.708 — PFS is an OPTIONAL guarantor document (per Mike).
   { slug: 'pfs', label: 'Personal Financial Statement (PFS)', section: 'guarantor',
-    conditions: 'Signed by all guarantors. Assets, liabilities, income, contingent liabilities.' },
+    conditions: 'Signed by all guarantors. Assets, liabilities, income, contingent liabilities.', optional: true },
   { slug: 'guarantor_id', label: 'ID for each Guarantor', section: 'guarantor',
     conditions: 'Driver\'s License or Passport for each guarantor; matches name on application; not expired.' },
   // Deploy 236.670 — added per Mike.
@@ -215,6 +216,9 @@ export const RTL_DOCS = [
     conditions: 'OFAC run on the full legal name including middle name; matches the government ID exactly. No matches — or partial matches conclusively ruled out via secondary identifiers (DOB, address, SSN fragment). Re-run if more than 30 days pass before closing. Any partial match that cannot be ruled out is escalated (Tier 3).' },
   { slug: 'guarantor_loe', label: 'Guarantor Letter of Explanation', section: 'guarantor',
     conditions: 'As required — explains a specific credit/background item. Dated and signed by the guarantor; addresses the specific issue.', optional: true },
+  // Deploy 236.708 — PFS added to RTL/GUC as an OPTIONAL guarantor document (per Mike).
+  { slug: 'pfs', label: 'Personal Financial Statement (PFS)', section: 'guarantor',
+    conditions: 'Signed and dated by each guarantor. Lists assets, liabilities, income, and contingent liabilities; net worth and liquidity reconcile to the bank statements and the loan file.', optional: true },
 
   // ── Collateral ────────────────────────────────────────────────
   { slug: 'assignment_agreement', label: 'Assignment Agreement', section: 'collateral',
@@ -236,6 +240,13 @@ export const RTL_DOCS = [
     conditions: 'A full appraisal dated within 90 days of the note date (required for Heavy Rehab, or Light Rehab of $500,000+). Does NOT read "subject to" an unresolved condition. Comparables: at least 2 within 1 mile, or at least 3 in the same zip, sold within the last 12 months (a renovation loan needs at least 3 As-Is and 3 ARV comps). Value at least the loan amount; if the property was listed in the last 12 months use the lower of list price or value; a loan over $2,000,000 needs a second appraisal (use the lesser). Property is an eligible type — SFR, 2–4 unit, PUD, or condo — at least 700 sq ft (single) or 500 sq ft per unit; NOT a mobile/manufactured home, co-op, working farm, B&B, timeshare, condemned, care/assisted-living facility, log/dome/geothermal home, agricultural/industrial-zoned, without legal access, historically designated, environmentally hazardous, or owner/family-occupied. NOT in a geographic hard-stop — Illinois (statewide), Orange County NY, Lakewood NJ, Monsey NY, or Newark NJ. Rural test: the valuation is not designated rural AND the RUCA code is 2 or less.', optional: true },
   { slug: 'insurance_invoice', label: 'Insurance Invoice', section: 'collateral',
     conditions: 'Invoice for the property insurance premium. Annual premium, policy number, carrier, and named insured (borrower / entity) shown; the premium is reasonable for the coverage and matches the bound policy.', optional: true },
+  // Deploy 236.708 — Lease Agreements added to RTL/GUC (per Mike). Optional here
+  // because RTL/construction deals are often vacant (flip/bridge/ground-up);
+  // required only where a property is tenant-occupied. On a portfolio loan the
+  // Collateral section is split per property (loan-reviews-save), so this is
+  // asked per property automatically.
+  { slug: 'lease_agreements', label: 'Lease Agreements', section: 'collateral',
+    conditions: 'For any tenant-occupied property: current lease(s) signed by landlord and tenant; term length stated; non-corporate arm\'s-length tenant; stated rent reconciles to the underwriting / rent schedule. Vacant properties: mark N/A.', optional: true },
   // Deploy 236.681 — condo-specific docs (per the RTL guidelines C.7/C.8); optional (condos only).
   { slug: 'condo_hoa_docs', label: 'Condo HOA Documents', section: 'collateral',
     conditions: 'For a condo: estoppel/resale certificate, condo project questionnaire, current HOA budget, and CC&Rs. HOA dues are current (no past-due balance that could become a lien); no pending/approved special assessment (or it is factored into the borrower\'s reserves); no active Right of First Refusal; no rental restriction that would block non-owner-occupied investment use; transfer/resale fees identified. Questionnaire red flags (pending litigation, underfunded reserves, high renter-occupancy) reviewed.', optional: true },
