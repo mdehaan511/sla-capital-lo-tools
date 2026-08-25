@@ -105,9 +105,10 @@ async function handle(req, context) {
       for (const loan of c.loans) {
         if (!loan || !loan.address) continue;
         const hn = houseNum(loan.address); if (!hn) continue;
-        const hk = hn + '|' + stateOf(loan.address);
-        if (!hnIndex.has(hk)) hnIndex.set(hk, []);
-        hnIndex.get(hk).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, nf: normFull(loan.address) });
+        // Key by house number ONLY (state extraction from a free-form address is
+        // unreliable); we use state as a tiebreaker at match time instead.
+        if (!hnIndex.has(hn)) hnIndex.set(hn, []);
+        hnIndex.get(hn).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, nf: normFull(loan.address), state: stateOf(loan.address) });
       }
     }
   }
@@ -118,7 +119,7 @@ async function handle(req, context) {
   for (const row of FCI_ROWS) {
     const fciNf = normFull(row.address);
     const st = String(row.state || '').toUpperCase();
-    const candidates = hnIndex.get(houseNum(row.address) + '|' + st) || [];
+    const candidates = hnIndex.get(houseNum(row.address)) || [];
     // FCI address is street-only; SLA appends "city ST zip". Match when the SLA
     // normalized address EQUALS the FCI street or STARTS WITH it (word boundary).
     let matches = candidates.filter((h) => h.nf === fciNf || h.nf.startsWith(fciNf + ' '));
@@ -132,9 +133,14 @@ async function handle(req, context) {
       continue;
     }
     // If matches point at DIFFERENT properties (distinct normalized addresses),
-    // it's genuinely ambiguous — skip. If they're the SAME property duplicated
-    // across records, stamp them all.
-    const distinctAddrs = new Set(matches.map((h) => h.nf));
+    // try the state as a tiebreaker; if still >1 property it's genuinely
+    // ambiguous. Same property duplicated across records → stamp them all.
+    let distinctAddrs = new Set(matches.map((h) => h.nf));
+    if (distinctAddrs.size > 1 && st) {
+      const byState = matches.filter((h) => !h.state || h.state === st);
+      if (byState.length && new Set(byState.map((h) => h.nf)).size === 1) matches = byState;
+      distinctAddrs = new Set(matches.map((h) => h.nf));
+    }
     if (distinctAddrs.size > 1) {
       ambiguous.push({ address: row.address, state: row.state, sheet: row.sheet, matches: [...new Set(matches.map((h) => h.address))] });
       continue;
