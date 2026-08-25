@@ -17,6 +17,9 @@ import {
 } from './_shared/auth.mjs';
 import { decryptField } from './_shared/crypto.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
+// Deploy 236.741 — refresh the loan/property prefill half from the live loan
+// (the invite-time snapshot goes stale; see borrower-info-load.mjs).
+import { applyLoanPrefill } from './_shared/borrower-prefill.mjs';
 
 export default async (req, context) => {
   try {
@@ -62,6 +65,20 @@ async function handle(req, context) {
 
   const data = record.data ? unmaskGuarantorSSNs(record.data) : {};
 
+  // Deploy 236.741 — refresh the loan/property prefill from the live loan.
+  let prefill = record.prefill || {};
+  try {
+    const liveLoan = (client && Array.isArray(client.loans))
+      ? client.loans.find((l) => l && l.id === (record.loanId || loanId))
+      : null;
+    if (liveLoan) {
+      prefill = JSON.parse(JSON.stringify(prefill));
+      applyLoanPrefill(prefill, liveLoan);
+    }
+  } catch (e) {
+    console.warn('borrower-info-load-auth prefill refresh failed:', e && e.message);
+  }
+
   // Strip the token from the response — LO doesn't need it
   return json(200, {
     ok: true,
@@ -73,7 +90,7 @@ async function handle(req, context) {
     completedAt: record.completedAt,
     lastSavedAt: record.lastSavedAt,
     expiresAt: record.expiresAt,
-    prefill: record.prefill || {},
+    prefill,
     data,
   });
 }

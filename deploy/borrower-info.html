@@ -1123,7 +1123,10 @@ function renderGuarantor(idx, label) {
   });
 
   var lt = d.loanType || '';
-  var showFlips   = lt === 'fix_flip' || lt === 'construction';
+  // Deploy 236.741 — construction dropped from showFlips (Mike): the long app
+  // already asks "# of New Builds completed in last 36 months" on the loan
+  // details page, so the guarantor-level flips question was redundant there.
+  var showFlips   = lt === 'fix_flip';
   var showRentals = lt === 'dscr' || lt === 'dscr_2nd';
 
   // Deploy 236.127 — additional guarantors (idx >= 1) only need

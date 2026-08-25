@@ -42,6 +42,8 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
+// Deploy 236.741 — shared loan/property prefill (also used live by -load).
+import { applyLoanPrefill } from './_shared/borrower-prefill.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -337,41 +339,10 @@ function buildPrefill(client, loan, loInfo) {
       ? []
       : (Array.isArray(client.companies) ? client.companies : [])),
   };
-  if (loan) {
-    pf.property.address   = loan.address || '';
-    pf.property.propType  = loan.propType || '';
-    pf.property.bedrooms  = loan.bedrooms || '';
-    pf.property.bathrooms = loan.bathrooms || '';
-    pf.property.sqft      = loan.sqft || '';
-
-    pf.loan.toolType        = loan.toolType || '';
-    pf.loan.loanType        = loan.loanType || '';
-    pf.loan.loanPurpose     = loan.loanPurpose || '';
-    pf.loan.loanAmt         = loan.loanAmt || loan.purchasePrice || '';
-    pf.loan.loanAmtLocked   = !!loan.loanAmtLocked;
-    pf.loan.maxLoan         = loan.maxLoan || '';
-    pf.loan.purchasePrice   = loan.purchasePrice || '';
-    pf.loan.propValue       = loan.propValue || loan.arv || '';
-    pf.loan.arv             = loan.arv || loan.estimatedARV || '';
-    pf.loan.rehabBudget     = loan.rehabBudget || '';
-    // Existing/current loan amount for refinances (item #4)
-    pf.loan.currentLoanAmt  = loan.currentLoanAmt || loan.existingLoanAmt || '';
-    pf.loan.rent            = loan.rent || '';
-    pf.loan.rentalType      = loan.rentalType || '';
-    pf.loan.fundingDate     = loan.fundingDate || '';
-    pf.loan.experience      = loan.experience || '';
-    // Deploy 236.740 — GUC / ground-up fields for the long app's New
-    // Construction prefill. Application-created loans carry them top-level;
-    // sizer-saved quotes keep them in formData.
-    pf.loan.ownLand  = loan.ownLand  || (loan.formData && loan.formData.ownLand)  || '';
-    pf.loan.landDebt = loan.landDebt || (loan.formData && loan.formData.landDebt) || '';
-    pf.loan.projectDescription = loan.projectDescription || '';
-    pf.loan.fico            = loan.fico || pf.borrower.fico || '';
-    // Item #5: annualize monthly expenses for the long-app fields
-    pf.loan.annualTaxes     = annualize(loan.taxes);
-    pf.loan.annualInsurance = annualize(loan.insurance);
-    pf.loan.annualHOA       = annualize(loan.hoa);
-  }
+  // Deploy 236.741 — the loan/property half moved to _shared/borrower-prefill
+  // so borrower-info-load can re-derive it from the LIVE loan on every load
+  // (the invite-time snapshot missed later prefill improvements + loan edits).
+  if (loan) applyLoanPrefill(pf, loan);
   return pf;
 }
 
