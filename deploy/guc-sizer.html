@@ -3851,6 +3851,23 @@ function loadRTLQuote(formData) {
   // left in selectedIndex=-1 limbo.
   var _dutchEl = document.getElementById('dutchInterest');
   if (_dutchEl && !_dutchEl.value) _dutchEl.value = 'dutch';
+  // Deploy 236.739 — GUC locked/limited selects. An application-sourced loan
+  // carries '' for loanPurpose/loanType (GUC applications never set them) and
+  // may carry a propType the GUC select doesn't offer (condo, portfolio, …).
+  // Assigning those blanked the selects, and the empty (hidden!) loanPurpose
+  // left the Save button permanently disabled via rtlAllRequiredFilled().
+  // Snap each back to a valid value; propType maps 2-4-ish types, else SFR.
+  var _lpEl = document.getElementById('loanPurpose');
+  if (_lpEl && !_lpEl.value) _lpEl.value = 'purchase';
+  var _ltEl2 = document.getElementById('loanType');
+  if (_ltEl2 && !_ltEl2.value) _ltEl2.value = 'construction';
+  var _ptEl = document.getElementById('propType');
+  if (_ptEl && !_ptEl.value) {
+    var _rawPt = String(formData.propType || '').toLowerCase();
+    _ptEl.value = /2.?4|multi|duplex|triplex|fourplex/.test(_rawPt) ? '2-4' : 'sfr';
+    if (!_ptEl.value) _ptEl.value = 'sfr';
+  }
+  if (typeof toggleSaveButton === 'function') { try { toggleSaveButton(); } catch (_) {} }
   // Deploy 236.17 — open Advanced + reveal broker section whenever
   // ANY broker info is set on the loan (see dscr-sizer.html for full
   // rationale). Apply.html broker-mode submissions land with broker
