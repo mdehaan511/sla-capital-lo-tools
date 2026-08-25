@@ -2107,6 +2107,39 @@ function render() {
     '</div>';
   }
 
+  // Deploy 236.702 — General Contractor contact (GUC / ground-up construction
+  // loans only). Records the GC as a contact on the loan so the processing team
+  // + the GC-Review document have the contractor's details in one place.
+  if (_isGucLoan(l)) {
+    html +=
+    '<div class="section" id="gcInfoSection">' +
+      '<div class="section-head" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">General Contractor</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+        '<div class="app-grid">' +
+          '<div class="field"><label>GC Name</label>' +
+            '<input type="text" id="af-gcName" value="'+escAttr(l.gcName||'')+'" placeholder="General contractor name" />' +
+          '</div>' +
+          '<div class="field"><label>GC Company</label>' +
+            '<input type="text" id="af-gcCompany" value="'+escAttr(l.gcCompany||'')+'" placeholder="Company / firm" />' +
+          '</div>' +
+          '<div class="field"><label>GC Email</label>' +
+            '<input type="email" id="af-gcEmail" value="'+escAttr(l.gcEmail||'')+'" placeholder="gc@company.com" />' +
+          '</div>' +
+          '<div class="field"><label>GC Phone</label>' +
+            '<input type="tel" id="af-gcPhone" value="'+escAttr(l.gcPhone||'')+'" placeholder="(555) 123-4567" />' +
+          '</div>' +
+          '<div class="field" style="grid-column:1/-1"><label>GC License #</label>' +
+            '<input type="text" id="af-gcLicense" value="'+escAttr(l.gcLicense||'')+'" placeholder="Contractor license number" />' +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-top:14px;display:flex;align-items:center;gap:10px">' +
+          '<button class="save-app-btn" onclick="saveGcContact()">Save Changes</button>' +
+          '<span id="gcStatus" style="display:none;color:var(--success);font-size:13px">Saved ✓</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   // Deploy 236.339 — Servicing Info section. Rendered when the loan
   // has reached a post-close state (closed / sold / funded / in_
   // servicing) OR already has any servicing metadata set (so an LO
@@ -2459,6 +2492,7 @@ function render() {
       'linkedGuarantorsSection',
       'loanContactsSection',
       'brokerInfoSection',
+      'gcInfoSection', // Deploy 236.702 — General Contractor (GUC loans)
     ].forEach(function(id) {
       var el = document.getElementById(id);
       if (el) paneContacts.appendChild(el);
@@ -4205,10 +4239,10 @@ function _renderDocReviewIframe(reviewId) {
 
 function _renderDocReviewStarter() {
   // No review exists yet — let the processor create one with one click.
-  // Map GUC → 'rtl' since the checklist system only supports
-  // 'dscr' and 'rtl' as of 236.119.
-  var product = String((_loan && _loan.product) || '').toLowerCase();
-  var loanType = (product === 'dscr') ? 'dscr' : 'rtl';
+  // Deploy 236.702 — GUC now has its own checklist (RTL/Colchis + construction
+  // docs), so a GUC loan creates a 'guc' review; RTL stays 'rtl'; else 'dscr'.
+  var _tt = String((_loan && _loan.toolType) || '').toLowerCase();
+  var loanType = (_tt === 'guc') ? 'guc' : (_tt === 'rtl') ? 'rtl' : 'dscr';
   var root = document.getElementById('documentsRoot');
   if (!root) return;
   root.innerHTML =
@@ -5150,11 +5184,9 @@ function openOrCreateDocReview() {
   }
   // No existing review — create one and navigate.
   if (!_client || !_loan) { showToast('Loan not loaded yet.'); return; }
-  // Deploy 236.701 — GUC gets the RTL/Colchis document checklist for now; a
-  // dedicated GUC checklist (adds architectural plans, permits, feasibility
-  // study, GC review) follows in 236.702.
+  // Deploy 236.702 — GUC uses its own checklist (RTL/Colchis + construction docs).
   var _rtlT = String(_loan.toolType || '').toLowerCase();
-  var loanType = (_rtlT === 'rtl' || _rtlT === 'guc') ? 'rtl' : 'dscr';
+  var loanType = (_rtlT === 'guc') ? 'guc' : (_rtlT === 'rtl') ? 'rtl' : 'dscr';
   var borrowerName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim();
   var btn = document.getElementById('docReviewBtn');
   var label = document.getElementById('docReviewBtnLabel');
@@ -5951,6 +5983,40 @@ function saveAppFields() {
     var s = document.getElementById('appStatus');
     if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
     showToast('Broker info saved');
+  }).catch(function(err) {
+    showToast('Save failed: ' + (err.message || 'unknown error'));
+  });
+}
+
+// Deploy 236.702 — save the General Contractor contact (GUC loans). Mirrors
+// saveAppFields (whole-client save through SLA.Clients.save), writing the gc*
+// fields onto the loan record.
+function saveGcContact() {
+  if (!_loan || !_client) return;
+  var gn = document.getElementById('af-gcName');
+  if (!gn) { showToast('Nothing to save here'); return; }
+  var fields = {
+    gcName:    gn.value.trim(),
+    gcCompany: (document.getElementById('af-gcCompany') || { value: '' }).value.trim(),
+    gcEmail:   (document.getElementById('af-gcEmail')   || { value: '' }).value.trim().toLowerCase(),
+    gcPhone:   (document.getElementById('af-gcPhone')   || { value: '' }).value.trim(),
+    gcLicense: (document.getElementById('af-gcLicense') || { value: '' }).value.trim(),
+    updatedAt: new Date().toISOString(),
+  };
+  var loans = _client.loans || [];
+  var idx = loans.findIndex(function(l){ return l.id === _loanId; });
+  if (idx < 0) return;
+  loans[idx] = Object.assign({}, loans[idx], fields);
+  _loan = loans[idx];
+  _client.loans = loans;
+  var saveOpts = _client;
+  if (_loEmail && _user && _loEmail !== _user.email) {
+    saveOpts = Object.assign({}, _client, { _owner: _loEmail });
+  }
+  SLA.Clients.save(saveOpts).then(function() {
+    var s = document.getElementById('gcStatus');
+    if (s) { s.style.display = 'inline'; setTimeout(function(){ s.style.display = 'none'; }, 2500); }
+    showToast('General Contractor saved');
   }).catch(function(err) {
     showToast('Save failed: ' + (err.message || 'unknown error'));
   });

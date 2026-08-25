@@ -272,10 +272,27 @@ export const RTL_DOCS = [
     conditions: 'Wire instructions for the title company; verified against the CPL / title commitment.' },
 ];
 
+// Deploy 236.702 — GUC (Ground-Up Construction) document set. Construction runs
+// off the same Colchis borrower/guarantor/collateral/closing checklist as RTL,
+// PLUS these construction-specific collateral items (per Mike): architectural
+// plans, building permits, a feasibility study, and a General Contractor review.
+export const GUC_CONSTRUCTION_DOCS = [
+  { slug: 'architectural_plans', label: 'Architectural Plans', section: 'collateral',
+    conditions: 'Complete architectural/engineering plan set for the proposed build. Plans match the subject property address and the project scope on the construction budget (unit count, square footage, number of stories). Signed/sealed by a licensed architect or engineer where the jurisdiction requires it; latest revision on file. Square footage and unit count reconcile to the as-completed appraisal (ARV) and the loan application.' },
+  { slug: 'building_permits', label: 'Building Permits', section: 'collateral',
+    conditions: 'Building/construction permits issued for the subject property — or a documented permit-ready / plan-check status with a clear path to issuance before the first draw. Permit address matches the subject; permitted scope matches the plans and the construction budget. Any required demolition, grading, or utility permits are identified, and impact/tap fees are accounted for in the budget.' },
+  { slug: 'feasibility_study', label: 'Feasibility Study', section: 'collateral',
+    conditions: 'Third-party feasibility / plan-and-cost review for the ground-up construction (required when the construction budget is $150,000 or more). Confirms the line-item budget, timeline, and draw schedule are reasonable for the scope and market and flags cost overruns or scope gaps. As-completed value (ARV) is at least 115% of total project cost (land value or purchase price + construction budget).' },
+  { slug: 'gc_review', label: 'General Contractor Review', section: 'collateral',
+    conditions: 'General Contractor package: a signed construction contract with a line-item budget and draw schedule; the GC\'s license (active and in-scope for the jurisdiction); general-liability and workers\'-comp insurance; and references / a track record of comparable completed builds. The GC is an arm\'s-length third party — or a borrower-affiliated GC is disclosed and reviewed. W-9 on file; OFAC/background screen on the GC entity and its principal.' },
+];
+export const GUC_DOCS = [...RTL_DOCS, ...GUC_CONSTRUCTION_DOCS];
+
 export function getChecklist(loanType) {
   const t = String(loanType || '').toLowerCase();
   if (t === 'dscr') return DSCR_DOCS;
   if (t === 'rtl')  return RTL_DOCS;
+  if (t === 'guc')  return GUC_DOCS;
   return [];
 }
 
@@ -283,6 +300,7 @@ export function getDefaultInvestor(loanType) {
   const t = String(loanType || '').toLowerCase();
   if (t === 'dscr') return 'diya';
   if (t === 'rtl')  return 'colchis';
+  if (t === 'guc')  return 'colchis';
   return '';
 }
 
@@ -295,5 +313,8 @@ export function getDefaultInvestor(loanType) {
 export function findCategory(slug) {
   const s = String(slug || '');
   if (!s) return null;
-  return DSCR_DOCS.find((d) => d.slug === s) || RTL_DOCS.find((d) => d.slug === s) || null;
+  return DSCR_DOCS.find((d) => d.slug === s)
+    || RTL_DOCS.find((d) => d.slug === s)
+    || GUC_CONSTRUCTION_DOCS.find((d) => d.slug === s)
+    || null;
 }

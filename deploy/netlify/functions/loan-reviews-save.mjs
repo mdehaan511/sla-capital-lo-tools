@@ -55,7 +55,7 @@ async function _syncConditionsCountToLoan(review) {
   await writeClient(ownerKey, client, { clientsStore });
 }
 
-const ALLOWED_LOAN_TYPES = ['dscr', 'rtl'];
+const ALLOWED_LOAN_TYPES = ['dscr', 'rtl', 'guc'];
 
 export default async (req, context) => {
   try {
