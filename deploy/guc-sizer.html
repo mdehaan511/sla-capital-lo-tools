@@ -979,7 +979,10 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
 <!-- Deploy 236.697 — GUC (Ground-Up Construction) pricing. Reuses the
      construction tables from rtl-pricing.js (loaded above) and adds the
      land-ownership + 0-3-tier rules. Exposes SLA_GUC.priceGUC. -->
-<script src="guc-pricing.js"></script>
+<!-- Deploy 236.702 — versioned so an in-flight pricing change (this module is
+     new + iterating) can't be served stale from the unversioned /*.js cache.
+     Bump the ?v= whenever guc-pricing.js changes. -->
+<script src="guc-pricing.js?v=236702"></script>
 <script>
 // Deploy 236.408 (Hardening G1 RTL) — pricing engine extracted to
 // rtl-pricing.js so scripts/pricing-test.mjs can golden-test it
