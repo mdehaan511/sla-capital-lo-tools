@@ -1617,6 +1617,19 @@ function render() {
         '<option value="first"' + (_lien === 'first' ? ' selected' : '') + '>First</option>' +
         '<option value="second"' + (_lien === 'second' ? ' selected' : '') + '>Second</option>' +
       '</select></div>' +
+      // Deploy 236.713 — Interest Structure (RTL/GUC only; DSCR has no draw
+      // structure). The Closed Loans Draws tab reads this for its computed UPB
+      // and shows it read-only there — this box is THE place to change it.
+      // Defaults: sizer-saved value, else GUC → Non-Dutch (only structure the
+      // GUC program offers), else Dutch (system default since Deploy 197).
+      (!isDscr ? (function(){
+        var _ltDutch = String(l.dutchInterest || (fd && fd.dutchInterest) ||
+          (String(l.toolType||'').toLowerCase()==='guc' ? 'non_dutch' : 'dutch')).toLowerCase()==='non_dutch' ? 'non_dutch' : 'dutch';
+        return '<div class="field"><label>Interest Structure</label><select id="lt-dutchInterest">' +
+          '<option value="dutch"' + (_ltDutch === 'dutch' ? ' selected' : '') + '>Dutch (full balance)</option>' +
+          '<option value="non_dutch"' + (_ltDutch === 'non_dutch' ? ' selected' : '') + '>Non-Dutch (as drawn)</option>' +
+        '</select></div>';
+      })() : '') +
       // First Payment + Maturity — non-editable (Deploy 236.644); auto-calculated
       // from Closing Date + Loan Term by recalcTermDates(). Kept as disabled date
       // inputs so their .value is still readable in JS but the user can't edit.
@@ -6368,6 +6381,9 @@ function saveLoanTerms() {
   // stamp isIO=false (the backend's _truthy('') would wrongly mark amortized).
   var amort = _ldVal('lt-isIO');
   if (amort === 'io' || amort === 'amortized') fields.isIO = amort;
+  // Deploy 236.713 — Interest Structure (RTL/GUC only; element absent on DSCR).
+  var dEl = document.getElementById('lt-dutchInterest');
+  if (dEl && (dEl.value === 'dutch' || dEl.value === 'non_dutch')) fields.dutchInterest = dEl.value;
   // Deploy 236.647 — Holdback / Initial Advance / Down Payment removed from Loan
   // Terms (see render). Initial Advance + Down Payment are derived/shown in Loan
   // Financials; Holdback == Rehab Budget.

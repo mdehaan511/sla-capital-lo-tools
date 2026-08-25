@@ -117,8 +117,6 @@
        in a normal left-aligned cell so it lines up under its header text. */
     .draw-sub input[type="date"] { padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 12px; background: var(--surface); color: var(--text); }
     .draw-sub input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--d-servicing); cursor: pointer; vertical-align: middle; }
-    /* Deploy 236.710 — Dutch/Non-Dutch picker in the Draws main rows */
-    .int-sel { padding: 5px 6px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 12px; background: var(--surface); color: var(--text); cursor: pointer; }
     .cl-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
     .sitewire-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; background: rgba(74,122,138,0.12); color: #35606f; margin-left: 6px; }
     .totbar { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
@@ -336,7 +334,8 @@ function _findByKey(key){ for (var i=0;i<_closed.length;i++){ if (loanKey(_close
 //     draws to date; each approved draw row also shows the running UPB after
 //     that draw.
 // loan.dutchInterest defaults to 'dutch' (system default since Deploy 197);
-// Baseline imports arrive blank, so staff can set it right on the table.
+// it is edited on Loan Details → Loan Terms → Interest Structure (236.713),
+// and shown read-only here.
 function interestTypeOf(l){ return String(l.dutchInterest||'dutch').toLowerCase()==='non_dutch' ? 'non_dutch' : 'dutch'; }
 function loanTotalOf(l){ return num(l.finalLoanAmount) || num(l.loanAmt); }
 function initialAdvanceOf(it){
@@ -351,19 +350,6 @@ function upbFor(it){
   var init = initialAdvanceOf(it);
   if (init == null) return num(l.upb||l.currentBalance); // no Sitewire link — manual fallback
   return init + (sitewireEntry(l).budget.approvedCents||0)/100;
-}
-function interestTypeSave(key, el){
-  var it = _findByKey(key); if (!it) return;
-  var l = it.loan, prev = l.dutchInterest;
-  l.dutchInterest = el.value;
-  el.disabled = true;
-  SLA.api('POST', '/api/loan-servicing-update', { clientId: it.client.id, loanId: l.id, owner: it.ownerKey, fields: { dutchInterest: el.value } })
-    .then(function(){ el.disabled = false; render(); })
-    .catch(function(e){
-      l.dutchInterest = prev; el.disabled = false; el.value = interestTypeOf(l);
-      el.style.outline = '2px solid var(--danger)';
-      el.title = 'Save failed: ' + ((e && e.message) || 'unknown');
-    });
 }
 function drawMetaSave(key, drawId, field, el){
   var it = _findByKey(key); if (!it) return;
@@ -1080,16 +1066,11 @@ function renderDraws(items){
     var appr=e?(e.budget.approvedCents||0)/100:0;
     var rem=e?(e.budget.balanceCents||0)/100:0;
     var last=''; ds.forEach(function(d){ if((d.date||'')>last) last=d.date||''; });
-    // Deploy 236.710 — Interest structure picker + computed UPB.
+    // Deploy 236.710 — computed UPB. Deploy 236.713 — the Interest column is
+    // READ-ONLY here (Mike): change it via Loan Details → Loan Terms →
+    // Interest Structure, so the loan record stays the single source of truth.
     var itype = interestTypeOf(l), upb = upbFor(it);
-    var interestCell;
-    if (_isStaff) {
-      interestCell = '<select class="int-sel" onclick="event.stopPropagation()" onchange="interestTypeSave(\''+escAttr(key)+'\',this)">'+
-        '<option value="dutch"'+(itype==='dutch'?' selected':'')+'>Dutch</option>'+
-        '<option value="non_dutch"'+(itype==='non_dutch'?' selected':'')+'>Non-Dutch</option></select>';
-    } else {
-      interestCell = itype==='dutch' ? 'Dutch' : 'Non-Dutch';
-    }
+    var interestCell = '<span title="Set on Loan Details → Loan Terms">' + (itype==='dutch' ? 'Dutch' : 'Non-Dutch') + '</span>';
     var main = '<tr class="lrow" onclick="toggleDraws(\''+escAttr(key)+'\')">' +
       '<td><span class="chev" style="display:inline-block;transition:transform .15s;'+(open?'transform:rotate(90deg)':'')+'">▶</span></td>' +
       '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +

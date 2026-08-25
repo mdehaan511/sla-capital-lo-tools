@@ -56,6 +56,9 @@ const FIELDS = {
   isPortfolio: 1, propertyCount: 1, properties: 1,
   // Deploy 236.691 — reprice-as-portfolio flag (boolean).
   needsRepricePortfolio: 1,
+  // Deploy 236.713 — Dutch/Non-Dutch interest structure, editable in the Loan
+  // Terms box (RTL/GUC). Drives the Closed Loans Draws tab's computed UPB.
+  dutchInterest: 1,
 };
 
 function _truthy(v) {
@@ -121,6 +124,12 @@ async function handle(req, context) {
       const tt = String(fields[k] == null ? '' : fields[k]).trim().toLowerCase();
       if (tt !== 'rtl' && tt !== 'dscr' && tt !== 'guc') return;
       loan.toolType = tt; applied[k] = tt; return;
+    }
+    // Deploy 236.713 — interest structure: only the two valid enum values.
+    if (k === 'dutchInterest') {
+      const di = String(fields[k] == null ? '' : fields[k]).trim().toLowerCase();
+      if (di !== 'dutch' && di !== 'non_dutch') return;
+      loan.dutchInterest = di; applied[k] = di; return;
     }
     // Deploy 236.655 — Portfolio: boolean flag, integer count, sanitized array.
     if (k === 'isPortfolio') { loan.isPortfolio = _truthy(fields[k]); applied[k] = loan.isPortfolio; return; }

@@ -43,10 +43,6 @@ const FIELDS = {
   // (Baseline imports arrive blank), since type routes RTL vs DSCR. projectLoan
   // maps loan.toolType -> the tool_type PG column, so this persists in the list.
   toolType: 1,
-  // Deploy 236.710 — Dutch/Non-Dutch interest structure ('dutch' | 'non_dutch').
-  // Sizer-saved loans carry it already; Baseline imports arrive blank, so the
-  // Draws tab lets staff set it (it drives the computed UPB).
-  dutchInterest: 1,
 };
 
 export default async (req, context) => {
