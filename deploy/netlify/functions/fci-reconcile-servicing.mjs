@@ -151,7 +151,13 @@ async function handle(req, context) {
       continue;
     }
     matchedFciRows += 1;
-    const disp = row.sheet === 'open' ? 'servicing' : 'paid_off';
+    // Deploy 236.727 — open FCI loans are Sold-to-Colchis AND still serviced by
+    // SLA. The Closed-Loans UI models that as disposition 'sold' on an RTL loan:
+    // the Sold-RTL bucket is ALSO rendered by the Servicing tab, so one loan
+    // shows as BOTH Sold and Servicing (exactly Mike's model, "stay that way
+    // until Paid Off"). An explicit 'servicing' disposition would show ONLY
+    // under Servicing, never under Sold — the wrong result.
+    const disp = row.sheet === 'open' ? 'sold' : 'paid_off';
     const fields = {
       servicerName: SERVICER,
       servicerLoanNumber: String(row.loanNumber || ''),
@@ -160,7 +166,13 @@ async function handle(req, context) {
       soldDate: excelISO(row.creation),
       maturityDate: excelISO(row.maturity),
     };
-    if (row.sheet === 'open') fields.paymentAmount = String(row.payment || '');
+    if (row.sheet === 'open') {
+      fields.paymentAmount = String(row.payment || '');
+      // Colchis is an RTL/bridge investor → force RTL so the loan lands in the
+      // Sold-RTL display bucket (isRtl() keys off toolType==='rtl'), which the
+      // Servicing tab renders as "Sold RTL loans — SLA still services these".
+      fields.toolType = 'rtl';
+    }
     for (const h of matches) {   // stamp every duplicate record of the same property
       toSet.push({
         sheet: row.sheet, address: row.address, matchedAddress: h.address,
@@ -170,9 +182,17 @@ async function handle(req, context) {
     }
   }
 
-  // ── Apply (grouped by client, capped by limit) ────────────────────
-  const applyBatch = apply ? toSet.slice(0, limit) : [];
-  let applied = 0;
+  // Deterministic order so the offset window is stable across calls regardless
+  // of blob-list ordering (the old slice(0,limit) re-wrote the SAME first N every
+  // call and never advanced — Deploy 236.725 apply only touched the first 50).
+  toSet.sort((a, b) =>
+    (a.ownerKey + '|' + a.clientId + '|' + a.loanId).localeCompare(
+      b.ownerKey + '|' + b.clientId + '|' + b.loanId));
+
+  // ── Apply (stable offset window, grouped by client; skip no-op writes) ──
+  const offset = (Number(body.offset) > 0) ? Math.floor(Number(body.offset)) : 0;
+  const applyBatch = apply ? toSet.slice(offset, offset + limit) : [];
+  let applied = 0, unchanged = 0;
   if (applyBatch.length) {
     const now = new Date().toISOString();
     const byClient = new Map();
@@ -191,16 +211,24 @@ async function handle(req, context) {
         for (const r of rows) {
           const loan = client.loans.find((l) => l && l.id === r.loanId);
           if (!loan) { errors.push({ address: r.address, error: 'loan vanished' }); continue; }
-          // disposition: don't clobber a hand-set one on the closed path unless asked.
+          let changed = false;
+          // disposition: don't clobber a hand-set one that DIFFERS unless asked.
           const cur = String(loan.disposition || '').toLowerCase();
           if (!(cur && cur !== r.disposition && !overwriteManual)) {
-            loan.disposition = r.disposition;
-            loan.dispositionAt = now; loan.dispositionBy = selfEmail;
+            if (cur !== r.disposition) {
+              loan.disposition = r.disposition;
+              loan.dispositionAt = now; loan.dispositionBy = selfEmail;
+              changed = true;
+            }
           }
-          Object.keys(r.fields).forEach((f) => { if (r.fields[f] !== '') loan[f] = r.fields[f]; });
-          loan._fciReconciledAt = now;
-          loan.updatedAt = now;
-          dirty = true; applied += 1;
+          // Servicing/sold fields are authoritative from FCI — refresh only the
+          // ones that actually differ (keeps re-runs cheap + no-op idempotent).
+          Object.keys(r.fields).forEach((f) => {
+            const nv = r.fields[f];
+            if (nv !== '' && String(loan[f] == null ? '' : loan[f]) !== String(nv)) { loan[f] = nv; changed = true; }
+          });
+          if (changed) { loan._fciReconciledAt = now; loan.updatedAt = now; dirty = true; applied += 1; }
+          else unchanged += 1;
         }
         if (dirty) await writeClient(ownerKey, client, { clientsStore });
       } catch (e) {
@@ -209,15 +237,17 @@ async function handle(req, context) {
     }
   }
 
+  const nextOffset = offset + applyBatch.length;
   return json(200, {
     ok: true, apply, overwriteManual,
     fciRows: FCI_ROWS.length,
     summary: {
       matchedFciRows: matchedFciRows,       // distinct FCI loans matched (of 67)
       loanTargets: toSet.length,            // SLA loan records to write (incl. duplicates)
-      wouldChange: toSet.length,
-      applied: apply ? applied : 0,
-      remaining: apply ? Math.max(0, toSet.length - applied) : toSet.length,
+      offset: offset, nextOffset: nextOffset, batch: applyBatch.length,
+      applied: apply ? applied : 0,         // records this call actually changed
+      unchanged: apply ? unchanged : 0,     // records already at desired state
+      remaining: apply ? Math.max(0, toSet.length - nextOffset) : toSet.length,
       unmatched: unmatched.length,
       ambiguous: ambiguous.length,
       errors: errors.length,
