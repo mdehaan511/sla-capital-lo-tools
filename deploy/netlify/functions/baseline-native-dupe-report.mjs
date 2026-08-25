@@ -95,29 +95,51 @@ async function handle(req, context) {
     const amts = entries.map((e) => e.amt).filter((a) => a > 0);
     const amountMismatch = amts.length > 1 && (Math.max(...amts) - Math.min(...amts)) > Math.max(...amts) * 0.02;
 
-    let type, recommend;
-    if (natives.length === 1 && copies.length >= 1) {
-      type = 'native_plus_copy';
-      recommend = 'keep the native record, delete the ' + copies.length + ' Baseline copy(ies)';
-    } else if (natives.length === 0) {
-      type = 'copies_only';
-      recommend = 'all ' + copies.length + ' are Baseline copies — keep the most complete, delete the rest (review)';
-    } else {
-      type = 'multi_native';
-      recommend = natives.length + ' native records — possible real separate loans, REVIEW before deleting';
-    }
+    let type;
+    if (natives.length === 1 && copies.length >= 1) type = 'native_plus_copy';
+    else if (natives.length === 0) type = 'copies_only';
+    else type = 'multi_native';
 
     const flags = [];
     if (owners.length > 1) flags.push('cross_owner');   // needs Mike to pick the owning LO
     if (amountMismatch) flags.push('amount_mismatch');  // maybe two different loans — do NOT auto-delete
     if (type === 'multi_native') flags.push('multi_native');
 
+    // Sub-classify by how safe a collapse is:
+    //   safe_exact  — the group is one loan re-copied (a single distinct display id,
+    //                 same amount + funding date) → deleting the extras loses nothing.
+    //   likely_safe — one loan under >1 Baseline id FORMAT (e.g. SLA-YYYYMMDD-NNNN +
+    //                 SLA-NNNN), same amount + funding date → collapse, keep newest.
+    //   review      — differing amount / funding date / owner / a native in the mix →
+    //                 could be TWO real loans (a payoff + a new loan) — never auto-delete.
+    const distinctIds = new Set(entries.map((e) => e.slaDisplayId || e.loanId)).size;
+    const distinctAmts = new Set(entries.filter((e) => e.amt > 0).map((e) => Math.round(e.amt / 500))).size;
+    const distinctFunding = new Set(entries.map((e) => e.fundingDate).filter(Boolean)).size;
+    let safety;
+    if (flags.length || type !== 'copies_only') safety = 'review';
+    else if (distinctAmts > 1 || distinctFunding > 1) safety = 'review';
+    else if (distinctIds <= 1) safety = 'safe_exact';
+    else safety = 'likely_safe';
+
+    // Proposed keeper = the record we'd KEEP (rest are deletion candidates):
+    // prefer one carrying servicing data, then the SLA-YYYYMMDD-NNNN id format,
+    // then the most-recently-updated, then stable by id.
+    const isNewFmt = (e) => /^SLA-\d{8}-\d+$/.test(e.slaDisplayId || '');
+    const ranked = entries.slice().sort((a, b) =>
+      (b.servicerName ? 1 : 0) - (a.servicerName ? 1 : 0) ||
+      (isNewFmt(b) ? 1 : 0) - (isNewFmt(a) ? 1 : 0) ||
+      String(b.updatedAt).localeCompare(String(a.updatedAt)) ||
+      String(a.loanId).localeCompare(String(b.loanId)));
+    const keeper = ranked[0];
+
     groups.push({
       address: entries[0].address, norm: na, count: entries.length,
-      type, recommend, flags,
-      owners,
+      type, safety, flags, owners,
+      keeperLoanId: keeper.loanId,
+      deleteCandidates: (safety === 'review') ? [] : ranked.slice(1).map((e) => e.loanId),
       records: entries.map((e) => ({
         loanId: e.loanId, slaDisplayId: e.slaDisplayId, isBaselineCopy: e.isCopy,
+        keep: e.loanId === keeper.loanId,
         owner: e.ownerKey, clientId: e.clientId, soloLoanInClient: e.soloLoanInClient,
         amount: e.amt, status: e.status, disposition: e.disposition,
         servicerName: e.servicerName, toolType: e.toolType,
@@ -127,24 +149,31 @@ async function handle(req, context) {
     });
   }
 
-  // Actionable (clean, single-owner, amounts match) first.
-  const cleanScore = (g) => (g.flags.length ? 1 : 0) + (g.type === 'native_plus_copy' ? 0 : 1);
-  groups.sort((a, b) => cleanScore(a) - cleanScore(b) || b.count - a.count);
+  // Order: safe_exact → likely_safe → review, then biggest groups first.
+  const rank = { safe_exact: 0, likely_safe: 1, review: 2 };
+  groups.sort((a, b) => (rank[a.safety] - rank[b.safety]) || (b.count - a.count));
 
-  const redundant = groups.reduce((s, g) => s + (g.count - 1), 0);
-  const cleanAuto = groups.filter((g) => g.type === 'native_plus_copy' && !g.flags.length);
+  const bySafety = (s) => groups.filter((g) => g.safety === s);
+  const delCount = (arr) => arr.reduce((s, g) => s + g.deleteCandidates.length, 0);
+  const safeExact = bySafety('safe_exact'), likely = bySafety('likely_safe'), review = bySafety('review');
   return json(200, {
     ok: true,
     scanned: { clientBlobs: blobs.length, loans: loansSeen, addresses: byAddr.size },
     summary: {
       duplicateGroups: groups.length,
-      redundantRecords: redundant,
-      cleanNativePlusCopy: cleanAuto.length,           // safe to auto-delete the copy
-      cleanRedundant: cleanAuto.reduce((s, g) => s + (g.count - 1), 0),
-      copiesOnly: groups.filter((g) => g.type === 'copies_only').length,
-      crossOwner: groups.filter((g) => g.flags.indexOf('cross_owner') >= 0).length,
-      amountMismatch: groups.filter((g) => g.flags.indexOf('amount_mismatch') >= 0).length,
-      multiNative: groups.filter((g) => g.type === 'multi_native').length,
+      redundantRecords: groups.reduce((s, g) => s + (g.count - 1), 0),
+      safeExactGroups: safeExact.length, safeExactDeletes: delCount(safeExact),
+      likelySafeGroups: likely.length, likelySafeDeletes: delCount(likely),
+      reviewGroups: review.length,
+      byType: {
+        native_plus_copy: groups.filter((g) => g.type === 'native_plus_copy').length,
+        copies_only: groups.filter((g) => g.type === 'copies_only').length,
+        multi_native: groups.filter((g) => g.type === 'multi_native').length,
+      },
+      flags: {
+        cross_owner: groups.filter((g) => g.flags.indexOf('cross_owner') >= 0).length,
+        amount_mismatch: groups.filter((g) => g.flags.indexOf('amount_mismatch') >= 0).length,
+      },
     },
     groups,
   });
