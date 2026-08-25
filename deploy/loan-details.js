@@ -2299,6 +2299,11 @@ function render() {
   // relocateSectionsToTabs moves #servicingSection into its pane.
   var _showServicingTab = (_isServicingStage || _hasServicing);
   var _tabServicing    = _showServicingTab ? '<button type="button" class="ld-tab" data-ld-tab="servicing" onclick="switchLdTab(\'servicing\')"><span class="ld-tab-icon">\u{1F4C8}</span>Servicing</button>' : '';
+  // Deploy 236.721 — Draws tab (right of Servicing): live Sitewire draw data.
+  // Same gate as Servicing plus a construction product (RTL/GUC) — DSCR loans
+  // have no draw schedule. Content loads lazily on first open (ldDrawsLoad).
+  var _showDrawsTab = _showServicingTab && (_uwTt === 'rtl' || _uwTt === 'guc');
+  var _tabDraws     = _showDrawsTab ? '<button type="button" class="ld-tab" data-ld-tab="draws" onclick="switchLdTab(\'draws\')"><span class="ld-tab-icon">\u{1F3D7}\u{FE0F}</span>Draws</button>' : '';
   var tabsHtml =
     '<div class="ld-tabs" role="tablist">' +
       '<button type="button" class="ld-tab active" data-ld-tab="loan"     onclick="switchLdTab(\'loan\')"><span class="ld-tab-icon">\u{1F4B0}</span>Loan</button>' +
@@ -2312,6 +2317,7 @@ function render() {
       _tabClosing +
       _tabLightning +
       _tabServicing +
+      _tabDraws +
     '</div>' +
     '<div class="ld-pane active" data-ld-pane="loan"     id="ldPaneLoan"></div>' +
     '<div class="ld-pane"        data-ld-pane="property" id="ldPaneProperty"></div>' +
@@ -2321,7 +2327,8 @@ function render() {
     (_uwOK   ? '<div class="ld-pane" data-ld-pane="underwriting" id="ldPaneUnderwriting"></div>' : '') +
     (_inProc ? '<div class="ld-pane" data-ld-pane="closing"      id="ldPaneClosing"></div>' : '') +
     (_uwOK   ? '<div class="ld-pane" data-ld-pane="lightning"    id="ldPaneLightning"></div>' : '') +
-    (_showServicingTab ? '<div class="ld-pane" data-ld-pane="servicing" id="ldPaneServicing"></div>' : '');
+    (_showServicingTab ? '<div class="ld-pane" data-ld-pane="servicing" id="ldPaneServicing"></div>' : '') +
+    (_showDrawsTab ? '<div class="ld-pane" data-ld-pane="draws" id="ldPaneDraws"></div>' : '');
   // Deploy 236.126 — top-of-page warning banner placeholder.
   // computeGuarantorOwnershipBanner() fills this slot after render
   // based on loan.guarantorOwnership values + linked guarantor count.
@@ -3647,6 +3654,8 @@ function switchLdTab(name, skipHash) {
   document.querySelectorAll('.ld-pane').forEach(function(p) {
     p.classList.toggle('active', p.dataset.ldPane === name);
   });
+  // Deploy 236.721 — Draws pane loads its Sitewire data lazily on first open.
+  if (name === 'draws') ldDrawsLoad(false);
   if (!skipHash) {
     try {
       var url = new URL(window.location.href);
@@ -3654,6 +3663,140 @@ function switchLdTab(name, skipHash) {
       history.replaceState(null, '', url.toString());
     } catch (_) { /* IE/older — ignore */ }
   }
+}
+
+// ── Deploy 236.721 — Draws tab (Sitewire) ──────────────────────────
+// Mirrors the Closed Loans Draws tab for a single loan: budget rollup +
+// per-draw rows with the wire-sent / reimbursement annotations, and the
+// Dutch vs Non-Dutch UPB math (Deploy 236.710). Data comes from the same
+// /api/sitewire-draws proxy, joined by slaDisplayId == Sitewire loan_number.
+var _ldDrawsState = '';   // '' | 'loading' | 'ready' | 'error'
+var _ldDrawsData  = null; // this loan's Sitewire entry (or null = no match)
+var _ldDrawsErr   = '';
+var LD_SW_STATUS = { drafting:'Drafting', pending_borrower:'Awaiting Borrower', inspecting:'Inspecting',
+  pending:'Pending Lender', pending_capital_partner:'Awaiting Capital Partner', approved:'Approved' };
+function _ldDrawsNum(v){ var n = parseFloat(String(v==null?'':v).replace(/[$,]/g,'')); return isFinite(n)?n:0; }
+function _ldDrawsMoney(cents){ return '$' + Math.round(cents/100).toLocaleString(); }
+function ldDrawsLoad(force){
+  var pane = document.getElementById('ldPaneDraws');
+  if (!pane || _ldDrawsState === 'loading') return;
+  if (_ldDrawsState === 'ready' && !force) { ldDrawsRender(); return; }
+  var num = String((_loan && _loan.slaDisplayId) || (_loan && _deriveSlaLoanIdClient(_loan)) || '').trim().toUpperCase();
+  if (!num) { _ldDrawsState = 'error'; _ldDrawsErr = 'This loan has no SLA loan number to match against Sitewire.'; ldDrawsRender(); return; }
+  _ldDrawsState = 'loading'; _ldDrawsErr = '';
+  ldDrawsRender();
+  SLA.Sitewire.draws([num], !!force).then(function(r){
+    _ldDrawsData = (r && r.byLoanNumber && r.byLoanNumber[num]) || null;
+    _ldDrawsState = 'ready';
+    ldDrawsRender();
+  }).catch(function(e){
+    _ldDrawsState = 'error'; _ldDrawsErr = (e && e.message) || 'unknown error';
+    ldDrawsRender();
+  });
+}
+function ldDrawsRender(){
+  var pane = document.getElementById('ldPaneDraws'); if (!pane) return;
+  var l = _loan || {};
+  var h = '<div class="section"><div class="section-head"><h2>Draws</h2>' +
+    '<span class="section-tag">Sitewire</span>' +
+    (_ldDrawsState==='ready' ? '<a href="#" style="margin-left:auto;font-size:12px" onclick="ldDrawsLoad(true);return false">Refresh</a>' : '') +
+    '</div><div class="section-body">';
+  if (_ldDrawsState === 'loading' || _ldDrawsState === '') {
+    h += '<div style="color:var(--muted);padding:16px 0">Loading draw data from Sitewire…</div>';
+  } else if (_ldDrawsState === 'error') {
+    h += '<div style="color:var(--danger)">Failed to load draw data: ' + escH(_ldDrawsErr) +
+      ' <a href="#" onclick="ldDrawsLoad(true);return false">Retry</a></div>';
+  } else if (!_ldDrawsData) {
+    h += '<div style="color:var(--muted)">No Sitewire property matches this loan’s number (' +
+      escH(l.slaDisplayId || '') + '). Draws appear here once the property exists in Sitewire with the SLA loan number on it.</div>';
+  } else {
+    var e = _ldDrawsData;
+    var isDutch = String(l.dutchInterest || 'dutch').toLowerCase() !== 'non_dutch';
+    var total = _ldDrawsNum(l.finalLoanAmount) || _ldDrawsNum(l.loanAmt);
+    var initAdv = (total > 0) ? Math.max(0, total - (e.budget.budgetedCents||0)/100) : null;
+    var upb = isDutch ? total : (initAdv != null ? initAdv + (e.budget.approvedCents||0)/100 : null);
+    // Rollup tiles
+    function tile(label, val){ return '<div style="flex:1;min-width:150px;background:var(--bg,#f7f4ee);border:1px solid var(--border);border-radius:8px;padding:12px 14px">' +
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:4px">' + label + '</div>' +
+      '<div style="font-size:18px;font-weight:600">' + val + '</div></div>'; }
+    h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">' +
+      tile('Construction Budget', _ldDrawsMoney(e.budget.budgetedCents||0)) +
+      tile('Total Drawn', _ldDrawsMoney(e.budget.approvedCents||0)) +
+      tile('Remaining Budget', _ldDrawsMoney(e.budget.balanceCents||0)) +
+      tile('Current UPB', (upb != null && upb > 0) ? ('$' + Math.round(upb).toLocaleString()) : '—') +
+      '</div>';
+    h += '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Interest structure: <strong>' +
+      (isDutch ? 'Dutch' : 'Non-Dutch') + '</strong> — ' +
+      (isDutch ? 'UPB is the full loan balance.' : 'UPB grows as draws are approved (initial advance + drawn funds).') +
+      ' Change it in Loan Terms on the Loan tab.</div>';
+    var ds = (e.draws || []).slice();
+    if (!ds.length) {
+      h += '<div style="color:var(--muted)">No draws on this property yet.</div>';
+    } else {
+      // Running UPB after each approved draw (Non-Dutch only), in number order.
+      var runningById = {};
+      if (!isDutch && initAdv != null) {
+        var run = initAdv;
+        ds.slice().sort(function(a,b){ return (a.number||0)-(b.number||0); }).forEach(function(d){
+          if (d.status === 'approved') { run += (d.approvedCents||0)/100; runningById[String(d.id)] = run; }
+        });
+      }
+      var staff = !!(window.SLA && _user && ((SLA.isAdmin && SLA.isAdmin(_user)) || (SLA.isProcessor && SLA.isProcessor(_user))));
+      h += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>' +
+        ['Draw #','Last Updated','Requested','Approved','Status','Wire Sent','Reimb. Requested','UPB After Draw'].map(function(t){
+          return '<th style="text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap">'+t+'</th>';
+        }).join('') + '</tr></thead><tbody>' +
+        ds.map(function(d, i){
+          var td = function(inner){ return '<td style="padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap">' + inner + '</td>'; };
+          var dm = (l.drawMeta && l.drawMeta[String(d.id)]) || {};
+          var dateStr = d.updatedAt ? String(d.updatedAt).slice(0,10) : '';
+          var stLbl = LD_SW_STATUS[d.status] || (d.status || '—');
+          var stCol = d.status === 'approved' ? '#1e7d3c' : '#9a6b00';
+          var wireCell, reimbCell;
+          if (staff && d.id != null) {
+            wireCell = '<input type="date" value="' + escAttr(dm.wireSentDate||'') + '" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;background:var(--surface,#fff)" onchange="ldDrawMetaSave(' + Number(d.id) + ',\'wireSentDate\',this)">';
+            reimbCell = '<input type="checkbox" style="width:15px;height:15px;cursor:pointer;vertical-align:middle" ' + (dm.reimbursementRequested?'checked':'') + ' onchange="ldDrawMetaSave(' + Number(d.id) + ',\'reimbursementRequested\',this)">';
+          } else {
+            wireCell = dm.wireSentDate ? escH(dm.wireSentDate) : '—';
+            reimbCell = dm.reimbursementRequested ? '<span style="color:#1e7d3c;font-weight:600">✓</span>' : '—';
+          }
+          var runVal = runningById[String(d.id)];
+          return '<tr>' +
+            td(String(d.number || (i+1)) + (d.historical ? ' <span style="color:var(--muted)">(hist)</span>' : '')) +
+            td(escH(dateStr || '—')) +
+            td(d.requestedCents > 0 ? _ldDrawsMoney(d.requestedCents) : '—') +
+            td(d.approvedCents > 0 ? _ldDrawsMoney(d.approvedCents) : '—') +
+            td('<span style="color:'+stCol+';font-weight:600">' + escH(stLbl) + '</span>') +
+            td(wireCell) + td(reimbCell) +
+            td(runVal != null ? ('$' + Math.round(runVal).toLocaleString()) : '—') +
+          '</tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+  }
+  h += '</div></div>';
+  pane.innerHTML = h;
+}
+// Per-draw annotation save — same field contract as the Closed Loans Draws tab
+// (loan.drawMeta[sitewireDrawId], staff-only endpoint).
+function ldDrawMetaSave(drawId, field, el){
+  var l = _loan; if (!l) return;
+  if (!l.drawMeta) l.drawMeta = {};
+  var id = String(drawId);
+  if (!l.drawMeta[id]) l.drawMeta[id] = {};
+  var prev = l.drawMeta[id][field];
+  var val = (field === 'reimbursementRequested') ? !!el.checked : String(el.value || '');
+  l.drawMeta[id][field] = val;
+  var patch = {}; patch[field] = val;
+  var dm = {}; dm[id] = patch;
+  el.disabled = true;
+  SLA.api('POST', '/api/loan-servicing-update', { clientId: _clientId, loanId: _loanId, owner: _ldOwnerOverride(), drawMeta: dm })
+    .then(function(){ el.disabled = false; })
+    .catch(function(e){
+      l.drawMeta[id][field] = prev;
+      el.disabled = false;
+      if (field === 'reimbursementRequested') el.checked = !!prev; else el.value = prev || '';
+      showToast('Save failed: ' + ((e && e.message) || 'unknown'));
+    });
 }
 
 // Deploy 236.132 — derive the SLA-YYYYMMDD-NNNN id for a loan.

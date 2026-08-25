@@ -562,8 +562,12 @@ function _inferLoanType(b) {
   if (s.includes('rtl'))  return 'rtl';
   if (s.includes('dscr')) return 'dscr';
   // Rate as a heuristic — RTL rates are usually 9-12%, DSCR 6-8%.
-  const r = Number(b && b.Rate);
+  // Deploy 236.721 — Baseline sends Rate as a DECIMAL (0.0999 = 9.99%), so the
+  // percent thresholds below classified EVERY keyword-less loan as DSCR
+  // (0.0999 <= 8). Normalize fractions to percent before comparing.
+  let r = Number(b && b.Rate);
   if (isFinite(r) && r > 0) {
+    if (r < 1) r = r * 100;
     if (r >= 9)  return 'rtl';
     if (r <= 8)  return 'dscr';
   }
