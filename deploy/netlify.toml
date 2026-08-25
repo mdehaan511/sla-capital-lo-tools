@@ -26,6 +26,12 @@
 [functions."admin-backfill-loans-pg"]
   timeout = 26
 
+# Deploy 236.711 — one-off Baseline→SLA disposition reconciler: live-fetches the
+# Baseline roster + resolves each Sold/Paid-Off loan to its SLA record. Give it
+# the full on-demand budget.
+[functions."baseline-reconcile-dispositions"]
+  timeout = 26
+
 [build.environment]
   NODE_VERSION = "20"
   AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
@@ -753,6 +759,12 @@
 [[redirects]]
   from = "/api/baseline-mirror-sync"
   to = "/.netlify/functions/baseline-mirror-sync"
+  status = 200
+  force = true
+# Deploy 236.711 — Baseline→SLA disposition reconciler (Sold / Paid Off).
+[[redirects]]
+  from = "/api/baseline-reconcile-dispositions"
+  to = "/.netlify/functions/baseline-reconcile-dispositions"
   status = 200
   force = true
 # Deploy 236.547 — loan-processing-stage migration, Phase 1 discovery.
