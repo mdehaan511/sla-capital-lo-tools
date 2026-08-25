@@ -112,6 +112,11 @@
     .stpill { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; }
     .draw-sub { background: var(--bg); }
     .draw-sub .cl-tbl { font-size: 12px; }
+    /* Deploy 236.707 — per-draw controls match the app's field styling
+       (.svc-fld inputs), slightly tighter to fit a table row. Checkbox sits
+       in a normal left-aligned cell so it lines up under its header text. */
+    .draw-sub input[type="date"] { padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 12px; background: var(--surface); color: var(--text); }
+    .draw-sub input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--d-servicing); cursor: pointer; vertical-align: middle; }
     .cl-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
     .sitewire-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; background: rgba(74,122,138,0.12); color: #35606f; margin-left: 6px; }
     .totbar { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
@@ -1059,7 +1064,7 @@ function renderDraws(items){
           // reimbursement per draw; LOs (read-only page) see static values.
           var dm = drawMetaFor(l, d.id), wireCell, reimbCell;
           if (_isStaff && d.id != null) {
-            wireCell = '<input type="date" value="'+escAttr(dm.wireSentDate||'')+'" style="font-size:12px;padding:2px 4px" onchange="drawMetaSave(\''+escAttr(key)+'\','+Number(d.id)+',\'wireSentDate\',this)">';
+            wireCell = '<input type="date" value="'+escAttr(dm.wireSentDate||'')+'" onchange="drawMetaSave(\''+escAttr(key)+'\','+Number(d.id)+',\'wireSentDate\',this)">';
             reimbCell = '<input type="checkbox" '+(dm.reimbursementRequested?'checked':'')+' onchange="drawMetaSave(\''+escAttr(key)+'\','+Number(d.id)+',\'reimbursementRequested\',this)">';
           } else {
             wireCell = dm.wireSentDate ? escH(fmtDate(dm.wireSentDate)) : '<span class="cl-ph">—</span>';
@@ -1070,8 +1075,8 @@ function renderDraws(items){
           '<td class="cl-num">'+(d.requestedAmt>0?escH(money(d.requestedAmt)):'<span class="cl-ph">—</span>')+'</td>'+
           '<td class="cl-num">'+(d.approvedAmt>0?escH(money(d.approvedAmt)):'<span class="cl-ph">—</span>')+'</td>'+
           '<td>'+swStatusHtml(d.status)+'</td>'+
-          '<td class="cl-num">'+wireCell+'</td>'+
-          '<td style="text-align:center">'+reimbCell+'</td></tr>'; }).join('') +
+          '<td>'+wireCell+'</td>'+
+          '<td>'+reimbCell+'</td></tr>'; }).join('') +
         '</tbody></table></div>';
       sub = '<tr class="draw-sub"><td></td><td colspan="7" style="padding:0 14px 12px">'+inner+'</td></tr>';
     }
