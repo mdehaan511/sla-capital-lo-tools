@@ -1682,10 +1682,12 @@ function _assigneeHtml(it, canEdit) {
       ' data-client-id="' + cid + '" data-loan-id="' + lid + '" data-owner="' + own + '"' +
       ' onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" onchange="assignLoanTo(this)"' +
       ' style="margin-top:8px;width:100%;max-width:100%">' + opts + '</select>';
-  // Deploy 236.695 — pills for the rest of the assigned team (Closer / Manager /
-  // any additional Processors). The primary processor already shows in the <select>
-  // above, so exclude it (`cur`) to avoid a duplicate badge.
-  var extrasHtml = _teamPillsHtml(it, cur);
+  // Deploy 236.696 — pills for the ENTIRE assigned team, including the primary
+  // processor. Earlier we excluded the processor (shown in the <select> above) to
+  // avoid a duplicate, but that left single-processor loans with NO pill at all —
+  // Mike wants every assigned person to render as a pill uniformly. The <select>
+  // stays as the assignment control; the pills are the at-a-glance team roster.
+  var extrasHtml = _teamPillsHtml(it, '');
   return selHtml + extrasHtml;
 }
 function assignLoanTo(sel) {
