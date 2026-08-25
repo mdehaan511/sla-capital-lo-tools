@@ -838,14 +838,24 @@ function render() {
   // Deploy 236.634 — loans that have moved into the Processing pipeline
   // (approved / any processing stage) go BACK to processing-pipeline.html,
   // not the Leads pipeline — that's where they now live after the
-  // sales→processing handoff. Closed → closed.html; leads → pipeline.html.
-  var _backProcessing = (status !== 'closed') && isInProcessing(l);
-  var backPage  = (status === 'closed') ? '/closed.html'
-                : _backProcessing        ? '/processing-pipeline.html'
-                :                          '/pipeline.html';
-  var backLabel = (status === 'closed') ? 'Closed Loans'
-                : _backProcessing        ? 'Processing Pipeline'
-                :                          'Pipeline';
+  // sales→processing handoff.
+  // Deploy 236.726 — Closed loans go back to /closed-loans.html (the servicing
+  // Closed Loans page, open to everyone — LOs see their own read-only) instead
+  // of the legacy /closed.html quotes list. Closed detection matches that
+  // page's isClosedLoan(): status, processingStage, or Baseline status.
+  var _backClosed = (function(){
+    if (status === 'closed' || status === 'sold' || status === 'liquidated') return true;
+    if (String(l.processingStage||'').toLowerCase().trim() === 'pp_closed') return true;
+    var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+    return (bl==='sold'||bl==='in servicing'||bl==='servicing'||bl==='liquidated'||bl==='paid off'||bl==='closed');
+  })();
+  var _backProcessing = !_backClosed && isInProcessing(l);
+  var backPage  = _backClosed      ? '/closed-loans.html'
+                : _backProcessing  ? '/processing-pipeline.html'
+                :                    '/pipeline.html';
+  var backLabel = _backClosed      ? 'Closed Loans'
+                : _backProcessing  ? 'Processing Pipeline'
+                :                    'Pipeline';
   var backUrl   = backPage;
   if (_loEmail && _user && _loEmail !== _user.email) backUrl += '?owner=' + encodeURIComponent(_loEmail);
 
@@ -984,16 +994,17 @@ function render() {
             '<div class="ld-actions-empty">No actions available.</div>' +
           '</div>' +
         '</div>' +
-        // Deploy 236.602 — the Loan Doc Review button is processing-only (like the
-        // Documents/Underwriting/Closing tabs); it's irrelevant to the sales team
-        // on a pre-processing loan.
-        (window.SLA && SLA.isProcessor && SLA.isProcessor(_user) && isInProcessing(l)
-          ? '<button type="button" id="docReviewBtn" onclick="openOrCreateDocReview()" disabled ' +
-              'style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--gold, #C8813A);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif;opacity:0.55;transition:opacity 0.15s">' +
-              '<svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 9l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-              '<span id="docReviewBtnLabel">Loan Doc Review…</span>' +
-            '</button>'
-          : '') +
+        // Deploy 236.726 — Tasks button replaces the Loan Doc Review shortcut
+        // here (Mike: too many tabs). Opens the Tasks modal; the open-task
+        // count badge keeps its ldTabTasksCount id so _syncTasksTabCount
+        // still feeds it. Doc Review itself is unchanged — it lives in the
+        // Documents tab (the old button only jumped there anyway).
+        '<button type="button" id="ldTasksBtn" onclick="openTasksModal()" ' +
+          'style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--gold, #C8813A);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif;transition:opacity 0.15s">' +
+          '<svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M2.5 4l1.5 1.5L7 2.5M2.5 8l1.5 1.5L7 6.5M2.5 12l1.5 1.5L7 10.5M9 4.5h4M9 8.5h4M9 12.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+          'Tasks' +
+          '<span id="ldTabTasksCount" hidden style="background:#fff;color:var(--gold, #C8813A);border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;line-height:1.5"></span>' +
+        '</button>' +
       '</div>' +
     '</div>' +
     '<div class="page-subtitle">' +
@@ -2311,7 +2322,9 @@ function render() {
       // the physical fields that used to live in Property & Application.
       '<button type="button" class="ld-tab"        data-ld-tab="property" onclick="switchLdTab(\'property\')"><span class="ld-tab-icon">\u{1F3E0}</span>Property</button>' +
       '<button type="button" class="ld-tab"        data-ld-tab="contacts" onclick="switchLdTab(\'contacts\')"><span class="ld-tab-icon">\u{1F465}</span>Contacts</button>' +
-      '<button type="button" class="ld-tab"        data-ld-tab="tasks"    onclick="switchLdTab(\'tasks\')"><span class="ld-tab-icon">\u{2705}</span>Tasks<span class="ld-tab-count" id="ldTabTasksCount" hidden></span></button>' +
+      // Deploy 236.726 — Tasks tab removed (too many tabs); Tasks is now a
+      // modal opened from the header button (id ldTasksBtn, badge keeps the
+      // ldTabTasksCount id).
       _tabDocuments +
       _tabUnderwriting +
       _tabClosing +
@@ -2322,7 +2335,6 @@ function render() {
     '<div class="ld-pane active" data-ld-pane="loan"     id="ldPaneLoan"></div>' +
     '<div class="ld-pane"        data-ld-pane="property" id="ldPaneProperty"></div>' +
     '<div class="ld-pane"        data-ld-pane="contacts" id="ldPaneContacts"></div>' +
-    '<div class="ld-pane"        data-ld-pane="tasks"    id="ldPaneTasks"></div>' +
     (_inProc ? '<div class="ld-pane" data-ld-pane="documents"    id="ldPaneDocuments"></div>' : '') +
     (_uwOK   ? '<div class="ld-pane" data-ld-pane="underwriting" id="ldPaneUnderwriting"></div>' : '') +
     (_inProc ? '<div class="ld-pane" data-ld-pane="closing"      id="ldPaneClosing"></div>' : '') +
@@ -2468,12 +2480,12 @@ function render() {
     var paneProperty  = document.getElementById('ldPaneProperty'); // Deploy 236.641
     var paneContacts  = document.getElementById('ldPaneContacts');
     var paneDocuments = document.getElementById('ldPaneDocuments');
-    var paneTasks     = document.getElementById('ldPaneTasks');
     var paneClosing   = document.getElementById('ldPaneClosing');
     var paneServicing = document.getElementById('ldPaneServicing'); // Deploy 236.618
     // Deploy 236.602 — Documents + Closing panes are processing-only, so they
-    // may be absent on a pre-processing loan; only Loan/Contacts/Tasks are required.
-    if (!paneLoan || !paneContacts || !paneTasks) return;
+    // may be absent on a pre-processing loan; only Loan/Contacts are required.
+    // (236.726 — the Tasks pane no longer exists; Tasks moved to a modal.)
+    if (!paneLoan || !paneContacts) return;
 
     // LOAN tab: the existing .two-col (Financials + Property/App
     // side-by-side) goes here intact. Any "left col" buttons
@@ -2540,9 +2552,11 @@ function render() {
     // deep link so processors can jump there in one click.
     if (paneDocuments) paneDocuments.appendChild(_buildDocumentsPlaceholder());
 
-    // TASKS tab: the existing #tasksSection moves over wholesale.
+    // TASKS — Deploy 236.726: the existing #tasksSection moves wholesale into
+    // a modal shell (opened by the header Tasks button) instead of a tab. All
+    // of its event wiring / loadTasksList refreshers ride along untouched.
     var tasksSect = document.getElementById('tasksSection');
-    if (tasksSect) paneTasks.appendChild(tasksSect);
+    if (tasksSect) _buildTasksModal(tasksSect);
 
     // CLOSING tab (Deploy 236.568; 236.602 — now processing-only, and the
     // Funding Plan box moved in here per Mike). Funding Plan sits on top, then
@@ -2575,7 +2589,10 @@ function render() {
     // Tab from URL hash if present (#loan / #contacts / #documents
     // / #tasks). Default = loan.
     var hash = String(window.location.hash || '').replace('#', '').toLowerCase();
-    var initial = ['loan','contacts','documents','tasks','closing'].indexOf(hash) >= 0 ? hash : 'loan';
+    // Deploy 236.726 — '#tasks' now opens the Tasks modal (the tab is gone);
+    // stale links keep working.
+    if (hash === 'tasks') setTimeout(openTasksModal, 300);
+    var initial = ['loan','contacts','documents','closing'].indexOf(hash) >= 0 ? hash : 'loan';
     if (initial !== 'loan') switchLdTab(initial, true);
     // If the hash pointed to one of our LEGACY section IDs (e.g.
     // contacts.html's row-click writes #loanContactsSection), jump
@@ -2587,11 +2604,12 @@ function render() {
       'linkedguarantorssection':  'contacts',
       'loancontactssection':      'contacts',
       'brokerinfosection':        'contacts',
-      'tasksection':              'tasks',
-      'tasksesection':            'tasks',
     };
     var lowerHash = hash.toLowerCase();
-    if (sectionToTabHash[lowerHash]) {
+    // Deploy 236.726 — legacy task-section hashes open the modal now.
+    if (lowerHash === 'tasksection' || lowerHash === 'tasksesection' || lowerHash === 'taskssection') {
+      setTimeout(openTasksModal, 300);
+    } else if (sectionToTabHash[lowerHash]) {
       switchLdTab(sectionToTabHash[lowerHash], true);
       setTimeout(function() {
         var t = document.getElementById(hash);
@@ -4664,6 +4682,37 @@ function deleteDoc(id) {
     renderDocsList();
     showToast('Failed to delete: ' + (err && err.message || 'unknown'));
   });
+}
+
+// ── Deploy 236.726 — Tasks modal ───────────────────────────────────
+// The Tasks tab became a modal (too many tabs). relocateSectionsToTabs
+// hands the live #tasksSection node to _buildTasksModal, which wraps it
+// in a fixed overlay appended to <body>; open/close just toggle display.
+function _buildTasksModal(sect) {
+  var ov = document.createElement('div');
+  ov.id = 'ldTasksModal';
+  ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(30,25,18,0.45);z-index:1200;overflow:auto;padding:48px 16px;';
+  ov.onclick = function(e){ if (e.target === ov) closeTasksModal(); };
+  var box = document.createElement('div');
+  box.style.cssText = 'max-width:760px;margin:0 auto;background:var(--surface, #fff);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.25);padding:8px 20px 20px;position:relative';
+  var x = document.createElement('button');
+  x.type = 'button';
+  x.innerHTML = '&times;';
+  x.title = 'Close';
+  x.style.cssText = 'position:absolute;top:10px;right:14px;border:none;background:none;font-size:24px;line-height:1;cursor:pointer;color:var(--muted, #8a8377);z-index:1';
+  x.onclick = closeTasksModal;
+  box.appendChild(x);
+  box.appendChild(sect);
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+function openTasksModal() {
+  var ov = document.getElementById('ldTasksModal');
+  if (ov) ov.style.display = 'block';
+}
+function closeTasksModal() {
+  var ov = document.getElementById('ldTasksModal');
+  if (ov) ov.style.display = 'none';
 }
 
 function _syncTasksTabCount() {
