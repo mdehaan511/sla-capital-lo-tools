@@ -43,20 +43,21 @@ const SUFFIX = { street:'st', avenue:'ave', drive:'dr', road:'rd', lane:'ln', co
 const DIR = { north:'n', south:'s', east:'e', west:'w',
   northeast:'ne', northwest:'nw', southeast:'se', southwest:'sw',
   n:'n', s:'s', e:'e', w:'w', ne:'ne', nw:'nw', se:'se', sw:'sw' };
-// Normalize a street line for matching: street portion only, lowercase, drop
-// unit designators + punctuation, standardize common suffixes.
-function normStreet(s) {
-  let x = String(s || '').toLowerCase().split(',')[0]
-    .replace(/[.#]/g, ' ')
-    .replace(/\b(apt|unit|ste|suite|apartment|bldg|building|fl|floor)\b.*$/,'')
-    .replace(/(\d+)\s*-\s*\d+/, '$1')   // number range "1361-1363" → "1361"
+// Normalize a FULL address for prefix matching. SLA addresses are inconsistent:
+// some are comma-separated, some not; some are UPPERCASE; many append
+// "city ST zip US" with NO comma — so splitting on a comma failed. Instead we
+// normalize the whole string and match the FCI street as a PREFIX of it.
+function normFull(s) {
+  let x = String(s || '').toLowerCase()
+    .replace(/[.,#]/g, ' ')
+    .replace(/(\d+)\s*-\s*\d+/, '$1')  // number range "1361-1363" → "1361"
+    .replace(/\b(apt|unit|ste|suite|apartment|bldg|building|lot|rm|room)\b[\s\S]*$/, '') // unit + everything after
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ').trim();
-  x = x.split(' ').map((w) => SUFFIX[w] || DIR[w] || w).join(' ');
-  return x.replace(/\s+/g, ' ').trim();
+  return x.split(' ').map((w) => SUFFIX[w] || DIR[w] || w).join(' ').replace(/\s+/g, ' ').trim();
 }
-// House number = the leading numeric token (for near-match hints on a miss).
-function houseNum(s) { const m = /^(\d+)/.exec(normStreet(s)); return m ? m[1] : ''; }
+// House number = the FIRST numeric token in the raw address.
+function houseNum(s) { const m = /(\d+)/.exec(String(s || '')); return m ? m[1] : ''; }
 // Pull a 2-letter state out of a full SLA address ("…, WA 98366, US").
 function stateOf(addr) {
   const m = /,\s*([A-Za-z]{2})\s+\d{5}/.exec(String(addr || ''));
@@ -87,10 +88,10 @@ async function handle(req, context) {
   const limit = (Number(body.limit) > 0) ? Math.floor(Number(body.limit)) : 40;
   const selfEmail = normalizeEmail(user.email);
 
-  // ── Build an address index over every SLA loan ────────────────────
+  // ── Index every SLA loan by house-number + state, storing its normalized full
+  //    address so the FCI street can be prefix-matched against it. ───────────
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-  const index = new Map(); // normStreet -> [{ownerKey, clientId, loanId, address, state}]
-  const hnIndex = new Map(); // "houseNum|state" -> [address] (near-match hints on a miss)
+  const hnIndex = new Map(); // "houseNum|state" -> [{ownerKey, clientId, loanId, address, nf}]
   const { blobs } = await clientsStore.list();
   const CONC = 40;
   for (let i = 0; i < blobs.length; i += CONC) {
@@ -103,34 +104,42 @@ async function handle(req, context) {
       if (!c || !Array.isArray(c.loans)) continue;
       for (const loan of c.loans) {
         if (!loan || !loan.address) continue;
-        const k = normStreet(loan.address);
-        if (!k) continue;
-        const st = stateOf(loan.address);
-        if (!index.has(k)) index.set(k, []);
-        index.get(k).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, state: st });
-        const hn = houseNum(loan.address);
-        if (hn) { const hk = hn + '|' + st; if (!hnIndex.has(hk)) hnIndex.set(hk, []); hnIndex.get(hk).push(loan.address); }
+        const hn = houseNum(loan.address); if (!hn) continue;
+        const hk = hn + '|' + stateOf(loan.address);
+        if (!hnIndex.has(hk)) hnIndex.set(hk, []);
+        hnIndex.get(hk).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, nf: normFull(loan.address) });
       }
     }
   }
 
   // ── Match each FCI row ────────────────────────────────────────────
   const toSet = [], unmatched = [], ambiguous = [], errors = [];
+  let matchedFciRows = 0;
   for (const row of FCI_ROWS) {
-    const k = normStreet(row.address);
-    let hits = index.get(k) || [];
-    // Disambiguate by state when we have multiple.
-    if (hits.length > 1 && row.state) {
-      const byState = hits.filter((h) => !h.state || h.state === String(row.state).toUpperCase());
-      if (byState.length) hits = byState;
-    }
-    if (hits.length === 0) {
-      const near = hnIndex.get(houseNum(row.address) + '|' + String(row.state).toUpperCase()) || [];
+    const fciNf = normFull(row.address);
+    const st = String(row.state || '').toUpperCase();
+    const candidates = hnIndex.get(houseNum(row.address) + '|' + st) || [];
+    // FCI address is street-only; SLA appends "city ST zip". Match when the SLA
+    // normalized address EQUALS the FCI street or STARTS WITH it (word boundary).
+    let matches = candidates.filter((h) => h.nf === fciNf || h.nf.startsWith(fciNf + ' '));
+    // Drop duplicate loan targets (same owner/client/loan).
+    const seen = new Set();
+    matches = matches.filter((h) => { const kk = h.ownerKey + '|' + h.clientId + '|' + h.loanId; if (seen.has(kk)) return false; seen.add(kk); return true; });
+
+    if (matches.length === 0) {
+      const near = candidates.map((h) => h.address);
       unmatched.push({ address: row.address, city: row.city, state: row.state, sheet: row.sheet, loanNumber: row.loanNumber, nearMatches: near.slice(0, 4) });
       continue;
     }
-    if (hits.length > 1) { ambiguous.push({ address: row.address, state: row.state, sheet: row.sheet, matches: hits.map((h) => h.address) }); continue; }
-    const h = hits[0];
+    // If matches point at DIFFERENT properties (distinct normalized addresses),
+    // it's genuinely ambiguous — skip. If they're the SAME property duplicated
+    // across records, stamp them all.
+    const distinctAddrs = new Set(matches.map((h) => h.nf));
+    if (distinctAddrs.size > 1) {
+      ambiguous.push({ address: row.address, state: row.state, sheet: row.sheet, matches: [...new Set(matches.map((h) => h.address))] });
+      continue;
+    }
+    matchedFciRows += 1;
     const disp = row.sheet === 'open' ? 'servicing' : 'paid_off';
     const fields = {
       servicerName: SERVICER,
@@ -141,11 +150,13 @@ async function handle(req, context) {
       maturityDate: excelISO(row.maturity),
     };
     if (row.sheet === 'open') fields.paymentAmount = String(row.payment || '');
-    toSet.push({
-      sheet: row.sheet, address: row.address, matchedAddress: h.address,
-      ownerKey: h.ownerKey, clientId: h.clientId, loanId: h.loanId,
-      disposition: disp, fields,
-    });
+    for (const h of matches) {   // stamp every duplicate record of the same property
+      toSet.push({
+        sheet: row.sheet, address: row.address, matchedAddress: h.address,
+        ownerKey: h.ownerKey, clientId: h.clientId, loanId: h.loanId,
+        disposition: disp, fields, dupCount: matches.length,
+      });
+    }
   }
 
   // ── Apply (grouped by client, capped by limit) ────────────────────
@@ -191,7 +202,8 @@ async function handle(req, context) {
     ok: true, apply, overwriteManual,
     fciRows: FCI_ROWS.length,
     summary: {
-      matched: toSet.length,
+      matchedFciRows: matchedFciRows,       // distinct FCI loans matched (of 67)
+      loanTargets: toSet.length,            // SLA loan records to write (incl. duplicates)
       wouldChange: toSet.length,
       applied: apply ? applied : 0,
       remaining: apply ? Math.max(0, toSet.length - applied) : toSet.length,
