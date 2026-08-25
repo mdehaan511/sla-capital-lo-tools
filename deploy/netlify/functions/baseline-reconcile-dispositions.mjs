@@ -62,6 +62,10 @@ async function handle(req, context) {
   const body = (await readJsonBody(req)) || {};
   const apply = body.apply === true;
   const overwriteManual = body.overwriteManual === true;
+  // Deploy 236.712 — cap writes per call so a big apply can't blow the 26s
+  // budget. The client loops (apply is idempotent — a re-run skips the ones it
+  // already wrote) until `remaining` hits 0.
+  const limit = (Number(body.limit) > 0) ? Math.floor(Number(body.limit)) : 60;
   const selfEmail = normalizeEmail(user.email);
 
   // ── 1. Live-read Baseline's loan roster (Status per loan) ──────────
@@ -112,31 +116,40 @@ async function handle(req, context) {
   const unmatched = [];   // no SLA loan found
   const errors = [];
 
-  for (const t of targets) {
-    let hit = null;
-    try { hit = await resolveSlaLoan(t.extId); }
-    catch (e) { errors.push({ extId: t.extId, error: 'resolve failed: ' + (e && e.message) }); continue; }
-    if (!hit) { unmatched.push({ extId: t.extId, status: t.status, name: t.name }); continue; }
-
-    const cur = String((hit.loan.disposition || '')).toLowerCase().trim();
-    const row = {
-      extId: t.extId, name: t.name, baselineStatus: t.status, target: t.disp,
-      ownerKey: hit.ownerKey, clientId: hit.clientId, loanId: hit.loan.id,
-      address: hit.loan.address || t.name, currentDisposition: cur || null, via: hit.via,
-    };
-    if (cur === t.disp) { alreadySet.push(row); continue; }
-    if (cur && !overwriteManual) { conflicts.push(row); continue; }
-    toSet.push(row);
+  // Deploy 236.712 — resolve targets in parallel chunks (sequential blob gets
+  // for ~172 loans was ~24s and blew the dry-run past the CDP eval window).
+  const CONC = 15;
+  for (let i = 0; i < targets.length; i += CONC) {
+    const chunk = targets.slice(i, i + CONC);
+    const results = await Promise.all(chunk.map(async (t) => {
+      try { return { t, hit: await resolveSlaLoan(t.extId) }; }
+      catch (e) { return { t, err: (e && e.message) || 'resolve failed' }; }
+    }));
+    for (const { t, hit, err } of results) {
+      if (err) { errors.push({ extId: t.extId, error: 'resolve failed: ' + err }); continue; }
+      if (!hit) { unmatched.push({ extId: t.extId, status: t.status, name: t.name }); continue; }
+      const cur = String((hit.loan.disposition || '')).toLowerCase().trim();
+      const row = {
+        extId: t.extId, name: t.name, baselineStatus: t.status, target: t.disp,
+        ownerKey: hit.ownerKey, clientId: hit.clientId, loanId: hit.loan.id,
+        address: hit.loan.address || t.name, currentDisposition: cur || null, via: hit.via,
+      };
+      if (cur === t.disp) { alreadySet.push(row); continue; }
+      if (cur && !overwriteManual) { conflicts.push(row); continue; }
+      toSet.push(row);
+    }
   }
 
   // ── 4. Apply (or report) ──────────────────────────────────────────
+  // Only write up to `limit` this call; the client loops until remaining === 0.
+  const applyBatch = apply ? toSet.slice(0, limit) : [];
   let applied = 0;
-  if (apply && toSet.length) {
+  if (applyBatch.length) {
     // Group by (ownerKey, clientId) so a client with multiple reconciled loans
     // is read + written once.
     const now = new Date().toISOString();
     const byClient = new Map();
-    for (const r of toSet) {
+    for (const r of applyBatch) {
       const k = r.ownerKey + '||' + r.clientId;
       if (!byClient.has(k)) byClient.set(k, []);
       byClient.get(k).push(r);
@@ -175,6 +188,8 @@ async function handle(req, context) {
     summary: {
       wouldChange: toSet.length,
       applied: apply ? applied : 0,
+      // How many still need writing after this call — client loops apply until 0.
+      remaining: apply ? Math.max(0, toSet.length - applied) : toSet.length,
       alreadyCorrect: alreadySet.length,
       conflicts: conflicts.length,
       unmatched: unmatched.length,
