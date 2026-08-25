@@ -124,6 +124,12 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.706 — per-draw annotations (Draws tab: wire sent + reimbursement
   // requested), keyed by Sitewire draw id. Rides in extra.
   'drawMeta',
+  // Deploy 236.710 — Dutch/Non-Dutch interest structure drives the Draws tab's
+  // computed UPB (Dutch = full balance, Non-Dutch = initial + drawn). Also ship
+  // finalLoanAmount (set at close by quotes-close) — Closed Loans always
+  // preferred it over loanAmt but the summary never carried it, so every view
+  // silently fell back to the sizer amount.
+  'dutchInterest', 'finalLoanAmount',
 ];
 
 function _loanRowToApi(l, summary) {

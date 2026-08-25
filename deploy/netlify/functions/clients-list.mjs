@@ -211,6 +211,10 @@ const LOAN_SUMMARY_FIELDS = [
   // Deploy 236.706 — per-draw annotations (Draws tab: wire sent + reimbursement
   // requested), keyed by Sitewire draw id. Keep in sync with clients-list-pg.
   'drawMeta',
+  // Deploy 236.710 — Dutch/Non-Dutch interest structure (Draws tab computed UPB)
+  // + finalLoanAmount (Closed Loans prefers it over loanAmt; the summary never
+  // carried it so views silently fell back to the sizer amount).
+  'dutchInterest', 'finalLoanAmount',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
   // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with

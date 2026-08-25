@@ -117,6 +117,8 @@
        in a normal left-aligned cell so it lines up under its header text. */
     .draw-sub input[type="date"] { padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 12px; background: var(--surface); color: var(--text); }
     .draw-sub input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--d-servicing); cursor: pointer; vertical-align: middle; }
+    /* Deploy 236.710 — Dutch/Non-Dutch picker in the Draws main rows */
+    .int-sel { padding: 5px 6px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 12px; background: var(--surface); color: var(--text); cursor: pointer; }
     .cl-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
     .sitewire-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; background: rgba(74,122,138,0.12); color: #35606f; margin-left: 6px; }
     .totbar { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
@@ -326,6 +328,43 @@ function drawsForLoan(l){
 // loan.drawMeta[sitewireDrawId], saved via loan-servicing-update (staff-only).
 function drawMetaFor(l, id){ var m = (l && l.drawMeta) || {}; return m[String(id)] || {}; }
 function _findByKey(key){ for (var i=0;i<_closed.length;i++){ if (loanKey(_closed[i])===key) return _closed[i]; } return null; }
+// Deploy 236.710 — Dutch vs Non-Dutch UPB (Mike's spec):
+//   Dutch: interest accrues on the full loan from day one, so UPB is simply
+//     the total loan balance.
+//   Non-Dutch: interest accrues on funds actually out the door, so UPB =
+//     initial advance (total loan − Sitewire construction budget) + approved
+//     draws to date; each approved draw row also shows the running UPB after
+//     that draw.
+// loan.dutchInterest defaults to 'dutch' (system default since Deploy 197);
+// Baseline imports arrive blank, so staff can set it right on the table.
+function interestTypeOf(l){ return String(l.dutchInterest||'dutch').toLowerCase()==='non_dutch' ? 'non_dutch' : 'dutch'; }
+function loanTotalOf(l){ return num(l.finalLoanAmount) || num(l.loanAmt); }
+function initialAdvanceOf(it){
+  var e = sitewireEntry(it.loan); if (!e) return null;
+  var total = loanTotalOf(it.loan); if (!(total > 0)) return null;
+  var init = total - (e.budget.budgetedCents||0)/100;
+  return init > 0 ? init : 0;
+}
+function upbFor(it){
+  var l = it.loan;
+  if (interestTypeOf(l)==='dutch') return loanTotalOf(l) || num(l.upb||l.currentBalance);
+  var init = initialAdvanceOf(it);
+  if (init == null) return num(l.upb||l.currentBalance); // no Sitewire link — manual fallback
+  return init + (sitewireEntry(l).budget.approvedCents||0)/100;
+}
+function interestTypeSave(key, el){
+  var it = _findByKey(key); if (!it) return;
+  var l = it.loan, prev = l.dutchInterest;
+  l.dutchInterest = el.value;
+  el.disabled = true;
+  SLA.api('POST', '/api/loan-servicing-update', { clientId: it.client.id, loanId: l.id, owner: it.ownerKey, fields: { dutchInterest: el.value } })
+    .then(function(){ el.disabled = false; render(); })
+    .catch(function(e){
+      l.dutchInterest = prev; el.disabled = false; el.value = interestTypeOf(l);
+      el.style.outline = '2px solid var(--danger)';
+      el.title = 'Save failed: ' + ((e && e.message) || 'unknown');
+    });
+}
 function drawMetaSave(key, drawId, field, el){
   var it = _findByKey(key); if (!it) return;
   var l = it.loan, id = String(drawId);
@@ -1011,7 +1050,8 @@ function drawVal(it, k){
   if (k==='approved') return e ? (e.budget.approvedCents||0)/100 : 0;
   if (k==='remaining') return e ? (e.budget.balanceCents||0)/100 : 0;
   if (k==='lastDraw') { var m=''; ds.forEach(function(d){ if((d.date||'')>m) m=d.date||''; }); return m; }
-  if (k==='upb') return num(l.upb||l.currentBalance);
+  if (k==='interest') return interestTypeOf(l);
+  if (k==='upb') return upbFor(it);
   return '';
 }
 function sitewireNote(){
@@ -1032,7 +1072,7 @@ function renderDraws(items){
   var rtl = sortItems(items.filter(function(it){ return isRtl(it.loan) && dispositionOf(it.loan)!=='paid_off'; }), 'draws', drawVal);
   var note = sitewireNote();
   if (!rtl.length) return note + '<div class="cl-empty">No closed RTL loans.</div>';
-  var head = '<tr><th></th>'+th('draws','address','Property')+th('draws','count','Completed')+th('draws','pending','Pending')+th('draws','approved','Total Drawn')+th('draws','remaining','Remaining Budget')+th('draws','lastDraw','Last Activity')+th('draws','upb','Total UPB')+'</tr>';
+  var head = '<tr><th></th>'+th('draws','address','Property')+th('draws','count','Completed')+th('draws','pending','Pending')+th('draws','approved','Total Drawn')+th('draws','remaining','Remaining Budget')+th('draws','lastDraw','Last Activity')+th('draws','interest','Interest')+th('draws','upb','Total UPB')+'</tr>';
   var rows = rtl.map(function(it){
     var l=it.loan, e=sitewireEntry(l), ds=drawsForLoan(l), key=loanKey(it), open=!!_openDraws[key];
     var done=ds.filter(function(d){ return d.status==='approved'; }).length;
@@ -1040,6 +1080,16 @@ function renderDraws(items){
     var appr=e?(e.budget.approvedCents||0)/100:0;
     var rem=e?(e.budget.balanceCents||0)/100:0;
     var last=''; ds.forEach(function(d){ if((d.date||'')>last) last=d.date||''; });
+    // Deploy 236.710 — Interest structure picker + computed UPB.
+    var itype = interestTypeOf(l), upb = upbFor(it);
+    var interestCell;
+    if (_isStaff) {
+      interestCell = '<select class="int-sel" onclick="event.stopPropagation()" onchange="interestTypeSave(\''+escAttr(key)+'\',this)">'+
+        '<option value="dutch"'+(itype==='dutch'?' selected':'')+'>Dutch</option>'+
+        '<option value="non_dutch"'+(itype==='non_dutch'?' selected':'')+'>Non-Dutch</option></select>';
+    } else {
+      interestCell = itype==='dutch' ? 'Dutch' : 'Non-Dutch';
+    }
     var main = '<tr class="lrow" onclick="toggleDraws(\''+escAttr(key)+'\')">' +
       '<td><span class="chev" style="display:inline-block;transition:transform .15s;'+(open?'transform:rotate(90deg)':'')+'">▶</span></td>' +
       '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
@@ -1048,7 +1098,8 @@ function renderDraws(items){
       '<td class="cl-num">'+(appr>0?escH(money(appr)):'<span class="cl-ph">—</span>')+'</td>' +
       '<td class="cl-num">'+(e?escH(moneySigned(rem)):'<span class="cl-ph">—</span>')+'</td>' +
       '<td class="cl-num">'+(last?escH(fmtDate(last)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(num(l.upb||l.currentBalance)>0?escH(money(l.upb||l.currentBalance)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td>'+interestCell+'</td>' +
+      '<td class="cl-num">'+(upb>0?escH(money(upb)):'<span class="cl-ph">—</span>')+'</td>' +
     '</tr>';
     var sub = '';
     if (open) {
@@ -1058,7 +1109,22 @@ function renderDraws(items){
         ? 'No Sitewire property found with loan number '+escH(l.slaDisplayId)+'.'
         : 'This loan has no SLA loan number, so it can\'t be matched to Sitewire.')+'</div>';
       else if (!ds.length) inner = '<div class="cl-empty">No draws on this property yet.</div>';
-      else inner = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Draw #</th><th>Last Updated</th><th>Requested</th><th>Approved</th><th>Status</th><th>Wire Sent</th><th>Reimb. Requested</th></tr></thead><tbody>' +
+      else {
+        // Deploy 236.710 — Non-Dutch running UPB: initial advance + each
+        // approved draw, accumulated in draw-number order. Pending draws
+        // don't move UPB (nothing wired yet). Dutch loans skip this —
+        // their UPB is constant, shown in the parent row.
+        var runningById = {};
+        if (itype==='non_dutch') {
+          var init0 = initialAdvanceOf(it);
+          if (init0 != null) {
+            var run = init0;
+            ds.slice().sort(function(a,b){ return (a.number||0)-(b.number||0); }).forEach(function(d){
+              if (d.status==='approved') { run += d.approvedAmt; runningById[String(d.id)] = run; }
+            });
+          }
+        }
+        inner = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Draw #</th><th>Last Updated</th><th>Requested</th><th>Approved</th><th>Status</th><th>Wire Sent</th><th>Reimb. Requested</th><th>UPB After Draw</th></tr></thead><tbody>' +
         ds.map(function(d,i){
           // Deploy 236.706 — staff can stamp the wire-sent date + flag investor
           // reimbursement per draw; LOs (read-only page) see static values.
@@ -1076,9 +1142,11 @@ function renderDraws(items){
           '<td class="cl-num">'+(d.approvedAmt>0?escH(money(d.approvedAmt)):'<span class="cl-ph">—</span>')+'</td>'+
           '<td>'+swStatusHtml(d.status)+'</td>'+
           '<td>'+wireCell+'</td>'+
-          '<td>'+reimbCell+'</td></tr>'; }).join('') +
+          '<td>'+reimbCell+'</td>'+
+          '<td class="cl-num">'+(runningById[String(d.id)]!=null?escH(money(runningById[String(d.id)])):'<span class="cl-ph">—</span>')+'</td></tr>'; }).join('') +
         '</tbody></table></div>';
-      sub = '<tr class="draw-sub"><td></td><td colspan="7" style="padding:0 14px 12px">'+inner+'</td></tr>';
+      }
+      sub = '<tr class="draw-sub"><td></td><td colspan="8" style="padding:0 14px 12px">'+inner+'</td></tr>';
     }
     return main + sub;
   }).join('');
