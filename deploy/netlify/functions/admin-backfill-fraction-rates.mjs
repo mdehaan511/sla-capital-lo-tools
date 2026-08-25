@@ -56,6 +56,10 @@ async function handle(req, context) {
   const body = (await readJsonBody(req)) || {};
   const dryRun = body.dryRun !== false;           // default TRUE — commit is opt-in
   const maxWrites = Math.max(1, Math.min(500, parseInt(body.maxWrites, 10) || 100));
+  // Deploy 236.718 — explicit opt-in for clients blocked by the pg-mirror's
+  // status-demotion guard (pre-existing blob↔PG drift). The blob is the
+  // canonical store; with this flag the mirror accepts the blob's status.
+  const allowDemotion = body.allowDemotion === true;
 
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const { blobs } = await clientsStore.list();
@@ -99,7 +103,7 @@ async function handle(req, context) {
         // client, report it, keep going. Failures stay unfixed and reappear on
         // the next run, so nothing is silently lost.
         try {
-          await writeClient(owner, rec, { clientsStore });
+          await writeClient(owner, rec, { clientsStore, allowDemotion });
           writes++;
         } catch (e) {
           failures.push({ owner, clientId: rec.id, error: (e && e.message || 'unknown').slice(0, 300) });
