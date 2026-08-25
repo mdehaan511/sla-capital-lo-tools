@@ -2855,6 +2855,13 @@
     NoteServicers: {
       list: function () { return api('GET', '/api/note-servicers-list'); },
     },
+    // Deploy 236.704 — Sitewire draw data (Closed Loans → Draws tab).
+    // Read-only; joined server-side by loan_number == slaDisplayId.
+    Sitewire: {
+      draws: function (loanNumbers, refresh) {
+        return api('POST', '/api/sitewire-draws', { loanNumbers: loanNumbers || [], refresh: !!refresh });
+      },
+    },
     Investors: {
       list: function ()     { return api('GET',  '/api/investors-list'); },
       save: function (data) { return api('POST', '/api/investors-save', data || {}); },

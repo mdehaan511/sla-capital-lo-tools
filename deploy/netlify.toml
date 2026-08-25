@@ -619,6 +619,13 @@
   to = "/.netlify/functions/note-servicers-list"
   status = 200
   force = true
+# Deploy 236.704 — Sitewire draw data for Closed Loans → Draws tab
+# (joined to loans by loan_number == slaDisplayId, read-only).
+[[redirects]]
+  from = "/api/sitewire-draws"
+  to = "/.netlify/functions/sitewire-draws"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/loan-contacts-delete"
   to = "/.netlify/functions/loan-contacts-delete"

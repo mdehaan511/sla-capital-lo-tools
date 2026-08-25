@@ -293,8 +293,46 @@ function _find(clientId, loanId, ownerKey){
 }
 function moneySigned(v){ var n = Math.round(num(v)); return (n<0?'-$':'$') + Math.abs(n).toLocaleString(); }
 
-// Draws — Sitewire is not wired yet; read a placeholder array off the loan.
-function drawsForLoan(l){ return Array.isArray(l.draws) ? l.draws : []; }
+// Draws — live from Sitewire (Deploy 236.704). The backend joins Sitewire
+// properties to loans by loan_number == slaDisplayId, so _sitewire maps a
+// loan's SLA loan number to { address, budget{...Cents}, draws[] }. Amounts
+// arrive as integer cents (Sitewire's unit) and are converted here.
+var _sitewire = null, _sitewireState = '', _sitewireFetchedAt = '', _sitewireErr = '';
+function swNorm(v){ return String(v==null?'':v).trim().toUpperCase(); }
+function sitewireEntry(l){ return (_sitewire && l && l.slaDisplayId) ? (_sitewire[swNorm(l.slaDisplayId)] || null) : null; }
+var SW_STATUS = { drafting:'Drafting', pending_borrower:'Awaiting Borrower', inspecting:'Inspecting',
+  pending:'Pending Lender', pending_capital_partner:'Awaiting Capital Partner', approved:'Approved' };
+function swStatusHtml(s){
+  var lbl = SW_STATUS[s] || (s||'—');
+  var col = s==='approved' ? '#1e7d3c' : '#9a6b00';
+  return '<span style="color:'+col+';font-weight:600">'+escH(lbl)+'</span>';
+}
+function drawsForLoan(l){
+  var e = sitewireEntry(l); if (!e) return [];
+  return (e.draws||[]).map(function(d){
+    return { number: d.number, name: d.name||'',
+      date: d.updatedAt ? String(d.updatedAt).slice(0,10) : '',
+      requestedAmt: (d.requestedCents||0)/100, approvedAmt: (d.approvedCents||0)/100,
+      status: d.status||'', historical: !!d.historical };
+  });
+}
+function loadSitewire(force){
+  if (_sitewireState==='loading') return;
+  var nums = [];
+  _closed.forEach(function(it){ if (isRtl(it.loan) && it.loan.slaDisplayId) nums.push(swNorm(it.loan.slaDisplayId)); });
+  if (!nums.length) { _sitewire = {}; _sitewireState = 'ready'; return; }
+  _sitewireState = 'loading'; _sitewireErr = '';
+  SLA.Sitewire.draws(nums, !!force).then(function(r){
+    _sitewire = (r && r.byLoanNumber) || {};
+    _sitewireFetchedAt = (r && r.fetchedAt) || '';
+    _sitewireState = 'ready';
+    if (_tab==='draws') render();
+  }).catch(function(err){
+    _sitewireState = 'error'; _sitewireErr = (err && err.message) || 'unknown error';
+    if (_tab==='draws') render();
+  });
+}
+function refreshSitewire(){ _sitewireState=''; _sitewire=null; loadSitewire(true); render(); }
 
 // ── Auth + load ────────────────────────────────────────────────────
 window.netlifyIdentity.on('init', function(user){
@@ -929,43 +967,71 @@ function renderPendingSale(items){
 }
 
 // TAB: Draws — RTL only, rollups + expand to individual draws (Sitewire).
+// Deploy 236.704 — live data. Completed = Sitewire status 'approved';
+// everything else is in-flight and shows its workflow stage. Remaining
+// budget is the budget's balance_cents (not a per-draw sum), because
+// Sitewire tracks budget balance at the property level.
 function drawVal(it, k){
-  var l=it.loan, ds=drawsForLoan(l);
+  var l=it.loan, e=sitewireEntry(l), ds=drawsForLoan(l);
   if (k==='address') return l.address||'';
-  if (k==='count') return ds.length;
-  if (k==='approved') return ds.reduce(function(s,d){ return s+num(d.approved||d.amount); },0);
-  if (k==='remaining') return ds.reduce(function(s,d){ return s+num(d.remaining); },0);
+  if (k==='count') return ds.filter(function(d){ return d.status==='approved'; }).length;
+  if (k==='pending') return ds.filter(function(d){ return d.status!=='approved'; }).length;
+  if (k==='approved') return e ? (e.budget.approvedCents||0)/100 : 0;
+  if (k==='remaining') return e ? (e.budget.balanceCents||0)/100 : 0;
   if (k==='lastDraw') { var m=''; ds.forEach(function(d){ if((d.date||'')>m) m=d.date||''; }); return m; }
   if (k==='upb') return num(l.upb||l.currentBalance);
   return '';
 }
+function sitewireNote(){
+  var base = 'RTL loans only. Draw data is live from the Sitewire API <span class="sitewire-tag">Sitewire</span>';
+  if (_sitewireState==='loading') return '<div class="cl-note">'+base+' — loading draw data…</div>';
+  if (_sitewireState==='error') return '<div class="cl-note" style="color:var(--danger)">'+base+' — failed to load: '+escH(_sitewireErr)+' <a href="#" onclick="refreshSitewire();return false">Retry</a></div>';
+  var ago = '';
+  if (_sitewireFetchedAt) {
+    var mins = Math.max(0, Math.round((Date.now() - Date.parse(_sitewireFetchedAt)) / 60000));
+    ago = ' · updated ' + (mins < 1 ? 'just now' : mins + ' min ago');
+  }
+  return '<div class="cl-note">'+base+ago+' · <a href="#" onclick="refreshSitewire();return false">Refresh</a>. Click a loan to expand its draws.</div>';
+}
 function renderDraws(items){
+  if (_sitewireState==='' ) loadSitewire(false);
   var rtl = sortItems(items.filter(function(it){ return isRtl(it.loan); }), 'draws', drawVal);
-  var note = '<div class="cl-note">RTL loans only. Draw data is provided by the Sitewire API <span class="sitewire-tag">Sitewire</span> — not yet connected, so rollups show placeholder zeros. Click a loan to expand its draws.</div>';
+  var note = sitewireNote();
   if (!rtl.length) return note + '<div class="cl-empty">No closed RTL loans.</div>';
-  var head = '<tr><th></th>'+th('draws','address','Property')+th('draws','count','# Draws')+th('draws','approved','Total Approved')+th('draws','remaining','Total Remaining')+th('draws','lastDraw','Last Draw')+th('draws','upb','Total UPB')+'</tr>';
+  var head = '<tr><th></th>'+th('draws','address','Property')+th('draws','count','Completed')+th('draws','pending','Pending')+th('draws','approved','Total Drawn')+th('draws','remaining','Remaining Budget')+th('draws','lastDraw','Last Activity')+th('draws','upb','Total UPB')+'</tr>';
   var rows = rtl.map(function(it){
-    var l=it.loan, ds=drawsForLoan(l), key=loanKey(it), open=!!_openDraws[key];
-    var appr=ds.reduce(function(s,d){ return s+num(d.approved||d.amount); },0);
-    var rem=ds.reduce(function(s,d){ return s+num(d.remaining); },0);
+    var l=it.loan, e=sitewireEntry(l), ds=drawsForLoan(l), key=loanKey(it), open=!!_openDraws[key];
+    var done=ds.filter(function(d){ return d.status==='approved'; }).length;
+    var pend=ds.length-done;
+    var appr=e?(e.budget.approvedCents||0)/100:0;
+    var rem=e?(e.budget.balanceCents||0)/100:0;
     var last=''; ds.forEach(function(d){ if((d.date||'')>last) last=d.date||''; });
     var main = '<tr class="lrow" onclick="toggleDraws(\''+escAttr(key)+'\')">' +
       '<td><span class="chev" style="display:inline-block;transition:transform .15s;'+(open?'transform:rotate(90deg)':'')+'">▶</span></td>' +
       '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>' +
-      '<td class="cl-num">'+ds.length+'</td>' +
+      '<td class="cl-num">'+(e?done:'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(e?(pend>0?'<span style="color:#9a6b00;font-weight:600">'+pend+'</span>':'0'):'<span class="cl-ph">—</span>')+'</td>' +
       '<td class="cl-num">'+(appr>0?escH(money(appr)):'<span class="cl-ph">—</span>')+'</td>' +
-      '<td class="cl-num">'+(rem>0?escH(money(rem)):'<span class="cl-ph">—</span>')+'</td>' +
+      '<td class="cl-num">'+(e?escH(moneySigned(rem)):'<span class="cl-ph">—</span>')+'</td>' +
       '<td class="cl-num">'+(last?escH(fmtDate(last)):'<span class="cl-ph">—</span>')+'</td>' +
       '<td class="cl-num">'+(num(l.upb||l.currentBalance)>0?escH(money(l.upb||l.currentBalance)):'<span class="cl-ph">—</span>')+'</td>' +
     '</tr>';
     var sub = '';
     if (open) {
       var inner;
-      if (!ds.length) inner = '<div class="cl-empty">No draws recorded yet. These will populate from Sitewire.</div>';
-      else inner = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Draw #</th><th>Date</th><th>Amount</th><th>Status</th><th>Inspection</th></tr></thead><tbody>' +
-        ds.map(function(d,i){ return '<tr><td class="cl-num">'+(d.number||i+1)+'</td><td class="cl-num">'+escH(fmtDate(d.date)||'—')+'</td><td class="cl-num">'+escH(money(d.amount||d.approved))+'</td><td>'+escH(d.status||'—')+'</td><td>'+escH(d.inspection||'—')+'</td></tr>'; }).join('') +
+      if (_sitewireState==='loading') inner = '<div class="cl-empty">Loading draw data from Sitewire…</div>';
+      else if (!e) inner = '<div class="cl-empty">'+(l.slaDisplayId
+        ? 'No Sitewire property found with loan number '+escH(l.slaDisplayId)+'.'
+        : 'This loan has no SLA loan number, so it can\'t be matched to Sitewire.')+'</div>';
+      else if (!ds.length) inner = '<div class="cl-empty">No draws on this property yet.</div>';
+      else inner = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Draw #</th><th>Last Updated</th><th>Requested</th><th>Approved</th><th>Status</th></tr></thead><tbody>' +
+        ds.map(function(d,i){ return '<tr><td class="cl-num">'+(d.number||i+1)+(d.historical?' <span class="cl-ph">(hist)</span>':'')+'</td>'+
+          '<td class="cl-num">'+escH(fmtDate(d.date)||'—')+'</td>'+
+          '<td class="cl-num">'+(d.requestedAmt>0?escH(money(d.requestedAmt)):'<span class="cl-ph">—</span>')+'</td>'+
+          '<td class="cl-num">'+(d.approvedAmt>0?escH(money(d.approvedAmt)):'<span class="cl-ph">—</span>')+'</td>'+
+          '<td>'+swStatusHtml(d.status)+'</td></tr>'; }).join('') +
         '</tbody></table></div>';
-      sub = '<tr class="draw-sub"><td></td><td colspan="6" style="padding:0 14px 12px">'+inner+'</td></tr>';
+      sub = '<tr class="draw-sub"><td></td><td colspan="7" style="padding:0 14px 12px">'+inner+'</td></tr>';
     }
     return main + sub;
   }).join('');
