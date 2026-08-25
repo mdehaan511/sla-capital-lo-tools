@@ -2995,7 +2995,10 @@ function removeGuarantorFromLoan(guarantorClientId) {
   } catch (_) {}
   var confirmMsg = 'Remove ' + label + ' as a guarantor on this loan?\n\n' +
     'Their client record is kept — this only unlinks them from THIS loan. ' +
-    'Their ownership % and any pending subform invite for this loan will be cleared.';
+    'Their ownership % and any pending subform invite for this loan will be cleared.\n\n' +
+    'If the loan application was already signed, removing a guarantor MODIFIES the ' +
+    'document, so it will be reset to awaiting-signatures and the remaining parties ' +
+    'must re-sign it. You\'ll need to re-send the signing link.';
   if (!confirm(confirmMsg)) return;
 
   var payload = {
@@ -3005,9 +3008,15 @@ function removeGuarantorFromLoan(guarantorClientId) {
   };
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
 
-  SLA.Loans.removeGuarantor(payload).then(function() {
-    if (typeof showToast === 'function') showToast('Guarantor removed');
-    setTimeout(function() { window.location.reload(); }, 300);
+  SLA.Loans.removeGuarantor(payload).then(function(res) {
+    // Deploy 236.703 — if the signed application was reset, tell the LO the
+    // remaining parties must re-sign (the signing affordances reappear on reload).
+    if (res && res.applicationReset) {
+      if (typeof showToast === 'function') showToast('Guarantor removed — application reset; remaining parties must re-sign. Re-send the signing link.');
+    } else if (typeof showToast === 'function') {
+      showToast('Guarantor removed');
+    }
+    setTimeout(function() { window.location.reload(); }, 600);
   }).catch(function(err) {
     console.error('removeGuarantorFromLoan failed:', err);
     var msg = (err && err.message) || 'unknown error';

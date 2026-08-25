@@ -42,6 +42,9 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
 import { findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
+// Deploy 236.703 — removing a guarantor modifies the application and requires a
+// re-sign (Mike). This resets the app to awaiting-signatures.
+import { resetApplicationForResign } from './_shared/application-resign-reset.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -123,6 +126,8 @@ async function handle(req, context) {
   // namespaces to find it. Non-fatal if we can't — the backref will
   // eventually be reconciled by other flows.
   let removedBackrefs = 0;
+  let guarantorEmail = '';
+  let guarantorName = '';
   try {
     // Deploy 236.418 — was a full-store walk (sequential blob gets
     // across every namespace) to find the guarantor's client record;
@@ -131,6 +136,10 @@ async function handle(req, context) {
     if (hit) {
       const rec = hit.client;
       const gOwner = hit.ownerKey;
+      // Deploy 236.703 — capture identity so we can splice this guarantor out
+      // of the application's data.guarantors[] and require a re-sign.
+      guarantorEmail = normalizeEmail(rec.email || '');
+      guarantorName = ((rec.firstName || '') + ' ' + (rec.lastName || '')).replace(/\s+/g, ' ').trim();
       // Deploy 236.591 — revoke this guarantor's borrower-portal access to the
       // loan they were just removed from, so it disappears from their portal.
       // borrower-portal-loans also self-heals via its guarantor tie-check, but
@@ -172,10 +181,45 @@ async function handle(req, context) {
     console.warn('loan-remove-guarantor: backref cleanup failed (non-fatal):', e && e.message);
   }
 
+  // Deploy 236.703 — removing a guarantor modifies the loan application, so the
+  // remaining parties must re-sign the corrected document. Splice this guarantor
+  // out of data.guarantors[] and, if the app was already signed/in-flight, reset
+  // it to awaiting-signatures (delete the signed PDF + re-mint the Borrower-1
+  // link). A fresh Borrower-1 sign rebuilds the PDF + secondary tokens from the
+  // reduced guarantor set. Best-effort — never fail the removal on this.
+  let applicationReset = false;
+  try {
+    const em = String(guarantorEmail || '').toLowerCase();
+    const nm = String(guarantorName || '').toLowerCase();
+    const dropGuarantor = (data) => {
+      const arr = Array.isArray(data.guarantors) ? data.guarantors : null;
+      if (!arr) return false;
+      let idx = -1;
+      for (let i = 0; i < arr.length; i++) {
+        const g = arr[i] || {};
+        const gEm = String(g.email || '').toLowerCase();
+        const gNm = (((g.firstName || '') + ' ' + (g.lastName || '')).toLowerCase().replace(/\s+/g, ' ').trim())
+          || String(g.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        if ((em && gEm && gEm === em) || (nm && gNm && gNm === nm)) { idx = i; break; }
+      }
+      // Never touch index 0 (the primary borrower) from the secondary-remove path.
+      if (idx <= 0) return false;
+      arr.splice(idx, 1);
+      return true;
+    };
+    const r = await resetApplicationForResign({
+      ownerKey, clientId: body.clientId, loanId: body.loanId, transformData: dropGuarantor,
+    });
+    applicationReset = !!(r && r.reset);
+  } catch (e) {
+    console.warn('loan-remove-guarantor: application re-sign reset failed (non-fatal):', e && e.message);
+  }
+
   return json(200, {
     ok: true,
     loan,
     guarantorClientId: body.guarantorClientId,
     removedBackrefs,
+    applicationReset,
   });
 }
