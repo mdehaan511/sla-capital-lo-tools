@@ -39,17 +39,24 @@ function excelISO(serial) {
 
 const SUFFIX = { street:'st', avenue:'ave', drive:'dr', road:'rd', lane:'ln', court:'ct',
   place:'pl', boulevard:'blvd', circle:'cir', trail:'trl', terrace:'ter', parkway:'pkwy', highway:'hwy' };
+// Standardize directionals so "North"/"N" (and NE/Northeast, etc.) match either way.
+const DIR = { north:'n', south:'s', east:'e', west:'w',
+  northeast:'ne', northwest:'nw', southeast:'se', southwest:'sw',
+  n:'n', s:'s', e:'e', w:'w', ne:'ne', nw:'nw', se:'se', sw:'sw' };
 // Normalize a street line for matching: street portion only, lowercase, drop
 // unit designators + punctuation, standardize common suffixes.
 function normStreet(s) {
   let x = String(s || '').toLowerCase().split(',')[0]
     .replace(/[.#]/g, ' ')
     .replace(/\b(apt|unit|ste|suite|apartment|bldg|building|fl|floor)\b.*$/,'')
+    .replace(/(\d+)\s*-\s*\d+/, '$1')   // number range "1361-1363" → "1361"
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ').trim();
-  x = x.split(' ').map((w) => SUFFIX[w] || w).join(' ');
-  return x;
+  x = x.split(' ').map((w) => SUFFIX[w] || DIR[w] || w).join(' ');
+  return x.replace(/\s+/g, ' ').trim();
 }
+// House number = the leading numeric token (for near-match hints on a miss).
+function houseNum(s) { const m = /^(\d+)/.exec(normStreet(s)); return m ? m[1] : ''; }
 // Pull a 2-letter state out of a full SLA address ("…, WA 98366, US").
 function stateOf(addr) {
   const m = /,\s*([A-Za-z]{2})\s+\d{5}/.exec(String(addr || ''));
@@ -83,6 +90,7 @@ async function handle(req, context) {
   // ── Build an address index over every SLA loan ────────────────────
   const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
   const index = new Map(); // normStreet -> [{ownerKey, clientId, loanId, address, state}]
+  const hnIndex = new Map(); // "houseNum|state" -> [address] (near-match hints on a miss)
   const { blobs } = await clientsStore.list();
   const CONC = 40;
   for (let i = 0; i < blobs.length; i += CONC) {
@@ -97,8 +105,11 @@ async function handle(req, context) {
         if (!loan || !loan.address) continue;
         const k = normStreet(loan.address);
         if (!k) continue;
+        const st = stateOf(loan.address);
         if (!index.has(k)) index.set(k, []);
-        index.get(k).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, state: stateOf(loan.address) });
+        index.get(k).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, state: st });
+        const hn = houseNum(loan.address);
+        if (hn) { const hk = hn + '|' + st; if (!hnIndex.has(hk)) hnIndex.set(hk, []); hnIndex.get(hk).push(loan.address); }
       }
     }
   }
@@ -113,7 +124,11 @@ async function handle(req, context) {
       const byState = hits.filter((h) => !h.state || h.state === String(row.state).toUpperCase());
       if (byState.length) hits = byState;
     }
-    if (hits.length === 0) { unmatched.push({ address: row.address, city: row.city, state: row.state, sheet: row.sheet, loanNumber: row.loanNumber }); continue; }
+    if (hits.length === 0) {
+      const near = hnIndex.get(houseNum(row.address) + '|' + String(row.state).toUpperCase()) || [];
+      unmatched.push({ address: row.address, city: row.city, state: row.state, sheet: row.sheet, loanNumber: row.loanNumber, nearMatches: near.slice(0, 4) });
+      continue;
+    }
     if (hits.length > 1) { ambiguous.push({ address: row.address, state: row.state, sheet: row.sheet, matches: hits.map((h) => h.address) }); continue; }
     const h = hits[0];
     const disp = row.sheet === 'open' ? 'servicing' : 'paid_off';
