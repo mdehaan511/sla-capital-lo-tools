@@ -691,9 +691,13 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field">
         <div class="wrap">
           <label>Property Type <span class="req">*</span></label>
+          <!-- Deploy 236.700 — GUC property type: SFR or 2-4 Unit only.
+               Both price off the Colchis Single-Family (1-4 Units) table
+               (priceGUC normalizes anything non-mfr to the sfr table).
+               Multi-Family (5-20) removed per Mike. -->
           <select id="propType" onchange="autoCalc()">
-            <option value="sfr">SFR / 1–4 Units</option>
-            <option value="mfr">Multi-Family 5–20 Units</option>
+            <option value="sfr">SFR</option>
+            <option value="2to4">2-4 Unit</option>
           </select>
         </div>
       </div>
@@ -744,7 +748,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
                onOwnLandChange(). Either way it's the land figure the LTP /
                LTC caps run against. -->
           <label id="lbl-purchasePrice">Land Purchase Price <span class="req">*</span></label>
-          <input type="number" id="purchasePrice" step="5000" oninput="clearErr('purchasePrice');_syncTargetsToPurchase();autoCalc()" />
+          <input type="text" inputmode="numeric" id="purchasePrice" placeholder="$0" oninput="maskMoney(this);clearErr('purchasePrice');_syncTargetsToPurchase();autoCalc()" />
         </div>
         <div class="err-msg" id="err-purchasePrice">Required</div>
       </div>
@@ -755,20 +759,20 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
       <div class="field" id="row-landDebt" style="display:none">
         <div class="wrap" id="wrap-landDebt">
           <label>Existing Debt on Land</label>
-          <input type="number" id="landDebt" min="0" step="5000" placeholder="e.g. 40000" oninput="clearErr('landDebt');autoCalc()" />
+          <input type="text" inputmode="numeric" id="landDebt" placeholder="$40,000" oninput="maskMoney(this);clearErr('landDebt');autoCalc()" />
         </div>
       </div>
       <div class="field" id="row-rehab">
         <div class="wrap" id="wrap-rehabBudget">
           <label>Construction Budget <span class="req">*</span></label>
-          <input type="number" id="rehabBudget" step="5000" oninput="clearErr('rehabBudget');autoCalc()" />
+          <input type="text" inputmode="numeric" id="rehabBudget" placeholder="$0" oninput="maskMoney(this);clearErr('rehabBudget');autoCalc()" />
         </div>
         <div class="err-msg" id="err-rehabBudget">Required</div>
       </div>
       <div class="field span2">
         <div class="wrap" id="wrap-arv">
           <label id="lbl-arv">After-Completion Value (ARV) <span class="req">*</span></label>
-          <input type="number" id="arv" step="5000" oninput="clearErr('arv');autoCalc()" />
+          <input type="text" inputmode="numeric" id="arv" placeholder="$0" oninput="maskMoney(this);clearErr('arv');autoCalc()" />
         </div>
         <div class="err-msg" id="err-arv">Required</div>
       </div>
@@ -1418,7 +1422,7 @@ function brokerFeeDollars() {
     if (ltEl && ltEl.value === 'transactional') {
       loanAmt = parseFloat((document.getElementById('transactionalAmt')||{}).value) || 0;
     } else {
-      loanAmt = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+      loanAmt = _money((document.getElementById('purchasePrice')||{}).value) || 0;
     }
   }
   return loanAmt * (pts / 100);
@@ -1799,8 +1803,8 @@ function applyOverridesAndRender() {
   // budget from the form (the canonical inputs); for fix/flip the loan
   // amount = price - DP + rehab. For bridge / transactional / refi, the
   // DP concept may not apply, but we'll honor the override if it's set.
-  var pp = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
-  var rb = parseFloat((document.getElementById('rehabBudget')||{}).value) || 0;
+  var pp = _money((document.getElementById('purchasePrice')||{}).value) || 0;
+  var rb = _money((document.getElementById('rehabBudget')||{}).value) || 0;
   var ltVal = (document.getElementById('loanType')||{}).value;
   var isRehab = (ltVal === 'light' || ltVal === 'heavy');
   var effLoanAmt = calc.bMax || 0;
@@ -1957,6 +1961,26 @@ function onLoanTypeChange() {
   autoCalc();
 }
 
+// Deploy 236.700 — currency inputs. The dollar fields (land value, land
+// debt, construction budget, ARV) are type=text and formatted with a "$" +
+// thousands separators as the LO types (maskMoney). _money() reads any such
+// masked value back to a plain Number so every downstream parseFloat-style
+// read still works. Whole-dollar only. maskMoney/_money are used by the
+// oninput handlers + save/restore normalization.
+function _money(v){
+  var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+  return isFinite(n) ? n : 0;
+}
+function maskMoney(el){
+  if (!el) return;
+  var raw = String(el.value || '').replace(/[^0-9]/g, '');
+  el.value = raw === '' ? '' : '$' + Number(raw).toLocaleString('en-US');
+}
+// Re-apply the mask to a field by id (used after a programmatic value set).
+function _maskMoneyId(id){ var el = document.getElementById(id); if (el && el.value !== '') maskMoney(el); }
+// The dollar fields masked in this sizer.
+var _MONEY_FIELDS = ['purchasePrice','landDebt','rehabBudget','arv'];
+
 function clearErr(id){
   var el=document.getElementById('wrap-'+id);
   var er=document.getElementById('err-'+id);
@@ -1980,7 +2004,7 @@ function validate(){
   if(zip&&!/^\d{5}$/.test(zip)){ showErr('propZip','Must be 5 digits'); ok=false; }
 
   // purchasePrice is always required (it's the as-is property value on refis).
-  if(!(parseFloat(document.getElementById('purchasePrice').value)>0)){
+  if(!(_money(document.getElementById('purchasePrice').value)>0)){
     showErr('purchasePrice'); ok=false;
   }
 
@@ -1995,12 +2019,12 @@ function validate(){
   var isRefiV = (v === 'cashout' || v === 'rateterm');
   // Deploy 236.697 — GUC: construction always needs ARV + build budget.
   var arvApplies = ['light','heavy','construction'].includes(t) && !isRefiV;
-  if (arvApplies && !(parseFloat(document.getElementById('arv').value)>0)) {
+  if (arvApplies && !(_money(document.getElementById('arv').value)>0)) {
     showErr('arv'); ok=false;
   }
 
   // Rehab / construction budget required only when ARV is required.
-  if (arvApplies && !(parseFloat(document.getElementById('rehabBudget').value)>0)) {
+  if (arvApplies && !(_money(document.getElementById('rehabBudget').value)>0)) {
     showErr('rehabBudget'); ok=false;
   }
   return ok;
@@ -2074,7 +2098,7 @@ function onRtlPurposeChange() {
 // both cases when talking to borrowers.
 function onTargetLtvInput() {
   if (document.activeElement && document.activeElement.id !== 'targetLtv') return;
-  var pp   = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+  var pp   = _money((document.getElementById('purchasePrice')||{}).value) || 0;
   var ltvV = parseFloat((document.getElementById('targetLtv')||{}).value);
   var loanEl = document.getElementById('targetLoanAmt');
   if (!loanEl) return;
@@ -2086,7 +2110,7 @@ function onTargetLtvInput() {
 }
 function onTargetLoanAmtInput() {
   if (document.activeElement && document.activeElement.id !== 'targetLoanAmt') return;
-  var pp    = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+  var pp    = _money((document.getElementById('purchasePrice')||{}).value) || 0;
   var loanV = parseFloat((document.getElementById('targetLoanAmt')||{}).value);
   var ltvEl = document.getElementById('targetLtv');
   if (!ltvEl) return;
@@ -2102,7 +2126,7 @@ function onTargetLoanAmtInput() {
 // correction. If only targetLoanAmt is set (no targetLtv), refresh
 // targetLtv from the new pp.
 function _syncTargetsToPurchase() {
-  var pp    = parseFloat((document.getElementById('purchasePrice')||{}).value) || 0;
+  var pp    = _money((document.getElementById('purchasePrice')||{}).value) || 0;
   if (pp <= 0) return;
   var ltvEl  = document.getElementById('targetLtv');
   var loanEl = document.getElementById('targetLoanAmt');
@@ -2272,10 +2296,10 @@ function calculate(){
   var fr=parseInt(document.getElementById('fico').value);
   var exp=parseInt(document.getElementById('experience').value);
   var pt=document.getElementById('propType').value;
-  var pp=parseFloat(document.getElementById('purchasePrice').value)||0;
-  var arv=parseFloat(document.getElementById('arv').value)||0;
+  var pp=_money(document.getElementById('purchasePrice').value)||0;
+  var arv=_money(document.getElementById('arv').value)||0;
   // Deploy 236.697 — GUC: construction always carries a build budget.
-  var rb=parseFloat(document.getElementById('rehabBudget').value)||0;
+  var rb=_money(document.getElementById('rehabBudget').value)||0;
   var term=parseInt(document.getElementById('loanTerm').value);
   var purp=document.getElementById('loanPurpose').value;   // always 'purchase'
   var zhvi=document.getElementById('zhvi').value;
@@ -2286,7 +2310,7 @@ function calculate(){
   // only meaningful when they own the land.
   var ownLandEl = document.getElementById('ownLand');
   var ownLand = ownLandEl ? (ownLandEl.value === 'yes') : false;
-  var landDebt = parseFloat(document.getElementById('landDebt').value)||0;
+  var landDebt = _money(document.getElementById('landDebt').value)||0;
 
   // Deploy 236.697 — GUC prices through SLA_GUC.priceGUC (Colchis
   // Construction card + land logic). Returns the SAME shape as
@@ -2945,6 +2969,9 @@ function prefillRTLFromProspect(p) {
   if (p.rehabCost)     { var rb=gEl('rehabBudget');   if(rb) rb.value=p.rehabCost; }
   var arvVal = p.estimatedARV||p.propertyValue||'';
   if (arvVal) { var av=gEl('arv'); if(av) av.value=arvVal; }
+  // Deploy 236.700 — re-apply the currency mask to any dollar fields this
+  // prefill just set from raw numbers.
+  if (typeof _MONEY_FIELDS !== 'undefined') _MONEY_FIELDS.forEach(_maskMoneyId);
   // Item #2: map flipsCompleted (number) to the experience-tier select.
   // Deploy 236.697 — GUC tiers: 6+ builds → "6" (Tier 1), 4-5 → "4"
   // (Tier 2), 0-3 → "1" (Tier 3).
@@ -3237,6 +3264,12 @@ function saveCurrentQuote() {
   fields.forEach(function(id) {
     var el = document.getElementById(id);
     if (el) formData[id] = el.value;
+  });
+  // Deploy 236.700 — strip the currency mask ("$200,000" → "200000") so the
+  // saved loan record + application PDF carry plain numeric strings, same as
+  // every non-GUC sizer.
+  _MONEY_FIELDS.forEach(function(id) {
+    if (formData[id] != null && formData[id] !== '') formData[id] = String(_money(formData[id]));
   });
   // Deploy 236.358 — defensive scrub for type-incompatible fields.
   // Bridge / Transactional / Refi loans don't have a rehab budget;
@@ -3781,6 +3814,9 @@ function loadRTLQuote(formData) {
     var el = document.getElementById(id);
     if (el && formData[id] !== undefined) el.value = formData[id];
   });
+  // Deploy 236.700 — re-apply the currency mask to the dollar fields the
+  // restore just set from plain numeric strings.
+  _MONEY_FIELDS.forEach(_maskMoneyId);
   // Deploy 236.697 — GUC: sync the land-debt field visibility + land label
   // to the restored "own the land?" value.
   if (typeof onOwnLandChange === 'function') { try { onOwnLandChange(); } catch (_) {} }
@@ -5129,12 +5165,12 @@ function _generateRTLRateSheetPDF(opts) {
   var exp=parseInt(gv('experience')||'1');
   var pt=gv('propType'), term=parseInt(gv('loanTerm')||'12');
   var purp=gv('loanPurpose');
-  var pp=parseFloat(gv('purchasePrice'))||0;
-  var rb=parseFloat(gv('rehabBudget'))||0;
-  var arv=parseFloat(gv('arv'))||0;
+  var pp=_money(gv('purchasePrice'))||0;
+  var rb=_money(gv('rehabBudget'))||0;
+  var arv=_money(gv('arv'))||0;
   // Deploy 236.697 — GUC land-ownership figures for the rate sheet.
   var ownLand=(gv('ownLand')==='yes');
-  var landDebt=parseFloat(gv('landDebt'))||0;
+  var landDebt=_money(gv('landDebt'))||0;
   var landEquityCredit=(ownLand&&pp>0)?Math.max(0,Math.round(0.60*pp-landDebt)):0;
   var addrFull=street+', '+city+', '+state+' '+zip;
   var isR=lt!=='bridge';
@@ -5282,7 +5318,7 @@ function _generateRTLRateSheetPDF(opts) {
   var progLabel=(LABELS[lt]||lt);
   // Deploy 236.697 — GUC experience tiers are 6+ / 4-5 / 0-3 builds.
   var expLabel=exp>=6?'Tier 1 (6+ builds)':exp>=4?'Tier 2 (4–5 builds)':'Tier 3 (0–3 builds)';
-  var ptLabel={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–20 Units'};
+  var ptLabel={sfr:'SFR','2to4':'2-4 Unit',mfr:'Multi-Family 5–20 Units'};
   var termLabel={12:'12 months',13:'13–18 months',19:'19–24 months'};
   var purpLabel={purchase:'Purchase',cashout:'Cash-Out Refinance',rateterm:'Rate/Term Refinance'};
 
@@ -5374,7 +5410,7 @@ function _generateRTLRateSheetPDF(opts) {
 
   // Loan details grid — Property Address now lives in the dark hero band
   // above (full width, no truncation), so it's removed from this grid.
-  var ptLabelMap={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–20 Units'};
+  var ptLabelMap={sfr:'SFR','2to4':'2-4 Unit',mfr:'Multi-Family 5–20 Units'};
   // Deploy 236.697 \u2014 GUC rate-sheet detail grid. Drops Loan Purpose
   // (always a purchase) and Interest Structure (always Non-Dutch); adds
   // the land-ownership line and, when it applies, the land-equity credit.
@@ -5389,8 +5425,11 @@ function _generateRTLRateSheetPDF(opts) {
     ['Own the Land?',       ownLand?'Yes':'No'],
   ];
   if (ownLand) {
-    details.push(['Existing Land Debt', fmtD(landDebt)]);
-    if (landEquityCredit > 0) details.push(['Land Equity to Down Pmt', fmtD(landEquityCredit)]);
+    // Deploy 236.700 — always show $0 (not a dash) for zero land debt, and
+    // make the equity-toward-down-payment line explicit that it's capped at
+    // 60% of the land value.
+    details.push(['Existing Land Debt', '$' + Math.round(landDebt).toLocaleString()]);
+    details.push(['Land Equity to Down Pmt (up to 60% of land value)', '$' + Math.round(landEquityCredit).toLocaleString()]);
   }
   details.push(
     ['Loan Term',           termLabel[term]||term+' months'],
@@ -5628,7 +5667,7 @@ function _generateRTLRateSheetPDF(opts) {
   var crMoIntNum = (pdfMoMax !== null && pdfMoMax > 0) ? pdfMoMax
                  : (pdfMoStart !== null && pdfMoStart > 0) ? pdfMoStart
                  : (parseFloat((moDisp||'').replace(/[$,]/g,'').replace(/\/mo.*$/i,'')) || 0);
-  var crRehabRaw = parseFloat(gv('rehabBudget'))||0;
+  var crRehabRaw = _money(gv('rehabBudget'))||0;
   var crRehabContrib = crRehabRaw * 0.20;
   var crHoldingContrib = crMoIntNum * 6;
   var crTotal = crCashToClose + crHoldingContrib + crRehabContrib;

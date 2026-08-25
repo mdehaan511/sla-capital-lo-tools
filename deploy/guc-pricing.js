@@ -74,6 +74,11 @@
     if (geoWarning) flags.push(geoWarning);
     var rErr = null;
 
+    // Deploy 236.700 — property-type key for the Colchis tables. Both SFR
+    // and 2-4 Unit price off the Single-Family (1-4 Units) card → 'sfr'.
+    // Only an explicit 'mfr' would use the (uncarded) multi-family table.
+    var ptKey = (pt === 'mfr') ? 'mfr' : 'sfr';
+
     var fkey = fk(fr);
     var eidx = eiGUC(exp);
     // 0-3 tier is blank on the Colchis card → borrow the 4-5 (index 1)
@@ -83,9 +88,9 @@
       flags.push('0–3 new builds: priced at the 4–5 build tier — subject to additional due diligence.');
     }
 
-    var ltpT  = CT_LTP[pt]  && CT_LTP[pt][fkey];
-    var ltcT  = CT_LTC[pt]  && CT_LTC[pt][fkey];
-    var larvT = CT_LARV[pt] && CT_LARV[pt][fkey];
+    var ltpT  = CT_LTP[ptKey]  && CT_LTP[ptKey][fkey];
+    var ltcT  = CT_LTC[ptKey]  && CT_LTC[ptKey][fkey];
+    var larvT = CT_LARV[ptKey] && CT_LARV[ptKey][fkey];
     var mLtp  = ltpT  ? ltpT[lvIdx]  : 0;
     var mLtc  = ltcT  ? ltcT[lvIdx]  : 0;
     var mLarv = larvT ? larvT[lvIdx] : 0;
@@ -184,7 +189,7 @@
       // LTP is ~60%, below the .70 start).
       var ltvF = mLtp;
       var sz = bMax > 3000000 ? '3m' : bMax > 2000000 ? '2m' : 'normal';
-      var cbResult = colchisRate('construction', pt, fkey, ltvF);
+      var cbResult = colchisRate('construction', ptKey, fkey, ltvF);
       if (!cbResult) {
         if (!adminSandbox) {
           rErr = 'No pricing available for this FICO/LTV combination.' + EXCEPTION_HINT;
