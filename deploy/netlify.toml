@@ -32,6 +32,10 @@
 [functions."baseline-reconcile-dispositions"]
   timeout = 26
 
+# Deploy 236.716 — one-off fraction-rate backfill walks every client blob.
+[functions."admin-backfill-fraction-rates"]
+  timeout = 26
+
 [build.environment]
   NODE_VERSION = "20"
   AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
@@ -630,6 +634,12 @@
 [[redirects]]
   from = "/api/sitewire-draws"
   to = "/.netlify/functions/sitewire-draws"
+  status = 200
+  force = true
+# Deploy 236.716 — one-time fraction-rate backfill (admin, dry-run default).
+[[redirects]]
+  from = "/api/admin-backfill-fraction-rates"
+  to = "/.netlify/functions/admin-backfill-fraction-rates"
   status = 200
   force = true
 [[redirects]]
