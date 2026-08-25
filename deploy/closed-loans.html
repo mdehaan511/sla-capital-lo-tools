@@ -208,6 +208,10 @@ function money(v){ var n=num(v); return n>0 ? '$'+Math.round(n).toLocaleString()
 function parseLocalDate(s){ if(!s) return null; var m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) { var d0=new Date(s); return isNaN(d0.getTime())?null:d0; } return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10)); }
 function fmtDate(s){ var d=parseLocalDate(s); if(!d) return ''; return (d.getMonth()+1)+'/'+d.getDate()+'/'+String(d.getFullYear()).slice(-2); }
 function pct(v){ var n=parseFloat(v); return isFinite(n) ? (n.toFixed(3).replace(/0+$/,'').replace(/\.$/,''))+'%' : '—'; }
+// Deploy 236.715 — Baseline imports stored Rate as a decimal fraction (0.069)
+// instead of percent (6.9). No real rate in this business is below 1%, so a
+// value in (0,1) is a fraction — scale it. Sizer values (10.375) pass through.
+function rateOf(v){ var n=num(v); return (n>0 && n<1) ? n*100 : n; }
 function loDisplay(ownerKey){ if(!ownerKey) return '—'; return String(ownerKey).replace(/_at_/g,'@').replace(/_dot_/g,'.').replace(/_/g,' '); }
 function toolLabel(l){ var t=String(l.toolType||'dscr').toLowerCase(); return t==='rtl'?'RTL':(t==='guc'?'GUC':'DSCR'); }
 function isRtl(l){ return String(l.toolType||'').toLowerCase()==='rtl'; }
@@ -268,7 +272,9 @@ function firstPaymentStr(l){ var d = firstPaymentDate(l); return d ? ((d.getMont
 // Monthly yield spread (Sold-RTL) = (originated rate − sold rate)% × balance / 12.
 // Balance = current UPB if we have it, else the funded loan amount.
 function monthlyYieldSpread(l){
-  var orig = num(l.rate), sold = num(l.soldRate);
+  // Deploy 236.715 — normalize both through rateOf so a Baseline fraction-rate
+  // (0.069) can't produce a wildly wrong spread against a percent sold rate.
+  var orig = rateOf(l.rate), sold = rateOf(l.soldRate);
   if (!(orig > 0) || !(sold > 0)) return null;
   var bal = num(l.upb) || num(l.finalLoanAmount) || num(l.loanAmt);
   if (!(bal > 0)) return null;
@@ -590,7 +596,7 @@ function _svcCellsFull(it){ var l=it.loan;
 }
 // ── Post Close ── Property · Borrower · Type · Loan Amt · Rate · Points · Close · First Pay · [Close Out]
 function _postCells(it){ var l=it.loan;
-  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdPct(l.rate) + _tdPts(l.points) + _tdDate(l.fundingDate) +
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) + _tdDate(l.fundingDate) +
     '<td class="cl-num">'+(firstPaymentStr(l)?escH(firstPaymentStr(l)):'<span class="cl-ph">—</span>')+'</td>' +
     // Deploy 236.693 — write action staff-only; LOs get a read-only view.
     _actTd(_isStaff ? '<button type="button" class="cl-act primary" onclick="event.stopPropagation();openCloseOut(\''+_pbt(it)+'\')">Close Out</button>' : '<span class="cl-ph">—</span>');
@@ -602,18 +608,18 @@ function _pendCells(it){ var l=it.loan;
   var pill = _isStaff
     ? '<button type="button" class="tr-pill '+(trading?'yes':'no')+'" onclick="event.stopPropagation();toggleTrading(\''+_pbt(it)+'\')">'+(trading?'Yes':'No')+'</button>'
     : '<span class="tr-pill '+(trading?'yes':'no')+'" style="cursor:default">'+(trading?'Yes':'No')+'</span>';
-  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(l.rate) + _tdPts(l.points) + _tdText(l.investorName) +
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) + _tdText(l.investorName) +
     _actTd(pill) +
     _actTd(_isStaff ? '<button type="button" class="cl-act" onclick="event.stopPropagation();openMarkSold(\''+_pbt(it)+'\')">Mark Sold</button>' : '');
 }
 // ── Sold – RTL ── ... Investor · Monthly Yield Spread
 function _soldRtlCells(it){ var l=it.loan; var s=monthlyYieldSpread(l);
-  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(l.rate) + _tdPts(l.points) + _tdText(l.investorName) +
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) + _tdText(l.investorName) +
     '<td class="cl-num">'+(s!=null?escH(moneySigned(s)+'/mo'):'<span class="cl-ph">—</span>')+'</td>';
 }
 // ── Sold – DSCR ── ... Investor · Profitability
 function _soldDscrCells(it){ var l=it.loan; var p=dscrProfitability(l);
-  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(l.rate) + _tdPts(l.points) + _tdText(l.investorName) +
+  return _cName(it) + _tdMoney(l.finalLoanAmount||l.loanAmt) + _tdDate(l.fundingDate) + _tdPct(rateOf(l.rate)) + _tdPts(l.points) + _tdText(l.investorName) +
     '<td class="cl-num">'+(p!=null?escH(moneySigned(p)):'<span class="cl-ph">—</span>')+'</td>';
 }
 function _payoffCells(it){ var l=it.loan;
@@ -625,7 +631,7 @@ function _payoffCells(it){ var l=it.loan;
 function _saleValCommon(it,k){ var l=it.loan;
   if (k==='address') return l.address||''; if (k==='borrower') return clientName(it.client); if (k==='type') return toolLabel(l);
   if (k==='amount') return num(l.finalLoanAmount||l.loanAmt); if (k==='funded') return l.fundingDate||'';
-  if (k==='rate') return num(l.rate); if (k==='points') return num(l.points); if (k==='investor') return l.investorName||''; return '';
+  if (k==='rate') return rateOf(l.rate); if (k==='points') return num(l.points); if (k==='investor') return l.investorName||''; return '';
 }
 function postVal(it,k){ var l=it.loan;
   if (k==='firstpay'){ var d=firstPaymentDate(l); return d?d.getTime():0; }
