@@ -43,6 +43,9 @@ const SUFFIX = { street:'st', avenue:'ave', drive:'dr', road:'rd', lane:'ln', co
 const DIR = { north:'n', south:'s', east:'e', west:'w',
   northeast:'ne', northwest:'nw', southeast:'se', southwest:'sw',
   n:'n', s:'s', e:'e', w:'w', ne:'ne', nw:'nw', se:'se', sw:'sw' };
+// Spelled-out ordinals → digits so "Sixth" matches "6th".
+const ORD = { first:'1', second:'2', third:'3', fourth:'4', fifth:'5', sixth:'6',
+  seventh:'7', eighth:'8', ninth:'9', tenth:'10', eleventh:'11', twelfth:'12' };
 // Normalize a FULL address for prefix matching. SLA addresses are inconsistent:
 // some are comma-separated, some not; some are UPPERCASE; many append
 // "city ST zip US" with NO comma — so splitting on a comma failed. Instead we
@@ -52,9 +55,11 @@ function normFull(s) {
     .replace(/[.,#]/g, ' ')
     .replace(/(\d+)\s*-\s*\d+/, '$1')  // number range "1361-1363" → "1361"
     .replace(/\b(apt|unit|ste|suite|apartment|bldg|building|lot|rm|room)\b[\s\S]*$/, '') // unit + everything after
+    .replace(/\b(\d+)(st|nd|rd|th)\b/g, '$1')  // numeric ordinals "24th"→"24", "81st"→"81"
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ').trim();
-  return x.split(' ').map((w) => SUFFIX[w] || DIR[w] || w).join(' ').replace(/\s+/g, ' ').trim();
+  x = x.split(' ').map((w) => SUFFIX[w] || DIR[w] || ORD[w] || w).join(' ');
+  return x.replace(/\s+(usa|us)$/, '').replace(/\s+/g, ' ').trim();  // drop trailing country
 }
 // House number = the FIRST numeric token in the raw address.
 function houseNum(s) { const m = /(\d+)/.exec(String(s || '')); return m ? m[1] : ''; }
