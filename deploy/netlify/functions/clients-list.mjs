@@ -208,6 +208,9 @@ const LOAN_SUMMARY_FIELDS = [
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
   'titlePolicyDate', 'titlePolicyLocation', 'titlePolicyTracking',
+  // Deploy 236.706 — per-draw annotations (Draws tab: wire sent + reimbursement
+  // requested), keyed by Sitewire draw id. Keep in sync with clients-list-pg.
+  'drawMeta',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
   // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with

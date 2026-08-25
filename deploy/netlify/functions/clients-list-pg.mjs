@@ -121,6 +121,9 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
   'titlePolicyDate', 'titlePolicyLocation', 'titlePolicyTracking',
+  // Deploy 236.706 — per-draw annotations (Draws tab: wire sent + reimbursement
+  // requested), keyed by Sitewire draw id. Rides in extra.
+  'drawMeta',
 ];
 
 function _loanRowToApi(l, summary) {

@@ -310,16 +310,43 @@ function swStatusHtml(s){
 function drawsForLoan(l){
   var e = sitewireEntry(l); if (!e) return [];
   return (e.draws||[]).map(function(d){
-    return { number: d.number, name: d.name||'',
+    return { id: d.id, number: d.number, name: d.name||'',
       date: d.updatedAt ? String(d.updatedAt).slice(0,10) : '',
       requestedAmt: (d.requestedCents||0)/100, approvedAmt: (d.approvedCents||0)/100,
       status: d.status||'', historical: !!d.historical };
   });
 }
+// Deploy 236.706 — per-draw annotations (wire sent date + reimbursement
+// requested). Sitewire has no such fields, so they live on the SLA loan as
+// loan.drawMeta[sitewireDrawId], saved via loan-servicing-update (staff-only).
+function drawMetaFor(l, id){ var m = (l && l.drawMeta) || {}; return m[String(id)] || {}; }
+function _findByKey(key){ for (var i=0;i<_closed.length;i++){ if (loanKey(_closed[i])===key) return _closed[i]; } return null; }
+function drawMetaSave(key, drawId, field, el){
+  var it = _findByKey(key); if (!it) return;
+  var l = it.loan, id = String(drawId);
+  if (!l.drawMeta) l.drawMeta = {};
+  if (!l.drawMeta[id]) l.drawMeta[id] = {};
+  var prev = l.drawMeta[id][field];
+  var val = (field === 'reimbursementRequested') ? !!el.checked : String(el.value || '');
+  l.drawMeta[id][field] = val;
+  var patch = {}; patch[field] = val;
+  var dm = {}; dm[id] = patch;
+  el.disabled = true;
+  SLA.api('POST', '/api/loan-servicing-update', { clientId: it.client.id, loanId: l.id, owner: it.ownerKey, drawMeta: dm })
+    .then(function(){ el.disabled = false; el.style.outline = ''; el.title = ''; })
+    .catch(function(e){
+      // Revert the optimistic write and flag the control — no toast infra here.
+      l.drawMeta[id][field] = prev;
+      el.disabled = false;
+      if (field === 'reimbursementRequested') el.checked = !!prev; else el.value = prev || '';
+      el.style.outline = '2px solid var(--danger)';
+      el.title = 'Save failed: ' + ((e && e.message) || 'unknown');
+    });
+}
 function loadSitewire(force){
   if (_sitewireState==='loading') return;
   var nums = [];
-  _closed.forEach(function(it){ if (isRtl(it.loan) && it.loan.slaDisplayId) nums.push(swNorm(it.loan.slaDisplayId)); });
+  _closed.forEach(function(it){ if (isRtl(it.loan) && it.loan.slaDisplayId && dispositionOf(it.loan)!=='paid_off') nums.push(swNorm(it.loan.slaDisplayId)); });
   if (!nums.length) { _sitewire = {}; _sitewireState = 'ready'; return; }
   _sitewireState = 'loading'; _sitewireErr = '';
   SLA.Sitewire.draws(nums, !!force).then(function(r){
@@ -991,11 +1018,13 @@ function sitewireNote(){
     var mins = Math.max(0, Math.round((Date.now() - Date.parse(_sitewireFetchedAt)) / 60000));
     ago = ' · updated ' + (mins < 1 ? 'just now' : mins + ' min ago');
   }
-  return '<div class="cl-note">'+base+ago+' · <a href="#" onclick="refreshSitewire();return false">Refresh</a>. Click a loan to expand its draws.</div>';
+  return '<div class="cl-note">'+base+ago+' · <a href="#" onclick="refreshSitewire();return false">Refresh</a>. Click a loan to expand its draws. Paid-off loans are hidden.</div>';
 }
 function renderDraws(items){
   if (_sitewireState==='' ) loadSitewire(false);
-  var rtl = sortItems(items.filter(function(it){ return isRtl(it.loan); }), 'draws', drawVal);
+  // Deploy 236.706 — paid-off loans drop off the Draws tab automatically:
+  // their construction phase is over, so draw tracking is just noise.
+  var rtl = sortItems(items.filter(function(it){ return isRtl(it.loan) && dispositionOf(it.loan)!=='paid_off'; }), 'draws', drawVal);
   var note = sitewireNote();
   if (!rtl.length) return note + '<div class="cl-empty">No closed RTL loans.</div>';
   var head = '<tr><th></th>'+th('draws','address','Property')+th('draws','count','Completed')+th('draws','pending','Pending')+th('draws','approved','Total Drawn')+th('draws','remaining','Remaining Budget')+th('draws','lastDraw','Last Activity')+th('draws','upb','Total UPB')+'</tr>';
@@ -1024,12 +1053,25 @@ function renderDraws(items){
         ? 'No Sitewire property found with loan number '+escH(l.slaDisplayId)+'.'
         : 'This loan has no SLA loan number, so it can\'t be matched to Sitewire.')+'</div>';
       else if (!ds.length) inner = '<div class="cl-empty">No draws on this property yet.</div>';
-      else inner = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Draw #</th><th>Last Updated</th><th>Requested</th><th>Approved</th><th>Status</th></tr></thead><tbody>' +
-        ds.map(function(d,i){ return '<tr><td class="cl-num">'+(d.number||i+1)+(d.historical?' <span class="cl-ph">(hist)</span>':'')+'</td>'+
+      else inner = '<div class="cl-scroll"><table class="cl-tbl"><thead><tr><th>Draw #</th><th>Last Updated</th><th>Requested</th><th>Approved</th><th>Status</th><th>Wire Sent</th><th>Reimb. Requested</th></tr></thead><tbody>' +
+        ds.map(function(d,i){
+          // Deploy 236.706 — staff can stamp the wire-sent date + flag investor
+          // reimbursement per draw; LOs (read-only page) see static values.
+          var dm = drawMetaFor(l, d.id), wireCell, reimbCell;
+          if (_isStaff && d.id != null) {
+            wireCell = '<input type="date" value="'+escAttr(dm.wireSentDate||'')+'" style="font-size:12px;padding:2px 4px" onchange="drawMetaSave(\''+escAttr(key)+'\','+Number(d.id)+',\'wireSentDate\',this)">';
+            reimbCell = '<input type="checkbox" '+(dm.reimbursementRequested?'checked':'')+' onchange="drawMetaSave(\''+escAttr(key)+'\','+Number(d.id)+',\'reimbursementRequested\',this)">';
+          } else {
+            wireCell = dm.wireSentDate ? escH(fmtDate(dm.wireSentDate)) : '<span class="cl-ph">—</span>';
+            reimbCell = dm.reimbursementRequested ? '<span style="color:#1e7d3c;font-weight:600">✓</span>' : '<span class="cl-ph">—</span>';
+          }
+          return '<tr><td class="cl-num">'+(d.number||i+1)+(d.historical?' <span class="cl-ph">(hist)</span>':'')+'</td>'+
           '<td class="cl-num">'+escH(fmtDate(d.date)||'—')+'</td>'+
           '<td class="cl-num">'+(d.requestedAmt>0?escH(money(d.requestedAmt)):'<span class="cl-ph">—</span>')+'</td>'+
           '<td class="cl-num">'+(d.approvedAmt>0?escH(money(d.approvedAmt)):'<span class="cl-ph">—</span>')+'</td>'+
-          '<td>'+swStatusHtml(d.status)+'</td></tr>'; }).join('') +
+          '<td>'+swStatusHtml(d.status)+'</td>'+
+          '<td class="cl-num">'+wireCell+'</td>'+
+          '<td style="text-align:center">'+reimbCell+'</td></tr>'; }).join('') +
         '</tbody></table></div>';
       sub = '<tr class="draw-sub"><td></td><td colspan="7" style="padding:0 14px 12px">'+inner+'</td></tr>';
     }

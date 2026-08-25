@@ -5,7 +5,13 @@
  * that fill the Closed Loans columns. Whitelisted fields only; each write goes
  * through the PG-first strict writeClient (strict-write discipline).
  *
- * Body: { clientId, loanId, owner?, fields: { <whitelisted>: value, ... } }
+ * Body: { clientId, loanId, owner?, fields: { <whitelisted>: value, ... },
+ *         drawMeta?: { '<sitewireDrawId>': { wireSentDate?, reimbursementRequested? } } }
+ *
+ * Deploy 236.706 — drawMeta: per-draw annotations for the Closed Loans → Draws
+ * tab (wire sent date + reimbursement-requested flag). Sitewire has no such
+ * fields, so they live on the SLA loan keyed by the Sitewire draw id. Merged
+ * per draw id AND per field, so edits to different draws/fields don't clobber.
  *
  * Auth: staff only (admin OR processor via canOverrideOwner).
  */
@@ -58,10 +64,11 @@ async function handle(req, context) {
   const body = await readJsonBody(req);
   if (!body) return json(400, { error: 'Invalid JSON' });
   const clientId = body.clientId, loanId = body.loanId;
-  const fields = body.fields;
+  const fields = (body.fields && typeof body.fields === 'object') ? body.fields : {};
+  const drawMeta = (body.drawMeta && typeof body.drawMeta === 'object') ? body.drawMeta : null;
   if (!clientId) return json(400, { error: 'clientId required' });
   if (!loanId)   return json(400, { error: 'loanId required' });
-  if (!fields || typeof fields !== 'object') return json(400, { error: 'fields object required' });
+  if (!Object.keys(fields).length && !drawMeta) return json(400, { error: 'fields or drawMeta object required' });
 
   const selfEmail = normalizeEmail(user.email);
   const selfKey   = keySafe(selfEmail);
@@ -91,7 +98,33 @@ async function handle(req, context) {
     loan[k] = String(fields[k] == null ? '' : fields[k]).trim();
     applied[k] = loan[k];
   });
-  if (!Object.keys(applied).length) return json(400, { error: 'No recognized servicing fields' });
+
+  // Deploy 236.706 — merge per-draw annotations. Only the two known fields
+  // are accepted, dates must be YYYY-MM-DD (or '' to clear), and draw ids
+  // must be numeric (Sitewire ids) so junk keys can't grow the record.
+  let drawMetaApplied = 0;
+  if (drawMeta) {
+    if (!loan.drawMeta || typeof loan.drawMeta !== 'object') loan.drawMeta = {};
+    Object.keys(drawMeta).forEach((id) => {
+      if (!/^\d+$/.test(id)) return;
+      const patch = drawMeta[id];
+      if (!patch || typeof patch !== 'object') return;
+      const cur = loan.drawMeta[id] || {};
+      if ('wireSentDate' in patch) {
+        const v = String(patch.wireSentDate == null ? '' : patch.wireSentDate).trim();
+        if (v !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+        cur.wireSentDate = v;
+        drawMetaApplied++;
+      }
+      if ('reimbursementRequested' in patch) {
+        cur.reimbursementRequested = !!patch.reimbursementRequested;
+        drawMetaApplied++;
+      }
+      loan.drawMeta[id] = cur;
+    });
+  }
+
+  if (!Object.keys(applied).length && !drawMetaApplied) return json(400, { error: 'No recognized servicing fields' });
 
   const now = new Date().toISOString();
   loan.servicingUpdatedAt = now;
@@ -101,5 +134,5 @@ async function handle(req, context) {
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to save: ' + (e.message || 'unknown') }); }
 
-  return json(200, { ok: true, fields: applied });
+  return json(200, { ok: true, fields: applied, drawMeta: drawMetaApplied ? loan.drawMeta : undefined });
 }
