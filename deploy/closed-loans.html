@@ -1026,8 +1026,11 @@ function renderServicing(items){
   });
   group = sortItems(group, 'servicing', svcVal);
   if (!group.length) return '<div class="cl-empty">No loans in servicing.</div>';
-  var note = '<div class="cl-note">Every loan SLA services, in one list — the legacy Servicing tag, RTL loans pending sale, and Sold-RTL loans (sold to an investor but still serviced). DSCRs are not serviced here.</div>';
-  return note + '<div class="acc" style="padding:0">' + _dispBody(group, 'servicing', false) + '</div>';
+  var note = '<div class="cl-note">Every loan SLA services, in one list — the legacy Servicing tag, RTL loans pending sale, and Sold-RTL loans (sold to an investor but still serviced). DSCRs are not serviced here. Use the <strong>Disposition</strong> dropdown to move a loan to <strong>Paid Off</strong> (you\'ll be prompted for the payoff amount &amp; date).</div>';
+  // Deploy 236.733 (Mike) — includeDisp:true adds the staff Disposition picker so a
+  // servicing loan can be marked Paid Off (or moved) right from this list; picking
+  // "Paid Off" opens the confirm modal that collects payoff amount + date.
+  return note + '<div class="acc" style="padding:0">' + _dispBody(group, 'servicing', true) + '</div>';
 }
 // Generic single-bucket tab (Sold-RTL / Sold-DSCR). Pending Sale wraps this with a note.
 function renderBucketTab(items, b){
