@@ -228,6 +228,12 @@ function loanKey(it){ return it.ownerKey + '|' + (it.loan.id||''); }
 
 // A loan belongs on Closed Loans if it's funded/done.
 function isClosedLoan(l){
+  // Deploy 236.731 — a SET disposition is authoritative: a loan only gets one once
+  // it is closed (Post Close/Servicing/Pending Sale/Sold/Paid Off). Without this,
+  // FCI open loans (disposition 'sold' but a still-active Baseline status) were
+  // dropped by ingest() and never appeared in the Servicing / Sold-RTL views.
+  var dsp = String(l.disposition||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  if (dsp==='sold'||dsp==='servicing'||dsp==='pending sale'||dsp==='paid off'||dsp==='post close') return true;
   var st = String(l.status||'').toLowerCase().trim();
   if (st==='closed' || st==='sold' || st==='liquidated') return true;
   if (String(l.processingStage||'').toLowerCase().trim()==='pp_closed') return true;
