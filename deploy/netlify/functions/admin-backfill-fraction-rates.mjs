@@ -61,7 +61,7 @@ async function handle(req, context) {
   const { blobs } = await clientsStore.list();
 
   let scannedClients = 0, scannedLoans = 0, affectedLoans = 0, writes = 0, remaining = 0;
-  const changes = [];
+  const changes = [], failures = [];
 
   // Read in parallel chunks; write sequentially (strict-write discipline).
   const CHUNK = 25;
@@ -94,11 +94,19 @@ async function handle(req, context) {
       if (clientChanges && !dryRun) {
         if (writes >= maxWrites) { remaining++; continue; }
         rec.updatedAt = new Date().toISOString();
-        await writeClient(owner, rec, { clientsStore });
-        writes++;
+        // A failed write (e.g. the pg-mirror's status-demotion guard firing on
+        // pre-existing blob↔PG drift) must not abort the whole batch — skip the
+        // client, report it, keep going. Failures stay unfixed and reappear on
+        // the next run, so nothing is silently lost.
+        try {
+          await writeClient(owner, rec, { clientsStore });
+          writes++;
+        } catch (e) {
+          failures.push({ owner, clientId: rec.id, error: (e && e.message || 'unknown').slice(0, 300) });
+        }
       }
     }
   }
 
-  return json(200, { ok: true, dryRun, scannedClients, scannedLoans, affectedLoans, writes, remaining, changes });
+  return json(200, { ok: true, dryRun, scannedClients, scannedLoans, affectedLoans, writes, remaining, failures, changes });
 }
