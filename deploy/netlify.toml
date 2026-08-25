@@ -37,6 +37,10 @@
 [functions."fci-reconcile-servicing"]
   timeout = 26
 
+# Deploy 236.734 — Servicing Pros reconcile also walks every client blob.
+[functions."servicing-pros-reconcile"]
+  timeout = 26
+
 # Deploy 236.716 — one-off fraction-rate backfill walks every client blob.
 [functions."admin-backfill-fraction-rates"]
   timeout = 26
@@ -786,6 +790,12 @@
 [[redirects]]
   from = "/api/fci-reconcile-servicing"
   to = "/.netlify/functions/fci-reconcile-servicing"
+  status = 200
+  force = true
+# Deploy 236.734 — Servicing Pros reconcile (KAF + Sir Lends A Lot books).
+[[redirects]]
+  from = "/api/servicing-pros-reconcile"
+  to = "/.netlify/functions/servicing-pros-reconcile"
   status = 200
   force = true
 # Deploy 236.547 — loan-processing-stage migration, Phase 1 discovery.
