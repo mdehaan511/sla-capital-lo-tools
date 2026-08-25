@@ -29,7 +29,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { getChecklist } from './_shared/loan-review-checklists.mjs';
+import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 // Deploy 236.500 (Phase 3) — AI auto-grab of Underwriting / Lightning Docs
@@ -393,7 +393,7 @@ async function handle(req, context) {
     // the top-level docState so the frontend can paint warnings
     // without reaching into aiExtractedEntities every render.
     // Stale-by date is computed from documentDate using per-slug
-    // validity windows (see _staleAfterFor). Explicit expirationDate
+    // validity windows (see staleAfterFor in loan-review-checklists). Explicit expirationDate
     // always wins if the doc actually printed one.
     const ee = aiResult.extractedEntities || {};
     if (typeof ee.documentDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ee.documentDate)) {
@@ -405,7 +405,7 @@ async function handle(req, context) {
     // Compute a derived "stale by" date the frontend uses for the
     // amber-warning band. Explicit expiration wins; otherwise
     // documentDate + per-slug staleDays. Null when we have no signal.
-    const staleAfter = _staleAfterFor(body.slug, docState.documentDate, docState.expirationDate);
+    const staleAfter = staleAfterFor(body.slug, docState.documentDate, docState.expirationDate);
     if (staleAfter) docState.staleByDate = staleAfter;
     if (typeof ee.dateNotes === 'string') docState.dateNotes = ee.dateNotes;
 
@@ -680,44 +680,6 @@ function _dedupeTrayFilename(docState, selfId, name) {
   return nameBase + ' (' + i + ')' + nameExt;
 }
 
-// Deploy 236.165 — per-doc-type validity windows. Each rule is the
-// max age a doc can have (in days) before it goes stale for closing
-// purposes. Mike's spec: "bank statements expire the beginning of
-// next month, Certificate of good standings are only good for 30
-// days from print." Generalized here as days-from-documentDate;
-// the precise EOM rule for bank statements is approximated as 60
-// days (current month + next), which is conservative on the side
-// of warning early. Refine later as needed.
-const STALE_DAYS = {
-  bank_stmt_current:           60,
-  bank_stmt_previous:          60,
-  certificate_of_good_standing: 30,
-  entity_background_check:     90,
-  guarantor_background_check:  90,
-  ofac_entity:                 90,
-  ofac_personal:               90,
-  credit_report:              120,
-  appraisal:                  120,
-  appraisal_receipt:          120,
-};
-
-function _staleAfterFor(slug, documentDate, expirationDate) {
-  // Explicit expiration on the doc itself always wins.
-  if (typeof expirationDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(expirationDate)) {
-    return expirationDate;
-  }
-  if (typeof documentDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(documentDate)) return '';
-  const days = STALE_DAYS[String(slug || '').toLowerCase()];
-  if (!days) return '';
-  // Compute documentDate + days as YYYY-MM-DD. Plain Date math
-  // works fine here — DST shifts are at most an hour and we're
-  // doing day-granularity comparisons downstream.
-  const parts = documentDate.split('-');
-  const dt = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
-  if (isNaN(dt.getTime())) return '';
-  dt.setUTCDate(dt.getUTCDate() + days);
-  const y = dt.getUTCFullYear();
-  const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(dt.getUTCDate()).padStart(2, '0');
-  return y + '-' + m + '-' + d;
-}
+// Deploy 236.738 — STALE_DAYS + _staleAfterFor moved to _shared/loan-review-
+// checklists.mjs (`STALE_DAYS` / `staleAfterFor`) so the upload path and the
+// AI-retry path share ONE window table and the stale badge can't drift.

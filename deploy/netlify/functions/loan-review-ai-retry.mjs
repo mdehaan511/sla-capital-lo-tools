@@ -31,7 +31,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
 } from './_shared/auth.mjs';
-import { getChecklist } from './_shared/loan-review-checklists.mjs';
+import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 
@@ -214,6 +214,11 @@ async function handle(req, context) {
       docState.expirationDate = ee.expirationDate;
     }
     if (typeof ee.dateNotes === 'string') docState.dateNotes = ee.dateNotes;
+    // Deploy 236.738 — recompute the stale-by date here too (upload did it, the
+    // retry never did), so re-running the AI review corrects an existing doc's
+    // stale badge instead of leaving a stale value from an old window.
+    const staleAfter = staleAfterFor(body.slug, docState.documentDate, docState.expirationDate);
+    if (staleAfter) docState.staleByDate = staleAfter;
   }
 
   await _saveReview(reviewStore, review, now);

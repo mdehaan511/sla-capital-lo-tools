@@ -323,3 +323,38 @@ export function findCategory(slug) {
     || GUC_CONSTRUCTION_DOCS.find((d) => d.slug === s)
     || null;
 }
+
+// ── Document freshness (staleness) windows ─────────────────────────
+// Days after a doc's issue/print date (documentDate) that it goes "stale" for
+// closing. An explicit expirationDate printed on the doc always wins. KEEP each
+// value aligned with that slug's rubric text — a mismatch flags valid docs
+// EXPIRED (Deploy 236.738: certificate_of_good_standing was 30 while its rubric
+// is "within 90 days of the note date"). Slugs not listed have no window.
+// SINGLE SOURCE OF TRUTH — used by both loan-review-doc-upload (on upload) and
+// loan-review-ai-retry (on re-review), so the stale badge can never drift.
+export const STALE_DAYS = {
+  bank_stmt_current:            60,
+  bank_stmt_previous:           60,
+  certificate_of_good_standing: 90,
+  entity_background_check:      90,
+  guarantor_background_check:   90,
+  ofac_entity:                  90,
+  ofac_personal:                90,
+  credit_report:               120,
+  appraisal:                   120,
+  appraisal_receipt:           120,
+};
+
+// Stale-by date (YYYY-MM-DD) for a doc: explicit expirationDate wins, else
+// documentDate + the slug's STALE_DAYS window. '' when there is no signal.
+export function staleAfterFor(slug, documentDate, expirationDate) {
+  if (typeof expirationDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(expirationDate)) return expirationDate;
+  if (typeof documentDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(documentDate)) return '';
+  const days = STALE_DAYS[String(slug || '').toLowerCase()];
+  if (!days) return '';
+  const parts = documentDate.split('-');
+  const dt = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+  if (isNaN(dt.getTime())) return '';
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
+}
