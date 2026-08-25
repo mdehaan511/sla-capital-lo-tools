@@ -703,14 +703,20 @@ async function notifyLO(prospect, ids) {
     || prospect.propertyValue || prospect.currentLoanAmt || prospect.rehabCost || prospect.estimatedARV
     || prospect.flipsCompleted || prospect.monthlyRent || prospect.fundingDate || prospect.projectDescription;
   if (hasLoanSection) textLines.push('');
+  // Deploy 236.730 — GUC-aware labels + the land/GC answers.
+  const _mailIsGuc = String(prospect.loanProduct || '').toLowerCase() === 'ground_up';
   if (prospect.loanProduct)    textLines.push(`Product:  ${prospect.loanProduct}`);
   if (prospect.loanPurpose)    textLines.push(`Purpose:  ${prospect.loanPurpose}`);
-  if (prospect.purchasePrice)  textLines.push(`Purchase: ${fmtMoney(prospect.purchasePrice)}`);
+  if (prospect.purchasePrice)  textLines.push(`${_mailIsGuc ? 'Land' : 'Purchase'}: ${fmtMoney(prospect.purchasePrice)}`);
   if (prospect.propertyValue)  textLines.push(`Value:    ${fmtMoney(prospect.propertyValue)}`);
   if (prospect.currentLoanAmt) textLines.push(`Current Loan: ${fmtMoney(prospect.currentLoanAmt)}`);
-  if (prospect.rehabCost)      textLines.push(`Rehab:    ${fmtMoney(prospect.rehabCost)}`);
-  if (prospect.estimatedARV)   textLines.push(`ARV:      ${fmtMoney(prospect.estimatedARV)}`);
-  if (prospect.flipsCompleted) textLines.push(`Flips Completed (36mo): ${prospect.flipsCompleted}`);
+  if (prospect.rehabCost)      textLines.push(`${_mailIsGuc ? 'Construction Budget' : 'Rehab'}: ${fmtMoney(prospect.rehabCost)}`);
+  if (prospect.estimatedARV)   textLines.push(`${_mailIsGuc ? 'Completed Value' : 'ARV'}: ${fmtMoney(prospect.estimatedARV)}`);
+  if (prospect.flipsCompleted) textLines.push(`${_mailIsGuc ? 'Builds' : 'Flips'} Completed (36mo): ${prospect.flipsCompleted}`);
+  if (prospect.ownLand)        textLines.push(`Owns the Land: ${prospect.ownLand}`);
+  if (prospect.landDebt)       textLines.push(`Land Debt: ${fmtMoney(prospect.landDebt)}`);
+  if (prospect.gcName || prospect.gcPhone || prospect.gcEmail)
+    textLines.push(`GC: ${[prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · ')}`);
   if (prospect.monthlyRent)    textLines.push(`Rent:     ${fmtMoney(prospect.monthlyRent)}`);
   if (prospect.fundingDate)    textLines.push(`Funding:  ${fmtDate(prospect.fundingDate)}`);
   if (prospect.projectDescription) textLines.push(`Project:  ${prospect.projectDescription}`);
@@ -757,12 +763,16 @@ async function notifyLO(prospect, ids) {
     row('Beds / Baths / SqFt', bbSqft ? `${esc(prospect.bedrooms || '?')} / ${esc(prospect.bathrooms || '?')} / ${esc(prospect.sqft || '?')}` : '') +
     row('Loan Product', esc(prospect.loanProduct)) +
     row('Purpose', esc(prospect.loanPurpose)) +
-    row('Purchase Price', fmtMoney(prospect.purchasePrice)) +
+    // Deploy 236.730 — GUC-aware labels + land/GC rows (empty rows drop out).
+    row(_mailIsGuc ? 'Land Value / Price' : 'Purchase Price', fmtMoney(prospect.purchasePrice)) +
     row('Property Value', fmtMoney(prospect.propertyValue)) +
     row('Current Loan', fmtMoney(prospect.currentLoanAmt)) +
-    row('Rehab Cost', fmtMoney(prospect.rehabCost)) +
-    row('ARV', fmtMoney(prospect.estimatedARV)) +
-    row('Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
+    row(_mailIsGuc ? 'Construction Budget' : 'Rehab Cost', fmtMoney(prospect.rehabCost)) +
+    row(_mailIsGuc ? 'Completed Value' : 'ARV', fmtMoney(prospect.estimatedARV)) +
+    row(_mailIsGuc ? 'Builds Completed (36mo)' : 'Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
+    row('Owns the Land', esc(prospect.ownLand)) +
+    row('Land Debt', fmtMoney(prospect.landDebt)) +
+    row('General Contractor', esc([prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · '))) +
     row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
     row('Funding Date', esc(fmtDate(prospect.fundingDate))) +
     row('Project Description', esc(prospect.projectDescription)) +
@@ -921,14 +931,20 @@ async function notifyApplicantOfSubmission(prospect) {
   if (hasLoanSection) {
     textLines.push('');
     textLines.push('--- LOAN ---');
+    // Deploy 236.730 — GUC-aware labels + the land/GC answers.
+    const _confIsGuc = String(prospect.loanProduct || '').toLowerCase() === 'ground_up';
     if (prospect.loanProduct)    textLines.push(`Product:  ${prospect.loanProduct}`);
     if (prospect.loanPurpose)    textLines.push(`Purpose:  ${prospect.loanPurpose}`);
-    if (prospect.purchasePrice)  textLines.push(`Purchase: ${fmtMoney(prospect.purchasePrice)}`);
+    if (prospect.purchasePrice)  textLines.push(`${_confIsGuc ? 'Land' : 'Purchase'}: ${fmtMoney(prospect.purchasePrice)}`);
     if (prospect.propertyValue)  textLines.push(`Value:    ${fmtMoney(prospect.propertyValue)}`);
     if (prospect.currentLoanAmt) textLines.push(`Current Loan: ${fmtMoney(prospect.currentLoanAmt)}`);
-    if (prospect.rehabCost)      textLines.push(`Rehab:    ${fmtMoney(prospect.rehabCost)}`);
-    if (prospect.estimatedARV)   textLines.push(`ARV:      ${fmtMoney(prospect.estimatedARV)}`);
-    if (prospect.flipsCompleted) textLines.push(`Flips Completed (36mo): ${prospect.flipsCompleted}`);
+    if (prospect.rehabCost)      textLines.push(`${_confIsGuc ? 'Construction Budget' : 'Rehab'}: ${fmtMoney(prospect.rehabCost)}`);
+    if (prospect.estimatedARV)   textLines.push(`${_confIsGuc ? 'Completed Value' : 'ARV'}: ${fmtMoney(prospect.estimatedARV)}`);
+    if (prospect.flipsCompleted) textLines.push(`${_confIsGuc ? 'Builds' : 'Flips'} Completed (36mo): ${prospect.flipsCompleted}`);
+    if (prospect.ownLand)        textLines.push(`Owns the Land: ${prospect.ownLand}`);
+    if (prospect.landDebt)       textLines.push(`Land Debt: ${fmtMoney(prospect.landDebt)}`);
+    if (prospect.gcName || prospect.gcPhone || prospect.gcEmail)
+      textLines.push(`GC: ${[prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · ')}`);
     if (prospect.monthlyRent)    textLines.push(`Rent:     ${fmtMoney(prospect.monthlyRent)}`);
     if (prospect.fundingDate)    textLines.push(`Funding:  ${fmtDate(prospect.fundingDate)}`);
     if (prospect.projectDescription) textLines.push(`Project Description: ${prospect.projectDescription}`);
@@ -945,15 +961,20 @@ async function notifyApplicantOfSubmission(prospect) {
     row('Address', esc(prospect.propAddress)) +
     row('Property Type', esc(prospect.propType)) +
     row('Beds / Baths / SqFt', bbSqft ? `${esc(prospect.bedrooms || '?')} / ${esc(prospect.bathrooms || '?')} / ${esc(prospect.sqft || '?')}` : '');
+  // Deploy 236.730 — GUC-aware labels + land/GC rows (empty rows drop out).
+  const _confHtmlIsGuc = String(prospect.loanProduct || '').toLowerCase() === 'ground_up';
   const loanTable =
     row('Product', esc(prospect.loanProduct)) +
     row('Purpose', esc(prospect.loanPurpose)) +
-    row('Purchase Price', fmtMoney(prospect.purchasePrice)) +
+    row(_confHtmlIsGuc ? 'Land Value / Price' : 'Purchase Price', fmtMoney(prospect.purchasePrice)) +
     row('Property Value', fmtMoney(prospect.propertyValue)) +
     row('Current Loan', fmtMoney(prospect.currentLoanAmt)) +
-    row('Rehab Cost', fmtMoney(prospect.rehabCost)) +
-    row('ARV', fmtMoney(prospect.estimatedARV)) +
-    row('Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
+    row(_confHtmlIsGuc ? 'Construction Budget' : 'Rehab Cost', fmtMoney(prospect.rehabCost)) +
+    row(_confHtmlIsGuc ? 'Completed Value' : 'ARV', fmtMoney(prospect.estimatedARV)) +
+    row(_confHtmlIsGuc ? 'Builds Completed (36mo)' : 'Flips Completed (36mo)', esc(prospect.flipsCompleted)) +
+    row('Owns the Land', esc(prospect.ownLand)) +
+    row('Land Debt', fmtMoney(prospect.landDebt)) +
+    row('General Contractor', esc([prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · '))) +
     row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
     row('Funding Date', esc(fmtDate(prospect.fundingDate))) +
     row('Project Description', esc(prospect.projectDescription));
@@ -1370,6 +1391,17 @@ async function notifySlack(prospect, ids) {
   contactLines.push(line('Assigned Loan Officer', loName));
 
   // ── Section 2: deal details ─────────────────────────────────
+  // Deploy 236.730 — the purchase-price line mirrors the apply form's label
+  // per product (Mike: a DSCR PURCHASE was showing "Requested Loan Amount"
+  // for what the borrower entered as the Purchase Price). Refi keeps
+  // "Requested Loan Amount"; Ground-Up shows the land value/price.
+  const _lpc = String(prospect.loanProduct || '').toLowerCase();
+  const _slackIsGuc = _lpc === 'ground_up' || _lpc === 'guc';
+  const _purchaseLabel =
+    _slackIsGuc ? (String(prospect.ownLand || '').toLowerCase() === 'yes' ? 'Estimated Land Value' : 'Land Purchase Price')
+    : _lpc === 'transactional' ? 'Loan Amount'
+    : (_lpc === 'dscr' && String(prospect.loanPurpose || '').toLowerCase() === 'refinance') ? 'Requested Loan Amount'
+    : 'Purchase Price';
   const dealLines = filterLines([
     line('Address',                       prospect.propAddress),
     line('Loan Type',                     productLabel),
@@ -1378,11 +1410,17 @@ async function notifySlack(prospect, ids) {
     line('Beds / Baths / SqFt',           (prospect.bedrooms || prospect.bathrooms || prospect.sqft)
       ? `${prospect.bedrooms || '?'} / ${prospect.bathrooms || '?'} / ${prospect.sqft || '?'}`
       : ''),
-    line('Requested Loan Amount',         fmtMoney(prospect.purchasePrice)),
+    line(_purchaseLabel,                  fmtMoney(prospect.purchasePrice)),
     line('Current Loan Amount',           fmtMoney(prospect.currentLoanAmt)),
     line('Current Value of the Property', fmtMoney(prospect.propertyValue)),
-    line('Rehab Budget',                  fmtMoney(prospect.rehabCost)),
-    line('ARV',                           fmtMoney(prospect.estimatedARV)),
+    // Deploy 236.730 — GUC labels + fields: the borrower entered these as a
+    // construction budget / completed value, and the land + GC answers are
+    // the ones the LO acts on first.
+    line(_slackIsGuc ? 'Construction Budget' : 'Rehab Budget', fmtMoney(prospect.rehabCost)),
+    line(_slackIsGuc ? 'Completed Value' : 'ARV', fmtMoney(prospect.estimatedARV)),
+    _slackIsGuc ? line('Owns the Land', prospect.ownLand === 'yes' ? 'Yes' : (prospect.ownLand === 'no' ? 'No — purchasing' : '')) : null,
+    _slackIsGuc ? line('Current Loan on the Land', fmtMoney(prospect.landDebt)) : null,
+    _slackIsGuc ? line('General Contractor', [prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · ')) : null,
     line('Rental Rate',                   fmtMoney(prospect.monthlyRent)),
     line('Monthly Taxes',                 fmtMoney(prospect.monthlyTaxes)),
     line('Monthly Insurance',             fmtMoney(prospect.monthlyInsurance)),
@@ -1393,7 +1431,7 @@ async function notifySlack(prospect, ids) {
   // ── Section 3: borrower qualifications ──────────────────────
   const qualLines = filterLines([
     line('Estimated Credit',        prospect.creditScore),
-    line('Flips Completed (36mo)',  prospect.flipsCompleted),
+    line(_slackIsGuc ? 'Builds Completed (36mo)' : 'Flips Completed (36mo)', prospect.flipsCompleted),
     line('US Citizen',              prospect.usCitizen),
   ]);
 
