@@ -253,6 +253,16 @@ export default async (req, context) => {
     }
   }
 
+  // Deploy 236.738 — GUC: file the borrower's GC as a Vendor (loan-contacts,
+  // role 'contractor') tied to the new loan. One record serves both surfaces:
+  // Loan Details → Contacts (per-loan filter) AND the Vendors page (lists the
+  // whole book). Best-effort — never blocks the submission.
+  try {
+    await createGcVendorFromProspect(prospect, ids, loEmail);
+  } catch (e) {
+    console.error('prospects-save gc vendor error:', e);
+  }
+
   // Notify the LO by email — best-effort, don't fail the submission if email fails
   try {
     await notifyLO(prospect, ids);
@@ -279,6 +289,40 @@ export default async (req, context) => {
 
   return json(200, { ok: true, id });
 };
+
+// Deploy 236.738 — GUC applications: create the General Contractor as a
+// Vendor record in the loan-contacts store, tied to the freshly created
+// loan. Same record shape loan-contacts-save.mjs writes, so the Vendors
+// page and Loan Details → Additional Contacts both pick it up unchanged.
+async function createGcVendorFromProspect(prospect, ids, loEmail) {
+  const isGuc = String(prospect.loanProduct || '').toLowerCase() === 'ground_up';
+  if (!isGuc || !ids || !ids.loanId) return;
+  if (!prospect.gcName && !prospect.gcPhone && !prospect.gcEmail) return;
+  if (!loEmail || !loEmail.includes('@')) return;
+  const ownerKey = keySafe(normalizeEmail(loEmail));
+  const store = getStore({ name: 'loan-contacts', consistency: 'strong' });
+  const now = new Date().toISOString();
+  const contact = {
+    id:        'ctc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    clientId:  ids.clientId || '',
+    loanId:    ids.loanId,
+    ownerKey,
+    role:      'contractor',
+    roleLabel: 'General Contractor',
+    name:      prospect.gcName  || '',
+    company:   '',
+    email:     prospect.gcEmail || '',
+    phone:     prospect.gcPhone || '',
+    notes:     "Added automatically from the borrower's Ground-Up application.",
+    createdAt: now,
+    createdBy: 'apply.html',
+    createdByName: 'Borrower Application',
+    updatedAt: now,
+    updatedBy: 'apply.html',
+  };
+  await store.setJSON(ownerKey + '/' + keySafe(contact.id), contact);
+  console.log(`[apply-gc p=${prospect.id || '?'}] GC vendor created ${contact.id} for loan ${ids.loanId}`);
+}
 
 // Auto-create or update a Client record + initial Loan from a prospect submission
 async function upsertClientFromProspect(prospect, loEmail) {

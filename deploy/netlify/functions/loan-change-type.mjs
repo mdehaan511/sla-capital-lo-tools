@@ -182,7 +182,7 @@ async function handle(req, context) {
   // from the (now-cleared) loan record. `typeChanged=1` tells the sizer
   // to skip the usual borrower-name lock so the LO can edit it during
   // the rebuild if needed (e.g. to correct a typo or use a legal name).
-  const sizerPage = newType === 'rtl' ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  const sizerPage = newType === 'rtl' ? 'rtl-sizer.html' : newType === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
   const params = new URLSearchParams({
     clientId: body.clientId,
     loanId:   body.loanId,

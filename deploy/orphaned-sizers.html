@@ -160,7 +160,7 @@ function escH(s) {
 // belonging to another LO). After save, the new flow (post-Deploy_143)
 // requires borrower email — so re-saving fixes the orphan.
 function sizerUrlForOrphan(o) {
-  var page = (o.toolType === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  var page = (o.toolType === 'rtl') ? 'rtl-sizer.html' : (o.toolType === 'guc') ? 'guc-sizer.html' : 'dscr-sizer.html';
   var url = '/' + page + '?loadQuote=' + encodeURIComponent(o.address || '');
   if (o.owner) url += '&owner=' + encodeURIComponent(o.owner);
   return url;

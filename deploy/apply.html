@@ -576,7 +576,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1">
             <div class="wrap">
               <label>GC Phone</label>
-              <input type="tel" id="gcPhone" placeholder="(555) 123-4567" />
+              <input type="tel" id="gcPhone" placeholder="(555) 123-4567" oninput="applyPhoneMask(this)" />
             </div>
           </div>
           <div class="field" style="grid-column:span 1">
@@ -766,6 +766,21 @@ function onLoanProductChange() {
   // loan from purchase price + (rehab/ARV when applicable) on the sizer side.
   var pvField = document.getElementById('field-propertyValue');
   if (pvField) pvField.style.display = (isRtlFamily || isGuc) ? 'none' : '';
+
+  // Deploy 236.738 — GUC: the land-ownership question leads Section 4 (Mike),
+  // so the shared price field (Estimated Land Value / Land Purchase Price)
+  // physically moves into the GUC section right below "Do you already own the
+  // land?", and back to the top of Deal Details for every other product. A DOM
+  // move keeps the input's value + wiring intact.
+  var priceField = document.getElementById('field-purchaseLabel');
+  var landDebtCond = document.getElementById('cond-guc-landdebt');
+  if (priceField && landDebtCond && pvField) {
+    if (isGuc) {
+      landDebtCond.parentNode.insertBefore(priceField, landDebtCond);
+    } else if (priceField.nextSibling !== pvField) {
+      pvField.parentNode.insertBefore(priceField, pvField);
+    }
+  }
 
   // Funding date is half-width when paired with flipsCompleted (FF mode),
   // full-width otherwise so it doesn't look orphaned.

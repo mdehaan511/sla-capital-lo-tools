@@ -2913,7 +2913,9 @@ function openInSizer(prospectId, ownerKey, tool) {
   var item = _items.newApp.find(function(it) { return it.id === prospectId && it.ownerKey === ownerKey; });
   if (!item) return;
   try { localStorage.setItem('sla_prefill_prospect', JSON.stringify(item.prospect)); } catch(e){}
-  var dest = (tool === 'rtl') ? 'rtl-sizer.html' : 'dscr-sizer.html';
+  // Deploy 236.738 — GUC routing: ground_up applications open the GUC sizer
+  // (the card badge said GUC but this nav still fell through to DSCR).
+  var dest = (tool === 'rtl') ? 'rtl-sizer.html' : (tool === 'guc') ? 'guc-sizer.html' : 'dscr-sizer.html';
   var params = '?fromProspect=1';
   // Deploy 236.293 — cross-LO handoff. When the prospect belongs to a
   // different LO than the current user (admin viewing all-scope, or an

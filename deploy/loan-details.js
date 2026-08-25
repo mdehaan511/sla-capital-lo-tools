@@ -825,7 +825,11 @@ function render() {
   // Sizer URL for "Open in Sizer" — passes clientId+loanId so the sizer
   // can pull the loan from the client record (works even when there's no
   // QuoteStore entry yet, e.g. for application-sourced loans).
-  var sizerPage = isDscr ? '/dscr-sizer.html' : '/rtl-sizer.html';
+  // Deploy 236.738 — GUC loans open in the GUC sizer (the label said "Open in
+  // GUC Sizer" but this URL only knew DSCR vs RTL, so it landed on the RTL sizer).
+  var sizerPage = isDscr ? '/dscr-sizer.html'
+                : String(l.toolType || '').toLowerCase() === 'guc' ? '/guc-sizer.html'
+                : '/rtl-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
   if (l.address) sizerParams += '&loadQuote=' + encodeURIComponent(l.address);
   if (_loEmail && _user && _loEmail !== _user.email) sizerParams += '&owner=' + encodeURIComponent(_loEmail);
