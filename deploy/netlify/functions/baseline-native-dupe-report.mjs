@@ -121,25 +121,30 @@ async function handle(req, context) {
     else if (distinctIds <= 1) safety = 'safe_exact';
     else safety = 'likely_safe';
 
-    // Proposed keeper = the record we'd KEEP (rest are deletion candidates):
-    // prefer one carrying servicing data, then the SLA-YYYYMMDD-NNNN id format,
-    // then the most-recently-updated, then stable by id.
+    // Record identity is (clientId, loanId) — exact dups SHARE a loanId across two
+    // DIFFERENT clients (a solo c_baseline_<id> client + a grouped c_bl_* client),
+    // so keep/delete must key on the CLIENT, not the loan id. Proposed keeper:
+    // prefer the grouped (multi-loan) client, then one carrying servicing data,
+    // then the SLA-YYYYMMDD-NNNN id format, then most-recently-updated.
     const isNewFmt = (e) => /^SLA-\d{8}-\d+$/.test(e.slaDisplayId || '');
     const ranked = entries.slice().sort((a, b) =>
+      (a.soloLoanInClient ? 1 : 0) - (b.soloLoanInClient ? 1 : 0) ||
       (b.servicerName ? 1 : 0) - (a.servicerName ? 1 : 0) ||
       (isNewFmt(b) ? 1 : 0) - (isNewFmt(a) ? 1 : 0) ||
       String(b.updatedAt).localeCompare(String(a.updatedAt)) ||
-      String(a.loanId).localeCompare(String(b.loanId)));
+      String(a.clientId).localeCompare(String(b.clientId)));
     const keeper = ranked[0];
+    const sameRec = (e) => e.clientId === keeper.clientId && e.loanId === keeper.loanId;
 
     groups.push({
       address: entries[0].address, norm: na, count: entries.length,
       type, safety, flags, owners,
-      keeperLoanId: keeper.loanId,
-      deleteCandidates: (safety === 'review') ? [] : ranked.slice(1).map((e) => e.loanId),
+      keeper: { ownerKey: keeper.ownerKey, clientId: keeper.clientId, loanId: keeper.loanId, soloLoanInClient: keeper.soloLoanInClient },
+      deleteCandidates: (safety === 'review') ? []
+        : ranked.slice(1).filter((e) => !sameRec(e)).map((e) => ({ ownerKey: e.ownerKey, clientId: e.clientId, loanId: e.loanId, soloLoanInClient: e.soloLoanInClient })),
       records: entries.map((e) => ({
         loanId: e.loanId, slaDisplayId: e.slaDisplayId, isBaselineCopy: e.isCopy,
-        keep: e.loanId === keeper.loanId,
+        keep: sameRec(e),
         owner: e.ownerKey, clientId: e.clientId, soloLoanInClient: e.soloLoanInClient,
         amount: e.amt, status: e.status, disposition: e.disposition,
         servicerName: e.servicerName, toolType: e.toolType,
