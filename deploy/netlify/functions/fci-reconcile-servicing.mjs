@@ -113,7 +113,7 @@ async function handle(req, context) {
         // Key by house number ONLY (state extraction from a free-form address is
         // unreliable); we use state as a tiebreaker at match time instead.
         if (!hnIndex.has(hn)) hnIndex.set(hn, []);
-        hnIndex.get(hn).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, nf: normFull(loan.address), state: stateOf(loan.address) });
+        hnIndex.get(hn).push({ ownerKey, clientId: c.id, loanId: loan.id, address: loan.address, nf: normFull(loan.address), state: stateOf(loan.address), toolType: String(loan.toolType || '').toLowerCase() });
       }
     }
   }
@@ -145,6 +145,17 @@ async function handle(req, context) {
       const byState = matches.filter((h) => !h.state || h.state === st);
       if (byState.length && new Set(byState.map((h) => h.nf)).size === 1) matches = byState;
       distinctAddrs = new Set(matches.map((h) => h.nf));
+    }
+    // Deploy 236.728 — FCI/Colchis loans are ALWAYS RTL. If still pointing at >1
+    // property, prefer the RTL record(s). Resolves 708 E Kiernan Ave, Spokane WA:
+    // SLA has an RTL and a DSCR at the same street (ZIPs 99205 vs 99207); only the
+    // RTL is the FCI loan (Mike, 2026-08-25), so the DSCR one is left untouched.
+    if (distinctAddrs.size > 1) {
+      const rtlOnly = matches.filter((h) => h.toolType === 'rtl');
+      if (rtlOnly.length && new Set(rtlOnly.map((h) => h.nf)).size === 1) {
+        matches = rtlOnly;
+        distinctAddrs = new Set(matches.map((h) => h.nf));
+      }
     }
     if (distinctAddrs.size > 1) {
       ambiguous.push({ address: row.address, state: row.state, sheet: row.sheet, matches: [...new Set(matches.map((h) => h.address))] });
