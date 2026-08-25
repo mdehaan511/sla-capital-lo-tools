@@ -64,6 +64,17 @@ function _productLabel(l) {
   var t = String((l && l.toolType) || '').toLowerCase();
   return t === 'rtl' ? 'RTL' : (t === 'guc' ? 'GUC' : 'DSCR');
 }
+// Deploy 236.701 — GUC (ground-up construction) is an RTL-FAMILY product: it
+// shares the RTL Loan Details layout (purchase price / build budget / ARV /
+// LTP-LTC-LTARV, the UW tab, etc.), not the DSCR layout. So "is this the DSCR
+// experience?" is true only when the loan is NEITHER rtl NOR guc. One helper,
+// used everywhere isDscr was computed inline.
+function _isDscrTool(tt) {
+  var t = String(tt || '').toLowerCase();
+  return t !== 'rtl' && t !== 'guc';
+}
+// Deploy 236.701 — GUC land/construction fields for the Loan Financials display.
+function _isGucLoan(l) { return String((l && l.toolType) || '').toLowerCase() === 'guc'; }
 function _loanTypeLabel(l) {
   var fd = (l && l.formData) || {};
   var t = String((l && l.toolType) || '').toLowerCase() === 'rtl' ? 'rtl' : 'dscr';
@@ -792,7 +803,7 @@ function render() {
   // Deploy 236.330 (Tier 4) — kick off the freshness auto-refresh on
   // first render. Idempotent — the helper only starts the timer once.
   _startFreshnessRefresh();
-  var isDscr = (l.toolType||'') !== 'rtl';
+  var isDscr = _isDscrTool(l.toolType);
   var status = l.status || 'active';
   var STATUS_LABELS = { active:'Active', on_hold:'On Hold', submitted:'Submitted', approved:'Approved', denied:'Denied' };
   // Deploy 236.643 — hoisted so the header status dropdown (next to Actions)
@@ -1234,13 +1245,16 @@ function render() {
     var _aivBpoNum   = parseFloat(l.aivBpo) || 0;
     var _rtlLtaivPct = (_aivBpoNum > 0 && _rtlLoanAmtNum > 0) ? (_rtlLoanAmtNum / _aivBpoNum * 100) : null;
     var _ltFull = _loanTypeLabel(l);
+    // Deploy 236.701 — GUC relabels + land rows in the shared RTL grid.
+    var _isGuc = _isGucLoan(l);
+    var _ownsLand = _isGuc && String(l.ownLand || '') === 'yes';
     html += '<div class="fin-grid">' +
       // Row 1 — Rate | Points
       '<div class="fin-cell"><div class="fin-label">Rate' + (_hasRateOv ? ' ' + _ovTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points' + (_hasPointsOv ? ' ' + _ovTag : '') + '</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
-      // Row 2 — Purchase Price | Rehab Budget
-      '<div class="fin-cell"><div class="fin-label">Purchase Price</div><div class="fin-val">'+fmtM(purchasePrice||loanAmt)+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Rehab Budget</div><div class="fin-val">'+fmtM(rehabBudget)+'</div></div>' +
+      // Row 2 — (GUC) Land Value | Construction Budget  ·  (RTL) Purchase Price | Rehab Budget
+      '<div class="fin-cell"><div class="fin-label">'+(_isGuc?'Land Value':'Purchase Price')+'</div><div class="fin-val">'+fmtM(purchasePrice||loanAmt)+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">'+(_isGuc?'Construction Budget':'Rehab Budget')+'</div><div class="fin-val">'+fmtM(rehabBudget)+'</div></div>' +
       // Row 3 — Down Payment | Initial Advance
       '<div class="fin-cell"><div class="fin-label">Down Payment'+(_hasDpOv ? ' ' + _ovTag : '')+'</div><div class="fin-val">'+fmtM(downPayment)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Initial Advance</div><div class="fin-val">'+fmtM(_initAdvVal)+'</div></div>' +
@@ -1261,6 +1275,10 @@ function render() {
       '<div class="fin-cell"><div class="fin-label">LTAIV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtaivPct)+'</div></div>' +
       // Property Type (Deploy 236.691 — priced in the sizer; read-only here + on the Property tab)
       '<div class="fin-cell"><div class="fin-label">Property Type</div><div class="fin-val">'+escH(_propTypeLabel(l))+'</div></div>' +
+      // Deploy 236.701 — GUC land-ownership rows (from the sizer).
+      (_isGuc ? '<div class="fin-cell"><div class="fin-label">Own the Land?</div><div class="fin-val">'+(_ownsLand?'Yes':'No')+'</div></div>' : '') +
+      (_ownsLand ? '<div class="fin-cell"><div class="fin-label">Existing Land Debt</div><div class="fin-val">'+fmtM(l.landDebt||0)+'</div></div>' : '') +
+      (_ownsLand ? '<div class="fin-cell"><div class="fin-label">Land Equity &#8594; Down Pmt</div><div class="fin-val">'+fmtM(l.landEquityCredit||0)+'</div></div>' : '') +
       // Trailing extras (conditional) — referral source + broker fee
       (l.ref ? '<div class="fin-cell"><div class="fin-label">Referral Source</div><div class="fin-val">'+escH(l.ref)+'</div></div>' : '') +
       (parseFloat(l.brokerFee || 0) > 0
@@ -1274,7 +1292,7 @@ function render() {
 
   html += '<a href="'+escAttr(sizerUrl)+'" class="open-sizer-btn">' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 7.5h11M8.5 3l4 4.5-4 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    'Open in '+(isDscr?'DSCR':'RTL')+' Sizer to Modify Financials' +
+    'Open in '+(isDscr?'DSCR':(_isGucLoan(l)?'GUC':'RTL'))+' Sizer to Modify Financials' +
   '</a>';
 
   // Deploy 236.626 — if a signed rate-sheet envelope exists, this button downloads
@@ -2216,7 +2234,7 @@ function render() {
   // Docs on DSCR loans whose toolType was never stamped — the badge still said
   // DSCR, Documents/Closing still showed, but these two tabs silently vanished.
   // Treat empty as DSCR so the gate matches the rest of the page.
-  var _isRtlLoan = (_uwTt === 'rtl' || _uwTt === 'dscr' || _uwTt === '');
+  var _isRtlLoan = (_uwTt === 'rtl' || _uwTt === 'dscr' || _uwTt === 'guc' || _uwTt === '');
   // Deploy 236.602 — tab order + processing gate (per Mike). Order is
   // Loan · Contacts · Tasks · Documents · Underwriting · Closing · Lightning Docs.
   // Documents / Underwriting / Closing / Lightning Docs are processing-team tabs:
@@ -2591,7 +2609,7 @@ function render() {
   // Self-contained in loan-uw-tab.js; fills #ldPaneUnderwriting +
   // #ldPaneLightning. refreshLoan keeps _loan/_client in sync on save.
   try {
-    if (window.SLA_UW_TAB && document.getElementById('ldPaneUnderwriting') && (function(){ var t=String((_loan && _loan.toolType) || '').toLowerCase(); return t === 'rtl' || t === 'dscr' || t === ''; })()) {
+    if (window.SLA_UW_TAB && document.getElementById('ldPaneUnderwriting') && (function(){ var t=String((_loan && _loan.toolType) || '').toLowerCase(); return t === 'rtl' || t === 'dscr' || t === 'guc' || t === ''; })()) {
       SLA_UW_TAB.mount({
         loan: _loan, clientId: _clientId, loanId: _loanId,
         // Deploy 236.510 — the borrowing entity name lives on the CLIENT
@@ -4470,7 +4488,10 @@ var FIN_EDITABLE = [
 ];
 
 function _resolveFinDropdownOptions(field) {
-  var toolType = String((_loan && _loan.toolType) || '').toLowerCase() === 'rtl' ? 'rtl' : 'dscr';
+  // Deploy 236.701 — GUC uses the RTL-family dropdown sets (construction is an
+  // RTL-family product), so it resolves loanType_rtl / propType_rtl etc.
+  var _tt = String((_loan && _loan.toolType) || '').toLowerCase();
+  var toolType = (_tt === 'rtl' || _tt === 'guc') ? 'rtl' : 'dscr';
   var key = field.dropdownBase + '_' + toolType;
   return FIN_DROPDOWNS[key] || FIN_DROPDOWNS[field.dropdownBase + '_rtl'] || [];
 }
@@ -5129,7 +5150,11 @@ function openOrCreateDocReview() {
   }
   // No existing review — create one and navigate.
   if (!_client || !_loan) { showToast('Loan not loaded yet.'); return; }
-  var loanType = (String(_loan.toolType || '').toLowerCase() === 'rtl') ? 'rtl' : 'dscr';
+  // Deploy 236.701 — GUC gets the RTL/Colchis document checklist for now; a
+  // dedicated GUC checklist (adds architectural plans, permits, feasibility
+  // study, GC review) follows in 236.702.
+  var _rtlT = String(_loan.toolType || '').toLowerCase();
+  var loanType = (_rtlT === 'rtl' || _rtlT === 'guc') ? 'rtl' : 'dscr';
   var borrowerName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim();
   var btn = document.getElementById('docReviewBtn');
   var label = document.getElementById('docReviewBtnLabel');
@@ -5986,7 +6011,7 @@ function saveFundingPlan() {
   if (!srcEl) return;
   // Match render()'s isDscr (line ~669) EXACTLY so the stored pricing
   // key (tpo vs buyRate) always agrees with the label the box showed.
-  var isDscr = (_loan.toolType || '') !== 'rtl';
+  var isDscr = _isDscrTool(_loan.toolType);
   var src = srcEl.value || '';
   var invName = '';
   if (invEl && invEl.value && invEl.options[invEl.selectedIndex]) {
@@ -6156,7 +6181,7 @@ function _pcCarryMonthly(id) {
 
 function saveLoanTerms() {
   if (!_loan || !_client) return;
-  var isDscr = (_loan.toolType || '') !== 'rtl';
+  var isDscr = _isDscrTool(_loan.toolType);
   // Deploy 236.644 — Origination Date === Closing Date; First Payment + Maturity
   // are non-editable and recomputed here from Closing Date + Loan Term so a save
   // always persists dates consistent with the current inputs. Prepay removed.
@@ -6201,7 +6226,7 @@ function saveLoanTerms() {
 
 function savePropertyCollateral() {
   if (!_loan || !_client) return;
-  var isDscr = (_loan.toolType || '') !== 'rtl';
+  var isDscr = _isDscrTool(_loan.toolType);
   var fields = {
     // Physical fields moved from the retired Property & Application box (af-* ids)
     bedrooms:         _ldNum('af-bedrooms'),
@@ -8123,7 +8148,7 @@ function resetBaselineLink() {
 // change are filtered out by refreshEnvelopes() going forward.
 function openChangeTypeModal() {
   if (!_loan) return;
-  var isDscr = (_loan.toolType || 'dscr') !== 'rtl';
+  var isDscr = _isDscrTool(_loan.toolType);
   var target = isDscr ? 'RTL' : 'DSCR';
   var addr = _loan.address || 'this loan';
   document.getElementById('ctTitle').textContent = 'Change to ' + target + ' loan?';
@@ -8899,7 +8924,7 @@ function postSlackNotification(webhookUrl, notes) {
   var loPhone = user && user.user_metadata && user.user_metadata.phone || '';
   var c = _client;
   var l = _loan;
-  var isDscr = (l.toolType||'') !== 'rtl';
+  var isDscr = _isDscrTool(l.toolType);
   var loanAmt = l.loanAmt || l.purchasePrice || '';
   var amtFmt  = loanAmt ? '$'+Number(loanAmt).toLocaleString() : '-';
   // Deploy 236.40 — show 3 decimals on the rate to preserve trailing zeros.

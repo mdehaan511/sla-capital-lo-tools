@@ -70,7 +70,7 @@ window.ClientBook = {
       prepay:      formData.prepay      || '',
       buydown:     formData.buydown     || '',
       dscr:        formData._dscr       || '',
-      // RTL-specific
+      // RTL/GUC-specific
       purchasePrice: formData.purchasePrice || '',
       rehabBudget:   formData.rehabBudget   || '',
       arv:           formData.arv           || '',
@@ -79,6 +79,21 @@ window.ClientBook = {
       ficoLabel:     formData.ficoLabel     || '',
       propTypeLabel: formData.propTypeLabel || '',
       currentLoanAmt: formData.currentLoanAmt || '',
+      // Deploy 236.700 — GUC ground-up construction fields. landValue is the
+      // land price/value (same field as purchasePrice); constructionBudget
+      // mirrors rehabBudget (the build budget). landEquityCredit is derived
+      // (60% of land value − existing debt) so Loan Details / the app can show
+      // the down-payment offset without re-running the sizer.
+      ownLand:            formData.ownLand      || '',
+      landDebt:           formData.landDebt     || '',
+      landValue:          formData.purchasePrice || '',
+      constructionBudget: formData.rehabBudget  || '',
+      landEquityCredit:   (function(){
+        var owns = String(formData.ownLand || '') === 'yes';
+        var lv = parseFloat(formData.purchasePrice || 0) || 0;
+        var ld = parseFloat(formData.landDebt || 0) || 0;
+        return (owns && lv > 0) ? String(Math.max(0, Math.round(0.60 * lv - ld))) : '';
+      })(),
       // Deploy 236.350 — optional target-loan / target-LTV caps
       targetLoanAmt:  formData.targetLoanAmt  || '',
       targetLtv:      formData.targetLtv      || '',
@@ -697,7 +712,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
                Multi-Family (5-20) removed per Mike. -->
           <select id="propType" onchange="autoCalc()">
             <option value="sfr">SFR</option>
-            <option value="2to4">2-4 Unit</option>
+            <option value="2-4">2-4 Unit</option>
           </select>
         </div>
       </div>
@@ -2855,7 +2870,7 @@ function initQuotes(userEmail) {
   var wrap = document.getElementById('quotesPanelInner');
   if (!wrap) return;
   _quotesPanel = QuoteStore.buildPanel(
-    _quoteUser, 'rtl',
+    _quoteUser, 'guc',
     function onLoad(quote) { loadRTLQuote(quote.formData); },
     function onDelete() {}
   );
@@ -3411,7 +3426,7 @@ function saveCurrentQuote() {
   // capture rate, points, max loan, down payment, monthly PI, and
   // adjustments breakdown.
   var snapshot = {
-    tool: 'rtl',
+    tool: 'guc',
     finalRate: null, points: null, maxLoan: null, downPayment: null, monthlyPI: null,
     adjs: [], purchasePrice: parseFloat(formData.purchasePrice || 0) || 0,
     rehabBudget: parseFloat(formData.rehabBudget || 0) || 0,
@@ -3503,7 +3518,7 @@ function saveCurrentQuote() {
   // Deploy 236.9 — see dscr-sizer.html for rationale.
   formData._loanStatus      = window._editingLoanStatus || '';
 
-  QuoteStore.saveQuote(_quoteUser, 'rtl', formData, ownerOvr);
+  QuoteStore.saveQuote(_quoteUser, 'guc', formData, ownerOvr);
   if (_quotesPanel && _quotesPanel._renderBody) _quotesPanel._renderBody();
 
   // Deploy 192 (CRITICAL): revert the Deploy-188 "gate toast on promise"
@@ -3531,7 +3546,7 @@ function saveCurrentQuote() {
   // direct-ID saves work regardless of whether the client record has
   // an email. See dscr-sizer.html for the full rationale \u2014 same fix.
   if (window.ClientBook) {
-    var loanRec = ClientBook.buildLoanFromSizer('rtl', formData.address, formData, 'active');
+    var loanRec = ClientBook.buildLoanFromSizer('guc', formData.address, formData, 'active');
     // Deploy 236.258 — same _sizerFormData attach as DSCR 236.257.
     // Lets the backend snapshot the raw formData verbatim into
     // sizerHistory[] so the History panel's restore can rehydrate
@@ -3587,7 +3602,7 @@ function saveCurrentQuote() {
             }
           }
           if (_newLoan && QuoteStore.stampLoanIdOnQuote) {
-            var _savedQ = QuoteStore.getQuote(_quoteUser, 'rtl', formData.address, { propType: _ptLower });
+            var _savedQ = QuoteStore.getQuote(_quoteUser, 'guc', formData.address, { propType: _ptLower });
             if (_savedQ) QuoteStore.stampLoanIdOnQuote(_savedQ.id, _newLoan.id, resp.client.id, ownerOvr);
             window._editingLoanId   = _newLoan.id;
             window._editingClientId = resp.client.id;
@@ -3625,7 +3640,7 @@ function saveCurrentQuote() {
         } catch (_) {}
       }
       var _payload = {
-        toolType: 'rtl',
+        toolType: 'guc',
         loan:     loanRec,
         borrower: {
           firstName: rNameParts.slice(0, -1).join(' ') || rNameParts[0] || '',
@@ -3653,7 +3668,7 @@ function saveCurrentQuote() {
           try {
             if (resp && resp.loanId && resp.clientId && QuoteStore.stampLoanIdOnQuote) {
               var _fdPt = String(formData.propType || '').toLowerCase().trim();
-              var _sq = QuoteStore.getQuote(_quoteUser, 'rtl', formData.address, { propType: _fdPt });
+              var _sq = QuoteStore.getQuote(_quoteUser, 'guc', formData.address, { propType: _fdPt });
               if (_sq) QuoteStore.stampLoanIdOnQuote(_sq.id, resp.loanId, resp.clientId, ownerOvr);
             }
           } catch (e) {
@@ -4079,7 +4094,7 @@ netlifyIdentity.on('init', function(user) {
           Object.keys(byOwner).some(function(k) {
             if (k.toLowerCase() !== targetOwner) return false;
             return (byOwner[k] || []).some(function(q) {
-              if ((q.toolType || 'dscr') !== 'rtl') return false;
+              if ((q.toolType || 'dscr') !== 'guc') return false;
               if (loanIdP && q.loanId) {
                 if (q.loanId === loanIdP) { hit = q; return true; }
                 return false;
@@ -4126,7 +4141,7 @@ netlifyIdentity.on('init', function(user) {
         // the same property collide on the address lookup and the
         // sizer can load the wrong borrower's quote. Same fix as
         // dscr-sizer.html.
-        var q = QuoteStore.getQuote(user.email, 'rtl', decodeURIComponent(loadAddr), { loanId: loanIdP, propType: propTypeP });
+        var q = QuoteStore.getQuote(user.email, 'guc', decodeURIComponent(loadAddr), { loanId: loanIdP, propType: propTypeP });
         if (q && q.formData) {
           window._originalAddress = q.formData.address || decodeURIComponent(loadAddr);
           window._originalBorrowerEmail = q.formData.borrowerEmail || '';
@@ -4425,6 +4440,9 @@ netlifyIdentity.on('init', function(user) {
             fd.loanType = (rb / totalLoan <= 0.5) ? 'light' : 'heavy';
           }
         }
+        // Deploy 236.700 — GUC is always Ground-Up Construction; the light/heavy
+        // auto-pick above (inherited from the RTL clone) never applies here.
+        fd.loanType = 'construction';
         // Map flipsCompleted (from application) → experience (sizer field) — #4
         if (!fd.experience && found.experience) fd.experience = found.experience;
         if (!fd.experience && found.flipsCompleted) fd.experience = found.flipsCompleted;
@@ -5318,7 +5336,7 @@ function _generateRTLRateSheetPDF(opts) {
   var progLabel=(LABELS[lt]||lt);
   // Deploy 236.697 — GUC experience tiers are 6+ / 4-5 / 0-3 builds.
   var expLabel=exp>=6?'Tier 1 (6+ builds)':exp>=4?'Tier 2 (4–5 builds)':'Tier 3 (0–3 builds)';
-  var ptLabel={sfr:'SFR','2to4':'2-4 Unit',mfr:'Multi-Family 5–20 Units'};
+  var ptLabel={sfr:'SFR','2-4':'2-4 Unit',mfr:'Multi-Family 5–20 Units'};
   var termLabel={12:'12 months',13:'13–18 months',19:'19–24 months'};
   var purpLabel={purchase:'Purchase',cashout:'Cash-Out Refinance',rateterm:'Rate/Term Refinance'};
 
@@ -5410,7 +5428,7 @@ function _generateRTLRateSheetPDF(opts) {
 
   // Loan details grid — Property Address now lives in the dark hero band
   // above (full width, no truncation), so it's removed from this grid.
-  var ptLabelMap={sfr:'SFR','2to4':'2-4 Unit',mfr:'Multi-Family 5–20 Units'};
+  var ptLabelMap={sfr:'SFR','2-4':'2-4 Unit',mfr:'Multi-Family 5–20 Units'};
   // Deploy 236.697 \u2014 GUC rate-sheet detail grid. Drops Loan Purpose
   // (always a purchase) and Interest Structure (always Non-Dutch); adds
   // the land-ownership line and, when it applies, the land-equity credit.
