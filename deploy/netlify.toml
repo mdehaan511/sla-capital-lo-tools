@@ -1231,6 +1231,14 @@
   status = 200
   force = true
 
+# Deploy 236.705 — promote an additional guarantor to primary (mode 'switch'
+# keeps signatures; 'delete_primary' resets for re-sign).
+[[redirects]]
+  from = "/api/loan-guarantor-make-primary"
+  to = "/.netlify/functions/loan-guarantor-make-primary"
+  status = 200
+  force = true
+
 # Deploy 236.366 — admin cleanup pass for merged-loser client husks.
 [[redirects]]
   from = "/api/admin-orphan-clients-cleanup"

@@ -2885,6 +2885,14 @@ function _renderEditGuarantorButton(clientId, isPrimary, gEmail, gName) {
        'title="Unlink this guarantor from this loan. Their client record is kept — you can re-add them later or leave them for other loans they\'re tied to.">' +
       '<span class="bw-edit-icon">×</span> Remove Guarantor' +
     '</button>';
+  // Deploy 236.705 — Make Primary. Non-primary only. Promotes this guarantor to
+  // primary (moves loan ownership + relabels them Guarantor 1); the old primary
+  // is demoted to a secondary guarantor and existing signatures are preserved.
+  var makePrimaryBtn = isPrimary ? '' :
+    '<button type="button" class="bw-edit-guarantor-btn" onclick="makePrimaryGuarantor(\'' + escAttr(clientId) + '\')" ' +
+       'title="Make this guarantor the PRIMARY (Guarantor 1). The current primary becomes a secondary guarantor. Both parties keep their existing signatures — the application is just relabeled.">' +
+      '<span class="bw-edit-icon">★</span> Make Primary' +
+    '</button>';
   // Deploy 236.367 — primary-only buttons that used to live in a
   // standalone .change-primary-guarantor-row (which visually looked
   // like a separate mini-card underneath the section). Consolidated
@@ -2902,15 +2910,28 @@ function _renderEditGuarantorButton(clientId, isPrimary, gEmail, gName) {
         '<span class="bw-edit-icon">×</span> Clear Primary Guarantor' +
       '</button>'
     : '';
+  // Deploy 236.705 — Delete Primary Guarantor. Primary pane, only when at least
+  // one additional guarantor exists to promote. Removes the primary and promotes
+  // Guarantor 2 to primary; the application is reset so the remaining parties
+  // re-sign the corrected document.
+  var _hasG2 = !!(_loan && Array.isArray(_loan.guarantorClientIds) && _loan.guarantorClientIds.length > 0);
+  var deletePrimaryBtn = (isPrimary && _hasG2)
+    ? '<button type="button" class="bw-remove-guarantor-btn" onclick="deletePrimaryGuarantor()" ' +
+        'title="Remove the primary guarantor and promote Guarantor 2 to primary. The application is reset to awaiting-signatures so the remaining parties re-sign the corrected document.">' +
+        '<span class="bw-edit-icon">×</span> Delete Primary Guarantor' +
+      '</button>'
+    : '';
   return '<div class="bw-pane-footer" style="gap:8px;flex-wrap:wrap">' +
     sendLinkBtn +
     downloadBtn +
+    makePrimaryBtn +
     '<a class="bw-edit-guarantor-btn" href="' + escAttr(href) + '" target="_blank" rel="noopener" ' +
        'title="Open this guarantor\'s Client Details page in a new tab. Changes there sync to every loan this client is tied to.">' +
       '<span class="bw-edit-icon">✎</span> Edit Guarantor' +
     '</a>' +
     changePrimaryBtn +
     removeBtn +
+    deletePrimaryBtn +
     clearPrimaryBtn +
   '</div>';
 }
@@ -2975,6 +2996,75 @@ function clearPrimaryGuarantor() {
 
 // Deploy 236.366 — click handler for the Remove Guarantor button.
 // Confirms, calls SLA.Loans.removeGuarantor, reloads on success.
+// Deploy 236.705 — helper: friendly label for a guarantor pane by client id.
+function _guarantorPaneLabel(clientId, fallback) {
+  var label = fallback || 'this guarantor';
+  try {
+    var panes = document.querySelectorAll('#borrowerInfoSection .bw-pane');
+    for (var p = 0; p < panes.length; p++) {
+      if (panes[p].getAttribute('data-client-id') === clientId) {
+        var nameEl = panes[p].querySelector('input[id^="bw-"][id$="-name"]');
+        if (nameEl && nameEl.value && nameEl.value.trim()) return nameEl.value.trim();
+      }
+    }
+  } catch (_) {}
+  return label;
+}
+
+// Deploy 236.705 — Make Primary (switch). Promote this guarantor to primary;
+// the old primary is demoted to a secondary guarantor; signatures preserved.
+function makePrimaryGuarantor(guarantorClientId) {
+  if (!_client || !_loanId || !guarantorClientId) return;
+  var label = _guarantorPaneLabel(guarantorClientId, 'this guarantor');
+  var confirmMsg = 'Make ' + label + ' the PRIMARY guarantor on this loan?\n\n' +
+    'The loan moves under their record and they become Guarantor 1. The current ' +
+    'primary becomes a secondary guarantor. Both parties keep their existing ' +
+    'signatures — the application is just relabeled and regenerated.';
+  if (!confirm(confirmMsg)) return;
+  var payload = { clientId: _client.id, loanId: _loanId, guarantorClientId: guarantorClientId, mode: 'switch' };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.Loans.makePrimary(payload).then(function(res) {
+    if (typeof showToast === 'function') {
+      showToast('Primary switched to ' + label + (res && res.signaturesPreserved ? ' — signatures preserved' : ''));
+    }
+    setTimeout(function() { window.location.reload(); }, 700);
+  }).catch(function(err) {
+    console.error('makePrimaryGuarantor failed:', err);
+    if (typeof showToast === 'function') showToast('Make Primary failed: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+
+// Deploy 236.705 — Delete Primary Guarantor. Removes the primary and promotes
+// Guarantor 2 to primary; the application is reset so the remaining parties
+// re-sign the corrected document.
+function deletePrimaryGuarantor() {
+  if (!_client || !_loanId) return;
+  var g2 = (_loan && Array.isArray(_loan.guarantorClientIds) && _loan.guarantorClientIds.length)
+    ? _loan.guarantorClientIds[0] : '';
+  if (!g2) {
+    if (typeof showToast === 'function') showToast('No Guarantor 2 to promote — add a guarantor first, or use Clear Primary Guarantor.');
+    return;
+  }
+  var g2Label = _guarantorPaneLabel(g2, 'Guarantor 2');
+  var confirmMsg = 'Remove the primary guarantor and promote ' + g2Label + ' to primary?\n\n' +
+    'The loan moves under ' + g2Label + '\'s record and the old primary is removed ' +
+    'from this loan. Because a guarantor is being removed, the application is RESET ' +
+    'to awaiting-signatures — the remaining parties must re-sign it. You\'ll need to ' +
+    're-send the signing link.';
+  if (!confirm(confirmMsg)) return;
+  var payload = { clientId: _client.id, loanId: _loanId, guarantorClientId: g2, mode: 'delete_primary' };
+  if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
+  SLA.Loans.makePrimary(payload).then(function(res) {
+    if (typeof showToast === 'function') {
+      showToast('Primary removed — ' + g2Label + ' promoted. Application reset; re-send the signing link.');
+    }
+    setTimeout(function() { window.location.reload(); }, 800);
+  }).catch(function(err) {
+    console.error('deletePrimaryGuarantor failed:', err);
+    if (typeof showToast === 'function') showToast('Delete Primary failed: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+
 function removeGuarantorFromLoan(guarantorClientId) {
   if (!_client || !_loanId || !guarantorClientId) return;
   // Try to pull a friendly label from the currently-loaded pane's

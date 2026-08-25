@@ -2398,6 +2398,22 @@
         return r;
       });
     },
+    // Deploy 236.705 — promote an additional guarantor to primary. mode
+    // 'switch' (default) demotes the old primary + keeps signatures;
+    // 'delete_primary' drops the old primary + resets the app for re-sign.
+    makePrimary: function (opts) {
+      opts = opts || {};
+      return api('POST', '/api/loan-guarantor-make-primary', {
+        clientId:          opts.clientId,
+        loanId:            opts.loanId,
+        guarantorClientId: opts.guarantorClientId,
+        mode:              opts.mode || 'switch',
+        owner:             opts.owner,
+      }).then(function (r) {
+        cache.clear('clients');
+        return r;
+      });
+    },
   };
 
   // ── Deploy 236.502 — client-side auto-compression for big uploads ───
