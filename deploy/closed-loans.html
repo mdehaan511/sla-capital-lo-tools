@@ -131,7 +131,14 @@
     .svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
     .svc-fld label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
     .svc-fld input, .svc-fld select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-xs); font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); }
-    .svc-fld input:focus { outline: none; border-color: var(--gold); }
+    /* Deploy 236.719 — the servicer/investor/type dropdowns in the servicing +
+       close-out modals were rendering the raw native OS arrow (appearance:auto),
+       which looked inconsistent with the app's other dropdowns. Give them the
+       same clean custom chevron + appearance:none. */
+    .svc-fld select { appearance: none; -webkit-appearance: none; -moz-appearance: none; padding-right: 30px; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237a7488' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 11px center; }
+    .svc-fld input:focus, .svc-fld select:focus { outline: none; border-color: var(--gold); }
     .svc-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.25rem; align-items: center; }
     .svc-status { font-size: 12px; margin-right: auto; min-height: 16px; }
     .svc-status.err { color: var(--danger); } .svc-status.ok { color: var(--success); }
