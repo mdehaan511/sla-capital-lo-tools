@@ -32,6 +32,11 @@
 [functions."baseline-reconcile-dispositions"]
   timeout = 26
 
+# Deploy 236.720 — FCI servicing reconcile walks every client blob to match by
+# address. Full on-demand budget.
+[functions."fci-reconcile-servicing"]
+  timeout = 26
+
 # Deploy 236.716 — one-off fraction-rate backfill walks every client blob.
 [functions."admin-backfill-fraction-rates"]
   timeout = 26
@@ -775,6 +780,12 @@
 [[redirects]]
   from = "/api/baseline-reconcile-dispositions"
   to = "/.netlify/functions/baseline-reconcile-dispositions"
+  status = 200
+  force = true
+# Deploy 236.720 — FCI servicing reconcile (Open→Servicing+Sold, Closed→Paid Off).
+[[redirects]]
+  from = "/api/fci-reconcile-servicing"
+  to = "/.netlify/functions/fci-reconcile-servicing"
   status = 200
   force = true
 # Deploy 236.547 — loan-processing-stage migration, Phase 1 discovery.
