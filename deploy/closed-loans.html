@@ -1015,20 +1015,19 @@ function toggleTrading(clientId, loanId, ownerKey){
 // Sale + Sold-RTL (DSCRs never appear here). Deploy 236.624 — the Pending Sale
 // section is now RTL-ONLY (DSCRs pending sale live only in Pending Sale). All
 // sections use the full servicing columns.
+// Deploy 236.732 (Mike) — ONE flat servicing list, no per-bucket accordions. The
+// set is the union of everything SLA services: the legacy Servicing tag + RTL
+// Pending Sale + Sold-RTL (sold to an investor but still serviced). DSCRs never
+// appear here. A loan has exactly one displayBucket, so no row can double-list.
 function renderServicing(items){
-  var sections = [
-    { d:'servicing',    filter:function(it){ return displayBucket(it.loan)==='servicing'; } },
-    { d:'pending_sale', filter:function(it){ return displayBucket(it.loan)==='pending_sale' && isRtl(it.loan); }, note:'RTL loans pending sale — SLA services these until they trade.' },
-    { d:'sold_rtl',     filter:function(it){ return displayBucket(it.loan)==='sold_rtl'; }, note:'Sold RTL loans — SLA still services these.' }
-  ];
-  return sections.map(function(sec){
-    var group = sortItems(items.filter(sec.filter), 'servicing', svcVal);
-    var body;
-    if (!group.length) body = '<div class="cl-empty">None.</div>';
-    else body = (sec.note?'<div class="cl-note" style="padding:8px 14px 0">'+escH(sec.note)+'</div>':'') +
-      _dispBody(group, 'servicing', false);
-    return accordion(sec.d, group, '', body);
-  }).join('');
+  var group = items.filter(function(it){
+    var b = displayBucket(it.loan);
+    return b === 'servicing' || (b === 'pending_sale' && isRtl(it.loan)) || b === 'sold_rtl';
+  });
+  group = sortItems(group, 'servicing', svcVal);
+  if (!group.length) return '<div class="cl-empty">No loans in servicing.</div>';
+  var note = '<div class="cl-note">Every loan SLA services, in one list — the legacy Servicing tag, RTL loans pending sale, and Sold-RTL loans (sold to an investor but still serviced). DSCRs are not serviced here.</div>';
+  return note + '<div class="acc" style="padding:0">' + _dispBody(group, 'servicing', false) + '</div>';
 }
 // Generic single-bucket tab (Sold-RTL / Sold-DSCR). Pending Sale wraps this with a note.
 function renderBucketTab(items, b){
