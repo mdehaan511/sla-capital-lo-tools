@@ -707,30 +707,29 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
           </select>
         </div>
       </div>
-      <!-- Deploy 196: Dutch vs Non-Dutch interest structure.
-           Dutch     = interest accrues on the full loan amount from day
-                       one, including the undrawn rehab budget held in
-                       escrow. Payment is constant for the life of the loan.
-           Non-Dutch = interest accrues only on funds drawn. The borrower's
-                       payment starts at interest on the initial advance
-                       (loan amt minus rehab holdback) and grows as draws
-                       come out of escrow, peaking at interest on the full
-                       loan amount when rehab is fully drawn.
-           Display-only — no rate or points change either way. For non-
-           rehab loan types (Bridge / Transactional / Refi) the rehab
-           budget is zero so starting and maximum payments are identical
-           regardless of selection; we leave the field visible anyway for
-           consistency. -->
+      <!-- Deploy 236.697 — GUC: land-ownership question. Drives the
+           max-loan + down-payment math (see guc-pricing.js):
+             No  → standard construction max (LTP × land + build cost).
+             Yes → collect land value + existing debt; equity above the
+                   debt up to 60% LTV is applied toward the down payment. -->
       <div class="field">
         <div class="wrap">
+          <label>Do you own the land? <span class="req">*</span></label>
+          <select id="ownLand" onchange="onOwnLandChange()">
+            <option value="no" selected>No — purchasing the land</option>
+            <option value="yes">Yes — already own the land</option>
+          </select>
+        </div>
+      </div>
+      <!-- Interest Structure: GUC is always Non-Dutch (interest accrues on
+           drawn construction funds). Hidden but kept so #dutchInterest.value
+           is always 'non_dutch' for the payment + save + PDF paths. -->
+      <div class="field" style="display:none">
+        <div class="wrap">
           <label>Interest Structure <span class="req">*</span></label>
-          <!-- Deploy 197: default flipped to Dutch (most common in
-               private lending — interest accrues on the full loan from
-               day one). LO can toggle to Non-Dutch when the deal
-               structure actually escrows the rehab budget. -->
           <select id="dutchInterest" onchange="autoCalc()">
-            <option value="dutch" selected>Dutch (interest on full loan amount from day one)</option>
-            <option value="non_dutch">Non-Dutch (interest on drawn funds only)</option>
+            <option value="dutch">Dutch (interest on full loan amount from day one)</option>
+            <option value="non_dutch" selected>Non-Dutch (interest on drawn funds only)</option>
           </select>
         </div>
       </div>
