@@ -41,6 +41,10 @@
 [functions."servicing-pros-reconcile"]
   timeout = 26
 
+# Deploy 236.735 — Baseline native-vs-copy dupe report walks every client blob.
+[functions."baseline-native-dupe-report"]
+  timeout = 26
+
 # Deploy 236.716 — one-off fraction-rate backfill walks every client blob.
 [functions."admin-backfill-fraction-rates"]
   timeout = 26
@@ -796,6 +800,12 @@
 [[redirects]]
   from = "/api/servicing-pros-reconcile"
   to = "/.netlify/functions/servicing-pros-reconcile"
+  status = 200
+  force = true
+# Deploy 236.735 — Baseline native-vs-copy duplicate report (read-only scan).
+[[redirects]]
+  from = "/api/baseline-native-dupe-report"
+  to = "/.netlify/functions/baseline-native-dupe-report"
   status = 200
   force = true
 # Deploy 236.547 — loan-processing-stage migration, Phase 1 discovery.
