@@ -445,6 +445,18 @@
           '<button class="dr-modal-btn approve" onclick="dr_confirmOverride()">Approve anyway</button>',
         '</div>',
       '</div></div>',
+      // Deploy 236.746 — Flag Issue modal: the processor states WHAT is wrong.
+      // The reason lands on the tray (flagReason), in the loan\'s Notes &
+      // Activity stream, and on the borrower portal with a re-upload prompt.
+      '<div class="dr-modal-bg" id="dr-flagModal"><div class="dr-modal">',
+        '<h3>Flag an issue</h3>',
+        '<p>Describe the problem with this document. The borrower will see this on their portal and be asked to upload a corrected version; it\'s also saved to the loan\'s note stream.</p>',
+        '<textarea id="dr-flagReason" class="notes-area" style="min-height:100px" placeholder="e.g., Bank statement is missing pages 3-4 — please upload the complete statement."></textarea>',
+        '<div class="dr-modal-actions">',
+          '<button class="dr-modal-btn" onclick="dr_closeFlagModal()">Cancel</button>',
+          '<button class="dr-modal-btn" style="color:#92400e;border-color:rgba(146,64,14,0.40)" onclick="dr_confirmFlag()">Flag Issue</button>',
+        '</div>',
+      '</div></div>',
       // N/A modal
       '<div class="dr-modal-bg" id="dr-naModal"><div class="dr-modal">',
         '<h3>Mark as Not Applicable</h3>',
@@ -649,6 +661,8 @@
         // classifies filenames into checklist slugs, high-confidence
         // matches auto-upload, ambiguous ones surface in a modal.
         '<button class="expand-btn" id="dr-uploadZipBtn" onclick="dr_startUploadZip()">⬆ Upload ZIP</button>' +
+        // Deploy 236.746 — send the borrower a corrected-docs email on demand.
+        '<button class="expand-btn" id="dr-notifyFixBtn" onclick="dr_notifyBorrowerFixes(this)">✉ Email borrower re: flagged docs</button>' +
         '<input type="file" id="dr-uploadZipFile" accept=".zip,application/zip,application/x-zip-compressed" style="display:none" onchange="dr_onUploadZipPick(event)" />' +
       '</div>';
 
@@ -2697,20 +2711,67 @@
   };
 
   global.dr_setVerdict = function(slug, verdict) {
+    // Deploy 236.746 — flagging an issue now requires the processor to say
+    // WHAT the issue is (modal); the reason flows to the loan note stream,
+    // the borrower portal, and the reminder emails.
+    if (verdict === 'issues') { global.dr_openFlagModal(slug); return; }
     var now = new Date().toISOString();
     var patch = { docs: {} };
     if (verdict === 'approved') {
       patch.docs[slug] = { verdict: 'approved', approvedAt: now, approvedBy: (_user && _user.email) || '' };
-    } else if (verdict === 'issues') {
-      patch.docs[slug] = { verdict: 'issues' };
     } else {
-      patch.docs[slug] = { verdict: 'pending', approvedAt: '', approvedBy: '' };
+      patch.docs[slug] = { verdict: 'pending', approvedAt: '', approvedBy: '', flagReason: '' };
     }
     global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
       _review = r.review;
       showToast('Saved.', 'success');
       render();
     }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
+  };
+
+  var _pendingFlag = null;
+  global.dr_openFlagModal = function(slug) {
+    _pendingFlag = slug;
+    document.getElementById('dr-flagReason').value = (_review.docs[slug] && _review.docs[slug].flagReason) || '';
+    document.getElementById('dr-flagModal').classList.add('show');
+  };
+  global.dr_closeFlagModal = function() {
+    _pendingFlag = null;
+    document.getElementById('dr-flagModal').classList.remove('show');
+  };
+  global.dr_confirmFlag = function() {
+    var reason = document.getElementById('dr-flagReason').value.trim();
+    if (!reason) { showToast('Please describe the issue so the borrower knows what to fix.', 'error'); return; }
+    var slug = _pendingFlag;
+    var patch = { docs: {} };
+    patch.docs[slug] = {
+      verdict: 'issues',
+      flagReason: reason,
+      flaggedAt: new Date().toISOString(),
+      flaggedBy: (_user && _user.email) || '',
+    };
+    global.SLA.LoanReviews.patch(_review.id, patch).then(function(r) {
+      _review = r.review;
+      global.dr_closeFlagModal();
+      showToast('Issue flagged — visible to the borrower on their portal.', 'success');
+      render();
+    }).catch(function(err) { showToast('Save failed: ' + (err.message || 'Unknown'), 'error'); });
+  };
+
+  // Deploy 236.746 — on-demand "email the borrower about flagged docs".
+  global.dr_notifyBorrowerFixes = function(btn) {
+    var flagged = Object.keys((_review && _review.docs) || {}).filter(function(s){
+      return _review.docs[s] && _review.docs[s].verdict === 'issues' && !_review.docs[s].hidden;
+    });
+    if (!flagged.length) { showToast('No flagged documents — flag an issue first.', 'error'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    global.SLA.api('POST', '/api/borrower-fix-notify', { reviewId: _review.id }).then(function(r) {
+      if (btn) { btn.disabled = false; btn.textContent = '✉ Email borrower re: flagged docs'; }
+      showToast('Email sent to ' + (r.to || 'the borrower') + ' (' + r.flaggedCount + ' flagged doc' + (r.flaggedCount === 1 ? '' : 's') + ').', 'success');
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '✉ Email borrower re: flagged docs'; }
+      showToast('Send failed: ' + (err.message || 'Unknown'), 'error');
+    });
   };
 
   global.dr_openNaModal = function(slug) {

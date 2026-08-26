@@ -655,6 +655,12 @@
   to = "/.netlify/functions/admin-backfill-fraction-rates"
   status = 200
   force = true
+# Deploy 236.746 — processor's on-demand "corrected docs" borrower email.
+[[redirects]]
+  from = "/api/borrower-fix-notify"
+  to = "/.netlify/functions/borrower-fix-notify"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/loan-contacts-delete"
   to = "/.netlify/functions/loan-contacts-delete"

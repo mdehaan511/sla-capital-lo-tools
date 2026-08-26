@@ -136,6 +136,16 @@ function _itemState(d) {
   if (d.verdict === 'approved') {
     return { status: 'accepted', accepted: true, uploaded: true, uploadedCount, message: 'Accepted ✓', findings: [] };
   }
+  // Deploy 236.746 — processor-flagged issue beats every non-approved state:
+  // the borrower sees WHAT was flagged and is prompted to re-submit.
+  if (d.verdict === 'issues') {
+    return { status: 'needs_fix', accepted: false, uploaded, uploadedCount,
+      message: (d.flagReason
+        ? 'Your loan team flagged an issue: ' + d.flagReason
+        : 'Your loan team flagged an issue with this document.')
+        + ' Please upload a corrected version.',
+      findings: [] };
+  }
   if (d.manualReviewRequested) {
     return { status: 'manual_review', accepted: false, uploaded: uploaded, uploadedCount,
       message: 'Manual review requested — a processor will take a look.', findings: [] };
