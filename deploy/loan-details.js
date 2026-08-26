@@ -7475,9 +7475,10 @@ function _renderRateLockCard() {
   var strip = document.createElement('div');
   strip.id = 'rateLockCard';
   strip.title = '45-day rate lock from application signing' + ((_loan && _loan.rateLockStart) ? '' : ' (derived from long-app completion)');
-  // ~38px min-height + the divider's 2px = the tab row's band (11px padding
-  // ×2 + ~16px line + 2px underline).
-  strip.style.cssText = 'min-height:38px;display:flex;align-items:center;gap:8px;font-size:13.5px;color:' + col + ';padding:0 2px';
+  // 41px min-height + the divider's 2px lands the divider on the same
+  // y as the tabs' underline (measured live: tab row bottom = strip
+  // top + 43px).
+  strip.style.cssText = 'min-height:41px;display:flex;align-items:center;gap:8px;font-size:13.5px;color:' + col + ';padding:0 2px';
   strip.innerHTML = '<span style="font-size:16px">🔒</span><span style="line-height:1.35">' + line + '</span>';
   var divider = document.createElement('div');
   divider.id = 'rateLockDivider';
