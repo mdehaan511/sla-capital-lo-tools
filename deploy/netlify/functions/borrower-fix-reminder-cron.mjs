@@ -24,7 +24,7 @@ export default async () => {
   try {
     const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
     const { blobs } = await store.list();
-    // Deploy 236.761 — scan NEWEST-first. Keys are r_<timestamp>_… and list
+    // Deploy 236.762 — scan NEWEST-first. Keys are r_<timestamp>_… and list
     // oldest-first; once the store outgrows the 24s budget the newest
     // (most active) reviews would silently never be reached.
     const keys = blobs.map((b) => b.key).sort().reverse();

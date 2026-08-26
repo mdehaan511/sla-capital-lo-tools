@@ -17,7 +17,7 @@
   <!-- Deploy 236.121 — Doc Review module (ported from the deleted
        standalone loan-review-detail.html). Mounted into the
        Documents tab via SLA.DocReview.mount(rootEl, opts). -->
-  <script src="/loan-doc-review.js?v=236761"></script>
+  <script src="/loan-doc-review.js?v=236762"></script>
   <!-- Deploy 236.325 — defer non-critical shell scripts (install on DOMContentLoaded). -->
   <script src="/sla-nav.js" defer></script>
 <script src="/sla-search.js" defer></script>
@@ -886,7 +886,7 @@
 /* Override button styles when buttons are moved into the menu so
    they render as flat menu items instead of full-width primaries. */
 .ld-actions-menu .ld-action-menu-item { display: flex !important; align-items: center; justify-content: flex-start !important; gap: 8px; width: 100%; margin: 0 !important; padding: 9px 16px !important; background: transparent !important; color: var(--text, #1a1520) !important; border: none !important; border-left: 3px solid transparent !important; border-radius: 0 !important; font-size: 13px !important; font-weight: 500 !important; text-align: left !important; cursor: pointer; box-shadow: none !important; text-decoration: none !important; min-height: auto !important; font-family: 'DM Sans', sans-serif !important; transition: background 0.10s, border-left-color 0.10s; }
-/* Deploy 236.761 — the display:flex !important above BEATS the inline
+/* Deploy 236.762 — the display:flex !important above BEATS the inline
    display:none that gates the Download Signed / Unsigned Application
    buttons (refreshSignedApplicationStatus & co. hide via el.style), so
    those buttons showed on every loan regardless of signing state. Honor
@@ -1285,6 +1285,6 @@
 <!-- Deploy 236.578 — jsPDF for the Proof of Funds letter download (same CDN the
      sizers use for term sheets). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/loan-details.js?v=236761"></script>
+<script src="/loan-details.js?v=236762"></script>
 </body>
 </html>

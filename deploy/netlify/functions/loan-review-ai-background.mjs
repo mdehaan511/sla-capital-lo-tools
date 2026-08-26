@@ -65,7 +65,7 @@ async function handle(req, context) {
   const isCurrentTarget = (targetDocId === docState.currentDocId);
   const now0 = new Date().toISOString();
 
-  // Deploy 236.761 — RE-READ + surgical merge instead of writing back the
+  // Deploy 236.762 — RE-READ + surgical merge instead of writing back the
   // stale in-memory copy. This function holds the review across a
   // minutes-long Claude call; writing the whole stale record back was
   // reverting every concurrent change (processor approvals, borrower
@@ -191,7 +191,7 @@ async function handle(req, context) {
   if (_stale) _ok.staleByDate = _stale;
   if (typeof ee.dateNotes === 'string') _ok.dateNotes = ee.dateNotes;
 
-  // Deploy 236.761 — fresh-read merge (see _saveTrayPatch); the stale
+  // Deploy 236.762 — fresh-read merge (see _saveTrayPatch); the stale
   // whole-record write here was the concurrency clobber.
   const saved = await _saveTrayPatch(_ok, _integrity, aiResult.costCents || 0);
   return json(200, { ok: true, review: saved || review, dropped: !saved });

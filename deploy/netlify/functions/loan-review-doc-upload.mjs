@@ -233,7 +233,7 @@ async function handle(req, context) {
   docState.aiExtractedEntities = {};
   docState.aiReviewedAt = '';
   docState.aiError = '';
-  // Deploy 236.761 — also clear a stuck background-review flag: without
+  // Deploy 236.762 — also clear a stuck background-review flag: without
   // this, a tray whose background kickoff died kept spinning forever even
   // after a fresh upload wrote a new inline verdict.
   docState.aiReviewing = false;
@@ -541,7 +541,7 @@ async function handle(req, context) {
     } catch (e) {
       console.error('loan-review-doc-upload: failed to queue background review:', e && e.message);
     }
-    // Deploy 236.761 — if the kickoff FAILED, un-stick the tray now: leave
+    // Deploy 236.762 — if the kickoff FAILED, un-stick the tray now: leave
     // it out of "reviewing" with a needs-manual note instead of spinning
     // forever with nothing coming. (The old fire-and-forget only logged.)
     if (!_bgQueued) {

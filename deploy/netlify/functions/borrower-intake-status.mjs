@@ -61,7 +61,7 @@ async function handle(req, context) {
   let review = null;
   try {
     const { blobs } = await reviewsStore.list();
-    // Deploy 236.761 — a loanId match ALWAYS beats an address match. The old
+    // Deploy 236.762 — a loanId match ALWAYS beats an address match. The old
     // loop broke on whichever came first, so with two loans on the same
     // property (RTL refinancing into a DSCR) the borrower could be shown —
     // and upload into — the other loan's review.
@@ -113,7 +113,7 @@ async function handle(req, context) {
     }
   } catch (e) { console.warn('[borrower-intake-status] team build failed:', e && e.message); }
 
-  // Deploy 236.761 — the noEntity gate must NOT hide an entity tray that
+  // Deploy 236.762 — the noEntity gate must NOT hide an entity tray that
   // already has uploads or a flagged issue: the fix-reminder email points
   // the borrower at the portal, so a flagged Operating Agreement has to be
   // visible there even when the long app said "no LLC".

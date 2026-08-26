@@ -1147,7 +1147,7 @@ function render() {
     // monthly T/I/HOA cells (MF carries those inside the annual operating-
     // expense set on the Property tab). On a purchase, the value cell IS
     // the purchase price — label it that way (all DSCR).
-    var _finIsMf = !!l.mfProgram; // 236.761 — marker only (see _isMfLoan)
+    var _finIsMf = !!l.mfProgram; // 236.762 — marker only (see _isMfLoan)
     var _finIsPurchase = String(loanPurpose || '') === 'purchase';
     var _mfOpexTotal = ['opexTaxes','opexInsurance','opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping']
       .reduce(function (sum, k) { return sum + (parseFloat(l[k]) || 0); }, 0);
@@ -1170,7 +1170,7 @@ function render() {
       // Row 6/7 — 1-4 unit: Monthly Rent + T/I/HOA. MF (5+): rent + the
       // /apply operating figures (units, occupancy, other income, opex).
       (_finIsMf
-        // 236.761 — no "click to add" here: the MF cells are display-only
+        // 236.762 — no "click to add" here: the MF cells are display-only
         // (edit rent in the MF Operating Statement on the Property tab).
         ? ('<div class="fin-cell"><div class="fin-label">Monthly Rent (all units)</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">—</span>')+'</div></div>' +
            '<div class="fin-cell"><div class="fin-label">Other Income (mo)</div><div class="fin-val">'+(l.otherIncomeMo ? fmtM(l.otherIncomeMo) : '<span class="empty">—</span>')+'</div></div>' +
@@ -1230,7 +1230,7 @@ function render() {
     // Legacy loans saved before this field existed default to 'dutch'
     // — Deploy 197 flipped the default to match the new sizer behavior
     // (Dutch is the industry-standard private-lending structure).
-    // Deploy 236.761 — GUC defaults non_dutch (matches Loan Terms 236.713).
+    // Deploy 236.762 — GUC defaults non_dutch (matches Loan Terms 236.713).
     var _rtlIsDutch     = (l.dutchInterest || (fd && fd.dutchInterest) || (_isGucLoan(l) ? 'non_dutch' : 'dutch')) === 'dutch';
     // Rehab holdback proxy: any non-zero rehab budget means the loan
     // has an escrow component, so Non-Dutch will show a real start→max
@@ -1804,7 +1804,7 @@ function render() {
   // opex set). Mike: the Operating Statement becomes the SOLE Property-tab box
   // for MF, with the Valuation fields appended at its bottom. Portfolio loans
   // keep the P/C box (the per-property tabs live there).
-  // Deploy 236.761 — key on the mfProgram MARKER only (not propType
+  // Deploy 236.762 — key on the mfProgram MARKER only (not propType
   // 'multi'): legacy/Baseline DSCR loans can carry propType 'multi'
   // without being in the MF program, and stripping their P/C box +
   // monthly T/I/HOA cells left their displayed DSCR driven by fields
@@ -1899,7 +1899,7 @@ function render() {
   // the 5%-standard vacancy (admin-editable), and annual operating expenses.
   // Rides into the Property tab via relocateSectionsToTabs. Saves through
   // loan-fields-save; the MF sizer reloads these on open.
-  // Deploy 236.761 — marker-only gate (see _isMfLoan) + skip portfolio
+  // Deploy 236.762 — marker-only gate (see _isMfLoan) + skip portfolio
   // loans so the MF box can't co-render valuation fields alongside the
   // portfolio Property/Collateral model.
   if (l.mfProgram && !l.isPortfolio) {
@@ -1914,7 +1914,7 @@ function render() {
       '<div class="app-grid">' +
         _mfFld('numUnits', 'Number of Units (5+)', l.numUnits, 'e.g. 12') +
         _mfFld('unitsOccupied', 'Units Occupied', l.unitsOccupied, 'e.g. 11') +
-        // Deploy 236.761 — rent is editable HERE now: this box is the MF
+        // Deploy 236.762 — rent is editable HERE now: this box is the MF
         // loan's only Property-tab surface (the fin-grid cell is display-
         // only) and the sizer was the only other place to set it.
         _mfFld('rent', 'Total Monthly Rent (all units)', l.rent) +
@@ -3835,7 +3835,7 @@ function ldDrawsRender(){
       escH(l.slaDisplayId || '') + '). Draws appear here once the property exists in Sitewire with the SLA loan number on it.</div>';
   } else {
     var e = _ldDrawsData;
-    // Deploy 236.761 — GUC loans default NON-Dutch (matches the Loan Terms
+    // Deploy 236.762 — GUC loans default NON-Dutch (matches the Loan Terms
     // editor's 236.713 default; GUC only offers as-drawn interest). The
     // blanket 'dutch' default overstated an unsaved GUC loan's UPB by the
     // whole undrawn budget.
@@ -4799,7 +4799,7 @@ function deleteDoc(id) {
 // hands the live #tasksSection node to _buildTasksModal, which wraps it
 // in a fixed overlay appended to <body>; open/close just toggle display.
 function _buildTasksModal(sect) {
-  // Deploy 236.761 — render() runs several times per visit (cached paint,
+  // Deploy 236.762 — render() runs several times per visit (cached paint,
   // fresh fetch, post-save repaints) and each run built a NEW body-appended
   // overlay with the same id, leaking duplicate task DOMs. Reuse-by-removal.
   var stale = document.getElementById('ldTasksModal');
@@ -7199,7 +7199,7 @@ function _pofFmtDate(dt) {
   return m[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
 }
 // Deploy 236.760 — purchase price for the letter body.
-// Deploy 236.761 — only format entries that are PURE currency ("1000000",
+// Deploy 236.762 — only format entries that are PURE currency ("1000000",
 // "$1,000,000", "1000000.50"). The old strip-then-parse mangled shorthand:
 // "1M cash" → "$1", "500k" → "$500" — a POF letter stating a $1 purchase.
 // Anything with letters or other symbols prints exactly as typed.

@@ -12,7 +12,7 @@
 import { getStore } from '@netlify/blobs';
 import { keySafe } from './auth.mjs';
 import { findCategory } from './loan-review-checklists.mjs';
-// Deploy 236.761 — flagged-doc emails only cover trays the BORROWER can
+// Deploy 236.762 — flagged-doc emails only cover trays the BORROWER can
 // act on (their upload endpoint rejects any other slug). Flagging a
 // processor-side tray (appraisal, title, payoff…) must not email the
 // borrower daily about an item their portal doesn't show.
@@ -25,7 +25,7 @@ import { hasPortalActivity } from './borrower-portal-activity.mjs';
 const PORTAL_ORIGIN = 'https://portal.slacapital.ai';
 
 // Flagged = processor verdict 'issues' on a non-hidden tray the borrower
-// can actually see + re-upload to (Deploy 236.761 — was ALL trays, which
+// can actually see + re-upload to (Deploy 236.762 — was ALL trays, which
 // looped daily emails about processor-side items the portal never shows).
 export function flaggedDocsOf(review) {
   const docs = (review && review.docs) || {};
@@ -70,7 +70,7 @@ export async function sendFixEmailForReview(review, opts) {
       client = await clientsStore.get(ownerKey + '/' + keySafe(src.clientId), { type: 'json' });
       loan = client && Array.isArray(client.loans) ? client.loans.find((l) => l && l.id === src.loanId) : null;
     } catch (_) {}
-    // Deploy 236.761 — fail CLOSED for the automated cron: if the loan
+    // Deploy 236.762 — fail CLOSED for the automated cron: if the loan
     // can't be positively resolved (moved to another client, deleted, or
     // a transient read failure), skip rather than reminding a borrower
     // about a loan we can't verify is still open.

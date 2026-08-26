@@ -318,7 +318,7 @@ async function handle(req, context) {
   if (existingLoan) {
     // Update in place — merge sanitized incoming onto existing.
     const merged = Object.assign({}, existingLoan, _sanitizedLoan(body.loan, existingLoan));
-    // Deploy 236.761 — preservation on THIS path (the live one). The 236.759
+    // Deploy 236.762 — preservation on THIS path (the live one). The 236.759
     // preservation landed only in loan-update-from-sizer.mjs, which the
     // sizers now use solely as a legacy fallback — so every real sizer save
     // still wiped application-sourced fields the posting sizer has no

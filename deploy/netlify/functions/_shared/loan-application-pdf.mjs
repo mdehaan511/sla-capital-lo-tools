@@ -331,7 +331,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         dscr:         'DSCR (Rental Purchase or Refi)',
         dscr_2nd:     'DSCR 2nd Position',
         construction: 'New Construction',
-        // Deploy 236.761 — was missing; transactional apps printed the raw slug.
+        // Deploy 236.762 — was missing; transactional apps printed the raw slug.
         transactional: 'Transactional Funding (1-day)',
       };
       const PROPERTY_TYPE_LABEL = {
@@ -395,7 +395,7 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
 
       // The "Requested Loan Amount" field name varies by loan type
       // because the form has separate per-loan-type input fields.
-      // Deploy 236.761 — + the transactional variants (they printed blank),
+      // Deploy 236.762 — + the transactional variants (they printed blank),
       // and the prefill fallback reads prefill.loan.loanAmt (prefill.loanAmt
       // was a dead path — the value lives one level down).
       const requestedLoanAmt =

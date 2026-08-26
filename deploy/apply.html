@@ -1316,7 +1316,7 @@ function submitApp() {
 
   var lp = gv('loanProduct');
   var _isBroker = (_submitterType === 'broker');
-  // Deploy 236.761 — the MF section only applies to DSCR + 5+ Unit; gate
+  // Deploy 236.762 — the MF section only applies to DSCR + 5+ Unit; gate
   // its payload fields the same way (matches the cond-mf-fin visibility).
   function _isMfApp() { return lp === 'dscr' && gv('propType') === 'multi'; }
   // Deploy 236.227 (Broker Phase D) — borrower fields blank when a
@@ -1378,7 +1378,7 @@ function submitApp() {
     monthlyInsurance:gv('monthlyInsurance'),
     monthlyHOA:      gv('monthlyHOA'),
     // Deploy 236.750 — Multifamily (5+) NCF fields.
-    // Deploy 236.761 — actually GATED now (like the GUC fields above): the
+    // Deploy 236.762 — actually GATED now (like the GUC fields above): the
     // inputs were sent unconditionally, so a borrower who typed MF figures
     // and then switched property type / product submitted an SFR or F&F
     // app carrying stale numUnits + opex — polluting the loan record,

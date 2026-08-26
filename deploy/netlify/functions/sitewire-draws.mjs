@@ -125,7 +125,7 @@ async function handle(req, context) {
 
   const cacheStore = getStore({ name: 'sitewire-cache', consistency: 'strong' });
 
-  // Deploy 236.761 — non-staff scoping. slaDisplayIds are guessable
+  // Deploy 236.762 — non-staff scoping. slaDisplayIds are guessable
   // (SLA-YYYYMMDD-NNNN), and naming a number was the only gate: any LO
   // could pull budget/draw/balance data for every loan in the org. Now a
   // non-staff caller only gets numbers that exist on THEIR OWN loans

@@ -452,7 +452,7 @@
      minimum for a loan that hasn't been acknowledged yet. Persistent
      flag on the quote (formData._dscrBelow1) means reopening a
      manager-approved loan doesn't re-fire the modal.
-     Deploy 236.761 — MF LoBal's minimum is 1.20x (the clone's copy
+     Deploy 236.762 — MF LoBal's minimum is 1.20x (the clone's copy
      said "below the 1.00x program minimum" for e.g. a 1.15x deal). -->
 <div class="ow-overlay" id="dscrBelow1Overlay">
   <div class="ow-modal">
@@ -1735,7 +1735,7 @@ var DSCR_OVERRIDE_LOCK_IDS = [
   // Deploy 236.349 — ltv is now editable and drives loanAmt, so it
   // locks alongside loanAmt when a rate/points override is active.
   'ltv',
-  // Deploy 236.761 — this page's DSCR inputs are the NCF set, not the
+  // Deploy 236.762 — this page's DSCR inputs are the NCF set, not the
   // 1-4 unit taxes/insurance/hoa (those inputs don't exist here; the
   // clone's list silently locked nothing while every income/expense
   // field stayed editable under a frozen manager-approved rate).
@@ -2382,7 +2382,7 @@ function _generateRateSheetPDF(opts) {
       try {
         if (typeof calcPI === 'function') {
           r.pi = calcPI(r.loan, r.finalRate / 100, r.isIO);
-          // Deploy 236.761 — MF DSCR is NCF ÷ P&I (the clone's gross-rent
+          // Deploy 236.762 — MF DSCR is NCF ÷ P&I (the clone's gross-rent
           // formula printed an overstated DSCR on overridden rate sheets;
           // ncfMo doesn't change with rate/LTV so it carries over).
           r.totalPayment = r.pi;
@@ -2395,7 +2395,7 @@ function _generateRateSheetPDF(opts) {
     try {
       if (typeof calcPI === 'function') {
         r.pi = calcPI(r.loan, r.finalRate / 100, r.isIO);
-        // Deploy 236.761 — NCF ÷ P&I (see above).
+        // Deploy 236.762 — NCF ÷ P&I (see above).
         r.totalPayment = r.pi;
         if (r.ncfMo > 0 && r.pi > 0) r.dscr = r.ncfMo / r.pi;
       }
@@ -2664,7 +2664,7 @@ function _generateRateSheetPDF(opts) {
       { bd: 0.50, pts: 1.50 },
       { bd: 0.75, pts: 1.75 },
       { bd: 1.00, pts: 2.00 },
-      // Deploy 236.761 — the buydown select goes to 2.00%; the table
+      // Deploy 236.762 — the buydown select goes to 2.00%; the table
       // stopped at 1.00, omitting the borrower's actual tier for
       // selections above it (no "selected" star anywhere).
       { bd: 1.25, pts: 2.25 },

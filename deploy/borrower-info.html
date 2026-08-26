@@ -794,7 +794,7 @@ function renderPage1() {
     // the UI-only key loanTypeChoice; onLoanTypeChoice() maps it back.
     (function () {
       var d2 = STATE.data;
-      // Deploy 236.761 — re-derive on EVERY render, not just when absent:
+      // Deploy 236.762 — re-derive on EVERY render, not just when absent:
       // a persisted stale choice (e.g. the borrower picked 'mfr' on page 3
       // while the saved choice said 'dscr') made the radio misreport the
       // record. loanType/propertyType are the source of truth; the choice
@@ -829,7 +829,7 @@ function renderPage1() {
 function onLoanTypeChoice() {
   var d = STATE.data;
   var c = d.loanTypeChoice || '';
-  // Deploy 236.761 — was the record in the MF state before this click?
+  // Deploy 236.762 — was the record in the MF state before this click?
   // (loanType 'dscr' + propertyType 'mfr' IS the dscr_mf state, however
   // 'mfr' got there — radio auto-set, page-3 pick, or prefill.)
   var wasMf = (d.loanType === 'dscr' && d.propertyType === 'mfr');
@@ -838,7 +838,7 @@ function onLoanTypeChoice() {
     d.propertyType = 'mfr';
   } else {
     d.loanType = c;
-    // Deploy 236.761 — leaving the MF state (to ANY other choice, not
+    // Deploy 236.762 — leaving the MF state (to ANY other choice, not
     // just 'dscr' as before): clear the property type so the borrower
     // re-picks the real one. The old guard only fired on c==='dscr', so
     // switching dscr_mf → fix_flip left propertyType='mfr' behind —
@@ -1485,7 +1485,7 @@ function renderPage5() {
     row('Current Loan Balance',   d.currentLoanAmount || d.currentLoanAmt),
     row('Current Market Value',   d.currentValue),
     row('Current Monthly Rent',   d.currentRent),
-    // Deploy 236.761 — Lease Length question removed (blank-safe row kept
+    // Deploy 236.762 — Lease Length question removed (blank-safe row kept
     // off entirely); MF (5+) answers now appear on the review the
     // borrower signs against.
     row('All Units Long Term Rentals?', d.allLtr),

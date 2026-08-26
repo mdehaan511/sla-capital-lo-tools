@@ -52,7 +52,7 @@ async function _logFlaggedIssuesToLoan(review, patchedDocs, actorEmail) {
     const cat = findCategory(slug);
     const label = (cat && cat.label) || (review.docs && review.docs[slug] && review.docs[slug].label) || slug;
     const text = 'Document issue flagged — ' + label + ': ' + patchedDocs[slug].flagReason;
-    // Deploy 236.761 — idempotent: a re-confirmed modal or a client retry
+    // Deploy 236.762 — idempotent: a re-confirmed modal or a client retry
     // re-sends the same patch; don't stack identical notes. An EDITED
     // reason produces different text and still logs.
     const dup = Array.isArray(loan.notesLog) &&
