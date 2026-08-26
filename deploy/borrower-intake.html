@@ -66,6 +66,18 @@
     .done-note{ font-size:12px; color:var(--muted); margin-top:6px; }
     .err-box{ background:var(--red-bg); border:1px solid rgba(124,31,31,.28); color:var(--red); padding:12px 14px; border-radius:8px; font-size:13px; }
     .vendors{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+    /* Deploy 236.743 — two-column layout: docs left, agents + SLA team right. */
+    .main-cols{ display:flex; gap:26px; align-items:flex-start; }
+    .docs-col{ flex:1 1 auto; min-width:0; }
+    .side-col{ flex:0 0 320px; }
+    .side-col .vendors{ margin-top:0; padding-top:0; border-top:none; }
+    .team-box{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+    .team-card{ border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:10px; background:var(--card); }
+    .team-name{ font-size:14px; font-weight:600; }
+    .team-role{ display:inline-block; font-size:11px; font-weight:600; color:var(--gold-mid); background:rgba(200,129,58,0.10); border:1px solid rgba(200,129,58,0.28); border-radius:20px; padding:2px 9px; margin-top:4px; }
+    .team-email{ font-size:12px; color:var(--muted); margin-top:5px; word-break:break-all; }
+    .team-email a{ color:inherit; }
+    @media (max-width: 900px){ .main-cols{ flex-direction:column; } .side-col{ flex:1 1 auto; width:100%; } .side-col .vendors{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); } }
     .vend-title{ font-size:17px; font-weight:600; margin:0 0 4px; }
     .vend-card{ border:1px solid var(--border); border-radius:12px; padding:15px 16px; margin-bottom:14px; background:var(--card); }
     .vend-h{ font-size:14px; font-weight:600; margin-bottom:10px; }
@@ -103,28 +115,44 @@
     <h1 class="page-title" id="pageTitle">Your Documents</h1>
     <div class="sub" id="pageSub"></div>
     <div class="progress"><div class="bar"><div id="progressBar" style="width:0%"></div></div><div class="lbl" id="progressLbl"></div></div>
-    <div id="itemsContainer"></div>
-    <div class="done-note" id="doneNote"></div>
 
-    <div class="vendors">
-      <h2 class="vend-title">Your Agents</h2>
-      <div class="sub" style="margin-bottom:14px">Tell us who your title/escrow and insurance agents are so we can coordinate with them directly.</div>
-      <div class="vend-card">
-        <div class="vend-h">Title / Escrow Agent</div>
-        <input class="vend-in" id="esc-name" placeholder="Agent name" />
-        <input class="vend-in" id="esc-company" placeholder="Company" />
-        <input class="vend-in" id="esc-email" type="email" placeholder="Email" />
-        <input class="vend-in" id="esc-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 123-4567" oninput="_fmtPhone(this)" />
-        <div class="vend-row"><button class="btn primary" onclick="saveVendor('escrow')">Save Title / Escrow Agent</button><span class="vend-stat" id="esc-stat"></span></div>
+    <!-- Deploy 236.743 — two-column layout (Mike): documents on the left,
+         Your Agents (moved up from the page bottom) + the new Your SLA Team
+         card on the right, so the agents section is visible without scrolling.
+         Stacks vertically on narrow screens. -->
+    <div class="main-cols">
+      <div class="docs-col">
+        <div id="itemsContainer"></div>
+        <div class="done-note" id="doneNote"></div>
       </div>
-      <div class="vend-card">
-        <div class="vend-h">Insurance Agent</div>
-        <input class="vend-in" id="ins-name" placeholder="Agent name" />
-        <input class="vend-in" id="ins-company" placeholder="Company / carrier" />
-        <input class="vend-in" id="ins-email" type="email" placeholder="Email" />
-        <input class="vend-in" id="ins-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 123-4567" oninput="_fmtPhone(this)" />
-        <div class="vend-row"><button class="btn primary" onclick="saveVendor('insurance')">Save Insurance Agent</button><span class="vend-stat" id="ins-stat"></span></div>
-      </div>
+      <aside class="side-col">
+        <div class="vendors">
+          <h2 class="vend-title">Your Agents</h2>
+          <div class="sub" style="margin-bottom:14px">Tell us who your title/escrow and insurance agents are so we can coordinate with them directly.</div>
+          <div class="vend-card">
+            <div class="vend-h">Title / Escrow Agent</div>
+            <input class="vend-in" id="esc-name" placeholder="Agent name" />
+            <input class="vend-in" id="esc-company" placeholder="Company" />
+            <input class="vend-in" id="esc-email" type="email" placeholder="Email" />
+            <input class="vend-in" id="esc-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 123-4567" oninput="_fmtPhone(this)" />
+            <div class="vend-row"><button class="btn primary" onclick="saveVendor('escrow')">Save Title / Escrow Agent</button><span class="vend-stat" id="esc-stat"></span></div>
+          </div>
+          <div class="vend-card">
+            <div class="vend-h">Insurance Agent</div>
+            <input class="vend-in" id="ins-name" placeholder="Agent name" />
+            <input class="vend-in" id="ins-company" placeholder="Company / carrier" />
+            <input class="vend-in" id="ins-email" type="email" placeholder="Email" />
+            <input class="vend-in" id="ins-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 123-4567" oninput="_fmtPhone(this)" />
+            <div class="vend-row"><button class="btn primary" onclick="saveVendor('insurance')">Save Insurance Agent</button><span class="vend-stat" id="ins-stat"></span></div>
+          </div>
+        </div>
+        <!-- Deploy 236.743 — Your SLA Team: the people assigned to this loan. -->
+        <div class="team-box" id="slaTeamBox" style="display:none">
+          <h2 class="vend-title">Your SLA Team</h2>
+          <div class="sub" style="margin-bottom:14px">The SLA Capital team working on your loan.</div>
+          <div id="slaTeamList"></div>
+        </div>
+      </aside>
     </div>
   </div>
 
@@ -206,6 +234,7 @@
       _items = (data && data.items) || [];
       document.getElementById('pageSub').textContent = (data.address ? data.address + ' · ' : '') + (String(data.loanType||'').toUpperCase()) + ' loan';
       render();
+      renderTeam((data && data.team) || []);
     }).catch(function(err){
       c.innerHTML = '<div class="err-box">Couldn’t load your documents: ' + escH(err && err.message || 'unknown') + '</div>';
     });
@@ -230,6 +259,27 @@
     c.innerHTML = active.map(renderItem).join('');
     document.getElementById('doneNote').textContent = accepted.length
       ? (accepted.length + ' document' + (accepted.length===1?'':'s') + ' already accepted and cleared from this list.') : '';
+  }
+
+  // Deploy 236.743 — Your SLA Team card: First / Last / Email / Role for
+  // everyone assigned to the loan (LO + processors/closer/manager).
+  function renderTeam(team){
+    var box = document.getElementById('slaTeamBox');
+    var list = document.getElementById('slaTeamList');
+    if (!box || !list) return;
+    if (!team || !team.length){ box.style.display = 'none'; return; }
+    list.innerHTML = team.map(function(m){
+      var parts = String(m.name || '').trim().split(/\s+/);
+      var first = parts.length ? parts[0] : '';
+      var last  = parts.length > 1 ? parts.slice(1).join(' ') : '';
+      var display = (first || last) ? (first + (last ? ' ' + last : '')) : (m.email || '');
+      return '<div class="team-card">' +
+        '<div class="team-name">' + escH(display) + '</div>' +
+        '<div><span class="team-role">' + escH(m.role || '') + '</span></div>' +
+        (m.email ? '<div class="team-email"><a href="mailto:' + escH(m.email) + '">' + escH(m.email) + '</a></div>' : '') +
+      '</div>';
+    }).join('');
+    box.style.display = '';
   }
 
   function renderItem(it){

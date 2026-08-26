@@ -15,6 +15,8 @@ import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth, keySafe } from './_shared/auth.mjs';
 import { canReadLoan } from './_shared/access.mjs';
 import { borrowerChecklist } from './_shared/borrower-intake-checklists.mjs';
+// Deploy 236.743 — read the long-app record for the hasLLC answer (entity-doc gate).
+import { loadRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -66,7 +68,41 @@ async function handle(req, context) {
   const loanType = String((review && review.loanType) || (loan && loan.loanType) || '').toLowerCase();
   const docs = (review && review.docs) || {};
 
-  const items = borrowerChecklist(loanType).map((item) => {
+  // Deploy 236.743 — entity docs (Articles / Good Standing / Operating
+  // Agreement / EIN) only apply when the loan vests in an LLC. Hide them only
+  // on a POSITIVE "no LLC" signal: the loan has no vestingLLCs AND the long
+  // app answered hasLLC = no. Unknown → keep the docs (safe default).
+  let noEntity = false;
+  try {
+    const hasVesting = !!(loan && Array.isArray(loan.vestingLLCs) && loan.vestingLLCs.some((v) => v && v.name));
+    if (!hasVesting && ownerKey && primaryClientId) {
+      const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+      const rec = await loadRecord(biStore, ownerKey, primaryClientId, loanId, client);
+      if (rec && rec.data && String(rec.data.hasLLC || '').toLowerCase() === 'no') noEntity = true;
+    }
+  } catch (e) { console.warn('[borrower-intake-status] hasLLC lookup failed:', e && e.message); }
+
+  // Deploy 236.743 — Your SLA Team: the LO who owns the loan + every assigned
+  // team member (loan.assignedProcessors, role-tagged since 236.662).
+  const team = [];
+  try {
+    const ROLE_LABELS = { processor: 'Loan Processor', closer: 'Closer', manager: 'Processing Manager' };
+    const profiles = getStore({ name: 'profiles', consistency: 'eventual' });
+    let loName = '', loEmail = ownerKey || '';
+    try {
+      const p = await profiles.get(ownerKey, { type: 'json' });
+      if (p) { loName = p.fullName || ''; loEmail = p.email || loEmail; }
+    } catch (_) {}
+    if (loEmail && loEmail.includes('@')) team.push({ name: loName, email: loEmail, role: 'Loan Officer' });
+    const assigned = (loan && Array.isArray(loan.assignedProcessors)) ? loan.assignedProcessors : [];
+    for (const a of assigned) {
+      if (!a || !a.email) continue;
+      if (team.some((t) => t.email === a.email)) continue;
+      team.push({ name: a.name || '', email: a.email, role: ROLE_LABELS[a.role] || 'Loan Processor' });
+    }
+  } catch (e) { console.warn('[borrower-intake-status] team build failed:', e && e.message); }
+
+  const items = borrowerChecklist(loanType, { noEntity }).map((item) => {
     const d = docs[item.slug] || null;
     const s = _itemState(d);
     return {
@@ -85,6 +121,7 @@ async function handle(req, context) {
     loanType,
     address: (review && review.address) || (loan && loan.address) || '',
     items,
+    team,
   });
 }
 

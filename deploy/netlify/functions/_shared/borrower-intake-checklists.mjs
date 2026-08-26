@@ -55,9 +55,19 @@ const DSCR_ITEMS = [
   { slug: 'evidence_of_insurance',      label: 'Evidence of Insurance',         hint: 'The insurance binder or declarations page.' },
 ];
 
-export function borrowerChecklist(loanType) {
+// Deploy 236.743 — entity paperwork only applies when the loan vests in an
+// LLC. When the caller has a POSITIVE "no LLC" signal (long app's hasLLC=no
+// and no vestingLLCs on the loan) these drop off the borrower's list.
+const ENTITY_SLUGS = new Set([
+  'articles_of_organization', 'certificate_of_good_standing',
+  'operating_agreement', 'ein_or_w9', 'ein_letter',
+]);
+
+export function borrowerChecklist(loanType, opts) {
   const t = String(loanType || '').toLowerCase();
-  return t === 'dscr' ? DSCR_ITEMS : RTL_ITEMS; // GUC/other → RTL default
+  const list = t === 'dscr' ? DSCR_ITEMS : RTL_ITEMS; // GUC/other → RTL default
+  if (opts && opts.noEntity) return list.filter((i) => !ENTITY_SLUGS.has(i.slug));
+  return list;
 }
 
 // The set of slugs a borrower is allowed to upload to for a loan type.
