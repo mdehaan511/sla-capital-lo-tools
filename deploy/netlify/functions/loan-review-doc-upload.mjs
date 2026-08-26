@@ -324,6 +324,7 @@ async function handle(req, context) {
   // Filled inside the AI branch; written to the loan AFTER the review is
   // persisted so a proposal-write failure can never block the review.
   let _fieldProposals = null;   // Array<{ dataset, key, value, aiNote }>
+  let _queueBackground = false; // Deploy 236.754 — set when a long doc times out → hand off to the background reviewer
   const mime = String(docState.currentMimeType || '').toLowerCase();
   const aiReviewable = (
     mime === 'application/pdf' ||
@@ -386,6 +387,15 @@ async function handle(req, context) {
       integrityCheck: _runIntegrity,
       docCategory: _docCategory,
     });
+    if (aiResult && aiResult.error === 'timeout') {
+      // Deploy 236.754 — the document was too long to review in the 22s sync
+      // budget. Hand off to the 15-min background reviewer; leave the tray
+      // "reviewing" and let the page poll for the verdict. Skip the sync
+      // post-processing below (the background function redoes all of it).
+      docState.aiVerdict = ''; docState.aiNotes = ''; docState.aiReviewedAt = '';
+      docState.aiError = ''; docState.aiReviewing = true;
+      _queueBackground = true;
+    } else {
     if (_runIntegrity) {
       docState.integrity = mergeIntegrity(_forensics, aiResult.integrity);
       docState.integrity.checkedAt = now;
@@ -442,6 +452,7 @@ async function handle(req, context) {
       });
       if (props.length) _fieldProposals = props;
     }
+    }  // Deploy 236.754 — end of the non-timeout post-processing (else of the timeout hand-off)
   } catch (e) {
     console.error('loan-review-doc-upload: AI review threw, continuing:', e && e.message);
     docState.aiVerdict = 'issues';
@@ -503,7 +514,27 @@ async function handle(req, context) {
     }
   }
 
-  return json(200, { ok: true, review, docId, fieldsWritten });
+  // Deploy 236.754 — if the doc was too long for the sync budget, kick off the
+  // 15-min background reviewer (fire-and-forget; a background function returns 202
+  // immediately). The tray stays aiReviewing until it writes the verdict; the
+  // doc-review page polls for it. Auth is the same JWT the LO uploaded with.
+  if (_queueBackground) {
+    try {
+      const _base = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
+      const _auth = (req.headers && typeof req.headers.get === 'function')
+        ? (req.headers.get('authorization') || '')
+        : ((req.headers && req.headers.authorization) || '');
+      await fetch(_base + '/.netlify/functions/loan-review-ai-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': _auth },
+        body: JSON.stringify({ reviewId: body.reviewId, slug: body.slug, docId: docId }),
+      });
+    } catch (e) {
+      console.error('loan-review-doc-upload: failed to queue background review:', e && e.message);
+    }
+  }
+
+  return json(200, { ok: true, review, docId, fieldsWritten, aiReviewing: _queueBackground });
 }
 
 // Deploy 236.500 — persist AI-extracted UW/Lightning fields onto the loan

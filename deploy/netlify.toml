@@ -1087,6 +1087,13 @@
   to = "/.netlify/functions/loan-review-ai-retry"
   status = 200
   force = true
+# Deploy 236.754 — background reviewer for long docs (15-min budget). Named
+# *-background so Netlify runs it async (202). Upload fires it on a 22s timeout.
+[[redirects]]
+  from = "/api/loan-review-ai-background"
+  to = "/.netlify/functions/loan-review-ai-background"
+  status = 200
+  force = true
 # Deploy 236.675 — move a document from one tray (e.g. "Other") to another
 # so it can be reviewed against the destination category's rubric.
 [[redirects]]

@@ -148,10 +148,14 @@ export async function reviewDocument(opts) {
   }
   content.push({ type: 'text', text: userPrompt });
 
-  // Claude API call. 22s timeout — Netlify Pro caps at 26s and we
-  // need headroom for the response post-processing + blob write.
+  // Claude API call. Default 22s — Netlify Pro caps a SYNC function at 26s and we
+  // need headroom for post-processing + the blob write. A BACKGROUND function
+  // (Deploy 236.754) passes a much longer opts.timeoutMs (it gets 15 min), so a
+  // long document (big Operating Agreement, appraisal) can finish there instead
+  // of being cut off in the sync upload path.
+  const _timeoutMs = (Number(opts && opts.timeoutMs) > 0) ? Number(opts.timeoutMs) : 22000;
   const controller = new AbortController();
-  const timeoutId = setTimeout(function () { controller.abort(); }, 22000);
+  const timeoutId = setTimeout(function () { controller.abort(); }, _timeoutMs);
 
   let resp;
   try {
@@ -172,14 +176,17 @@ export async function reviewDocument(opts) {
     });
   } catch (e) {
     clearTimeout(timeoutId);
-    const msg = e.name === 'AbortError' ? 'AI review timed out after 22s' : ('AI request failed: ' + (e.message || 'unknown'));
+    const _isAbort = e.name === 'AbortError';
+    const msg = _isAbort ? ('AI review timed out after ' + Math.round(_timeoutMs / 1000) + 's') : ('AI request failed: ' + (e.message || 'unknown'));
     console.error('reviewDocument fetch error:', msg);
     return {
       verdict: 'issues',
       summary: msg,
       findings: [], extractedEntities: {},
       inputTokens: 0, outputTokens: 0, costCents: 0,
-      error: 'fetch_failed',
+      // Deploy 236.754 — distinct 'timeout' so the upload path can hand a long
+      // doc off to the background reviewer instead of flagging a false 'issues'.
+      error: _isAbort ? 'timeout' : 'fetch_failed',
     };
   }
   clearTimeout(timeoutId);

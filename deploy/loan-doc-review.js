@@ -1411,6 +1411,14 @@
         '<span class="ai-label" style="color:var(--muted)">📁 Filed for record-keeping — not AI reviewed.</span>' +
       '</div></div>';
     }
+    // Deploy 236.754 — a long doc was handed off to the 15-min background reviewer:
+    // keep a spinner until it writes the verdict (the page polls for it).
+    if (src.aiReviewing && !docId) {
+      return '<div class="ai-block pending">' +
+        '<div class="ai-head"><span class="ai-label pending"><span class="ai-spinner"></span> AI is reviewing this large document…</span></div>' +
+        '<div class="ai-summary">This document is long, so the review is running in the background — the verdict will appear here automatically (usually under a minute). Advisory only.</div>' +
+      '</div>';
+    }
     // The "AI is reviewing…" spinner only applies to the current upload (tray-level).
     if (_uploadingSlug === slug && !docId) {
       return '<div class="ai-block pending">' +
@@ -1567,6 +1575,8 @@
         var wasMb = dd.originalSizeBytes ? (dd.originalSizeBytes / 1024 / 1024).toFixed(1) : '';
         var nowMb = dd.currentSize ? (dd.currentSize / 1024 / 1024).toFixed(1) : '';
         showToast('Uploaded — auto-compressed' + (wasMb ? ' from ' + wasMb + ' MB to ' + nowMb + ' MB' : '') + ' to fit. Please verify legibility.', 'info');
+      } else if (dd.aiReviewing) {
+        showToast('Uploaded — this document is long, so AI review is running in the background. The verdict will appear here shortly.', 'info');
       } else {
         var verdict = dd.aiVerdict || '';
         if (verdict === 'approved')      showToast('Uploaded — AI says looks good.', 'success');
@@ -1574,11 +1584,44 @@
         else                             showToast('Uploaded.', 'success');
       }
       render();
+      if (dd.aiReviewing) _pollBackgroundReview(slug);
     }).catch(function(err) {
       _uploadingSlug = null;
       showToast('Upload failed: ' + (err.message || 'Unknown'), 'error');
       render();
     });
+  }
+
+  // Deploy 236.754 — poll for a background AI review (long docs handed off by the
+  // upload) until the tray's aiReviewing flag clears, then re-render + toast the
+  // verdict. Bounded so a stuck review stops spinning after ~3 min.
+  var _pollTimers = {};
+  function _pollBackgroundReview(slug) {
+    if (_pollTimers[slug]) return; // already polling this tray
+    var tries = 0, MAX = 36; // 36 × 5s = 3 min
+    _pollTimers[slug] = setInterval(function() {
+      tries++;
+      global.SLA.LoanReviews.get(_review.id).then(function(r) {
+        if (!r || !r.review) return;
+        _review = r.review;
+        var dd = (_review.docs && _review.docs[slug]) || {};
+        if (!dd.aiReviewing || tries >= MAX) {
+          clearInterval(_pollTimers[slug]); delete _pollTimers[slug];
+          render();
+          if (!dd.aiReviewing) {
+            var v = dd.aiVerdict || '';
+            if (v === 'approved')                 showToast('Background review done — AI says looks good.', 'success');
+            else if (v === 'issues')              showToast('Background review done — AI flagged issues. Review below.', 'info');
+            else if (v === 'needs_manual_review') showToast('Background review done — manual review required.', 'info');
+            else                                  showToast('Background review finished.', 'success');
+          } else {
+            showToast('The background review is taking longer than expected — refresh the page shortly to see the result.', 'info');
+          }
+        } else {
+          render(); // keep the spinner fresh
+        }
+      }).catch(function() { /* transient network — keep polling */ });
+    }, 5000);
   }
 
   // Deploy 236.163 — list the LIVE (visible) docs on a tray. Handles
