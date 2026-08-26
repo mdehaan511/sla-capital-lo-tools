@@ -663,11 +663,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div class="field" style="grid-column:span 1"><div class="wrap"><label>Utilities</label><input type="text" inputmode="decimal" id="opexUtilities" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
           <div class="field" style="grid-column:span 1"><div class="wrap"><label>Repairs &amp; Maintenance</label><input type="text" inputmode="decimal" id="opexRepairs" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
           <div class="field" style="grid-column:span 1"><div class="wrap"><label>Property Management Fee</label><input type="text" inputmode="decimal" id="opexMgmt" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>G&amp;A / Marketing &amp; Leasing</label><input type="text" inputmode="decimal" id="opexGA" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
           <div class="field" style="grid-column:span 1"><div class="wrap"><label>HOA / Special Assessment</label><input type="text" inputmode="decimal" id="opexHOA" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Turnover Costs</label><input type="text" inputmode="decimal" id="opexTurnover" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
           <div class="field" style="grid-column:span 1"><div class="wrap"><label>Landscaping</label><input type="text" inputmode="decimal" id="opexLandscaping" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
-          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Other Expenses</label><input type="text" inputmode="decimal" id="opexOther" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
         </div>
 
         <div class="divider" style="grid-column:1/-1"></div>
@@ -922,6 +919,17 @@ function onPropTypeChange(){
   var isPf = (v === 'portfolio');
   // Deploy 236.750 — Multifamily details show for DSCR + 5+ Unit property.
   setShow('cond-mf-fin', v === 'multi' && document.getElementById('loanProduct').value === 'dscr');
+  // Deploy 236.753 — 5+ Unit Multifamily is not offered for Ground-Up: hide
+  // the New Construction option (and clear it if it was already selected).
+  var _gucOpt = document.querySelector('#loanProduct option[value="ground_up"]');
+  if (_gucOpt) {
+    _gucOpt.disabled = (v === 'multi');
+    _gucOpt.style.display = (v === 'multi') ? 'none' : '';
+    if (v === 'multi' && document.getElementById('loanProduct').value === 'ground_up') {
+      document.getElementById('loanProduct').value = '';
+      onLoanProductChange();
+    }
+  }
   var pf = document.getElementById('field-portfolio');
   if (pf) pf.style.display = isPf ? '' : 'none';
   // Hide the loan-level beds/baths/sqft for portfolios — captured per-property.
@@ -1376,11 +1384,8 @@ function submitApp() {
     opexUtilities:   gv('opexUtilities'),
     opexRepairs:     gv('opexRepairs'),
     opexMgmt:        gv('opexMgmt'),
-    opexGA:          gv('opexGA'),
     opexHOA:         gv('opexHOA'),
-    opexTurnover:    gv('opexTurnover'),
     opexLandscaping: gv('opexLandscaping'),
-    opexOther:       gv('opexOther'),
     fundingDate:     gv('fundingDate'),
     // Deploy 236.6 — broker mode. Captured when submitterType is
     // 'broker'; fields are blank when the borrower applied themselves.

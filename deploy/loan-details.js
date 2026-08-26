@@ -1885,11 +1885,8 @@ function render() {
         _mfFld('opexUtilities', 'Utilities', l.opexUtilities) +
         _mfFld('opexRepairs', 'Repairs & Maintenance', l.opexRepairs) +
         _mfFld('opexMgmt', 'Property Management Fee', l.opexMgmt) +
-        _mfFld('opexGA', 'G&A / Marketing & Leasing', l.opexGA) +
         _mfFld('opexHOA', 'HOA / Special Assessment', l.opexHOA) +
-        _mfFld('opexTurnover', 'Turnover Costs', l.opexTurnover) +
         _mfFld('opexLandscaping', 'Landscaping', l.opexLandscaping) +
-        _mfFld('opexOther', 'Other', l.opexOther) +
       '</div>' +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
         '<button class="save-app-btn" onclick="saveMfOpex()">Save MF Operating Statement</button>' +
@@ -6601,8 +6598,7 @@ function _pcCarryMonthly(id) {
 function saveMfOpex() {
   if (!_loan || !_client) return;
   var ids = ['numUnits','unitsOccupied','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
-    'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
-    'opexLandscaping','opexOther'];
+    'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'];
   var fields = {};
   ids.forEach(function (k) {
     var el = document.getElementById('mfx-' + k);

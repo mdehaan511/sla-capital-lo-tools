@@ -904,11 +904,13 @@ function renderPage3() {
         '</div>' +
         '<div class="field-row">' +
           field('requestedLoanDSCR','Desired New Loan Amount', 'number', { required: true, money: true }) +
-          field('originalPurchasePrice','Original Purchase Price','number', { money: true }) +
+          field('dscrCloseDate', 'Desired Close Date', 'date', { required: true }) +
         '</div>' +
+        // Deploy 236.753 — Original Purchase Price sits beside Original
+        // Purchase Date (Mike; was paired with the loan amount before).
         '<div class="field-row">' +
           field('originalPurchaseDate','Original Purchase Date', 'date') +
-          field('dscrCloseDate', 'Desired Close Date', 'date', { required: true }) +
+          field('originalPurchasePrice','Original Purchase Price','number', { money: true }) +
         '</div>';
     }
     if (isPurchase || isRefi) {

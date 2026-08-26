@@ -112,8 +112,7 @@ const DIYA = {
 // Details MF Operating Statement box.
 const OPEX_FIELDS = [
   'opexTaxes', 'opexInsurance', 'opexFlood', 'opexUtilities', 'opexRepairs',
-  'opexMgmt', 'opexGA', 'opexHOA', 'opexTurnover', 'opexLandscaping', 'opexOther',
-];
+  'opexMgmt', 'opexHOA', 'opexLandscaping', ];
 
 // Fixed fees (always shown on term sheet)
 const FEES = {

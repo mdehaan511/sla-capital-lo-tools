@@ -178,11 +178,8 @@ export default async (req, context) => {
     opexUtilities:   String(body.opexUtilities   || '').slice(0, 20),
     opexRepairs:     String(body.opexRepairs     || '').slice(0, 20),
     opexMgmt:        String(body.opexMgmt        || '').slice(0, 20),
-    opexGA:          String(body.opexGA          || '').slice(0, 20),
     opexHOA:         String(body.opexHOA         || '').slice(0, 20),
-    opexTurnover:    String(body.opexTurnover    || '').slice(0, 20),
     opexLandscaping: String(body.opexLandscaping || '').slice(0, 20),
-    opexOther:       String(body.opexOther       || '').slice(0, 20),
     // Deploy 236.729 — Ground-Up (GUC) fields. MUST be allowlisted here or
     // they're silently dropped (see the broker-fields note below). ownLand +
     // landDebt drive the GUC sizer's land-equity credit; GC contact lands on
@@ -482,11 +479,8 @@ async function upsertClientFromProspect(prospect, loEmail) {
     opexUtilities:   prospect.opexUtilities   || '',
     opexRepairs:     prospect.opexRepairs     || '',
     opexMgmt:        prospect.opexMgmt        || '',
-    opexGA:          prospect.opexGA          || '',
     opexHOA:         prospect.opexHOA         || '',
-    opexTurnover:    prospect.opexTurnover    || '',
     opexLandscaping: prospect.opexLandscaping || '',
-    opexOther:       prospect.opexOther       || '',
     // Deploy 236.729 — Ground-Up fields (empty for other products). The GUC
     // sizer reads ownLand/landDebt for the land-equity credit; the GC contact
     // fills Loan Details → Contacts → General Contractor.

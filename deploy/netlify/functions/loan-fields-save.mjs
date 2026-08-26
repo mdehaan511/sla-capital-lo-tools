@@ -63,7 +63,7 @@ const FIELDS = {
   // Details MF Operating Statement box; feed the MF sizer's NCF DSCR.
   unitsOccupied: 1, otherIncomeMo: 1, vacancyPct: 1,
   opexTaxes: 1, opexInsurance: 1, opexFlood: 1, opexUtilities: 1, opexRepairs: 1,
-  opexMgmt: 1, opexGA: 1, opexHOA: 1, opexTurnover: 1, opexLandscaping: 1, opexOther: 1,
+  opexMgmt: 1, opexHOA: 1, opexLandscaping: 1,
 };
 
 function _truthy(v) {

@@ -212,8 +212,7 @@ async function handle(req, context) {
     // regular DSCR sizer doesn't — preserve from prior so a plain-DSCR save
     // can't wipe the NCF inputs.
     ...(['numUnits','unitsOccupied','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
-         'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
-         'opexLandscaping','opexOther'].reduce((o, k) => {
+         'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'].reduce((o, k) => {
       o[k] = incoming[k] !== undefined ? incoming[k] : (prior[k] !== undefined ? prior[k] : '');
       return o;
     }, {})),

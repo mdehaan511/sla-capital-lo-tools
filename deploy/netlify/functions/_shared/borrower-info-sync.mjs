@@ -119,6 +119,8 @@ export async function syncPropertyFieldsToLoan(record) {
   if (data.lotSize)   loanUpdates.lotSize   = String(data.lotSize);
   if (data.numUnits)  loanUpdates.numUnits  = String(data.numUnits);
   if (data.originalPurchaseDate) loanUpdates.purchaseDate = String(data.originalPurchaseDate);
+  // Deploy 236.753 — Original Purchase Price (DSCR refi) onto the loan.
+  if (data.originalPurchasePrice) loanUpdates.originalPurchasePrice = String(data.originalPurchasePrice);
 
   // Deploy 236.127 — guarantor ownership propagation. The long
   // app's % ownership field per guarantor (g0_ownership /

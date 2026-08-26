@@ -58,11 +58,8 @@
       opexUtilities:   formData.opexUtilities   || '',
       opexRepairs:     formData.opexRepairs     || '',
       opexMgmt:        formData.opexMgmt        || '',
-      opexGA:          formData.opexGA          || '',
       opexHOA:         formData.opexHOA         || '',
-      opexTurnover:    formData.opexTurnover    || '',
       opexLandscaping: formData.opexLandscaping || '',
-      opexOther:       formData.opexOther       || '',
       address:     address || formData.address || '',
       savedAt:     new Date().toISOString(),
       updatedAt:   new Date().toISOString(),
@@ -760,11 +757,8 @@ var getFICOMin = SLA_DSCR.getFICOMin;
       <div class="field"><div class="wrap"><label>Utilities</label><input type="number" id="opexUtilities" placeholder="0" min="0" oninput="run()" /></div></div>
       <div class="field"><div class="wrap"><label>Repairs &amp; Maintenance</label><input type="number" id="opexRepairs" placeholder="0" min="0" oninput="run()" /></div></div>
       <div class="field"><div class="wrap"><label>Property Management Fee</label><input type="number" id="opexMgmt" placeholder="0" min="0" oninput="run()" /></div></div>
-      <div class="field"><div class="wrap"><label>G&amp;A / Marketing &amp; Leasing</label><input type="number" id="opexGA" placeholder="0" min="0" oninput="run()" /></div></div>
       <div class="field"><div class="wrap"><label>HOA / Special Assessment</label><input type="number" id="opexHOA" placeholder="0" min="0" oninput="run()" /></div></div>
-      <div class="field"><div class="wrap"><label>Turnover Costs</label><input type="number" id="opexTurnover" placeholder="0" min="0" oninput="run()" /></div></div>
       <div class="field"><div class="wrap"><label>Landscaping</label><input type="number" id="opexLandscaping" placeholder="0" min="0" oninput="run()" /></div></div>
-      <div class="field"><div class="wrap"><label>Other</label><input type="number" id="opexOther" placeholder="0" min="0" oninput="run()" /></div></div>
       <div class="field"><div class="wrap"><label style="font-weight:400;font-size:10px;color:var(--muted);text-transform:none">CapEx reserves are fixed at $300/unit/year (not editable).</label></div></div>
 
       <div class="computed-wrap span2">
@@ -1009,11 +1003,8 @@ function calculate() {
     opexUtilities:   ($('opexUtilities') || {}).value,
     opexRepairs:     ($('opexRepairs') || {}).value,
     opexMgmt:        ($('opexMgmt') || {}).value,
-    opexGA:          ($('opexGA') || {}).value,
     opexHOA:         ($('opexHOA') || {}).value,
-    opexTurnover:    ($('opexTurnover') || {}).value,
     opexLandscaping: ($('opexLandscaping') || {}).value,
-    opexOther:       ($('opexOther') || {}).value,
     borrowerName:  $('borrowerName').value,
     borrowerEmail: ($('borrowerEmail') && $('borrowerEmail').value) || '',
     propAddress:   $('propAddress').value,
@@ -3228,8 +3219,7 @@ function prefillFromProspect(p) {
   // number inputs here.
   var _mfNum = function (v) { return String(v == null ? '' : v).replace(/[^0-9.]/g, ''); };
   ['numUnits','unitsOccupied','otherIncomeMo','opexTaxes','opexInsurance','opexFlood',
-   'opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
-   'opexLandscaping','opexOther'].forEach(function (k) {
+   'opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'].forEach(function (k) {
     if (p[k]) map[k] = _mfNum(p[k]);
   });
   Object.keys(map).forEach(function(id) {
@@ -3477,11 +3467,8 @@ function saveCurrentQuote() {
     opexUtilities:   ($('opexUtilities') || {}).value,
     opexRepairs:     ($('opexRepairs') || {}).value,
     opexMgmt:        ($('opexMgmt') || {}).value,
-    opexGA:          ($('opexGA') || {}).value,
     opexHOA:         ($('opexHOA') || {}).value,
-    opexTurnover:    ($('opexTurnover') || {}).value,
     opexLandscaping: ($('opexLandscaping') || {}).value,
-    opexOther:       ($('opexOther') || {}).value,
     prepay:     $('prepay').value,
     buydown:    $('buydown').value,
     currentLoanAmt: ($('currentLoanAmt') ? $('currentLoanAmt').value : ''),
@@ -3950,8 +3937,7 @@ function saveCurrentQuote() {
 function overlayMfLoanFields(loan, fd) {
   fd = Object.assign({}, fd || {});
   ['numUnits','unitsOccupied','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
-   'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
-   'opexLandscaping','opexOther'].forEach(function (k) {
+   'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'].forEach(function (k) {
     if (loan && loan[k] !== undefined && loan[k] !== '') fd[k] = loan[k];
   });
   return fd;
@@ -4020,11 +4006,8 @@ function loadQuoteIntoForm(formData) {
     opexUtilities:   formData.opexUtilities   || '',
     opexRepairs:     formData.opexRepairs     || '',
     opexMgmt:        formData.opexMgmt        || '',
-    opexGA:          formData.opexGA          || '',
     opexHOA:         formData.opexHOA         || '',
-    opexTurnover:    formData.opexTurnover    || '',
     opexLandscaping: formData.opexLandscaping || '',
-    opexOther:       formData.opexOther       || '',
     prepay:       formData.prepay     || '54321',
     buydown:      formData.buydown    || '0',
     currentLoanAmt: formData.currentLoanAmt || '',
