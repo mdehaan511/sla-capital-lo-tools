@@ -103,6 +103,15 @@ export async function syncPropertyFieldsToLoan(record) {
   if (data.planDescription) loanUpdates.projectDescription = String(data.planDescription);
   if (data.dscrCloseDate) loanUpdates.fundingDate = String(data.dscrCloseDate);
   if (data.ffCloseDate)   loanUpdates.fundingDate = String(data.ffCloseDate);
+  // Deploy 236.742 — construction + transactional desired close dates were
+  // never synced, so a GUC borrower's requested close date never reached the
+  // loan's Closing Date (Loan Details) or the borrower portal's Target Close.
+  if (data.ncCloseDate)            loanUpdates.fundingDate = String(data.ncCloseDate);
+  if (data.transactionalCloseDate) loanUpdates.fundingDate = String(data.transactionalCloseDate);
+  // Deploy 236.742 — GUC land-ownership facts (drive the sizer's land-equity
+  // credit, same borrower-fact category as currentLoanAmt above).
+  if (data.ownsLand) loanUpdates.ownLand  = String(data.ownsLand);
+  if (data.landDebt) loanUpdates.landDebt = String(data.landDebt);
   // Deploy 236.639 — property facts the long app collects that used to be dropped
   // on the floor. These map onto the loan's Property/Collateral section so a NEW
   // application populates the same fields a processor would fill in manually.

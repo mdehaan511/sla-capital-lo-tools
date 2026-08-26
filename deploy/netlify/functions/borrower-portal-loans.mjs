@@ -135,13 +135,34 @@ function _borrowerStage(loan) {
   return { key: 'review', label: 'In Review' };
 }
 
+// Deploy 236.742 — mirror loan-details.js's _deriveSlaLoanIdClient (which
+// mirrors baseline-sync's deriveBaselineLoanId) so the portal's Loan ID
+// matches the SLA Loan ID shown on Loan Details even for loans that never
+// got slaDisplayId stamped. Date: fundingDate → createdAt → today; suffix:
+// deterministic djb2 hash of the internal id, mod 10000, zero-padded.
+function _deriveSlaDisplayId(loan) {
+  if (!loan) return '';
+  const compact = (s) => String(s || '').slice(0, 10).replace(/-/g, '');
+  let stamp = '';
+  if (loan.fundingDate)      stamp = compact(loan.fundingDate);
+  else if (loan.createdAt)   stamp = compact(loan.createdAt);
+  if (!/^\d{8}$/.test(stamp)) {
+    const d = new Date();
+    stamp = String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  }
+  let hash = 0;
+  const s = String(loan.id || '');
+  for (let i = 0; i < s.length; i++) hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+  return 'SLA-' + stamp + '-' + String(Math.abs(hash) % 10000).padStart(4, '0');
+}
+
 // Strip fields the borrower shouldn't see. Whitelist approach —
 // only fields listed here make it into the response.
 function _sanitize(loan, client, grant) {
   return {
     borrowerStage:   _borrowerStage(loan),
     loanId:          loan.id,
-    slaDisplayId:    loan.slaDisplayId || '',
+    slaDisplayId:    loan.slaDisplayId || _deriveSlaDisplayId(loan),
     address:         loan.address || '',
     propType:        loan.propType || '',
     propTypeLabel:   loan.propTypeLabel || '',
