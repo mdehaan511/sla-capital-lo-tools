@@ -63,6 +63,8 @@ async function handle(req, context) {
   const docState = review.docs && review.docs[body.slug];
   if (!docState) return json(400, { error: 'slug not on this review' });
   if (!docState.currentDocId) return json(400, { error: 'No document uploaded for this tray yet' });
+  // Deploy 236.752 — storage-only trays (Executed Closing Documents) are never AI-reviewed.
+  if (docState.noReview) return json(200, { ok: true, review, skipped: 'noReview' });
 
   // Deploy 236.689 — review a SPECIFIC document when body.docId is given, so a
   // tray holding multiple docs (e.g. two people's IDs) can be reviewed one at a

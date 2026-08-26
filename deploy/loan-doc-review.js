@@ -96,6 +96,8 @@
     title_commitment:         { label: 'Title Commitment', section: 'closing', conditions: 'Mortgagee Clause; loan number; borrower name; property address(es); 125% of loan value; date.' },
     title_eo_insurance:       { label: 'Title E&O Insurance', section: 'closing', conditions: 'Title company name; $1 million in protection; policy dates current.' },
     wire_instructions:        { label: 'Wire Instructions', section: 'closing', conditions: 'Wire instructions for the title company.' },
+    // Deploy 236.752 — record-keeping vault; never AI-reviewed (noReview).
+    executed_closing_documents: { label: 'Executed Closing Documents', section: 'closing', conditions: '', noReview: true },
   };
 
   var PROP_TYPE_LABELS = {
@@ -1041,6 +1043,7 @@
       var bulkable = slugsInSec.filter(function(s) {
         var dd = docs[s] || {};
         if (dd.hidden) return false;
+        if ((DOC_META[s] && DOC_META[s].noReview) || dd.noReview) return false; // Deploy 236.752 — storage-only trays aren't approvable
         if ((dd.verdict || 'pending') !== 'pending') return false;
         return !!(dd.currentDocId || (Array.isArray(dd.documents) && dd.documents.some(function(x) { return x && !x.hidden; })));
       });
@@ -1401,6 +1404,13 @@
   function renderAiBlock(src, slug, docId) {
     src = src || {};
     var _retryArgs = "'" + escAttr(slug) + "', this" + (docId ? ", '" + escAttr(docId) + "'" : '');
+    // Deploy 236.752 — storage-only trays (Executed Closing Documents) are a
+    // record-keeping vault: no AI review, no verdict, no retry — a neutral note.
+    if ((DOC_META[slug] && DOC_META[slug].noReview) || src.noReview || src.aiVerdict === 'stored') {
+      return '<div class="ai-block"><div class="ai-head">' +
+        '<span class="ai-label" style="color:var(--muted)">📁 Filed for record-keeping — not AI reviewed.</span>' +
+      '</div></div>';
+    }
     // The "AI is reviewing…" spinner only applies to the current upload (tray-level).
     if (_uploadingSlug === slug && !docId) {
       return '<div class="ai-block pending">' +

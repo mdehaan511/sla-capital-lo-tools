@@ -170,6 +170,11 @@ export const DSCR_DOCS = [
     conditions: 'Receipt showing borrower provided EMD to the title company.', purchaseOnly: true },
   { slug: 'invoice', label: 'Invoice', section: 'closing',
     conditions: 'Third-party fees invoiced (appraisal, PCA, environmental, etc.).', optional: true },
+  // Deploy 236.752 — record-keeping vault for the executed/signed closing package.
+  // noReview: NEVER AI-reviewed (upload just stores the file); optional: never a
+  // required-missing doc. Backfilled onto existing reviews by sync-categories.
+  { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'closing',
+    conditions: '', optional: true, noReview: true },
 ];
 
 // Deploy 236.681 — RTL rubrics rewritten to the Colchis RTL Underwriting
@@ -275,6 +280,11 @@ export const RTL_DOCS = [
     conditions: 'Insured name matches the title company; coverage at least $1,000,000 per occurrence; policy effective through the note date.' },
   { slug: 'wire_instructions', label: 'Wire Instructions', section: 'closing',
     conditions: 'Wire instructions for the title company; verified against the CPL / title commitment.' },
+  // Deploy 236.752 — record-keeping vault for the executed/signed closing package.
+  // noReview: NEVER AI-reviewed (upload just stores the file); optional: never a
+  // required-missing doc. Backfilled onto existing reviews by sync-categories.
+  { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'closing',
+    conditions: '', optional: true, noReview: true },
 ];
 
 // Deploy 236.702 — GUC (Ground-Up Construction) document set. Construction runs

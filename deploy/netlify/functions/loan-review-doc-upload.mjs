@@ -263,6 +263,9 @@ async function handle(req, context) {
   // (yellow) rather than trusting an unfounded AI "approved".
   const _rubric = String((checklistEntry && checklistEntry.conditions) || (docState && docState.conditions) || '').trim();
   const hasRubric = _rubric.length > 0;
+  // Deploy 236.752 — a noReview tray (e.g. Executed Closing Documents) is a
+  // record-keeping vault: store the file, never call the AI.
+  const isNoReview = !!(checklistEntry && checklistEntry.noReview);
   const ctx = buildLoanContext(review);
   // Deploy 236.77 — attach the investor's underwriting guidelines PDF
   // (if uploaded by an admin via the guidelines-admin page). The
@@ -327,7 +330,13 @@ async function handle(req, context) {
     mime === 'image/jpeg' || mime === 'image/jpg' ||
     mime === 'image/png' || mime === 'image/webp' || mime === 'image/gif'
   );
-  if (!aiReviewable) {
+  if (isNoReview) {
+    // Storage-only tray — no AI review, no integrity pass. Just filed.
+    docState.aiVerdict = 'stored';
+    docState.aiNotes = 'Filed for record-keeping. This tray is not AI-reviewed.';
+    docState.aiReviewedAt = new Date().toISOString();
+    docState.noReview = true;
+  } else if (!aiReviewable) {
     docState.aiVerdict = 'needs_manual_review';
     docState.aiNotes = 'This file type (' + mime + ') cannot be reviewed automatically. Please review manually and approve/override.';
     docState.aiReviewedAt = new Date().toISOString();
