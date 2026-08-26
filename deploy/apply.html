@@ -337,6 +337,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
               <option value="">— Select —</option>
               <option value="sfh">Single Family Home</option>
               <option value="2-4">2–4 Unit</option>
+              <option value="multi">5+ Unit Multifamily</option>
               <option value="portfolio">Portfolio (Multiple Properties)</option>
               <option value="other">Other</option>
             </select>
@@ -629,6 +630,46 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           </div>
         </div>
 
+        <!-- Deploy 236.750 — 5+ Unit Multifamily (DSCR): unit counts + annual
+             operating expenses feed the NCF-based DSCR (vacancy is standardized
+             at 5% internally; not asked here). Field names match the MF sizer
+             and the loan record. Expenses are optional — the LO refines them. -->
+        <div class="cond" id="cond-mf-fin">
+          <div class="divider" style="grid-column:1/-1"></div>
+          <div class="section-lbl" style="grid-column:1/-1">Multifamily Details</div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap" id="wrap-numUnits">
+              <label>Number of Units <span class="req">*</span></label>
+              <input type="number" id="numUnits" min="5" max="99" placeholder="e.g. 12" oninput="clearE('numUnits')" />
+            </div>
+            <div class="err-msg" id="err-numUnits">Required (5 or more units)</div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap">
+              <label>Units Currently Occupied</label>
+              <input type="number" id="unitsOccupied" min="0" placeholder="e.g. 11" />
+            </div>
+          </div>
+          <div class="field" style="grid-column:span 1">
+            <div class="wrap">
+              <label>Other Monthly Income (laundry, parking, etc.)</label>
+              <input type="text" inputmode="decimal" id="otherIncomeMo" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" />
+            </div>
+          </div>
+          <div class="section-lbl" style="grid-column:1/-1;font-size:11px">Annual Operating Expenses (best estimates — your loan officer will refine)</div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Real Estate Taxes</label><input type="text" inputmode="decimal" id="opexTaxes" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Property Insurance</label><input type="text" inputmode="decimal" id="opexInsurance" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Flood Insurance</label><input type="text" inputmode="decimal" id="opexFlood" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Utilities</label><input type="text" inputmode="decimal" id="opexUtilities" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Repairs &amp; Maintenance</label><input type="text" inputmode="decimal" id="opexRepairs" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Property Management Fee</label><input type="text" inputmode="decimal" id="opexMgmt" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>G&amp;A / Marketing &amp; Leasing</label><input type="text" inputmode="decimal" id="opexGA" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>HOA / Special Assessment</label><input type="text" inputmode="decimal" id="opexHOA" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Turnover Costs</label><input type="text" inputmode="decimal" id="opexTurnover" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Landscaping</label><input type="text" inputmode="decimal" id="opexLandscaping" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+          <div class="field" style="grid-column:span 1"><div class="wrap"><label>Other Expenses</label><input type="text" inputmode="decimal" id="opexOther" placeholder="$0" oninput="applyMoneyMask(this)" onfocus="moneyFocus(this)" onblur="moneyBlur(this)" /></div></div>
+        </div>
+
         <div class="divider" style="grid-column:1/-1"></div>
         <!-- Fix & Flip only: # of flips completed -->
         <div class="cond" id="cond-fixflip-flips">
@@ -747,6 +788,8 @@ function onLoanProductChange() {
 
   setShow('cond-dscr',          isDscr);
   setShow('cond-dscr-fin',      isDscr);
+  // Deploy 236.750 — Multifamily details show for DSCR + 5+ Unit property.
+  setShow('cond-mf-fin', isDscr && (document.getElementById('propType')||{}).value === 'multi');
   // The rehab / ARV / project-description section is Fix & Flip only.
   // Bridge has no rehab; Transactional is a same-day loan.
   setShow('cond-fixflip-fin',   isFF);
@@ -877,6 +920,8 @@ function _portfolioSubmitAll(){
 function onPropTypeChange(){
   var v = document.getElementById('propType').value;
   var isPf = (v === 'portfolio');
+  // Deploy 236.750 — Multifamily details show for DSCR + 5+ Unit property.
+  setShow('cond-mf-fin', v === 'multi' && document.getElementById('loanProduct').value === 'dscr');
   var pf = document.getElementById('field-portfolio');
   if (pf) pf.style.display = isPf ? '' : 'none';
   // Hide the loan-level beds/baths/sqft for portfolios — captured per-property.
@@ -1197,6 +1242,12 @@ function validate() {
     }
   }
 
+  // Deploy 236.750 — Multifamily (DSCR + 5+ Unit): unit count required.
+  if (lp === 'dscr' && gv('propType') === 'multi') {
+    var _mfUnits = parseInt(gv('numUnits'), 10);
+    if (!isFinite(_mfUnits) || _mfUnits < 5) { showE('numUnits'); ok = false; }
+  }
+
   // Deploy 236.655 — Portfolio: require a count + a Yes/No choice. Individual
   // property fields stay optional (blank tabs are allowed, per Mike).
   if (gv('propType') === 'portfolio') {
@@ -1315,6 +1366,21 @@ function submitApp() {
     monthlyTaxes:    gv('monthlyTaxes'),
     monthlyInsurance:gv('monthlyInsurance'),
     monthlyHOA:      gv('monthlyHOA'),
+    // Deploy 236.750 — Multifamily (5+) NCF fields; blank for other products.
+    numUnits:        gv('numUnits'),
+    unitsOccupied:   gv('unitsOccupied'),
+    otherIncomeMo:   gv('otherIncomeMo'),
+    opexTaxes:       gv('opexTaxes'),
+    opexInsurance:   gv('opexInsurance'),
+    opexFlood:       gv('opexFlood'),
+    opexUtilities:   gv('opexUtilities'),
+    opexRepairs:     gv('opexRepairs'),
+    opexMgmt:        gv('opexMgmt'),
+    opexGA:          gv('opexGA'),
+    opexHOA:         gv('opexHOA'),
+    opexTurnover:    gv('opexTurnover'),
+    opexLandscaping: gv('opexLandscaping'),
+    opexOther:       gv('opexOther'),
     fundingDate:     gv('fundingDate'),
     // Deploy 236.6 — broker mode. Captured when submitterType is
     // 'broker'; fields are blank when the borrower applied themselves.

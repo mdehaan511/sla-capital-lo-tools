@@ -47,6 +47,22 @@
       // every open-in-sizer picker route back to THIS sizer.
       mfProgram:   'mf_lobal',
       numUnits:    formData.numUnits || '', // Deploy 236.749 — unit count on the loan record
+      // Deploy 236.750 — NCF operating-statement fields on the loan record
+      // (Loan Details' MF Operating Statement box edits these).
+      unitsOccupied:   formData.unitsOccupied   || '',
+      otherIncomeMo:   formData.otherIncomeMo   || '',
+      vacancyPct:      formData.vacancyPct      || '',
+      opexTaxes:       formData.opexTaxes       || '',
+      opexInsurance:   formData.opexInsurance   || '',
+      opexFlood:       formData.opexFlood       || '',
+      opexUtilities:   formData.opexUtilities   || '',
+      opexRepairs:     formData.opexRepairs     || '',
+      opexMgmt:        formData.opexMgmt        || '',
+      opexGA:          formData.opexGA          || '',
+      opexHOA:         formData.opexHOA         || '',
+      opexTurnover:    formData.opexTurnover    || '',
+      opexLandscaping: formData.opexLandscaping || '',
+      opexOther:       formData.opexOther       || '',
       address:     address || formData.address || '',
       savedAt:     new Date().toISOString(),
       updatedAt:   new Date().toISOString(),
@@ -472,7 +488,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="mf-pricing.js?v=236749"></script>
+<script src="mf-pricing.js?v=236750"></script>
 <script>
 // Deploy 236.406 (Hardening G1) — pricing engine extracted to
 // dscr-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -704,36 +720,55 @@ var getFICOMin = SLA_DSCR.getFICOMin;
         </div>
       </div>
 
+      <!-- Deploy 236.750 — NCF-based DSCR inputs (guideline: NCF ÷ P&I).
+           Vacancy defaults to 5% and is ADMIN-editable only (unlocked in the
+           auth block). CapEx reserves are fixed at $300/unit/year. -->
       <div class="form-divider"></div>
-      <div class="section-label">Income &amp; Monthly Expenses</div>
+      <div class="section-label">Income</div>
 
       <div class="field">
         <div class="wrap">
-          <label>Monthly Gross Rent <span class="req">*</span></label>
-          <input type="number" id="rent" placeholder="" min="0" />
+          <label>Units Occupied</label>
+          <input type="number" id="unitsOccupied" placeholder="e.g. 11" min="0" oninput="run()" />
         </div>
       </div>
       <div class="field">
         <div class="wrap">
-          <label>Monthly Taxes</label>
-          <input type="number" id="taxes" placeholder="" min="0" />
+          <label>Total Monthly Rent <span class="req">*</span> <span style="font-weight:400;font-size:10px;color:var(--muted)">all units; lower of lease vs appraisal</span></label>
+          <input type="number" id="rent" placeholder="e.g. 15,000" min="0" />
         </div>
       </div>
       <div class="field">
         <div class="wrap">
-          <label>Monthly Insurance</label>
-          <input type="number" id="insurance" placeholder="" min="0" />
+          <label>Other Income (mo)</label>
+          <input type="number" id="otherIncomeMo" placeholder="0" min="0" oninput="run()" />
         </div>
       </div>
       <div class="field">
         <div class="wrap">
-          <label>Monthly HOA</label>
-          <input type="number" id="hoa" placeholder="" min="0" />
+          <label>Vacancy / Credit Loss (%) <span style="font-weight:400;font-size:10px;color:var(--muted)">5% standard; admin-editable</span></label>
+          <input type="number" id="vacancyPct" value="5" min="0" max="100" step="0.5" disabled title="5% standard vacancy — only an admin can change this" oninput="run()" />
         </div>
       </div>
+
+      <div class="form-divider"></div>
+      <div class="section-label">Operating Expenses (Annual)</div>
+
+      <div class="field"><div class="wrap"><label>Real Estate Taxes</label><input type="number" id="opexTaxes" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Property Insurance</label><input type="number" id="opexInsurance" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Flood Insurance</label><input type="number" id="opexFlood" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Utilities</label><input type="number" id="opexUtilities" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Repairs &amp; Maintenance</label><input type="number" id="opexRepairs" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Property Management Fee</label><input type="number" id="opexMgmt" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>G&amp;A / Marketing &amp; Leasing</label><input type="number" id="opexGA" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>HOA / Special Assessment</label><input type="number" id="opexHOA" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Turnover Costs</label><input type="number" id="opexTurnover" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Landscaping</label><input type="number" id="opexLandscaping" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label>Other</label><input type="number" id="opexOther" placeholder="0" min="0" oninput="run()" /></div></div>
+      <div class="field"><div class="wrap"><label style="font-weight:400;font-size:10px;color:var(--muted);text-transform:none">CapEx reserves are fixed at $300/unit/year (not editable).</label></div></div>
 
       <div class="computed-wrap span2">
-        <label>DSCR &nbsp;<span style="font-weight:400;font-size:10px;color:var(--muted)">Rent &#247; (PI + Taxes + Insurance + HOA)</span></label>
+        <label>DSCR (NCF) &nbsp;<span style="font-weight:400;font-size:10px;color:var(--muted)">Net Cash Flow &#247; P&amp;I</span></label>
         <span class="computed-val" id="dscrVal">&#8212;</span>
       </div>
 
@@ -963,9 +998,22 @@ function calculate() {
     prepay:        $('prepay').value,
     buydown:       $('buydown').value,
     rent:          $('rent').value,
-    taxes:         $('taxes').value,
-    insurance:     $('insurance').value,
-    hoa:           $('hoa').value,
+    // Deploy 236.750 — NCF inputs (taxes/insurance/hoa fields are gone; RE
+    // taxes + insurance live in the annual operating expenses below).
+    otherIncomeMo: ($('otherIncomeMo') || {}).value,
+    vacancyPct:    ($('vacancyPct') || {}).value,
+    unitsOccupied: ($('unitsOccupied') || {}).value,
+    opexTaxes:       ($('opexTaxes') || {}).value,
+    opexInsurance:   ($('opexInsurance') || {}).value,
+    opexFlood:       ($('opexFlood') || {}).value,
+    opexUtilities:   ($('opexUtilities') || {}).value,
+    opexRepairs:     ($('opexRepairs') || {}).value,
+    opexMgmt:        ($('opexMgmt') || {}).value,
+    opexGA:          ($('opexGA') || {}).value,
+    opexHOA:         ($('opexHOA') || {}).value,
+    opexTurnover:    ($('opexTurnover') || {}).value,
+    opexLandscaping: ($('opexLandscaping') || {}).value,
+    opexOther:       ($('opexOther') || {}).value,
     borrowerName:  $('borrowerName').value,
     borrowerEmail: ($('borrowerEmail') && $('borrowerEmail').value) || '',
     propAddress:   $('propAddress').value,
@@ -1058,20 +1106,22 @@ function renderResult(r) {
 
   '<div class="rate-card">'+
     '<div class="rate-body" style="padding-top:1.25rem">'+
+      // Deploy 236.750 — NCF story: P&I, then the monthly cash-flow waterfall.
       '<table class="breakdown"><tbody>'+
-        '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Monthly Payment Breakdown</td><td></td></tr>'+
+        '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Monthly Payment</td><td></td></tr>'+
         '<tr><td>'+(r.isIO?'Interest Only Payment':'Principal &amp; Interest')+'</td><td class="bv base">'+fmtD(r.pi)+'</td></tr>'+
-        '<tr><td>Monthly Taxes</td><td class="bv base">'+fmtD(r.taxes)+'</td></tr>'+
-        '<tr><td>Monthly Insurance</td><td class="bv base">'+fmtD(r.ins)+'</td></tr>'+
-        '<tr><td>Monthly HOA</td><td class="bv base">'+fmtD(r.hoa)+'</td></tr>'+
       '</tbody></table>'+
-      '<div class="total-row"><span class="tl">Total Monthly Payment</span><span class="tv">'+fmtD(r.totalPayment)+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'+
-        '<span style="font-size:13px;color:var(--muted)">Monthly Gross Rent</span>'+
-        '<span style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:500">'+fmtD(r.rent)+'</span>'+
-      '</div>'+
+      '<table class="breakdown" style="margin-top:12px"><tbody>'+
+        '<tr><td style="font-weight:600;color:var(--text);padding-bottom:4px">Monthly Net Cash Flow</td><td></td></tr>'+
+        '<tr><td>Gross Income (rent + other)</td><td class="bv base">'+fmtD(r.grossMo)+'</td></tr>'+
+        '<tr><td>&minus; Vacancy / Credit Loss ('+ (r.vacancyPct!=null?r.vacancyPct:5) +'%)</td><td class="bv base">&minus;'+fmtD(r.vacMo)+'</td></tr>'+
+        '<tr><td>= Effective Gross Income</td><td class="bv base">'+fmtD(r.egiMo)+'</td></tr>'+
+        '<tr><td>&minus; Operating Expenses</td><td class="bv base">&minus;'+fmtD(r.opexMo)+'</td></tr>'+
+        '<tr><td>&minus; CapEx Reserves ($300/unit/yr)</td><td class="bv base">&minus;'+fmtD(r.capexMo)+'</td></tr>'+
+      '</tbody></table>'+
+      '<div class="total-row"><span class="tl">Net Cash Flow (mo)</span><span class="tv">'+fmtD(r.ncfMo)+'</span></div>'+
       '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;padding-top:8px;border-top:2px solid var(--border)">'+
-        '<span style="font-size:14px;font-weight:600">DSCR</span>'+
+        '<span style="font-size:14px;font-weight:600">DSCR (NCF &#247; P&amp;I)</span>'+
         '<span style="font-family:\'DM Mono\',monospace;font-size:22px;font-weight:500;color:var(--'+dscrCls+')">'+fmtX(r.dscr)+'</span>'+
       '</div>'+
     '</div>'+
@@ -3178,6 +3228,15 @@ function prefillFromProspect(p) {
       try { onPurposeChange(); } catch(_) {}
     }
   }
+  // Deploy 236.750 — Multifamily NCF fields from the application. Values may
+  // carry the apply form's currency mask; strip to plain digits for the
+  // number inputs here.
+  var _mfNum = function (v) { return String(v == null ? '' : v).replace(/[^0-9.]/g, ''); };
+  ['numUnits','unitsOccupied','otherIncomeMo','opexTaxes','opexInsurance','opexFlood',
+   'opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
+   'opexLandscaping','opexOther'].forEach(function (k) {
+    if (p[k]) map[k] = _mfNum(p[k]);
+  });
   Object.keys(map).forEach(function(id) {
     var el = $(id); if (el && map[id]) el.value = map[id];
   });
@@ -3413,9 +3472,21 @@ function saveCurrentQuote() {
     numUnits:   ($('numUnits') ? $('numUnits').value : ''), // Deploy 236.749
     fico:       $('fico').value,
     rent:       $('rent').value,
-    taxes:      $('taxes').value,
-    insurance:  $('insurance').value,
-    hoa:        $('hoa').value,
+    // Deploy 236.750 — NCF fields persisted on the quote/loan formData.
+    otherIncomeMo: ($('otherIncomeMo') || {}).value,
+    vacancyPct:    ($('vacancyPct') || {}).value,
+    unitsOccupied: ($('unitsOccupied') || {}).value,
+    opexTaxes:       ($('opexTaxes') || {}).value,
+    opexInsurance:   ($('opexInsurance') || {}).value,
+    opexFlood:       ($('opexFlood') || {}).value,
+    opexUtilities:   ($('opexUtilities') || {}).value,
+    opexRepairs:     ($('opexRepairs') || {}).value,
+    opexMgmt:        ($('opexMgmt') || {}).value,
+    opexGA:          ($('opexGA') || {}).value,
+    opexHOA:         ($('opexHOA') || {}).value,
+    opexTurnover:    ($('opexTurnover') || {}).value,
+    opexLandscaping: ($('opexLandscaping') || {}).value,
+    opexOther:       ($('opexOther') || {}).value,
     prepay:     $('prepay').value,
     buydown:    $('buydown').value,
     currentLoanAmt: ($('currentLoanAmt') ? $('currentLoanAmt').value : ''),
@@ -3878,6 +3949,19 @@ function saveCurrentQuote() {
   }
 }
 
+// Deploy 236.750 — Loan Details' MF Operating Statement edits TOP-LEVEL loan
+// fields; the sizer's load path reads loan.formData (the last sizer save,
+// possibly stale). Overlay the fresher top-level values before painting.
+function overlayMfLoanFields(loan, fd) {
+  fd = Object.assign({}, fd || {});
+  ['numUnits','unitsOccupied','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
+   'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
+   'opexLandscaping','opexOther'].forEach(function (k) {
+    if (loan && loan[k] !== undefined && loan[k] !== '') fd[k] = loan[k];
+  });
+  return fd;
+}
+
 function loadQuoteIntoForm(formData) {
   if (!formData) return;
   // Deploy 236.659 — Portfolio: the per-property data holds the real numbers
@@ -3930,9 +4014,22 @@ function loadQuoteIntoForm(formData) {
     // for loans that landed in formData via a different path
     // (test-create-loan fixtures, future API saves, etc.).
     rent:         formData.rent       || formData.monthlyRent      || '',
-    taxes:        formData.taxes      || formData.monthlyTaxes     || '',
-    insurance:    formData.insurance  || formData.monthlyInsurance || '',
-    hoa:          formData.hoa        || formData.monthlyHoa       || '',
+    // Deploy 236.750 — NCF fields restore (taxes/insurance/hoa inputs are
+    // gone on this sizer; the Object.keys loop below null-guards missing ids).
+    otherIncomeMo:   formData.otherIncomeMo   || '',
+    vacancyPct:      formData.vacancyPct      || '5',
+    unitsOccupied:   formData.unitsOccupied   || '',
+    opexTaxes:       formData.opexTaxes       || '',
+    opexInsurance:   formData.opexInsurance   || '',
+    opexFlood:       formData.opexFlood       || '',
+    opexUtilities:   formData.opexUtilities   || '',
+    opexRepairs:     formData.opexRepairs     || '',
+    opexMgmt:        formData.opexMgmt        || '',
+    opexGA:          formData.opexGA          || '',
+    opexHOA:         formData.opexHOA         || '',
+    opexTurnover:    formData.opexTurnover    || '',
+    opexLandscaping: formData.opexLandscaping || '',
+    opexOther:       formData.opexOther       || '',
     prepay:       formData.prepay     || '54321',
     buydown:      formData.buydown    || '0',
     currentLoanAmt: formData.currentLoanAmt || '',
@@ -4251,6 +4348,9 @@ netlifyIdentity.on('init', function(user) {
         window._userIsAdmin = true;
         var _adminField = document.getElementById('adminModeToggleField');
         if (_adminField) _adminField.style.display = '';
+        // Deploy 236.750 — admins may override the standard 5% vacancy.
+        var _vacEl = document.getElementById('vacancyPct');
+        if (_vacEl) { _vacEl.disabled = false; _vacEl.title = 'Vacancy / credit loss — 5% standard, admin override'; }
       }
       initQuotes(user.email);
       // Deploy 236 (Brokers Phase 2): mount the broker picker inside the
@@ -4410,7 +4510,7 @@ netlifyIdentity.on('init', function(user) {
               hit.pricingSnapshot ||
               _synthDscrSnapFromFD(hit.formData) || null;
             window._snapshotConsumed = false;
-            return applyLockedOverrideIfAnyDSCR(hit.formData).then(function(fd) {
+            return applyLockedOverrideIfAnyDSCR(overlayMfLoanFields(hit, hit.formData)).then(function(fd) {
               loadQuoteIntoForm(fd);
               tryAutoDownload(); trySignatureHandoff();
               return true;

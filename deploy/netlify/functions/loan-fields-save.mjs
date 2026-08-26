@@ -59,6 +59,11 @@ const FIELDS = {
   // Deploy 236.713 — Dutch/Non-Dutch interest structure, editable in the Loan
   // Terms box (RTL/GUC). Drives the Closed Loans Draws tab's computed UPB.
   dutchInterest: 1,
+  // Deploy 236.750 — MF (5+) operating-statement fields, edited in the Loan
+  // Details MF Operating Statement box; feed the MF sizer's NCF DSCR.
+  unitsOccupied: 1, otherIncomeMo: 1, vacancyPct: 1,
+  opexTaxes: 1, opexInsurance: 1, opexFlood: 1, opexUtilities: 1, opexRepairs: 1,
+  opexMgmt: 1, opexGA: 1, opexHOA: 1, opexTurnover: 1, opexLandscaping: 1, opexOther: 1,
 };
 
 function _truthy(v) {

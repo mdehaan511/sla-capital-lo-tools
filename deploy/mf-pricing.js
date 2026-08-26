@@ -100,7 +100,20 @@ const DIYA = {
   },
   HIDDEN_TPO_PCT: 1.00,
   HIDDEN_TPO_ADJ: 0.320,
+  // Deploy 236.750 — NCF-based DSCR inputs (Mike's spec): vacancy/credit loss
+  // defaults to 5% (admin-overridable in the sizer); CapEx reserves are fixed
+  // at $300/unit/year (not editable anywhere).
+  vacancyDefaultPct: 5,
+  capexPerUnitYr: 300,
 };
+
+// Deploy 236.750 — annual operating-expense fields summed into the NCF math.
+// Keep in sync with the sizer inputs, apply.html's MF section, and the Loan
+// Details MF Operating Statement box.
+const OPEX_FIELDS = [
+  'opexTaxes', 'opexInsurance', 'opexFlood', 'opexUtilities', 'opexRepairs',
+  'opexMgmt', 'opexGA', 'opexHOA', 'opexTurnover', 'opexLandscaping', 'opexOther',
+];
 
 // Fixed fees (always shown on term sheet)
 const FEES = {
@@ -412,6 +425,27 @@ function priceDSCR(raw) {
   var taxes     = parseFloat(raw.taxes)      || 0;
   var ins       = parseFloat(raw.insurance)  || 0;
   var hoa       = parseFloat(raw.hoa)        || 0;
+  // Deploy 236.750 — NCF-based DSCR (guideline: NCF ÷ P&I). Gross monthly
+  // income (total rent + other income) less vacancy (default 5%, admin-
+  // overridable), less annual operating expenses and the fixed $300/unit/yr
+  // CapEx reserve, gives monthly Net Cash Flow.
+  var otherInc  = parseFloat(raw.otherIncomeMo) || 0;
+  var vacPct    = parseFloat(raw.vacancyPct);
+  if (!isFinite(vacPct) || String(raw.vacancyPct == null ? '' : raw.vacancyPct).trim() === '') vacPct = DIYA.vacancyDefaultPct;
+  if (vacPct < 0) vacPct = 0; if (vacPct > 100) vacPct = 100;
+  var unitsN    = parseInt(raw.numUnits, 10) || 0;
+  var opexAnnual = 0;
+  for (var oi = 0; oi < OPEX_FIELDS.length; oi++) {
+    var ov = parseFloat(String(raw[OPEX_FIELDS[oi]] == null ? '' : raw[OPEX_FIELDS[oi]]).replace(/[$,]/g, ''));
+    if (isFinite(ov) && ov > 0) opexAnnual += ov;
+  }
+  var capexAnnual = DIYA.capexPerUnitYr * unitsN;
+  var grossMo = rent + otherInc;
+  var vacMo   = grossMo * vacPct / 100;
+  var egiMo   = grossMo - vacMo;
+  var opexMo  = opexAnnual / 12;
+  var capexMo = capexAnnual / 12;
+  var ncfMo   = egiMo - opexMo - capexMo;
   var borrower  = String(raw.borrowerName || '').trim();
   var borrowerEmail = String(raw.borrowerEmail || '').trim();
   var address   = String(raw.propAddress || '').trim();
@@ -540,10 +574,11 @@ function priceDSCR(raw) {
   var baseAdj = adjs.reduce(function(s,a){return s+(a.value||0);},0);
   var ratePass1 = baseRate + baseAdj + hiddenTpoAdj + buydownAdj;
 
-  // PI at pass-1 rate
+  // PI at pass-1 rate — Deploy 236.750: DSCR is NCF ÷ P&I (taxes/insurance
+  // live inside the annual operating expenses, not the payment).
   var pi1 = calcPI(loan, ratePass1/100, isIO);
-  var pmt1 = pi1+taxes+ins+hoa;
-  var dscr1 = pmt1>0&&rent>0?rent/pmt1:null;
+  var pmt1 = pi1;
+  var dscr1 = pi1>0&&grossMo>0?ncfMo/pi1:null;
 
   // Deploy 236.584 — DSCR-below-1.0 is a MANAGER-EXCEPTION case, not a hard
   // stop. Waive the floor when the admin sandbox is on OR a manager exception
@@ -567,8 +602,8 @@ function priceDSCR(raw) {
   // Deploy 236.748 — sheet config: Min Rate 6.25% floor.
   if (DIYA.minRate && finalRate < DIYA.minRate) finalRate = DIYA.minRate;
   var piFinal = calcPI(loan, finalRate/100, isIO);
-  var pmtFinal = piFinal+taxes+ins+hoa;
-  var dscrFinal = pmtFinal>0&&rent>0?rent/pmtFinal:null;
+  var pmtFinal = piFinal; // Deploy 236.750 — NCF model: payment = P&I only
+  var dscrFinal = piFinal>0&&grossMo>0?ncfMo/piFinal:null;
 
   // Fees
   var origFee = loan * FEES.origination_pct / 100;
@@ -600,6 +635,9 @@ function priceDSCR(raw) {
     brokerPts, brokerFeeDol, brokerProcFee,
     netHiddenTpoPct, guidelineWarnings,
     sandbox: adminSandbox,
+    // Deploy 236.750 — NCF breakdown for the result card + rate-sheet PDF.
+    grossMo: grossMo, otherIncomeMo: otherInc, vacancyPct: vacPct, vacMo: vacMo,
+    egiMo: egiMo, opexMo: opexMo, capexMo: capexMo, ncfMo: ncfMo, numUnits: unitsN,
   };
 }
 
@@ -610,6 +648,7 @@ var _SLA_DSCR_API = {
   validateGuidelines: validateGuidelines, getFICOMin: getFICOMin,
   EXCEPTION_HINT: EXCEPTION_HINT,
   priceDSCR: priceDSCR,
+  OPEX_FIELDS: OPEX_FIELDS, // Deploy 236.750
 };
 if (typeof window !== 'undefined') window.SLA_DSCR = _SLA_DSCR_API;
 if (typeof module !== 'undefined' && module.exports) module.exports = _SLA_DSCR_API;

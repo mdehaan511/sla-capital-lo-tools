@@ -207,6 +207,16 @@ async function handle(req, context) {
     // regular DSCR sizer never sends it; preserve so a plain-DSCR save can't
     // silently strip the loan's MF routing.
     mfProgram:                  incoming.mfProgram                  || prior.mfProgram                  || '',
+    // Deploy 236.750 — MF operating-statement fields (unit counts, other
+    // income, vacancy override, annual opex). The MF sizer sends them; the
+    // regular DSCR sizer doesn't — preserve from prior so a plain-DSCR save
+    // can't wipe the NCF inputs.
+    ...(['numUnits','unitsOccupied','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
+         'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
+         'opexLandscaping','opexOther'].reduce((o, k) => {
+      o[k] = incoming[k] !== undefined ? incoming[k] : (prior[k] !== undefined ? prior[k] : '');
+      return o;
+    }, {})),
     appraisedValue:             incoming.appraisedValue             || prior.appraisedValue             || '',
     // Deploy 236.424 (D2) — formData was never on this preservation
     // list, so any PARTIAL update (API rate edit, programmatic field

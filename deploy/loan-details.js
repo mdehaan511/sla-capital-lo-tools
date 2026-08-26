@@ -1859,6 +1859,45 @@ function render() {
     '</div>' +
   '</div>';
 
+  // ── Deploy 236.750 — MF Operating Statement (Multifamily 5+ loans) ──
+  // The NCF inputs behind the MF DSCR sizer's pricing: unit counts, income,
+  // the 5%-standard vacancy (admin-editable), and annual operating expenses.
+  // Rides into the Property tab via relocateSectionsToTabs. Saves through
+  // loan-fields-save; the MF sizer reloads these on open.
+  if (l.mfProgram || String(l.propType || '').toLowerCase() === 'multi') {
+    var _mfFld = function (id, label, val, ph) {
+      return '<div class="field"><label>' + label + '</label><input type="number" id="mfx-' + id + '" value="' + escAttr(val == null ? '' : val) + '" placeholder="' + (ph || '0') + '" min="0" /></div>';
+    };
+    var _mfAdminUser = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(_user));
+    html += '<div class="section" id="mfOpexSection">' +
+      '<div class="section-head"><h2>MF Operating Statement</h2><span class="section-tag tag-editable">Editable</span></div>' +
+      '<div class="section-body">' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Feeds the Multifamily sizer\'s NCF-based DSCR. CapEx reserves are fixed at $300/unit/year. Vacancy is standardized at 5%' + (_mfAdminUser ? ' (admin override below)' : ' — only an admin can change it') + '.</div>' +
+      '<div class="app-grid">' +
+        _mfFld('numUnits', 'Number of Units (5+)', l.numUnits, 'e.g. 12') +
+        _mfFld('unitsOccupied', 'Units Occupied', l.unitsOccupied, 'e.g. 11') +
+        _mfFld('otherIncomeMo', 'Other Income (mo)', l.otherIncomeMo) +
+        '<div class="field"><label>Vacancy / Credit Loss (%)</label><input type="number" id="mfx-vacancyPct" value="' + escAttr(l.vacancyPct || '5') + '" min="0" max="100" step="0.5"' + (_mfAdminUser ? '' : ' disabled title="5% standard — admin only"') + ' /></div>' +
+        '<div class="field span2" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);align-self:end">Operating Expenses (Annual)</div>' +
+        _mfFld('opexTaxes', 'Real Estate Taxes', l.opexTaxes) +
+        _mfFld('opexInsurance', 'Property Insurance', l.opexInsurance) +
+        _mfFld('opexFlood', 'Flood Insurance', l.opexFlood) +
+        _mfFld('opexUtilities', 'Utilities', l.opexUtilities) +
+        _mfFld('opexRepairs', 'Repairs & Maintenance', l.opexRepairs) +
+        _mfFld('opexMgmt', 'Property Management Fee', l.opexMgmt) +
+        _mfFld('opexGA', 'G&A / Marketing & Leasing', l.opexGA) +
+        _mfFld('opexHOA', 'HOA / Special Assessment', l.opexHOA) +
+        _mfFld('opexTurnover', 'Turnover Costs', l.opexTurnover) +
+        _mfFld('opexLandscaping', 'Landscaping', l.opexLandscaping) +
+        _mfFld('opexOther', 'Other', l.opexOther) +
+      '</div>' +
+      '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
+        '<button class="save-app-btn" onclick="saveMfOpex()">Save MF Operating Statement</button>' +
+        '<span id="mfOpexStatus" style="font-size:12px;color:var(--success);display:none">Saved ✓</span>' +
+      '</div>' +
+    '</div></div>';
+  }
+
   // Deploy 236.566 — Closing Coordination panel (CD/wire/funding milestones).
   // Renders only for Approved/Closed loans (or any loan whose closing has
   // already been started). Sits right below Funding Plan — same closing
@@ -2508,6 +2547,9 @@ function render() {
     // (defensively) the Property pane is missing.
     var _propColl = document.getElementById('propertyCollateralSection');
     if (_propColl) (paneProperty || paneLoan).appendChild(_propColl);
+    // Deploy 236.750 — MF Operating Statement rides with it (MF loans only).
+    var _mfOpex = document.getElementById('mfOpexSection');
+    if (_mfOpex) (paneProperty || paneLoan).appendChild(_mfOpex);
 
     // Deploy 236.650 — keep the boxes narrow (half-width) and balance the two
     // columns: Fees/Cash-to-Close under Loan Terms (right col); Cash Reserve
@@ -6553,6 +6595,31 @@ function _pcCarryMonthly(id) {
   var v = parseFloat(raw);
   if (!isFinite(v)) return '';
   return String(Math.round((_pcCarryMode === 'annual' ? v / 12 : v) * 100) / 100);
+}
+
+// Deploy 236.750 — MF Operating Statement save (Multifamily 5+ loans).
+function saveMfOpex() {
+  if (!_loan || !_client) return;
+  var ids = ['numUnits','unitsOccupied','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
+    'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexGA','opexHOA','opexTurnover',
+    'opexLandscaping','opexOther'];
+  var fields = {};
+  ids.forEach(function (k) {
+    var el = document.getElementById('mfx-' + k);
+    if (el && !el.disabled) fields[k] = el.value;
+  });
+  var btn = document.querySelector('#mfOpexSection .save-app-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function () {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save MF Operating Statement'; }
+    _ldMergeLoan(fields);
+    var s = document.getElementById('mfOpexStatus');
+    if (s) { s.style.display = 'inline'; setTimeout(function () { s.style.display = 'none'; }, 2500); }
+    showToast('MF operating statement saved');
+  }).catch(function (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save MF Operating Statement'; }
+    showToast('Save failed: ' + (err && err.message || 'unknown error'));
+  });
 }
 
 function saveLoanTerms() {
