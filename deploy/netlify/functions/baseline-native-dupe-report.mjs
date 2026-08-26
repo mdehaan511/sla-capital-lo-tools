@@ -7,16 +7,24 @@
  * the same address+amount, but living under a REAL LO account (not the dedicated
  * IMPORT_OWNER_KEY the Dedupe tool keys off). Also catches copy+copy groups.
  *
- * Makes NO changes. Groups every loan portal-wide by normalized address, keeps
- * groups with >1 record where at least one is a Baseline copy, and classifies
- * each so a follow-up cleanup can keep the native / most-complete record and
- * delete the redundant copy. Cross-owner + amount-mismatch groups are flagged
- * for a human decision (never auto-delete those). Admin only.
+ * DRY-RUN by default (makes NO changes): groups every loan portal-wide by
+ * normalized address, keeps groups with >1 record where at least one is a
+ * Baseline copy, and classifies each (safe_exact / likely_safe / review) with a
+ * proposed keeper. Cross-owner + amount-mismatch groups are flagged for a human
+ * decision (never auto-deleted). Admin only.
  *
- * Body: {}  (no options — this is a scan/report)
+ * Deploy 236.755 — { apply:true, limit? } DELETES the redundant copy for
+ * SAFE_EXACT groups ONLY (identical loan filed under a solo c_baseline_* client
+ * AND the real grouped client). Re-writes the keeper first to claim the shared
+ * loan's PG row, then deletes the candidate (blob + PG). Re-scans each call and
+ * processes slice(0,limit); loop until deleted==0.
+ *
+ * Body: {} (report) | { apply:true, limit? } (delete safe_exact copies)
  */
 import { getStore } from '@netlify/blobs';
-import { handleOptions, json, requireAuth, isAdmin } from './_shared/auth.mjs';
+import { handleOptions, json, requireAuth, isAdmin, readJsonBody, keySafe } from './_shared/auth.mjs';
+import { writeClient } from './_shared/client-write.mjs';
+import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
 
 function num(v) { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
 function loanAmt(l) { return num(l.finalLoanAmount) || num(l.loanAmt) || 0; }
@@ -161,6 +169,56 @@ async function handle(req, context) {
   const bySafety = (s) => groups.filter((g) => g.safety === s);
   const delCount = (arr) => arr.reduce((s, g) => s + g.deleteCandidates.length, 0);
   const safeExact = bySafety('safe_exact'), likely = bySafety('likely_safe'), review = bySafety('review');
+
+  // ── Optional APPLY (Deploy 236.755) — delete the redundant copy for SAFE_EXACT
+  // groups ONLY. Never touches likely_safe / review. Each candidate is a SOLO
+  // c_baseline_* client holding just the duplicate loan. PG keys loans by id
+  // alone, so the shared loanId's PG row belongs to whichever client wrote last —
+  // deleting the candidate's PG rows could take the loan with it ("loan
+  // disappeared"). So per candidate: (1) re-write the KEEPER to claim the loan's
+  // PG row (upsert onConflict:'id'); (2) delete the candidate (blob + PG client,
+  // whose loans are now 0). Re-scans each call, so processing slice(0,limit)
+  // shrinks the list; loop until nothing is deleted.
+  const body = (await readJsonBody(req)) || {};
+  if (body.apply === true) {
+    const limit = (Number(body.limit) > 0) ? Math.floor(Number(body.limit)) : 15;
+    const targets = [];
+    for (const g of safeExact) {
+      for (const dc of g.deleteCandidates) targets.push({ address: g.address, keeper: g.keeper, cand: dc });
+    }
+    targets.sort((a, b) => (a.cand.ownerKey + '|' + a.cand.clientId).localeCompare(b.cand.ownerKey + '|' + b.cand.clientId));
+    const batch = targets.slice(0, limit);
+    const deleted = [], skipped = [], errors = [];
+    for (const t of batch) {
+      try {
+        const candKey = t.cand.ownerKey + '/' + keySafe(t.cand.clientId);
+        const keepKey = t.keeper.ownerKey + '/' + keySafe(t.keeper.clientId);
+        const cand = await clientsStore.get(candKey, { type: 'json' }).catch(() => null);
+        const keep = await clientsStore.get(keepKey, { type: 'json' }).catch(() => null);
+        const candOk = cand && Array.isArray(cand.loans) && cand.loans.length === 1 && cand.loans.some((l) => l && l.id === t.cand.loanId);
+        const keepOk = keep && Array.isArray(keep.loans) && keep.loans.some((l) => l && l.id === t.cand.loanId);
+        if (!candOk) { skipped.push({ address: t.address, clientId: t.cand.clientId, reason: 'candidate is no longer a solo holder of the loan' }); continue; }
+        if (!keepOk) { skipped.push({ address: t.address, clientId: t.cand.clientId, reason: 'keeper no longer holds the loan — NOT deleting' }); continue; }
+        await writeClient(t.keeper.ownerKey, keep, { clientsStore });   // 1) claim the loan's PG row for the keeper
+        await clientsStore.delete(candKey);                              // 2a) blob delete of the candidate
+        try { await pgMirror.deleteClientStrict(t.cand.clientId); }     // 2b) PG client delete (loans already reclaimed)
+        catch (e) { errors.push({ address: t.address, clientId: t.cand.clientId, error: 'PG client delete failed (blob already deleted; empty PG client may linger): ' + ((e && e.message) || 'unknown') }); }
+        deleted.push({ address: t.address, deletedClientId: t.cand.clientId, keptClientId: t.keeper.clientId, loanId: t.cand.loanId });
+      } catch (e) {
+        errors.push({ address: t.address, clientId: t.cand.clientId, error: (e && e.message) || 'unknown' });
+      }
+    }
+    return json(200, {
+      ok: true, apply: true,
+      summary: {
+        safeExactTargets: targets.length,
+        deleted: deleted.length, skipped: skipped.length, errors: errors.length,
+        remaining: Math.max(0, targets.length - deleted.length),
+      },
+      deleted, skipped, errors,
+    });
+  }
+
   return json(200, {
     ok: true,
     scanned: { clientBlobs: blobs.length, loans: loansSeen, addresses: byAddr.size },
