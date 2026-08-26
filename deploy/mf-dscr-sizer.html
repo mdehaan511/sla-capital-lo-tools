@@ -2040,17 +2040,12 @@ function applyOverridesAndRender() {
                       })());
         } catch (_) { newPI = calc.pi; }
         piCell.textContent = '$' + Math.round(newPI).toLocaleString();
-        // Total monthly = P&I + taxes + insurance + HOA
-        var totalRow = paymentCard.querySelector('.total-row .tv');
-        if (totalRow) {
-          var newTotal = newPI + (calc.taxes||0) + (calc.ins||0) + (calc.hoa||0);
-          totalRow.textContent = '$' + Math.round(newTotal).toLocaleString();
-        }
-        // DSCR ratio = rent / total monthly
+        // Deploy 236.750 — NCF model: the payment card's total row is Net
+        // Cash Flow, which a rate/LTV override does NOT change — leave it.
+        // DSCR = NCF ÷ the new P&I.
         var dscrSpan = paymentCard.querySelector('span[style*="22px"]');
-        if (dscrSpan && calc.rent > 0) {
-          var newDscr = calc.rent / (newPI + (calc.taxes||0) + (calc.ins||0) + (calc.hoa||0));
-          dscrSpan.textContent = newDscr.toFixed(2) + 'x';
+        if (dscrSpan && isFinite(calc.ncfMo) && newPI > 0) {
+          dscrSpan.textContent = (calc.ncfMo / newPI).toFixed(2) + 'x';
         }
       }
     }
