@@ -1093,7 +1093,9 @@ function renderCard(it) {
       var _rlTitle = _rlDays > 0
         ? 'Rate lock expires in ' + _rlDays + ' day' + (_rlDays === 1 ? '' : 's') + ' on ' + _rlDate
         : 'Rate lock EXPIRED on ' + _rlDate;
-      lockBadge = '<span title="' + escAttr(_rlTitle) + '" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:' + _rlBg + ';color:' + _rlCol + '">' + _rlTxt + '</span>';
+      // Deploy 236.765 — bottom-RIGHT of the tile (margin-left:auto in the
+      // flex meta row) so the lock stands apart from the type/cond tags.
+      lockBadge = '<span title="' + escAttr(_rlTitle) + '" style="margin-left:auto;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:' + _rlBg + ';color:' + _rlCol + '">' + _rlTxt + '</span>';
     }
   }
 
@@ -1124,8 +1126,8 @@ function renderCard(it) {
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
         condBadge +
-        lockBadge + // Deploy 236.764 — rate-lock countdown
         closeInput +
+        lockBadge + // Deploy 236.765 — rate-lock countdown, bottom-right
       '</div>' +
     '</div>'
   );

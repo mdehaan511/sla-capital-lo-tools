@@ -2472,28 +2472,11 @@ function render() {
     var sect = document.getElementById('ldNotesSection');
     var bar  = document.getElementById('ldNotesSidebar');
     if (sect && bar && sect.parentNode !== bar) bar.appendChild(sect);
-    // Deploy 236.764 — DSCR rate-lock counter card, directly ABOVE the
-    // Notes & Activity box. 45 days from application signing; amber under
-    // 15 days, red under 10 or expired.
-    var old = document.getElementById('rateLockCard');
-    if (old) old.remove();
-    var rl = _rateLockInfo(_loan);
-    if (rl && sect && sect.parentNode) {
-      var col = rl.days <= 10 ? '#7c1f1f' : (rl.days <= 15 ? '#b5712d' : 'var(--dark, #261a36)');
-      var bg  = rl.days <= 10 ? 'rgba(124,31,31,0.07)' : (rl.days <= 15 ? 'rgba(181,113,45,0.08)' : 'rgba(200,129,58,0.07)');
-      var line = rl.days > 0
-        ? 'Lock Expires in <strong>' + rl.days + ' day' + (rl.days === 1 ? '' : 's') + '</strong> on <strong>' + escH(rl.dateStr) + '</strong>'
-        : 'Rate lock <strong>EXPIRED</strong> on <strong>' + escH(rl.dateStr) + '</strong>';
-      var card = document.createElement('div');
-      card.id = 'rateLockCard';
-      card.style.cssText = 'margin-bottom:14px;padding:12px 16px;border:1px solid ' + (rl.days <= 10 ? 'rgba(124,31,31,0.35)' : 'var(--gold-border, rgba(200,129,58,0.28))') + ';border-radius:10px;background:' + bg + ';font-size:13px;color:' + col + ';display:flex;align-items:center;gap:10px';
-      card.innerHTML =
-        '<span style="font-size:17px">🔒</span>' +
-        '<span style="flex:1;line-height:1.4">' + line +
-          '<span style="display:block;font-size:11px;color:var(--muted,#7a7488);font-weight:400">45-day rate lock from application signing' + (_loan && _loan.rateLockStart ? '' : ' (from long-app completion)') + '</span>' +
-        '</span>';
-      sect.parentNode.insertBefore(card, sect);
-    }
+    // Deploy 236.765 — DSCR rate-lock counter strip at the TOP of the
+    // sidebar, sized to sit in the same band as the tab row, with a
+    // divider underneath that visually continues the tabs' underline;
+    // the Notes & Activity box starts below it (Mike's layout).
+    _renderRateLockCard();
   })();
 
   // Deploy 236.102 — move the 6 action buttons into the Actions
@@ -7473,6 +7456,36 @@ function _rateLockInfo(l) {
   };
 }
 
+// Deploy 236.765 — the rate-lock counter renders as a compact STRIP at the
+// top of the right sidebar, sized to the same ~40px band as the tab row,
+// followed by a 2px divider that visually continues the tabs' underline
+// across the sidebar; Notes & Activity starts below (Mike's layout).
+// Shared by the page render (relocateNotes) and the reset-modal repaint.
+function _renderRateLockCard() {
+  var bar = document.getElementById('ldNotesSidebar');
+  var oldCard = document.getElementById('rateLockCard'); if (oldCard) oldCard.remove();
+  var oldDiv  = document.getElementById('rateLockDivider'); if (oldDiv) oldDiv.remove();
+  if (!bar) return;
+  var rl = _rateLockInfo(_loan);
+  if (!rl) return;
+  var col = rl.days <= 10 ? '#7c1f1f' : (rl.days <= 15 ? '#b5712d' : 'var(--dark, #261a36)');
+  var line = rl.days > 0
+    ? 'Lock Expires in <strong>' + rl.days + ' day' + (rl.days === 1 ? '' : 's') + '</strong> on <strong>' + escH(rl.dateStr) + '</strong>'
+    : 'Rate lock <strong>EXPIRED</strong> on <strong>' + escH(rl.dateStr) + '</strong>';
+  var strip = document.createElement('div');
+  strip.id = 'rateLockCard';
+  strip.title = '45-day rate lock from application signing' + ((_loan && _loan.rateLockStart) ? '' : ' (derived from long-app completion)');
+  // ~38px min-height + the divider's 2px = the tab row's band (11px padding
+  // ×2 + ~16px line + 2px underline).
+  strip.style.cssText = 'min-height:38px;display:flex;align-items:center;gap:8px;font-size:13.5px;color:' + col + ';padding:0 2px';
+  strip.innerHTML = '<span style="font-size:16px">🔒</span><span style="line-height:1.35">' + line + '</span>';
+  var divider = document.createElement('div');
+  divider.id = 'rateLockDivider';
+  divider.style.cssText = 'border-bottom:2px solid ' + (rl.days <= 10 ? 'rgba(124,31,31,0.45)' : 'var(--border, #ddd8d0)') + ';margin-bottom:20px';
+  bar.insertBefore(divider, bar.firstChild);
+  bar.insertBefore(strip, divider);
+}
+
 function openResetRateLockModal() {
   if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
   var old = document.getElementById('rateLockResetModal'); if (old) old.remove();
@@ -7506,20 +7519,9 @@ function openResetRateLockModal() {
       _ldMergeLoan({ rateLockStart: r.rateLockStart });
       if (_loan && _loan.rateLockNotified) delete _loan.rateLockNotified;
       showToast('Rate lock reset — 45 days from today.');
-      // Repaint the counter card in place.
-      var sect = document.getElementById('ldNotesSection');
-      var oldCard = document.getElementById('rateLockCard');
-      if (oldCard) oldCard.remove();
-      var rl = _rateLockInfo(_loan);
-      if (rl && sect && sect.parentNode) {
-        var card = document.createElement('div');
-        card.id = 'rateLockCard';
-        card.style.cssText = 'margin-bottom:14px;padding:12px 16px;border:1px solid var(--gold-border, rgba(200,129,58,0.28));border-radius:10px;background:rgba(200,129,58,0.07);font-size:13px;color:var(--dark,#261a36);display:flex;align-items:center;gap:10px';
-        card.innerHTML = '<span style="font-size:17px">🔒</span>' +
-          '<span style="flex:1;line-height:1.4">Lock Expires in <strong>' + rl.days + ' days</strong> on <strong>' + escH(rl.dateStr) + '</strong>' +
-          '<span style="display:block;font-size:11px;color:var(--muted,#7a7488);font-weight:400">45-day rate lock from application signing</span></span>';
-        sect.parentNode.insertBefore(card, sect);
-      }
+      // Deploy 236.765 — repaint via the shared builder (single source
+      // for the strip + divider markup).
+      _renderRateLockCard();
     }).catch(function (err) {
       btn.disabled = false; btn.textContent = 'Yes — Reset to 45 Days';
       showToast('Reset failed: ' + ((err && err.message) || 'unknown'));
