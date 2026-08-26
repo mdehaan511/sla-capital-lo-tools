@@ -7485,6 +7485,16 @@ function _renderRateLockCard() {
   divider.style.cssText = 'border-bottom:2px solid ' + (rl.days <= 10 ? 'rgba(124,31,31,0.45)' : 'var(--border, #ddd8d0)') + ';margin-bottom:20px';
   bar.insertBefore(divider, bar.firstChild);
   bar.insertBefore(strip, divider);
+  // Deploy 236.765b — self-align: measure the tabs' underline and pad the
+  // strip so the divider lands on exactly the same y (font rendering
+  // makes a hardcoded height drift a pixel or two across browsers).
+  try {
+    var tabsEl = document.querySelector('.ld-tabs');
+    if (tabsEl) {
+      var delta = Math.round(tabsEl.getBoundingClientRect().bottom - divider.getBoundingClientRect().bottom);
+      if (delta > 0 && delta < 30) strip.style.minHeight = (41 + delta) + 'px';
+    }
+  } catch (_) {}
 }
 
 function openResetRateLockModal() {
