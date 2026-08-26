@@ -130,6 +130,9 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // preferred it over loanAmt but the summary never carried it, so every view
   // silently fell back to the sizer amount.
   'dutchInterest', 'finalLoanAmount',
+  // Deploy 236.748 — Multifamily-program marker (routes Open-in-Sizer to
+  // mf-dscr-sizer.html). Rides in extra.
+  'mfProgram',
 ];
 
 function _loanRowToApi(l, summary) {

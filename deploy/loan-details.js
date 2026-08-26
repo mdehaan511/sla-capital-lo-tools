@@ -827,7 +827,9 @@ function render() {
   // QuoteStore entry yet, e.g. for application-sourced loans).
   // Deploy 236.738 — GUC loans open in the GUC sizer (the label said "Open in
   // GUC Sizer" but this URL only knew DSCR vs RTL, so it landed on the RTL sizer).
-  var sizerPage = isDscr ? '/dscr-sizer.html'
+  // Deploy 236.748 — Multifamily-program DSCR loans (loan.mfProgram, saved by
+  // mf-dscr-sizer.html) reopen in the MF sizer.
+  var sizerPage = isDscr ? (l.mfProgram ? '/mf-dscr-sizer.html' : '/dscr-sizer.html')
                 : String(l.toolType || '').toLowerCase() === 'guc' ? '/guc-sizer.html'
                 : '/rtl-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(c.id) + '&loanId=' + encodeURIComponent(l.id);
@@ -8879,7 +8881,9 @@ function esSubmit() {
   // authenticates reliably.
   // Deploy 236.87 — GUC routing: a saved GUC loan must reopen in the GUC sizer.
   var _tt = String(_loan.toolType || '').toLowerCase();
-  var sizerPage = _tt === 'rtl' ? '/rtl-sizer.html' : _tt === 'guc' ? '/guc-sizer.html' : '/dscr-sizer.html';
+  // Deploy 236.748 — MF-program loans reopen in the Multifamily sizer.
+  var sizerPage = _tt === 'rtl' ? '/rtl-sizer.html' : _tt === 'guc' ? '/guc-sizer.html'
+                : _loan.mfProgram ? '/mf-dscr-sizer.html' : '/dscr-sizer.html';
   var sizerParams = 'clientId=' + encodeURIComponent(_clientId) +
                     '&loanId=' + encodeURIComponent(_loanId) +
                     '&signatureMode=1';

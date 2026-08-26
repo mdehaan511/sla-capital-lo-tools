@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DSCR Sizer — SLA Capital</title>
+  <title>Multifamily DSCR Sizer — SLA Capital</title>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -42,6 +42,10 @@
     return {
       id:          'l_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
       toolType:    toolType,
+      // Deploy 236.748 — MF program marker: keeps toolType 'dscr' (so doc
+      // review / pipeline / borrower flows treat it as DSCR) while letting
+      // every open-in-sizer picker route back to THIS sizer.
+      mfProgram:   'mf_lobal',
       address:     address || formData.address || '',
       savedAt:     new Date().toISOString(),
       updatedAt:   new Date().toISOString(),
@@ -467,7 +471,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="dscr-pricing.js?v=236584"></script>
+<script src="mf-pricing.js?v=236748"></script>
 <script>
 // Deploy 236.406 (Hardening G1) — pricing engine extracted to
 // dscr-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -492,7 +496,7 @@ var getFICOMin = SLA_DSCR.getFICOMin;
 <div class="page">
   <div class="input-card">
     <div class="card-top">
-      <h1>DSCR Loan Sizer</h1>
+      <h1>Multifamily DSCR Sizer <span style="font-size:11px;font-weight:700;color:#2563eb;letter-spacing:0.05em;background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.30);padding:2px 8px;border-radius:4px;vertical-align:4px;margin-left:8px">ADMIN</span></h1>
       <p>Rental property · 1–4 units · Long-term financing</p>
     </div>
     <div class="product-btn">DSCR — 1&#8211;4 Unit Rental Loans</div>
@@ -661,11 +665,11 @@ var getFICOMin = SLA_DSCR.getFICOMin;
       <div class="field">
         <div class="wrap">
           <label>Property Type <span class="req">*</span></label>
+          <!-- Deploy 236.748 — Multifamily sizer: property type is LOCKED
+               to 5+ Unit Multifamily (single option; the MF matrix prices
+               nothing else). -->
           <select id="propType">
-            <option value="sfr">SFR (1 Unit)</option>
-            <option value="2-4">2&#8211;4 Unit</option>
-            <option value="nw_condo">Non-Warrantable Condo</option>
-            <option value="portfolio">Portfolio</option>
+            <option value="multi" selected>5+ Unit Multifamily</option>
           </select>
         </div>
       </div>
@@ -733,8 +737,7 @@ var getFICOMin = SLA_DSCR.getFICOMin;
             <option value="5y6m">5-Year / 6-Month (5Yr/6Mo)</option>
             <option value="54321" selected>5-Year (54321)</option>
             <option value="321">3-Year (321)</option>
-            <option value="320">2-Year (320)</option>
-            <option value="300">1-Year (300)</option>
+            <!-- Deploy 236.748 — 320 / 300 are not offered on the MF LoBal sheet. -->
             <option value="none">No Prepayment Penalty</option>
           </select>
         </div>
@@ -3394,6 +3397,7 @@ function saveCurrentQuote() {
     isIO:       $('isIO').value,
     loanPurpose:$('loanPurpose').value,
     propType:   $('propType').value,
+    mfProgram:  'mf_lobal', // Deploy 236.748 — MF sizer marker (rides in formData)
     fico:       $('fico').value,
     rent:       $('rent').value,
     taxes:      $('taxes').value,
@@ -4214,6 +4218,13 @@ netlifyIdentity.on('init', function(user) {
       }
       window.location.replace('/');
     } else {
+      // Deploy 236.748 — Multifamily DSCR sizer is ADMIN-ONLY (hidden pilot).
+      // Bounce any non-admin who navigates here directly; the index.html tool
+      // card is admin-gated too.
+      if (!(window.SLA && SLA.isAdmin && SLA.isAdmin(user))) {
+        window.location.replace('/');
+        return;
+      }
       // Store LO contact info for PDF
       window._loName  = (user.user_metadata && user.user_metadata.full_name)  || '';
       window._loPhone = (user.user_metadata && user.user_metadata.phone)       || '';
@@ -4332,8 +4343,8 @@ netlifyIdentity.on('init', function(user) {
               if (k.toLowerCase() !== targetOwner) return false;
               return (byOwner[k] || []).some(function(q) {
                 if ((q.toolType || 'dscr') !== 'dscr') return false;
-                // Deploy 236.748 — Multifamily-sizer quotes live in mf-dscr-sizer.html.
-                if (q.mfProgram || (q.formData && q.formData.mfProgram)) return false;
+                // Deploy 236.748 — this panel shows ONLY Multifamily quotes.
+                if (!(q.mfProgram || (q.formData && q.formData.mfProgram))) return false;
                 if (loanIdP && q.loanId) {
                   if (q.loanId === loanIdP) { hit = q; return true; }
                   return false; // wrong loan at this owner — keep looking

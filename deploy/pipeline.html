@@ -1888,7 +1888,8 @@ function buildQuoteCard(it, colKey) {
   var _tt = String(q.toolType || '').toLowerCase();
   var tool = _tt === 'rtl' ? 'rtl' : _tt === 'guc' ? 'guc' : 'dscr';
   var loName = loDisplay(it.ownerKey);
-  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : tool === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
+  // Deploy 236.748 — MF-program DSCR loans reopen in the Multifamily sizer.
+  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : tool === 'guc' ? 'guc-sizer.html' : (q.mfProgram ? 'mf-dscr-sizer.html' : 'dscr-sizer.html');
   var sizerUrl  = sizerPage + '?loadQuote=' + encodeURIComponent(addr);
   // Deploy 236.51 — when we've resolved a deterministic loan record
   // for this card, pass its IDs through so the sizer load skips the

@@ -215,6 +215,9 @@ const LOAN_SUMMARY_FIELDS = [
   // + finalLoanAmount (Closed Loans prefers it over loanAmt; the summary never
   // carried it so views silently fell back to the sizer amount).
   'dutchInterest', 'finalLoanAmount',
+  // Deploy 236.748 — Multifamily-program marker (routes Open-in-Sizer to
+  // mf-dscr-sizer.html). Keep in sync with clients-list-pg.
+  'mfProgram',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
   // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with

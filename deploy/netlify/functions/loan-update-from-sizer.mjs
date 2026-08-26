@@ -203,6 +203,10 @@ async function handle(req, context) {
     assignedProcessors:         (Array.isArray(incoming.assignedProcessors) ? incoming.assignedProcessors : (Array.isArray(prior.assignedProcessors) ? prior.assignedProcessors : undefined)),
     _test:                      (incoming._test === true || prior._test === true) || undefined,
     slaDisplayId:               incoming.slaDisplayId               || prior.slaDisplayId               || '',
+    // Deploy 236.748 — Multifamily-program marker (mf-dscr-sizer.html). The
+    // regular DSCR sizer never sends it; preserve so a plain-DSCR save can't
+    // silently strip the loan's MF routing.
+    mfProgram:                  incoming.mfProgram                  || prior.mfProgram                  || '',
     appraisedValue:             incoming.appraisedValue             || prior.appraisedValue             || '',
     // Deploy 236.424 (D2) — formData was never on this preservation
     // list, so any PARTIAL update (API rate edit, programmatic field
