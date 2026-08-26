@@ -121,6 +121,21 @@ export async function syncPropertyFieldsToLoan(record) {
   if (data.originalPurchaseDate) loanUpdates.purchaseDate = String(data.originalPurchaseDate);
   // Deploy 236.753 — Original Purchase Price (DSCR refi) onto the loan.
   if (data.originalPurchasePrice) loanUpdates.originalPurchasePrice = String(data.originalPurchasePrice);
+  // Deploy 236.756 — Multifamily (5+) operating statement onto the loan (the
+  // MF sizer prices its NCF DSCR from these). Units occupied derives from the
+  // occupancy questions: all rented -> every unit; else units - empty.
+  const MF_SYNC_KEYS = ['otherIncomeMo','opexTaxes','opexInsurance','opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'];
+  for (const k of MF_SYNC_KEYS) { if (data[k]) loanUpdates[k] = String(data[k]); }
+  if (String(data.propertyType || '').toLowerCase() === 'mfr') {
+    const unitsN = parseInt(data.numUnits, 10);
+    if (isFinite(unitsN) && unitsN > 0) {
+      if (data.allRented === 'yes') loanUpdates.unitsOccupied = String(unitsN);
+      else {
+        const emptyN = parseInt(data.emptyUnits, 10);
+        if (isFinite(emptyN) && emptyN >= 0 && emptyN <= unitsN) loanUpdates.unitsOccupied = String(unitsN - emptyN);
+      }
+    }
+  }
 
   // Deploy 236.127 — guarantor ownership propagation. The long
   // app's % ownership field per guarantor (g0_ownership /

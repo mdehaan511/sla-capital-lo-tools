@@ -494,6 +494,16 @@ function applyPrefillToData() {
         else if (pf.loan.maxLoan) d.requestedLoanNC = pf.loan.maxLoan;
       }
     }
+    // Deploy 236.756 — Multifamily (5+) prefill: unit count + operating
+    // statement from the loan record (MF sizer / apply). Rent prefills via
+    // the generic currentRent path above (pf.loan.rent).
+    if (!d.numUnits && pf.loan.numUnits) d.numUnits = pf.loan.numUnits;
+    if (d.propertyType === 'mfr' || String(pf.loan.toolType||'') === 'dscr') {
+      if (!d.otherIncomeMo && pf.loan.otherIncomeMo) d.otherIncomeMo = pf.loan.otherIncomeMo;
+      ['opexTaxes','opexInsurance','opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'].forEach(function (k) {
+        if (!d[k] && pf.loan[k]) d[k] = pf.loan[k];
+      });
+    }
     // Deploy 236.740 — New Construction block prefill (GUC loans from the
     // ground-up application or the GUC sizer). Field names on the loan:
     // ownLand ('yes'/'no'), landDebt, purchasePrice = land value/price,
@@ -594,7 +604,10 @@ function mapPropType(pt) {
   var m = {
     'sfr': 'sfr', 'sfh': 'sfr', '2-4': '2-4', 'condo': 'condo_w',
     'nw_condo': 'condo_nw', 'townhome': 'townhome', 'portfolio': 'portfolio',
-    'mfr': 'mfr', '5+': 'mfr',
+    // Deploy 236.756 — loan records store 5+ multifamily as 'multi' (the MF
+    // sizer / apply value); without this mapping MF loans never prefilled
+    // the property type.
+    'mfr': 'mfr', '5+': 'mfr', 'multi': 'mfr',
   };
   return m[pt] || '';
 }
@@ -915,8 +928,16 @@ function renderPage3() {
     }
     if (isPurchase || isRefi) {
       // Income & expenses
+      // Deploy 236.756 — MF (5+ / 'mfr') collects the operating statement the
+      // MF sizer prices from: total rent, other income, and ANNUAL operating
+      // expenses (which include taxes/insurance/HOA — so the generic annual
+      // T/I/HOA row is replaced below). Vacancy is standardized at 5%
+      // internally and not asked. Units occupied derives from the occupancy
+      // questions at sign time.
+      var isMfr = pt === 'mfr';
       html += '<h4>Rental income & expenses</h4>' +
-        field('currentRent', 'Current Rent (or Market Rent if not rented)', 'number', { required: true, money: true }) +
+        field('currentRent', isMfr ? 'Total Monthly Rent (all units)' : 'Current Rent (or Market Rent if not rented)', 'number', { required: true, money: true }) +
+        (isMfr ? field('otherIncomeMo', 'Other Monthly Income (laundry, parking, etc.)', 'number', { money: true }) : '') +
         field('rentalKind', 'What kind of rental is this?', 'select', {
           required: true,
           options: [
@@ -949,12 +970,34 @@ function renderPage3() {
       if (d.allRented === 'no') {
         html += field('emptyUnits', 'How many units are currently empty?', 'number', { required: true });
       }
-      html += '<div class="field-row-3">' +
-        field('annualTaxes',     'Annual Taxes',       'number', { required: true, money: true }) +
-        field('annualInsurance', 'Annual Insurance',   'number', { required: true, money: true }) +
-        field('annualHOA',       'Annual HOA / other', 'number', { money: true }) +
-        '</div>' +
-        field('hasPropMgr', 'Do you use a property management company?', 'radio', {
+      if (isMfr) {
+        // Deploy 236.756 — MF annual operating expenses (replace the generic
+        // annual T/I/HOA row; taxes/insurance/HOA live in this set).
+        html += '<h4>Annual operating expenses</h4>' +
+          '<div class="field-row">' +
+            field('opexTaxes',     'Real Estate Taxes',      'number', { required: true, money: true }) +
+            field('opexInsurance', 'Property Insurance',     'number', { required: true, money: true }) +
+          '</div>' +
+          '<div class="field-row">' +
+            field('opexFlood',     'Flood Insurance',        'number', { money: true }) +
+            field('opexUtilities', 'Utilities',              'number', { money: true }) +
+          '</div>' +
+          '<div class="field-row">' +
+            field('opexRepairs',   'Repairs & Maintenance',  'number', { money: true }) +
+            field('opexMgmt',      'Property Management Fee','number', { money: true }) +
+          '</div>' +
+          '<div class="field-row">' +
+            field('opexHOA',       'HOA / Special Assessment','number', { money: true }) +
+            field('opexLandscaping','Landscaping',           'number', { money: true }) +
+          '</div>';
+      } else {
+        html += '<div class="field-row-3">' +
+          field('annualTaxes',     'Annual Taxes',       'number', { required: true, money: true }) +
+          field('annualInsurance', 'Annual Insurance',   'number', { required: true, money: true }) +
+          field('annualHOA',       'Annual HOA / other', 'number', { money: true }) +
+          '</div>';
+      }
+      html += field('hasPropMgr', 'Do you use a property management company?', 'radio', {
           required: true,
           options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
         });

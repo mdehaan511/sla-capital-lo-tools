@@ -2728,11 +2728,14 @@ function _generateRateSheetPDF(opts) {
   // the label should say "Interest Only" not "Principal & Interest" to avoid
   // confusion.
   var piLabel = r.isIO ? 'Interest Only Payment' : 'Principal & Interest';
+  // Deploy 236.756 — NCF model: the rate-sheet PDF shows the cash-flow
+  // waterfall instead of the 1-4 unit taxes/insurance/HOA rows.
   var pmtData = [
-    [piLabel,                '$'+r.pi.toFixed(2),       TEXT],
-    ['Monthly Taxes',        '$'+r.taxes.toFixed(2),    TEXT],
-    ['Monthly Insurance',    '$'+r.ins.toFixed(2),      TEXT],
-    ['Monthly HOA',          '$'+r.hoa.toFixed(2),      TEXT],
+    [piLabel,                              '$'+r.pi.toFixed(2),                 TEXT],
+    ['Gross Income (rent + other)',        '$'+(r.grossMo||0).toFixed(2),       TEXT],
+    ['Less Vacancy / Credit Loss ('+(r.vacancyPct!=null?r.vacancyPct:5)+'%)', '-$'+(r.vacMo||0).toFixed(2), TEXT],
+    ['Less Operating Expenses',            '-$'+(r.opexMo||0).toFixed(2),       TEXT],
+    ['Less CapEx Reserves ($300/unit/yr)', '-$'+(r.capexMo||0).toFixed(2),      TEXT],
   ];
 
   var pmtBlockH = 22 + pmtData.length*ROW_H + ROW_H + ROW_H + ROW_H + 14;
@@ -2758,18 +2761,18 @@ function _generateRateSheetPDF(opts) {
     py = trow(row[0], row[1], py, {labelColor:MUTED, valueColor:row[2], noLine:isLast});
   });
 
-  // Total payment
+  // Deploy 236.756 — Net Cash Flow total (replaces Total Monthly Payment +
+  // Monthly Gross Rent rows from the 1-4 unit layout).
   doc.setDrawColor(TEXT[0],TEXT[1],TEXT[2]); doc.setLineWidth(0.8);
   doc.line(lm+8, py, lm+cw-8, py);
   py += 4;
-  py = trow('Total Monthly Payment', '$'+r.totalPayment.toFixed(2), py, {
+  py = trow('Net Cash Flow (monthly)', '$'+(r.ncfMo||0).toFixed(2), py, {
     labelColor:TEXT, labelBold:true, valueColor:TEXT, valueBold:true, valueFontSize:13, noLine:true
   });
 
-  // Rent
   doc.setDrawColor(BORD[0],BORD[1],BORD[2]); doc.setLineWidth(0.5);
   doc.line(lm+8, py, lm+cw-8, py);
-  py = trow('Monthly Gross Rent', '$'+r.rent.toFixed(2), py, {
+  py = trow('Total Monthly Payment (P&I)', '$'+r.totalPayment.toFixed(2), py, {
     labelColor:MUTED, valueColor:TEXT, valueBold:true, valueFontSize:11, noLine:true
   });
 

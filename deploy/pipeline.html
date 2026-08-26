@@ -281,6 +281,8 @@
     .card-meta .tag.rtl  { background: rgba(38,26,54,0.08); color: var(--dark); }
     /* Deploy 236.87 — GUC tag (Ground Up Construction, Eastview product). */
     .card-meta .tag.guc  { background: rgba(37,99,235,0.10); color: #2563eb; border: 1px solid rgba(37,99,235,0.30); }
+    /* Deploy 236.756 — Multifamily DSCR application cards */
+    .card-meta .tag.mf   { background: rgba(37,105,64,0.08); color: #256940; border: 1px solid rgba(37,105,64,0.28); }
     /* Deploy 236.50 — property-type tag. Neutral grey by default so it
        lives quietly next to the DSCR/RTL tool tag. Portfolio gets a
        distinct accent because it's the new comparison case that 236.49
@@ -1710,17 +1712,19 @@ function buildProspectCard(it) {
   var addr = p.propAddress || '';
   // Deploy 236.729 — ground_up applications carry the GUC badge + route to
   // the GUC sizer (openInSizer + the sizerPage picker already handle 'guc').
+  // Deploy 236.756 — 5+ Unit Multifamily DSCR applications route to the MF
+  // sizer ('mf'); the card badge shows DSCR (it IS a DSCR product).
   var tool = (p.loanProduct === 'ground_up' || p.loanProduct === 'guc') ? 'guc'
     : (p.loanProduct === 'fix_flip' || p.loanProduct === 'rtl'
     || p.loanProduct === 'bridge'   || p.loanProduct === 'transactional')
-    ? 'rtl' : 'dscr';
+    ? 'rtl' : (String(p.propType || '') === 'multi' ? 'mf' : 'dscr');
   // Deploy 236.499 — RTL New Application cards show the estimated MAX LOAN
   // (computed from the application via the sizer's engine), not the purchase
   // price. Falls back to purchase price when it can't be computed.
   var _rtlMax = (tool === 'rtl') ? computeRtlProspectMax(p) : null;
   var amt  = fmtMoney(num(_rtlMax || p.purchasePrice || p.propertyValue));
   var loName = loDisplay(it.ownerKey);
-  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : tool === 'guc' ? 'guc-sizer.html' : 'dscr-sizer.html';
+  var sizerPage = tool === 'rtl' ? 'rtl-sizer.html' : tool === 'guc' ? 'guc-sizer.html' : tool === 'mf' ? 'mf-dscr-sizer.html' : 'dscr-sizer.html';
 
   var loRow = (_scope === 'all' && _isStaff)
     ? '<div class="lo-tag">' + escH(loName) + '</div>'
@@ -2916,7 +2920,10 @@ function openInSizer(prospectId, ownerKey, tool) {
   try { localStorage.setItem('sla_prefill_prospect', JSON.stringify(item.prospect)); } catch(e){}
   // Deploy 236.738 — GUC routing: ground_up applications open the GUC sizer
   // (the card badge said GUC but this nav still fell through to DSCR).
-  var dest = (tool === 'rtl') ? 'rtl-sizer.html' : (tool === 'guc') ? 'guc-sizer.html' : 'dscr-sizer.html';
+  // Deploy 236.756 — MF routing: a 5+ Unit Multifamily DSCR application
+  // opens the Multifamily sizer.
+  var dest = (tool === 'rtl') ? 'rtl-sizer.html' : (tool === 'guc') ? 'guc-sizer.html'
+           : (tool === 'mf') ? 'mf-dscr-sizer.html' : 'dscr-sizer.html';
   var params = '?fromProspect=1';
   // Deploy 236.293 — cross-LO handoff. When the prospect belongs to a
   // different LO than the current user (admin viewing all-scope, or an

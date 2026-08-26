@@ -1309,7 +1309,7 @@ function render() {
 
   html += '<a href="'+escAttr(sizerUrl)+'" class="open-sizer-btn">' +
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 7.5h11M8.5 3l4 4.5-4 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    'Open in '+(isDscr?'DSCR':(_isGucLoan(l)?'GUC':'RTL'))+' Sizer to Modify Financials' +
+    'Open in '+(isDscr?(l.mfProgram?'Multifamily DSCR':'DSCR'):(_isGucLoan(l)?'GUC':'RTL'))+' Sizer to Modify Financials' +
   '</a>';
 
   // Deploy 236.626 — if a signed rate-sheet envelope exists, this button downloads

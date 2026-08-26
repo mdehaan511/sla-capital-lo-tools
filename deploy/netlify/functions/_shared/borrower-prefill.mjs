@@ -48,6 +48,14 @@ export function applyLoanPrefill(pf, loan) {
   // them in formData.
   pf.loan.ownLand  = loan.ownLand  || (loan.formData && loan.formData.ownLand)  || '';
   pf.loan.landDebt = loan.landDebt || (loan.formData && loan.formData.landDebt) || '';
+  // Deploy 236.756 — Multifamily (5+) operating-statement fields for the long
+  // app's MF income/expense block.
+  pf.loan.numUnits      = loan.numUnits || '';
+  pf.loan.unitsOccupied = loan.unitsOccupied || '';
+  pf.loan.otherIncomeMo = loan.otherIncomeMo || '';
+  ['opexTaxes','opexInsurance','opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'].forEach((k) => {
+    pf.loan[k] = loan[k] || '';
+  });
   pf.loan.projectDescription = loan.projectDescription || '';
   pf.loan.fico            = loan.fico || (pf.borrower && pf.borrower.fico) || '';
   pf.loan.annualTaxes     = annualize(loan.taxes);
