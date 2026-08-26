@@ -1,7 +1,7 @@
 /**
  * rate-lock-reminder-cron.mjs — daily rate-lock expiration reminders
  *
- * Deploy 236.763 — DSCR loans carry a 45-day rate lock from the day the
+ * Deploy 236.764 — DSCR loans carry a 45-day rate lock from the day the
  * loan application is signed (loan.rateLockStart, stamped at signing;
  * legacy loans fall back to borrowerInfoCompletedAt). When the lock has
  * 30 / 15 / 10 / 5 days remaining, BOTH the borrower and the Loan

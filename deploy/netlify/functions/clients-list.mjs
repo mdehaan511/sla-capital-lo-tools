@@ -218,9 +218,9 @@ const LOAN_SUMMARY_FIELDS = [
   // Deploy 236.748 — Multifamily-program marker (routes Open-in-Sizer to
   // mf-dscr-sizer.html). Keep in sync with clients-list-pg.
   'mfProgram',
-  // Deploy 236.763 — DSCR rate-lock counter (45 days from application
+  // Deploy 236.764 — DSCR rate-lock counter (45 days from application
   // signing). rateLockStart is the explicit stamp/reset; the display
-  // falls back to borrowerInfoCompletedAt for loans signed pre-236.763.
+  // falls back to borrowerInfoCompletedAt for loans signed pre-236.764.
   'rateLockStart', 'borrowerInfoCompletedAt',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',

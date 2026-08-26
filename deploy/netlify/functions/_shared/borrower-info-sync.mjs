@@ -446,7 +446,7 @@ export async function advanceQuoteToInProcessing(record) {
   for (const l of client.loans) {
     // Deploy 236.13 — strict loanId match.
     if (targetLoanId && l.id !== targetLoanId) continue;
-    // Deploy 236.763 — DSCR rate lock: 45 days from the day the loan
+    // Deploy 236.764 — DSCR rate lock: 45 days from the day the loan
     // application is signed. Stamped here (this runs from the sign
     // handler) independent of the awaiting_app advance below, so a loan
     // signed in any status still starts its lock. Never re-stamped —
@@ -511,7 +511,7 @@ export async function advanceQuoteToInProcessing(record) {
     // is "never throws" but a runtime bug must not block the loan
     // advance. Baseline failure is captured in the helper's audit
     // log and Slack alert.
-    // Deploy 236.763 — guarded on advancedLoan: loanUpdated can now be
+    // Deploy 236.764 — guarded on advancedLoan: loanUpdated can now be
     // true from the rate-lock stamp alone (no status advance).
     if (advancedLoan) {
     try {

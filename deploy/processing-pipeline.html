@@ -1076,7 +1076,7 @@ function renderCard(it) {
     ? '<span title="' + _openC + ' open conditions" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(124,31,31,0.10);color:#7c1f1f">' + _openC + ' cond</span>'
     : (_totC > 0 ? '<span title="All conditions cleared" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(37,105,64,0.10);color:#166534">✓ cond</span>' : '');
 
-  // Deploy 236.763 — DSCR rate-lock badge (45 days from application
+  // Deploy 236.764 — DSCR rate-lock badge (45 days from application
   // signing; rateLockStart stamped at sign, legacy loans fall back to
   // borrowerInfoCompletedAt). Red ≤10 days or expired, amber ≤15.
   var lockBadge = '';
@@ -1124,7 +1124,7 @@ function renderCard(it) {
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
         condBadge +
-        lockBadge + // Deploy 236.763 — rate-lock countdown
+        lockBadge + // Deploy 236.764 — rate-lock countdown
         closeInput +
       '</div>' +
     '</div>'

@@ -1,7 +1,7 @@
 /**
  * loan-rate-lock-reset.mjs — POST /api/loan-rate-lock-reset
  *
- * Deploy 236.763 — DSCR rate lock: 45 days from the day the loan
+ * Deploy 236.764 — DSCR rate lock: 45 days from the day the loan
  * application is signed (rateLockStart, stamped by borrower-info-sync;
  * legacy loans fall back to borrowerInfoCompletedAt for display). This
  * endpoint is the "Reset Rate Lock" action in the Loan Details Actions

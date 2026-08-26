@@ -1416,7 +1416,7 @@ function render() {
     'Generate Application PDF (Unsigned)' +
   '</button>';
 
-  // Deploy 236.763 — Reset Rate Lock (DSCR only; 45-day lock from the day
+  // Deploy 236.764 — Reset Rate Lock (DSCR only; 45-day lock from the day
   // the loan application is signed). Rides into the Actions menu via
   // relocateActions; the click opens a Yes/No confirm modal.
   if (isDscr) {
@@ -2472,7 +2472,7 @@ function render() {
     var sect = document.getElementById('ldNotesSection');
     var bar  = document.getElementById('ldNotesSidebar');
     if (sect && bar && sect.parentNode !== bar) bar.appendChild(sect);
-    // Deploy 236.763 — DSCR rate-lock counter card, directly ABOVE the
+    // Deploy 236.764 — DSCR rate-lock counter card, directly ABOVE the
     // Notes & Activity box. 45 days from application signing; amber under
     // 15 days, red under 10 or expired.
     var old = document.getElementById('rateLockCard');
@@ -2513,7 +2513,7 @@ function render() {
       'reviewAppBtn',             // Review Submitted Application
       'downloadSignedAppBtn',     // Download Signed App (PDF)
       'downloadUnsignedAppBtn',   // Generate Application PDF (Unsigned)
-      'ldResetRateLockBtn',       // Deploy 236.763 — Reset Rate Lock (DSCR)
+      'ldResetRateLockBtn',       // Deploy 236.764 — Reset Rate Lock (DSCR)
       // Deploy 236.641 — loan-level actions from the dismantled Change Loan
       // Status box now live in the Actions menu (Change Type + Merge, then the
       // destructive Cancel / Decline / Delete). Conditional buttons that
@@ -7453,7 +7453,7 @@ function _pofBuildPdf(f, logoImg) {
   showToast('Proof of Funds letter downloaded.');
 }
 
-// ── Deploy 236.763 — DSCR rate lock (45 days from application signing) ──
+// ── Deploy 236.764 — DSCR rate lock (45 days from application signing) ──
 // rateLockStart is stamped at sign time (borrower-info-sync) and by the
 // Reset action; legacy signed loans fall back to borrowerInfoCompletedAt.
 function _rateLockInfo(l) {
