@@ -790,6 +790,9 @@ async function notifyLO(prospect, ids) {
   if (prospect.landDebt)       textLines.push(`Land Debt: ${fmtMoney(prospect.landDebt)}`);
   if (prospect.gcName || prospect.gcPhone || prospect.gcEmail)
     textLines.push(`GC: ${[prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · ')}`);
+  // Deploy 236.757 — MF (5+) unit counts in the text fallback too.
+  if (prospect.numUnits)       textLines.push(`Units:    ${prospect.numUnits}${prospect.unitsOccupied ? ` (${prospect.unitsOccupied} occupied)` : ''}`);
+  if (prospect.otherIncomeMo)  textLines.push(`Other Income: ${fmtMoney(prospect.otherIncomeMo)}/mo`);
   if (prospect.monthlyRent)    textLines.push(`Rent:     ${fmtMoney(prospect.monthlyRent)}`);
   if (prospect.fundingDate)    textLines.push(`Funding:  ${fmtDate(prospect.fundingDate)}`);
   if (prospect.projectDescription) textLines.push(`Project:  ${prospect.projectDescription}`);
@@ -846,6 +849,10 @@ async function notifyLO(prospect, ids) {
     row('Owns the Land', esc(prospect.ownLand)) +
     row('Land Debt', fmtMoney(prospect.landDebt)) +
     row('General Contractor', esc([prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · '))) +
+    // Deploy 236.757 — MF (5+) unit counts; empty rows drop out for non-MF.
+    row('Number of Units', esc(prospect.numUnits)) +
+    row('Units Occupied', esc(prospect.unitsOccupied)) +
+    row('Other Monthly Income', fmtMoney(prospect.otherIncomeMo)) +
     row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
     row('Funding Date', esc(fmtDate(prospect.fundingDate))) +
     row('Project Description', esc(prospect.projectDescription)) +
@@ -1380,7 +1387,12 @@ async function notifySlack(prospect, ids) {
   const humanizePropType = (code) => {
     const c = String(code || '').toLowerCase();
     if (c === 'sfr')       return 'Single Family Residence';
-    if (c === 'multi'    || c === '2-4' || c === '2_4' || c === 'multifamily') return '2-4 Unit Residential';
+    // Deploy 236.757 — 'multi' is the 5+ Unit Multifamily code since the
+    // apply form gained the MF option (236.750); it was previously lumped
+    // in with the 2-4 codes, so MF applications hit Slack labeled
+    // "2-4 Unit Residential".
+    if (c === 'multi')     return '5+ Unit Multifamily';
+    if (c === '2-4' || c === '2_4' || c === 'multifamily') return '2-4 Unit Residential';
     if (c === 'condo')     return 'Condo';
     if (c === 'townhome' || c === 'townhouse') return 'Townhouse';
     if (c === 'portfolio') return 'Portfolio';
@@ -1480,6 +1492,11 @@ async function notifySlack(prospect, ids) {
     line('Loan Type',                     productLabel),
     line('Purchasing or Refinancing',     humanizePurpose(prospect.loanPurpose)),
     line('Property Type',                 humanizePropType(prospect.propType)),
+    // Deploy 236.757 — MF (5+) unit counts + other income; blank lines
+    // drop out via filterLines so non-MF messages are untouched.
+    line('Number of Units',               prospect.numUnits),
+    line('Units Occupied',                prospect.unitsOccupied),
+    line('Other Monthly Income',          fmtMoney(prospect.otherIncomeMo)),
     line('Beds / Baths / SqFt',           (prospect.bedrooms || prospect.bathrooms || prospect.sqft)
       ? `${prospect.bedrooms || '?'} / ${prospect.bathrooms || '?'} / ${prospect.sqft || '?'}`
       : ''),
