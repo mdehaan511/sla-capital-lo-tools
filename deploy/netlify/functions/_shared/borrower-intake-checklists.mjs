@@ -32,6 +32,9 @@ const RTL_ITEMS = [
   { slug: 'assignment_agreement',       label: 'Assignment Contract',           hint: 'Only if this is an assignment / wholesale deal.', optional: true },
   { slug: 'sow',                        label: 'Statement of Work',             hint: 'Your rehab budget + line-item scope. Use our template below.', templateUrl: SOW_TEMPLATE_URL },
   { slug: 'voided_check',               label: 'Voided Check',                  hint: 'A voided check for the account your payments will come from.' },
+  // Deploy 236.744 — Track Record is borrower-submitted for RTL AND GUC (this
+  // list serves both programs; GUC falls through to the RTL list).
+  { slug: 'track_record',               label: 'Track Record',                  hint: 'Your completed projects from the last 36 months — settlement statements or HUD-1s showing both the purchase and the sale/refinance.' },
   { slug: 'articles_of_organization',   label: 'Articles of Organization',      hint: 'The recorded Articles for your LLC.' },
   { slug: 'certificate_of_good_standing', label: 'Certificate of Good Standing', hint: 'Dated within the last 90 days.' },
   { slug: 'operating_agreement',        label: 'Operating Agreement',           hint: 'Signed operating agreement for the entity.' },

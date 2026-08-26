@@ -37,15 +37,32 @@ export async function autoAttachOnApproval({ ownerKey, client, loan, actorEmail 
   try {
     const review = await _findReviewForLoan({ ownerKey, clientId: client.id, loanId: loan.id, address: loan.address });
     if (!review) {
-      // No review exists yet — processor will create one later and
-      // can manually upload. Not an error.
+      // No review exists yet — loan-reviews-save now attaches at CREATE time
+      // (Deploy 236.744), so nothing is lost. Not an error.
       console.log('[auto-attach] no review for loan ' + loan.id + ' — skipping');
       return { ok: true, attached: 0, reason: 'no-review' };
     }
+    return await attachSourceDocs({
+      ownerKey, clientId: client.id, loanId: loan.id, address: loan.address,
+      review, actorEmail, save: true,
+    });
+  } catch (e) {
+    console.error('[auto-attach] unexpected error:', e && e.message);
+    return { ok: false, error: (e && e.message) || 'unknown' };
+  }
+}
 
+// Deploy 236.744 — the attach core, now shared: called by the sign-time path
+// above AND by loan-reviews-save at CREATE time (a review created after the
+// app was signed used to get neither doc — Mike's GUC test). `save:false`
+// mutates the in-memory review without a store write (the caller saves next).
+export async function attachSourceDocs({ ownerKey, clientId, loanId, address, review, actorEmail, save }) {
+  try {
     let attached = 0;
     const docsStore   = getStore({ name: 'loan-review-docs', consistency: 'strong' });
     const reviewStore = getStore({ name: 'loan_reviews',     consistency: 'strong' });
+    const loan = { id: loanId, address };
+    const client = { id: clientId };
 
     // ── 1. Signed Loan Application ────────────────────────────
     const signedApp = await _readSignedApp({ ownerKey, clientId: client.id, loanId: loan.id });
@@ -103,7 +120,7 @@ export async function autoAttachOnApproval({ ownerKey, client, loan, actorEmail 
       }
     }
 
-    if (attached > 0) {
+    if (attached > 0 && save !== false) {
       review.updatedAt = new Date().toISOString();
       review.lastEditedBy = actorEmail || 'auto:approval';
       review.lastEditedAt = review.updatedAt;

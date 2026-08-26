@@ -291,7 +291,13 @@ export const GUC_CONSTRUCTION_DOCS = [
   { slug: 'gc_review', label: 'General Contractor Review', section: 'collateral',
     conditions: 'General Contractor package: a signed construction contract with a line-item budget and draw schedule; the GC\'s license (active and in-scope for the jurisdiction); general-liability and workers\'-comp insurance; and references / a track record of comparable completed builds. The GC is an arm\'s-length third party — or a borrower-affiliated GC is disclosed and reviewed. W-9 on file; OFAC/background screen on the GC entity and its principal.' },
 ];
-export const GUC_DOCS = [...RTL_DOCS, ...GUC_CONSTRUCTION_DOCS];
+// Deploy 236.744 — GUC uses a full Appraisal (as-completed) instead of the
+// BPO/Valuation option (Mike): drop bpo_valuation; the RTL 'appraisal' item
+// (in RTL_DOCS since 236.670) carries the valuation requirement.
+export const GUC_DOCS = [
+  ...RTL_DOCS.filter((d) => d.slug !== 'bpo_valuation'),
+  ...GUC_CONSTRUCTION_DOCS,
+];
 
 export function getChecklist(loanType) {
   const t = String(loanType || '').toLowerCase();

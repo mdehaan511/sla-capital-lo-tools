@@ -876,10 +876,14 @@
         }).join('') + '</div>';
       }
 
-      var isDscr = String(loan && loan.toolType || _review.loanType || '').toLowerCase() !== 'rtl';
+      // Deploy 236.744 — GUC is its own program: it used to fall into the
+      // "not rtl → DSCR" bucket and render as "DSCR (GUC)".
+      var _srcTool = String(loan && loan.toolType || _review.loanType || '').toLowerCase();
+      var isGucSrc = _srcTool === 'guc';
+      var isDscr = !isGucSrc && _srcTool !== 'rtl';
 
       var loanRows = [
-        { k: 'Loan type',       v: (isDscr ? 'DSCR' : 'RTL') + ' (' + ((loan && loan.toolType) ? String(loan.toolType).toUpperCase() : '—') + ')' },
+        { k: 'Loan type',       v: isGucSrc ? 'GUC (Ground-Up Construction)' : ((isDscr ? 'DSCR' : 'RTL') + ' (' + ((loan && loan.toolType) ? String(loan.toolType).toUpperCase() : '—') + ')') },
         { k: 'Loan purpose',    v: label(LOAN_PURPOSE_LABELS, f('loanPurpose', '')) },
         { k: 'Loan amount',     v: money(f('loanAmt', '')) },
         { k: 'Note rate',       v: pct(f('rate', ''), 3) },

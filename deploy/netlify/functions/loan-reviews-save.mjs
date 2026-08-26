@@ -219,6 +219,25 @@ async function handle(req, context) {
     } catch (e) {
       console.warn('loan-reviews-save: snapshot fetch failed (non-fatal):', e && e.message);
     }
+    // Deploy 236.744 — attach the signed Loan Application + latest Rate Sheet
+    // at CREATE time. The sign-time auto-attach (236.160) only fires when a
+    // review already exists at signing; a review created afterwards (the
+    // common processor flow) got neither doc. save:false — the review is
+    // written for the first time just below.
+    try {
+      const { attachSourceDocs } = await import('./_shared/loan-review-auto-attach.mjs');
+      await attachSourceDocs({
+        ownerKey: keySafe(review.source.ownerKey),
+        clientId: review.source.clientId,
+        loanId:   review.source.loanId,
+        address:  (review.sourceLoanSnapshot && review.sourceLoanSnapshot.address) || review.address,
+        review,
+        actorEmail: selfEmail,
+        save: false,
+      });
+    } catch (e) {
+      console.warn('loan-reviews-save: create-time source-doc attach failed (non-fatal):', e && e.message);
+    }
   }
 
   // Deploy 236.690 — Portfolio: give the Collateral section per-property trays.
