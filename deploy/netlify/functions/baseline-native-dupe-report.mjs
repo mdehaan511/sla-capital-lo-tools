@@ -187,13 +187,75 @@ async function handle(req, context) {
   // whose loans are now 0). Re-scans each call, so processing slice(0,limit)
   // shrinks the list; loop until nothing is deleted.
   const body = (await readJsonBody(req)) || {};
+  const mode = String(body.mode || (body.apply === true ? 'safe_exact' : '')).trim();
+
+  // ── TARGETED delete (Deploy 236.763) — delete EXACTLY the records named in
+  // body.deletes:[{ownerKey,clientId,loanId}]. For the cross-owner / Baseline-match
+  // decisions where the loser has its OWN loanId (no shared PG row to reclaim): a
+  // solo client → delete client (blob + PG); a multi-loan client → splice that loan
+  // out + strict re-write (its PG row goes with the client_id match). No reclaim.
+  if (body.apply === true && mode === 'targeted') {
+    const list = Array.isArray(body.deletes) ? body.deletes : [];
+    const deleted = [], skipped = [], errors = [];
+    for (const d of list) {
+      try {
+        if (!d || !d.ownerKey || !d.clientId || !d.loanId) { skipped.push({ reason: 'missing ownerKey/clientId/loanId', d }); continue; }
+        const ck = d.ownerKey + '/' + keySafe(d.clientId);
+        const client = await clientsStore.get(ck, { type: 'json' }).catch(() => null);
+        if (!client || !Array.isArray(client.loans)) { skipped.push({ clientId: d.clientId, reason: 'client vanished' }); continue; }
+        if (!client.loans.some((l) => l && l.id === d.loanId)) { skipped.push({ clientId: d.clientId, loanId: d.loanId, reason: 'loan not on client (already gone?)' }); continue; }
+        if (client.loans.length === 1) {
+          await clientsStore.delete(ck);
+          try { await pgMirror.deleteClientStrict(d.clientId); }
+          catch (e) { errors.push({ clientId: d.clientId, error: 'PG client delete failed: ' + ((e && e.message) || 'unknown') }); }
+          deleted.push({ op: 'delete_client', clientId: d.clientId, loanId: d.loanId });
+        } else {
+          client.loans = client.loans.filter((l) => !(l && l.id === d.loanId));
+          await writeClient(d.ownerKey, client, { clientsStore });
+          deleted.push({ op: 'splice_loan', clientId: d.clientId, loanId: d.loanId });
+        }
+      } catch (e) {
+        errors.push({ clientId: d && d.clientId, error: (e && e.message) || 'unknown' });
+      }
+    }
+    return json(200, { ok: true, apply: true, mode: 'targeted',
+      summary: { requested: list.length, deleted: deleted.length, skipped: skipped.length, errors: errors.length },
+      deleted, skipped, errors });
+  }
+
+  // ── RECLAIM-then-delete: safe_exact (default) OR collapse_loanid. The two records
+  // SHARE a loanId, so reclaim the keeper's PG row first (Deploy 236.755).
   if (body.apply === true) {
     const limit = (Number(body.limit) > 0) ? Math.floor(Number(body.limit)) : 15;
     const targets = [];
-    for (const g of safeExact) {
-      for (const dc of g.deleteCandidates) targets.push({ address: g.address, keeper: g.keeper, cand: dc });
+    if (mode === 'collapse_loanid') {
+      // Deploy 236.763 — collapse EVERY loanId in >1 record. A loanId is globally
+      // unique, so two records with it are ALWAYS the same loan → keep one, delete
+      // the rest is safe. Handles per-loan dups inside multi-loan-per-address groups
+      // (① keep-both) + import copies in review groups (③). Keeper: never import,
+      // then prefer the grouped (multi-loan) client, then most-recent.
+      const byLoan = new Map();
+      for (const [, entries] of byAddr) for (const e of entries) {
+        if (!byLoan.has(e.loanId)) byLoan.set(e.loanId, []);
+        byLoan.get(e.loanId).push(e);
+      }
+      for (const [, recs] of byLoan) {
+        if (recs.length < 2) continue;
+        const rk = recs.slice().sort((a, b) =>
+          (a.ownerKey === IMPORT_OWNER_KEY ? 1 : 0) - (b.ownerKey === IMPORT_OWNER_KEY ? 1 : 0) ||
+          (a.soloLoanInClient ? 1 : 0) - (b.soloLoanInClient ? 1 : 0) ||
+          String(b.updatedAt).localeCompare(String(a.updatedAt)) ||
+          String(a.clientId).localeCompare(String(b.clientId)));
+        const keeper = rk[0];
+        for (const c of rk.slice(1)) {
+          if (c.clientId === keeper.clientId && c.loanId === keeper.loanId) continue;
+          targets.push({ address: c.address, keeper: { ownerKey: keeper.ownerKey, clientId: keeper.clientId, loanId: keeper.loanId }, cand: { ownerKey: c.ownerKey, clientId: c.clientId, loanId: c.loanId } });
+        }
+      }
+    } else {
+      for (const g of safeExact) for (const dc of g.deleteCandidates) targets.push({ address: g.address, keeper: g.keeper, cand: dc });
     }
-    targets.sort((a, b) => (a.cand.ownerKey + '|' + a.cand.clientId).localeCompare(b.cand.ownerKey + '|' + b.cand.clientId));
+    targets.sort((a, b) => (a.cand.ownerKey + '|' + a.cand.clientId + '|' + a.cand.loanId).localeCompare(b.cand.ownerKey + '|' + b.cand.clientId + '|' + b.cand.loanId));
     const batch = targets.slice(0, limit);
     const deleted = [], skipped = [], errors = [];
     for (const t of batch) {
@@ -215,15 +277,9 @@ async function handle(req, context) {
         errors.push({ address: t.address, clientId: t.cand.clientId, error: (e && e.message) || 'unknown' });
       }
     }
-    return json(200, {
-      ok: true, apply: true,
-      summary: {
-        safeExactTargets: targets.length,
-        deleted: deleted.length, skipped: skipped.length, errors: errors.length,
-        remaining: Math.max(0, targets.length - deleted.length),
-      },
-      deleted, skipped, errors,
-    });
+    return json(200, { ok: true, apply: true, mode: mode || 'safe_exact',
+      summary: { targets: targets.length, deleted: deleted.length, skipped: skipped.length, errors: errors.length, remaining: Math.max(0, targets.length - deleted.length) },
+      deleted, skipped, errors });
   }
 
   return json(200, {
