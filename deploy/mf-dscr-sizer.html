@@ -463,7 +463,7 @@
 
 <!-- ════════════════════════════════════════════════════════
   PRICING CONFIG — DIYA CAPITAL
-  Source: Diya 1-4 Unit Rate Sheet — Effective 8.4.26  |  Updated: 2026-08-04
+  Source: Diya MF 5+ LoBal Rate Sheet — Effective 8.7.26 (engine: mf-pricing.js)
 
   BUY-DOWN LOGIC (Deploy 236.39 model):
   - HIDDEN_TPO (1.00% = 0.280 rate adj) is always added, never shown to borrower.
@@ -511,9 +511,9 @@ var getFICOMin = SLA_DSCR.getFICOMin;
   <div class="input-card">
     <div class="card-top">
       <h1>Multifamily DSCR Sizer <span style="font-size:11px;font-weight:700;color:#2563eb;letter-spacing:0.05em;background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.30);padding:2px 8px;border-radius:4px;vertical-align:4px;margin-left:8px">ADMIN</span></h1>
-      <p>Rental property · 1–4 units · Long-term financing</p>
+      <p>Rental property · 5+ units · Long-term financing</p>
     </div>
-    <div class="product-btn">DSCR — 1&#8211;4 Unit Rental Loans</div>
+    <div class="product-btn">DSCR — 5+ Unit Multifamily LoBal</div>
 
     <div class="form-body">
 
@@ -1028,7 +1028,7 @@ function renderResult(r) {
     var excBtn = r.dscrBelowMin
       ? '<div style="margin-top:12px;text-align:center"><button type="button" onclick="_showDscrBelow1Modal(' + (typeof r.dscr === 'number' ? r.dscr : 0) + ')" style="background:var(--gold,#C8813A);color:#fff;border:none;border-radius:6px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Submit manager exception</button></div>'
       : '';
-    return '<div class="rate-card"><div class="rate-header"><div class="rate-header-left"><div class="lender">SLA Capital</div><div class="prog">DSCR &mdash; 1&ndash;4 Unit</div></div></div><div class="rate-body"><div class="inelig">&#9888; '+r.error+'</div>'+excBtn+'</div></div>';
+    return '<div class="rate-card"><div class="rate-header"><div class="rate-header-left"><div class="lender">SLA Capital</div><div class="prog">DSCR &mdash; 5+ Unit Multifamily</div></div></div><div class="rate-body"><div class="inelig">&#9888; '+r.error+'</div>'+excBtn+'</div></div>';
   }
 
   // Guideline validation banners
@@ -3182,8 +3182,11 @@ function prefillFromProspect(p) {
   // in. Doesn't apply to refis (they use currentLoanAmt) or RTL.
   var _pIsDscrPurchase = String(p.loanPurpose || '').toLowerCase() === 'purchase';
   var _pPxNum = parseFloat(String(p.purchasePrice || '').replace(/[^\d.]/g, '')) || 0;
+  // Deploy 236.758 — MF LoBal caps at 75% LTV (vs 80% on the 1-4 unit
+  // sizer this page was cloned from); the 80% default opened every
+  // prospect straight into the "exceeds the 75% maximum" error card.
   var _pDefaultLoanAmt = _pIsDscrPurchase && _pPxNum > 0
-    ? String(Math.round(_pPxNum * 0.80))
+    ? String(Math.round(_pPxNum * 0.75))
     : (p.purchasePrice || '');
   // Deploy 236.576 — DSCR PURCHASE always prices off the PURCHASE PRICE; a
   // collected current/property value must NOT drive LTV (Mike: "value does not
