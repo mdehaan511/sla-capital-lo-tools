@@ -1402,6 +1402,13 @@
   status = 200
   force = true
 
+# Deploy 236.763 — DSCR rate-lock reset (Actions menu on Loan Details).
+[[redirects]]
+  from = "/api/loan-rate-lock-reset"
+  to = "/.netlify/functions/loan-rate-lock-reset"
+  status = 200
+  force = true
+
 # Hardening Phase A2 — frontend error beacon. Accepts anonymous posts
 # (public borrower pages need coverage most); throttled server-side.
 [[redirects]]

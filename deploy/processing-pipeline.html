@@ -1076,6 +1076,27 @@ function renderCard(it) {
     ? '<span title="' + _openC + ' open conditions" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(124,31,31,0.10);color:#7c1f1f">' + _openC + ' cond</span>'
     : (_totC > 0 ? '<span title="All conditions cleared" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(37,105,64,0.10);color:#166534">✓ cond</span>' : '');
 
+  // Deploy 236.763 — DSCR rate-lock badge (45 days from application
+  // signing; rateLockStart stamped at sign, legacy loans fall back to
+  // borrowerInfoCompletedAt). Red ≤10 days or expired, amber ≤15.
+  var lockBadge = '';
+  if (_view !== 'closed' && col !== 'pp_closed' && tool === 'dscr') {
+    var _rlStart = Date.parse(loan.rateLockStart || loan.borrowerInfoCompletedAt || '');
+    if (isFinite(_rlStart)) {
+      var _rlExp  = _rlStart + 45 * 86400000;
+      var _rlDays = Math.ceil((_rlExp - Date.now()) / 86400000);
+      var _rlD    = new Date(_rlExp);
+      var _rlDate = (_rlD.getMonth() + 1) + '/' + _rlD.getDate() + '/' + _rlD.getFullYear();
+      var _rlCol  = _rlDays <= 10 ? '#7c1f1f' : (_rlDays <= 15 ? '#b5712d' : '#166534');
+      var _rlBg   = _rlDays <= 10 ? 'rgba(124,31,31,0.10)' : (_rlDays <= 15 ? 'rgba(181,113,45,0.12)' : 'rgba(37,105,64,0.10)');
+      var _rlTxt  = _rlDays > 0 ? ('🔒 ' + _rlDays + 'd') : '🔒 expired';
+      var _rlTitle = _rlDays > 0
+        ? 'Rate lock expires in ' + _rlDays + ' day' + (_rlDays === 1 ? '' : 's') + ' on ' + _rlDate
+        : 'Rate lock EXPIRED on ' + _rlDate;
+      lockBadge = '<span title="' + escAttr(_rlTitle) + '" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:' + _rlBg + ';color:' + _rlCol + '">' + _rlTxt + '</span>';
+    }
+  }
+
   // Deploy 236.100 — card is a <div> (not <a>) so HTML5 drag/drop
   // works without fighting native link-drag behavior. Click handler
   // navigates to loan-details unless we just finished dragging.
@@ -1103,6 +1124,7 @@ function renderCard(it) {
       '<div class="card-meta">' +
         '<span class="tag ' + tool + '">' + toolLabel + '</span>' +
         condBadge +
+        lockBadge + // Deploy 236.763 — rate-lock countdown
         closeInput +
       '</div>' +
     '</div>'

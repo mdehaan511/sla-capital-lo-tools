@@ -124,6 +124,9 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.706 — per-draw annotations (Draws tab: wire sent + reimbursement
   // requested), keyed by Sitewire draw id. Rides in extra.
   'drawMeta',
+  // Deploy 236.763 — DSCR rate-lock counter (45 days from application signing);
+  // keep in sync with clients-list.mjs.
+  'rateLockStart', 'borrowerInfoCompletedAt',
   // Deploy 236.710 — Dutch/Non-Dutch interest structure drives the Draws tab's
   // computed UPB (Dutch = full balance, Non-Dutch = initial + drawn). Also ship
   // finalLoanAmount (set at close by quotes-close) — Closed Loans always

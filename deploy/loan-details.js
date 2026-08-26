@@ -1415,6 +1415,16 @@ function render() {
     '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2h6l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 2v3h3M5 8h5M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
     'Generate Application PDF (Unsigned)' +
   '</button>';
+
+  // Deploy 236.763 — Reset Rate Lock (DSCR only; 45-day lock from the day
+  // the loan application is signed). Rides into the Actions menu via
+  // relocateActions; the click opens a Yes/No confirm modal.
+  if (isDscr) {
+    html += '<button type="button" class="open-sizer-btn" id="ldResetRateLockBtn" onclick="openResetRateLockModal()" style="margin-top:8px">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.5a6 6 0 106 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13.5 1.5v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 4.5v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      'Reset Rate Lock (45 days)' +
+    '</button>';
+  }
   // Small inline status under the button: signer name + signed-at + IP.
   // Hidden by default until refreshSignedApplicationStatus() fills it.
   html += '<div id="signedAppStatus" style="display:none;margin-top:10px;padding:10px 12px;background:#fff;border:1px solid var(--border, #E4DFD4);border-radius:6px;font-size:11.5px;line-height:1.5"></div>';
@@ -2462,6 +2472,28 @@ function render() {
     var sect = document.getElementById('ldNotesSection');
     var bar  = document.getElementById('ldNotesSidebar');
     if (sect && bar && sect.parentNode !== bar) bar.appendChild(sect);
+    // Deploy 236.763 — DSCR rate-lock counter card, directly ABOVE the
+    // Notes & Activity box. 45 days from application signing; amber under
+    // 15 days, red under 10 or expired.
+    var old = document.getElementById('rateLockCard');
+    if (old) old.remove();
+    var rl = _rateLockInfo(_loan);
+    if (rl && sect && sect.parentNode) {
+      var col = rl.days <= 10 ? '#7c1f1f' : (rl.days <= 15 ? '#b5712d' : 'var(--dark, #261a36)');
+      var bg  = rl.days <= 10 ? 'rgba(124,31,31,0.07)' : (rl.days <= 15 ? 'rgba(181,113,45,0.08)' : 'rgba(200,129,58,0.07)');
+      var line = rl.days > 0
+        ? 'Lock Expires in <strong>' + rl.days + ' day' + (rl.days === 1 ? '' : 's') + '</strong> on <strong>' + escH(rl.dateStr) + '</strong>'
+        : 'Rate lock <strong>EXPIRED</strong> on <strong>' + escH(rl.dateStr) + '</strong>';
+      var card = document.createElement('div');
+      card.id = 'rateLockCard';
+      card.style.cssText = 'margin-bottom:14px;padding:12px 16px;border:1px solid ' + (rl.days <= 10 ? 'rgba(124,31,31,0.35)' : 'var(--gold-border, rgba(200,129,58,0.28))') + ';border-radius:10px;background:' + bg + ';font-size:13px;color:' + col + ';display:flex;align-items:center;gap:10px';
+      card.innerHTML =
+        '<span style="font-size:17px">🔒</span>' +
+        '<span style="flex:1;line-height:1.4">' + line +
+          '<span style="display:block;font-size:11px;color:var(--muted,#7a7488);font-weight:400">45-day rate lock from application signing' + (_loan && _loan.rateLockStart ? '' : ' (from long-app completion)') + '</span>' +
+        '</span>';
+      sect.parentNode.insertBefore(card, sect);
+    }
   })();
 
   // Deploy 236.102 — move the 6 action buttons into the Actions
@@ -2481,6 +2513,7 @@ function render() {
       'reviewAppBtn',             // Review Submitted Application
       'downloadSignedAppBtn',     // Download Signed App (PDF)
       'downloadUnsignedAppBtn',   // Generate Application PDF (Unsigned)
+      'ldResetRateLockBtn',       // Deploy 236.763 — Reset Rate Lock (DSCR)
       // Deploy 236.641 — loan-level actions from the dismantled Change Loan
       // Status box now live in the Actions menu (Change Type + Merge, then the
       // destructive Cancel / Decline / Delete). Conditional buttons that
@@ -7418,6 +7451,80 @@ function _pofBuildPdf(f, logoImg) {
   var safeAddr = String(f.propertyAddress || 'Loan').replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'Loan';
   doc.save('Proof of Funds - ' + safeAddr + '.pdf');
   showToast('Proof of Funds letter downloaded.');
+}
+
+// ── Deploy 236.763 — DSCR rate lock (45 days from application signing) ──
+// rateLockStart is stamped at sign time (borrower-info-sync) and by the
+// Reset action; legacy signed loans fall back to borrowerInfoCompletedAt.
+function _rateLockInfo(l) {
+  if (!l) return null;
+  if (String(l.toolType || '').toLowerCase() !== 'dscr') return null;
+  var dead = ['closed', 'cancelled', 'denied', 'sold', 'liquidated', 'paid_off'];
+  if (dead.indexOf(String(l.status || '').toLowerCase()) >= 0) return null;
+  var start = l.rateLockStart || l.borrowerInfoCompletedAt || '';
+  var t = Date.parse(start);
+  if (!isFinite(t)) return null;
+  var expiresMs = t + 45 * 86400000;
+  var days = Math.ceil((expiresMs - Date.now()) / 86400000);
+  var d = new Date(expiresMs);
+  return {
+    start: start, expiresMs: expiresMs, days: days,
+    dateStr: (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear(),
+  };
+}
+
+function openResetRateLockModal() {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  var old = document.getElementById('rateLockResetModal'); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = 'rateLockResetModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:420px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:16px 20px;border-bottom:1px solid var(--border,#E4DFD4)">' +
+        '<div style="font-family:\'Lora\',serif;font-size:17px;font-weight:600;color:var(--dark,#261A36)">Reset Rate Lock</div>' +
+      '</div>' +
+      '<div style="padding:18px 20px;font-size:14px;line-height:1.5">' +
+        'Are you sure you want to reset the rate lock?' +
+        '<div style="font-size:12px;color:var(--muted,#7a7488);margin-top:6px">The lock restarts at <strong>45 days from today</strong> and the expiration reminder emails re-arm.</div>' +
+      '</div>' +
+      '<div style="padding:14px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" id="rlResetNoBtn" style="font-size:13px;padding:8px 18px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">No</button>' +
+        '<button type="button" id="rlResetYesBtn" style="font-size:13px;padding:8px 18px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">Yes — Reset to 45 Days</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+  document.getElementById('rlResetNoBtn').addEventListener('click', function () { wrap.remove(); });
+  document.getElementById('rlResetYesBtn').addEventListener('click', function () {
+    var btn = document.getElementById('rlResetYesBtn');
+    btn.disabled = true; btn.textContent = 'Resetting…';
+    var body = { clientId: _client.id, loanId: _loanId };
+    if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+    SLA.api('POST', '/api/loan-rate-lock-reset', body).then(function (r) {
+      wrap.remove();
+      _ldMergeLoan({ rateLockStart: r.rateLockStart });
+      if (_loan && _loan.rateLockNotified) delete _loan.rateLockNotified;
+      showToast('Rate lock reset — 45 days from today.');
+      // Repaint the counter card in place.
+      var sect = document.getElementById('ldNotesSection');
+      var oldCard = document.getElementById('rateLockCard');
+      if (oldCard) oldCard.remove();
+      var rl = _rateLockInfo(_loan);
+      if (rl && sect && sect.parentNode) {
+        var card = document.createElement('div');
+        card.id = 'rateLockCard';
+        card.style.cssText = 'margin-bottom:14px;padding:12px 16px;border:1px solid var(--gold-border, rgba(200,129,58,0.28));border-radius:10px;background:rgba(200,129,58,0.07);font-size:13px;color:var(--dark,#261a36);display:flex;align-items:center;gap:10px';
+        card.innerHTML = '<span style="font-size:17px">🔒</span>' +
+          '<span style="flex:1;line-height:1.4">Lock Expires in <strong>' + rl.days + ' days</strong> on <strong>' + escH(rl.dateStr) + '</strong>' +
+          '<span style="display:block;font-size:11px;color:var(--muted,#7a7488);font-weight:400">45-day rate lock from application signing</span></span>';
+        sect.parentNode.insertBefore(card, sect);
+      }
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Yes — Reset to 45 Days';
+      showToast('Reset failed: ' + ((err && err.message) || 'unknown'));
+    });
+  });
 }
 
 function deleteThisLoan() {

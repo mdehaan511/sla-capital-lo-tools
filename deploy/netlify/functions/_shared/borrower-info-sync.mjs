@@ -446,6 +446,25 @@ export async function advanceQuoteToInProcessing(record) {
   for (const l of client.loans) {
     // Deploy 236.13 — strict loanId match.
     if (targetLoanId && l.id !== targetLoanId) continue;
+    // Deploy 236.763 — DSCR rate lock: 45 days from the day the loan
+    // application is signed. Stamped here (this runs from the sign
+    // handler) independent of the awaiting_app advance below, so a loan
+    // signed in any status still starts its lock. Never re-stamped —
+    // the Reset Rate Lock action on Loan Details is the only way to
+    // restart the clock.
+    if (String(l.toolType || '').toLowerCase() === 'dscr' && !l.rateLockStart) {
+      l.rateLockStart = record.completedAt || new Date().toISOString();
+      l.updatedAt = new Date().toISOString();
+      const _exp = new Date(new Date(l.rateLockStart).getTime() + 45 * 86400000);
+      appendNoteEntry(l, {
+        kind:        'rate_lock',
+        text:        'Rate lock started — 45 days from application signing (expires ' + _exp.toISOString().slice(0, 10) + ').',
+        author:      'SLA Platform',
+        authorEmail: 'system@slacapital.com',
+        meta:        { rateLockStart: l.rateLockStart },
+      });
+      loanUpdated = true;
+    }
     if (l.status === 'awaiting_app') {
       const prevStatus = l.status;
       l.status = 'approved';
@@ -492,6 +511,9 @@ export async function advanceQuoteToInProcessing(record) {
     // is "never throws" but a runtime bug must not block the loan
     // advance. Baseline failure is captured in the helper's audit
     // log and Slack alert.
+    // Deploy 236.763 — guarded on advancedLoan: loanUpdated can now be
+    // true from the rate-lock stamp alone (no status advance).
+    if (advancedLoan) {
     try {
       await _baselineSyncOnApproval(client, advancedLoan, record.ownerKey, record.advancedBy || 'auto:borrower-info-complete');
     } catch (e) {
@@ -511,6 +533,7 @@ export async function advanceQuoteToInProcessing(record) {
       });
     } catch (e) {
       console.warn('advanceQuoteToInProcessing: auto-attach threw, ignoring:', e && e.message);
+    }
     }
     try {
       await clientsStore.setJSON(clientKey, client);
