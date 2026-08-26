@@ -25,6 +25,7 @@ import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth, isAdmin, readJsonBody, keySafe } from './_shared/auth.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
+import { IMPORT_OWNER_KEY } from './_shared/baseline-upsert.mjs';
 
 function num(v) { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
 function loanAmt(l) { return num(l.finalLoanAmount) || num(l.loanAmt) || 0; }
@@ -100,6 +101,11 @@ async function handle(req, context) {
     if (!copies.length) continue;  // no Baseline artifact here — not a migration dupe
 
     const owners = [...new Set(entries.map((e) => e.ownerKey))];
+    // Deploy 236.761 — the baseline-migration IMPORT account is NOT a real owner:
+    // a copy under it is the same import artifact the dashboard Dedupe removes. So
+    // a group whose only "cross-owner" is import-account-vs-one-real-LO is NOT
+    // ambiguous → keep the real LO's record, delete the import copy.
+    const realOwners = [...new Set(entries.filter((e) => e.ownerKey !== IMPORT_OWNER_KEY).map((e) => e.ownerKey))];
     const amts = entries.map((e) => e.amt).filter((a) => a > 0);
     const amountMismatch = amts.length > 1 && (Math.max(...amts) - Math.min(...amts)) > Math.max(...amts) * 0.02;
 
@@ -109,7 +115,7 @@ async function handle(req, context) {
     else type = 'multi_native';
 
     const flags = [];
-    if (owners.length > 1) flags.push('cross_owner');   // needs Mike to pick the owning LO
+    if (realOwners.length > 1) flags.push('cross_owner');   // needs Mike to pick the owning LO (import account doesn't count)
     if (amountMismatch) flags.push('amount_mismatch');  // maybe two different loans — do NOT auto-delete
     if (type === 'multi_native') flags.push('multi_native');
 
@@ -136,6 +142,7 @@ async function handle(req, context) {
     // then the SLA-YYYYMMDD-NNNN id format, then most-recently-updated.
     const isNewFmt = (e) => /^SLA-\d{8}-\d+$/.test(e.slaDisplayId || '');
     const ranked = entries.slice().sort((a, b) =>
+      (a.ownerKey === IMPORT_OWNER_KEY ? 1 : 0) - (b.ownerKey === IMPORT_OWNER_KEY ? 1 : 0) ||  // never keep an import-account copy
       (a.soloLoanInClient ? 1 : 0) - (b.soloLoanInClient ? 1 : 0) ||
       (b.servicerName ? 1 : 0) - (a.servicerName ? 1 : 0) ||
       (isNewFmt(b) ? 1 : 0) - (isNewFmt(a) ? 1 : 0) ||
