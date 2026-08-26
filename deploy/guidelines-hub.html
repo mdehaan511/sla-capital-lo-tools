@@ -146,12 +146,32 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       </div>
     </a>
 
+    <!-- Multifamily DSCR (5+) — Deploy 236.749; admin-only while the MF sizer pilots. -->
+    <a class="guide-card" href="guidelines-mf.html" id="mfGuideCard" style="display:none">
+      <div class="guide-card-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M2 19h18M4 19V6h6v13M13 19V9h5v10M6 9h1M6 12h1M6 15h1M15 12h.5M15 15h.5" stroke="var(--gold)" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </div>
+      <span class="card-badge">Diya · Multifamily 5+ Term</span>
+      <div class="card-name">Multifamily DSCR Guidelines <span style="font-size:10px;font-weight:700;color:#2563eb;letter-spacing:0.05em;background:rgba(37,99,235,0.10);border:1px solid rgba(37,99,235,0.30);padding:2px 6px;border-radius:4px;vertical-align:2px;margin-left:6px">ADMIN</span></div>
+      <div class="card-desc">5-30 unit multifamily term loans: rate matrix, LTV caps by market tier, DSCR by market, unit-count and per-unit limits, occupancy, net worth &amp; liquidity, appraisal standards, and eligible states.</div>
+      <div class="card-meta">
+        <span class="card-version">Matrix 6/7/26 · Rates 8/7/26</span>
+        <span class="card-arrow">Open →</span>
+      </div>
+    </a>
+
   </div>
 </div>
 
 <script>
 
-netlifyIdentity.on('init', function(u){ if(!u) netlifyIdentity.open(); });
+netlifyIdentity.on('init', function(u){
+  if(!u) netlifyIdentity.open();
+  // Deploy 236.749 — MF guidelines card is admin-only while the MF sizer pilots.
+  if (u && window.SLA && SLA.isAdmin && SLA.isAdmin(u)) {
+    var c = document.getElementById('mfGuideCard'); if (c) c.style.display = '';
+  }
+});
 netlifyIdentity.on('logout', function(){ netlifyIdentity.open(); });
 </script>
 </body>

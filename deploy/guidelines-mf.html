@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Multifamily DSCR Guidelines — SLA Capital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="sla-api.js"></script>
+  <script src="sla-notifications.js"></script>
+<script src="sla-chat.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+  --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+  --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+  --pill-bg: #f7f5f1; --success: #256940; --warn: #7a5218; --danger: #7c1f1f;
+  --r: 12px; --r-sm: 8px;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+.nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 0; display: flex; align-items: center; justify-content: space-between; }
+.nav img { height: 44px; width: auto; }
+.nav-right { display: flex; align-items: center; gap: 10px; }
+.nav-left { display: flex; align-items: center; gap: 12px; }
+.nav-tools-btn {
+  display: inline-block; padding: 6px 14px;
+  border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid);
+  border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif;
+  text-decoration: none; transition: all 0.15s; white-space: nowrap;
+}
+.nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+.nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+.nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+.logout-btn { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+
+.page { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+.header { display: flex; align-items: center; gap: 16px; margin-bottom: 1.5rem; }
+.title-block h1 { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.title-block p { font-size: 12px; color: var(--muted); }
+.lender-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; padding: 3px 8px; border-radius: 20px; background: var(--gold-light); color: var(--gold-mid); border: 1px solid var(--gold-border); }
+
+.layout { display: grid; grid-template-columns: 240px 1fr; gap: 24px; }
+@media (max-width: 880px) { .layout { grid-template-columns: 1fr; } .sidebar { position: static !important; max-height: none !important; } }
+
+.sidebar { position: sticky; top: 16px; max-height: calc(100vh - 48px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 0; align-self: start; }
+.nav-section { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.nav-section:last-child { border-bottom: none; }
+.nav-section-label { padding: 8px 16px 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); opacity: 0.6; }
+.sidebar a { display: block; padding: 7px 16px; font-size: 13px; color: var(--text); text-decoration: none; border-left: 3px solid transparent; transition: background 0.1s, border-color 0.1s; }
+.sidebar a:hover { background: var(--gold-light); border-left-color: var(--gold); color: var(--gold-mid); }
+.sidebar a.active { background: var(--gold-light); border-left-color: var(--gold); color: var(--gold-mid); font-weight: 500; }
+
+.main { min-width: 0; }
+.search-bar { position: relative; margin-bottom: 16px; }
+.search-bar input { width: 100%; padding: 13px 18px 13px 46px; border: 1.5px solid var(--border); border-radius: var(--r); font-family: 'DM Sans', sans-serif; font-size: 14px; background: var(--surface); color: var(--text); transition: border-color 0.15s; }
+.search-bar input:focus { outline: none; border-color: var(--gold); }
+.search-bar input::placeholder { color: var(--muted); }
+.search-bar svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.search-results-count { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+.section-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 20px; overflow: hidden; scroll-margin-top: 24px; }
+.section-block.hidden { display: none; }
+.section-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; transition: background 0.12s; }
+.section-header:hover { background: var(--bg); }
+.section-header h2 { font-family: 'Lora', serif; font-size: 16px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 10px; }
+.section-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; padding: 3px 8px; border-radius: 20px; border: 1px solid transparent; }
+.section-tag.matrix { background: var(--gold-light); color: var(--gold-mid); border-color: var(--gold-border); }
+.section-tag.criteria { background: rgba(38,26,54,0.08); color: var(--dark); border-color: rgba(38,26,54,0.18); }
+.section-tag.alert { background: rgba(124,31,31,0.08); color: var(--danger); border-color: rgba(124,31,31,0.18); }
+.section-chevron { transition: transform 0.15s; color: var(--muted); }
+.section-block.open .section-chevron { transform: rotate(90deg); }
+
+.section-body { padding: 1.5rem; display: none; }
+.section-body.open { display: block; }
+.section-body p { font-size: 13.5px; line-height: 1.7; color: var(--text); margin-bottom: 12px; }
+.section-body p:last-child { margin-bottom: 0; }
+.section-body h3 { font-family: 'Lora', serif; font-size: 14px; font-weight: 600; color: var(--dark); margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.section-body h3:first-child { margin-top: 0; }
+.section-body h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 16px 0 6px; }
+.section-body strong { color: var(--dark); font-weight: 600; }
+.section-body em { color: var(--gold-mid); font-style: normal; font-weight: 500; }
+.section-body ul { margin: 4px 0 12px 18px; }
+.section-body li { font-size: 13.5px; line-height: 1.7; color: var(--text); margin-bottom: 4px; }
+.section-body code { font-family: 'DM Mono', monospace; font-size: 12px; background: var(--pill-bg); padding: 1px 6px; border-radius: 4px; color: var(--dark); }
+
+.matrix-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; font-family: 'DM Mono', monospace; }
+.matrix-table th, .matrix-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: center; }
+.matrix-table thead th { background: var(--pill-bg); font-weight: 700; font-size: 11px; color: var(--dark); }
+.matrix-table thead th.exp { background: var(--dark); color: #fff; font-family: 'DM Sans', sans-serif; text-transform: uppercase; letter-spacing: 0.05em; }
+.matrix-table thead .sub-row th { background: var(--gold-light); color: var(--gold-mid); font-size: 10px; }
+.matrix-table tbody td.fico { background: var(--pill-bg); font-weight: 700; text-align: left; }
+.matrix-table tbody td.empty { color: var(--muted); opacity: 0.4; }
+.matrix-table tbody td.star::after { content: '*'; color: var(--gold); font-weight: 700; }
+.matrix-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
+
+.exclusion-list { background: rgba(124,31,31,0.05); border: 1px solid rgba(124,31,31,0.18); border-radius: var(--r-sm); padding: 12px 16px; }
+.exclusion-list strong { color: var(--danger); }
+
+.fact-list { display: grid; grid-template-columns: 220px 1fr; gap: 8px 16px; font-size: 13px; }
+.fact-list dt { font-weight: 600; color: var(--dark); }
+.fact-list dd { color: var(--text); }
+
+.empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+.empty strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+
+mark { background: rgba(200,129,58,0.35); color: inherit; padding: 0 2px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html" style="display:flex;align-items:center;text-decoration:none"><img src="SLA_Capital_Logo_2_1.png" alt="SLA Capital" onerror="this.style.display='none'" /></a>
+    <a href="index.html" class="nav-tools-btn">Tools</a>
+  </div>
+  <div class="nav-right">
+    <a class="nav-tool-link" href="pipeline.html">Pipeline</a>
+    <a class="nav-tool-link" href="clients.html">Clients</a>
+    <a class="nav-tool-link" href="brokers.html">Brokers</a>
+    <a class="nav-tool-link" id="navSubmissionsLink" href="submissions.html" style="display:none">Submissions</a>
+    <a class="nav-tool-link" href="profile.html">Profile</a>
+    <button class="logout-btn" onclick="netlifyIdentity.logout()">Sign out</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="header">
+    <div class="title-block">
+      <h1>Multifamily DSCR Guidelines (5+ Units)</h1>
+      <p>Diya Finance · Multifamily (5+) Term · Guideline Matrix updated 6/7/2026 · Rate sheet effective 8/7/2026</p>
+    </div>
+    <span class="lender-tag">Diya · MF</span>
+  </div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="nav-section">
+        <div class="nav-section-label">Loan Sizing</div>
+        <a href="#mf-pricing"   class="nav-link">Rates &amp; Adjustments</a>
+        <a href="#mf-ltv"       class="nav-link">Maximum LTV</a>
+        <a href="#mf-amounts"   class="nav-link">Loan &amp; Property Limits</a>
+        <a href="#mf-dscr"      class="nav-link">DSCR Requirements</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Loan Criteria</div>
+        <a href="#mf-property"  class="nav-link">Property Requirements</a>
+        <a href="#mf-occupancy" class="nav-link">Occupancy</a>
+        <a href="#mf-borrower"  class="nav-link">Borrower &amp; Guarantor</a>
+        <a href="#mf-reserves"  class="nav-link">Net Worth &amp; Liquidity</a>
+        <a href="#mf-appraisal" class="nav-link">Appraisal &amp; Condition</a>
+        <a href="#mf-states"    class="nav-link">Eligible States</a>
+      </div>
+</aside>
+
+    <main class="main">
+      <div class="search-bar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#7a7488" stroke-width="1.5"><circle cx="8" cy="8" r="5"/><path d="M12 12l4 4" stroke-linecap="round"/></svg>
+        <input type="text" id="searchInput" placeholder="Search guidelines… (FICO, LTV, rehab, bridge, etc.)" />
+        <span class="search-results-count" id="searchCount"></span>
+      </div>
+
+      <div id="results">
+
+        <section class="section-block open" id="mf-pricing" data-search="rate base rate arm fixed ppp prepay adjustment fico ltv matrix pricing multifamily 5+ lobal">
+          <div class="section-header" onclick="toggleSection('mf-pricing')">
+            <h2>Rates &amp; Adjustments <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body open">
+            <p><strong>Multifamily 5+ (LoBal)</strong> rate sheet effective <em>8/7/2026</em>. Minimum note rate <strong>6.25%</strong>. The <strong>+1.000% 5+ Multifamily adjustment always applies</strong> and is not offered above 75% LTV.</p>
+            <h4>Base Rates</h4>
+            <table class="matrix-table">
+              <thead><tr><th>30 YR Fixed</th><th>10/6 ARM</th><th>7/6 ARM</th><th>5/6 ARM</th></tr></thead>
+              <tbody><tr><td>6.45%</td><td>6.45%</td><td>6.35%</td><td>6.35%</td></tr></tbody>
+            </table>
+            <h4>FICO / LTV Adjustments</h4>
+            <table class="matrix-table">
+              <thead><tr><th>FICO</th><th>&le;50</th><th>50-55</th><th>55-60</th><th>60-65</th><th>65-70</th><th>70-75</th></tr></thead>
+              <tbody>
+                <tr><td class="fico">780+</td><td>-0.125</td><td>-0.125</td><td>-0.125</td><td>-0.050</td><td>0.000</td><td>+0.050</td></tr>
+                <tr><td class="fico">760-779</td><td>-0.100</td><td>-0.100</td><td>-0.100</td><td>-0.025</td><td>+0.025</td><td>+0.100</td></tr>
+                <tr><td class="fico">740-759</td><td>-0.075</td><td>-0.075</td><td>-0.050</td><td>0.000</td><td>+0.050</td><td>+0.150</td></tr>
+                <tr><td class="fico">720-739</td><td>-0.025</td><td>0.000</td><td>+0.025</td><td>+0.050</td><td>+0.075</td><td>+0.200</td></tr>
+                <tr><td class="fico">700-719</td><td>0.000</td><td>+0.050</td><td>+0.075</td><td>+0.100</td><td>+0.125</td><td>+0.250</td></tr>
+                <tr><td class="fico">&lt;700</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+            <h4>Other Adjustments</h4>
+            <ul>
+              <li><strong>5+ Multifamily:</strong> +1.000% (always; NA above 75% LTV)</li>
+              <li><strong>Cash-Out Refi:</strong> +0.050% (&le;75% LTV)</li>
+              <li><strong>Interest Only:</strong> no adjustment (&le;75% LTV)</li>
+              <li><strong>DSCR &ge; 1.20:</strong> &minus;0.050%</li>
+              <li><strong>Prepay:</strong> 5Yr/6Mo &minus;0.150 · 5-Year (54321) &minus;0.100 · 3-Year (321) +0.050</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-ltv" data-search="ltv maximum leverage 74.99 70 market tier top standard small cash out cap ltc">
+          <div class="section-header" onclick="toggleSection('mf-ltv')">
+            <h2>Maximum LTV <span class="section-tag matrix">Matrix</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <table class="matrix-table">
+              <thead>
+                <tr><th rowspan="2">FICO</th><th colspan="2" class="exp">Purchase</th><th colspan="2" class="exp">Rate Refi / Cash-Out</th></tr>
+                <tr class="sub-row"><th>Top / Standard</th><th>Small / Very Small</th><th>Top / Standard</th><th>Small / Very Small</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="fico">&ge; 740</td><td>74.99%</td><td>70%</td><td>74.99%</td><td>70%</td></tr>
+                <tr><td class="fico">720-739</td><td>70%</td><td>70%</td><td>70%</td><td>70%</td></tr>
+                <tr><td class="fico">700-719</td><td>70%</td><td>70%</td><td>70%</td><td>70%</td></tr>
+                <tr><td class="fico">&lt; 700</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td></tr>
+              </tbody>
+            </table>
+            <p class="matrix-note">Max cash-out $500,000. Up to $1,000,000 cash-out allowed when LTC &le; 100% and LTV &le; 65%; higher requires pre-approval.</p>
+            <h4>Maximum LTC (by months since acquisition)</h4>
+            <ul>
+              <li><strong>&lt; 3 months:</strong> max LTC 80%</li>
+              <li><strong>3-6 months:</strong> max LTC 100%</li>
+            </ul>
+            <p>LTV = loan &divide; lowest of underwritten as-is value or purchase price (2% seller-concession limit, 20% assignment-fee limit). LTC = loan &divide; (purchase price + paid hard-cost improvements). A refi counts as Rate/Term only when the paid-off debt is a lien recorded on title.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-amounts" data-search="loan amount minimum maximum 350000 5000000 3000000 exposure units per unit property value 500000 15000000 cre program">
+          <div class="section-header" onclick="toggleSection('mf-amounts')">
+            <h2>Loan &amp; Property Limits <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <dl class="fact-list">
+              <dt>Minimum property value</dt><dd>$500,000 · average $75,000 per unit</dd>
+              <dt>Maximum per-property value</dt><dd>$15,000,000</dd>
+              <dt>Minimum loan</dt><dd>$350,000</dd>
+              <dt>Maximum loan</dt><dd>$5,000,000 · up to $10,000,000 on exception · <em>&gt; $3,000,000 requires the TPO approved for Diya's CRE program</em></dd>
+              <dt>Max average loan per unit</dt><dd>$1,000,000</dd>
+              <dt>Max guarantor exposure</dt><dd>$6,000,000 (higher on exception)</dd>
+              <dt>Properties per loan</dt><dd>1</dd>
+              <dt>Units per property</dt><dd>5-30 (&gt; 10 requires the CRE program; &gt; 30 on exception)</dd>
+            </dl>
+            <p class="matrix-note">The 8/7/26 rate sheet prices UPB to $3.0M — loans above that need manager pricing confirmation even where guideline-eligible.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-dscr" data-search="dscr ncf net cash flow 1.20 1.30 1.40 market tier rent roll noi back test lease">
+          <div class="section-header" onclick="toggleSection('mf-dscr')">
+            <h2>DSCR Requirements <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p><strong>NCF-based DSCR</strong>: monthly in-place Net Cash Flow &divide; monthly P&amp;I, after all operating revenue, expenses, and cap-ex reserves.</p>
+            <h4>Minimum NCF DSCR by market tier</h4>
+            <ul>
+              <li><strong>Top / Standard market:</strong> 1.20x</li>
+              <li><strong>Small market:</strong> 1.30x</li>
+              <li><strong>Very Small market:</strong> 1.40x</li>
+            </ul>
+            <h4>Gross rental income</h4>
+            <p>The <em>lower</em> of actual monthly rent (lease / rent roll) or market rent per the appraisal. Short-term-rental (Airbnb) income is <strong>not</strong> allowed. A leased unit = 12-month initial term between unrelated parties (or month-to-month following a prior active 12-month lease).</p>
+            <h4>NOI back test (not for pricing)</h4>
+            <ul>
+              <li>NOI &divide; hypothetical 30-yr amortizing payment &ge; 1.00x</li>
+              <li>NOI &divide; hypothetical 25-yr amortizing payment &ge; 0.95x below 75% LTV, &ge; 1.15x at 75%+</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-property" data-search="property eligible ineligible section 8 mixed use student senior condotel co-op leasehold manufactured pace acres 400 sqft">
+          <div class="section-header" onclick="toggleSection('mf-property')">
+            <h2>Property Requirements <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <h4>Eligible</h4>
+            <ul>
+              <li>5-30 units attached (larger on exception)</li>
+              <li>Minimum 400 sqft per unit (&lt; 400 sqft on pre-approval)</li>
+              <li>Tenant-based Section 8, subject to guarantor experience</li>
+              <li>Legal nonconforming use, subject to exception review; insurance must meet or exceed the loan amount</li>
+            </ul>
+            <h4>Ineligible</h4>
+            <div class="exclusion-list">
+              <p><strong>Not eligible:</strong> ground-up / heavy rehab without an issued CofO (temporary CofO with proof of completion considered) · lot size over 3 acres · mixed-use · dedicated student housing · senior / age-restricted housing · short-term vacation rentals (rare exceptions) · project-based Section 8 · rent-stabilized / rent-controlled (exception basis) · PACE financing · condotels · co-ops · leaseholds · manufactured / modular / log homes · commercial · oil &amp; gas leases · rural areas, farms, ranches, orchards.</p>
+            </div>
+            <h4>Loan purpose</h4>
+            <p>Business purpose only: Purchase · Rate/Term Refi (max $2,000 cash back) · Cash-Out Refi · Delayed Purchase (owned free-and-clear within 180 days of acquisition; purchase terms apply).</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-occupancy" data-search="occupancy 80% 90% 85% units occupied vacant exception">
+          <div class="section-header" onclick="toggleSection('mf-occupancy')">
+            <h2>Occupancy <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <p>Minimum occupancy: <strong>80%</strong> for 5-9 units, <strong>90%</strong> for 10+ units. In practice: 5-19 units require all but one unit occupied; 20 units require 18; above 20, 90% of units.</p>
+            <p><em>85% may be approved on exception</em> for (1) a recently built/renovated property in a Top or Standard market, or (2) a purchase where the sponsor is experienced with asset-management capability, appraised occupancy/rents are materially above current operations, historical occupancy is stable, and the property has no serious crime history.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-borrower" data-search="borrower guarantor credit 700 620 fico tri-merge recourse experience 12 months entity llc citizenship visa gifts mortgage history 0x30x12">
+          <div class="section-header" onclick="toggleSection('mf-borrower')">
+            <h2>Borrower &amp; Guarantor <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <dl class="fact-list">
+              <dt>Entity</dt><dd>LLCs and corporations organized in any state or DC</dd>
+              <dt>Citizenship</dt><dd>US citizens and legal permanent residents</dd>
+              <dt>Minimum FICO</dt><dd>700 (highest guarantor's score may be used; every guarantor &ge; 620). Tri-merge report &le; 90 days (120 for repeat borrowers with clean 12-month history)</dd>
+              <dt>Credit history</dt><dd>Fraud-engine pull required · 2+ active lines, one with 24+ months · no BK / FC / short sale / DIL in 4 years · judgments, liens, charge-offs, non-medical collections paid in full</dd>
+              <dt>Mortgage history</dt><dd>Max 0x30x12</dd>
+              <dt>Gifts</dt><dd>Not allowed</dd>
+              <dt>Recourse</dt><dd>Full recourse with warm-body guaranty. Guarantors must hold &ge; 51% of the entity (including day-to-day managers). Limited recourse not allowed.</dd>
+              <dt>Experience</dt><dd>12+ months owning similar-sized multifamily. Section 8 sponsors: 3+ owned &amp; stabilized Section 8 rentals (similar size, same submarket, 12+ months)</dd>
+            </dl>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-reserves" data-search="net worth liquidity reserves 25% 1.5x 5% pca post closing">
+          <div class="section-header" onclick="toggleSection('mf-reserves')">
+            <h2>Net Worth &amp; Liquidity <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <ul>
+              <li><strong>Net worth:</strong> loans &lt; $3M &rarr; 25% of the loan amount; loans &ge; $3M &rarr; 1.5x the loan amount</li>
+              <li><strong>Post-closing liquidity:</strong> &ge; 5% of the loan amount</li>
+              <li>All loans to the same borrower/guarantors closing within 6 months count toward the reserve requirement</li>
+              <li><strong>Purchases:</strong> additionally, liquid reserves must cover all PCA items flagged Critical or Immediate Repair</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-appraisal" data-search="appraisal mai narrative commercial 120 days bpo hybrid not allowed esa rsra environmental pca phase i bowery cbre colliers cushman newmark title secure insight">
+          <div class="section-header" onclick="toggleSection('mf-appraisal')">
+            <h2>Appraisal &amp; Property Condition <span class="section-tag criteria">Criteria</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <ul>
+              <li>One <strong>full narrative commercial appraisal by an MAI appraiser</strong>, dated &le; 120 days (180 with recertification); USPAP/FIRREA compliant</li>
+              <li><strong>Hybrid appraisal, BPO, or internal valuation is NOT allowed</strong></li>
+              <li>Third-party inspection + construction-budget review required for any MF property purchased and rehabbed in the last 2 years</li>
+              <li>RSRA pulled on every property; Elevated/High risk requires a full Phase I ESA</li>
+              <li>PCA report required for all loans of $3M+</li>
+            </ul>
+            <h4>Approved commercial appraisers</h4>
+            <p>Bowery · CBRE · Colliers · Cushman &amp; Wakefield · Newmark</p>
+            <h4>Approved environmental firms</h4>
+            <p>AEI Consultants · Dominion Due Diligence Group · EBI Consulting · Partner Science and Engineering</p>
+            <h4>Title</h4>
+            <p>Approved underwriters include Fidelity National Title Group, First American, Old Republic, Stewart, Westcor, WFG, and others; all title/escrow/closing attorneys must be vetted by Secure Insight before closing.</p>
+          </div>
+        </section>
+
+        <section class="section-block" id="mf-states" data-search="states eligible idaho nevada utah north dakota south dakota vermont california arizona oregon minnesota territories reil diya">
+          <div class="section-header" onclick="toggleSection('mf-states')">
+            <h2>Eligible States <span class="section-tag alert">Exclusions</span></h2>
+            <svg class="section-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <div class="exclusion-list">
+              <p><strong>Not eligible:</strong> Idaho, Nevada, Utah, North Dakota, South Dakota, Vermont, and US territories.</p>
+            </div>
+            <p>California, Arizona, Oregon, and Minnesota carry TPO-licensing conditions (DRE/CFL in CA, AZ Mortgage Broker license, OR Mortgage Lending license, Diya-only closings in MN) — SLA treats these as not eligible on the sizer; escalate to a manager for case-by-case review.</p>
+            <p class="matrix-note">Note: unlike the 1-4 unit DSCR program, <strong>Idaho is excluded</strong> for Multifamily.</p>
+          </div>
+        </section>
+
+      </div>
+
+      <div class="empty" id="empty" style="display:none">
+        <strong>No matching guidelines</strong>
+        Try a different search term.
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+function toggleSection(id) {
+  var block = document.getElementById(id);
+  if (!block) return;
+  var body = block.querySelector('.section-body');
+  body.classList.toggle('open');
+  block.classList.toggle('open');
+}
+
+// Search
+var searchInput = document.getElementById('searchInput');
+var sections = document.querySelectorAll('.section-block');
+var emptyEl = document.getElementById('empty');
+var countEl = document.getElementById('searchCount');
+
+function applySearch() {
+  var q = (searchInput.value || '').trim().toLowerCase();
+  var visible = 0;
+  sections.forEach(function(s) {
+    var hay = (s.dataset.search || '') + ' ' + (s.textContent || '').toLowerCase();
+    var match = !q || hay.indexOf(q) >= 0;
+    s.classList.toggle('hidden', !match);
+    if (match) {
+      visible++;
+      if (q) {
+        s.classList.add('open');
+        s.querySelector('.section-body').classList.add('open');
+      }
+    }
+  });
+  emptyEl.style.display = visible === 0 ? 'block' : 'none';
+  countEl.textContent = q ? (visible + ' match' + (visible === 1 ? '' : 'es')) : '';
+}
+searchInput.addEventListener('input', applySearch);
+
+// Sidebar nav: highlight on scroll
+var navLinks = document.querySelectorAll('.nav-link');
+function setActive(id) {
+  navLinks.forEach(function(a) {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+  });
+}
+navLinks.forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    var id = a.getAttribute('href').slice(1);
+    var t = document.getElementById(id);
+    if (t) {
+      e.preventDefault();
+      t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActive(id);
+      // Make sure the section is open (don't toggle — that closes already-open ones)
+      var body = t.querySelector('.section-body');
+      if (body && !body.classList.contains('open')) {
+        body.classList.add('open');
+        t.classList.add('open');
+      }
+      // Persist hash for bookmark / refresh
+      try {
+        if (history && history.replaceState) history.replaceState(null, '', '#' + id);
+        else window.location.hash = id;
+      } catch (_) {}
+    }
+  });
+});
+
+// Honor URL hash on page load
+window.addEventListener('load', function() {
+  var hash = (window.location.hash || '').replace(/^#/, '');
+  if (!hash) return;
+  var t = document.getElementById(hash);
+  if (!t) return;
+  setTimeout(function() {
+    var body = t.querySelector('.section-body');
+    if (body && !body.classList.contains('open')) {
+      body.classList.add('open');
+      t.classList.add('open');
+    }
+    t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActive(hash);
+  }, 100);
+});
+
+// Auth gate
+netlifyIdentity.on('init', function(u){
+  if(!u) netlifyIdentity.open();
+  if (u && SLA && SLA.isAdmin && SLA.isAdmin(u)) {
+    var s = document.getElementById('navSubmissionsLink'); if (s) s.style.display = 'inline-block';
+  }
+});
+netlifyIdentity.on('logout', function(){ netlifyIdentity.open(); });
+</script>
+
+</body>
+</html>

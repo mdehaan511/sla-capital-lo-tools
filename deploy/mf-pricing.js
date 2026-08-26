@@ -118,8 +118,12 @@ const GUIDELINES = {
   // Deploy 236.507 — no-lend list now matches apply.html (the source of
   // truth per Mike): AZ, CA, MN, ND, NV, SD, UT, VT are NOT eligible.
   // (Was ...ID... — ID is now eligible; MN is now excluded.)
+  // Deploy 236.749 — MF guideline: Diya/REIL do NOT lend MF in Idaho (plus
+  // the standard NV/UT/ND/SD/VT + territories); ID is removed vs the 1-4
+  // unit list. CA/AZ/OR/MN carry TPO-licensing conditions and stay excluded
+  // operationally (same as the 1-4 unit sizer).
   eligibleStates: ['AK','AL','AR','CO','CT','DC','DE','FL','GA','HI',
-    'IA','ID','IL','IN','KS','KY','LA','MA','MD','ME','MI','MO','MS','MT',
+    'IA','IL','IN','KS','KY','LA','MA','MD','ME','MI','MO','MS','MT',
     'NC','NE','NH','NJ','NM','NY','OH','OK','OR','PA','RI','SC',
     'TN','TX','VA','WA','WI','WV','WY'],
 
@@ -130,8 +134,13 @@ const GUIDELINES = {
     'TN','TX','UT','VA','VT','WA','WI','WV','WY'],
 
   // Property value limits (1-4 Unit SFR)
-  minPropertyValue: 400000,   // Deploy 236.748 — MF LoBal: supports the $350k loan floor at 75% LTV (ASSUMPTION — sheet is silent)
-  maxPropertyValue_1unit: 10000000,  // Deploy 236.748 — MF LoBal (ASSUMPTION — sheet is silent; caps the pool loosely)
+  // Deploy 236.749 — Diya MF (5+) Term Guideline Matrix (updated 6/7/2026)
+  // replaces the 236.748 assumptions: property $500k-$15M (avg $75k/unit),
+  // loan $350k-$5M ($3M+ = CRE-program gate; $10M on exception), 5-30 units
+  // (>10 = CRE gate), max $1M avg loan/unit, LTV 74.99 (740+) / 70 below,
+  // DSCR 1.20 Top/Standard (1.30 Small, 1.40 Very Small), FICO 700 floor.
+  minPropertyValue: 500000,
+  maxPropertyValue_1unit: 15000000,  // Deploy 236.749 — guideline: max per-property value $15,000,000
   maxPropertyValue_24unit: 5000000,  // $5,000,000 for 2-4 unit
   // Deploy 236.65 — portfolio loans are aggregate-of-properties, so the
   // "property value" field represents combined value. $6.25M caps the
@@ -139,8 +148,16 @@ const GUIDELINES = {
   maxPropertyValue_portfolio: 6250000,
 
   // Loan amount limits (1-4 Unit SFR)
-  minLoanAmount: 350000,       // Deploy 236.748 — MF LoBal: 100-199k is NA on the sheet and 200-349k is absent; 350k is the smallest priced bucket (ASSUMPTION)
-  maxLoanAmount_1unit: 3000000,  // Deploy 236.748 — MF LoBal: UPB > $3.0m is NA on the sheet
+  minLoanAmount: 350000,       // Deploy 236.749 — CONFIRMED by the guideline matrix ($350,000 minimum)
+  maxLoanAmount_1unit: 5000000,  // Deploy 236.749 — guideline max $5M (to $10M on exception); NOTE the RATE sheet prices UPB only to $3.0M
+  mfCreGateLoan: 3000000,        // > $3M requires the TPO approved for Diya's CRE program (warn)
+  // Unit-count rules (guideline matrix). The sizer's Number of Units input
+  // feeds these; blank = checks skipped.
+  minUnits: 5,
+  maxUnits: 30,                  // higher on exception
+  creGateUnits: 10,              // > 10 units requires the CRE program (warn)
+  maxLoanPerUnit: 1000000,       // max AVERAGE loan amount per unit
+  minValuePerUnit: 75000,        // min AVERAGE per-unit value
   maxLoanAmount_24unit: 2500000, // $2,500,000 for 2-4 unit
   // Deploy 236.65 — portfolio loans cap at $5M in the sizer, but
   // anything above the $3M "standard" threshold surfaces a warning
@@ -157,12 +174,13 @@ const GUIDELINES = {
   // Max LTV by FICO and purpose (SFR 1-4 Unit, 1-10 properties, standard market)
   // Format: { ficoMin: { purchase: max, rateTerm: max, cashOut: max } }
   // Using the more conservative (Small/Very Small) values where there's a split
-  // Deploy 236.748 — MF LoBal: 75% max LTV across the board (the 5+ Multi
-  // pricing adjustment is NA above 75 on the sheet).
+  // Deploy 236.749 — guideline LTV matrix (Top/Standard markets; Small/Very
+  // Small cap at 70% across the board — surfaced as a warning, since the
+  // sizer has no market-tier input): 740+ = 74.99%, 700-739 = 70%.
   maxLTV: {
-    740: { purchase: 0.75, rateTerm: 0.75, cashOut: 0.75 },
-    720: { purchase: 0.75, rateTerm: 0.75, cashOut: 0.75 },
-    700: { purchase: 0.75, rateTerm: 0.75, cashOut: 0.75 },
+    740: { purchase: 0.7499, rateTerm: 0.7499, cashOut: 0.7499 },
+    720: { purchase: 0.70, rateTerm: 0.70, cashOut: 0.70 },
+    700: { purchase: 0.70, rateTerm: 0.70, cashOut: 0.70 },
   }
 };
 
@@ -201,7 +219,7 @@ function validateGuidelines(params) {
   // 1. Property value
   if (propVal > 0) {
     if (propVal < GUIDELINES.minPropertyValue) {
-      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' is below the $400,000 minimum for Multifamily LoBal.'});
+      msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' is below the $500,000 minimum for Multifamily (5+).'});
     }
     // Deploy 236.65 — portfolio gets its own property-value cap
     // (aggregate of pool, sized to support a $5M loan at 80% LTV).
@@ -214,7 +232,7 @@ function validateGuidelines(params) {
       maxPVLabel = '$5,000,000';
     } else {
       maxPV = GUIDELINES.maxPropertyValue_1unit;
-      maxPVLabel = '$10,000,000';
+      maxPVLabel = '$15,000,000';
     }
     if (propVal > maxPV) {
       msgs.push({level:'error', msg:'Property value $'+propVal.toLocaleString()+' exceeds the '+maxPVLabel+' maximum for this property type.'});
@@ -224,7 +242,7 @@ function validateGuidelines(params) {
   // 2. Loan amount
   if (loan > 0) {
     if (loan < GUIDELINES.minLoanAmount) {
-      msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' is below the $350,000 minimum for Multifamily LoBal.'});
+      msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' is below the $350,000 minimum for Multifamily (5+).'});
     }
     // Deploy 236.65 — portfolio loans size up to $5M in the sizer;
     // anything above the $3M "standard" threshold passes through with a
@@ -240,7 +258,10 @@ function validateGuidelines(params) {
     } else {
       var maxLoan = propType === '2-4' ? GUIDELINES.maxLoanAmount_24unit : GUIDELINES.maxLoanAmount_1unit;
       if (loan > maxLoan) {
-        msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' exceeds the $3,000,000 maximum for Multifamily LoBal (UPB above $3.0M is not priced on the sheet).'});
+        msgs.push({level:'error', msg:'Loan amount $'+loan.toLocaleString()+' exceeds the $5,000,000 Multifamily maximum. Up to $10,000,000 is available on an exception basis — reach out to a manager.'});
+      } else if (loan > GUIDELINES.mfCreGateLoan) {
+        // Deploy 236.749 — CRE-program gate + heavier requirements at $3M+.
+        msgs.push({level:'warn', msg:'Loans above $3,000,000 require the TPO to be approved for Diya\'s CRE program, guarantor net worth of 1.5x the loan amount, and a Property Condition Assessment (PCA). NOTE: the 8/7/26 rate sheet prices UPB only to $3.0M — pricing above that needs manager confirmation.'});
       }
     }
   }
@@ -279,6 +300,44 @@ function validateGuidelines(params) {
     if (st && GUIDELINES.eligibleStates.indexOf(st) < 0) {
       msgs.push({level:'error', msg:'State "'+st+'" is not an eligible lending state.'});
     }
+  }
+
+  // ── Deploy 236.749 — Multifamily (5+) guideline checks ──────────────
+  // Unit-count rules (skipped when the Units input is blank).
+  var units = parseInt(params.units, 10);
+  if (isFinite(units) && units > 0) {
+    if (units < GUIDELINES.minUnits) {
+      msgs.push({level:'error', msg:'This program is for 5+ unit properties ('+units+' units entered). Use the standard DSCR sizer for 1-4 units.'});
+    }
+    if (units > GUIDELINES.maxUnits) {
+      msgs.push({level:'error', msg:units+' units exceeds the 30-unit maximum. Higher unit counts are available on an exception basis — reach out to a manager.'});
+    } else if (units > GUIDELINES.creGateUnits) {
+      msgs.push({level:'warn', msg:'Properties above 10 units require the TPO to be approved for Diya\'s CRE program.'});
+    }
+    if (loan > 0 && (loan / units) > GUIDELINES.maxLoanPerUnit) {
+      msgs.push({level:'error', msg:'Average loan per unit $'+Math.round(loan/units).toLocaleString()+' exceeds the $1,000,000 maximum.'});
+    }
+    if (propVal > 0 && (propVal / units) < GUIDELINES.minValuePerUnit) {
+      msgs.push({level:'error', msg:'Average value per unit $'+Math.round(propVal/units).toLocaleString()+' is below the $75,000 minimum.'});
+    }
+    // Occupancy requirement (informational — the sizer has no occupancy
+    // input). Guideline table: 5-19 units -> units-1 occupied; 20 -> 18;
+    // >20 -> 90% (rounded up).
+    if (units >= GUIDELINES.minUnits) {
+      var reqOcc = units <= 19 ? (units - 1) : (units === 20 ? 18 : Math.ceil(units * 0.9));
+      msgs.push({level:'warn', msg:'Occupancy requirement: at least '+reqOcc+' of '+units+' units must be occupied. 85% may be approved on exception for recently built/renovated Top/Standard-market properties.'});
+    }
+  }
+  // Cash-out cap (the sizer doesn't capture the cash-out amount).
+  if (purpose === 'refi_co') {
+    msgs.push({level:'warn', msg:'Max cash-out is $500,000 (up to $1,000,000 when LTV ≤ 65% and LTC ≤ 100%). Higher cash-out requires pre-approval. Rate/Term treatment requires the paid-off debt to be a recorded lien.'});
+  }
+  // Market-tier caveats (no market-tier input on the sizer).
+  if (ltv > 70) {
+    msgs.push({level:'warn', msg:'LTV above 70% is only available in Top/Standard markets with FICO 740+ (Small/Very Small markets cap at 70%).'});
+  }
+  if (params.dscr != null && params.dscr < 1.30) {
+    msgs.push({level:'warn', msg:'DSCR '+params.dscr.toFixed(2)+'x meets the 1.20x Top/Standard-market minimum, but Small markets require 1.30x and Very Small markets 1.40x.'});
   }
 
   // Deploy 236.526 — sandbox: nothing blocks. Downgrade errors to warnings so
@@ -528,6 +587,8 @@ function priceDSCR(raw) {
     loan: loan, propVal: propVal, ltv: ltv, fico: fico,
     address: address, purpose: purpose, propType: propType,
     adminSandbox: adminSandbox,
+    // Deploy 236.749 — MF guideline inputs: unit count + computed DSCR.
+    units: raw.numUnits, dscr: dscrFinal,
   });
 
   return {

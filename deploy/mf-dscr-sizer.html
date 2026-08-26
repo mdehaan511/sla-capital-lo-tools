@@ -46,6 +46,7 @@
       // review / pipeline / borrower flows treat it as DSCR) while letting
       // every open-in-sizer picker route back to THIS sizer.
       mfProgram:   'mf_lobal',
+      numUnits:    formData.numUnits || '', // Deploy 236.749 — unit count on the loan record
       address:     address || formData.address || '',
       savedAt:     new Date().toISOString(),
       updatedAt:   new Date().toISOString(),
@@ -471,7 +472,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="mf-pricing.js?v=236748"></script>
+<script src="mf-pricing.js?v=236749"></script>
 <script>
 // Deploy 236.406 (Hardening G1) — pricing engine extracted to
 // dscr-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -671,6 +672,15 @@ var getFICOMin = SLA_DSCR.getFICOMin;
           <select id="propType">
             <option value="multi" selected>5+ Unit Multifamily</option>
           </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="wrap">
+          <!-- Deploy 236.749 — Number of Units drives the MF guideline checks
+               (5-30 units, >10 = CRE-program warn, $1M max avg loan/unit,
+               $75k min avg value/unit, occupancy table). -->
+          <label>Number of Units <span class="req">*</span></label>
+          <input type="number" id="numUnits" min="5" max="99" placeholder="e.g. 12" oninput="run()" />
         </div>
       </div>
       <div class="field">
@@ -948,6 +958,7 @@ function calculate() {
     isIO:          $('isIO').value,
     loanPurpose:   $('loanPurpose').value,
     propType:      $('propType').value,
+    numUnits:      ($('numUnits') || {}).value, // Deploy 236.749 — MF guideline checks
     fico:          $('fico').value,
     prepay:        $('prepay').value,
     buydown:       $('buydown').value,
@@ -1673,7 +1684,7 @@ window._dscrOverrides = {
 // borrower fields, property address, and broker fee per the spec.
 var DSCR_OVERRIDE_LOCK_IDS = [
   'loanAmt', 'propValue', 'fico', 'loanPurpose', 'propType', 'isIO',
-  'prepay', 'buydown', 'currentLoanAmt',
+  'prepay', 'buydown', 'currentLoanAmt', 'numUnits',
   // Deploy 236.349 — ltv is now editable and drives loanAmt, so it
   // locks alongside loanAmt when a rate/points override is active.
   'ltv',
@@ -2088,7 +2099,8 @@ function run() {
 // pricing fields are all required.
 var DSCR_REQUIRED = [
   'borrowerName','propAddress','loanAmt','propValue','isIO','loanPurpose',
-  'propType','fico','rent','prepay'
+  'propType','fico','rent','prepay',
+  'numUnits' // Deploy 236.749 — unit count drives the MF guideline checks
 ];
 function allRequiredFilled() {
   // Deploy 236.289 — Broker Deal mode skips borrower-name gating. The
@@ -3398,6 +3410,7 @@ function saveCurrentQuote() {
     loanPurpose:$('loanPurpose').value,
     propType:   $('propType').value,
     mfProgram:  'mf_lobal', // Deploy 236.748 — MF sizer marker (rides in formData)
+    numUnits:   ($('numUnits') ? $('numUnits').value : ''), // Deploy 236.749
     fico:       $('fico').value,
     rent:       $('rent').value,
     taxes:      $('taxes').value,
@@ -3904,7 +3917,10 @@ function loadQuoteIntoForm(formData) {
     loanType:     formData.loanType   || '30Y Fixed',
     isIO:         formData.isIO       || 'no',
     loanPurpose:  formData.loanPurpose|| 'purchase',
-    propType:     formData.propType   || 'sfr',
+    // Deploy 236.749 — this sizer's select only offers 'multi'; a value from
+    // another program (or blank) snaps to it.
+    propType:     'multi',
+    numUnits:     formData.numUnits   || '',
     fico:         formData.fico       || '740-759',
     // Deploy 236.137 — defensive fallback to the long-name keys
     // (monthlyRent / monthlyTaxes / monthlyInsurance / monthlyHoa)
