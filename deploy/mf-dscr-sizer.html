@@ -82,8 +82,12 @@
       prepay:      formData.prepay      || '',
       buydown:     formData.buydown     || '',
       dscr:        formData._dscr       || '',
-      // RTL-specific
-      purchasePrice: formData.purchasePrice || '',
+      // Deploy 236.759 — DSCR purchases price off the purchase price, which
+      // lives in the sizer's propValue box (there's no separate purchase-
+      // price input). Stamp it onto the loan so Loan Details + the long-app
+      // prefill track the sizer instead of going stale/blank.
+      purchasePrice: formData.purchasePrice ||
+        (String(formData.loanPurpose || '') === 'purchase' ? (formData.propValue || '') : ''),
       rehabBudget:   formData.rehabBudget   || '',
       arv:           formData.arv           || '',
       experience:    formData.experience    || '',
@@ -2523,9 +2527,8 @@ function _generateRateSheetPDF(opts) {
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.setTextColor(WHITE[0],WHITE[1],WHITE[2]);
   doc.text('DSCR \u2014 '+r.loanType+' \u2014 LTV '+r.ltv.toFixed(1)+'%', lm+12, y+16);
-  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
-  doc.setTextColor(180,170,195);
-  doc.text('SLA Capital  \u00B7  Eff. '+DIYA.effectiveDate, lm+12, y+30);
+  // Deploy 236.759 \u2014 Mike: the "SLA Capital \u00B7 Eff. <rate-sheet date>" line
+  // is gone from the hero band (the effective date confused borrowers).
   doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
   doc.setTextColor(180,160,130);
   doc.text('NOTE RATE', lm+cw-12, y+13, {align:'right'});
@@ -2553,7 +2556,9 @@ function _generateRateSheetPDF(opts) {
   y += headerH + addrStripH + 10;
 
   // ── LOAN DETAILS — two-column table ────────────────────────
-  var ptLabel = {sfr:'Single Family','2-4':'2-4 Unit',nw_condo:'Non-Warrantable Condo',portfolio:'Portfolio'};
+  // Deploy 236.759 — 'multi' is the only selectable type on this sizer;
+  // the clone's map lacked it so the sheet printed the raw code.
+  var ptLabel = {multi:'Multifamily 5+ Units',sfr:'Single Family','2-4':'2-4 Unit',nw_condo:'Non-Warrantable Condo',portfolio:'Portfolio'};
   var purposeLabel = {purchase:'Purchase',refi_rt:'Rate/Term Refi',refi_co:'Cash-Out Refi'};
   var ppLabel = {'5y6m':'5-Year / 6-Month (5Yr/6Mo)','54321':'5-Year (54321)','321':'3-Year (321)','320':'2-Year (320)','300':'1-Year (300)','none':'No Prepayment Penalty'};
 
@@ -2578,12 +2583,9 @@ function _generateRateSheetPDF(opts) {
     ['Origination Points',  (function(){
       var ovP = (window._dscrOverrides && window._dscrOverrides.points);
       var t = (typeof ovP === 'number' && isFinite(ovP)) ? ovP : (1 + (r.buydown||0));
-      return (typeof ovP === 'number' && isFinite(ovP))
-        // Deploy 236.446 — drop the "(manager-approved override)" note
-        // from the rate sheet; just print the points value (matches the
-        // RTL sheet, which shows the effective value with no annotation).
-        ? t.toFixed(2)+' pts'
-        : t.toFixed(2)+' pts (1.00 base'+(r.buydown>0?' + '+r.buydown.toFixed(2)+' buy-down':'')+')';
+      // Deploy 236.759 — Mike: drop the "(1.00 base …)" breakdown; just
+      // print the effective points, override or not.
+      return t.toFixed(2)+' pts';
     })()],
   ];
 

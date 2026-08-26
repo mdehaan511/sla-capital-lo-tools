@@ -155,6 +155,18 @@ async function handle(req, context) {
     // Details. Same preservation pattern as the other app-section
     // fields above.
     fundingDate: incoming.fundingDate || prior.fundingDate || '',
+    // Deploy 236.759 — same preservation for the application-sourced
+    // financial fields the sizers don't all collect. The MF sizer (and
+    // DSCR for purchasePrice) has no inputs for these, so it POSTs ''
+    // and every save wiped the values captured on apply.html — Mike hit
+    // it as "Purchase Price didn't fill" on the long app (the prefill
+    // reads the loan, which had been blanked).
+    purchasePrice: incoming.purchasePrice || prior.purchasePrice || '',
+    taxes:         incoming.taxes         || prior.taxes         || '',
+    insurance:     incoming.insurance     || prior.insurance     || '',
+    hoa:           incoming.hoa           || prior.hoa           || '',
+    rentalType:    incoming.rentalType    || prior.rentalType    || '',
+    creditScore:   incoming.creditScore   || prior.creditScore   || '',
     // Preserve status: a save shouldn\u2019t demote a Submitted loan back
     // to Active. If the sizer doesn\u2019t explicitly send a status, keep
     // the prior status. If it does, only accept if prior was active.

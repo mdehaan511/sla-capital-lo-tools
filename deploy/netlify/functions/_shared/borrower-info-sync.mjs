@@ -135,6 +135,12 @@ export async function syncPropertyFieldsToLoan(record) {
         if (isFinite(emptyN) && emptyN >= 0 && emptyN <= unitsN) loanUpdates.unitsOccupied = String(unitsN - emptyN);
       }
     }
+    // Deploy 236.759 — MF asks "Are all units Long Term Rentals?" instead
+    // of the rentalKind select; map it onto the loan's rentalType ('mixed'
+    // is not a sizer value, so a mixed building lands as 'other').
+    if (data.allLtr === 'yes')      loanUpdates.rentalType = 'ltr';
+    else if (data.allLtr === 'no')  loanUpdates.rentalType = 'other';
+    if (data.ltrUnits) loanUpdates.ltrUnits = String(data.ltrUnits);
   }
 
   // Deploy 236.127 — guarantor ownership propagation. The long

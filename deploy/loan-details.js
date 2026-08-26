@@ -1142,12 +1142,21 @@ function render() {
     var _dscrPrepay   = prepay
       ? (prepay==='54321'?'5yr (54321)':prepay==='321'?'3yr (321)':prepay==='320'?'2yr (320)':prepay==='300'?'1yr (300)':prepay==='5y6m'?'5Yr/6Mo':prepay==='none'?'None':prepay)
       : '<span class="empty">—</span>';
+    // Deploy 236.759 — MF (5+) grid variant: show the /apply financials
+    // (units, occupancy, other income, annual opex total) and drop the
+    // monthly T/I/HOA cells (MF carries those inside the annual operating-
+    // expense set on the Property tab). On a purchase, the value cell IS
+    // the purchase price — label it that way (all DSCR).
+    var _finIsMf = !!(l.mfProgram || String(l.propType || '').toLowerCase() === 'multi');
+    var _finIsPurchase = String(loanPurpose || '') === 'purchase';
+    var _mfOpexTotal = ['opexTaxes','opexInsurance','opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping']
+      .reduce(function (sum, k) { return sum + (parseFloat(l[k]) || 0); }, 0);
     html += '<div class="fin-grid">' +
       // Row 1 — Note Rate | Points
       '<div class="fin-cell"><div class="fin-label">Note Rate' + (_hasDscrRateOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val big">'+(rate ? rate+'%' : '<span class="empty">Not yet priced</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Points</div><div class="fin-val">'+(points||'<span class="empty">—</span>')+'</div></div>' +
-      // Row 2 — Property Value | Loan Purpose
-      '<div class="fin-cell"><div class="fin-label">Property Value</div><div class="fin-val">'+fmtM(propVal)+'</div></div>' +
+      // Row 2 — Purchase Price (purchase) / Property Value (refi) | Loan Purpose
+      '<div class="fin-cell"><div class="fin-label">'+(_finIsPurchase ? 'Purchase Price' : 'Property Value')+'</div><div class="fin-val">'+fmtM((_finIsPurchase && purchasePrice) ? purchasePrice : propVal)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Purpose</div><div class="fin-val">'+(purposeLabel||'<span class="empty">—</span>')+'</div></div>' +
       // Row 3 — Existing Loan | Down Payment
       '<div class="fin-cell"><div class="fin-label">Existing Loan</div><div class="fin-val">'+_fmtMoney0(_dscrExisting)+'</div></div>' +
@@ -1158,12 +1167,19 @@ function render() {
       // Row 5 — LTV | Appraised Value
       '<div class="fin-cell"><div class="fin-label">LTV' + (_hasDscrLtvOv ? ' ' + _dscrOvTag : '') + '</div><div class="fin-val">'+_dscrLtvCell+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Appraised Value</div><div class="fin-val">'+(appraisedValue ? fmtM(appraisedValue) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      // Row 6 — Monthly Rent | Monthly Taxes
-      '<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      // Row 7 — Monthly Insurance | Monthly HOA
-      '<div class="fin-cell"><div class="fin-label">Monthly Insurance</div><div class="fin-val">'+(insurance ? fmtM(insurance) : '<span class="empty">— click to add</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">Monthly HOA</div><div class="fin-val">'+(hoa ? fmtM(hoa) : '<span class="empty">— click to add</span>')+'</div></div>' +
+      // Row 6/7 — 1-4 unit: Monthly Rent + T/I/HOA. MF (5+): rent + the
+      // /apply operating figures (units, occupancy, other income, opex).
+      (_finIsMf
+        ? ('<div class="fin-cell"><div class="fin-label">Monthly Rent (all units)</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">— click to add</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Other Income (mo)</div><div class="fin-val">'+(l.otherIncomeMo ? fmtM(l.otherIncomeMo) : '<span class="empty">—</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Units</div><div class="fin-val">'+(l.numUnits ? escH(String(l.numUnits)) : '<span class="empty">—</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Units Occupied</div><div class="fin-val">'+(l.unitsOccupied ? escH(String(l.unitsOccupied)) : '<span class="empty">—</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Operating Expenses (annual)</div><div class="fin-val">'+(_mfOpexTotal > 0 ? fmtM(_mfOpexTotal) : '<span class="empty">—</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Vacancy / Credit Loss</div><div class="fin-val">'+escH(String(l.vacancyPct || '5'))+'%</div></div>')
+        : ('<div class="fin-cell"><div class="fin-label">Monthly Rent</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">— click to add</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Monthly Taxes</div><div class="fin-val">'+(taxes ? fmtM(taxes) : '<span class="empty">— click to add</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Monthly Insurance</div><div class="fin-val">'+(insurance ? fmtM(insurance) : '<span class="empty">— click to add</span>')+'</div></div>' +
+           '<div class="fin-cell"><div class="fin-label">Monthly HOA</div><div class="fin-val">'+(hoa ? fmtM(hoa) : '<span class="empty">— click to add</span>')+'</div></div>')) +
       // Row 8 — DSCR | Prepayment Penalty
       '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">'+_dscrRatioCell+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Prepayment Penalty</div><div class="fin-val">'+_dscrPrepay+'</div></div>' +
@@ -1780,6 +1796,13 @@ function render() {
   var _mTaxes = String(taxes || '');
   var _mIns   = String(insurance || '');
   var _mHoa   = String(hoa || '');
+  // Deploy 236.759 — MF (5+) loans: the Property/Collateral box duplicated the
+  // MF Operating Statement (units, rental type, carrying costs vs the annual
+  // opex set). Mike: the Operating Statement becomes the SOLE Property-tab box
+  // for MF, with the Valuation fields appended at its bottom. Portfolio loans
+  // keep the P/C box (the per-property tabs live there).
+  var _isMfLoan = !l.isPortfolio && !!(l.mfProgram || String(l.propType || '').toLowerCase() === 'multi');
+  if (!_isMfLoan)
   html += '<div class="section" id="propertyCollateralSection">' +
     '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span>' +
       // Deploy 236.688 — convert a single-property loan into a Portfolio so more
@@ -1830,10 +1853,13 @@ function render() {
         '<div class="field"><label>Purchase Date</label><input type="date" id="pc-purchaseDate" value="' + escAttr(String(l.purchaseDate || '')) + '" /></div>' +
       '</div>' +
       '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Valuation</h3>' +
-      '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. AIV / ARV BPO values drive the loan terms.</div>' +
+      // Deploy 236.759 — DSCR loans (1-4 AND 5+) get appraisals, not BPOs;
+      // the value field is labeled "Appraised Value" there. RTL/GUC keep the
+      // AIV/ARV BPO labels (BPOs are the bridge-side valuation product).
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. ' + (isDscr ? 'The Appraised Value drives the loan terms.' : 'AIV / ARV BPO values drive the loan terms.') + '</div>' +
       '<div class="app-grid">' +
         '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>AIV BPO</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>' + (isDscr ? 'Appraised Value' : 'AIV BPO') + '</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
         (!isDscr ? '<div class="field"><label>ARV BPO</label><input type="text" id="pc-arvBpo" value="' + escAttr(_ldUsdInput(l.arvBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' : '') +
         '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>' +
@@ -1887,6 +1913,17 @@ function render() {
         _mfFld('opexMgmt', 'Property Management Fee', l.opexMgmt) +
         _mfFld('opexHOA', 'HOA / Special Assessment', l.opexHOA) +
         _mfFld('opexLandscaping', 'Landscaping', l.opexLandscaping) +
+      '</div>' +
+      // Deploy 236.759 — Valuation lives HERE for MF loans: the Property/
+      // Collateral box no longer renders for them (see _isMfLoan above), so
+      // its valuation fields move to the bottom of the Operating Statement.
+      // Same pc-* ids; saveMfOpex() picks them up alongside the opex set.
+      // DSCR = appraisal product, hence "Appraised Value" (not BPO).
+      '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Valuation</h3>' +
+      '<div class="app-grid">' +
+        '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Appraised Value</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
+        '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>' +
       '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">' +
         '<button class="save-app-btn" onclick="saveMfOpex()">Save MF Operating Statement</button>' +
@@ -2446,7 +2483,15 @@ function render() {
       // Clear any inline margin-top / display:none-suppressing-CSS
       // that was needed when the button lived inline.
       el.style.marginTop = '';
-      el.style.display = ''; // CSS .ld-action-menu-item handles display
+      // Deploy 236.759 — PRESERVE display:none on gated buttons. This
+      // used to blanket-clear display, which un-hid "Download Signed
+      // Application" / "Generate Application PDF (Unsigned)" the moment
+      // the menu built — and when the loan had no borrower-info record
+      // at all, the status call 404'd and nothing ever re-hid them
+      // (Mike saw Download Signed Application on a Quoted loan with no
+      // signature). Buttons that render visible still get the clear so
+      // the menu-item CSS governs their display.
+      if (el.style.display !== 'none') el.style.display = '';
       menu.appendChild(el);
       moved++;
     });
@@ -6603,6 +6648,13 @@ function saveMfOpex() {
   ids.forEach(function (k) {
     var el = document.getElementById('mfx-' + k);
     if (el && !el.disabled) fields[k] = el.value;
+  });
+  // Deploy 236.759 — the MF box carries the Valuation fields now (the
+  // Property/Collateral box doesn't render for MF loans). Send them only
+  // when the inputs exist so older cached pages don't clobber to 0.
+  ['propValue', 'aivBpo', 'currentLoanAmt'].forEach(function (k) {
+    var el = document.getElementById('pc-' + k);
+    if (el) fields[k] = _ldNum('pc-' + k);
   });
   var btn = document.querySelector('#mfOpexSection .save-app-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }

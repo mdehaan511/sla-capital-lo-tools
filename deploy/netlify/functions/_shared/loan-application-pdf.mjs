@@ -636,13 +636,35 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
       // ── SECTION C: DSCR questions ────────────────────────────────
       if (isDSCR) {
         section('Questions for DSCR Loans');
-        row('What kind of rental is this?', RENTAL_KIND_LABEL[data.rentalKind] || '');
+        // Deploy 236.759 — MF (5+/'mfr') collects a unit-mix answer and an
+        // annual operating statement instead of rentalKind + annual T/I/HOA.
+        // The lease-length question was removed from the form entirely.
+        const isMfrPdf = String(data.propertyType || '') === 'mfr';
+        if (isMfrPdf) {
+          row('Number of Units', data.numUnits || '');
+          row('Are all units Long Term Rentals?', YES_NO_LABEL(data.allLtr));
+          if (String(data.allLtr) === 'no') row('Units that are Long Term Rentals', data.ltrUnits || '');
+        } else {
+          row('What kind of rental is this?', RENTAL_KIND_LABEL[data.rentalKind] || '');
+        }
         row('Property currently leased?', YES_NO_LABEL(data.allRented));
-        row('How long is the current lease?', RENTAL_LEASE_LABEL[data.leaseLength] || data.leaseLength || '');
+        if (String(data.allRented) === 'no' && data.emptyUnits) row('Units currently empty', data.emptyUnits);
         row('Monthly Rent (or Market Rent if vacant)', fmtMoney(data.currentRent));
-        row('Annual Property Taxes', fmtMoney(data.annualTaxes));
-        row('Annual Insurance Premium', fmtMoney(data.annualInsurance));
-        row('HOA Dues (If Applicable)', fmtMoney(data.annualHOA));
+        if (isMfrPdf) {
+          row('Other Monthly Income', fmtMoney(data.otherIncomeMo));
+          row('Annual Real Estate Taxes', fmtMoney(data.opexTaxes));
+          row('Annual Property Insurance', fmtMoney(data.opexInsurance));
+          row('Annual Flood Insurance', fmtMoney(data.opexFlood));
+          row('Annual Utilities', fmtMoney(data.opexUtilities));
+          row('Annual Repairs & Maintenance', fmtMoney(data.opexRepairs));
+          row('Annual Property Management Fee', fmtMoney(data.opexMgmt));
+          row('Annual HOA / Special Assessment', fmtMoney(data.opexHOA));
+          row('Annual Landscaping', fmtMoney(data.opexLandscaping));
+        } else {
+          row('Annual Property Taxes', fmtMoney(data.annualTaxes));
+          row('Annual Insurance Premium', fmtMoney(data.annualInsurance));
+          row('HOA Dues (If Applicable)', fmtMoney(data.annualHOA));
+        }
         row('Property in a Flood Zone?', CAP1(data.floodZone));
         doc.moveDown(0.5);
       } else {

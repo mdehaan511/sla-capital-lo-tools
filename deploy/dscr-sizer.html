@@ -64,8 +64,12 @@
       prepay:      formData.prepay      || '',
       buydown:     formData.buydown     || '',
       dscr:        formData._dscr       || '',
-      // RTL-specific
-      purchasePrice: formData.purchasePrice || '',
+      // Deploy 236.759 — DSCR purchases price off the purchase price, which
+      // lives in the sizer's propValue box (there's no separate purchase-
+      // price input). Stamp it onto the loan so Loan Details + the long-app
+      // prefill track the sizer instead of going stale/blank.
+      purchasePrice: formData.purchasePrice ||
+        (String(formData.loanPurpose || '') === 'purchase' ? (formData.propValue || '') : ''),
       rehabBudget:   formData.rehabBudget   || '',
       arv:           formData.arv           || '',
       experience:    formData.experience    || '',

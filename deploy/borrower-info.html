@@ -498,6 +498,9 @@ function applyPrefillToData() {
     // statement from the loan record (MF sizer / apply). Rent prefills via
     // the generic currentRent path above (pf.loan.rent).
     if (!d.numUnits && pf.loan.numUnits) d.numUnits = pf.loan.numUnits;
+    // Deploy 236.759 — MF unit-mix prefill: an all-LTR rentalType on the
+    // loan pre-answers "Are all units Long Term Rentals?".
+    if (d.propertyType === 'mfr' && !d.allLtr && pf.loan.rentalType === 'ltr') d.allLtr = 'yes';
     if (d.propertyType === 'mfr' || String(pf.loan.toolType||'') === 'dscr') {
       if (!d.otherIncomeMo && pf.loan.otherIncomeMo) d.otherIncomeMo = pf.loan.otherIncomeMo;
       ['opexTaxes','opexInsurance','opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'].forEach(function (k) {
@@ -783,21 +786,51 @@ function renderPage1() {
         hint: locked ? 'Set by your loan officer.' : '',
       });
     })() +
-    field('loanType', 'What kind of loan do you need?', 'radio', {
-      required: true,
-      options: [
-        { v: 'fix_flip',     l: 'Fix and Flip Loan' },
-        { v: 'dscr',         l: 'DSCR (Rental Purchase or Refi)' },
-        { v: 'construction', l: 'New Construction' },
-        { v: 'dscr_2nd',     l: 'DSCR 2nd Position' },
-        // Deploy 236.53 — Transactional Funding is a same-day-close /
-        // same-day-repay short-term loan. No fix-flip rehab block, no
-        // DSCR rental block — handled by the dedicated 'transactional'
-        // block in renderPage3 (loan amount + close date + purpose).
-        { v: 'transactional', l: 'Transactional Funding (1-day)' },
-      ],
-      onchange: 'render()',
-    });
+    // Deploy 236.759 — DSCR is presented as TWO choices (1-4 unit vs 5+
+    // multifamily) because MF borrowers found a single "DSCR" option
+    // confusing. Both store loanType='dscr' internally (all the dscr
+    // branches, sync, and PDFs keep working); the MF pick also locks
+    // propertyType to 'mfr' so the MF blocks render. The radio binds to
+    // the UI-only key loanTypeChoice; onLoanTypeChoice() maps it back.
+    (function () {
+      var d2 = STATE.data;
+      if (!d2.loanTypeChoice && d2.loanType) {
+        d2.loanTypeChoice = (d2.loanType === 'dscr' && d2.propertyType === 'mfr') ? 'dscr_mf' : d2.loanType;
+      }
+      return field('loanTypeChoice', 'What kind of loan do you need?', 'radio', {
+        required: true,
+        options: [
+          { v: 'fix_flip',     l: 'Fix and Flip Loan' },
+          { v: 'dscr',         l: 'DSCR 1–4 Unit (Rental Purchase or Refi)' },
+          { v: 'dscr_mf',      l: 'DSCR 5+ Unit Multifamily' },
+          { v: 'construction', l: 'New Construction' },
+          { v: 'dscr_2nd',     l: 'DSCR 2nd Position' },
+          // Deploy 236.53 — Transactional Funding is a same-day-close /
+          // same-day-repay short-term loan. No fix-flip rehab block, no
+          // DSCR rental block — handled by the dedicated 'transactional'
+          // block in renderPage3 (loan amount + close date + purpose).
+          { v: 'transactional', l: 'Transactional Funding (1-day)' },
+        ],
+        onchange: 'onLoanTypeChoice()',
+      });
+    })();
+}
+
+// Deploy 236.759 — map the UI loan-type choice back onto the stored
+// loanType (+ propertyType for the multifamily pick).
+function onLoanTypeChoice() {
+  var d = STATE.data;
+  var c = d.loanTypeChoice || '';
+  if (c === 'dscr_mf') {
+    d.loanType = 'dscr';
+    d.propertyType = 'mfr';
+  } else {
+    d.loanType = c;
+    // Leaving MF: clear the auto-set property type so the borrower
+    // picks the real one (only when it was our auto 'mfr').
+    if (c === 'dscr' && d.propertyType === 'mfr') d.propertyType = '';
+  }
+  render();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -835,12 +868,20 @@ function renderPage3() {
   var isRefi = d.dscrPurchaseRefi === 'refinance';
   var ownsLand = d.ownsLand === 'yes';
 
+  // Deploy 236.759 — MF (5+) trims the SFR-flavored physical questions
+  // (beds/baths/sqft/lot size don't apply to an apartment building) and
+  // locks Property Type when the borrower picked "DSCR 5+ Unit
+  // Multifamily" on page 1 (onLoanTypeChoice auto-set it to 'mfr').
+  var isMfr5 = pt === 'mfr';
+  var _ptLockedMf = (d.loanTypeChoice === 'dscr_mf');
   var html = '<h3>Property & loan details</h3>' +
 
     '<h4>Property characteristics</h4>' +
     field('propertyType', 'Property Type', 'select', {
       required: true,
       onchange: 'render()',
+      locked: _ptLockedMf,
+      hint: _ptLockedMf ? 'Set by your loan type (DSCR 5+ Unit Multifamily).' : '',
       options: [
         { v: '',          l: '— Select —' },
         { v: 'sfr',       l: 'Single Family Home' },
@@ -857,17 +898,19 @@ function renderPage3() {
 
   if (isMulti) html += field('numUnits', 'Number of Units', 'number', { required: true });
 
-  if (lt !== 'construction') {
+  if (lt !== 'construction' && !isMfr5) {
     html += '<div class="field-row">' +
       field('bedrooms',  'Number of Bedrooms',  'number', { required: true }) +
       field('bathrooms', 'Number of Bathrooms', 'number', { required: true, step: '0.5' }) +
       '</div>';
   }
 
-  html += '<div class="field-row">' +
-    field('sqft',    'Property Square Footage', 'number', { required: true }) +
-    field('lotSize', 'Estimated Lot Size (if more than 1 acre)', 'number') +
-    '</div>';
+  if (!isMfr5) {
+    html += '<div class="field-row">' +
+      field('sqft',    'Property Square Footage', 'number', { required: true }) +
+      field('lotSize', 'Estimated Lot Size (if more than 1 acre)', 'number') +
+      '</div>';
+  }
 
   // ── Loan-type-specific blocks ────────────────────────
   if (lt === 'fix_flip') {
@@ -937,8 +980,21 @@ function renderPage3() {
       var isMfr = pt === 'mfr';
       html += '<h4>Rental income & expenses</h4>' +
         field('currentRent', isMfr ? 'Total Monthly Rent (all units)' : 'Current Rent (or Market Rent if not rented)', 'number', { required: true, money: true }) +
-        (isMfr ? field('otherIncomeMo', 'Other Monthly Income (laundry, parking, etc.)', 'number', { money: true }) : '') +
-        field('rentalKind', 'What kind of rental is this?', 'select', {
+        (isMfr ? field('otherIncomeMo', 'Other Monthly Income (laundry, parking, etc.)', 'number', { money: true }) : '');
+      // Deploy 236.759 — MF (5+) asks about the unit MIX instead of the
+      // single "what kind of rental" select (an apartment building can be
+      // part LTR / part STR). 1-4 unit keeps the rentalKind select.
+      if (isMfr) {
+        html += field('allLtr', 'Are all units Long Term Rentals?', 'radio', {
+          required: true,
+          onchange: 'render()',
+          options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
+        });
+        if (d.allLtr === 'no') {
+          html += field('ltrUnits', 'How many units are long term rentals?', 'number', { required: true });
+        }
+      } else {
+        html += field('rentalKind', 'What kind of rental is this?', 'select', {
           required: true,
           options: [
             { v: '',     l: '— Select —' },
@@ -946,27 +1002,16 @@ function renderPage3() {
             { v: 'str',  l: 'Short Term Rental (AirBNB or Leases under 6 months)' },
             { v: 'other',l: 'Other' },
           ],
-        }) +
-        field('allRented', 'Are all units rented?', 'radio', {
+        });
+      }
+      html += field('allRented', 'Are all units rented?', 'radio', {
           required: true,
           onchange: 'render()',
           options: [{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }],
         });
-      if (d.allRented === 'yes') {
-        // Lease length only matters when there\u2019s a lease in place.
-        // Deploy 182.
-        html += field('leaseLength', 'How long is the current lease?', 'select', {
-          required: true,
-          options: [
-            { v: '',           l: '\u2014 Select \u2014' },
-            { v: 'month',      l: 'Month-to-month' },
-            { v: '6mo',        l: '6 months' },
-            { v: '12mo',       l: '12 months' },
-            { v: '24mo_plus',  l: '24 months or longer' },
-            { v: 'other',      l: 'Other' },
-          ],
-        });
-      }
+      // Deploy 236.759 \u2014 the "How long is the current lease?" follow-up is
+      // gone entirely (Mike): lease terms come from the lease agreements in
+      // doc collection; asking it here was noise. (Was Deploy 182.)
       if (d.allRented === 'no') {
         html += field('emptyUnits', 'How many units are currently empty?', 'number', { required: true });
       }
