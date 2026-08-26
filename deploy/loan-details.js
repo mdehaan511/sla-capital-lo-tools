@@ -7173,6 +7173,14 @@ function _pofFmtDate(dt) {
   var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return m[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
 }
+// Deploy 236.760 — purchase price for the letter body: "$1,000,000" from a
+// raw number or "$1,000,000"-style typed value; anything unparseable prints
+// as typed so a modal entry like "1M cash" isn't mangled.
+function _pofFmtMoney(raw) {
+  var n = parseFloat(String(raw == null ? '' : raw).replace(/[^0-9.]/g, ''));
+  if (isFinite(n) && n > 0) return '$' + Math.round(n).toLocaleString('en-US');
+  return String(raw || '').trim();
+}
 
 // Actions-menu entry point.
 function generatePofLetter() {
@@ -7188,6 +7196,12 @@ function generatePofLetter() {
     // Deploy 236.580 — the letter names the GUARANTOR by full name (first +
     // last), not just a first name.
     guarantorName:   ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim(),
+    // Deploy 236.760 — the first sentence now states the purchase price.
+    // From the loan when it has one (purchases keep propValue = price);
+    // otherwise the modal asks for it.
+    purchasePrice:   String(_loan.purchasePrice
+                       || (String(_loan.loanPurpose || '') === 'purchase' ? (_loan.propValue || '') : '')
+                       || '').trim(),
     loEmail:         loEmail,
     loName:          '',
     loPhone:         '',
@@ -7213,6 +7227,7 @@ function _pofDecide(f) {
   var missing = [];
   if (!f.propertyAddress) missing.push('propertyAddress');
   if (!f.guarantorName)   missing.push('guarantorName');
+  if (!f.purchasePrice)   missing.push('purchasePrice'); // Deploy 236.760
   if (!f.loName)          missing.push('loName');
   if (!f.loPhone)         missing.push('loPhone');
   if (!missing.length) { _pofRender(f); return; }
@@ -7223,6 +7238,7 @@ function _pofOpenModal(f, missing) {
   var labels = {
     propertyAddress: 'Property Address',
     guarantorName:   'Guarantor Name (First & Last)',
+    purchasePrice:   'Purchase Price', // Deploy 236.760
     loName:          'Loan Officer Name',
     loPhone:         'Loan Officer Phone Number',
   };
@@ -7274,7 +7290,7 @@ function _pofModalSubmit() {
     var el = document.getElementById('pof-' + k);
     if (el) f[k] = el.value.trim();
   });
-  var reqLabels = { propertyAddress: 'Property Address', guarantorName: 'Guarantor Name', loName: 'Loan Officer Name', loPhone: 'Loan Officer Phone Number' };
+  var reqLabels = { propertyAddress: 'Property Address', guarantorName: 'Guarantor Name', purchasePrice: 'Purchase Price', loName: 'Loan Officer Name', loPhone: 'Loan Officer Phone Number' };
   for (var k in reqLabels) {
     if (!f[k]) { if (err) err.textContent = reqLabels[k] + ' is required.'; return; }
   }
@@ -7357,7 +7373,9 @@ function _pofBuildPdf(f, logoImg) {
   line(_pofFmtDate(new Date()), 26);
   doc.setFont('helvetica', 'bold'); line('Re: ' + f.propertyAddress, 22); doc.setFont('helvetica', 'normal');
   line('To whom it may concern,', 20);
-  para('Our client ' + f.guarantorName + ' is preapproved and has funding sources available and is preapproved with our company to purchase the subject.', 12);
+  // Deploy 236.760 — Mike's wording: one "preapproved" (the old sentence
+  // said it twice) + the purchase price stated explicitly.
+  para('Our client ' + f.guarantorName + ' is preapproved and has funding sources available with our company to purchase the subject with a purchase price of ' + _pofFmtMoney(f.purchasePrice) + '.', 12);
   para('These funds are available at the request of Sir Lends A Lot LLC DBA SLA Capital during normal banking hours.', 12);
   para('Please do not hesitate to contact us at our office at ' + f.loPhone + ' at anytime between 9am and 5pm PST Monday through Friday.', 22);
   line('Thank You,', 30);
