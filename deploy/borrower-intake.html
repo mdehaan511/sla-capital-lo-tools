@@ -19,6 +19,10 @@
     body{ font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
     a{ color:var(--gold-mid); }
     .wrap{ max-width:720px; margin:0 auto; padding:24px 18px 80px; }
+    /* Deploy 236.745 — desktop gets a wide container so the two-column layout
+       (docs + agents/team sidebar, 236.743) isn't squished; below 900px the
+       columns stack (see .main-cols media query) and the narrow width returns. */
+    @media (min-width: 901px){ .wrap{ max-width:1160px; } }
     .topbar{ display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); background:var(--card); }
     .brand{ font-family:'Lora',serif; font-weight:600; font-size:16px; }
     .topbar .who{ font-size:12px; color:var(--muted); }
