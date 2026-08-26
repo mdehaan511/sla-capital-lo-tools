@@ -25,6 +25,9 @@ import {
   handleOptions, json, requireAuth, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { listAccessibleLoans } from './_shared/loan-access-store.mjs';
+// Deploy 236.747 — stamp portal activity so the corrected-docs reminder cron
+// only emails borrowers who actually use the portal.
+import { markPortalActivity } from './_shared/borrower-portal-activity.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -42,6 +45,8 @@ async function handle(req, context) {
   if (!user) return json(401, { error: 'Not authenticated' });
 
   const email = normalizeEmail(user.email);
+  // Deploy 236.747 — best-effort, throttled portal-login stamp.
+  await markPortalActivity(email);
   const grants = await listAccessibleLoans(email);
   if (!grants.length) return json(200, { loans: [], needsVerification: false, borrowerName: '' });
 

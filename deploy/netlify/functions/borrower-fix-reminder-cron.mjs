@@ -31,7 +31,9 @@ export default async () => {
       scanned++;
       if (review.status && review.status !== 'in_progress') continue;
       if (!flaggedDocsOf(review).length) continue;
-      const r = await sendFixEmailForReview(review, { skipIfClosed: true });
+      // Deploy 236.747 — requirePortalLogin: only borrowers who have actually
+      // signed in to the portal get automated reminders.
+      const r = await sendFixEmailForReview(review, { skipIfClosed: true, requirePortalLogin: true });
       if (r.sent) sent++;
       else if (r.ok) skipped++;
       else failed++;

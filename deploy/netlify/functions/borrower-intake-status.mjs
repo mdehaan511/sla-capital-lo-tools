@@ -17,6 +17,10 @@ import { canReadLoan } from './_shared/access.mjs';
 import { borrowerChecklist } from './_shared/borrower-intake-checklists.mjs';
 // Deploy 236.743 — read the long-app record for the hasLLC answer (entity-doc gate).
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
+// Deploy 236.747 — stamp portal activity (deep links land here without ever
+// hitting borrower-portal-loans). Staff emails in the store are harmless —
+// the cron checks the BORROWER's email against it.
+import { markPortalActivity } from './_shared/borrower-portal-activity.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -32,6 +36,7 @@ async function handle(req, context) {
 
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
+  await markPortalActivity(user.email); // Deploy 236.747 — best-effort, throttled
 
   const url = new URL(req.url);
   const loanId = url.searchParams.get('loanId') || '';

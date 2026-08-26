@@ -13,6 +13,9 @@ import { getStore } from '@netlify/blobs';
 import { keySafe } from './auth.mjs';
 import { findCategory } from './loan-review-checklists.mjs';
 import { getOwnerReplyTo, logBorrowerSendFromResponse } from './email.mjs';
+// Deploy 236.747 — the cron only emails borrowers who have logged in to the
+// portal at least once (opts.requirePortalLogin).
+import { hasPortalActivity } from './borrower-portal-activity.mjs';
 
 const PORTAL_ORIGIN = 'https://portal.slacapital.ai';
 
@@ -69,6 +72,13 @@ export async function sendFixEmailForReview(review, opts) {
       (loan && loan.formData && loan.formData.borrowerEmail) || ''
     ).trim().toLowerCase();
     if (!toEmail || !toEmail.includes('@')) return { ok: true, sent: false, reason: 'no-borrower-email' };
+
+    // Deploy 236.747 — automated reminders go ONLY to borrowers who have
+    // actually logged in to the portal (Mike: no blast to non-users). The
+    // processor's manual send skips this gate.
+    if (opts.requirePortalLogin && !(await hasPortalActivity(toEmail))) {
+      return { ok: true, sent: false, reason: 'borrower-not-on-portal' };
+    }
 
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) return { ok: false, sent: false, reason: 'no-resend-key' };
