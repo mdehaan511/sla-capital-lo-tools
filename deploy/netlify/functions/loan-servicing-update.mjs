@@ -112,9 +112,13 @@ async function handle(req, context) {
       const cur = loan.drawMeta[id] || {};
       if ('wireSentDate' in patch) {
         const v = String(patch.wireSentDate == null ? '' : patch.wireSentDate).trim();
-        if (v !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
-        cur.wireSentDate = v;
-        drawMetaApplied++;
+        // Deploy 236.761 — a malformed date only skips THIS field; the old
+        // `return` bailed out of the whole per-id patch, silently dropping
+        // a valid reimbursementRequested sent in the same call.
+        if (v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+          cur.wireSentDate = v;
+          drawMetaApplied++;
+        }
       }
       if ('reimbursementRequested' in patch) {
         cur.reimbursementRequested = !!patch.reimbursementRequested;

@@ -61,6 +61,9 @@ const FIELDS = {
   dutchInterest: 1,
   // Deploy 236.750 — MF (5+) operating-statement fields, edited in the Loan
   // Details MF Operating Statement box; feed the MF sizer's NCF DSCR.
+  // Deploy 236.761 — + rent (Total Monthly Rent): the MF box is the only
+  // Property-tab surface on MF loans, so rent must be editable there.
+  rent: 1,
   unitsOccupied: 1, otherIncomeMo: 1, vacancyPct: 1,
   opexTaxes: 1, opexInsurance: 1, opexFlood: 1, opexUtilities: 1, opexRepairs: 1,
   opexMgmt: 1, opexHOA: 1, opexLandscaping: 1,

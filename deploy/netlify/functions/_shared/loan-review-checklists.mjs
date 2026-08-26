@@ -366,7 +366,10 @@ export const STALE_DAYS = {
 export function staleAfterFor(slug, documentDate, expirationDate) {
   if (typeof expirationDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(expirationDate)) return expirationDate;
   if (typeof documentDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(documentDate)) return '';
-  const days = STALE_DAYS[String(slug || '').toLowerCase()];
+  // Deploy 236.761 — portfolio reviews use per-property slugs
+  // (appraisal__p0, …); strip the suffix so they hit the STALE_DAYS
+  // table like their single-property counterparts.
+  const days = STALE_DAYS[String(slug || '').toLowerCase().replace(/__p\d+$/, '')];
   if (!days) return '';
   const parts = documentDate.split('-');
   const dt = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));

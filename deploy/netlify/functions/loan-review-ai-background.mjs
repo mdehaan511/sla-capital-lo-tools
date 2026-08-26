@@ -65,13 +65,38 @@ async function handle(req, context) {
   const isCurrentTarget = (targetDocId === docState.currentDocId);
   const now0 = new Date().toISOString();
 
+  // Deploy 236.761 — RE-READ + surgical merge instead of writing back the
+  // stale in-memory copy. This function holds the review across a
+  // minutes-long Claude call; writing the whole stale record back was
+  // reverting every concurrent change (processor approvals, borrower
+  // uploads, doc moves/deletes) made while it ran. Now: fetch fresh, patch
+  // ONLY this tray/doc, and stamp tray-level fields only if the reviewed
+  // doc is still the tray's current one.
+  async function _saveTrayPatch(patch, integrity, costCents) {
+    const fresh = await reviewStore.get(keySafe(body.reviewId), { type: 'json' });
+    if (!fresh || !fresh.docs || !fresh.docs[body.slug]) return null; // review/tray deleted meanwhile — drop result
+    const fd = fresh.docs[body.slug];
+    const entries = Array.isArray(fd.documents) ? fd.documents : [];
+    const entry = entries.find((d) => d && d.docId === targetDocId) || null;
+    if (entry) { Object.assign(entry, patch); if (integrity) entry.integrity = integrity; }
+    if (fd.currentDocId === targetDocId) {
+      Object.assign(fd, patch);
+      if (integrity) fd.integrity = integrity;
+    } else if (!entry) {
+      return null; // doc replaced AND entry gone — nothing to attach the result to
+    }
+    if (costCents) {
+      fd.aiCostCents    = Number(fd.aiCostCents || 0) + Number(costCents);
+      fresh.aiCostCents = Number(fresh.aiCostCents || 0) + Number(costCents);
+    }
+    fresh.updatedAt = new Date().toISOString();
+    await reviewStore.setJSON(keySafe(fresh.id), fresh);
+    return fresh;
+  }
+
   // Helper: clear the "reviewing" flag on the tray + the doc entry, then save.
   async function _clearReviewingAndSave(extra) {
-    const patch = Object.assign({ aiReviewing: false }, extra || {});
-    if (targetEntry) Object.assign(targetEntry, patch);
-    if (isCurrentTarget) Object.assign(docState, patch);
-    review.updatedAt = new Date().toISOString();
-    await reviewStore.setJSON(keySafe(review.id), review);
+    await _saveTrayPatch(Object.assign({ aiReviewing: false }, extra || {}));
   }
 
   // Fetch the stored bytes.
@@ -166,13 +191,10 @@ async function handle(req, context) {
   if (_stale) _ok.staleByDate = _stale;
   if (typeof ee.dateNotes === 'string') _ok.dateNotes = ee.dateNotes;
 
-  if (targetEntry) { Object.assign(targetEntry, _ok); if (_integrity) targetEntry.integrity = _integrity; }
-  if (isCurrentTarget) { Object.assign(docState, _ok); if (_integrity) docState.integrity = _integrity; }
-  docState.aiCostCents = Number(docState.aiCostCents || 0) + Number(aiResult.costCents || 0);
-  review.aiCostCents   = Number(review.aiCostCents || 0) + Number(aiResult.costCents || 0);
-  review.updatedAt = now;
-  await reviewStore.setJSON(keySafe(review.id), review);
-  return json(200, { ok: true, review });
+  // Deploy 236.761 — fresh-read merge (see _saveTrayPatch); the stale
+  // whole-record write here was the concurrency clobber.
+  const saved = await _saveTrayPatch(_ok, _integrity, aiResult.costCents || 0);
+  return json(200, { ok: true, review: saved || review, dropped: !saved });
 }
 
 // Mirror of the helper in loan-review-ai-retry (kept inline per the codebase

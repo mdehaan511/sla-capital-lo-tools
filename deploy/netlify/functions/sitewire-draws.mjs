@@ -30,7 +30,7 @@
 import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody,
-  isAdmin, isProcessor,
+  isAdmin, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 
 const SW_BASE = 'https://app.sitewire.co/api/v2';
@@ -118,12 +118,52 @@ async function handle(req, context) {
 
   const body = (await readJsonBody(req)) || {};
   const staff = isAdmin(user) || isProcessor(user);
-  const wanted = Array.isArray(body.loanNumbers) ? body.loanNumbers.map(normLoanNumber).filter(Boolean) : null;
+  let wanted = Array.isArray(body.loanNumbers) ? body.loanNumbers.map(normLoanNumber).filter(Boolean) : null;
   if (!staff && (!wanted || !wanted.length)) {
     return json(400, { error: 'loanNumbers required' });
   }
 
   const cacheStore = getStore({ name: 'sitewire-cache', consistency: 'strong' });
+
+  // Deploy 236.761 — non-staff scoping. slaDisplayIds are guessable
+  // (SLA-YYYYMMDD-NNNN), and naming a number was the only gate: any LO
+  // could pull budget/draw/balance data for every loan in the org. Now a
+  // non-staff caller only gets numbers that exist on THEIR OWN loans
+  // (10-min cached per owner), and the force-refresh sweep is staff-only.
+  if (!staff) {
+    if (body.refresh) return json(403, { error: 'Refresh is staff-only' });
+    const ownerKey = keySafe(normalizeEmail(user.email));
+    const ownCacheKey = 'own/' + ownerKey;
+    let own = null;
+    try {
+      const c = await cacheStore.get(ownCacheKey, { type: 'json' });
+      if (c && c.fetchedAt && (Date.now() - Date.parse(c.fetchedAt)) < CACHE_TTL_MS) own = c.numbers;
+    } catch (_) {}
+    if (!own) {
+      own = [];
+      try {
+        const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+        const { blobs } = await clientsStore.list({ prefix: ownerKey + '/' });
+        for (const { key } of blobs) {
+          const c = await clientsStore.get(key, { type: 'json' }).catch(() => null);
+          const loans = (c && Array.isArray(c.loans)) ? c.loans : [];
+          for (const l of loans) {
+            const n = l && l.slaDisplayId ? normLoanNumber(l.slaDisplayId) : '';
+            if (n) own.push(n);
+          }
+        }
+        try { await cacheStore.setJSON(ownCacheKey, { fetchedAt: new Date().toISOString(), numbers: own }); } catch (_) {}
+      } catch (e) {
+        console.warn('sitewire-draws: ownership scan failed:', e && e.message);
+        return json(500, { error: 'Could not verify loan ownership — try again.' });
+      }
+    }
+    const ownSet = new Set(own);
+    wanted = wanted.filter((n) => ownSet.has(n));
+    if (!wanted.length) {
+      return json(200, { ok: true, fetchedAt: '', propertyCount: 0, matched: 0, byLoanNumber: {} });
+    }
+  }
   let data = null;
   if (!body.refresh) {
     try {

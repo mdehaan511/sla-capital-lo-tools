@@ -24,7 +24,11 @@ export default async () => {
   try {
     const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
     const { blobs } = await store.list();
-    for (const { key } of blobs) {
+    // Deploy 236.761 — scan NEWEST-first. Keys are r_<timestamp>_… and list
+    // oldest-first; once the store outgrows the 24s budget the newest
+    // (most active) reviews would silently never be reached.
+    const keys = blobs.map((b) => b.key).sort().reverse();
+    for (const key of keys) {
       if (Date.now() - started > TIME_BUDGET_MS || sent >= MAX_SENDS) break;
       const review = await store.get(key, { type: 'json' }).catch(() => null);
       if (!review) continue;

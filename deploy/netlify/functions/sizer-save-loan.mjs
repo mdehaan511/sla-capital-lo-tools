@@ -318,6 +318,37 @@ async function handle(req, context) {
   if (existingLoan) {
     // Update in place — merge sanitized incoming onto existing.
     const merged = Object.assign({}, existingLoan, _sanitizedLoan(body.loan, existingLoan));
+    // Deploy 236.761 — preservation on THIS path (the live one). The 236.759
+    // preservation landed only in loan-update-from-sizer.mjs, which the
+    // sizers now use solely as a legacy fallback — so every real sizer save
+    // still wiped application-sourced fields the posting sizer has no
+    // inputs for (buildLoanFromSizer emits '' for them): the MF sizer has
+    // no taxes/insurance/hoa/rentalType/fundingDate/usCitizen inputs, the
+    // DSCR sizer no purchasePrice/fundingDate, etc. Empty-in keeps prior.
+    // Trade-off (accepted, mirrors Deploy 228/192 semantics): a sizer
+    // can't CLEAR these fields to blank — clear them from Loan Details.
+    const PRESERVE_ON_EMPTY = [
+      'bedrooms', 'bathrooms', 'sqft', 'notes', 'projectDescription',
+      'fundingDate', 'purchasePrice', 'rentalType', 'usCitizen', 'creditScore',
+    ];
+    // Monthly T/I/HOA: the 1-4 DSCR sizer HAS these inputs (a blank there
+    // is a legitimate clear); the MF sizer doesn't (its save always posts
+    // '' — the values live in the annual opex set). Preserve only for MF.
+    if (body.loan && body.loan.mfProgram) PRESERVE_ON_EMPTY.push('taxes', 'insurance', 'hoa');
+    for (const k of PRESERVE_ON_EMPTY) {
+      if ((merged[k] === '' || merged[k] == null) && existingLoan[k]) merged[k] = existingLoan[k];
+    }
+    // MF program marker + NCF operating-statement fields: a save from a
+    // sizer that doesn't collect them must not strip them.
+    if (!merged.mfProgram && existingLoan.mfProgram) merged.mfProgram = existingLoan.mfProgram;
+    const MF_PRESERVE = ['numUnits', 'unitsOccupied', 'otherIncomeMo', 'vacancyPct',
+      'opexTaxes', 'opexInsurance', 'opexFlood', 'opexUtilities', 'opexRepairs',
+      'opexMgmt', 'opexHOA', 'opexLandscaping'];
+    for (const k of MF_PRESERVE) {
+      if ((merged[k] === '' || merged[k] == null) && existingLoan[k] != null && existingLoan[k] !== '') {
+        merged[k] = existingLoan[k];
+      }
+    }
     merged.status = _resolveStatus(existingLoan.status, body.loan.status);
     merged.updatedAt = now;
     merged.savedAt   = now;

@@ -61,13 +61,19 @@ async function handle(req, context) {
   let review = null;
   try {
     const { blobs } = await reviewsStore.list();
+    // Deploy 236.761 — a loanId match ALWAYS beats an address match. The old
+    // loop broke on whichever came first, so with two loans on the same
+    // property (RTL refinancing into a DSCR) the borrower could be shown —
+    // and upload into — the other loan's review.
+    let byAddress = null;
     for (const { key } of blobs) {
       const r = await reviewsStore.get(key, { type: 'json' });
       if (!r) continue;
       if (r.source && r.source.loanId === loanId) { review = r; break; }
-      if (r.address && loan && loan.address &&
-          String(r.address).toLowerCase().trim() === String(loan.address).toLowerCase().trim()) { review = r; break; }
+      if (!byAddress && r.address && loan && loan.address &&
+          String(r.address).toLowerCase().trim() === String(loan.address).toLowerCase().trim()) { byAddress = r; }
     }
+    if (!review) review = byAddress;
   } catch (e) { console.warn('[borrower-intake-status] review lookup failed:', e && e.message); }
 
   const loanType = String((review && review.loanType) || (loan && loan.loanType) || '').toLowerCase();
@@ -107,7 +113,18 @@ async function handle(req, context) {
     }
   } catch (e) { console.warn('[borrower-intake-status] team build failed:', e && e.message); }
 
-  const items = borrowerChecklist(loanType, { noEntity }).map((item) => {
+  // Deploy 236.761 — the noEntity gate must NOT hide an entity tray that
+  // already has uploads or a flagged issue: the fix-reminder email points
+  // the borrower at the portal, so a flagged Operating Agreement has to be
+  // visible there even when the long app said "no LLC".
+  const _gatedList = borrowerChecklist(loanType, { noEntity });
+  const _gatedSlugs = new Set(_gatedList.map((i) => i.slug));
+  const _checklist = borrowerChecklist(loanType).filter((item) => {
+    if (_gatedSlugs.has(item.slug)) return true;
+    const d = docs[item.slug];
+    return !!(d && (d.verdict === 'issues' || d.currentDocId || (Array.isArray(d.uploads) && d.uploads.length)));
+  });
+  const items = _checklist.map((item) => {
     const d = docs[item.slug] || null;
     const s = _itemState(d);
     return {

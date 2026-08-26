@@ -78,13 +78,17 @@ async function handle(req, context) {
   let review = null;
   try {
     const { blobs } = await reviewsStore.list();
+    // Deploy 236.761 — loanId match ALWAYS beats address match (two loans
+    // on the same property must not receive each other's uploads).
+    let byAddress = null;
     for (const { key } of blobs) {
       const r = await reviewsStore.get(key, { type: 'json' });
       if (!r) continue;
       if (r.source && r.source.loanId === loanId) { review = r; break; }
-      if (r.address && loan && loan.address &&
-          String(r.address).toLowerCase().trim() === String(loan.address).toLowerCase().trim()) { review = r; break; }
+      if (!byAddress && r.address && loan && loan.address &&
+          String(r.address).toLowerCase().trim() === String(loan.address).toLowerCase().trim()) { byAddress = r; }
     }
+    if (!review) review = byAddress;
   } catch (e) { console.warn('[borrower-intake-upload] review lookup failed:', e && e.message); }
 
   const loanType = String((review && review.loanType) || (loan && loan.loanType) || '').toLowerCase();
@@ -156,8 +160,11 @@ async function handle(req, context) {
     section:         (prior && prior.section) || meta.section || 'borrower',
     conditions:      meta.conditions || (prior && prior.conditions) || '',
     required:        prior ? prior.required : !item.optional,
-    // Processor still owns the accept — a borrower upload never sets verdict.
-    verdict:         (prior && prior.verdict === 'approved') ? 'approved' : 'pending',
+    // Deploy 236.761 — a NEW upload always resets to 'pending', including
+    // over an approved tray: the old carry-forward let a borrower swap the
+    // file under an approved verdict (stale portal tab / direct API call)
+    // and the never-reviewed replacement kept the approval + approvedBy.
+    verdict:         'pending',
     processorNotes:  (prior && prior.processorNotes) || '',
     naReason:        '',
     currentDocId:    docId,
@@ -173,9 +180,12 @@ async function handle(req, context) {
     manualReviewRequested: false,      // fresh upload clears any prior request
     manualReviewNote: '',
     // reset AI fields for the fresh upload
+    // Deploy 236.761 — + aiReviewing (a stuck background-review flag no
+    // longer survives a fresh upload) and approvedAt/By (the verdict was
+    // just reset to pending; a stale approval stamp would mislead).
     aiVerdict: '', aiNotes: '', aiFindings: [], aiExtractedEntities: {},
-    aiReviewedAt: '', aiError: '', processorOverrideReason: '',
-    approvedAt: (prior && prior.approvedAt) || '', approvedBy: (prior && prior.approvedBy) || '',
+    aiReviewedAt: '', aiError: '', aiReviewing: false, processorOverrideReason: '',
+    approvedAt: '', approvedBy: '',
   });
 
   // ── Real-time AI review (the whole point of borrower intake) ─────────

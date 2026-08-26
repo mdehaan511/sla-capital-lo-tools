@@ -794,8 +794,16 @@ function renderPage1() {
     // the UI-only key loanTypeChoice; onLoanTypeChoice() maps it back.
     (function () {
       var d2 = STATE.data;
-      if (!d2.loanTypeChoice && d2.loanType) {
-        d2.loanTypeChoice = (d2.loanType === 'dscr' && d2.propertyType === 'mfr') ? 'dscr_mf' : d2.loanType;
+      // Deploy 236.761 — re-derive on EVERY render, not just when absent:
+      // a persisted stale choice (e.g. the borrower picked 'mfr' on page 3
+      // while the saved choice said 'dscr') made the radio misreport the
+      // record. loanType/propertyType are the source of truth; the choice
+      // is just their radio representation.
+      if (d2.loanType) {
+        var expected = (d2.loanType === 'dscr')
+          ? (d2.propertyType === 'mfr' ? 'dscr_mf' : 'dscr')
+          : d2.loanType;
+        if (d2.loanTypeChoice !== expected) d2.loanTypeChoice = expected;
       }
       return field('loanTypeChoice', 'What kind of loan do you need?', 'radio', {
         required: true,
@@ -821,14 +829,23 @@ function renderPage1() {
 function onLoanTypeChoice() {
   var d = STATE.data;
   var c = d.loanTypeChoice || '';
+  // Deploy 236.761 — was the record in the MF state before this click?
+  // (loanType 'dscr' + propertyType 'mfr' IS the dscr_mf state, however
+  // 'mfr' got there — radio auto-set, page-3 pick, or prefill.)
+  var wasMf = (d.loanType === 'dscr' && d.propertyType === 'mfr');
   if (c === 'dscr_mf') {
     d.loanType = 'dscr';
     d.propertyType = 'mfr';
   } else {
     d.loanType = c;
-    // Leaving MF: clear the auto-set property type so the borrower
-    // picks the real one (only when it was our auto 'mfr').
-    if (c === 'dscr' && d.propertyType === 'mfr') d.propertyType = '';
+    // Deploy 236.761 — leaving the MF state (to ANY other choice, not
+    // just 'dscr' as before): clear the property type so the borrower
+    // re-picks the real one. The old guard only fired on c==='dscr', so
+    // switching dscr_mf → fix_flip left propertyType='mfr' behind —
+    // hiding beds/baths/sqft on page 3 AND autosave-syncing propType
+    // 'multi' onto the live loan record within seconds. An 'mfr' chosen
+    // under a NON-dscr loan type (wasMf false) is never touched.
+    if (wasMf) d.propertyType = '';
   }
   render();
 }
@@ -1468,10 +1485,20 @@ function renderPage5() {
     row('Current Loan Balance',   d.currentLoanAmount || d.currentLoanAmt),
     row('Current Market Value',   d.currentValue),
     row('Current Monthly Rent',   d.currentRent),
-    row('Lease Length',           d.leaseLength),
-    row('Annual Property Taxes',  d.annualTaxes),
-    row('Annual Insurance',       d.annualInsurance),
-    row('Annual HOA',             d.annualHOA),
+    // Deploy 236.761 — Lease Length question removed (blank-safe row kept
+    // off entirely); MF (5+) answers now appear on the review the
+    // borrower signs against.
+    row('All Units Long Term Rentals?', d.allLtr),
+    d.allLtr === 'no' ? row('Units that are LTR', d.ltrUnits) : '',
+    row('Other Monthly Income',   d.otherIncomeMo),
+    row('Annual Property Taxes',  d.annualTaxes || d.opexTaxes),
+    row('Annual Insurance',       d.annualInsurance || d.opexInsurance),
+    row('Annual HOA',             d.annualHOA || d.opexHOA),
+    row('Annual Utilities',       d.opexUtilities),
+    row('Annual Repairs & Maintenance', d.opexRepairs),
+    row('Annual Property Management',   d.opexMgmt),
+    row('Annual Flood Insurance', d.opexFlood),
+    row('Annual Landscaping',     d.opexLandscaping),
     row('Project Description',    d.planDescription),
     row('Exit Strategy',          d.exitStrategy),
   ]);

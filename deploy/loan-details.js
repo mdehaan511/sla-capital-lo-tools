@@ -1147,7 +1147,7 @@ function render() {
     // monthly T/I/HOA cells (MF carries those inside the annual operating-
     // expense set on the Property tab). On a purchase, the value cell IS
     // the purchase price — label it that way (all DSCR).
-    var _finIsMf = !!(l.mfProgram || String(l.propType || '').toLowerCase() === 'multi');
+    var _finIsMf = !!l.mfProgram; // 236.761 — marker only (see _isMfLoan)
     var _finIsPurchase = String(loanPurpose || '') === 'purchase';
     var _mfOpexTotal = ['opexTaxes','opexInsurance','opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping']
       .reduce(function (sum, k) { return sum + (parseFloat(l[k]) || 0); }, 0);
@@ -1170,7 +1170,9 @@ function render() {
       // Row 6/7 — 1-4 unit: Monthly Rent + T/I/HOA. MF (5+): rent + the
       // /apply operating figures (units, occupancy, other income, opex).
       (_finIsMf
-        ? ('<div class="fin-cell"><div class="fin-label">Monthly Rent (all units)</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">— click to add</span>')+'</div></div>' +
+        // 236.761 — no "click to add" here: the MF cells are display-only
+        // (edit rent in the MF Operating Statement on the Property tab).
+        ? ('<div class="fin-cell"><div class="fin-label">Monthly Rent (all units)</div><div class="fin-val">'+(rent ? fmtM(rent) : '<span class="empty">—</span>')+'</div></div>' +
            '<div class="fin-cell"><div class="fin-label">Other Income (mo)</div><div class="fin-val">'+(l.otherIncomeMo ? fmtM(l.otherIncomeMo) : '<span class="empty">—</span>')+'</div></div>' +
            '<div class="fin-cell"><div class="fin-label">Units</div><div class="fin-val">'+(l.numUnits ? escH(String(l.numUnits)) : '<span class="empty">—</span>')+'</div></div>' +
            '<div class="fin-cell"><div class="fin-label">Units Occupied</div><div class="fin-val">'+(l.unitsOccupied ? escH(String(l.unitsOccupied)) : '<span class="empty">—</span>')+'</div></div>' +
@@ -1228,7 +1230,8 @@ function render() {
     // Legacy loans saved before this field existed default to 'dutch'
     // — Deploy 197 flipped the default to match the new sizer behavior
     // (Dutch is the industry-standard private-lending structure).
-    var _rtlIsDutch     = (l.dutchInterest || (fd && fd.dutchInterest) || 'dutch') === 'dutch';
+    // Deploy 236.761 — GUC defaults non_dutch (matches Loan Terms 236.713).
+    var _rtlIsDutch     = (l.dutchInterest || (fd && fd.dutchInterest) || (_isGucLoan(l) ? 'non_dutch' : 'dutch')) === 'dutch';
     // Rehab holdback proxy: any non-zero rehab budget means the loan
     // has an escrow component, so Non-Dutch will show a real start→max
     // dynamic. Bridge / refi / transactional all land here with rehab=0.
@@ -1801,7 +1804,13 @@ function render() {
   // opex set). Mike: the Operating Statement becomes the SOLE Property-tab box
   // for MF, with the Valuation fields appended at its bottom. Portfolio loans
   // keep the P/C box (the per-property tabs live there).
-  var _isMfLoan = !l.isPortfolio && !!(l.mfProgram || String(l.propType || '').toLowerCase() === 'multi');
+  // Deploy 236.761 — key on the mfProgram MARKER only (not propType
+  // 'multi'): legacy/Baseline DSCR loans can carry propType 'multi'
+  // without being in the MF program, and stripping their P/C box +
+  // monthly T/I/HOA cells left their displayed DSCR driven by fields
+  // nobody could see or edit. Every real MF-program loan has the marker
+  // (stamped by prospects-save and the MF sizer).
+  var _isMfLoan = !l.isPortfolio && !!l.mfProgram;
   if (!_isMfLoan)
   html += '<div class="section" id="propertyCollateralSection">' +
     '<div class="section-head"><h2>Property / Collateral</h2><span class="section-tag tag-editable">Editable</span>' +
@@ -1890,7 +1899,10 @@ function render() {
   // the 5%-standard vacancy (admin-editable), and annual operating expenses.
   // Rides into the Property tab via relocateSectionsToTabs. Saves through
   // loan-fields-save; the MF sizer reloads these on open.
-  if (l.mfProgram || String(l.propType || '').toLowerCase() === 'multi') {
+  // Deploy 236.761 — marker-only gate (see _isMfLoan) + skip portfolio
+  // loans so the MF box can't co-render valuation fields alongside the
+  // portfolio Property/Collateral model.
+  if (l.mfProgram && !l.isPortfolio) {
     var _mfFld = function (id, label, val, ph) {
       return '<div class="field"><label>' + label + '</label><input type="number" id="mfx-' + id + '" value="' + escAttr(val == null ? '' : val) + '" placeholder="' + (ph || '0') + '" min="0" /></div>';
     };
@@ -1902,6 +1914,10 @@ function render() {
       '<div class="app-grid">' +
         _mfFld('numUnits', 'Number of Units (5+)', l.numUnits, 'e.g. 12') +
         _mfFld('unitsOccupied', 'Units Occupied', l.unitsOccupied, 'e.g. 11') +
+        // Deploy 236.761 — rent is editable HERE now: this box is the MF
+        // loan's only Property-tab surface (the fin-grid cell is display-
+        // only) and the sizer was the only other place to set it.
+        _mfFld('rent', 'Total Monthly Rent (all units)', l.rent) +
         _mfFld('otherIncomeMo', 'Other Income (mo)', l.otherIncomeMo) +
         '<div class="field"><label>Vacancy / Credit Loss (%)</label><input type="number" id="mfx-vacancyPct" value="' + escAttr(l.vacancyPct || '5') + '" min="0" max="100" step="0.5"' + (_mfAdminUser ? '' : ' disabled title="5% standard — admin only"') + ' /></div>' +
         '<div class="field span2" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);align-self:end">Operating Expenses (Annual)</div>' +
@@ -3819,7 +3835,11 @@ function ldDrawsRender(){
       escH(l.slaDisplayId || '') + '). Draws appear here once the property exists in Sitewire with the SLA loan number on it.</div>';
   } else {
     var e = _ldDrawsData;
-    var isDutch = String(l.dutchInterest || 'dutch').toLowerCase() !== 'non_dutch';
+    // Deploy 236.761 — GUC loans default NON-Dutch (matches the Loan Terms
+    // editor's 236.713 default; GUC only offers as-drawn interest). The
+    // blanket 'dutch' default overstated an unsaved GUC loan's UPB by the
+    // whole undrawn budget.
+    var isDutch = String(l.dutchInterest || (_isGucLoan(l) ? 'non_dutch' : 'dutch')).toLowerCase() !== 'non_dutch';
     var total = _ldDrawsNum(l.finalLoanAmount) || _ldDrawsNum(l.loanAmt);
     var initAdv = (total > 0) ? Math.max(0, total - (e.budget.budgetedCents||0)/100) : null;
     var upb = isDutch ? total : (initAdv != null ? initAdv + (e.budget.approvedCents||0)/100 : null);
@@ -4779,6 +4799,11 @@ function deleteDoc(id) {
 // hands the live #tasksSection node to _buildTasksModal, which wraps it
 // in a fixed overlay appended to <body>; open/close just toggle display.
 function _buildTasksModal(sect) {
+  // Deploy 236.761 — render() runs several times per visit (cached paint,
+  // fresh fetch, post-save repaints) and each run built a NEW body-appended
+  // overlay with the same id, leaking duplicate task DOMs. Reuse-by-removal.
+  var stale = document.getElementById('ldTasksModal');
+  if (stale) stale.remove();
   var ov = document.createElement('div');
   ov.id = 'ldTasksModal';
   ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(30,25,18,0.45);z-index:1200;overflow:auto;padding:48px 16px;';
@@ -6642,7 +6667,7 @@ function _pcCarryMonthly(id) {
 // Deploy 236.750 — MF Operating Statement save (Multifamily 5+ loans).
 function saveMfOpex() {
   if (!_loan || !_client) return;
-  var ids = ['numUnits','unitsOccupied','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
+  var ids = ['numUnits','unitsOccupied','rent','otherIncomeMo','vacancyPct','opexTaxes','opexInsurance',
     'opexFlood','opexUtilities','opexRepairs','opexMgmt','opexHOA','opexLandscaping'];
   var fields = {};
   ids.forEach(function (k) {
@@ -7173,13 +7198,18 @@ function _pofFmtDate(dt) {
   var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return m[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
 }
-// Deploy 236.760 — purchase price for the letter body: "$1,000,000" from a
-// raw number or "$1,000,000"-style typed value; anything unparseable prints
-// as typed so a modal entry like "1M cash" isn't mangled.
+// Deploy 236.760 — purchase price for the letter body.
+// Deploy 236.761 — only format entries that are PURE currency ("1000000",
+// "$1,000,000", "1000000.50"). The old strip-then-parse mangled shorthand:
+// "1M cash" → "$1", "500k" → "$500" — a POF letter stating a $1 purchase.
+// Anything with letters or other symbols prints exactly as typed.
 function _pofFmtMoney(raw) {
-  var n = parseFloat(String(raw == null ? '' : raw).replace(/[^0-9.]/g, ''));
-  if (isFinite(n) && n > 0) return '$' + Math.round(n).toLocaleString('en-US');
-  return String(raw || '').trim();
+  var s = String(raw == null ? '' : raw).trim();
+  if (/^[$\s0-9,\.]+$/.test(s)) {
+    var n = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isFinite(n) && n > 0) return '$' + Math.round(n).toLocaleString('en-US');
+  }
+  return s;
 }
 
 // Actions-menu entry point.
@@ -7200,6 +7230,7 @@ function generatePofLetter() {
     // From the loan when it has one (purchases keep propValue = price);
     // otherwise the modal asks for it.
     purchasePrice:   String(_loan.purchasePrice
+                       || (_loan.formData && _loan.formData.purchasePrice)
                        || (String(_loan.loanPurpose || '') === 'purchase' ? (_loan.propValue || '') : '')
                        || '').trim(),
     loEmail:         loEmail,

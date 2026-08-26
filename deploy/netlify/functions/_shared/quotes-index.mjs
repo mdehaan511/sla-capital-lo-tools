@@ -17,6 +17,10 @@ function projectQuote(q) {
     address:    q.address   || '',
     status:     q.status    || '',
     toolType:   q.toolType  || '',
+    // Deploy 236.761 — MF-program marker (routes the pipeline card's Open
+    // Sizer to mf-dscr-sizer.html). Older quotes only carry it inside
+    // formData, so fall through to there during the rebuild.
+    mfProgram:  q.mfProgram || (q.formData && q.formData.mfProgram) || '',
     loanAmt:    q.loanAmt   || '',
     borrower:   q.borrower      || '',
     borrowerEmail: q.borrowerEmail || '',
@@ -64,5 +68,6 @@ export const quotesIndex = createStoreIndex({
   // Deploy 236.380 — bumped so the stored v1 index (missing the close
   // fields) is discarded and rebuilt with the new projection on the
   // next read.
-  version:          2,
+  // Deploy 236.761 — v3: + mfProgram (MF sizer routing).
+  version:          3,
 });

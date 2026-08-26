@@ -233,6 +233,10 @@ async function handle(req, context) {
   docState.aiExtractedEntities = {};
   docState.aiReviewedAt = '';
   docState.aiError = '';
+  // Deploy 236.761 — also clear a stuck background-review flag: without
+  // this, a tray whose background kickoff died kept spinning forever even
+  // after a fresh upload wrote a new inline verdict.
+  docState.aiReviewing = false;
   docState.processorOverrideReason = '';
   docState.approvedAt = '';
   docState.approvedBy = '';
@@ -518,23 +522,40 @@ async function handle(req, context) {
   // 15-min background reviewer (fire-and-forget; a background function returns 202
   // immediately). The tray stays aiReviewing until it writes the verdict; the
   // doc-review page polls for it. Auth is the same JWT the LO uploaded with.
+  let _bgQueued = false;
   if (_queueBackground) {
     try {
       const _base = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
       const _auth = (req.headers && typeof req.headers.get === 'function')
         ? (req.headers.get('authorization') || '')
         : ((req.headers && req.headers.authorization) || '');
-      await fetch(_base + '/.netlify/functions/loan-review-ai-background', {
+      const _bgResp = await fetch(_base + '/.netlify/functions/loan-review-ai-background', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': _auth },
         body: JSON.stringify({ reviewId: body.reviewId, slug: body.slug, docId: docId }),
       });
+      // A background function acks with 202 before running. Anything else
+      // (cold-start 502, 4xx) means it is NOT running.
+      _bgQueued = _bgResp && (_bgResp.status === 202 || _bgResp.ok);
+      if (!_bgQueued) console.error('loan-review-doc-upload: background kickoff HTTP', _bgResp && _bgResp.status);
     } catch (e) {
       console.error('loan-review-doc-upload: failed to queue background review:', e && e.message);
     }
+    // Deploy 236.761 — if the kickoff FAILED, un-stick the tray now: leave
+    // it out of "reviewing" with a needs-manual note instead of spinning
+    // forever with nothing coming. (The old fire-and-forget only logged.)
+    if (!_bgQueued) {
+      try {
+        docState.aiReviewing = false;
+        docState.aiVerdict = 'needs_manual_review';
+        docState.aiNotes = 'This document was too long for the instant review and the background reviewer could not be started. Use ↻ Retry or review manually.';
+        review.updatedAt = new Date().toISOString();
+        await reviewStore.setJSON(keySafe(body.reviewId), review);
+      } catch (e2) { console.error('loan-review-doc-upload: kickoff-failure cleanup failed:', e2 && e2.message); }
+    }
   }
 
-  return json(200, { ok: true, review, docId, fieldsWritten, aiReviewing: _queueBackground });
+  return json(200, { ok: true, review, docId, fieldsWritten, aiReviewing: _bgQueued });
 }
 
 // Deploy 236.500 — persist AI-extracted UW/Lightning fields onto the loan

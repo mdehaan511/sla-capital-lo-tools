@@ -331,6 +331,8 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         dscr:         'DSCR (Rental Purchase or Refi)',
         dscr_2nd:     'DSCR 2nd Position',
         construction: 'New Construction',
+        // Deploy 236.761 — was missing; transactional apps printed the raw slug.
+        transactional: 'Transactional Funding (1-day)',
       };
       const PROPERTY_TYPE_LABEL = {
         sfr:       'Single Family Home',
@@ -393,13 +395,18 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
 
       // The "Requested Loan Amount" field name varies by loan type
       // because the form has separate per-loan-type input fields.
+      // Deploy 236.761 — + the transactional variants (they printed blank),
+      // and the prefill fallback reads prefill.loan.loanAmt (prefill.loanAmt
+      // was a dead path — the value lives one level down).
       const requestedLoanAmt =
         data.requestedLoanFF || data.requestedLoanDSCR || data.requestedLoanNC ||
+        data.requestedLoanTransactional ||
         data.requestedLoanAmt || data.loanAmt ||
-        (record.prefill && record.prefill.loanAmt) || '';
+        (pf.loan && pf.loan.loanAmt) || '';
 
       // The "Desired Closing Date" field also varies by loan type.
-      const desiredCloseDate = data.ffCloseDate || data.dscrCloseDate || data.ncCloseDate || '';
+      const desiredCloseDate = data.ffCloseDate || data.dscrCloseDate || data.ncCloseDate ||
+        data.transactionalCloseDate || '';
 
       const isFF       = loanType === 'fix_flip';
       const isDSCR     = loanType === 'dscr' || loanType === 'dscr_2nd';

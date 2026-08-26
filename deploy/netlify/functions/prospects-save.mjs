@@ -414,8 +414,13 @@ async function upsertClientFromProspect(prospect, loEmail) {
   const isDscrPurchase = !isRtl && !isGuc
     && String(prospect.loanPurpose || '').toLowerCase() === 'purchase';
   const _pxNum = parseFloat(String(prospect.purchasePrice || '').replace(/[^\d.]/g, '')) || 0;
+  // Deploy 236.761 — MF (5+) LoBal caps at 75% LTV, not the 1-4 unit 80%.
+  // The 80% seed put every MF application's loan straight onto the sizer's
+  // "exceeds the 75% maximum" error card when opened from Loan Details /
+  // Pipeline (236.758 only fixed the fromProspect prefill path).
+  const _maxLtvSeed = (String(prospect.propType || '') === 'multi') ? 0.75 : 0.80;
   const _defaultLoanAmt = isDscrPurchase && _pxNum > 0
-    ? String(Math.round(_pxNum * 0.80))
+    ? String(Math.round(_pxNum * _maxLtvSeed))
     : (prospect.purchasePrice || prospect.propertyValue || '');
 
   const loan = {
@@ -1025,6 +1030,10 @@ async function notifyApplicantOfSubmission(prospect) {
     if (prospect.landDebt)       textLines.push(`Land Debt: ${fmtMoney(prospect.landDebt)}`);
     if (prospect.gcName || prospect.gcPhone || prospect.gcEmail)
       textLines.push(`GC: ${[prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · ')}`);
+    // Deploy 236.761 — MF (5+) figures so the applicant can double-check
+    // them (the whole point of this confirmation email).
+    if (prospect.numUnits)       textLines.push(`Units:    ${prospect.numUnits}${prospect.unitsOccupied ? ` (${prospect.unitsOccupied} occupied)` : ''}`);
+    if (prospect.otherIncomeMo)  textLines.push(`Other Income: ${fmtMoney(prospect.otherIncomeMo)}/mo`);
     if (prospect.monthlyRent)    textLines.push(`Rent:     ${fmtMoney(prospect.monthlyRent)}`);
     if (prospect.fundingDate)    textLines.push(`Funding:  ${fmtDate(prospect.fundingDate)}`);
     if (prospect.projectDescription) textLines.push(`Project Description: ${prospect.projectDescription}`);
@@ -1055,6 +1064,10 @@ async function notifyApplicantOfSubmission(prospect) {
     row('Owns the Land', esc(prospect.ownLand)) +
     row('Land Debt', fmtMoney(prospect.landDebt)) +
     row('General Contractor', esc([prospect.gcName, prospect.gcPhone, prospect.gcEmail].filter(Boolean).join(' · '))) +
+    // Deploy 236.761 — MF (5+) rows; empty rows drop out for non-MF.
+    row('Number of Units', esc(prospect.numUnits)) +
+    row('Units Occupied', esc(prospect.unitsOccupied)) +
+    row('Other Monthly Income', fmtMoney(prospect.otherIncomeMo)) +
     row('Monthly Rent', fmtMoney(prospect.monthlyRent)) +
     row('Funding Date', esc(fmtDate(prospect.fundingDate))) +
     row('Project Description', esc(prospect.projectDescription));

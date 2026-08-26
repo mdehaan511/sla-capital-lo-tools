@@ -2604,7 +2604,14 @@ function _generateRateSheetPDF(opts) {
       { bd: 0.25, pts: 1.25 },
       { bd: 0.50, pts: 1.50 },
       { bd: 0.75, pts: 1.75 },
-      { bd: 1.00, pts: 2.00 }
+      { bd: 1.00, pts: 2.00 },
+      // Deploy 236.761 — the buydown select goes to 2.00%; the table
+      // stopped at 1.00, omitting the borrower's actual tier for
+      // selections above it (no "selected" star anywhere).
+      { bd: 1.25, pts: 2.25 },
+      { bd: 1.50, pts: 2.50 },
+      { bd: 1.75, pts: 2.75 },
+      { bd: 2.00, pts: 3.00 }
     ];
     var BD_ROW = 18;
     var bdNum  = bdOptions.length;

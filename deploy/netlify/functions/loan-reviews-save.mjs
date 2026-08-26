@@ -47,17 +47,27 @@ async function _logFlaggedIssuesToLoan(review, patchedDocs, actorEmail) {
   if (!client || !Array.isArray(client.loans)) return;
   const loan = client.loans.find((l) => l && l.id === src.loanId);
   if (!loan) return;
+  let wrote = false;
   for (const slug of flagged) {
     const cat = findCategory(slug);
     const label = (cat && cat.label) || (review.docs && review.docs[slug] && review.docs[slug].label) || slug;
+    const text = 'Document issue flagged — ' + label + ': ' + patchedDocs[slug].flagReason;
+    // Deploy 236.761 — idempotent: a re-confirmed modal or a client retry
+    // re-sends the same patch; don't stack identical notes. An EDITED
+    // reason produces different text and still logs.
+    const dup = Array.isArray(loan.notesLog) &&
+      loan.notesLog.some((e) => e && e.kind === 'doc_issue_flagged' && e.text === text);
+    if (dup) continue;
     appendNoteEntry(loan, {
       kind: 'doc_issue_flagged',
-      text: 'Document issue flagged — ' + label + ': ' + patchedDocs[slug].flagReason,
+      text,
       author: actorEmail || 'Processor',
       authorEmail: actorEmail || '',
       meta: { slug, reviewId: review.id },
     });
+    wrote = true;
   }
+  if (!wrote) return;
   loan.updatedAt = new Date().toISOString();
   await writeClient(ownerKey, client, { clientsStore });
 }

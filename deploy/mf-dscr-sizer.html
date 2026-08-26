@@ -447,16 +447,18 @@
   </div>
 </div>
 
-<!-- Deploy 236.241 — Below-1.0 DSCR ack modal. Fires automatically
-     inside run() when calculate() returns a DSCR < 1.0 for a loan
-     that hasn't been acknowledged yet. Persistent flag on the quote
-     (formData._dscrBelow1) means reopening a manager-approved loan
-     doesn't re-fire the modal. -->
+<!-- Deploy 236.241 — DSCR exception ack modal. Fires automatically
+     inside run() when calculate() returns a DSCR below the program
+     minimum for a loan that hasn't been acknowledged yet. Persistent
+     flag on the quote (formData._dscrBelow1) means reopening a
+     manager-approved loan doesn't re-fire the modal.
+     Deploy 236.761 — MF LoBal's minimum is 1.20x (the clone's copy
+     said "below the 1.00x program minimum" for e.g. a 1.15x deal). -->
 <div class="ow-overlay" id="dscrBelow1Overlay">
   <div class="ow-modal">
-    <h3>⚠ DSCR Below 1.0 — Manager Approval Required</h3>
+    <h3>⚠ DSCR Below 1.20x — Manager Approval Required</h3>
     <div class="ow-body">
-      The calculated DSCR for this loan is <strong id="dscrBelow1Value">below 1.0</strong>, which is below the 1.00x program minimum and requires <strong>manager approval</strong> as an exception. Confirming will price the loan so it can be saved; you can still pencil-override the <strong>Note Rate</strong> and <strong>Origination Points</strong> if your manager approved different terms. Cancel returns to the form so you can adjust the inputs instead.
+      The calculated DSCR for this loan is <strong id="dscrBelow1Value">below 1.20</strong>, which is below the 1.20x Multifamily LoBal program minimum and requires <strong>manager approval</strong> as an exception. Confirming will price the loan so it can be saved; you can still pencil-override the <strong>Note Rate</strong> and <strong>Origination Points</strong> if your manager approved different terms. Cancel returns to the form so you can adjust the inputs instead.
     </div>
     <div class="ow-actions">
       <button type="button" onclick="cancelDscrBelow1()">Cancel</button>
@@ -1733,9 +1735,13 @@ var DSCR_OVERRIDE_LOCK_IDS = [
   // Deploy 236.349 — ltv is now editable and drives loanAmt, so it
   // locks alongside loanAmt when a rate/points override is active.
   'ltv',
-  // Monthly cost inputs (taxes / insurance / HOA / rent) also lock —
-  // they affect DSCR ratio which depends on the (derived) loan amount.
-  'taxes', 'insurance', 'hoa', 'rent',
+  // Deploy 236.761 — this page's DSCR inputs are the NCF set, not the
+  // 1-4 unit taxes/insurance/hoa (those inputs don't exist here; the
+  // clone's list silently locked nothing while every income/expense
+  // field stayed editable under a frozen manager-approved rate).
+  'rent', 'unitsOccupied', 'otherIncomeMo', 'vacancyPct',
+  'opexTaxes', 'opexInsurance', 'opexFlood', 'opexUtilities',
+  'opexRepairs', 'opexMgmt', 'opexHOA', 'opexLandscaping',
 ];
 
 function hasActiveOverride() {
@@ -2376,8 +2382,11 @@ function _generateRateSheetPDF(opts) {
       try {
         if (typeof calcPI === 'function') {
           r.pi = calcPI(r.loan, r.finalRate / 100, r.isIO);
-          r.totalPayment = r.pi + (r.taxes||0) + (r.ins||0) + (r.hoa||0);
-          if (r.rent > 0 && r.totalPayment > 0) r.dscr = r.rent / r.totalPayment;
+          // Deploy 236.761 — MF DSCR is NCF ÷ P&I (the clone's gross-rent
+          // formula printed an overstated DSCR on overridden rate sheets;
+          // ncfMo doesn't change with rate/LTV so it carries over).
+          r.totalPayment = r.pi;
+          if (r.ncfMo > 0 && r.pi > 0) r.dscr = r.ncfMo / r.pi;
         }
       } catch (_) {}
     }
@@ -2386,8 +2395,9 @@ function _generateRateSheetPDF(opts) {
     try {
       if (typeof calcPI === 'function') {
         r.pi = calcPI(r.loan, r.finalRate / 100, r.isIO);
-        r.totalPayment = r.pi + (r.taxes||0) + (r.ins||0) + (r.hoa||0);
-        if (r.rent > 0 && r.totalPayment > 0) r.dscr = r.rent / r.totalPayment;
+        // Deploy 236.761 — NCF ÷ P&I (see above).
+        r.totalPayment = r.pi;
+        if (r.ncfMo > 0 && r.pi > 0) r.dscr = r.ncfMo / r.pi;
       }
     } catch (_) {}
   }
@@ -2653,7 +2663,14 @@ function _generateRateSheetPDF(opts) {
       { bd: 0.25, pts: 1.25 },
       { bd: 0.50, pts: 1.50 },
       { bd: 0.75, pts: 1.75 },
-      { bd: 1.00, pts: 2.00 }
+      { bd: 1.00, pts: 2.00 },
+      // Deploy 236.761 — the buydown select goes to 2.00%; the table
+      // stopped at 1.00, omitting the borrower's actual tier for
+      // selections above it (no "selected" star anywhere).
+      { bd: 1.25, pts: 2.25 },
+      { bd: 1.50, pts: 2.50 },
+      { bd: 1.75, pts: 2.75 },
+      { bd: 2.00, pts: 3.00 }
     ];
     var BD_ROW = 18;
     var bdNum  = bdOptions.length;

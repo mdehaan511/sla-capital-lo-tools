@@ -689,6 +689,10 @@
     // Deploy 236.533 — fill the borrower/broker invite status line async.
     try { dr_loadInviteStatus(); } catch (_) {}
 
+    // Deploy 236.761 — resume background-review polling for any tray still
+    // marked aiReviewing (covers page reloads mid-review).
+    try { _resumeBackgroundPolls(); } catch (_) {}
+
     if (_docSearch) {
       var input = document.getElementById('dr-docSearch');
       if (input) {
@@ -1617,11 +1621,24 @@
           } else {
             showToast('The background review is taking longer than expected — refresh the page shortly to see the result.', 'info');
           }
-        } else {
-          render(); // keep the spinner fresh
         }
+        // Deploy 236.761 — no per-tick render() while still reviewing: the
+        // full innerHTML rebuild every 5s destroyed processor typing +
+        // focus (notes save on blur). The spinner is static anyway; we
+        // only re-render on completion above.
       }).catch(function() { /* transient network — keep polling */ });
     }, 5000);
+  }
+
+  // Deploy 236.761 — resume polling after a page reload: the poll was only
+  // started from the upload callback, so reloading mid-background-review
+  // left a spinner that never resolved (despite promising "the verdict
+  // will appear here automatically"). Called from render().
+  function _resumeBackgroundPolls() {
+    var docs = (_review && _review.docs) || {};
+    Object.keys(docs).forEach(function(slug) {
+      if (docs[slug] && docs[slug].aiReviewing) _pollBackgroundReview(slug);
+    });
   }
 
   // Deploy 236.163 — list the LIVE (visible) docs on a tray. Handles
