@@ -60,6 +60,9 @@ const FIELDS = {
   // Deploy 236.713 — Dutch/Non-Dutch interest structure, editable in the Loan
   // Terms box (RTL/GUC). Drives the Closed Loans Draws tab's computed UPB.
   dutchInterest: 1,
+  // Deploy 236.773 — BPO reprice-banner dismissal: acknowledges the CURRENT
+  // BPO values; a new/changed BPO re-fires the banner past the dismissal.
+  bpoRepriceAckAt: 1, bpoRepriceAckAiv: 1, bpoRepriceAckArv: 1,
   // Deploy 236.750 — MF (5+) operating-statement fields, edited in the Loan
   // Details MF Operating Statement box; feed the MF sizer's NCF DSCR.
   // Deploy 236.762 — + rent (Total Monthly Rent): the MF box is the only

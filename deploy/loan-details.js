@@ -3873,6 +3873,15 @@ function refreshGuarantorDocsBanner() {
 // quoted: (1) the BPO's as-is value came in BELOW the purchase price, or
 // (2) BPO LTARV is over this loan's program max LTARV. RTL/GUC only — DSCR
 // loans get an appraisal, not a BPO.
+//
+// Deploy 236.773 (Mike) — the banner CLEARS once the loan is corrected:
+//   - AUTO: a low-AIV loan whose loanAmt is now within what the AIV
+//     supports (aiv × max LTP/LTV + rehab — the 236.772 sizer math) no
+//     longer fires reason (1); reason (2) already self-clears when the
+//     amount drops. So saving the repriced loan removes the banner.
+//   - MANUAL: a Dismiss button acknowledges the CURRENT BPO values
+//     (manager-exception cases where the higher leverage was approved).
+//     A new/changed BPO re-fires the banner past any old dismissal.
 function refreshBpoRepriceBanner() {
   var slot = document.getElementById('ldTopBanners');
   if (!slot) return;
@@ -3884,9 +3893,20 @@ function refreshBpoRepriceBanner() {
   function n(v) { return parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')) || 0; }
   var aiv = n(l.aivBpo), arvB = n(l.arvBpo), pp = n(l.purchasePrice), amt = n(l.loanAmt);
 
+  // Manual acknowledgment for the CURRENT BPO values — suppress entirely.
+  if (l.bpoRepriceAckAt &&
+      String(l.aivBpo || '') === String(l.bpoRepriceAckAiv || '') &&
+      String(l.arvBpo || '') === String(l.bpoRepriceAckArv || '')) {
+    return;
+  }
+
   var reasons = [];
   if (aiv > 0 && pp > 0 && aiv < pp) {
-    reasons.push('the BPO as-is value (' + fmtM(aiv) + ') came in below the purchase price (' + fmtM(pp) + ')');
+    // Auto-clear: already repriced within what the AIV supports?
+    var allowed = _ldAivAllowedMax(l, aiv);
+    if (!(allowed != null && amt > 0 && amt <= allowed + 1)) {
+      reasons.push('the BPO as-is value (' + fmtM(aiv) + ') came in below the purchase price (' + fmtM(pp) + ')');
+    }
   }
   var maxL = _ldMaxLtarvPct(l, l.fico, l.experience);
   if (arvB > 0 && amt > 0 && maxL > 0) {
@@ -3905,11 +3925,66 @@ function refreshBpoRepriceBanner() {
   banner.style.color       = 'var(--danger, #7c1f1f)';
   banner.innerHTML =
     '<span class="ld-warning-icon">⛔</span>' +
-    '<div>' +
+    '<div style="flex:1">' +
       '<strong>This loan needs to be repriced due to the BPO</strong> — ' +
       reasons.join(', and ') + '. Re-run the sizer against the BPO values before this loan moves forward.' +
-    '</div>';
+    '</div>' +
+    // Deploy 236.773 — persistent dismiss (see the ack block above).
+    '<button type="button" onclick="dismissBpoRepriceBanner(this)" ' +
+      'title="Dismiss this notice for the current BPO values (e.g. a manager approved the exception). A new BPO will bring it back." ' +
+      'style="flex:none;align-self:center;margin-left:10px;font-size:12px;font-weight:600;padding:6px 12px;border:1px solid rgba(124,31,31,0.40);background:#fff;color:var(--danger,#7c1f1f);border-radius:6px;cursor:pointer;font-family:inherit">Dismiss</button>';
   slot.appendChild(banner);
+}
+
+// Deploy 236.773 — the max loan the BPO AIV supports for this loan's
+// program/FICO/experience (aiv × max LTP/LTV, + rehab on rehab products).
+// Mirrors rtl-pricing.js's ltvBasis sizing (236.772). Returns null when
+// the tables/inputs aren't available (legacy loans) — caller keeps the
+// banner in that case and the Dismiss button covers it.
+function _ldAivAllowedMax(l, aiv) {
+  try {
+    var R = (typeof window !== 'undefined') ? window.SLA_RTL : null;
+    if (!R || !R.MAX_LTP || typeof R.fk !== 'function' || typeof R.ei !== 'function') return null;
+    var lt = String((l && l.loanType) || '').toLowerCase();
+    var purp = String((l && l.loanPurpose) || '').toLowerCase();
+    var ptRaw = String((l && l.propType) || '').toLowerCase();
+    var pt = (ptRaw === 'mfr' || ptRaw === 'multi') ? 'mfr' : 'sfr';
+    var f = parseFloat(l && l.fico) || 0;
+    var e = parseFloat(l && l.experience) || 0;
+    if (!f) return null;
+    var dec = 0;
+    if (purp === 'cashout' || purp === 'refi_co' || purp === 'rateterm' || purp === 'refi_rt' || purp === 'refinance') {
+      var key = (purp === 'rateterm' || purp === 'refi_rt') ? 'rateterm' : 'cashout';
+      var rt = R.REFI_LTV && R.REFI_LTV[key] && R.REFI_LTV[key][pt] && R.REFI_LTV[key][pt][R.fk(f)];
+      dec = rt ? rt[R.ei(e)] : 0;
+      return (dec > 0) ? aiv * dec : null;
+    }
+    var tbl = R.MAX_LTP[lt] && R.MAX_LTP[lt][pt] && R.MAX_LTP[lt][pt][R.fk(f)];
+    dec = tbl ? tbl[R.ei(e)] : 0;
+    if (!(dec > 0)) return null;
+    var rb = (lt !== 'bridge') ? (parseFloat(String((l && l.rehabBudget) || '').replace(/[^0-9.]/g, '')) || 0) : 0;
+    return aiv * dec + rb;
+  } catch (err) { return null; }
+}
+
+// Deploy 236.773 — persist the dismissal: stamp the CURRENT BPO values so
+// the banner stays gone for this BPO but returns if a new one lands.
+function dismissBpoRepriceBanner(btn) {
+  if (!_loan || !_client) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Dismissing…'; }
+  var fields = {
+    bpoRepriceAckAt:  new Date().toISOString(),
+    bpoRepriceAckAiv: String(_loan.aivBpo || ''),
+    bpoRepriceAckArv: String(_loan.arvBpo || ''),
+  };
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function () {
+    _ldMergeLoan(fields);
+    refreshBpoRepriceBanner();
+    showToast('BPO reprice notice dismissed for the current BPO values.');
+  }).catch(function (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Dismiss'; }
+    showToast('Dismiss failed: ' + ((err && err.message) || 'unknown'));
+  });
 }
 
 function refreshOwnershipBanner() {
