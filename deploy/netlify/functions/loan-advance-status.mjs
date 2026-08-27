@@ -31,6 +31,7 @@ import { canOverrideOwner } from './_shared/access.mjs'; // Deploy 236.266
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { notifyLoLoanClosed } from './_shared/email.mjs'; // Deploy 236.694
 // Deploy 222 (Phase 3) — auto-fire Baseline sync when the LO manually
 // advances a loan to approved (the safety-valve path for when the
@@ -102,6 +103,7 @@ async function handle(req, context) {
   const targetLoan = client.loans.find((l) => l.id === body.loanId);
   if (!targetLoan) return json(404, { error: 'Loan not found on client' });
 
+  const _alBefore = Object.assign({}, targetLoan);  // Deploy 236.773 — audit-log snapshot
   const prevStatus = targetLoan.status || '';
   const now = new Date().toISOString();
 
@@ -190,6 +192,16 @@ async function handle(req, context) {
       console.warn('loan-advance-status: submitted-slack notify threw, ignoring:', e && e.message);
     }
   }
+
+  // Deploy 236.773 — audit log (best-effort; must never fail the save).
+  try {
+    const _alActor = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: client.id, loanId: targetLoan.id,
+      actor: _alActor, actorName: user.name || _alActor,
+      source: 'Status', changes: diffLoan(_alBefore, targetLoan),
+    });
+  } catch (e) { console.warn('loan-advance-status: change log failed (non-fatal):', e && e.message); }
 
   return json(200, {
     success: true,

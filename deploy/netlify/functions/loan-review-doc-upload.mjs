@@ -530,7 +530,7 @@ async function handle(req, context) {
   let fieldsWritten = 0;
   if (_fieldProposals && _fieldProposals.length) {
     try {
-      fieldsWritten = await writeFieldProposals(review.source, _fieldProposals);
+      fieldsWritten = await writeFieldProposals(review.source, _fieldProposals, normalizeEmail(user.email));
     } catch (e) {
       console.error('loan-review-doc-upload: field-proposal write failed:', e && e.message);
     }

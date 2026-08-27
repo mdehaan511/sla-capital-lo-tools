@@ -41,6 +41,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
 // Deploy 236.703 — removing a guarantor modifies the application and requires a
 // re-sign (Mike). This resets the app to awaiting-signatures.
@@ -214,6 +215,17 @@ async function handle(req, context) {
   } catch (e) {
     console.warn('loan-remove-guarantor: application re-sign reset failed (non-fatal):', e && e.message);
   }
+
+  // Deploy 236.773 — audit log (best-effort; must never fail the save).
+  try {
+    const _alActor = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: primary.id, loanId: loan.id,
+      actor: _alActor, actorName: user.name || _alActor,
+      source: 'Guarantors', changes: [{ field: 'guarantors', label: 'Guarantor removed', from: String(guarantorName || guarantorEmail || body.guarantorClientId), to: '' }],
+    });
+  } catch (e) { console.warn('loan-remove-guarantor: change log failed (non-fatal):', e && e.message); }
+
 
   return json(200, {
     ok: true,

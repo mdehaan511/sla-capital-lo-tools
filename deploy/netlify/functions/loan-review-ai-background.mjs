@@ -17,7 +17,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
+  handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
@@ -220,7 +220,7 @@ async function handle(req, context) {
   // Write the loan fields AFTER the review is saved, so a proposal-write failure
   // can never lose the review itself (same ordering as the upload path).
   if (_props && _canWriteFields) {
-    try { await writeFieldProposals(review.source, _props); }
+    try { await writeFieldProposals(review.source, _props, normalizeEmail(user.email)); }
     catch (e) { console.error('loan-review-ai-background: field-proposal write failed:', e && e.message); }
   }
   return json(200, { ok: true, review: saved || review, dropped: !saved });

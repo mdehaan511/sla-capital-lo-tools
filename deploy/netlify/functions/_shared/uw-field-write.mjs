@@ -16,6 +16,7 @@
 import { getStore } from "@netlify/blobs";
 import { keySafe } from "./auth.mjs";
 import { writeClient } from "./client-write.mjs";
+import { diffLoan, recordLoanChanges } from "./loan-change-log.mjs";
 
 // Turn the AI's extractedFields answer into proposals. Only fields the AI
 // actually FOUND (found:true + a non-empty value) — a "not on this document"
@@ -64,7 +65,7 @@ export function bpoAlertFor(slug, proposals, snapshotLoan) {
 // shape so the UW tab renders them identically ("AI — UNVERIFIED"). We do
 // NOT overwrite a field a human has already verified — human truth wins.
 const _UW_AUDIT_CAP = 2000;
-export async function writeFieldProposals(source, proposals) {
+export async function writeFieldProposals(source, proposals, actorEmail) {
   const ownerKey  = keySafe(source.ownerKey);
   const clientId  = source.clientId;
   const loanId    = source.loanId;
@@ -77,6 +78,9 @@ export async function writeFieldProposals(source, proposals) {
   if (idx < 0) return 0;
 
   const loan = client.loans[idx];
+  // Deploy 236.773 — audit-log snapshot so AI-written loan fields (the BPO's
+  // aivBpo / arvBpo) show up in the Audit Log like any human edit.
+  const _alBefore = Object.assign({}, loan);
   const now = new Date().toISOString();
   let wrote = 0;
 
@@ -151,5 +155,15 @@ export async function writeFieldProposals(source, proposals) {
   client.loans[idx] = loan;
   client.updatedAt = now;
   await writeClient(ownerKey, client, { clientsStore });
+
+  // Deploy 236.773 — audit log (best-effort; never fails the write).
+  try {
+    await recordLoanChanges({
+      ownerKey, clientId, loanId,
+      actor: actorEmail || 'ai', actorName: actorEmail || 'AI (document review)',
+      source: 'Document Review (AI)', changes: diffLoan(_alBefore, loan),
+    });
+  } catch (e) { console.warn('uw-field-write: change log failed (non-fatal):', e && e.message); }
+
   return wrote;
 }

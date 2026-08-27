@@ -29,7 +29,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import {
-  handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
+  handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
@@ -272,7 +272,7 @@ async function handle(req, context) {
   await _saveReview(reviewStore, review, now);
 
   if (_props && _canWriteFields) {
-    try { await writeFieldProposals(review.source, _props); }
+    try { await writeFieldProposals(review.source, _props, normalizeEmail(user.email)); }
     catch (e) { console.error('loan-review-ai-retry: field-proposal write failed:', e && e.message); }
   }
   return json(200, { ok: true, review });

@@ -34,6 +34,7 @@ import { loadRecord } from './_shared/borrower-info-keys.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { findClientByEmail, findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 export default async (req, context) => {
@@ -255,6 +256,17 @@ async function handle(req, context) {
   // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
   try { await writeClient(ownerKey, primary, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.773 — audit log (best-effort; must never fail the save).
+  try {
+    const _alActor = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: primary.id, loanId: loan.id,
+      actor: _alActor, actorName: user.name || _alActor,
+      source: 'Guarantors', changes: [{ field: 'guarantors', label: 'Guarantor added', from: '', to: String(firstName + ' ' + lastName).trim() + ' <' + email + '>' }],
+    });
+  } catch (e) { console.warn('loan-add-guarantor: change log failed (non-fatal):', e && e.message); }
+
 
   return json(200, {
     ok: true,

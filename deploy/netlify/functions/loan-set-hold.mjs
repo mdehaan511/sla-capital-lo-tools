@@ -21,6 +21,7 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 
 export default async (req, context) => {
@@ -68,6 +69,7 @@ async function handle(req, context) {
   const idx = client.loans.findIndex((l) => l && l.id === loanId);
   if (idx < 0) return json(404, { error: 'Loan not found on client' });
   const loan = client.loans[idx];
+  const _alBefore = Object.assign({}, loan);  // Deploy 236.773 — audit-log snapshot
 
   const now = new Date().toISOString();
   const priorStatus = String(loan.status || '');
@@ -101,6 +103,16 @@ async function handle(req, context) {
 
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to save: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.773 — audit log (best-effort; must never fail the save).
+  try {
+    const _alActor = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: clientId, loanId: loanId,
+      actor: _alActor, actorName: user.name || _alActor,
+      source: 'Status', changes: diffLoan(_alBefore, loan),
+    });
+  } catch (e) { console.warn('loan-set-hold: change log failed (non-fatal):', e && e.message); }
 
   return json(200, { ok: true, status: loan.status });
 }

@@ -22,6 +22,7 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 
 const VALID = { post_close: 1, servicing: 1, pending_sale: 1, sold: 1, paid_off: 1 };
 
@@ -74,6 +75,7 @@ async function handle(req, context) {
   const idx = client.loans.findIndex((l) => l && l.id === loanId);
   if (idx < 0) return json(404, { error: 'Loan not found on client' });
   const loan = client.loans[idx];
+  const _alBefore = Object.assign({}, loan);  // Deploy 236.773 — audit-log snapshot
 
   const now = new Date().toISOString();
   loan.disposition   = disposition;
@@ -83,6 +85,16 @@ async function handle(req, context) {
 
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to save: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.773 — audit log (best-effort; must never fail the save).
+  try {
+    const _alActor = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: clientId, loanId: loanId,
+      actor: _alActor, actorName: user.name || _alActor,
+      source: 'Disposition', changes: diffLoan(_alBefore, loan),
+    });
+  } catch (e) { console.warn('loan-set-disposition: change log failed (non-fatal):', e && e.message); }
 
   return json(200, { ok: true, disposition: loan.disposition });
 }

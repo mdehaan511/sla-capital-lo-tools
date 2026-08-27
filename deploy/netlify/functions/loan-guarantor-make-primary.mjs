@@ -29,6 +29,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs';
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { renderSignedApplicationPDF } from './_shared/loan-application-pdf.mjs';
 import { resetApplicationForResign } from './_shared/application-resign-reset.mjs';
 import { revokeLoanAccess } from './_shared/loan-access-store.mjs';
@@ -323,6 +324,17 @@ async function handle(req, context) {
       }
     } catch (e) { console.warn('make-primary: signed PDF reorder/regen failed (non-fatal):', e && e.message); }
   }
+
+  // Deploy 236.773 — audit log (best-effort; must never fail the save).
+  try {
+    const _alActor = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: dest.id, loanId: loan.id,
+      actor: _alActor, actorName: user.name || _alActor,
+      source: 'Guarantors', changes: [{ field: 'guarantors', label: 'Primary borrower changed', from: String((src && (src.firstName || src.lastName)) ? ((src.firstName||'') + ' ' + (src.lastName||'')).trim() : (src && src.id) || ''), to: String((dest && (dest.firstName || dest.lastName)) ? ((dest.firstName||'') + ' ' + (dest.lastName||'')).trim() : (dest && dest.id) || '') }],
+    });
+  } catch (e) { console.warn('loan-guarantor-make-primary: change log failed (non-fatal):', e && e.message); }
+
 
   return json(200, {
     ok: true,

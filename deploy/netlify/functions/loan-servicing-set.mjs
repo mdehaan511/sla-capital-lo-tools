@@ -25,6 +25,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // Deploy 236.402 (C2 slice 2): client persists route through the shared
 // PG-first writeClient helper (covers blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 
 // Basic URL sanitization — accept http(s) only, otherwise reject.
 // Prevents an LO from accidentally pasting a `javascript:` or
@@ -128,6 +129,7 @@ async function handle(req, context) {
   const loanIdx = primary.loans.findIndex((l) => l && l.id === loanId);
   if (loanIdx < 0) return json(404, { error: 'Loan not found on client' });
   const loan = primary.loans[loanIdx];
+  const _alBefore = Object.assign({}, loan);  // Deploy 236.773 — audit-log snapshot
 
   const before = {
     maturityDate: loan.maturityDate || '',
@@ -179,6 +181,16 @@ async function handle(req, context) {
   // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient
   try { await writeClient(ownerKey, primary, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.773 — audit log (best-effort; must never fail the save).
+  try {
+    const _alActor = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: clientId, loanId: loanId,
+      actor: _alActor, actorName: user.name || _alActor,
+      source: 'Servicing', changes: diffLoan(_alBefore, loan),
+    });
+  } catch (e) { console.warn('loan-servicing-set: change log failed (non-fatal):', e && e.message); }
 
   return json(200, { ok: true, loan });
 }
