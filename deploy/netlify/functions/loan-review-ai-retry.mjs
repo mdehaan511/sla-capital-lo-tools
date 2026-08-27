@@ -32,6 +32,8 @@ import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
+import { fieldsForSlug } from './_shared/uw-field-map.mjs';
+import { buildProposals, writeFieldProposals, bpoAlertFor } from './_shared/uw-field-write.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 
@@ -166,6 +168,14 @@ async function handle(req, context) {
     catch (e) { console.warn('doc-integrity forensics failed (non-fatal):', e && e.message); }
   }
 
+  // Deploy 236.768 — auto-grab spec (parity with the upload + background paths).
+  const _canWriteFields = !!(review.source && review.source.kind === 'existing' &&
+    review.source.clientId && review.source.loanId && review.source.ownerKey);
+  const _extractSpec = _canWriteFields ? fieldsForSlug(body.slug) : null;
+  const _extractFields = (Array.isArray(_extractSpec) && _extractSpec.length)
+    ? _extractSpec.map(function (f) { return { key: f.key, label: f.label }; })
+    : undefined;
+
   let aiResult;
   try {
     aiResult = await reviewDocument({
@@ -177,6 +187,10 @@ async function handle(req, context) {
       investor: review.investor || '',
       guidelinesBytes,
       loanAppBytes,
+      // Deploy 236.768 — Retry now runs the per-field auto-grab too, so hitting
+      // ↻ Retry on an already-uploaded BPO re-pulls aivBpo / arvBpo instead of
+      // needing a re-upload.
+      extractFields: _extractFields,
       integrityCheck: _runIntegrity,
       docCategory: _docCategory,
     });
@@ -223,7 +237,21 @@ async function handle(req, context) {
     if (staleAfter) docState.staleByDate = staleAfter;
   }
 
+  // Deploy 236.768 — persist the auto-grab (incl. the BPO's aivBpo / arvBpo) and
+  // the BPO reprice alert, then write the loan fields AFTER the review is saved.
+  const _props = buildProposals(_extractSpec, aiResult.extractedFields, docLabel);
+  if (isCurrentTarget) {
+    docState.aiExtractedFields = aiResult.extractedFields || {};
+    const _bpoAlert = bpoAlertFor(body.slug, _props, review.snapshotLoan);
+    if (_bpoAlert !== null) docState.bpoAlert = _bpoAlert;
+  }
+
   await _saveReview(reviewStore, review, now);
+
+  if (_props && _canWriteFields) {
+    try { await writeFieldProposals(review.source, _props); }
+    catch (e) { console.error('loan-review-ai-retry: field-proposal write failed:', e && e.message); }
+  }
   return json(200, { ok: true, review });
 }
 

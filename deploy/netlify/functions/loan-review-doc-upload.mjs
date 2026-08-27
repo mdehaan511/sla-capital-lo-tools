@@ -37,6 +37,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // we ask the SAME review call to also extract them, then write each one onto
 // the loan as an UNVERIFIED proposal for a human to confirm.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
+import { writeFieldProposals } from './_shared/uw-field-write.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
@@ -575,101 +576,6 @@ async function handle(req, context) {
   return json(200, { ok: true, review, docId, fieldsWritten, aiReviewing: _bgQueued });
 }
 
-// Deploy 236.500 — persist AI-extracted UW/Lightning fields onto the loan
-// as unverified proposals (verified:false, isAI:true) with a provenance
-// note + append-only audit entry, mirroring loan-uw-field-save.mjs's write
-// shape so the UW tab renders them identically ("AI — UNVERIFIED"). We do
-// NOT overwrite a field a human has already verified — human truth wins.
-const _UW_AUDIT_CAP = 2000;
-async function writeFieldProposals(source, proposals) {
-  const ownerKey  = keySafe(source.ownerKey);
-  const clientId  = source.clientId;
-  const loanId    = source.loanId;
-  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-  const clientKey = ownerKey + '/' + keySafe(clientId);
-
-  const client = await clientsStore.get(clientKey, { type: 'json' });
-  if (!client || !Array.isArray(client.loans)) return 0;
-  const idx = client.loans.findIndex(function (l) { return l && l.id === loanId; });
-  if (idx < 0) return 0;
-
-  const loan = client.loans[idx];
-  const now = new Date().toISOString();
-  let wrote = 0;
-
-  proposals.forEach(function (p) {
-    // Deploy 236.767 (Mike) — dataset 'loan' writes a REAL loan field (the BPO's
-    // own aivBpo / arvBpo), not an unverified UW-tab proposal, because those two
-    // drive LTAIV + BPO LTARV in Loan Financials. The BPO is the authority here,
-    // so it overwrites — and we stamp provenance so the UI can lock the input.
-    if (p.dataset === 'loan') {
-      const numeric = Number(String(p.value).replace(/[^0-9.\-]/g, ''));
-      if (!isFinite(numeric) || numeric <= 0) return;
-      if (String(loan[p.key] == null ? '' : loan[p.key]) !== String(numeric)) wrote += 1;
-      loan[p.key] = String(numeric);
-      loan[p.key + 'FromBpo'] = true;      // → input is locked in Loan Details
-      loan[p.key + 'BpoAt']   = now;
-      return;
-    }
-    const dataField  = p.dataset === 'uw' ? 'uwData'  : 'lightningData';
-    const auditField = p.dataset === 'uw' ? 'uwAudit' : 'lightningAudit';
-    loan[dataField]  = (loan[dataField] && typeof loan[dataField] === 'object') ? loan[dataField] : {};
-    loan[auditField] = Array.isArray(loan[auditField]) ? loan[auditField] : [];
-
-    const prior = loan[dataField][p.key] || null;
-    // Human truth wins: never clobber a value a person has verified.
-    if (prior && prior.verified === true && prior.isAI !== true) return;
-    // Don't churn the audit if the AI would write the exact same value.
-    if (prior && prior.isAI === true && String(prior.value) === String(p.value)) return;
-
-    const entry = {
-      value:      p.value,
-      source:     'doc',
-      sourceNote: '',
-      isAI:       true,
-      aiNote:     p.aiNote || '',
-      verified:   false,
-      by:         'ai',
-      byName:     'AI',
-      at:         now,
-    };
-    loan[dataField][p.key] = entry;
-    loan[auditField].push({
-      key:    p.key,
-      from:   prior ? prior.value : undefined,
-      to:     entry.value,
-      by:     'ai',
-      byName: 'AI',
-      isAI:   true,
-      aiNote: entry.aiNote,
-      at:     now,
-    });
-    if (loan[auditField].length > _UW_AUDIT_CAP) {
-      loan[auditField] = loan[auditField].slice(loan[auditField].length - _UW_AUDIT_CAP);
-    }
-    wrote++;
-  });
-
-  // Deploy 236.767 — once the BPO's own values are on the loan, record whether
-  // the as-is came in under the purchase price. Loan Details reads this for its
-  // "needs repricing" banner (it computes the LTARV-vs-max half itself, from the
-  // live rate tables in rtl-pricing.js — never duplicated server-side).
-  if (proposals.some(function (p) { return p && p.dataset === 'loan'; })) {
-    const _n = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
-    const _aiv = _n(loan.aivBpo), _pp = _n(loan.purchasePrice);
-    loan.bpoAivBelowPurchase = !!(_aiv > 0 && _pp > 0 && _aiv < _pp);
-    loan.bpoValuesAt = now;
-    wrote += 1;   // provenance/flags alone are worth persisting
-  }
-
-  if (!wrote) return 0;
-
-  loan.updatedAt = now;
-  client.loans[idx] = loan;
-  client.updatedAt = now;
-  await writeClient(ownerKey, client, { clientsStore });
-  return wrote;
-}
 
 // Build the loan-context object sent to Claude. Pulls from the
 // review's snapshot (set at create time by loan-reviews-save.mjs)

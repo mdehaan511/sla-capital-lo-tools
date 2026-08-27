@@ -22,6 +22,11 @@ import {
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
+// Deploy 236.768 — this path must run the per-field auto-grab too. A large BPO
+// is handed here by the upload, and without this the BPO's aivBpo / arvBpo were
+// never written — exactly the big BPOs the feature exists for.
+import { fieldsForSlug } from './_shared/uw-field-map.mjs';
+import { buildProposals, writeFieldProposals, bpoAlertFor } from './_shared/uw-field-write.mjs';
 
 // Background functions get ~15 min; give the Claude call 5 min of headroom.
 const BG_TIMEOUT_MS = 5 * 60 * 1000;
@@ -157,12 +162,22 @@ async function handle(req, context) {
     catch (e) { console.warn('loan-review-ai-background: integrity forensics failed (non-fatal):', e && e.message); }
   }
 
+  // Deploy 236.768 — same auto-grab spec the sync upload uses, folded into this
+  // review call (no extra latency). Only for reviews tied to a real loan.
+  const _canWriteFields = !!(review.source && review.source.kind === 'existing' &&
+    review.source.clientId && review.source.loanId && review.source.ownerKey);
+  const _extractSpec = _canWriteFields ? fieldsForSlug(body.slug) : null;
+  const _extractFields = (Array.isArray(_extractSpec) && _extractSpec.length)
+    ? _extractSpec.map(function (f) { return { key: f.key, label: f.label }; })
+    : undefined;
+
   let aiResult;
   try {
     aiResult = await reviewDocument({
       bytes, mimeType, docLabel, docConditions,
       loanContext: ctx, investor: review.investor || '',
       guidelinesBytes, loanAppBytes,
+      extractFields: _extractFields,
       integrityCheck: _runIntegrity, docCategory: _docCategory,
       timeoutMs: BG_TIMEOUT_MS,
     });
@@ -191,9 +206,23 @@ async function handle(req, context) {
   if (_stale) _ok.staleByDate = _stale;
   if (typeof ee.dateNotes === 'string') _ok.dateNotes = ee.dateNotes;
 
+  // Deploy 236.768 — persist the per-field auto-grab (incl. the BPO's aivBpo /
+  // arvBpo) and the BPO reprice alert, exactly like the sync upload path.
+  const _props = buildProposals(_extractSpec, aiResult.extractedFields, docLabel);
+  _ok.aiExtractedFields = aiResult.extractedFields || {};
+  const _bpoAlert = bpoAlertFor(body.slug, _props, review.snapshotLoan);
+  if (_bpoAlert !== null) _ok.bpoAlert = _bpoAlert;
+
   // Deploy 236.762 — fresh-read merge (see _saveTrayPatch); the stale
   // whole-record write here was the concurrency clobber.
   const saved = await _saveTrayPatch(_ok, _integrity, aiResult.costCents || 0);
+
+  // Write the loan fields AFTER the review is saved, so a proposal-write failure
+  // can never lose the review itself (same ordering as the upload path).
+  if (_props && _canWriteFields) {
+    try { await writeFieldProposals(review.source, _props); }
+    catch (e) { console.error('loan-review-ai-background: field-proposal write failed:', e && e.message); }
+  }
   return json(200, { ok: true, review: saved || review, dropped: !saved });
 }
 
