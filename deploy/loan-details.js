@@ -3874,7 +3874,7 @@ function refreshGuarantorDocsBanner() {
 // (2) BPO LTARV is over this loan's program max LTARV. RTL/GUC only — DSCR
 // loans get an appraisal, not a BPO.
 //
-// Deploy 236.773 (Mike) — the banner CLEARS once the loan is corrected:
+// Deploy 236.775 (Mike) — the banner CLEARS once the loan is corrected:
 //   - AUTO: a low-AIV loan whose loanAmt is now within what the AIV
 //     supports (aiv × max LTP/LTV + rehab — the 236.772 sizer math) no
 //     longer fires reason (1); reason (2) already self-clears when the
@@ -3929,14 +3929,14 @@ function refreshBpoRepriceBanner() {
       '<strong>This loan needs to be repriced due to the BPO</strong> — ' +
       reasons.join(', and ') + '. Re-run the sizer against the BPO values before this loan moves forward.' +
     '</div>' +
-    // Deploy 236.773 — persistent dismiss (see the ack block above).
+    // Deploy 236.775 — persistent dismiss (see the ack block above).
     '<button type="button" onclick="dismissBpoRepriceBanner(this)" ' +
       'title="Dismiss this notice for the current BPO values (e.g. a manager approved the exception). A new BPO will bring it back." ' +
       'style="flex:none;align-self:center;margin-left:10px;font-size:12px;font-weight:600;padding:6px 12px;border:1px solid rgba(124,31,31,0.40);background:#fff;color:var(--danger,#7c1f1f);border-radius:6px;cursor:pointer;font-family:inherit">Dismiss</button>';
   slot.appendChild(banner);
 }
 
-// Deploy 236.773 — the max loan the BPO AIV supports for this loan's
+// Deploy 236.775 — the max loan the BPO AIV supports for this loan's
 // program/FICO/experience (aiv × max LTP/LTV, + rehab on rehab products).
 // Mirrors rtl-pricing.js's ltvBasis sizing (236.772). Returns null when
 // the tables/inputs aren't available (legacy loans) — caller keeps the
@@ -3967,7 +3967,7 @@ function _ldAivAllowedMax(l, aiv) {
   } catch (err) { return null; }
 }
 
-// Deploy 236.773 — persist the dismissal: stamp the CURRENT BPO values so
+// Deploy 236.775 — persist the dismissal: stamp the CURRENT BPO values so
 // the banner stays gone for this BPO but returns if a new one lands.
 function dismissBpoRepriceBanner(btn) {
   if (!_loan || !_client) return;
