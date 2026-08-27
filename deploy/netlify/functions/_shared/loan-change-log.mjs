@@ -59,6 +59,22 @@ const FIELD_LABELS = {
   payoffDate: 'Payoff Date', upb: 'UPB', fundingSource: 'Funding Source',
   tpo: 'TPO', dutchInterest: 'Interest Structure', prepay: 'Prepay',
   projectDescription: 'Project Description', ref: 'Referral Source',
+  // Deploy 236.774 — labels for the rest of the surfaces now feeding the log
+  // (servicing / status / terms / property), so entries read like the UI does.
+  servicerUrl: 'Servicer Portal URL', activelyTrading: 'Actively Trading',
+  tpoSpread: 'TPO Spread', closingFees: 'Closing Fees',
+  loanTerm: 'Loan Term', isIO: 'Interest Only', lienPosition: 'Lien Position',
+  originationDate: 'Origination Date', firstPaymentDate: 'First Payment Date',
+  holdback: 'Rehab Holdback', initialAdvance: 'Initial Advance',
+  downPayment: 'Down Payment', tpoPremium: 'TPO Premium',
+  lotSize: 'Lot Size', yearBuilt: 'Year Built', stories: 'Stories',
+  propertyCounty: 'County', floodZone: 'Flood Zone', purchaseDate: 'Purchase Date',
+  monthlyTaxes: 'Taxes (monthly)', monthlyInsurance: 'Insurance (monthly)',
+  monthlyHoa: 'HOA (monthly)', isPortfolio: 'Portfolio Loan',
+  propertyCount: 'Property Count', rent: 'Total Monthly Rent',
+  unitsOccupied: 'Units Occupied', vacancyPct: 'Vacancy %',
+  assignedProcessor: 'Assigned Processor', assignedLo: 'Assigned LO',
+  guarantors: 'Guarantors', rateLockStart: 'Rate Lock Start',
 };
 
 function labelFor(key) {
