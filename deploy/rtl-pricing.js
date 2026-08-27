@@ -444,16 +444,34 @@ function priceRTL(I) {
     }
   }
 
+  // Deploy 236.772 — BPO / appraised As-Is Value. When a BPO comes back
+  // BELOW the purchase price (or the refi's stated value), the LTP/LTV
+  // constraint sizes off the AIV instead — "lesser of purchase price or
+  // as-is value". LTC stays cost-based ((pp + rb) — cost is what it is)
+  // and LTARV stays ARV-based; only the value leg moves. Empty/higher
+  // AIV → behavior identical to before (all golden scenarios unchanged).
+  var aiv = parseFloat(I.aivBpo);
+  if (!isFinite(aiv) || aiv <= 0) aiv = 0;
+  var ltvBasis = pp;
+  var aivApplied = false;
+  if (aiv > 0 && pp > 0 && aiv < pp && !rErr) {
+    ltvBasis = aiv;
+    aivApplied = true;
+    flags.push('BPO As-Is Value $' + Math.round(aiv).toLocaleString() + ' is below the ' +
+      (isRefi ? 'stated value' : 'purchase price') + ' — the ' + (isRefi ? 'LTV' : 'LTP/LTV') +
+      ' cap is sized off the AIV.');
+  }
+
   // On refis, bMax is just pp × LTV. No rehab budget added, no LTC/LTARV
   // layered. ("pp" = property as-is value on refis; the input field is
   // labeled Purchase Price but reused for refi as-is value.)
   var defMax, mByLtc, mByLarv;
   if (isRefi && !rErr) {
-    defMax  = mLtp > 0 ? Math.round(pp * mLtp) : null;
+    defMax  = mLtp > 0 ? Math.round(ltvBasis * mLtp) : null;
     mByLtc  = null;
     mByLarv = null;
   } else if (!rErr) {
-    defMax  = mLtp > 0 ? (isR ? Math.round(pp * mLtp) + rb : Math.round(pp * mLtp)) : null;
+    defMax  = mLtp > 0 ? (isR ? Math.round(ltvBasis * mLtp) + rb : Math.round(ltvBasis * mLtp)) : null;
     mByLtc  = ltcT && mLtc > 0 ? Math.round((pp + rb) * mLtc) : null;
     mByLarv = larvT && mLarv > 0 ? Math.round(arv * mLarv) : null;
   } else {
@@ -661,6 +679,8 @@ function priceRTL(I) {
     adjs: adjs, flags: flags, p: p, pDol: pDol,
     isDutch: isDutch, initAdv: initAdv, moMax: moMax, moStart: moStart,
     mo: mo, progLabel: progLabel, sandbox: adminSandbox,
+    // Deploy 236.772 — BPO AIV sizing (see the ltvBasis block above).
+    ltvBasis: ltvBasis, aivApplied: aivApplied,
   };
 }
 

@@ -335,6 +335,10 @@ async function handle(req, context) {
     const PRESERVE_ON_EMPTY = [
       'bedrooms', 'bathrooms', 'sqft', 'notes', 'projectDescription',
       'fundingDate', 'purchasePrice', 'rentalType', 'usCitizen', 'creditScore',
+      // Deploy 236.772 — BPO As-Is Value: written by the BPO extraction /
+      // Property tab; an empty sizer box must not wipe it (clear it from
+      // the Property tab if genuinely wrong).
+      'aivBpo',
     ];
     // Monthly T/I/HOA: the 1-4 DSCR sizer HAS these inputs (a blank there
     // is a legitimate clear); the MF sizer doesn't (its save always posts

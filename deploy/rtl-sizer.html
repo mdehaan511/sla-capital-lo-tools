@@ -74,6 +74,10 @@ window.ClientBook = {
       purchasePrice: formData.purchasePrice || '',
       rehabBudget:   formData.rehabBudget   || '',
       arv:           formData.arv           || '',
+      // Deploy 236.772 — BPO As-Is Value. Bidirectional with the loan's
+      // aivBpo (BPO extraction / Property tab); empty is preserve-on-empty
+      // server-side so a blank box can't wipe an extracted BPO value.
+      aivBpo:        formData.aivBpo        || '',
       experience:    formData.experience    || '',
       experienceLabel: formData.experienceLabel || '',
       ficoLabel:     formData.ficoLabel     || '',
@@ -739,6 +743,17 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
           <input type="number" id="purchasePrice" step="5000" oninput="clearErr('purchasePrice');_syncTargetsToPurchase();autoCalc()" />
         </div>
         <div class="err-msg" id="err-purchasePrice">Required</div>
+      </div>
+      <!-- Deploy 236.772 — optional BPO / appraised As-Is Value. Prefilled
+           from the loan's aivBpo (BPO extraction / Property tab). When it
+           comes in BELOW the purchase price (or refi stated value), the
+           LTP/LTV cap re-sizes off the AIV — the "BPO came in low"
+           reprice flow. Empty = no effect. -->
+      <div class="field">
+        <div class="wrap" id="wrap-aivBpo">
+          <label>BPO As-Is Value (AIV) <span style="font-weight:400;color:var(--muted);text-transform:none">— optional</span></label>
+          <input type="number" id="aivBpo" step="1000" oninput="autoCalc()" placeholder="From BPO / appraisal" />
+        </div>
       </div>
       <div class="field" id="row-rehab">
         <div class="wrap" id="wrap-rehabBudget">
@@ -1474,6 +1489,7 @@ window._rtlOverrides = {
 var OVERRIDE_LOCK_IDS = [
   'loanType', 'loanPurpose',
   'purchasePrice', 'rehabBudget', 'arv',
+  'aivBpo', // Deploy 236.772 — AIV drives the LTP/LTV cap; locks with the rest
   'currentLoanAmt', 'transactionalAmt',
   'fico', 'experience', 'propType', 'loanTerm',
   'zhvi',
@@ -1913,7 +1929,7 @@ function onLoanTypeChange() {
 
   // Grey out the LOAN-section selects + amount fields when transactional
   var disabledIds = ['fico','experience','propType','loanTerm','loanPurpose',
-    'purchasePrice','rehabBudget','arv','currentLoanAmt'];
+    'purchasePrice','rehabBudget','arv','aivBpo','currentLoanAmt'];
   disabledIds.forEach(function(id){
     var el = document.getElementById(id);
     if (el) {
@@ -2242,12 +2258,17 @@ function calculate(){
   // locals the render code below has always used.
   var targetLoanEl = document.getElementById('targetLoanAmt');
   var dutchEl = document.getElementById('dutchInterest');
+  // Deploy 236.772 — optional BPO / appraised As-Is Value. When it comes
+  // in below the purchase price (or refi stated value), the engine sizes
+  // the LTP/LTV cap off the AIV instead ("lesser of price or value").
+  var aivEl = document.getElementById('aivBpo');
   var __core = SLA_RTL.priceRTL({
     lt: lt, fr: fr, exp: exp, pt: pt, pp: pp, arv: arv, rb: rb,
     term: term, purp: purp, zhvi: zhvi, sa: sa, state: state,
     geoWarning: geoWarning, geoReductionLabel: geoReductionLabel,
     targetLoanAmt: targetLoanEl ? targetLoanEl.value : '',
     dutchInterest: dutchEl ? dutchEl.value : '',
+    aivBpo: aivEl ? aivEl.value : '',
     // Deploy 236.526 — Admin Sandbox: honor a Target Loan Amount above the
     // guideline cap. Admin-gated (the toggle only renders for admins).
     adminSandbox: !!window._rtlAdminMode,
@@ -2412,11 +2433,17 @@ function calculate(){
 
   // LTP/LTV (on refis, this card shows "LTV" against as-is value; on
   // purchases, it's the legacy LTP/LTV against purchase price)
+  // Deploy 236.772 — when the BPO AIV came in below the price/value, the
+  // cap is computed off the AIV (engine ltvBasis); the card says so.
   if(mLtp>0){
-    var la = isRefi ? Math.round(pp*mLtp) : (isR ? Math.round(pp*mLtp)+rb : Math.round(pp*mLtp));
-    html += '<div class="metric-card">';
+    var _lvBasis = (__core.aivApplied && __core.ltvBasis > 0) ? __core.ltvBasis : pp;
+    var la = isRefi ? Math.round(_lvBasis*mLtp) : (isR ? Math.round(_lvBasis*mLtp)+rb : Math.round(_lvBasis*mLtp));
+    html += '<div class="metric-card'+(__core.aivApplied ? ' warn' : '')+'">';
     html += '<div class="metric-label">'+(isRefi ? 'LTV Limit' : 'LTP/LTV Limit')+'</div>';
     html += '<div class="metric-value">'+fmt(la)+' <span style="font-size:14px;color:var(--muted)">('+fmtP(mLtp)+')</span></div>';
+    if (__core.aivApplied) {
+      html += '<div class="metric-sub" style="color:#b5712d">Off BPO AIV '+fmt(__core.ltvBasis)+' — below '+(isRefi ? 'stated value' : 'purchase price')+'</div>';
+    }
     html += '</div>';
   } else {
     html += '<div class="metric-card bad"><div class="metric-label">'+(isRefi ? 'LTV' : 'LTP/LTV')+'</div><div class="metric-value na">Not eligible</div></div>';
@@ -3132,6 +3159,8 @@ function saveCurrentQuote() {
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
+    // Deploy 236.772 — BPO As-Is Value (drives the LTP/LTV cap when low)
+    'aivBpo',
     'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
     // Deploy 236.350 — optional Target Loan Amount + Target LTV
     // caps. Persisted so reopening a saved loan restores the
@@ -3678,6 +3707,8 @@ function loadRTLQuote(formData) {
   var fields = ['propStreet','propCity','propState','propZip',
     'purchasePrice','rehabBudget','arv','loanType','fico',
     'experience','propType','loanTerm','loanPurpose','zhvi',
+    // Deploy 236.772 — BPO As-Is Value restored on reopen
+    'aivBpo',
     'borrowerName','borrowerEmail','borrowerPhone','transactionalAmt','currentLoanAmt',
     // Deploy 236.350 — target-loan / target-LTV caps
     'targetLoanAmt','targetLtv',
@@ -4281,6 +4312,11 @@ netlifyIdentity.on('init', function(user) {
         if (!fd.purchasePrice && found.purchasePrice) fd.purchasePrice = found.purchasePrice;
         if (!fd.rehabBudget   && found.rehabCost)    fd.rehabBudget   = found.rehabCost;
         if (!fd.arv           && found.estimatedARV) fd.arv           = found.estimatedARV;
+        // Deploy 236.772 — BPO As-Is Value: the LOAN's aivBpo wins over any
+        // stale quote snapshot (the BPO extraction / Property tab writes it
+        // AFTER the last sizer save — that fresher number is the whole
+        // point of the "BPO came in low → reprice" flow).
+        if (found.aivBpo) fd.aivBpo = found.aivBpo;
         // Auto-pick loanType for application-sourced loans (#5):
         // Light Rehab if rehab <= 50% of total loan, else Heavy Rehab.
         if (!fd.loanType) {
