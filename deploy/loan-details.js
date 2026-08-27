@@ -1449,6 +1449,19 @@ function render() {
       'Reset Rate Lock (45 days)' +
     '</button>';
   }
+
+  // Deploy 236.769 — remove a denied/cancelled tag at any point in the
+  // loan process (Mike: a nearly-closed loan sat invisible on the
+  // Processing Pipeline behind a stale 'denied' with no way to clear it).
+  // Renders only on denied/cancelled loans; rides into the Actions menu.
+  var _reinstFrom = String((_loan && _loan.status) || '').toLowerCase();
+  if (_reinstFrom === 'denied' || _reinstFrom === 'cancelled') {
+    var _reinstLabel = _reinstFrom === 'denied' ? 'Denied' : 'Cancelled';
+    html += '<button type="button" class="open-sizer-btn" id="ldReinstateBtn" onclick="openReinstateModal()" style="margin-top:8px">' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2.5 7.5l3.5 3.5 6.5-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      'Remove ' + _reinstLabel + ' Status' +
+    '</button>';
+  }
   // Small inline status under the button: signer name + signed-at + IP.
   // Hidden by default until refreshSignedApplicationStatus() fills it.
   html += '<div id="signedAppStatus" style="display:none;margin-top:10px;padding:10px 12px;background:#fff;border:1px solid var(--border, #E4DFD4);border-radius:6px;font-size:11.5px;line-height:1.5"></div>';
@@ -2538,6 +2551,7 @@ function render() {
       'downloadSignedAppBtn',     // Download Signed App (PDF)
       'downloadUnsignedAppBtn',   // Generate Application PDF (Unsigned)
       'ldResetRateLockBtn',       // Deploy 236.764 — Reset Rate Lock (DSCR)
+      'ldReinstateBtn',           // Deploy 236.769 — Remove Denied/Cancelled Status
       // Deploy 236.641 — loan-level actions from the dismantled Change Loan
       // Status box now live in the Actions menu (Change Type + Merge, then the
       // destructive Cancel / Decline / Delete). Conditional buttons that
@@ -7620,6 +7634,57 @@ function _renderRateLockCard() {
       if (delta > 0 && delta < 30) strip.style.minHeight = (41 + delta) + 'px';
     }
   } catch (_) {}
+}
+
+// Deploy 236.769 — Yes/No confirm before removing a denied/cancelled tag.
+// The loan returns to 'approved' when it has a processing stage (it stays
+// exactly where it was on the Processing Pipeline), else 'active'.
+function openReinstateModal() {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  var from = String((_loan && _loan.status) || '').toLowerCase();
+  if (from !== 'denied' && from !== 'cancelled') { showToast('Loan is not denied or cancelled.'); return; }
+  var label = from === 'denied' ? 'denied' : 'cancelled';
+  var hasStage = !!String((_loan && _loan.processingStage) || '').trim();
+  var old = document.getElementById('reinstateModal'); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = 'reinstateModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:440px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:16px 20px;border-bottom:1px solid var(--border,#E4DFD4)">' +
+        '<div style="font-family:\'Lora\',serif;font-size:17px;font-weight:600;color:var(--dark,#261A36)">Remove ' + (from === 'denied' ? 'Denied' : 'Cancelled') + ' Status</div>' +
+      '</div>' +
+      '<div style="padding:18px 20px;font-size:14px;line-height:1.5">' +
+        'Are you sure you want to remove the <strong>' + label + '</strong> tag and reinstate this loan?' +
+        '<div style="font-size:12px;color:var(--muted,#7a7488);margin-top:6px">' +
+          (hasStage
+            ? 'The loan returns to <strong>Approved</strong> and reappears in its current Processing Pipeline stage.'
+            : 'The loan returns to <strong>Active</strong> on the Sales pipeline.') +
+        '</div>' +
+      '</div>' +
+      '<div style="padding:14px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" id="reinstNoBtn" style="font-size:13px;padding:8px 18px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">No</button>' +
+        '<button type="button" id="reinstYesBtn" style="font-size:13px;padding:8px 18px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">Yes — Reinstate Loan</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+  document.getElementById('reinstNoBtn').addEventListener('click', function () { wrap.remove(); });
+  document.getElementById('reinstYesBtn').addEventListener('click', function () {
+    var btn = document.getElementById('reinstYesBtn');
+    btn.disabled = true; btn.textContent = 'Reinstating…';
+    var body = { clientId: _client.id, loanId: _loanId };
+    if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+    SLA.api('POST', '/api/loan-status-reinstate', body).then(function (r) {
+      showToast('Loan reinstated — status is now ' + (r.status || 'active') + '.');
+      // Status touches most of the page's render — a clean reload is the
+      // reliable repaint.
+      setTimeout(function () { location.reload(); }, 700);
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Yes — Reinstate Loan';
+      showToast('Reinstate failed: ' + ((err && err.message) || 'unknown'));
+    });
+  });
 }
 
 function openResetRateLockModal() {
