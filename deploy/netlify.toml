@@ -45,6 +45,11 @@
 [functions."baseline-native-dupe-report"]
   timeout = 26
 
+# Deploy 236.766 — chunked-upload finalize reads every chunk back and writes one
+# assembled blob (an executed closing package can be tens of MB).
+[functions."loan-review-doc-upload-chunk"]
+  timeout = 26
+
 # Deploy 236.716 — one-off fraction-rate backfill walks every client blob.
 [functions."admin-backfill-fraction-rates"]
   timeout = 26
@@ -1063,6 +1068,13 @@
 [[redirects]]
   from = "/api/loan-review-doc-upload"
   to = "/.netlify/functions/loan-review-doc-upload"
+  status = 200
+  force = true
+# Deploy 236.766 — chunked upload for files past the ~4.2MB single-POST ceiling
+# (executed closing packages). Slices in, assembles server-side.
+[[redirects]]
+  from = "/api/loan-review-doc-upload-chunk"
+  to = "/.netlify/functions/loan-review-doc-upload-chunk"
   status = 200
   force = true
 [[redirects]]

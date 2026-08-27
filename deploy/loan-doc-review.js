@@ -1410,7 +1410,13 @@
     var _retryArgs = "'" + escAttr(slug) + "', this" + (docId ? ", '" + escAttr(docId) + "'" : '');
     // Deploy 236.752 — storage-only trays (Executed Closing Documents) are a
     // record-keeping vault: no AI review, no verdict, no retry — a neutral note.
+    // Deploy 236.766 — ONLY once a document is actually filed. It used to render
+    // on an EMPTY tray too, which read as "saved" when nothing had uploaded (an
+    // LO hit this when a large closing package was rejected by the size limit).
     if ((DOC_META[slug] && DOC_META[slug].noReview) || src.noReview || src.aiVerdict === 'stored') {
+      var _hasDoc = !!(docId || src.currentDocId ||
+        (Array.isArray(src.documents) && src.documents.some(function(x){ return x && !x.hidden; })));
+      if (!_hasDoc) return '';
       return '<div class="ai-block"><div class="ai-head">' +
         '<span class="ai-label" style="color:var(--muted)">📁 Filed for record-keeping — not AI reviewed.</span>' +
       '</div></div>';

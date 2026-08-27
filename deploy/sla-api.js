@@ -2650,6 +2650,59 @@
     });
   }
 
+  // Deploy 236.766 — CHUNKED upload for files past the ~4.2MB single-POST
+  // ceiling (Netlify caps a function body at ~6MB; base64 inflates ~33%).
+  // Executed closing packages run 10–50MB, so they used to be rejected outright
+  // and nothing stored. Slices the file into ~3MB pieces, POSTs each, then asks
+  // the server to assemble them. Resolves with the finalize response ({review}).
+  var CHUNK_RAW_BYTES = 3 * 1024 * 1024;
+  var MAX_CHUNKED_RAW = 80 * 1024 * 1024;
+  function _sliceToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var dataUrl = String(reader.result || '');
+        var c = dataUrl.indexOf(',');
+        if (c < 0) return reject(new Error('Failed to read file slice'));
+        resolve(dataUrl.slice(c + 1));
+      };
+      reader.onerror = function () { reject(new Error('Failed to read file slice')); };
+      reader.readAsDataURL(blob);
+    });
+  }
+  function _postDocUploadChunked(reviewId, slug, file, opts) {
+    opts = opts || {};
+    var size = (file && file.size) || 0;
+    var total = Math.ceil(size / CHUNK_RAW_BYTES);
+    var uploadId = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    var i = 0;
+    function step() {
+      if (i >= total) {
+        if (opts.onStatus) opts.onStatus('Assembling ' + (size / 1024 / 1024).toFixed(1) + ' MB on the server…');
+        var fin = {
+          reviewId: reviewId, slug: slug, uploadId: uploadId, finalize: true,
+          totalChunks: total,
+          filename: (file && file.name) || 'upload.pdf',
+          mimeType: (file && file.type) || 'application/pdf',
+          sizeBytes: size,
+        };
+        if (opts.mode) fin.mode = opts.mode;
+        if (opts.replaceDocIds) fin.replaceDocIds = opts.replaceDocIds;
+        return api('POST', '/api/loan-review-doc-upload-chunk', fin);
+      }
+      var start = i * CHUNK_RAW_BYTES;
+      var blob = file.slice(start, Math.min(start + CHUNK_RAW_BYTES, size));
+      if (opts.onStatus) opts.onStatus('Uploading large file — part ' + (i + 1) + ' of ' + total + '…');
+      return _sliceToBase64(blob).then(function (b64) {
+        return api('POST', '/api/loan-review-doc-upload-chunk', {
+          reviewId: reviewId, slug: slug, uploadId: uploadId,
+          chunkIndex: i, totalChunks: total, contentBase64: b64,
+        });
+      }).then(function () { i++; return step(); });
+    }
+    return step();
+  }
+
   // ── Loan Doc Review (Deploy 236.71) ─────────────────────────────
   // Phase 1 of the Loan Doc Review tool — processor-tier workflow for
   // reviewing the doc package on a loan before it ships to the
@@ -2695,11 +2748,14 @@
       return _compressForUpload(file, MAX_UPLOAD_RAW, opts.onStatus).then(function (res) {
         var f = res.file;
         if (((f && f.size) || 0) > MAX_UPLOAD_RAW) {
-          var mb = (((file && file.size) || 0) / 1024 / 1024).toFixed(1);
-          var extra = res.attempted
-            ? ' We tried to compress it, but it can’t get under the ~4 MB upload limit without losing legibility.'
-            : '';
-          throw new Error('“' + ((file && file.name) || 'file') + '” is ' + mb + ' MB — too large for the browser upload (server limit).' + extra + ' Please split it, or upload a smaller / clearer scan.');
+          // Deploy 236.766 — too big for a single POST. Rather than reject (which
+          // blocked every executed closing package), upload the ORIGINAL file in
+          // ~3MB slices and have the server assemble it. Only a file past the
+          // chunked ceiling is refused.
+          var raw = (file && file.size) || 0;
+          if (raw <= MAX_CHUNKED_RAW) return _postDocUploadChunked(reviewId, slug, file, opts);
+          var mb = (raw / 1024 / 1024).toFixed(1);
+          throw new Error('“' + ((file && file.name) || 'file') + '” is ' + mb + ' MB — over the ' + (MAX_CHUNKED_RAW / 1024 / 1024) + ' MB limit. Please split it into smaller files and upload them separately.');
         }
         return _postDocUpload(reviewId, slug, f, opts, {
           autoCompressed: !!res.compressed,
