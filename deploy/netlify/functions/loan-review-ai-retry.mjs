@@ -203,6 +203,29 @@ async function handle(req, context) {
     return json(500, { error: 'AI review failed: ' + (e && e.message || 'unknown'), review });
   }
 
+  // Deploy 236.768 — a LONG doc (big BPO / appraisal) can't finish inside the
+  // 22s sync budget. Hand it to the 15-min background reviewer instead of
+  // saving a "timed out" verdict over a perfectly good previous review — this
+  // is what made ↻ Retry wipe a reviewed BPO and return nothing.
+  if (aiResult && aiResult.error === 'timeout') {
+    const _pending = { aiReviewing: true, aiVerdict: '', aiNotes: '', aiReviewedAt: '', aiError: '' };
+    if (targetEntry) Object.assign(targetEntry, _pending);
+    if (isCurrentTarget) Object.assign(docState, _pending);
+    await _saveReview(reviewStore, review, now);
+    try {
+      const _base = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
+      const _auth = (req.headers && typeof req.headers.get === 'function') ? (req.headers.get('authorization') || '') : '';
+      await fetch(_base + '/.netlify/functions/loan-review-ai-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': _auth },
+        body: JSON.stringify({ reviewId: body.reviewId, slug: body.slug, docId: targetDocId }),
+      });
+    } catch (e) {
+      console.error('loan-review-ai-retry: background kickoff failed:', e && e.message);
+    }
+    return json(200, { ok: true, review, aiReviewing: true });
+  }
+
   // Deploy 236.689 — write the result to the reviewed doc's OWN entry (always)
   // and mirror to the tray level only when it's the current/primary doc.
   const _integrity = _runIntegrity ? Object.assign(mergeIntegrity(_forensics, aiResult.integrity), { checkedAt: now }) : null;

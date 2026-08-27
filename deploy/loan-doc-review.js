@@ -1787,6 +1787,14 @@
       _review = r.review || _review;
       // Report the reviewed doc's verdict (per-doc when a docId was given).
       var ds = _review.docs[slug] || {};
+      // Deploy 236.768 — a long doc is handed to the 15-min background reviewer
+      // instead of timing out; keep the spinner up and poll for the verdict.
+      if (ds.aiReviewing) {
+        showToast('This document is long — the review is running in the background. The verdict will appear here shortly.', 'info');
+        render();
+        _pollBackgroundReview(slug);
+        return;
+      }
       var v = '';
       if (docId && Array.isArray(ds.documents)) {
         var de = ds.documents.find(function(x){ return x && x.docId === docId; });
