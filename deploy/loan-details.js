@@ -1450,7 +1450,7 @@ function render() {
     '</button>';
   }
 
-  // Deploy 236.769 — remove a denied/cancelled tag at any point in the
+  // Deploy 236.770 — remove a denied/cancelled tag at any point in the
   // loan process (Mike: a nearly-closed loan sat invisible on the
   // Processing Pipeline behind a stale 'denied' with no way to clear it).
   // Renders only on denied/cancelled loans; rides into the Actions menu.
@@ -2551,7 +2551,7 @@ function render() {
       'downloadSignedAppBtn',     // Download Signed App (PDF)
       'downloadUnsignedAppBtn',   // Generate Application PDF (Unsigned)
       'ldResetRateLockBtn',       // Deploy 236.764 — Reset Rate Lock (DSCR)
-      'ldReinstateBtn',           // Deploy 236.769 — Remove Denied/Cancelled Status
+      'ldReinstateBtn',           // Deploy 236.770 — Remove Denied/Cancelled Status
       // Deploy 236.641 — loan-level actions from the dismantled Change Loan
       // Status box now live in the Actions menu (Change Type + Merge, then the
       // destructive Cancel / Decline / Delete). Conditional buttons that
@@ -7636,7 +7636,7 @@ function _renderRateLockCard() {
   } catch (_) {}
 }
 
-// Deploy 236.769 — Yes/No confirm before removing a denied/cancelled tag.
+// Deploy 236.770 — Yes/No confirm before removing a denied/cancelled tag.
 // The loan returns to 'approved' when it has a processing stage (it stays
 // exactly where it was on the Processing Pipeline), else 'active'.
 function openReinstateModal() {

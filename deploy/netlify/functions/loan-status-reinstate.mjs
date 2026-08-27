@@ -1,7 +1,7 @@
 /**
  * loan-status-reinstate.mjs — POST /api/loan-status-reinstate
  *
- * Deploy 236.769 — remove a DENIED or CANCELLED tag from a loan at any
+ * Deploy 236.770 — remove a DENIED or CANCELLED tag from a loan at any
  * point in the loan process (Mike: a nearly-closed loan was stuck
  * invisible on the Processing Pipeline behind a stale 'denied' status,
  * and nothing in the UI could clear it — decisions.html is read-only

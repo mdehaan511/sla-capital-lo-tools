@@ -45,7 +45,7 @@
 [functions."baseline-native-dupe-report"]
   timeout = 26
 
-# Deploy 236.769 — chunked-upload finalize reads every chunk back and writes one
+# Deploy 236.770 — chunked-upload finalize reads every chunk back and writes one
 # assembled blob (an executed closing package can be tens of MB).
 [functions."loan-review-doc-upload-chunk"]
   timeout = 26
@@ -1070,7 +1070,7 @@
   to = "/.netlify/functions/loan-review-doc-upload"
   status = 200
   force = true
-# Deploy 236.769 — chunked upload for files past the ~4.2MB single-POST ceiling
+# Deploy 236.770 — chunked upload for files past the ~4.2MB single-POST ceiling
 # (executed closing packages). Slices in, assembles server-side.
 [[redirects]]
   from = "/api/loan-review-doc-upload-chunk"
@@ -1421,7 +1421,7 @@
   status = 200
   force = true
 
-# Deploy 236.769 — remove a denied/cancelled tag (reinstate a loan).
+# Deploy 236.770 — remove a denied/cancelled tag (reinstate a loan).
 [[redirects]]
   from = "/api/loan-status-reinstate"
   to = "/.netlify/functions/loan-status-reinstate"
