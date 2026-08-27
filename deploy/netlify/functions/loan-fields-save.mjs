@@ -29,6 +29,7 @@ import {
 } from './_shared/auth.mjs';
 import { canOverrideOwner } from './_shared/access.mjs';
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 
 const FIELDS = {
   // Terms
@@ -121,6 +122,9 @@ async function handle(req, context) {
   const idx = client.loans.findIndex((l) => l && l.id === loanId);
   if (idx < 0) return json(404, { error: 'Loan not found on client' });
   const loan = client.loans[idx];
+  // Deploy 236.771 — snapshot BEFORE any mutation so the audit log can diff
+  // exactly what this save changed (shallow is enough; we only log scalars).
+  const _beforeLoan = Object.assign({}, loan);
 
   const applied = {};
   Object.keys(fields).forEach((k) => {
@@ -181,6 +185,17 @@ async function handle(req, context) {
 
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to save: ' + (e.message || 'unknown') }); }
+
+  // Deploy 236.771 — audit log. AFTER the write succeeds, and best-effort: a
+  // logging failure must never turn a saved loan into an error for the LO.
+  try {
+    await recordLoanChanges({
+      ownerKey, clientId, loanId,
+      actor: selfEmail, actorName: user.name || user.user_metadata?.full_name || selfEmail,
+      source: 'Loan Details',
+      changes: diffLoan(_beforeLoan, loan),
+    });
+  } catch (e) { console.warn('loan-fields-save: change log failed (non-fatal):', e && e.message); }
 
   return json(200, { ok: true, fields: applied });
 }

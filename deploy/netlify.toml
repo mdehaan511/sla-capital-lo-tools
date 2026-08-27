@@ -1408,6 +1408,12 @@
   force = true
 
 # Deploy 236.639 — Loan Terms + Property/Collateral section save (manual detail entry).
+# Deploy 236.771 — detailed loan change/audit log (Audit Log modal).
+[[redirects]]
+  from = "/api/loan-change-log-get"
+  to = "/.netlify/functions/loan-change-log-get"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/loan-fields-save"
   to = "/.netlify/functions/loan-fields-save"

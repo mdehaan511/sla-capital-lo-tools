@@ -2029,7 +2029,13 @@ function render() {
     '<div class="section" id="ldNotesSection">' +
       '<div class="section-head">' +
         '<h2>Notes &amp; Activity</h2>' +
-        '<span class="section-tag tag-editable">Audit Log</span>' +
+        // Deploy 236.771 (Mike) — this pill used to just LABEL the notes feed
+        // "Audit Log", which it isn't. It's now a real button opening the
+        // field-level audit log (every change + who made it). Notes & Activity
+        // itself is unchanged.
+        '<button type="button" class="section-tag tag-editable" onclick="openAuditLogModal()" ' +
+          'title="Every field change made to this loan, and who made it" ' +
+          'style="cursor:pointer;border:none;font:inherit">Audit Log</button>' +
       '</div>' +
       '<div class="section-body">' +
         '<div class="notes-input-wrap">' +
@@ -3500,6 +3506,74 @@ function _renderSubFormLinkCard(tokenEntry, c) {
 
 var _agExistingMatch = null; // { client } when an existing contact matches
 var _agAllClientsCache = null;
+
+// ── Audit Log (Deploy 236.771, Mike) ────────────────────────────────
+// The REAL audit log: every field-level change made to this loan from Loan
+// Details or a sizer, with who made it. Distinct from Notes & Activity, which
+// stays a human notes + milestone feed. Opened from the "Audit Log" pill.
+function openAuditLogModal() {
+  var existing = document.getElementById('alModalBg');
+  if (existing) existing.remove();
+  var bg = document.createElement('div');
+  bg.className = 'ag-modal-bg';
+  bg.id = 'alModalBg';
+  bg.onclick = function(e) { if (e.target === bg) bg.remove(); };
+  bg.innerHTML =
+    '<div class="ag-modal" style="max-width:760px;width:100%;max-height:82vh;display:flex;flex-direction:column">' +
+      '<h3 style="display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+        '<span>Audit Log</span>' +
+        '<button type="button" onclick="document.getElementById(\'alModalBg\').remove()" ' +
+          'style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted)">&times;</button>' +
+      '</h3>' +
+      '<div class="ag-hint">Every change made to this loan from Loan Details or a sizer — field by field, with who made it and when.</div>' +
+      '<div id="alBody" style="overflow:auto;flex:1;margin-top:10px">' +
+        '<div style="color:var(--muted);padding:18px 2px">Loading…</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(bg);
+
+  var qs = 'clientId=' + encodeURIComponent(_clientId || '') +
+           '&loanId=' + encodeURIComponent(_loanId || '');
+  var _alOwner = (_loEmail && _user && _loEmail !== _user.email) ? _loEmail : null;
+  if (_alOwner) qs += '&owner=' + encodeURIComponent(_alOwner);
+  SLA.api('GET', '/api/loan-change-log-get?' + qs).then(function(r) {
+    _renderAuditLog((r && r.entries) || []);
+  }).catch(function(err) {
+    var body = document.getElementById('alBody');
+    if (body) body.innerHTML = '<div style="color:var(--danger);padding:18px 2px">Couldn\'t load the audit log: ' +
+      escH((err && err.message) || 'unknown') + '</div>';
+  });
+}
+
+function _renderAuditLog(entries) {
+  var body = document.getElementById('alBody');
+  if (!body) return;
+  if (!entries.length) {
+    body.innerHTML = '<div style="color:var(--muted);padding:18px 2px">No changes recorded yet. ' +
+      'Edits made from Loan Details or a sizer from here on will be listed here.</div>';
+    return;
+  }
+  body.innerHTML = entries.map(function(e) {
+    var when = e.at ? fmtDateTime(e.at) : '';
+    var who  = escH(e.byName || e.by || 'Unknown');
+    var src  = e.source ? '<span style="background:var(--bg,#f0ece5);border-radius:10px;padding:1px 8px;font-size:11px;color:var(--muted);margin-left:8px">' + escH(e.source) + '</span>' : '';
+    var rows = (e.changes || []).map(function(c) {
+      return '<tr>' +
+        '<td style="padding:3px 10px 3px 0;color:var(--muted);white-space:nowrap;vertical-align:top">' + escH(c.label || c.field) + '</td>' +
+        '<td style="padding:3px 8px 3px 0;color:var(--danger,#b4432f);text-decoration:line-through;word-break:break-word">' + (c.from ? escH(c.from) : '<span style="color:var(--muted);text-decoration:none">(empty)</span>') + '</td>' +
+        '<td style="padding:3px 6px 3px 0;color:var(--muted)">&rarr;</td>' +
+        '<td style="padding:3px 0;font-weight:600;word-break:break-word">' + (c.to ? escH(c.to) : '<span style="color:var(--muted);font-weight:400">(cleared)</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+    return '<div style="border:1px solid var(--border,#e6e0d8);border-radius:10px;padding:10px 12px;margin-bottom:10px">' +
+      '<div style="font-size:12px;margin-bottom:6px">' +
+        '<strong>' + who + '</strong>' + src +
+        '<span style="float:right;color:var(--muted)">' + escH(when) + '</span>' +
+      '</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px">' + rows + '</table>' +
+    '</div>';
+  }).join('');
+}
 
 function openAddGuarantorModal() {
   var existing = document.getElementById('agModalBg');

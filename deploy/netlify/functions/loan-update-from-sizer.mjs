@@ -44,6 +44,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // Deploy 236.405 (C2 catch-up): store writes route through the shared
 // PG-first writeClient helper (blob + clients-index + pg-mirror).
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 
 export default async (req, context) => {
   try {
@@ -384,5 +385,15 @@ async function handle(req, context) {
   // Deploy 236.426 (D3): quote sweep retired — /api/quotes renders from
   // loans (D2), so store copies no longer need freshening. Pipeline
   // tiles now read rate/points from the LOAN's formData directly.
+  // Deploy 236.771 — audit log (legacy sizer fallback path). Best-effort.
+  try {
+    const _a = normalizeEmail(user.email);
+    await recordLoanChanges({
+      ownerKey, clientId: client.id, loanId: merged.id,
+      actor: _a, actorName: user.name || _a,
+      source: 'Sizer', changes: diffLoan(prior, merged),
+    });
+  } catch (e) { console.warn('loan-update-from-sizer: change log failed (non-fatal):', e && e.message); }
+
   return json(200, { ok: true, loan: merged, clientId: client.id, quotesSynced: 0 });
 }

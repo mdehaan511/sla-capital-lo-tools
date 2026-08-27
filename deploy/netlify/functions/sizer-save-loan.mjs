@@ -66,6 +66,7 @@ import { linkOrCreateBroker } from './_shared/broker-link.mjs';
 // as 500s (→ LO toast + Slack alert), and a DB rejection leaves NO
 // store mutated.
 import { writeClient } from './_shared/client-write.mjs';
+import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { findClientByEmail } from './_shared/client-lookup.mjs'; // Deploy 236.418
 
 const CALLER_CANNOT_SET_ON_LOAN = ['id', 'createdAt'];
@@ -314,6 +315,10 @@ async function handle(req, context) {
     return incomingStatus || priorStatus || 'active';
   }
 
+  // Deploy 236.771 — pre-merge snapshot for the audit log (see the record call
+  // after the write). Shallow copy is enough; the log only diffs scalars.
+  const _beforeSizerLoan = existingLoan ? Object.assign({}, existingLoan) : null;
+
   let loanRecord;
   if (existingLoan) {
     // Update in place — merge sanitized incoming onto existing.
@@ -500,6 +505,21 @@ async function handle(req, context) {
   } catch (e) {
     return json(500, { error: 'Failed to write client record: ' + (e.message || 'unknown') });
   }
+
+  // Deploy 236.771 — audit log: record what this sizer save actually changed.
+  // AFTER the write, best-effort — never fail a saved loan over logging.
+  try {
+    const _actor = normalizeEmail(user.email);
+    const _src = loanCreated ? 'Sizer (new loan)' : 'Sizer';
+    const _changes = loanCreated
+      ? [{ field: 'loan', label: 'Loan created', from: '', to: (loanRecord.address || loanRecord.id || '') }]
+      : diffLoan(_beforeSizerLoan, loanRecord);
+    await recordLoanChanges({
+      ownerKey, clientId: client.id, loanId: loanRecord.id,
+      actor: _actor, actorName: user.name || user.user_metadata?.full_name || _actor,
+      source: _src, changes: _changes,
+    });
+  } catch (e) { console.warn('sizer-save-loan: change log failed (non-fatal):', e && e.message); }
 
   // Response shape includes `client` and `loan` so it's a drop-in
   // replacement for both Clients.upsert (returned resp.client) and
