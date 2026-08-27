@@ -1351,6 +1351,14 @@
         '<span class="tray-verdict ' + effectiveVerdict + '">' + verdictLabel + '</span>' +
       '</div>' +
       '<div class="tray-body' + (expanded ? '' : ' collapsed') + '">' +
+        // Deploy 236.767 (Mike) — BPO reprice flag. Set server-side when the
+        // BPO's as-is value lands under the purchase price; shown right on the
+        // BPO tray so it's visible in Documents, not just on Loan Details.
+        (d.bpoAlert
+          ? '<div class="ai-block issues" style="margin-bottom:10px"><div class="ai-head">' +
+              '<span class="ai-label issues">⛔ Needs repricing</span></div>' +
+              '<div class="ai-summary">' + escHtml(d.bpoAlert) + '</div></div>'
+          : '') +
         currentHtml +
         aiHtml +
         dz +

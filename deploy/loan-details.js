@@ -1279,7 +1279,23 @@ function render() {
     // sized off the quote-time max and drifts when the LO overrides loanAmt.
     var _initAdvVal = _rtlInitAdv;
     var _aivBpoNum   = parseFloat(l.aivBpo) || 0;
-    var _rtlLtaivPct = (_aivBpoNum > 0 && _rtlLoanAmtNum > 0) ? (_rtlLoanAmtNum / _aivBpoNum * 100) : null;
+    // Deploy 236.767 (Mike) — LTAIV is the AS-IS ratio, so it must run off the
+    // INITIAL loan (the advance at close, rehab holdback excluded) ÷ BPO AIV.
+    // Using the full loan (which bundles the rehab escrow) overstated it on
+    // every fix-flip — same reasoning as LTP at line ~1250.
+    var _rtlLtaivPct = (_aivBpoNum > 0 && _rtlInitAdv > 0) ? (_rtlInitAdv / _aivBpoNum * 100) : null;
+    // Deploy 236.767 — BPO LTARV: the full loan (rehab included, since ARV is
+    // the after-repair value) ÷ the BPO's OWN repaired value. Sits beside the
+    // borrower-ARV LTARV so an LO can see the two diverge.
+    var _arvBpoNum    = parseFloat(l.arvBpo) || 0;
+    var _bpoLtarvPct  = (!_rtlIsRefi && _arvBpoNum > 0 && _rtlLoanAmtNum > 0)
+                          ? (_rtlLoanAmtNum / _arvBpoNum * 100) : null;
+    // Program max LTARV for THIS loan, straight from the live rate tables in
+    // rtl-pricing.js (never duplicated here). Falls back to the 75% ceiling the
+    // Loan Financials editor already warns on when the tier can't be resolved.
+    var _maxLtarvPct  = _ldMaxLtarvPct(l, fico, experience);
+    var _bpoLtarvOver = (_bpoLtarvPct != null && _maxLtarvPct > 0 && _bpoLtarvPct > _maxLtarvPct + 0.05);
+    var _bpoAivUnder  = (_aivBpoNum > 0 && _rtlPurchaseNum > 0 && _aivBpoNum < _rtlPurchaseNum);
     var _ltFull = _loanTypeLabel(l);
     // Deploy 236.701 — GUC relabels + land rows in the shared RTL grid.
     var _isGuc = _isGucLoan(l);
@@ -1309,6 +1325,14 @@ function render() {
       // Row 8 — LTARV | LTAIV (LTAIV from the BPO AIV; "—" until aivBpo is set)
       '<div class="fin-cell"><div class="fin-label">LTARV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtarvPct)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">LTAIV</div><div class="fin-val">'+_rtlFmtPct(_rtlLtaivPct)+'</div></div>' +
+      // Row 9 — BPO LTARV (Deploy 236.767, Mike): the loan ÷ the BPO's repaired
+      // value, flagged red when it breaks this loan's program max.
+      '<div class="fin-cell"><div class="fin-label">BPO LTARV' +
+        (_maxLtarvPct > 0 ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(max '+_maxLtarvPct.toFixed(0)+'%)</span>' : '') +
+      '</div><div class="fin-val"' + (_bpoLtarvOver ? ' style="color:var(--danger,#b4432f)" title="Over the program max LTARV — the loan needs to be repriced."' : '') + '>' +
+        _rtlFmtPct(_bpoLtarvPct) + (_bpoLtarvOver ? ' &#9888;' : '') +
+      '</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">ARV (BPO)</div><div class="fin-val">'+(_arvBpoNum > 0 ? fmtM(_arvBpoNum) : '<span class="empty">—</span>')+'</div></div>' +
       // Property Type (Deploy 236.691 — priced in the sizer; read-only here + on the Property tab)
       '<div class="fin-cell"><div class="fin-label">Property Type</div><div class="fin-val">'+escH(_propTypeLabel(l))+'</div></div>' +
       // Deploy 236.701 — GUC land-ownership rows (from the sizer).
@@ -1820,6 +1844,12 @@ function render() {
   // monthly T/I/HOA cells left their displayed DSCR driven by fields
   // nobody could see or edit. Every real MF-program loan has the marker
   // (stamped by prospects-save and the MF sizer).
+  // Deploy 236.767 (Mike) — AIV / ARV BPO become read-only once they've been
+  // read off an uploaded BPO (loan.aivBpoFromBpo / arvBpoFromBpo). The BPO is
+  // the authority; correcting them means uploading a corrected BPO.
+  var _aivBpoLocked = !isDscr && l.aivBpoFromBpo === true;
+  var _arvBpoLocked = !isDscr && l.arvBpoFromBpo === true;
+
   var _isMfLoan = !l.isPortfolio && !!l.mfProgram;
   if (!_isMfLoan)
   html += '<div class="section" id="propertyCollateralSection">' +
@@ -1878,8 +1908,19 @@ function render() {
       '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Purchase Price' + (isDscr ? '' : ', Rehab Budget') + ' &amp; ARV (borrower) are in <strong>Loan Financials</strong>. ' + (isDscr ? 'The Appraised Value drives the loan terms.' : 'AIV / ARV BPO values drive the loan terms.') + '</div>' +
       '<div class="app-grid">' +
         '<div class="field"><label>As-Is Value (borrower)</label><input type="text" id="pc-propValue" value="' + escAttr(_ldUsdInput(l.propValue || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
-        '<div class="field"><label>' + (isDscr ? 'Appraised Value' : 'AIV BPO') + '</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
-        (!isDscr ? '<div class="field"><label>ARV BPO</label><input type="text" id="pc-arvBpo" value="' + escAttr(_ldUsdInput(l.arvBpo || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' : '') +
+        // Deploy 236.767 (Mike) — once a BPO has been read, AIV/ARV BPO are the
+        // BPO's own numbers and are LOCKED here; clicking explains why. Upload a
+        // corrected BPO to change them. (DSCR keeps the editable Appraised Value.)
+        '<div class="field"><label>' + (isDscr ? 'Appraised Value' : 'AIV BPO') +
+          (_aivBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' : '') +
+        '</label><input type="text" id="pc-aivBpo" value="' + escAttr(_ldUsdInput(l.aivBpo || '')) + '" inputmode="decimal"' +
+          (_aivBpoLocked ? _BPO_LOCK_ATTRS('AIV BPO') : ' onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)"') +
+        ' placeholder="$" /></div>' +
+        (!isDscr ? '<div class="field"><label>ARV BPO' +
+          (_arvBpoLocked ? ' <span style="text-transform:none;font-weight:400;color:var(--muted)">(from BPO)</span>' : '') +
+        '</label><input type="text" id="pc-arvBpo" value="' + escAttr(_ldUsdInput(l.arvBpo || '')) + '" inputmode="decimal"' +
+          (_arvBpoLocked ? _BPO_LOCK_ATTRS('ARV BPO') : ' onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)"') +
+        ' placeholder="$" /></div>' : '') +
         '<div class="field"><label>Existing Debt</label><input type="text" id="pc-currentLoanAmt" value="' + escAttr(_ldUsdInput(l.currentLoanAmt || l.existingLoanAmt || '')) + '" inputmode="decimal" onfocus="_ldMoneyFocus(this)" onblur="_ldMoneyBlur(this)" placeholder="$" /></div>' +
       '</div>' +
       '<h3 style="margin:18px 0 6px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Carrying Costs <span id="pc-carryModeLabel" style="text-transform:none;font-weight:500;letter-spacing:0">(monthly)</span></h3>' +
@@ -2749,6 +2790,7 @@ function render() {
 
   // Deploy 236.126 — top-of-page guarantor-ownership banner.
   refreshOwnershipBanner();
+  refreshBpoRepriceBanner();   // Deploy 236.767
   // Deploy 236.129 — top-of-page banner when a guarantor has
   // submitted / updated their sub-form (incl. signed Credit Auth).
   // Lets the LO know to re-bundle the main loan app if they want
@@ -3360,6 +3402,7 @@ function saveGuarantorOwnership(input) {
     if (status) { status.className = 'ow-status ok'; status.textContent = 'Saved ✓'; }
     setTimeout(function() { if (status) { status.textContent = ''; status.className = 'ow-status'; } }, 1800);
     refreshOwnershipBanner();
+    refreshBpoRepriceBanner();   // Deploy 236.767
   }).catch(function(err) {
     if (status) { status.className = 'ow-status err'; status.textContent = 'Save failed'; }
   });
@@ -3733,6 +3776,50 @@ function refreshGuarantorDocsBanner() {
       escH(new Date(updatedAt).toLocaleString()) +
       '. Their signed Credit Authorization is in the Contacts tab. ' +
       'If you\'ve already generated the main loan application, re-generate it to include the latest guarantor data.' +
+    '</div>';
+  slot.appendChild(banner);
+}
+
+// Deploy 236.767 (Mike) — BPO reprice notice at the top of Loan Details. Two
+// triggers, either of which means the deal no longer prices the way it was
+// quoted: (1) the BPO's as-is value came in BELOW the purchase price, or
+// (2) BPO LTARV is over this loan's program max LTARV. RTL/GUC only — DSCR
+// loans get an appraisal, not a BPO.
+function refreshBpoRepriceBanner() {
+  var slot = document.getElementById('ldTopBanners');
+  if (!slot) return;
+  var existing = slot.querySelector('.ld-warning-banner[data-banner="bpo-reprice"]');
+  if (existing) existing.remove();
+
+  var l = _loan;
+  if (!l || _isDscrTool(l.toolType)) return;
+  function n(v) { return parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')) || 0; }
+  var aiv = n(l.aivBpo), arvB = n(l.arvBpo), pp = n(l.purchasePrice), amt = n(l.loanAmt);
+
+  var reasons = [];
+  if (aiv > 0 && pp > 0 && aiv < pp) {
+    reasons.push('the BPO as-is value (' + fmtM(aiv) + ') came in below the purchase price (' + fmtM(pp) + ')');
+  }
+  var maxL = _ldMaxLtarvPct(l, l.fico, l.experience);
+  if (arvB > 0 && amt > 0 && maxL > 0) {
+    var pct = amt / arvB * 100;
+    if (pct > maxL + 0.05) {
+      reasons.push('BPO LTARV is ' + pct.toFixed(1) + '%, over the ' + maxL.toFixed(0) + '% program max');
+    }
+  }
+  if (!reasons.length) return;
+
+  var banner = document.createElement('div');
+  banner.className = 'ld-warning-banner';
+  banner.setAttribute('data-banner', 'bpo-reprice');
+  banner.style.background  = 'rgba(124,31,31,0.10)';
+  banner.style.borderColor = 'rgba(124,31,31,0.40)';
+  banner.style.color       = 'var(--danger, #7c1f1f)';
+  banner.innerHTML =
+    '<span class="ld-warning-icon">⛔</span>' +
+    '<div>' +
+      '<strong>This loan needs to be repriced due to the BPO</strong> — ' +
+      reasons.join(', and ') + '. Re-run the sizer against the BPO values before this loan moves forward.' +
     '</div>';
   slot.appendChild(banner);
 }
@@ -6626,6 +6713,44 @@ function _ldUsdInput(v) {
   if (!isFinite(n)) return '';
   return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
+// Deploy 236.767 (Mike) — this loan's PROGRAM MAX LTARV, as a percent (e.g. 75).
+// Read from the LIVE Colchis tables in rtl-pricing.js (SLA_RTL) so the ceiling
+// can never drift from what the sizer priced against — pricing constants are
+// never duplicated here. LTARV only applies to rehab loans (light/heavy); bridge
+// and transactional have no ARV path, so they return 0 (= no cap, no flag).
+// If the FICO/experience tier can't be resolved we fall back to 75%, matching
+// the ceiling the Loan Financials editor has always warned on.
+function _ldMaxLtarvPct(l, fico, experience) {
+  try {
+    var R = (typeof window !== 'undefined') ? window.SLA_RTL : null;
+    var lt = String((l && l.loanType) || '').toLowerCase();
+    if (lt !== 'light' && lt !== 'heavy') return 0;
+    if (!R || !R.MAX_LTARV || typeof R.fk !== 'function' || typeof R.ei !== 'function') return 75;
+    var ptRaw = String((l && l.propType) || '').toLowerCase();
+    var pt = (ptRaw === 'mfr' || ptRaw === 'multi') ? 'mfr' : 'sfr';
+    var f = parseFloat(fico) || 0;
+    var e = parseFloat(experience) || 0;
+    if (!f) return 75;
+    var tbl = R.MAX_LTARV[lt] && R.MAX_LTARV[lt][pt] && R.MAX_LTARV[lt][pt][R.fk(f)];
+    var dec = tbl ? tbl[R.ei(e)] : 0;
+    return (dec > 0) ? dec * 100 : 75;
+  } catch (err) { return 75; }
+}
+
+// Deploy 236.767 (Mike) — AIV/ARV BPO are read straight off the uploaded BPO,
+// so the inputs are locked. Clicking one explains why instead of silently
+// ignoring the click. Attributes are built here so the markup stays readable.
+function _BPO_LOCK_ATTRS(label) {
+  return ' readonly title="Read from the uploaded BPO — upload a corrected BPO to change it."' +
+    ' onclick="_ldBpoLocked(\'' + label + '\')" onfocus="this.blur();_ldBpoLocked(\'' + label + '\')"' +
+    ' style="background:var(--bg,#f0ece5);color:var(--muted);cursor:not-allowed"';
+}
+function _ldBpoLocked(label) {
+  alert(label + ' is read directly from the uploaded BPO and can\'t be edited here.\n\n' +
+    'It drives LTAIV and BPO LTARV, so it has to match the BPO on file. ' +
+    'To change it, upload a corrected BPO in the Documents tab.');
+}
+
 function _ldMoneyFocus(el) { if (el) el.value = String(el.value == null ? '' : el.value).replace(/[^0-9.\-]/g, ''); }
 function _ldMoneyBlur(el)  { if (el) el.value = _ldUsdInput(el.value); }
 function _pcFmt(n) {

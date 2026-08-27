@@ -49,10 +49,18 @@ export const SLUG_FIELD_MAP = {
     { dataset: 'uw', key: 'middleCredit', label: 'The MIDDLE of the three bureau credit scores for the primary guarantor (number)' },
   ],
   bpo_valuation: [
-    // NOTE: arv is source:'loan' (pricing basis) — intentionally NOT AI-written.
-    // The BPO ARV is a human cross-check against the loan record's ARV.
+    // NOTE: arv/propValue stay source:'loan' (the BORROWER-stated pricing basis)
+    // — intentionally NOT AI-written. The BPO's OWN numbers land in the separate
+    // aivBpo / arvBpo fields below, which is what Loan Details prices against.
     { dataset: 'uw',        key: 'asIsPrice',    label: 'The AS-IS value / current value (number only)' },
     { dataset: 'lightning', key: 'bpoValuation', label: 'The BPO / valuation figure this report concludes (number only)' },
+    // Deploy 236.767 (Mike) — the BPO's valuation line carries an as-is figure
+    // and a repaired figure side by side. These write DIRECTLY to the loan's
+    // AIV BPO / ARV BPO (dataset 'loan'), which then drive LTAIV + BPO LTARV.
+    { dataset: 'loan', key: 'aivBpo',
+      label: 'The AS-IS value of the property as concluded by this BPO — the figure labeled "As Is Price", "As-Is Value", or "Sales Price" (number only, no $ or commas)' },
+    { dataset: 'loan', key: 'arvBpo',
+      label: 'The AFTER-REPAIR / repaired value on that SAME valuation line — the figure labeled "Repaired Price", "Repaired Value", or "As-Repaired" (number only, no $ or commas). Return null if the BPO states no repaired value.' },
   ],
   loan_application: [
     { dataset: 'uw',        key: 'usCitizen',        label: 'Is the borrower/guarantor a U.S. citizen? Answer exactly "Yes" or "No"' },

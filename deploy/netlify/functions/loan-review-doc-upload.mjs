@@ -498,6 +498,23 @@ async function handle(req, context) {
     if (docState.integrity) _uploadedEntry.integrity = docState.integrity;
   }
 
+  // Deploy 236.767 (Mike) — BPO guardrail. If the BPO's as-is value lands UNDER
+  // the purchase price the deal has to be repriced, so surface it right on the
+  // BPO tray in Documents (Loan Details raises its own banner from the loan
+  // flags, and also covers the LTARV-over-max case which needs the rate tables).
+  if (String(body.slug) === 'bpo_valuation') {
+    const _n = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
+    const _aivProp = Array.isArray(_fieldProposals) ? _fieldProposals.find((p) => p && p.key === 'aivBpo') : null;
+    const _aivNum  = _aivProp ? _n(_aivProp.value) : 0;
+    const _ppNum   = _n(review.snapshotLoan && review.snapshotLoan.purchasePrice);
+    if (_aivNum > 0 && _ppNum > 0 && _aivNum < _ppNum) {
+      docState.bpoAlert = 'BPO as-is value ($' + _aivNum.toLocaleString('en-US') + ') is BELOW the purchase price ($' +
+        _ppNum.toLocaleString('en-US') + ') — this loan needs to be repriced due to the BPO.';
+    } else if (_aivNum > 0) {
+      docState.bpoAlert = '';   // a fresh BPO clears a stale alert
+    }
+  }
+
   review.docs[body.slug] = docState;
   review.updatedAt = now;
   review.lastEditedBy = normalizeEmail(user.email);
@@ -581,6 +598,19 @@ async function writeFieldProposals(source, proposals) {
   let wrote = 0;
 
   proposals.forEach(function (p) {
+    // Deploy 236.767 (Mike) — dataset 'loan' writes a REAL loan field (the BPO's
+    // own aivBpo / arvBpo), not an unverified UW-tab proposal, because those two
+    // drive LTAIV + BPO LTARV in Loan Financials. The BPO is the authority here,
+    // so it overwrites — and we stamp provenance so the UI can lock the input.
+    if (p.dataset === 'loan') {
+      const numeric = Number(String(p.value).replace(/[^0-9.\-]/g, ''));
+      if (!isFinite(numeric) || numeric <= 0) return;
+      if (String(loan[p.key] == null ? '' : loan[p.key]) !== String(numeric)) wrote += 1;
+      loan[p.key] = String(numeric);
+      loan[p.key + 'FromBpo'] = true;      // → input is locked in Loan Details
+      loan[p.key + 'BpoAt']   = now;
+      return;
+    }
     const dataField  = p.dataset === 'uw' ? 'uwData'  : 'lightningData';
     const auditField = p.dataset === 'uw' ? 'uwAudit' : 'lightningAudit';
     loan[dataField]  = (loan[dataField] && typeof loan[dataField] === 'object') ? loan[dataField] : {};
@@ -619,6 +649,18 @@ async function writeFieldProposals(source, proposals) {
     }
     wrote++;
   });
+
+  // Deploy 236.767 — once the BPO's own values are on the loan, record whether
+  // the as-is came in under the purchase price. Loan Details reads this for its
+  // "needs repricing" banner (it computes the LTARV-vs-max half itself, from the
+  // live rate tables in rtl-pricing.js — never duplicated server-side).
+  if (proposals.some(function (p) { return p && p.dataset === 'loan'; })) {
+    const _n = (v) => Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')) || 0;
+    const _aiv = _n(loan.aivBpo), _pp = _n(loan.purchasePrice);
+    loan.bpoAivBelowPurchase = !!(_aiv > 0 && _pp > 0 && _aiv < _pp);
+    loan.bpoValuesAt = now;
+    wrote += 1;   // provenance/flags alone are worth persisting
+  }
 
   if (!wrote) return 0;
 
