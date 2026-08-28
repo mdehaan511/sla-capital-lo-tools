@@ -73,9 +73,12 @@
        (per-column tint below) instead of a bare colored bottom-border. The
        negative margins break the head out of the .col's 14px padding so the
        fill spans the full column width with rounded top corners, like Leads. */
-    .col-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -14px -14px 12px -14px; padding: 14px 16px; border-bottom: 1px solid var(--border); border-radius: var(--r) var(--r) 0 0; background: var(--surface); }
+    /* Deploy 236.781 (pp sums): title + count sit together on the left,
+       the column's dollar total is pushed to the right edge. */
+    .col-head { display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin: -14px -14px 12px -14px; padding: 14px 16px; border-bottom: 1px solid var(--border); border-radius: var(--r) var(--r) 0 0; background: var(--surface); }
     .col-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
     .col-head .cnt { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,0.05); color: var(--muted); }
+    .col-head .col-sum { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; }
     .col[data-col="new_loan"]    .col-head { background: var(--col-new-bg); }        .col[data-col="new_loan"]    .col-head h3 { color: var(--col-new); }
     .col[data-col="processing"]  .col-head { background: var(--col-processing-bg); } .col[data-col="processing"]  .col-head h3 { color: var(--col-processing); }
     .col[data-col="underwriting"].col-head { background: var(--col-uw-bg); }         .col[data-col="underwriting"].col-head h3 { color: var(--col-uw); }
@@ -444,6 +447,14 @@ function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').repla
 function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function num(v) { var n = parseFloat(String(v||'').replace(/[$,]/g,'')); return isFinite(n) ? n : 0; }
 function fmtMoney(v) { var n = num(v); return n > 0 ? '$' + Math.round(n).toLocaleString() : '—'; }
+// Deploy 236.781 (pp sums) — column-total formatter, always shows cents
+// ($2,410,800.00 style, matching the reference Mike sent). Zero renders
+// as $0.00 rather than a dash so an empty column still reads as a total.
+function fmtSum(v) {
+  var n = num(v);
+  var parts = n.toFixed(2).split('.');
+  return '$' + parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
+}
 function loDisplay(ownerKey) {
   if (!ownerKey) return '';
   if (_loDisplayMap[ownerKey]) return _loDisplayMap[ownerKey];
@@ -768,12 +779,17 @@ function render() {
   var html = '<div class="board cols-4">';
   cols.forEach(function(col) {
     var items = (source[col.key] || []).filter(visible);
+    // Deploy 236.781 (pp sums) — dollar total of the loans in the column
+    // (respects the same search/LO/My-Loans filters as the cards shown).
+    var colSum = 0;
+    items.forEach(function(it) { colSum += num(it.loan.finalLoanAmount || it.loan.loanAmt); });
     html += '<div class="col" data-col="' + col.key + '"' +
       ' ondragover="onColDragOver(event)"' +
       ' ondragenter="onColDragEnter(event)"' +
       ' ondragleave="onColDragLeave(event)"' +
       ' ondrop="onColDrop(event)">' +
-      '<div class="col-head"><h3>' + escH(col.label) + '</h3><span class="cnt">' + items.length + '</span></div>' +
+      '<div class="col-head"><h3>' + escH(col.label) + '</h3><span class="cnt">' + items.length + '</span>' +
+      '<span class="col-sum" title="Total loan amount in this column">' + fmtSum(colSum) + '</span></div>' +
       '<div class="cards">';
     if (items.length === 0) {
       html += '<div class="empty-col">Drop here</div>';
@@ -1107,6 +1123,9 @@ function renderCard(it) {
       (_canEdit ? ' draggable="true"' : '') +
       ' data-loan-key="' + escAttr(client.id + '|' + loan.id + '|' + it.ownerKey) + '"' +
       ' data-stage="' + escAttr(col || '') + '"' +
+      // Deploy 236.781 (pp sums) — amount rides on the card so the column
+      // totals can be recomputed after an optimistic drag/drop move.
+      ' data-amt="' + escAttr(String(num(loan.finalLoanAmount || loan.loanAmt))) + '"' +
       (_canEdit ? ' ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)"' : '') +
       ' onclick="openLoanDetails(this, \'' + escAttr(href) + '\')">' +
       // Deploy 236.695 — last-updated date, floated to the top-right of the tile.
@@ -1531,7 +1550,16 @@ function _updateColumnCounts() {
   document.querySelectorAll('.col').forEach(function(col) {
     var cnt = col.querySelector('.col-head .cnt');
     if (!cnt) return;
-    cnt.textContent = col.querySelectorAll('.cards .card').length;
+    var cards = col.querySelectorAll('.cards .card');
+    cnt.textContent = cards.length;
+    // Deploy 236.781 (pp sums) — keep the dollar total in step with the
+    // optimistic move, using the data-amt each card carries.
+    var sumEl = col.querySelector('.col-head .col-sum');
+    if (sumEl) {
+      var total = 0;
+      cards.forEach(function(c) { total += num(c.getAttribute('data-amt')); });
+      sumEl.textContent = fmtSum(total);
+    }
   });
 }
 
