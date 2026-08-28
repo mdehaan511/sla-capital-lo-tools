@@ -414,6 +414,20 @@ function render() {
     '<div class="section-body" id="companiesBody">' + renderCompanies(c.companies || []) + '</div>' +
   '</div>';
 
+  // Deploy 236.779 — Credit (Xactus) section: pull a report for THIS person
+  // without a loan context (uses the SSN/address captured by guarantor
+  // onboarding; clean 400 when none is on file). Staff-only.
+  if (window.SLA && SLA.isProcessor && SLA.isProcessor(_user)) {
+    html += '<div class="section">' +
+      '<div class="section-head">' +
+        '<h2>Credit</h2>' +
+        '<button class="save-profile-btn" style="padding:6px 14px;font-size:12px" onclick="pullClientCredit(this)">🧾 Pull Credit Report</button>' +
+      '</div>' +
+      '<div class="section-body" id="clientCreditBody" style="font-size:12.5px;color:var(--muted)">Loading credit history…</div>' +
+    '</div>';
+    setTimeout(loadClientCredit, 0);
+  }
+
   // Loans section
   html += '<div class="section">' +
     '<div class="section-head">' +
@@ -704,6 +718,75 @@ function renderCompanyRow(c) {
       '<button class="del-client-btn" style="padding:6px 14px;font-size:12px;background:transparent;color:var(--danger);border:1px solid rgba(124,31,31,0.30)" onclick="removeCompany(this)">Remove</button>' +
     '</div>' +
   '</div>';
+}
+
+// ── Deploy 236.779 — Xactus credit pull from the Client page ─────────
+function loadClientCredit() {
+  var el = document.getElementById('clientCreditBody');
+  if (!el || !_clientId) return;
+  var q = '/api/xactus-verifications-list?clientId=' + encodeURIComponent(_clientId) +
+    (_loEmail && _user && _loEmail !== _user.email ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.api('GET', q).then(function (r) {
+    var list = ((r && r.verifications) || []).filter(function (v) { return v.kind === 'credit'; });
+    if (!list.length) { el.innerHTML = '<span style="font-style:italic">No credit pulls on file for this client.</span>'; return; }
+    var h = '';
+    list.forEach(function (v) {
+      var days = v.expiresAt ? Math.ceil((Date.parse(v.expiresAt) - Date.now()) / 86400000) : null;
+      var badge = '';
+      if (days != null) {
+        var col = days <= 0 ? '#7c1f1f' : (days <= 20 ? '#b5712d' : '#166534');
+        badge = '<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(0,0,0,0.05);color:' + col + '">' + (days > 0 ? 'valid ' + days + 'd' : 'EXPIRED') + '</span>';
+      }
+      var s = v.scores || {};
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">' +
+        '<span style="flex:1;color:var(--text)">🧾 ' + escH((v.subject && v.subject.name) || '') +
+        ' · TU ' + (s.transunion || '—') + ' / EXP ' + (s.experian || '—') + ' / EQ ' + (s.equifax || '—') +
+        ' · <strong>mid ' + (v.mid || '—') + '</strong>' +
+        (v.loanId ? ' <span style="color:var(--muted)">(loan pull)</span>' : '') + '</span>' + badge +
+        '<span style="color:var(--muted);white-space:nowrap">' + escH(v.orderedAt ? new Date(v.orderedAt).toLocaleDateString() : '') + '</span>' +
+        (v.hasPdf ? '<a href="#" onclick="downloadClientVerificationDoc(\'' + escAttr(v.id) + '\');return false">PDF</a>' : '') +
+      '</div>';
+    });
+    el.innerHTML = h;
+  }).catch(function (e) {
+    el.innerHTML = 'Credit history unavailable: ' + escH((e && e.message) || 'unknown');
+  });
+}
+
+function pullClientCredit(btn) {
+  if (!_client) return;
+  if (!confirm('Pull a TRI-MERGE credit report (HARD inquiry, billed order) for ' +
+      ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim() +
+      '?\n\nMake sure a signed Credit Authorization is on file. The report is valid 120 days.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Ordering…'; }
+  var body = { clientId: _client.id, gIndex: 0, reportType: 'Merge' };
+  if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+  SLA.api('POST', '/api/xactus-credit-order', body).then(function (r) {
+    if (btn) { btn.disabled = false; btn.textContent = '🧾 Pull Credit Report'; }
+    var v = r.verification || {};
+    showToast('Credit pulled — mid score ' + (v.mid || '?') + '.');
+    loadClientCredit();
+  }).catch(function (e) {
+    if (btn) { btn.disabled = false; btn.textContent = '🧾 Pull Credit Report'; }
+    showToast('Credit pull failed: ' + ((e && e.message) || 'unknown'));
+  });
+}
+
+function downloadClientVerificationDoc(id) {
+  var url = '/api/xactus-verification-doc?id=' + encodeURIComponent(id) +
+    (_loEmail && _user && _loEmail !== _user.email ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.getToken().then(function (t) {
+    return fetch(url, { headers: { Authorization: 'Bearer ' + t } });
+  }).then(function (resp) {
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return resp.blob();
+  }).then(function (b) {
+    var u = URL.createObjectURL(b);
+    var a = document.createElement('a');
+    a.href = u; a.download = 'credit-report-' + id + '.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+  }).catch(function (e) { showToast('Download failed: ' + ((e && e.message) || 'unknown')); });
 }
 
 function addCompany() {

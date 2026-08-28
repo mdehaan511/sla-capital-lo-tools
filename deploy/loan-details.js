@@ -1186,7 +1186,9 @@ function render() {
       '<div class="fin-cell"><div class="fin-label">DSCR' + _tierFlag + '</div><div class="fin-val'+(_liveDscr && _liveDscr >= 1.2 ? ' green' : '')+'">'+_dscrRatioCell+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Prepayment Penalty</div><div class="fin-val">'+_dscrPrepay+'</div></div>' +
       // Row 9 — FICO | Property Type (Deploy 236.691 — priced in the sizer, read-only here)
-      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
+      // Deploy 236.779 — _creditFicoPill flags a pulled credit-report mid
+      // score that lands in a different bucket than the sizer FICO.
+      '<div class="fin-cell"><div class="fin-label">FICO' + _creditFicoPill(l) + '</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Property Type</div><div class="fin-val">'+escH(_propTypeLabel(l))+'</div></div>' +
       // Trailing extras (conditional)
       (buydown > 0 ? '<div class="fin-cell"><div class="fin-label">Buy-Down Points</div><div class="fin-val">+'+buydown.toFixed(2)+' pts (↓ rate)</div></div>' : '') +
@@ -1317,8 +1319,9 @@ function render() {
       '<div class="fin-cell"><div class="fin-label">Product</div><div class="fin-val">'+escH(_productLabel(l))+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">Loan Type</div><div class="fin-val">'+(_ltFull ? escH(_ltFull) : '<span class="empty">—</span>')+'</div></div>' +
       // Row 6 — Experience | FICO
+      // Deploy 236.779 — credit-report mismatch pill (see _creditFicoPill).
       '<div class="fin-cell"><div class="fin-label">Experience</div><div class="fin-val">'+(experienceDisplay ? escH(experienceDisplay) : '<span class="empty">—</span>')+'</div></div>' +
-      '<div class="fin-cell"><div class="fin-label">FICO</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
+      '<div class="fin-cell"><div class="fin-label">FICO' + _creditFicoPill(l) + '</div><div class="fin-val">'+(ficoDisplay||'<span class="empty">—</span>')+'</div></div>' +
       // Row 7 — LTP/LTV | LTC
       '<div class="fin-cell"><div class="fin-label">'+_rtlLtpLbl+'</div><div class="fin-val">'+_rtlFmtPct(_rtlLtpPct)+'</div></div>' +
       '<div class="fin-cell"><div class="fin-label">LTC</div><div class="fin-val">'+_rtlFmtPct(_rtlLtcPct)+'</div></div>' +
@@ -2017,6 +2020,25 @@ function render() {
   // already been started). Sits right below Funding Plan — same closing
   // workflow neighborhood. See renderClosingPanel() for the gating logic.
   html += renderClosingPanel(l);
+
+  // ── Deploy 236.779 — Verifications (Xactus credit pulls + flood certs) ──
+  // Staff-only panel: order tri-merge/soft credit per borrower/guarantor
+  // (120-day validity) and flood determinations for the property (SFHDF
+  // auto-filed into Loan Documents). History loads async via
+  // /api/xactus-verifications-list. Rides into the Loan tab.
+  if (window.SLA && SLA.isProcessor && SLA.isProcessor(_user)) {
+    html += '<div class="section" id="verificationsSection">' +
+      '<div class="section-head"><h2>Verifications</h2><span class="section-tag tag-editable">Xactus</span></div>' +
+      '<div class="section-body">' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">' +
+          '<button type="button" class="save-app-btn" onclick="openCreditPullModal()">🧾 Pull Credit Report</button>' +
+          '<button type="button" class="save-app-btn" onclick="openFloodOrderModal()" style="background:#fff;color:var(--dark);border:1px solid var(--border,#ddd8d0)">🌊 Order Flood Cert</button>' +
+        '</div>' +
+        '<div id="verificationsList" style="font-size:12.5px;color:var(--muted)">Loading verification history…</div>' +
+      '</div>' +
+    '</div>';
+    setTimeout(loadVerifications, 0);
+  }
 
   // Deploy 226 — Notes / audit log section. Replaces the old free-form
   // notes textarea with a scrollable timestamped log. Renders below the
@@ -2759,6 +2781,10 @@ function render() {
     // exists whenever the section does; if not, leave it in place rather than drop.
     var servicingSect = document.getElementById('servicingSection');
     if (servicingSect && paneServicing) paneServicing.appendChild(servicingSect);
+    // Deploy 236.779 — Verifications (Xactus) rides on the LOAN tab, below
+    // the two-col financials.
+    var verifSect = document.getElementById('verificationsSection');
+    if (verifSect && paneLoan) paneLoan.appendChild(verifSect);
     // Sync the tasks count badge on the tab once tasks load. The
     // loadTasksList() called below will trigger a render; hook the
     // existing _tasks state via setTimeout (cheap, no listener
@@ -7928,6 +7954,202 @@ function openReinstateModal() {
       showToast('Reinstate failed: ' + ((err && err.message) || 'unknown'));
     });
   });
+}
+
+// ── Deploy 236.779 — Verifications panel (Xactus credit + flood) ─────
+function _ficoBucketForScoreLD(mid, toolType) {
+  var s = parseInt(mid, 10);
+  if (!isFinite(s) || s <= 0) return '';
+  var tt = String(toolType || 'dscr').toLowerCase();
+  if (tt === 'rtl' || tt === 'guc') {
+    var floors = [740, 720, 700, 680, 660, 640, 620, 550];
+    for (var i = 0; i < floors.length; i++) if (s >= floors[i]) return String(floors[i]);
+    return '550';
+  }
+  if (s >= 780) return '780+';
+  var lo = Math.floor(s / 20) * 20;
+  return lo + '-' + (lo + 19);
+}
+
+// Pill for the FICO cell when the pulled credit-report mid score maps to
+// a DIFFERENT bucket than the sizer's FICO (same pattern as the DSCR
+// tier-change flag). Empty when no pull on file or they agree.
+function _creditFicoPill(l) {
+  var mid = parseInt(l && l.creditMidScore, 10);
+  if (!isFinite(mid) || mid <= 0) return '';
+  var sizer = String((l && l.fico) || '');
+  var bucket = _ficoBucketForScoreLD(mid, l && l.toolType);
+  if (!sizer || !bucket || sizer === bucket) return '';
+  return ' <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:10px;background:rgba(180,83,9,0.14);color:var(--warn,#7a5218);font-size:10px;font-weight:700;white-space:nowrap" ' +
+    'title="Sizer FICO is ' + escAttr(sizer) + ' but the pulled credit report mid score is ' + mid + ' (' + escAttr(bucket) + ' bucket). Reprice in the sizer if needed.">⚠ Credit report: ' + mid + '</span>';
+}
+
+function loadVerifications() {
+  var el = document.getElementById('verificationsList');
+  if (!el || !_client) return;
+  var q = '/api/xactus-verifications-list?clientId=' + encodeURIComponent(_client.id) +
+    '&loanId=' + encodeURIComponent(_loanId) +
+    (_loEmail ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.api('GET', q).then(function (r) {
+    renderVerificationsList((r && r.verifications) || []);
+  }).catch(function (e) {
+    el.innerHTML = '<span style="color:var(--muted)">Verification history unavailable: ' + escH((e && e.message) || 'unknown') + '</span>';
+  });
+}
+
+function renderVerificationsList(list) {
+  var el = document.getElementById('verificationsList');
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = '<span style="font-style:italic">No credit pulls or flood certs ordered yet for this loan.</span>';
+    return;
+  }
+  var h = '';
+  list.forEach(function (v) {
+    var when = v.orderedAt ? new Date(v.orderedAt).toLocaleDateString() : '—';
+    var line, badge = '';
+    if (v.kind === 'credit') {
+      var days = v.expiresAt ? Math.ceil((Date.parse(v.expiresAt) - Date.now()) / 86400000) : null;
+      if (days != null) {
+        var col = days <= 0 ? '#7c1f1f' : (days <= 20 ? '#b5712d' : '#166534');
+        var bg  = days <= 0 ? 'rgba(124,31,31,0.10)' : (days <= 20 ? 'rgba(181,113,45,0.12)' : 'rgba(37,105,64,0.10)');
+        badge = '<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:' + bg + ';color:' + col + '">' +
+          (days > 0 ? 'valid ' + days + 'd' : 'EXPIRED') + '</span>';
+      }
+      var s = v.scores || {};
+      line = '🧾 <strong>Credit</strong> (' + (v.reportType === 'SoftCheck' ? 'soft' : 'tri-merge') + ') — ' + escH((v.subject && v.subject.name) || '') +
+        ' · TU ' + (s.transunion || '—') + ' / EXP ' + (s.experian || '—') + ' / EQ ' + (s.equifax || '—') +
+        ' · <strong>mid ' + (v.mid || '—') + '</strong>';
+    } else {
+      line = '🌊 <strong>Flood</strong> (' + (v.product === 'life' ? 'Life of Loan' : 'Basic') + ') — ' +
+        (v.status === 'pending'
+          ? '<span style="color:var(--warn,#7a5218)">manual research pending (req ' + escH(v.xactusRequestId || '?') + ')</span>'
+          : 'zone <strong>' + escH(v.zone || '?') + '</strong>' + (v.mapNumber ? ' · map ' + escH(v.mapNumber) : ''));
+    }
+    h += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border,#eee7da)">' +
+      '<span style="flex:1;line-height:1.4;color:var(--text,#1a1520)">' + line + '</span>' + badge +
+      '<span style="color:var(--muted);white-space:nowrap">' + escH(when) + '</span>' +
+      (v.hasPdf ? '<a href="#" onclick="downloadVerificationDoc(\'' + escAttr(v.id) + '\');return false" style="white-space:nowrap">PDF</a>' : '') +
+    '</div>';
+  });
+  h += '<div style="margin-top:8px;font-size:11px;color:var(--muted)">Credit reports are valid 120 days. PDFs are auto-filed into this loan\'s Documents.</div>';
+  el.innerHTML = h;
+}
+
+function downloadVerificationDoc(id) {
+  var url = '/api/xactus-verification-doc?id=' + encodeURIComponent(id) +
+    (_loEmail ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.getToken().then(function (t) {
+    return fetch(url, { headers: { Authorization: 'Bearer ' + t } });
+  }).then(function (resp) {
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return resp.blob();
+  }).then(function (b) {
+    var u = URL.createObjectURL(b);
+    var a = document.createElement('a');
+    a.href = u; a.download = 'verification-' + id + '.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+  }).catch(function (e) {
+    showToast('Download failed: ' + ((e && e.message) || 'unknown'));
+  });
+}
+
+function _xactusModal(id, title, bodyHtml, confirmLabel, onYes) {
+  var old = document.getElementById(id); if (old) old.remove();
+  var wrap = document.createElement('div');
+  wrap.id = id;
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML =
+    '<div style="background:#fff;max-width:460px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+      '<div style="padding:16px 20px;border-bottom:1px solid var(--border,#E4DFD4)"><div style="font-family:\'Lora\',serif;font-size:17px;font-weight:600;color:var(--dark,#261A36)">' + title + '</div></div>' +
+      '<div style="padding:18px 20px;font-size:13.5px;line-height:1.5">' + bodyHtml + '</div>' +
+      '<div style="padding:14px 20px;border-top:1px solid var(--border,#E4DFD4);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
+        '<button type="button" data-x="no" style="font-size:13px;padding:8px 16px;border:1px solid var(--border,#E4DFD4);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>' +
+        '<button type="button" data-x="yes" style="font-size:13px;padding:8px 18px;border:none;background:var(--gold,#C8813A);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600">' + confirmLabel + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+  wrap.querySelector('[data-x="no"]').addEventListener('click', function () { wrap.remove(); });
+  wrap.querySelector('[data-x="yes"]').addEventListener('click', function () { onYes(wrap, wrap.querySelector('[data-x="yes"]')); });
+  return wrap;
+}
+
+function openCreditPullModal() {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  _xactusModal('creditPullModal', 'Pull Credit Report',
+    '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:4px">Who</label>' +
+      '<select id="xc-who" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-family:inherit;font-size:13px">' +
+        '<option value="0">Primary Borrower — ' + escH(((_client.firstName || '') + ' ' + (_client.lastName || '')).trim()) + '</option>' +
+        '<option value="1">Guarantor 2 (from loan application)</option>' +
+        '<option value="2">Guarantor 3 (from loan application)</option>' +
+      '</select></div>' +
+    '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:4px">Report Type</label>' +
+      '<select id="xc-type" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-family:inherit;font-size:13px">' +
+        '<option value="Merge">Tri-Merge — HARD inquiry (full report)</option>' +
+        '<option value="SoftCheck">Pre-Qualification — soft inquiry</option>' +
+      '</select></div>' +
+    '<div style="font-size:12px;color:var(--warn,#7a5218)">A tri-merge is a <strong>hard credit inquiry</strong> and a billed order. Make sure a signed Credit Authorization is on file. The report is valid <strong>120 days</strong> and files into Loan Documents automatically.</div>',
+    'Pull Credit',
+    function (wrap, btn) {
+      btn.disabled = true; btn.textContent = 'Ordering…';
+      var body = {
+        clientId: _client.id, loanId: _loanId,
+        gIndex: parseInt((document.getElementById('xc-who') || {}).value, 10) || 0,
+        reportType: (document.getElementById('xc-type') || {}).value || 'Merge',
+      };
+      if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+      SLA.api('POST', '/api/xactus-credit-order', body).then(function (r) {
+        wrap.remove();
+        var v = r.verification || {};
+        showToast('Credit pulled — mid score ' + (v.mid || '?') + '. Report filed to Loan Documents.');
+        if (r.ficoMismatch) {
+          setTimeout(function () {
+            showToast('⚠ Credit report bucket (' + r.scoreBucket + ') differs from sizer FICO (' + r.sizerFico + ') — reprice if needed.');
+          }, 1800);
+        }
+        if (body.gIndex === 0 && v.mid) _ldMergeLoan({ creditMidScore: v.mid, creditPulledAt: v.orderedAt });
+        loadVerifications();
+      }).catch(function (e) {
+        btn.disabled = false; btn.textContent = 'Pull Credit';
+        showToast('Credit pull failed: ' + ((e && e.message) || 'unknown'));
+      });
+    });
+}
+
+function openFloodOrderModal() {
+  if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  _xactusModal('floodOrderModal', 'Order Flood Determination',
+    '<div style="margin-bottom:10px">Property: <strong>' + escH((_loan && _loan.address) || '(no address)') + '</strong></div>' +
+    '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:4px">Product</label>' +
+      '<select id="xf-product" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-family:inherit;font-size:13px">' +
+        '<option value="Basic">Basic — guaranteed determination + SFHDF cert</option>' +
+        '<option value="life">Life of Loan — cert + ongoing monitoring</option>' +
+      '</select></div>' +
+    '<div style="font-size:12px;color:var(--muted)">This is a billed order. The flood zone lands on the Property tab and the cert files into Loan Documents automatically.</div>',
+    'Order Flood Cert',
+    function (wrap, btn) {
+      btn.disabled = true; btn.textContent = 'Ordering…';
+      var body = {
+        clientId: _client.id, loanId: _loanId,
+        product: (document.getElementById('xf-product') || {}).value || 'Basic',
+      };
+      if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
+      SLA.api('POST', '/api/xactus-flood-order', body).then(function (r) {
+        wrap.remove();
+        var v = r.verification || {};
+        if (r.pending) showToast('Flood order placed — needs manual research at Xactus (request ' + (v.xactusRequestId || '?') + ').');
+        else {
+          showToast('Flood determination complete — zone ' + (v.zone || '?') + '. Cert filed to Loan Documents.');
+          if (v.zone) _ldMergeLoan({ floodZone: v.zone });
+        }
+        loadVerifications();
+      }).catch(function (e) {
+        btn.disabled = false; btn.textContent = 'Order Flood Cert';
+        showToast('Flood order failed: ' + ((e && e.message) || 'unknown'));
+      });
+    });
 }
 
 function openResetRateLockModal() {

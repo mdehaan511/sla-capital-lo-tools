@@ -135,6 +135,42 @@ export async function attachSourceDocs({ ownerKey, clientId, loanId, address, re
   }
 }
 
+// Deploy 236.779 — general-purpose "file this PDF into the loan's review"
+// helper for system-generated documents (Xactus credit reports + flood
+// certs). Finds the loan's review, attaches into the slug's tray (prior
+// current doc moves to documents[]), stamps documentDate + optional
+// staleByDate so the doc-review expiry badge enforces validity windows,
+// and saves. Returns { ok, attached, reviewId } — zero-throw.
+export async function attachPdfToReviewSlug({ ownerKey, clientId, loanId, address, slug, bytes, filename, sourceNote, actorEmail, documentDate, staleByDate }) {
+  try {
+    if (!bytes || !bytes.length) return { ok: false, reason: 'no-bytes' };
+    const review = await _findReviewForLoan({ ownerKey, clientId, loanId, address });
+    if (!review) return { ok: true, attached: 0, reason: 'no-review' };
+    if (!review.docs || !review.docs[slug]) return { ok: true, attached: 0, reason: 'no-slug' };
+    const docsStore   = getStore({ name: 'loan-review-docs', consistency: 'strong' });
+    const reviewStore = getStore({ name: 'loan_reviews',     consistency: 'strong' });
+    _attachToSlug({ review, slug, bytes, filename, mimeType: 'application/pdf', sourceNote, actorEmail });
+    const ds = review.docs[slug];
+    if (documentDate) ds.documentDate = documentDate;
+    if (staleByDate)  ds.staleByDate  = staleByDate;
+    await docsStore.set(keySafe(review.id) + '/' + ds.currentDocId, bytes, {
+      metadata: {
+        reviewId: review.id, slug, filename, mimeType: 'application/pdf',
+        uploadedAt: new Date().toISOString(), uploadedBy: actorEmail || 'auto:xactus',
+        source: sourceNote || 'xactus',
+      },
+    });
+    review.updatedAt = new Date().toISOString();
+    review.lastEditedBy = actorEmail || 'auto:xactus';
+    review.lastEditedAt = review.updatedAt;
+    await reviewStore.setJSON(keySafe(review.id), review);
+    return { ok: true, attached: 1, reviewId: review.id };
+  } catch (e) {
+    console.error('[attachPdfToReviewSlug] failed:', e && e.message);
+    return { ok: false, error: (e && e.message) || 'unknown' };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Private helpers
 

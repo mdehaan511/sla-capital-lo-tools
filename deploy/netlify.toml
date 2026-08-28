@@ -17,6 +17,12 @@
   timeout = 26
 [functions."borrower2-auth-sign"]
   timeout = 26
+# Deploy 236.779 — Xactus orders wait on a synchronous bureau/flood
+# response (typically 1-3s, occasionally slow); give the full budget.
+[functions."xactus-credit-order"]
+  timeout = 26
+[functions."xactus-flood-order"]
+  timeout = 26
 
 # Supabase migration Phase 1 — the backfill walks 2 800+ blobs, does
 # a second pass on the legacy brokers store, then chunk-writes
@@ -1431,6 +1437,28 @@
 [[redirects]]
   from = "/api/loan-status-reinstate"
   to = "/.netlify/functions/loan-status-reinstate"
+  status = 200
+  force = true
+
+# Deploy 236.779 — Xactus credit pulls + flood certs.
+[[redirects]]
+  from = "/api/xactus-credit-order"
+  to = "/.netlify/functions/xactus-credit-order"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/xactus-flood-order"
+  to = "/.netlify/functions/xactus-flood-order"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/xactus-verifications-list"
+  to = "/.netlify/functions/xactus-verifications-list"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/xactus-verification-doc"
+  to = "/.netlify/functions/xactus-verification-doc"
   status = 200
   force = true
 
