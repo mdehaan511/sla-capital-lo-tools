@@ -53,6 +53,10 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { newRecordKey, legacyRecordKey } from './_shared/borrower-info-keys.mjs';
 import { record as recordLoanRedirect } from './_shared/loan-redirects.mjs';
 import { prospectsIndex } from './_shared/prospects-index.mjs';
+// Deploy 236.783 — the copy lookups run against Postgres (one indexed query
+// per question) instead of serially reading every client blob under both
+// owners, which stalled past the function timeout on large books.
+import { db } from './_shared/supabase-db.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -149,47 +153,70 @@ async function moveOrCreateClient(prospect, prospectId, fromOwnerKey, toLoEmail,
   const selfEmail = normalizeEmail(user.email);
   const now = new Date().toISOString();
 
-  // ── 1. Does the TARGET owner already have this prospect's loan? ──
-  // Also remember their client for this borrower email (merge target).
-  let destClient = null;
+  const toEmail = normalizeEmail(toLoEmail);
+  // Real owner keys ARE the LO email (keySafe passes emails through);
+  // 'unassigned' and other synthetic prefixes have no PG rows.
+  const fromEmail = fromOwnerKey.includes('@') ? normalizeEmail(fromOwnerKey) : '';
+
+  // ── 1. One PG query: every conversion of this prospect, any owner. ──
+  let pRows = [];
   try {
-    const { blobs } = await clientsStore.list({ prefix: newOwnerKey + '/' });
-    for (const { key } of blobs) {
-      const c = await clientsStore.get(key, { type: 'json' });
-      if (!c) continue;
-      if (Array.isArray(c.loans) && c.loans.some((l) => l && l.prospectId === prospectId)) {
-        // Already converted under the target LO — nothing to create or move.
-        // (If a stale copy also exists under the old owner, we leave it for a
-        // human: silently deleting another LO's records on a dedup hit is how
-        // real data gets lost.)
-        result.dedupSkipped = true;
-        return;
-      }
-      if (!destClient && borrowerEmailNorm && normalizeEmail(c.email || '') === borrowerEmailNorm) {
-        destClient = c;
-      }
-    }
+    pRows = await db.select('loans', { select: 'id,client_id,owner_email', eq: { prospect_id: prospectId } }) || [];
   } catch (e) {
-    console.warn('prospects-reassign: target scan failed:', e);
+    console.warn('prospects-reassign: PG prospect lookup failed:', e && e.message);
+  }
+  if (pRows.some((r) => String(r.owner_email || '').toLowerCase() === toEmail)) {
+    // Already converted under the target LO — nothing to create or move.
+    // (If a stale copy also exists under the old owner, we leave it for a
+    // human: silently deleting another LO's records on a dedup hit is how
+    // real data gets lost.)
+    result.dedupSkipped = true;
+    return;
+  }
+
+  // Merge target: the new owner's existing client for this borrower email.
+  let destClient = null;
+  if (borrowerEmailNorm) {
+    try {
+      const crow = await db.first('clients', { select: 'id', eq: { owner_email: toEmail, email: borrowerEmailNorm } });
+      if (crow) destClient = await clientsStore.get(newOwnerKey + '/' + keySafe(crow.id), { type: 'json' });
+    } catch (e) {
+      console.warn('prospects-reassign: PG dest lookup failed:', e && e.message);
+    }
   }
 
   // ── 2. Find the auto-created copy under the OLD owner ──
   let srcClient = null;
   let srcLoanIdx = -1;
   if (fromOwnerKey && fromOwnerKey !== newOwnerKey) {
-    try {
-      const { blobs } = await clientsStore.list({ prefix: fromOwnerKey + '/' });
-      for (const { key } of blobs) {
-        const c = await clientsStore.get(key, { type: 'json' });
-        if (!c || !Array.isArray(c.loans)) continue;
-        let idx = c.loans.findIndex((l) => l && l.prospectId === prospectId);
-        if (idx < 0 && borrowerEmailNorm && normalizeEmail(c.email || '') === borrowerEmailNorm) {
-          idx = c.loans.findIndex((l) => loanMatchesProspect(l, prospectId, prospect));
+    const srcRow = fromEmail
+      ? pRows.find((r) => String(r.owner_email || '').toLowerCase() === fromEmail)
+      : null;
+    if (srcRow) {
+      try {
+        const c = await clientsStore.get(fromOwnerKey + '/' + keySafe(srcRow.client_id), { type: 'json' });
+        if (c && Array.isArray(c.loans)) {
+          const idx = c.loans.findIndex((l) => l && l.prospectId === prospectId);
+          if (idx >= 0) { srcClient = c; srcLoanIdx = idx; }
         }
-        if (idx >= 0) { srcClient = c; srcLoanIdx = idx; break; }
+      } catch (e) {
+        console.warn('prospects-reassign: source client read failed:', e && e.message);
       }
-    } catch (e) {
-      console.warn('prospects-reassign: source scan failed:', e);
+    }
+    if (!srcClient && fromEmail && borrowerEmailNorm) {
+      // Legacy copies whose loan was never stamped with prospectId: find the
+      // old owner's client(s) for this borrower via PG, then address-match.
+      try {
+        const rows = await db.select('clients', { select: 'id', eq: { owner_email: fromEmail, email: borrowerEmailNorm } }) || [];
+        for (const r of rows) {
+          const c = await clientsStore.get(fromOwnerKey + '/' + keySafe(r.id), { type: 'json' });
+          if (!c || !Array.isArray(c.loans)) continue;
+          const idx = c.loans.findIndex((l) => loanMatchesProspect(l, prospectId, prospect));
+          if (idx >= 0) { srcClient = c; srcLoanIdx = idx; break; }
+        }
+      } catch (e) {
+        console.warn('prospects-reassign: legacy source lookup failed:', e && e.message);
+      }
     }
   }
 
@@ -293,12 +320,15 @@ async function moveOrCreateClient(prospect, prospectId, fromOwnerKey, toLoEmail,
     }
   } catch (e) { console.warn('prospects-reassign: signed_application move failed (non-fatal):', e && e.message); }
 
-  try { // sizer quote records under the old owner
+  try { // sizer quote records under the old owner (parallel reads — a serial
+        // sweep of a big owner's quote book would blow the function timeout)
     const quotesStore = getStore({ name: 'quotes', consistency: 'strong' });
     const { blobs } = await quotesStore.list({ prefix: fromOwnerKey + '/' });
-    for (const { key } of blobs) {
-      const q = await quotesStore.get(key, { type: 'json' });
-      if (!q || q.loanId !== loan.id) continue;
+    const hits = (await Promise.all(blobs.map(async ({ key }) => {
+      const q = await quotesStore.get(key, { type: 'json' }).catch(() => null);
+      return (q && q.loanId === loan.id) ? { key, q } : null;
+    }))).filter(Boolean);
+    for (const { key, q } of hits) {
       q.clientId = destClientId;
       q.updatedAt = now;
       await quotesStore.setJSON(newOwnerKey + '/' + key.split('/').slice(1).join('/'), q);
@@ -309,9 +339,11 @@ async function moveOrCreateClient(prospect, prospectId, fromOwnerKey, toLoEmail,
   try { // doc review source pointer (reviews are keyed flat by review id)
     const reviewsStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
     const { blobs } = await reviewsStore.list();
-    for (const { key } of blobs) {
-      const r = await reviewsStore.get(key, { type: 'json' });
-      if (!r || !r.source || r.source.loanId !== loan.id) continue;
+    const hits = (await Promise.all(blobs.map(async ({ key }) => {
+      const r = await reviewsStore.get(key, { type: 'json' }).catch(() => null);
+      return (r && r.source && r.source.loanId === loan.id) ? { key, r } : null;
+    }))).filter(Boolean);
+    for (const { key, r } of hits) {
       r.source.clientId = destClientId;
       r.source.ownerKey = toLoEmail;
       r.loEmail = toLoEmail;

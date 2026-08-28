@@ -19,6 +19,10 @@
   timeout = 26
 # Deploy 236.779 — Xactus orders wait on a synchronous bureau/flood
 # response (typically 1-3s, occasionally slow); give the full budget.
+# Deploy 236.783 — reassign moves client/loan + side records across owners;
+# give it headroom past the 10s default.
+[functions."prospects-reassign"]
+  timeout = 26
 [functions."xactus-credit-order"]
   timeout = 26
 [functions."xactus-flood-order"]
