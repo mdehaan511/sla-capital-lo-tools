@@ -592,6 +592,18 @@
   function render() {
     var docs = _review.docs || {};
     var allSlugs = Object.keys(docs);
+    // Deploy 236.778 (Mike) — publish felony findings so Loan Details can raise
+    // its top-of-page banner (above the tabs) straight from the document review,
+    // instead of waiting on the AI's loan-field write to land.
+    try {
+      var _felAlerts = [];
+      ['entity_background_check', 'guarantor_background_check'].forEach(function(sg) {
+        var dd = docs[sg] || {};
+        if (dd.felonyAlert) _felAlerts.push(String(dd.felonyAlert));
+      });
+      global.SLA_DOC_ALERTS = { felony: _felAlerts };
+      if (typeof global.refreshFelonyBanner === 'function') global.refreshFelonyBanner();
+    } catch (e) { /* banner is a nicety — never break the doc review over it */ }
     // Deploy 236.161 — split hidden trays out of the main count.
     // Hidden trays stay in the data, just don't render in the
     // normal tabs / counters; a per-section "Show N hidden" toggle
@@ -1439,14 +1451,25 @@
     }
     // Deploy 236.754 — a long doc was handed off to the 15-min background reviewer:
     // keep a spinner until it writes the verdict (the page polls for it).
-    if (src.aiReviewing && !docId) {
+    // Deploy 236.778 — the "no docId" guard made this spinner DEAD CODE:
+    // renderAiBlock is ALWAYS called with a docId once the tray holds a document
+    // (see the single-doc call ~line 1230), so a doc under background review fell
+    // through to the "Not yet reviewed" branch below — that was the flicker LOs
+    // saw between the upload spinner and the verdict. Consult the TRAY's flag too,
+    // since the per-document entry doesn't always carry it.
+    var _trayState = (_review && _review.docs && _review.docs[slug]) || {};
+    var _reviewingNow = !!(src.aiReviewing ||
+      (_trayState.aiReviewing && (!docId || docId === _trayState.currentDocId)));
+    if (_reviewingNow) {
       return '<div class="ai-block pending">' +
         '<div class="ai-head"><span class="ai-label pending"><span class="ai-spinner"></span> AI is reviewing this large document…</span></div>' +
         '<div class="ai-summary">This document is long, so the review is running in the background — the verdict will appear here automatically (usually under a minute). Advisory only.</div>' +
       '</div>';
     }
-    // The "AI is reviewing…" spinner only applies to the current upload (tray-level).
-    if (_uploadingSlug === slug && !docId) {
+    // The "AI is reviewing…" spinner for the in-flight upload. Deploy 236.778 —
+    // same dead-guard flaw: on a RE-upload the tray already has a currentDocId, so
+    // this never fired either. Match the tray's current doc instead.
+    if (_uploadingSlug === slug && (!docId || docId === _trayState.currentDocId)) {
       return '<div class="ai-block pending">' +
         '<div class="ai-head">' +
           '<span class="ai-label pending"><span class="ai-spinner"></span> AI is reviewing this document…</span>' +

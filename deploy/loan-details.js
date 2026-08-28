@@ -3944,11 +3944,22 @@ function refreshBpoRepriceBanner() {
 // felonyEntity / felonyGuarantor ("Yes"/"No") onto the loan; this raises the
 // banner. Clearable via "Exception granted" — the ack is keyed to the CURRENT
 // findings, so a NEW background report showing a felony re-raises it.
+// Deploy 236.778 — the alert also comes straight from the document review
+// (window.SLA_DOC_ALERTS.felony, published by loan-doc-review.js), so the banner
+// shows the moment Documents knows, without waiting on the AI's loan-field write.
+function _ldFelonyDocAlerts() {
+  try {
+    var a = window.SLA_DOC_ALERTS && window.SLA_DOC_ALERTS.felony;
+    return Array.isArray(a) ? a.filter(Boolean) : [];
+  } catch (e) { return []; }
+}
+// The ack key covers EXACTLY what's on screen — loan fields AND any doc-review
+// alerts — so dismissing sticks, but a new/different finding raises it again.
 function _ldFelonyKey(l) {
   return [
     String(l.felonyEntity || ''), String(l.felonyEntityDetail || ''),
     String(l.felonyGuarantor || ''), String(l.felonyGuarantorDetail || ''),
-  ].join('|');
+  ].join('|') + '||DOC:' + _ldFelonyDocAlerts().join('~');
 }
 function refreshFelonyBanner() {
   var slot = document.getElementById('ldTopBanners');
@@ -3965,6 +3976,12 @@ function refreshFelonyBanner() {
   }
   if (isYes(l.felonyGuarantor)) {
     hits.push('guarantor background check' + (l.felonyGuarantorDetail ? ' (' + l.felonyGuarantorDetail + ')' : ''));
+  }
+  // Deploy 236.778 — fall back to what the Documents tab found, so the banner
+  // isn't silent just because the loan-field write hasn't landed yet.
+  var _docHits = _ldFelonyDocAlerts();
+  if (!hits.length && _docHits.length) {
+    hits.push(_docHits.length === 1 ? 'background check' : 'background checks');
   }
   if (!hits.length) return;
 
