@@ -20,6 +20,13 @@ export function xactusConfigured() {
   return !!(process.env.XACTUS_BASE_URL && process.env.XACTUS_OPERATOR_ID && process.env.XACTUS_PASSWORD);
 }
 
+// Names (never values) of the missing env vars — surfaced in the 503 so a
+// scope/typo problem in the Netlify dashboard is diagnosable from the UI.
+export function xactusMissingVars() {
+  return ['XACTUS_BASE_URL', 'XACTUS_OPERATOR_ID', 'XACTUS_PASSWORD']
+    .filter((k) => !process.env[k]);
+}
+
 function _url() {
   return process.env.XACTUS_BASE_URL +
     '?LoginAccountIdentifier=' + encodeURIComponent(process.env.XACTUS_OPERATOR_ID) +

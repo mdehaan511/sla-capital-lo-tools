@@ -31,7 +31,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
 import { attachPdfToReviewSlug } from './_shared/loan-review-auto-attach.mjs';
 import {
-  xactusConfigured, buildCreditRequestXml, postXactus, parseCreditResponse, ficoBucketForScore,
+  xactusConfigured, xactusMissingVars, buildCreditRequestXml, postXactus, parseCreditResponse, ficoBucketForScore,
 } from './_shared/xactus.mjs';
 
 const CREDIT_VALID_DAYS = 120;
@@ -51,7 +51,7 @@ async function handle(req, context) {
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
   if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
-  if (!xactusConfigured()) return json(503, { error: 'Xactus credentials not configured (XACTUS_BASE_URL / XACTUS_OPERATOR_ID / XACTUS_PASSWORD)' });
+  if (!xactusConfigured()) return json(503, { error: 'Xactus credentials not configured — missing env var(s): ' + xactusMissingVars().join(', ') + '. Check names + that the "Functions" scope is enabled on each in Netlify.' });
 
   const body = await readJsonBody(req);
   if (!body || !body.clientId) return json(400, { error: 'clientId required' });
