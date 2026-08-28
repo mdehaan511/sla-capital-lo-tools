@@ -25,7 +25,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
-import { getChecklist, getDefaultInvestor, findCategory } from './_shared/loan-review-checklists.mjs';
+import { getChecklist, getDefaultInvestor, findCategory, portfolioCollateralEntries } from './_shared/loan-review-checklists.mjs';
 // Deploy 236.564 — denormalize the open-conditions count onto the loan (for the
 // pipeline badge). PG-first strict writer.
 import { writeClient } from './_shared/client-write.mjs';
@@ -293,7 +293,10 @@ async function handle(req, context) {
   if (_pfLoan && _pfLoan.isPortfolio && Array.isArray(_pfLoan.properties) && _pfLoan.properties.length > 1) {
     const props = _pfLoan.properties;
     review.properties = props.map((p, i) => ({ index: i, label: 'Property ' + (i + 1), address: (p && p.address) || '' }));
-    const collateralEntries = checklist.filter((it) => it && it.section === 'collateral');
+    // Deploy 236.782 — portfolioCollateralEntries adds the five docs Mike
+    // wants on EVERY property of a portfolio loan even when the tool type's
+    // own checklist lacks them (SOW on DSCR, Lease Agreements on RTL).
+    const collateralEntries = portfolioCollateralEntries(review.loanType || '');
     for (const it of collateralEntries) {
       delete review.docs[it.slug];
       props.forEach((p, i) => {

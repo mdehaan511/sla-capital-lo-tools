@@ -22,7 +22,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, keySafe,
 } from './_shared/auth.mjs';
-import { getChecklist } from './_shared/loan-review-checklists.mjs';
+import { getChecklist, portfolioCollateralEntries } from './_shared/loan-review-checklists.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -76,14 +76,50 @@ async function handle(req, context) {
   if (!review.docs) review.docs = {};
 
   const checklist = getChecklist(review.loanType || '');
-  // Deploy 236.690 — on a portfolio review, collateral is split into per-property
-  // trays ("<slug>__p<i>"); don't re-add the base single collateral tray.
   const _isPortfolioReview = Array.isArray(review.properties) && review.properties.length > 1;
   const added = [];
+
+  // Deploy 236.782 — portfolio reviews keep collateral split per property
+  // ("<slug>__p<i>", from loan-reviews-save's create-time expansion). Backfill
+  // any per-property tray that's missing: this retro-adds the five
+  // guaranteed portfolio docs (SOW, Purchase Agreement, Lease Agreements,
+  // Evidence of Insurance, Insurance Invoice — see PORTFOLIO_EXTRA_COLLATERAL)
+  // to reviews created before this deploy, and it means a collateral category
+  // added to the checklist later expands per property instead of landing as a
+  // single shared base tray (the pre-236.782 behavior).
+  if (_isPortfolioReview) {
+    for (const item of portfolioCollateralEntries(review.loanType || '')) {
+      if (!item || !item.slug) continue;
+      // A shared BASE tray for this slug (legacy sync add — may hold docs)
+      // covers the category already; don't double it up per property.
+      if (review.docs[item.slug]) continue;
+      review.properties.forEach((p, idx) => {
+        const i = (p && p.index != null) ? p.index : idx;
+        const pslug = item.slug + '__p' + i;
+        if (review.docs[pslug]) return;     // already present (incl. hidden) — leave it
+        const tray = _blankStandardTray(item);
+        tray.slug = pslug;
+        // Per-property trays are self-describing (their slug isn't in the
+        // frontend DOC_META) — carry label/rubric/property tags like the
+        // create-time expansion does.
+        tray.section = 'collateral';
+        tray.label = item.label;
+        tray.conditions = item.conditions || '';
+        tray.propertyIndex = i;
+        tray.propertyLabel = (p && p.label) || ('Property ' + (i + 1));
+        tray.propertyAddress = (p && p.address) || '';
+        review.docs[pslug] = tray;
+        added.push(pslug);
+      });
+    }
+  }
+
   for (const item of checklist) {
     if (!item || !item.slug) continue;
+    // Deploy 236.690/236.782 — portfolio collateral is handled per property
+    // above; never (re-)add a base single collateral tray on a portfolio review.
+    if (_isPortfolioReview && item.section === 'collateral') continue;
     if (review.docs[item.slug]) continue;   // already present (incl. hidden) — leave it
-    if (_isPortfolioReview && item.section === 'collateral' && review.docs[item.slug + '__p0']) continue;
     review.docs[item.slug] = _blankStandardTray(item);
     added.push(item.slug);
   }

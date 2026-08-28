@@ -340,6 +340,33 @@ export function findCategory(slug) {
     || null;
 }
 
+// ── Portfolio per-property collateral ──────────────────────────────
+// Deploy 236.782 — on a Portfolio loan every property gets its own set of
+// collateral trays (see loan-reviews-save's "__p<i>" expansion). Mike wants
+// these five collected PER PROPERTY on every portfolio review regardless of
+// tool type — even where the loan type's own checklist doesn't carry the
+// category (SOW is normally RTL-only; Lease Agreements is DSCR-only since
+// 236.709). psa / evidence_of_insurance / insurance_invoice are already in
+// both checklists and are listed here as the guarantee, not an override.
+export const PORTFOLIO_EXTRA_COLLATERAL = [
+  'sow', 'psa', 'lease_agreements', 'evidence_of_insurance', 'insurance_invoice',
+];
+
+// The collateral entries a portfolio review should expand per property:
+// the loan type's own collateral checklist, plus any of the five above it
+// lacks (definition + rubric borrowed from the other checklist via
+// findCategory, so the rubric text stays single-sourced).
+export function portfolioCollateralEntries(loanType) {
+  const entries = getChecklist(loanType || '').filter((it) => it && it.section === 'collateral');
+  const have = new Set(entries.map((it) => it.slug));
+  for (const slug of PORTFOLIO_EXTRA_COLLATERAL) {
+    if (have.has(slug)) continue;
+    const def = findCategory(slug);
+    if (def) { entries.push(def); have.add(slug); }
+  }
+  return entries;
+}
+
 // ── Document freshness (staleness) windows ─────────────────────────
 // Days after a doc's issue/print date (documentDate) that it goes "stale" for
 // closing. An explicit expirationDate printed on the doc always wins. KEEP each
