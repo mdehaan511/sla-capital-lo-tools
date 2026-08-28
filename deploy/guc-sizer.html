@@ -1054,7 +1054,16 @@ function renderReserveCard() {
   var effDp = (typeof calc.downPayment === 'number') ? calc.downPayment : null;
   if (o.dp !== null && o.dp !== undefined) {
     effDp = o.dp;
-    loanAmt = Math.max(0, pp - effDp + (isRehab ? rb : 0));
+    // Deploy 236.776 (Jeremy) — GUC loan = TOTAL PROJECT COST (land +
+    // construction) − DP, mirroring guc-pricing.js. The inherited RTL formula
+    // (land price − DP) sent the loan to $0 whenever the DP exceeded the lot
+    // price, which also hid this card. Owned-land deals show the DP net of the
+    // land-equity credit, so add it back before inverting.
+    var _ctcTotal = (typeof calc.totalCost === 'number' && calc.totalCost > 0)
+      ? calc.totalCost : (pp + rb);
+    var _ctcCredit = (calc.ownLand && typeof calc.landEquityCredit === 'number')
+      ? calc.landEquityCredit : 0;
+    loanAmt = Math.max(0, _ctcTotal - (effDp + _ctcCredit));
   }
   if (calc.isTransactional || loanAmt <= 0) { card.style.display = 'none'; return; }
 
@@ -1823,14 +1832,28 @@ function applyOverridesAndRender() {
   // DP concept may not apply, but we'll honor the override if it's set.
   var pp = _money((document.getElementById('purchasePrice')||{}).value) || 0;
   var rb = _money((document.getElementById('rehabBudget')||{}).value) || 0;
+  // Deploy 236.776 (Jeremy) — a DP override above the LAND price drove the loan
+  // to $0. This block was inherited verbatim from the RTL sizer, where
+  // loan = price − DP (+ rehab only on fix/flip, and GUC is neither light nor
+  // heavy, so the construction budget was never added). On a ground-up deal the
+  // loan funds the land AND the build, so deriving it from the land price alone
+  // is wrong — a DP larger than the lot is completely normal here (70% LTC on a
+  // $560k project = $392k loan, i.e. $168k down against a $160k lot).
+  // Mirror guc-pricing.js exactly:
+  //     dpBeforeCredit = totalCost − loan     →     loan = totalCost − dpBeforeCredit
+  // totalCost = land + construction. On an owned-land deal the DISPLAYED dp is
+  // net of the land-equity credit, so add that back before inverting.
+  var totalCost = (typeof calc.totalCost === 'number' && calc.totalCost > 0)
+    ? calc.totalCost : (pp + rb);
   var ltVal = (document.getElementById('loanType')||{}).value;
-  var isRehab = (ltVal === 'light' || ltVal === 'heavy');
+  var isRehab = (ltVal === 'light' || ltVal === 'heavy');  // kept for _rtlLastCalcEffective consumers
   var effLoanAmt = calc.bMax || 0;
   var effDp = null;
   if (o.dp !== null) {
     effDp = o.dp;
-    // loanAmt = price - DP for bridge; + rehab for fix/flip
-    effLoanAmt = Math.max(0, pp - effDp + (isRehab ? rb : 0));
+    var _landCredit = (calc.ownLand && typeof calc.landEquityCredit === 'number')
+      ? calc.landEquityCredit : 0;
+    effLoanAmt = Math.max(0, totalCost - (effDp + _landCredit));
   }
   // Persist for downstream consumers (PDF, broker fee rows) — they read
   // window._rtlLastCalc.
@@ -1868,7 +1891,12 @@ function applyOverridesAndRender() {
     dpEl.classList.toggle('overridden', true);
     var dpCard = dpEl.closest('.metric-card');
     var dpSub = dpCard ? dpCard.querySelector('.metric-sub') : null;
-    if (dpSub) dpSub.textContent = pp > 0 ? (effDp / pp * 100).toFixed(1) + '% of purchase price' : '';
+    // Deploy 236.776 — measure the DP against TOTAL PROJECT COST (land +
+    // construction), not the land price alone. Against the lot it read "117.3%
+    // of purchase price", which looks broken on a ground-up deal; against total
+    // cost the same number is a sane 33.5%.
+    if (dpSub) dpSub.textContent = totalCost > 0
+      ? (effDp / totalCost * 100).toFixed(1) + '% of total project cost' : '';
   } else if (dpEl) {
     // No DP override active — clear the .overridden class in case it was
     // toggled on earlier
