@@ -75,6 +75,12 @@ const FIELD_LABELS = {
   unitsOccupied: 'Units Occupied', vacancyPct: 'Vacancy %',
   assignedProcessor: 'Assigned Processor', assignedLo: 'Assigned LO',
   guarantors: 'Guarantors', rateLockStart: 'Rate Lock Start',
+  // Deploy 236.777 — felony hard-stop fields (background checks + the exception).
+  felonyEntity: 'Felony — Entity Background Check',
+  felonyEntityDetail: 'Felony detail (entity)',
+  felonyGuarantor: 'Felony — Guarantor Background Check',
+  felonyGuarantorDetail: 'Felony detail (guarantor)',
+  felonyAckAt: 'Felony exception recorded',
 };
 
 function labelFor(key) {

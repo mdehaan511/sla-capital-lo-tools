@@ -33,7 +33,7 @@ import {
 } from './_shared/auth.mjs';
 import { getChecklist, staleAfterFor } from './_shared/loan-review-checklists.mjs';
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
-import { buildProposals, writeFieldProposals, bpoAlertFor } from './_shared/uw-field-write.mjs';
+import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { reviewDocument } from './_shared/anthropic-doc-review.mjs';
 import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_shared/doc-integrity.mjs';
 
@@ -267,6 +267,9 @@ async function handle(req, context) {
     docState.aiExtractedFields = aiResult.extractedFields || {};
     const _bpoAlert = bpoAlertFor(body.slug, _props, review.snapshotLoan);
     if (_bpoAlert !== null) docState.bpoAlert = _bpoAlert;
+    // Deploy 236.777 — felony hard stop on a background check (RTL + DSCR).
+    const _felAlert = felonyAlertFor(body.slug, _props);
+    if (_felAlert !== null) docState.felonyAlert = _felAlert;
   }
 
   await _saveReview(reviewStore, review, now);

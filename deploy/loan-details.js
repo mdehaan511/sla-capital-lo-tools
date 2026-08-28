@@ -2811,6 +2811,7 @@ function render() {
   // Deploy 236.126 — top-of-page guarantor-ownership banner.
   refreshOwnershipBanner();
   refreshBpoRepriceBanner();   // Deploy 236.767
+  refreshFelonyBanner();   // Deploy 236.777
   // Deploy 236.129 — top-of-page banner when a guarantor has
   // submitted / updated their sub-form (incl. signed Credit Auth).
   // Lets the LO know to re-bundle the main loan app if they want
@@ -3423,6 +3424,7 @@ function saveGuarantorOwnership(input) {
     setTimeout(function() { if (status) { status.textContent = ''; status.className = 'ow-status'; } }, 1800);
     refreshOwnershipBanner();
     refreshBpoRepriceBanner();   // Deploy 236.767
+    refreshFelonyBanner();   // Deploy 236.777
   }).catch(function(err) {
     if (status) { status.className = 'ow-status err'; status.textContent = 'Save failed'; }
   });
@@ -3936,6 +3938,80 @@ function refreshBpoRepriceBanner() {
   slot.appendChild(banner);
 }
 
+// ── Felony hard stop (Deploy 236.777, Mike) ─────────────────────────
+// A felony of ANY age on a background check is a hard stop on BOTH RTL and
+// DSCR. The AI reads the entity + guarantor background reports and writes
+// felonyEntity / felonyGuarantor ("Yes"/"No") onto the loan; this raises the
+// banner. Clearable via "Exception granted" — the ack is keyed to the CURRENT
+// findings, so a NEW background report showing a felony re-raises it.
+function _ldFelonyKey(l) {
+  return [
+    String(l.felonyEntity || ''), String(l.felonyEntityDetail || ''),
+    String(l.felonyGuarantor || ''), String(l.felonyGuarantorDetail || ''),
+  ].join('|');
+}
+function refreshFelonyBanner() {
+  var slot = document.getElementById('ldTopBanners');
+  if (!slot) return;
+  var existing = slot.querySelector('.ld-warning-banner[data-banner="felony"]');
+  if (existing) existing.remove();
+
+  var l = _loan;
+  if (!l) return;
+  var isYes = function (v) { return /^y/i.test(String(v || '').trim()); };
+  var hits = [];
+  if (isYes(l.felonyEntity)) {
+    hits.push('entity background check' + (l.felonyEntityDetail ? ' (' + l.felonyEntityDetail + ')' : ''));
+  }
+  if (isYes(l.felonyGuarantor)) {
+    hits.push('guarantor background check' + (l.felonyGuarantorDetail ? ' (' + l.felonyGuarantorDetail + ')' : ''));
+  }
+  if (!hits.length) return;
+
+  // Exception already granted for exactly these findings — stay quiet.
+  if (l.felonyAckAt && String(l.felonyAckKey || '') === _ldFelonyKey(l)) return;
+
+  var banner = document.createElement('div');
+  banner.className = 'ld-warning-banner';
+  banner.setAttribute('data-banner', 'felony');
+  banner.style.background  = 'rgba(124,31,31,0.10)';
+  banner.style.borderColor = 'rgba(124,31,31,0.40)';
+  banner.style.color       = 'var(--danger, #7c1f1f)';
+  banner.innerHTML =
+    '<span class="ld-warning-icon">⛔</span>' +
+    '<div style="flex:1">' +
+      '<strong>Felony found — this loan cannot proceed without an exception</strong> — reported on the ' +
+      escH(hits.join(' and the ')) +
+      '. A felony of any age is a hard stop on both RTL and DSCR. Confirm it on the background check in Documents.' +
+    '</div>' +
+    '<button type="button" onclick="dismissFelonyBanner(this)" ' +
+      'title="Record that an exception was granted for these findings. A new background check showing a felony will bring this back." ' +
+      'style="flex:none;align-self:center;margin-left:10px;font-size:12px;font-weight:600;padding:6px 12px;border:1px solid rgba(124,31,31,0.40);background:#fff;color:var(--danger,#7c1f1f);border-radius:6px;cursor:pointer;font-family:inherit">Exception granted</button>';
+  slot.appendChild(banner);
+}
+
+// Persist the exception. Keyed to the CURRENT findings so a later report with a
+// different//new felony re-raises the banner rather than staying silently cleared.
+function dismissFelonyBanner(btn) {
+  if (!_loan || !_client) return;
+  if (!confirm('Record that an exception was granted for the felony found on this loan?\n\n' +
+      'This clears the alert on Loan Details. The finding itself stays on the background check, ' +
+      'and a NEW background check showing a felony will raise it again.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  var fields = {
+    felonyAckAt:  new Date().toISOString(),
+    felonyAckKey: _ldFelonyKey(_loan),
+  };
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function () {
+    _ldMergeLoan(fields);
+    refreshFelonyBanner();
+    showToast('Felony exception recorded — alert cleared for these findings.');
+  }).catch(function (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Exception granted'; }
+    showToast('Could not record the exception: ' + ((err && err.message) || 'unknown'));
+  });
+}
+
 // Deploy 236.775 — the max loan the BPO AIV supports for this loan's
 // program/FICO/experience (aiv × max LTP/LTV, + rehab on rehab products).
 // Mirrors rtl-pricing.js's ltvBasis sizing (236.772). Returns null when
@@ -3980,6 +4056,7 @@ function dismissBpoRepriceBanner(btn) {
   SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function () {
     _ldMergeLoan(fields);
     refreshBpoRepriceBanner();
+    refreshFelonyBanner();   // Deploy 236.777
     showToast('BPO reprice notice dismissed for the current BPO values.');
   }).catch(function (err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Dismiss'; }

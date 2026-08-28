@@ -44,6 +44,23 @@ export const SLUG_FIELD_MAP = {
     { dataset: 'uw',        key: 'assignmentFee',           label: 'The assignment fee EXPLICITLY stated on the contract (number), or null if none is stated' },
     { dataset: 'lightning', key: 'earliestSigningDate',     label: 'The earliest signature date on the assignment, as YYYY-MM-DD' },
   ],
+  // Deploy 236.777 (Mike) — FELONY HARD STOP. Both RTL and DSCR guidelines make
+  // a felony of any age a hard stop, so the background reports are read for one
+  // explicitly. Keys are namespaced PER TRAY: the entity report and the
+  // guarantor report both write to the loan, and a shared key would let a clean
+  // "No" on one silently overwrite a "Yes" on the other.
+  entity_background_check: [
+    { dataset: 'loan', key: 'felonyEntity',
+      label: 'Does this report show ANY felony charge or conviction, of ANY age, for the entity or any person named on it? Answer exactly "Yes" or "No". Answer "Yes" ONLY if the report actually states a felony — never infer one from a misdemeanor, an arrest with no disposition, a civil suit, a lien, or a bankruptcy.' },
+    { dataset: 'loan', key: 'felonyEntityDetail',
+      label: 'If a felony appears, one short line: who it is against, the charge, and the year (e.g. "ABC LLC — wire fraud, 2016"). Null if there is no felony.' },
+  ],
+  guarantor_background_check: [
+    { dataset: 'loan', key: 'felonyGuarantor',
+      label: 'Does this report show ANY felony charge or conviction, of ANY age, for any guarantor named on it? Answer exactly "Yes" or "No". Answer "Yes" ONLY if the report actually states a felony — never infer one from a misdemeanor, an arrest with no disposition, a civil suit, a lien, or a bankruptcy.' },
+    { dataset: 'loan', key: 'felonyGuarantorDetail',
+      label: 'If a felony appears, one short line: whose it is, the charge, and the year (e.g. "John Smith — felony DUI, 2011"). Null if there is no felony.' },
+  ],
   credit_report: [
     { dataset: 'uw', key: 'lowCredit',    label: 'The LOWEST of the three bureau credit scores for the primary guarantor (number)' },
     { dataset: 'uw', key: 'middleCredit', label: 'The MIDDLE of the three bureau credit scores for the primary guarantor (number)' },

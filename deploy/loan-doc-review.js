@@ -1359,6 +1359,14 @@
               '<span class="ai-label issues">⛔ Needs repricing</span></div>' +
               '<div class="ai-summary">' + escHtml(d.bpoAlert) + '</div></div>'
           : '') +
+        // Deploy 236.777 (Mike) — felony hard stop on a background check, shown
+        // the same way as the BPO alert. Cleared from the Loan Details banner
+        // via "Exception granted"; the tray keeps the finding on the record.
+        (d.felonyAlert
+          ? '<div class="ai-block issues" style="margin-bottom:10px"><div class="ai-head">' +
+              '<span class="ai-label issues">⛔ Felony found — hard stop</span></div>' +
+              '<div class="ai-summary">' + escHtml(d.felonyAlert) + '</div></div>'
+          : '') +
         currentHtml +
         aiHtml +
         dz +

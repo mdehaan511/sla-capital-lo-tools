@@ -18,6 +18,11 @@ import { keySafe } from "./auth.mjs";
 import { writeClient } from "./client-write.mjs";
 import { diffLoan, recordLoanChanges } from "./loan-change-log.mjs";
 
+// Deploy 236.777 — dataset:'loan' keys that are MONEY. These get numeric
+// coercion + the FromBpo provenance stamp that locks the Loan Details input.
+// Any other dataset:'loan' key is written as plain text (e.g. felonyFound).
+const LOAN_NUMERIC_KEYS = { aivBpo: 1, arvBpo: 1 };
+
 // Turn the AI's extractedFields answer into proposals. Only fields the AI
 // actually FOUND (found:true + a non-empty value) — a "not on this document"
 // answer must never overwrite an existing value.
@@ -59,6 +64,28 @@ export function bpoAlertFor(slug, proposals, snapshotLoan) {
   return null;
 }
 
+// Deploy 236.777 (Mike) — FELONY hard stop on a background check. Same shape as
+// bpoAlertFor: a string to raise the alert on that tray, "" to CLEAR a stale one
+// when a re-read comes back clean, null when this doc has nothing to say.
+// Applies to BOTH products — a felony of any age is a hard stop on RTL and DSCR.
+export function felonyAlertFor(slug, proposals) {
+  const s = String(slug);
+  if (s !== 'entity_background_check' && s !== 'guarantor_background_check') return null;
+  const isEntity = (s === 'entity_background_check');
+  const flagKey   = isEntity ? 'felonyEntity' : 'felonyGuarantor';
+  const detailKey = isEntity ? 'felonyEntityDetail' : 'felonyGuarantorDetail';
+  const find = (k) => (Array.isArray(proposals) ? proposals.find((p) => p && p.key === k) : null);
+  const flag = find(flagKey);
+  if (!flag) return null;                       // AI didn't answer — leave as-is
+  const yes = /^y/i.test(String(flag.value || '').trim());
+  if (!yes) return '';                          // clean read clears any stale alert
+  const detailProp = find(detailKey);
+  const detail = detailProp ? String(detailProp.value || '').trim() : '';
+  return 'FELONY FOUND on this ' + (isEntity ? 'entity' : 'guarantor') + ' background check' +
+    (detail ? ' — ' + detail : '') +
+    '. A felony of any age is a hard stop on both RTL and DSCR; this loan cannot proceed without a documented exception.';
+}
+
 // Deploy 236.500 — persist AI-extracted UW/Lightning fields onto the loan
 // as unverified proposals (verified:false, isAI:true) with a provenance
 // note + append-only audit entry, mirroring loan-uw-field-save.mjs's write
@@ -89,13 +116,24 @@ export async function writeFieldProposals(source, proposals, actorEmail) {
     // own aivBpo / arvBpo), not an unverified UW-tab proposal, because those two
     // drive LTAIV + BPO LTARV in Loan Financials. The BPO is the authority here,
     // so it overwrites — and we stamp provenance so the UI can lock the input.
+    // Deploy 236.777 — dataset 'loan' now carries TEXT fields too (the
+    // background-check felony flag), not just the BPO's money values. Numeric
+    // keys stay coerced + provenance-stamped so the AIV/ARV inputs keep locking;
+    // everything else is written as trimmed text.
     if (p.dataset === 'loan') {
-      const numeric = Number(String(p.value).replace(/[^0-9.\-]/g, ''));
-      if (!isFinite(numeric) || numeric <= 0) return;
-      if (String(loan[p.key] == null ? '' : loan[p.key]) !== String(numeric)) wrote += 1;
-      loan[p.key] = String(numeric);
-      loan[p.key + 'FromBpo'] = true;      // → input is locked in Loan Details
-      loan[p.key + 'BpoAt']   = now;
+      if (LOAN_NUMERIC_KEYS[p.key]) {
+        const numeric = Number(String(p.value).replace(/[^0-9.\-]/g, ''));
+        if (!isFinite(numeric) || numeric <= 0) return;
+        if (String(loan[p.key] == null ? '' : loan[p.key]) !== String(numeric)) wrote += 1;
+        loan[p.key] = String(numeric);
+        loan[p.key + 'FromBpo'] = true;    // → input is locked in Loan Details
+        loan[p.key + 'BpoAt']   = now;
+        return;
+      }
+      const text = String(p.value == null ? '' : p.value).trim().slice(0, 300);
+      if (!text) return;
+      if (String(loan[p.key] == null ? '' : loan[p.key]) !== text) wrote += 1;
+      loan[p.key] = text;
       return;
     }
     const dataField  = p.dataset === 'uw' ? 'uwData'  : 'lightningData';

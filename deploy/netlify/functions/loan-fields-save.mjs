@@ -63,6 +63,8 @@ const FIELDS = {
   // Deploy 236.775 — BPO reprice-banner dismissal: acknowledges the CURRENT
   // BPO values; a new/changed BPO re-fires the banner past the dismissal.
   bpoRepriceAckAt: 1, bpoRepriceAckAiv: 1, bpoRepriceAckArv: 1,
+  // Deploy 236.777 — felony exception ack (keyed to the findings it covers).
+  felonyAckAt: 1, felonyAckKey: 1,
   // Deploy 236.750 — MF (5+) operating-statement fields, edited in the Loan
   // Details MF Operating Statement box; feed the MF sizer's NCF DSCR.
   // Deploy 236.762 — + rent (Total Monthly Rent): the MF box is the only

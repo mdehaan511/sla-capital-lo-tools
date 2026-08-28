@@ -37,7 +37,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // we ask the SAME review call to also extract them, then write each one onto
 // the loan as an UNVERIFIED proposal for a human to confirm.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
-import { writeFieldProposals } from './_shared/uw-field-write.mjs';
+import { writeFieldProposals, felonyAlertFor } from './_shared/uw-field-write.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 
 // Hard cap upload size to keep Netlify Functions happy. Most loan docs
@@ -514,6 +514,13 @@ async function handle(req, context) {
     } else if (_aivNum > 0) {
       docState.bpoAlert = '';   // a fresh BPO clears a stale alert
     }
+  }
+
+  // Deploy 236.777 (Mike) — FELONY hard stop, surfaced on the background-check
+  // tray the same way the BPO alert is. Applies to RTL and DSCR alike.
+  {
+    const _felAlert = felonyAlertFor(body.slug, _fieldProposals);
+    if (_felAlert !== null) docState.felonyAlert = _felAlert;
   }
 
   review.docs[body.slug] = docState;

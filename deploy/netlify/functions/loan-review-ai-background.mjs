@@ -26,7 +26,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // is handed here by the upload, and without this the BPO's aivBpo / arvBpo were
 // never written — exactly the big BPOs the feature exists for.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
-import { buildProposals, writeFieldProposals, bpoAlertFor } from './_shared/uw-field-write.mjs';
+import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
 
 // Background functions get ~15 min; give the Claude call 5 min of headroom.
 const BG_TIMEOUT_MS = 5 * 60 * 1000;
@@ -212,6 +212,9 @@ async function handle(req, context) {
   _ok.aiExtractedFields = aiResult.extractedFields || {};
   const _bpoAlert = bpoAlertFor(body.slug, _props, review.snapshotLoan);
   if (_bpoAlert !== null) _ok.bpoAlert = _bpoAlert;
+  // Deploy 236.777 — felony hard stop on a background check (RTL + DSCR).
+  const _felAlert = felonyAlertFor(body.slug, _props);
+  if (_felAlert !== null) _ok.felonyAlert = _felAlert;
 
   // Deploy 236.762 — fresh-read merge (see _saveTrayPatch); the stale
   // whole-record write here was the concurrency clobber.
