@@ -2162,22 +2162,17 @@ function render() {
   //   2) client.companies[0].name — long-app-captured
   //   3) client.entityName        — legacy single-LLC field (broker
   //                                  contamination lives here)
-  function _borrowerLLCDisplay(clientRec) {
-    if (Array.isArray(l.vestingLLCs) && l.vestingLLCs.length && l.vestingLLCs[0].name) {
-      return l.vestingLLCs[0].name;
-    }
-    if (Array.isArray(clientRec.companies) && clientRec.companies.length) {
-      var co0 = clientRec.companies.find(function(co) { return co && co.name; });
-      if (co0) return co0.name;
-    }
-    return clientRec.entityName || '';
-  }
+  // (Deploy 236.780 — _borrowerLLCDisplay retired: the Borrower LLC box
+  // became Middle Credit; the vesting entity has its own section above.)
   var _bwPrimaryHtml  =
     '<div class="app-grid">' +
       '<div class="field"><label>Guarantor Name</label>' +
         '<input type="text"  id="bw-0-name"   value="' + escAttr(_bwPrimaryName) + '" readonly /></div>' +
-      '<div class="field"><label>Borrower LLC</label>' +
-        '<input type="text"  id="bw-0-entity" value="' + escAttr(_borrowerLLCDisplay(c)) + '" readonly placeholder="No entity on file" /></div>' +
+      // Deploy 236.780 — Middle Credit replaces the Borrower LLC box
+      // (Mike; the vesting entity already has its own section above).
+      // Auto-filled when a Xactus credit report comes in.
+      '<div class="field"><label>Middle Credit</label>' +
+        '<input type="text"  id="bw-0-midcredit" value="' + escAttr(String(c.creditMidScore || _loan.creditMidScore || '')) + '" readonly placeholder="No credit report yet" /></div>' +
       '<div class="field"><label>Email</label>' +
         '<input type="email" id="bw-0-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
       '<div class="field"><label>Phone</label>' +
@@ -2781,10 +2776,11 @@ function render() {
     // exists whenever the section does; if not, leave it in place rather than drop.
     var servicingSect = document.getElementById('servicingSection');
     if (servicingSect && paneServicing) paneServicing.appendChild(servicingSect);
-    // Deploy 236.779 — Verifications (Xactus) rides on the LOAN tab, below
-    // the two-col financials.
+    // Deploy 236.780 — Verifications (Xactus) sits at half-width directly
+    // BELOW the Loan Terms box (the two-col's right column — same slot
+    // pattern as the Fees card), per Mike. Falls back to the Loan pane.
     var verifSect = document.getElementById('verificationsSection');
-    if (verifSect && paneLoan) paneLoan.appendChild(verifSect);
+    if (verifSect) (_ltsParent || paneLoan).appendChild(verifSect);
     // Sync the tasks count badge on the tab once tasks load. The
     // loadTasksList() called below will trigger a render; hook the
     // existing _tasks state via setTimeout (cheap, no listener
@@ -2968,17 +2964,10 @@ function refreshBorrowerInfoPanes() {
         '<div class="app-grid">' +
           '<div class="field"><label>Guarantor Name</label>' +
             '<input type="text"  id="bw-' + idx + '-name"   value="' + escAttr(name) + '" readonly /></div>' +
-          '<div class="field"><label>Borrower LLC</label>' +
-            // Deploy 236.327 — same Borrower LLC fallback the primary
-            // pane uses: prefer the loan's Vesting LLC (the entity
-            // actually on title) over this guarantor's own entityName
-            // (which for co-guarantors is often just their personal
-            // holding company, not the deal's vesting entity).
-            '<input type="text"  id="bw-' + idx + '-entity" value="' + escAttr(
-              (Array.isArray(_loan.vestingLLCs) && _loan.vestingLLCs.length && _loan.vestingLLCs[0].name)
-                || (Array.isArray(c.companies) && c.companies[0] && c.companies[0].name)
-                || c.entityName || ''
-            ) + '" readonly placeholder="No entity on file" /></div>' +
+          // Deploy 236.780 — Middle Credit replaces the Borrower LLC box
+          // (Mike). Shows this guarantor CLIENT's stamped mid score.
+          '<div class="field"><label>Middle Credit</label>' +
+            '<input type="text"  id="bw-' + idx + '-midcredit" value="' + escAttr(String(c.creditMidScore || '')) + '" readonly placeholder="No credit report yet" /></div>' +
           '<div class="field"><label>Email</label>' +
             '<input type="email" id="bw-' + idx + '-email"  value="' + escAttr(c.email || '') + '" readonly /></div>' +
           '<div class="field"><label>Phone</label>' +
@@ -8076,6 +8065,43 @@ function _xactusModal(id, title, bodyHtml, confirmLabel, onYes) {
   return wrap;
 }
 
+// Shared success handling for a completed credit order (both the normal
+// pull and the missing-info re-run land here).
+function _handleCreditPullSuccess(r, gIndex) {
+  var v = r.verification || {};
+  showToast('Credit pulled — mid score ' + (v.mid || '?') + '. Report filed to Loan Documents.');
+  if (r.ficoMismatch) {
+    setTimeout(function () {
+      showToast('⚠ Credit report bucket (' + r.scoreBucket + ') differs from sizer FICO (' + r.sizerFico + ') — reprice if needed.');
+    }, 1800);
+  }
+  if (gIndex === 0 && v.mid) {
+    _ldMergeLoan({ creditMidScore: v.mid, creditPulledAt: v.orderedAt });
+    if (_client) _client.creditMidScore = v.mid;
+    // Live-update the Contacts pane's Middle Credit field if rendered.
+    var mc = document.getElementById('bw-0-midcredit');
+    if (mc) mc.value = String(v.mid);
+  }
+  loadVerifications();
+}
+
+function _postCreditOrder(body, wrap, btn, btnLabel) {
+  SLA.api('POST', '/api/xactus-credit-order', body).then(function (r) {
+    if (wrap) wrap.remove();
+    _handleCreditPullSuccess(r, body.gIndex || 0);
+  }).catch(function (e) {
+    // Deploy 236.780 — missing SSN/address: collect it in a follow-up
+    // modal, run the report with it, and save it to the client profile.
+    if (e && e.data && e.data.code === 'missing_subject_info') {
+      if (wrap) wrap.remove();
+      openCreditInfoModal(body, e.data.prefill || {});
+      return;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = btnLabel; }
+    showToast('Credit pull failed: ' + ((e && e.message) || 'unknown'));
+  });
+}
+
 function openCreditPullModal() {
   if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
   _xactusModal('creditPullModal', 'Pull Credit Report',
@@ -8085,10 +8111,12 @@ function openCreditPullModal() {
         '<option value="1">Guarantor 2 (from loan application)</option>' +
         '<option value="2">Guarantor 3 (from loan application)</option>' +
       '</select></div>' +
+    // Deploy 236.780 — Soft Pull is the DEFAULT (Mike); tri-merge is the
+    // deliberate opt-in since it's a hard inquiry.
     '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:4px">Report Type</label>' +
       '<select id="xc-type" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-family:inherit;font-size:13px">' +
+        '<option value="SoftCheck" selected>Soft Pull — soft inquiry (Pre-Qualification)</option>' +
         '<option value="Merge">Tri-Merge — HARD inquiry (full report)</option>' +
-        '<option value="SoftCheck">Pre-Qualification — soft inquiry</option>' +
       '</select></div>' +
     '<div style="font-size:12px;color:var(--warn,#7a5218)">A tri-merge is a <strong>hard credit inquiry</strong> and a billed order. Make sure a signed Credit Authorization is on file. The report is valid <strong>120 days</strong> and files into Loan Documents automatically.</div>',
     'Pull Credit',
@@ -8097,24 +8125,45 @@ function openCreditPullModal() {
       var body = {
         clientId: _client.id, loanId: _loanId,
         gIndex: parseInt((document.getElementById('xc-who') || {}).value, 10) || 0,
-        reportType: (document.getElementById('xc-type') || {}).value || 'Merge',
+        reportType: (document.getElementById('xc-type') || {}).value || 'SoftCheck',
       };
       if (_loEmail && _user && _loEmail !== _user.email) body.owner = _loEmail;
-      SLA.api('POST', '/api/xactus-credit-order', body).then(function (r) {
-        wrap.remove();
-        var v = r.verification || {};
-        showToast('Credit pulled — mid score ' + (v.mid || '?') + '. Report filed to Loan Documents.');
-        if (r.ficoMismatch) {
-          setTimeout(function () {
-            showToast('⚠ Credit report bucket (' + r.scoreBucket + ') differs from sizer FICO (' + r.sizerFico + ') — reprice if needed.');
-          }, 1800);
-        }
-        if (body.gIndex === 0 && v.mid) _ldMergeLoan({ creditMidScore: v.mid, creditPulledAt: v.orderedAt });
-        loadVerifications();
-      }).catch(function (e) {
-        btn.disabled = false; btn.textContent = 'Pull Credit';
-        showToast('Credit pull failed: ' + ((e && e.message) || 'unknown'));
+      _postCreditOrder(body, wrap, btn, 'Pull Credit');
+    });
+}
+
+// Deploy 236.780 — collect the missing borrower info, run the report with
+// it, and save it to the client profile (SSN encrypted at rest).
+function openCreditInfoModal(orderBody, prefill) {
+  var inp = function (id, label, val, ph, extra) {
+    return '<div style="margin-bottom:10px"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:4px">' + label + '</label>' +
+      '<input type="text" id="' + id + '" value="' + escAttr(val || '') + '" placeholder="' + (ph || '') + '" ' + (extra || '') + ' style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-family:inherit;font-size:13px;box-sizing:border-box" /></div>';
+  };
+  _xactusModal('creditInfoModal', 'Borrower Info Needed',
+    '<div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">We don\'t have everything on file to run this report. Enter it below — it runs the report now and saves to the client\'s profile (SSN encrypted).</div>' +
+    '<div style="display:flex;gap:10px"><div style="flex:1">' + inp('xci-first', 'First Name', prefill.firstName) + '</div><div style="flex:1">' + inp('xci-last', 'Last Name', prefill.lastName) + '</div></div>' +
+    inp('xci-ssn', 'Social Security Number', '', 'XXX-XX-XXXX', 'autocomplete="off"') +
+    inp('xci-street', 'Current Street Address', prefill.street, '123 Main St') +
+    '<div style="display:flex;gap:10px">' +
+      '<div style="flex:2">' + inp('xci-city', 'City', prefill.city) + '</div>' +
+      '<div style="flex:1">' + inp('xci-state', 'State', prefill.state, 'WA') + '</div>' +
+      '<div style="flex:1">' + inp('xci-zip', 'ZIP', prefill.zip, '99201') + '</div>' +
+    '</div>',
+    'Run Report & Save',
+    function (wrap, btn) {
+      var g = function (id) { return String((document.getElementById(id) || {}).value || '').trim(); };
+      var ssnDigits = g('xci-ssn').replace(/[^0-9]/g, '');
+      if (ssnDigits.length !== 9) { showToast('SSN must be 9 digits'); return; }
+      if (!g('xci-first') || !g('xci-last')) { showToast('Name is required'); return; }
+      if (!g('xci-street') || !g('xci-city') || !g('xci-state') || !g('xci-zip')) { showToast('Complete address is required'); return; }
+      btn.disabled = true; btn.textContent = 'Ordering…';
+      var body = Object.assign({}, orderBody, {
+        subjectOverride: {
+          firstName: g('xci-first'), lastName: g('xci-last'), ssn: ssnDigits,
+          street: g('xci-street'), city: g('xci-city'), state: g('xci-state'), zip: g('xci-zip'),
+        },
       });
+      _postCreditOrder(body, wrap, btn, 'Run Report & Save');
     });
 }
 

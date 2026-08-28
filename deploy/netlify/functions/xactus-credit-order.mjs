@@ -25,7 +25,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isProcessor, normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
-import { decryptField, maskSSN } from './_shared/crypto.mjs';
+import { decryptField, encryptField, maskSSN } from './_shared/crypto.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
@@ -69,8 +69,25 @@ async function handle(req, context) {
   if (body.loanId && !loan) return json(404, { error: 'Loan not found on client' });
 
   // ── Resolve subject PII ─────────────────────────────────────────
+  // Deploy 236.780 — an explicit staff-entered subjectOverride (from the
+  // "we're missing info" modal) takes priority, is used for the pull, and
+  // is SAVED to the client profile (gIndex 0) so it's on file next time.
   let subject = null;
-  if (loan) {
+  const ov = (body.subjectOverride && typeof body.subjectOverride === 'object') ? body.subjectOverride : null;
+  if (ov && ov.ssn) {
+    subject = {
+      firstName: String(ov.firstName || (gIndex === 0 ? client.firstName : '') || '').trim(),
+      lastName:  String(ov.lastName  || (gIndex === 0 ? client.lastName  : '') || '').trim(),
+      ssn: String(ov.ssn || '').replace(/[^0-9]/g, ''),
+      street: String(ov.street || '').trim(), city: String(ov.city || '').trim(),
+      state: String(ov.state || '').trim().toUpperCase(), zip: String(ov.zip || '').trim(),
+    };
+    if (subject.ssn.length !== 9) return json(400, { error: 'SSN must be 9 digits' });
+    if (!subject.street || !subject.city || !subject.state || !subject.zip) {
+      return json(400, { error: 'A complete current address (street, city, state, zip) is required' });
+    }
+  }
+  if (!subject && loan) {
     try {
       const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
       const rec = await loadRecord(biStore, ownerKey, body.clientId, body.loanId, client);
@@ -89,17 +106,31 @@ async function handle(req, context) {
   }
   if ((!subject || !subject.ssn) && gIndex === 0 && client.ssn_enc) {
     // Client-page path / fallback: PII on the client record itself.
+    // Deploy 236.780 — the client's address lives in client.homeAddress
+    // (guarantor onboarding / the missing-info modal write it there).
     let ssn = '';
     try { ssn = decryptField(client.ssn_enc); } catch (_) {}
+    const ha = (client.homeAddress && typeof client.homeAddress === 'object') ? client.homeAddress : {};
     subject = {
       firstName: client.firstName || '', lastName: client.lastName || '',
       ssn: String(ssn || '').replace(/[^0-9]/g, ''),
-      street: client.address || client.street || '', city: client.city || '',
-      state: client.state || '', zip: client.zip || '',
+      street: ha.street || client.address || '', city: ha.city || client.city || '',
+      state: ha.state || client.state || '', zip: ha.zip || client.zip || '',
     };
   }
-  if (!subject || subject.ssn.length !== 9) {
-    return json(400, { error: 'No SSN on file for this ' + (gIndex === 0 ? 'borrower' : 'guarantor') + ' — collect it via the loan application (or guarantor onboarding) first.' });
+  if (!subject || subject.ssn.length !== 9 || !subject.street || !subject.city || !subject.state || !subject.zip) {
+    // Structured signal — the UI opens the collect-info modal on this code.
+    return json(400, {
+      error: 'Missing SSN and/or current address for this ' + (gIndex === 0 ? 'borrower' : 'guarantor') + ' — enter it to run the report.',
+      code: 'missing_subject_info',
+      prefill: {
+        firstName: (subject && subject.firstName) || (gIndex === 0 ? client.firstName : '') || '',
+        lastName:  (subject && subject.lastName)  || (gIndex === 0 ? client.lastName  : '') || '',
+        hasSsn: !!(subject && subject.ssn.length === 9),
+        street: (subject && subject.street) || '', city: (subject && subject.city) || '',
+        state: (subject && subject.state) || '', zip: (subject && subject.zip) || '',
+      },
+    });
   }
   if (!subject.firstName || !subject.lastName) return json(400, { error: 'Borrower name missing' });
 
@@ -145,6 +176,7 @@ async function handle(req, context) {
 
   // Loan context: attach PDF to the review + stamp the loan.
   let attachedToReview = false;
+  let clientDirty = false;
   if (loan) {
     if (parsed.pdfBase64) {
       const r = await attachPdfToReviewSlug({
@@ -163,15 +195,39 @@ async function handle(req, context) {
     }
     appendNoteEntry(loan, {
       kind: 'system',
-      text: 'Credit report pulled (' + (reportType === 'SoftCheck' ? 'soft' : 'tri-merge') + ') for ' + subjectName +
+      text: 'Credit report pulled (' + (reportType === 'SoftCheck' ? 'soft pull' : 'tri-merge') + ') for ' + subjectName +
         ' — TU ' + (parsed.scores.transunion || '—') + ' / EXP ' + (parsed.scores.experian || '—') +
         ' / EQ ' + (parsed.scores.equifax || '—') + ' (mid ' + parsed.mid + '). Valid ' + CREDIT_VALID_DAYS + ' days.',
       author: selfEmail, authorEmail: selfEmail,
       meta: { verificationId: vId, reportId: parsed.reportId },
     });
     loan.updatedAt = nowIso;
+    clientDirty = true;
+  }
+
+  // Deploy 236.780 — the SUBJECT's client profile learns from the pull:
+  //   - Middle Credit stamped on the client (Contacts pane + Clients page).
+  //   - A staff-entered subjectOverride is saved to the profile (SSN
+  //     encrypted, address into homeAddress) so it's on file next time.
+  // Both only for the PRIMARY (gIndex 0) — additional guarantors' PII
+  // lives on the loan application, not this client record.
+  if (gIndex === 0) {
+    client.creditMidScore = parsed.mid;
+    client.creditPulledAt = nowIso;
+    if (ov) {
+      client.ssn_enc = encryptField(subject.ssn);
+      client.ssnLast4 = subject.ssn.slice(-4);
+      client.hasSSN = true;
+      client.homeAddress = { street: subject.street, city: subject.city, state: subject.state, zip: subject.zip };
+      if (!client.firstName && subject.firstName) client.firstName = subject.firstName;
+      if (!client.lastName && subject.lastName) client.lastName = subject.lastName;
+    }
+    client.updatedAt = nowIso;
+    clientDirty = true;
+  }
+  if (clientDirty) {
     try { await writeClient(ownerKey, client, { clientsStore }); }
-    catch (e) { console.warn('xactus-credit-order: loan stamp save failed:', e && e.message); }
+    catch (e) { console.warn('xactus-credit-order: client/loan stamp save failed:', e && e.message); }
   }
 
   // FICO mismatch signal for the caller (computed here so the UI can toast).
