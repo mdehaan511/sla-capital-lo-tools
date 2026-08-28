@@ -741,7 +741,9 @@ var _dispPending = null;   // { it, newDisp } while confirming a disposition mov
 // that are still empty and encourages filling them.
 var DISP_FIELDS = {
   servicing:    ['servicerName','servicerLoanNumber','maturityDate','paymentAmount','upb'],
-  pending_sale: ['investorName','maturityDate','upb'],
+  // Deploy 236.784 — Pending Sale asks ONLY for the Investor (Mike: maturity
+  // date + UPB are already on the loan; don't re-ask).
+  pending_sale: ['investorName'],
   sold:         ['investorName','soldRate','soldDate'],
   paid_off:     ['payoffAmount','payoffDate']
 };
@@ -881,9 +883,10 @@ function confirmDisposition(){
   flds.forEach(function(k){ var el=document.getElementById('svc_'+k); if (el) fields[k]=el.value; });
   var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
   btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
-  var pDisp = SLA.api('POST','/api/loan-set-disposition', { clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, disposition:newDisp });
-  var pFields = Object.keys(fields).length ? SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, fields:fields }) : Promise.resolve(null);
-  Promise.all([pDisp, pFields]).then(function(){
+  // Deploy 236.784 — ONE call carrying disposition + fields. The old parallel
+  // loan-set-disposition + loan-servicing-update pair both rewrote the whole
+  // client, so one write clobbered the other (status reverted on refresh).
+  SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:it.loan.id, owner:it.ownerKey, disposition:newDisp, fields:fields }).then(function(){
     it.loan.disposition = newDisp;
     Object.keys(fields).forEach(function(k){ it.loan[k]=fields[k]; });
     _openAcc[newDisp]=true;
@@ -959,9 +962,8 @@ function confirmCloseOut(){
   else { fields.tpoSpread = (document.getElementById('co_tpoSpread')||{}).value || ''; fields.closingFees = String(rateSheetClosingFees()); }
   var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
   btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
-  var pDisp = SLA.api('POST','/api/loan-set-disposition', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:'pending_sale' });
-  var pFields = SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, fields:fields });
-  Promise.all([pDisp, pFields]).then(function(){
+  // Deploy 236.784 — one atomic call (disposition + fields); see confirmDisposition.
+  SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:'pending_sale', fields:fields }).then(function(){
     l.disposition='pending_sale'; Object.keys(fields).forEach(function(k){ l[k]=fields[k]; });
     _openAcc.pending_sale=true;
     st.className='svc-status ok'; st.textContent='Closed out';
@@ -999,9 +1001,8 @@ function confirmMarkSold(){
   if (rtl) fields.soldRate = (document.getElementById('ms_soldRate')||{}).value || '';
   var btn=document.getElementById('svcSaveBtn'), st=document.getElementById('svcStatus');
   btn.disabled=true; st.className='svc-status'; st.textContent='Saving…';
-  var pDisp = SLA.api('POST','/api/loan-set-disposition', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:'sold' });
-  var pFields = SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, fields:fields });
-  Promise.all([pDisp, pFields]).then(function(){
+  // Deploy 236.784 — one atomic call (disposition + fields); see confirmDisposition.
+  SLA.api('POST','/api/loan-servicing-update', { clientId:it.client.id, loanId:l.id, owner:it.ownerKey, disposition:'sold', fields:fields }).then(function(){
     l.disposition='sold'; Object.keys(fields).forEach(function(k){ l[k]=fields[k]; });
     _openAcc[rtl?'sold_rtl':'sold_dscr']=true;
     st.className='svc-status ok'; st.textContent='Marked sold';

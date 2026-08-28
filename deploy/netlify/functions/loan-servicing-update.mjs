@@ -6,7 +6,14 @@
  * through the PG-first strict writeClient (strict-write discipline).
  *
  * Body: { clientId, loanId, owner?, fields: { <whitelisted>: value, ... },
+ *         disposition?: 'post_close'|'servicing'|'pending_sale'|'sold'|'paid_off',
  *         drawMeta?: { '<sitewireDrawId>': { wireSentDate?, reimbursementRequested? } } }
+ *
+ * Deploy 236.784 — optional `disposition` rides in the SAME write. The Closed
+ * Loans lifecycle modals used to fire loan-set-disposition + this endpoint in
+ * PARALLEL; both read-modify-write the whole client, so whichever read first
+ * and wrote last silently clobbered the other's field — the "moved to Pending
+ * Sale but reverted on refresh" bug. One call, one write, no race.
  *
  * Deploy 236.706 — drawMeta: per-draw annotations for the Closed Loans → Draws
  * tab (wire sent date + reimbursement-requested flag). Sitewire has no such
@@ -46,6 +53,9 @@ const FIELDS = {
   toolType: 1,
 };
 
+// Deploy 236.784 — same set loan-set-disposition accepts.
+const VALID_DISPOSITION = { post_close: 1, servicing: 1, pending_sale: 1, sold: 1, paid_off: 1 };
+
 export default async (req, context) => {
   try { return await handle(req, context); }
   catch (e) {
@@ -67,9 +77,11 @@ async function handle(req, context) {
   const clientId = body.clientId, loanId = body.loanId;
   const fields = (body.fields && typeof body.fields === 'object') ? body.fields : {};
   const drawMeta = (body.drawMeta && typeof body.drawMeta === 'object') ? body.drawMeta : null;
+  const disposition = body.disposition != null ? String(body.disposition).toLowerCase().trim() : '';
   if (!clientId) return json(400, { error: 'clientId required' });
   if (!loanId)   return json(400, { error: 'loanId required' });
-  if (!Object.keys(fields).length && !drawMeta) return json(400, { error: 'fields or drawMeta object required' });
+  if (disposition && !VALID_DISPOSITION[disposition]) return json(400, { error: 'Invalid disposition' });
+  if (!Object.keys(fields).length && !drawMeta && !disposition) return json(400, { error: 'fields, drawMeta, or disposition required' });
 
   const selfEmail = normalizeEmail(user.email);
   const selfKey   = keySafe(selfEmail);
@@ -130,9 +142,16 @@ async function handle(req, context) {
     });
   }
 
-  if (!Object.keys(applied).length && !drawMetaApplied) return json(400, { error: 'No recognized servicing fields' });
+  if (!Object.keys(applied).length && !drawMetaApplied && !disposition) return json(400, { error: 'No recognized servicing fields' });
 
   const now = new Date().toISOString();
+  // Deploy 236.784 — disposition change in the same atomic write (audit stamps
+  // match loan-set-disposition's).
+  if (disposition) {
+    loan.disposition   = disposition;
+    loan.dispositionAt = now;
+    loan.dispositionBy = selfEmail;
+  }
   loan.servicingUpdatedAt = now;
   loan.servicingUpdatedBy = selfEmail;
   loan.updatedAt = now;
@@ -150,5 +169,5 @@ async function handle(req, context) {
     });
   } catch (e) { console.warn('loan-servicing-update: change log failed (non-fatal):', e && e.message); }
 
-  return json(200, { ok: true, fields: applied, drawMeta: drawMetaApplied ? loan.drawMeta : undefined });
+  return json(200, { ok: true, fields: applied, disposition: disposition || undefined, drawMeta: drawMetaApplied ? loan.drawMeta : undefined });
 }
