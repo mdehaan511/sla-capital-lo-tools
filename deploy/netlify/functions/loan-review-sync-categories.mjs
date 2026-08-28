@@ -59,22 +59,10 @@ function _blankStandardTray(item) {
   };
 }
 
-async function handle(req, context) {
-  const pre = handleOptions(req); if (pre) return pre;
-  if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
-
-  const user = await requireAuth(context, req);
-  if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
-
-  const body = await readJsonBody(req);
-  if (!body || !body.reviewId) return json(400, { error: 'reviewId required' });
-
-  const reviewStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
-  const review = await reviewStore.get(keySafe(body.reviewId), { type: 'json' });
-  if (!review) return json(404, { error: 'Review not found' });
+// The actual backfill, pure + exported so it's unit-testable (Deploy 236.782).
+// Mutates review.docs in place; returns the list of slugs it added.
+export function syncMissingCategories(review) {
   if (!review.docs) review.docs = {};
-
   const checklist = getChecklist(review.loanType || '');
   const _isPortfolioReview = Array.isArray(review.properties) && review.properties.length > 1;
   const added = [];
@@ -123,6 +111,26 @@ async function handle(req, context) {
     review.docs[item.slug] = _blankStandardTray(item);
     added.push(item.slug);
   }
+  return added;
+}
+
+async function handle(req, context) {
+  const pre = handleOptions(req); if (pre) return pre;
+  if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+
+  const user = await requireAuth(context, req);
+  if (!user) return json(401, { error: 'Not authenticated' });
+  if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
+
+  const body = await readJsonBody(req);
+  if (!body || !body.reviewId) return json(400, { error: 'reviewId required' });
+
+  const reviewStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
+  const review = await reviewStore.get(keySafe(body.reviewId), { type: 'json' });
+  if (!review) return json(404, { error: 'Review not found' });
+  if (!review.docs) review.docs = {};
+
+  const added = syncMissingCategories(review);
 
   if (added.length) {
     review.updatedAt = new Date().toISOString();
