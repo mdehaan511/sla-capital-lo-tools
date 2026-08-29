@@ -1401,6 +1401,16 @@
   status = 200
   force = true
 
+# The OPPOSITE repair: prune PG loans rows for loans that were deleted
+# from their client blob but whose PG row survived (pre-236.791 the
+# delete was fire-and-forget and died when Lambda froze). Those rows
+# kept drawing ghost `q_ln_` cards in the Pipeline.
+[[redirects]]
+  from = "/api/admin-prune-orphan-loans"
+  to = "/.netlify/functions/admin-prune-orphan-loans"
+  status = 200
+  force = true
+
 # Sizer save companion to loan-update-from-sizer: append a NEW loan
 # to an existing client by ID (no email/address matching guesswork).
 # Used by the + Create New Loan flow from Client Details.
