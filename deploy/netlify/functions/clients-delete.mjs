@@ -57,6 +57,14 @@ export default async (req, context) => {
       // Deploy 236.417 (C3 deletion slice): clients-index write-through
       // retired — see _shared/client-write.mjs.
       await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
+      // Deploy 236.791 (Mike) — explicitly DELETE the loan's Postgres row, awaited.
+      // upsertClientWithLoans does prune rows that vanished from client.loans, but
+      // it fires those deletes without awaiting them — and Lambda freezes the
+      // container the moment we respond, so the delete often never ran. The row
+      // survived, and quotes-list (which reads the PG loans table) kept
+      // synthesizing a `q_ln_<loanId>` tile for it — a deleted loan still sitting
+      // in the Pipeline as an orphan card.
+      await pgMirror.deleteLoanStrict(body.loanId);
       // Deploy 236.790 (Mike) — ALSO purge the loan's quotes. Without this the
       // quote entries survived the delete and the Pipeline kept drawing them as
       // "Loan record missing" orphans — one deleted loan showed up three times
