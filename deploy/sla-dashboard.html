@@ -188,7 +188,7 @@
        the lead count as a line. -->
   <div class="chart-card">
     <h2>Leads In by Month</h2>
-    <div class="chart-sub">ALL LOANS INCL. LEADS PIPELINE · SELECTED YEAR · BY CREATED DATE · $ REQUESTED STACKED BY TYPE + LEAD COUNT LINE</div>
+    <div class="chart-sub">ALL SLA-ORIGINATED LOANS INCL. LEADS PIPELINE · SELECTED YEAR · BY DATE THE LEAD CAME IN · $ REQUESTED STACKED BY TYPE + LEAD COUNT LINE · BASELINE-MIGRATION IMPORTS EXCLUDED</div>
     <div class="chart-wrap"><canvas id="leadsChart"></canvas></div>
   </div>
 
@@ -479,6 +479,21 @@ function adaptLoan(client, l, ownerKey) {
     _finScope: !!(String(l.processingStage || '').trim()) ||
                !!(String(l.disposition || '').trim()) ||
                ['closed', 'sold', 'liquidated', 'approved'].indexOf(String(l.status || '').toLowerCase()) >= 0,
+    // Deploy 236.786 — leads-intake dating. Baseline-imported records
+    // (l_baseline_*) carry the MIGRATION date as createdAt, which piles a
+    // fake ~600-lead spike into the import month — they're excluded from
+    // the intake chart (their true intake date only exists in Baseline).
+    // SLA-native loan ids embed their creation timestamp (l_<ms>_) which
+    // is more reliable than createdAt (PG backfills rewrote some).
+    _isImport: /^l_baseline_/.test(String(l.id)),
+    _leadDate: (function() {
+      var m = String(l.id).match(/^l_(\d{13})_/);
+      if (m) {
+        var d = new Date(Number(m[1]));
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
+      return String(l.createdAt || l.savedAt || '').slice(0, 10);
+    })(),
   };
 }
 // The array every FINANCIAL panel reads (charts, stats, perf, states,
@@ -579,9 +594,9 @@ function populateYearSelect() {
   for (var i = 0; i < _loans.length; i++) {
     var parsed = parseLoanDate(loanCloseDate(_loans[i]));
     if (parsed && parsed.year >= 2020 && parsed.year <= curYear + 5) years[parsed.year] = true;
-    // Deploy 236.786 — leads-intake chart keys off created date; make those
+    // Deploy 236.786 — leads-intake chart keys off the lead date; make those
     // years selectable too.
-    var created = parseLoanDate(_loans[i].Created_Date);
+    var created = parseLoanDate(_loans[i]._leadDate);
     if (created && created.year >= 2020 && created.year <= curYear + 5) years[created.year] = true;
   }
   var yearList = Object.keys(years).map(function(y){ return parseInt(y, 10); }).sort(function(a,b){ return b - a; });
@@ -613,10 +628,12 @@ function renderStats() {
   var wonSum    = wonInRange.reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
   var revSum    = wonInRange.reduce(function(s, l) { return s + estimatedRevenue(l); }, 0);
   var rangeLbl  = _rangeLabel();
-  // Leads card — the FULL book (incl. the Leads pipeline), by created date.
+  // Leads card — the FULL book (incl. the Leads pipeline), by intake date.
+  // Baseline-imported records excluded (their created date = migration date).
   var leadCount = 0, leadAmt = 0;
   for (var i = 0; i < _loans.length; i++) {
-    if (!isInDateRange(_loans[i].Created_Date)) continue;
+    if (_loans[i]._isImport) continue;
+    if (!isInDateRange(_loans[i]._leadDate)) continue;
     leadCount += 1; leadAmt += numAmt(_loans[i].Loan_Amount);
   }
   var html = '';
@@ -900,7 +917,8 @@ function renderLeadsChart() {
   var rtlN = new Array(12).fill(0), dscrN = new Array(12).fill(0), unkN = new Array(12).fill(0);
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
-    var parsed = parseLoanDate(l.Created_Date);
+    if (l._isImport) continue; // migration copies aren't SLA lead intake
+    var parsed = parseLoanDate(l._leadDate);
     if (!parsed || parsed.year !== year) continue;
     var mIdx = parsed.month - 1;
     var amt = numAmt(l.Loan_Amount);
