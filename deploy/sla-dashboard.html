@@ -130,7 +130,7 @@
   <div class="page-header">
     <div>
       <h1>SLA Dashboard <span style="font-size:14px;color:var(--gold);vertical-align:middle">· native data</span></h1>
-      <p>Same charts and formulas as the Baseline dashboard, computed from SLA's own records. Use the comparison panel to see where the two disagree.</p>
+      <p>Same charts and formulas as the Baseline dashboard, computed from SLA's own records. Financials track the Processing Pipeline + closed book only; the Leads In chart is the one view that includes the Leads pipeline.</p>
       <div class="last-sync" id="lastSyncLine">—</div>
     </div>
     <div class="header-actions">
@@ -171,35 +171,45 @@
   <!-- Revenue projection chart -->
   <div class="chart-card">
     <h2>Revenue Projections by Month</h2>
-    <div class="chart-sub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · POINTS + FEES + TPO PREMIUM (DSCR) − COST OF CAPITAL · DENIED/CANCELLED EXCLUDED</div>
+    <div class="chart-sub">PROCESSING PIPELINE + CLOSED ONLY (LEADS EXCLUDED) · SELECTED YEAR · WON + OPEN + ON HOLD · POINTS + FEES + TPO PREMIUM (DSCR) − COST OF CAPITAL</div>
     <div class="chart-wrap"><canvas id="revenueChart"></canvas></div>
   </div>
 
   <!-- Volume chart -->
   <div class="chart-card">
     <h2>Loan Volume by Month</h2>
-    <div class="chart-sub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · DEAL VALUE (USD) · DENIED/CANCELLED EXCLUDED</div>
+    <div class="chart-sub">PROCESSING PIPELINE + CLOSED ONLY (LEADS EXCLUDED) · SELECTED YEAR · WON + OPEN + ON HOLD · DEAL VALUE (USD)</div>
     <div class="chart-wrap"><canvas id="volumeChart"></canvas></div>
+  </div>
+
+  <!-- Deploy 236.786 — Leads intake chart. The ONE chart that includes the
+       Leads pipeline: every loan that came in each month (by created date,
+       everything counted — even later-denied), $ stacked by loan type with
+       the lead count as a line. -->
+  <div class="chart-card">
+    <h2>Leads In by Month</h2>
+    <div class="chart-sub">ALL LOANS INCL. LEADS PIPELINE · SELECTED YEAR · BY CREATED DATE · $ REQUESTED STACKED BY TYPE + LEAD COUNT LINE</div>
+    <div class="chart-wrap"><canvas id="leadsChart"></canvas></div>
   </div>
 
   <!-- Performance Stats -->
   <div class="chart-card">
     <h2>Performance Stats</h2>
-    <div class="chart-sub">ACTIVE · CLOSE RATE · AVG LOAN SIZE · AVG POINTS · AVG RATE</div>
+    <div class="chart-sub">PROCESSING PIPELINE + CLOSED ONLY · ACTIVE · CLOSE RATE · AVG LOAN SIZE · AVG POINTS · AVG RATE</div>
     <div id="perfStatsWrap"></div>
   </div>
 
   <!-- Upcoming Closings -->
   <div class="chart-card">
     <h2>Upcoming Closings by Week</h2>
-    <div class="chart-sub">PIPELINE LOANS WITH A FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND</div>
+    <div class="chart-sub">PROCESSING PIPELINE LOANS WITH A FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND</div>
     <div id="upcomingWrap"></div>
   </div>
 
   <!-- Loans by State -->
   <div class="chart-card">
     <h2>Loans by State</h2>
-    <div class="chart-sub">PIPELINE + CLOSED · TOTAL · RTL COUNT / VOLUME · DSCR COUNT / VOLUME</div>
+    <div class="chart-sub">PROCESSING PIPELINE + CLOSED (LEADS EXCLUDED) · TOTAL · RTL COUNT / VOLUME · DSCR COUNT / VOLUME</div>
     <div id="stateTableWrap" style="max-height:480px;overflow-y:auto"></div>
   </div>
 
@@ -461,7 +471,22 @@ function adaptLoan(client, l, ownerKey) {
     // Baseline record id in their loan id (l_baseline_<Id>) and/or the
     // SLA display id, which Baseline uses as its Id.
     _blKey: /^l_baseline_/.test(String(l.id)) ? String(l.id).replace(/^l_baseline_/, '') : (l.slaDisplayId || ''),
+    // Deploy 236.786 — financial scope (Mike): the money metrics track the
+    // PROCESSING pipeline + closed book only, never the Leads pipeline. A
+    // loan is in scope once it was handed off to processing (has a
+    // processingStage), was approved, or reached a closed/servicing state.
+    // Sales-side leads (active/quoted/submitted/on-hold, no stage) are out.
+    _finScope: !!(String(l.processingStage || '').trim()) ||
+               !!(String(l.disposition || '').trim()) ||
+               ['closed', 'sold', 'liquidated', 'approved'].indexOf(String(l.status || '').toLowerCase()) >= 0,
   };
+}
+// The array every FINANCIAL panel reads (charts, stats, perf, states,
+// upcoming closings, and the SLA side of the Baseline comparison — which
+// also makes the comparison fairer, since Baseline never saw raw leads).
+// The Leads chart + the Loans table still read the full _loans set.
+function finLoans() {
+  return _loans.filter(function(l) { return l._finScope; });
 }
 
 // ── Load ──────────────────────────────────────────────────────────
@@ -538,6 +563,7 @@ function renderAll() {
   renderCompare();
   renderRevenueChart();
   renderVolumeChart();
+  renderLeadsChart();
   renderPerformanceStats();
   renderUpcomingClosings();
   renderStateTable();
@@ -553,6 +579,10 @@ function populateYearSelect() {
   for (var i = 0; i < _loans.length; i++) {
     var parsed = parseLoanDate(loanCloseDate(_loans[i]));
     if (parsed && parsed.year >= 2020 && parsed.year <= curYear + 5) years[parsed.year] = true;
+    // Deploy 236.786 — leads-intake chart keys off created date; make those
+    // years selectable too.
+    var created = parseLoanDate(_loans[i].Created_Date);
+    if (created && created.year >= 2020 && created.year <= curYear + 5) years[created.year] = true;
   }
   var yearList = Object.keys(years).map(function(y){ return parseInt(y, 10); }).sort(function(a,b){ return b - a; });
   var prev = parseInt(sel.value || curYear, 10);
@@ -574,20 +604,26 @@ function statCard(label, value, sub) {
   '</div>';
 }
 function renderStats() {
-  var openLoans  = _loans.filter(isOpen);
-  var wonLoans   = _loans.filter(isWon);
+  // Deploy 236.786 — money cards read the PROCESSING scope only.
+  var fin = finLoans();
+  var openLoans  = fin.filter(isOpen);
+  var wonLoans   = fin.filter(isWon);
   var openAmount = openLoans.reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
   var wonInRange = wonLoans.filter(loanClosedInRange);
   var wonSum    = wonInRange.reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
   var revSum    = wonInRange.reduce(function(s, l) { return s + estimatedRevenue(l); }, 0);
   var rangeLbl  = _rangeLabel();
-  var nonArchivedCount = 0;
-  for (var i = 0; i < _loans.length; i++) { if (!isArchived(_loans[i])) nonArchivedCount += 1; }
+  // Leads card — the FULL book (incl. the Leads pipeline), by created date.
+  var leadCount = 0, leadAmt = 0;
+  for (var i = 0; i < _loans.length; i++) {
+    if (!isInDateRange(_loans[i].Created_Date)) continue;
+    leadCount += 1; leadAmt += numAmt(_loans[i].Loan_Amount);
+  }
   var html = '';
-  html += statCard('Active Pipeline', fmtMoney(openAmount, true), openLoans.length + ' loans');
+  html += statCard('Processing Pipeline', fmtMoney(openAmount, true), openLoans.length + ' loans in processing');
   html += statCard('Won (' + rangeLbl + ')', fmtMoney(wonSum, true), wonInRange.length + ' closed');
   html += statCard('Est. Revenue (' + rangeLbl + ')', fmtMoney(revSum, true), 'closing-day fees + points');
-  html += statCard('Total SLA Loans', String(nonArchivedCount), 'excl. denied/cancelled');
+  html += statCard('Leads In (' + rangeLbl + ')', String(leadCount), fmtMoney(leadAmt, true) + ' requested · incl. Leads pipeline');
   document.getElementById('statRow').innerHTML = html;
 }
 
@@ -627,7 +663,10 @@ function renderCompare() {
   }
 
   var bl = _headline(_mirror);
-  var sla = _headline(_loans);
+  // Deploy 236.786 — compare against the PROCESSING scope: Baseline never
+  // held raw leads, so including the Leads pipeline made the SLA side look
+  // inflated (+225 "active" loans that Baseline had no counterpart for).
+  var sla = _headline(finLoans());
 
   function row(label, bv, sv, fmt, invertGood) {
     var f = fmt || function(v) { return String(v); };
@@ -778,8 +817,9 @@ function monthlyAggregates(year, metricFn) {
   var hideLiq = document.getElementById('hideLiquidated');
   hideLiq = hideLiq ? hideLiq.checked : false;
   var won = new Array(12).fill(0), open = new Array(12).fill(0), onHold = new Array(12).fill(0);
-  for (var i = 0; i < _loans.length; i++) {
-    var l = _loans[i];
+  var fin = finLoans(); // Deploy 236.786 — processing scope only
+  for (var i = 0; i < fin.length; i++) {
+    var l = fin[i];
     if (isArchived(l)) continue;
     if (hideLiq && isLiquidated(l)) continue;
     var parsed = parseLoanDate(loanCloseDate(l));
@@ -848,13 +888,85 @@ function renderVolumeChart() {
   });
 }
 
+// Deploy 236.786 — Leads intake: EVERY loan (incl. the Leads pipeline and
+// later-denied deals — a lead that came in still counts as intake), bucketed
+// by the month the record was CREATED. $ requested stacked RTL/DSCR/Unknown,
+// with the lead count as a line on a second axis.
+function renderLeadsChart() {
+  if (typeof Chart === 'undefined') return;
+  var year = selectedYear();
+  var rtl = new Array(12).fill(0), dscr = new Array(12).fill(0), unk = new Array(12).fill(0);
+  var counts = new Array(12).fill(0);
+  var rtlN = new Array(12).fill(0), dscrN = new Array(12).fill(0), unkN = new Array(12).fill(0);
+  for (var i = 0; i < _loans.length; i++) {
+    var l = _loans[i];
+    var parsed = parseLoanDate(l.Created_Date);
+    if (!parsed || parsed.year !== year) continue;
+    var mIdx = parsed.month - 1;
+    var amt = numAmt(l.Loan_Amount);
+    var type = inferLoanType(l);
+    counts[mIdx] += 1;
+    if (type === 'RTL')       { rtl[mIdx]  += amt; rtlN[mIdx]  += 1; }
+    else if (type === 'DSCR') { dscr[mIdx] += amt; dscrN[mIdx] += 1; }
+    else                      { unk[mIdx]  += amt; unkN[mIdx]  += 1; }
+  }
+  var ctx = document.getElementById('leadsChart').getContext('2d');
+  if (_charts.leadsChart) _charts.leadsChart.destroy();
+  var monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    .map(function(m) { return m + ' ' + year; });
+  _charts.leadsChart = new Chart(ctx, {
+    data: {
+      labels: monthLabels,
+      datasets: [
+        { type: 'line', label: 'Leads (count)', data: counts, yAxisID: 'yCount',
+          borderColor: '#261a36', backgroundColor: '#261a36', tension: 0.25, pointRadius: 3, order: 0 },
+        { type: 'bar', label: 'RTL $',     data: rtl,  backgroundColor: '#C8813A', stack: 'a', yAxisID: 'yAmt', order: 1 },
+        { type: 'bar', label: 'DSCR $',    data: dscr, backgroundColor: '#6FA48B', stack: 'a', yAxisID: 'yAmt', order: 1 },
+        { type: 'bar', label: 'Unknown $', data: unk,  backgroundColor: '#9BC4E2', stack: 'a', yAxisID: 'yAmt', order: 1 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            afterBody: function(items) {
+              if (!items.length) return '';
+              var m = items[0].dataIndex;
+              return 'RTL ' + rtlN[m] + ' · DSCR ' + dscrN[m] + (unkN[m] ? ' · Unknown ' + unkN[m] : '');
+            },
+            footer: function(items) {
+              var m = items.length ? items[0].dataIndex : 0;
+              return 'Total: ' + counts[m] + ' leads · ' + fmtMoney(rtl[m] + dscr[m] + unk[m]);
+            },
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true },
+        yAmt: { stacked: true, position: 'left',
+          ticks: { callback: function(v) {
+            if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+            if (v >= 1000)    return Math.round(v / 1000) + 'K';
+            return Math.round(v);
+          } } },
+        yCount: { position: 'right', grid: { drawOnChartArea: false },
+          ticks: { precision: 0 } },
+      },
+    },
+  });
+}
+
 // ── Performance stats (verbatim math from dashboard.html) ────────
 function renderPerformanceStats() {
+  var fin = finLoans(); // Deploy 236.786 — processing scope only
   function statsFor(typeLabel, typeMatcher) {
     var active = 0, closed = 0, arch = 0;
     var amts = [], pts = [], rts = [];
-    for (var i = 0; i < _loans.length; i++) {
-      var l = _loans[i];
+    for (var i = 0; i < fin.length; i++) {
+      var l = fin[i];
       if (!typeMatcher(l)) continue;
       if (isArchived(l)) { arch += 1; continue; }
       if (isOpen(l) || isOnHold(l)) { active += 1; continue; }
@@ -918,8 +1030,9 @@ function renderUpcomingClosings() {
     d.setHours(0,0,0,0);
     return d.getTime();
   }
-  for (var i = 0; i < _loans.length; i++) {
-    var l = _loans[i];
+  var fin = finLoans(); // Deploy 236.786 — processing scope only
+  for (var i = 0; i < fin.length; i++) {
+    var l = fin[i];
     if (isArchived(l)) continue;
     if (!isOpen(l) && !isOnHold(l)) continue;
     var parsed = parseLoanDate(l.Origination);
@@ -992,8 +1105,9 @@ function slaToggleWeek(id) {
 // ── Loans by state (verbatim math) ───────────────────────────────
 function renderStateTable() {
   var byState = {};
-  for (var i = 0; i < _loans.length; i++) {
-    var l = _loans[i];
+  var fin = finLoans(); // Deploy 236.786 — processing scope only
+  for (var i = 0; i < fin.length; i++) {
+    var l = fin[i];
     if (isArchived(l)) continue;
     if (_dateRange !== 'all') {
       if (!isClosed(l)) continue;
