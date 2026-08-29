@@ -192,6 +192,13 @@
     <div class="chart-wrap"><canvas id="leadsChart"></canvas></div>
   </div>
 
+  <!-- Deploy 236.788 — conversion funnel: lead → quoted → processing → closed. -->
+  <div class="chart-card">
+    <h2>Conversion Funnel</h2>
+    <div class="chart-sub">SLA-ORIGINATED LEADS (RANGE FILTERS BY INTAKE DATE) · LEAD → QUOTED → PROCESSING → CLOSED · COUNTS + STAGE-TO-STAGE RATIOS</div>
+    <div id="funnelWrap"></div>
+  </div>
+
   <!-- Performance Stats -->
   <div class="chart-card">
     <h2>Performance Stats</h2>
@@ -516,6 +523,10 @@ function adaptLoan(client, l, ownerKey) {
     // SLA-native loan ids embed their creation timestamp (l_<ms>_) which
     // is more reliable than createdAt (PG backfills rewrote some).
     _isImport: /^l_baseline_/.test(String(l.id)),
+    // Deploy 236.788 — funnel stage: a lead counts as QUOTED once it has
+    // been priced (sizer save writes rate/points; application-created
+    // leads arrive with neither).
+    _quoted: (isFinite(rate) && rate > 0) || (l.points != null && String(l.points).trim() !== ''),
     _leadDate: (function() {
       var m = String(l.id).match(/^l_(\d{13})_/);
       if (m) {
@@ -609,6 +620,7 @@ function renderAll() {
   renderRevenueChart();
   renderVolumeChart();
   renderLeadsChart();
+  renderFunnel();
   renderPerformanceStats();
   renderUpcomingClosings();
   renderStateTable();
@@ -697,6 +709,30 @@ function _headline(loans) {
   return { total: total, open: open, openAmt: openAmt, won: won, wonAmt: wonAmt, rev: rev, hold: hold, liq: liq, arch: arch };
 }
 function cmpToggle(key) { _cmpOpen[key] = !_cmpOpen[key]; renderCompare(); }
+// Deploy 236.788 — inline fix for a blank toolType, straight from the
+// reconciliation list. Saves via loan-servicing-update (whitelists
+// toolType since 236.625), patches the in-memory record, re-renders.
+function fixLoanType(sel, slaLoanId, clientId, ownerKey) {
+  var v = String(sel.value || '').toLowerCase();
+  if (!v) return;
+  sel.disabled = true;
+  SLA.api('POST', '/api/loan-servicing-update', {
+    clientId: clientId, loanId: slaLoanId, owner: ownerKey, fields: { toolType: v },
+  }).then(function() {
+    for (var i = 0; i < _loans.length; i++) {
+      var l = _loans[i];
+      if (l._slaLoanId !== slaLoanId) continue;
+      l._tool = v.toUpperCase();
+      l.Substatus = v === 'dscr' ? 'DSCR' : 'RTL';
+      break;
+    }
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    renderAll();
+  }).catch(function(err) {
+    sel.disabled = false;
+    alert('Failed to set type: ' + (err && err.message || 'unknown'));
+  });
+}
 function renderCompare() {
   var wrap = document.getElementById('compareWrap');
   if (!wrap) return;
@@ -759,14 +795,44 @@ function renderCompare() {
     if (k) slaByBl[k] = _loans[i];
     else slaNative.push(_loans[i]);
   }
+  // Deploy 236.788 — second-pass ADDRESS matching. Some SLA loans were
+  // pushed to Baseline without the display id ever being written back to
+  // the SLA record, so the id match alone flagged loans as "missing from
+  // SLA" that Mike could see right there on the pipeline. If the id
+  // doesn't match, fall back to the normalized address ("usa" suffix and
+  // punctuation stripped); a prefix match handles "St" vs "Street" tails.
+  function _normAddr(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/usa$/, '');
+  }
+  var slaByAddr = {};
+  for (var a = 0; a < _loans.length; a++) {
+    var na = _normAddr(_loans[a].Name);
+    if (na.length >= 10 && !slaByAddr[na]) slaByAddr[na] = _loans[a];
+  }
+  var _addrKeys = Object.keys(slaByAddr);
+  function _findByAddress(mName) {
+    var nm = _normAddr(mName);
+    if (nm.length < 10) return null;
+    if (slaByAddr[nm]) return slaByAddr[nm];
+    for (var j = 0; j < _addrKeys.length; j++) {
+      var k2 = _addrKeys[j];
+      if (k2.indexOf(nm) === 0 || nm.indexOf(k2) === 0) return slaByAddr[k2];
+    }
+    return null;
+  }
   var missingInSla = [];
   var bucketMismatch = [];
   var amountMismatch = [];
   var matched = 0;
+  var matchedByAddr = 0;
   for (var m = 0; m < _mirror.length; m++) {
     var ml = _mirror[m];
     var mid = String(ml.Id || '').trim();
     var sl = mid ? slaByBl[mid] : null;
+    if (!sl) {
+      sl = _findByAddress(ml.Name || ml.Property_Address || '');
+      if (sl) matchedByAddr += 1;
+    }
     if (!sl) {
       if (!isArchived(ml)) missingInSla.push(ml);
       continue;
@@ -780,13 +846,20 @@ function renderCompare() {
     }
   }
   // Field gaps that break the money math on the SLA side.
+  // Deploy 236.788 — "missing" means BLANK. 0 is a real number (Mike:
+  // a 0-point loan has its points recorded; blank is what's missing).
+  function _isBlank(v) {
+    if (v == null) return true;
+    var s = String(v).trim();
+    return s === '' || !isFinite(parseFloat(s));
+  }
   var gapNoClose = [], gapNoPoints = [], gapNoRate = [], gapNoType = [];
   for (var g = 0; g < _loans.length; g++) {
     var gl = _loans[g];
     if (!isClosed(gl)) continue;
     if (!gl.Origination) gapNoClose.push(gl);
-    if (!(parseFloat(gl.Origination_Points) > 0)) gapNoPoints.push(gl);
-    if (!(parseFloat(gl.Rate) > 0)) gapNoRate.push(gl);
+    if (_isBlank(gl.Origination_Points)) gapNoPoints.push(gl);
+    if (_isBlank(gl.Rate)) gapNoRate.push(gl);
     if (!gl.Substatus) gapNoType.push(gl);
   }
 
@@ -820,7 +893,9 @@ function renderCompare() {
   var tdR = tdS + ';text-align:right;font-variant-numeric:tabular-nums';
 
   html += '<div style="font-size:12.5px;color:var(--muted);margin-bottom:2px">' +
-    'Matched loan-for-loan: <strong>' + matched + '</strong> · SLA-native (no Baseline link — expected for new originations): <strong>' + slaNative.length + '</strong>' +
+    'Matched loan-for-loan: <strong>' + matched + '</strong>' +
+    (matchedByAddr ? ' (' + matchedByAddr + ' by address — their SLA record never got the Baseline display id)' : '') +
+    ' · SLA-native (no Baseline link — expected for new originations): <strong>' + slaNative.length + '</strong>' +
   '</div>';
 
   html += section('missing', 'In Baseline but NOT found in SLA', missingInSla, function(l) {
@@ -861,9 +936,26 @@ function renderCompare() {
   }
   var gapHead = '<thead><tr><th>Id</th><th>Address</th><th>SLA status</th><th style="text-align:right">Amount</th></tr></thead>';
   html += section('gapClose',  'SLA closed loans MISSING a close date (fall back to created date)', gapNoClose,  gapRow, gapHead);
-  html += section('gapPoints', 'SLA closed loans MISSING points (revenue undercounts)',              gapNoPoints, gapRow, gapHead);
-  html += section('gapRate',   'SLA closed loans MISSING a rate',                                    gapNoRate,   gapRow, gapHead);
-  html += section('gapType',   'SLA closed loans MISSING a loan type (RTL/DSCR unknown)',            gapNoType,   gapRow, gapHead);
+  html += section('gapPoints', 'SLA closed loans with BLANK points (0 counts as recorded)',          gapNoPoints, gapRow, gapHead);
+  html += section('gapRate',   'SLA closed loans with a BLANK rate',                                 gapNoRate,   gapRow, gapHead);
+  // Deploy 236.788 — the loan-type gap gets an inline RTL/DSCR picker so
+  // Mike can fix it right here (Loan Details' top-right badge silently
+  // DEFAULTS to "DSCR" when toolType is blank, so the page looks fine
+  // while the record actually has no type — that's why "it clearly says
+  // DSCR" on loans in this list).
+  html += section('gapType', 'SLA closed loans with a BLANK loan type (Loan Details shows a DEFAULTED "DSCR" badge for these)', gapNoType, function(l) {
+    return '<tr>' +
+      '<td style="' + tdS + '">' + escH(l.Id || '') + '</td>' +
+      '<td style="' + tdS + '">' + _slaLink(l) + '</td>' +
+      '<td style="' + tdS + '">' + escH(l._slaStatusRaw + (l._dispositionRaw ? ' / ' + l._dispositionRaw : '')) + '</td>' +
+      '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
+      '<td style="' + tdS + '" onclick="event.stopPropagation()">' +
+        '<select onchange="fixLoanType(this, \'' + escH(l._slaLoanId) + '\', \'' + escH(l._clientId) + '\', \'' + escH(l._ownerKey) + '\')" style="padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px">' +
+          '<option value="">— set type —</option><option value="rtl">RTL</option><option value="dscr">DSCR</option><option value="guc">GUC</option>' +
+        '</select>' +
+      '</td>' +
+    '</tr>';
+  }, '<thead><tr><th>Id</th><th>Address</th><th>SLA status</th><th style="text-align:right">Amount</th><th>Fix type</th></tr></thead>');
 
   html += '<div class="cmp-note">Reconciliation matches Baseline\'s record Id against SLA\'s display id / imported loan id. ' +
     '"Missing from SLA" excludes Baseline-archived records. Buckets: open · won (sold/closed/servicing) · liquidated · on hold · archived.</div>';
@@ -1157,6 +1249,75 @@ function _cdmRender() {
   }).join('');
   document.getElementById('cdmBody').innerHTML = html ||
     '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--muted)">No loans in this bucket.</td></tr>';
+}
+
+// ── Deploy 236.788: conversion funnel ─────────────────────────────
+// Cohort view over SLA-originated leads (imports excluded): of the leads
+// that came in (in the selected range, by intake date), how many were
+// quoted, how many reached processing, how many closed. Stages are
+// cumulative-inclusive: a loan that reached processing implicitly passed
+// quoting (some are hand-created in processing with no sizer quote), and
+// a closed loan implicitly passed processing — so each stage is a strict
+// subset of the one before and the ratios always make sense.
+function renderFunnel() {
+  var wrap = document.getElementById('funnelWrap');
+  if (!wrap) return;
+  function count(matcher) {
+    var leads = 0, quoted = 0, processing = 0, closed = 0;
+    for (var i = 0; i < _loans.length; i++) {
+      var l = _loans[i];
+      if (l._isImport) continue;
+      if (matcher && !matcher(l)) continue;
+      if (!isInDateRange(l._leadDate)) continue;
+      var won  = isWon(l) || isLiquidated(l);
+      var proc = won || l._finScope;
+      var quo  = proc || l._quoted;
+      leads += 1;
+      if (quo)  quoted += 1;
+      if (proc) processing += 1;
+      if (won)  closed += 1;
+    }
+    return { leads: leads, quoted: quoted, processing: processing, closed: closed };
+  }
+  var cols = [
+    { label: 'All',  c: count(null) },
+    { label: 'RTL',  c: count(function(l) { return inferLoanType(l) === 'RTL'; }) },
+    { label: 'DSCR', c: count(function(l) { return inferLoanType(l) === 'DSCR'; }) },
+  ];
+  function pct(n, d) { return d > 0 ? (n / d * 100).toFixed(1) + '%' : '—'; }
+  var stages = [
+    { key: 'leads',      label: 'Leads In',              prevKey: null },
+    { key: 'quoted',     label: 'Quoted (priced in a sizer)', prevKey: 'leads' },
+    { key: 'processing', label: 'To Processing',          prevKey: 'quoted' },
+    { key: 'closed',     label: 'Closed / Won',           prevKey: 'processing' },
+  ];
+  var th = 'padding:9px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;text-align:right;white-space:nowrap';
+  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr>' +
+    '<th style="' + th + ';text-align:left">Stage</th>';
+  cols.forEach(function(col) {
+    html += '<th style="' + th + '">' + escH(col.label) + '</th>' +
+            '<th style="' + th + '">% of prev</th>' +
+            '<th style="' + th + '">% of leads</th>';
+  });
+  html += '</tr></thead><tbody>';
+  stages.forEach(function(s) {
+    html += '<tr><td style="padding:10px;border-top:1px solid var(--border);font-weight:600">' + escH(s.label) + '</td>';
+    cols.forEach(function(col) {
+      var n = col.c[s.key];
+      var ofPrev = s.prevKey ? pct(n, col.c[s.prevKey]) : '—';
+      var ofLead = s.prevKey ? pct(n, col.c.leads) : '100%';
+      html += '<td style="padding:10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + n + '</td>' +
+        '<td style="padding:10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--dark)">' + ofPrev + '</td>' +
+        '<td style="padding:10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)">' + ofLead + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div style="font-size:12px;color:var(--muted);margin-top:8px">' +
+    'Cohort by intake date — recent leads haven’t had time to reach the later stages yet, so short ranges understate the Processing and Closed rates. ' +
+    'A loan that reached a later stage counts in every earlier one (hand-created processing loans count as quoted).' +
+  '</div>';
+  wrap.innerHTML = html;
 }
 
 // ── Performance stats (verbatim math from dashboard.html) ────────
