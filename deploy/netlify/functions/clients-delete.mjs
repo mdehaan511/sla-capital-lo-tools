@@ -10,6 +10,7 @@ import { getStore } from '@netlify/blobs';
 // Deploy 236.417 (C3 deletion slice) — clients-index write-through
 // retired; see _shared/client-write.mjs for the rationale.
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs'; // Phase 2 dual-write
+import { deleteQuotesForLoan } from './_shared/quote-sync.mjs'; // Deploy 236.790
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin,
   normalizeEmail, keySafe,
@@ -56,7 +57,29 @@ export default async (req, context) => {
       // Deploy 236.417 (C3 deletion slice): clients-index write-through
       // retired — see _shared/client-write.mjs.
       await pgMirror.upsertClientWithLoansStrict(ownerKey, existing);
-      return json(200, { ok: true, client: existing });
+      // Deploy 236.790 (Mike) — ALSO purge the loan's quotes. Without this the
+      // quote entries survived the delete and the Pipeline kept drawing them as
+      // "Loan record missing" orphans — one deleted loan showed up three times
+      // (q_<tool>_, q_ln_ and syn_ all reference the same loanId). The delete
+      // confirm has always promised "any saved quote will be deleted"; now it is.
+      let quotesDeleted = 0;
+      try {
+        const qres = await deleteQuotesForLoan(ownerKey, body.loanId);
+        quotesDeleted = qres.deleted;
+      } catch (e) {
+        console.warn('clients-delete: quote purge failed (loan already deleted):', e && e.message);
+      }
+      return json(200, { ok: true, client: existing, quotesDeleted });
+    }
+
+    // Deploy 236.790 — deleting the WHOLE client orphans every one of its loans'
+    // quotes the same way, so purge them all before the client goes.
+    try {
+      for (const l of (existing.loans || [])) {
+        if (l && l.id) await deleteQuotesForLoan(ownerKey, l.id);
+      }
+    } catch (e) {
+      console.warn('clients-delete: quote purge (full client) failed:', e && e.message);
     }
 
     // Otherwise delete the whole client

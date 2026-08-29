@@ -156,3 +156,33 @@ async function _syncLoanToQuoteStoreInternal(ownerKey, loan) {
   }
   return { updated };
 }
+
+/**
+ * Deploy 236.790 (Mike) — purge every quote entry tied to a loan.
+ *
+ * Deleting a loan removed it from the client record but left its quotes behind,
+ * so the Pipeline kept rendering them as "Loan record missing" orphan cards. One
+ * deleted loan reappeared THREE times because three id conventions all point at
+ * the same loan: the stored quote (q_<tool>_<loanId>), the loan-derived one
+ * (q_ln_<loanId>) and the synthetic one (syn_<loanId>). Matching on q.loanId
+ * catches all of them regardless of prefix.
+ *
+ * Deletes from the primary store AND the materialized index — an index row on
+ * its own is enough to keep a ghost card on the board. Returns { deleted, ids }.
+ */
+export async function deleteQuotesForLoan(ownerKey, loanId) {
+  if (!ownerKey || !loanId) return { deleted: 0, ids: [] };
+  const store = getStore({ name: 'quotes', consistency: 'strong' });
+  const blobs = (await store.list({ prefix: ownerKey + '/' })).blobs || [];
+  const ids = [];
+  for (const { key } of blobs) {
+    const q = await store.get(key, { type: 'json' }).catch(() => null);
+    if (!q || q.loanId !== loanId) continue;
+    await store.delete(key).catch(() => {});
+    if (q.id) {
+      ids.push(q.id);
+      await quotesIndex.removeRecord(ownerKey, q.id).catch(() => {});
+    }
+  }
+  return { deleted: ids.length, ids };
+}
