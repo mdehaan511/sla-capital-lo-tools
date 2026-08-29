@@ -426,10 +426,44 @@ function parseLoanDate(d) {
   if (!isNaN(d2.getTime())) return { year: d2.getFullYear(), month: d2.getMonth() + 1, day: d2.getDate() };
   return null;
 }
+// Deploy 236.789 — state extraction upgraded: SLA addresses aren't all
+// Google-Places-canonical. Three passes, all validated against the real
+// state list so directionals ("SW", "NE") never false-match:
+//   1) comma-anchored code (", WA 99205" — the original rule)
+//   2) code right before a ZIP ("Spokane WA 99205", "Denville NJ, 07834")
+//   3) full state name ("Cincinnati, Ohio 45204") — last so a street
+//      named Washington can't shadow a real code+ZIP match.
+var US_STATES = {AL:1,AK:1,AZ:1,AR:1,CA:1,CO:1,CT:1,DE:1,FL:1,GA:1,HI:1,ID:1,IL:1,IN:1,IA:1,KS:1,KY:1,LA:1,ME:1,MD:1,MA:1,MI:1,MN:1,MS:1,MO:1,MT:1,NE:1,NV:1,NH:1,NJ:1,NM:1,NY:1,NC:1,ND:1,OH:1,OK:1,OR:1,PA:1,RI:1,SC:1,SD:1,TN:1,TX:1,UT:1,VT:1,VA:1,WA:1,WV:1,WI:1,WY:1,DC:1};
+var STATE_NAME_LIST = [
+  ['new hampshire','NH'],['new jersey','NJ'],['new mexico','NM'],['new york','NY'],
+  ['north carolina','NC'],['north dakota','ND'],['south carolina','SC'],['south dakota','SD'],
+  ['west virginia','WV'],['rhode island','RI'],
+  ['alabama','AL'],['alaska','AK'],['arizona','AZ'],['arkansas','AR'],['california','CA'],
+  ['colorado','CO'],['connecticut','CT'],['delaware','DE'],['florida','FL'],['georgia','GA'],
+  ['hawaii','HI'],['idaho','ID'],['illinois','IL'],['indiana','IN'],['iowa','IA'],
+  ['kansas','KS'],['kentucky','KY'],['louisiana','LA'],['maine','ME'],['maryland','MD'],
+  ['massachusetts','MA'],['michigan','MI'],['minnesota','MN'],['mississippi','MS'],['missouri','MO'],
+  ['montana','MT'],['nebraska','NE'],['nevada','NV'],['ohio','OH'],['oklahoma','OK'],
+  ['oregon','OR'],['pennsylvania','PA'],['tennessee','TN'],['texas','TX'],['utah','UT'],
+  ['vermont','VT'],['virginia','VA'],['washington','WA'],['wisconsin','WI'],['wyoming','WY'],
+];
 function extractStateFromName(name) {
   if (!name) return '';
-  var m = String(name).match(/,\s*([A-Z]{2})(?:\s|,|$)/);
-  return m ? m[1] : '';
+  var s = String(name);
+  var m = s.match(/,\s*([A-Z]{2})(?:\s|,|$)/);
+  if (m && US_STATES[m[1]]) return m[1];
+  m = s.match(/\b([A-Za-z]{2})[,\s]+\d{5}(?:-\d{4})?\b/);
+  if (m && US_STATES[m[1].toUpperCase()]) return m[1].toUpperCase();
+  // Full-name pass: streets are named after states too ("Maryland Ave
+  // Cincinnati, Ohio") — the STATE is the name closest to the END of the
+  // address, so pick the rightmost match rather than the first.
+  var lower = ' ' + s.toLowerCase().replace(/,/g, ' ') + ' ';
+  var bestIdx = -1, bestCode = '';
+  for (var i = 0; i < STATE_NAME_LIST.length; i++) {
+    var at = lower.lastIndexOf(' ' + STATE_NAME_LIST[i][0] + ' ');
+    if (at > bestIdx) { bestIdx = at; bestCode = STATE_NAME_LIST[i][1]; }
+  }
+  return bestCode;
 }
 function numAmt(v) {
   var n = parseFloat(String(v == null ? '' : v).replace(/[$,]/g, ''));
@@ -838,7 +872,12 @@ function renderCompare() {
       continue;
     }
     matched += 1;
+    // Deploy 236.789 — Liquidated counts as Won on both sides (Mike: the
+    // money math already treats them the same, so liquidated-vs-sold is
+    // not a discrepancy worth listing).
     var mb = _bucketOf(ml), sb = _bucketOf(sl);
+    if (mb === 'liquidated') mb = 'won';
+    if (sb === 'liquidated') sb = 'won';
     if (mb !== sb) bucketMismatch.push({ m: ml, s: sl, mb: mb, sb: sb });
     var ma = numAmt(ml.Loan_Amount), sa = numAmt(sl.Loan_Amount);
     if (ma > 0 && sa > 0 && Math.abs(ma - sa) > Math.max(1000, ma * 0.01)) {
@@ -1171,6 +1210,25 @@ function openChartDrilldown(chartId, monthIdx) {
   document.getElementById('chartDrilldownModal').style.display = 'flex';
   document.addEventListener('keydown', _cdmKeyHandler);
 }
+// Deploy 236.789 — Loans-by-State drilldown: click a state row → every
+// loan in that state (RTL/DSCR chips, links to Loan Details). Fixing an
+// "(unknown)" state = fixing the loan's address.
+function openStateDrilldown(state) {
+  var arr = _stateCells[state] || [];
+  if (!arr.length) return;
+  _cdmState.entries = arr.map(function(l) {
+    var t = inferLoanType(l);
+    return { loan: l, bucket: t === 'RTL' ? 'RTL' : t === 'DSCR' ? 'DSCR' : 'Unknown' };
+  });
+  _cdmState.sortBy = 'amount';
+  _cdmState.sortDir = 'desc';
+  _cdmState.isLeads = false;
+  document.getElementById('cdmTitle').textContent = state + ' · Loans by State' +
+    (state === '(unknown)' ? ' — fix the address on the loan to assign a state' : '');
+  _cdmRender();
+  document.getElementById('chartDrilldownModal').style.display = 'flex';
+  document.addEventListener('keydown', _cdmKeyHandler);
+}
 function closeChartDrilldown() {
   document.getElementById('chartDrilldownModal').style.display = 'none';
   document.removeEventListener('keydown', _cdmKeyHandler);
@@ -1464,8 +1522,10 @@ function slaToggleWeek(id) {
 }
 
 // ── Loans by state (verbatim math) ───────────────────────────────
+var _stateCells = {}; // Deploy 236.789 — per-state loan lists for the drilldown
 function renderStateTable() {
   var byState = {};
+  _stateCells = {};
   var fin = finLoans(); // Deploy 236.786 — processing scope only
   for (var i = 0; i < fin.length; i++) {
     var l = fin[i];
@@ -1476,6 +1536,7 @@ function renderStateTable() {
     }
     var st = (l.Address_State || extractStateFromName(l.Name) || '').trim() || '(unknown)';
     if (!byState[st]) byState[st] = { rtlCount: 0, rtlTotal: 0, dscrCount: 0, dscrTotal: 0, unkCount: 0, unkTotal: 0 };
+    (_stateCells[st] = _stateCells[st] || []).push(l);
     var amt = numAmt(l.Loan_Amount);
     var type = inferLoanType(l);
     if (type === 'RTL')       { byState[st].rtlCount  += 1; byState[st].rtlTotal  += amt; }
@@ -1508,7 +1569,10 @@ function renderStateTable() {
     var rowVolume = r.rtlTotal + r.dscrTotal + r.unkTotal;
     totLoans += r.total; totVolume += rowVolume;
     totRtlC += r.rtlCount; totRtlV += r.rtlTotal; totDscrC += r.dscrCount; totDscrV += r.dscrTotal;
-    html += '<tr>' +
+    // Deploy 236.789 — rows clickable: opens the drilldown modal listing the
+    // state's loans (each linking to Loan Details, so an "(unknown)" address
+    // can be fixed at the source).
+    html += '<tr style="cursor:pointer" onclick="openStateDrilldown(\'' + escH(r.state) + '\')" onmouseover="this.style.background=\'rgba(200,129,58,0.04)\'" onmouseout="this.style.background=\'transparent\'">' +
       '<td style="' + tdBase + ';font-weight:500">' + escH(r.state) + '</td>' +
       '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + r.total + '</td>' +
       '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + (rowVolume > 0 ? fmtMoney(rowVolume) : '—') + '</td>' +
