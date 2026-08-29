@@ -1059,10 +1059,26 @@ function drawStackedBar(canvasId, data, year, fmtTick) {
         legend: { position: 'top' },
         tooltip: {
           callbacks: {
+            // Deploy 236.793 — each bucket line shows its LOAN COUNT next to
+            // the dollar value (counts come from the drilldown cell cache).
+            label: function(ctx) {
+              var n = 0;
+              var agg = _aggByChart[canvasId];
+              if (agg && agg.cells[ctx.dataset.label]) {
+                n = (agg.cells[ctx.dataset.label][ctx.dataIndex] || []).length;
+              }
+              return ctx.dataset.label + ': ' + fmtMoney(ctx.parsed.y || 0) + '  ·  ' + n + ' loan' + (n === 1 ? '' : 's');
+            },
             footer: function(items) {
-              var t = 0;
-              for (var i = 0; i < items.length; i++) t += items[i].parsed.y || 0;
-              return 'Total: ' + fmtMoney(t) + '  ·  click for details';
+              var t = 0, n = 0;
+              var agg = _aggByChart[canvasId];
+              for (var i = 0; i < items.length; i++) {
+                t += items[i].parsed.y || 0;
+                if (agg && agg.cells[items[i].dataset.label]) {
+                  n += (agg.cells[items[i].dataset.label][items[i].dataIndex] || []).length;
+                }
+              }
+              return 'Total: ' + fmtMoney(t) + '  ·  ' + n + ' loan' + (n === 1 ? '' : 's') + '  ·  click for details';
             },
           },
         },
@@ -1234,6 +1250,31 @@ function closeChartDrilldown() {
   document.removeEventListener('keydown', _cdmKeyHandler);
 }
 function _cdmKeyHandler(e) { if (e.key === 'Escape') closeChartDrilldown(); }
+// Deploy 236.793 — inline Close Date edit from the drilldown modal. Writes
+// loan.fundingDate via loan-field-edit (the field Loan Details and the
+// Processing Pipeline read), patches the in-memory record, and re-renders
+// the charts behind the modal so the bars move to the new month. The modal
+// keeps its current row set until reopened.
+function cdmEditCloseDate(input, slaLoanId, clientId, ownerKey) {
+  var v = input.value || '';
+  input.disabled = true;
+  input.style.borderColor = '';
+  SLA.api('POST', '/api/loan-field-edit', {
+    clientId: clientId, loanId: slaLoanId, owner: ownerKey, fields: { fundingDate: v },
+  }).then(function() {
+    for (var i = 0; i < _loans.length; i++) {
+      if (_loans[i]._slaLoanId === slaLoanId) { _loans[i].Origination = v; break; }
+    }
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    input.disabled = false;
+    input.style.borderColor = 'var(--success)';
+    renderAll(); // charts/stats re-aggregate with the new close date
+  }).catch(function(err) {
+    input.disabled = false;
+    input.style.borderColor = 'var(--danger)';
+    alert('Failed to save close date: ' + (err && err.message || 'unknown'));
+  });
+}
 function cdmSort(col) {
   if (_cdmState.sortBy === col) {
     _cdmState.sortDir = _cdmState.sortDir === 'asc' ? 'desc' : 'asc';
@@ -1301,7 +1342,17 @@ function _cdmRender() {
       '</td>' +
       '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' + (r.amount > 0 ? fmtMoney(r.amount) : '—') + '</td>' +
       '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde"><span class="pill ' + statusPillClass(r.status) + '">' + escH(r.status) + '</span></td>' +
-      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;font-variant-numeric:tabular-nums">' + escH(r.date || '—') + '</td>' +
+      // Deploy 236.793 — the Close Date is editable inline (revenue/volume/
+      // state drilldowns). Saves through loan-field-edit, which is the same
+      // field Loan Details + the Processing Pipeline read (fundingDate).
+      // The Leads modal shows the intake date, which is derived — read-only.
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;font-variant-numeric:tabular-nums">' +
+        (isLeads
+          ? escH(r.date || '—')
+          : '<input type="date" value="' + escH(r.date || '') + '"' +
+            ' onchange="cdmEditCloseDate(this, \'' + escH(l._slaLoanId) + '\', \'' + escH(l._clientId) + '\', \'' + escH(l._ownerKey) + '\')"' +
+            ' style="padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;font-family:inherit" />') +
+      '</td>' +
       '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' + (r.revenue > 0 ? fmtMoney(r.revenue) : '—') + '</td>' +
     '</tr>';
   }).join('');
