@@ -171,7 +171,7 @@ async function _syncLoanToQuoteStoreInternal(ownerKey, loan) {
  * its own is enough to keep a ghost card on the board. Returns { deleted, ids }.
  */
 export async function deleteQuotesForLoan(ownerKey, loanId) {
-  if (!ownerKey || !loanId) return { deleted: 0, ids: [] };
+  if (!ownerKey || !loanId) return { deleted: 0, ids: [], indexOnly: [] };
   const store = getStore({ name: 'quotes', consistency: 'strong' });
   const blobs = (await store.list({ prefix: ownerKey + '/' })).blobs || [];
   const ids = [];
@@ -184,5 +184,31 @@ export async function deleteQuotesForLoan(ownerKey, loanId) {
       await quotesIndex.removeRecord(ownerKey, q.id).catch(() => {});
     }
   }
-  return { deleted: ids.length, ids };
+
+  // Deploy 236.794 (Mike) — second pass over the materialized INDEX.
+  // The index is normally projected from the blobs above, but it can hold a
+  // row whose blob is already gone (a delete that only removed the blob, or a
+  // rebuild that raced a write). quotes-list merges any index row whose loanId
+  // isn't a live loan back onto the board as an orphan draft, so an index-only
+  // row is enough to keep the ghost card alive on its own. Sweeping by loanId
+  // catches every id convention (q_<tool>_, q_ln_, syn_) and every owner the
+  // record may have drifted under.
+  const indexOnly = [];
+  try {
+    const { index, exists } = await quotesIndex.readIndex();
+    if (exists && index && index.byOwner) {
+      for (const ow of Object.keys(index.byOwner)) {
+        for (const rec of (index.byOwner[ow] || [])) {
+          if (!rec || rec.loanId !== loanId || !rec.id) continue;
+          if (ids.indexOf(rec.id) >= 0) continue; // already removed above
+          await quotesIndex.removeRecord(ow, rec.id).catch(() => {});
+          indexOnly.push(rec.id);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('deleteQuotesForLoan: index sweep failed:', e && e.message);
+  }
+
+  return { deleted: ids.length + indexOnly.length, ids, indexOnly };
 }

@@ -42,6 +42,7 @@ import {
 } from './_shared/auth.mjs';
 import { db } from './_shared/supabase-db.mjs';
 import { mirror as pgMirror } from './_shared/pg-mirror.mjs';
+import { deleteQuotesForLoan } from './_shared/quote-sync.mjs';
 
 export default async (req, context) => {
   try {
@@ -104,13 +105,36 @@ async function handle(req, context) {
     const results = [];
     let deleted = 0;
 
+    // Optional owner hint, needed when the PG row is already gone (verdict
+    // not_in_pg) but the loan's quote ghosts are still on the board — there's
+    // no row left to read owner_email off of.
+    const ownerHint = body.owner ? keySafe(normalizeEmail(String(body.owner))) : '';
+
     for (const id of ids) {
       const row = await db.first('loans', { select: 'id,client_id,owner_email,address,status', eq: { id } });
-      if (!row) { results.push({ loanId: id, verdict: 'not_in_pg' }); continue; }
-      const v = await classify(row);
-      if (!dryRun && deletable(v)) {
+      const v = row ? await classify(row) : { loanId: id, verdict: 'not_in_pg' };
+      if (!dryRun && row && deletable(v)) {
         try { await pgMirror.deleteLoanStrict(id); v.deleted = true; deleted++; }
         catch (e) { v.deleteError = (e && e.message) || 'delete failed'; }
+      }
+
+      // Deploy 236.794 — the PG row is only half the ghost. The loan's quote
+      // records (blob + materialized index) draw their own Pipeline cards, so
+      // purge them for anything we just deleted AND for loans whose PG row was
+      // already gone but whose quotes were never cleaned up (every loan deleted
+      // before 236.790). Never purge on an 'ok' verdict — that loan is alive.
+      if (!dryRun && v.verdict !== 'ok') {
+        const ownerK = ownerHint || keySafe(normalizeEmail(row ? (row.owner_email || '') : ''));
+        if (ownerK) {
+          try {
+            const q = await deleteQuotesForLoan(ownerK, id);
+            v.quotesDeleted = q.deleted;
+            if (q.ids.length) v.quoteIds = q.ids;
+            if (q.indexOnly.length) v.quoteIndexOnly = q.indexOnly;
+          } catch (e) { v.quotePurgeError = (e && e.message) || 'quote purge failed'; }
+        } else {
+          v.quotePurgeSkipped = 'no owner known — pass { owner: "lo@slacapital.com" }';
+        }
       }
       results.push(v);
     }
