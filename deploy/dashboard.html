@@ -666,6 +666,20 @@ netlifyIdentity.on('init', function(user) {
   _user = user;
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('page').style.display = '';
+  // Deploy 236.787 — deep-link search: /dashboard.html?q=SLA-20260101-0001
+  // prefills the Loans-table search + switches to the All tab. Used by the
+  // SLA dashboard's reconciliation panel ("In Baseline but NOT found in
+  // SLA" rows) so Mike can jump straight to the Baseline record.
+  try {
+    var _qParam = new URLSearchParams(window.location.search).get('q');
+    if (_qParam) {
+      var _qEl = document.getElementById('loanSearch');
+      if (_qEl) _qEl.value = _qParam;
+      _tab = 'all';
+      document.getElementById('tabActive').classList.remove('active');
+      document.getElementById('tabAll').classList.add('active');
+    }
+  } catch (e) { /* old browser without URLSearchParams — search just stays empty */ }
   // Deploy 236.645 — hide the admin-only Baseline migration controls from
   // non-admin staff (processors). They're server-side admin-gated too, but
   // processors shouldn't see the buttons at all.

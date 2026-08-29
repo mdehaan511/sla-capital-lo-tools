@@ -231,6 +231,36 @@
   </div>
 </div>
 
+<!-- Deploy 236.787 — chart drilldown modal (same idea as the Baseline
+     dashboard's): click any bar → every loan in that month's column,
+     bucket-chipped, sortable, and each loan links to Loan Details. -->
+<div id="chartDrilldownModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this) closeChartDrilldown()">
+  <div style="background:#fff;max-width:980px;width:100%;max-height:88vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column">
+    <div style="padding:16px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div>
+        <div id="cdmTitle" style="font-family:'Lora',serif;font-size:17px;font-weight:600;color:var(--dark)">Loans</div>
+        <div id="cdmTotals" style="display:flex;gap:18px;font-size:12px;margin-top:4px;flex-wrap:wrap"></div>
+      </div>
+      <button type="button" onclick="closeChartDrilldown()" style="font-size:22px;background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 6px">×</button>
+    </div>
+    <div style="overflow:auto;flex:1">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead style="position:sticky;top:0;background:#faf8f3;z-index:1">
+          <tr>
+            <th onclick="cdmSort('bucket')" style="padding:9px 14px;font-size:10.5px">Bucket <span id="cdmSortArrow_bucket" style="opacity:0.4">↕</span></th>
+            <th onclick="cdmSort('address')" style="padding:9px 14px;font-size:10.5px">Address / Borrower <span id="cdmSortArrow_address" style="opacity:0.4">↕</span></th>
+            <th onclick="cdmSort('amount')" style="padding:9px 14px;font-size:10.5px;text-align:right">Amount <span id="cdmSortArrow_amount" style="opacity:0.4">↕</span></th>
+            <th onclick="cdmSort('status')" style="padding:9px 14px;font-size:10.5px">Status <span id="cdmSortArrow_status" style="opacity:0.4">↕</span></th>
+            <th onclick="cdmSort('date')" style="padding:9px 14px;font-size:10.5px">Date <span id="cdmSortArrow_date" style="opacity:0.4">↕</span></th>
+            <th onclick="cdmSort('revenue')" style="padding:9px 14px;font-size:10.5px;text-align:right">Est. Rev <span id="cdmSortArrow_revenue" style="opacity:0.4">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="cdmBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ─────────────────────────────────────────────────────────
 var _user = null;
@@ -760,6 +790,18 @@ function renderCompare() {
     if (!gl.Substatus) gapNoType.push(gl);
   }
 
+  // Deploy 236.787 — reconciliation rows are clickable so Mike can jump
+  // straight to the loan and rectify it. SLA-side rows open Loan Details;
+  // "missing from SLA" rows (no SLA loan exists) open the Baseline
+  // dashboard's table pre-searched to that record (?q=<Id>).
+  function _slaLink(sl, text) {
+    var href = '/loan-details/' + encodeURIComponent(sl._slaLoanId) + '?owner=' + encodeURIComponent(sl._ownerKey);
+    return '<a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(text || sl.Name || sl._slaLoanId) + '</a>';
+  }
+  function _blLink(ml, text) {
+    return '<a href="/dashboard.html?q=' + encodeURIComponent(ml.Id || ml.Name || '') + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(text || ml.Name || ml.Id || '') + '</a>';
+  }
+
   function section(key, title, items, renderRow, headHtml) {
     var open = !!_cmpOpen[key];
     var color = items.length ? 'var(--danger)' : 'var(--success)';
@@ -783,8 +825,8 @@ function renderCompare() {
 
   html += section('missing', 'In Baseline but NOT found in SLA', missingInSla, function(l) {
     return '<tr>' +
-      '<td style="' + tdS + '">' + escH(l.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + escH(l.Name || '') + '</td>' +
+      '<td style="' + tdS + '">' + _blLink(l, l.Id) + '</td>' +
+      '<td style="' + tdS + '">' + _blLink(l) + '</td>' +
       '<td style="' + tdS + '">' + escH(l.Status || '') + '</td>' +
       '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
     '</tr>';
@@ -793,7 +835,7 @@ function renderCompare() {
   html += section('bucket', 'Matched but status bucket DIFFERS (Baseline vs SLA)', bucketMismatch, function(x) {
     return '<tr>' +
       '<td style="' + tdS + '">' + escH(x.m.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + escH(x.s.Name || x.m.Name || '') + '</td>' +
+      '<td style="' + tdS + '">' + _slaLink(x.s, x.s.Name || x.m.Name) + '</td>' +
       '<td style="' + tdS + '">' + escH(x.mb) + ' <span style="color:var(--muted)">(' + escH(x.m.Status || '') + ')</span></td>' +
       '<td style="' + tdS + '">' + escH(x.sb) + ' <span style="color:var(--muted)">(' + escH(x.s._slaStatusRaw + (x.s._dispositionRaw ? ' / ' + x.s._dispositionRaw : '') + (x.s._stageRaw ? ' / ' + x.s._stageRaw : '')) + ')</span></td>' +
     '</tr>';
@@ -802,7 +844,7 @@ function renderCompare() {
   html += section('amount', 'Matched but loan AMOUNT differs (>1% and >$1k)', amountMismatch, function(x) {
     return '<tr>' +
       '<td style="' + tdS + '">' + escH(x.m.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + escH(x.s.Name || x.m.Name || '') + '</td>' +
+      '<td style="' + tdS + '">' + _slaLink(x.s, x.s.Name || x.m.Name) + '</td>' +
       '<td style="' + tdR + '">' + fmtMoney(x.ma) + '</td>' +
       '<td style="' + tdR + '">' + fmtMoney(x.sa) + '</td>' +
       '<td style="' + tdR + '">' + fmtMoney(x.sa - x.ma) + '</td>' +
@@ -812,7 +854,7 @@ function renderCompare() {
   function gapRow(l) {
     return '<tr>' +
       '<td style="' + tdS + '">' + escH(l.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + escH(l.Name || '') + '</td>' +
+      '<td style="' + tdS + '">' + _slaLink(l) + '</td>' +
       '<td style="' + tdS + '">' + escH(l._slaStatusRaw + (l._dispositionRaw ? ' / ' + l._dispositionRaw : '')) + '</td>' +
       '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
     '</tr>';
@@ -830,10 +872,15 @@ function renderCompare() {
 }
 
 // ── Charts ────────────────────────────────────────────────────────
-function monthlyAggregates(year, metricFn) {
+// Deploy 236.787 — per-chart cell cache for the click-to-drilldown modal.
+// _aggByChart[chartId] = { year, cells: { <bucketLabel>: [12 arrays of loans] } }
+var _aggByChart = {};
+function monthlyAggregates(year, metricFn, chartId) {
   var hideLiq = document.getElementById('hideLiquidated');
   hideLiq = hideLiq ? hideLiq.checked : false;
   var won = new Array(12).fill(0), open = new Array(12).fill(0), onHold = new Array(12).fill(0);
+  var cells = { 'Won': [], 'Open': [], 'On Hold': [] };
+  for (var k = 0; k < 12; k++) { cells['Won'].push([]); cells['Open'].push([]); cells['On Hold'].push([]); }
   var fin = finLoans(); // Deploy 236.786 — processing scope only
   for (var i = 0; i < fin.length; i++) {
     var l = fin[i];
@@ -844,10 +891,11 @@ function monthlyAggregates(year, metricFn) {
     var v = metricFn(l);
     if (!isFinite(v) || v <= 0) continue;
     var mIdx = parsed.month - 1;
-    if (isWon(l) || isLiquidated(l)) won[mIdx] += v;
-    else if (isOnHold(l)) onHold[mIdx] += v;
-    else open[mIdx] += v;
+    if (isWon(l) || isLiquidated(l)) { won[mIdx] += v; cells['Won'][mIdx].push(l); }
+    else if (isOnHold(l)) { onHold[mIdx] += v; cells['On Hold'][mIdx].push(l); }
+    else { open[mIdx] += v; cells['Open'][mIdx].push(l); }
   }
+  if (chartId) _aggByChart[chartId] = { year: year, cells: cells };
   return { won: won, open: open, onHold: onHold };
 }
 function drawStackedBar(canvasId, data, year, fmtTick) {
@@ -869,6 +917,13 @@ function drawStackedBar(canvasId, data, year, fmtTick) {
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      // Deploy 236.787 — click a bar → drilldown modal of that month's loans.
+      onHover: function(evt, elements) {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
+      onClick: function(evt, elements) {
+        if (elements.length) openChartDrilldown(canvasId, elements[0].index);
+      },
       plugins: {
         legend: { position: 'top' },
         tooltip: {
@@ -876,7 +931,7 @@ function drawStackedBar(canvasId, data, year, fmtTick) {
             footer: function(items) {
               var t = 0;
               for (var i = 0; i < items.length; i++) t += items[i].parsed.y || 0;
-              return 'Total: ' + fmtMoney(t);
+              return 'Total: ' + fmtMoney(t) + '  ·  click for details';
             },
           },
         },
@@ -890,14 +945,14 @@ function drawStackedBar(canvasId, data, year, fmtTick) {
 }
 function renderRevenueChart() {
   var year = selectedYear();
-  var data = monthlyAggregates(year, function(l) { return estimatedRevenue(l); });
+  var data = monthlyAggregates(year, function(l) { return estimatedRevenue(l); }, 'revenueChart');
   drawStackedBar('revenueChart', data, year, function(v) {
     return v >= 1000 ? Math.round(v / 1000) + 'K' : Math.round(v);
   });
 }
 function renderVolumeChart() {
   var year = selectedYear();
-  var data = monthlyAggregates(year, function(l) { return numAmt(l.Loan_Amount); });
+  var data = monthlyAggregates(year, function(l) { return numAmt(l.Loan_Amount); }, 'volumeChart');
   drawStackedBar('volumeChart', data, year, function(v) {
     if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
     if (v >= 1000)    return Math.round(v / 1000) + 'K';
@@ -915,6 +970,9 @@ function renderLeadsChart() {
   var rtl = new Array(12).fill(0), dscr = new Array(12).fill(0), unk = new Array(12).fill(0);
   var counts = new Array(12).fill(0);
   var rtlN = new Array(12).fill(0), dscrN = new Array(12).fill(0), unkN = new Array(12).fill(0);
+  // Deploy 236.787 — cells cache for the click-to-drilldown modal.
+  var cells = { 'RTL': [], 'DSCR': [], 'Unknown': [] };
+  for (var k = 0; k < 12; k++) { cells['RTL'].push([]); cells['DSCR'].push([]); cells['Unknown'].push([]); }
   for (var i = 0; i < _loans.length; i++) {
     var l = _loans[i];
     if (l._isImport) continue; // migration copies aren't SLA lead intake
@@ -924,10 +982,11 @@ function renderLeadsChart() {
     var amt = numAmt(l.Loan_Amount);
     var type = inferLoanType(l);
     counts[mIdx] += 1;
-    if (type === 'RTL')       { rtl[mIdx]  += amt; rtlN[mIdx]  += 1; }
-    else if (type === 'DSCR') { dscr[mIdx] += amt; dscrN[mIdx] += 1; }
-    else                      { unk[mIdx]  += amt; unkN[mIdx]  += 1; }
+    if (type === 'RTL')       { rtl[mIdx]  += amt; rtlN[mIdx]  += 1; cells['RTL'][mIdx].push(l); }
+    else if (type === 'DSCR') { dscr[mIdx] += amt; dscrN[mIdx] += 1; cells['DSCR'][mIdx].push(l); }
+    else                      { unk[mIdx]  += amt; unkN[mIdx]  += 1; cells['Unknown'][mIdx].push(l); }
   }
+  _aggByChart.leadsChart = { year: year, cells: cells };
   var ctx = document.getElementById('leadsChart').getContext('2d');
   if (_charts.leadsChart) _charts.leadsChart.destroy();
   var monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -946,6 +1005,13 @@ function renderLeadsChart() {
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      // Deploy 236.787 — click a bar → drilldown modal of that month's leads.
+      onHover: function(evt, elements) {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
+      onClick: function(evt, elements) {
+        if (elements.length) openChartDrilldown('leadsChart', elements[0].index);
+      },
       plugins: {
         legend: { position: 'top' },
         tooltip: {
@@ -957,7 +1023,7 @@ function renderLeadsChart() {
             },
             footer: function(items) {
               var m = items.length ? items[0].dataIndex : 0;
-              return 'Total: ' + counts[m] + ' leads · ' + fmtMoney(rtl[m] + dscr[m] + unk[m]);
+              return 'Total: ' + counts[m] + ' leads · ' + fmtMoney(rtl[m] + dscr[m] + unk[m]) + '  ·  click for details';
             },
           },
         },
@@ -975,6 +1041,122 @@ function renderLeadsChart() {
       },
     },
   });
+}
+
+// ── Deploy 236.787: chart drilldown modal ─────────────────────────
+// Click any bar (Revenue / Volume / Leads In) → modal lists every loan
+// in that month's column, tagged with its bucket (Won/Open/On Hold, or
+// RTL/DSCR for the leads chart). Every loan links to Loan Details —
+// this is a native-SLA advantage the Baseline modal can't offer.
+var _cdmState = { entries: [], sortBy: 'amount', sortDir: 'desc', isLeads: false };
+var _CDM_BUCKET_STYLE = {
+  'Won':     'background:#dcfce7;color:#166534;border:1px solid rgba(21,128,61,0.28)',
+  'Open':    'background:rgba(200,129,58,0.12);color:#b5712d;border:1px solid rgba(200,129,58,0.28)',
+  'On Hold': 'background:#fef9c3;color:#854d0e;border:1px solid rgba(133,77,14,0.28)',
+  'RTL':     'background:rgba(200,129,58,0.12);color:#b5712d;border:1px solid rgba(200,129,58,0.28)',
+  'DSCR':    'background:rgba(38,26,54,0.08);color:#261a36;border:1px solid rgba(38,26,54,0.22)',
+  'Unknown': 'background:rgba(120,116,136,0.10);color:var(--muted);border:1px solid var(--border)',
+};
+function openChartDrilldown(chartId, monthIdx) {
+  var agg = _aggByChart[chartId];
+  if (!agg) return;
+  var combined = [];
+  Object.keys(agg.cells).forEach(function(bucket) {
+    ((agg.cells[bucket] || [])[monthIdx] || []).forEach(function(l) {
+      combined.push({ loan: l, bucket: bucket });
+    });
+  });
+  if (!combined.length) return;
+  _cdmState.entries = combined;
+  _cdmState.sortBy = 'amount';
+  _cdmState.sortDir = 'desc';
+  _cdmState.isLeads = (chartId === 'leadsChart');
+  var monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][monthIdx];
+  var label = chartId === 'revenueChart' ? 'Revenue' : chartId === 'volumeChart' ? 'Volume' : 'Leads In';
+  document.getElementById('cdmTitle').textContent = monthName + ' ' + agg.year + ' · ' + label +
+    (_cdmState.isLeads ? ' · every lead that came in (incl. Leads pipeline)' : ' · All Loans (Won / Open / On Hold)');
+  _cdmRender();
+  document.getElementById('chartDrilldownModal').style.display = 'flex';
+  document.addEventListener('keydown', _cdmKeyHandler);
+}
+function closeChartDrilldown() {
+  document.getElementById('chartDrilldownModal').style.display = 'none';
+  document.removeEventListener('keydown', _cdmKeyHandler);
+}
+function _cdmKeyHandler(e) { if (e.key === 'Escape') closeChartDrilldown(); }
+function cdmSort(col) {
+  if (_cdmState.sortBy === col) {
+    _cdmState.sortDir = _cdmState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _cdmState.sortBy = col;
+    _cdmState.sortDir = (col === 'amount' || col === 'revenue' || col === 'date') ? 'desc' : 'asc';
+  }
+  _cdmRender();
+}
+function _cdmRender() {
+  var isLeads = _cdmState.isLeads;
+  var rows = _cdmState.entries.map(function(e) {
+    var l = e.loan;
+    return {
+      loan: l, bucket: e.bucket,
+      address: l.Name || '(no address)',
+      amount: numAmt(l.Loan_Amount),
+      status: l.Status || '—',
+      date: (isLeads ? l._leadDate : loanCloseDate(l)) || '',
+      revenue: estimatedRevenue(l),
+    };
+  });
+  var BUCKET_ORDER = { 'Won': 0, 'Open': 1, 'On Hold': 2, 'RTL': 0, 'DSCR': 1, 'Unknown': 2 };
+  var dir = _cdmState.sortDir === 'asc' ? 1 : -1;
+  rows.sort(function(a, b) {
+    var av, bv;
+    switch (_cdmState.sortBy) {
+      case 'bucket':  av = BUCKET_ORDER[a.bucket] || 3; bv = BUCKET_ORDER[b.bucket] || 3; break;
+      case 'address': av = String(a.address).toLowerCase(); bv = String(b.address).toLowerCase(); break;
+      case 'status':  av = String(a.status).toLowerCase();  bv = String(b.status).toLowerCase();  break;
+      case 'date':    av = a.date || ''; bv = b.date || ''; break;
+      case 'revenue': av = a.revenue; bv = b.revenue; break;
+      case 'amount':
+      default:        av = a.amount; bv = b.amount; break;
+    }
+    if (av < bv) return -1 * dir;
+    if (av > bv) return  1 * dir;
+    return 0;
+  });
+  var totalValue = rows.reduce(function(s, r) { return s + (r.amount || 0); }, 0);
+  var totalRev   = rows.reduce(function(s, r) { return s + (r.revenue || 0); }, 0);
+  var tot = function(label, val) {
+    return '<div><span style="color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:0.06em;font-weight:600">' + label + '</span> · <strong style="font-size:13.5px">' + val + '</strong></div>';
+  };
+  document.getElementById('cdmTotals').innerHTML =
+    tot(isLeads ? 'Leads' : 'Deals', String(rows.length)) +
+    tot('Total ' + (isLeads ? 'Requested' : 'Deal Value'), fmtMoney(totalValue)) +
+    (isLeads ? '' : tot('Total Est. Revenue', fmtMoney(totalRev)));
+  ['bucket','address','amount','status','date','revenue'].forEach(function(col) {
+    var el = document.getElementById('cdmSortArrow_' + col);
+    if (!el) return;
+    if (_cdmState.sortBy === col) { el.textContent = _cdmState.sortDir === 'asc' ? '▲' : '▼'; el.style.opacity = '1'; }
+    else { el.textContent = '↕'; el.style.opacity = '0.4'; }
+  });
+  var html = rows.map(function(r) {
+    var l = r.loan;
+    var href = '/loan-details/' + encodeURIComponent(l._slaLoanId) + '?owner=' + encodeURIComponent(l._ownerKey);
+    var chip = '<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;letter-spacing:0.02em;' +
+      (_CDM_BUCKET_STYLE[r.bucket] || _CDM_BUCKET_STYLE['Unknown']) + '">' + escH(r.bucket) + '</span>';
+    return '<tr onmouseover="this.style.background=\'rgba(200,129,58,0.04)\'" onmouseout="this.style.background=\'transparent\'">' +
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde">' + chip + '</td>' +
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde">' +
+        '<a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' +
+        '<div style="font-size:10.5px;color:var(--muted);margin-top:1px">' + escH(l._borrower || '') + (l._tool ? ' · ' + escH(l._tool) : '') + '</div>' +
+      '</td>' +
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' + (r.amount > 0 ? fmtMoney(r.amount) : '—') + '</td>' +
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde"><span class="pill ' + statusPillClass(r.status) + '">' + escH(r.status) + '</span></td>' +
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;font-variant-numeric:tabular-nums">' + escH(r.date || '—') + '</td>' +
+      '<td style="padding:9px 14px;border-bottom:1px solid #f0ebde;text-align:right;font-variant-numeric:tabular-nums">' + (r.revenue > 0 ? fmtMoney(r.revenue) : '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('cdmBody').innerHTML = html ||
+    '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--muted)">No loans in this bucket.</td></tr>';
 }
 
 // ── Performance stats (verbatim math from dashboard.html) ────────
