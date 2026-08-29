@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>SLA Dashboard (Native) · SLA Capital</title>
+  <!--
+    Deploy 236.785 — SLA-NATIVE financial dashboard (admin only).
+
+    Twin of dashboard.html (the Baseline-mirror dashboard) but sourced
+    entirely from SLA's own client/loan records — the first step toward
+    retiring the Baseline-synced dashboard. Every metric uses the SAME
+    formulas as dashboard.html (estimatedRevenue, isWon/isOpen buckets,
+    monthlyAggregates, perf stats, state table) so the two pages are
+    directly comparable. SLA loans are ADAPTED into the mirror's record
+    shape (Loan_Amount / Status / Origination / Origination_Points ...)
+    and fed through verbatim copies of those functions — if a number
+    differs between the two dashboards, it's the DATA that differs,
+    never the math.
+
+    The "Baseline vs SLA" panel is the reason this page exists right
+    now: it loads BOTH datasets, puts the headline metrics side by
+    side, and reconciles loan-by-loan (mirror.Id ↔ slaDisplayId /
+    l_baseline_<Id>) to list what's in Baseline but missing from SLA,
+    where matched loans disagree on status bucket or amount, and which
+    SLA closed loans are missing the fields the money math needs
+    (close date / points / rate). That answers "what information might
+    be missing" before we cut over.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Lora:wght@500;600&display=swap" rel="stylesheet" />
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-forms.js"></script>
+  <script src="sla-nav.js" defer></script>
+  <script src="/sla-search.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <style>
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --success: #256940; --warn: #7a5218; --danger: #7c1f1f;
+      --won: #6FA48B; --open: #9BC4E2;
+      --r: 12px; --r-sm: 8px; --r-xs: 6px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    .nav { position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,0.95); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 34px; }
+    .nav a, .nav button { color: var(--dark); text-decoration: none; padding: 8px 14px; border-radius: 8px; font-size: 13.5px; font-weight: 500; background: transparent; border: 1px solid transparent; cursor: pointer; }
+    .nav .nav-tools-btn { padding: 6px 12px; border: 1px solid var(--border); margin-left: 8px; }
+    .nav .nav-tool-link { padding: 8px 12px; }
+    .nav-left, .nav-right { display: flex; align-items: center; gap: 6px; }
+    .logout-btn { background: var(--dark); color: #fff; padding: 8px 18px; border: none; cursor: pointer; }
+
+    .page { max-width: 1280px; margin: 32px auto; padding: 0 24px 80px; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .page-header p { color: var(--muted); font-size: 13px; }
+    .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .btn-primary { padding: 10px 18px; background: var(--gold); color: #fff; border: none; border-radius: var(--r-xs); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-primary:hover { background: var(--gold-mid); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .last-sync { font-size: 11.5px; color: var(--muted); }
+
+    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 14px 16px; }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .stat-value { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; color: var(--dark); margin-top: 4px; }
+    .stat-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 18px 20px; margin-bottom: 18px; }
+    .chart-card h2 { font-family: 'Lora', serif; font-size: 16px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .chart-card .chart-sub { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 14px; }
+    .chart-card .chart-wrap { position: relative; height: 280px; }
+
+    .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .table-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .table-head h2 { font-family: 'Lora', serif; font-size: 16px; font-weight: 600; color: var(--dark); }
+    .tabs { display: flex; gap: 4px; }
+    .tab { padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .tab.active { background: var(--dark); color: #fff; border-color: var(--dark); }
+    .search-box { padding: 7px 12px; border-radius: 8px; border: 1.5px solid var(--border); font-family: inherit; font-size: 13px; min-width: 200px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { background: rgba(120,116,136,0.04); }
+    th { text-align: left; padding: 10px 16px; font-weight: 600; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; user-select: none; }
+    th .arrow { display: inline-block; width: 10px; color: var(--gold); font-weight: 700; }
+    td { padding: 11px 16px; border-top: 1px solid var(--border); }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.addr a { color: var(--dark); text-decoration: none; }
+    td.addr a:hover { text-decoration: underline; }
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .pill-lead        { background: rgba(200,129,58,0.16);  color: var(--gold-mid); }
+    .pill-submitted   { background: rgba(247,168,71,0.22);  color: #7a5218; }
+    .pill-underwriting{ background: rgba(180,150,220,0.28); color: #6b4a8f; }
+    .pill-processing  { background: rgba(180,220,180,0.40); color: #2f7a4a; }
+    .pill-approved    { background: rgba(125,162,225,0.30); color: #1f4a9e; }
+    .pill-hold        { background: rgba(199,80,80,0.18);   color: #8a2a2a; }
+    .pill-sold        { background: rgba(111,164,139,0.20); color: #2d6f51; }
+    .pill-servicing   { background: rgba(111,164,139,0.30); color: #1f5a3a; }
+    .pill-liquidated  { background: rgba(120,116,136,0.18); color: #4a4658; }
+    .pill-declined    { background: rgba(124,31,31,0.10);   color: #7c1f1f; }
+    .pill-default     { background: rgba(120,116,136,0.12); color: var(--muted); }
+
+    /* Comparison panel */
+    .cmp-grid th, .cmp-grid td { padding: 8px 12px; }
+    .cmp-delta-ok  { color: var(--success); font-weight: 600; }
+    .cmp-delta-bad { color: var(--danger); font-weight: 700; }
+    .cmp-section-toggle { background: none; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; border-radius: 14px; font-size: 11.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .cmp-section-toggle:hover { border-color: var(--gold); color: var(--gold); }
+    .cmp-note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+
+    .empty, .loading { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
+    .err-banner { padding: 14px 18px; background: rgba(124,31,31,0.06); border: 1px solid rgba(124,31,31,0.22); border-radius: var(--r-xs); color: var(--danger); font-size: 13px; margin-bottom: 18px; }
+    .auth-gate { display: flex; align-items: center; justify-content: center; min-height: 70vh; }
+    .auth-gate .gate-msg { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 28px 32px; max-width: 380px; text-align: center; }
+  </style>
+</head>
+<body>
+
+<nav class="nav" id="slaNav"></nav>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="gate-msg">Checking permissions…</div>
+</div>
+
+<div class="page" id="page" style="display:none">
+  <div class="page-header">
+    <div>
+      <h1>SLA Dashboard <span style="font-size:14px;color:var(--gold);vertical-align:middle">· native data</span></h1>
+      <p>Same charts and formulas as the Baseline dashboard, computed from SLA's own records. Use the comparison panel to see where the two disagree.</p>
+      <div class="last-sync" id="lastSyncLine">—</div>
+    </div>
+    <div class="header-actions">
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+        Range
+        <select id="dateRangeSelect" onchange="_setDateRange(this.value)" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:12.5px">
+          <option value="all">All Time</option>
+          <option value="ytd">Year to Date</option>
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="last_12">Last 12 Months</option>
+        </select>
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+        Year
+        <select id="yearSelect" onchange="renderAll()" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:12.5px"></select>
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
+        <input type="checkbox" id="hideLiquidated" onchange="renderAll()" /> hide liquidated
+      </label>
+      <a href="/dashboard.html" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;font-weight:600;color:var(--dark);text-decoration:none;background:#fff">Baseline Dashboard →</a>
+      <button class="btn-primary" id="refreshBtn" onclick="loadAll(true)">Refresh</button>
+    </div>
+  </div>
+
+  <div id="errBanner"></div>
+
+  <!-- High-level stat cards -->
+  <div class="stat-row" id="statRow"></div>
+
+  <!-- Baseline vs SLA comparison — the reason this page exists -->
+  <div class="chart-card">
+    <h2>Baseline vs SLA — Reconciliation</h2>
+    <div class="chart-sub">SAME FORMULAS, TWO DATA SOURCES · DELTAS + LOAN-LEVEL DIFFERENCES · ALL-TIME (RANGE SELECTOR DOES NOT APPLY HERE)</div>
+    <div id="compareWrap"><div class="loading">Loading both datasets…</div></div>
+  </div>
+
+  <!-- Revenue projection chart -->
+  <div class="chart-card">
+    <h2>Revenue Projections by Month</h2>
+    <div class="chart-sub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · POINTS + FEES + TPO PREMIUM (DSCR) − COST OF CAPITAL · DENIED/CANCELLED EXCLUDED</div>
+    <div class="chart-wrap"><canvas id="revenueChart"></canvas></div>
+  </div>
+
+  <!-- Volume chart -->
+  <div class="chart-card">
+    <h2>Loan Volume by Month</h2>
+    <div class="chart-sub">SELECTED YEAR · WON (incl. LIQUIDATED) + OPEN + ON HOLD · DEAL VALUE (USD) · DENIED/CANCELLED EXCLUDED</div>
+    <div class="chart-wrap"><canvas id="volumeChart"></canvas></div>
+  </div>
+
+  <!-- Performance Stats -->
+  <div class="chart-card">
+    <h2>Performance Stats</h2>
+    <div class="chart-sub">ACTIVE · CLOSE RATE · AVG LOAN SIZE · AVG POINTS · AVG RATE</div>
+    <div id="perfStatsWrap"></div>
+  </div>
+
+  <!-- Upcoming Closings -->
+  <div class="chart-card">
+    <h2>Upcoming Closings by Week</h2>
+    <div class="chart-sub">PIPELINE LOANS WITH A FUTURE CLOSE DATE · CLICK A WEEK TO EXPAND</div>
+    <div id="upcomingWrap"></div>
+  </div>
+
+  <!-- Loans by State -->
+  <div class="chart-card">
+    <h2>Loans by State</h2>
+    <div class="chart-sub">PIPELINE + CLOSED · TOTAL · RTL COUNT / VOLUME · DSCR COUNT / VOLUME</div>
+    <div id="stateTableWrap" style="max-height:480px;overflow-y:auto"></div>
+  </div>
+
+  <!-- Loans table -->
+  <div class="table-card">
+    <div class="table-head">
+      <h2>Loans (SLA records)</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="loanSearch" class="search-box" placeholder="Search address, borrower, ID…" oninput="_debouncedRenderTable()" />
+        <div class="tabs">
+          <button class="tab active" id="tabActive" onclick="setTab('active')">Active</button>
+          <button class="tab" id="tabSold"   onclick="setTab('sold')">Sold</button>
+          <button class="tab" id="tabClosed" onclick="setTab('closed')">Closed</button>
+          <button class="tab" id="tabAll"    onclick="setTab('all')">All</button>
+        </div>
+      </div>
+    </div>
+    <div id="loansTableWrap"><div class="loading">Loading…</div></div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────
+var _user = null;
+var _loans = [];        // SLA loans adapted into the mirror record shape
+var _mirror = null;     // Baseline mirror loans (raw) — null until loaded, [] on error
+var _mirrorErr = '';
+var _tab = 'active';
+var _sortBy = 'status';
+var _sortDir = 'desc';
+var _charts = {};
+var _cmpOpen = {};      // expanded comparison sections
+
+// ═══════════════════════════════════════════════════════════════════
+// EVERYTHING in this block is copied from dashboard.html so the two
+// pages compute identically. If you change a formula THERE, change it
+// HERE (and vice versa) — comparability is the whole point.
+// ═══════════════════════════════════════════════════════════════════
+function statusOrder(loan) {
+  var s = String((loan && loan.Status) || '').toLowerCase();
+  if (s === 'approved')                                  return 100;
+  if (s === 'under_review' || s === 'underwriting')      return 95;
+  if (s === 'in_processing' || s === 'processing')       return 90;
+  if (s === 'awaiting_app' || s === 'awaiting application' || s === 'awaiting_application') return 85;
+  if (s === 'submitted' || s === 'pending_review' || s === 'pending review')                return 80;
+  if (s === 'lead' || s === 'quoted' || s === 'active' || s === 'pre_qual')                 return 70;
+  if (s === 'on_hold' || s === 'hold') return 60;
+  if (s === 'in_servicing' || s === 'servicing')        return 55;
+  if (s === 'funded' || s === 'closed' || s === 'sold') return 50;
+  if (s === 'liquidated') return 40;
+  if (s === 'archived')  return 10;
+  if (s === 'declined' || s === 'denied' || s === 'withdrawn' || s === 'cancelled' || s === 'lost') return 5;
+  return 30;
+}
+function isWon(loan) {
+  var s   = String((loan && loan.Status)    || '').toLowerCase();
+  var sub = String((loan && loan.Substatus) || '').toLowerCase();
+  if (s === 'sold' || s === 'closed' || s === 'funded') return true;
+  if (s === 'in_servicing' || s === 'servicing') return true;
+  if (sub === 'in_servicing' || sub === 'servicing') return true;
+  return false;
+}
+function isLiquidated(loan) {
+  return String((loan && loan.Status) || '').toLowerCase() === 'liquidated';
+}
+function isClosed(loan) { return isWon(loan) || isLiquidated(loan); }
+function isOnHold(loan) {
+  var s = String((loan && loan.Status)    || '').toLowerCase();
+  var sub = String((loan && loan.Substatus) || '').toLowerCase();
+  return s === 'on_hold' || s === 'hold' || s.indexOf('hold') >= 0
+      || sub === 'on_hold' || sub === 'hold' || sub.indexOf('hold') >= 0;
+}
+function isArchived(loan) {
+  if (!loan) return false;
+  if (loan.Archived === true || loan.Is_Archived === true) return true;
+  var s = String(loan.Status || '').toLowerCase();
+  return s === 'archived' || s === 'lost' || s === 'declined'
+      || s === 'denied' || s === 'withdrawn' || s === 'cancelled';
+}
+function isOpen(loan) {
+  return loan && !isWon(loan) && !isLiquidated(loan) && !isOnHold(loan) && !isArchived(loan);
+}
+function inferLoanType(loan) {
+  if (!loan) return 'UNKNOWN';
+  var sub = String(loan.Substatus || '').toUpperCase();
+  if (sub === 'RTL' || sub === 'DSCR') return sub;
+  if (parseFloat(loan.Holdback)        > 0) return 'RTL';
+  if (parseFloat(loan.Initial_Advance) > 0) return 'RTL';
+  var term = parseFloat(loan.Term);
+  if (isFinite(term)) {
+    if (term >= 240) return 'DSCR';
+    if (term <= 18)  return 'RTL';
+  }
+  return 'UNKNOWN';
+}
+function estimatedRevenue(loan) {
+  if (!loan) return 0;
+  var amt = parseFloat(String(loan.Loan_Amount || 0).replace(/[$,]/g, ''));
+  if (!isFinite(amt) || amt <= 0) return 0;
+  var pts = parseFloat(loan.Origination_Points || 0);
+  if (!isFinite(pts)) pts = 0;
+  var ptsDecimal = pts < 0.1 ? pts : (pts / 100);
+  var pointsRevenue = amt * ptsDecimal;
+  var type = inferLoanType(loan);
+  var tpo = tpoPremiumPct(loan);
+  if (tpo > 0) {
+    var tpoDecimal = tpo < 0.1 ? tpo : (tpo / 100);
+    pointsRevenue += amt * tpoDecimal;
+  }
+  var flatFees = type === 'RTL' ? 2150 : 2315;
+  var costOfCapital = type === 'RTL' ? (amt * 0.0025) : 1495;
+  return pointsRevenue + flatFees - costOfCapital;
+}
+var TPO_PREMIUM_FIELDS = [
+  'TPO_Premium', 'TPO_Premium_Pct', 'TPO_Rebate',
+  'Tpo_Premium', 'tpo_premium', 'TpoPremium',
+  'Premium', 'Yield_Spread_Premium', 'YSP',
+  'Service_Release_Premium', 'SRP',
+];
+function tpoPremiumPct(loan) {
+  if (!loan) return 0;
+  for (var i = 0; i < TPO_PREMIUM_FIELDS.length; i++) {
+    var f = TPO_PREMIUM_FIELDS[i];
+    if (loan[f] === undefined || loan[f] === null || loan[f] === '') continue;
+    var n = parseFloat(loan[f]);
+    if (isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+function pointsAsPercent(v) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) return null;
+  return n < 0.1 ? (n * 100) : n;
+}
+function loanCloseDate(loan) {
+  return (loan && (loan.Origination || loan.Created_Date)) || '';
+}
+var _dateRange = 'all';
+function _setDateRange(r) { _dateRange = r || 'all'; renderAll(); }
+function _rangeLabel() {
+  var m = { all: 'All Time', ytd: 'YTD', this_month: 'This Month',
+            last_month: 'Last Month', last_12: 'Last 12 Mo' };
+  return m[_dateRange] || 'All Time';
+}
+function isInDateRange(dateStr, range) {
+  range = range || _dateRange;
+  if (range === 'all') return true;
+  if (!dateStr) return false;
+  var d = new Date(dateStr);
+  if (!isFinite(d.getTime())) return false;
+  var now = new Date();
+  if (range === 'this_month') {
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }
+  if (range === 'last_month') {
+    var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return d.getFullYear() === lm.getFullYear() && d.getMonth() === lm.getMonth();
+  }
+  if (range === 'ytd') {
+    return d.getFullYear() === now.getFullYear();
+  }
+  if (range === 'last_12') {
+    var cutoff = new Date(now); cutoff.setMonth(cutoff.getMonth() - 12);
+    return d.getTime() >= cutoff.getTime();
+  }
+  return true;
+}
+function loanClosedInRange(loan) { return isInDateRange(loanCloseDate(loan)); }
+function parseLoanDate(d) {
+  if (!d) return null;
+  var s = String(d).trim();
+  var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return { year: parseInt(iso[1], 10), month: parseInt(iso[2], 10), day: parseInt(iso[3], 10) };
+  var us = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (us) return { year: parseInt(us[3], 10), month: parseInt(us[1], 10), day: parseInt(us[2], 10) };
+  var d2 = new Date(s);
+  if (!isNaN(d2.getTime())) return { year: d2.getFullYear(), month: d2.getMonth() + 1, day: d2.getDate() };
+  return null;
+}
+function extractStateFromName(name) {
+  if (!name) return '';
+  var m = String(name).match(/,\s*([A-Z]{2})(?:\s|,|$)/);
+  return m ? m[1] : '';
+}
+function numAmt(v) {
+  var n = parseFloat(String(v == null ? '' : v).replace(/[$,]/g, ''));
+  return isFinite(n) && n > 0 ? n : 0;
+}
+function fmtMoney(n, compact) {
+  if (!isFinite(n)) return '—';
+  if (compact) {
+    if (Math.abs(n) >= 1000000) return '$' + (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+    if (Math.abs(n) >= 1000)    return '$' + Math.round(n / 1000) + 'K';
+  }
+  return '$' + Math.round(n).toLocaleString();
+}
+function escH(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+// ═══════════════════ end copied-formula block ═══════════════════
+
+// ── SLA → mirror-shape adapter ────────────────────────────────────
+// Maps an SLA loan onto the Baseline mirror's field names so the
+// copied formula block above works on it untouched.
+function slaStatusOf(l) {
+  var d = String(l.disposition || '').toLowerCase().replace(/[\s]+/g, '_');
+  if (d === 'sold') return 'sold';
+  if (d === 'paid_off' || d === 'payoff') return 'liquidated';
+  if (d === 'servicing' || d === 'pending_sale' || d === 'post_close') return 'in_servicing';
+  var stg = String(l.processingStage || '').toLowerCase();
+  if (stg === 'pp_closed') return 'closed';
+  var s = String(l.status || '').toLowerCase();
+  if (s === 'sold') return 'sold';
+  if (s === 'closed') return 'closed';
+  if (s === 'liquidated') return 'liquidated';
+  if (s === 'denied') return 'declined';
+  if (s === 'cancelled') return 'withdrawn';
+  if (s === 'on_hold') return 'on_hold';
+  if (s === 'approved') {
+    if (stg === 'underwriting') return 'underwriting';
+    if (stg === 'processing' || stg === 'new_loan') return 'in_processing';
+    return 'approved';
+  }
+  if (s === 'submitted') return 'submitted';
+  return 'lead';
+}
+function adaptLoan(client, l, ownerKey) {
+  var tool = String(l.toolType || '').toLowerCase();
+  var rate = parseFloat(l.rate);
+  // SLA stores rate as a percent-number (10.45); the mirror stores a
+  // decimal (0.1045). Normalize so the shared renderers agree.
+  var rateDec = isFinite(rate) ? (rate > 1 ? rate / 100 : rate) : '';
+  var borrower = ((client.firstName || '') + ' ' + (client.lastName || '')).trim();
+  var tpo = parseFloat(l.tpo);
+  if (!isFinite(tpo) || tpo <= 0) tpo = parseFloat(l.tpoPremium);
+  if (!isFinite(tpo) || tpo <= 0) tpo = parseFloat(l.tpoSpread);
+  return {
+    Id:   l.slaDisplayId || l.id,
+    Name: (l.address || '') || ('(no address — ' + borrower + ')'),
+    Status: slaStatusOf(l),
+    Substatus: tool === 'dscr' ? 'DSCR' : (tool === 'rtl' || tool === 'guc') ? 'RTL' : '',
+    Loan_Amount: Number(l.finalLoanAmount || l.loanAmt) || 0,
+    Rate: rateDec,
+    Origination_Points: l.points,
+    TPO_Premium: (isFinite(tpo) && tpo > 0) ? tpo : '',
+    Origination: l.fundingDate || '',
+    Created_Date: String(l.createdAt || l.savedAt || '').slice(0, 10),
+    Address_State: extractStateFromName(l.address || ''),
+    // SLA-side extras (not read by the shared formulas)
+    _slaLoanId: l.id,
+    _clientId: client.id,
+    _ownerKey: ownerKey,
+    _borrower: borrower,
+    _tool: tool.toUpperCase(),
+    _slaStatusRaw: String(l.status || ''),
+    _dispositionRaw: String(l.disposition || ''),
+    _stageRaw: String(l.processingStage || ''),
+    // Baseline linkage for the reconciliation: imported loans carry the
+    // Baseline record id in their loan id (l_baseline_<Id>) and/or the
+    // SLA display id, which Baseline uses as its Id.
+    _blKey: /^l_baseline_/.test(String(l.id)) ? String(l.id).replace(/^l_baseline_/, '') : (l.slaDisplayId || ''),
+  };
+}
+
+// ── Load ──────────────────────────────────────────────────────────
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Access denied.</strong><br/>This page is for admins only.</div>';
+    return;
+  }
+  _user = user;
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('page').style.display = '';
+  loadAll(false);
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function setErr(msg) {
+  var el = document.getElementById('errBanner');
+  el.innerHTML = msg ? '<div class="err-banner">' + escH(msg) + '</div>' : '';
+}
+
+function loadAll(fresh) {
+  setErr('');
+  var btn = document.getElementById('refreshBtn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  if (fresh && SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+
+  // SLA side — the page's primary dataset.
+  SLA.Clients.list({ all: true }).then(function(r) {
+    var flat = [];
+    var byOwner = (r && r.byOwner) || {};
+    Object.keys(byOwner).forEach(function(ownerKey) {
+      (byOwner[ownerKey] || []).forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          if (!l || !l.id) return;
+          flat.push(adaptLoan(c, l, ownerKey));
+        });
+      });
+    });
+    _loans = flat;
+    document.getElementById('lastSyncLine').textContent =
+      _loans.length + ' SLA loans across ' + Object.keys(byOwner).length + ' owners · loaded ' + new Date().toLocaleTimeString();
+    renderAll();
+    btn.disabled = false; btn.textContent = 'Refresh';
+  }).catch(function(err) {
+    setErr('Failed to load SLA clients: ' + (err && err.message || 'unknown'));
+    btn.disabled = false; btn.textContent = 'Refresh';
+  });
+
+  // Baseline side — comparison only. Failure here never blocks the page.
+  _mirror = null; _mirrorErr = '';
+  var mirrorP = (SLA.Baseline && SLA.Baseline.mirror && SLA.Baseline.mirror.list)
+    ? SLA.Baseline.mirror.list()
+    : Promise.reject(new Error('Baseline mirror API not available'));
+  mirrorP.then(function(r) {
+    _mirror = (r && r.loans) || [];
+    renderCompare();
+  }).catch(function(err) {
+    _mirror = [];
+    _mirrorErr = (err && err.message) || 'unknown error';
+    renderCompare();
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function renderAll() {
+  if (typeof Chart === 'undefined') {
+    renderAll._waits = (renderAll._waits || 0) + 1;
+    if (renderAll._waits <= 60) { setTimeout(renderAll, 50); return; }
+  }
+  populateYearSelect();
+  renderStats();
+  renderCompare();
+  renderRevenueChart();
+  renderVolumeChart();
+  renderPerformanceStats();
+  renderUpcomingClosings();
+  renderStateTable();
+  renderTable();
+}
+
+function populateYearSelect() {
+  var sel = document.getElementById('yearSelect');
+  if (!sel) return;
+  var years = {};
+  var curYear = new Date().getFullYear();
+  years[curYear] = true;
+  for (var i = 0; i < _loans.length; i++) {
+    var parsed = parseLoanDate(loanCloseDate(_loans[i]));
+    if (parsed && parsed.year >= 2020 && parsed.year <= curYear + 5) years[parsed.year] = true;
+  }
+  var yearList = Object.keys(years).map(function(y){ return parseInt(y, 10); }).sort(function(a,b){ return b - a; });
+  var prev = parseInt(sel.value || curYear, 10);
+  sel.innerHTML = yearList.map(function(y) {
+    return '<option value="' + y + '"' + (y === prev ? ' selected' : '') + '>' + y + '</option>';
+  }).join('');
+  if (!sel.value) sel.value = String(curYear);
+}
+function selectedYear() {
+  var sel = document.getElementById('yearSelect');
+  return parseInt((sel && sel.value) || new Date().getFullYear(), 10);
+}
+
+function statCard(label, value, sub) {
+  return '<div class="stat-card">' +
+    '<div class="stat-label">' + escH(label) + '</div>' +
+    '<div class="stat-value">' + escH(value) + '</div>' +
+    '<div class="stat-sub">' + escH(sub) + '</div>' +
+  '</div>';
+}
+function renderStats() {
+  var openLoans  = _loans.filter(isOpen);
+  var wonLoans   = _loans.filter(isWon);
+  var openAmount = openLoans.reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
+  var wonInRange = wonLoans.filter(loanClosedInRange);
+  var wonSum    = wonInRange.reduce(function(s, l) { return s + numAmt(l.Loan_Amount); }, 0);
+  var revSum    = wonInRange.reduce(function(s, l) { return s + estimatedRevenue(l); }, 0);
+  var rangeLbl  = _rangeLabel();
+  var nonArchivedCount = 0;
+  for (var i = 0; i < _loans.length; i++) { if (!isArchived(_loans[i])) nonArchivedCount += 1; }
+  var html = '';
+  html += statCard('Active Pipeline', fmtMoney(openAmount, true), openLoans.length + ' loans');
+  html += statCard('Won (' + rangeLbl + ')', fmtMoney(wonSum, true), wonInRange.length + ' closed');
+  html += statCard('Est. Revenue (' + rangeLbl + ')', fmtMoney(revSum, true), 'closing-day fees + points');
+  html += statCard('Total SLA Loans', String(nonArchivedCount), 'excl. denied/cancelled');
+  document.getElementById('statRow').innerHTML = html;
+}
+
+// ── Baseline vs SLA comparison ────────────────────────────────────
+function _bucketOf(l) {
+  if (isArchived(l)) return 'archived';
+  if (isLiquidated(l)) return 'liquidated';
+  if (isWon(l)) return 'won';
+  if (isOnHold(l)) return 'onHold';
+  return 'open';
+}
+function _headline(loans) {
+  var open = 0, openAmt = 0, won = 0, wonAmt = 0, rev = 0, hold = 0, liq = 0, arch = 0, total = 0;
+  for (var i = 0; i < loans.length; i++) {
+    var l = loans[i];
+    var b = _bucketOf(l);
+    if (b !== 'archived') total += 1;
+    if (b === 'open')   { open += 1; openAmt += numAmt(l.Loan_Amount); }
+    if (b === 'won' || b === 'liquidated') { won += 1; wonAmt += numAmt(l.Loan_Amount); rev += estimatedRevenue(l); }
+    if (b === 'onHold') hold += 1;
+    if (b === 'liquidated') liq += 1;
+    if (b === 'archived') arch += 1;
+  }
+  return { total: total, open: open, openAmt: openAmt, won: won, wonAmt: wonAmt, rev: rev, hold: hold, liq: liq, arch: arch };
+}
+function cmpToggle(key) { _cmpOpen[key] = !_cmpOpen[key]; renderCompare(); }
+function renderCompare() {
+  var wrap = document.getElementById('compareWrap');
+  if (!wrap) return;
+  if (_mirror === null || !_loans.length) {
+    wrap.innerHTML = '<div class="loading">Loading both datasets…</div>';
+    return;
+  }
+  if (_mirrorErr) {
+    wrap.innerHTML = '<div class="err-banner">Baseline mirror failed to load (' + escH(_mirrorErr) + ') — SLA metrics above are unaffected.</div>';
+    return;
+  }
+
+  var bl = _headline(_mirror);
+  var sla = _headline(_loans);
+
+  function row(label, bv, sv, fmt, invertGood) {
+    var f = fmt || function(v) { return String(v); };
+    var delta = sv - bv;
+    var cls = delta === 0 ? '' : (Math.abs(delta) / Math.max(Math.abs(bv), 1) < 0.02 ? 'cmp-delta-ok' : 'cmp-delta-bad');
+    var deltaStr = delta === 0 ? '=' : ((delta > 0 ? '+' : '−') + f(Math.abs(delta)).replace(/^\$/, '$'));
+    return '<tr>' +
+      '<td style="border-top:1px solid var(--border);font-weight:500">' + escH(label) + '</td>' +
+      '<td style="border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + f(bv) + '</td>' +
+      '<td style="border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + f(sv) + '</td>' +
+      '<td style="border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums" class="' + cls + '">' + deltaStr + '</td>' +
+    '</tr>';
+  }
+  var money = function(v) { return fmtMoney(v); };
+  var count = function(v) { return String(Math.round(v)); };
+
+  var html = '<table class="cmp-grid" style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:14px">' +
+    '<thead><tr>' +
+      '<th style="text-align:left">Metric (all-time, same formula both sides)</th>' +
+      '<th style="text-align:right">Baseline</th>' +
+      '<th style="text-align:right">SLA</th>' +
+      '<th style="text-align:right">SLA − Baseline</th>' +
+    '</tr></thead><tbody>' +
+    row('Loans (excl. archived/denied)', bl.total, sla.total, count) +
+    row('Active pipeline — count', bl.open, sla.open, count) +
+    row('Active pipeline — $', bl.openAmt, sla.openAmt, money) +
+    row('Won/closed — count (incl. liquidated)', bl.won, sla.won, count) +
+    row('Won/closed — $', bl.wonAmt, sla.wonAmt, money) +
+    row('Est. revenue (won, all-time)', bl.rev, sla.rev, money) +
+    row('On hold — count', bl.hold, sla.hold, count) +
+    row('Liquidated / paid off — count', bl.liq, sla.liq, count) +
+    row('Archived / denied / cancelled — count', bl.arch, sla.arch, count) +
+  '</tbody></table>';
+
+  // ── Loan-level reconciliation ──
+  // Index SLA loans by their Baseline linkage key (slaDisplayId or the
+  // l_baseline_<Id> suffix). Mirror.Id is Baseline's record id (the
+  // SLA-YYYYMMDD-NNNN display id).
+  var slaByBl = {};
+  var slaNative = [];
+  for (var i = 0; i < _loans.length; i++) {
+    var k = String(_loans[i]._blKey || '').trim();
+    if (k) slaByBl[k] = _loans[i];
+    else slaNative.push(_loans[i]);
+  }
+  var missingInSla = [];
+  var bucketMismatch = [];
+  var amountMismatch = [];
+  var matched = 0;
+  for (var m = 0; m < _mirror.length; m++) {
+    var ml = _mirror[m];
+    var mid = String(ml.Id || '').trim();
+    var sl = mid ? slaByBl[mid] : null;
+    if (!sl) {
+      if (!isArchived(ml)) missingInSla.push(ml);
+      continue;
+    }
+    matched += 1;
+    var mb = _bucketOf(ml), sb = _bucketOf(sl);
+    if (mb !== sb) bucketMismatch.push({ m: ml, s: sl, mb: mb, sb: sb });
+    var ma = numAmt(ml.Loan_Amount), sa = numAmt(sl.Loan_Amount);
+    if (ma > 0 && sa > 0 && Math.abs(ma - sa) > Math.max(1000, ma * 0.01)) {
+      amountMismatch.push({ m: ml, s: sl, ma: ma, sa: sa });
+    }
+  }
+  // Field gaps that break the money math on the SLA side.
+  var gapNoClose = [], gapNoPoints = [], gapNoRate = [], gapNoType = [];
+  for (var g = 0; g < _loans.length; g++) {
+    var gl = _loans[g];
+    if (!isClosed(gl)) continue;
+    if (!gl.Origination) gapNoClose.push(gl);
+    if (!(parseFloat(gl.Origination_Points) > 0)) gapNoPoints.push(gl);
+    if (!(parseFloat(gl.Rate) > 0)) gapNoRate.push(gl);
+    if (!gl.Substatus) gapNoType.push(gl);
+  }
+
+  function section(key, title, items, renderRow, headHtml) {
+    var open = !!_cmpOpen[key];
+    var color = items.length ? 'var(--danger)' : 'var(--success)';
+    var h = '<div style="margin-top:10px">' +
+      '<button type="button" class="cmp-section-toggle" onclick="cmpToggle(\'' + key + '\')">' +
+        (open ? '▾ ' : '▸ ') + escH(title) + ' — <span style="color:' + color + ';font-weight:700">' + items.length + '</span>' +
+      '</button>';
+    if (open && items.length) {
+      h += '<div style="max-height:320px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:8px">' +
+        '<table style="width:100%;font-size:12px;border-collapse:collapse">' + (headHtml || '') + '<tbody>' +
+        items.map(renderRow).join('') + '</tbody></table></div>';
+    }
+    return h + '</div>';
+  }
+  var tdS = 'padding:6px 10px;border-top:1px solid var(--border)';
+  var tdR = tdS + ';text-align:right;font-variant-numeric:tabular-nums';
+
+  html += '<div style="font-size:12.5px;color:var(--muted);margin-bottom:2px">' +
+    'Matched loan-for-loan: <strong>' + matched + '</strong> · SLA-native (no Baseline link — expected for new originations): <strong>' + slaNative.length + '</strong>' +
+  '</div>';
+
+  html += section('missing', 'In Baseline but NOT found in SLA', missingInSla, function(l) {
+    return '<tr>' +
+      '<td style="' + tdS + '">' + escH(l.Id || '') + '</td>' +
+      '<td style="' + tdS + '">' + escH(l.Name || '') + '</td>' +
+      '<td style="' + tdS + '">' + escH(l.Status || '') + '</td>' +
+      '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
+    '</tr>';
+  }, '<thead><tr><th>Baseline Id</th><th>Name</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead>');
+
+  html += section('bucket', 'Matched but status bucket DIFFERS (Baseline vs SLA)', bucketMismatch, function(x) {
+    return '<tr>' +
+      '<td style="' + tdS + '">' + escH(x.m.Id || '') + '</td>' +
+      '<td style="' + tdS + '">' + escH(x.s.Name || x.m.Name || '') + '</td>' +
+      '<td style="' + tdS + '">' + escH(x.mb) + ' <span style="color:var(--muted)">(' + escH(x.m.Status || '') + ')</span></td>' +
+      '<td style="' + tdS + '">' + escH(x.sb) + ' <span style="color:var(--muted)">(' + escH(x.s._slaStatusRaw + (x.s._dispositionRaw ? ' / ' + x.s._dispositionRaw : '') + (x.s._stageRaw ? ' / ' + x.s._stageRaw : '')) + ')</span></td>' +
+    '</tr>';
+  }, '<thead><tr><th>Id</th><th>Address</th><th>Baseline bucket</th><th>SLA bucket</th></tr></thead>');
+
+  html += section('amount', 'Matched but loan AMOUNT differs (>1% and >$1k)', amountMismatch, function(x) {
+    return '<tr>' +
+      '<td style="' + tdS + '">' + escH(x.m.Id || '') + '</td>' +
+      '<td style="' + tdS + '">' + escH(x.s.Name || x.m.Name || '') + '</td>' +
+      '<td style="' + tdR + '">' + fmtMoney(x.ma) + '</td>' +
+      '<td style="' + tdR + '">' + fmtMoney(x.sa) + '</td>' +
+      '<td style="' + tdR + '">' + fmtMoney(x.sa - x.ma) + '</td>' +
+    '</tr>';
+  }, '<thead><tr><th>Id</th><th>Address</th><th style="text-align:right">Baseline $</th><th style="text-align:right">SLA $</th><th style="text-align:right">Δ</th></tr></thead>');
+
+  function gapRow(l) {
+    return '<tr>' +
+      '<td style="' + tdS + '">' + escH(l.Id || '') + '</td>' +
+      '<td style="' + tdS + '">' + escH(l.Name || '') + '</td>' +
+      '<td style="' + tdS + '">' + escH(l._slaStatusRaw + (l._dispositionRaw ? ' / ' + l._dispositionRaw : '')) + '</td>' +
+      '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
+    '</tr>';
+  }
+  var gapHead = '<thead><tr><th>Id</th><th>Address</th><th>SLA status</th><th style="text-align:right">Amount</th></tr></thead>';
+  html += section('gapClose',  'SLA closed loans MISSING a close date (fall back to created date)', gapNoClose,  gapRow, gapHead);
+  html += section('gapPoints', 'SLA closed loans MISSING points (revenue undercounts)',              gapNoPoints, gapRow, gapHead);
+  html += section('gapRate',   'SLA closed loans MISSING a rate',                                    gapNoRate,   gapRow, gapHead);
+  html += section('gapType',   'SLA closed loans MISSING a loan type (RTL/DSCR unknown)',            gapNoType,   gapRow, gapHead);
+
+  html += '<div class="cmp-note">Reconciliation matches Baseline\'s record Id against SLA\'s display id / imported loan id. ' +
+    '"Missing from SLA" excludes Baseline-archived records. Buckets: open · won (sold/closed/servicing) · liquidated · on hold · archived.</div>';
+
+  wrap.innerHTML = html;
+}
+
+// ── Charts ────────────────────────────────────────────────────────
+function monthlyAggregates(year, metricFn) {
+  var hideLiq = document.getElementById('hideLiquidated');
+  hideLiq = hideLiq ? hideLiq.checked : false;
+  var won = new Array(12).fill(0), open = new Array(12).fill(0), onHold = new Array(12).fill(0);
+  for (var i = 0; i < _loans.length; i++) {
+    var l = _loans[i];
+    if (isArchived(l)) continue;
+    if (hideLiq && isLiquidated(l)) continue;
+    var parsed = parseLoanDate(loanCloseDate(l));
+    if (!parsed || parsed.year !== year) continue;
+    var v = metricFn(l);
+    if (!isFinite(v) || v <= 0) continue;
+    var mIdx = parsed.month - 1;
+    if (isWon(l) || isLiquidated(l)) won[mIdx] += v;
+    else if (isOnHold(l)) onHold[mIdx] += v;
+    else open[mIdx] += v;
+  }
+  return { won: won, open: open, onHold: onHold };
+}
+function drawStackedBar(canvasId, data, year, fmtTick) {
+  if (typeof Chart === 'undefined') return;
+  var ctx = document.getElementById(canvasId).getContext('2d');
+  if (_charts[canvasId]) _charts[canvasId].destroy();
+  var monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    .map(function(m) { return m + ' ' + year; });
+  _charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        { label: 'Won',     data: data.won,    backgroundColor: '#6FA48B', stack: 'a' },
+        { label: 'Open',    data: data.open,   backgroundColor: '#9BC4E2', stack: 'a' },
+        { label: 'On Hold', data: data.onHold, backgroundColor: '#C75050', stack: 'a' },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            footer: function(items) {
+              var t = 0;
+              for (var i = 0; i < items.length; i++) t += items[i].parsed.y || 0;
+              return 'Total: ' + fmtMoney(t);
+            },
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true, ticks: { callback: function(v) { return fmtTick(v); } } },
+      },
+    },
+  });
+}
+function renderRevenueChart() {
+  var year = selectedYear();
+  var data = monthlyAggregates(year, function(l) { return estimatedRevenue(l); });
+  drawStackedBar('revenueChart', data, year, function(v) {
+    return v >= 1000 ? Math.round(v / 1000) + 'K' : Math.round(v);
+  });
+}
+function renderVolumeChart() {
+  var year = selectedYear();
+  var data = monthlyAggregates(year, function(l) { return numAmt(l.Loan_Amount); });
+  drawStackedBar('volumeChart', data, year, function(v) {
+    if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (v >= 1000)    return Math.round(v / 1000) + 'K';
+    return Math.round(v);
+  });
+}
+
+// ── Performance stats (verbatim math from dashboard.html) ────────
+function renderPerformanceStats() {
+  function statsFor(typeLabel, typeMatcher) {
+    var active = 0, closed = 0, arch = 0;
+    var amts = [], pts = [], rts = [];
+    for (var i = 0; i < _loans.length; i++) {
+      var l = _loans[i];
+      if (!typeMatcher(l)) continue;
+      if (isArchived(l)) { arch += 1; continue; }
+      if (isOpen(l) || isOnHold(l)) { active += 1; continue; }
+      if (!isClosed(l)) continue;
+      if (!loanClosedInRange(l)) continue;
+      closed += 1;
+      var amt = numAmt(l.Loan_Amount);
+      if (amt > 0) amts.push(amt);
+      var p = pointsAsPercent(l.Origination_Points);
+      if (p != null && p > 0) pts.push(p);
+      var r = parseFloat(l.Rate);
+      if (isFinite(r) && r > 0) rts.push(r > 1 ? r : r * 100);
+    }
+    var closeRate = (closed + arch) > 0 ? (closed / (closed + arch) * 100) : null;
+    var avg = function(arr) { return arr.length ? (arr.reduce(function(s, v) { return s + v; }, 0) / arr.length) : null; };
+    return { type: typeLabel, active: active, closed: closed, arch: arch, closeRate: closeRate,
+             avgAmt: avg(amts), avgPts: avg(pts), avgRate: avg(rts) };
+  }
+  var rows = [
+    statsFor('RTL',  function(l) { return inferLoanType(l) === 'RTL'; }),
+    statsFor('DSCR', function(l) { return inferLoanType(l) === 'DSCR'; }),
+    statsFor('All',  function(l) { return true; }),
+  ];
+  var fmtPct = function(v) { return v == null ? '—' : v.toFixed(1) + '%'; };
+  var th = function(label, align) {
+    return '<th style="text-align:' + (align || 'left') + ';padding:9px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap">' + label + '</th>';
+  };
+  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse;table-layout:auto">';
+  html += '<thead><tr>' + th('Type') + th('Active','right') + th('Closed','right') + th('Denied/Cancelled','right') +
+    th('Close Rate','right') + th('Avg Loan','right') + th('Avg Pts','right') + th('Avg Rate','right') + '</tr></thead><tbody>';
+  rows.forEach(function(r) {
+    var td = function(content, align, extra) {
+      return '<td style="padding:10px;border-top:1px solid var(--border);text-align:' + (align || 'left') + ';' + (extra || '') + '">' + content + '</td>';
+    };
+    html += '<tr>' +
+      td('<span style="font-weight:600">' + escH(r.type) + '</span>') +
+      td(String(r.active), 'right', 'font-variant-numeric:tabular-nums;color:var(--dark)') +
+      td(String(r.closed), 'right', 'font-variant-numeric:tabular-nums') +
+      td(String(r.arch),   'right', 'font-variant-numeric:tabular-nums;color:var(--muted)') +
+      td(fmtPct(r.closeRate), 'right', 'font-variant-numeric:tabular-nums') +
+      td(r.avgAmt != null ? fmtMoney(r.avgAmt) : '—', 'right', 'font-variant-numeric:tabular-nums') +
+      td(r.avgPts != null ? r.avgPts.toFixed(2) + '%' : '—', 'right', 'font-variant-numeric:tabular-nums') +
+      td(r.avgRate != null ? r.avgRate.toFixed(2) + '%' : '—', 'right', 'font-variant-numeric:tabular-nums') +
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('perfStatsWrap').innerHTML = html;
+}
+
+// ── Upcoming closings by week ─────────────────────────────────────
+function renderUpcomingClosings() {
+  var wrap = document.getElementById('upcomingWrap');
+  if (!wrap) return;
+  var todayMs = new Date(); todayMs.setHours(0,0,0,0); todayMs = todayMs.getTime();
+  var byWeek = {};
+  function mondayOf(ms) {
+    var d = new Date(ms);
+    var dow = d.getDay();
+    var diff = (dow === 0 ? -6 : 1 - dow);
+    d.setDate(d.getDate() + diff);
+    d.setHours(0,0,0,0);
+    return d.getTime();
+  }
+  for (var i = 0; i < _loans.length; i++) {
+    var l = _loans[i];
+    if (isArchived(l)) continue;
+    if (!isOpen(l) && !isOnHold(l)) continue;
+    var parsed = parseLoanDate(l.Origination);
+    if (!parsed) continue;
+    var ms = new Date(parsed.year, parsed.month - 1, parsed.day).getTime();
+    if (ms < todayMs) continue;
+    var mon = mondayOf(ms);
+    if (!byWeek[mon]) byWeek[mon] = { mondayMs: mon, dscrCount: 0, dscrTotal: 0, rtlCount: 0, rtlTotal: 0, loans: [] };
+    var amt = numAmt(l.Loan_Amount);
+    var type = inferLoanType(l);
+    if (type === 'DSCR') { byWeek[mon].dscrCount += 1; byWeek[mon].dscrTotal += amt; }
+    else                 { byWeek[mon].rtlCount  += 1; byWeek[mon].rtlTotal  += amt; }
+    byWeek[mon].loans.push({ name: l.Name, amt: amt, type: type, date: l.Origination, id: l._slaLoanId, owner: l._ownerKey });
+  }
+  var weeks = Object.keys(byWeek).map(function(k) { return byWeek[k]; })
+    .sort(function(a, b) { return a.mondayMs - b.mondayMs; });
+  if (!weeks.length) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">No upcoming closings in the pipeline.</div>';
+    return;
+  }
+  function fmtRange(mondayMs) {
+    var mon = new Date(mondayMs);
+    var fri = new Date(mondayMs); fri.setDate(fri.getDate() + 4);
+    return mon.toLocaleString('en-US', { month: 'short', day: 'numeric' }) + ' – ' +
+           fri.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+  }
+  function pill(count, total, label, bg, fg) {
+    if (!count) return '<span style="font-size:12px;color:var(--muted)">—</span>';
+    return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;border-radius:14px;background:' + bg + ';color:' + fg + ';font-weight:600">' +
+      '<span style="font-size:10px;letter-spacing:0.05em;text-transform:uppercase;opacity:0.8">' + label + '</span>' +
+      count + ' · ' + fmtMoney(total) + '</span>';
+  }
+  var html = '<div style="display:grid;grid-template-columns:24px 200px 1fr 1fr 200px;gap:14px;padding:8px 14px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);font-weight:600">' +
+    '<div></div><div>Week</div><div>DSCR</div><div>RTL</div><div style="text-align:right">Week Total</div></div>';
+  weeks.forEach(function(w, idx) {
+    var rowId = 'slawk_' + idx;
+    var cnt = w.dscrCount + w.rtlCount;
+    var tot = w.dscrTotal + w.rtlTotal;
+    html += '<div style="cursor:pointer;display:grid;grid-template-columns:24px 200px 1fr 1fr 200px;gap:14px;align-items:center;padding:11px 14px;border-top:1px solid var(--border);font-size:13px" onclick="slaToggleWeek(\'' + rowId + '\')">' +
+      '<div id="' + rowId + '_caret" style="font-size:11px;color:var(--muted)">▸</div>' +
+      '<div style="font-weight:600">' + escH(fmtRange(w.mondayMs)) + '</div>' +
+      '<div>' + pill(w.dscrCount, w.dscrTotal, 'DSCR', 'rgba(38,26,54,0.08)', '#261a36') + '</div>' +
+      '<div>' + pill(w.rtlCount,  w.rtlTotal,  'RTL',  'rgba(200,129,58,0.12)', '#9a5f20') + '</div>' +
+      '<div style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + cnt + ' · ' + fmtMoney(tot) + '</div>' +
+    '</div>';
+    html += '<div id="' + rowId + '" style="display:none;background:#faf7f1;border-top:1px solid var(--border)">';
+    w.loans.sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); }).forEach(function(x) {
+      var href = '/loan-details/' + encodeURIComponent(x.id) + '?owner=' + encodeURIComponent(x.owner);
+      html += '<div style="display:grid;grid-template-columns:24px 110px 1fr 90px 200px;gap:14px;padding:8px 14px;font-size:12px;border-top:1px solid #ece7dc">' +
+        '<div></div>' +
+        '<div style="color:var(--muted)">' + escH(x.date) + '</div>' +
+        '<div><a href="' + escH(href) + '" style="color:var(--dark)">' + escH(x.name || '(no address)') + '</a></div>' +
+        '<div>' + escH(x.type) + '</div>' +
+        '<div style="text-align:right;font-variant-numeric:tabular-nums">' + fmtMoney(x.amt) + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  });
+  wrap.innerHTML = html;
+}
+function slaToggleWeek(id) {
+  var el = document.getElementById(id);
+  var caret = document.getElementById(id + '_caret');
+  if (!el) return;
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : '';
+  if (caret) caret.textContent = open ? '▸' : '▾';
+}
+
+// ── Loans by state (verbatim math) ───────────────────────────────
+function renderStateTable() {
+  var byState = {};
+  for (var i = 0; i < _loans.length; i++) {
+    var l = _loans[i];
+    if (isArchived(l)) continue;
+    if (_dateRange !== 'all') {
+      if (!isClosed(l)) continue;
+      if (!loanClosedInRange(l)) continue;
+    }
+    var st = (l.Address_State || extractStateFromName(l.Name) || '').trim() || '(unknown)';
+    if (!byState[st]) byState[st] = { rtlCount: 0, rtlTotal: 0, dscrCount: 0, dscrTotal: 0, unkCount: 0, unkTotal: 0 };
+    var amt = numAmt(l.Loan_Amount);
+    var type = inferLoanType(l);
+    if (type === 'RTL')       { byState[st].rtlCount  += 1; byState[st].rtlTotal  += amt; }
+    else if (type === 'DSCR') { byState[st].dscrCount += 1; byState[st].dscrTotal += amt; }
+    else                      { byState[st].unkCount  += 1; byState[st].unkTotal  += amt; }
+  }
+  var rows = Object.keys(byState).map(function(k) {
+    var b = byState[k];
+    return { state: k, total: b.rtlCount + b.dscrCount + b.unkCount,
+      rtlCount: b.rtlCount, rtlTotal: b.rtlTotal, dscrCount: b.dscrCount, dscrTotal: b.dscrTotal,
+      unkCount: b.unkCount, unkTotal: b.unkTotal };
+  }).sort(function(a, b) {
+    if (b.total !== a.total) return b.total - a.total;
+    return a.state.localeCompare(b.state);
+  });
+  if (!rows.length) {
+    document.getElementById('stateTableWrap').innerHTML =
+      '<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">No loans to break out by state.</div>';
+    return;
+  }
+  var thStyle = 'text-align:right;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em';
+  var thStyleL = thStyle.replace('right', 'left');
+  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr>' +
+    '<th style="' + thStyleL + '">State</th><th style="' + thStyle + '">Total Loans</th><th style="' + thStyle + '">Total Volume</th>' +
+    '<th style="' + thStyle + '">RTL Count</th><th style="' + thStyle + '">RTL Volume</th>' +
+    '<th style="' + thStyle + '">DSCR Count</th><th style="' + thStyle + '">DSCR Volume</th></tr></thead><tbody>';
+  var totRtlC = 0, totRtlV = 0, totDscrC = 0, totDscrV = 0, totLoans = 0, totVolume = 0;
+  var tdBase = 'padding:7px 10px;border-top:1px solid var(--border)';
+  rows.forEach(function(r) {
+    var rowVolume = r.rtlTotal + r.dscrTotal + r.unkTotal;
+    totLoans += r.total; totVolume += rowVolume;
+    totRtlC += r.rtlCount; totRtlV += r.rtlTotal; totDscrC += r.dscrCount; totDscrV += r.dscrTotal;
+    html += '<tr>' +
+      '<td style="' + tdBase + ';font-weight:500">' + escH(r.state) + '</td>' +
+      '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + r.total + '</td>' +
+      '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' + (rowVolume > 0 ? fmtMoney(rowVolume) : '—') + '</td>' +
+      '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums">' + (r.rtlCount || '—') + '</td>' +
+      '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums">' + (r.rtlTotal > 0 ? fmtMoney(r.rtlTotal) : '—') + '</td>' +
+      '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums">' + (r.dscrCount || '—') + '</td>' +
+      '<td style="' + tdBase + ';text-align:right;font-variant-numeric:tabular-nums">' + (r.dscrTotal > 0 ? fmtMoney(r.dscrTotal) : '—') + '</td>' +
+    '</tr>';
+  });
+  var tdT = 'padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums';
+  html += '<tr style="background:rgba(38,26,54,0.04);font-weight:600">' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark)">Total</td>' +
+    '<td style="' + tdT + '">' + totLoans + '</td>' +
+    '<td style="' + tdT + '">' + (totVolume > 0 ? fmtMoney(totVolume) : '—') + '</td>' +
+    '<td style="' + tdT + '">' + (totRtlC || '—') + '</td>' +
+    '<td style="' + tdT + '">' + (totRtlV > 0 ? fmtMoney(totRtlV) : '—') + '</td>' +
+    '<td style="' + tdT + '">' + (totDscrC || '—') + '</td>' +
+    '<td style="' + tdT + '">' + (totDscrV > 0 ? fmtMoney(totDscrV) : '—') + '</td>' +
+  '</tr></tbody></table>';
+  document.getElementById('stateTableWrap').innerHTML = html;
+}
+
+// ── Loans table ───────────────────────────────────────────────────
+function setTab(t) {
+  _tab = t;
+  ['tabActive','tabSold','tabClosed','tabAll'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.toggle('active',
+      (id === 'tabActive' && t === 'active') || (id === 'tabSold' && t === 'sold') ||
+      (id === 'tabClosed' && t === 'closed') || (id === 'tabAll' && t === 'all'));
+  });
+  renderTable();
+}
+function sortBy(col) {
+  if (_sortBy === col) { _sortDir = (_sortDir === 'asc') ? 'desc' : 'asc'; }
+  else { _sortBy = col; _sortDir = (col === 'address' || col === 'state') ? 'asc' : 'desc'; }
+  renderTable();
+}
+var _debouncedRenderTable = (window.SLAForms && SLAForms.debounce)
+  ? SLAForms.debounce(function() { renderTable(); }, 140)
+  : function() { renderTable(); };
+function statusPillClass(s) {
+  var v = String(s || '').toLowerCase();
+  if (v === 'lead' || v === 'quoted' || v === 'active') return 'pill-lead';
+  if (v === 'submitted') return 'pill-submitted';
+  if (v === 'underwriting' || v === 'under_review') return 'pill-underwriting';
+  if (v === 'in_processing' || v === 'processing') return 'pill-processing';
+  if (v === 'approved') return 'pill-approved';
+  if (v === 'on_hold' || v === 'hold') return 'pill-hold';
+  if (v === 'sold' || v === 'closed' || v === 'funded') return 'pill-sold';
+  if (v === 'in_servicing' || v === 'servicing') return 'pill-servicing';
+  if (v === 'liquidated') return 'pill-liquidated';
+  if (v === 'declined' || v === 'denied' || v === 'withdrawn' || v === 'cancelled') return 'pill-declined';
+  return 'pill-default';
+}
+function renderTable() {
+  var q = String((document.getElementById('loanSearch') || {}).value || '').toLowerCase().trim();
+  var rows = _loans.filter(function(l) {
+    if (_tab === 'active') { if (!isOpen(l) && !isOnHold(l)) return false; }
+    else if (_tab === 'sold') { if (String(l.Status).toLowerCase() !== 'sold') return false; }
+    else if (_tab === 'closed') { if (!isClosed(l)) return false; }
+    if (!q) return true;
+    return (String(l.Name).toLowerCase().indexOf(q) >= 0 ||
+            String(l._borrower).toLowerCase().indexOf(q) >= 0 ||
+            String(l.Id).toLowerCase().indexOf(q) >= 0 ||
+            String(l._slaLoanId).toLowerCase().indexOf(q) >= 0);
+  });
+  rows.sort(function(a, b) {
+    var av, bv;
+    switch (_sortBy) {
+      case 'address':  av = (a.Name || ''); bv = (b.Name || ''); break;
+      case 'state':    av = (a.Address_State || ''); bv = (b.Address_State || ''); break;
+      case 'status':   av = statusOrder(a); bv = statusOrder(b); break;
+      case 'type':     av = (a._tool || ''); bv = (b._tool || ''); break;
+      case 'amount':   av = numAmt(a.Loan_Amount); bv = numAmt(b.Loan_Amount); break;
+      case 'rate':     av = parseFloat(a.Rate) || 0; bv = parseFloat(b.Rate) || 0; break;
+      case 'points':   av = parseFloat(a.Origination_Points) || 0; bv = parseFloat(b.Origination_Points) || 0; break;
+      case 'origination':
+      default:         av = loanCloseDate(a); bv = loanCloseDate(b); break;
+    }
+    if (av < bv) return _sortDir === 'asc' ? -1 : 1;
+    if (av > bv) return _sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  var sortArrow = function(col) {
+    if (_sortBy !== col) return '';
+    return '<span class="arrow">' + (_sortDir === 'asc' ? '↑' : '↓') + '</span>';
+  };
+  if (!rows.length) {
+    document.getElementById('loansTableWrap').innerHTML = '<div class="empty">No loans match this view.</div>';
+    return;
+  }
+  var html = '<table><thead><tr>' +
+    '<th onclick="sortBy(\'address\')">Address ' + sortArrow('address') + '</th>' +
+    '<th onclick="sortBy(\'state\')">State ' + sortArrow('state') + '</th>' +
+    '<th onclick="sortBy(\'status\')">Status ' + sortArrow('status') + '</th>' +
+    '<th onclick="sortBy(\'type\')">Type ' + sortArrow('type') + '</th>' +
+    '<th onclick="sortBy(\'amount\')" class="num">Amount ' + sortArrow('amount') + '</th>' +
+    '<th onclick="sortBy(\'rate\')" class="num">Rate ' + sortArrow('rate') + '</th>' +
+    '<th onclick="sortBy(\'points\')" class="num">Points ' + sortArrow('points') + '</th>' +
+    '<th onclick="sortBy(\'origination\')">Close ' + sortArrow('origination') + '</th>' +
+  '</tr></thead><tbody>';
+  rows.forEach(function(l) {
+    var href = '/loan-details/' + encodeURIComponent(l._slaLoanId) + '?owner=' + encodeURIComponent(l._ownerKey);
+    html += '<tr>' +
+      '<td class="addr"><a href="' + escH(href) + '">' + escH(l.Name || '—') + '</a>' +
+        '<div style="font-size:11px;color:var(--muted)">' + escH(l._borrower || '') + (l.Id !== l._slaLoanId ? ' · ' + escH(l.Id) : '') + '</div></td>' +
+      '<td>' + escH(l.Address_State || '—') + '</td>' +
+      '<td><span class="pill ' + statusPillClass(l.Status) + '">' + escH(l.Status || '—') + '</span></td>' +
+      '<td>' + escH(l._tool || '—') + '</td>' +
+      '<td class="num">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
+      '<td class="num">' + (l.Rate ? (Number(l.Rate) * 100).toFixed(2) + '%' : '—') + '</td>' +
+      '<td class="num">' + (l.Origination_Points != null && l.Origination_Points !== '' && pointsAsPercent(l.Origination_Points) != null ? pointsAsPercent(l.Origination_Points).toFixed(2) + '%' : '—') + '</td>' +
+      '<td>' + escH(loanCloseDate(l) || '—') + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('loansTableWrap').innerHTML = html;
+}
+</script>
+</body>
+</html>

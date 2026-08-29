@@ -161,6 +161,8 @@
       <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
         <input type="checkbox" id="mirrorForce" /> force re-fetch all
       </label>
+      <!-- Deploy 236.785 — twin page computed from SLA-native records (admin only). -->
+      <a id="slaDashLink" href="/sla-dashboard.html" style="padding:8px 16px;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);border-radius:var(--r-xs,6px);font-size:12.5px;font-weight:600;text-decoration:none">SLA-Native Dashboard →</a>
       <button class="btn-primary" id="mirrorSyncBtn" onclick="runMirrorSync()">Sync from Baseline</button>
       <!-- Deploy 236.574 — restored the Merge Baseline Duplicates button (the
            one-shot bring-up buttons were pulled in 236.273, but with the migrate
@@ -668,7 +670,7 @@ netlifyIdentity.on('init', function(user) {
   // non-admin staff (processors). They're server-side admin-gated too, but
   // processors shouldn't see the buttons at all.
   if (!(SLA.isAdmin && SLA.isAdmin(user))) {
-    ['mirrorSyncBtn', 'mergeDupesBtn', 'mirrorForce'].forEach(function(id) {
+    ['mirrorSyncBtn', 'mergeDupesBtn', 'mirrorForce', 'slaDashLink'].forEach(function(id) {
       var el = document.getElementById(id);
       if (!el) return;
       var host = (el.parentElement && el.parentElement.tagName === 'LABEL') ? el.parentElement : el;
