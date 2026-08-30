@@ -777,6 +777,14 @@
   status = 200
   force = true
 
+# Deploy 236.800: loan-note-pin — processors pin/unpin a note to the top
+# of the Notes & Activity feed on Loan Details.
+[[redirects]]
+  from = "/api/loan-note-pin"
+  to = "/.netlify/functions/loan-note-pin"
+  status = 200
+  force = true
+
 # Deploy 231: loan-application-pdf-unsigned — generate an UNSIGNED
 # internal-use PDF for loans whose long app was filled on behalf of
 # borrower (no signature event). Renders the same template as the

@@ -6013,7 +6013,16 @@ function openOrCreateDocReview() {
 function renderNotesLog() {
   var inner = document.getElementById('notesListInner');
   if (!inner) return;
-  var entries = (_loan && Array.isArray(_loan.notesLog)) ? _loan.notesLog.slice() : [];
+  var all = (_loan && Array.isArray(_loan.notesLog)) ? _loan.notesLog.slice() : [];
+  // Deploy 236.800 — pinned notes float above the feed, regardless of the
+  // note filter (that's the point of pinning: read-this-first). Most
+  // recently pinned first. Processors/admins get pin/unpin controls.
+  var pinnedEntries = all.filter(function(e) { return e && e.pinned; });
+  pinnedEntries.sort(function(a, b) {
+    var ta = String(a.pinnedAt || a.ts || ''); var tb = String(b.pinnedAt || b.ts || '');
+    return ta < tb ? 1 : ta > tb ? -1 : 0;
+  });
+  var entries = all.filter(function(e) { return !(e && e.pinned); });
   // Deploy 236.99 — apply the active note filter (All / Status / User).
   if (_noteFilter && _noteFilter !== 'all') {
     var allowed = NOTE_KIND_BUCKETS[_noteFilter] || [];
@@ -6042,31 +6051,68 @@ function renderNotesLog() {
       text: legacy,
     });
   }
-  if (!entries.length) {
+  if (!entries.length && !pinnedEntries.length) {
     inner.innerHTML = '<div class="notes-empty">No notes yet. Add the first one above. Status updates, reprices, and admin decisions also land here automatically.</div>';
     return;
   }
-  var html = '';
-  for (var i = 0; i < entries.length; i++) {
-    var e = entries[i];
+  // Deploy 236.800 — shared entry renderer; pinned entries get a tinted
+  // wrapper + 📌 tag, and staff get a Pin/Unpin control on every entry
+  // that has an id (legacy notes have none to key the toggle on).
+  var _canPin = !!(window.SLA && SLA.isProcessor && _user && SLA.isProcessor(_user));
+  function _noteEntryHtml(e, isPinned) {
     var when = formatNoteTime(e.ts);
     var kindLabel = noteKindLabel(e.kind);
     var who = e.author || e.authorEmail || (e.kind === 'legacy' ? 'Legacy note' : '');
-    html +=
-      '<div class="note-entry">' +
-        '<div class="note-entry-head">' +
+    var pinBtn = '';
+    if (_canPin && e.id && e.id !== 'legacy') {
+      pinBtn = '<button type="button" onclick="toggleNotePin(\'' + escH(e.id) + '\',' + (isPinned ? 'false' : 'true') + ')"' +
+        ' title="' + (isPinned ? 'Unpin this note' : 'Pin this note to the top') + '"' +
+        ' style="margin-left:auto;border:none;background:transparent;cursor:pointer;font-size:11px;color:' + (isPinned ? '#b5712d' : '#a49d92') + ';padding:0 2px">' +
+        (isPinned ? '📌 Unpin' : '📌 Pin') + '</button>';
+    }
+    var wrapStyle = isPinned
+      ? ' style="background:rgba(200,129,58,0.07);border:1px solid rgba(200,129,58,0.30);border-radius:8px;padding:8px 10px;margin-bottom:8px"'
+      : '';
+    return '<div class="note-entry"' + wrapStyle + '>' +
+        '<div class="note-entry-head" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          (isPinned ? '<span style="font-size:10px;font-weight:700;color:#b5712d;letter-spacing:0.04em">📌 PINNED</span>' : '') +
           (when ? '<span class="note-entry-time">' + escH(when) + '</span>' : '') +
           (who ? '<span class="note-entry-author">'+ escH(who) +'</span>' : '') +
           '<span class="note-entry-kind nk-' + escH(e.kind || 'manual') + '">' + escH(kindLabel) + '</span>' +
+          pinBtn +
         '</div>' +
         '<div class="note-entry-body">' + escH(e.text || '') + '</div>' +
       '</div>';
   }
+  var html = '';
+  for (var p = 0; p < pinnedEntries.length; p++) html += _noteEntryHtml(pinnedEntries[p], true);
+  for (var i = 0; i < entries.length; i++) html += _noteEntryHtml(entries[i], false);
   inner.innerHTML = html;
   // Default to top (newest) — that's where the scroll position
   // naturally lands after innerHTML replacement, but make explicit.
   var list = document.getElementById('notesList');
   if (list) list.scrollTop = 0;
+}
+
+// Deploy 236.800 — pin/unpin a note (processors/admins). Persists via
+// loan-note-pin, patches the in-memory entry, and re-renders the feed.
+function toggleNotePin(noteId, pin) {
+  var body = { clientId: _client.id, loanId: _loanId, noteId: noteId, pinned: !!pin };
+  var ov = (typeof _ldOwnerOverride === 'function') ? _ldOwnerOverride() : null;
+  if (ov) body.owner = ov;
+  SLA.api('POST', '/api/loan-note-pin', body).then(function() {
+    var list = (_loan && _loan.notesLog) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (!list[i] || list[i].id !== noteId) continue;
+      if (pin) { list[i].pinned = true; list[i].pinnedAt = new Date().toISOString(); }
+      else { delete list[i].pinned; delete list[i].pinnedAt; delete list[i].pinnedBy; }
+      break;
+    }
+    renderNotesLog();
+  }).catch(function(err) {
+    var msg = 'Pin failed: ' + (err && err.message || 'unknown');
+    if (typeof showToast === 'function') showToast(msg); else alert(msg);
+  });
 }
 
 function formatNoteTime(iso) {
