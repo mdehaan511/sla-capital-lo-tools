@@ -1177,6 +1177,35 @@ function processResults(results) {
     function _normAddr(s) {
       return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
     }
+    // Deploy 236.799 (Mike) — dedicated key for the prospect↔quote dedup ONLY.
+    //
+    // The dedup used _normAddr, which lowercases and collapses whitespace and
+    // nothing else — so it only matched addresses that were already byte-
+    // identical. apply.html stores the Google Places form ("857 6th Ave,
+    // Coraopolis, PA 15108, USA") while the sizer stores its own ("857 6th Ave,
+    // Coraopolis, PA, 15108"). Same property, two strings, no match — so ONE
+    // deal drew a New Application card AND a Quoted card. (The other dedup
+    // path, by loan.prospectId, can't cover for it here: that one needs the
+    // LOAN to still exist, and on an orphaned quote it's gone.)
+    //
+    // _normAddrMod (~line 712) already does the real job — drops a trailing
+    // ", USA", turns , . # into spaces, maps street-suffix synonyms
+    // (avenue→ave, street→st). Both strings above collapse to
+    // "857 6th ave coraopolis pa 15108".
+    //
+    // Kept SEPARATE from _normAddr on purpose. _normAddr is the twin of norm()
+    // at line ~1064, which builds every _loanLookup address key; redefining it
+    // would desync the two and silently break every address lookup. Several
+    // call sites also do _normAddr(x).split(',')[0] to get the street segment,
+    // and _normAddrMod strips the commas that split depends on.
+    //
+    // Deliberately NOT _streetKeyMod: that discards city and zip, which would
+    // merge same-named streets in different cities. City/state/zip stay in the
+    // key, and the 236.280 propType guard still keeps two genuinely different
+    // deals at one address visible.
+    function _dedupAddrKey(s) {
+      return _normAddrMod(s);
+    }
     // Deploy 236.447 — normalize property-type SYNONYMS so the
     // prospect↔quote dedup treats apply.html's slug (sfh = "Single
     // Family Home") and the sizer's slug (sfr = "SFR / 1–4 Units") as
@@ -1240,7 +1269,7 @@ function processResults(results) {
     // quotes, not loans, so the auto-created loan never appeared).
     var _quotedLoanIds = {};         // ownerKey -> loanId -> true
     quotes.forEach(function(item) {
-      var addr = _normAddr(item.quote.address);
+      var addr = _dedupAddrKey(item.quote.address); // Deploy 236.799 — was _normAddr
       if (addr) {
         if (!_workedByOwner[item.owner]) _workedByOwner[item.owner] = {};
         if (!_workedByOwner[item.owner][addr]) _workedByOwner[item.owner][addr] = {};
@@ -1309,7 +1338,7 @@ function processResults(results) {
       // Deploy 236.22 — prospectId dedup first (deterministic), then
       // address dedup (legacy fallback for pre-236.22 loans).
       if (_workedProspectIds[item.owner] && _workedProspectIds[item.owner][item.prospect.id]) return;
-      var addr = _normAddr(item.prospect.propAddress);
+      var addr = _dedupAddrKey(item.prospect.propAddress); // Deploy 236.799 — was _normAddr
       if (addr && _workedByOwner[item.owner] && _workedByOwner[item.owner][addr]) {
         // Deploy 236.280 — propType-aware match.
         var seenPts = _workedByOwner[item.owner][addr];

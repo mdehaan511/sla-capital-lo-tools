@@ -159,6 +159,40 @@ export default async (req, context) => {
   }
 };
 
+// Deploy 236.799 (Mike) — this feeds the worked-address dedup that decides
+// whether a prospect is dropped from the admin all-LOs response because a quote
+// already exists at that address. It used to lowercase + collapse whitespace
+// only, so it matched nothing that wasn't already byte-identical: apply.html
+// stores the Google Places form ("857 6th Ave, Coraopolis, PA 15108, USA"),
+// the sizer stores its own ("857 6th Ave, Coraopolis, PA, 15108"), and the same
+// deal came back as both a New Application and a Quoted card.
+//
+// Mirrors _normAddrMod + _dedupAddrKey in pipeline.html (the board runs the
+// same dedup client-side) — keep the two in sync. Drop a trailing ", USA",
+// turn , . # into spaces, fold street-suffix synonyms. City/state/zip stay in
+// the key on purpose so same-named streets in different cities don't merge.
+const SUFFIX_MAP = {
+  street: 'st', 'st.': 'st',
+  avenue: 'ave', 'ave.': 'ave', av: 'ave',
+  road: 'rd', 'rd.': 'rd',
+  drive: 'dr', 'dr.': 'dr',
+  boulevard: 'blvd', 'blvd.': 'blvd',
+  lane: 'ln', 'ln.': 'ln',
+  court: 'ct', 'ct.': 'ct',
+  circle: 'cir', 'cir.': 'cir',
+  place: 'pl', 'pl.': 'pl',
+  terrace: 'ter', 'ter.': 'ter',
+  parkway: 'pkwy', 'pkwy.': 'pkwy',
+  highway: 'hwy', 'hwy.': 'hwy',
+  square: 'sq', 'sq.': 'sq',
+  trail: 'trl', 'trl.': 'trl',
+};
 function normAddr(s) {
-  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const v = String(s || '')
+    .toLowerCase()
+    .replace(/,?\s*usa\s*$/i, '')
+    .replace(/[,.#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return v.split(' ').map((t) => SUFFIX_MAP[t] || t).join(' ');
 }
