@@ -3585,8 +3585,8 @@ function loadFciPayoff(force) {
   SLA.getToken().then(function (token) {
     return fetch('/api/fci-payoff?' + qs, { headers: { Authorization: 'Bearer ' + token } });
   }).then(function (r) { return r.json(); }).then(function (j) {
-    if (!j || !j.ok) { box.innerHTML = '<span style="color:var(--muted)">' + esc((j && j.error) || 'Could not reach FCI.') + '</span>'; return; }
-    if (!j.serviced) { box.innerHTML = '<span style="color:var(--muted)">' + esc(j.reason || 'Not an FCI loan.') + '</span>'; return; }
+    if (!j || !j.ok) { box.innerHTML = '<span style="color:var(--muted)">' + escH((j && j.error) || 'Could not reach FCI.') + '</span>'; return; }
+    if (!j.serviced) { box.innerHTML = '<span style="color:var(--muted)">' + escH(j.reason || 'Not an FCI loan.') + '</span>'; return; }
 
     var h = '';
     var v = j.value;
@@ -3602,33 +3602,33 @@ function loadFciPayoff(force) {
         (Number(v.lenderExitFee) ? '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Exit Fee</div><div style="font-size:16px;font-weight:600">' + _fciMoney(v.lenderExitFee) + '</div></div>' : '') +
         (v.fullyPayoff != null && v.fullyPayoff !== '' ? '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Full Payoff</div><div style="font-size:16px;font-weight:700;color:var(--gold,#C8813A)">' + _fciMoney(v.fullyPayoff) + '</div></div>' : '') +
       '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:8px">FCI account ' + esc(j.account) + (v.payoffDate ? ' · figure good through ' + esc(v.payoffDate) : '') + '</div>';
+      '<div style="font-size:11px;color:var(--muted);margin-top:8px">FCI account ' + escH(j.account) + (v.payoffDate ? ' · figure good through ' + escH(v.payoffDate) : '') + '</div>';
     } else {
-      h += '<div style="color:var(--muted)">No live payoff figure' + (j.valueError ? ' (' + esc(j.valueError) + ')' : ' — FCI returns none for a paid-off loan.') + '</div>';
+      h += '<div style="color:var(--muted)">No live payoff figure' + (j.valueError ? ' (' + escH(j.valueError) + ')' : ' — FCI returns none for a paid-off loan.') + '</div>';
     }
 
     var rq = j.requests;
     var list = (rq && (rq.requests || (rq.latestRequest ? [rq.latestRequest] : []))) || [];
     if (list.length) {
       h += '<div style="margin-top:16px"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Demand History' +
-        (rq.payoffStatus ? ' — ' + esc(rq.payoffStatus) : '') + '</div>' +
+        (rq.payoffStatus ? ' — ' + escH(rq.payoffStatus) : '') + '</div>' +
         '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
         '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px 4px 0">Received</th><th style="padding:4px 8px 4px 0">Payoff Date</th><th style="padding:4px 8px 4px 0">Expires</th><th style="padding:4px 8px 4px 0">Status</th><th style="padding:4px 0">By</th></tr>';
       for (var i = 0; i < Math.min(list.length, 8); i++) {
         var r = list[i] || {};
         h += '<tr style="border-top:1px solid var(--line)">' +
-          '<td style="padding:5px 8px 5px 0">' + esc(r.dateReceived || '—') + '</td>' +
-          '<td style="padding:5px 8px 5px 0">' + esc(r.payoffDate || '—') + '</td>' +
-          '<td style="padding:5px 8px 5px 0">' + esc(r.expirationDate || '—') + '</td>' +
-          '<td style="padding:5px 8px 5px 0">' + esc(r.trackingStatus || r.trackingFailedStatus || '—') + '</td>' +
-          '<td style="padding:5px 0">' + esc(r.requestedBy || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(r.dateReceived || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(r.payoffDate || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(r.expirationDate || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(r.trackingStatus || r.trackingFailedStatus || '—') + '</td>' +
+          '<td style="padding:5px 0">' + escH(r.requestedBy || '—') + '</td>' +
         '</tr>';
       }
       h += '</table></div></div>';
     }
     box.innerHTML = h;
   }).catch(function (e) {
-    box.innerHTML = '<span style="color:var(--muted)">Could not load payoff: ' + esc((e && e.message) || 'error') + '</span>';
+    box.innerHTML = '<span style="color:var(--muted)">Could not load payoff: ' + escH((e && e.message) || 'error') + '</span>';
   });
 }
 
@@ -3648,7 +3648,7 @@ function openPayoffOrderModal() {
         '<span>Order Payoff Demand</span>' +
         '<button type="button" onclick="document.getElementById(\'poModalBg\').remove()" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted)">&times;</button>' +
       '</h3>' +
-      '<p style="font-size:12px;color:var(--muted);margin:0 0 14px">This files a real demand with FCI on account ' + esc(String((_loan && _loan.servicerLoanNumber) || '')) + '.</p>' +
+      '<p style="font-size:12px;color:var(--muted);margin:0 0 14px">This files a real demand with FCI on account ' + escH(String((_loan && _loan.servicerLoanNumber) || '')) + '.</p>' +
       '<div class="field"><label>Payoff Date *</label><input type="date" id="po-date" value="' + d + '" /></div>' +
       '<div class="field"><label>Reason</label><select id="po-reason">' +
         '<option value="payoff">Payoff</option><option value="inquiry">Inquiry</option>' +
