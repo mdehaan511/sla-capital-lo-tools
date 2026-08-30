@@ -3575,6 +3575,21 @@ function _fciMoney(v) {
   return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Deploy 236.805 — FCI is not consistent about date formats BETWEEN queries:
+// the portfolio returns "MM/DD/YYYY" but getPayoffRequests returns a full ISO
+// timestamp ("2026-08-25T19:26:53.163-07:00"), which rendered raw in the demand
+// table. Accept either and print M/D/YYYY. Sliced, not Date-parsed — a bare
+// ISO date would otherwise shift a day in a west-of-UTC timezone.
+function _fciDay(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (!s || /^n\/?a$/i.test(s)) return '—';
+  var iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso) return Number(iso[2]) + '/' + Number(iso[3]) + '/' + iso[1];
+  var us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (us) return Number(us[1]) + '/' + Number(us[2]) + '/' + us[3];
+  return s;
+}
+
 function loadFciPayoff(force) {
   var box = document.getElementById('fciPayoffBody');
   if (!box) return;
@@ -3604,7 +3619,12 @@ function loadFciPayoff(force) {
       '</div>' +
       '<div style="font-size:11px;color:var(--muted);margin-top:8px">FCI account ' + escH(j.account) + (v.payoffDate ? ' · figure good through ' + escH(v.payoffDate) : '') + '</div>';
     } else {
-      h += '<div style="color:var(--muted)">No live payoff figure' + (j.valueError ? ' (' + escH(j.valueError) + ')' : ' — FCI returns none for a paid-off loan.') + '</div>';
+      // Deploy 236.805 — FCI returns no value-to-date on plenty of ACTIVE loans
+      // too (634 E Walnut Pl is performing with a live demand and still comes
+      // back empty), so don't tell the reader the loan is paid off. Say what we
+      // know: there is no quote to show, order one to get it.
+      h += '<div style="color:var(--muted)">No live payoff figure from FCI' +
+        (j.valueError ? ' (' + escH(j.valueError) + ')' : ' — order a demand to have one issued.') + '</div>';
     }
 
     var rq = j.requests;
@@ -3617,9 +3637,9 @@ function loadFciPayoff(force) {
       for (var i = 0; i < Math.min(list.length, 8); i++) {
         var r = list[i] || {};
         h += '<tr style="border-top:1px solid var(--line)">' +
-          '<td style="padding:5px 8px 5px 0">' + escH(r.dateReceived || '—') + '</td>' +
-          '<td style="padding:5px 8px 5px 0">' + escH(r.payoffDate || '—') + '</td>' +
-          '<td style="padding:5px 8px 5px 0">' + escH(r.expirationDate || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(_fciDay(r.dateReceived)) + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(_fciDay(r.payoffDate)) + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + escH(_fciDay(r.expirationDate)) + '</td>' +
           '<td style="padding:5px 8px 5px 0">' + escH(r.trackingStatus || r.trackingFailedStatus || '—') + '</td>' +
           '<td style="padding:5px 0">' + escH(r.requestedBy || '—') + '</td>' +
         '</tr>';
