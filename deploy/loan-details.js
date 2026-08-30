@@ -2714,12 +2714,24 @@ function render() {
     var _resEl = document.getElementById('ldReserveSection');
     if (_resEl) (_finParent || paneLoan).appendChild(_resEl);
 
-    // CONTACTS tab: vesting LLC info (top) / guarantor info /
-    // linked guarantors / additional contacts / broker info. Plus a
-    // new Team Members block we inject below.
+    // CONTACTS tab: vesting LLC info + verifications side by side (top) /
+    // guarantor info / linked guarantors / additional contacts / broker
+    // info. Plus a new Team Members block we inject below.
     // Deploy 236.126 — vestingLLCSection added at the top.
+    // Deploy 236.801 — Vesting LLC Info goes HALF-width with the
+    // Verifications (Xactus) box beside it, both above Guarantor Info
+    // (per Mike — Verifications moved here from under Loan Terms).
+    var _vestEl  = document.getElementById('vestingLLCSection');
+    var _verifEl = document.getElementById('verificationsSection');
+    if (_vestEl || _verifEl) {
+      var _topRow = document.createElement('div');
+      _topRow.style.cssText = 'display:grid;grid-template-columns:' +
+        (window.innerWidth >= 900 ? '1fr 1fr' : '1fr') + ';gap:16px;align-items:start';
+      if (_vestEl)  _topRow.appendChild(_vestEl);
+      if (_verifEl) _topRow.appendChild(_verifEl);
+      paneContacts.appendChild(_topRow);
+    }
     [
-      'vestingLLCSection',
       'borrowerInfoSection',
       'linkedGuarantorsSection',
       'loanContactsSection',
@@ -2776,11 +2788,9 @@ function render() {
     // exists whenever the section does; if not, leave it in place rather than drop.
     var servicingSect = document.getElementById('servicingSection');
     if (servicingSect && paneServicing) paneServicing.appendChild(servicingSect);
-    // Deploy 236.780 — Verifications (Xactus) sits at half-width directly
-    // BELOW the Loan Terms box (the two-col's right column — same slot
-    // pattern as the Fees card), per Mike. Falls back to the Loan pane.
-    var verifSect = document.getElementById('verificationsSection');
-    if (verifSect) (_ltsParent || paneLoan).appendChild(verifSect);
+    // Deploy 236.801 — Verifications moved to the CONTACTS tab (beside
+    // Vesting LLC Info, handled above). The 236.780 under-Loan-Terms
+    // placement is retired.
     // Sync the tasks count badge on the tab once tasks load. The
     // loadTasksList() called below will trigger a render; hook the
     // existing _tasks state via setTimeout (cheap, no listener
