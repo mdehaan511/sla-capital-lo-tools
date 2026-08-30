@@ -13,6 +13,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.796
 
 const MAX_ITEMS = 100;
 
@@ -51,7 +52,9 @@ export default async (req, context) => {
 
   const store = getStore({ name: 'prospects', consistency: 'strong' });
   const errors = [];
+  const indexPairs = [];
   let deleted = 0;
+  let alreadyGone = 0;
 
   for (const it of items) {
     if (!it || !it.slug || !it.prospectId) {
@@ -65,12 +68,30 @@ export default async (req, context) => {
     }
     const key = `${slug}/${keySafe(it.prospectId)}`;
     try {
+      // Netlify Blobs' delete resolves on a key that never existed, so the old
+      // `deleted++` counted a wrong slug as a success. Check first so the
+      // caller can tell "removed it" from "nothing was there".
+      const existed = !!(await store.get(key, { type: 'json' }).catch(() => null));
       await store.delete(key);
-      deleted++;
+      if (existed) deleted++; else alreadyGone++;
+      indexPairs.push({ ownerKey: slug, id: it.prospectId });
     } catch (e) {
       errors.push({ slug, prospectId: it.prospectId, reason: e.message || 'delete failed' });
     }
   }
 
-  return json(200, { ok: true, deleted, errors });
+  // Deploy 236.796 (Mike) — the missing half. prospects-list serves the admin
+  // all-LOs view from the materialized prospects-index and does NOT rebuild on
+  // stale (236.344), so every record left in the index kept rendering as a New
+  // Application card: Mike selected four, got "Bulk delete complete", and all
+  // four were back on the next load. One batched read-modify-write for the
+  // whole selection rather than 2 blob ops per item.
+  let indexRemoved = 0;
+  if (indexPairs.length) {
+    const r = await prospectsIndex.removeRecords(indexPairs);
+    indexRemoved = r.removed;
+    if (r.error) errors.push({ reason: 'index cleanup failed: ' + r.error });
+  }
+
+  return json(200, { ok: true, deleted, alreadyGone, indexRemoved, errors });
 };

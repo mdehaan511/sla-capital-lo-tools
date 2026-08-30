@@ -9,6 +9,7 @@ import { getStore } from '@netlify/blobs';
 import {
   handleOptions, json, requireAuth, readJsonBody, isAdmin, keySafe, normalizeEmail,
 } from './_shared/auth.mjs';
+import { prospectsIndex } from './_shared/prospects-index.mjs'; // Deploy 236.796
 
 function ownerKeyForUser(user) {
   if (!user) return '';
@@ -49,8 +50,21 @@ export default async (req, context) => {
   const store = getStore({ name: 'prospects', consistency: 'strong' });
   const key = `${slug}/${keySafe(body.prospectId)}`;
   try {
+    // Deploy 236.796 (Mike) — was the blob delete ONLY. prospects-list serves
+    // the admin all-LOs view straight off the materialized prospects-index and
+    // does NOT rebuild on stale (236.344 removed the background rebuild to
+    // avoid holding the Lambda), so a record that stayed in the index was
+    // rendered forever: the New Application card came right back on reload and
+    // the delete looked broken. quotes-delete got this exact fix in 236.428;
+    // the prospect endpoints never did.
+    const existed = !!(await store.get(key, { type: 'json' }).catch(() => null));
     await store.delete(key);
-    return json(200, { ok: true });
+    await prospectsIndex.removeRecord(slug, body.prospectId);
+    // Report whether a blob was actually there. Netlify Blobs' delete is
+    // idempotent — it resolves happily on a key that never existed — so a
+    // wrong slug used to look identical to a real delete. The index cleanup
+    // above runs either way, so retrying on a ghost now clears it for good.
+    return json(200, { ok: true, deleted: body.prospectId, alreadyGone: !existed });
   } catch (e) {
     console.error('prospects-delete error:', e);
     return json(500, { error: 'Failed to delete' });

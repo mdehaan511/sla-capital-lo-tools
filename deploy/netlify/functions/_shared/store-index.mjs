@@ -106,6 +106,38 @@ export function createStoreIndex({ indexStoreName, primaryStoreName, project, ve
     }
   }
 
+  // Deploy 236.796 (Mike) — batch remove. removeRecord() is a full
+  // read-modify-write of the index blob, so a bulk delete of N records cost
+  // 2N blob ops and crept toward the 26s function cap. This does ONE read and
+  // ONE write for the whole set. pairs = [{ ownerKey, id }, ...].
+  async function removeRecords(pairs) {
+    const list = (pairs || []).filter((p) => p && p.ownerKey && p.id);
+    if (!list.length) return { removed: 0 };
+    try {
+      const { index } = await readIndex();
+      if (!index || !index.byOwner) return { removed: 0 };
+      const byOwnerIds = new Map();
+      for (const { ownerKey, id } of list) {
+        if (!byOwnerIds.has(ownerKey)) byOwnerIds.set(ownerKey, new Set());
+        byOwnerIds.get(ownerKey).add(id);
+      }
+      let removed = 0;
+      for (const [ownerKey, ids] of byOwnerIds) {
+        const cur = index.byOwner[ownerKey];
+        if (!cur) continue;
+        const next = cur.filter((r) => !(r && ids.has(r[idField])));
+        removed += cur.length - next.length;
+        if (next.length) index.byOwner[ownerKey] = next;
+        else delete index.byOwner[ownerKey];
+      }
+      if (removed) await _writeIndex(index);
+      return { removed };
+    } catch (e) {
+      console.warn(`${indexStoreName} removeRecords failed:`, e && e.message);
+      return { removed: 0, error: (e && e.message) || 'failed' };
+    }
+  }
+
   async function rebuildIndex() {
     const start = Date.now();
     const primary = _primaryStore();
@@ -146,5 +178,5 @@ export function createStoreIndex({ indexStoreName, primaryStoreName, project, ve
     };
   }
 
-  return { readIndex, upsertRecord, removeRecord, rebuildIndex, INDEX_VERSION };
+  return { readIndex, upsertRecord, removeRecord, removeRecords, rebuildIndex, INDEX_VERSION };
 }

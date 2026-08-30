@@ -2674,6 +2674,12 @@ function bulkDelete() {
   if (!confirm(msg)) return;
 
   var promises = [];
+  // Deploy 236.796 (Mike) — collect real failures. Every leg below used to
+  // .catch() into a console.warn and the run ALWAYS finished with a green
+  // "Bulk delete complete", so a delete that never landed looked like it had.
+  // Mike deleted four New Application cards, saw the success toast, and all
+  // four came back on reload.
+  var _bulkFails = [];
 
   // Deploy 236.11 — only delete the loan record when this is the LAST
   // quote pointing at it. Pre-fix behavior assumed 1 quote = 1 loan, so
@@ -2709,7 +2715,10 @@ function bulkDelete() {
     // Delete the quote
     promises.push(
       SLA.Quotes.delete(q.id, { _owner: q.ownerKey })
-        .catch(function(err) { console.warn('quote delete failed', q.id, err); })
+        .catch(function(err) {
+          console.warn('quote delete failed', q.id, err);
+          _bulkFails.push('quote ' + q.id + ': ' + ((err && err.message) || 'failed'));
+        })
     );
 
     // Look up matching loan record. Deploy 236.7 — prefer quote's
@@ -2737,7 +2746,10 @@ function bulkDelete() {
           SLA.Clients.delete(lookup.clientId, {
             loanId: lookup.loanId,
             _owner: lookup.ownerKey,
-          }).catch(function(err) { console.warn('loan delete failed', lookup.loanId, err); })
+          }).catch(function(err) {
+            console.warn('loan delete failed', lookup.loanId, err);
+            _bulkFails.push('loan ' + lookup.loanId + ': ' + ((err && err.message) || 'failed'));
+          })
         );
       } else {
         console.log('[pipeline] kept loan ' + lookup.loanId + ' — still referenced by ' + remaining + ' other quote(s)');
@@ -2752,12 +2764,28 @@ function bulkDelete() {
     });
     promises.push(
       SLA.Prospects.bulkDelete(items)
-        .catch(function(err) { console.warn('prospects bulkDelete failed', err); })
+        .then(function(res) {
+          // The endpoint answers 200 even on a partial failure — the detail
+          // lives in res.errors — so a resolved promise is NOT proof it worked.
+          var errs = (res && res.errors) || [];
+          errs.forEach(function(e) {
+            _bulkFails.push('prospect ' + (e.prospectId || '?') + ': ' + (e.reason || 'failed'));
+          });
+        })
+        .catch(function(err) {
+          console.warn('prospects bulkDelete failed', err);
+          _bulkFails.push('prospects: ' + ((err && err.message) || 'failed'));
+        })
     );
   }
 
   Promise.all(promises).then(function() {
-    showToast('Bulk delete complete');
+    if (_bulkFails.length) {
+      showToast('⚠ ' + _bulkFails.length + ' item(s) could not be deleted — ' + _bulkFails[0]);
+      console.warn('[SLA] pipeline bulkDelete failures:', _bulkFails);
+    } else {
+      showToast('Bulk delete complete');
+    }
     _selectedItems.clear();
     _selectMode = false;
     var btn = document.getElementById('selectModeBtn');
