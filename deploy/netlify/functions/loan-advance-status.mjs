@@ -140,8 +140,10 @@ async function handle(req, context) {
   // borrower-info-sync auto-advance path: only stamp if processingStage
   // is empty, so a processor who has already moved the loan forward
   // doesn't lose their column.
+  let _enteredProcessing = false; // Deploy 236.803
   if (body.newStatus === 'approved' && !targetLoan.processingStage) {
     targetLoan.processingStage = 'new_loan';
+    _enteredProcessing = true;
   }
 
   // Deploy 222 (Phase 3) — auto-fire Baseline sync when this manual
@@ -154,6 +156,21 @@ async function handle(req, context) {
       await _baselineSyncOnApproval(client, targetLoan, ownerKey, selfEmail);
     } catch (e) {
       console.error('loan-advance-status: baseline sync threw, ignoring:', e && e.message);
+    }
+  }
+
+  // Deploy 236.803 — first entry into the Processing Pipeline: auto-invite
+  // the borrower to the portal + create the LO's run-credit/submit task.
+  // Best-effort + idempotent; the marker it stamps rides in the write below.
+  if (_enteredProcessing) {
+    try {
+      const { runProcessingWelcome } = await import('./_shared/processing-welcome.mjs');
+      await runProcessingWelcome({
+        ownerKey, ownerEmail: ownerKey, client, loan: targetLoan,
+        origin: new URL(req.url).origin, actorEmail: selfEmail,
+      });
+    } catch (e) {
+      console.warn('loan-advance-status: processing-welcome threw, ignoring:', e && e.message);
     }
   }
 

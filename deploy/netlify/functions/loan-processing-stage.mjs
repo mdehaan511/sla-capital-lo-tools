@@ -212,6 +212,22 @@ async function handle(req, context) {
     }
   }
 
+  // Deploy 236.803 — FIRST entry into the Processing Pipeline (no prior
+  // stage → a working stage): auto-invite the borrower to the portal +
+  // create the LO's run-credit/submit task. Best-effort + idempotent
+  // (helper stamps loan._processingWelcomeAt, persisted below).
+  if (stageChanged && !priorStage && newStage && newStage !== 'pp_closed') {
+    try {
+      const { runProcessingWelcome } = await import('./_shared/processing-welcome.mjs');
+      await runProcessingWelcome({
+        ownerKey, ownerEmail: ownerKey, client, loan,
+        origin: new URL(req.url).origin, actorEmail: user.email || '',
+      });
+    } catch (e) {
+      console.warn('loan-processing-stage: processing-welcome threw, ignoring:', e && e.message);
+    }
+  }
+
   client.loans[idx] = loan;
   client.updatedAt = new Date().toISOString();
 

@@ -534,6 +534,23 @@ export async function advanceQuoteToInProcessing(record) {
     } catch (e) {
       console.warn('advanceQuoteToInProcessing: auto-attach threw, ignoring:', e && e.message);
     }
+    // Deploy 236.803 — the loan just ENTERED the Processing Pipeline:
+    // auto-invite the borrower to the portal (upload documents) + create
+    // the LO's run-credit/submit task. Best-effort + idempotent (the
+    // helper stamps loan._processingWelcomeAt, persisted by the setJSON
+    // below). Zero-throw by contract.
+    try {
+      const { runProcessingWelcome } = await import('./processing-welcome.mjs');
+      await runProcessingWelcome({
+        ownerKey:   record.ownerKey,
+        ownerEmail: record.ownerKey,
+        client,
+        loan:       advancedLoan,
+        actorEmail: record.advancedBy || 'auto:borrower-info-complete',
+      });
+    } catch (e) {
+      console.warn('advanceQuoteToInProcessing: processing-welcome threw, ignoring:', e && e.message);
+    }
     }
     try {
       await clientsStore.setJSON(clientKey, client);
