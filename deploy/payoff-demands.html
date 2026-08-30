@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payoff Demands — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="/sla-search.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --dark: #261a36; --bg: #f0ece5; --surface: #ffffff;
+      --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --warn: #7a5218; --success: #256940;
+    }
+    body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    .page { max-width: 1280px; margin: 0 auto; padding: 28px 22px 60px; }
+    .page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
+    h1 { font-family: 'Lora', Georgia, serif; font-size: 27px; font-weight: 600; }
+    .page-header p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .btn { background: var(--gold); color: #fff; border: none; border-radius: 7px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 20px; margin-bottom: 20px; }
+    .card h2 { font-family: 'Lora', Georgia, serif; font-size: 17px; font-weight: 600; margin-bottom: 3px; }
+    .card .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 15px 17px; }
+    .stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .stat .val { font-size: 23px; font-weight: 600; margin-top: 5px; font-family: 'DM Mono', monospace; }
+    .tw { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 500; padding: 0 12px 8px 0; white-space: nowrap; }
+    td { padding: 9px 12px 9px 0; border-top: 1px solid var(--border); vertical-align: top; }
+    td.num { font-family: 'DM Mono', monospace; white-space: nowrap; }
+    a { color: var(--gold); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+    .pill.warn { color: var(--warn); border-color: rgba(122,82,24,.4); background: rgba(122,82,24,.08); }
+    .pill.danger { color: var(--danger); border-color: rgba(124,31,31,.4); background: rgba(124,31,31,.08); }
+    .pill.ok { color: var(--success); border-color: rgba(37,105,64,.4); background: rgba(37,105,64,.08); }
+    .empty { color: var(--muted); font-size: 13px; padding: 14px 0; }
+    .err { color: var(--danger); font-size: 12px; padding: 8px 0; }
+    #auth-gate { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .gate-msg { text-align: center; color: var(--muted); font-size: 14px; }
+    .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Payoff Demands</h1>
+        <p>Live from FCI — demands waiting on our approval, and every issued demand still outstanding.</p>
+      </div>
+      <button class="btn ghost" onclick="loadAll(true)">Refresh</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="card">
+      <h2>Waiting on our approval</h2>
+      <div class="sub">FCI needs a lender decision before the demand can be issued. Approving opens FCI's own approval page.</div>
+      <div id="pendingWrap"><div class="empty">Loading…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Issued &amp; outstanding</h2>
+      <div class="sub">Quotes FCI has already issued that have not been paid. An unexpired demand is the best early signal that a loan is about to come off the book.</div>
+      <div id="issuedWrap"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+<script>
+// Deploy 236.803 — payoff-demand tracker. Read-only view over
+// /api/fci-payoff?demands=1 (getPendingPayoffDemands + getPayOffDemandStatus).
+// Approval is deliberately a link out to FCI's own approveUrl rather than a
+// button here: approving a payoff is FCI's workflow and their page carries the
+// figures and the audit trail.
+var _data = null;
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function money(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+// FCI hands back MM/DD/YYYY. Parse for comparison without trusting Date() on it.
+function toTs(s) {
+  var m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s || '').trim());
+  if (!m) return NaN;
+  return new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2])).getTime();
+}
+function daysUntil(s) {
+  var t = toTs(s);
+  if (!isFinite(t)) return null;
+  return Math.round((t - Date.now()) / 86400000);
+}
+function loanLink(row) {
+  if (!row.sla || !row.sla.loanId) return esc(row.borrowerName || row.account || '—');
+  var u = '/loan-details/' + encodeURIComponent(row.sla.loanId) +
+    (row.sla.owner ? '?owner=' + encodeURIComponent(row.sla.owner) : '');
+  var label = row.sla.address || row.borrowerName || row.account;
+  return '<a href="' + u + '">' + esc(label) + '</a>';
+}
+
+function render() {
+  var d = _data || {};
+  var pending = d.pending || [];
+  var issued = d.issued || [];
+
+  // Only count demands whose quote has not expired — an expired quote is
+  // history, not pipeline, and lumping them together overstates what is moving.
+  var live = issued.filter(function (r) {
+    var dd = daysUntil(r.expiresOnDate);
+    return dd == null || dd >= 0;
+  });
+  var upb = live.reduce(function (a, r) { return a + (Number(r.upb) || 0); }, 0);
+
+  document.getElementById('stats').innerHTML =
+    '<div class="stat"><div class="lbl">Awaiting our approval</div><div class="val">' + pending.length + '</div></div>' +
+    '<div class="stat"><div class="lbl">Issued &amp; unexpired</div><div class="val">' + live.length + '</div></div>' +
+    '<div class="stat"><div class="lbl">Balance in play</div><div class="val">' + money(upb) + '</div></div>' +
+    '<div class="stat"><div class="lbl">Expired quotes</div><div class="val">' + (issued.length - live.length) + '</div></div>';
+
+  // ── Pending approval ──
+  var pw = document.getElementById('pendingWrap');
+  if (d.pendingError) {
+    pw.innerHTML = '<div class="err">Could not load: ' + esc(d.pendingError) + '</div>';
+  } else if (!pending.length) {
+    pw.innerHTML = '<div class="empty">Nothing waiting on us.</div>';
+  } else {
+    var ph = '<div class="tw"><table><tr><th>Loan</th><th>Account</th><th>Payoff Total</th><th>Received</th><th>Pending</th><th>Urgency</th><th>Approve</th></tr>';
+    pending.sort(function (a, b) { return (Number(b.daysPending) || 0) - (Number(a.daysPending) || 0); });
+    pending.forEach(function (r) {
+      var dp = Number(r.daysPending) || 0;
+      var cls = dp >= 5 ? 'danger' : (dp >= 2 ? 'warn' : '');
+      var links = (r.approvals || []).filter(function (a) { return a && a.approveUrl; });
+      ph += '<tr>' +
+        '<td>' + loanLink(r) + '</td>' +
+        '<td class="num">' + esc(r.account) + '</td>' +
+        '<td class="num">' + money(r.payoffTotal) + '</td>' +
+        '<td class="num">' + esc(r.dateReceived || '—') + '</td>' +
+        '<td><span class="pill ' + cls + '">' + dp + 'd</span></td>' +
+        '<td>' + esc(r.urgency || '—') + '</td>' +
+        '<td>' + (links.length
+          ? links.map(function (a) { return '<a href="' + esc(a.approveUrl) + '" target="_blank" rel="noopener">Approve' + (links.length > 1 ? ' (' + esc(a.lenderAccount) + ')' : '') + '</a>'; }).join('<br>')
+          : '<span class="pill">no link</span>') + '</td>' +
+      '</tr>';
+    });
+    pw.innerHTML = ph + '</table></div>';
+  }
+
+  // ── Issued ──
+  var iw = document.getElementById('issuedWrap');
+  if (d.issuedError) {
+    iw.innerHTML = '<div class="err">Could not load: ' + esc(d.issuedError) + '</div>';
+  } else if (!issued.length) {
+    iw.innerHTML = '<div class="empty">No outstanding demands.</div>';
+  } else {
+    // Soonest expiry first — that's the one with a clock on it.
+    issued.sort(function (a, b) {
+      var ta = toTs(a.expiresOnDate), tb = toTs(b.expiresOnDate);
+      if (!isFinite(ta)) return 1;
+      if (!isFinite(tb)) return -1;
+      return ta - tb;
+    });
+    var ih = '<div class="tw"><table><tr><th>Loan</th><th>Account</th><th>UPB</th><th>Issued</th><th>Expires</th><th>Status</th><th>Loan Status</th></tr>';
+    issued.forEach(function (r) {
+      var dd = daysUntil(r.expiresOnDate);
+      var pill = dd == null ? '<span class="pill">—</span>'
+        : (dd < 0 ? '<span class="pill">expired</span>'
+          : '<span class="pill ' + (dd <= 7 ? 'danger' : (dd <= 21 ? 'warn' : 'ok')) + '">' + dd + 'd left</span>');
+      ih += '<tr>' +
+        '<td>' + loanLink(r) + '</td>' +
+        '<td class="num">' + esc(r.account) + '</td>' +
+        '<td class="num">' + money(r.upb) + '</td>' +
+        '<td class="num">' + esc(r.datePayoffDemandQuoteIssued || '—') + '</td>' +
+        '<td class="num">' + esc(r.expiresOnDate || '—') + ' ' + pill + '</td>' +
+        '<td>' + esc(r.demandStatus || '—') + '</td>' +
+        '<td>' + esc(r.loanStatus || '—') + '</td>' +
+      '</tr>';
+    });
+    iw.innerHTML = ih + '</table></div>';
+  }
+}
+
+function loadAll(force) {
+  if (force) {
+    document.getElementById('pendingWrap').innerHTML = '<div class="empty">Loading…</div>';
+    document.getElementById('issuedWrap').innerHTML = '<div class="empty">Loading…</div>';
+  }
+  SLA.getToken().then(function (token) {
+    return fetch('/api/fci-payoff?demands=1', { headers: { Authorization: 'Bearer ' + token } });
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j || !j.ok) throw new Error((j && j.error) || 'Failed to load');
+    _data = j;
+    render();
+  }).catch(function (e) {
+    document.getElementById('pendingWrap').innerHTML = '<div class="err">' + esc((e && e.message) || 'error') + '</div>';
+    document.getElementById('issuedWrap').innerHTML = '';
+  });
+}
+
+// ── Auth + load ────────────────────────────────────────────────────
+// Same gate as closed-loans.html. Staff only: the endpoint refuses non-staff
+// anyway, but an LO landing here to a 403 is a worse experience than a redirect.
+window.netlifyIdentity.on('init', function (user) {
+  if (!user) { window.location.replace('/'); return; }
+  var isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  var isStaff = isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
+  if (!isStaff) { window.location.replace('/closed-loans.html'); return; }
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  loadAll();
+});
+</script>
+</body>
+</html>

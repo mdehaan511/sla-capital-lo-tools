@@ -147,8 +147,143 @@ export async function fciUpdatedAccounts(hoursAgo) {
  * depending on the user of the API").
  */
 export async function fciProperties(account) {
-  const acct = String(account || '').replace(/[^A-Za-z0-9_-]/g, '');
+  const acct = fciAccount(account);
   if (!acct) return [];
   const d = await fciQuery(`{ getLoanProperties(account:"${acct}"){ street city state zipCode isPrimary propertyType } }`);
   return d.getLoanProperties || [];
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Payoffs (Deploy 236.803)
+// ─────────────────────────────────────────────────────────────────────
+
+// FCI account numbers are digits in practice; strip anything else rather than
+// trying to escape it into a GraphQL literal.
+export function fciAccount(v) {
+  return String(v == null ? '' : v).replace(/[^A-Za-z0-9_-]/g, '');
+}
+
+// GraphQL string literals follow JSON string syntax, so JSON.stringify produces
+// a correctly-escaped literal (quotes, backslashes, newlines) — which is what
+// keeps borrower-supplied text from breaking out of the query. We also cap
+// length and strip control characters first.
+function gqlStr(v, max) {
+  // Strip control characters (newlines included) before quoting — they have no
+  // place in these fields and only complicate the literal. Written as \u escapes
+  // on purpose: an earlier revision embedded the raw bytes, which made the file
+  // read as binary to grep and came back mangled through a shell round-trip.
+  const s = String(v == null ? '' : v)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max || 200);
+  return JSON.stringify(s);
+}
+
+// FCI wants MM/DD/YYYY on payoffDate but MM-DD-YYYY on dateReceived, in the same
+// mutation. That is their spec, not a typo on our side.
+function usDate(iso, sep) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '').trim());
+  if (!m) return '';
+  return m[2] + (sep || '/') + m[3] + (sep || '/') + m[1];
+}
+
+/** Live payoff figure for one loan. Null when FCI has nothing (e.g. paid off). */
+export async function fciPayoffValue(account) {
+  const acct = fciAccount(account);
+  if (!acct) return null;
+  const d = await fciQuery(`{ getPayoffValuetoDate(account:"${acct}"){
+    payoffDate maturityDate interestPaidToDate nextPaymentDue
+    unpaidPrincipal unpaidInterest unpaidFees unpaidLateCharges unpaidCharges
+    interestRate currentRate dailyInterest prepaymentPenalty lenderExitFee
+    escrowBalance suspenseBalance otherPayments otherEstimatedFees fullyPayoff
+  } }`);
+  const v = d.getPayoffValuetoDate;
+  return Array.isArray(v) ? (v[0] || null) : (v || null);
+}
+
+/** Demand history + tracking for one loan. */
+export async function fciPayoffRequests(account) {
+  const acct = fciAccount(account);
+  if (!acct) return null;
+  const d = await fciQuery(`{ getPayoffRequests(account:"${acct}"){
+    account payoffStatus fundsReleaseDate
+    latestRequest { dateReceived expirationDate payoffDate trackingStatus trackingFailedStatus requestedBy signatureFor activities { date description } }
+    requests { dateReceived expirationDate payoffDate trackingStatus trackingFailedStatus requestedBy signatureFor activities { date description } }
+  } }`);
+  const v = d.getPayoffRequests;
+  return Array.isArray(v) ? (v[0] || null) : (v || null);
+}
+
+/** Demands waiting on OUR approval. `approveUrl` is FCI's approval link. */
+export async function fciPendingPayoffDemands() {
+  const d = await fciQuery(`{ getPendingPayoffDemands{
+    account borrowerName payoffTotal dateReceived daysPending urgency
+    approvals { lenderAccount approveUrl }
+  } }`);
+  return d.getPendingPayoffDemands || [];
+}
+
+/** Issued demands. wasPaid:false = still outstanding. dateFrom is MM-DD-YYYY. */
+export async function fciPayoffDemandStatus({ wasPaid = false, dateFrom } = {}) {
+  const from = /^\d{2}-\d{2}-\d{4}$/.test(String(dateFrom || '')) ? dateFrom : usDate(new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10), '-');
+  const d = await fciQuery(`{ getPayOffDemandStatus(wasPaid:${wasPaid ? 'true' : 'false'} dateFrom:"${from}"){
+    account borrowerName upb interestRate paidToDate nextDueDate maturityDate
+    paidOffDate closedDate loanStatus propertyCity propertyState propertyZip
+    datePayoffDemandQuoteIssued expiresOnDate wasPaid forwardToLender demandStatus
+  } }`);
+  return d.getPayOffDemandStatus || [];
+}
+
+// reason codes, per FCI's "Payoff Fields" doc
+export const PAYOFF_REASONS = { payoff: 0, litigation: 1, inquiry: 2, other: 3 };
+
+/**
+ * File a payoff demand with FCI. THIS IS A REAL, OUTWARD-FACING WRITE — it
+ * creates a demand on the servicer's system. Callers must gate it behind an
+ * explicit user action.
+ *
+ * `insertPayoff`'s return type is undocumented and introspection is disabled, so
+ * we do not know whether it is a scalar or an object. We attempt the bare form
+ * first; if GraphQL rejects it as "an object ... Leaf selections ... disallowed"
+ * that is a VALIDATION error, which happens before execution — no demand was
+ * created — so retrying once with `{ __typename }` (valid on every object type)
+ * is safe and cannot double-file.
+ */
+export async function fciInsertPayoff({
+  loanNumber, payoffDate, reason = 0, reqCompany, reqContact, reqEmail,
+  reqMailing, reqPhone, description, dateReceived, requestedBy = 'Lender',
+}) {
+  const acct = fciAccount(loanNumber);
+  if (!acct) throw new Error('loanNumber required');
+  const pd = usDate(payoffDate, '/');
+  if (!pd) throw new Error('payoffDate must be YYYY-MM-DD');
+  const dr = usDate(dateReceived || new Date().toISOString().slice(0, 10), '-');
+  const rc = Number(reason);
+
+  const args = [
+    `loanNumber:"${acct}"`,
+    `payoffDate:"${pd}"`,
+    `reason:${isFinite(rc) ? rc : 0}`,
+    `reqCompany:${gqlStr(reqCompany, 120)}`,
+    `reqContact:${gqlStr(reqContact, 120)}`,
+    `reqEmail:${gqlStr(reqEmail, 160)}`,
+    `reqMailing:${gqlStr(reqMailing, 200)}`,
+    `reqPhone:${gqlStr(reqPhone, 40)}`,
+    `description:${gqlStr(description, 500)}`,
+    `dateReceived:"${dr}"`,
+    `requestedBy:${gqlStr(requestedBy, 60)}`,
+  ].join(' ');
+
+  const bare = `mutation{ insertPayoff(payoff:{ ${args} }) }`;
+  try {
+    return await fciQuery(bare, { timeoutMs: 30000 });
+  } catch (e) {
+    const msg = (e && e.message) || '';
+    if (/Leaf selections|is an object, interface or union/i.test(msg)) {
+      // Validation failed → nothing executed → safe to send the object form.
+      return await fciQuery(`mutation{ insertPayoff(payoff:{ ${args} }){ __typename } }`, { timeoutMs: 30000 });
+    }
+    throw e;
+  }
 }

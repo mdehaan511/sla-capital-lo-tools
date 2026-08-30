@@ -840,6 +840,13 @@
   to = "/.netlify/functions/fci-portfolio-sync"
   status = 200
   force = true
+# Deploy 236.803 — payoffs. GET (per loan / ?demands=1) reads FCI; POST FILES A
+# REAL DEMAND on the servicer, so it is only ever called from a button.
+[[redirects]]
+  from = "/api/fci-payoff"
+  to = "/.netlify/functions/fci-payoff"
+  status = 200
+  force = true
 # Deploy 236.734 — Servicing Pros reconcile (KAF + Sir Lends A Lot books).
 [[redirects]]
   from = "/api/servicing-pros-reconcile"

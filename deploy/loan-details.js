@@ -2412,6 +2412,24 @@ function render() {
         '</div>' +
       '</div>' +
     '</div>';
+
+    // Deploy 236.803 — FCI payoff box. Only for loans the FCI sync has linked
+    // (servicerName FCI + an account number); everything else has nothing to
+    // read and no account to order against. Contents load lazily — the payoff
+    // figure is two live FCI calls and shouldn't sit in the page's critical path.
+    if (String(l.servicerName || '').toUpperCase() === 'FCI' && String(l.servicerLoanNumber || '').trim()) {
+      html +=
+        '<div class="section" id="fciPayoffSection">' +
+          '<div class="section-head"><h2>Payoff — FCI</h2><span class="section-tag">Live</span></div>' +
+          '<div class="section-body">' +
+            '<div id="fciPayoffBody" style="font-size:13px;color:var(--muted)">Loading payoff figure…</div>' +
+            '<div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+              '<button class="save-app-btn" onclick="openPayoffOrderModal()">Order Payoff</button>' +
+              '<button class="save-app-btn" style="background:transparent;border:1px solid var(--line);color:var(--ink)" onclick="loadFciPayoff(true)">Refresh</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
   }
 
   html += '</div>'; // close right col
@@ -2788,6 +2806,14 @@ function render() {
     // exists whenever the section does; if not, leave it in place rather than drop.
     var servicingSect = document.getElementById('servicingSection');
     if (servicingSect && paneServicing) paneServicing.appendChild(servicingSect);
+    // Deploy 236.803 — the FCI payoff box rides along into the Servicing tab,
+    // and only then do we fetch (two live FCI calls; don't pay for them unless
+    // the box actually mounted).
+    var payoffSect = document.getElementById('fciPayoffSection');
+    if (payoffSect && paneServicing) {
+      paneServicing.appendChild(payoffSect);
+      setTimeout(function () { loadFciPayoff(); }, 400);
+    }
     // Deploy 236.801 — Verifications moved to the CONTACTS tab (beside
     // Vesting LLC Info, handled above). The 236.780 under-Loan-Terms
     // placement is retired.
@@ -3538,6 +3564,147 @@ var _agAllClientsCache = null;
 // The REAL audit log: every field-level change made to this loan from Loan
 // Details or a sizer, with who made it. Distinct from Notes & Activity, which
 // stays a human notes + milestone feed. Opened from the "Audit Log" pill.
+// ── Deploy 236.803 — FCI payoffs on the Servicing tab ────────────────
+// Read the live payoff figure + demand history, and order a demand. The order
+// is a REAL write on the servicer's system, so it only ever fires from the
+// button + confirm below, never on load.
+
+function _fciMoney(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function loadFciPayoff(force) {
+  var box = document.getElementById('fciPayoffBody');
+  if (!box) return;
+  if (force) box.textContent = 'Refreshing…';
+  var qs = 'loanId=' + encodeURIComponent(_loanId) +
+           '&clientId=' + encodeURIComponent(_clientId || '') +
+           (_loEmail ? '&owner=' + encodeURIComponent(_loEmail) : '');
+  SLA.getToken().then(function (token) {
+    return fetch('/api/fci-payoff?' + qs, { headers: { Authorization: 'Bearer ' + token } });
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j || !j.ok) { box.innerHTML = '<span style="color:var(--muted)">' + esc((j && j.error) || 'Could not reach FCI.') + '</span>'; return; }
+    if (!j.serviced) { box.innerHTML = '<span style="color:var(--muted)">' + esc(j.reason || 'Not an FCI loan.') + '</span>'; return; }
+
+    var h = '';
+    var v = j.value;
+    if (v) {
+      // FCI returns the components; the total is theirs (fullyPayoff) when
+      // present — we don't re-add them ourselves and risk disagreeing with the
+      // demand the borrower receives.
+      h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 18px">' +
+        '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Unpaid Principal</div><div style="font-size:16px;font-weight:600">' + _fciMoney(v.unpaidPrincipal) + '</div></div>' +
+        '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Unpaid Interest</div><div style="font-size:16px;font-weight:600">' + _fciMoney(v.unpaidInterest) + '</div></div>' +
+        '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Per Diem</div><div style="font-size:16px;font-weight:600">' + _fciMoney(v.dailyInterest) + '</div></div>' +
+        (Number(v.prepaymentPenalty) ? '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Prepay Penalty</div><div style="font-size:16px;font-weight:600">' + _fciMoney(v.prepaymentPenalty) + '</div></div>' : '') +
+        (Number(v.lenderExitFee) ? '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Exit Fee</div><div style="font-size:16px;font-weight:600">' + _fciMoney(v.lenderExitFee) + '</div></div>' : '') +
+        (v.fullyPayoff != null && v.fullyPayoff !== '' ? '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Full Payoff</div><div style="font-size:16px;font-weight:700;color:var(--gold,#C8813A)">' + _fciMoney(v.fullyPayoff) + '</div></div>' : '') +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:8px">FCI account ' + esc(j.account) + (v.payoffDate ? ' · figure good through ' + esc(v.payoffDate) : '') + '</div>';
+    } else {
+      h += '<div style="color:var(--muted)">No live payoff figure' + (j.valueError ? ' (' + esc(j.valueError) + ')' : ' — FCI returns none for a paid-off loan.') + '</div>';
+    }
+
+    var rq = j.requests;
+    var list = (rq && (rq.requests || (rq.latestRequest ? [rq.latestRequest] : []))) || [];
+    if (list.length) {
+      h += '<div style="margin-top:16px"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Demand History' +
+        (rq.payoffStatus ? ' — ' + esc(rq.payoffStatus) : '') + '</div>' +
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 8px 4px 0">Received</th><th style="padding:4px 8px 4px 0">Payoff Date</th><th style="padding:4px 8px 4px 0">Expires</th><th style="padding:4px 8px 4px 0">Status</th><th style="padding:4px 0">By</th></tr>';
+      for (var i = 0; i < Math.min(list.length, 8); i++) {
+        var r = list[i] || {};
+        h += '<tr style="border-top:1px solid var(--line)">' +
+          '<td style="padding:5px 8px 5px 0">' + esc(r.dateReceived || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + esc(r.payoffDate || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + esc(r.expirationDate || '—') + '</td>' +
+          '<td style="padding:5px 8px 5px 0">' + esc(r.trackingStatus || r.trackingFailedStatus || '—') + '</td>' +
+          '<td style="padding:5px 0">' + esc(r.requestedBy || '—') + '</td>' +
+        '</tr>';
+      }
+      h += '</table></div></div>';
+    }
+    box.innerHTML = h;
+  }).catch(function (e) {
+    box.innerHTML = '<span style="color:var(--muted)">Could not load payoff: ' + esc((e && e.message) || 'error') + '</span>';
+  });
+}
+
+function openPayoffOrderModal() {
+  var existing = document.getElementById('poModalBg');
+  if (existing) existing.remove();
+  // Default to 30 days out — a demand needs a date far enough ahead that the
+  // quote is still good when title actually funds.
+  var d = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  var bg = document.createElement('div');
+  bg.className = 'ag-modal-bg';
+  bg.id = 'poModalBg';
+  bg.onclick = function (e) { if (e.target === bg) bg.remove(); };
+  bg.innerHTML =
+    '<div class="ag-modal" style="max-width:520px;width:100%">' +
+      '<h3 style="display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+        '<span>Order Payoff Demand</span>' +
+        '<button type="button" onclick="document.getElementById(\'poModalBg\').remove()" style="background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted)">&times;</button>' +
+      '</h3>' +
+      '<p style="font-size:12px;color:var(--muted);margin:0 0 14px">This files a real demand with FCI on account ' + esc(String((_loan && _loan.servicerLoanNumber) || '')) + '.</p>' +
+      '<div class="field"><label>Payoff Date *</label><input type="date" id="po-date" value="' + d + '" /></div>' +
+      '<div class="field"><label>Reason</label><select id="po-reason">' +
+        '<option value="payoff">Payoff</option><option value="inquiry">Inquiry</option>' +
+        '<option value="litigation">Litigation</option><option value="other">Other</option>' +
+      '</select></div>' +
+      '<div class="field"><label>Requesting Company</label><input type="text" id="po-company" placeholder="e.g. First American Title" maxlength="120" /></div>' +
+      '<div class="field"><label>Contact Name</label><input type="text" id="po-contact" maxlength="120" /></div>' +
+      '<div class="field"><label>Contact Email</label><input type="email" id="po-email" maxlength="160" /></div>' +
+      '<div class="field"><label>Contact Phone</label><input type="text" id="po-phone" maxlength="40" /></div>' +
+      '<div class="field"><label>Notes</label><input type="text" id="po-desc" placeholder="optional" maxlength="300" /></div>' +
+      '<div style="margin-top:16px;display:flex;gap:10px;align-items:center">' +
+        '<button class="save-app-btn" id="po-submit" onclick="submitPayoffOrder()">File Demand with FCI</button>' +
+        '<button class="save-app-btn" style="background:transparent;border:1px solid var(--line);color:var(--ink)" onclick="document.getElementById(\'poModalBg\').remove()">Cancel</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(bg);
+}
+
+function submitPayoffOrder() {
+  var val = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+  var payoffDate = val('po-date');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(payoffDate)) { showToast('Pick a payoff date'); return; }
+  // Outward-facing write — confirm before it leaves.
+  if (!confirm('File a payoff demand with FCI for ' + payoffDate + '?\n\nThis creates a real demand on the servicer\'s system.')) return;
+
+  var btn = document.getElementById('po-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Filing…'; }
+  var payload = {
+    loanId: _loanId, clientId: _clientId, owner: _loEmail || '',
+    payoffDate: payoffDate,
+    reason: val('po-reason') || 'payoff',
+    reqCompany: val('po-company'), reqContact: val('po-contact'),
+    reqEmail: val('po-email'), reqMailing: (_loan && _loan.address) || '',
+    reqPhone: val('po-phone'), description: val('po-desc'),
+    requestedBy: 'Lender',
+  };
+  SLA.getToken().then(function (token) {
+    return fetch('/api/fci-payoff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(payload),
+    });
+  }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      if (!res.ok || !res.j || !res.j.ok) throw new Error((res.j && res.j.error) || 'Failed');
+      var bg = document.getElementById('poModalBg'); if (bg) bg.remove();
+      showToast(res.j.localWriteFailed
+        ? 'Demand filed with FCI (local copy did not save)'
+        : 'Payoff demand filed with FCI');
+      loadFciPayoff(true);
+    }).catch(function (e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'File Demand with FCI'; }
+      showToast('Payoff order failed: ' + ((e && e.message) || 'unknown'));
+    });
+}
+
 function openAuditLogModal() {
   var existing = document.getElementById('alModalBg');
   if (existing) existing.remove();
