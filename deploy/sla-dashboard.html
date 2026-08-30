@@ -287,6 +287,14 @@ var _sortBy = 'status';
 var _sortDir = 'desc';
 var _charts = {};
 var _cmpOpen = {};      // expanded comparison sections
+// Deploy 236.797 — email → full name from the staff directory, so the
+// by-LO panels show "Sara Smith" instead of "sara.s". Loaded async;
+// falls back to the email's local part until (or if never) resolved.
+var _loNames = {};
+function loDisplayName(ownerKey) {
+  var e = String(ownerKey || '').toLowerCase();
+  return _loNames[e] || e.replace(/@.*$/, '') || '(unassigned)';
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // EVERYTHING in this block is copied from dashboard.html so the two
@@ -634,6 +642,16 @@ function loadAll(fresh) {
     setErr('Failed to load SLA clients: ' + (err && err.message || 'unknown'));
     btn.disabled = false; btn.textContent = 'Refresh';
   });
+
+  // Deploy 236.797 — staff directory for real LO names (best-effort).
+  if (SLA.Users && SLA.Users.directory) {
+    SLA.Users.directory().then(function(r) {
+      ((r && r.users) || []).forEach(function(u) {
+        if (u && u.email && u.name) _loNames[String(u.email).toLowerCase()] = u.name;
+      });
+      renderFunnelByLo();
+    }).catch(function() {});
+  }
 
   // Baseline side — comparison only. Failure here never blocks the page.
   _mirror = null; _mirrorErr = '';
@@ -1493,9 +1511,8 @@ function renderFunnelByLo() {
     var c = _funnelLoCells[o];
     tot.leads += c.leads.length; tot.quoted += c.quoted.length;
     tot.processing += c.processing.length; tot.closed += c.closed.length;
-    var loName = String(o).replace(/@.*$/, '');
     html += '<tr>' +
-      '<td style="padding:9px 10px;border-top:1px solid var(--border);font-weight:600">' + escH(loName) + '</td>' +
+      '<td style="padding:9px 10px;border-top:1px solid var(--border);font-weight:600">' + escH(loDisplayName(o)) + '</td>' +
       cell(o, 'leads', c.leads.length, '') +
       cell(o, 'quoted', c.quoted.length, pctTxt(c.quoted.length, c.leads.length)) +
       cell(o, 'processing', c.processing.length, pctTxt(c.processing.length, c.quoted.length)) +
@@ -1527,7 +1544,7 @@ function openFunnelLoDrilldown(owner, stageKey) {
   var stageLabel = '';
   for (var i = 0; i < _FUNNEL_STAGES.length; i++) { if (_FUNNEL_STAGES[i].key === stageKey) stageLabel = _FUNNEL_STAGES[i].label; }
   document.getElementById('cdmTitle').textContent =
-    String(owner).replace(/@.*$/, '') + ' · ' + stageLabel + ' (' + arr.length + ' loan' + (arr.length === 1 ? '' : 's') + ')';
+    loDisplayName(owner) + ' · ' + stageLabel + ' (' + arr.length + ' loan' + (arr.length === 1 ? '' : 's') + ')';
   _cdmRender();
   document.getElementById('chartDrilldownModal').style.display = 'flex';
   document.addEventListener('keydown', _cdmKeyHandler);
