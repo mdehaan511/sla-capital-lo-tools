@@ -47,6 +47,13 @@
 [functions."fci-reconcile-servicing"]
   timeout = 26
 
+# Deploy 236.802 — live FCI sync: one portfolio call, a client-blob walk to
+# match, plus one property lookup per not-yet-linked account. Full budget.
+[functions."fci-portfolio-sync"]
+  timeout = 26
+[functions."fci-portfolio-sync-cron"]
+  timeout = 26
+
 # Deploy 236.734 — Servicing Pros reconcile also walks every client blob.
 [functions."servicing-pros-reconcile"]
   timeout = 26
@@ -823,6 +830,14 @@
 [[redirects]]
   from = "/api/fci-reconcile-servicing"
   to = "/.netlify/functions/fci-reconcile-servicing"
+  status = 200
+  force = true
+# Deploy 236.802 — live FCI portfolio sync (replaces the spreadsheet reconcile
+# above, which stays for audit history). Dry-run by default; the nightly run is
+# fci-portfolio-sync-cron, scheduled via its own config export.
+[[redirects]]
+  from = "/api/fci-portfolio-sync"
+  to = "/.netlify/functions/fci-portfolio-sync"
   status = 200
   force = true
 # Deploy 236.734 — Servicing Pros reconcile (KAF + Sir Lends A Lot books).
