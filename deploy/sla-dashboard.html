@@ -199,6 +199,14 @@
     <div id="funnelWrap"></div>
   </div>
 
+  <!-- Deploy 236.795 — the same funnel, broken out per LO. Counts are
+       clickable → drilldown modal with the loans behind the number. -->
+  <div class="chart-card">
+    <h2>Conversion Funnel by LO</h2>
+    <div class="chart-sub">SAME STAGES + COHORT AS THE FUNNEL ABOVE · PER LOAN OFFICER · CLICK ANY COUNT TO SEE THE LOANS</div>
+    <div id="funnelLoWrap"></div>
+  </div>
+
   <!-- Performance Stats -->
   <div class="chart-card">
     <h2>Performance Stats</h2>
@@ -655,6 +663,7 @@ function renderAll() {
   renderVolumeChart();
   renderLeadsChart();
   renderFunnel();
+  renderFunnelByLo();
   renderPerformanceStats();
   renderUpcomingClosings();
   renderStateTable();
@@ -1427,6 +1436,101 @@ function renderFunnel() {
     'A loan that reached a later stage counts in every earlier one (hand-created processing loans count as quoted).' +
   '</div>';
   wrap.innerHTML = html;
+}
+
+// ── Deploy 236.795: conversion funnel by LO ───────────────────────
+// Same stage rules + cohort as renderFunnel (SLA-originated, range by
+// intake date, stages inclusive), grouped by owner. Every count cell is
+// clickable → the drilldown modal with exactly the loans behind it.
+// Processing / Closed drilldowns get the editable Close Date; Leads /
+// Quoted show the intake date (read-only, like the Leads chart modal).
+var _funnelLoCells = {};
+var _FUNNEL_STAGES = [
+  { key: 'leads',      label: 'Leads In' },
+  { key: 'quoted',     label: 'Quoted' },
+  { key: 'processing', label: 'To Processing' },
+  { key: 'closed',     label: 'Closed / Won' },
+];
+function renderFunnelByLo() {
+  var wrap = document.getElementById('funnelLoWrap');
+  if (!wrap) return;
+  _funnelLoCells = {};
+  for (var i = 0; i < _loans.length; i++) {
+    var l = _loans[i];
+    if (l._isImport) continue;
+    if (!isInDateRange(l._leadDate)) continue;
+    var o = l._ownerKey || '(unassigned)';
+    if (!_funnelLoCells[o]) _funnelLoCells[o] = { leads: [], quoted: [], processing: [], closed: [] };
+    var won  = isWon(l) || isLiquidated(l);
+    var proc = won || l._finScope;
+    var quo  = proc || l._quoted;
+    _funnelLoCells[o].leads.push(l);
+    if (quo)  _funnelLoCells[o].quoted.push(l);
+    if (proc) _funnelLoCells[o].processing.push(l);
+    if (won)  _funnelLoCells[o].closed.push(l);
+  }
+  var owners = Object.keys(_funnelLoCells).sort(function(a, b) {
+    return _funnelLoCells[b].leads.length - _funnelLoCells[a].leads.length;
+  });
+  if (!owners.length) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">No leads in this range.</div>';
+    return;
+  }
+  function pctTxt(n, d) { return d > 0 ? ' <span style="font-size:11px;color:var(--muted)">(' + (n / d * 100).toFixed(0) + '%)</span>' : ''; }
+  function cell(owner, stageKey, n, pctHtml) {
+    var inner = n
+      ? '<a href="javascript:void(0)" onclick="openFunnelLoDrilldown(\'' + escH(owner) + '\',\'' + stageKey + '\')" style="color:var(--dark);font-weight:600;text-decoration:underline;text-decoration-color:rgba(200,129,58,0.5)">' + n + '</a>' + pctHtml
+      : '<span style="color:var(--muted)">—</span>';
+    return '<td style="padding:9px 10px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + inner + '</td>';
+  }
+  var th = 'padding:9px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;text-align:right;white-space:nowrap';
+  var html = '<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr>' +
+    '<th style="' + th + ';text-align:left">Loan Officer</th>' +
+    '<th style="' + th + '">Leads In</th><th style="' + th + '">Quoted</th>' +
+    '<th style="' + th + '">To Processing</th><th style="' + th + '">Closed / Won</th></tr></thead><tbody>';
+  var tot = { leads: 0, quoted: 0, processing: 0, closed: 0 };
+  owners.forEach(function(o) {
+    var c = _funnelLoCells[o];
+    tot.leads += c.leads.length; tot.quoted += c.quoted.length;
+    tot.processing += c.processing.length; tot.closed += c.closed.length;
+    var loName = String(o).replace(/@.*$/, '');
+    html += '<tr>' +
+      '<td style="padding:9px 10px;border-top:1px solid var(--border);font-weight:600">' + escH(loName) + '</td>' +
+      cell(o, 'leads', c.leads.length, '') +
+      cell(o, 'quoted', c.quoted.length, pctTxt(c.quoted.length, c.leads.length)) +
+      cell(o, 'processing', c.processing.length, pctTxt(c.processing.length, c.quoted.length)) +
+      cell(o, 'closed', c.closed.length, pctTxt(c.closed.length, c.processing.length)) +
+    '</tr>';
+  });
+  html += '<tr style="background:rgba(38,26,54,0.04);font-weight:600">' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark)">Total</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + tot.leads + '</td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + tot.quoted + ' <span style="font-size:11px;color:var(--muted);font-weight:400">(' + (tot.leads ? (tot.quoted / tot.leads * 100).toFixed(0) : 0) + '%)</span></td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + tot.processing + ' <span style="font-size:11px;color:var(--muted);font-weight:400">(' + (tot.quoted ? (tot.processing / tot.quoted * 100).toFixed(0) : 0) + '%)</span></td>' +
+    '<td style="padding:9px 10px;border-top:2px solid var(--dark);text-align:right;font-variant-numeric:tabular-nums">' + tot.closed + ' <span style="font-size:11px;color:var(--muted);font-weight:400">(' + (tot.processing ? (tot.closed / tot.processing * 100).toFixed(0) : 0) + '%)</span></td>' +
+  '</tr></tbody></table>';
+  wrap.innerHTML = html;
+}
+function openFunnelLoDrilldown(owner, stageKey) {
+  var cells = _funnelLoCells[owner];
+  var arr = cells ? (cells[stageKey] || []) : [];
+  if (!arr.length) return;
+  _cdmState.entries = arr.map(function(l) {
+    var t = inferLoanType(l);
+    return { loan: l, bucket: t === 'RTL' ? 'RTL' : t === 'DSCR' ? 'DSCR' : 'Unknown' };
+  });
+  _cdmState.sortBy = 'amount';
+  _cdmState.sortDir = 'desc';
+  // Leads/Quoted lists show the intake date (read-only); Processing and
+  // Closed/Won get the editable Close Date.
+  _cdmState.isLeads = (stageKey === 'leads' || stageKey === 'quoted');
+  var stageLabel = '';
+  for (var i = 0; i < _FUNNEL_STAGES.length; i++) { if (_FUNNEL_STAGES[i].key === stageKey) stageLabel = _FUNNEL_STAGES[i].label; }
+  document.getElementById('cdmTitle').textContent =
+    String(owner).replace(/@.*$/, '') + ' · ' + stageLabel + ' (' + arr.length + ' loan' + (arr.length === 1 ? '' : 's') + ')';
+  _cdmRender();
+  document.getElementById('chartDrilldownModal').style.display = 'flex';
+  document.addEventListener('keydown', _cdmKeyHandler);
 }
 
 // ── Performance stats (verbatim math from dashboard.html) ────────
