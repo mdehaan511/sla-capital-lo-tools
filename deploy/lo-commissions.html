@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>LO Commissions · SLA Capital</title>
+  <!--
+    Deploy 236.798 — LO Commissions (admin only). Replaces the manual
+    SLA_Full_Time_LO_Compensation_Model.xlsx: every loan that CLOSED in the
+    selected month/quarter, grouped by LO, with the commission computed per
+    that LO's plan:
+
+      model   — the full-time comp model (Sara, Carl):
+                tier bps by MARGIN: <1.5 pts → 35 · <2.5 → 50 · <3.5 → 65 · 3.5+ → 70
+                margin = points + TPO spread (DSCR)
+                       = points + (note rate − buy/base rate) (RTL/GUC)
+                company-sourced first loan → tier bps × 0.5
+                + $250 repeat-borrower bonus (auto-detected: borrower has an
+                  earlier closed loan) + $250 borrower-referral bonus (manual flag)
+                + quarterly production bonus: $5,000 per FULL $10M funded/quarter
+      flat50  — 50 bps of loan amount per closed loan (default for unlisted LOs)
+      revenue — paid off total revenue (Chance, Jeremy): listed for visibility,
+                no per-loan commission
+
+    Plan assignments live in settings key lo_comp_plans (editable below).
+    Per-loan source/referral flags persist on the loan (commissionSource /
+    commissionReferral via loan-servicing-update).
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Lora:wght@500;600&display=swap" rel="stylesheet" />
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js" defer></script>
+  <style>
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --success: #256940; --warn: #7a5218; --danger: #7c1f1f;
+      --r: 12px; --r-xs: 6px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    .nav { position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,0.95); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 34px; }
+    .nav a, .nav button { color: var(--dark); text-decoration: none; padding: 8px 14px; border-radius: 8px; font-size: 13.5px; font-weight: 500; background: transparent; border: 1px solid transparent; cursor: pointer; }
+    .nav .nav-tools-btn { padding: 6px 12px; border: 1px solid var(--border); margin-left: 8px; }
+    .nav-left, .nav-right { display: flex; align-items: center; gap: 6px; }
+    .page { max-width: 1280px; margin: 32px auto; padding: 0 24px 80px; }
+    .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 22px; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .page-header p { color: var(--muted); font-size: 13px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 18px 20px; margin-bottom: 18px; }
+    .card h2 { font-family: 'Lora', serif; font-size: 16px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .card .sub { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 12px; }
+    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 14px 16px; }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .stat-value { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; color: var(--dark); margin-top: 4px; }
+    .stat-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th { text-align: left; padding: 8px 10px; font-weight: 600; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+    td { padding: 8px 10px; border-top: 1px solid var(--border); }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    select, input[type="checkbox"] { font-family: inherit; font-size: 12px; }
+    select { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; }
+    .lo-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 4px 0 8px; flex-wrap: wrap; }
+    .lo-head h3 { font-family: 'Lora', serif; font-size: 15.5px; color: var(--dark); }
+    .lo-total { font-size: 13px; font-weight: 700; color: var(--success); }
+    .plan-chip { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 8px; vertical-align: middle; }
+    .plan-model   { background: rgba(200,129,58,0.14); color: var(--gold-mid); }
+    .plan-flat50  { background: rgba(38,26,54,0.08); color: var(--dark); }
+    .plan-revenue { background: rgba(120,116,136,0.14); color: var(--muted); }
+    .warn-note { font-size: 11px; color: var(--warn); }
+    .btn { padding: 8px 16px; border: 1px solid var(--border); background: #fff; border-radius: var(--r-xs); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; color: var(--dark); }
+    .btn-primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .empty, .loading { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
+    .auth-gate { display: flex; align-items: center; justify-content: center; min-height: 70vh; }
+    .auth-gate .gate-msg { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 28px 32px; max-width: 380px; text-align: center; }
+  </style>
+</head>
+<body>
+
+<nav class="nav" id="slaNav"></nav>
+
+<div id="auth-gate" class="auth-gate"><div class="gate-msg">Checking permissions…</div></div>
+
+<div class="page" id="page" style="display:none">
+  <div class="page-header">
+    <div>
+      <h1>LO Commissions</h1>
+      <p>Closed loans by loan officer with commission per their comp plan. Margin = points + TPO spread (DSCR) or points + rate over base (RTL).</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+        Period
+        <select id="periodSelect" onchange="render()" style="font-size:13px;padding:6px 10px"></select>
+      </label>
+      <button type="button" class="btn" onclick="exportCsv()">Export CSV</button>
+      <a href="/sla-dashboard.html" class="btn" style="text-decoration:none">SLA Dashboard →</a>
+      <button type="button" class="btn btn-primary" onclick="loadAll(true)">Refresh</button>
+    </div>
+  </div>
+
+  <div class="stat-row" id="statRow"></div>
+  <div id="loSections"><div class="loading">Loading closed loans…</div></div>
+
+  <div class="card">
+    <h2>Comp Plan Assignments</h2>
+    <div class="sub">ADMIN · UNLISTED LOs DEFAULT TO FLAT 50 BPS · SAVED TO SETTINGS</div>
+    <div id="plansWrap"></div>
+  </div>
+
+  <div class="card">
+    <h2>Comp Model Reference</h2>
+    <div class="sub">FROM SLA_FULL_TIME_LO_COMPENSATION_MODEL.XLSX</div>
+    <div style="font-size:12.5px;line-height:1.8">
+      Tier bps by margin: <strong>&lt;1.5 pts → 35</strong> · <strong>1.5–2.49 → 50</strong> · <strong>2.5–3.49 → 65</strong> · <strong>3.5+ → 70</strong><br/>
+      Company-sourced first loan → tier bps × 0.5 · Repeat borrower +$250 · Borrower referral +$250 ·
+      Production bonus $5,000 per full $10M funded per quarter.<br/>
+      Margin: DSCR = points + TPO spread · RTL/GUC = points + (note rate − buy/base rate).
+    </div>
+  </div>
+</div>
+
+<script>
+var _user = null;
+var _rows = [];          // every closed loan: computed commission row
+var _loNames = {};
+var _plans = {};         // email -> 'model' | 'flat50' | 'revenue'
+var _allLoEmails = [];   // from directory
+// First-run defaults per Mike (editable; only used until a config is saved).
+var DEFAULT_PLANS = {
+  'sara.s@slacapital.com': 'model',
+  'carl.davis@slacapital.com': 'model',
+  'chance@slacapital.com': 'revenue',
+  'jeremy@slacapital.com': 'revenue',
+};
+var PLAN_LABEL = { model: 'Comp Model', flat50: 'Flat 50 bps', revenue: 'Revenue-based' };
+
+function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[$,%]/g, '')); return isFinite(n) ? n : 0; }
+function money(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+function planOf(email) { return _plans[String(email || '').toLowerCase()] || 'flat50'; }
+function loName(email) { return _loNames[String(email || '').toLowerCase()] || String(email || '').replace(/@.*$/, ''); }
+
+// Closed/won — same rule as the SLA dashboard's Won bucket.
+function isClosedWon(l) {
+  var d = String(l.disposition || '').toLowerCase();
+  if (d) return true; // any disposition means it reached the closed book
+  var s = String(l.status || '').toLowerCase();
+  if (s === 'closed' || s === 'sold' || s === 'liquidated') return true;
+  return String(l.processingStage || '').toLowerCase() === 'pp_closed';
+}
+
+// The comp model's tier lookup (Assumptions sheet).
+function tierBps(margin) {
+  if (!isFinite(margin)) return 0;
+  if (margin < 1.5) return 35;
+  if (margin < 2.5) return 50;
+  if (margin < 3.5) return 65;
+  return 70;
+}
+
+// Margin per Mike: DSCR = points + TPO spread; RTL/GUC = points + (rate − buy rate).
+function marginOf(l) {
+  var pts = num(l.points);
+  var tool = String(l.toolType || '').toLowerCase();
+  if (tool === 'dscr') {
+    var tpo = num(l.tpoSpread) || num(l.tpo) || num(l.tpoPremium);
+    return { margin: pts + tpo, parts: pts.toFixed(2) + ' pts + ' + tpo.toFixed(2) + ' TPO', missing: false };
+  }
+  var rate = num(l.rate), buy = num(l.buyRate);
+  if (rate > 0 && buy > 0) {
+    var spread = Math.max(0, rate - buy);
+    return { margin: pts + spread, parts: pts.toFixed(2) + ' pts + ' + spread.toFixed(2) + ' over base', missing: false };
+  }
+  // No buy/base rate on file — fall back to points only and flag it.
+  return { margin: pts, parts: pts.toFixed(2) + ' pts (no base rate on file)', missing: true };
+}
+
+netlifyIdentity.on('init', function(user) {
+  if (!user) { window.location.replace('/'); return; }
+  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Access denied.</strong><br/>This page is for admins only.</div>';
+    return;
+  }
+  _user = user;
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('page').style.display = '';
+  loadAll(false);
+});
+netlifyIdentity.on('logout', function() { window.location.replace('/'); });
+
+function loadAll(fresh) {
+  if (fresh && SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+  var pClients = SLA.Clients.list({ all: true });
+  var pDir = (SLA.Users && SLA.Users.directory) ? SLA.Users.directory().catch(function(){ return null; }) : Promise.resolve(null);
+  var pSettings = SLA.Settings.getAll().catch(function(){ return {}; });
+  Promise.all([pClients, pDir, pSettings]).then(function(res) {
+    var cj = res[0], dir = res[1], settings = res[2];
+    _loNames = {}; _allLoEmails = [];
+    (((dir || {}).users) || []).forEach(function(u) {
+      if (!u || !u.email) return;
+      var e = String(u.email).toLowerCase();
+      if (u.name) _loNames[e] = u.name;
+      _allLoEmails.push(e);
+    });
+    _plans = (settings && settings.lo_comp_plans && typeof settings.lo_comp_plans === 'object')
+      ? settings.lo_comp_plans : Object.assign({}, DEFAULT_PLANS);
+
+    // Flatten closed loans + auto repeat-borrower detection (an earlier
+    // CLOSED loan for the same borrower email = every later one is repeat).
+    var closed = [];
+    var byOwner = (cj && cj.byOwner) || {};
+    Object.keys(byOwner).forEach(function(owner) {
+      (byOwner[owner] || []).forEach(function(c) {
+        (c.loans || []).forEach(function(l) {
+          if (!l || !l.id || !isClosedWon(l)) return;
+          closed.push({ owner: String(owner).toLowerCase(), client: c, loan: l });
+        });
+      });
+    });
+    var byBorrower = {};
+    closed.forEach(function(x) {
+      var be = String(x.client.email || '').toLowerCase();
+      if (!be) return;
+      (byBorrower[be] = byBorrower[be] || []).push(x);
+    });
+    Object.keys(byBorrower).forEach(function(be) {
+      byBorrower[be].sort(function(a, b) {
+        return String(a.loan.fundingDate || '9999').localeCompare(String(b.loan.fundingDate || '9999'));
+      });
+      byBorrower[be].forEach(function(x, i) { x.isRepeat = i > 0; });
+    });
+
+    _rows = closed.map(function(x) {
+      var l = x.loan;
+      var m = marginOf(l);
+      return {
+        owner: x.owner,
+        clientId: x.client.id,
+        loanId: l.id,
+        borrower: ((x.client.firstName || '') + ' ' + (x.client.lastName || '')).trim() || x.client.email || '',
+        address: l.address || '(no address)',
+        tool: String(l.toolType || '').toUpperCase() || '?',
+        amount: num(l.finalLoanAmount) || num(l.loanAmt),
+        closeDate: l.fundingDate || '',
+        margin: m.margin, marginParts: m.parts, marginMissing: m.missing,
+        source: (String(l.commissionSource || '').toLowerCase() === 'company') ? 'company' : 'lo',
+        referral: String(l.commissionReferral || '').toLowerCase() === 'yes',
+        isRepeat: !!x.isRepeat,
+      };
+    });
+    buildPeriodSelect();
+    render();
+    renderPlans();
+  }).catch(function(err) {
+    document.getElementById('loSections').innerHTML =
+      '<div class="empty" style="color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+
+// ── Period (months + quarters present in the closed book) ─────────
+function periodOfDate(d) { return String(d || '').slice(0, 7); } // YYYY-MM
+function quarterOf(d) {
+  var m = String(d || '').match(/^(\d{4})-(\d{2})/);
+  if (!m) return '';
+  return m[1] + '-Q' + (Math.floor((parseInt(m[2], 10) - 1) / 3) + 1);
+}
+function buildPeriodSelect() {
+  var months = {}, quarters = {};
+  _rows.forEach(function(r) {
+    var mo = periodOfDate(r.closeDate);
+    if (/^\d{4}-\d{2}$/.test(mo)) { months[mo] = 1; quarters[quarterOf(r.closeDate)] = 1; }
+  });
+  var moList = Object.keys(months).sort().reverse();
+  var qList = Object.keys(quarters).sort().reverse();
+  var sel = document.getElementById('periodSelect');
+  var prev = sel.value;
+  var html = '';
+  qList.forEach(function(q) { html += '<option value="' + q + '">' + q.replace('-', ' ') + '</option>'; });
+  moList.forEach(function(mo) {
+    var d = new Date(parseInt(mo.slice(0, 4), 10), parseInt(mo.slice(5, 7), 10) - 1, 1);
+    html += '<option value="' + mo + '">' + d.toLocaleString('en-US', { month: 'long', year: 'numeric' }) + '</option>';
+  });
+  html += '<option value="all">All Time</option>';
+  sel.innerHTML = html;
+  var nowMo = new Date().toISOString().slice(0, 7);
+  sel.value = prev && sel.querySelector('option[value="' + prev + '"]') ? prev
+    : (months[nowMo] ? nowMo : (moList[0] || 'all'));
+}
+function inPeriod(r) {
+  var p = document.getElementById('periodSelect').value || 'all';
+  if (p === 'all') return true;
+  if (/^\d{4}-Q\d$/.test(p)) return quarterOf(r.closeDate) === p;
+  return periodOfDate(r.closeDate) === p;
+}
+function periodQuarter() {
+  // The quarter used for the production bonus: an explicit quarter pick, or
+  // the quarter containing the picked month. All-time → no quarterly bonus row.
+  var p = document.getElementById('periodSelect').value || 'all';
+  if (/^\d{4}-Q\d$/.test(p)) return p;
+  if (/^\d{4}-\d{2}$/.test(p)) return quarterOf(p + '-01');
+  return '';
+}
+
+// ── Commission math per row (plan-aware) ──────────────────────────
+function computeRow(r, plan) {
+  var out = { tier: 0, applied: 0, base: 0, bonus: 0, total: 0 };
+  if (plan === 'revenue') return out;
+  if (plan === 'flat50') {
+    out.applied = 50;
+    out.base = r.amount * 50 / 10000;
+    out.total = out.base;
+    return out;
+  }
+  out.tier = tierBps(r.margin);
+  out.applied = r.source === 'company' ? out.tier * 0.5 : out.tier;
+  out.base = r.amount * out.applied / 10000;
+  out.bonus = (r.isRepeat ? 250 : 0) + (r.referral ? 250 : 0);
+  out.total = out.base + out.bonus;
+  return out;
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function render() {
+  var rows = _rows.filter(inPeriod);
+  var byLo = {};
+  rows.forEach(function(r) { (byLo[r.owner] = byLo[r.owner] || []).push(r); });
+  var owners = Object.keys(byLo).sort(function(a, b) { return loName(a).localeCompare(loName(b)); });
+
+  var q = periodQuarter();
+  var totalPayout = 0, totalVolume = 0, totalLoans = 0;
+  var html = '';
+  owners.forEach(function(owner) {
+    var plan = planOf(owner);
+    var list = byLo[owner].slice().sort(function(a, b) { return String(a.closeDate).localeCompare(String(b.closeDate)); });
+    var loBase = 0, loBonus = 0, loVol = 0;
+    var bodyRows = list.map(function(r) {
+      var c = computeRow(r, plan);
+      loBase += c.base; loBonus += c.bonus; loVol += r.amount;
+      var srcCell = plan === 'model'
+        ? '<select onchange="setSource(this, \'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')">' +
+            '<option value="lo"' + (r.source === 'lo' ? ' selected' : '') + '>LO-Sourced</option>' +
+            '<option value="company"' + (r.source === 'company' ? ' selected' : '') + '>Company 1st</option>' +
+          '</select>'
+        : '—';
+      var refCell = plan === 'model'
+        ? '<input type="checkbox"' + (r.referral ? ' checked' : '') + ' onchange="setReferral(this, \'' + escH(r.loanId) + '\', \'' + escH(r.clientId) + '\', \'' + escH(r.owner) + '\')" title="$250 borrower-referral bonus" />'
+        : '—';
+      var marginCell = plan === 'model'
+        ? '<span title="' + escH(r.marginParts) + '"' + (r.marginMissing ? ' class="warn-note"' : '') + '>' + r.margin.toFixed(2) + (r.marginMissing ? ' ⚠' : '') + '</span>'
+        : '—';
+      var href = '/loan-details/' + encodeURIComponent(r.loanId) + '?owner=' + encodeURIComponent(r.owner);
+      return '<tr>' +
+        '<td><a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' +
+          '<div style="font-size:10.5px;color:var(--muted)">' + escH(r.borrower) + '</div></td>' +
+        '<td>' + escH(r.tool) + '</td>' +
+        '<td class="num">' + money(r.amount) + '</td>' +
+        '<td>' + escH(r.closeDate || '—') + '</td>' +
+        '<td class="num">' + marginCell + '</td>' +
+        '<td>' + srcCell + '</td>' +
+        '<td style="text-align:center">' + (plan === 'model' ? (r.isRepeat ? 'Yes' : 'No') : '—') + '</td>' +
+        '<td style="text-align:center">' + refCell + '</td>' +
+        '<td class="num">' + (plan === 'revenue' ? '—' : c.applied.toFixed(1)) + '</td>' +
+        '<td class="num">' + (plan === 'revenue' ? '—' : money(c.base)) + '</td>' +
+        '<td class="num">' + (plan === 'model' ? money(c.bonus) : '—') + '</td>' +
+        '<td class="num" style="font-weight:700">' + (plan === 'revenue' ? '—' : money(c.base + c.bonus)) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    // Quarterly production bonus (model plan): full quarter volume, even when
+    // a single month inside it is selected.
+    var prodBonus = 0, prodNote = '';
+    if (plan === 'model' && q) {
+      var qVol = 0;
+      _rows.forEach(function(r) { if (r.owner === owner && quarterOf(r.closeDate) === q) qVol += r.amount; });
+      prodBonus = Math.floor(qVol / 10000000) * 5000;
+      prodNote = q.replace('-', ' ') + ' funded ' + money(qVol) + ' → production bonus ' + money(prodBonus) +
+        (prodBonus === 0 ? ' (' + money(10000000 - (qVol % 10000000)) + ' to the next $10M)' : '');
+    }
+    var loTotal = plan === 'revenue' ? 0 : loBase + loBonus + prodBonus;
+    totalPayout += loTotal; totalVolume += loVol; totalLoans += list.length;
+
+    html += '<div class="card">' +
+      '<div class="lo-head">' +
+        '<h3>' + escH(loName(owner)) + '<span class="plan-chip plan-' + plan + '">' + PLAN_LABEL[plan] + '</span></h3>' +
+        '<div class="lo-total">' + (plan === 'revenue'
+          ? '<span style="color:var(--muted);font-weight:500">' + list.length + ' closed · ' + money(loVol) + ' · paid off total revenue</span>'
+          : list.length + ' closed · ' + money(loVol) + ' · payout ' + money(loTotal)) + '</div>' +
+      '</div>' +
+      '<div style="overflow-x:auto"><table><thead><tr>' +
+        '<th>Loan</th><th>Type</th><th class="num">Amount</th><th>Closed</th><th class="num">Margin</th>' +
+        '<th>Source</th><th style="text-align:center">Repeat</th><th style="text-align:center">Referral</th>' +
+        '<th class="num">Bps</th><th class="num">Base</th><th class="num">Bonuses</th><th class="num">Total</th>' +
+      '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>' +
+      (prodNote ? '<div style="font-size:12px;color:var(--muted);margin-top:8px">' + escH(prodNote) + '</div>' : '') +
+    '</div>';
+  });
+
+  var missingDates = _rows.filter(function(r) { return !r.closeDate; }).length;
+  document.getElementById('statRow').innerHTML =
+    '<div class="stat-card"><div class="stat-label">Closed Loans</div><div class="stat-value">' + totalLoans + '</div><div class="stat-sub">in period</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Closed Volume</div><div class="stat-value">' + money(totalVolume) + '</div><div class="stat-sub">funded amount</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Total Payout</div><div class="stat-value">' + money(totalPayout) + '</div><div class="stat-sub">model + flat plans (revenue-based excluded)</div></div>' +
+    (missingDates ? '<div class="stat-card"><div class="stat-label" style="color:var(--warn)">No Close Date</div><div class="stat-value">' + missingDates + '</div><div class="stat-sub">closed loans missing fundingDate — not in any period</div></div>' : '');
+
+  document.getElementById('loSections').innerHTML = html ||
+    '<div class="empty">No loans closed in this period.</div>';
+}
+
+// ── Per-loan flag persistence ─────────────────────────────────────
+function _saveField(el, loanId, clientId, owner, fields) {
+  el.disabled = true;
+  SLA.api('POST', '/api/loan-servicing-update', { clientId: clientId, loanId: loanId, owner: owner, fields: fields })
+    .then(function() {
+      el.disabled = false;
+      for (var i = 0; i < _rows.length; i++) {
+        if (_rows[i].loanId !== loanId) continue;
+        if (fields.commissionSource !== undefined) _rows[i].source = fields.commissionSource;
+        if (fields.commissionReferral !== undefined) _rows[i].referral = fields.commissionReferral === 'yes';
+      }
+      if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+      render();
+    })
+    .catch(function(err) { el.disabled = false; alert('Save failed: ' + (err && err.message || 'unknown')); });
+}
+function setSource(sel, loanId, clientId, owner) {
+  _saveField(sel, loanId, clientId, owner, { commissionSource: sel.value });
+}
+function setReferral(cb, loanId, clientId, owner) {
+  _saveField(cb, loanId, clientId, owner, { commissionReferral: cb.checked ? 'yes' : '' });
+}
+
+// ── Plan assignments ──────────────────────────────────────────────
+function renderPlans() {
+  var emails = _allLoEmails.slice();
+  Object.keys(_plans).forEach(function(e) { if (emails.indexOf(e) < 0) emails.push(e); });
+  // Also include any owner with closed loans (covers LOs missing from the directory).
+  _rows.forEach(function(r) { if (emails.indexOf(r.owner) < 0) emails.push(r.owner); });
+  emails.sort(function(a, b) { return loName(a).localeCompare(loName(b)); });
+  var html = '<table><thead><tr><th>Loan Officer</th><th>Email</th><th>Plan</th></tr></thead><tbody>';
+  emails.forEach(function(e) {
+    var p = planOf(e);
+    html += '<tr>' +
+      '<td style="font-weight:600">' + escH(loName(e)) + '</td>' +
+      '<td style="color:var(--muted)">' + escH(e) + '</td>' +
+      '<td><select onchange="setPlan(this, \'' + escH(e) + '\')">' +
+        '<option value="flat50"' + (p === 'flat50' ? ' selected' : '') + '>Flat 50 bps</option>' +
+        '<option value="model"' + (p === 'model' ? ' selected' : '') + '>Comp Model (tiered)</option>' +
+        '<option value="revenue"' + (p === 'revenue' ? ' selected' : '') + '>Revenue-based (no per-loan comp)</option>' +
+      '</select></td>' +
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('plansWrap').innerHTML = html;
+}
+function setPlan(sel, email) {
+  _plans[email] = sel.value;
+  sel.disabled = true;
+  SLA.Settings.set('lo_comp_plans', _plans).then(function() {
+    sel.disabled = false;
+    render(); renderPlans();
+  }).catch(function(err) {
+    sel.disabled = false;
+    alert('Failed to save plan: ' + (err && err.message || 'unknown'));
+  });
+}
+
+// ── CSV export ────────────────────────────────────────────────────
+function exportCsv() {
+  var p = document.getElementById('periodSelect').value || 'all';
+  var q = periodQuarter();
+  var lines = ['LO,Plan,Address,Borrower,Type,Amount,Close Date,Margin,Source,Repeat,Referral,Applied Bps,Base Commission,Bonuses,Total'];
+  var esc = function(s) { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  _rows.filter(inPeriod).sort(function(a, b) {
+    return loName(a.owner).localeCompare(loName(b.owner)) || String(a.closeDate).localeCompare(String(b.closeDate));
+  }).forEach(function(r) {
+    var plan = planOf(r.owner);
+    var c = computeRow(r, plan);
+    lines.push([
+      esc(loName(r.owner)), PLAN_LABEL[plan], esc(r.address), esc(r.borrower), r.tool,
+      r.amount, r.closeDate, plan === 'model' ? r.margin.toFixed(2) : '',
+      plan === 'model' ? r.source : '', plan === 'model' ? (r.isRepeat ? 'yes' : 'no') : '',
+      plan === 'model' ? (r.referral ? 'yes' : 'no') : '',
+      plan === 'revenue' ? '' : c.applied, plan === 'revenue' ? '' : c.base.toFixed(2),
+      plan === 'model' ? c.bonus.toFixed(2) : '', plan === 'revenue' ? '' : (c.base + c.bonus).toFixed(2),
+    ].join(','));
+  });
+  // Quarterly production bonuses as summary lines.
+  if (q) {
+    var seen = {};
+    _rows.forEach(function(r) {
+      if (planOf(r.owner) !== 'model' || seen[r.owner]) return;
+      seen[r.owner] = true;
+      var qVol = 0;
+      _rows.forEach(function(x) { if (x.owner === r.owner && quarterOf(x.closeDate) === q) qVol += x.amount; });
+      var bonus = Math.floor(qVol / 10000000) * 5000;
+      lines.push([esc(loName(r.owner)), 'Comp Model', esc('PRODUCTION BONUS ' + q), '', '', qVol, '', '', '', '', '', '', '', bonus.toFixed(2), bonus.toFixed(2)].join(','));
+    });
+  }
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'lo-commissions-' + p + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+</script>
+</body>
+</html>

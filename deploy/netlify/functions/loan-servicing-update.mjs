@@ -51,6 +51,10 @@ const FIELDS = {
   // (Baseline imports arrive blank), since type routes RTL vs DSCR. projectLoan
   // maps loan.toolType -> the tool_type PG column, so this persists in the list.
   toolType: 1,
+  // Deploy 236.798 — LO commission inputs (lo-commissions.html):
+  // commissionSource 'lo'|'company' (company-sourced first loan halves the
+  // tier bps) and commissionReferral 'yes'|'' ($250 borrower-referral bonus).
+  commissionSource: 1, commissionReferral: 1,
 };
 
 // Deploy 236.784 — same set loan-set-disposition accepts.

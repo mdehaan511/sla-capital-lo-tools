@@ -35,9 +35,12 @@ import {
 // them since 236.311 (apply/submitted) and 236.388 (errors), but they
 // were never on this allowlist, so the admin UI couldn't set them and
 // every channel silently fell back to the default slack_webhook.
+// Deploy 236.798 — lo_comp_plans: { '<loEmail>': 'model'|'flat50'|'revenue' }
+// (admin-edited on lo-commissions.html; unlisted LOs default to flat50).
 const ALLOWED_KEYS = new Set([
   'banner', 'submit_email', 'processing_substatuses', 'task_templates',
   'slack_webhook', 'slack_webhook_errors', 'slack_webhook_apply', 'slack_webhook_submitted',
+  'lo_comp_plans',
 ]);
 
 // Deploy 236.548 — default per-column substatus vocabulary for the Processing

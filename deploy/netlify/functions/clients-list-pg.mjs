@@ -117,6 +117,9 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // projection the Closings/Funding-Plan views loaded a loan object with no TPO, so
   // the migrated value looked "missing" even though PG had it.
   'tpo', 'tpoPremium', 'buyRate', 'investorId',
+  // Deploy 236.798 — LO commission inputs (lo-commissions.html). Keep in
+  // sync with clients-list.mjs's LOAN_SUMMARY_FIELDS.
+  'commissionSource', 'commissionReferral',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
