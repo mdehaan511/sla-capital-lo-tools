@@ -35,8 +35,22 @@ async function _req(path, { method = 'GET', headers = {}, body } = {}) {
   let data;
   try { data = text ? JSON.parse(text) : null; } catch (_) { data = { raw: text }; }
   if (!resp.ok) {
-    const msg = (data && (data.message || (Array.isArray(data.errors) && data.errors.map((e) => e.message || e.code).join('; ')))) ||
-                ('HTTP ' + resp.status);
+    // Deploy 236.815 — BILL returns 4XX/5XX as a BARE JSON ARRAY of BdcError
+    // ({ code, message, detail, params, help }), which is what its OpenAPI spec
+    // documents ("4XX: List of errors"). The original parse only looked at
+    // `data.message` and `data.errors`, so every BILL error collapsed to a bare
+    // "HTTP 400" and the actual reason was thrown away — which is exactly how a
+    // failing commission bill reported nothing useful.
+    const one = (e) => [e && e.code, e && e.message, e && e.detail]
+      .map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean).join(': ');
+    let msg = '';
+    if (Array.isArray(data)) msg = data.map(one).filter(Boolean).join(' | ');
+    else if (data && Array.isArray(data.errors)) msg = data.errors.map(one).filter(Boolean).join(' | ');
+    else if (data) msg = one(data);
+    // Last resort: never swallow the body again. A truncated raw payload beats
+    // a status code with no explanation.
+    if (!msg) msg = 'HTTP ' + resp.status + (text ? ' — ' + text.slice(0, 400) : '');
+
     const err = new Error('BILL ' + method + ' ' + path + ' → ' + msg);
     err.status = resp.status;
     err.data = data;

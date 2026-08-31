@@ -140,6 +140,24 @@ async function handle(req, context) {
   const invoiceNumber = ('COMM-' + period + '-' + loEmail.replace(/@.*$/, '')).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 100);
   const total = billable.reduce((s, b) => s + b.amount, 0);
 
+  // Deploy 236.815 — fail fast on the two things BILL rejects with an opaque
+  // 400. A vendor id must begin with `009` per BILL's spec, and this endpoint
+  // CACHES vendor ids in settings/lo_bill_vendors — so one bad id sticks around
+  // and every future run for that LO 400s with no explanation.
+  if (!/^009/.test(String(vendorId || ''))) {
+    return json(502, {
+      error: 'BILL vendor id looks wrong ("' + String(vendorId || '') + '"). BILL vendor ids start with 009. ' +
+             'The cached id in Settings → lo_bill_vendors may be stale; clearing it will re-resolve the vendor.',
+      vendorId,
+    });
+  }
+  const badLine = billable.find((b) => !(Number(b.amount) > 0));
+  if (badLine) {
+    return json(400, {
+      error: 'Cannot bill a non-positive amount (' + String(badLine.amount) + ') for "' + (badLine.description || 'line item') + '".',
+    });
+  }
+
   let bill;
   try {
     bill = await createBill(session, {
@@ -153,7 +171,16 @@ async function handle(req, context) {
   } catch (e) {
     // A duplicate-invoice rejection means this exact run already went through
     // (e.g. stamping failed last time) — surface that clearly.
-    return json(502, { error: 'BILL create-bill failed: ' + (e.message || 'unknown'), invoiceNumber });
+    // Deploy 236.815 — carry BILL's own error array through to the caller. The
+    // message alone used to read "HTTP 400" with nothing behind it.
+    const dup = /duplicate/i.test(e.message || '');
+    return json(502, {
+      error: 'BILL create-bill failed: ' + (e.message || 'unknown'),
+      invoiceNumber,
+      billStatus: e.status || 0,
+      billError: e.data || null,
+      ...(dup ? { hint: 'This period was already billed for this LO under invoice ' + invoiceNumber + '. Check BILL before re-running.' } : {}),
+    });
   }
   const billId = bill && bill.id;
 
