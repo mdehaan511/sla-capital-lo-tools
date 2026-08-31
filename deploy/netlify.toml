@@ -27,6 +27,9 @@
   timeout = 26
 [functions."xactus-flood-order"]
   timeout = 26
+# Deploy 236.808 — BILL login + vendor scan + bill create in one request.
+[functions."lo-commission-bill"]
+  timeout = 26
 
 # Supabase migration Phase 1 — the backfill walks 2 800+ blobs, does
 # a second pass on the legacy brokers store, then chunk-writes
@@ -789,6 +792,14 @@
 [[redirects]]
   from = "/api/loan-note-pin"
   to = "/.netlify/functions/loan-note-pin"
+  status = 200
+  force = true
+
+# Deploy 236.808: lo-commission-bill — one-button LO commission bills in
+# BILL (bill.com) from the LO Commissions page.
+[[redirects]]
+  from = "/api/lo-commission-bill"
+  to = "/.netlify/functions/lo-commission-bill"
   status = 200
   force = true
 

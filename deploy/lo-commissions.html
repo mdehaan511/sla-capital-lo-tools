@@ -91,6 +91,7 @@
     <div>
       <h1>LO Commissions</h1>
       <p>Closed loans by loan officer with commission per their comp plan. Margin = points + TPO spread (DSCR) or points + rate over base (RTL).</p>
+      <div id="billStatusLine" style="font-size:11.5px;margin-top:2px;color:var(--muted)">Checking BILL connection…</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
@@ -191,6 +192,7 @@ netlifyIdentity.on('init', function(user) {
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('page').style.display = '';
   loadAll(false);
+  checkBillStatus();
 });
 netlifyIdentity.on('logout', function() { window.location.replace('/'); });
 
@@ -252,6 +254,8 @@ function loadAll(fresh) {
         source: (String(l.commissionSource || '').toLowerCase() === 'company') ? 'company' : 'lo',
         referral: String(l.commissionReferral || '').toLowerCase() === 'yes',
         isRepeat: !!x.isRepeat,
+        // Deploy 236.808 — BILL (bill.com) commission-bill stamp.
+        billId: String(l.commissionBillId || ''),
       };
     });
     buildPeriodSelect();
@@ -355,8 +359,12 @@ function render() {
         ? '<span title="' + escH(r.marginParts) + '"' + (r.marginMissing ? ' class="warn-note"' : '') + '>' + r.margin.toFixed(2) + (r.marginMissing ? ' ⚠' : '') + '</span>'
         : '—';
       var href = '/loan-details/' + encodeURIComponent(r.loanId) + '?owner=' + encodeURIComponent(r.owner);
+      // Deploy 236.808 — billed badge (a bill for this loan exists in BILL).
+      var billedTag = r.billId
+        ? ' <span title="Billed in BILL (' + escH(r.billId) + ')" style="font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:10px;background:rgba(37,105,64,0.12);color:var(--success)">BILLED ✓</span>'
+        : '';
       return '<tr>' +
-        '<td><a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' +
+        '<td><a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' + billedTag +
           '<div style="font-size:10.5px;color:var(--muted)">' + escH(r.borrower) + '</div></td>' +
         '<td>' + escH(r.tool) + '</td>' +
         '<td class="num">' + money(r.amount) + '</td>' +
@@ -385,12 +393,27 @@ function render() {
     var loTotal = plan === 'revenue' ? 0 : loBase + loBonus + prodBonus;
     totalPayout += loTotal; totalVolume += loVol; totalLoans += list.length;
 
+    // Deploy 236.808 — one-button BILL creation for this LO's UNBILLED
+    // loans in the period (auto-creates the vendor in BILL if needed).
+    var unbilled = list.filter(function(r) { return !r.billId; });
+    var unbilledTotal = 0;
+    unbilled.forEach(function(r) { var c = computeRow(r, plan); unbilledTotal += c.base + c.bonus; });
+    var billBtn = '';
+    if (plan !== 'revenue' && unbilled.length && unbilledTotal > 0) {
+      billBtn = '<button type="button" class="btn btn-primary" id="billBtn_' + escH(owner.replace(/[^a-z0-9]/gi, '_')) + '"' +
+        ' onclick="sendToBill(\'' + escH(owner) + '\')" style="font-size:12px;padding:6px 14px">' +
+        'Create Bill in BILL — ' + money(unbilledTotal) + ' · ' + unbilled.length + ' loan' + (unbilled.length === 1 ? '' : 's') + '</button>';
+    } else if (plan !== 'revenue' && list.length && !unbilled.length) {
+      billBtn = '<span style="font-size:12px;color:var(--success);font-weight:600">All billed ✓</span>';
+    }
+
     html += '<div class="card">' +
       '<div class="lo-head">' +
         '<h3>' + escH(loName(owner)) + '<span class="plan-chip plan-' + plan + '">' + PLAN_LABEL[plan] + '</span></h3>' +
+        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' + billBtn +
         '<div class="lo-total">' + (plan === 'revenue'
           ? '<span style="color:var(--muted);font-weight:500">' + list.length + ' closed · ' + money(loVol) + ' · paid off total revenue</span>'
-          : list.length + ' closed · ' + money(loVol) + ' · payout ' + money(loTotal)) + '</div>' +
+          : list.length + ' closed · ' + money(loVol) + ' · payout ' + money(loTotal)) + '</div></div>' +
       '</div>' +
       '<div style="overflow-x:auto"><table><thead><tr>' +
         '<th>Loan</th><th>Type</th><th class="num">Amount</th><th>Closed</th><th class="num">Margin</th>' +
@@ -410,6 +433,65 @@ function render() {
 
   document.getElementById('loSections').innerHTML = html ||
     '<div class="empty">No loans closed in this period.</div>';
+}
+
+// ── Deploy 236.808: one-button BILL (bill.com) commission bills ───
+// Creates ONE itemized bill in BILL for this LO's unbilled loans in the
+// selected period. The endpoint auto-creates the LO as a BILL vendor if
+// they aren't one yet, drops any loan that got billed in the meantime,
+// and stamps commissionBillId on each loan so it can never double-bill.
+function sendToBill(owner) {
+  var plan = planOf(owner);
+  if (plan === 'revenue') return;
+  var period = document.getElementById('periodSelect').value || 'all';
+  var rows = _rows.filter(function(r) { return r.owner === owner && inPeriod(r) && !r.billId; });
+  var items = [];
+  var total = 0;
+  rows.forEach(function(r) {
+    var c = computeRow(r, plan);
+    var amt = Math.round((c.base + c.bonus) * 100) / 100;
+    if (amt <= 0) return;
+    total += amt;
+    var desc = r.address + ' — ' + r.tool + ' ' + money(r.amount) + ', closed ' + (r.closeDate || 'n/a') +
+      (plan === 'model'
+        ? ' — ' + c.applied.toFixed(1) + ' bps (margin ' + r.margin.toFixed(2) + ', ' + (r.source === 'company' ? 'company-sourced 1st' : 'LO-sourced') + ')' +
+          (c.bonus ? ' + $' + c.bonus + ' bonuses' : '')
+        : ' — flat 50 bps');
+    items.push({ clientId: r.clientId, loanId: r.loanId, owner: r.owner, amount: amt, description: desc });
+  });
+  if (!items.length) { alert('Nothing unbilled for this LO in the selected period.'); return; }
+  var msg = 'Create a bill in BILL for ' + loName(owner) + '?\n\n' +
+    items.length + ' loan' + (items.length === 1 ? '' : 's') + ' · total ' + money(total) +
+    '\nPeriod: ' + period + '\n\nThe bill lands in BILL as Unpaid — payment still needs your approval there.' +
+    '\n(Quarterly production bonuses are NOT included.)';
+  if (!confirm(msg)) return;
+  var btn = document.getElementById('billBtn_' + owner.replace(/[^a-z0-9]/gi, '_'));
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating bill…'; }
+  SLA.api('POST', '/api/lo-commission-bill', {
+    action: 'create', loEmail: owner, loName: loName(owner), period: period, items: items,
+  }).then(function(r) {
+    rows.forEach(function(x) { x.billId = r.billId || r.invoiceNumber || 'billed'; });
+    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
+    alert('Bill created in BILL ✓\n\n' + loName(owner) + ' — ' + money(r.amount) + ' across ' + r.loans + ' loan(s)\nInvoice: ' + r.invoiceNumber +
+      (r.vendorCreated ? '\n\nNOTE: ' + loName(owner) + ' was auto-added as a new BILL vendor — have them connect their bank info in BILL before paying.' : '') +
+      (r.skipped && r.skipped.length ? '\nSkipped: ' + r.skipped.length + ' (already billed/invalid)' : ''));
+    render();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; }
+    alert('BILL error: ' + (err && err.message || 'unknown'));
+    render();
+  });
+}
+
+// Deploy 236.808 — BILL connection indicator (header, best-effort).
+function checkBillStatus() {
+  SLA.api('POST', '/api/lo-commission-bill', { action: 'status' }).then(function(r) {
+    var el = document.getElementById('billStatusLine');
+    if (el) el.innerHTML = '<span style="color:var(--success);font-weight:600">BILL connected ✓</span> <span style="color:var(--muted)">org ' + escH(r.organizationId || '') + ' · ' + r.vendorCount + ' vendors</span>';
+  }).catch(function(err) {
+    var el = document.getElementById('billStatusLine');
+    if (el) el.innerHTML = '<span style="color:var(--danger);font-weight:600">BILL not connected:</span> <span style="color:var(--muted)">' + escH(err && err.message || 'unknown') + '</span>';
+  });
 }
 
 // ── Per-loan flag persistence ─────────────────────────────────────

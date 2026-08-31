@@ -120,6 +120,8 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.798 — LO commission inputs (lo-commissions.html). Keep in
   // sync with clients-list.mjs's LOAN_SUMMARY_FIELDS.
   'commissionSource', 'commissionReferral',
+  // Deploy 236.808 — BILL (bill.com) commission-bill stamps.
+  'commissionBillId', 'commissionBilledAt',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
