@@ -1478,6 +1478,7 @@ window._rtlOverrides = {
   rate: null,                  // overridden rate (decimal, e.g. 0.105 for 10.5%)
   points: null,                // overridden points (e.g. 1.5)
   dp: null,                    // overridden down payment ($ amount)
+  loanAmt: null,               // Deploy 236.827 — overridden loan amount ($, Bridge loans)
   warningAcknowledged: false,  // true after LO confirms the warning modal
   _pendingField: null,         // which field is mid-edit while modal is open
   _pendingValue: null,         // the candidate value awaiting confirmation
@@ -1495,10 +1496,10 @@ var OVERRIDE_LOCK_IDS = [
   'zhvi',
 ];
 
-// True if any of the three overrides is currently set.
+// True if any override is currently set.
 function hasActiveOverride() {
   var o = window._rtlOverrides || {};
-  return o.rate !== null || o.points !== null || o.dp !== null;
+  return o.rate !== null || o.points !== null || o.dp !== null || (o.loanAmt !== null && o.loanAmt !== undefined);
 }
 
 // Show the warning modal before allowing an override edit. On pencil
@@ -1567,11 +1568,12 @@ function _openOverrideInput(fieldKey) {
   } else if (fieldKey === 'points') {
     // Display is like "1.5 pts"
     rawNum = parseFloat(currentText);
-  } else if (fieldKey === 'dp') {
-    // Display is like "$45,000"
+  } else if (fieldKey === 'dp' || fieldKey === 'loanAmt') {
+    // Display is like "$45,000" (Deploy 236.827 — loanAmt joins the dollar fields)
     rawNum = parseFloat(currentText.replace(/[^\d.]/g, ''));
   }
   if (!isFinite(rawNum)) rawNum = 0;
+  var _isDollar = (fieldKey === 'dp' || fieldKey === 'loanAmt');
   var suffix = fieldKey === 'rate' ? '%' : fieldKey === 'points' ? 'pts' : '$';
   var inputId = 'override-input-' + fieldKey;
   // Deploy 236.53 — when the target element is the rate-big .rv on the
@@ -1584,11 +1586,11 @@ function _openOverrideInput(fieldKey) {
     ? ' style="color:rgba(255,255,255,0.55)"'
     : '';
   el.innerHTML =
-    (fieldKey === 'dp' ? '<span class="override-suffix">$</span>' : '') +
+    (_isDollar ? '<span class="override-suffix">$</span>' : '') +
     '<input type="number" id="' + inputId + '" class="' + inputCls + '" value="' + rawNum +
       '" step="' + (fieldKey === 'rate' ? '0.001' : fieldKey === 'points' ? '0.1' : '1000') +
       '" min="0" />' +
-    (fieldKey !== 'dp' ? '<span class="override-suffix"' + suffixStyle + '>' + suffix + '</span>' : '');
+    (!_isDollar ? '<span class="override-suffix"' + suffixStyle + '>' + suffix + '</span>' : '');
   var input = document.getElementById(inputId);
   input.focus();
   input.select();
@@ -1604,6 +1606,11 @@ function _openOverrideInput(fieldKey) {
     // Commit directly — warning was already acknowledged before the
     // input was opened, so no second modal.
     window._rtlOverrides[fieldKey] = v;
+    // Deploy 236.827 — DP and loan amount are two handles on the same
+    // quantity (loanAmt = price − DP). Whichever was edited LAST wins;
+    // the other clears so they can't fight.
+    if (fieldKey === 'loanAmt') window._rtlOverrides.dp = null;
+    if (fieldKey === 'dp') window._rtlOverrides.loanAmt = null;
     applyOverridesAndRender();
     lockLoanFinancialFields(true);
   });
@@ -1620,7 +1627,7 @@ function restoreOverridesToDefault() {
   if (!hasActiveOverride()) return;
   if (!confirm('Restore pricing to the calculator default? This clears all manual overrides for this loan.')) return;
   window._rtlOverrides = {
-    rate: null, points: null, dp: null,
+    rate: null, points: null, dp: null, loanAmt: null,
     warningAcknowledged: false,
     _pendingField: null, _pendingValue: null,
   };
@@ -1682,6 +1689,7 @@ function refreshOverrideNotice() {
   if (o.rate !== null)   parts.push('rate');
   if (o.points !== null) parts.push('points');
   if (o.dp !== null)     parts.push('down payment');
+  if (o.loanAmt !== null && o.loanAmt !== undefined) parts.push('loan amount');
   var detail = 'Overridden: ' + parts.join(', ') + '. Click Restore to revert.';
   var detailEl = document.getElementById('overrideNoticeDetail');
   if (detailEl) detailEl.textContent = detail;
@@ -1801,6 +1809,14 @@ function applyOverridesAndRender() {
     // loanAmt = price - DP for bridge; + rehab for fix/flip
     effLoanAmt = Math.max(0, pp - effDp + (isRehab ? rb : 0));
   }
+  // Deploy 236.827 — direct loan-amount override (Bridge; Mike). The inverse
+  // handle of the DP override: set the amount, the down payment re-derives
+  // (dp = price − amount, + rehab holdback on fix/flip). On refis (no DP
+  // concept — calc.dp is null) the amount stands alone.
+  if (o.loanAmt !== null && o.loanAmt !== undefined) {
+    effLoanAmt = o.loanAmt;
+    if (calc.dp != null && pp > 0) effDp = Math.max(0, pp - effLoanAmt + (isRehab ? rb : 0));
+  }
   // Persist for downstream consumers (PDF, broker fee rows) — they read
   // window._rtlLastCalc.
   window._rtlLastCalcEffective = {
@@ -1843,8 +1859,9 @@ function applyOverridesAndRender() {
     // toggled on earlier
     dpEl.classList.remove('overridden');
   }
-  // ── Loan amount card (when DP override → loan amount changes) ──
-  if (o.dp !== null) {
+  // ── Loan amount card (DP override derives it; loanAmt override sets it) ──
+  var _amtOverridden = (o.loanAmt !== null && o.loanAmt !== undefined);
+  if (o.dp !== null || _amtOverridden) {
     var loanCards = document.querySelectorAll('.metric-card');
     loanCards.forEach(function(card) {
       var lbl = card.querySelector('.metric-label');
@@ -1855,7 +1872,7 @@ function applyOverridesAndRender() {
           val.classList.add('overridden');
         }
         var sub = card.querySelector('.metric-sub');
-        if (sub) sub.textContent = 'Derived from DP override';
+        if (sub) sub.textContent = _amtOverridden ? 'Manual override' : 'Derived from DP override';
       }
     });
   }
@@ -2178,10 +2195,11 @@ function restoreSizerHistory(idx) {
       el.value = fd[k];
     });
     // Restore override state so pricing repaints exactly as saved.
-    window._rtlOverrides = window._rtlOverrides || { rate: null, points: null, dp: null, warningAcknowledged: false };
-    window._rtlOverrides.rate   = (fd._rateOverride   && !isNaN(parseFloat(fd._rateOverride)))   ? parseFloat(fd._rateOverride)   : null;
-    window._rtlOverrides.points = (fd._pointsOverride && !isNaN(parseFloat(fd._pointsOverride))) ? parseFloat(fd._pointsOverride) : null;
-    window._rtlOverrides.dp     = (fd._dpOverride     && !isNaN(parseFloat(fd._dpOverride)))     ? parseFloat(fd._dpOverride)     : null;
+    window._rtlOverrides = window._rtlOverrides || { rate: null, points: null, dp: null, loanAmt: null, warningAcknowledged: false };
+    window._rtlOverrides.rate    = (fd._rateOverride    && !isNaN(parseFloat(fd._rateOverride)))    ? parseFloat(fd._rateOverride)    : null;
+    window._rtlOverrides.points  = (fd._pointsOverride  && !isNaN(parseFloat(fd._pointsOverride)))  ? parseFloat(fd._pointsOverride)  : null;
+    window._rtlOverrides.dp      = (fd._dpOverride      && !isNaN(parseFloat(fd._dpOverride)))      ? parseFloat(fd._dpOverride)      : null;
+    window._rtlOverrides.loanAmt = (fd._loanAmtOverride && !isNaN(parseFloat(fd._loanAmtOverride))) ? parseFloat(fd._loanAmtOverride) : null; // Deploy 236.827
     window._rtlOverrides.warningAcknowledged = true;
   } catch (e) { console.warn('[SLA] RTL sizer-history restore: field populate failed:', e); }
   try { runCalculate(true); } catch (_) {}
@@ -2360,11 +2378,17 @@ function calculate(){
   html += '<div class="metric-sub">'+(pDol?fmt(pDol)+' on max loan':'—')+'</div>';
   html += '</div>';
 
-  // Max loan
+  // Max loan. Deploy 236.827 — on Bridge loans the amount is directly
+  // overridable (Mike), same pencil flow as rate/points; the down payment
+  // re-derives from it. Rehab tracks keep the DP pencil as the handle
+  // (their amount folds in the rehab holdback).
   if(bMax){
+    var _amtPencil = (lt === 'bridge')
+      ? ' <span class="override-pencil" onclick="enableOverrideEdit(\'loanAmt\')" title="Override loan amount (requires manager approval)">✎</span>'
+      : '';
     html += '<div class="metric-card">';
-    html += '<div class="metric-label">Maximum Loan Amount</div>';
-    html += '<div class="metric-value xl">'+fmt(bMax)+'</div>';
+    html += '<div class="metric-label">Maximum Loan Amount' + _amtPencil + '</div>';
+    html += '<div class="metric-value xl" data-metric="loanAmt">'+fmt(bMax)+'</div>';
     html += '<div class="metric-sub">'+bLabel+' binding</div>';
     html += '</div>';
   } else {
@@ -3227,10 +3251,11 @@ function saveCurrentQuote() {
   // quote restores the overridden values + the lock state + the
   // notice banner (without re-firing the warning modal).
   var ovState = window._rtlOverrides || {};
-  formData._rateOverride   = (ovState.rate   !== null && ovState.rate   !== undefined) ? String(ovState.rate)   : '';
-  formData._pointsOverride = (ovState.points !== null && ovState.points !== undefined) ? String(ovState.points) : '';
-  formData._dpOverride     = (ovState.dp     !== null && ovState.dp     !== undefined) ? String(ovState.dp)     : '';
-  if (formData._rateOverride || formData._pointsOverride || formData._dpOverride) {
+  formData._rateOverride    = (ovState.rate    !== null && ovState.rate    !== undefined) ? String(ovState.rate)    : '';
+  formData._pointsOverride  = (ovState.points  !== null && ovState.points  !== undefined) ? String(ovState.points)  : '';
+  formData._dpOverride      = (ovState.dp      !== null && ovState.dp      !== undefined) ? String(ovState.dp)      : '';
+  formData._loanAmtOverride = (ovState.loanAmt !== null && ovState.loanAmt !== undefined) ? String(ovState.loanAmt) : ''; // Deploy 236.827
+  if (formData._rateOverride || formData._pointsOverride || formData._dpOverride || formData._loanAmtOverride) {
     formData._pricingOverrideAt = new Date().toISOString();
     // Stamp the LO email for audit. window._user is set by the
     // netlify-identity init flow at the top of this file.
@@ -3372,6 +3397,27 @@ function saveCurrentQuote() {
     snapshot.adjs.push({ l: lbl, v: v });
   });
   formData._pricingSnapshot = snapshot;
+
+  // Deploy 236.827 — a direct loan-amount override (Bridge) must land on the
+  // captured figures explicitly (belt over the DOM-scrape suspenders): the
+  // saved loan amount, the snapshot's maxLoan, and the monthly interest that
+  // Loan Details / rate sheets print.
+  if (formData.loanType !== 'transactional') {
+    var _ovAmt = (window._rtlOverrides || {}).loanAmt;
+    if (_ovAmt !== null && _ovAmt !== undefined && isFinite(_ovAmt) && _ovAmt > 0) {
+      formData._maxLoan = String(Math.round(_ovAmt));
+      snapshot.maxLoan = _ovAmt;
+      var _ovR = (window._rtlOverrides || {}).rate;
+      var _effR = (_ovR !== null && _ovR !== undefined && isFinite(_ovR) && _ovR > 0)
+        ? _ovR : ((typeof calcSrc.rate === 'number' && isFinite(calcSrc.rate)) ? calcSrc.rate : null);
+      if (_effR && formData.loanType === 'bridge') {
+        // Bridge = no holdback: start == max, initial advance == full amount.
+        snapshot.monthlyStart = _ovAmt * _effR / 12;
+        snapshot.monthlyMax = snapshot.monthlyStart;
+        snapshot.initialAdvance = _ovAmt;
+      }
+    }
+  }
 
   // Transactional Funding override: snapshot reflects the hardcoded 12% rate,
   // 1pt origination, and the directly-entered loan amount. Most other fields
@@ -3819,20 +3865,23 @@ function loadRTLQuote(formData) {
   // these values to paint the overridden numbers over the defaults.
   var hasOv = (formData._rateOverride && formData._rateOverride !== '') ||
               (formData._pointsOverride && formData._pointsOverride !== '') ||
-              (formData._dpOverride && formData._dpOverride !== '');
+              (formData._dpOverride && formData._dpOverride !== '') ||
+              (formData._loanAmtOverride && formData._loanAmtOverride !== ''); // Deploy 236.827
   if (hasOv) {
     window._rtlOverrides = {
-      rate:   (formData._rateOverride   !== undefined && formData._rateOverride   !== '') ? parseFloat(formData._rateOverride)   : null,
-      points: (formData._pointsOverride !== undefined && formData._pointsOverride !== '') ? parseFloat(formData._pointsOverride) : null,
-      dp:     (formData._dpOverride     !== undefined && formData._dpOverride     !== '') ? parseFloat(formData._dpOverride)     : null,
+      rate:    (formData._rateOverride    !== undefined && formData._rateOverride    !== '') ? parseFloat(formData._rateOverride)    : null,
+      points:  (formData._pointsOverride  !== undefined && formData._pointsOverride  !== '') ? parseFloat(formData._pointsOverride)  : null,
+      dp:      (formData._dpOverride      !== undefined && formData._dpOverride      !== '') ? parseFloat(formData._dpOverride)      : null,
+      loanAmt: (formData._loanAmtOverride !== undefined && formData._loanAmtOverride !== '') ? parseFloat(formData._loanAmtOverride) : null,
       warningAcknowledged: true,
       _pendingField: null,
       _pendingValue: null,
     };
     // Sanitize NaNs to null
-    if (isNaN(window._rtlOverrides.rate))   window._rtlOverrides.rate   = null;
-    if (isNaN(window._rtlOverrides.points)) window._rtlOverrides.points = null;
-    if (isNaN(window._rtlOverrides.dp))     window._rtlOverrides.dp     = null;
+    if (isNaN(window._rtlOverrides.rate))    window._rtlOverrides.rate    = null;
+    if (isNaN(window._rtlOverrides.points))  window._rtlOverrides.points  = null;
+    if (isNaN(window._rtlOverrides.dp))      window._rtlOverrides.dp      = null;
+    if (isNaN(window._rtlOverrides.loanAmt)) window._rtlOverrides.loanAmt = null;
     if (typeof lockLoanFinancialFields === 'function') {
       try { lockLoanFinancialFields(true); } catch (_) {}
     }
@@ -4129,6 +4178,8 @@ netlifyIdentity.on('init', function(user) {
           if (loanFd._finalRate)      fd._finalRate      = loanFd._finalRate;
           if (loanFd._pointsOverride) fd._pointsOverride = loanFd._pointsOverride;
           if (loanFd._points)         fd._points         = loanFd._points;
+          if (loanFd._dpOverride)      fd._dpOverride      = loanFd._dpOverride;      // Deploy 236.827 — dollar overrides
+          if (loanFd._loanAmtOverride) fd._loanAmtOverride = loanFd._loanAmtOverride; // join the round-trip
           // Deploy 236.239 — guard `loanType`. Baseline import writes
           // loan.loanType = "rtl" (product category), but the RTL
           // sizer's #loanType <select> is a TRACK picker
