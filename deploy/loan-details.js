@@ -6256,19 +6256,31 @@ function renderNotesLog() {
   // wrapper + 📌 tag, and staff get a Pin/Unpin control on every entry
   // that has an id (legacy notes have none to key the toggle on).
   var _canPin = !!(window.SLA && SLA.isProcessor && _user && SLA.isProcessor(_user));
+  // Deploy 236.818 — free-form (manual) notes are editable by their author or
+  // by staff. System/status entries stay immutable (they're the audit record).
+  var _selfEmail = String((_user && _user.email) || '').toLowerCase();
   function _noteEntryHtml(e, isPinned) {
     var when = formatNoteTime(e.ts);
     var kindLabel = noteKindLabel(e.kind);
     var who = e.author || e.authorEmail || (e.kind === 'legacy' ? 'Legacy note' : '');
-    var pinBtn = '';
+    var ctrls = '';
+    var canEdit = e.id && e.id !== 'legacy' && String(e.kind || 'manual') === 'manual' &&
+      (_canPin || (e.authorEmail && String(e.authorEmail).toLowerCase() === _selfEmail));
+    if (canEdit) {
+      ctrls += '<button type="button" onclick="startNoteEdit(\'' + escH(e.id) + '\')" title="Edit this note"' +
+        ' style="margin-left:auto;border:none;background:transparent;cursor:pointer;font-size:11px;color:#a49d92;padding:0 2px">✎ Edit</button>';
+    }
     if (_canPin && e.id && e.id !== 'legacy') {
-      pinBtn = '<button type="button" onclick="toggleNotePin(\'' + escH(e.id) + '\',' + (isPinned ? 'false' : 'true') + ')"' +
+      ctrls += '<button type="button" onclick="toggleNotePin(\'' + escH(e.id) + '\',' + (isPinned ? 'false' : 'true') + ')"' +
         ' title="' + (isPinned ? 'Unpin this note' : 'Pin this note to the top') + '"' +
-        ' style="margin-left:auto;border:none;background:transparent;cursor:pointer;font-size:11px;color:' + (isPinned ? '#b5712d' : '#a49d92') + ';padding:0 2px">' +
+        ' style="' + (canEdit ? '' : 'margin-left:auto;') + 'border:none;background:transparent;cursor:pointer;font-size:11px;color:' + (isPinned ? '#b5712d' : '#a49d92') + ';padding:0 2px">' +
         (isPinned ? '📌 Unpin' : '📌 Pin') + '</button>';
     }
     var wrapStyle = isPinned
       ? ' style="background:rgba(200,129,58,0.07);border:1px solid rgba(200,129,58,0.30);border-radius:8px;padding:8px 10px;margin-bottom:8px"'
+      : '';
+    var editedMark = e.editedAt
+      ? ' <span style="font-size:10px;color:#a49d92" title="Edited ' + escH(formatNoteTime(e.editedAt)) + (e.editedBy ? ' by ' + escH(e.editedBy) : '') + '">(edited)</span>'
       : '';
     return '<div class="note-entry"' + wrapStyle + '>' +
         '<div class="note-entry-head" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
@@ -6276,9 +6288,9 @@ function renderNotesLog() {
           (when ? '<span class="note-entry-time">' + escH(when) + '</span>' : '') +
           (who ? '<span class="note-entry-author">'+ escH(who) +'</span>' : '') +
           '<span class="note-entry-kind nk-' + escH(e.kind || 'manual') + '">' + escH(kindLabel) + '</span>' +
-          pinBtn +
+          ctrls +
         '</div>' +
-        '<div class="note-entry-body">' + escH(e.text || '') + '</div>' +
+        '<div class="note-entry-body" id="noteBody_' + escH(e.id || '') + '">' + escH(e.text || '') + editedMark + '</div>' +
       '</div>';
   }
   var html = '';
@@ -6289,6 +6301,50 @@ function renderNotesLog() {
   // naturally lands after innerHTML replacement, but make explicit.
   var list = document.getElementById('notesList');
   if (list) list.scrollTop = 0;
+}
+
+// Deploy 236.818 — inline note editing. The body swaps to a textarea;
+// Save persists via loan-note-edit (author or staff only, manual notes
+// only — the backend enforces both), then the feed re-renders.
+function startNoteEdit(noteId) {
+  var body = document.getElementById('noteBody_' + noteId);
+  if (!body) return;
+  var entry = null;
+  var list = (_loan && _loan.notesLog) || [];
+  for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === noteId) { entry = list[i]; break; } }
+  if (!entry) return;
+  body.innerHTML =
+    '<textarea id="noteEditTa_' + noteId + '" style="width:100%;min-height:64px;box-sizing:border-box;font:inherit;font-size:13px;padding:6px 8px;border:1px solid #d8d2c6;border-radius:6px;resize:vertical"></textarea>' +
+    '<div style="display:flex;gap:8px;margin-top:6px">' +
+      '<button type="button" onclick="saveNoteEdit(\'' + escH(noteId) + '\')" style="background:#b5712d;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;padding:5px 14px;cursor:pointer">Save</button>' +
+      '<button type="button" onclick="renderNotesLog()" style="background:transparent;color:#7a7488;border:1px solid #d8d2c6;border-radius:6px;font-size:12px;padding:5px 12px;cursor:pointer">Cancel</button>' +
+    '</div>';
+  var ta = document.getElementById('noteEditTa_' + noteId);
+  if (ta) { ta.value = entry.text || ''; ta.focus(); }
+}
+function saveNoteEdit(noteId) {
+  var ta = document.getElementById('noteEditTa_' + noteId);
+  if (!ta) return;
+  var text = String(ta.value || '').trim();
+  if (!text) { if (typeof showToast === 'function') showToast('Note cannot be empty'); return; }
+  var body = { clientId: _client.id, loanId: _loanId, noteId: noteId, text: text };
+  var ov = (typeof _ldOwnerOverride === 'function') ? _ldOwnerOverride() : null;
+  if (ov) body.owner = ov;
+  SLA.api('POST', '/api/loan-note-edit', body).then(function(resp) {
+    var list = (_loan && _loan.notesLog) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (!list[i] || list[i].id !== noteId) continue;
+      list[i].text = text;
+      list[i].editedAt = (resp && resp.editedAt) || new Date().toISOString();
+      list[i].editedBy = (resp && resp.editedBy) || '';
+      break;
+    }
+    renderNotesLog();
+    if (typeof showToast === 'function') showToast('Note updated');
+  }).catch(function(err) {
+    var msg = 'Edit failed: ' + (err && err.message || 'unknown');
+    if (typeof showToast === 'function') showToast(msg); else alert(msg);
+  });
 }
 
 // Deploy 236.800 — pin/unpin a note (processors/admins). Persists via

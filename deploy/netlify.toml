@@ -808,6 +808,23 @@
   status = 200
   force = true
 
+# Deploy 236.818: loan-note-edit — author or staff edits a free-form note
+# (manual kind only; prior text kept on the entry's editHistory).
+[[redirects]]
+  from = "/api/loan-note-edit"
+  to = "/.netlify/functions/loan-note-edit"
+  status = 200
+  force = true
+
+# Deploy 236.818: borrower-link — durable 72h portal sign-in links. GET
+# redeems (mints a fresh Supabase magic link at click time); POST resends
+# a new link when the token expired. Linked from every borrower invite email.
+[[redirects]]
+  from = "/api/borrower-link"
+  to = "/.netlify/functions/borrower-link"
+  status = 200
+  force = true
+
 # Deploy 236.808: lo-commission-bill — one-button LO commission bills in
 # BILL (bill.com) from the LO Commissions page.
 [[redirects]]
@@ -1183,6 +1200,15 @@
 [[redirects]]
   from = "/api/loan-review-ai-background"
   to = "/.netlify/functions/loan-review-ai-background"
+  status = 200
+  force = true
+# Deploy 236.818 — point-of-truth refresh: re-snapshots the client/loan onto
+# the review, re-attaches the current signed application, and re-runs reviewed
+# docs. Background function (202) — the doc-review "Sync application data"
+# button posts here; guarantor add/remove + app completion queue it internally.
+[[redirects]]
+  from = "/api/loan-review-refresh-truth"
+  to = "/.netlify/functions/loan-review-refresh-background"
   status = 200
   force = true
 # Deploy 236.675 — move a document from one tray (e.g. "Other") to another

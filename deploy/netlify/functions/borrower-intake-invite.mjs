@@ -32,6 +32,7 @@ import { isLoanInProcessing } from './_shared/access.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 import {
   getSb, ensureBorrowerUser, borrowerMagicLink, lastSignInByUserId,
+  mintDurablePortalLink, linkExpiryCopy,
   sendBorrowerEmail, readLoanInvites, writeLoanInvite, escHtml,
 } from './_shared/borrower-invite-core.mjs';
 
@@ -126,13 +127,15 @@ async function handle(req, context) {
     return json(500, { error: 'Grant write failed: ' + (e.message || 'unknown') });
   }
 
-  // 3. Magic-link sign-in + branded email.
+  // 3. Durable 72h link (Deploy 236.818) + branded email. Raw magic link only
+  // as fallback when the signing secret isn't configured.
   const origin = new URL(req.url).origin;
-  const actionLink = await borrowerMagicLink(sb, inviteEmail, origin);
+  const durable = mintDurablePortalLink(inviteEmail, origin);
+  const actionLink = durable ? durable.url : await borrowerMagicLink(sb, inviteEmail, origin);
   const addr = loan.address || 'your loan';
   let replyTo = '';
   try { replyTo = await getOwnerReplyTo(ownerKey); } catch (_) {}
-  const mail = _intakeEmail(addr, actionLink || (origin + '/borrower-portal.html'), !actionLink);
+  const mail = _intakeEmail(addr, actionLink || (origin + '/borrower-portal.html'), !actionLink, linkExpiryCopy(durable));
   let emailed = false;
   try { emailed = await sendBorrowerEmail(inviteEmail, mail.subject, mail.text, mail.html, replyTo, { kind: 'portal_invite', ownerKey }); }
   catch (e) { console.warn('intake-invite: email send failed:', e && e.message); }
@@ -145,7 +148,8 @@ async function handle(req, context) {
   return json(200, { ok: true, recipient, email: inviteEmail, emailed, sentAt });
 }
 
-function _intakeEmail(addr, actionLink, isFallback) {
+function _intakeEmail(addr, actionLink, isFallback, expiry) {
+  expiry = expiry || { text: '', html: '' };
   const cta = isFallback ? 'Open my document list' : 'Sign in & submit documents';
   const text = [
     `You've been invited to submit the documents for the loan at ${addr}.`, '',
@@ -153,10 +157,11 @@ function _intakeEmail(addr, actionLink, isFallback) {
       ? 'Open your document list here (sign in with Google or request a login link):'
       : 'Click the link below to sign in and open your document list — no password needed:',
     actionLink, '',
+  ].concat(expiry.text ? [expiry.text, ''] : []).concat([
     'You can also sign in any time with Google using this same email address.', '',
     'Our system reviews most documents instantly, so you\'ll know right away if something needs fixing.', '',
     '— SLA Capital',
-  ].join('\n');
+  ]).join('\n');
   const html = `<!doctype html><html><body style="margin:0;background:#f4f1ea;font-family:Arial,Helvetica,sans-serif;color:#1a1520">
     <div style="max-width:520px;margin:0 auto;padding:28px 22px">
       <div style="font-family:Georgia,serif;font-size:20px;font-weight:600;margin-bottom:14px">SLA Capital</div>
@@ -164,6 +169,7 @@ function _intakeEmail(addr, actionLink, isFallback) {
       <p style="text-align:center;margin:22px 0">
         <a href="${escHtml(actionLink)}" style="background:#b5712d;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 26px;border-radius:10px;display:inline-block">${escHtml(cta)} &rarr;</a>
       </p>
+      ${expiry.html}
       <p style="font-size:13px;line-height:1.55;color:#7a7488">You can also sign in any time with <strong>Google</strong> using this same email address. Our system reviews most documents instantly, so you'll know right away if something needs fixing.</p>
       <p style="font-size:12px;color:#999;margin-top:24px">If the button doesn't work, paste this into your browser:<br>${escHtml(actionLink)}</p>
     </div></body></html>`;

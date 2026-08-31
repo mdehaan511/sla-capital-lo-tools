@@ -46,6 +46,8 @@ import { findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
 // Deploy 236.703 — removing a guarantor modifies the application and requires a
 // re-sign (Mike). This resets the app to awaiting-signatures.
 import { resetApplicationForResign } from './_shared/application-resign-reset.mjs';
+// Deploy 236.818 — the Doc Review's point of truth must follow the change.
+import { queueTruthRefresh } from './_shared/review-truth.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -106,13 +108,34 @@ async function handle(req, context) {
   loan.updatedAt = now;
   primary.updatedAt = now;
 
+  // Deploy 236.818 — resolve the guarantor's identity BEFORE the audit note so
+  // the note says WHO was removed, not their record id ("Removed guarantor
+  // c_17866..." meant nothing to a processor reading the feed). The same lookup
+  // result feeds the backref cleanup below — one PG hit, not two.
+  let guarantorHit = null;
+  let guarantorEmail = '';
+  let guarantorName = '';
+  try {
+    // Deploy 236.418 — was a full-store walk (sequential blob gets
+    // across every namespace) to find the guarantor's client record;
+    // now one indexed PG lookup by id.
+    guarantorHit = await findClientById(body.guarantorClientId, clientsStore);
+    if (guarantorHit) {
+      guarantorEmail = normalizeEmail(guarantorHit.client.email || '');
+      guarantorName = ((guarantorHit.client.firstName || '') + ' ' + (guarantorHit.client.lastName || '')).replace(/\s+/g, ' ').trim();
+    }
+  } catch (e) {
+    console.warn('loan-remove-guarantor: identity lookup failed (non-fatal):', e && e.message);
+  }
+  const guarantorLabel = guarantorName || guarantorEmail || body.guarantorClientId;
+
   // Note-log entry on the loan for audit.
   {
     const meta = (user && user.user_metadata) || {};
     const author = meta.full_name || meta.fullName || user.email || '';
     appendNoteEntry(loan, {
       kind:  'status',
-      text:  'Removed guarantor ' + body.guarantorClientId + ' from this loan',
+      text:  'Removed guarantor ' + guarantorLabel + ' from this loan',
       author,
       authorEmail: user.email || '',
       meta: { via: 'loan_remove_guarantor', guarantorClientId: body.guarantorClientId },
@@ -127,20 +150,11 @@ async function handle(req, context) {
   // namespaces to find it. Non-fatal if we can't — the backref will
   // eventually be reconciled by other flows.
   let removedBackrefs = 0;
-  let guarantorEmail = '';
-  let guarantorName = '';
   try {
-    // Deploy 236.418 — was a full-store walk (sequential blob gets
-    // across every namespace) to find the guarantor's client record;
-    // now one indexed PG lookup by id.
-    const hit = await findClientById(body.guarantorClientId, clientsStore);
+    const hit = guarantorHit;
     if (hit) {
       const rec = hit.client;
       const gOwner = hit.ownerKey;
-      // Deploy 236.703 — capture identity so we can splice this guarantor out
-      // of the application's data.guarantors[] and require a re-sign.
-      guarantorEmail = normalizeEmail(rec.email || '');
-      guarantorName = ((rec.firstName || '') + ' ' + (rec.lastName || '')).replace(/\s+/g, ' ').trim();
       // Deploy 236.591 — revoke this guarantor's borrower-portal access to the
       // loan they were just removed from, so it disappears from their portal.
       // borrower-portal-loans also self-heals via its guarantor tie-check, but
@@ -225,6 +239,15 @@ async function handle(req, context) {
       source: 'Guarantors', changes: [{ field: 'guarantors', label: 'Guarantor removed', from: String(guarantorName || guarantorEmail || body.guarantorClientId), to: '' }],
     });
   } catch (e) { console.warn('loan-remove-guarantor: change log failed (non-fatal):', e && e.message); }
+
+  // Deploy 236.818 — refresh the Doc Review's point of truth + re-run its
+  // reviewed docs so the AI stops grading against the removed guarantor.
+  // Fire-and-forget background work; never blocks the removal.
+  await queueTruthRefresh({
+    ownerKey, clientId: primary.id, loanId: loan.id,
+    reason: 'guarantor ' + guarantorLabel + ' removed',
+    actorEmail: selfEmail,
+  });
 
 
   return json(200, {

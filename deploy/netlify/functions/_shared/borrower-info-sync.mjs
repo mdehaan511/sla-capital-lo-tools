@@ -565,6 +565,23 @@ export async function advanceQuoteToInProcessing(record) {
     }
   }
 
+  // Deploy 236.818 — the application just completed (first sign OR a re-sign
+  // after a guarantor change): refresh the Doc Review's point of truth and
+  // re-run reviewed docs against the new signed application. Fires on every
+  // completion, not just the awaiting_app→approved flip — a RE-signed app on
+  // an already-approved loan is exactly the case where the review's snapshot
+  // and attached PDF had gone stale. Best-effort background; zero-throw.
+  try {
+    const { queueTruthRefresh } = await import('./review-truth.mjs');
+    await queueTruthRefresh({
+      ownerKey: record.ownerKey, clientId: record.clientId, loanId: targetLoanId,
+      reason: 'loan application signed/completed',
+      actorEmail: record.advancedBy || 'auto:borrower-info-complete',
+    });
+  } catch (e) {
+    console.warn('advanceQuoteToInProcessing: truth refresh queue threw, ignoring:', e && e.message);
+  }
+
   if (loanUpdated) {
     return { ok: true, quotesUpdated, loanUpdated, quotesMatched };
   }

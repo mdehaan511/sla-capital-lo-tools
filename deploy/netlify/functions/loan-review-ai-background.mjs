@@ -27,6 +27,7 @@ import { analyzeDocIntegrity, classifyDocCategory, mergeIntegrity } from './_sha
 // never written — exactly the big BPOs the feature exists for.
 import { fieldsForSlug } from './_shared/uw-field-map.mjs';
 import { buildProposals, writeFieldProposals, bpoAlertFor, felonyAlertFor } from './_shared/uw-field-write.mjs';
+import { internalBgSig } from './_shared/review-truth.mjs'; // Deploy 236.818
 
 // Background functions get ~15 min; give the Claude call 5 min of headroom.
 const BG_TIMEOUT_MS = 5 * 60 * 1000;
@@ -43,12 +44,20 @@ async function handle(req, context) {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
 
-  const user = await requireAuth(context, req);
-  if (!user) return json(401, { error: 'Not authenticated' });
-  if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
-
   const body = await readJsonBody(req);
   if (!body || !body.reviewId || !body.slug) return json(400, { error: 'reviewId and slug required' });
+
+  // Deploy 236.818 — the point-of-truth refresher (loan-review-refresh-
+  // background) queues re-reviews server-side with an internal HMAC header
+  // instead of a staff JWT (the mutation that triggered it may have been an
+  // LO's, who can't call this directly). Either credential works.
+  const hdrSig = (req.headers && typeof req.headers.get === 'function') ? (req.headers.get('x-sla-internal') || '') : '';
+  const wantSig = internalBgSig(body.reviewId, body.slug);
+  if (!(wantSig && hdrSig && hdrSig === wantSig)) {
+    const user = await requireAuth(context, req);
+    if (!user) return json(401, { error: 'Not authenticated' });
+    if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
+  }
 
   const reviewStore = getStore({ name: 'loan_reviews', consistency: 'strong' });
   const review = await reviewStore.get(keySafe(body.reviewId), { type: 'json' });

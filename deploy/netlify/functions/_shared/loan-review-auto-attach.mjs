@@ -174,6 +174,11 @@ export async function attachPdfToReviewSlug({ ownerKey, clientId, loanId, addres
 // ─────────────────────────────────────────────────────────────
 // Private helpers
 
+// Deploy 236.818 — exported for the point-of-truth refresh flow
+// (loan-review-refresh-background.mjs) so it can reuse the same review
+// lookup / signed-app read / attach mechanics.
+export { _findReviewForLoan as findReviewForLoan, _readSignedApp as readSignedApp, _attachToSlug as attachToSlug };
+
 async function _findReviewForLoan({ ownerKey, clientId, loanId, address }) {
   const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
   // Walk the store; reviews are tiny, this is fine.

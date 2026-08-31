@@ -677,6 +677,10 @@
         '<button class="expand-btn" id="dr-uploadZipBtn" onclick="dr_startUploadZip()">⬆ Upload ZIP</button>' +
         // Deploy 236.746 — send the borrower a corrected-docs email on demand.
         '<button class="expand-btn" id="dr-notifyFixBtn" onclick="dr_notifyBorrowerFixes(this)">✉ Email borrower re: flagged docs</button>' +
+        // Deploy 236.818 — refresh the review's point of truth (snapshot +
+        // signed app) from the CURRENT loan record and re-run reviewed docs.
+        // For when the application changed (guarantor added/removed, etc.).
+        '<button class="expand-btn" id="dr-truthBtn" onclick="dr_refreshTruth(this)" title="Re-sync borrower/guarantor data + the signed application from the current loan record, then re-run the AI reviews against it">↻ Sync application data</button>' +
         '<input type="file" id="dr-uploadZipFile" accept=".zip,application/zip,application/x-zip-compressed" style="display:none" onchange="dr_onUploadZipPick(event)" />' +
       '</div>';
 
@@ -2894,6 +2898,39 @@
     }).catch(function(err) {
       if (btn) { btn.disabled = false; btn.textContent = '✉ Email borrower re: flagged docs'; }
       showToast('Send failed: ' + (err.message || 'Unknown'), 'error');
+    });
+  };
+
+  // Deploy 236.818 — point-of-truth refresh. Fires the background refresher
+  // (fresh snapshot + signed app + AI re-runs), then reloads the review after
+  // a short beat so the "Re-review queued" states show up.
+  global.dr_refreshTruth = function(btn) {
+    if (!_review || !_review.id) return;
+    var src = _review.source || {};
+    var clientId = (global._client && global._client.id) || src.clientId;
+    var loanId = global._loanId || src.loanId;
+    var owner = (typeof global._ldOwnerOverride === 'function' && global._ldOwnerOverride()) ||
+      (global._loEmail || src.ownerKey || '');
+    if (!clientId || !loanId || !owner) { showToast('Missing loan context for refresh.', 'error'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+    SLA.getToken().then(function(tok) {
+      return fetch('/api/loan-review-refresh-truth', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: owner, clientId: clientId, loanId: loanId, reason: 'manual sync from doc review' }),
+      });
+    }).then(function(r) {
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Sync application data'; }
+      if (r.status === 202 || r.ok) {
+        showToast('Application data synced — re-reviews queued. Verdicts update as they finish.', 'success');
+        setTimeout(function() { loadReview(); }, 4000);
+      } else {
+        r.json().then(function(d) { showToast('Sync failed: ' + ((d && d.error) || ('HTTP ' + r.status)), 'error'); })
+          .catch(function() { showToast('Sync failed: HTTP ' + r.status, 'error'); });
+      }
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Sync application data'; }
+      showToast('Sync failed: ' + (err && err.message || 'Unknown'), 'error');
     });
   };
 

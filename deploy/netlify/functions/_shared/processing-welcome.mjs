@@ -26,6 +26,7 @@ import { grantLoanAccess } from './loan-access-store.mjs';
 import { getOwnerReplyTo } from './email.mjs';
 import {
   getSb, ensureBorrowerUser, borrowerMagicLink, sendBorrowerEmail,
+  mintDurablePortalLink, linkExpiryCopy,
   writeLoanInvite, readLoanInvites, escHtml,
 } from './borrower-invite-core.mjs';
 import { getStore } from '@netlify/blobs';
@@ -64,10 +65,12 @@ export async function runProcessingWelcome({ ownerKey, ownerEmail, client, loan,
           if (!(already && already.borrower && already.borrower.sentAt)) {
             const sentAt = new Date().toISOString();
             try { await writeLoanInvite(loan.id, 'borrower', { email, userId, sentAt, sentBy: actorEmail || 'system@slacapital.com' }); } catch (_) {}
-            const actionLink = await borrowerMagicLink(sb, email, origin || PORTAL_ORIGIN);
+            // Deploy 236.818 — durable 72h link; raw magic link only as fallback.
+            const durable = mintDurablePortalLink(email, origin || PORTAL_ORIGIN);
+            const actionLink = durable ? durable.url : await borrowerMagicLink(sb, email, origin || PORTAL_ORIGIN);
             let replyTo = '';
             try { replyTo = await getOwnerReplyTo(ownerKey); } catch (_) {}
-            const mail = _docsEmail(fullName, loan.address || '', actionLink || ((origin || PORTAL_ORIGIN) + '/borrower-portal.html'), !actionLink);
+            const mail = _docsEmail(fullName, loan.address || '', actionLink || ((origin || PORTAL_ORIGIN) + '/borrower-portal.html'), !actionLink, linkExpiryCopy(durable));
             await sendBorrowerEmail(email, mail.subject, mail.text, mail.html, replyTo, { kind: 'processing_portal_invite', ownerKey });
             out.invited = true;
             notesBits.push('borrower invited to the portal to upload documents (' + email + ')');
@@ -136,7 +139,8 @@ export async function runProcessingWelcome({ ownerKey, ownerEmail, client, loan,
   return out;
 }
 
-function _docsEmail(name, address, actionLink, isFallback) {
+function _docsEmail(name, address, actionLink, isFallback, expiry) {
+  expiry = expiry || { text: '', html: '' };
   const hi = name ? ('Hi ' + name + ',') : 'Hi there,';
   const forLoan = address ? (' for your loan at ' + address) : ' for your loan';
   const text = [
@@ -146,9 +150,10 @@ function _docsEmail(name, address, actionLink, isFallback) {
       ? 'Open your portal here (sign in with Google or request a login link):'
       : 'Click the link below to sign in — no password needed:',
     actionLink, '',
+  ].concat(expiry.text ? [expiry.text, ''] : []).concat([
     'You can also sign in any time with Google using this same email address.', '',
     '— SLA Capital',
-  ].join('\n');
+  ]).join('\n');
   const html = `<!doctype html><html><body style="margin:0;background:#f4f1ea;font-family:Arial,Helvetica,sans-serif;color:#1a1520">
     <div style="max-width:520px;margin:0 auto;padding:28px 22px">
       <div style="font-family:Georgia,serif;font-size:20px;font-weight:600;margin-bottom:14px">SLA Capital</div>
@@ -157,6 +162,7 @@ function _docsEmail(name, address, actionLink, isFallback) {
       <p style="text-align:center;margin:22px 0">
         <a href="${escHtml(actionLink)}" style="background:#b5712d;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 26px;border-radius:10px;display:inline-block">Upload my documents &rarr;</a>
       </p>
+      ${expiry.html}
       <p style="font-size:13px;line-height:1.55;color:#7a7488">You can also sign in any time with <strong>Google</strong> using this same email address.</p>
       <p style="font-size:12px;color:#999;margin-top:24px">If the button doesn't work, paste this into your browser:<br>${escHtml(actionLink)}</p>
     </div></body></html>`;

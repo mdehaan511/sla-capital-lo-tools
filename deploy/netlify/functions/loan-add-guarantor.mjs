@@ -36,6 +36,7 @@ import { loadRecord } from './_shared/borrower-info-keys.mjs';
 import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { findClientByEmail, findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
+import { queueTruthRefresh } from './_shared/review-truth.mjs'; // Deploy 236.818
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -266,6 +267,14 @@ async function handle(req, context) {
       source: 'Guarantors', changes: [{ field: 'guarantors', label: 'Guarantor added', from: '', to: String(firstName + ' ' + lastName).trim() + ' <' + email + '>' }],
     });
   } catch (e) { console.warn('loan-add-guarantor: change log failed (non-fatal):', e && e.message); }
+
+  // Deploy 236.818 — refresh the Doc Review's point of truth + re-run its
+  // reviewed docs against the updated guarantor set (best-effort background).
+  await queueTruthRefresh({
+    ownerKey, clientId: primary.id, loanId: loan.id,
+    reason: 'guarantor ' + String(firstName + ' ' + lastName).trim() + ' added',
+    actorEmail: normalizeEmail(user.email),
+  });
 
 
   return json(200, {

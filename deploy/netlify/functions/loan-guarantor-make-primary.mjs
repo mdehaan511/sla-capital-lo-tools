@@ -335,6 +335,20 @@ async function handle(req, context) {
     });
   } catch (e) { console.warn('loan-guarantor-make-primary: change log failed (non-fatal):', e && e.message); }
 
+  // Deploy 236.818 — the primary changed (and the review's source.clientId just
+  // moved to dest): refresh the Doc Review's point of truth + re-run reviewed
+  // docs against the corrected borrower set (best-effort background).
+  try {
+    const { queueTruthRefresh } = await import('./_shared/review-truth.mjs');
+    await queueTruthRefresh({
+      ownerKey, clientId: dest.id, loanId: body.loanId,
+      reason: removeOldPrimary
+        ? 'primary guarantor removed — ' + (newPrimaryName || dest.email || dest.id) + ' promoted to primary'
+        : 'primary switched to ' + (newPrimaryName || dest.email || dest.id),
+      actorEmail: selfEmail,
+    });
+  } catch (e) { console.warn('make-primary: truth refresh queue failed (non-fatal):', e && e.message); }
+
 
   return json(200, {
     ok: true,

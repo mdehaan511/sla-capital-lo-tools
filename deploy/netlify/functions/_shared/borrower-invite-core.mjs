@@ -9,11 +9,93 @@
  * Env: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY.
  */
 import { getStore } from '@netlify/blobs';
+import crypto from 'node:crypto';
 import { supabaseBaseUrl } from './supabase-db.mjs';
 import { logBorrowerSendFromResponse } from './email.mjs';
 
 const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
 const INVITE_STORE = 'borrower-invites'; // keyed by loanId
+
+// ── Deploy 236.818 — durable 72-hour portal links ─────────────────────────
+// Supabase magic links expire fast (project OTP window), so emailed links
+// were dying before borrowers clicked them. Emails now carry OUR link
+// (/api/borrower-link?t=<signed token>) which stays valid for 72 hours; at
+// click time the borrower-link endpoint mints a FRESH Supabase magic link
+// and redirects — so the underlying Supabase link is always seconds old.
+// An expired token lands on a page with a one-click "email me a new link".
+// Token = base64url({e:email, x:expiresMs, v:1}) + '.' + HMAC-SHA256
+// signed with ESIGN_SEAL_SECRET (same secret family as the eSign tokens).
+export const PORTAL_LINK_TTL_HOURS = 72;
+
+function _linkSecret() { return process.env.ESIGN_SEAL_SECRET || ''; }
+function _b64url(buf) {
+  return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function _b64urlDecode(s) {
+  s = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Buffer.from(s, 'base64').toString('utf8');
+}
+function _signPayload(payloadB64) {
+  return _b64url(crypto.createHmac('sha256', _linkSecret()).update(payloadB64).digest());
+}
+
+// Returns { url, token, expiresAt (ISO), expiresText } or null when the
+// secret isn't configured (callers fall back to the raw magic link).
+export function mintDurablePortalLink(email, origin) {
+  if (!_linkSecret() || !email) return null;
+  const expiresMs = Date.now() + PORTAL_LINK_TTL_HOURS * 3600 * 1000;
+  const payloadB64 = _b64url(JSON.stringify({ e: String(email).toLowerCase(), x: expiresMs, v: 1 }));
+  const token = payloadB64 + '.' + _signPayload(payloadB64);
+  const base = String(origin || 'https://portal.slacapital.ai').replace(/\/+$/, '');
+  return {
+    url: base + '/api/borrower-link?t=' + token,
+    token,
+    expiresAt: new Date(expiresMs).toISOString(),
+    expiresText: portalLinkExpiryText(expiresMs),
+  };
+}
+
+// Verify a durable-link token. Returns { email, expiresMs, expired } or null
+// when the signature is invalid/garbled (expired tokens still verify — the
+// redeem endpoint uses them to offer a resend to the same address).
+export function verifyDurablePortalToken(token) {
+  try {
+    if (!_linkSecret()) return null;
+    const parts = String(token || '').split('.');
+    if (parts.length !== 2) return null;
+    const want = _signPayload(parts[0]);
+    const a = Buffer.from(parts[1]); const b = Buffer.from(want);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const p = JSON.parse(_b64urlDecode(parts[0]));
+    if (!p || !p.e || !p.x) return null;
+    return { email: String(p.e).toLowerCase(), expiresMs: Number(p.x), expired: Date.now() > Number(p.x) };
+  } catch (_) { return null; }
+}
+
+// Shared email copy for the expiry disclosure — every invite email that
+// carries a durable link appends this (Mike: tell them it lasts 72 hours,
+// tell them WHEN it expires, and that they can get a new one).
+export function linkExpiryCopy(durable) {
+  if (!durable) return { text: '', html: '' };
+  const t = 'For your security this sign-in link expires in ' + PORTAL_LINK_TTL_HOURS + ' hours — on ' +
+    durable.expiresText + '. If it has expired, just open it anyway and you can request a fresh link with one click.';
+  const h = '<p style="font-size:13px;line-height:1.55;color:#7a7488">For your security this sign-in link expires in <strong>' +
+    PORTAL_LINK_TTL_HOURS + ' hours</strong> — on <strong>' + escHtml(durable.expiresText) +
+    '</strong>. If it has expired, just open it anyway and you can request a fresh link with one click.</p>';
+  return { text: t, html: h };
+}
+
+// "September 3 at 2:15 PM PT" — SLA is Spokane, so Pacific time.
+export function portalLinkExpiryText(expiresMs) {
+  try {
+    const d = new Date(expiresMs);
+    return d.toLocaleString('en-US', {
+      month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      timeZone: 'America/Los_Angeles',
+    }) + ' PT';
+  } catch (_) { return ''; }
+}
 
 export function getSb() {
   const url = supabaseBaseUrl();
