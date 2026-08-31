@@ -38,12 +38,14 @@ export default async (req, context) => {
   // Guard: only super_admin can delete another admin. Prevents an
   // ordinary admin from removing a peer or the super_admin's own
   // account.
+  let targetEmail = '';
   try {
     const lookupResp = await fetch(base + '/auth/v1/admin/users/' + encodeURIComponent(userId), {
       headers: { 'apikey': SVC, 'Authorization': 'Bearer ' + SVC },
     });
     if (lookupResp.ok) {
       const u = await lookupResp.json().catch(() => null);
+      targetEmail = String((u && u.email) || '').toLowerCase();
       const am = (u && u.app_metadata) || {};
       const targetRoles = Array.isArray(am.roles) ? am.roles : (typeof am.role === 'string' && am.role ? [am.role] : []);
       if (targetRoles.includes('admin') && !isSuperAdmin(caller)) {
@@ -63,6 +65,12 @@ export default async (req, context) => {
     if (!delResp.ok) {
       const txt = await delResp.text().catch(() => '');
       return json(delResp.status, { error: 'Supabase delete ' + delResp.status + ': ' + txt.slice(0, 300) });
+    }
+    // Deploy 236.826 — clean up the token-hook role table so a future
+    // account re-created with this email doesn't inherit stale roles.
+    if (targetEmail) {
+      try { await (await import('./_shared/sla-roles.mjs')).removeRoleRow(targetEmail); }
+      catch (e) { console.warn('users-delete-supabase: role row cleanup failed:', e && e.message); }
     }
     return json(200, { ok: true, deleted: userId });
   } catch (e) {

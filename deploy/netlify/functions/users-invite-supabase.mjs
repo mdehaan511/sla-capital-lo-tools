@@ -151,6 +151,13 @@ export default async (req, context) => {
     return json(500, { error: 'Failed to create user: ' + ((e && e.message) || 'unknown') });
   }
 
+  // Deploy 236.826 — tokens get their roles from public.sla_user_roles (the
+  // access-token hook), not from app_metadata. Stamp the table too or the
+  // invitee signs in with no role. Best-effort; the role also lives on
+  // app_metadata as fallback for users with no table row.
+  try { await (await import('./_shared/sla-roles.mjs')).syncRoleTable(email, [role]); }
+  catch (e) { console.warn('users-invite-supabase: role table sync failed:', e && e.message); }
+
   // 2. Generate a magic-link URL. type='magiclink' goes through the
   //    same code path signInWithOtp uses — proven working on this
   //    project's ES256 configuration.

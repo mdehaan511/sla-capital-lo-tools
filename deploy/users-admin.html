@@ -416,7 +416,10 @@ async function changeUserRole(sel) {
   try {
     var r = await SLA.api('POST', '/api/users-update-role-supabase', { userId: userId, role: newRole });
     if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
-    _rowMsg(userId, 'ok', 'Role updated to ' + newRole);
+    // Deploy 236.826 — surface a failed sla_user_roles table write: without
+    // that write the role change never reaches the user's sessions.
+    if (r.warning) _rowMsg(userId, 'err', r.warning);
+    else _rowMsg(userId, 'ok', 'Role updated to ' + newRole + ' — takes effect on their next sign-in (or within ~an hour).');
     sel.setAttribute('data-current-role', newRole);
   } catch (e) {
     _rowMsg(userId, 'err', 'Role change failed: ' + (e.message || 'unknown'));

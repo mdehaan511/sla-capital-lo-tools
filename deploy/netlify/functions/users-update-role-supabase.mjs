@@ -18,6 +18,10 @@
  */
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin, isSuperAdmin } from './_shared/auth.mjs';
 import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
+// Deploy 236.826 — roles on TOKENS come from public.sla_user_roles (the
+// access-token hook overwrites app_metadata with it), so every role change
+// must land there too or the promotion never reaches the user's session.
+import { syncRoleTable } from './_shared/sla-roles.mjs';
 
 const ALLOWED_ROLES = new Set(['admin', 'loan_officer', 'processor']);
 
@@ -91,14 +95,24 @@ export default async (req, context) => {
       return json(putResp.status, { error: 'Supabase update ' + putResp.status + ': ' + txt.slice(0, 300) });
     }
     const updated = await putResp.json().catch(() => ({}));
+    // Deploy 236.826 — the fix for "Admin in User Management but no admin
+    // mode anywhere": sync the token-hook's source-of-truth table. Without
+    // this the hook keeps stamping the OLD roles onto every session token.
+    const targetEmail = (updated.email || target.email || '').toLowerCase();
+    const tableSync = await syncRoleTable(targetEmail, [role]);
     return json(200, {
       ok: true,
       user: {
         id:    userId,
-        email: (updated.email || target.email || '').toLowerCase(),
+        email: targetEmail,
         role:  role,
         roles: [role],
       },
+      roleTableSynced: tableSync.ok,
+      warning: tableSync.ok
+        ? undefined
+        : 'Role saved on the account, but the sign-in role table write failed (' + (tableSync.reason || 'unknown') + ') — the change will NOT reach their sessions until it succeeds. Retry the role change.',
+      note: 'Takes effect on their next sign-in or token refresh (within ~an hour).',
     });
   } catch (e) {
     console.error('users-update-role-supabase error:', e);
