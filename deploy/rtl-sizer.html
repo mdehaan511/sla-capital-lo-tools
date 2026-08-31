@@ -3693,8 +3693,28 @@ function parseAddressForLoad(s) {
   return out;
 }
 
+// Deploy 236.815 — normalize any loan-purpose vocabulary to the RTL
+// select's values (purchase / cashout / rateterm). Values arrive from the
+// short app ('refinance'), the DSCR sizer ('refi_co'/'refi_rt'), Loan
+// Details edits, and older records — anything the select doesn't know is
+// a silent no-op that leaves the loan looking like a Purchase (Mike's
+// cash-out refi bug). Absent purpose + an existing loan balance is the
+// refi signature ⇒ default cash-out (same call as the 236.465 prospect fix).
+function normalizeRtlPurpose(v, currentLoanAmt) {
+  var s = String(v || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (s === 'purchase' || s === 'buy') return 'purchase';
+  if (s === 'cashout' || s === 'refico' || s === 'cashoutrefinance' || s === 'cashoutrefi') return 'cashout';
+  if (s === 'rateterm' || s === 'refirt' || s === 'ratetermrefinance' || s === 'ratetermrefi' || s === 'ratenterm') return 'rateterm';
+  if (s === 'refinance' || s === 'refi') return 'cashout';
+  if (!s && parseFloat(String(currentLoanAmt || '').replace(/[$,]/g, '')) > 0) return 'cashout';
+  return '';
+}
+
 function loadRTLQuote(formData) {
   if (!formData) return;
+  // Deploy 236.815 — see normalizeRtlPurpose above.
+  var _np = normalizeRtlPurpose(formData.loanPurpose, formData.currentLoanAmt);
+  if (_np) formData = Object.assign({}, formData, { loanPurpose: _np });
   // If the saved quote only has a combined `address` string (legacy quotes
   // from before the split-field schema, or any quote sourced from
   // apply.html via loadFromClientLoan that didn't get re-saved), parse it
@@ -4117,8 +4137,15 @@ netlifyIdentity.on('init', function(user) {
           // pricing branch broke silently. See dscr-sizer.html for the
           // matching fix.
           var RTL_LOAN_TYPE_OPTIONS = { 'light':1, 'heavy':1, 'bridge':1, 'transactional':1 };
+          // Deploy 236.815 — loanPurpose + currentLoanAmt + aivBpo joined the
+          // overlay: the QUOTE snapshot can predate these being set on the
+          // LOAN (e.g. purpose edited on Loan Details Financials), and
+          // without the overlay a cash-out refi opened from a quote tile
+          // painted as a Purchase. Vocabulary differences are normalized in
+          // loadRTLQuote (normalizeRtlPurpose).
           ['rate','points','purchasePrice','rehabBudget','arv','fico',
            'loanType','experience','brokerFee','appraisedValue',
+           'loanPurpose','currentLoanAmt','aivBpo',
            'monthlyRent','monthlyTaxes','monthlyInsurance','monthlyHoa'].forEach(function(k) {
             if (found[k] == null || found[k] === '') return;
             if (k === 'loanType' && !RTL_LOAN_TYPE_OPTIONS[found[k]]) return;
