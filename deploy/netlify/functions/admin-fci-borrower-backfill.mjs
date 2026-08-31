@@ -179,10 +179,19 @@ async function handle(req, context) {
         if (normalizeEmail(client.email || '') === email) counts.already_named++;
         else {
           counts.conflict++;
+          // Deploy 236.813 — carry the identifiers. Triaging a conflict means
+          // opening the record, and admin-find-record times out walking every
+          // blob, so without these there was no cheap way to get from a
+          // reported conflict to the loan it belongs to.
           skipped.push({
-            account: acct, loanId: t.loanId, reason: 'client email differs from FCI',
+            account: acct, reason: 'client email differs from FCI',
+            ownerKey: t.ownerKey, clientId: t.clientId, loanId: t.loanId,
+            address: (client.loans || []).reduce((a, l) => (l && l.id === t.loanId ? (l.address || a) : a), ''),
             ours: client.email || '', fci: email,
             name: ((client.firstName || '') + ' ' + (client.lastName || '')).trim(),
+            company: client.company || client.entityName || '',
+            fciName: String(row.borrowerFullName || '').replace(/\s*\n\s*/g, ' / '),
+            guarantorCount: ((client.loans || []).find((l) => l && l.id === t.loanId) || {}).guarantorClientIds ? ((client.loans || []).find((l) => l && l.id === t.loanId).guarantorClientIds || []).length : 0,
           });
         }
         continue;
