@@ -164,6 +164,11 @@ async function handle(req, context) {
     ssnFound: 0, ssnFieldCounts: {}, ssnFilled: 0, ssnAlreadyOnClient: 0,
     addrFound: 0, addrFilled: 0, addrAlreadyComplete: 0,
     clientsWritten: 0, writeErrors: 0, timedOut: false,
+    // Deploy 236.830b — schema inventory: every distinct FIELD NAME seen on
+    // person payloads (+ Custom_Fields names), with occurrence counts. Names
+    // only, never values — tells us definitively whether Baseline exposes an
+    // SSN-bearing field at all (the first dry run found zero SSNs).
+    personFieldInventory: {},
     finishedAt: '', tookSeconds: 0,
   };
   const reportStore = getStore({ name: REPORT_STORE, consistency: 'strong' });
@@ -213,6 +218,22 @@ async function handle(req, context) {
     if (b.Is_Company === true || b.is_company === true) { report.entitiesSkipped++; continue; }
     report.people++;
 
+    // Field-name inventory (names only — see report comment).
+    for (const k of Object.keys(b)) {
+      report.personFieldInventory[k] = (report.personFieldInventory[k] || 0) + 1;
+    }
+    const _cf = b.Custom_Fields || b.custom_fields || b.CustomFields;
+    if (Array.isArray(_cf)) {
+      for (const f of _cf) {
+        const nm = f && (f.Name || f.Label || f.Field || f.name || f.label);
+        if (nm) report.personFieldInventory['Custom_Fields:' + nm] = (report.personFieldInventory['Custom_Fields:' + nm] || 0) + 1;
+      }
+    } else if (_cf && typeof _cf === 'object') {
+      for (const nm of Object.keys(_cf)) {
+        report.personFieldInventory['Custom_Fields:' + nm] = (report.personFieldInventory['Custom_Fields:' + nm] || 0) + 1;
+      }
+    }
+
     const { ssn, fieldName } = discoverSsn(b);
     if (ssn) {
       report.ssnFound++;
@@ -223,33 +244,47 @@ async function handle(req, context) {
     if (hasAddr) report.addrFound++;
     if (!ssn && !hasAddr) continue;
 
-    // Resolve the SLA client.
-    let ownerKey = '', clientId = '';
-    const link = await getBorrowerLink(id).catch(() => null);
-    if (link && link.ownerKey && link.clientId) {
-      ownerKey = keySafe(String(link.ownerKey)); clientId = String(link.clientId);
-      report.matchedByLink++;
-    } else {
+    // Resolve the SLA client. Deploy 236.830b — a link can point at a client
+    // record that has since MOVED (reassign/merge re-homes the record; the
+    // borrower-link store was never updated). Verify the linked blob exists;
+    // fall back to a PG email lookup either way.
+    async function _emailLookup() {
       const email = _lower(_pick(b, ['Email', 'email', 'Primary_Email', 'primary_email', 'Email_Address', 'email_address']));
-      if (email && email.includes('@')) {
-        try {
-          const row = await db.first('clients', { select: 'id,owner_email', eq: { email } });
-          if (row && row.id && row.owner_email) {
-            ownerKey = keySafe(_lower(row.owner_email)); clientId = String(row.id);
-            report.matchedByEmail++;
-          }
-        } catch (e) { console.warn('[pii-backfill] email lookup failed for', id, e && e.message); }
-      }
-      if (!clientId) { report.unmatched++; continue; }
+      if (!email || !email.includes('@')) return null;
+      try {
+        const row = await db.first('clients', { select: 'id,owner_email', eq: { email } });
+        if (row && row.id && row.owner_email) {
+          return { ownerKey: keySafe(_lower(row.owner_email)), clientId: String(row.id) };
+        }
+      } catch (e) { console.warn('[pii-backfill] email lookup failed for', id, e && e.message); }
+      return null;
     }
-
-    const clientKey = ownerKey + '/' + keySafe(clientId);
-    let entry = clientCache[clientKey];
-    if (!entry) {
+    let ownerKey = '', clientId = '', entry = null, matchedVia = '';
+    const link = await getBorrowerLink(id).catch(() => null);
+    async function _tryLoad(ok, cid) {
+      const clientKey = ok + '/' + keySafe(cid);
+      if (clientCache[clientKey]) return clientCache[clientKey];
       const client = await clientsStore.get(clientKey, { type: 'json' }).catch(() => null);
-      if (!client) { report.clientReadFailed++; continue; }
-      entry = clientCache[clientKey] = { ownerKey, client, dirty: false };
+      if (!client) return null;
+      return (clientCache[clientKey] = { ownerKey: ok, client, dirty: false });
     }
+    if (link && link.ownerKey && link.clientId) {
+      entry = await _tryLoad(keySafe(String(link.ownerKey)), String(link.clientId));
+      if (entry) matchedVia = 'link';
+    }
+    if (!entry) {
+      const em = await _emailLookup();
+      if (em) {
+        entry = await _tryLoad(em.ownerKey, em.clientId);
+        if (entry) matchedVia = 'email';
+      }
+    }
+    if (!entry) {
+      if (link && link.clientId) report.clientReadFailed++; else report.unmatched++;
+      continue;
+    }
+    if (matchedVia === 'link') report.matchedByLink++; else report.matchedByEmail++;
+    ownerKey = entry.ownerKey; clientId = entry.client.id;
     const c = entry.client;
 
     // SSN — only when the client has none.
