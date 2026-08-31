@@ -8,6 +8,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<!-- Deploy 236.811 — sla-api.js was missing, so the Supabase→Netlify-Identity
+     bridge never loaded and netlifyIdentity.open() popped the raw NETLIFY
+     login widget for every Supabase/Google-signed-in user (Mike's bug:
+     "clicking Guidelines brings up a netlify login page"). sla-api patches
+     .open() to route to the real sign-in. -->
+<script src="sla-api.js"></script>
 <script src="sla-chat.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -157,6 +163,40 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
       <div class="card-meta">
         <span class="card-version">Matrix 6/7/26 · Rates 8/7/26</span>
         <span class="card-arrow">Open →</span>
+      </div>
+    </a>
+
+  </div>
+
+  <!-- Deploy 236.811 — Downloadable Guides (per Mike): the sales framework
+       docs as PDFs, served from /guides/. Same card grid; the download
+       attribute makes the click save the file instead of navigating. -->
+  <div class="section-label" style="margin-top:28px">Downloadable Guides</div>
+  <div class="grid">
+
+    <a class="guide-card" href="/guides/SLA_Sales_Framework_Quick_Reference.pdf" download="SLA_Sales_Framework_Quick_Reference.pdf">
+      <div class="guide-card-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 3v10m0 0l-4-4m4 4l4-4" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a1 1 0 001 1h12a1 1 0 001-1v-3" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <span class="card-badge">Sales · PDF Download</span>
+      <div class="card-name">Sales Framework — Quick Reference</div>
+      <div class="card-desc">The fast workday version: the 7-step sales process, prospecting channels (Facebook, local network, cold calling, referral partnerships), the two-step close, and the referral ask.</div>
+      <div class="card-meta">
+        <span class="card-version">PDF · Aug 2026</span>
+        <span class="card-arrow">Download ↓</span>
+      </div>
+    </a>
+
+    <a class="guide-card" href="/guides/SLA_Sales_Framework_Final_Playbook.pdf" download="SLA_Sales_Framework_Final_Playbook.pdf">
+      <div class="guide-card-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 3v10m0 0l-4-4m4 4l4-4" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a1 1 0 001 1h12a1 1 0 001-1v-3" stroke="var(--gold)" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <span class="card-badge">Sales · PDF Download</span>
+      <div class="card-name">Sales Framework — Full Playbook</div>
+      <div class="card-desc">The complete manual: the reasoning, examples, and coaching behind every stage — prospecting, converting, qualifying, presenting terms, closing, and post-close follow-up.</div>
+      <div class="card-meta">
+        <span class="card-version">PDF · Aug 2026</span>
+        <span class="card-arrow">Download ↓</span>
       </div>
     </a>
 
