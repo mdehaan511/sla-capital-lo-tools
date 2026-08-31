@@ -169,10 +169,16 @@ export async function listBillsFiltered(session, filters, max = 25) {
  * split while the top-level `billId` is set for single-bill payments — match on
  * either.
  */
-export async function listPaymentsForBill(session, billId) {
+export async function listPaymentsForBill(session, billId, vendorId) {
   const id = String(billId || '').trim();
   if (!id) return [];
-  const qs = '?max=25&filters=' + encodeURIComponent('billId:eq:' + id);
+  // Deploy 236.822 — filter by VENDOR, not bill. BILL's filterable fields on
+  // /v3/payments are id, vendorId, processDate, amount, transactionNumber,
+  // status, onlinePayment, disbursementType, createdTime and updatedTime —
+  // billId is NOT among them, and filtering on it is rejected outright. So
+  // narrow to the LO's vendor (few payments each) and match the bill here.
+  const vend = String(vendorId || '').trim();
+  const qs = '?max=100' + (vend ? '&filters=' + encodeURIComponent('vendorId:eq:' + vend) : '');
   const res = await _req('/v3/payments' + qs, { headers: _authHeaders(session) });
   const rows = Array.isArray(res) ? res : ((res && Array.isArray(res.results)) ? res.results : []);
   return rows.filter((p) => p && (p.billId === id ||

@@ -191,7 +191,8 @@ export async function syncPaymentsCore(opts = {}) {
         // shouldn't cost us the payment STATUS we already have.
         let pay = null;
         try {
-          pay = pickBillPayment(await listPaymentsForBill(session, bill.id || ref), bill.id || ref);
+          const bid = bill.id || ref;
+          pay = pickBillPayment(await listPaymentsForBill(session, bid, bill.vendorId), bid);
         } catch (e) {
           lookupErrors.push({ billRef: ref, error: 'payments: ' + ((e && e.message) || 'failed') });
         }
