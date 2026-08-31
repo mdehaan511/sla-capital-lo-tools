@@ -1815,7 +1815,9 @@ function applyOverridesAndRender() {
   // concept — calc.dp is null) the amount stands alone.
   if (o.loanAmt !== null && o.loanAmt !== undefined) {
     effLoanAmt = o.loanAmt;
-    if (calc.dp != null && pp > 0) effDp = Math.max(0, pp - effLoanAmt + (isRehab ? rb : 0));
+    // calc.downPayment is the algorithmic DP (null on refis, where there is
+    // no DP concept) — only re-derive when the deal actually has one.
+    if (calc.downPayment != null && pp > 0) effDp = Math.max(0, pp - effLoanAmt + (isRehab ? rb : 0));
   }
   // Persist for downstream consumers (PDF, broker fee rows) — they read
   // window._rtlLastCalc.
