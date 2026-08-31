@@ -208,7 +208,7 @@ async function handle(req, context) {
   plan.sort((a, b) => (a.ownerKey + a.clientId + a.loanId).localeCompare(b.ownerKey + b.clientId + b.loanId));
 
   // ── Apply ──────────────────────────────────────────────────────────
-  let filled = 0, linked = 0;
+  let filled = 0, linked = 0, noop = 0;
   if (!dryRun) {
     const now = new Date().toISOString();
     for (const p of plan.slice(0, limit)) {
@@ -216,10 +216,14 @@ async function handle(req, context) {
         const key = p.ownerKey + '/' + keySafe(p.clientId);
         const client = await clientsStore.get(key, { type: 'json' }).catch(() => null);
         if (!client) { errors.push({ account: p.account, error: 'client vanished before write' }); continue; }
-        // Re-check against the CURRENT record — someone may have filled it in
-        // between the plan and the write.
-        if (_has(client.email)) { errors.push({ account: p.account, error: 'client now has an email — skipped' }); continue; }
-        if (!isHusk(client) && !needsEmailOnly(client)) { errors.push({ account: p.account, error: 'client no longer eligible — skipped' }); continue; }
+        // Re-check against the CURRENT record. This is normally a NO-OP, not a
+        // failure: one FCI account maps to several SLA loan records that share a
+        // client (the 236.720 reconcile stamped every duplicate of a property),
+        // so once the first row writes, the rest legitimately find the email
+        // already there. Counting those as errors made a clean run of 18 report
+        // "8 errors". They are counted separately as noop.
+        if (_has(client.email)) { noop++; continue; }
+        if (!isHusk(client) && !needsEmailOnly(client)) { noop++; continue; }
 
         // The email is the whole point and is always safe to add (we only get
         // here when the record has none). Everything else fills BLANKS ONLY —
@@ -260,7 +264,7 @@ async function handle(req, context) {
     counts,
     planned: plan.length,
     applied: dryRun ? 0 : (filled + linked),
-    filled, linked,
+    filled, linked, noop,
     errors: errors.length,
     sample: plan.slice(0, 12).map((p) =>
       p.action + ' | ' + p.account + ' | ' + (p.company || '(no entity)') + ' | ' +
