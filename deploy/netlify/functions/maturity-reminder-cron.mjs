@@ -79,12 +79,26 @@ export function daysToMaturity(maturity, now) {
   return Math.round((t - today) / 86400000);
 }
 
-/** The date we ask them to respond by. See the header for why this is the 15th. */
+/**
+ * The date we ask them to respond by.
+ *
+ * Deploy 236.809 — anchored to the MATURITY month, not the send month. The
+ * first version used the 15th of whatever month the email went out in, which
+ * quietly broke the rule Mike asked for: a loan maturing Oct 1 gets its notice
+ * around Aug 30–31 (the band is 21–31 days), so "the 15th of the send month"
+ * was already in the past and it fell through to Oct 1 − 14 = September 17.
+ * The 15th of the month BEFORE maturity is September 15 regardless of which day
+ * inside the band we happen to send on — stable, and what was actually asked
+ * for.
+ *
+ * Fallback stays (maturity − 14 days), clamped to at least tomorrow, for any
+ * maturity where that 15th is already past or isn't before maturity.
+ */
 export function _replyByMs(sendMs, maturityMs) {
-  const d = new Date(sendMs);
-  const fifteenth = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 15);
+  const m = new Date(maturityMs);
+  // Month − 1 with the year rolling correctly; Date.UTC handles month = -1.
+  const fifteenth = Date.UTC(m.getUTCFullYear(), m.getUTCMonth() - 1, 15);
   if (fifteenth > sendMs && fifteenth < maturityMs) return fifteenth;
-  // Odd maturity date — give them two weeks before it, but never a past date.
   return Math.max(sendMs + 86400000, maturityMs - 14 * 86400000);
 }
 
