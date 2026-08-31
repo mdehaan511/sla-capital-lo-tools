@@ -127,7 +127,12 @@ export function buildMaturityEmail({ firstName, address, maturityMs, replyByMs, 
  * Exported so the preview endpoint shows exactly what the cron would send.
  */
 export async function findMaturityCandidates(now) {
-  const SELECT = 'id,client_id,owner_email,address,status,extra';
+  // maturity_date is a PROMOTED COLUMN, not an `extra` key — LOAN_PROMOTED_KEYS
+  // in pg-projections.mjs strips it out of the JSONB. Reading extra.maturityDate
+  // silently matched nothing (the first cut of this cron found 0 candidates
+  // while FCI showed loans 31 days out). `disposition` is NOT promoted, so that
+  // one really does live in extra. Check pg-projections before assuming either.
+  const SELECT = 'id,client_id,owner_email,address,status,maturity_date,extra';
   const PAGE = 1000;
   const out = [];
   for (let offset = 0; ; offset += PAGE) {
@@ -136,7 +141,7 @@ export async function findMaturityCandidates(now) {
       if (DEAD_STATUSES.includes(String(r.status || '').toLowerCase())) continue;
       const ex = (r.extra && typeof r.extra === 'object') ? r.extra : {};
       if (DEAD_DISPOSITIONS.includes(String(ex.disposition || '').toLowerCase())) continue;
-      const maturity = ex.maturityDate || '';
+      const maturity = r.maturity_date || ex.maturityDate || '';
       const d = daysToMaturity(maturity, now);
       if (d == null || d <= 0 || d > THRESHOLD_DAYS) continue;
       // Ledger is keyed by the maturity date this notice is FOR, so granting an

@@ -73,15 +73,17 @@ async function handle(req, context) {
   if (widen > 0) {
     const PAGE = 1000;
     for (let offset = 0; ; offset += PAGE) {
-      const pg = await db.select('loans', { select: 'id,client_id,owner_email,address,status,extra', limit: PAGE, offset });
+      // maturity_date is a promoted COLUMN (see findMaturityCandidates).
+      const pg = await db.select('loans', { select: 'id,client_id,owner_email,address,status,maturity_date,extra', limit: PAGE, offset });
       for (const r of (pg || [])) {
         const ex = (r.extra && typeof r.extra === 'object') ? r.extra : {};
         if (String(ex.disposition || '').toLowerCase() === 'paid_off') continue;
-        const d = daysToMaturity(ex.maturityDate || '');
+        const maturity = r.maturity_date || ex.maturityDate || '';
+        const d = daysToMaturity(maturity);
         if (d == null || d <= 0 || d > widen) continue;
         upcoming.push({
-          loanId: r.id, address: r.address || '', maturityDate: ex.maturityDate,
-          daysLeft: d, alreadyNotified: !!(ex.maturityNotified || {})[String(ex.maturityDate)],
+          loanId: r.id, address: r.address || '', maturityDate: maturity,
+          daysLeft: d, alreadyNotified: !!(ex.maturityNotified || {})[String(maturity)],
         });
       }
       if (!pg || pg.length < PAGE) break;
