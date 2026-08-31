@@ -36,7 +36,17 @@ import { logBorrowerSendFromResponse } from './_shared/email.mjs';
 export const config = { schedule: '20 16 * * *' }; // 16:20 UTC ≈ 9:20am PT
 
 export const PAYOFF_INBOX = 'payoffs@slacapital.com';
-const THRESHOLD_DAYS = 30;
+// Deploy 236.808 — fire in a BAND, not just "≤ 30". The first preview turned up
+// three loans maturing the very next day; a letter headed "you have about one
+// month" that also asks for an answer "by the 15th" is nonsense at one day out,
+// and the reply-by date would already be in the past. Anything inside 21 days is
+// a payoff conversation, not this one.
+//
+// The band is 11 days wide rather than a single day so a missed or failed run
+// doesn't silently skip a loan — and the email states the ACTUAL day count, so
+// a catch-up send at 22 days still reads correctly.
+const THRESHOLD_DAYS = 31;
+const MIN_DAYS = 21;
 const TIME_BUDGET_MS = 24_000;
 const MAX_LOANS_PER_RUN = 40;
 // A loan in one of these states isn't heading to maturity any more.
@@ -85,8 +95,13 @@ export function buildMaturityEmail({ firstName, address, maturityMs, replyByMs, 
   const byStr = _fmt(replyByMs);
   const subject = 'Your loan matures ' + matStr + (address ? ' — ' + address : '') + ' (action needed)';
 
+  // Deploy 236.808 — state the real number of days. The band is 21–31, so a
+  // catch-up send should say "in 23 days", not claim "about one month".
+  const when = (daysLeft >= 28 && daysLeft <= 31)
+    ? 'about one month from today'
+    : 'in ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's');
   const p1 = 'Your loan' + (address ? ' secured by ' + address : '') +
-    ' reaches its maturity date on ' + matStr + ' — about one month from today.';
+    ' reaches its maturity date on ' + matStr + ' — ' + when + '.';
   const p2 = 'Please let us know by ' + byStr + ' whether you will need an extension. ' +
     'If the loan is not paid off or extended by its maturity date, it will go into default.';
   const p3 = 'Just hit Reply All on this email and tell us either that you plan to pay the loan off ' +
@@ -143,7 +158,7 @@ export async function findMaturityCandidates(now) {
       if (DEAD_DISPOSITIONS.includes(String(ex.disposition || '').toLowerCase())) continue;
       const maturity = r.maturity_date || ex.maturityDate || '';
       const d = daysToMaturity(maturity, now);
-      if (d == null || d <= 0 || d > THRESHOLD_DAYS) continue;
+      if (d == null || d < MIN_DAYS || d > THRESHOLD_DAYS) continue;
       // Ledger is keyed by the maturity date this notice is FOR, so granting an
       // extension (which moves the date) re-arms the notice for the new one.
       const notified = ex.maturityNotified || {};
@@ -200,17 +215,28 @@ export default async () => {
         // Re-check against the BLOB — PG can lag a payoff or an extension.
         const maturity = loan.maturityDate || '';
         const d = daysToMaturity(maturity);
-        if (d == null || d <= 0 || d > THRESHOLD_DAYS) { skipped++; continue; }
+        if (d == null || d < MIN_DAYS || d > THRESHOLD_DAYS) { skipped++; continue; }
         if (DEAD_DISPOSITIONS.includes(String(loan.disposition || '').toLowerCase())) { skipped++; continue; }
         const ledger = loan.maturityNotified || {};
         if (ledger[String(maturity)]) { skipped++; continue; }
 
-        const borrowerEmail = String(client.email || loan.borrowerEmail || '').trim().toLowerCase();
+        // Deploy 236.808 — fall back to FCI's copy of the borrower contact.
+        // The Baseline-imported closed loans (most of the serviced book) carry
+        // a client record with no name, no email and no company at all, so on
+        // our data alone this notice had nobody to write to. fciBorrowerEmail is
+        // stamped by fci-portfolio-sync; FCI has one for all 41 performing loans.
+        const borrowerEmail = String(
+          client.email || loan.borrowerEmail || loan.fciBorrowerEmail || ''
+        ).trim().toLowerCase();
         if (!borrowerEmail || !borrowerEmail.includes('@')) { skipped++; continue; }
+        // Only greet by first name when it's a person's name we actually hold.
+        // FCI's name is often an entity ("Ohana Home Pros LLC") — "Hi Ohana," is
+        // worse than no greeting, so an entity falls through to "Hello,".
+        const greetName = client.firstName || '';
 
         const maturityMs = _parseDate(maturity);
         const body = buildMaturityEmail({
-          firstName: client.firstName || '',
+          firstName: greetName,
           address: loan.address || '',
           maturityMs,
           replyByMs: _replyByMs(Date.now(), maturityMs),

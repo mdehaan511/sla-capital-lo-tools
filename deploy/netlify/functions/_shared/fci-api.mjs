@@ -121,7 +121,13 @@ const PORTFOLIO_FIELDS = `
   daysLate nextDueDate paidToDate totalPayment
   drawStatus maximumDraw fundedAmount drawAvailableBalance
   propertyType lastModifiedAt
+  borrowerFullName borrowerEmail borrowerMobilePhone
 `;
+// NOTE on the borrower fields above (Deploy 236.808): FCI has a borrower email
+// and name for ALL 41 performing loans; our Baseline-imported client records
+// have NEITHER (name, email and company are all blank on those). Without this
+// the maturity notice had nobody to write to on most of the serviced book.
+// Still no TIN — see the comment above.
 
 /** Every loan FCI services for us, active and inactive. ~95 rows today. */
 export async function fciPortfolio() {

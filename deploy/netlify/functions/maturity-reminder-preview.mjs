@@ -54,11 +54,21 @@ async function handle(req, context) {
       .catch(() => null);
     const loan = client && Array.isArray(client.loans)
       ? client.loans.find((l) => l && l.id === c.row.id) : null;
-    const borrowerEmail = String((client && client.email) || (loan && loan.borrowerEmail) || '').trim().toLowerCase();
+    // Same resolution order the cron uses, including FCI's copy — otherwise the
+    // preview reports "no email, will be skipped" for loans that would actually
+    // send. (Deploy 236.808.)
+    const borrowerEmail = String(
+      (client && client.email) || (loan && loan.borrowerEmail) || (loan && loan.fciBorrowerEmail) || ''
+    ).trim().toLowerCase();
+    const emailSource = (client && client.email) ? 'client record'
+      : ((loan && loan.borrowerEmail) ? 'loan record'
+        : ((loan && loan.fciBorrowerEmail) ? 'FCI' : 'none'));
     rows.push({
       loanId: c.row.id,
       address: c.row.address || (loan && loan.address) || '',
-      borrower: client ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim() : '',
+      borrower: (client ? ((client.firstName || '') + ' ' + (client.lastName || '')).trim() : '')
+        || (loan && loan.fciBorrowerName) || '',
+      emailSource,
       to: borrowerEmail || '(no borrower email — will be skipped)',
       cc: PAYOFF_INBOX,
       maturityDate: c.maturity,

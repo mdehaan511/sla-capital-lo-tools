@@ -247,6 +247,14 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
       // investorName/investorId — see the header.
       fciLenderName: String(row.lenderName || '').trim(),
       fciLoanStatus: String(row.loanStatus || '').trim(),
+      // Deploy 236.808 — servicer-side borrower contact. Kept in fci* fields
+      // rather than written onto client.email, because this is FCI's copy and
+      // the client record is ours; a sync should not quietly rewrite a borrower's
+      // contact details. Read as a FALLBACK by the maturity notice, which had
+      // nobody to write to on the Baseline-imported loans (their client records
+      // carry no name, email or company at all, while FCI has all 41).
+      fciBorrowerEmail: String(row.borrowerEmail || '').trim().toLowerCase(),
+      fciBorrowerName: String(row.borrowerFullName || '').replace(/\s*\n\s*/g, ' / ').trim(),
       fciSyncedAt: new Date().toISOString(),
     };
 
