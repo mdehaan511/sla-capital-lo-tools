@@ -157,6 +157,52 @@ export async function listBillsFiltered(session, filters, max = 25) {
   return Array.isArray(res) ? res : ((res && Array.isArray(res.results)) ? res.results : []);
 }
 
+/**
+ * Deploy 236.821 — payments for one bill, so we can show a REAL paid-out date.
+ *
+ * The bill itself carries no payment date; `updatedTime` was only ever a stand-in.
+ * A payment carries `processDate` (yyyy-MM-dd — the date BILL starts moving the
+ * money), a `status` (APPROVING | SCHEDULED | PAID | CANCELLED | VOID |
+ * ESCHEATED) and a `confirmationNumber`.
+ *
+ * A payment can cover several bills, so `billPayments[]` holds the per-bill
+ * split while the top-level `billId` is set for single-bill payments — match on
+ * either.
+ */
+export async function listPaymentsForBill(session, billId) {
+  const id = String(billId || '').trim();
+  if (!id) return [];
+  const qs = '?max=25&filters=' + encodeURIComponent('billId:eq:' + id);
+  const res = await _req('/v3/payments' + qs, { headers: _authHeaders(session) });
+  const rows = Array.isArray(res) ? res : ((res && Array.isArray(res.results)) ? res.results : []);
+  return rows.filter((p) => p && (p.billId === id ||
+    (Array.isArray(p.billPayments) && p.billPayments.some((bp) => bp && bp.billId === id))));
+}
+
+/**
+ * The payment that actually paid this bill, plus what this bill's share was.
+ * Prefers a PAID payment; falls back to the most recent non-void one so a
+ * SCHEDULED payment still shows its expected process date.
+ */
+export function pickBillPayment(payments, billId) {
+  const live = (payments || []).filter((p) => p && !['VOID', 'CANCELLED'].includes(String(p.status || '')));
+  if (!live.length) return null;
+  const byDate = (a, b) => String(b.processDate || '').localeCompare(String(a.processDate || ''));
+  const paid = live.filter((p) => String(p.status || '') === 'PAID').sort(byDate);
+  const p = paid[0] || live.slice().sort(byDate)[0];
+  if (!p) return null;
+  const split = Array.isArray(p.billPayments)
+    ? p.billPayments.find((bp) => bp && bp.billId === billId) : null;
+  return {
+    status: String(p.status || ''),
+    processDate: p.processDate || '',
+    confirmationNumber: p.confirmationNumber || '',
+    // This bill's share when the payment covered several, else the whole thing.
+    amount: Number((split && split.amount) != null ? split.amount : p.amount) || 0,
+    paymentId: p.id || '',
+  };
+}
+
 // Read one bill, tolerating a per-operation permission gap: try GET by id, and
 // if that's refused fall back to the list endpoint filtered to the same id.
 // Returns { bill, via } or throws with BOTH failures so the message is useful.

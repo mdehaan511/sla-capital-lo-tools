@@ -36,6 +36,7 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import {
   billConfigured, billMissingVars, billLogin, findVendor, createVendor, createBill, listVendors,
   getBill, findBillByInvoiceNumber, getBillTolerant, listBillsFiltered,
+  listPaymentsForBill, pickBillPayment,
 } from './_shared/billcom.mjs';
 import { db } from './_shared/supabase-db.mjs';
 
@@ -127,6 +128,159 @@ export function billDescription(loName, period, billable) {
   return (head + body + (omitted > 0 ? '…and ' + omitted + ' more\n' : '') + foot).slice(0, BILL_DESC_MAX);
 }
 
+/**
+ * Deploy 236.821 — the payment-sync work loop, shared by the HTTP action and
+ * the nightly cron. Lifted out of the handler because a cron has no user and
+ * should not have to fabricate a Request just to reuse this.
+ *
+ * READ-ONLY against BILL; it only stamps our own loan records.
+ * opts: { force } — force re-reads loans already marked PAID.
+ */
+export async function syncPaymentsCore(opts = {}) {
+  let session;
+  try { session = await billLogin(); }
+  catch (e) { throw new Error('BILL login failed: ' + (e.message || 'unknown')); }
+
+  // Candidates come from PG (fast) — every loan carrying a commission bill.
+  // A loan already marked PAID is skipped: BILL payments don't un-pay, so
+  // re-reading them is pure cost. { force:true } re-reads everything.
+  const force = opts.force === true;
+  let rows = [];
+  try {
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const page = await db.select('loans', { select: 'id,client_id,owner_email,address,extra', limit: PAGE, offset });
+      for (const r of (page || [])) {
+        const ex = (r.extra && typeof r.extra === 'object') ? r.extra : {};
+        if (!ex.commissionBillId) continue;
+        if (!force && String(ex.commissionPaymentStatus || '') === 'PAID') continue;
+        rows.push({ r, billRef: String(ex.commissionBillId) });
+      }
+      if (!page || page.length < PAGE) break;
+      if (offset > 100000) break;
+    }
+  } catch (e) {
+    throw new Error('Could not list billed loans: ' + (e.message || 'unknown'));
+  }
+  if (!rows.length) return { checked: 0, updated: 0, unchanged: 0, bills: 0, resolved: 0, statusCounts: {}, lookupErrors: [], writeErrors: [], message: 'No billed commissions awaiting payment.' };
+
+  // One lookup per distinct bill.
+  const byRef = new Map();
+  for (const row of rows) {
+    if (!byRef.has(row.billRef)) byRef.set(row.billRef, []);
+    byRef.get(row.billRef).push(row);
+  }
+
+  const billInfo = new Map();
+  const lookupErrors = [];
+  for (const ref of byRef.keys()) {
+    try {
+      // Bill ids begin with 00n. Anything else is an invoice number we stored
+      // as a fallback when createBill's response carried no id — resolve
+      // those through the list filter instead.
+      // getBillTolerant falls back to the LIST endpoint when GET by id is
+      // refused — BILL permissions are per-operation and the user that
+      // creates bills was denied reading one back (BDC_1145).
+      const bill = /^00n/i.test(ref)
+        ? (await getBillTolerant(session, ref)).bill
+        : await findBillByInvoiceNumber(session, ref);
+      if (bill) {
+        // Deploy 236.821 — the bill has no payment date, so pull the actual
+        // payment record for a real "paid out on". Non-fatal: a bill nobody
+        // has paid yet legitimately has none, and a permissions gap here
+        // shouldn't cost us the payment STATUS we already have.
+        let pay = null;
+        try {
+          pay = pickBillPayment(await listPaymentsForBill(session, bill.id || ref), bill.id || ref);
+        } catch (e) {
+          lookupErrors.push({ billRef: ref, error: 'payments: ' + ((e && e.message) || 'failed') });
+        }
+        billInfo.set(ref, { bill, pay });
+      } else lookupErrors.push({ billRef: ref, error: 'not found in BILL' });
+    } catch (e) {
+      lookupErrors.push({ billRef: ref, error: (e && e.message) || 'lookup failed' });
+    }
+  }
+
+  // Stamp the loans, grouped per client blob.
+  const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+  const byClient = new Map();
+  for (const row of rows) {
+    const info = billInfo.get(row.billRef);
+    if (!info) continue;
+    const k = keySafe(normalizeEmail(row.r.owner_email || '')) + '||' + row.r.client_id;
+    if (!byClient.has(k)) byClient.set(k, []);
+    byClient.get(k).push({ row, info });
+  }
+
+  const now = new Date().toISOString();
+  let updated = 0, unchanged = 0;
+  const writeErrors = [];
+  for (const [k, group] of byClient) {
+    const [ownerKey, clientId] = k.split('||');
+    try {
+      const client = await clientsStore.get(ownerKey + '/' + keySafe(clientId), { type: 'json' }).catch(() => null);
+      if (!client || !Array.isArray(client.loans)) continue;
+      let dirty = false;
+      for (const { row, info } of group) {
+        const loan = client.loans.find((l) => l && l.id === row.r.id);
+        if (!loan) continue;
+        const bill = info.bill;
+        const pay = info.pay;
+        const status = String(bill.paymentStatus || 'UNDEFINED');
+        // Deploy 236.821 — the payment DATE can arrive (or move) while the
+        // status is unchanged, so a status-only comparison would skip the
+        // write and the date would never land.
+        const payDate = (pay && pay.processDate) || '';
+        const sameStatus = String(loan.commissionPaymentStatus || '') === status;
+        const sameDate = String(loan.commissionPaidAt || '') === payDate;
+        if (sameStatus && sameDate) { unchanged++; continue; }
+        loan.commissionPaymentStatus = status;
+        // BILL reports paidAmount for the WHOLE bill, which usually covers
+        // several loans — record it as bill-level context, never as this
+        // loan's own commission amount.
+        loan.commissionBillPaidAmount = Number(bill.paidAmount || 0);
+        loan.commissionBillDueAmount = Number(bill.dueAmount || 0);
+        if (payDate) {
+          // A real date from the payment record, not a stand-in.
+          loan.commissionPaidAt = payDate;
+          loan.commissionPaidSource = 'payment.processDate';
+          loan.commissionPaymentRef = pay.confirmationNumber || '';
+          loan.commissionPaymentState = pay.status || '';
+        } else if (status === 'PAID' && !loan.commissionPaidAt) {
+          // Paid, but no payment record we can read — say so rather than
+          // inventing a date.
+          loan.commissionPaidSource = 'unknown (no payment record)';
+        }
+        loan.commissionPaymentSyncedAt = now;
+        loan.updatedAt = now;
+        dirty = true;
+        updated++;
+      }
+      if (dirty) await writeClient(ownerKey, client, { clientsStore });
+    } catch (e) {
+      writeErrors.push({ clientId, error: (e && e.message) || 'write failed' });
+    }
+  }
+
+  const statusCounts = {};
+  for (const info of billInfo.values()) {
+    const s = String((info.bill && info.bill.paymentStatus) || 'UNDEFINED');
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  }
+  return {
+    checked: rows.length,
+    bills: byRef.size,
+    resolved: billInfo.size,
+    updated,
+    unchanged,
+    statusCounts,
+    lookupErrors,
+    writeErrors,
+  };
+
+}
+
 export default async (req, context) => {
   try { return await handle(req, context); }
   catch (e) {
@@ -183,124 +337,11 @@ async function handle(req, context) {
   // Grouped by bill id on purpose: one bill covers every loan in an LO's
   // period, so N loans cost ONE BILL call, not N.
   if (action === 'sync-payments') {
-    let session;
-    try { session = await billLogin(); }
-    catch (e) { return json(502, { error: 'BILL login failed: ' + (e.message || 'unknown') }); }
-
-    // Candidates come from PG (fast) — every loan carrying a commission bill.
-    // A loan already marked PAID is skipped: BILL payments don't un-pay, so
-    // re-reading them is pure cost. { force:true } re-reads everything.
-    const force = body.force === true;
-    let rows = [];
     try {
-      const PAGE = 1000;
-      for (let offset = 0; ; offset += PAGE) {
-        const page = await db.select('loans', { select: 'id,client_id,owner_email,address,extra', limit: PAGE, offset });
-        for (const r of (page || [])) {
-          const ex = (r.extra && typeof r.extra === 'object') ? r.extra : {};
-          if (!ex.commissionBillId) continue;
-          if (!force && String(ex.commissionPaymentStatus || '') === 'PAID') continue;
-          rows.push({ r, billRef: String(ex.commissionBillId) });
-        }
-        if (!page || page.length < PAGE) break;
-        if (offset > 100000) break;
-      }
+      return json(200, { ok: true, ...(await syncPaymentsCore({ force: body.force === true })) });
     } catch (e) {
-      return json(500, { error: 'Could not list billed loans: ' + (e.message || 'unknown') });
+      return json(502, { error: (e && e.message) || 'Payment sync failed' });
     }
-    if (!rows.length) return json(200, { ok: true, checked: 0, updated: 0, bills: 0, message: 'No billed commissions awaiting payment.' });
-
-    // One lookup per distinct bill.
-    const byRef = new Map();
-    for (const row of rows) {
-      if (!byRef.has(row.billRef)) byRef.set(row.billRef, []);
-      byRef.get(row.billRef).push(row);
-    }
-
-    const billInfo = new Map();
-    const lookupErrors = [];
-    for (const ref of byRef.keys()) {
-      try {
-        // Bill ids begin with 00n. Anything else is an invoice number we stored
-        // as a fallback when createBill's response carried no id — resolve
-        // those through the list filter instead.
-        // getBillTolerant falls back to the LIST endpoint when GET by id is
-        // refused — BILL permissions are per-operation and the user that
-        // creates bills was denied reading one back (BDC_1145).
-        const bill = /^00n/i.test(ref)
-          ? (await getBillTolerant(session, ref)).bill
-          : await findBillByInvoiceNumber(session, ref);
-        if (bill) billInfo.set(ref, bill);
-        else lookupErrors.push({ billRef: ref, error: 'not found in BILL' });
-      } catch (e) {
-        lookupErrors.push({ billRef: ref, error: (e && e.message) || 'lookup failed' });
-      }
-    }
-
-    // Stamp the loans, grouped per client blob.
-    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-    const byClient = new Map();
-    for (const row of rows) {
-      const bill = billInfo.get(row.billRef);
-      if (!bill) continue;
-      const k = keySafe(normalizeEmail(row.r.owner_email || '')) + '||' + row.r.client_id;
-      if (!byClient.has(k)) byClient.set(k, []);
-      byClient.get(k).push({ row, bill });
-    }
-
-    const now = new Date().toISOString();
-    let updated = 0, unchanged = 0;
-    const writeErrors = [];
-    for (const [k, group] of byClient) {
-      const [ownerKey, clientId] = k.split('||');
-      try {
-        const client = await clientsStore.get(ownerKey + '/' + keySafe(clientId), { type: 'json' }).catch(() => null);
-        if (!client || !Array.isArray(client.loans)) continue;
-        let dirty = false;
-        for (const { row, bill } of group) {
-          const loan = client.loans.find((l) => l && l.id === row.r.id);
-          if (!loan) continue;
-          const status = String(bill.paymentStatus || 'UNDEFINED');
-          if (String(loan.commissionPaymentStatus || '') === status) { unchanged++; continue; }
-          loan.commissionPaymentStatus = status;
-          // BILL reports paidAmount for the WHOLE bill, which usually covers
-          // several loans — record it as bill-level context, never as this
-          // loan's own commission amount.
-          loan.commissionBillPaidAmount = Number(bill.paidAmount || 0);
-          loan.commissionBillDueAmount = Number(bill.dueAmount || 0);
-          if (status === 'PAID' && !loan.commissionPaidAt) {
-            // BILL has no "paid on" field on the bill itself; updatedTime is
-            // the closest honest stamp, so record where it came from.
-            loan.commissionPaidAt = bill.updatedTime || now;
-            loan.commissionPaidSource = 'bill.updatedTime';
-          }
-          loan.commissionPaymentSyncedAt = now;
-          loan.updatedAt = now;
-          dirty = true;
-          updated++;
-        }
-        if (dirty) await writeClient(ownerKey, client, { clientsStore });
-      } catch (e) {
-        writeErrors.push({ clientId, error: (e && e.message) || 'write failed' });
-      }
-    }
-
-    const statusCounts = {};
-    for (const b of billInfo.values()) {
-      const s = String(b.paymentStatus || 'UNDEFINED');
-      statusCounts[s] = (statusCounts[s] || 0) + 1;
-    }
-    return json(200, {
-      ok: true,
-      checked: rows.length,
-      bills: byRef.size,
-      resolved: billInfo.size,
-      updated,
-      unchanged,
-      statusCounts,
-      lookupErrors,
-      writeErrors,
-    });
   }
 
   if (action !== 'create') return json(400, { error: 'Unknown action' });

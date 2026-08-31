@@ -30,6 +30,10 @@
 # Deploy 236.808 — BILL login + vendor scan + bill create in one request.
 [functions."lo-commission-bill"]
   timeout = 26
+# Deploy 236.821 — nightly payment sync: BILL login plus one bill + one payment
+# lookup per commission bill that isn't settled yet.
+[functions."lo-commission-payment-cron"]
+  timeout = 26
 
 # Supabase migration Phase 1 — the backfill walks 2 800+ blobs, does
 # a second pass on the legacy brokers store, then chunk-writes
