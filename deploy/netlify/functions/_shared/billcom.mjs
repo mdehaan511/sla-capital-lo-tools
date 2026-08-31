@@ -130,12 +130,20 @@ export async function createVendor(session, { name, email }) {
 // numbers are REJECTED (allowDuplicateInvoiceNumber:false) — the invoice
 // number is the idempotency backstop for a whole commission run.
 export async function createBill(session, { vendorId, invoiceNumber, invoiceDate, dueDate, description, lineItems }) {
+  // Deploy 236.816 — BILL caps invoiceNumber at 21 chars (BDC_1143). This used
+  // to slice to 100, which both hid the limit and would silently corrupt the
+  // idempotency key if it ever did truncate. Refuse instead: the CALLER owns
+  // shortening, because only it knows how to stay unique per LO + period.
+  const inv = String(invoiceNumber == null ? '' : invoiceNumber);
+  if (inv.length > 21) {
+    throw new Error('BILL invoiceNumber must be 21 characters or fewer (got ' + inv.length + ': "' + inv + '")');
+  }
   return _req('/v3/bills', {
     method: 'POST',
     headers: _authHeaders(session),
     body: {
       vendorId,
-      invoice: { invoiceNumber: String(invoiceNumber).slice(0, 100), invoiceDate },
+      invoice: { invoiceNumber: inv, invoiceDate },
       dueDate,
       description: description ? String(description).slice(0, 4000) : undefined,
       allowDuplicateInvoiceNumber: false,

@@ -13,6 +13,9 @@
  *      already-stamped loans are dropped server-side before the bill is cut;
  *   2. the BILL invoice number is COMM-<period>-<lo> with duplicate invoice
  *      numbers REJECTED, so even a retry after a failed stamp can't double-bill.
+ *      BILL caps that field at 21 characters, so billInvoiceNumber() falls back
+ *      to a shortened, hash-tagged form when the plain one doesn't fit — see it
+ *      for why short names deliberately keep their original number.
  *
  * The bill lands in BILL as Unpaid/awaiting approval — payment approval
  * stays in BILL (Mike's control point). Quarterly production bonuses are
@@ -33,6 +36,49 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import {
   billConfigured, billMissingVars, billLogin, findVendor, createVendor, createBill, listVendors,
 } from './_shared/billcom.mjs';
+
+// ── Deploy 236.816 — BILL caps invoiceNumber at 21 CHARACTERS ────────
+// The old builder sliced to 100 and BILL rejected anything longer with
+// "BDC_1143: Invalid entity data. invoiceNumber: Maximum length cannot be
+// greater than 21 characters." COMM-2026-08-marianne.wentzel is 29, so every LO
+// with a long email local-part could never be billed. Short ones (jeremy, 19)
+// always worked, which is why it looked intermittent.
+export const BILL_INVOICE_MAX = 21;
+
+// "2026-08" → "2608", "2026-Q3" → "26Q3", "all" → "ALL".
+function _shortPeriod(p) {
+  const s = String(p || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return s.length > 4 ? s.slice(2) : s;
+}
+
+// Stable 4-char tag. Two LOs whose local-parts share a 6-char prefix would
+// otherwise shorten to the SAME invoice number, and since
+// allowDuplicateInvoiceNumber is false BILL would reject the second LO's bill
+// as a duplicate — a silent, baffling failure. FNV-1a; deterministic across
+// runs, which the duplicate check depends on.
+function _tag(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36).slice(-4).padStart(4, '0');
+}
+
+/**
+ * The invoice number IS the idempotency key for a commission run, so this
+ * deliberately returns the ORIGINAL format untouched whenever it already fits.
+ * Re-numbering an LO whose bills already went through would make BILL stop
+ * recognising them as duplicates and let the same period be billed twice.
+ */
+export function billInvoiceNumber(period, loEmail) {
+  const lo = String(loEmail || '').replace(/@.*$/, '');
+  const full = ('COMM-' + period + '-' + lo).replace(/[^A-Za-z0-9._-]/g, '');
+  if (full.length <= BILL_INVOICE_MAX) return full;
+
+  const head = 'COMM-' + _shortPeriod(period);
+  const tag = _tag(period + '|' + lo);
+  const room = BILL_INVOICE_MAX - head.length - 2 - tag.length; // two dashes
+  const shortLo = lo.replace(/[^A-Za-z0-9]/g, '').slice(0, Math.max(1, room));
+  return (head + '-' + shortLo + '-' + tag).slice(0, BILL_INVOICE_MAX);
+}
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -137,7 +183,7 @@ async function handle(req, context) {
   const today = new Date();
   const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-  const invoiceNumber = ('COMM-' + period + '-' + loEmail.replace(/@.*$/, '')).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 100);
+  const invoiceNumber = billInvoiceNumber(period, loEmail);
   const total = billable.reduce((s, b) => s + b.amount, 0);
 
   // Deploy 236.815 — fail fast on the two things BILL rejects with an opaque
