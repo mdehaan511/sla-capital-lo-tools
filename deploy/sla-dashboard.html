@@ -288,6 +288,19 @@ var _charts = {};
 // by-LO panels show "Sara Smith" instead of "sara.s". Loaded async;
 // falls back to the email's local part until (or if never) resolved.
 var _loNames = {};
+// Deploy 236.829 — email → directory roles, for filtering NON-LOs out of the
+// by-LO funnel (Mike: processors + super-admin test loans were showing as
+// rows). Note the directory's roles are stale for many real LOs (lots still
+// say 'user'), so this must be an EXCLUDE list, never an include list.
+var _loRoles = {};
+function _isNonLoOwner(ownerKey) {
+  var roles = _loRoles[String(ownerKey || '').toLowerCase()] || [];
+  for (var i = 0; i < roles.length; i++) {
+    var r = String(roles[i]).toLowerCase();
+    if (r === 'processor' || r === 'super_admin' || r === 'borrower') return true;
+  }
+  return false;
+}
 function loDisplayName(ownerKey) {
   var e = String(ownerKey || '').toLowerCase();
   return _loNames[e] || e.replace(/@.*$/, '') || '(unassigned)';
@@ -646,7 +659,10 @@ function loadAll(fresh) {
   if (SLA.Users && SLA.Users.directory) {
     SLA.Users.directory().then(function(r) {
       ((r && r.users) || []).forEach(function(u) {
-        if (u && u.email && u.name) _loNames[String(u.email).toLowerCase()] = u.name;
+        if (!u || !u.email) return;
+        var e = String(u.email).toLowerCase();
+        if (u.name) _loNames[e] = u.name;
+        _loRoles[e] = Array.isArray(u.roles) ? u.roles : []; // Deploy 236.829
       });
       renderFunnelByLo();
     }).catch(function() {});
@@ -1198,7 +1214,12 @@ function renderFunnelByLo() {
     if (proc) _funnelLoCells[o].processing.push(l);
     if (won)  _funnelLoCells[o].closed.push(l);
   }
-  var owners = Object.keys(_funnelLoCells).sort(function(a, b) {
+  // Deploy 236.829 — drop non-LO owners (processors / super-admin test
+  // loans / borrower accounts) from the by-LO table. Their loans still
+  // count in the owner-agnostic Conversion Funnel above.
+  var owners = Object.keys(_funnelLoCells).filter(function(o) {
+    return !_isNonLoOwner(o);
+  }).sort(function(a, b) {
     return _funnelLoCells[b].leads.length - _funnelLoCells[a].leads.length;
   });
   if (!owners.length) {
