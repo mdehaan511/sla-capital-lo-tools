@@ -829,6 +829,20 @@
   status = 200
   force = true
 
+# Deploy 236.830: Baseline PII backfill — pulls borrower street addresses +
+# SSNs from Baseline's API and gap-fills matching SLA client records (SSNs
+# encrypted at rest; report is counts-only). Background fn + status reader.
+[[redirects]]
+  from = "/api/admin-baseline-pii-backfill"
+  to = "/.netlify/functions/admin-baseline-pii-backfill-background"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/admin-baseline-pii-backfill-status"
+  to = "/.netlify/functions/admin-baseline-pii-backfill-status"
+  status = 200
+  force = true
+
 # Deploy 236.818: borrower-link — durable 72h portal sign-in links. GET
 # redeems (mints a fresh Supabase magic link at click time); POST resends
 # a new link when the token expired. Linked from every borrower invite email.
