@@ -50,6 +50,10 @@
       children: [
         { label: 'Pipeline',     href: '/processing-pipeline.html' },
         { label: 'Closed Loans', href: '/closed-loans.html' },
+        // Deploy 236.824 — closing-anniversary borrower follow-ups moved to
+        // their own page (was a Closed Loans tab). Visible to LOs — they work
+        // this queue directly.
+        { label: 'Follow-ups',   href: '/followups.html' },
         // Deploy 236.803 — live FCI payoff-demand tracker. Processor-only: it
         // reads the whole servicing book, not one LO's loans.
         { label: 'Payoff Demands', href: '/payoff-demands.html', requires: 'processor' },

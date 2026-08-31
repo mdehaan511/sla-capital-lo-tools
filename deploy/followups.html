@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Follow-ups — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="sla-api.js"></script>
+  <script src="sla-nav.js"></script>
+  <script src="/sla-search.js"></script>
+  <script src="sla-notifications.js"></script>
+  <script src="sla-chat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Deploy 236.824 — closing-anniversary borrower follow-ups get their OWN page
+       (Mike; moved out of the Closed Loans tab). LOs work the queue directly:
+       borrower email + phone are columns so no click-through is needed. -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --danger: #7c1f1f; --success: #256940;
+      --d-servicing: #256940;  --d-servicing-bg: rgba(37,105,64,0.08);
+      --d-pending:   #7a5218;  --d-pending-bg:   rgba(122,82,24,0.08);
+      --d-sold:      #4a7a8a;  --d-sold-bg:      rgba(74,122,138,0.08);
+      --r: 12px; --r-xs: 8px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 0 1rem 4rem; }
+    #auth-gate { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    #auth-gate .gate-msg { color: rgba(255,255,255,0.5); font-size: 14px; text-align: center; }
+    #auth-gate .gate-msg strong { color: #fff; display: block; margin-bottom: 8px; font-size: 18px; }
+    .nav { max-width: 100%; margin: 0 auto; padding: 1.5rem 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 48px; width: auto; }
+    .nav-left { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-tools-btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--gold-border); background: var(--gold-light); color: var(--gold-mid); border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .nav-tools-btn:hover { background: var(--gold); color: #fff; border-color: var(--gold); }
+    .nav-tool-link { font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); transition: all 0.15s; white-space: nowrap; }
+    .nav-tool-link:hover { border-color: var(--gold); color: var(--gold); }
+    .nav-tool-link.current { background: var(--dark); border-color: var(--dark); color: #fff; }
+    .page { max-width: 100%; margin: 0 auto; padding-top: 1.25rem; }
+    .page-header { margin-bottom: 1.25rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .page-header h1 { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-header p { font-size: 13px; color: var(--muted); }
+    .ctrl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .search-box { padding: 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); min-width: 240px; }
+    .search-box:focus { outline: none; border-color: var(--gold); }
+    .lo-filter, .fu-filter { padding: 7px 28px 7px 14px; border: 1px solid var(--border); border-radius: 20px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--surface); cursor: pointer; appearance: none; -webkit-appearance: none; }
+    .lo-filter:focus, .fu-filter:focus { outline: none; border-color: var(--gold); }
+    .loading { padding: 40px; text-align: center; color: var(--muted); }
+    .totbar { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .acc { border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 12px; background: var(--surface); overflow: hidden; }
+    .cl-scroll { overflow-x: auto; }
+    .cl-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .cl-tbl thead th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .cl-tbl td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+    .cl-tbl tbody tr.lrow { cursor: pointer; }
+    .cl-tbl tbody tr.lrow:hover { background: var(--d-sold-bg); }
+    .cl-addr { font-weight: 600; }
+    .cl-num { font-family: 'DM Mono', monospace; }
+    .cl-empty { padding: 26px 14px; text-align: center; color: var(--muted); font-size: 13px; }
+    .cl-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .stpill { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; }
+    .fu-done { padding: 3px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--surface); cursor: pointer; color: var(--muted); white-space: nowrap; font-family: inherit; }
+    .fu-done:hover { border-color: var(--gold); color: var(--gold); }
+    .fu-contact a { color: var(--d-sold); text-decoration: none; }
+    .fu-contact a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking authentication.</div></div>
+
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Borrower Follow-ups</h1>
+        <p>Check-in calls at the 7 / 30 / 90 / 120 / 240 / 365-day closing anniversaries. A daily email digest lands the morning each one comes due.</p>
+      </div>
+      <div class="ctrl-row">
+        <input type="text" class="search-box" id="searchBox" placeholder="Search borrower, address, email…" oninput="render()" />
+        <select class="fu-filter" id="stateFilter" onchange="render()">
+          <option value="">Due + upcoming</option>
+          <option value="due">Due &amp; overdue only</option>
+          <option value="upcoming">Upcoming only</option>
+        </select>
+        <select class="lo-filter" id="loFilter" style="display:none" onchange="render()">
+          <option value="">All Loan Officers</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="totbar" id="totBar"></div>
+    <div id="paneWrap"><div class="loading">Loading follow-ups…</div></div>
+  </div>
+
+<script>
+'use strict';
+var _user = null, _isAdmin = false, _isStaff = false;
+var _closed = []; // [{ ownerKey, client, loan }]
+
+// ── Helpers (shared conventions with closed-loans.html) ────────────
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function parseLocalDate(s){ if(!s) return null; var m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) { var d0=new Date(s); return isNaN(d0.getTime())?null:d0; } return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10)); }
+function fmtDate(s){ var d=parseLocalDate(s); if(!d) return ''; return (d.getMonth()+1)+'/'+d.getDate()+'/'+String(d.getFullYear()).slice(-2); }
+function clientName(c){ return ((c.firstName||'')+' '+(c.lastName||'')).trim() || c.email || '(unknown)'; }
+function loanHref(it){ return SLA.urls.loanDetails(it.loan.id, { owner: it.ownerKey }); }
+function loDisplay(ownerKey){ if(!ownerKey) return '—'; return String(ownerKey).replace(/_at_/g,'@').replace(/_dot_/g,'.').replace(/_/g,' '); }
+
+// Same closed-loan predicate as closed-loans.html's isClosedLoan().
+function isClosedLoan(l){
+  var dsp = String(l.disposition||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  if (dsp==='sold'||dsp==='servicing'||dsp==='pending sale'||dsp==='paid off'||dsp==='post close') return true;
+  var st = String(l.status||'').toLowerCase().trim();
+  if (st==='closed' || st==='sold' || st==='liquidated') return true;
+  if (String(l.processingStage||'').toLowerCase().trim()==='pp_closed') return true;
+  var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  return (bl==='sold'||bl==='in servicing'||bl==='servicing'||bl==='liquidated'||bl==='paid off'||bl==='closed');
+}
+function isLiquidated(l){
+  var st = String(l.status||'').toLowerCase().trim();
+  var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  return st==='liquidated' || bl==='liquidated';
+}
+
+// ── Follow-up window math — keep aligned with followup-reminder-cron.mjs ──
+var FU_MILESTONES = [7, 30, 90, 120, 240, 365];
+var FU_GRACE_DAYS = 14;     // due items linger this long, then auto-skip
+var FU_UPCOMING_DAYS = 30;  // upcoming items surface this far out
+var FU_DAY = 86400000;
+
+// Pending follow-up rows for the loaded loans. state: 'due' | 'overdue' | 'upcoming'.
+function followupRows(items){
+  var now = Date.now();
+  var rows = [];
+  items.forEach(function(it){
+    var l = it.loan;
+    if (isLiquidated(l)) return; // no check-in call after a foreclosure
+    var close = parseLocalDate(l.fundingDate);
+    if (!close) return;
+    var closeMs = close.getTime();
+    var done = l.anniversaryFollowUps || {};
+    FU_MILESTONES.forEach(function(n){
+      var key = 'd' + n;
+      if (done[key]) return;
+      var dueMs = closeMs + n * FU_DAY;
+      var diffDays = Math.floor((now - dueMs) / FU_DAY); // >0 = past due
+      if (diffDays > FU_GRACE_DAYS) return;              // auto-skip stale
+      if (diffDays < -FU_UPCOMING_DAYS) return;          // too far out
+      rows.push({ it: it, key: key, days: n, dueMs: dueMs, diffDays: diffDays,
+        state: diffDays > 0 ? 'overdue' : (diffDays === 0 ? 'due' : 'upcoming') });
+    });
+  });
+  rows.sort(function(a,b){ return a.dueMs - b.dueMs; }); // most urgent first
+  return rows;
+}
+function _fuChip(r){
+  if (r.state === 'overdue') return '<span class="stpill" style="background:rgba(185,28,28,0.12);color:#b91c1c">'+r.diffDays+' day'+(r.diffDays===1?'':'s')+' overdue</span>';
+  if (r.state === 'due')     return '<span class="stpill" style="background:var(--d-servicing-bg);color:var(--d-servicing)">Due today</span>';
+  return '<span class="stpill" style="background:var(--d-pending-bg);color:var(--d-pending)">in '+(-r.diffDays)+' day'+(r.diffDays===-1?'':'s')+'</span>';
+}
+function _fmtPhone(p){
+  var d = String(p||'').replace(/\D/g,'');
+  if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+  if (d.length === 10) return '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+  return String(p||'');
+}
+
+// ── Load ───────────────────────────────────────────────────────────
+window.netlifyIdentity.on('init', function(user){
+  if (!user) { window.location.replace('/'); return; }
+  _user = user;
+  _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
+  _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  if (_isStaff) document.getElementById('loFilter').style.display = '';
+  loadAll();
+});
+
+function loadAll(){
+  var opts = _isStaff ? { all: true } : {};
+  var cached = SLA.Clients.listCached ? SLA.Clients.listCached(opts) : null;
+  if (cached) ingest(cached);
+  SLA.Clients.list(opts).then(ingest).catch(function(err){
+    if (!_closed.length) document.getElementById('paneWrap').innerHTML =
+      '<div class="loading" style="color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown error') + '</div>';
+  });
+}
+
+function ingest(resp){
+  _closed = [];
+  var owners = {};
+  function take(ownerKey, client){
+    (client.loans||[]).forEach(function(l){
+      if (!l || !l.id || !isClosedLoan(l)) return;
+      _closed.push({ ownerKey: ownerKey, client: client, loan: l });
+      owners[ownerKey] = true;
+    });
+  }
+  if (resp && resp.byOwner) {
+    Object.keys(resp.byOwner).forEach(function(ok){ (resp.byOwner[ok]||[]).forEach(function(c){ take(ok, c); }); });
+  } else if (resp && resp.clients) {
+    var myKey = String((_user && _user.email)||'').toLowerCase();
+    resp.clients.forEach(function(c){ take(myKey, c); });
+  }
+  var sel = document.getElementById('loFilter');
+  if (sel && _isStaff) {
+    var cur = sel.value;
+    var opts2 = Object.keys(owners).sort().map(function(ok){ return '<option value="'+escAttr(ok)+'">'+escH(loDisplay(ok))+'</option>'; }).join('');
+    sel.innerHTML = '<option value="">All Loan Officers</option>' + opts2;
+    sel.value = cur;
+  }
+  render();
+}
+
+function visibleItems(){
+  var lo = (document.getElementById('loFilter')||{}).value || '';
+  return _closed.filter(function(it){ return !lo || it.ownerKey === lo; });
+}
+
+// ── Render ─────────────────────────────────────────────────────────
+function render(){
+  var rows = followupRows(visibleItems());
+  var q = (document.getElementById('searchBox').value||'').toLowerCase().trim();
+  if (q) {
+    rows = rows.filter(function(r){
+      var hay = ((r.it.loan.address||'')+' '+clientName(r.it.client)+' '+(r.it.client.email||'')+' '+(r.it.client.phone||'')).toLowerCase();
+      return hay.indexOf(q) >= 0;
+    });
+  }
+  var overdue = rows.filter(function(r){ return r.state==='overdue'; }).length;
+  var dueToday = rows.filter(function(r){ return r.state==='due'; }).length;
+  var upcoming = rows.filter(function(r){ return r.state==='upcoming'; }).length;
+  var sf = (document.getElementById('stateFilter')||{}).value || '';
+  if (sf === 'due') rows = rows.filter(function(r){ return r.state !== 'upcoming'; });
+  else if (sf === 'upcoming') rows = rows.filter(function(r){ return r.state === 'upcoming'; });
+
+  document.getElementById('totBar').textContent =
+    (overdue + dueToday) + ' due now (' + overdue + ' overdue) · ' + upcoming + ' upcoming in the next ' + FU_UPCOMING_DAYS + ' days';
+
+  var wrap = document.getElementById('paneWrap');
+  var note = '<div class="cl-note">Mark done logs the touch to the loan’s Notes &amp; Activity. Due items stay in the queue for '+FU_GRACE_DAYS+' days, then auto-skip. Click a row to open the loan; email / phone links won’t navigate away.</div>';
+  if (!rows.length) { wrap.innerHTML = note + '<div class="cl-empty">🎉 Nothing here — every closing anniversary in the window is handled.</div>'; return; }
+
+  var head = '<tr><th>Status</th><th>Anniversary</th><th>Borrower</th><th>Email</th><th>Phone</th><th>Property</th>' +
+    (_isStaff ? '<th>LO</th>' : '') + '<th>Closed</th><th>Due</th><th></th></tr>';
+  var body = rows.map(function(r){
+    var it = r.it, l = it.loan, c = it.client;
+    var due = new Date(r.dueMs);
+    var dueStr = (due.getMonth()+1)+'/'+due.getDate()+'/'+String(due.getFullYear()).slice(-2);
+    var email = String(c.email||'').trim();
+    var phone = String(c.phone||'').trim();
+    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+
+      '<td>'+_fuChip(r)+'</td>'+
+      '<td><strong>'+r.days+'-day</strong></td>'+
+      '<td>'+escH(clientName(c))+'</td>'+
+      '<td class="fu-contact" onclick="event.stopPropagation()">'+(email ? '<a href="mailto:'+escAttr(email)+'">'+escH(email)+'</a>' : '<span style="color:var(--muted)">—</span>')+'</td>'+
+      '<td class="fu-contact cl-num" onclick="event.stopPropagation()">'+(phone ? '<a href="tel:'+escAttr(phone.replace(/[^\d+]/g,''))+'">'+escH(_fmtPhone(phone))+'</a>' : '<span style="color:var(--muted)">—</span>')+'</td>'+
+      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>'+
+      (_isStaff ? '<td>'+escH(loDisplay(it.ownerKey))+'</td>' : '')+
+      '<td class="cl-num">'+(l.fundingDate?escH(fmtDate(l.fundingDate)):'—')+'</td>'+
+      '<td class="cl-num">'+escH(dueStr)+'</td>'+
+      '<td onclick="event.stopPropagation()"><button type="button" class="fu-done" title="Record that you followed up with this borrower" '+
+        'onclick="markFollowupDone(\''+escAttr(c.id)+'\',\''+escAttr(l.id)+'\',\''+escAttr(it.ownerKey)+'\',\''+escAttr(r.key)+'\','+r.days+', this)">✓ Mark done</button></td>'+
+    '</tr>';
+  }).join('');
+  wrap.innerHTML = note + '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
+}
+
+function markFollowupDone(clientId, loanId, ownerKey, milestone, days, btn){
+  var it = null;
+  for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
+  if (!it) return;
+  var noteTxt = window.prompt('Mark the '+days+'-day follow-up done for '+clientName(it.client)+'.\n\nOptional note about the call (leave blank to skip):', '');
+  if (noteTxt === null) return; // cancelled
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  SLA.api('POST','/api/loan-followup-done', { clientId: clientId, loanId: loanId, owner: ownerKey, milestone: milestone, note: noteTxt }).then(function(resp){
+    var fresh = {};
+    var old = it.loan.anniversaryFollowUps || {};
+    Object.keys(old).forEach(function(k){ fresh[k] = old[k]; });
+    fresh[milestone] = (resp && resp.entry) || { doneAt: new Date().toISOString() };
+    it.loan.anniversaryFollowUps = fresh;
+    render();
+  }).catch(function(err){
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Mark done'; }
+    alert('Failed to save follow-up: ' + (err && err.message || 'unknown'));
+  });
+}
+</script>
+</body>
+</html>
