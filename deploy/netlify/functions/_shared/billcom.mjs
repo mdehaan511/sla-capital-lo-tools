@@ -142,10 +142,43 @@ export async function getBill(session, billId) {
 export async function findBillByInvoiceNumber(session, invoiceNumber) {
   const inv = String(invoiceNumber || '').trim();
   if (!inv) return null;
-  const qs = '?max=5&filters=' + encodeURIComponent('invoice.invoiceNumber:eq:' + inv);
-  const res = await _req('/v3/bills' + qs, { headers: _authHeaders(session) });
-  const rows = Array.isArray(res) ? res : (res && Array.isArray(res.results) ? res.results : []);
+  const rows = await listBillsFiltered(session, 'invoice.invoiceNumber:eq:' + inv, 5);
   return rows.find((b) => b && b.invoice && b.invoice.invoiceNumber === inv) || rows[0] || null;
+}
+
+// Deploy 236.819 — the LIST endpoint, used both for invoice-number lookups and
+// as a fallback when GET /v3/bills/{id} is refused. BILL's permissions are
+// per-operation: the API user that CREATES bills was denied reading one back
+// (BDC_1145), so it's worth trying the other route before giving up.
+export async function listBillsFiltered(session, filters, max = 25) {
+  const qs = '?max=' + Math.max(1, Math.min(100, max)) +
+    (filters ? '&filters=' + encodeURIComponent(filters) : '');
+  const res = await _req('/v3/bills' + qs, { headers: _authHeaders(session) });
+  return Array.isArray(res) ? res : ((res && Array.isArray(res.results)) ? res.results : []);
+}
+
+// Read one bill, tolerating a per-operation permission gap: try GET by id, and
+// if that's refused fall back to the list endpoint filtered to the same id.
+// Returns { bill, via } or throws with BOTH failures so the message is useful.
+export async function getBillTolerant(session, billId) {
+  const id = String(billId || '').trim();
+  let firstErr;
+  try {
+    const bill = await getBill(session, id);
+    if (bill) return { bill, via: 'get' };
+  } catch (e) { firstErr = e; }
+  try {
+    const rows = await listBillsFiltered(session, 'id:eq:' + id, 5);
+    const bill = rows.find((b) => b && b.id === id) || rows[0];
+    if (bill) return { bill, via: 'list' };
+  } catch (e) {
+    const err = new Error('bill read failed — GET: ' + ((firstErr && firstErr.message) || 'n/a') +
+      ' | LIST: ' + ((e && e.message) || 'n/a'));
+    err.status = (firstErr && firstErr.status) || e.status;
+    throw err;
+  }
+  if (firstErr) throw firstErr;
+  return { bill: null, via: 'none' };
 }
 
 // Create a bill. lineItems: [{ amount, description }]. Duplicate invoice

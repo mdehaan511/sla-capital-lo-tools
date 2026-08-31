@@ -35,7 +35,7 @@ import { writeClient } from './_shared/client-write.mjs';
 import { appendNoteEntry } from './_shared/notes-log.mjs';
 import {
   billConfigured, billMissingVars, billLogin, findVendor, createVendor, createBill, listVendors,
-  getBill, findBillByInvoiceNumber,
+  getBill, findBillByInvoiceNumber, getBillTolerant, listBillsFiltered,
 } from './_shared/billcom.mjs';
 import { db } from './_shared/supabase-db.mjs';
 
@@ -156,8 +156,18 @@ async function handle(req, context) {
     try {
       const session = await billLogin();
       const vendors = await listVendors(session, 100);
-      return json(200, { ok: true, organizationId: session.organizationId, vendorCount: vendors.length,
-        vendorSample: vendors.slice(0, 5).map((v) => ({ id: v.id, name: v.name, email: v.email || '' })) });
+      // Deploy 236.819 — BILL permissions are PER-OPERATION: this API user can
+      // create bills but was refused reading one back (BDC_1145), which is what
+      // blocks payment sync. Report both capabilities so the failure is legible
+      // from the status check instead of only surfacing mid-sync.
+      let canReadBills = false, billReadError = '';
+      try { await listBillsFiltered(session, '', 1); canReadBills = true; }
+      catch (e) { billReadError = (e && e.message) || 'failed'; }
+      return json(200, {
+        ok: true, organizationId: session.organizationId, vendorCount: vendors.length,
+        canReadBills, billReadError,
+        vendorSample: vendors.slice(0, 5).map((v) => ({ id: v.id, name: v.name, email: v.email || '' })),
+      });
     } catch (e) {
       return json(502, { error: 'BILL login/list failed: ' + (e.message || 'unknown') });
     }
@@ -214,7 +224,12 @@ async function handle(req, context) {
         // Bill ids begin with 00n. Anything else is an invoice number we stored
         // as a fallback when createBill's response carried no id — resolve
         // those through the list filter instead.
-        const bill = /^00n/i.test(ref) ? await getBill(session, ref) : await findBillByInvoiceNumber(session, ref);
+        // getBillTolerant falls back to the LIST endpoint when GET by id is
+        // refused — BILL permissions are per-operation and the user that
+        // creates bills was denied reading one back (BDC_1145).
+        const bill = /^00n/i.test(ref)
+          ? (await getBillTolerant(session, ref)).bill
+          : await findBillByInvoiceNumber(session, ref);
         if (bill) billInfo.set(ref, bill);
         else lookupErrors.push({ billRef: ref, error: 'not found in BILL' });
       } catch (e) {
