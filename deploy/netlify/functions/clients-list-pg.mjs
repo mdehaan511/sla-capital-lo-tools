@@ -122,6 +122,10 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   'commissionSource', 'commissionReferral',
   // Deploy 236.808 — BILL (bill.com) commission-bill stamps.
   'commissionBillId', 'commissionBilledAt',
+  // Deploy 236.820 — payment status read back from BILL. Without these in
+  // the allow-list the sync wrote correctly but the page never saw it, so
+  // every commission still rendered BILLED.
+  'commissionPaymentStatus', 'commissionPaidAt',
   // Deploy 236.622/623 — collateral tracking fields (date + location + tracking #, all in extra).
   'signedOriginalsDate', 'signedOriginalsLocation', 'signedOriginalsTracking',
   'recordedDotDate', 'recordedDotLocation', 'recordedDotTracking',
