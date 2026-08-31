@@ -155,10 +155,14 @@ async function handle(req, context) {
     if (slug === LOAN_APP_SLUG || slug === RATE_SHEET_SLUG) continue;
     const ds = review.docs[slug];
     if (!ds || !ds.currentDocId || ds.noReview) continue;
-    if (ds.aiReviewing) continue; // already queued/in-flight — it will read the fresh truth
     if (ds.aiSkippedForMimeType || ds.aiSkippedNoRubric) continue;
     const v = String(ds.aiVerdict || '');
-    if (!v || v === 'stored') continue; // never AI-reviewed — nothing to redo
+    // Requeue docs that were AI-reviewed AND docs stuck aiReviewing (a
+    // queued background review whose fire was lost leaves the flag on
+    // forever — Deploy 236.819: re-firing is safe, the reviewer merges
+    // surgically, and a genuinely in-flight duplicate just costs one
+    // redundant call against the same fresh truth).
+    if (!ds.aiReviewing && (!v || v === 'stored')) continue;
     ds.aiReviewing = true;
     ds.aiVerdict = '';
     ds.aiNotes = 'Re-review queued — point of truth updated (' + reason + ').';
