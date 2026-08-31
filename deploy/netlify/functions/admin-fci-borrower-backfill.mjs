@@ -10,9 +10,15 @@
  *     to the loan (see "linking" below) and leave both records alone otherwise
  *   • no client has it, and the loan's own client is an empty husk → fill the
  *     husk in place with FCI's name / email / phone
- *   • no client has it, and the loan's client is a real person already → leave
- *     it alone and report the disagreement; a sync must not overwrite a client
- *     the team has actually filled in
+ *   • no client has it, and the loan's client has a NAME but no email → add the
+ *     email (and phone/company only where those are blank too). Adding an email
+ *     to a record that has none destroys nothing, and this is most of the real
+ *     population — see needsEmailOnly()
+ *   • the client already has an email and it DISAGREES with FCI's → leave it
+ *     alone and report it; a sync must not overwrite contact details a human
+ *     entered
+ *
+ * Every write fills BLANKS ONLY. No existing value is ever replaced.
  *
  * ── Why we fill the husk instead of creating a new client ────────────
  * Loans are NESTED under a client blob, so "create the client and move the loan"
@@ -50,7 +56,7 @@ import { fciConfigured, fciPortfolio } from './_shared/fci-api.mjs';
 // real values like "Xarnest, LLC - 002, Protec" where the suffix is mid-string;
 // anchoring to $ read that whole thing as a person called "Xarnest,".
 // Deliberately no bare "CO" — it would swallow surnames like "Cortez".
-const ENTITY_RE = /\b(LLC|L\.L\.C|INC|CORP|CORPORATION|COMPANY|LP|LLP|TRUST|PARTNERS|HOLDINGS|PROPERTIES|GROUP|REALTY|CAPITAL|VENTURES|ENTERPRISES)\b/i;
+const ENTITY_RE = /\b(LLC|L\.L\.C|INC|CORP|CORPORATION|COMPANY|LP|LLP|TRUST|PARTNERS|HOLDINGS|PROPERTIES|PROPERTY|GROUP|REALTY|CAPITAL|VENTURES|ENTERPRISES|CONSULTING|MANAGEMENT|INVESTMENTS?|SOLUTIONS|DEVELOPMENT|CONTRACTING|RENOVATIONS?|ASSOCIATES|FUND|HOMES|ESTATE)\b/i;
 
 /** "Ryle Knox Real Estate LLC\nRylee Knox" → { company, firstName, lastName } */
 export function splitBorrowerName(raw) {
@@ -75,12 +81,26 @@ export function splitBorrowerName(raw) {
   return { company, firstName, lastName };
 }
 
+const _has = (v) => !!String(v == null ? '' : v).trim();
+
 /** A client nobody has filled in: no email, no name, no company. */
 function isHusk(c) {
   if (!c) return true;
-  const has = (v) => !!String(v == null ? '' : v).trim();
-  return !has(c.email) && !has(c.firstName) && !has(c.lastName)
-      && !has(c.company) && !has(c.entityName);
+  return !_has(c.email) && !_has(c.firstName) && !_has(c.lastName)
+      && !_has(c.company) && !_has(c.entityName);
+}
+
+/**
+ * Deploy 236.811 — a client with a NAME but no EMAIL.
+ *
+ * The first pass treated these as "already filled in" and skipped them, which
+ * put 11 loans in the conflict bucket reading `ours: (no email)` — the exact
+ * case that was supposed to be fixed. Adding an email to a record that has none
+ * destroys nothing, so these get the email (and phone/company only where those
+ * are also blank). The name the team entered is never touched.
+ */
+function needsEmailOnly(c) {
+  return !!c && !_has(c.email) && (_has(c.firstName) || _has(c.lastName) || _has(c.company) || _has(c.entityName));
 }
 
 export default async (req, context) => {
@@ -130,7 +150,7 @@ async function handle(req, context) {
   }
 
   const plan = [], skipped = [], errors = [];
-  const counts = { fill_husk: 0, link_existing: 0, already_named: 0, no_fci_email: 0, not_linked: 0, conflict: 0 };
+  const counts = { fill_husk: 0, fill_email: 0, link_existing: 0, already_named: 0, no_fci_email: 0, not_linked: 0, conflict: 0 };
 
   for (const row of rows) {
     const acct = String(row.loanAccount || '').trim();
@@ -150,14 +170,19 @@ async function handle(req, context) {
         .get(t.ownerKey + '/' + keySafe(t.clientId), { type: 'json' }).catch(() => null);
       if (!client) { errors.push({ account: acct, error: 'client vanished' }); continue; }
 
-      // Already a real, identified client on this loan? Leave it be.
-      if (!isHusk(client)) {
+      const husk = isHusk(client);
+      const emailOnly = needsEmailOnly(client);
+
+      // A named client that already carries an email: nothing to do, unless the
+      // email genuinely disagrees with FCI's — and that we only ever report.
+      if (!husk && !emailOnly) {
         if (normalizeEmail(client.email || '') === email) counts.already_named++;
         else {
           counts.conflict++;
           skipped.push({
-            account: acct, loanId: t.loanId, reason: 'client already filled in with a different email',
-            ours: client.email || '(no email)', fci: email,
+            account: acct, loanId: t.loanId, reason: 'client email differs from FCI',
+            ours: client.email || '', fci: email,
+            name: ((client.firstName || '') + ' ' + (client.lastName || '')).trim(),
           });
         }
         continue;
@@ -165,8 +190,9 @@ async function handle(req, context) {
 
       // Does this borrower already exist as a client under the same owner?
       const existing = await findClientByEmail(t.ownerKey, email, clientsStore).catch(() => null);
-      const action = existing && existing.client && existing.client.id !== t.clientId
-        ? 'link_existing' : 'fill_husk';
+      const action = (existing && existing.client && existing.client.id !== t.clientId)
+        ? 'link_existing'
+        : (husk ? 'fill_husk' : 'fill_email');
       counts[action]++;
       plan.push({
         action, account: acct, ownerKey: t.ownerKey, clientId: t.clientId, loanId: t.loanId,
@@ -190,13 +216,19 @@ async function handle(req, context) {
         const key = p.ownerKey + '/' + keySafe(p.clientId);
         const client = await clientsStore.get(key, { type: 'json' }).catch(() => null);
         if (!client) { errors.push({ account: p.account, error: 'client vanished before write' }); continue; }
-        if (!isHusk(client)) { errors.push({ account: p.account, error: 'client no longer a husk — skipped' }); continue; }
+        // Re-check against the CURRENT record — someone may have filled it in
+        // between the plan and the write.
+        if (_has(client.email)) { errors.push({ account: p.account, error: 'client now has an email — skipped' }); continue; }
+        if (!isHusk(client) && !needsEmailOnly(client)) { errors.push({ account: p.account, error: 'client no longer eligible — skipped' }); continue; }
 
+        // The email is the whole point and is always safe to add (we only get
+        // here when the record has none). Everything else fills BLANKS ONLY —
+        // never overwrite a name or company a human typed.
         client.email = p.email;
-        if (p.firstName) client.firstName = p.firstName;
-        if (p.lastName) client.lastName = p.lastName;
-        if (p.company) client.company = p.company;
-        if (p.phone) client.phone = p.phone;
+        if (p.firstName && !_has(client.firstName)) client.firstName = p.firstName;
+        if (p.lastName && !_has(client.lastName)) client.lastName = p.lastName;
+        if (p.company && !_has(client.company) && !_has(client.entityName)) client.company = p.company;
+        if (p.phone && !_has(client.phone)) client.phone = p.phone;
         client.updatedAt = now;
         client._fciBorrowerBackfillAt = now;
         client._fciBorrowerBackfillBy = actor;
