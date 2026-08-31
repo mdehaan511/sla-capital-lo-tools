@@ -303,12 +303,13 @@ function inPeriod(r) {
   return periodOfDate(r.closeDate) === p;
 }
 function periodQuarter() {
-  // The quarter used for the production bonus: an explicit quarter pick, or
-  // the quarter containing the picked month. All-time → no quarterly bonus row.
+  // The quarter used for the production bonus: an explicit quarter pick, the
+  // quarter containing the picked month, or (Deploy 236.809) the CURRENT
+  // quarter when All Time is selected — the tracker should always show.
   var p = document.getElementById('periodSelect').value || 'all';
   if (/^\d{4}-Q\d$/.test(p)) return p;
   if (/^\d{4}-\d{2}$/.test(p)) return quarterOf(p + '-01');
-  return '';
+  return quarterOf(new Date().toISOString().slice(0, 10));
 }
 
 // ── Commission math per row (plan-aware) ──────────────────────────
@@ -381,14 +382,33 @@ function render() {
     }).join('');
 
     // Quarterly production bonus (model plan): full quarter volume, even when
-    // a single month inside it is selected.
+    // a single month inside it is selected. Deploy 236.809 — rendered as a
+    // progress TRACKER (bar toward the next $10M / $5,000) per Mike.
     var prodBonus = 0, prodNote = '';
     if (plan === 'model' && q) {
       var qVol = 0;
       _rows.forEach(function(r) { if (r.owner === owner && quarterOf(r.closeDate) === q) qVol += r.amount; });
       prodBonus = Math.floor(qVol / 10000000) * 5000;
-      prodNote = q.replace('-', ' ') + ' funded ' + money(qVol) + ' → production bonus ' + money(prodBonus) +
-        (prodBonus === 0 ? ' (' + money(10000000 - (qVol % 10000000)) + ' to the next $10M)' : '');
+      var chunk = qVol % 10000000;                 // progress inside the current $10M
+      var pct = Math.min(100, chunk / 10000000 * 100);
+      var toNext = 10000000 - chunk;
+      var earnedTxt = prodBonus > 0
+        ? '<span style="color:var(--success);font-weight:700">' + money(prodBonus) + ' earned</span> <span style="color:var(--muted)">(' + (prodBonus / 5000) + ' × $10M)</span>'
+        : '<span style="color:var(--muted)">no bonus earned yet</span>';
+      prodNote =
+        '<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(200,129,58,0.04)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px">' +
+            '<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold-mid)">Quarterly Production Bonus — ' + escH(q.replace('-', ' ')) + '</span>' +
+            '<span style="font-size:12px">' + earnedTxt + '</span>' +
+          '</div>' +
+          '<div style="height:14px;background:rgba(38,26,54,0.08);border-radius:8px;overflow:hidden;position:relative">' +
+            '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:linear-gradient(90deg,var(--gold),var(--gold-mid));border-radius:8px;transition:width 0.3s"></div>' +
+          '</div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:5px;flex-wrap:wrap;gap:8px">' +
+            '<span>' + money(qVol) + ' funded this quarter</span>' +
+            '<span>' + money(chunk) + ' / $10M toward the next $5,000 — <strong style="color:var(--dark)">' + money(toNext) + ' to go</strong></span>' +
+          '</div>' +
+        '</div>';
     }
     var loTotal = plan === 'revenue' ? 0 : loBase + loBonus + prodBonus;
     totalPayout += loTotal; totalVolume += loVol; totalLoans += list.length;
@@ -420,7 +440,7 @@ function render() {
         '<th>Source</th><th style="text-align:center">Repeat</th><th style="text-align:center">Referral</th>' +
         '<th class="num">Bps</th><th class="num">Base</th><th class="num">Bonuses</th><th class="num">Total</th>' +
       '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>' +
-      (prodNote ? '<div style="font-size:12px;color:var(--muted);margin-top:8px">' + escH(prodNote) + '</div>' : '') +
+      prodNote +
     '</div>';
   });
 
