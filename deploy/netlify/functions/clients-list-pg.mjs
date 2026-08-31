@@ -145,6 +145,9 @@ const LOAN_SUMMARY_EXTRA_KEYS = [
   // Deploy 236.748 — Multifamily-program marker (routes Open-in-Sizer to
   // mf-dscr-sizer.html). Rides in extra.
   'mfProgram',
+  // Deploy 236.823 — closing-anniversary follow-up ledger (Closed Loans
+  // Follow-ups tab). Rides in extra; keep in sync with clients-list.mjs.
+  'anniversaryFollowUps',
 ];
 
 function _loanRowToApi(l, summary) {

@@ -231,6 +231,10 @@ const LOAN_SUMMARY_FIELDS = [
   // signing). rateLockStart is the explicit stamp/reset; the display
   // falls back to borrowerInfoCompletedAt for loans signed pre-236.764.
   'rateLockStart', 'borrowerInfoCompletedAt',
+  // Deploy 236.823 — closing-anniversary follow-up ledger (Closed Loans
+  // Follow-ups tab): {d7:{doneAt,doneBy,note},…}. Keep in sync with
+  // clients-list-pg's LOAN_SUMMARY_EXTRA_KEYS.
+  'anniversaryFollowUps',
   'slaDisplayId', 'guarantorClientIds',
   'createdAt', 'updatedAt', 'savedAt', '_owner',
   // Deploy 236.573 — Processing Pipeline card fields (blob-fallback parity with

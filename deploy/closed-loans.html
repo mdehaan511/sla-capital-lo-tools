@@ -175,6 +175,8 @@
       <button type="button" class="cl-tab"        data-tab="payoff"       onclick="setTab('payoff')">Payoff</button>
       <button type="button" class="cl-tab"        data-tab="draws"        onclick="setTab('draws')">Draws</button>
       <button type="button" class="cl-tab"        data-tab="collateral"   onclick="setTab('collateral')">Collateral</button>
+      <!-- Deploy 236.823 — closing-anniversary borrower follow-ups (7/30/90/120/240/365 days) -->
+      <button type="button" class="cl-tab"        data-tab="followups"    onclick="setTab('followups')">Follow-ups <span id="fuBadge" style="display:none;background:#b91c1c;color:#fff;border-radius:9px;font-size:11px;padding:1px 7px;margin-left:4px"></span></button>
     </div>
 
     <div class="totbar" id="totBar"></div>
@@ -514,6 +516,8 @@ function render(){
   else if (_tab==='draws')       wrap.innerHTML = renderDraws(items);
   else if (_tab==='payoff')      wrap.innerHTML = renderPayoff(items);
   else if (_tab==='collateral')  wrap.innerHTML = renderCollateral(items);
+  else if (_tab==='followups')   wrap.innerHTML = renderFollowups(items);
+  updateFollowupBadge();
 }
 function countBucket(items, b){ return items.filter(function(it){ return displayBucket(it.loan)===b; }).length; }
 
@@ -1231,6 +1235,105 @@ function renderCollateral(items){
   }).join('');
   return note + '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
 }
+
+// ── TAB: Follow-ups — closing-anniversary borrower check-ins (Deploy 236.823) ──
+// LOs call borrowers 7/30/90/120/240/365 days after close. Rows are computed
+// from fundingDate + loan.anniversaryFollowUps (the done ledger, stamped via
+// /api/loan-followup-done). Anniversaries more than 14 days past that were
+// never marked done are auto-skipped (keeps the Baseline-migrated book from
+// flooding the queue); upcoming ones surface 30 days out. A daily cron emails
+// each LO a digest of newly-due items (followup-reminder-cron.mjs).
+var FU_MILESTONES = [7, 30, 90, 120, 240, 365];
+var FU_GRACE_DAYS = 14;
+var FU_UPCOMING_DAYS = 30;
+var FU_DAY = 86400000;
+function _fuIsLiquidated(l){
+  var st = String(l.status||'').toLowerCase().trim();
+  var bl = String(l.baselineStatus||'').toLowerCase().replace(/[_\s]+/g,' ').trim();
+  return st==='liquidated' || bl==='liquidated';
+}
+// Pending follow-up rows for the visible loans. state: 'due' | 'overdue' | 'upcoming'.
+function followupRows(items){
+  var now = Date.now();
+  var rows = [];
+  items.forEach(function(it){
+    var l = it.loan;
+    if (_fuIsLiquidated(l)) return; // no check-in call after a foreclosure
+    var close = parseLocalDate(l.fundingDate);
+    if (!close) return;
+    var closeMs = close.getTime();
+    var done = l.anniversaryFollowUps || {};
+    FU_MILESTONES.forEach(function(n){
+      var key = 'd' + n;
+      if (done[key]) return;
+      var dueMs = closeMs + n * FU_DAY;
+      var diffDays = Math.floor((now - dueMs) / FU_DAY); // >0 = past due
+      if (diffDays > FU_GRACE_DAYS) return;              // auto-skip stale
+      if (diffDays < -FU_UPCOMING_DAYS) return;          // too far out
+      rows.push({ it: it, key: key, days: n, dueMs: dueMs, diffDays: diffDays,
+        state: diffDays > 0 ? 'overdue' : (diffDays === 0 ? 'due' : 'upcoming') });
+    });
+  });
+  // Most urgent first: overdue (oldest first) → due today → soonest upcoming.
+  rows.sort(function(a,b){ return a.dueMs - b.dueMs; });
+  return rows;
+}
+function _fuChip(r){
+  if (r.state === 'overdue') return '<span class="stpill" style="background:rgba(185,28,28,0.12);color:#b91c1c">'+r.diffDays+' day'+(r.diffDays===1?'':'s')+' overdue</span>';
+  if (r.state === 'due')     return '<span class="stpill" style="background:var(--d-servicing-bg);color:var(--d-servicing)">Due today</span>';
+  return '<span class="stpill" style="background:var(--d-pending-bg);color:var(--d-pending)">in '+(-r.diffDays)+' day'+(r.diffDays===-1?'':'s')+'</span>';
+}
+function renderFollowups(items){
+  var rows = followupRows(items);
+  var note = '<div class="cl-note">Borrower check-in calls at the 7 / 30 / 90 / 120 / 240 / 365-day closing anniversaries. '+
+    'Due items stay in the queue for '+FU_GRACE_DAYS+' days, upcoming ones appear '+FU_UPCOMING_DAYS+' days out; a daily email digest lands the morning each one comes due. '+
+    'Mark done logs the touch to the loan\'s Notes &amp; Activity.</div>';
+  if (!rows.length) return note + '<div class="cl-empty">🎉 No follow-ups due — every closing anniversary in the window is handled.</div>';
+  var head = '<tr><th>Status</th><th>Anniversary</th><th>Borrower</th><th>Property</th><th>Closed</th><th>Due</th><th></th></tr>';
+  var body = rows.map(function(r){
+    var it = r.it, l = it.loan;
+    var due = new Date(r.dueMs);
+    var dueStr = (due.getMonth()+1)+'/'+due.getDate()+'/'+String(due.getFullYear()).slice(-2);
+    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+
+      '<td>'+_fuChip(r)+'</td>'+
+      '<td><strong>'+r.days+'-day</strong></td>'+
+      '<td>'+escH(clientName(it.client))+'</td>'+
+      '<td class="cl-addr">'+escH(l.address||'(no address)')+'</td>'+
+      '<td class="cl-num">'+(l.fundingDate?escH(fmtDate(l.fundingDate)):'—')+'</td>'+
+      '<td class="cl-num">'+escH(dueStr)+'</td>'+
+      '<td onclick="event.stopPropagation()"><button type="button" class="svc-edit" style="white-space:nowrap" title="Record that you followed up with this borrower" '+
+        'onclick="markFollowupDone(\''+escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\',\''+escAttr(r.key)+'\','+r.days+', this)">✓ Mark done</button></td>'+
+    '</tr>';
+  }).join('');
+  return note + '<div class="acc" style="padding:0"><div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
+}
+function markFollowupDone(clientId, loanId, ownerKey, milestone, days, btn){
+  var it = _find(clientId, loanId, ownerKey);
+  if (!it) return;
+  var noteTxt = window.prompt('Mark the '+days+'-day follow-up done for '+clientName(it.client)+'.\n\nOptional note about the call (leave blank to skip):', '');
+  if (noteTxt === null) return; // cancelled
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  SLA.api('POST','/api/loan-followup-done', { clientId: clientId, loanId: loanId, owner: ownerKey, milestone: milestone, note: noteTxt }).then(function(resp){
+    var fresh = {};
+    var old = it.loan.anniversaryFollowUps || {};
+    Object.keys(old).forEach(function(k){ fresh[k] = old[k]; });
+    fresh[milestone] = (resp && resp.entry) || { doneAt: new Date().toISOString() };
+    it.loan.anniversaryFollowUps = fresh;
+    render();
+  }).catch(function(err){
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Mark done'; }
+    alert('Failed to save follow-up: ' + (err && err.message || 'unknown'));
+  });
+}
+// Red count on the tab = due-today + overdue items (not upcoming).
+function updateFollowupBadge(){
+  var badge = document.getElementById('fuBadge');
+  if (!badge) return;
+  var n = followupRows(visibleItems()).filter(function(r){ return r.state !== 'upcoming'; }).length;
+  badge.style.display = n > 0 ? '' : 'none';
+  badge.textContent = n;
+}
+
 function openCollateralEditor(clientId, loanId, ownerKey){
   var it=null; for (var i=0;i<_closed.length;i++){ if (_closed[i].loan.id===loanId && _closed[i].ownerKey===ownerKey){ it=_closed[i]; break; } }
   if (!it) return;
