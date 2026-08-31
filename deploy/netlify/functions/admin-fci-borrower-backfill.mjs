@@ -103,6 +103,22 @@ function needsEmailOnly(c) {
   return !!c && !_has(c.email) && (_has(c.firstName) || _has(c.lastName) || _has(c.company) || _has(c.entityName));
 }
 
+/**
+ * Deploy 236.814 — is FCI's borrower email already on the loan as a GUARANTOR?
+ * Only called on the conflict branch, so the extra reads are rare.
+ */
+async function _guarantorHasEmail(store, target, client, email) {
+  try {
+    const loan = (client.loans || []).find((l) => l && l.id === target.loanId);
+    const ids = (loan && Array.isArray(loan.guarantorClientIds)) ? loan.guarantorClientIds : [];
+    for (const gid of ids) {
+      const g = await store.get(target.ownerKey + '/' + keySafe(gid), { type: 'json' }).catch(() => null);
+      if (g && normalizeEmail(g.email || '') === email) return true;
+    }
+  } catch (_) { /* fall through — reporting it as a conflict is the safe default */ }
+  return false;
+}
+
 export default async (req, context) => {
   try { return await handle(req, context); }
   catch (e) {
@@ -150,7 +166,7 @@ async function handle(req, context) {
   }
 
   const plan = [], skipped = [], errors = [];
-  const counts = { fill_husk: 0, fill_email: 0, link_existing: 0, already_named: 0, no_fci_email: 0, not_linked: 0, conflict: 0 };
+  const counts = { fill_husk: 0, fill_email: 0, link_existing: 0, already_named: 0, resolved_via_guarantor: 0, no_fci_email: 0, not_linked: 0, conflict: 0 };
 
   for (const row of rows) {
     const acct = String(row.loanAccount || '').trim();
@@ -177,7 +193,15 @@ async function handle(req, context) {
       // email genuinely disagrees with FCI's — and that we only ever report.
       if (!husk && !emailOnly) {
         if (normalizeEmail(client.email || '') === email) counts.already_named++;
-        else {
+        else if (await _guarantorHasEmail(clientsStore, t, client, email)) {
+          // Deploy 236.814 — NOT a conflict. FCI records two parties per loan
+          // ("Amcos LLC / Aubrey McKay; Cassie McKay") and its borrowerEmail is
+          // often the SECOND one. Once that person is attached as a guarantor,
+          // the address is accounted for and the loan is fully reachable — so
+          // stop reporting it forever. Without this, 5106 Holly Way and 1205 W
+          // Palmetto St would have nagged as conflicts after being fixed.
+          counts.resolved_via_guarantor++;
+        } else {
           counts.conflict++;
           // Deploy 236.813 — carry the identifiers. Triaging a conflict means
           // opening the record, and admin-find-record times out walking every
