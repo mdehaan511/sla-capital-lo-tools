@@ -107,6 +107,9 @@
         // Deploy 236.580 — super-admin User Management (invite / roles / edit
         // name+phone / delete). Lives in the profile menu per Mike.
         { label: 'User Management', href: '/users-admin.html', requires: 'super_admin' },
+        // Deploy 236.810 — LO Compensation page (comp per plan + one-button
+        // BILL bills). Super-admin only, per Mike.
+        { label: 'LO Compensation', href: '/lo-commissions.html', requires: 'super_admin' },
         { label: 'Sign out', action: 'logout' },
       ],
     },
