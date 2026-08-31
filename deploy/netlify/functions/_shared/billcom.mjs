@@ -126,6 +126,28 @@ export async function createVendor(session, { name, email }) {
   });
 }
 
+// ── Deploy 236.818 — read a bill back to see whether it's been paid ──
+// GET /v3/bills/{id} returns paymentStatus (PAID | UNPAID | PARTIALLY_PAID |
+// SCHEDULED | IN_PROCESS | UNDEFINED) plus paidAmount / dueAmount /
+// scheduledAmount. Bill ids begin with `00n`.
+export async function getBill(session, billId) {
+  const id = String(billId || '').trim();
+  if (!id) throw new Error('billId required');
+  return _req('/v3/bills/' + encodeURIComponent(id), { headers: _authHeaders(session) });
+}
+
+// Look a bill up by our invoice number, for the rare record that stored the
+// invoice number instead of the bill id (createBill's response had no `id`).
+// BILL's list filter syntax is `filters=field:op:value`.
+export async function findBillByInvoiceNumber(session, invoiceNumber) {
+  const inv = String(invoiceNumber || '').trim();
+  if (!inv) return null;
+  const qs = '?max=5&filters=' + encodeURIComponent('invoice.invoiceNumber:eq:' + inv);
+  const res = await _req('/v3/bills' + qs, { headers: _authHeaders(session) });
+  const rows = Array.isArray(res) ? res : (res && Array.isArray(res.results) ? res.results : []);
+  return rows.find((b) => b && b.invoice && b.invoice.invoiceNumber === inv) || rows[0] || null;
+}
+
 // Create a bill. lineItems: [{ amount, description }]. Duplicate invoice
 // numbers are REJECTED (allowDuplicateInvoiceNumber:false) — the invoice
 // number is the idempotency backstop for a whole commission run.

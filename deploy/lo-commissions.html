@@ -99,6 +99,10 @@
         <select id="periodSelect" onchange="render()" style="font-size:13px;padding:6px 10px"></select>
       </label>
       <button type="button" class="btn" onclick="exportCsv()">Export CSV</button>
+      <!-- Deploy 236.818 — pull payment status back from BILL. Read-only
+           against BILL; it only stamps our own loan records. -->
+      <button type="button" class="btn" id="syncPayBtn" onclick="syncPayments()"
+              title="Ask BILL which commission bills have been paid and update the badges">Sync Payments</button>
       <a href="/sla-dashboard.html" class="btn" style="text-decoration:none">SLA Dashboard →</a>
       <button type="button" class="btn btn-primary" onclick="loadAll(true)">Refresh</button>
     </div>
@@ -143,6 +147,25 @@ var PLAN_LABEL = { model: 'Comp Model', flat50: 'Flat 50 bps', revenue: 'Revenue
 function escH(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[$,%]/g, '')); return isFinite(n) ? n : 0; }
 function money(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+
+// Deploy 236.818 — the billed/paid badge. A bill existing and a bill being PAID
+// are different facts; before this, everything with a bill read "BILLED ✓"
+// forever because payment happens inside BILL and nothing came back.
+var PAY_PILL = {
+  PAID:           { label: 'PAID ✓',    fg: 'var(--success)', bg: 'rgba(37,105,64,0.14)' },
+  PARTIALLY_PAID: { label: 'PART PAID', fg: 'var(--warn)',    bg: 'rgba(122,82,24,0.12)' },
+  SCHEDULED:      { label: 'SCHEDULED', fg: 'var(--warn)',    bg: 'rgba(122,82,24,0.12)' },
+  IN_PROCESS:     { label: 'PAYING…',   fg: 'var(--warn)',    bg: 'rgba(122,82,24,0.12)' },
+};
+function payPill(r) {
+  var st = String(r.payStatus || '');
+  // No status yet, or BILL says UNPAID/UNDEFINED → it's billed, not paid.
+  var p = PAY_PILL[st] || { label: 'BILLED', fg: 'var(--muted)', bg: 'rgba(122,116,136,0.12)' };
+  var tip = 'Bill ' + (r.billId || '') + (st ? ' — BILL says ' + st : ' — payment status not synced yet') +
+    (r.paidAt ? ' on ' + String(r.paidAt).slice(0, 10) : '');
+  return '<span title="' + escH(tip) + '" style="font-size:9.5px;font-weight:700;padding:1px 7px;' +
+    'border-radius:10px;background:' + p.bg + ';color:' + p.fg + '">' + p.label + '</span>';
+}
 function planOf(email) { return _plans[String(email || '').toLowerCase()] || 'flat50'; }
 function loName(email) { return _loNames[String(email || '').toLowerCase()] || String(email || '').replace(/@.*$/, ''); }
 
@@ -256,6 +279,11 @@ function loadAll(fresh) {
         isRepeat: !!x.isRepeat,
         // Deploy 236.808 — BILL (bill.com) commission-bill stamp.
         billId: String(l.commissionBillId || ''),
+        // Deploy 236.818 — payment status read back from BILL by
+        // { action:'sync-payments' }. PAID | UNPAID | PARTIALLY_PAID |
+        // SCHEDULED | IN_PROCESS.
+        payStatus: String(l.commissionPaymentStatus || ''),
+        paidAt: String(l.commissionPaidAt || ''),
       };
     });
     buildPeriodSelect();
@@ -361,9 +389,11 @@ function render() {
         : '—';
       var href = '/loan-details/' + encodeURIComponent(r.loanId) + '?owner=' + encodeURIComponent(r.owner);
       // Deploy 236.808 — billed badge (a bill for this loan exists in BILL).
-      var billedTag = r.billId
-        ? ' <span title="Billed in BILL (' + escH(r.billId) + ')" style="font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:10px;background:rgba(37,105,64,0.12);color:var(--success)">BILLED ✓</span>'
-        : '';
+      // Deploy 236.818 — once BILL says the bill is paid, the badge says PAID.
+      // "Billed" and "paid" are different facts and the page used to conflate
+      // them: a commission stayed BILLED forever because paying happens in BILL
+      // and nothing told the portal.
+      var billedTag = r.billId ? ' ' + payPill(r) : '';
       return '<tr>' +
         '<td><a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(r.address) + '</a>' + billedTag +
           '<div style="font-size:10.5px;color:var(--muted)">' + escH(r.borrower) + '</div></td>' +
@@ -459,6 +489,35 @@ function render() {
 // Creates ONE itemized bill in BILL for this LO's unbilled loans in the
 // selected period. The endpoint auto-creates the LO as a BILL vendor if
 // they aren't one yet, drops any loan that got billed in the meantime,
+// ── Deploy 236.818 — pull payment status back from BILL ──────────────
+// Paying happens inside BILL, so nothing ever told the portal and every
+// commission stayed BILLED forever. This is READ-ONLY against BILL: it reads
+// each bill we created and stamps the result on our own loan records.
+function syncPayments() {
+  var btn = document.getElementById('syncPayBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking BILL…'; }
+  SLA.api('POST', '/api/lo-commission-bill', { action: 'sync-payments' }).then(function(r) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Payments'; }
+    var counts = r.statusCounts || {};
+    var lines = Object.keys(counts).map(function(k) { return '  ' + k + ': ' + counts[k]; });
+    var msg = 'Checked ' + r.checked + ' billed commission(s) across ' + r.bills + ' bill(s).\n\n' +
+      'Updated: ' + r.updated + '\nUnchanged: ' + r.unchanged +
+      (lines.length ? '\n\nBILL says:\n' + lines.join('\n') : '');
+    if (r.lookupErrors && r.lookupErrors.length) {
+      msg += '\n\nCould not look up ' + r.lookupErrors.length + ' bill(s):\n' +
+        r.lookupErrors.slice(0, 5).map(function(e) { return '  ' + e.billRef + ' — ' + e.error; }).join('\n');
+    }
+    if (r.writeErrors && r.writeErrors.length) msg += '\n\n' + r.writeErrors.length + ' write error(s) — see console.';
+    if (r.writeErrors && r.writeErrors.length) console.warn('[LO commissions] sync-payments write errors:', r.writeErrors);
+    alert(msg);
+    // Badges come off the loan records, so re-read rather than patching state.
+    if (r.updated) { if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients'); loadAll(true); }
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Payments'; }
+    alert('Payment sync failed: ' + (err && err.message || 'unknown'));
+  });
+}
+
 // and stamps commissionBillId on each loan so it can never double-bill.
 function sendToBill(owner) {
   var plan = planOf(owner);
