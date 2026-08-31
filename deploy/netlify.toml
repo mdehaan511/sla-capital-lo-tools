@@ -93,6 +93,15 @@
   force = true
 
 # ── Page redirects (post pipeline migration) ──────────────
+# Deploy 236.817 — the SLA-native dashboard is the default; the Baseline-
+# synced page moved to /dashboard-baseline.html (still linked from the
+# SLA dashboard's reconciliation panel).
+[[redirects]]
+  from = "/dashboard.html"
+  to = "/sla-dashboard.html"
+  status = 301
+  force = true
+
 [[redirects]]
   from = "/prospects.html"
   to = "/pipeline.html"

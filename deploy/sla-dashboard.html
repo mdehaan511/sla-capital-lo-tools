@@ -7,10 +7,10 @@
   <!--
     Deploy 236.785 — SLA-NATIVE financial dashboard (admin only).
 
-    Twin of dashboard.html (the Baseline-mirror dashboard) but sourced
+    Twin of dashboard-baseline.html (the legacy Baseline-mirror dashboard) but sourced
     entirely from SLA's own client/loan records — the first step toward
     retiring the Baseline-synced dashboard. Every metric uses the SAME
-    formulas as dashboard.html (estimatedRevenue, isWon/isOpen buckets,
+    formulas as dashboard-baseline.html (estimatedRevenue, isWon/isOpen buckets,
     monthlyAggregates, perf stats, state table) so the two pages are
     directly comparable. SLA loans are ADAPTED into the mirror's record
     shape (Loan_Amount / Status / Origination / Origination_Points ...)
@@ -152,7 +152,7 @@
         <input type="checkbox" id="hideLiquidated" onchange="renderAll()" /> hide liquidated
       </label>
       <a href="/lo-commissions.html" style="padding:8px 16px;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);border-radius:6px;font-size:12.5px;font-weight:600;text-decoration:none">LO Commissions →</a>
-      <a href="/dashboard.html" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;font-weight:600;color:var(--dark);text-decoration:none;background:#fff">Baseline Dashboard →</a>
+      <a href="/dashboard-baseline.html" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;font-weight:600;color:var(--dark);text-decoration:none;background:#fff">Baseline Dashboard (legacy) →</a>
       <button class="btn-primary" id="refreshBtn" onclick="loadAll(true)">Refresh</button>
     </div>
   </div>
@@ -298,7 +298,7 @@ function loDisplayName(ownerKey) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// EVERYTHING in this block is copied from dashboard.html so the two
+// EVERYTHING in this block is copied from dashboard-baseline.html so the two
 // pages compute identically. If you change a formula THERE, change it
 // HERE (and vice versa) — comparability is the whole point.
 // ═══════════════════════════════════════════════════════════════════
@@ -599,10 +599,17 @@ function finLoans() {
 // ── Load ──────────────────────────────────────────────────────────
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
-  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+  // Deploy 236.817 — this is the DEFAULT Dashboard now, so it opens to
+  // processors like the old Baseline dashboard did (236.645). Admin-only
+  // controls (LO Commissions link) hide below for non-admins.
+  if (!(SLA.isProcessor && SLA.isProcessor(user))) {
     document.getElementById('auth-gate').innerHTML =
-      '<div class="gate-msg"><strong>Access denied.</strong><br/>This page is for admins only.</div>';
+      '<div class="gate-msg"><strong>Access denied.</strong><br/>This page is for staff (processors &amp; admins) only.</div>';
     return;
+  }
+  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+    var _loCommLink = document.querySelector('a[href="/lo-commissions.html"]');
+    if (_loCommLink) _loCommLink.style.display = 'none';
   }
   _user = user;
   document.getElementById('auth-gate').style.display = 'none';
@@ -939,7 +946,7 @@ function renderCompare() {
     return '<a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(text || sl.Name || sl._slaLoanId) + '</a>';
   }
   function _blLink(ml, text) {
-    return '<a href="/dashboard.html?q=' + encodeURIComponent(ml.Id || ml.Name || '') + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(text || ml.Name || ml.Id || '') + '</a>';
+    return '<a href="/dashboard-baseline.html?q=' + encodeURIComponent(ml.Id || ml.Name || '') + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(text || ml.Name || ml.Id || '') + '</a>';
   }
 
   function section(key, title, items, renderRow, headHtml) {
@@ -1551,7 +1558,7 @@ function openFunnelLoDrilldown(owner, stageKey) {
   document.addEventListener('keydown', _cdmKeyHandler);
 }
 
-// ── Performance stats (verbatim math from dashboard.html) ────────
+// ── Performance stats (verbatim math from dashboard-baseline.html) ──
 function renderPerformanceStats() {
   var fin = finLoans(); // Deploy 236.786 — processing scope only
   function statsFor(typeLabel, typeMatcher) {

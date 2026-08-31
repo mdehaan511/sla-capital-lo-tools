@@ -92,7 +92,10 @@
     // Processors get to a review by opening any loan → Documents.
     // Deploy 236.645 — opened to processors (reporting charts; the Baseline
     // migration tools inside the page stay admin-only and hide for processors).
-    { label: 'Dashboard',   href: '/dashboard.html',   requires: 'processor' },
+    // Deploy 236.817 — the SLA-NATIVE dashboard is the default now (Mike);
+    // the Baseline-synced page lives on at /dashboard-baseline.html for the
+    // reconciliation deep links, and /dashboard.html 301s to the SLA one.
+    { label: 'Dashboard',   href: '/sla-dashboard.html',   requires: 'processor' },
     // Admin link removed in 236.24 — admin.html lives behind the Profile
     // page for admins (same surface). Keeping it as a separate top-level
     // link was redundant.
