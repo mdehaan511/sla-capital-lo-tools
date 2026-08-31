@@ -847,6 +847,14 @@
   to = "/.netlify/functions/fci-payoff"
   status = 200
   force = true
+# Deploy 236.806 — read-only preview of who the maturity cron would email next
+# run, and the exact copy. Sends nothing; the cron itself is scheduled via its
+# own config export (16:20 UTC).
+[[redirects]]
+  from = "/api/maturity-reminder-preview"
+  to = "/.netlify/functions/maturity-reminder-preview"
+  status = 200
+  force = true
 # Deploy 236.734 — Servicing Pros reconcile (KAF + Sir Lends A Lot books).
 [[redirects]]
   from = "/api/servicing-pros-reconcile"

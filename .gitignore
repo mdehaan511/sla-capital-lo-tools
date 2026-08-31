@@ -1,2 +1,6 @@
 # Local Netlify folder
 .netlify
+
+# node_modules is never committed — CLAUDE.md: "npm i locally as needed".
+# A local @netlify/blobs stub lives here for offline unit tests.
+node_modules/
