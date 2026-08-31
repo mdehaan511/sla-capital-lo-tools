@@ -151,7 +151,8 @@
       <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px">
         <input type="checkbox" id="hideLiquidated" onchange="renderAll()" /> hide liquidated
       </label>
-      <a href="/lo-commissions.html" style="padding:8px 16px;border:1px solid var(--gold-border);background:var(--gold-light);color:var(--gold-mid);border-radius:6px;font-size:12.5px;font-weight:600;text-decoration:none">LO Commissions →</a>
+      <!-- Deploy 236.828 — LO Commissions link removed (Mike); the page lives
+           in the Profile menu for super-admins. -->
       <a href="/dashboard-baseline.html" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;font-weight:600;color:var(--dark);text-decoration:none;background:#fff">Baseline Dashboard (legacy) →</a>
       <button class="btn-primary" id="refreshBtn" onclick="loadAll(true)">Refresh</button>
     </div>
@@ -162,12 +163,9 @@
   <!-- High-level stat cards -->
   <div class="stat-row" id="statRow"></div>
 
-  <!-- Baseline vs SLA comparison — the reason this page exists -->
-  <div class="chart-card">
-    <h2>Baseline vs SLA — Reconciliation</h2>
-    <div class="chart-sub">SAME FORMULAS, TWO DATA SOURCES · DELTAS + LOAN-LEVEL DIFFERENCES · ALL-TIME (RANGE SELECTOR DOES NOT APPLY HERE)</div>
-    <div id="compareWrap"><div class="loading">Loading both datasets…</div></div>
-  </div>
+  <!-- Deploy 236.828 — the Baseline vs SLA Reconciliation panel is retired
+       (Mike): the migration is reconciled and this is the primary dashboard
+       now. The Baseline twin lives on at /dashboard-baseline.html. -->
 
   <!-- Revenue projection chart -->
   <div class="chart-card">
@@ -281,13 +279,10 @@
 // ── State ─────────────────────────────────────────────────────────
 var _user = null;
 var _loans = [];        // SLA loans adapted into the mirror record shape
-var _mirror = null;     // Baseline mirror loans (raw) — null until loaded, [] on error
-var _mirrorErr = '';
 var _tab = 'active';
 var _sortBy = 'status';
 var _sortDir = 'desc';
 var _charts = {};
-var _cmpOpen = {};      // expanded comparison sections
 // Deploy 236.797 — email → full name from the staff directory, so the
 // by-LO panels show "Sara Smith" instead of "sara.s". Loaded async;
 // falls back to the email's local part until (or if never) resolved.
@@ -600,16 +595,11 @@ function finLoans() {
 netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   // Deploy 236.817 — this is the DEFAULT Dashboard now, so it opens to
-  // processors like the old Baseline dashboard did (236.645). Admin-only
-  // controls (LO Commissions link) hide below for non-admins.
+  // processors like the old Baseline dashboard did (236.645).
   if (!(SLA.isProcessor && SLA.isProcessor(user))) {
     document.getElementById('auth-gate').innerHTML =
       '<div class="gate-msg"><strong>Access denied.</strong><br/>This page is for staff (processors &amp; admins) only.</div>';
     return;
-  }
-  if (!(SLA.isAdmin && SLA.isAdmin(user))) {
-    var _loCommLink = document.querySelector('a[href="/lo-commissions.html"]');
-    if (_loCommLink) _loCommLink.style.display = 'none';
   }
   _user = user;
   document.getElementById('auth-gate').style.display = 'none';
@@ -661,19 +651,8 @@ function loadAll(fresh) {
     }).catch(function() {});
   }
 
-  // Baseline side — comparison only. Failure here never blocks the page.
-  _mirror = null; _mirrorErr = '';
-  var mirrorP = (SLA.Baseline && SLA.Baseline.mirror && SLA.Baseline.mirror.list)
-    ? SLA.Baseline.mirror.list()
-    : Promise.reject(new Error('Baseline mirror API not available'));
-  mirrorP.then(function(r) {
-    _mirror = (r && r.loans) || [];
-    renderCompare();
-  }).catch(function(err) {
-    _mirror = [];
-    _mirrorErr = (err && err.message) || 'unknown error';
-    renderCompare();
-  });
+  // Deploy 236.828 — the Baseline mirror fetch is gone with the retired
+  // Reconciliation panel; this page is SLA-data-only now.
 }
 
 // ── Render ────────────────────────────────────────────────────────
@@ -684,7 +663,6 @@ function renderAll() {
   }
   populateYearSelect();
   renderStats();
-  renderCompare();
   renderRevenueChart();
   renderVolumeChart();
   renderLeadsChart();
@@ -755,287 +733,11 @@ function renderStats() {
   document.getElementById('statRow').innerHTML = html;
 }
 
-// ── Baseline vs SLA comparison ────────────────────────────────────
-function _bucketOf(l) {
-  if (isArchived(l)) return 'archived';
-  if (isLiquidated(l)) return 'liquidated';
-  if (isWon(l)) return 'won';
-  if (isOnHold(l)) return 'onHold';
-  return 'open';
-}
-function _headline(loans) {
-  var open = 0, openAmt = 0, won = 0, wonAmt = 0, rev = 0, hold = 0, liq = 0, arch = 0, total = 0;
-  for (var i = 0; i < loans.length; i++) {
-    var l = loans[i];
-    var b = _bucketOf(l);
-    if (b !== 'archived') total += 1;
-    if (b === 'open')   { open += 1; openAmt += numAmt(l.Loan_Amount); }
-    if (b === 'won' || b === 'liquidated') { won += 1; wonAmt += numAmt(l.Loan_Amount); rev += estimatedRevenue(l); }
-    if (b === 'onHold') hold += 1;
-    if (b === 'liquidated') liq += 1;
-    if (b === 'archived') arch += 1;
-  }
-  return { total: total, open: open, openAmt: openAmt, won: won, wonAmt: wonAmt, rev: rev, hold: hold, liq: liq, arch: arch };
-}
-function cmpToggle(key) { _cmpOpen[key] = !_cmpOpen[key]; renderCompare(); }
-// Deploy 236.788 — inline fix for a blank toolType, straight from the
-// reconciliation list. Saves via loan-servicing-update (whitelists
-// toolType since 236.625), patches the in-memory record, re-renders.
-function fixLoanType(sel, slaLoanId, clientId, ownerKey) {
-  var v = String(sel.value || '').toLowerCase();
-  if (!v) return;
-  sel.disabled = true;
-  SLA.api('POST', '/api/loan-servicing-update', {
-    clientId: clientId, loanId: slaLoanId, owner: ownerKey, fields: { toolType: v },
-  }).then(function() {
-    for (var i = 0; i < _loans.length; i++) {
-      var l = _loans[i];
-      if (l._slaLoanId !== slaLoanId) continue;
-      l._tool = v.toUpperCase();
-      l.Substatus = v === 'dscr' ? 'DSCR' : 'RTL';
-      break;
-    }
-    if (SLA.cache && SLA.cache.clear) SLA.cache.clear('clients');
-    renderAll();
-  }).catch(function(err) {
-    sel.disabled = false;
-    alert('Failed to set type: ' + (err && err.message || 'unknown'));
-  });
-}
-function renderCompare() {
-  var wrap = document.getElementById('compareWrap');
-  if (!wrap) return;
-  if (_mirror === null || !_loans.length) {
-    wrap.innerHTML = '<div class="loading">Loading both datasets…</div>';
-    return;
-  }
-  if (_mirrorErr) {
-    wrap.innerHTML = '<div class="err-banner">Baseline mirror failed to load (' + escH(_mirrorErr) + ') — SLA metrics above are unaffected.</div>';
-    return;
-  }
-
-  var bl = _headline(_mirror);
-  // Deploy 236.786 — compare against the PROCESSING scope: Baseline never
-  // held raw leads, so including the Leads pipeline made the SLA side look
-  // inflated (+225 "active" loans that Baseline had no counterpart for).
-  var sla = _headline(finLoans());
-
-  function row(label, bv, sv, fmt, invertGood) {
-    var f = fmt || function(v) { return String(v); };
-    var delta = sv - bv;
-    var cls = delta === 0 ? '' : (Math.abs(delta) / Math.max(Math.abs(bv), 1) < 0.02 ? 'cmp-delta-ok' : 'cmp-delta-bad');
-    var deltaStr = delta === 0 ? '=' : ((delta > 0 ? '+' : '−') + f(Math.abs(delta)).replace(/^\$/, '$'));
-    return '<tr>' +
-      '<td style="border-top:1px solid var(--border);font-weight:500">' + escH(label) + '</td>' +
-      '<td style="border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + f(bv) + '</td>' +
-      '<td style="border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums">' + f(sv) + '</td>' +
-      '<td style="border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums" class="' + cls + '">' + deltaStr + '</td>' +
-    '</tr>';
-  }
-  var money = function(v) { return fmtMoney(v); };
-  var count = function(v) { return String(Math.round(v)); };
-
-  var html = '<table class="cmp-grid" style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:14px">' +
-    '<thead><tr>' +
-      '<th style="text-align:left">Metric (all-time, same formula both sides)</th>' +
-      '<th style="text-align:right">Baseline</th>' +
-      '<th style="text-align:right">SLA</th>' +
-      '<th style="text-align:right">SLA − Baseline</th>' +
-    '</tr></thead><tbody>' +
-    row('Loans (excl. archived/denied)', bl.total, sla.total, count) +
-    row('Active pipeline — count', bl.open, sla.open, count) +
-    row('Active pipeline — $', bl.openAmt, sla.openAmt, money) +
-    row('Won/closed — count (incl. liquidated)', bl.won, sla.won, count) +
-    row('Won/closed — $', bl.wonAmt, sla.wonAmt, money) +
-    row('Est. revenue (won, all-time)', bl.rev, sla.rev, money) +
-    row('On hold — count', bl.hold, sla.hold, count) +
-    row('Liquidated / paid off — count', bl.liq, sla.liq, count) +
-    row('Archived / denied / cancelled — count', bl.arch, sla.arch, count) +
-  '</tbody></table>';
-
-  // ── Loan-level reconciliation ──
-  // Index SLA loans by their Baseline linkage key (slaDisplayId or the
-  // l_baseline_<Id> suffix). Mirror.Id is Baseline's record id (the
-  // SLA-YYYYMMDD-NNNN display id).
-  var slaByBl = {};
-  var slaNative = [];
-  for (var i = 0; i < _loans.length; i++) {
-    var k = String(_loans[i]._blKey || '').trim();
-    if (k) slaByBl[k] = _loans[i];
-    else slaNative.push(_loans[i]);
-  }
-  // Deploy 236.788 — second-pass ADDRESS matching. Some SLA loans were
-  // pushed to Baseline without the display id ever being written back to
-  // the SLA record, so the id match alone flagged loans as "missing from
-  // SLA" that Mike could see right there on the pipeline. If the id
-  // doesn't match, fall back to the normalized address ("usa" suffix and
-  // punctuation stripped); a prefix match handles "St" vs "Street" tails.
-  function _normAddr(s) {
-    return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/usa$/, '');
-  }
-  var slaByAddr = {};
-  for (var a = 0; a < _loans.length; a++) {
-    var na = _normAddr(_loans[a].Name);
-    if (na.length >= 10 && !slaByAddr[na]) slaByAddr[na] = _loans[a];
-  }
-  var _addrKeys = Object.keys(slaByAddr);
-  function _findByAddress(mName) {
-    var nm = _normAddr(mName);
-    if (nm.length < 10) return null;
-    if (slaByAddr[nm]) return slaByAddr[nm];
-    for (var j = 0; j < _addrKeys.length; j++) {
-      var k2 = _addrKeys[j];
-      if (k2.indexOf(nm) === 0 || nm.indexOf(k2) === 0) return slaByAddr[k2];
-    }
-    return null;
-  }
-  var missingInSla = [];
-  var bucketMismatch = [];
-  var amountMismatch = [];
-  var matched = 0;
-  var matchedByAddr = 0;
-  for (var m = 0; m < _mirror.length; m++) {
-    var ml = _mirror[m];
-    var mid = String(ml.Id || '').trim();
-    var sl = mid ? slaByBl[mid] : null;
-    if (!sl) {
-      sl = _findByAddress(ml.Name || ml.Property_Address || '');
-      if (sl) matchedByAddr += 1;
-    }
-    if (!sl) {
-      if (!isArchived(ml)) missingInSla.push(ml);
-      continue;
-    }
-    matched += 1;
-    // Deploy 236.789 — Liquidated counts as Won on both sides (Mike: the
-    // money math already treats them the same, so liquidated-vs-sold is
-    // not a discrepancy worth listing).
-    var mb = _bucketOf(ml), sb = _bucketOf(sl);
-    if (mb === 'liquidated') mb = 'won';
-    if (sb === 'liquidated') sb = 'won';
-    if (mb !== sb) bucketMismatch.push({ m: ml, s: sl, mb: mb, sb: sb });
-    var ma = numAmt(ml.Loan_Amount), sa = numAmt(sl.Loan_Amount);
-    if (ma > 0 && sa > 0 && Math.abs(ma - sa) > Math.max(1000, ma * 0.01)) {
-      amountMismatch.push({ m: ml, s: sl, ma: ma, sa: sa });
-    }
-  }
-  // Field gaps that break the money math on the SLA side.
-  // Deploy 236.788 — "missing" means BLANK. 0 is a real number (Mike:
-  // a 0-point loan has its points recorded; blank is what's missing).
-  function _isBlank(v) {
-    if (v == null) return true;
-    var s = String(v).trim();
-    return s === '' || !isFinite(parseFloat(s));
-  }
-  var gapNoClose = [], gapNoPoints = [], gapNoRate = [], gapNoType = [];
-  for (var g = 0; g < _loans.length; g++) {
-    var gl = _loans[g];
-    if (!isClosed(gl)) continue;
-    if (!gl.Origination) gapNoClose.push(gl);
-    if (_isBlank(gl.Origination_Points)) gapNoPoints.push(gl);
-    if (_isBlank(gl.Rate)) gapNoRate.push(gl);
-    if (!gl.Substatus) gapNoType.push(gl);
-  }
-
-  // Deploy 236.787 — reconciliation rows are clickable so Mike can jump
-  // straight to the loan and rectify it. SLA-side rows open Loan Details;
-  // "missing from SLA" rows (no SLA loan exists) open the Baseline
-  // dashboard's table pre-searched to that record (?q=<Id>).
-  function _slaLink(sl, text) {
-    var href = '/loan-details/' + encodeURIComponent(sl._slaLoanId) + '?owner=' + encodeURIComponent(sl._ownerKey);
-    return '<a href="' + escH(href) + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(text || sl.Name || sl._slaLoanId) + '</a>';
-  }
-  function _blLink(ml, text) {
-    return '<a href="/dashboard-baseline.html?q=' + encodeURIComponent(ml.Id || ml.Name || '') + '" target="_blank" style="color:var(--dark);font-weight:500">' + escH(text || ml.Name || ml.Id || '') + '</a>';
-  }
-
-  function section(key, title, items, renderRow, headHtml) {
-    var open = !!_cmpOpen[key];
-    var color = items.length ? 'var(--danger)' : 'var(--success)';
-    var h = '<div style="margin-top:10px">' +
-      '<button type="button" class="cmp-section-toggle" onclick="cmpToggle(\'' + key + '\')">' +
-        (open ? '▾ ' : '▸ ') + escH(title) + ' — <span style="color:' + color + ';font-weight:700">' + items.length + '</span>' +
-      '</button>';
-    if (open && items.length) {
-      h += '<div style="max-height:320px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:8px">' +
-        '<table style="width:100%;font-size:12px;border-collapse:collapse">' + (headHtml || '') + '<tbody>' +
-        items.map(renderRow).join('') + '</tbody></table></div>';
-    }
-    return h + '</div>';
-  }
-  var tdS = 'padding:6px 10px;border-top:1px solid var(--border)';
-  var tdR = tdS + ';text-align:right;font-variant-numeric:tabular-nums';
-
-  html += '<div style="font-size:12.5px;color:var(--muted);margin-bottom:2px">' +
-    'Matched loan-for-loan: <strong>' + matched + '</strong>' +
-    (matchedByAddr ? ' (' + matchedByAddr + ' by address — their SLA record never got the Baseline display id)' : '') +
-    ' · SLA-native (no Baseline link — expected for new originations): <strong>' + slaNative.length + '</strong>' +
-  '</div>';
-
-  html += section('missing', 'In Baseline but NOT found in SLA', missingInSla, function(l) {
-    return '<tr>' +
-      '<td style="' + tdS + '">' + _blLink(l, l.Id) + '</td>' +
-      '<td style="' + tdS + '">' + _blLink(l) + '</td>' +
-      '<td style="' + tdS + '">' + escH(l.Status || '') + '</td>' +
-      '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
-    '</tr>';
-  }, '<thead><tr><th>Baseline Id</th><th>Name</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead>');
-
-  html += section('bucket', 'Matched but status bucket DIFFERS (Baseline vs SLA)', bucketMismatch, function(x) {
-    return '<tr>' +
-      '<td style="' + tdS + '">' + escH(x.m.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + _slaLink(x.s, x.s.Name || x.m.Name) + '</td>' +
-      '<td style="' + tdS + '">' + escH(x.mb) + ' <span style="color:var(--muted)">(' + escH(x.m.Status || '') + ')</span></td>' +
-      '<td style="' + tdS + '">' + escH(x.sb) + ' <span style="color:var(--muted)">(' + escH(x.s._slaStatusRaw + (x.s._dispositionRaw ? ' / ' + x.s._dispositionRaw : '') + (x.s._stageRaw ? ' / ' + x.s._stageRaw : '')) + ')</span></td>' +
-    '</tr>';
-  }, '<thead><tr><th>Id</th><th>Address</th><th>Baseline bucket</th><th>SLA bucket</th></tr></thead>');
-
-  html += section('amount', 'Matched but loan AMOUNT differs (>1% and >$1k)', amountMismatch, function(x) {
-    return '<tr>' +
-      '<td style="' + tdS + '">' + escH(x.m.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + _slaLink(x.s, x.s.Name || x.m.Name) + '</td>' +
-      '<td style="' + tdR + '">' + fmtMoney(x.ma) + '</td>' +
-      '<td style="' + tdR + '">' + fmtMoney(x.sa) + '</td>' +
-      '<td style="' + tdR + '">' + fmtMoney(x.sa - x.ma) + '</td>' +
-    '</tr>';
-  }, '<thead><tr><th>Id</th><th>Address</th><th style="text-align:right">Baseline $</th><th style="text-align:right">SLA $</th><th style="text-align:right">Δ</th></tr></thead>');
-
-  function gapRow(l) {
-    return '<tr>' +
-      '<td style="' + tdS + '">' + escH(l.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + _slaLink(l) + '</td>' +
-      '<td style="' + tdS + '">' + escH(l._slaStatusRaw + (l._dispositionRaw ? ' / ' + l._dispositionRaw : '')) + '</td>' +
-      '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
-    '</tr>';
-  }
-  var gapHead = '<thead><tr><th>Id</th><th>Address</th><th>SLA status</th><th style="text-align:right">Amount</th></tr></thead>';
-  html += section('gapClose',  'SLA closed loans MISSING a close date (fall back to created date)', gapNoClose,  gapRow, gapHead);
-  html += section('gapPoints', 'SLA closed loans with BLANK points (0 counts as recorded)',          gapNoPoints, gapRow, gapHead);
-  html += section('gapRate',   'SLA closed loans with a BLANK rate',                                 gapNoRate,   gapRow, gapHead);
-  // Deploy 236.788 — the loan-type gap gets an inline RTL/DSCR picker so
-  // Mike can fix it right here (Loan Details' top-right badge silently
-  // DEFAULTS to "DSCR" when toolType is blank, so the page looks fine
-  // while the record actually has no type — that's why "it clearly says
-  // DSCR" on loans in this list).
-  html += section('gapType', 'SLA closed loans with a BLANK loan type (Loan Details shows a DEFAULTED "DSCR" badge for these)', gapNoType, function(l) {
-    return '<tr>' +
-      '<td style="' + tdS + '">' + escH(l.Id || '') + '</td>' +
-      '<td style="' + tdS + '">' + _slaLink(l) + '</td>' +
-      '<td style="' + tdS + '">' + escH(l._slaStatusRaw + (l._dispositionRaw ? ' / ' + l._dispositionRaw : '')) + '</td>' +
-      '<td style="' + tdR + '">' + (numAmt(l.Loan_Amount) ? fmtMoney(numAmt(l.Loan_Amount)) : '—') + '</td>' +
-      '<td style="' + tdS + '" onclick="event.stopPropagation()">' +
-        '<select onchange="fixLoanType(this, \'' + escH(l._slaLoanId) + '\', \'' + escH(l._clientId) + '\', \'' + escH(l._ownerKey) + '\')" style="padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px">' +
-          '<option value="">— set type —</option><option value="rtl">RTL</option><option value="dscr">DSCR</option><option value="guc">GUC</option>' +
-        '</select>' +
-      '</td>' +
-    '</tr>';
-  }, '<thead><tr><th>Id</th><th>Address</th><th>SLA status</th><th style="text-align:right">Amount</th><th>Fix type</th></tr></thead>');
-
-  html += '<div class="cmp-note">Reconciliation matches Baseline\'s record Id against SLA\'s display id / imported loan id. ' +
-    '"Missing from SLA" excludes Baseline-archived records. Buckets: open · won (sold/closed/servicing) · liquidated · on hold · archived.</div>';
-
-  wrap.innerHTML = html;
-}
+// ── Deploy 236.828 — the Baseline vs SLA Reconciliation panel (and all of
+// its comparison code: renderCompare, address-fallback matching, gap lists,
+// inline type fixer) is retired per Mike; the migration is reconciled. The
+// Baseline-sourced twin remains at /dashboard-baseline.html if a comparison
+// is ever needed again (git history has the panel: deploys 236.785-236.797).
 
 // ── Charts ────────────────────────────────────────────────────────
 // Deploy 236.787 — per-chart cell cache for the click-to-drilldown modal.
