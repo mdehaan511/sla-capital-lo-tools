@@ -80,6 +80,51 @@ export function billInvoiceNumber(period, loEmail) {
   return (head + '-' + shortLo + '-' + tag).slice(0, BILL_INVOICE_MAX);
 }
 
+// ── Deploy 236.817 (Mike) — name the properties in the BILL notes ────
+// Each LINE ITEM already led with its address, but the bill-level description —
+// the notes field you actually read on the bill in BILL — only said
+// "3 loan(s)". Whoever approves the payment could not tell which properties
+// they were approving without opening every line.
+//
+// BILL's spec caps description at 4000 chars (that one is real and declared),
+// so the list is budgeted: as many properties as fit, then an honest
+// "...and N more" rather than a silently clipped list.
+const BILL_DESC_MAX = 4000;
+
+function _usd(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return '$0.00';
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function billDescription(loName, period, billable) {
+  const total = billable.reduce((s, b) => s + Number(b.amount || 0), 0);
+  const head = 'SLA LO commission — ' + loName + ' — period ' + period + '\n' +
+    billable.length + ' loan' + (billable.length === 1 ? '' : 's') + ', total ' + _usd(total) + '\n\n';
+  const foot = '\nAuto-created from the LO Commissions page.';
+
+  const lines = billable.map((b) => {
+    // Prefer the loan's own address over the caller-supplied description: the
+    // UI's string carries pricing detail too, and the notes want the PROPERTY.
+    const addr = String((b.loan && b.loan.address) || b.description || '').trim() || '(no address on file)';
+    return '• ' + addr + ' — ' + _usd(b.amount);
+  });
+
+  let body = '';
+  let shown = 0;
+  for (const line of lines) {
+    // Reserve room for the "and N more" note so the list never gets clipped
+    // mid-address by the outer slice.
+    const remainder = lines.length - shown - 1;
+    const tail = remainder > 0 ? '\n…and ' + remainder + ' more' : '';
+    if (head.length + body.length + line.length + 1 + tail.length + foot.length > BILL_DESC_MAX) break;
+    body += line + '\n';
+    shown++;
+  }
+  const omitted = lines.length - shown;
+  return (head + body + (omitted > 0 ? '…and ' + omitted + ' more\n' : '') + foot).slice(0, BILL_DESC_MAX);
+}
+
 export default async (req, context) => {
   try { return await handle(req, context); }
   catch (e) {
@@ -211,7 +256,10 @@ async function handle(req, context) {
       invoiceNumber,
       invoiceDate: ymd(today),
       dueDate: ymd(due),
-      description: 'SLA LO commission — ' + loName + ' — period ' + period + ' — ' + billable.length + ' loan(s). Auto-created from the LO Commissions page.',
+      description: billDescription(loName, period, billable),
+      // Line items keep the full detail (address + tool + loan amount + close
+      // date + bps), so the notes stay scannable while the breakdown is still
+      // one click away.
       lineItems: billable.map((b) => ({ amount: b.amount, description: b.description })),
     });
   } catch (e) {
