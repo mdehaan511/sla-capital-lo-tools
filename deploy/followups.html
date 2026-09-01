@@ -142,6 +142,31 @@ var FU_GRACE_DAYS = 14;     // due items linger this long, then auto-skip
 var FU_UPCOMING_DAYS = 30;  // upcoming items surface this far out
 var FU_DAY = 86400000;
 
+// ── Deploy 236.825 (Mike) — ONE-TIME catch-up window ─────────────────
+// This page shipped with no backfill, so every milestone that came due
+// BEFORE it existed blew past the 14-day grace and auto-skipped: 108 of 198
+// closed loans showed nothing, and 670 check-ins had silently lapsed.
+//
+// Widening the grace to 120 days surfaces that backlog once — 90 loans / 111
+// rows at grace 14 becomes 194 / 414 at 120.
+//
+// It EXPIRES ON ITS OWN. Mike asked for this "one time", and a widened window
+// left in place quietly stops being a catch-up and becomes the normal setting —
+// stale calls would linger four months forever. After the date below the page
+// reverts to 14 with no deploy needed and no one having to remember.
+//
+// NOT applied to followup-reminder-cron.mjs on purpose: that mails a per-LO
+// digest, and running it at 120 would fire one enormous email at every LO
+// covering four months of lapsed calls. The catch-up is a queue to work
+// through, not a blast. The cron stays at 14 and keeps nudging only what is
+// genuinely due now.
+var FU_CATCHUP_GRACE_DAYS = 120;
+var FU_CATCHUP_UNTIL = new Date(2026, 9, 1).getTime(); // Oct 1 2026, local
+function fuGraceDays() {
+  return Date.now() < FU_CATCHUP_UNTIL ? FU_CATCHUP_GRACE_DAYS : FU_GRACE_DAYS;
+}
+function fuCatchupActive() { return Date.now() < FU_CATCHUP_UNTIL; }
+
 // Pending follow-up rows for the loaded loans. state: 'due' | 'overdue' | 'upcoming'.
 function followupRows(items){
   var now = Date.now();
@@ -158,7 +183,7 @@ function followupRows(items){
       if (done[key]) return;
       var dueMs = closeMs + n * FU_DAY;
       var diffDays = Math.floor((now - dueMs) / FU_DAY); // >0 = past due
-      if (diffDays > FU_GRACE_DAYS) return;              // auto-skip stale
+      if (diffDays > fuGraceDays()) return;              // auto-skip stale
       if (diffDays < -FU_UPCOMING_DAYS) return;          // too far out
       rows.push({ it: it, key: key, days: n, dueMs: dueMs, diffDays: diffDays,
         state: diffDays > 0 ? 'overdue' : (diffDays === 0 ? 'due' : 'upcoming') });
@@ -256,7 +281,17 @@ function render(){
     (overdue + dueToday) + ' due now (' + overdue + ' overdue) · ' + upcoming + ' upcoming in the next ' + FU_UPCOMING_DAYS + ' days';
 
   var wrap = document.getElementById('paneWrap');
-  var note = '<div class="cl-note">Mark done logs the touch to the loan’s Notes &amp; Activity. Due items stay in the queue for '+FU_GRACE_DAYS+' days, then auto-skip. Click a row to open the loan; email / phone links won’t navigate away.</div>';
+  // Deploy 236.825 — say the grace period that's ACTUALLY in force, and make
+  // the catch-up visible + obviously temporary. A queue that quadruples with no
+  // explanation reads as a bug, and nobody would know it reverts on its own.
+  var note = '<div class="cl-note">Mark done logs the touch to the loan’s Notes &amp; Activity. Due items stay in the queue for '+fuGraceDays()+' days, then auto-skip. Click a row to open the loan; email / phone links won’t navigate away.</div>';
+  if (fuCatchupActive()) {
+    note = '<div class="cl-note" style="background:var(--d-pending-bg);border-left:3px solid var(--d-pending);color:var(--text)">' +
+      '<strong>Catch-up window open.</strong> This page launched without a backfill, so anniversaries that came due beforehand had already auto-skipped. ' +
+      'The grace period is temporarily <strong>'+FU_CATCHUP_GRACE_DAYS+' days</strong> instead of '+FU_GRACE_DAYS+' so that backlog is workable. ' +
+      'It reverts to '+FU_GRACE_DAYS+' days automatically on <strong>'+fmtDate('2026-10-01')+'</strong> — anything still open then drops off, so work the oldest first. ' +
+      'The daily reminder email is unchanged and still only nudges what’s genuinely due now.</div>' + note;
+  }
   if (!rows.length) { wrap.innerHTML = note + '<div class="cl-empty">🎉 Nothing here — every closing anniversary in the window is handled.</div>'; return; }
 
   var head = '<tr><th>Status</th><th>Anniversary</th><th>Borrower</th><th>Email</th><th>Phone</th><th>Property</th>' +
