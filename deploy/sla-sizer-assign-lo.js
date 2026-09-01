@@ -75,14 +75,15 @@
 
     SLA.Users.directory().then(function (r) {
       var users = (r && r.users) || [];
-      // Same filter as loan-details Team Members (Deploy 236.352):
-      // every SLA staff account is an LO candidate. Only pure-borrower
-      // accounts are excluded.
+      // Deploy 236.832 — same filter as the Loan Details LO picker: only
+      // accounts that can OWN a loan (loan_officer / legacy 'user' /
+      // senior_lo / admin / super_admin). Processors + borrowers +
+      // role-less accounts are excluded.
       var loCandidates = users.filter(function (u) {
         var roles = (u.roles || []).map(function (rr) { return String(rr).toLowerCase(); });
-        if (!roles.length) return true;
-        var nonBorrower = roles.filter(function (rr) { return rr !== 'borrower'; });
-        return nonBorrower.length > 0;
+        return roles.some(function (rr) {
+          return rr === 'loan_officer' || rr === 'user' || rr === 'senior_lo' || rr === 'admin' || rr === 'super_admin';
+        });
       });
 
       var currentEmail = String(ctx.ownerEmail || '').toLowerCase();

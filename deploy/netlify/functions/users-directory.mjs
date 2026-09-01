@@ -24,6 +24,12 @@
  */
 import { getStore } from '@netlify/blobs';
 import { handleOptions, json, requireAuth } from './_shared/auth.mjs';
+// Deploy 236.832 — overlay AUTHORITATIVE roles from public.sla_user_roles
+// (the token-hook source of truth, kept in sync by every role write since
+// 236.826). The profiles-store roles are whatever was stamped at some past
+// login and had drifted badly (real LOs showing legacy 'user', promotions
+// missing) — which made role-based pickers/filters unreliable.
+import { db } from './_shared/supabase-db.mjs';
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -44,6 +50,16 @@ export default async (req, context) => {
       } catch (_) { /* skip malformed entries */ }
     }));
 
+    // Deploy 236.832 — authoritative role map by email (best-effort: on a
+    // PG blip the stale profile roles below still serve).
+    const tableRoles = {};
+    try {
+      const rows = await db.select('sla_user_roles', { select: 'email,roles' });
+      for (const row of (rows || [])) {
+        if (row && row.email && Array.isArray(row.roles)) tableRoles[String(row.email).toLowerCase()] = row.roles;
+      }
+    } catch (e) { console.warn('users-directory: role-table read failed (using profile roles):', e && e.message); }
+
     // Trim to picker-friendly fields. Roles can live on either the
     // top-level record (some profile-ping versions wrote it there)
     // or under app_metadata, so check both.
@@ -54,11 +70,12 @@ export default async (req, context) => {
       // Members) can show the assigned LO's number. Internal directory only.
       phone: String(p.phone || (p.user_metadata && p.user_metadata.phone) || '').trim(),
       slug:  String(p.slug || (p.user_metadata && p.user_metadata.slug) || '').trim(),
-      roles: Array.isArray(p.roles)
+      // Table roles WIN when a row exists; profile roles are the fallback.
+      roles: tableRoles[String(p.email || '').toLowerCase()] || (Array.isArray(p.roles)
         ? p.roles
         : (p.app_metadata && Array.isArray(p.app_metadata.roles))
           ? p.app_metadata.roles
-          : (p.app_metadata && p.app_metadata.roles ? [p.app_metadata.roles] : []),
+          : (p.app_metadata && p.app_metadata.roles ? [p.app_metadata.roles] : [])),
     }))
     .filter((u) => u.email)
     .sort((a, b) => {

@@ -4713,18 +4713,17 @@ function _hydrateTeamLoCard(cardId, isAdminUser) {
   if (!card) return;
   SLA.Users.directory().then(function(r) {
     var users = (r && r.users) || [];
-    // Deploy 236.352 — every SLA staff account is a Loan Officer per
-    // Mike (Users = LOs, Admins = Sales Leaders, Super Admins = Owners,
-    // all of whom can own loans). The only accounts NOT eligible are
-    // pure borrower portal users. Include everyone else — no-role,
-    // 'lo', 'admin', 'super_admin', 'processor' all show up.
+    // Deploy 236.832 — the LO picker shows only accounts that can OWN a
+    // loan: Loan Officers ('loan_officer' + the legacy 'user' role the
+    // original roster was seeded with), Senior LOs, Admins, and Owners.
+    // Processors (Beth/Keith/Elle), borrowers, and role-less accounts no
+    // longer appear (Mike). Roles come from users-directory, which now
+    // overlays the authoritative sla_user_roles table.
     var loCandidates = users.filter(function(u) {
       var roles = (u.roles || []).map(function(r){ return String(r).toLowerCase(); });
-      if (!roles.length) return true;
-      // Exclude accounts whose ONLY role is 'borrower' (external
-      // portal users). If they have any other role, keep them.
-      var nonBorrowerRoles = roles.filter(function(r){ return r !== 'borrower'; });
-      return nonBorrowerRoles.length > 0;
+      return roles.some(function(r){
+        return r === 'loan_officer' || r === 'user' || r === 'senior_lo' || r === 'admin' || r === 'super_admin';
+      });
     });
     var currentLoEmail = String(_loEmail || '').toLowerCase();
     var currentLo = null;
