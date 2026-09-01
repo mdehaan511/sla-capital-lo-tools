@@ -3758,11 +3758,32 @@ function normalizeRtlPurpose(v, currentLoanAmt) {
   return '';
 }
 
+// Deploy 236.841 — same silent-no-op class for PROPERTY TYPE (Mike: short-app
+// RTLs submitted as "5+ Unit Multifamily" opened in the sizer as 1-4 unit).
+// The short app stores 'multi' (also '2-4'/'sfh'/'portfolio'/'other'); this
+// select only knows 'sfr' (SFR / 1-4 Units) and 'mfr' (Multi-Family 5-10
+// Units), so any foreign value left the select on its default. Map every
+// multifamily vocabulary onto 'mfr'; every 1-4-unit/other vocabulary onto
+// 'sfr'; unknown/empty leaves the select alone.
+function normalizeRtlPropType(v) {
+  var s = String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!s) return '';
+  if (s === 'sfr' || s === 'mfr') return s; // already native
+  if (s === 'multi' || s === 'multifamily' || s === 'mf' || s === '5plus' ||
+      s.indexOf('5unit') >= 0 || s.indexOf('multi') >= 0 || s === 'mfr510') return 'mfr';
+  // Everything 1-4-unit-shaped (sfh, 2-4, condo, townhome, portfolio, other)
+  // belongs on the SFR / 1-4 Units option.
+  return 'sfr';
+}
+
 function loadRTLQuote(formData) {
   if (!formData) return;
   // Deploy 236.815 — see normalizeRtlPurpose above.
   var _np = normalizeRtlPurpose(formData.loanPurpose, formData.currentLoanAmt);
   if (_np) formData = Object.assign({}, formData, { loanPurpose: _np });
+  // Deploy 236.841 — see normalizeRtlPropType above.
+  var _npt = normalizeRtlPropType(formData.propType);
+  if (_npt && _npt !== formData.propType) formData = Object.assign({}, formData, { propType: _npt });
   // If the saved quote only has a combined `address` string (legacy quotes
   // from before the split-field schema, or any quote sourced from
   // apply.html via loadFromClientLoan that didn't get re-saved), parse it
