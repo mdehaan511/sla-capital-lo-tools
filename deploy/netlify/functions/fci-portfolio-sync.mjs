@@ -79,6 +79,44 @@ function stateOf(addr) {
   return m2 ? m2[1].toUpperCase() : '';
 }
 
+/**
+ * Deploy 236.827 — pick ONE loan when several sit at the same address.
+ *
+ * The old ambiguity check compared distinct normalized ADDRESSES, so two loans
+ * on ONE property looked unambiguous and the writer stamped BOTH. That is how
+ * 19115 E Nixon ended up with its 1st AND 2nd position sharing FCI account
+ * 399610100 — and then both inherited the same payoff status and maturity date
+ * from whichever loan FCI actually services. Seven accounts were cross-stamped
+ * this way. A property can legitimately carry a 1st and a 2nd, or three units,
+ * so "same address" is NOT "same loan".
+ *
+ * Disambiguate on the one number both sides agree on: the original balance.
+ * FCI's originalBalance vs our loan amount, best relative match, and only when
+ * it is both close (<=2%) and clearly better than the runner-up. Otherwise
+ * return nothing and let the caller report it rather than guess — writing FCI's
+ * servicing data onto the wrong lien is worse than leaving it unlinked.
+ */
+export function pickLoanForFciRow(matches, row) {
+  if (!matches || matches.length <= 1) return { pick: matches && matches[0], reason: 'single' };
+  const target = fciNum(row.originalBalance);
+  if (target == null || target <= 0) return { pick: null, reason: 'no FCI originalBalance to match on' };
+
+  const scored = matches
+    .map((h) => ({ h, rel: h.loanAmt != null && h.loanAmt > 0 ? Math.abs(h.loanAmt - target) / target : Infinity }))
+    .sort((a, b) => a.rel - b.rel);
+
+  const best = scored[0], next = scored[1];
+  if (!best || !isFinite(best.rel)) return { pick: null, reason: 'no loan amounts to compare' };
+  if (best.rel > 0.02) {
+    return { pick: null, reason: 'closest amount is ' + (best.rel * 100).toFixed(1) + '% off the FCI original balance' };
+  }
+  // Two loans within 2% of the same balance — genuinely indistinguishable here.
+  if (next && isFinite(next.rel) && next.rel <= 0.02) {
+    return { pick: null, reason: 'two loans both match the FCI balance within 2%' };
+  }
+  return { pick: best.h, reason: 'matched on original balance' };
+}
+
 // FCI loanStatus → our disposition. Only the two unambiguous cases map;
 // everything else is reported, never written. See the header.
 function dispositionFor(status) {
@@ -160,6 +198,9 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
           toolType: String(loan.toolType || '').toLowerCase(),
           investorName: loan.investorName || '',
           disposition: String(loan.disposition || '').toLowerCase(),
+          // Deploy 236.827 — needed to tell sibling loans at ONE address apart.
+          loanAmt: fciNum(loan.finalLoanAmount) != null ? fciNum(loan.finalLoanAmount) : fciNum(loan.loanAmt),
+          fundingDate: String(loan.fundingDate || ''),
         };
         const sn = String(loan.servicerLoanNumber || '').trim();
         if (sn) {
@@ -176,7 +217,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
   }
 
   // ── Resolve each FCI row to our loan(s) ──────────────────────────────
-  const plan = [], unmatched = [], ambiguous = [], needsReview = [], errors = [];
+  const plan = [], unmatched = [], ambiguous = [], needsReview = [], errors = [], crossStamped = [];
   let matchedById = 0, matchedByAddress = 0, investorMismatch = 0;
 
   for (const row of rows) {
@@ -197,6 +238,22 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
 
     let matches = byServicerNum.get(acct) || [];
     let via = 'servicerLoanNumber';
+    // Deploy 236.827 — the same FCI account already stamped on SEVERAL loans is
+    // the corrupted state this deploy fixes (address matching wrote it onto
+    // every loan at one property). Narrow to the right one instead of writing
+    // to all of them again.
+    if (matches.length > 1) {
+      const p = pickLoanForFciRow(matches, row);
+      if (!p.pick) {
+        crossStamped.push({ account: acct, reason: p.reason,
+          loans: matches.map((h) => ({ loanId: h.loanId, address: h.address, loanAmt: h.loanAmt })) });
+        continue;
+      }
+      crossStamped.push({ account: acct, resolved: true, reason: p.reason,
+        keeping: p.pick.loanId,
+        clearing: matches.filter((h) => h.loanId !== p.pick.loanId).map((h) => h.loanId) });
+      matches = [p.pick];
+    }
 
     if (!matches.length) {
       // Fallback: one extra FCI call for the street address, then the same
@@ -231,6 +288,18 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
       }
       if (!matches.length) { unmatched.push({ account: acct, street, city: row.city, state: row.state, nearMatches: cands.slice(0, 4).map((h) => h.address) }); continue; }
       if (distinct.size > 1) { ambiguous.push({ account: acct, street, matches: [...new Set(matches.map((h) => h.address))] }); continue; }
+      // Deploy 236.827 — ONE property can still hold several loans (a 1st and a
+      // 2nd position, or separate units). distinct.size === 1 only means one
+      // ADDRESS; it never meant one loan.
+      if (matches.length > 1) {
+        const p = pickLoanForFciRow(matches, row);
+        if (!p.pick) {
+          ambiguous.push({ account: acct, street, reason: p.reason,
+            matches: matches.map((h) => h.address + ' ($' + h.loanAmt + ')') });
+          continue;
+        }
+        matches = [p.pick];
+      }
       via = 'address';
     }
 
@@ -361,6 +430,11 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
       dispositionSkipped,               // hand-set dispositions we refused to clobber
     },
     review: {
+      // Deploy 236.827 — FCI accounts found on MORE THAN ONE of our loans.
+      // resolved:true means the original balance told them apart; the rest need
+      // a human, and nothing is written for those.
+      crossStamped: crossStamped.length,
+      crossStampedUnresolved: crossStamped.filter((c) => !c.resolved).length,
       needsReview: needsReview.length,  // FCI "Assigned" / "CLOSED" — decide by hand
       unmatched: unmatched.length,
       ambiguous: ambiguous.length,
@@ -368,6 +442,7 @@ export async function runSync({ dryRun, overwriteManual, limit, offset, actor, h
       errors: errors.length,
     },
     needsReview: needsReview.slice(0, 40),
+    crossStamped: crossStamped.slice(0, 40),
     unmatched, ambiguous, errors,
     sample: plan.slice(0, 8).map((r) =>
       r.account + ' [' + r.via + '] ' + r.disposition + ' | ' + r.address.slice(0, 44) +
