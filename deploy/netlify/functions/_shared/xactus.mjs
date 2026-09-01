@@ -83,14 +83,16 @@ export async function postXactus(xml, timeoutMs, opts) {
 export function buildCreditRequestXml(subject, opts) {
   const o = opts || {};
   const hard = String(o.reportType || 'Merge') !== 'SoftCheck';
-  // Deploy 236.836 — the soft-pull PRODUCT NAME is configurable. Mike's soft
-  // account is provisioned with "BPR – Business Principal Report", not the
-  // documented "SoftCheck"/PQx product, and the docs don't publish BPR's API
-  // token (the documented Other-descriptions are Streamline/SoftCheck/Refresh
-  // only). Once Xactus confirms the exact identifier, set XACTUS_SOFT_PRODUCT
-  // in Netlify (e.g. "BPR") — no code change needed. Defaults to SoftCheck.
-  const softProduct = process.env.XACTUS_SOFT_PRODUCT || 'SoftCheck';
-  const typeAttrs = hard
+  // Deploy 236.837 — per Xactus: hard vs soft is decided by WHICH CREDENTIALS
+  // authenticate the call, not by the product attributes. The soft-pull
+  // account (BPR-provisioned) expects the SAME standard Merge request a hard
+  // pull sends; sending OtherDescription="SoftCheck" to it was the E032
+  // "Invalid Product or Service Type" rejection. So a Soft Pull = Merge XML +
+  // the XACTUS_SOFT_* credentials (routed in postXactus). XACTUS_SOFT_PRODUCT
+  // survives as an escape hatch: set it to a non-"Merge" value to go back to
+  // the Other+description form if Xactus ever changes their guidance.
+  const softProduct = process.env.XACTUS_SOFT_PRODUCT || 'Merge';
+  const typeAttrs = (hard || softProduct === 'Merge')
     ? 'CreditReportType="Merge"'
     : 'CreditReportType="Other" CreditReportTypeOtherDescription="' + xesc(softProduct) + '"';
   return `<?xml version="1.0" encoding="UTF-8"?>
