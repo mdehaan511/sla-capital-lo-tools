@@ -61,7 +61,12 @@ async function handle(req, context) {
   // Deploy 236.835 — SoftCheck runs on its own Xactus account. Fail loud with
   // the missing var NAMES so a Netlify-dashboard typo is diagnosable.
   if (reportType === 'SoftCheck' && !xactusSoftConfigured()) {
-    return json(503, { error: 'Soft-pull credentials not configured — missing env var(s): ' + xactusSoftMissingVars().join(', ') + '. Check names + that the "Functions" scope is enabled on each in Netlify.' });
+    // Deploy 236.835c — self-diagnosing: list the XACTUS* var NAMES this
+    // function can actually see (names only, never values) so an invisible
+    // typo / wrong-site / stale-deploy cause is readable from the error.
+    const visible = Object.keys(process.env).filter((k) => k.toUpperCase().includes('XACTUS'))
+      .map((k) => JSON.stringify(k)).join(', ') || '(none)';
+    return json(503, { error: 'Soft-pull credentials not configured — missing env var(s): ' + xactusSoftMissingVars().join(', ') + '. XACTUS* vars visible to this function: ' + visible + '.' });
   }
 
   const selfEmail = normalizeEmail(user.email);
