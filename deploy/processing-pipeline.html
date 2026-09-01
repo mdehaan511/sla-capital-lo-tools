@@ -389,7 +389,11 @@ window.netlifyIdentity.on('init', function(user) {
   }
   _user = user;
   _isAdmin = !!(window.SLA && SLA.isAdmin && SLA.isAdmin(user));
-  _isStaff = _isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user));
+  // Deploy 236.831 — Senior LOs see only their OWN loans here (Mike): they're
+  // processor-tier on the server + closed pages, but this board scopes like a
+  // regular LO for them.
+  _isStaff = (_isAdmin || !!(window.SLA && SLA.isProcessor && SLA.isProcessor(user))) &&
+             !(window.SLA && SLA.isSeniorLo && SLA.isSeniorLo(user));
   // Deploy 236.558 — opened to the PROCESSOR role (admin OR processor =
   // _isStaff). Settings gears (⚙ Substatuses / Task Templates) stay admin-only.
   // Deploy 236.607 — now ALSO open to Loan Officers, but READ-ONLY. _canEdit

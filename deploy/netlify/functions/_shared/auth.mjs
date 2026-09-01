@@ -192,7 +192,13 @@ export function isSuperAdmin(user) {
  * processors (admins can do anything a processor can do).
  */
 export function isProcessor(user) {
-  return getRoles(user).some((r) => r === 'processor' || r === 'admin' || r === 'super_admin');
+  // Deploy 236.831 — 'senior_lo' (Senior Loan Officer: Sara + Carl) counts as
+  // processor-tier on the SERVER: cross-LO reads/writes, doc review, closed-
+  // loan servicing all work. The pipelines scope them to their OWN loans in
+  // the FRONTEND only (pipeline.html / processing-pipeline.html exclude
+  // senior_lo from their staff checks) — that's a focus decision, not a
+  // security boundary; they were full admins before this tier existed.
+  return getRoles(user).some((r) => r === 'processor' || r === 'admin' || r === 'super_admin' || r === 'senior_lo');
 }
 
 /**

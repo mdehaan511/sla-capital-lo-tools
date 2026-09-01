@@ -4045,7 +4045,7 @@ netlifyIdentity.on('init', function(user) {
     window._loPhone = (user.user_metadata && user.user_metadata.phone) || '';
     window._loEmail = user.email || '';
     // Deploy 236.300 — reveal Admin Mode toggle to admins only.
-    if (window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
+    if (window.SLA && ((SLA.isAdmin && SLA.isAdmin(user)) || (SLA.isSeniorLo && SLA.isSeniorLo(user)))) { // Deploy 236.831 — Senior LOs get Admin Mode
       window._userIsAdmin = true;
       var _adminField = document.getElementById('adminModeToggleField');
       if (_adminField) _adminField.style.display = '';

@@ -817,7 +817,11 @@ netlifyIdentity.on('init', function(user) {
   if (!user) { window.location.replace('/'); return; }
   _user = user;
   _isAdmin = SLA.isAdmin(user);
-  _isStaff = _isAdmin || (SLA.isProcessor && SLA.isProcessor(user));
+  // Deploy 236.831 — Senior LOs are processor-tier everywhere EXCEPT the
+  // Leads + Processing pipelines, which stay scoped to their OWN loans
+  // (Mike). Exclude them from the staff scope toggle here.
+  var _isSenior = !!(SLA.isSeniorLo && SLA.isSeniorLo(user));
+  _isStaff = (_isAdmin || (SLA.isProcessor && SLA.isProcessor(user))) && !_isSenior;
   document.getElementById('auth-gate').style.display = 'none';
   // Multi-select is available to ALL users now — LOs can clear their own
   // duplicate quotes/prospects via Select Multiple → Decline. Backend

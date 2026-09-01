@@ -4337,7 +4337,7 @@ netlifyIdentity.on('init', function(user) {
       // Deploy 236.748 — Multifamily DSCR sizer is ADMIN-ONLY (hidden pilot).
       // Bounce any non-admin who navigates here directly; the index.html tool
       // card is admin-gated too.
-      if (!(window.SLA && SLA.isAdmin && SLA.isAdmin(user))) {
+      if (!(window.SLA && ((SLA.isAdmin && SLA.isAdmin(user)) || (SLA.isSeniorLo && SLA.isSeniorLo(user))))) { // Deploy 236.831 — Senior LOs keep MF access
         window.location.replace('/');
         return;
       }
@@ -4347,7 +4347,7 @@ netlifyIdentity.on('init', function(user) {
       window._loEmail = user.email || '';
       // Deploy 236.299 — reveal Admin Mode toggle to admins only.
       // Non-admin LOs never see the switch; they can't turn it on.
-      if (window.SLA && SLA.isAdmin && SLA.isAdmin(user)) {
+      if (window.SLA && ((SLA.isAdmin && SLA.isAdmin(user)) || (SLA.isSeniorLo && SLA.isSeniorLo(user)))) { // Deploy 236.831 — Senior LOs get Admin Mode
         window._userIsAdmin = true;
         var _adminField = document.getElementById('adminModeToggleField');
         if (_adminField) _adminField.style.display = '';

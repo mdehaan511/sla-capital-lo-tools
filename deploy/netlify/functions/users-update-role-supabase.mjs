@@ -23,7 +23,7 @@ import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
 // must land there too or the promotion never reaches the user's session.
 import { syncRoleTable } from './_shared/sla-roles.mjs';
 
-const ALLOWED_ROLES = new Set(['admin', 'loan_officer', 'processor']);
+const ALLOWED_ROLES = new Set(['admin', 'senior_lo', 'loan_officer', 'processor']); // Deploy 236.831 - Senior LO tier
 
 export default async (req, context) => {
   const pre = handleOptions(req); if (pre) return pre;

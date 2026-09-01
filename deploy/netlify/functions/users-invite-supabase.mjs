@@ -28,7 +28,7 @@
 import { handleOptions, json, requireAuth, readJsonBody, isAdmin, isSuperAdmin, normalizeEmail } from './_shared/auth.mjs';
 import { supabaseBaseUrl } from './_shared/supabase-db.mjs'; // Deploy 236.398
 
-const ALLOWED_ROLES = new Set(['admin', 'loan_officer', 'processor']);
+const ALLOWED_ROLES = new Set(['admin', 'senior_lo', 'loan_officer', 'processor']); // Deploy 236.831 - Senior LO tier
 const INVITE_FROM = 'SLA Capital <noreply@leads.slacapital.com>';
 
 function escH(s) {
@@ -37,7 +37,7 @@ function escH(s) {
 }
 
 function _humanRole(r) {
-  return r === 'admin' ? 'Admin' : r === 'loan_officer' ? 'Loan Officer' : r === 'processor' ? 'Processor' : r;
+  return r === 'admin' ? 'Admin' : r === 'senior_lo' ? 'Senior Loan Officer' : r === 'loan_officer' ? 'Loan Officer' : r === 'processor' ? 'Processor' : r;
 }
 
 function _buildInviteEmail(email, fullName, role, actionLink) {

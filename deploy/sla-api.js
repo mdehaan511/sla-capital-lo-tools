@@ -2214,8 +2214,13 @@
   }
   function isAdmin(user) { return getRoles(user).some(function (r) { return r === 'admin' || r === 'super_admin'; }); }
   function isSuperAdmin(user) { return getRoles(user).some(function (r) { return r === 'super_admin'; }); }
+  // Deploy 236.831 — Senior Loan Officer tier (Sara + Carl): Admin Mode in the
+  // sizers + full closed-loan pages, but the Leads/Processing pipelines stay
+  // scoped to their OWN loans (those two pages exclude senior_lo explicitly).
+  function isSeniorLo(user) { return getRoles(user).some(function (r) { return r === 'senior_lo'; }); }
   // Deploy 236.71 — "processor" is a User+Extras tier. Admins implicitly count.
-  function isProcessor(user) { return getRoles(user).some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin'; }); }
+  // Deploy 236.831 — senior_lo counts too (matches the server-side tier).
+  function isProcessor(user) { return getRoles(user).some(function (r) { return r === 'processor' || r === 'admin' || r === 'super_admin' || r === 'senior_lo'; }); }
   // Deploy 236.266 — `isStaff` reads more naturally at scope callsites
   // ("staff sees all LOs") than `isProcessor`. Same set as isProcessor
   // (admin OR super_admin OR processor); it's an alias, not a new tier.
@@ -2975,6 +2980,7 @@
     getRoles: getRoles,
     isAdmin: isAdmin,
     isSuperAdmin: isSuperAdmin,
+    isSeniorLo: isSeniorLo, // Deploy 236.831
     isProcessor: isProcessor,
     isStaff: isStaff, // Deploy 236.266 — alias of isProcessor for scope callsites
     slugFromUser: slugFromUser,
