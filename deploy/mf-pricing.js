@@ -42,7 +42,8 @@ const DIYA = {
   // (dscr-pricing.js) with the MF matrix; the machinery below the tables is
   // kept in lock-step with dscr-pricing.js — port engine fixes to BOTH.
   //
-  // Sheet facts: base rates 30Y/10-6 6.45, 7/6 & 5/6 6.35; min rate 6.25;
+  // Sheet facts (rates below refreshed by 236.823 — see effectiveDate):
+  // base rates 30Y/10-6 6.525, 7/6 & 5/6 6.425; min rate 6.25;
   // FICO floor 700 (680-699 and below all NA); the 5+ Multi property
   // adjustment is +1.000 and NA above 75 LTV -> effective max LTV 75;
   // cash-out +0.05 (<=75); IO 0 (<=75); DSCR >= 1.20 REQUIRED (-0.050
@@ -57,9 +58,19 @@ const DIYA = {
   //    from the DIYA 1-4 unit model (sheet has no TPO/buydown tables).
   //  - "No Prepayment" +0.500 placeholder carried over (not on sheet).
   //  - Fees identical to the 1-4 unit DSCR sizer.
-  effectiveDate: "August 7, 2026",
+  // Deploy 236.823 — 9.1.26 sheet ("5+ Unit 9-1-2026 DSCR.xlsx"): base rates
+  // +0.075 on all four products. Everything else was diffed cell-by-cell and is
+  // UNCHANGED — FICO (still floor 700, 680-699 and below NA), the +1.000 5+
+  // Multi adjustment (still NA above 75 LTV, so max leverage stays 75), IO,
+  // cash-out, DSCR >= 1.20, PPP and the UPB bands. Min rate still 6.25.
+  //
+  // The 9.1.26 sheet does publish FICO columns for 75.01-80 / 80.01-85 /
+  // 85.01-90, but they're unreachable on this product: the 5+ Multi row is NA
+  // above 75 and it is always applied here (property type is locked), so the
+  // matrix stays 6 columns wide.
+  effectiveDate: "September 1, 2026",
   minRate: 6.25,
-  baseRate: { "30Y Fixed": 6.45, "10/6 ARM": 6.45, "7/6 ARM": 6.35, "5/6 ARM": 6.35 },
+  baseRate: { "30Y Fixed": 6.525, "10/6 ARM": 6.525, "7/6 ARM": 6.425, "5/6 ARM": 6.425 }, // 236.823: +0.075 (9.1.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.050, 0.000, 0.050],
