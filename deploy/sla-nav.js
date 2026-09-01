@@ -30,7 +30,18 @@
     // Deploy 236.188 — "Pipeline" renamed to "Leads" per Mike. The
     // pipeline.html page is the LO's pre-processing view of quoted /
     // in-flight loans; "Leads" reads more accurately for that role.
-    { label: 'Leads', href: '/pipeline.html' },
+    // Deploy 236.826 — Leads becomes a dropdown so borrower Follow-ups can live
+    // under it (Mike: closing-anniversary check-ins are a SALES task, not a
+    // processing one). Same shape as the Clients menu: the parent page is listed
+    // as its own first child so Leads is still one click, and renderDropdown
+    // highlights the trigger from the child hrefs.
+    {
+      label: 'Leads',
+      children: [
+        { label: 'Leads',      href: '/pipeline.html' },
+        { label: 'Follow-ups', href: '/followups.html' },
+      ],
+    },
     // Deploy 236.93 / 236.107 — Processing menu. Pipeline (the
     // Kanban) and Tasks live under one parent so the navbar
     // stays compact and "process-side" tools are grouped.
@@ -51,9 +62,10 @@
         { label: 'Pipeline',     href: '/processing-pipeline.html' },
         { label: 'Closed Loans', href: '/closed-loans.html' },
         // Deploy 236.824 — closing-anniversary borrower follow-ups moved to
-        // their own page (was a Closed Loans tab). Visible to LOs — they work
-        // this queue directly.
-        { label: 'Follow-ups',   href: '/followups.html' },
+        // their own page (was a Closed Loans tab).
+        // Deploy 236.826 — and moved again, out of Processing and under LEADS:
+        // it's a sales task, and it was the only LO-facing item in an otherwise
+        // processor-oriented menu.
         // Deploy 236.803 — live FCI payoff-demand tracker. Processor-only: it
         // reads the whole servicing book, not one LO's loans.
         { label: 'Payoff Demands', href: '/payoff-demands.html', requires: 'processor' },
