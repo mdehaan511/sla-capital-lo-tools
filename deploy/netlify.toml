@@ -829,6 +829,16 @@
   status = 200
   force = true
 
+# Deploy 236.833: prune ghost users — deletes profiles blobs + role-table rows
+# for accounts no longer in Supabase (they kept appearing in the LO pickers).
+[[redirects]]
+  from = "/api/admin-users-prune-ghosts"
+  to = "/.netlify/functions/admin-users-prune-ghosts"
+  status = 200
+  force = true
+[functions."admin-users-prune-ghosts"]
+  timeout = 26
+
 # Deploy 236.830: Baseline PII backfill — pulls borrower street addresses +
 # SSNs from Baseline's API and gap-fills matching SLA client records (SSNs
 # encrypted at rest; report is counts-only). Background fn + status reader.

@@ -68,9 +68,18 @@ export default async (req, context) => {
     }
     // Deploy 236.826 — clean up the token-hook role table so a future
     // account re-created with this email doesn't inherit stale roles.
+    // Deploy 236.833 — also delete the profiles blob: users-directory
+    // serves from it, so without this a deleted user kept appearing in
+    // every picker/directory (Mike: Dru showed in the LO dropdown after
+    // being removed in Users Admin).
     if (targetEmail) {
       try { await (await import('./_shared/sla-roles.mjs')).removeRoleRow(targetEmail); }
       catch (e) { console.warn('users-delete-supabase: role row cleanup failed:', e && e.message); }
+      try {
+        const { getStore } = await import('@netlify/blobs');
+        const { keySafe } = await import('./_shared/auth.mjs');
+        await getStore({ name: 'profiles', consistency: 'strong' }).delete(keySafe(targetEmail));
+      } catch (e) { console.warn('users-delete-supabase: profile blob cleanup failed:', e && e.message); }
     }
     return json(200, { ok: true, deleted: userId });
   } catch (e) {
