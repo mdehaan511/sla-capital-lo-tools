@@ -150,7 +150,33 @@ export default async (req, context) => {
   //   - prospects whose address matches a loan or quote in the results
   const _norm = (s) => String(s || '').trim().toLowerCase()
     .replace(/,\s*(usa|us|united states)\.?$/i, '').replace(/[.,]/g, '').replace(/\s+/g, ' ');
-  const quotes = quotesResult.filter((qr) => !(qr.loanId && seenLoans.has(qr.loanId)));
+  // Deploy 236.828 (Mike) — ALSO dedupe quotes against EACH OTHER.
+  //
+  // The cross-category filter above only drops a quote when its loan is already
+  // in the loans results. It never deduped the quotes bucket itself, and one
+  // loan routinely has several quote records: the tool-keyed one
+  // (q_<tool>_<loanId>), the loan-derived q_ln_<loanId>, the synthetic
+  // syn_<loanId>, and legacy address-keyed rows from before loanId linkage.
+  //
+  // Searching "plymo" returned SIX rows for TWO loans, and because each quote
+  // carries its own stale status snapshot, one loan reported "submitted",
+  // "active", "active" and "approved" at the same time — four different answers
+  // to "what is this loan doing?".
+  //
+  // One row per loan. Prefer the most recently updated record, since that is
+  // the snapshot closest to the loan's real state. Quotes with no loanId are
+  // genuine orphan drafts and each stay.
+  const seenQuoteLoans = new Set();
+  const quotes = quotesResult
+    .filter((qr) => !(qr.loanId && seenLoans.has(qr.loanId)))
+    .slice()
+    .sort((a, b) => String(b.updatedAt || b.savedAt || '').localeCompare(String(a.updatedAt || a.savedAt || '')))
+    .filter((qr) => {
+      if (!qr.loanId) return true;
+      if (seenQuoteLoans.has(qr.loanId)) return false;
+      seenQuoteLoans.add(qr.loanId);
+      return true;
+    });
   const coveredAddrs = new Set();
   loans.forEach((l) => { const a = _norm(l.address); if (a) coveredAddrs.add(a); });
   quotes.forEach((qr) => { const a = _norm(qr.address); if (a) coveredAddrs.add(a); });
@@ -289,8 +315,14 @@ async function _searchLoansByAddressPrefixPG(q, wantAll, selfEmail) {
   if (!frag) return [];
   const parts = [
     'select=' + encodeURIComponent(LOAN_SELECT),
-    // PostgREST ilike uses * as the wildcard; a trailing-only * = prefix match.
-    'address=ilike.' + encodeURIComponent(frag + '*'),
+    // PostgREST ilike uses * as the wildcard.
+    // Deploy 236.828 — leading wildcard too, so a PARTIAL WORD matches a street
+    // name that isn't the start of the address: "plymo" now finds
+    // "402 Plymouth Road". Previously only quotes (a substring scan) matched a
+    // fragment like that, so the search showed stale quote snapshots and no
+    // loan row at all — and the quote-vs-loan dedupe below could never fire
+    // because the loan was missing from the results.
+    'address=ilike.' + encodeURIComponent('*' + frag + '*'),
     'limit=' + (PER_CATEGORY * 2),
     'order=updated_at.desc',
   ];
