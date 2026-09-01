@@ -2750,6 +2750,21 @@
       // under the limit without dropping below a legibility floor, we
       // reject with a clear message rather than upload a degraded doc.
       var MAX_UPLOAD_RAW = 4.2 * 1024 * 1024; // ~5.6MB base64, safely < 6MB
+      // Deploy 236.839 — big PDFs go STRAIGHT to the chunked path. The old
+      // order ran the in-browser compressor first (minutes of rasterizing a
+      // 20MB executed closing package), and when the result still didn't fit
+      // the single-POST ceiling, the chunked path uploaded the ORIGINAL
+      // anyway — all that compression time bought nothing and degraded docs
+      // when it "succeeded". Chunked keeps original quality up to 80MB.
+      // Images keep the compress-first flow (they shrink well, and the AI
+      // vision review needs them under its own size limits).
+      var _rawSize = (file && file.size) || 0;
+      var _isPdf = /pdf/i.test((file && file.type) || '') || /\.pdf$/i.test((file && file.name) || '');
+      if (_isPdf && _rawSize > MAX_UPLOAD_RAW) {
+        if (_rawSize <= MAX_CHUNKED_RAW) return _postDocUploadChunked(reviewId, slug, file, opts);
+        var _mb = (_rawSize / 1024 / 1024).toFixed(1);
+        return Promise.reject(new Error('“' + ((file && file.name) || 'file') + '” is ' + _mb + ' MB — over the ' + (MAX_CHUNKED_RAW / 1024 / 1024) + ' MB limit. Please split it into smaller files and upload them separately.'));
+      }
       return _compressForUpload(file, MAX_UPLOAD_RAW, opts.onStatus).then(function (res) {
         var f = res.file;
         if (((f && f.size) || 0) > MAX_UPLOAD_RAW) {

@@ -128,6 +128,7 @@
   var _docSearch = '';
   var _sourceOpen = false;
   var _uploadingSlug = null;
+  var _uploadStatusMsg = ''; // Deploy 236.839 — live in-tray upload status line
   var _stylesInjected = false;
   // Deploy 236.161 — per-section "Show N hidden" toggle state.
   var _showHidden = {};
@@ -1479,11 +1480,15 @@
     // same dead-guard flaw: on a RE-upload the tray already has a currentDocId, so
     // this never fired either. Match the tray's current doc instead.
     if (_uploadingSlug === slug && (!docId || docId === _trayState.currentDocId)) {
+      // Deploy 236.839 — live IN-TRAY upload status (Mike: the compressing/
+      // uploading toasts in the corner were easy to miss). doUpload's
+      // onStatus callback updates #dr-upstatus directly through the phases
+      // (compressing → part i of N → assembling → AI review).
       return '<div class="ai-block pending">' +
         '<div class="ai-head">' +
-          '<span class="ai-label pending"><span class="ai-spinner"></span> AI is reviewing this document…</span>' +
+          '<span class="ai-label pending"><span class="ai-spinner"></span> <span id="dr-upstatus">' + escHtml(_uploadStatusMsg || 'Uploading…') + '</span></span>' +
         '</div>' +
-        '<div class="ai-summary">This usually takes 5–15 seconds. The verdict is advisory — you still confirm with Approve / Flag / N/A.</div>' +
+        '<div class="ai-summary">Keep this page open until the upload finishes — navigating away cancels it (the browser will warn you). Progress updates right here.</div>' +
       '</div>';
     }
     if (!src.aiVerdict) {
@@ -1612,20 +1617,30 @@
 
     _uploadingSlug = slug;
     _expanded[slug] = true;
+    // Deploy 236.839 — the tray shows a LIVE status line through every phase
+    // (compress / chunk i of N / assemble / AI). onStatus updates the DOM
+    // element directly so progress paints without a full re-render.
+    _uploadStatusMsg = (file.size || 0) > 4.2 * 1024 * 1024
+      ? 'Preparing large file (' + ((file.size || 0) / 1024 / 1024).toFixed(1) + ' MB)…'
+      : 'Uploading ' + (file.name || 'file') + '…';
     render();
-    // Deploy 236.502 — large files get auto-compressed in the browser
-    // before upload; warn up front since it can take a few seconds.
-    if ((file.size || 0) > 4.2 * 1024 * 1024) {
-      showToast('Large file — compressing before upload…', 'info');
-    } else {
-      showToast('Uploading ' + file.name + '…', 'info');
-    }
+    showToast(_uploadStatusMsg, 'info');
+    // Deploy 236.839 — leaving the page kills an in-flight upload (the browser
+    // aborts the requests), so warn before navigation while one is running.
+    _armDocUploadGuard();
     var uploadOpts = {};
     if (opts.mode)           uploadOpts.mode = opts.mode;
     if (opts.replaceDocIds)  uploadOpts.replaceDocIds = opts.replaceDocIds;
+    uploadOpts.onStatus = function(m) {
+      _uploadStatusMsg = m;
+      var el = document.getElementById('dr-upstatus');
+      if (el) el.textContent = m;
+    };
     global.SLA.LoanReviews.uploadDoc(_review.id, slug, file, uploadOpts).then(function(r) {
       _review = r.review;
       _uploadingSlug = null;
+      _uploadStatusMsg = '';
+      _disarmDocUploadGuard();
       var dd = r.review.docs[slug] || {};
       // Deploy 236.502 — surface that the stored copy was auto-compressed
       // so the processor knows to verify legibility against the original.
@@ -1645,9 +1660,32 @@
       if (dd.aiReviewing) _pollBackgroundReview(slug);
     }).catch(function(err) {
       _uploadingSlug = null;
+      _uploadStatusMsg = '';
+      _disarmDocUploadGuard();
       showToast('Upload failed: ' + (err.message || 'Unknown'), 'error');
       render();
     });
+  }
+
+  // Deploy 236.839 — beforeunload guard for single-doc uploads (the bulk-zip
+  // flow has had its own since 236.211). The browser cannot keep sending file
+  // bytes after the page unloads, so the honest fix is a warning prompt while
+  // an upload is in flight.
+  function _docUploadBeforeUnload(e) {
+    e.preventDefault();
+    e.returnValue = 'A document upload is still in progress — leaving will cancel it.';
+    return e.returnValue;
+  }
+  var _docUploadGuardArmed = false;
+  function _armDocUploadGuard() {
+    if (_docUploadGuardArmed) return;
+    _docUploadGuardArmed = true;
+    global.addEventListener('beforeunload', _docUploadBeforeUnload);
+  }
+  function _disarmDocUploadGuard() {
+    if (!_docUploadGuardArmed) return;
+    _docUploadGuardArmed = false;
+    global.removeEventListener('beforeunload', _docUploadBeforeUnload);
   }
 
   // Deploy 236.754 — poll for a background AI review (long docs handed off by the
