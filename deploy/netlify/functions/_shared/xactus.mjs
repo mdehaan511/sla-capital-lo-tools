@@ -83,9 +83,16 @@ export async function postXactus(xml, timeoutMs, opts) {
 export function buildCreditRequestXml(subject, opts) {
   const o = opts || {};
   const hard = String(o.reportType || 'Merge') !== 'SoftCheck';
+  // Deploy 236.836 — the soft-pull PRODUCT NAME is configurable. Mike's soft
+  // account is provisioned with "BPR – Business Principal Report", not the
+  // documented "SoftCheck"/PQx product, and the docs don't publish BPR's API
+  // token (the documented Other-descriptions are Streamline/SoftCheck/Refresh
+  // only). Once Xactus confirms the exact identifier, set XACTUS_SOFT_PRODUCT
+  // in Netlify (e.g. "BPR") — no code change needed. Defaults to SoftCheck.
+  const softProduct = process.env.XACTUS_SOFT_PRODUCT || 'SoftCheck';
   const typeAttrs = hard
     ? 'CreditReportType="Merge"'
-    : 'CreditReportType="Other" CreditReportTypeOtherDescription="SoftCheck"';
+    : 'CreditReportType="Other" CreditReportTypeOtherDescription="' + xesc(softProduct) + '"';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <REQUEST_GROUP MISMOVersionID="2.3.1">
   <REQUESTING_PARTY _Name="SLA Capital"/>
