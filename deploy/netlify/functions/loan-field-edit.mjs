@@ -181,5 +181,19 @@ async function handle(req, context) {
   try { await writeClient(ownerKey, client, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write client: ' + (e.message || 'unknown') }); }
 
+  // Deploy 236.834 — field-level Audit Log entry. This endpoint predates the
+  // 236.771 audit-log rollout and only wrote the Notes & Activity line, so
+  // edits made through it (Close Date from the dashboard drilldowns, etc.)
+  // were missing from the Audit Log modal. Best-effort; never fails the save.
+  try {
+    const { recordLoanChanges } = await import('./_shared/loan-change-log.mjs');
+    await recordLoanChanges({
+      ownerKey, clientId: client.id, loanId: loan.id,
+      actor: selfEmail, actorName: author || selfEmail,
+      source: 'Field edit',
+      changes: applied.map((c) => ({ field: c.key, label: c.label, from: c.from, to: c.to })),
+    });
+  } catch (e) { console.warn('loan-field-edit: change log failed (non-fatal):', e && e.message); }
+
   return json(200, { ok: true, loan, applied });
 }

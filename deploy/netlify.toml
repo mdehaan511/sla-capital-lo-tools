@@ -829,6 +829,16 @@
   status = 200
   force = true
 
+# Deploy 236.834: pricing drift report — loans whose canonical rate/points
+# disagree with their saved pricing snapshot (read-only, admin).
+[[redirects]]
+  from = "/api/admin-pricing-drift-report"
+  to = "/.netlify/functions/admin-pricing-drift-report"
+  status = 200
+  force = true
+[functions."admin-pricing-drift-report"]
+  timeout = 26
+
 # Deploy 236.833: prune ghost users — deletes profiles blobs + role-table rows
 # for accounts no longer in Supabase (they kept appearing in the LO pickers).
 [[redirects]]
