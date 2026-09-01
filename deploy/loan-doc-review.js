@@ -98,6 +98,11 @@
     wire_instructions:        { label: 'Wire Instructions', section: 'closing', conditions: 'Wire instructions for the title company.' },
     // Deploy 236.752 — record-keeping vault; never AI-reviewed (noReview).
     executed_closing_documents: { label: 'Executed Closing Documents', section: 'closing', conditions: '', noReview: true },
+    // Deploy 236.838 — post-closing record-keeping trays (Mike): storage-only.
+    executed_ach_form:     { label: 'Executed ACH Form',     section: 'closing', conditions: '', noReview: true },
+    closing_w9:            { label: 'Closing W9',            section: 'closing', conditions: '', noReview: true },
+    executed_deed:         { label: 'Executed Deed',         section: 'closing', conditions: '', noReview: true },
+    original_doc_tracking: { label: 'Original Doc Tracking', section: 'closing', conditions: '', noReview: true },
   };
 
   var PROP_TYPE_LABELS = {

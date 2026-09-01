@@ -179,6 +179,68 @@ export async function attachPdfToReviewSlug({ ownerKey, clientId, loanId, addres
 // lookup / signed-app read / attach mechanics.
 export { _findReviewForLoan as findReviewForLoan, _readSignedApp as readSignedApp, _attachToSlug as attachToSlug };
 
+// Deploy 236.838 — backfill EXISTING Xactus verifications (credit reports +
+// flood certs) into a review's trays. The live orders auto-attach at pull
+// time (236.779), but a pull made BEFORE the loan had a Doc Review only
+// landed in the verifications store — a review created afterwards started
+// with empty credit/flood trays and nobody noticed the report was already
+// on file. Called at review-create time (loan-reviews-save, save:false —
+// the caller persists). Mutates the in-memory review; zero-throw.
+export async function attachExistingVerifications({ ownerKey, loanId, review, actorEmail }) {
+  let attached = 0;
+  try {
+    if (!ownerKey || !loanId || !review || !review.docs) return { ok: true, attached: 0 };
+    const vStore = getStore({ name: 'verifications', consistency: 'strong' });
+    const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
+    const vDocs = getStore({ name: 'verification-docs', consistency: 'strong' });
+    const { blobs } = await vStore.list({ prefix: ownerKey + '/' });
+    const hits = [];
+    for (const { key } of blobs) {
+      const v = await vStore.get(key, { type: 'json' }).catch(() => null);
+      if (!v || v.loanId !== loanId || !v.hasPdf) continue;
+      if (v.kind !== 'credit' && v.kind !== 'flood') continue;
+      hits.push(v);
+    }
+    // Oldest first so the NEWEST report ends up as the tray's current doc
+    // (earlier ones land in the tray history).
+    hits.sort((a, b) => String(a.orderedAt || '').localeCompare(String(b.orderedAt || '')));
+    for (const v of hits) {
+      const slug = v.kind === 'credit' ? 'credit_report' : 'flood_certificate';
+      const ds = review.docs[slug];
+      if (!ds) continue; // checklist without this tray
+      const buf = await vDocs.get(ownerKey + '/' + v.id, { type: 'arrayBuffer' }).catch(() => null);
+      if (!buf) continue;
+      const bytes = Buffer.from(buf);
+      const subjectName = (v.subject && v.subject.name) || '';
+      const filename = (v.kind === 'credit' ? 'Credit Report - ' : 'Flood Cert - ') +
+        (subjectName || _streetOf(v.address)) + ' - ' + String(v.orderedAt || '').slice(0, 10) + '.pdf';
+      _attachToSlug({
+        review, slug, bytes, filename, mimeType: 'application/pdf',
+        sourceNote: 'backfilled from verifications (' + (v.xactusReportId || v.certId || v.id) + ')',
+        actorEmail: actorEmail || 'auto:verification-backfill',
+      });
+      if (v.orderedAt) ds.documentDate = String(v.orderedAt).slice(0, 10);
+      if (v.expiresAt) ds.staleByDate = String(v.expiresAt).slice(0, 10);
+      try {
+        await docsStore.set(keySafe(review.id) + '/' + ds.currentDocId, bytes, {
+          metadata: {
+            reviewId: review.id, slug, filename, mimeType: 'application/pdf',
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: actorEmail || 'auto:verification-backfill',
+            source: 'verifications:' + v.id,
+          },
+        });
+        attached++;
+      } catch (e) {
+        console.warn('[verification-backfill] doc-blob write failed for ' + slug + ':', e && e.message);
+      }
+    }
+  } catch (e) {
+    console.warn('[verification-backfill] failed (non-fatal):', e && e.message);
+  }
+  return { ok: true, attached };
+}
+
 async function _findReviewForLoan({ ownerKey, clientId, loanId, address }) {
   const store = getStore({ name: 'loan_reviews', consistency: 'strong' });
   // Walk the store; reviews are tiny, this is fine.

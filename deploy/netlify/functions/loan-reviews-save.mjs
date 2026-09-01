@@ -282,6 +282,21 @@ async function handle(req, context) {
     } catch (e) {
       console.warn('loan-reviews-save: create-time source-doc attach failed (non-fatal):', e && e.message);
     }
+    // Deploy 236.838 — also pull in any Xactus credit reports / flood certs
+    // ordered BEFORE this review existed (they only reached the verifications
+    // store; the live-order attach needs a review to attach to). Newest
+    // becomes the tray's current doc, with the 120-day credit staleness date.
+    try {
+      const { attachExistingVerifications } = await import('./_shared/loan-review-auto-attach.mjs');
+      await attachExistingVerifications({
+        ownerKey: keySafe(review.source.ownerKey),
+        loanId:   review.source.loanId,
+        review,
+        actorEmail: selfEmail,
+      });
+    } catch (e) {
+      console.warn('loan-reviews-save: verification backfill failed (non-fatal):', e && e.message);
+    }
   }
 
   // Deploy 236.690 — Portfolio: give the Collateral section per-property trays.

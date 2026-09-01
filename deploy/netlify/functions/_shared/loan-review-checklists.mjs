@@ -175,6 +175,18 @@ export const DSCR_DOCS = [
   // required-missing doc. Backfilled onto existing reviews by sync-categories.
   { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'closing',
     conditions: '', optional: true, noReview: true },
+  // Deploy 236.838 — post-closing record-keeping trays on EVERY loan (Mike):
+  // executed ACH authorization, closing W9, the executed/recorded deed, and
+  // the original-document tracking record. Storage-only like the executed
+  // closing package; sync-categories backfills them onto existing reviews.
+  { slug: 'executed_ach_form', label: 'Executed ACH Form', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  { slug: 'closing_w9', label: 'Closing W9', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  { slug: 'executed_deed', label: 'Executed Deed', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  { slug: 'original_doc_tracking', label: 'Original Doc Tracking', section: 'closing',
+    conditions: '', optional: true, noReview: true },
 ];
 
 // Deploy 236.681 — RTL rubrics rewritten to the Colchis RTL Underwriting
@@ -284,6 +296,18 @@ export const RTL_DOCS = [
   // noReview: NEVER AI-reviewed (upload just stores the file); optional: never a
   // required-missing doc. Backfilled onto existing reviews by sync-categories.
   { slug: 'executed_closing_documents', label: 'Executed Closing Documents', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  // Deploy 236.838 — post-closing record-keeping trays on EVERY loan (Mike):
+  // executed ACH authorization, closing W9, the executed/recorded deed, and
+  // the original-document tracking record. Storage-only like the executed
+  // closing package; sync-categories backfills them onto existing reviews.
+  { slug: 'executed_ach_form', label: 'Executed ACH Form', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  { slug: 'closing_w9', label: 'Closing W9', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  { slug: 'executed_deed', label: 'Executed Deed', section: 'closing',
+    conditions: '', optional: true, noReview: true },
+  { slug: 'original_doc_tracking', label: 'Original Doc Tracking', section: 'closing',
     conditions: '', optional: true, noReview: true },
 ];
 
