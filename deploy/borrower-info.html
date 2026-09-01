@@ -435,7 +435,13 @@ function applyPrefillToData() {
     } else if (lt === 'guc' || loanProductHint === 'ground_up') {
       // Deploy 236.740 — GUC loans auto-select New Construction.
       d.loanType = 'construction';
-    } else if (lt === 'rtl') d.loanType = 'fix_flip';
+    } else if (lt === 'rtl') {
+      d.loanType = 'fix_flip';
+      // Deploy 236.840 — the RTL sizer's Bridge track (loan.loanType='bridge')
+      // auto-selects the Stabilized Bridge choice (Mike). Same internals as
+      // fix_flip; the marker relabels the block + drops the rehab questions.
+      if (String(pf.loan.loanType || '') === 'bridge') d.bridgeStabilized = 'yes';
+    }
     else if (lt === 'dscr') d.loanType = 'dscr';
   }
   // Loan purpose: derive purchase-vs-refi for DSCR (item #4 + #14)
@@ -800,15 +806,24 @@ function renderPage1() {
       // record. loanType/propertyType are the source of truth; the choice
       // is just their radio representation.
       if (d2.loanType) {
+        // Deploy 236.840 — Stabilized Bridge is a UI choice over the fix_flip
+        // internals (same pattern as dscr_mf over dscr): loanType stays
+        // 'fix_flip' so every sync/save/PDF path keeps working, and the
+        // d.bridgeStabilized marker carries the distinction.
         var expected = (d2.loanType === 'dscr')
           ? (d2.propertyType === 'mfr' ? 'dscr_mf' : 'dscr')
-          : d2.loanType;
+          : (d2.loanType === 'fix_flip' && d2.bridgeStabilized === 'yes')
+            ? 'stabilized_bridge'
+            : d2.loanType;
         if (d2.loanTypeChoice !== expected) d2.loanTypeChoice = expected;
       }
       return field('loanTypeChoice', 'What kind of loan do you need?', 'radio', {
         required: true,
         options: [
           { v: 'fix_flip',     l: 'Fix and Flip Loan' },
+          // Deploy 236.840 — bridge on a stabilized property (no rehab); the
+          // RTL sizer's Bridge track prefills this choice.
+          { v: 'stabilized_bridge', l: 'Stabilized Bridge Loan' },
           { v: 'dscr',         l: 'DSCR 1–4 Unit (Rental Purchase or Refi)' },
           { v: 'dscr_mf',      l: 'DSCR 5+ Unit Multifamily' },
           { v: 'construction', l: 'New Construction' },
@@ -833,7 +848,13 @@ function onLoanTypeChoice() {
   // (loanType 'dscr' + propertyType 'mfr' IS the dscr_mf state, however
   // 'mfr' got there — radio auto-set, page-3 pick, or prefill.)
   var wasMf = (d.loanType === 'dscr' && d.propertyType === 'mfr');
-  if (c === 'dscr_mf') {
+  // Deploy 236.840 — the Stabilized Bridge marker follows the same rule as
+  // 'mfr': set by its choice, cleared when the borrower picks anything else.
+  d.bridgeStabilized = (c === 'stabilized_bridge') ? 'yes' : '';
+  if (c === 'stabilized_bridge') {
+    d.loanType = 'fix_flip';
+    if (wasMf) d.propertyType = ''; // leaving MF — same clear as the else branch
+  } else if (c === 'dscr_mf') {
     d.loanType = 'dscr';
     d.propertyType = 'mfr';
   } else {
@@ -931,16 +952,21 @@ function renderPage3() {
 
   // ── Loan-type-specific blocks ────────────────────────
   if (lt === 'fix_flip') {
-    html += '<h4>Fix & flip details</h4>' +
+    // Deploy 236.840 — Stabilized Bridge (bridgeStabilized marker) shares the
+    // fix_flip internals but the property isn't being renovated: no reno
+    // budget, value asks for CURRENT value instead of ARV (the same `arv` key
+    // drives the sizer's Bridge LTV math), and the plan reads neutrally.
+    var isBridge = d.bridgeStabilized === 'yes';
+    html += '<h4>' + (isBridge ? 'Stabilized bridge details' : 'Fix & flip details') + '</h4>' +
       '<div class="field-row">' +
         field('purchasePrice',   'Purchase Price',     'number', { required: true, money: true }) +
-        field('arv',             'After Repair Value', 'number', { required: true, money: true }) +
+        field('arv',             isBridge ? 'Estimated Property Value' : 'After Repair Value', 'number', { required: true, money: true }) +
       '</div>' +
       '<div class="field-row">' +
-        field('renoCost',        'Estimated Reno Costs',          'number', { required: true, money: true }) +
+        (isBridge ? '' : field('renoCost', 'Estimated Reno Costs', 'number', { required: true, money: true })) +
         field('requestedLoanFF', 'Requested Loan Amount',         'number', { required: true, money: true }) +
       '</div>' +
-      field('planDescription', 'Description of plan for the project', 'textarea', { required: true }) +
+      field('planDescription', isBridge ? 'Description of your plan for the property' : 'Description of plan for the project', 'textarea', { required: true }) +
       field('exitStrategy', 'Planned Exit Strategy', 'radio', {
         required: true,
         options: [

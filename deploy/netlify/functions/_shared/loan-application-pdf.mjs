@@ -390,7 +390,13 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
                     || (loanRec && (loanRec.toolType === 'rtl' ? 'fix_flip' : loanRec.toolType))
                     || (pf.loan && pf.loan.toolType === 'rtl' ? 'fix_flip' : (pf.loan && pf.loan.toolType))
                     || '';
-      const loanTypeLabel = LOAN_TYPE_LABEL[loanType] || loanType || '';
+      // Deploy 236.840 — Stabilized Bridge rides the fix_flip internals with a
+      // marker (borrower-info.html loanTypeChoice); the PDF shows its real name.
+      const _isStabilizedBridge = loanType === 'fix_flip' &&
+        (data.bridgeStabilized === 'yes' || (loanRec && String(loanRec.loanType || '') === 'bridge'));
+      const loanTypeLabel = _isStabilizedBridge
+        ? 'Stabilized Bridge Loan'
+        : (LOAN_TYPE_LABEL[loanType] || loanType || '');
       const propertyTypeLabel = PROPERTY_TYPE_LABEL[data.propertyType] || data.propertyType || '';
 
       // The "Requested Loan Amount" field name varies by loan type
