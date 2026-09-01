@@ -27,7 +27,27 @@ export function xactusMissingVars() {
     .filter((k) => !process.env[k]);
 }
 
-function _url() {
+// Deploy 236.835 — Xactus issued SEPARATE credentials for soft pulls (the
+// SoftCheck/PQx product lives on its own account). SoftCheck orders use
+// XACTUS_SOFT_OPERATOR_ID / XACTUS_SOFT_PASSWORD (+ optional
+// XACTUS_SOFT_BASE_URL, falling back to the main XACTUS_BASE_URL); Merge
+// hard pulls + flood keep the main credentials.
+export function xactusSoftConfigured() {
+  return !!((process.env.XACTUS_SOFT_BASE_URL || process.env.XACTUS_BASE_URL) &&
+    process.env.XACTUS_SOFT_OPERATOR_ID && process.env.XACTUS_SOFT_PASSWORD);
+}
+export function xactusSoftMissingVars() {
+  const out = ['XACTUS_SOFT_OPERATOR_ID', 'XACTUS_SOFT_PASSWORD'].filter((k) => !process.env[k]);
+  if (!process.env.XACTUS_SOFT_BASE_URL && !process.env.XACTUS_BASE_URL) out.push('XACTUS_BASE_URL');
+  return out;
+}
+
+function _url(cred) {
+  if (cred === 'soft') {
+    return (process.env.XACTUS_SOFT_BASE_URL || process.env.XACTUS_BASE_URL) +
+      '?LoginAccountIdentifier=' + encodeURIComponent(process.env.XACTUS_SOFT_OPERATOR_ID) +
+      '&LoginAccountPassword=' + encodeURIComponent(process.env.XACTUS_SOFT_PASSWORD);
+  }
   return process.env.XACTUS_BASE_URL +
     '?LoginAccountIdentifier=' + encodeURIComponent(process.env.XACTUS_OPERATOR_ID) +
     '&LoginAccountPassword=' + encodeURIComponent(process.env.XACTUS_PASSWORD);
@@ -39,11 +59,12 @@ export function xesc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
-export async function postXactus(xml, timeoutMs) {
+// opts.cred: 'soft' routes through the SoftCheck credentials (236.835).
+export async function postXactus(xml, timeoutMs, opts) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs || 22000);
   try {
-    const resp = await fetch(_url(), {
+    const resp = await fetch(_url(opts && opts.cred), {
       method: 'POST',
       headers: { 'Content-Type': 'text/xml' },
       body: xml,

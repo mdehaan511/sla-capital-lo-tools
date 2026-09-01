@@ -31,7 +31,8 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 import { loadRecord } from './_shared/borrower-info-keys.mjs';
 import { attachPdfToReviewSlug } from './_shared/loan-review-auto-attach.mjs';
 import {
-  xactusConfigured, xactusMissingVars, buildCreditRequestXml, postXactus, parseCreditResponse, ficoBucketForScore,
+  xactusConfigured, xactusMissingVars, xactusSoftConfigured, xactusSoftMissingVars,
+  buildCreditRequestXml, postXactus, parseCreditResponse, ficoBucketForScore,
 } from './_shared/xactus.mjs';
 
 const CREDIT_VALID_DAYS = 120;
@@ -57,6 +58,11 @@ async function handle(req, context) {
   if (!body || !body.clientId) return json(400, { error: 'clientId required' });
   const gIndex = Math.max(0, parseInt(body.gIndex, 10) || 0);
   const reportType = body.reportType === 'SoftCheck' ? 'SoftCheck' : 'Merge';
+  // Deploy 236.835 — SoftCheck runs on its own Xactus account. Fail loud with
+  // the missing var NAMES so a Netlify-dashboard typo is diagnosable.
+  if (reportType === 'SoftCheck' && !xactusSoftConfigured()) {
+    return json(503, { error: 'Soft-pull credentials not configured — missing env var(s): ' + xactusSoftMissingVars().join(', ') + '. Check names + that the "Functions" scope is enabled on each in Netlify.' });
+  }
 
   const selfEmail = normalizeEmail(user.email);
   const ownerKey = body.owner ? keySafe(normalizeEmail(body.owner)) : keySafe(selfEmail);
@@ -138,7 +144,8 @@ async function handle(req, context) {
   const lenderCaseId = (loan && (loan.slaDisplayId || loan.id)) || client.id;
   const xml = buildCreditRequestXml(subject, { reportType, lenderCaseId });
   let resp;
-  try { resp = await postXactus(xml); }
+  // Deploy 236.835 — SoftCheck orders go out on the soft-pull credentials.
+  try { resp = await postXactus(xml, undefined, reportType === 'SoftCheck' ? { cred: 'soft' } : undefined); }
   catch (e) { return json(502, { error: 'Xactus request failed: ' + ((e && e.message) || 'network') }); }
   const parsed = parseCreditResponse(resp.text || '');
   if (!parsed.mid && parsed.errors.length) {
