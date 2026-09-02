@@ -65,6 +65,10 @@ const FIELDS = {
   bpoRepriceAckAt: 1, bpoRepriceAckAiv: 1, bpoRepriceAckArv: 1,
   // Deploy 236.777 — felony exception ack (keyed to the findings it covers).
   felonyAckAt: 1, felonyAckKey: 1,
+  // Deploy 236.849 — owner-occupancy critical flag + its resolution ack
+  // (the flag is normally stamped by borrower-info-sync at sign time; staff
+  // may also set/clear it, and the banner's Resolved button writes the ack).
+  occupancyIntent: 1, occupancyIntentBy: 1, occupancyAckAt: 1, occupancyAckKey: 1,
   // Deploy 236.750 — MF (5+) operating-statement fields, edited in the Loan
   // Details MF Operating Statement box; feed the MF sizer's NCF DSCR.
   // Deploy 236.762 — + rent (Total Monthly Rent): the MF box is the only

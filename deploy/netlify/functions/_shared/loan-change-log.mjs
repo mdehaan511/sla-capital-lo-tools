@@ -81,6 +81,10 @@ const FIELD_LABELS = {
   felonyGuarantor: 'Felony — Guarantor Background Check',
   felonyGuarantorDetail: 'Felony detail (guarantor)',
   felonyAckAt: 'Felony exception recorded',
+  // Deploy 236.849 — owner-occupancy critical flag.
+  occupancyIntent: 'Owner-occupancy intent declared',
+  occupancyIntentBy: 'Owner-occupancy declared by',
+  occupancyAckAt: 'Owner-occupancy alert resolved',
 };
 
 function labelFor(key) {
