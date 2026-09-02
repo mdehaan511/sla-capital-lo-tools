@@ -38,6 +38,9 @@ import {
   normalizeEmail, keySafe,
 } from './_shared/auth.mjs';
 import { hashPdf } from './_shared/native-esign.mjs';
+// Deploy 236.846 — one shared definition of "is this rate sheet signable?".
+// Browser twin lives at the bottom of deploy/sla-api.js (window.SLARateSheet).
+import { rateSheetSignable, isBroker, brokerOf } from './_shared/rate-sheet-signable.mjs';
 
 const VALID_DOC_KINDS = new Set(['rate_sheet', 'loan_app']);
 
@@ -130,6 +133,48 @@ async function handleCreate(req, context, user) {
     if (!client) return json(404, { error: 'Client not found' });
     const loan = (client.loans || []).find((l) => l.id === body.loanId);
     if (!loan) return json(404, { error: 'Loan not found' });
+
+    // Deploy 236.846 (Mike) — a rate sheet can only be SIGNED when the loan
+    // carries a real borrower/guarantor: first + last name, a usable email,
+    // and not the broker. Loan Details gates this and opens a collection
+    // modal, but the check belongs here too — the envelope is the thing that
+    // actually binds someone, and this endpoint is reachable directly. An
+    // unsignable sheet is still downloadable and emailable from the sizer; it
+    // just prints PRELIMINARY and never becomes an envelope.
+    if (docs.some((d) => d.kind === 'rate_sheet')) {
+      const gIds = Array.isArray(loan.guarantorClientIds) ? loan.guarantorClientIds : [];
+      const guarantors = [];
+      for (const gid of gIds.slice(0, 6)) {
+        if (!gid || gid === client.id) continue;
+        try {
+          const g = await clientsStore.get(`${ownerKey}/${gid}`, { type: 'json' });
+          if (g) guarantors.push(g);
+        } catch (_) {
+          // A guarantor filed under another LO can't be read from here; it
+          // just doesn't count toward eligibility.
+        }
+      }
+      const verdict = rateSheetSignable(client, loan, guarantors);
+      if (!verdict.ok) {
+        return json(409, {
+          code: 'rate_sheet_not_signable',
+          error: verdict.reason +
+            ' Add the borrower/guarantor to the loan, then send for signature.',
+        });
+      }
+      // ...and the person we are about to bind can't be the broker either.
+      // Without this the gate is decorative: the loan would qualify on its
+      // guarantor while the signers array still named the broker.
+      const broker = brokerOf(loan);
+      const brokerSigner = signers.find((s) => isBroker(s, broker));
+      if (brokerSigner) {
+        return json(409, {
+          code: 'signer_is_broker',
+          error: 'The signer on a rate sheet has to be the borrower or a guarantor. ' +
+            normalizeEmail(brokerSigner.email) + ' is the broker on this loan.',
+        });
+      }
+    }
   } catch (e) {
     console.error('envelopes-create loan lookup failed:', e);
     return json(500, { error: 'Could not load loan record' });

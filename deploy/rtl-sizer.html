@@ -4319,6 +4319,9 @@ netlifyIdentity.on('init', function(user) {
         // Deploy 236.359 — stash the loaded loan for the admin
         // Assign-LO widget (see dscr-sizer.html for details).
         window._loadedLoan = found;
+        // Deploy 236.846 - the rate-sheet PDF needs the primary client too, to
+        // decide whether to stamp PRELIMINARY (SLARateSheet.isPreliminary).
+        window._loadedClient = clientRec;
         // Deploy 236.140 — systemic union-merge (see dscr-sizer.html
         // for full rationale). formData provides sizer-specific
         // computed values (_finalRate, _points); top-level loan
@@ -4917,6 +4920,14 @@ function _generateRTLTransactionalPDF(opts) {
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
   doc.text('Transactional Funding Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
   y+=14;
+  // Deploy 236.846 (Mike) - a rate sheet whose loan has no real
+  // borrower/guarantor on file (or whose only contact is the broker)
+  // cannot be signed, so it prints marked PRELIMINARY. The rule lives in
+  // SLARateSheet (sla-api.js); Loan Details passes its own verdict as
+  // ?prelim=0|1 because only it can resolve guarantorClientIds.
+  if (window.SLARateSheet && window.SLARateSheet.isPreliminary()) {
+    y = window.SLARateSheet.stampPreliminary(doc, W, lm, cw, y);
+  }
 
   // LO contact
   var loName=window._loName||'', loPhone=window._loPhone||'', loEmail=window._loEmail||'';
@@ -5356,6 +5367,14 @@ function _generateRTLRateSheetPDF(opts) {
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
   doc.text('RTL Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
   y+=14;
+  // Deploy 236.846 (Mike) - a rate sheet whose loan has no real
+  // borrower/guarantor on file (or whose only contact is the broker)
+  // cannot be signed, so it prints marked PRELIMINARY. The rule lives in
+  // SLARateSheet (sla-api.js); Loan Details passes its own verdict as
+  // ?prelim=0|1 because only it can resolve guarantorClientIds.
+  if (window.SLARateSheet && window.SLARateSheet.isPreliminary()) {
+    y = window.SLARateSheet.stampPreliminary(doc, W, lm, cw, y);
+  }
 
   // LO contact
   var loName=window._loName||'', loPhone=window._loPhone||'', loEmail=window._loEmail||'';

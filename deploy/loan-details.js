@@ -2896,6 +2896,11 @@ function render() {
   // renders entirely from _client inline above, no fetch needed).
   refreshBorrowerInfoPanes();
 
+  // Deploy 236.846 — resolve the rate-sheet signature verdict and reflect it
+  // on the two rate-sheet buttons (see _rsApplyVerdict). Async because the
+  // guarantor client records have to be looked up by id.
+  _rsApplyVerdict();
+
   // Deploy 236.113 (Phase E) — populate the Additional Contacts list.
   refreshLoanContacts();
 
@@ -3789,17 +3794,28 @@ function _renderAuditLog(entries) {
   }).join('');
 }
 
-function openAddGuarantorModal() {
+// Deploy 236.846 — set when the modal is opened from the rate-sheet gate, so
+// the same modal can carry different framing and continue into the
+// Send-for-Signature flow on save instead of just re-rendering the page.
+// { title, hint (HTML), saveLabel, onSaved(loan) }
+var _agContext = null;
+
+function openAddGuarantorModal(ctx) {
+  _agContext = (ctx && typeof ctx === 'object' && !ctx.target) ? ctx : null;
+  var agTitle = (_agContext && _agContext.title) || 'Add Guarantor';
+  var agSaveLabel = (_agContext && _agContext.saveLabel) || 'Add Guarantor';
+  var agHint = (_agContext && _agContext.hint) ||
+    'Add an additional guarantor to this loan without re-routing through the long application. If their email matches an existing contact under you, we\'ll link to that contact and auto-fill the rest. The sub-form link is generated automatically.';
   var existing = document.getElementById('agModalBg');
   if (existing) existing.remove();
   var bg = document.createElement('div');
   bg.className = 'ag-modal-bg';
   bg.id = 'agModalBg';
-  bg.onclick = function(e) { if (e.target === bg) bg.remove(); };
+  bg.onclick = function(e) { if (e.target === bg) { _agContext = null; bg.remove(); } };
   bg.innerHTML =
     '<div class="ag-modal">' +
-      '<h3>Add Guarantor</h3>' +
-      '<div class="ag-hint">Add an additional guarantor to this loan without re-routing through the long application. If their email matches an existing contact under you, we\'ll link to that contact and auto-fill the rest. The sub-form link is generated automatically.</div>' +
+      '<h3>' + escH(agTitle) + '</h3>' +
+      '<div class="ag-hint">' + agHint + '</div>' +
       '<div class="ag-match" id="agMatch"></div>' +
       '<div class="ag-field"><label>Email <span style="color:var(--danger)">*</span></label>' +
         '<div class="ag-email-wrap">' +
@@ -3822,11 +3838,11 @@ function openAddGuarantorModal() {
       '<div class="ag-err" id="agErr"></div>' +
       '<div class="ag-actions">' +
         '<button type="button" id="agCancel">Cancel</button>' +
-        '<button type="button" class="primary" id="agSave">Add Guarantor</button>' +
+        '<button type="button" class="primary" id="agSave">' + escH(agSaveLabel) + '</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(bg);
-  document.getElementById('agCancel').onclick = function() { bg.remove(); };
+  document.getElementById('agCancel').onclick = function() { _agContext = null; bg.remove(); };
   document.getElementById('agSave').onclick = saveAddGuarantor;
   // Deploy 236.131 — start fetching clients immediately so the
   // suggestion dropdown can filter on the first keystroke (was
@@ -3983,6 +3999,9 @@ function _agConfirmExactMatch() {
 function saveAddGuarantor() {
   var btn = document.getElementById('agSave');
   var err = document.getElementById('agErr');
+  // Deploy 236.846 — the button label varies with the modal's context, so
+  // restore whatever it actually said rather than hard-coding it back.
+  var agLabel = btn ? btn.textContent : 'Add Guarantor';
   err.classList.remove('show'); err.textContent = '';
   function v(id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
   var email = v('agEmail').toLowerCase();
@@ -4008,7 +4027,7 @@ function saveAddGuarantor() {
   if (_loEmail && _user && _loEmail !== _user.email) payload.owner = _loEmail;
   SLA.api('POST', '/api/loan-add-guarantor', payload).then(function(r) {
     if (!r || !r.loan) {
-      btn.disabled = false; btn.textContent = 'Add Guarantor';
+      btn.disabled = false; btn.textContent = agLabel;
       err.textContent = 'Server did not return the updated loan.'; err.classList.add('show'); return;
     }
     _loan = r.loan;
@@ -4017,9 +4036,20 @@ function saveAddGuarantor() {
     var bg = document.getElementById('agModalBg');
     if (bg) bg.remove();
     _agAllClientsCache = null; // invalidate so subsequent opens re-scan
+    // Deploy 236.846 — the guarantor set just changed, so the cached
+    // rate-sheet verdict is stale. Clear it BEFORE render() (which re-runs
+    // _rsApplyVerdict) and hand control to the context's continuation.
+    _rsGuarantorCache = null;
+    var ctx = _agContext; _agContext = null;
     render(); // re-render full page so the new tab + sub-form card appear
+    // Hand the continuation the party we just entered as well as the loan —
+    // the guarantor's own client record may not be visible in the cached
+    // clients list yet.
+    if (ctx && typeof ctx.onSaved === 'function') {
+      ctx.onSaved(r.loan, { firstName: firstName, lastName: lastName, email: email, phone: phone });
+    }
   }).catch(function(e) {
-    btn.disabled = false; btn.textContent = 'Add Guarantor';
+    btn.disabled = false; btn.textContent = agLabel;
     err.textContent = 'Failed: ' + (e && e.message || 'unknown'); err.classList.add('show');
   });
 }
@@ -9886,7 +9916,141 @@ var _esSignerCount = 0;
 // to copy and text. Resets the link-display row + status on
 // every open so a re-open after a successful send shows a fresh
 // modal, not the stale "Copy" UI from last time.
+// ── Rate-sheet signature gate (Deploy 236.846, Mike) ────────────────
+// A rate sheet only becomes an ENVELOPE when the loan carries a real
+// borrower/guarantor — first + last name, a usable email — who is not the
+// broker. The rule itself lives in one place (window.SLARateSheet at the
+// bottom of sla-api.js, mirrored server-side in
+// _shared/rate-sheet-signable.mjs); this section is the Loan Details
+// plumbing around it:
+//
+//   _rsGuarantors()   resolve loan.guarantorClientIds -> client records
+//   _rsVerdict()      run the shared rule against them
+//   _rsApplyVerdict() reflect the answer on the two rate-sheet buttons and
+//                     hand it to the sizer as &prelim=0|1
+//
+// An unsignable loan can still print and email its rate sheet — the sizer
+// stamps PRELIMINARY on it. Only the signature path is blocked.
+
+var _rsGuarantorCache = null;  // Promise<Array<clientRecord>>, cleared on render
+
+function _rsGuarantors() {
+  if (_rsGuarantorCache) return _rsGuarantorCache;
+  var ids = (_loan && Array.isArray(_loan.guarantorClientIds)) ? _loan.guarantorClientIds : [];
+  if (!ids.length) { _rsGuarantorCache = Promise.resolve([]); return _rsGuarantorCache; }
+  // Same admin-aware pool fetch as refreshBorrowerInfoPanes / the guarantor
+  // select; SLA.Clients.list is cached, so this is usually free.
+  var p = SLA.isStaff(_user) ? SLA.Clients.list({ all: true, summary: true })
+                             : SLA.Clients.list({ summary: true });
+  _rsGuarantorCache = p.then(function(r) {
+    var pool = [];
+    if (r && r.byOwner) {
+      Object.keys(r.byOwner).forEach(function(k) { (r.byOwner[k] || []).forEach(function(c) { pool.push(c); }); });
+    } else {
+      pool = (r && r.clients) || [];
+    }
+    var byId = {};
+    pool.forEach(function(c) { if (c && c.id) byId[c.id] = c; });
+    var out = [];
+    ids.forEach(function(id) { if (byId[id]) out.push(byId[id]); });
+    return out;
+  }).catch(function() {
+    // A blip on the list call must not read as "this loan has no guarantor".
+    // Fall back to the denormalized copy the loan carries.
+    return (_loan && Array.isArray(_loan.guarantors)) ? _loan.guarantors : [];
+  });
+  return _rsGuarantorCache;
+}
+
+function _rsVerdict() {
+  return _rsGuarantors().then(function(gs) {
+    return window.SLARateSheet.signable(_client, _loan, gs);
+  });
+}
+
+// Reflect the verdict on the page: the download link tells the sizer whether
+// to stamp PRELIMINARY, and the Send-for-Signature button says up front that
+// it will ask for the borrower first (rather than looking broken when the
+// modal it opens isn't the one the LO expected).
+function _rsApplyVerdict() {
+  if (!window.SLARateSheet) return;
+  // render() is the only caller, and it runs after every mutation on this
+  // page — so this is where the resolved-guarantor cache gets dropped.
+  // SLA.Clients.list has its own 5-minute cache underneath, so re-resolving
+  // is usually free.
+  _rsGuarantorCache = null;
+  _rsVerdict().then(function(v) {
+    var dl = document.getElementById('ldDownloadRateSheetBtn');
+    if (dl && dl.href && dl.href.indexOf('download=1') >= 0) {
+      dl.href = dl.href.replace(/&prelim=[01]/, '') + '&prelim=' + (v.ok ? '0' : '1');
+    }
+    var sendBtn = document.getElementById('ldSendRateSheetBtn');
+    if (sendBtn) {
+      sendBtn.title = v.ok
+        ? ''
+        : v.reason + ' You will be asked for the borrower/guarantor before the sheet can be sent.';
+      sendBtn.classList.toggle('rs-needs-party', !v.ok);
+    }
+  }).catch(function() {});
+}
+
+// Entry point for the "Send Rate Sheet for Signature" button. Runs the gate
+// first; if the loan doesn't qualify, collect the missing party instead of
+// opening a send modal that would only fail at the server.
 function openSendForSignature() {
+  if (!window.SLARateSheet) { _esOpenModal(null); return; }
+  var btn = document.getElementById('ldSendRateSheetBtn');
+  var restore = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking borrower info…'; }
+  function done() { if (btn) { btn.disabled = false; btn.innerHTML = restore; } }
+  _rsVerdict().then(function(v) {
+    done();
+    if (v.ok) { _esOpenModal(v.signer); return; }
+    openRateSheetPartyModal(v);
+  }).catch(function() {
+    // Never hard-block on a lookup failure — envelopes.mjs enforces the same
+    // rule server-side, so the worst case is a clear 409 instead of a modal.
+    done();
+    _esOpenModal(null);
+  });
+}
+
+// The modal Mike asked for: pops when the borrower/guarantor info isn't on
+// the loan file, and requires it before the sheet can be sent for signature.
+// Deliberately reuses the shipped Add Guarantor modal (email autocomplete +
+// link-to-existing-contact) rather than growing a second, thinner one.
+function openRateSheetPartyModal(v) {
+  var why = (v && v.reason) || 'This loan has no borrower or guarantor on file.';
+  openAddGuarantorModal({
+    title: 'Borrower / Guarantor required',
+    saveLabel: 'Save & Continue',
+    hint:
+      '<strong>' + escH(why) + '</strong><br>' +
+      'A rate sheet can only be signed by the borrower or a guarantor, so add the ' +
+      'person who will sign. If their email matches an existing contact of yours we’ll ' +
+      'link to that contact and fill in the rest.<br><br>' +
+      '<span style="color:var(--muted)">You can still download and email the rate sheet ' +
+      'without this — it prints marked <strong>PRELIMINARY</strong> and can’t be executed.</span>',
+    onSaved: function(loan, party) {
+      // Go straight into the send modal with the person the LO just entered.
+      // Deliberately NOT re-derived from SLA.Clients.list: that list is cached
+      // stale-while-revalidate, so a brand-new guarantor client can be absent
+      // from it for a beat and the gate would bounce the LO right back to this
+      // modal. We have the party in hand — check it against the shared rule
+      // and use it.
+      _rsGuarantorCache = null;
+      var v2 = window.SLARateSheet.signable(party, loan || _loan);
+      if (v2.ok) { _esOpenModal(party); return; }
+      showToast(v2.reason);
+    },
+  });
+}
+
+// signer — the party the gate picked (primary borrower or a guarantor).
+// Falls back to _client so the pre-236.846 behaviour is unchanged whenever
+// the gate couldn't run.
+function _esOpenModal(signer) {
+  var who = signer || _client || {};
   document.getElementById('esDocRateSheet').checked = true;
   document.getElementById('esDocLoanApp').checked = false;
   document.getElementById('esMessage').value = '';
@@ -9897,9 +10061,12 @@ function openSendForSignature() {
   document.getElementById('esLinkInput').value = '';
   document.getElementById('esLinkRow').style.display = 'none';
 
-  document.getElementById('esSignerFirst').value = (_client && _client.firstName) || '';
-  document.getElementById('esSignerLast').value  = (_client && _client.lastName)  || '';
-  document.getElementById('esSignerEmail').value = (_client && _client.email)     || '';
+  // Deploy 236.846 — prefill from the party the gate cleared, not blindly from
+  // the primary client: on a broker deal the primary IS often the broker, and
+  // the signer is the guarantor the LO just added.
+  document.getElementById('esSignerFirst').value = who.firstName || '';
+  document.getElementById('esSignerLast').value  = who.lastName  || '';
+  document.getElementById('esSignerEmail').value = who.email     || '';
   var cb = document.getElementById('esSendEmailCb');
   cb.checked = true;
   if (!cb._esWired) {
@@ -10170,9 +10337,13 @@ function esSubmit() {
   // Deploy 236.748 — MF-program loans reopen in the Multifamily sizer.
   var sizerPage = _tt === 'rtl' ? '/rtl-sizer.html' : _tt === 'guc' ? '/guc-sizer.html'
                 : _loan.mfProgram ? '/mf-dscr-sizer.html' : '/dscr-sizer.html';
+  // Deploy 236.846 — we only reach this line after the gate passed, so tell
+  // the sizer explicitly NOT to stamp PRELIMINARY. Its own fallback check
+  // reads the denormalized loan.guarantors[], which lags a manual
+  // "+ Add Guarantor" and would otherwise mark a perfectly signable sheet.
   var sizerParams = 'clientId=' + encodeURIComponent(_clientId) +
                     '&loanId=' + encodeURIComponent(_loanId) +
-                    '&signatureMode=1';
+                    '&signatureMode=1&prelim=0';
   if (_loan.address) sizerParams += '&loadQuote=' + encodeURIComponent(_loan.address);
   if (_loEmail && _user && _loEmail !== _user.email) {
     sizerParams += '&owner=' + encodeURIComponent(_loEmail);

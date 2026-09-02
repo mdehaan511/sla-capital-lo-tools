@@ -2502,6 +2502,14 @@ function _generateRateSheetPDF(opts) {
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
   doc.text('DSCR Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
   y += 14;
+  // Deploy 236.846 (Mike) - a rate sheet whose loan has no real
+  // borrower/guarantor on file (or whose only contact is the broker)
+  // cannot be signed, so it prints marked PRELIMINARY. The rule lives in
+  // SLARateSheet (sla-api.js); Loan Details passes its own verdict as
+  // ?prelim=0|1 because only it can resolve guarantorClientIds.
+  if (window.SLARateSheet && window.SLARateSheet.isPreliminary()) {
+    y = window.SLARateSheet.stampPreliminary(doc, W, lm, cw, y);
+  }
 
   // ── LO CONTACT LINE ────────────────────────────────────────────
   var loName  = window._loName  || '';
@@ -4750,6 +4758,9 @@ netlifyIdentity.on('init', function(user) {
           // Assign-LO widget (mounted after load) can read
           // fromApplication / rate / status without re-fetching.
           window._loadedLoan = found;
+          // Deploy 236.846 - the rate-sheet PDF needs the primary client too, to
+          // decide whether to stamp PRELIMINARY (SLARateSheet.isPreliminary).
+          window._loadedClient = clientRec;
           // Deploy 236.140 — systemic fix: hydrate from the UNION of
           // loan.formData + loan top-level values, with top-level
           // winning whenever it has a defined value. This guarantees

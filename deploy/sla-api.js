@@ -3205,3 +3205,211 @@ if (typeof window !== 'undefined' && typeof window.applyPhoneMask !== 'function'
     else                         el.value = '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
   };
 }
+
+// ── Rate-sheet signature eligibility (Deploy 236.846, Mike) ──────────
+// ONE definition of "can this rate sheet be signed?", shared by the three
+// surfaces that have to agree on the answer:
+//
+//   1. loan-details.js — gates "Send Rate Sheet for Signature" and opens
+//      the collection modal when the loan does not qualify.
+//   2. the four sizers — stamp PRELIMINARY on the generated PDF when the
+//      loan does not qualify (the sheet still prints and can still be
+//      emailed; it just can't be executed).
+//   3. envelopes.mjs — refuses a rate_sheet envelope server-side. The
+//      server copy lives in _shared/rate-sheet-signable.mjs; the two are
+//      deliberate duplicates (no bundler) — change them together.
+//
+// The rule is PARTY-based, not slot-based. A rate sheet is signable when
+// the loan carries at least one real person we could put on the signature
+// line: first name, last name, a usable email — and that person is not the
+// broker. Candidate parties are the primary client (the UI labels them
+// "Guarantor 1 (Primary)") plus every linked guarantor.
+//
+// Why the broker check: on broker deals LOs have been filling the primary
+// client record with the BROKER's contact info — see the Deploy 236.327
+// note in loan-details.js, where the Borrower LLC box showed the broker
+// "Nexa Lending" instead of the vesting entity. The rate sheet then went
+// out for signature to the broker rather than to the party actually
+// obligated on the loan.
+(function () {
+  function _s(v) { return String(v == null ? '' : v).trim(); }
+  function _low(v) { return _s(v).toLowerCase(); }
+
+  // Loose name key so "Nexa Lending" and "nexa lending," compare equal.
+  function _nameKey(v) { return _low(v).replace(/[.,]/g, '').replace(/\s+/g, ' '); }
+
+  // A "real" email — good enough to put a signing invitation behind.
+  // Deliberately rejects the no-email-<loanid>@unspecified.sla stub that
+  // the link-only send path writes onto envelopes: an envelope carrying
+  // that placeholder is not evidence of a contactable signer.
+  function realEmail(v) {
+    var e = _low(v);
+    if (!e || e.indexOf('@unspecified.sla') >= 0) return false;
+    if (/^(no-?reply|donotreply)@/.test(e)) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+  }
+
+  function fullName(p) {
+    if (!p) return '';
+    var n = (_s(p.firstName) + ' ' + _s(p.lastName)).trim();
+    return n || _s(p.name);
+  }
+
+  // Broker identity on the loan. brokerEmail / brokerName live at the top
+  // level on LO-entered loans and under formData on the ones that arrived
+  // through the public application, so both are checked.
+  function brokerOf(loan) {
+    var l = loan || {};
+    var fd = l.formData || {};
+    var email = _low(l.brokerEmail || fd.brokerEmail || '');
+    var names = [];
+    [l.brokerName, fd.brokerName, l.brokerCompany, fd.brokerCompany].forEach(function (n) {
+      var v = _nameKey(n);
+      if (v && names.indexOf(v) < 0) names.push(v);
+    });
+    return { email: email, names: names, present: !!(email || names.length) };
+  }
+
+  function isBroker(party, broker) {
+    if (!broker || !broker.present || !party) return false;
+    if (broker.email && _low(party.email) === broker.email) return true;
+    var n = _nameKey(fullName(party));
+    return !!n && broker.names.indexOf(n) >= 0;
+  }
+
+  // Why one party can't be the signer. '' means they can.
+  function partyProblem(party, broker) {
+    if (!party) return 'missing';
+    if (!_s(party.firstName) || !_s(party.lastName)) return 'name';
+    if (!realEmail(party.email)) return 'email';
+    if (isBroker(party, broker)) return 'broker';
+    return '';
+  }
+
+  var REASONS = {
+    missing: 'This loan has no borrower or guarantor on file.',
+    name:    'The borrower/guarantor on this loan is missing a first or last name.',
+    email:   'The borrower/guarantor on this loan has no email address.',
+    broker:  'The only contact on this loan is the broker. A rate sheet has to be signed by the borrower or a guarantor, not by the broker.'
+  };
+  // Ranked worst -> closest to passing, so the message names the thing the
+  // LO most needs to fix rather than whichever party happened to be first.
+  var RANK = ['missing', 'broker', 'email', 'name'];
+
+  /**
+   * client      the loan's primary client record (Guarantor 1)
+   * loan        the loan record
+   * guarantors  OPTIONAL array of RESOLVED guarantor client records.
+   *   Callers that can resolve loan.guarantorClientIds (loan-details) should
+   *   pass them. Callers that can't (the sizers) omit it and we fall back to
+   *   the denormalized loan.guarantors[] array — which can lag a manual
+   *   "+ Add Guarantor", so a sizer may read PRELIMINARY on a loan that
+   *   loan-details considers signable. Loan Details therefore passes its own
+   *   verdict to the sizer as &prelim=0|1 and that wins.
+   * returns { ok, reason, signer, broker, parties }
+   */
+  function signable(client, loan, guarantors) {
+    var l = loan || {};
+    var broker = brokerOf(l);
+    var parties = [];
+    if (client) parties.push(client);
+    var extra = (guarantors && guarantors.length)
+      ? guarantors
+      : (Array.isArray(l.guarantors) ? l.guarantors : []);
+    for (var e = 0; e < extra.length; e++) if (extra[e]) parties.push(extra[e]);
+
+    if (!parties.length) {
+      return { ok: false, reason: REASONS.missing, signer: null, broker: broker, parties: [] };
+    }
+
+    var worst = null;
+    for (var i = 0; i < parties.length; i++) {
+      var why = partyProblem(parties[i], broker);
+      if (!why) return { ok: true, reason: '', signer: parties[i], broker: broker, parties: parties };
+      if (worst === null || RANK.indexOf(why) < RANK.indexOf(worst)) worst = why;
+    }
+    return { ok: false, reason: REASONS[worst] || REASONS.missing, signer: null, broker: broker, parties: parties };
+  }
+
+  // The line that goes on a PDF the borrower can't execute.
+  var PRELIM_TITLE = 'PRELIMINARY - NOT FOR SIGNATURE';
+  var PRELIM_BODY  = 'Borrower and guarantor information is not yet on file for this loan, so this rate sheet cannot be executed. It is provided for pricing discussion only. Once the borrower and guarantor details are recorded, SLA Capital will issue a final rate sheet for signature.';
+
+  /**
+   * Draw the PRELIMINARY banner on a jsPDF rate sheet. Called by every
+   * sizer generator immediately below the "Prepared <date>" subtitle, so
+   * it reads before any number does. Returns the new y cursor.
+   */
+  function stampPreliminary(doc, W, lm, cw, y) {
+    var H = 26;
+    doc.setFillColor(253, 240, 232);
+    doc.setDrawColor(198, 93, 40);
+    doc.setLineWidth(0.8);
+    doc.roundedRect(lm, y, cw, H, 4, 4, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(160, 60, 20);
+    doc.text(PRELIM_TITLE, W / 2, y + 12, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text('Pricing estimate only - borrower and guarantor information is not yet on file.', W / 2, y + 21, { align: 'center' });
+    return y + H + 10;
+  }
+
+  window.SLARateSheet = {
+    signable: signable,
+    brokerOf: brokerOf,
+    isBroker: isBroker,
+    realEmail: realEmail,
+    fullName: fullName,
+    partyProblem: partyProblem,
+    stampPreliminary: stampPreliminary,
+    PRELIM_TITLE: PRELIM_TITLE,
+    PRELIM_BODY: PRELIM_BODY
+  };
+  if (window.SLA) window.SLA.RateSheet = window.SLARateSheet;
+})();
+
+// ── Sizer side of the rate-sheet gate (Deploy 236.846) ──────────────
+// Every sizer's jsPDF generator asks this one question before it draws:
+// should this sheet carry the PRELIMINARY banner?
+//
+// Answer, in priority order:
+//   1. ?prelim=0|1 in the URL — Loan Details' verdict, and it wins. Only
+//      Loan Details can resolve loan.guarantorClientIds into real client
+//      records, so its answer is the authoritative one.
+//   2. A loan is loaded in the sizer — run the shared rule against
+//      window._loadedClient / window._loadedLoan (the guarantor fallback
+//      is the denormalized loan.guarantors[], which can lag).
+//   3. No loan at all — an ad-hoc quote. Grade it on the borrower name +
+//      email typed into the sizer's own fields: a sheet with a named,
+//      contactable borrower on it is a real sheet; a blank one is a
+//      pricing estimate and says so.
+if (typeof window !== 'undefined' && window.SLARateSheet) {
+  window.SLARateSheet.isPreliminary = function () {
+    try {
+      var p = new URLSearchParams(window.location.search).get('prelim');
+      if (p === '1') return true;
+      if (p === '0') return false;
+    } catch (_) { /* older browser without URLSearchParams — fall through */ }
+
+    if (window._loadedLoan) {
+      return !window.SLARateSheet.signable(window._loadedClient, window._loadedLoan).ok;
+    }
+
+    // Ad-hoc quote: the sizer's own borrower fields are all we have. The
+    // name field is one input, so split on the last space to get a surname.
+    function val(id) {
+      var el = document.getElementById(id);
+      return el ? String(el.value || '').trim() : '';
+    }
+    var nm = val('borrowerName');
+    var sp = nm.lastIndexOf(' ');
+    var party = {
+      firstName: sp > 0 ? nm.slice(0, sp) : nm,
+      lastName:  sp > 0 ? nm.slice(sp + 1) : '',
+      email:     val('borrowerEmail'),
+    };
+    return !window.SLARateSheet.signable(party, {}).ok;
+  };
+}
