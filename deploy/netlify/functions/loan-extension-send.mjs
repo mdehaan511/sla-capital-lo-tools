@@ -12,7 +12,7 @@
  * Body: {
  *   clientId, loanId, owner?,
  *   newMaturityDate,            // YYYY-MM-DD (UI defaults maturity+90d)
- *   extensionDays?,             // 90 default — only feeds the wording
+ *   (term is a flat "three (3) months" in the agreement text — 236.845)
  *   extensionFee?,              // $ (default 1% of original loan amount)
  *   currentUpb?,                // $ (default loan.upb, else loan amount)
  *   feeHandling?,               // 'at_signing' (default) | 'add_to_principal'
@@ -85,7 +85,6 @@ async function handle(req, context) {
     propertyAddress: loan.address || '',
     currentUpb:      _num(body.currentUpb) || _num(loan.upb) || loanAmount,
     newMaturityDate: String(body.newMaturityDate || '').slice(0, 10),
-    extensionDays:   parseInt(body.extensionDays, 10) || 90,
     extensionFee:    _num(body.extensionFee) || Math.round(loanAmount * 0.01 * 100) / 100,
     feeHandling:     body.feeHandling === 'add_to_principal' ? 'add_to_principal' : 'at_signing',
     lenderName:      String(body.lenderName || (DEFAULT_LENDER.firstName + ' ' + DEFAULT_LENDER.lastName)).slice(0, 120),
@@ -140,8 +139,10 @@ async function handle(req, context) {
     sequential: true,
     envelopeKind: 'loan_extension',
     propertyAddress: loan.address || '',
+    // Deploy 236.845 — the agreement term is a flat "three (3) months"
+    // (new maturity defaults to the 1st of the month 3 months out).
     extensionTerms: {
-      newMaturityDate: values.newMaturityDate, extensionDays: values.extensionDays,
+      newMaturityDate: values.newMaturityDate, extensionMonths: 3,
       extensionFee: values.extensionFee, feeHandling: values.feeHandling,
       currentUpb: values.currentUpb, priorMaturityDate: loan.maturityDate || '',
     },

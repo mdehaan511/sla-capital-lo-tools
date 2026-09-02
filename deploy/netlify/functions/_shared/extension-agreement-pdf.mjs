@@ -38,7 +38,7 @@ function fmtDate(v) {
  *   todaysDate, borrowerName, originationDate, loanAmount, propertyAddress,
  *   currentUpb, newMaturityDate, extensionFee,
  *   feeHandling: 'at_signing' | 'add_to_principal',
- *   lenderName (signer, e.g. 'Mike DeHaan'), extensionDays (default 90)
+ *   lenderName (signer, e.g. 'Mike DeHaan')
  */
 export function buildExtensionAgreementPdf(v) {
   return new Promise((resolve, reject) => {
@@ -48,9 +48,9 @@ export function buildExtensionAgreementPdf(v) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    const days = parseInt(v.extensionDays, 10) || 90;
-    const daysWords = { 30: 'thirty (30)', 60: 'sixty (60)', 90: 'ninety (90)', 120: 'one hundred twenty (120)', 180: 'one hundred eighty (180)' };
-    const daysText = daysWords[days] || (days + ' (' + days + ')');
+    // Deploy 236.845 — the extension term reads "three (3) months" (Mike),
+    // matching the new-maturity default of the 1st of the month three months
+    // out (an exact day count would drift once the date snaps to the 1st).
     const atSigning = v.feeHandling !== 'add_to_principal';
 
     const H = () => doc.font('Times-Bold').fontSize(11);
@@ -80,8 +80,7 @@ export function buildExtensionAgreementPdf(v) {
     doc.moveDown(1);
 
     H().text('3. EXTENSION OF MATURITY DATE', { continued: true });
-    B().text('  The Lender agrees to extend the current maturity date of the Loan for a period of ' + daysText +
-      ' days. The new maturity date for the Loan shall be ' + fmtDate(v.newMaturityDate) + '.', { lineGap: 3 });
+    B().text('  The Lender agrees to extend the current maturity date of the Loan for a period of three (3) months. The new maturity date for the Loan shall be ' + fmtDate(v.newMaturityDate) + '.', { lineGap: 3 });
     doc.moveDown(1);
 
     H().text('4. EXTENSION FEE', { continued: true });

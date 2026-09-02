@@ -98,6 +98,12 @@
     .cl-tbl td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
     .cl-tbl tbody tr.lrow { cursor: pointer; }
     .cl-tbl tbody tr.lrow:hover { background: var(--d-sold-bg); }
+    /* Deploy 236.845 (Mike) — servicing rows tint as maturity approaches:
+       yellow within 60 days, light red within 30 days (or past maturity). */
+    .cl-tbl tbody tr.lrow.mat-warn { background: #fef9c3; }
+    .cl-tbl tbody tr.lrow.mat-warn:hover { background: #fef08a; }
+    .cl-tbl tbody tr.lrow.mat-urgent { background: #fee2e2; }
+    .cl-tbl tbody tr.lrow.mat-urgent:hover { background: #fecaca; }
     .cl-addr { font-weight: 600; }
     .cl-num { font-family: 'DM Mono', monospace; }
     .cl-ph { color: var(--muted); }
@@ -677,11 +683,25 @@ function _colDesc(b){
   return { tab:'servicing', sort:svcVal, cells:_svcCellsFull,
     head: svcHeadCols('servicing','<th>Servicer</th><th>Servicer Loan #</th>',true) };
 }
+// Deploy 236.845 (Mike) — servicing rows tint by maturity proximity so loans
+// nearing maturity jump out: yellow ≤60 days, light red ≤30 days (a PAST-DUE
+// maturity stays red too — it's the most urgent case, not a cleared one).
+function _matClass(l){
+  var md = parseLocalDate(l.maturityDate);
+  if (!md) return '';
+  var today = new Date(); today.setHours(0,0,0,0);
+  var days = Math.round((md.getTime() - today.getTime()) / 86400000);
+  if (days <= 30) return ' mat-urgent';
+  if (days <= 60) return ' mat-warn';
+  return '';
+}
 function _dispBody(group, disp, includeDisp){
   var d=_colDesc(disp);
   var head='<tr>'+d.head+(includeDisp?'<th>Disposition</th>':'')+'</tr>';
   var rows=group.map(function(it){
-    return '<tr class="lrow" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>';
+    // Maturity tint only on servicing views — sold/paid-off buckets don't service maturity.
+    var mc = disp==='servicing' ? _matClass(it.loan) : '';
+    return '<tr class="lrow'+mc+'" onclick="window.location.href=\''+escAttr(loanHref(it))+'\'">'+d.cells(it)+(includeDisp?dispCell(it):'')+'</tr>';
   }).join('');
   return '<div class="cl-scroll"><table class="cl-tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>';
 }
@@ -1109,7 +1129,7 @@ function renderServicing(items){
   });
   group = sortItems(group, 'servicing', svcVal);
   if (!group.length) return '<div class="cl-empty">No loans in servicing.</div>';
-  var note = '<div class="cl-note">Every loan SLA services, in one list — the legacy Servicing tag, RTL loans pending sale, and Sold-RTL loans (sold to an investor but still serviced). DSCRs are not serviced here. Use the <strong>Disposition</strong> dropdown to move a loan to <strong>Paid Off</strong> (you\'ll be prompted for the payoff amount &amp; date).</div>';
+  var note = '<div class="cl-note">Every loan SLA services, in one list — the legacy Servicing tag, RTL loans pending sale, and Sold-RTL loans (sold to an investor but still serviced). DSCRs are not serviced here. Use the <strong>Disposition</strong> dropdown to move a loan to <strong>Paid Off</strong> (you\'ll be prompted for the payoff amount &amp; date). Rows highlight <strong style="background:#fef9c3;padding:0 4px">yellow</strong> within 60 days of maturity and <strong style="background:#fee2e2;padding:0 4px">red</strong> within 30 days (or past maturity).</div>';
   // Deploy 236.733 (Mike) — includeDisp:true adds the staff Disposition picker so a
   // servicing loan can be marked Paid Off (or moved) right from this list; picking
   // "Paid Off" opens the confirm modal that collects payoff amount + date.
