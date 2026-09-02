@@ -548,7 +548,13 @@ export function renderSignedApplicationPDF({ record, client, signers, status, un
         if (dscrStr)         row('Estimated DSCR', dscrStr);
         const purposeStr = purposeDisplay();
         if (purposeStr)      row('Loan Purpose', purposeStr);
-        row('Escrow Account', 'Yes (Taxes and Insurance)');
+        // Deploy 236.855 (Mike) — escrow for taxes & insurance exists only on
+        // the long-term products: YES for DSCR (1–4) and Multifamily 5+ (both
+        // carry loanType 'dscr'); NO for every short-term product — RTL /
+        // Fix & Flip, Stabilized Bridge, Transactional, and GUC. SLA does not
+        // escrow on those (the doc-review term-sheet rubric says the same),
+        // and the old hardcoded "Yes" made the AI flag clean short-term deals.
+        row('Escrow Account', isDSCR ? 'Yes (Taxes and Insurance)' : 'No');
 
         // Rate-lock footnote (DIYA-style). Small italic muted body.
         doc.moveDown(0.3);
