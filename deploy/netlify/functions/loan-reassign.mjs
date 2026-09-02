@@ -190,6 +190,17 @@ async function handle(req, context) {
     loan._isBrokerLoan = true;
     loan._brokerModeSetAt = now;
     loan._brokerModeSetBy = selfEmail;
+  } else if (loan._isBrokerLoan === true && !loan.brokerId && !loan.brokerEmail && !loan.brokerName &&
+      destClient._isBroker !== true && destClient._isBrokerPlaceholder !== true) {
+    // Deploy 236.852 (Mike, Locust Ave) — the flag above is set when Clear
+    // Primary Guarantor parks a loan on a placeholder (no real broker — a
+    // technical mode that hides borrower fields). Moving the loan onto a
+    // REAL client must clear that phantom mode, or broker-aware surfaces
+    // (long-app Guarantor #1 prefill, rate-sheet signature gate) stay
+    // poisoned forever. Real broker deals carry broker identity — untouched.
+    loan._isBrokerLoan = false;
+    loan._brokerModeClearedAt = now;
+    loan._brokerModeClearedBy = selfEmail;
   }
 
   // Audit note on the loan

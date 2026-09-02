@@ -140,6 +140,19 @@ async function handle(req, context) {
   loan._movedBy = selfEmail;
   loan._movedFromClientId = src.id;
   loan.updatedAt = now;
+  // Deploy 236.852 (Mike, Locust Ave) — leaving placeholder parking: the
+  // "Clear Primary Guarantor" flow marks a loan _isBrokerLoan:true as a
+  // technical device (hides borrower fields while no borrower exists), with
+  // NO actual broker attached. Once a real person becomes primary that mode
+  // must clear, or it poisons broker-aware surfaces forever (the long-app
+  // prefill skipped the Guarantor #1 mirror on David Starkweather's re-send).
+  // Only phantom mode is cleared — a real broker deal has broker identity.
+  if (loan._isBrokerLoan === true && !loan.brokerId && !loan.brokerEmail && !loan.brokerName &&
+      dest._isBroker !== true && dest._isBrokerPlaceholder !== true) {
+    loan._isBrokerLoan = false;
+    loan._brokerModeClearedAt = now;
+    loan._brokerModeClearedBy = selfEmail;
+  }
   {
     const meta = (user && user.user_metadata) || {};
     const author = meta.full_name || meta.fullName || user.email || '';

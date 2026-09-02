@@ -85,6 +85,8 @@ const FIELD_LABELS = {
   occupancyIntent: 'Owner-occupancy intent declared',
   occupancyIntentBy: 'Owner-occupancy declared by',
   occupancyAckAt: 'Owner-occupancy alert resolved',
+  // Deploy 236.852 — broker-mode flag (phantom-mode clears).
+  _isBrokerLoan: 'Broker mode',
 };
 
 function labelFor(key) {
