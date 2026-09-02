@@ -37,6 +37,12 @@ import { writeClient } from './_shared/client-write.mjs';
 import { diffLoan, recordLoanChanges } from './_shared/loan-change-log.mjs';
 import { findClientByEmail, findClientById } from './_shared/client-lookup.mjs'; // Deploy 236.418
 import { queueTruthRefresh } from './_shared/review-truth.mjs'; // Deploy 236.818
+// Deploy 236.850 — adding a guarantor must ALSO land on the loan application:
+// append them to data.guarantors (so a recreated long app auto-fills the new
+// guarantor) and, if the app was already signed, reset it for re-signature —
+// same treatment as removal (236.703). Signed docs can't silently keep an
+// outdated guarantor set.
+import { resetApplicationForResign } from './_shared/application-resign-reset.mjs';
 
 export default async (req, context) => {
   try { return await handle(req, context); }
@@ -258,6 +264,33 @@ async function handle(req, context) {
   try { await writeClient(ownerKey, primary, { clientsStore }); }
   catch (e) { return json(500, { error: 'Failed to write primary client: ' + (e.message || 'unknown') }); }
 
+  // Deploy 236.850 (Mike) — put the new guarantor ON the loan application:
+  // append to data.guarantors (dedupe by email; index 0 = primary is never
+  // touched) so a recreated long app auto-fills them, and if the app was
+  // already signed, reset it to awaiting-signatures — the signed copy no
+  // longer reflects the guarantor set. Best-effort, mirrors the remove path.
+  let applicationReset = false;
+  try {
+    const appendGuarantor = (data) => {
+      if (!Array.isArray(data.guarantors)) data.guarantors = [];
+      while (data.guarantors.length < 1) data.guarantors.push({});
+      const exists = data.guarantors.some((gg, i) =>
+        i > 0 && gg && String(gg.email || '').toLowerCase() === email);
+      if (exists) return false;
+      data.guarantors.push({
+        firstName, lastName, email, phone,
+        ownership: isFinite(pct) ? String(pct) : '',
+      });
+      return true;
+    };
+    const r = await resetApplicationForResign({
+      ownerKey, clientId: primary.id, loanId, transformData: appendGuarantor,
+    });
+    applicationReset = !!(r && r.reset);
+  } catch (e) {
+    console.warn('loan-add-guarantor: application update/reset failed (non-fatal):', e && e.message);
+  }
+
   // Deploy 236.773 — audit log (best-effort; must never fail the save).
   try {
     const _alActor = normalizeEmail(user.email);
@@ -270,10 +303,13 @@ async function handle(req, context) {
 
   // Deploy 236.818 — refresh the Doc Review's point of truth + re-run its
   // reviewed docs against the updated guarantor set (best-effort background).
+  // 236.850: guarantorsChanged makes the refresher flag any still-signed
+  // application / rate sheet as needing re-signature.
   await queueTruthRefresh({
     ownerKey, clientId: primary.id, loanId: loan.id,
     reason: 'guarantor ' + String(firstName + ' ' + lastName).trim() + ' added',
     actorEmail: normalizeEmail(user.email),
+    guarantorsChanged: true,
   });
 
 
@@ -283,6 +319,7 @@ async function handle(req, context) {
     guarantor,
     tokenEntry,
     matchedExistingClient,
+    applicationReset,
   });
 }
 

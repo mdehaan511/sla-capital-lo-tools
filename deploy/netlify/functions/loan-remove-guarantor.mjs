@@ -247,6 +247,7 @@ async function handle(req, context) {
     ownerKey, clientId: primary.id, loanId: loan.id,
     reason: 'guarantor ' + guarantorLabel + ' removed',
     actorEmail: selfEmail,
+    guarantorsChanged: true, // 236.850 — flags still-signed app + rate sheet
   });
 
 

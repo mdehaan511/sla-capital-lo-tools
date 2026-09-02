@@ -41,10 +41,13 @@ export function internalBgSig(reviewId, slug) {
  * @param {string} opts.loanId
  * @param {string} opts.reason    human-readable, lands in the re-review notes
  * @param {string} opts.actorEmail
+ * @param {boolean} opts.guarantorsChanged  Deploy 236.850 — the refresher then
+ *   flags any still-signed loan application / rate sheet as needing re-signature
+ *   (signed docs must not silently carry an outdated guarantor set).
  */
 export async function queueTruthRefresh(opts) {
   try {
-    const { ownerKey, clientId, loanId, reason, actorEmail } = opts || {};
+    const { ownerKey, clientId, loanId, reason, actorEmail, guarantorsChanged } = opts || {};
     if (!loanId || !ownerKey || !clientId) return { ok: false, reason: 'missing args' };
     const sig = internalTruthSig(loanId);
     if (!sig) return { ok: false, reason: 'no secret configured' };
@@ -52,7 +55,7 @@ export async function queueTruthRefresh(opts) {
     const r = await fetch(base + '/.netlify/functions/loan-review-refresh-background', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-sla-internal': sig },
-      body: JSON.stringify({ ownerKey, clientId, loanId, reason: reason || '', actorEmail: actorEmail || '' }),
+      body: JSON.stringify({ ownerKey, clientId, loanId, reason: reason || '', actorEmail: actorEmail || '', guarantorsChanged: guarantorsChanged === true }),
     });
     return { ok: r.status === 202 || r.ok, status: r.status };
   } catch (e) {

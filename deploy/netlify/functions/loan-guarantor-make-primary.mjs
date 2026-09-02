@@ -346,6 +346,10 @@ async function handle(req, context) {
         ? 'primary guarantor removed — ' + (newPrimaryName || dest.email || dest.id) + ' promoted to primary'
         : 'primary switched to ' + (newPrimaryName || dest.email || dest.id),
       actorEmail: selfEmail,
+      // 236.850 — a promote-with-removal changes WHO is on the deal, so
+      // still-signed docs get flagged for re-signature; a pure switch keeps
+      // the same parties (signatures deliberately survive, 236.705).
+      guarantorsChanged: !!removeOldPrimary,
     });
   } catch (e) { console.warn('make-primary: truth refresh queue failed (non-fatal):', e && e.message); }
 

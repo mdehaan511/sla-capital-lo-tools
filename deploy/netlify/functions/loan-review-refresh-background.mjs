@@ -136,10 +136,45 @@ async function handle(req, context) {
       tray.aiNotes = 'The loan application changed (' + reason + ') and no current signed application is on file — this attached copy is OUTDATED. It will refresh automatically when the corrected application is signed.';
       tray.aiReviewedAt = now;
       tray.verdict = 'pending';
+      tray.approvedAt = ''; tray.approvedBy = '';
       appAction = 'flagged-stale';
     }
   } catch (e) {
     console.warn('truth-refresh: signed-app step failed (non-fatal):', e && e.message);
+  }
+
+  // ── 3b. Deploy 236.850 (Mike, Locust Ave loan) — a GUARANTOR change makes
+  // every already-signed source document unacceptable: the parties on the
+  // signed copy are no longer the parties on the deal. Flag the attached
+  // signed application (when it wasn't just reattached fresh above) AND the
+  // signed rate sheet / term sheet as needing re-signature. Both clear
+  // themselves: a re-signed application re-attaches via this refresher /
+  // borrower-info-sign, and a newly signed rate sheet attaches via the
+  // envelope-sign completion hook (236.849) — attachToSlug resets the flag.
+  const guarantorsChanged = body.guarantorsChanged === true || /guarantor/i.test(reason);
+  let flagged = [];
+  if (guarantorsChanged) {
+    const flagTray = (slug, what, how) => {
+      const t = review.docs && review.docs[slug];
+      if (!t || !t.currentDocId) return false;
+      t.verdict = 'pending';
+      t.approvedAt = ''; t.approvedBy = '';
+      t.aiVerdict = 'needs_manual_review';
+      t.aiReviewedAt = now;
+      t.aiNotes = 'GUARANTORS CHANGED (' + reason + ') — the signed ' + what +
+        ' on file was executed by the previous guarantor set and is NO LONGER ACCEPTABLE. ' + how;
+      return true;
+    };
+    if (appAction === 'unchanged' &&
+        flagTray(LOAN_APP_SLUG, 'loan application',
+          'Re-send the application for signature; the corrected signed copy will attach and clear this automatically.')) {
+      appAction = 'flagged-guarantor-change';
+      flagged.push(LOAN_APP_SLUG);
+    }
+    if (flagTray(RATE_SHEET_SLUG, 'rate sheet / term sheet',
+        'Re-send the rate sheet for signature; the newly signed copy will attach and clear this automatically.')) {
+      flagged.push(RATE_SHEET_SLUG);
+    }
   }
 
   // ── 4. Queue re-reviews ──────────────────────────────────────────
@@ -193,6 +228,6 @@ async function handle(req, context) {
     }
   }
 
-  console.log('[truth-refresh] loan ' + loanId + ' review ' + review.id + ': app=' + appAction + ' requeued=' + rerunSlugs.length + ' fired=' + fired + ' (' + reason + ')');
-  return json(200, { ok: true, reviewId: review.id, appAction, requeued: rerunSlugs.length, fired });
+  console.log('[truth-refresh] loan ' + loanId + ' review ' + review.id + ': app=' + appAction + ' flagged=' + flagged.join(',') + ' requeued=' + rerunSlugs.length + ' fired=' + fired + ' (' + reason + ')');
+  return json(200, { ok: true, reviewId: review.id, appAction, flagged, requeued: rerunSlugs.length, fired });
 }
