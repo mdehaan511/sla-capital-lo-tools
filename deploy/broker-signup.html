@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Preferred Partner Access — SLA Capital</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+  <style>
+    /* Deploy 236.859 — the page an invite link lands on.
+       Phase 1 ships the partner RECORD and the approval workflow; the
+       sign-in + pricing surface is Phase 2. This page exists so a link an
+       admin copies today isn't a 404 tomorrow, and so the invite token has
+       somewhere real to arrive. It reads the token but does nothing with
+       it — no auth, no data, no endpoint. */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #fff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      max-width: 520px; width: 100%; overflow: hidden; }
+    .top { background: var(--dark); padding: 26px 30px; border-bottom: 3px solid var(--gold); }
+    .top .eyebrow { font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+      color: var(--gold); margin-bottom: 10px; }
+    .top h1 { font-family: 'Lora', serif; font-size: 25px; font-weight: 600; color: #f2ede6; line-height: 1.2; }
+    .body { padding: 26px 30px 30px; }
+    .body p { font-size: 14.5px; line-height: 1.65; color: var(--text); margin-bottom: 14px; }
+    .body p.muted { color: var(--muted); font-size: 13.5px; }
+    .body p:last-child { margin-bottom: 0; }
+    .badge { display: inline-block; background: var(--gold-light); border: 1px solid var(--gold-border);
+      color: var(--gold-mid); border-radius: 20px; padding: 4px 12px; font-size: 12px;
+      font-weight: 600; margin-bottom: 16px; }
+    a { color: var(--gold-mid); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="top">
+      <div class="eyebrow">SLA Capital</div>
+      <h1>Preferred Partner access</h1>
+    </div>
+    <div class="body">
+      <span class="badge" id="state">Checking your invitation…</span>
+      <p id="lead">One moment.</p>
+      <p class="muted">Questions in the meantime? Reply to the person who sent you this link — your SLA loan officer can answer anything about pricing or a deal in progress.</p>
+    </div>
+  </div>
+<script>
+(function () {
+  var t = '';
+  try { t = new URLSearchParams(window.location.search).get('t') || ''; } catch (e) { t = ''; }
+  var state = document.getElementById('state');
+  var lead  = document.getElementById('lead');
+  if (!t) {
+    state.textContent = 'No invitation found';
+    lead.textContent = 'This page is for brokers we have invited to the SLA Capital Preferred Partner program. ' +
+      'If you were sent a link, please open it directly — it carries your invitation.';
+    return;
+  }
+  state.textContent = 'Invitation received';
+  lead.textContent = 'Thanks — your Preferred Partner access is being set up. We will email you the moment ' +
+    'the pricing portal is open, and this link will take you straight in.';
+})();
+</script>
+</body>
+</html>

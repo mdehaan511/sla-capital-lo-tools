@@ -85,6 +85,11 @@
       children: [
         { label: 'Clients',  href: '/clients.html'  },
         { label: 'Brokers',  href: '/brokers.html'  },
+        // Deploy 236.859 — Preferred Partner portal admin. Sits next to
+        // Brokers because a partner IS a broker, with portal access on
+        // top. Admin-gated while the portal is being built (there is no
+        // broker sign-in yet and nothing here emails anyone).
+        { label: 'Preferred Partners', href: '/broker-partners.html', requires: 'admin' },
         { label: 'Vendors', href: '/contacts.html' },
         // Deploy 236.475 — investor book. Deploy 236.645 — opened to processors
         // (read-only; the Funding Plan investor picker already reads this list).

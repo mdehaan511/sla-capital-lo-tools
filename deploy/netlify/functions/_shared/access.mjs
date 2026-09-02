@@ -40,9 +40,28 @@ export function roleOf(user) {
   // roles metadata but not yet issued to any real user. Wire the
   // resolver so PR #2+ can lean on it without touching this file.
   const raw = _rawRoles(user);
+  // Deploy 236.859 — 'broker' (Preferred Partner portal). Granted by
+  // broker-partner-save on approval, via syncRoleTable so the
+  // access-token hook actually stamps it. Sits above borrower/viewer
+  // because a broker has more reach than either, and below every staff
+  // tier because a broker is NOT staff.
+  if (raw.indexOf('broker')   >= 0) return 'broker';
   if (raw.indexOf('borrower') >= 0) return 'borrower';
   if (raw.indexOf('viewer')   >= 0) return 'viewer';
   return 'loan_officer'; // current default
+}
+
+/**
+ * Does this user carry the broker role?
+ *
+ * Deploy 236.859. The role alone is NOT authorization to price — it says
+ * "this login belongs to a partner", and the partner RECORD says whether
+ * they're approved, for which programs, and up to what fee. Endpoints ask
+ * checkPartnerAccess() in _shared/broker-partners.mjs for the real answer;
+ * this is the cheap pre-check that avoids a blob read for everyone else.
+ */
+export function isBrokerRole(user) {
+  return _rawRoles(user).indexOf('broker') >= 0;
 }
 
 // ── Client-level capabilities ────────────────────────────────

@@ -1008,6 +1008,19 @@
   to = "/.netlify/functions/broker-price"
   status = 200
   force = true
+# Deploy 236.859 — Broker Portal Phase 1. Preferred Partner records:
+# who may get into the portal, what they may price, who owns the relationship.
+# Both admin-only.
+[[redirects]]
+  from = "/api/broker-partners"
+  to = "/.netlify/functions/broker-partners-list"
+  status = 200
+  force = true
+[[redirects]]
+  from = "/api/broker-partner-save"
+  to = "/.netlify/functions/broker-partner-save"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/brokers"
   to = "/.netlify/functions/brokers-list"

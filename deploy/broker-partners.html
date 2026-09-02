@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Preferred Partners — SLA Capital</title>
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="/sla-api.js"></script>
+  <script src="/sla-nav.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
+      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
+      --surface: #ffffff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --success: #166534; --danger: #7c1f1f; --warn: #7a5218; --r: 12px;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .page { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+    .nav { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 0; display: flex; align-items: center; justify-content: space-between; }
+    .nav img { height: 44px; width: auto; }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    #auth-gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .gate-msg { text-align: center; color: var(--muted); font-size: 14px; max-width: 420px; line-height: 1.6; }
+    .gate-msg strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+
+    .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; margin: 2rem 0 1.25rem; }
+    h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .page-header p { color: var(--muted); font-size: 13.5px; max-width: 62ch; line-height: 1.6; }
+
+    .prelaunch { display: flex; gap: 10px; align-items: flex-start; background: var(--gold-light);
+      border: 1px solid var(--gold-border); border-radius: var(--r); padding: 12px 16px; font-size: 13px;
+      color: var(--gold-mid); line-height: 1.55; margin-bottom: 1.25rem; }
+    .prelaunch b { color: var(--dark); }
+
+    .counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px,1fr)); gap: 1px;
+      background: var(--border); border: 1px solid var(--border); border-radius: var(--r);
+      overflow: hidden; margin-bottom: 1.5rem; }
+    .count { background: var(--surface); padding: 14px 16px; }
+    .count .n { font-family: 'Lora', serif; font-size: 24px; font-weight: 600; color: var(--dark); line-height: 1;
+      font-variant-numeric: tabular-nums; }
+    .count .l { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    .sec { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
+      overflow: hidden; margin-bottom: 1.5rem; }
+    .sec-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex;
+      justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .sec-head h2 { font-family: 'Lora', serif; font-size: 17px; font-weight: 600; color: var(--dark); }
+    .sec-head .hint { font-size: 12.5px; color: var(--muted); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th { text-align: left; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--muted); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--border);
+      white-space: nowrap; }
+    td { padding: 12px 14px; border-bottom: 1px solid #efeae2; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    .tbl-wrap { overflow-x: auto; }
+    .who { font-weight: 600; color: var(--dark); }
+    .sub { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 10.5px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+    .p-approved  { background: rgba(22,101,52,.10);  color: var(--success); }
+    .p-pending   { background: rgba(122,82,24,.12);  color: var(--warn); }
+    .p-suspended { background: rgba(124,31,31,.10);  color: var(--danger); }
+    .p-prog { background: var(--gold-light); color: var(--gold-mid); margin-right: 4px; }
+    .p-suspect { background: rgba(124,31,31,.10); color: var(--danger); margin-left: 6px; }
+
+    .act { display: inline-block; padding: 5px 11px; border-radius: 6px; font-size: 12px;
+      font-family: inherit; cursor: pointer; border: 1px solid var(--border); background: #fff;
+      color: var(--text); margin-right: 6px; }
+    .act:hover { border-color: var(--gold-border); color: var(--gold-mid); }
+    .act.primary { background: var(--gold-light); border-color: var(--gold-border); color: var(--gold-mid); font-weight: 600; }
+    .act.danger:hover { border-color: rgba(124,31,31,.4); color: var(--danger); }
+    .add-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--gold-border);
+      background: var(--gold-light); color: var(--gold-mid); font-size: 13px; font-weight: 600;
+      font-family: inherit; cursor: pointer; }
+    .search-box { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+      font-family: inherit; font-size: 13px; background: #fff; min-width: 230px; }
+
+    .empty { padding: 26px 18px; text-align: center; color: var(--muted); font-size: 13.5px; }
+    .loading { padding: 26px 18px; text-align: center; color: var(--muted); font-size: 13.5px; }
+
+    /* Modal */
+    .mb { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 9500;
+      align-items: center; justify-content: center; padding: 24px; }
+    .mb.show { display: flex; }
+    .mc { background: #fff; border-radius: 14px; width: 100%; max-width: 560px; max-height: 90vh;
+      overflow: auto; padding: 22px 24px; }
+    .mc h3 { font-family: 'Lora', serif; font-size: 19px; font-weight: 600; color: var(--dark); margin-bottom: 4px; }
+    .mc .mhint { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.55; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .fld { margin-bottom: 12px; }
+    .fld label { display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--muted); font-weight: 600; margin-bottom: 5px; }
+    .fld input, .fld select, .fld textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: 8px; font-family: inherit; font-size: 13.5px; background: #fff; color: var(--text); }
+    .fld textarea { min-height: 62px; resize: vertical; }
+    .progs { display: flex; gap: 14px; flex-wrap: wrap; }
+    .progs label { display: flex; align-items: center; gap: 6px; font-size: 13px; text-transform: none;
+      letter-spacing: 0; color: var(--text); font-weight: 400; margin: 0; }
+    .progs input { width: auto; }
+    .macts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;
+      padding-top: 16px; border-top: 1px solid var(--border); }
+    .merr { color: var(--danger); font-size: 12.5px; margin-top: 10px; display: none; }
+    .merr.show { display: block; }
+
+    .link-row { display: flex; gap: 8px; margin-top: 8px; }
+    .link-row input { flex: 1; font-family: 'DM Mono', monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking access.</div></div>
+  <nav class="nav" id="slaNav"></nav>
+
+  <div class="page" id="appWrap" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1>Preferred Partners</h1>
+        <p>Brokers approved to price their own deals in the partner portal. Approving someone grants them the broker role and opens the programs you tick; suspending refuses their pricing without deleting anything.</p>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input type="text" class="search-box" id="searchBox" placeholder="Search name, company, email…" oninput="render()" />
+        <button class="add-btn" onclick="openEdit(null)">+ Add Partner</button>
+      </div>
+    </div>
+
+    <div class="prelaunch">
+      <span>&#9432;</span>
+      <div><b>Pre-launch.</b> The partner portal is admin-only — there is no broker sign-in page yet and
+      nothing here emails anyone. Invites generate a link you copy and send yourself. Broker pricing stays
+      admin-gated until the sizer surface ships.</div>
+    </div>
+
+    <div class="counts" id="counts"></div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Partners</h2>
+        <span class="hint" id="partnersHint"></span>
+      </div>
+      <div class="tbl-wrap" id="partnersWrap"><div class="loading">Loading partners…</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>From your broker book</h2>
+        <span class="hint">Brokers already on loans who aren't partners yet — promote instead of retyping.</span>
+      </div>
+      <div class="tbl-wrap" id="candWrap"><div class="loading">Loading…</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head">
+        <h2>Recent pricing activity</h2>
+        <span class="hint">One row per broker + property. A grid sweep across many inputs is flagged.</span>
+      </div>
+      <div class="tbl-wrap" id="actWrap"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- Add / edit partner -->
+  <div class="mb" id="editBg" onclick="if(event.target===this)closeEdit()">
+    <div class="mc">
+      <h3 id="edTitle">Add Partner</h3>
+      <div class="mhint" id="edHint">Their email is the identity — it links the partner record to the broker already in your book and, later, to their login.</div>
+      <div class="fld"><label>Email</label><input type="email" id="edEmail" placeholder="broker@company.com" /></div>
+      <div class="grid2">
+        <div class="fld"><label>First Name</label><input type="text" id="edFirst" /></div>
+        <div class="fld"><label>Last Name</label><input type="text" id="edLast" /></div>
+      </div>
+      <div class="grid2">
+        <div class="fld"><label>Company</label><input type="text" id="edCompany" /></div>
+        <div class="fld"><label>Phone</label><input type="tel" id="edPhone" oninput="applyPhoneMask(this)" /></div>
+      </div>
+      <div class="grid2">
+        <div class="fld"><label>NMLS #</label><input type="text" id="edNmls" /></div>
+        <div class="fld"><label>Owning Loan Officer</label><input type="email" id="edOwner" placeholder="lo@slacapital.com" /></div>
+      </div>
+      <div class="fld">
+        <label>Programs they may price</label>
+        <div class="progs">
+          <label><input type="checkbox" id="pg_dscr" /> DSCR 1-4</label>
+          <label><input type="checkbox" id="pg_rtl" /> Bridge / Rehab</label>
+          <label><input type="checkbox" id="pg_guc" /> Ground-Up</label>
+          <label><input type="checkbox" id="pg_mf" /> DSCR 5+</label>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="fld"><label>Fee Cap (points)</label><input type="number" id="edFeeCap" min="0" max="10" step="0.25" placeholder="blank = no cap" /></div>
+        <div class="fld"><label>Status</label>
+          <select id="edStatus">
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="suspended">Suspended</option>
+          </select>
+        </div>
+      </div>
+      <div class="fld"><label>Notes</label><textarea id="edNotes" placeholder="Internal only."></textarea></div>
+      <div class="merr" id="edErr"></div>
+      <div class="macts">
+        <button class="act" onclick="closeEdit()">Cancel</button>
+        <button class="act primary" id="edSave" onclick="saveEdit()">Save Partner</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Invite link -->
+  <div class="mb" id="inviteBg" onclick="if(event.target===this)document.getElementById('inviteBg').classList.remove('show')">
+    <div class="mc" style="max-width:520px">
+      <h3>Invite link</h3>
+      <div class="mhint">Nothing was emailed — copy this and send it yourself, or just keep it on file.
+      The token is stored on the partner record now and will let them claim their login when the pricing
+      portal opens. Until then the link lands on a holding page that tells them we're setting access up.
+      Minting a new invite replaces the old one.</div>
+      <div class="link-row">
+        <input type="text" id="inviteUrl" readonly onclick="this.select()" />
+        <button class="act primary" onclick="copyInvite()">Copy</button>
+      </div>
+      <div class="macts"><button class="act" onclick="document.getElementById('inviteBg').classList.remove('show')">Done</button></div>
+    </div>
+  </div>
+
+<script>
+var _user = null, _partners = [], _candidates = [], _sessions = [], _counts = {};
+var _editingEmail = null;
+
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return escH(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+var PROGRAM_LABEL = { dscr: 'DSCR 1-4', rtl: 'Bridge', guc: 'Ground-Up', mf: 'DSCR 5+' };
+
+function ago(iso) {
+  if (!iso) return '—';
+  var ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms) || ms < 0) return '—';
+  var m = Math.round(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  var h = Math.round(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.round(h / 24) + 'd ago';
+}
+
+// ── Auth + admin gate ────────────────────────────────────────────
+(function init() {
+  if (!(window.SLA && SLA.getCurrentUser)) { setTimeout(init, 120); return; }
+  SLA.getCurrentUser().then(function (user) {
+    if (!user) { window.location.replace('/'); return; }
+    if (!(SLA.isAdmin && SLA.isAdmin(user))) {
+      document.getElementById('auth-gate').innerHTML =
+        '<div class="gate-msg"><strong>Admin access required.</strong>The partner portal is admin-only while it is being built. <a href="/">Back to home</a></div>';
+      return;
+    }
+    _user = user;
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('appWrap').style.display = 'block';
+    loadAll();
+  }).catch(function () { window.location.replace('/'); });
+})();
+
+function loadAll() {
+  SLA.api('GET', '/api/broker-partners').then(function (r) {
+    _partners   = (r && r.partners)   || [];
+    _candidates = (r && r.candidates) || [];
+    _sessions   = (r && r.sessions)   || [];
+    _counts     = (r && r.counts)     || {};
+    render();
+  }).catch(function (err) {
+    document.getElementById('partnersWrap').innerHTML =
+      '<div class="empty" style="color:var(--danger)">Failed to load: ' + escH(err && err.message || 'unknown') + '</div>';
+  });
+}
+
+function render() {
+  var q = (document.getElementById('searchBox').value || '').toLowerCase().trim();
+  function match(o) {
+    if (!q) return true;
+    return [o.email, o.company, o.firstName, o.lastName].join(' ').toLowerCase().indexOf(q) >= 0;
+  }
+
+  document.getElementById('counts').innerHTML =
+    countCell(_counts.approved || 0,  'approved partners') +
+    countCell(_counts.pending || 0,   'awaiting approval') +
+    countCell(_counts.suspended || 0, 'suspended') +
+    countCell(_counts.candidates || 0,'brokers not yet partners');
+
+  // Partners
+  var ps = _partners.filter(match);
+  document.getElementById('partnersHint').textContent =
+    ps.length + (ps.length === 1 ? ' partner' : ' partners') + (q ? ' matching' : '');
+  document.getElementById('partnersWrap').innerHTML = ps.length ? (
+    '<table><thead><tr>' +
+      '<th>Partner</th><th>Owning LO</th><th>Status</th><th>Programs</th>' +
+      '<th>Fee cap</th><th>Pricing</th><th style="text-align:right">Actions</th>' +
+    '</tr></thead><tbody>' + ps.map(partnerRow).join('') + '</tbody></table>'
+  ) : '<div class="empty">' + (q ? 'No partners match that search.' : 'No partners yet — add one, or promote a broker from your book below.') + '</div>';
+
+  // Candidates
+  var cs = _candidates.filter(match).slice(0, 60);
+  document.getElementById('candWrap').innerHTML = cs.length ? (
+    '<table><thead><tr><th>Broker</th><th>Owning LO</th><th style="text-align:right">Action</th></tr></thead><tbody>' +
+    cs.map(function (c) {
+      var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || c.company || c.email;
+      return '<tr>' +
+        '<td><div class="who">' + escH(name) + '</div><div class="sub">' + escH(c.email) +
+          (c.company ? ' · ' + escH(c.company) : '') + '</div></td>' +
+        '<td class="sub">' + escH(c.ownerKey || '—') + '</td>' +
+        '<td style="text-align:right"><button class="act" onclick="promote(\'' + escAttr(c.email) + '\')">Make Partner</button></td>' +
+      '</tr>';
+    }).join('') + '</tbody></table>'
+  ) : '<div class="empty">' + (q ? 'No brokers match that search.' : 'Every broker in the book is already a partner.') + '</div>';
+
+  // Activity
+  var ss = _sessions.slice(0, 40);
+  document.getElementById('actWrap').innerHTML = ss.length ? (
+    '<table><thead><tr><th>Broker</th><th>Property</th><th>Program</th><th>Scenarios</th><th>Last seen</th></tr></thead><tbody>' +
+    ss.map(function (s) {
+      return '<tr>' +
+        '<td><div class="sub">' + escH(s.brokerEmail) + '</div></td>' +
+        '<td>' + escH(s.address || '(no property)') +
+          (s.enumerationSuspected ? '<span class="pill p-suspect" title="' + escAttr(s.suspicionReason || '') + '">swept</span>' : '') + '</td>' +
+        '<td class="sub">' + escH(PROGRAM_LABEL[s.program] || s.program || '—') + '</td>' +
+        '<td>' + (s.scenarios || 0) + '</td>' +
+        '<td class="sub">' + escH(ago(s.lastAt)) + '</td>' +
+      '</tr>';
+    }).join('') + '</tbody></table>'
+  ) : '<div class="empty">No pricing activity recorded yet.</div>';
+}
+
+function countCell(n, label) {
+  return '<div class="count"><div class="n">' + n + '</div><div class="l">' + escH(label) + '</div></div>';
+}
+
+function partnerRow(p) {
+  var name = ((p.firstName || '') + ' ' + (p.lastName || '')).trim() || p.company || p.email;
+  var progs = (p.programs || []).map(function (k) {
+    return '<span class="pill p-prog">' + escH(PROGRAM_LABEL[k] || k) + '</span>';
+  }).join('') || '<span class="sub">none</span>';
+  var a = p.activity;
+  var act = a
+    ? (a.scenarios + ' scenario' + (a.scenarios === 1 ? '' : 's') + ' · ' + ago(a.lastAt) +
+       (a.suspect ? '<span class="pill p-suspect">swept</span>' : ''))
+    : '<span class="sub">—</span>';
+  var toggle = p.status === 'approved'
+    ? '<button class="act danger" onclick="setStatus(\'' + escAttr(p.email) + '\',\'suspend\')">Suspend</button>'
+    : '<button class="act primary" onclick="setStatus(\'' + escAttr(p.email) + '\',\'approve\')">Approve</button>';
+  return '<tr>' +
+    '<td><div class="who">' + escH(name) + '</div><div class="sub">' + escH(p.email) +
+      (p.company && name !== p.company ? ' · ' + escH(p.company) : '') + '</div></td>' +
+    '<td class="sub">' + escH(p.ownerKey || '—') + '</td>' +
+    '<td><span class="pill p-' + escAttr(p.status) + '">' + escH(p.status) + '</span></td>' +
+    '<td>' + progs + '</td>' +
+    '<td>' + (p.feeCapPoints == null ? '<span class="sub">none</span>' : escH(p.feeCapPoints) + ' pts') + '</td>' +
+    '<td>' + act + '</td>' +
+    '<td style="text-align:right;white-space:nowrap">' + toggle +
+      '<button class="act" onclick="invite(\'' + escAttr(p.email) + '\')">Invite</button>' +
+      '<button class="act" onclick="openEdit(\'' + escAttr(p.email) + '\')">Edit</button>' +
+    '</td>' +
+  '</tr>';
+}
+
+// ── Actions ──────────────────────────────────────────────────────
+function post(body) { return SLA.api('POST', '/api/broker-partner-save', body); }
+
+function setStatus(email, action) {
+  var verb = action === 'approve' ? 'Approve' : 'Suspend';
+  var msg = action === 'approve'
+    ? 'Approve ' + email + ' as a Preferred Partner?\n\nThey get the broker role on their next sign-in and can price the programs ticked on their record.'
+    : 'Suspend ' + email + '?\n\nTheir login survives but pricing is refused. Nothing is deleted and you can re-approve in one click.';
+  if (!confirm(msg)) return;
+  post({ email: email, action: action }).then(function (r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    loadAll();
+  }).catch(function (e) { alert(verb + ' failed: ' + (e && e.message || 'unknown')); });
+}
+
+function promote(email) {
+  var c = null;
+  for (var i = 0; i < _candidates.length; i++) if (_candidates[i].email === email) c = _candidates[i];
+  if (!c) return;
+  openEdit(null);
+  document.getElementById('edEmail').value   = c.email;
+  document.getElementById('edFirst').value   = c.firstName || '';
+  document.getElementById('edLast').value    = c.lastName || '';
+  document.getElementById('edCompany').value = c.company || '';
+  document.getElementById('edPhone').value   = c.phone || '';
+  document.getElementById('edOwner').value   = c.ownerKey || '';
+  document.getElementById('edTitle').textContent = 'Make Partner';
+  document.getElementById('edHint').textContent =
+    'Pre-filled from the broker already in your book. They stay linked to that record — this adds portal access, it does not create a second contact.';
+  window._promoteClientId = c.clientId;
+}
+
+function invite(email) {
+  post({ email: email, action: 'invite' }).then(function (r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    document.getElementById('inviteUrl').value = r.inviteUrl;
+    document.getElementById('inviteBg').classList.add('show');
+  }).catch(function (e) { alert('Could not create an invite: ' + (e && e.message || 'unknown')); });
+}
+
+function copyInvite() {
+  var el = document.getElementById('inviteUrl');
+  el.select();
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(el.value);
+  else { try { document.execCommand('copy'); } catch (_) {} }
+}
+
+function openEdit(email) {
+  _editingEmail = email || null;
+  window._promoteClientId = null;
+  var p = null;
+  if (email) for (var i = 0; i < _partners.length; i++) if (_partners[i].email === email) p = _partners[i];
+
+  document.getElementById('edTitle').textContent = p ? 'Edit Partner' : 'Add Partner';
+  document.getElementById('edHint').textContent = p
+    ? 'Changes take effect immediately, except role changes, which land on their next sign-in.'
+    : 'Their email is the identity — it links the partner record to the broker already in your book and, later, to their login.';
+  document.getElementById('edEmail').value   = p ? p.email : '';
+  document.getElementById('edEmail').readOnly = !!p;
+  document.getElementById('edFirst').value   = p ? (p.firstName || '') : '';
+  document.getElementById('edLast').value    = p ? (p.lastName  || '') : '';
+  document.getElementById('edCompany').value = p ? (p.company   || '') : '';
+  document.getElementById('edPhone').value   = p ? (p.phone     || '') : '';
+  document.getElementById('edNmls').value    = p ? (p.nmls      || '') : '';
+  document.getElementById('edOwner').value   = p ? (p.ownerKey  || '') : '';
+  document.getElementById('edFeeCap').value  = p && p.feeCapPoints != null ? p.feeCapPoints : '';
+  document.getElementById('edStatus').value  = p ? p.status : 'pending';
+  document.getElementById('edNotes').value   = p ? (p.notes || '') : '';
+  var progs = p ? (p.programs || []) : ['dscr', 'rtl'];
+  ['dscr','rtl','guc','mf'].forEach(function (k) {
+    document.getElementById('pg_' + k).checked = progs.indexOf(k) >= 0;
+  });
+  var err = document.getElementById('edErr'); err.classList.remove('show'); err.textContent = '';
+  document.getElementById('editBg').classList.add('show');
+}
+
+function closeEdit() {
+  document.getElementById('editBg').classList.remove('show');
+  _editingEmail = null; window._promoteClientId = null;
+}
+
+function saveEdit() {
+  var err = document.getElementById('edErr');
+  err.classList.remove('show'); err.textContent = '';
+  function v(id) { return String(document.getElementById(id).value || '').trim(); }
+  var email = v('edEmail').toLowerCase();
+  if (!email || email.indexOf('@') < 1) {
+    err.textContent = 'A valid email is required.'; err.classList.add('show'); return;
+  }
+  var programs = [];
+  ['dscr','rtl','guc','mf'].forEach(function (k) {
+    if (document.getElementById('pg_' + k).checked) programs.push(k);
+  });
+  var cap = v('edFeeCap');
+  var body = {
+    email: email,
+    firstName: v('edFirst'), lastName: v('edLast'), company: v('edCompany'),
+    phone: v('edPhone'), nmls: v('edNmls'), ownerKey: v('edOwner'),
+    notes: v('edNotes'), status: v('edStatus'),
+    programs: programs,
+    feeCapPoints: cap === '' ? null : Number(cap),
+  };
+  if (window._promoteClientId) body.clientId = window._promoteClientId;
+
+  var btn = document.getElementById('edSave');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  post(body).then(function (r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
+    btn.disabled = false; btn.textContent = 'Save Partner';
+    closeEdit();
+    loadAll();
+  }).catch(function (e) {
+    btn.disabled = false; btn.textContent = 'Save Partner';
+    err.textContent = 'Save failed: ' + (e && e.message || 'unknown'); err.classList.add('show');
+  });
+}
+</script>
+</body>
+</html>
