@@ -104,6 +104,14 @@
     .cl-tbl tbody tr.lrow.mat-warn:hover { background: #fef08a; }
     .cl-tbl tbody tr.lrow.mat-urgent { background: #fee2e2; }
     .cl-tbl tbody tr.lrow.mat-urgent:hover { background: #fecaca; }
+    /* Deploy 236.847 (Mike) — extension eSign status chip on servicing rows:
+       amber = sent (awaiting lender), blue = lender signed (borrower's turn),
+       green = fully executed. Fed by loan.extensionEsign (loan-extension-send
+       stamps it, envelope-sign advances it). */
+    .ext-chip { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:999px; font-size:10.5px; font-weight:600; white-space:nowrap; vertical-align:middle; }
+    .ext-chip.sent { background:#fef3c7; color:#92400e; }
+    .ext-chip.half { background:#dbeafe; color:#1e40af; }
+    .ext-chip.done { background:#dcfce7; color:#166534; }
     .cl-addr { font-weight: 600; }
     .cl-num { font-family: 'DM Mono', monospace; }
     .cl-ph { color: var(--muted); }
@@ -730,10 +738,23 @@ function dispOptions(cur){
     return '<option value="'+d+'"'+(d===cur?' selected':'')+'>'+escH(DISP_LABEL[d]||d)+'</option>';
   }).join('');
 }
+// Deploy 236.847 (Mike) — extension eSign status chip. The maturity date is
+// NOT auto-updated on completion (it syncs from FCI); the chip + loan note are
+// the signal that the signed agreement's new date should show up there.
+function extChip(l){
+  var m = l.extensionEsign;
+  if (!m || !m.status) return '';
+  var nm = m.newMaturityDate ? ' — new maturity ' + fmtDate(m.newMaturityDate) : '';
+  if (m.status === 'completed')
+    return '<span class="ext-chip done" title="'+escAttr('Extension agreement fully executed'+nm)+'">✓ Ext. executed</span>';
+  if (m.status === 'lender_signed')
+    return '<span class="ext-chip half" title="'+escAttr('Lender signed — borrower invited to sign'+nm)+'">Ext: borrower to sign</span>';
+  return '<span class="ext-chip sent" title="'+escAttr('Extension agreement sent — awaiting lender signature'+nm)+'">Ext: sent</span>';
+}
 function dispCell(it){
   // Deploy 236.693 — LOs get a read-only disposition label (no picker / editor).
   if (!_isStaff) {
-    return '<td>'+escH(DISP_LABEL[displayBucket(it.loan)]||DISP_LABEL[dispositionOf(it.loan)]||'—')+'</td>';
+    return '<td>'+escH(DISP_LABEL[displayBucket(it.loan)]||DISP_LABEL[dispositionOf(it.loan)]||'—')+extChip(it.loan)+'</td>';
   }
   // Deploy 236.843 — one-button Loan Extension Agreement (Mike): fills the
   // template from the loan and sends a sequential eSign (lender verifies +
@@ -746,7 +767,7 @@ function dispCell(it){
     escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">'+
     dispOptions(dispositionOf(it.loan))+'</select>' +
     '<button type="button" class="svc-edit" title="Edit servicing details" onclick="openServicingEditor(\''+
-    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button>' + extBtn + '</td>';
+    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button>' + extBtn + extChip(it.loan) + '</td>';
 }
 
 // ── Servicing-details editor (staff) ───────────────────────────────

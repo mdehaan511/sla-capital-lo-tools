@@ -28,6 +28,10 @@ import { lookupEnvelopeByToken } from './envelope-signer-info.mjs';
 import { getOwnerReplyTo } from './_shared/email.mjs';
 // Deploy 236.445 (Hardening F1) — abuse ceiling on this public endpoint.
 import { checkRateLimit } from './_shared/rate-limit.mjs';
+// Deploy 236.847 — loan_extension envelopes mirror their signing progress onto
+// loan.extensionEsign (status chip on the closed-loans servicing rows).
+import { appendNoteEntry } from './_shared/notes-log.mjs';
+import { writeClient } from './_shared/client-write.mjs';
 
 export default async (req) => {
   try { return await handle(req); }
@@ -165,6 +169,9 @@ async function handle(req) {
         console.warn('envelope-sign: sequential next-signer invite failed (non-fatal):', e && e.message);
       }
     }
+    // Deploy 236.847 — for loan extensions the only partial state is "lender
+    // signed, borrower's turn" (lender always signs first). Feeds the chip.
+    await syncExtensionMarker(envelope, 'lender_signed', null);
     return json(200, {
       ok: true, signedAt, status: 'partially_signed',
       remainingSigners: envelope.signers.filter((s) => !s.audit || !s.audit.signedAt).length,
@@ -208,6 +215,8 @@ async function handle(req) {
       note: 'All signers signed, but PDF stamping failed: ' + stampingError,
     });
     try { await envStore.setJSON(envelopeKey, envelope); } catch (_) {}
+    // All signatures ARE in — the chip goes green even though stamping needs a re-run.
+    await syncExtensionMarker(envelope, 'completed', _extensionDoneNote(envelope));
     return json(200, {
       ok: true, signedAt, status: 'completed_stamping_failed',
       error: stampingError,
@@ -241,10 +250,56 @@ async function handle(req) {
     catch (_) {}
   }
 
+  // Deploy 236.847 — flip the servicing-row chip to executed + loan note.
+  await syncExtensionMarker(envelope, 'completed', _extensionDoneNote(envelope));
+
   return json(200, {
     ok: true, signedAt, status: 'completed',
     emailedCount,
   });
+}
+
+// ── Loan extension status mirror (Deploy 236.847) ──────────────────
+// The closed-loans servicing rows show a chip driven by loan.extensionEsign.
+// loan-extension-send stamps it 'sent'; this advances it as signatures land.
+// The loan's maturityDate is deliberately NOT touched — it syncs from FCI;
+// the completion note tells staff to expect the new date there.
+function _extensionDoneNote(envelope) {
+  const nm = (envelope.extensionTerms && envelope.extensionTerms.newMaturityDate) || '';
+  return 'Loan Extension Agreement fully executed by all parties' +
+    (nm ? ' — new maturity ' + nm + ' per the agreement' : '') +
+    '. Maturity on this record is not auto-updated (it syncs from FCI).';
+}
+async function syncExtensionMarker(envelope, status, noteText) {
+  if (envelope.envelopeKind !== 'loan_extension' || !envelope.clientId || !envelope.loanId) return;
+  try {
+    const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+    const client = await clientsStore.get(`${envelope.ownerKey}/${envelope.clientId}`, { type: 'json' });
+    const loan = client && (client.loans || []).find((l) => l.id === envelope.loanId);
+    if (!loan) return;
+    const cur = loan.extensionEsign;
+    // A newer extension envelope owns the chip — don't let a stale one clobber it.
+    if (cur && cur.envelopeId && cur.envelopeId !== envelope.id) return;
+    loan.extensionEsign = {
+      envelopeId: envelope.id,
+      status,
+      sentAt: (cur && cur.sentAt) || envelope.createdAt || '',
+      newMaturityDate: (envelope.extensionTerms && envelope.extensionTerms.newMaturityDate) ||
+        (cur && cur.newMaturityDate) || '',
+      updatedAt: new Date().toISOString(),
+    };
+    if (noteText) {
+      appendNoteEntry(loan, {
+        kind: 'status', text: noteText,
+        author: 'eSign', authorEmail: envelope.requesterEmail || '',
+        meta: { via: 'envelope_sign', envelopeId: envelope.id },
+      });
+    }
+    loan.updatedAt = new Date().toISOString();
+    await writeClient(envelope.ownerKey, client, { clientsStore });
+  } catch (e) {
+    console.warn('envelope-sign: extension marker sync failed (non-fatal):', e && e.message);
+  }
 }
 
 // ── Email helper ───────────────────────────────────────────────

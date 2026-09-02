@@ -10516,7 +10516,10 @@ function refreshEnvelopes() {
 function renderEnvelopeCard(env) {
   var status = env.status || 'queued';
   var docNames = (env.docs || []).map(function(d) {
-    return d.kind === 'rate_sheet' ? 'Rate Sheet' : 'Loan App';
+    // Deploy 236.847 — extension envelopes were falling into the 'Loan App' bucket.
+    if (d.kind === 'rate_sheet') return 'Rate Sheet';
+    if (d.kind === 'loan_extension') return 'Extension Agreement';
+    return 'Loan App';
   }).join(' + ');
   var when = env.createdAt ? new Date(env.createdAt).toLocaleString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',

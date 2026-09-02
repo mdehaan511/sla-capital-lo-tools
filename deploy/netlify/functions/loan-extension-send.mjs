@@ -174,9 +174,16 @@ async function handle(req, context) {
     return json(502, { error: 'Envelope created but send failed: ' + (e.message || 'network'), envelopeId });
   }
 
-  // ── Audit note on the loan (best-effort) ──────────────────────────
+  // ── Audit note + status marker on the loan (best-effort) ──────────
   try {
     const meta = (user && user.user_metadata) || {};
+    // Deploy 236.847 — extensionEsign feeds the status chip on the closed-loans
+    // servicing rows; envelope-sign advances it (lender_signed → completed).
+    // A re-send simply overwrites it with the newest envelope's id.
+    loan.extensionEsign = {
+      envelopeId, status: 'sent', sentAt: now,
+      newMaturityDate: values.newMaturityDate,
+    };
     appendNoteEntry(loan, {
       kind: 'status',
       text: 'Loan Extension Agreement sent for signature — new maturity ' + values.newMaturityDate +
