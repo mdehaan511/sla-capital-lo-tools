@@ -212,15 +212,21 @@ async function handle(req, context) {
 
 // Deploy 236.843 — exported so envelope-sign can invite the NEXT signer of a
 // sequential envelope with the identical email the first signer received.
-export async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress, ownerKey }) {
+// Deploy 236.848 — optional `reminder` flag: same email + same link, but the
+// subject/intro make clear it's a nudge (esign-reminder-cron re-sends daily).
+export async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress, ownerKey, reminder }) {
   const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const docList = (envelope.docs || []).map((d) => d.name).join(', ');
-  const subject = 'Please review and sign: ' + (docList || 'SLA Capital documents');
+  const subject = (reminder ? 'Reminder — please review and sign: ' : 'Please review and sign: ') +
+    (docList || 'SLA Capital documents');
+  const intro = reminder
+    ? `This is a friendly reminder — ${loName} at SLA Capital is still waiting on your electronic signature for the document${envelope.docs.length === 1 ? '' : 's'} below.`
+    : `${loName} at SLA Capital has prepared ${envelope.docs.length} document${envelope.docs.length === 1 ? '' : 's'} for your review and electronic signature.`;
 
   const text = [
     `Hi ${signer.firstName},`,
     '',
-    `${loName} at SLA Capital has prepared ${envelope.docs.length} document${envelope.docs.length === 1 ? '' : 's'} for your review and electronic signature.`,
+    intro,
     '',
     propertyAddress ? `Property: ${propertyAddress}` : '',
     `Documents: ${docList}`,
@@ -246,8 +252,10 @@ export async function sendInvitationEmail({ apiKey, signer, envelope, link, loNa
       '</div>' +
       '<div style="padding:24px;color:#1A1520">' +
         `<p style="font-size:14px;line-height:1.6">Hi ${escH(signer.firstName)},</p>` +
-        `<p style="font-size:14px;line-height:1.6"><strong>${escH(loName)}</strong> at SLA Capital has prepared ` +
-          `${envelope.docs.length} document${envelope.docs.length === 1 ? '' : 's'} for your review and electronic signature.</p>` +
+        (reminder
+          ? `<p style="font-size:14px;line-height:1.6">This is a friendly reminder — <strong>${escH(loName)}</strong> at SLA Capital is still waiting on your electronic signature for the document${envelope.docs.length === 1 ? '' : 's'} below.</p>`
+          : `<p style="font-size:14px;line-height:1.6"><strong>${escH(loName)}</strong> at SLA Capital has prepared ` +
+            `${envelope.docs.length} document${envelope.docs.length === 1 ? '' : 's'} for your review and electronic signature.</p>`) +
         (propertyAddress
           ? `<p style="font-size:14px;line-height:1.6"><strong>Property:</strong> ${escH(propertyAddress)}</p>`
           : '') +

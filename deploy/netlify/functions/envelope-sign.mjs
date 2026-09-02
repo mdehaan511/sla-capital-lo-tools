@@ -342,6 +342,12 @@ async function sendFinalCopiesEmail({ envelope, stampedPdfs }) {
     ...envelope.signers.map((s) => ({ email: s.email, name: `${s.firstName} ${s.lastName}` })),
     { email: loEmail, name: loName, isLO: true },
   ];
+  // Deploy 236.848 (Mike) — every fully executed extension agreement goes to
+  // the post-close mailbox, whoever sent it.
+  if (envelope.envelopeKind === 'loan_extension' &&
+      !recipients.some((r) => String(r.email || '').toLowerCase() === 'post-close@slacapital.com')) {
+    recipients.push({ email: 'post-close@slacapital.com', name: 'SLA Post-Close', isLO: true });
+  }
 
   const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const subject = 'Signed: ' + (envelope.docs || []).map((d) => d.name).join(', ');
