@@ -1109,10 +1109,46 @@ function confirmDeleteSelected() {
 }
 
 var _mergeWinnerKey = null;
+// Deploy 236.853 (Mike) — which LO keeps the merged client, when the two
+// selected clients sit in different books. null = same owner, no choice to
+// make. Picking a winner defaults this to that record's owner; the LO can
+// then override it, which is the whole point: keep the better RECORD without
+// being forced to also keep it in that record's book.
+var _mergeResultOwner = null;
+
+// Renders the owner picker, or '' when both clients already share an owner.
+function _mergeOwnerPickerHtml(clients) {
+  var a = clients[0], b = clients[1];
+  if (!a || !b || a.owner === b.owner) return '';
+  if (!SLA.isAdmin(_user)) {
+    return '<div style="margin-top:14px;padding:12px 14px;border:1px solid rgba(133,77,14,0.30);' +
+      'background:rgba(133,77,14,0.06);border-radius:8px;font-size:12px;color:#854d0e">' +
+      'These two clients belong to different loan officers (' + escH(a.owner) + ' and ' +
+      escH(b.owner) + '). Merging across books is admin-only.</div>';
+  }
+  function row(owner) {
+    return '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);' +
+      'border-radius:8px;cursor:pointer;font-size:13px;background:#fff">' +
+      '<input type="radio" name="mergeResultOwner" value="' + escAttr(owner) + '" ' +
+        'onchange="_mergeResultOwner=this.value" style="margin:0" />' +
+      '<span>' + escH(owner) + '</span></label>';
+  }
+  return '<div id="mergeOwnerPick" style="margin-top:16px;padding:14px;border:1px solid var(--border);' +
+      'border-radius:10px;background:#faf8f3">' +
+    '<div style="font-size:13px;font-weight:600;color:var(--dark);margin-bottom:4px">Who keeps the merged client?</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">' +
+      'These two sit in different books. The merged client, its loans, quotes, applications ' +
+      'and doc reviews all move into the book you pick here — which does not have to be the ' +
+      'winner\'s current owner.</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' + row(a.owner) + row(b.owner) + '</div>' +
+  '</div>';
+}
+
 function openMergeSelectedModal() {
   var sel = _selectedClientIds();
   if (sel.length !== 2) { alert('Select exactly 2 clients to merge.'); return; }
   _mergeWinnerKey = null;
+  _mergeResultOwner = null;
   var clients = sel.map(function(s) { return { owner: s.owner || _user.email, clientId: s.clientId, client: _findClientById(s.clientId, s.owner) }; });
   if (clients.some(function(c) { return !c.client; })) {
     alert('Could not locate one of the selected clients in the loaded list. Refresh and try again.');
@@ -1151,7 +1187,7 @@ function openMergeSelectedModal() {
             '<div style="font-size:11px;color:var(--muted);font-family:monospace">' + loans + ' loan' + (loans === 1 ? '' : 's') + '</div>' +
           '</div>';
         }).join('') +
-      '</div></div>' +
+      '</div>' + _mergeOwnerPickerHtml(clients) + '</div>' +
       '<div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#faf8f3">' +
         '<button type="button" onclick="closeMergeClientsModal()" style="font-size:13px;padding:8px 18px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;font-family:inherit">Cancel</button>' +
         '<button type="button" id="mergeClientsCommitBtn" onclick="commitClientMerge()" style="font-size:13px;padding:8px 18px;border:1px solid rgba(133,77,14,0.40);background:rgba(133,77,14,0.10);color:#854d0e;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600" disabled>Merge</button>' +
@@ -1163,6 +1199,7 @@ function openMergeSelectedModal() {
 function closeMergeClientsModal() {
   var m = document.getElementById('mergeClientsModal'); if (m) m.remove();
   window._mergeClientsSelection = null;
+  _mergeResultOwner = null;
 }
 function pickMergeWinner(i) {
   var clients = window._mergeClientsSelection || [];
@@ -1182,6 +1219,15 @@ function pickMergeWinner(i) {
       if (badge) badge.style.display = 'none';
     }
   }
+  // Deploy 236.853 — default the owner to the record you just picked, and
+  // re-default every time the winner changes. An LO who wants the other book
+  // clicks the other radio; one who doesn't care gets the old behaviour.
+  var radios = document.getElementsByName('mergeResultOwner');
+  if (radios && radios.length) {
+    var want = clients[i].owner;
+    for (var r = 0; r < radios.length; r++) radios[r].checked = (radios[r].value === want);
+    _mergeResultOwner = want;
+  }
   document.getElementById('mergeClientsCommitBtn').disabled = false;
 }
 function commitClientMerge() {
@@ -1189,15 +1235,33 @@ function commitClientMerge() {
   if (clients.length !== 2 || !_mergeWinnerKey) return;
   var winner = clients[0].clientId === _mergeWinnerKey ? clients[0] : clients[1];
   var loser  = clients[0].clientId === _mergeWinnerKey ? clients[1] : clients[0];
-  if (winner.owner !== loser.owner) {
-    alert('Cross-owner merges aren\'t supported yet. Reassign one client first, then merge.');
+  // Deploy 236.853 — cross-owner merges are supported now (the backend has
+  // handled them since 236.370; this page was the thing saying no). Admin
+  // only, because it moves a client out of another LO's book.
+  var crossOwner = winner.owner !== loser.owner;
+  if (crossOwner && !SLA.isAdmin(_user)) {
+    alert('These clients belong to different loan officers. Merging across books is admin-only.');
     return;
   }
-  if (!confirm('Merge these two? Loser ' + loser.clientId + ' will be deleted and its data folded into ' + winner.clientId + '. This cannot be undone.')) return;
+  var resultOwner = crossOwner ? (_mergeResultOwner || winner.owner) : winner.owner;
+  var msg = 'Merge these two? Loser ' + loser.clientId + ' will be deleted and its data folded into ' + winner.clientId + '.';
+  if (crossOwner) {
+    msg += '\n\nThe merged client will live under ' + resultOwner +
+           (resultOwner === winner.owner ? '' : ' — moving it out of ' + winner.owner + '\'s book') + '.';
+  }
+  msg += '\n\nThis cannot be undone.';
+  if (!confirm(msg)) return;
   var btn = document.getElementById('mergeClientsCommitBtn');
   btn.disabled = true; btn.textContent = 'Merging…';
   var body = { winnerClientId: winner.clientId, loserClientId: loser.clientId };
-  if (winner.owner && winner.owner !== _user.email) body.owner = winner.owner;
+  if (crossOwner) {
+    // Explicit per-side owners — the endpoint's 236.370 cross-owner shape.
+    body.winnerOwner = winner.owner;
+    body.loserOwner  = loser.owner;
+    body.resultOwner = resultOwner;
+  } else if (winner.owner && winner.owner !== _user.email) {
+    body.owner = winner.owner;
+  }
   SLA.api('POST', '/api/clients-merge-manual', body).then(function(r) {
     if (!r || !r.ok) throw new Error((r && r.error) || 'unknown');
     closeMergeClientsModal();
@@ -1206,7 +1270,8 @@ function commitClientMerge() {
     var b = document.getElementById('selectModeBtn');
     if (b) { b.textContent = 'Select Multiple'; b.style.background = ''; b.style.color = ''; b.style.borderColor = ''; }
     refreshSelectionBar();
-    showToast('Merged — ' + r.loansAdded + ' loan(s) + ' + r.companiesAdded + ' compan(ies) moved.');
+    showToast('Merged — ' + r.loansAdded + ' loan(s) + ' + r.companiesAdded + ' compan(ies) moved' +
+      (r.ownerChanged ? '; now owned by ' + r.resultOwner : '') + '.');
     _reloadAfterMutation();
   }).catch(function(err) {
     btn.disabled = false; btn.textContent = 'Merge';
