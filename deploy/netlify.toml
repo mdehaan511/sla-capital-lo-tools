@@ -820,6 +820,17 @@
   status = 200
   force = true
 
+# Deploy 236.843: loan-extension-send — fill the Loan Extension Agreement from
+# the loan record + sequential eSign (lender signs first, then borrower is
+# invited). PDF generation + envelope create + send in one request.
+[[redirects]]
+  from = "/api/loan-extension-send"
+  to = "/.netlify/functions/loan-extension-send"
+  status = 200
+  force = true
+[functions."loan-extension-send"]
+  timeout = 26
+
 # Deploy 236.823: loan-followup-done — record a closing-anniversary borrower
 # follow-up (Closed Loans → Follow-ups tab). The reminder digest is
 # followup-reminder-cron.mjs (scheduled, no redirect needed).

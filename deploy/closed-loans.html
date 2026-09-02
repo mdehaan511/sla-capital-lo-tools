@@ -715,11 +715,18 @@ function dispCell(it){
   if (!_isStaff) {
     return '<td>'+escH(DISP_LABEL[displayBucket(it.loan)]||DISP_LABEL[dispositionOf(it.loan)]||'—')+'</td>';
   }
+  // Deploy 236.843 — one-button Loan Extension Agreement (Mike): fills the
+  // template from the loan and sends a sequential eSign (lender verifies +
+  // signs first, then the borrower is invited). Hidden on paid-off loans.
+  var extBtn = dispositionOf(it.loan) !== 'paid_off'
+    ? '<button type="button" class="svc-edit" title="Send Loan Extension Agreement for signatures" onclick="openExtensionModal(\''+
+      escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">⏳</button>'
+    : '';
   return '<td onclick="event.stopPropagation()"><select class="disp-sel" onchange="setDisposition(this,\''+
     escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">'+
     dispOptions(dispositionOf(it.loan))+'</select>' +
     '<button type="button" class="svc-edit" title="Edit servicing details" onclick="openServicingEditor(\''+
-    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button></td>';
+    escAttr(it.client.id)+'\',\''+escAttr(it.loan.id)+'\',\''+escAttr(it.ownerKey)+'\')">✎</button>' + extBtn + '</td>';
 }
 
 // ── Servicing-details editor (staff) ───────────────────────────────
@@ -875,7 +882,71 @@ function svcSave(){
   else if (_svcMode==='collateral') saveCollateral();
   else if (_svcMode==='closeout') confirmCloseOut();
   else if (_svcMode==='marksold') confirmMarkSold();
+  else if (_svcMode==='extension') sendExtensionAgreement();
   else saveServicing();
+}
+
+// ── Loan Extension Agreement (Deploy 236.843) ─────────────────────
+// One button: fill the extension-agreement template from the loan, then a
+// SEQUENTIAL eSign — the lender (Mike) reviews + signs the filled agreement
+// first; the borrower is invited automatically the moment he signs. Signed
+// copies email to everyone when both are done.
+function openExtensionModal(clientId, loanId, ownerKey){
+  var it=_find(clientId, loanId, ownerKey);
+  if (!it) return;
+  _svcTarget=it; _svcMode='extension'; _dispPending=null;
+  var l=it.loan, c=it.client;
+  // New maturity default = current maturity + 90 days (falls back to today+90).
+  var baseD = parseLocalDate(l.maturityDate) || new Date();
+  var nm = new Date(baseD.getTime() + 90*86400000);
+  var nmStr = nm.getFullYear()+'-'+('0'+(nm.getMonth()+1)).slice(-2)+'-'+('0'+nm.getDate()).slice(-2);
+  var origAmt = num(l.finalLoanAmount)||num(l.loanAmt);
+  var fee = Math.round(origAmt*0.01*100)/100;
+  var bName = c.entityName || clientName(c);
+  document.getElementById('svcTitle').textContent='Send Loan Extension Agreement';
+  document.getElementById('svcSub').textContent=(l.address||'')+'  ·  90-day extension · you sign first, then the borrower is invited';
+  var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
+  document.getElementById('svcGrid').innerHTML =
+    '<div class="svc-fld"><label>New Maturity Date <span class="req">*</span></label><input type="date" id="ext_newMaturityDate" value="'+escAttr(nmStr)+'" /></div>'+
+    '<div class="svc-fld"><label>Extension Fee (1% of original)</label><input type="text" id="ext_fee" value="'+escAttr(String(fee))+'" /></div>'+
+    '<div class="svc-fld"><label>Current UPB</label><input type="text" id="ext_upb" value="'+escAttr(String(l.upb!=null&&l.upb!==''?l.upb:origAmt))+'" /></div>'+
+    '<div class="svc-fld"><label>Fee Handling</label><select id="ext_feeHandling">'+
+      '<option value="at_signing">Paid at time of signing</option>'+
+      '<option value="add_to_principal">Added to principal balance</option></select></div>'+
+    '<div class="svc-fld"><label>Borrower (as on the Note)</label><input type="text" id="ext_borrowerName" value="'+escAttr(bName)+'" /></div>'+
+    '<div class="svc-fld"><label>Borrower Email <span class="req">*</span></label><input type="text" id="ext_borrowerEmail" value="'+escAttr(c.email||'')+'" /></div>'+
+    '<div class="svc-fld" style="grid-column:1/-1"><label>Lender Signer Email (signs first)</label><input type="text" id="ext_lenderEmail" value="mike@slacapital.com" /></div>'+
+    '<div class="svc-fld" style="grid-column:1/-1;font-size:12px;color:var(--muted)">The agreement fills from the loan record (origination '+escH(l.fundingDate?fmtDate(l.fundingDate):'—')+', amount '+escH(origAmt?('$'+Math.round(origAmt).toLocaleString()):'—')+'). The lender signs first to verify it; the borrower is only emailed after that signature.</div>';
+  var sb=document.getElementById('svcSaveBtn'); sb.disabled=false; sb.textContent='Send for Signatures';
+  document.getElementById('svcBg').classList.add('show');
+}
+function sendExtensionAgreement(){
+  if (!_svcTarget) return;
+  var it=_svcTarget;
+  var nm=(document.getElementById('ext_newMaturityDate')||{}).value||'';
+  var bEmail=((document.getElementById('ext_borrowerEmail')||{}).value||'').trim();
+  var st=document.getElementById('svcStatus');
+  if (!nm){ st.className='svc-status err'; st.textContent='New maturity date is required.'; return; }
+  if (!bEmail || bEmail.indexOf('@')<0){ st.className='svc-status err'; st.textContent='Borrower email is required.'; return; }
+  var btn=document.getElementById('svcSaveBtn');
+  btn.disabled=true; btn.textContent='Sending…'; st.className='svc-status'; st.textContent='Generating agreement + sending…';
+  SLA.api('POST','/api/loan-extension-send',{
+    clientId: it.client.id, loanId: it.loan.id, owner: it.ownerKey,
+    newMaturityDate: nm,
+    extensionFee: (document.getElementById('ext_fee')||{}).value||'',
+    currentUpb: (document.getElementById('ext_upb')||{}).value||'',
+    feeHandling: (document.getElementById('ext_feeHandling')||{}).value||'at_signing',
+    borrowerName: (document.getElementById('ext_borrowerName')||{}).value||'',
+    borrowerEmail: bEmail,
+    lenderEmail: ((document.getElementById('ext_lenderEmail')||{}).value||'').trim(),
+  }).then(function(r){
+    document.getElementById('svcBg').classList.remove('show');
+    _svcTarget=null; _svcMode='edit';
+    alert('Extension agreement sent. '+(r.firstSigner||'The lender')+' signs first; the borrower ('+(r.secondSigner||bEmail)+') is invited automatically after that signature.');
+  }).catch(function(err){
+    btn.disabled=false; btn.textContent='Send for Signatures';
+    st.className='svc-status err'; st.textContent='Send failed: '+(err&&err.message||'unknown');
+  });
 }
 function confirmDisposition(){
   if (!_dispPending) return;

@@ -131,6 +131,40 @@ async function handle(req) {
 
   // If still waiting on other signers, we\u2019re done for this turn.
   if (stillPending) {
+    // Deploy 236.843 \u2014 SEQUENTIAL envelopes (loan extensions): the next
+    // unsigned signer is only invited NOW, after the current signer
+    // completed. The lender reviews + signs the filled agreement before
+    // the borrower ever receives a link. Best-effort: an email failure
+    // leaves the envelope partially_signed with its history note, and the
+    // per-signer "Resend signing link" path still works.
+    if (envelope.sequential) {
+      try {
+        const nextIdx = envelope.signers.findIndex((s) => !s.audit || !s.audit.signedAt);
+        const next = nextIdx >= 0 ? envelope.signers[nextIdx] : null;
+        const apiKey = process.env.RESEND_API_KEY;
+        if (next && next.token && apiKey) {
+          const { sendInvitationEmail } = await import('./envelopes-send.mjs');
+          const base = process.env.URL || process.env.DEPLOY_PRIME_URL || 'https://portal.slacapital.ai';
+          const link = `${base}/term-sheet-sign.html?t=${encodeURIComponent(next.token)}`;
+          const ok = await sendInvitationEmail({
+            apiKey, signer: next, envelope: envelope, link,
+            loName: envelope.requesterEmail || envelope.ownerEmail || 'SLA Capital',
+            propertyAddress: envelope.propertyAddress || '',
+            ownerKey: envelope.ownerKey,
+          });
+          envelope.signers[nextIdx].invitedAt = new Date().toISOString();
+          envelope.history.push({
+            ts: new Date().toISOString(), status: envelope.status,
+            note: ok
+              ? `Sequential: invited next signer ${next.email}.`
+              : `Sequential: invitation email to ${next.email} FAILED \u2014 use Resend signing link.`,
+          });
+          try { await envStore.setJSON(envelopeKey, envelope); } catch (_) {}
+        }
+      } catch (e) {
+        console.warn('envelope-sign: sequential next-signer invite failed (non-fatal):', e && e.message);
+      }
+    }
     return json(200, {
       ok: true, signedAt, status: 'partially_signed',
       remainingSigners: envelope.signers.filter((s) => !s.audit || !s.audit.signedAt).length,

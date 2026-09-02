@@ -165,14 +165,26 @@ async function handle(req, context) {
     return json(200, { ok: true, envelope: env, signingUrls, warning: env.sendError });
   }
 
+  // Deploy 236.843 — SEQUENTIAL envelopes (loan extensions: lender reviews +
+  // signs before the borrower is ever invited). Only the FIRST unsigned
+  // signer gets the invitation now; envelope-sign invites the next signer
+  // the moment the current one completes.
+  const _firstUnsignedIdx = env.sequential
+    ? env.signers.findIndex((s) => !s.audit || !s.audit.signedAt)
+    : -1;
   for (let i = 0; i < env.signers.length; i++) {
     const s = env.signers[i];
+    if (env.sequential && i !== _firstUnsignedIdx) {
+      emailResults.push({ email: s.email, ok: null, deferred: true });
+      continue;
+    }
     const link = signingUrls[i];
     try {
       const r = await sendInvitationEmail({
         apiKey, signer: s, envelope: env, link, loName, propertyAddress,
         ownerKey: env.ownerKey,
       });
+      if (r) s.invitedAt = now;
       emailResults.push({ email: s.email, ok: r });
     } catch (e) {
       console.warn('invitation email failed for', s.email, e && e.message);
@@ -180,7 +192,7 @@ async function handle(req, context) {
     }
   }
 
-  const allEmailsOk = emailResults.every((r) => r.ok);
+  const allEmailsOk = emailResults.every((r) => r.ok || r.deferred); // deferred = sequential, invited later
   env.status = allEmailsOk ? 'sent' : 'partial_send_failure';
   env.statusUpdatedAt = now;
   env.sendError = allEmailsOk ? null : 'Some invitation emails failed to send';
@@ -198,7 +210,9 @@ async function handle(req, context) {
   return json(200, { ok: true, envelope: env, signingUrls, emailResults });
 }
 
-async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress, ownerKey }) {
+// Deploy 236.843 — exported so envelope-sign can invite the NEXT signer of a
+// sequential envelope with the identical email the first signer received.
+export async function sendInvitationEmail({ apiKey, signer, envelope, link, loName, propertyAddress, ownerKey }) {
   const escH = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const docList = (envelope.docs || []).map((d) => d.name).join(', ');
   const subject = 'Please review and sign: ' + (docList || 'SLA Capital documents');
