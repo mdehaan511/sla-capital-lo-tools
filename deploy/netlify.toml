@@ -999,6 +999,15 @@
 # Owner-scoped blob store (each LO has their own broker book; admins
 # see all via ?all=1). Phase 2 wires the sizer's broker fields to pick
 # from this store instead of typing inline.
+# Deploy 236.856 — Broker Portal Phase 0. Server-side pricing for the
+# Preferred Partner portal: same engines the LO sizers use, answer only
+# (no adjustment breakdown, no TPO spread), activity logged. ADMIN-ONLY
+# until Phase 1 introduces the broker role.
+[[redirects]]
+  from = "/api/broker-price"
+  to = "/.netlify/functions/broker-price"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/brokers"
   to = "/.netlify/functions/brokers-list"
