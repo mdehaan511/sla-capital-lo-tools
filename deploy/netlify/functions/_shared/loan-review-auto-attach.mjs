@@ -322,8 +322,22 @@ async function _findLatestRateSheetPdf({ ownerKey, clientId, loanId }) {
       { store: pdfsStore,  key: ownerKey + '/' + latest.id,        signed: false },
     ];
     for (const t of tries) {
-      const buf = await t.store.get(t.key, { type: 'arrayBuffer' }).catch(() => null);
-      if (buf && buf.byteLength) return { bytes: Buffer.from(buf), envelopeId: latest.id, signed: t.signed };
+      // 236.849c — these stores hold BASE64 TEXT (envelope-sign writes the
+      // stamped b64 string; the send flows stash pdfBase64). Reading as
+      // arrayBuffer returned the base64 characters as "PDF bytes" — the
+      // attached doc was corrupt and the AI reviewer 400'd on it. Decode,
+      // and verify the result actually is a PDF before attaching.
+      const raw = await t.store.get(t.key).catch(() => null);
+      if (!raw) continue;
+      let bytes = null;
+      if (typeof raw === 'string') {
+        bytes = raw.slice(0, 5) === '%PDF-' ? Buffer.from(raw, 'latin1') : Buffer.from(raw, 'base64');
+      } else {
+        bytes = Buffer.from(raw);
+      }
+      if (bytes && bytes.length && bytes.slice(0, 5).toString('latin1') === '%PDF-') {
+        return { bytes, envelopeId: latest.id, signed: t.signed };
+      }
     }
     return null;
   } catch (e) {
