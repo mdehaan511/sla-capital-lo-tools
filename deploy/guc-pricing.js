@@ -268,7 +268,15 @@
     };
   }
 
-  var _SLA_GUC_API = { EXCEPTION_HINT: EXCEPTION_HINT, eiGUC: eiGUC, priceGUC: priceGUC };
+  // Deploy 236.858 — Ground-Up prices off the same Colchis card as RTL, so
+  // it publishes RTL's effective date rather than carrying its own (which
+  // would be a second thing to remember on every sheet update). Getter, not
+  // a captured value: rtlApi() resolves lazily, and at module-eval time in
+  // the browser rtl-pricing.js may not have run yet.
+  var _SLA_GUC_API = {
+    EXCEPTION_HINT: EXCEPTION_HINT, eiGUC: eiGUC, priceGUC: priceGUC,
+    get EFFECTIVE_DATE() { var r = rtlApi(); return (r && r.EFFECTIVE_DATE) || null; },
+  };
   if (typeof window !== 'undefined') window.SLA_GUC = _SLA_GUC_API;
   if (typeof module !== 'undefined' && module.exports) module.exports = _SLA_GUC_API;
 })();

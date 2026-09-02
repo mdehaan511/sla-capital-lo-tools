@@ -2439,7 +2439,7 @@ function _generateRateSheetPDF(opts) {
 
   doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
-  doc.text('DSCR Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
+  doc.text('DSCR Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) + (window.SLARateSheet ? SLARateSheet.effectiveDateSuffix(window.SLA_DSCR) : ''), W/2, y, {align:'center'});
   y += 14;
   // Deploy 236.846 (Mike) - a rate sheet whose loan has no real
   // borrower/guarantor on file (or whose only contact is the broker)

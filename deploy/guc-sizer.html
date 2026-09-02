@@ -975,14 +975,14 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
 
 </div><!-- /page -->
 
-<script src="rtl-pricing.js"></script>
+<script src="rtl-pricing.js?v=236858"></script>
 <!-- Deploy 236.697 — GUC (Ground-Up Construction) pricing. Reuses the
      construction tables from rtl-pricing.js (loaded above) and adds the
      land-ownership + 0-3-tier rules. Exposes SLA_GUC.priceGUC. -->
 <!-- Deploy 236.702 — versioned so an in-flight pricing change (this module is
      new + iterating) can't be served stale from the unversioned /*.js cache.
      Bump the ?v= whenever guc-pricing.js changes. -->
-<script src="guc-pricing.js?v=236702"></script>
+<script src="guc-pricing.js?v=236858"></script>
 <script>
 // Deploy 236.408 (Hardening G1 RTL) — pricing engine extracted to
 // rtl-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -4980,7 +4980,7 @@ function _generateRTLTransactionalPDF(opts) {
   // Subtitle
   doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
-  doc.text('Transactional Funding Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
+  doc.text('Transactional Funding Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) + (window.SLARateSheet ? SLARateSheet.effectiveDateSuffix(window.SLA_GUC) : ''), W/2, y, {align:'center'});
   y+=14;
   // Deploy 236.846 (Mike) - a rate sheet whose loan has no real
   // borrower/guarantor on file (or whose only contact is the broker)
@@ -5432,7 +5432,7 @@ function _generateRTLRateSheetPDF(opts) {
   // Subtitle line
   doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
-  doc.text('RTL Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W/2, y, {align:'center'});
+  doc.text('RTL Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) + (window.SLARateSheet ? SLARateSheet.effectiveDateSuffix(window.SLA_GUC) : ''), W/2, y, {align:'center'});
   y+=14;
   // Deploy 236.846 (Mike) - a rate sheet whose loan has no real
   // borrower/guarantor on file (or whose only contact is the broker)

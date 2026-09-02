@@ -58,6 +58,19 @@ var LTV_COLS = [.70, .75, .80, .85, .90, .95];
 // 620 (.13) buckets to reflect its in-between risk profile.
 var SUB680_RATE = { 660: .12, 640: .125, 620: .13, 550: .14 };
 
+// Deploy 236.858 — the date the pricing below took effect, published so a
+// rate sheet can say WHICH sheet it was priced from. "Prepared <today>" is
+// the day the PDF was generated; those two diverge the moment a matrix
+// changes, and the difference is exactly what you need when a borrower or
+// broker asks why their number moved.
+//
+// Mirrors DIYA.effectiveDate in dscr-pricing.js / mf-pricing.js. Same
+// format ("Month D, YYYY"). guc-pricing.js reads this through rtlApi()
+// because Ground-Up prices off the same Colchis card.
+//
+// UPDATE THIS whenever the PRICING matrix below changes.
+var EFFECTIVE_DATE = 'June 29, 2026';
+
 // Deploy 236.122 — Jun 29, 2026 Colchis sheet. Buckets in the code
 // (740/720/700/680) map to sheet bands as: 740 → "740+", 720+700
 // → "700-739", 680 → "680-699". The 660-679 row stays blank on the
@@ -686,6 +699,7 @@ function priceRTL(I) {
 
 // ── Export root: browser global + CommonJS for the test runner ─────
 var _SLA_RTL_API = {
+  EFFECTIVE_DATE: EFFECTIVE_DATE,
   FLOOR: FLOOR, EXCEPTION_HINT: EXCEPTION_HINT, LABELS: LABELS,
   SPREAD: SPREAD, LTV_COLS: LTV_COLS, SUB680_RATE: SUB680_RATE,
   PRICING: PRICING, MFR_ADJ: MFR_ADJ, MAX_LTP: MAX_LTP, MAX_LTC: MAX_LTC,

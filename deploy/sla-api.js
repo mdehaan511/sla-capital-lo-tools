@@ -3413,3 +3413,30 @@ if (typeof window !== 'undefined' && window.SLARateSheet) {
     return !window.SLARateSheet.signable(party, {}).ok;
   };
 }
+
+// ── Pricing effective date on every rate sheet (Deploy 236.858, Mike) ──
+// "Prepared <today>" is the day the PDF was generated. It is NOT the same
+// as which rate sheet the numbers came from, and the two diverge the
+// moment a matrix changes — which is precisely when a borrower or broker
+// calls to ask why their number moved. Every generated sheet now says
+// both.
+//
+// Each of the six generators passes ITS OWN engine global, rather than
+// this guessing from what happens to be on the page: the DSCR sizers
+// price off SLA_DSCR, the RTL sizer off SLA_RTL, and the GUC sizer off
+// SLA_GUC (which proxies RTL's date, since Ground-Up prices off the same
+// Colchis card).
+//
+// Returns '' when an engine publishes no date, so a sheet says nothing
+// rather than inventing today's.
+if (typeof window !== 'undefined' && window.SLARateSheet) {
+  window.SLARateSheet.effectiveDateOf = function (engine) {
+    if (!engine) return '';
+    var d = engine.EFFECTIVE_DATE || (engine.DIYA && engine.DIYA.effectiveDate) || '';
+    return d ? String(d) : '';
+  };
+  window.SLARateSheet.effectiveDateSuffix = function (engine) {
+    var d = window.SLARateSheet.effectiveDateOf(engine);
+    return d ? '  ·  Pricing effective ' + d : '';
+  };
+}
