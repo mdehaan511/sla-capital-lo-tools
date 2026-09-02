@@ -150,6 +150,17 @@ async function handle(req, context) {
   loan._movedBy = selfEmail;
   loan._movedFromClientId = srcClient.id;
   loan.updatedAt = now;
+  // Deploy 236.854 — guarantorOwnership is keyed by client id; a records-fix
+  // move (same person, new client record) must carry the ownership entry to
+  // the new key or it goes stale and double-counts once someone re-enters
+  // the % under the new id (Locust Ave: 81% under both ids → "162%" banner).
+  if (loan.guarantorOwnership && typeof loan.guarantorOwnership === 'object' &&
+      loan.guarantorOwnership[srcClient.id] != null) {
+    if (loan.guarantorOwnership[destClient.id] == null) {
+      loan.guarantorOwnership[destClient.id] = loan.guarantorOwnership[srcClient.id];
+    }
+    delete loan.guarantorOwnership[srcClient.id];
+  }
 
   // Deploy 236.353 — "different borrower" mode. When resetApplication
   // is set, the reassign represents a real borrower swap (backed out /

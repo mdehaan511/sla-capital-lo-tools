@@ -336,7 +336,13 @@ async function _findLatestRateSheetPdf({ ownerKey, clientId, loanId }) {
         bytes = Buffer.from(raw);
       }
       if (bytes && bytes.length && bytes.slice(0, 5).toString('latin1') === '%PDF-') {
-        return { bytes, envelopeId: latest.id, signed: t.signed };
+        // 236.854 — status + completion time let the sync-categories heal
+        // decide "a NEWER signed sheet exists, replace the tray's copy".
+        return {
+          bytes, envelopeId: latest.id, signed: t.signed,
+          status: latest.status || '',
+          completedAt: (latest.status === 'completed' && latest.statusUpdatedAt) || '',
+        };
       }
     }
     return null;

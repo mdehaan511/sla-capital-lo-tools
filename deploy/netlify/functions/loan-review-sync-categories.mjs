@@ -158,11 +158,25 @@ async function handle(req, context) {
           filename: 'Signed Loan Application - ' + street + '.pdf', note: 'auto-attached on page open (signed_applications)' });
       }
       const ts = review.docs.term_sheet;
-      if (ts && !ts.currentDocId) {
+      if (ts) {
         const rs = await findLatestRateSheetPdf({ ownerKey: keySafe(src.ownerKey), clientId: src.clientId, loanId: src.loanId });
-        if (rs && rs.bytes) heals.push({ slug: 'term_sheet', bytes: rs.bytes,
-          filename: (rs.signed ? 'Signed Rate Sheet - ' : 'Rate Sheet - ') + street + '.pdf',
-          note: 'auto-attached on page open (envelope ' + (rs.envelopeId || '?') + ')' });
+        if (rs && rs.bytes) {
+          // 236.854 — also REPLACE the tray's copy when a NEWER completed
+          // (signed) envelope exists: the envelope-sign attach hook can be
+          // missed (a warm pre-deploy instance served the signature on
+          // Locust Ave), and a re-signed sheet after a guarantor change must
+          // supersede the flagged old one. Old doc goes to tray history.
+          const _curEnvM = /envelope (env_[A-Za-z0-9_]+)/.exec(String(ts.processorNotes || ''));
+          const _curEnv = _curEnvM ? _curEnvM[1] : '';
+          const _newerSigned = !!(ts.currentDocId && rs.completedAt &&
+            rs.envelopeId && rs.envelopeId !== _curEnv &&
+            rs.completedAt > String(ts.currentUploadedAt || ''));
+          if (!ts.currentDocId || _newerSigned) {
+            heals.push({ slug: 'term_sheet', bytes: rs.bytes,
+              filename: (rs.signed ? 'Signed Rate Sheet - ' : 'Rate Sheet - ') + street + '.pdf',
+              note: 'auto-attached on page open (envelope ' + (rs.envelopeId || '?') + ')' });
+          }
+        }
       }
       for (const h of heals) {
         attachToSlug({ review, slug: h.slug, bytes: h.bytes, filename: h.filename,
@@ -181,7 +195,9 @@ async function handle(req, context) {
         const ds = review.docs[slug];
         if (!ds || !ds.currentDocId || ds.aiReviewing) continue;
         if (ds.verdict !== 'pending' || ds.aiVerdict || ds.aiError) continue;
-        if (!/^auto-attached/i.test(String(ds.processorNotes || ''))) continue;
+        // 236.854 — the truth-refresh reattach writes 'point of truth
+        // refreshed (...)' notes; those trays were auto-attached too.
+        if (!/^(auto-attached|point of truth refreshed)/i.test(String(ds.processorNotes || ''))) continue;
         markAiQueued(review, slug);
         healQueue.push(slug);
       }

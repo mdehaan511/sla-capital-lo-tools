@@ -4077,9 +4077,20 @@ function copySubFormLink(btn, token) {
 // Sum every guarantor's recorded ownership. Returns { total, count,
 // any } so the banner logic can distinguish "no data yet" (don't
 // nag) from "data entered but doesn't add up to 51%".
+// Deploy 236.854 (Mike, Locust Ave) — count ONLY CURRENT parties: the map is
+// keyed by client id and keeps orphaned keys when a guarantor is removed /
+// promoted / the loan is reassigned to a new client record. David's 81% was
+// counted under BOTH his old guarantor id and his new primary id → "162%
+// across 2 guarantors" with one guarantor on screen. A key that belongs to
+// neither the primary client nor a linked guarantor is stale — ignore it.
 function _computeOwnershipTotal() {
   var ownerships = (_loan && _loan.guarantorOwnership && typeof _loan.guarantorOwnership === 'object') ? _loan.guarantorOwnership : {};
-  var keys = Object.keys(ownerships);
+  var live = {};
+  if (_clientId) live[_clientId] = 1;
+  if (_client && _client.id) live[_client.id] = 1;
+  var gids = (_loan && _loan.guarantorClientIds) || [];
+  for (var gi = 0; gi < gids.length; gi++) live[gids[gi]] = 1;
+  var keys = Object.keys(ownerships).filter(function(k) { return live[k]; });
   var total = 0;
   keys.forEach(function(k) {
     var n = parseFloat(ownerships[k]);

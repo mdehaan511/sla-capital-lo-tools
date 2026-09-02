@@ -128,6 +128,14 @@ async function handle(req, context) {
           },
         });
         appAction = 'reattached';
+        // Deploy 236.854 — a freshly re-attached signed application gets its
+        // AI review queued like every other auto-attach (236.849); before
+        // this the tray sat "Awaiting Review" with no grade (Locust Ave).
+        try {
+          const { markAiQueued } = await import('./_shared/loan-review-auto-attach.mjs');
+          markAiQueued(review, LOAN_APP_SLUG);
+          review._queueAppAiAfterSave = true; // fired after the review save below
+        } catch (_) {}
       }
     } else if (!signedApp && tray && tray.currentDocId) {
       // Application was reset for re-sign (or never moved with the loan) —
@@ -208,7 +216,16 @@ async function handle(req, context) {
   review.updatedAt = now;
   review.lastEditedBy = actorEmail || 'auto:truth-refresh';
   review.lastEditedAt = now;
+  // Deploy 236.854 — transient marker, never persisted.
+  const _queueAppAi = review._queueAppAiAfterSave === true;
+  delete review._queueAppAiAfterSave;
   await reviewStore.setJSON(keySafe(review.id), review);
+  if (_queueAppAi) {
+    try {
+      const { queueAiReviews } = await import('./_shared/loan-review-auto-attach.mjs');
+      await queueAiReviews(review.id, [LOAN_APP_SLUG]);
+    } catch (e) { console.warn('truth-refresh: app AI queue failed (non-fatal):', e && e.message); }
+  }
 
   // Fire the per-doc background reviewers (each reads the review fresh, so
   // they all see the snapshot + attachment written above).
