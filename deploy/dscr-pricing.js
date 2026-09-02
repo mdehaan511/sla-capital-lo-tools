@@ -75,13 +75,14 @@ const DIYA = {
   // are still intentionally NOT wired into sizer math. If Mike wants
   // those enforced later, the caps live at the bottom of the sheet
   // under "TPO Premium Caps" + "Rate Buydown Caps".
-  effectiveDate: "September 1, 2026",
-  // Deploy 236.823 — 9.1.26 sheet ("1-4 Unit 9-1-2026 DSCR.xlsx"): base rates
-  // +0.075 across all four products. Every other table on that sheet — FICO,
+  effectiveDate: "September 2, 2026",
+  // Deploy 236.842 — 9.2.26 sheet ("rate-sheet-2026-09-02.xlsx"): base rates
+  // +0.050 across all four products. Every other table on that sheet — FICO,
   // IO, cash-out, property type, UPB, DSCR, PPP, TPO premium, rate buydown —
   // was diffed cell-by-cell against this file and is UNCHANGED, so this is the
-  // only edit the sheet calls for.
-  baseRate: { "30Y Fixed": 6.525, "10/6 ARM": 6.525, "7/6 ARM": 6.425, "5/6 ARM": 6.425 }, // 236.823: +0.075 (9.1.26 sheet)
+  // only edit the sheet calls for. (The UPB 600k-1.499m -0.050 band is again
+  // absent from the sheet and again deliberately KEPT — same call as 236.823.)
+  baseRate: { "30Y Fixed": 6.575, "10/6 ARM": 6.575, "7/6 ARM": 6.475, "5/6 ARM": 6.475 }, // 236.842: +0.050 (9.2.26 sheet)
   ltvCols: [50, 55, 60, 65, 70, 75, 80],
   fico: {
     "780+":    [-0.125,-0.125,-0.125,-0.075,-0.050,-0.025, 0.100],

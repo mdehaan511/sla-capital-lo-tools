@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-01T15:53:59.998Z",
+  "generatedAt": "2026-09-02T01:44:43.618Z",
   "source": "deploy/dscr-pricing.js (extracted module, --from-module)",
-  "effectiveDate": "September 1, 2026",
+  "effectiveDate": "September 2, 2026",
   "scenarios": [
     {
       "name": "base-30y-fixed",
@@ -998,295 +998,13 @@
     "base-30y-fixed": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.954587122946459,
-      "fico": "740-759",
-      "baseRate": 6.525,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": 0
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 6.845000000000001,
-      "pi": 2619.7019997528932,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3069.7019997528932,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": false,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "product-10-6-arm": {
-      "loanType": "10/6 ARM",
-      "ltv": 66.66666666666666,
-      "dscr": 1.954587122946459,
-      "fico": "740-759",
-      "baseRate": 6.525,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": 0
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 6.845000000000001,
-      "pi": 2619.7019997528932,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3069.7019997528932,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": false,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "product-7-6-arm": {
-      "loanType": "7/6 ARM",
-      "ltv": 66.66666666666666,
-      "dscr": 1.97169754293222,
-      "fico": "740-759",
-      "baseRate": 6.425,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": 0
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 6.745,
-      "pi": 2593.063081103742,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3043.063081103742,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": false,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "product-5-6-arm": {
-      "loanType": "5/6 ARM",
-      "ltv": 66.66666666666666,
-      "dscr": 1.97169754293222,
-      "fico": "740-759",
-      "baseRate": 6.425,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": 0
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 6.745,
-      "pi": 2593.063081103742,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3043.063081103742,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": false,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "fico-780plus": {
-      "loanType": "30Y Fixed",
-      "ltv": 66.66666666666666,
-      "dscr": 1.9631139619978346,
-      "fico": "780+",
-      "baseRate": 6.525,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": -0.05
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 6.795000000000001,
-      "pi": 2606.3686653697278,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3056.3686653697278,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": false,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "fico-760-779": {
-      "loanType": "30Y Fixed",
-      "ltv": 66.66666666666666,
-      "dscr": 1.9588434751766584,
-      "fico": "760-779",
-      "baseRate": 6.525,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": -0.025
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 6.820000000000001,
-      "pi": 2613.0318736717286,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3063.0318736717286,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": false,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "fico-720-739": {
-      "loanType": "30Y Fixed",
-      "ltv": 66.66666666666666,
       "dscr": 1.9461166196005335,
-      "fico": "720-739",
-      "baseRate": 6.525,
+      "fico": "740-759",
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
-          "value": 0.05
+          "value": 0
         },
         {
           "label": "Prepay penalty (321)",
@@ -1324,12 +1042,294 @@
       "guidelineWarnings": [],
       "sandbox": false
     },
+    "product-10-6-arm": {
+      "loanType": "10/6 ARM",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9461166196005335,
+      "fico": "740-759",
+      "baseRate": 6.575,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.8950000000000005,
+      "pi": 2633.062926224627,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3083.062926224627,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "product-7-6-arm": {
+      "loanType": "7/6 ARM",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9631139619978348,
+      "fico": "740-759",
+      "baseRate": 6.475,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.795,
+      "pi": 2606.3686653697273,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3056.3686653697273,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "product-5-6-arm": {
+      "loanType": "5/6 ARM",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9631139619978348,
+      "fico": "740-759",
+      "baseRate": 6.475,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.795,
+      "pi": 2606.3686653697273,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3056.3686653697273,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "fico-780plus": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.954587122946459,
+      "fico": "780+",
+      "baseRate": 6.575,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.845000000000001,
+      "pi": 2619.7019997528932,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3069.7019997528932,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "fico-760-779": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9503448546067212,
+      "fico": "760-779",
+      "baseRate": 6.575,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": -0.025
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.870000000000001,
+      "pi": 2626.379023857232,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3076.379023857232,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "fico-720-739": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9377020480801297,
+      "fico": "720-739",
+      "baseRate": 6.575,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.945,
+      "pi": 2646.451286690224,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3096.451286690224,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
     "fico-700-719": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9377020480801292,
+      "dscr": 1.9293430068078596,
       "fico": "700-719",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1344,12 +1344,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.945000000000001,
-      "pi": 2646.4512866902246,
+      "finalRate": 6.995000000000001,
+      "pi": 2659.8669230035625,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3096.4512866902246,
+      "totalPayment": 3109.8669230035625,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1374,9 +1374,9 @@
     "fico-680-699": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.880332697182764,
+      "dscr": 1.8723513176996942,
       "fico": "680-699",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1391,12 +1391,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.295000000000001,
-      "pi": 2740.924674654431,
+      "finalRate": 7.345000000000001,
+      "pi": 2754.5268125062084,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3190.924674654431,
+      "totalPayment": 3204.5268125062084,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1421,9 +1421,9 @@
     "fico-660-679": {
       "loanType": "30Y Fixed",
       "ltv": 58.333333333333336,
-      "dscr": 2.0296095281245914,
+      "dscr": 2.021334924936614,
       "fico": "660-679",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1438,12 +1438,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.745000000000001,
-      "pi": 2506.2336581776626,
+      "finalRate": 7.795000000000001,
+      "pi": 2518.335393595473,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2956.2336581776626,
+      "totalPayment": 2968.335393595473,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1473,9 +1473,9 @@
     "ltv-col-50": {
       "loanType": "30Y Fixed",
       "ltv": 48.333333333333336,
-      "dscr": 2.5698226311695596,
+      "dscr": 2.5592377065082763,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1490,12 +1490,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.7700000000000005,
-      "pi": 1884.791486083739,
+      "finalRate": 6.82,
+      "pi": 1894.4481084120027,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2334.791486083739,
+      "totalPayment": 2344.4481084120025,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1520,9 +1520,9 @@
     "ltv-col-60": {
       "loanType": "30Y Fixed",
       "ltv": 58.333333333333336,
-      "dscr": 2.197341333871125,
+      "dscr": 2.1879928968535785,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1537,12 +1537,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.795000000000001,
-      "pi": 2280.5725821985116,
+      "finalRate": 6.845000000000001,
+      "pi": 2292.2392497837814,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2730.5725821985116,
+      "totalPayment": 2742.2392497837814,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1567,9 +1567,9 @@
     "ltv-col-80": {
       "loanType": "30Y Fixed",
       "ltv": 79.16666666666666,
-      "dscr": 1.6590307047053223,
+      "dscr": 1.6517327572323393,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1584,12 +1584,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.0200000000000005,
-      "pi": 3166.5695927042666,
+      "finalRate": 7.07,
+      "pi": 3182.5488937167192,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3616.5695927042666,
+      "totalPayment": 3632.5488937167192,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1614,9 +1614,9 @@
     "ltv-80-fico-700-719-new-tier": {
       "loanType": "30Y Fixed",
       "ltv": 79.16666666666666,
-      "dscr": 1.6124695105839961,
+      "dscr": 1.6054869051676943,
       "fico": "700-719",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1631,12 +1631,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.345000000000001,
-      "pi": 3271.000589851122,
+      "finalRate": 7.3950000000000005,
+      "pi": 3287.1840160685056,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3721.000589851122,
+      "totalPayment": 3737.1840160685056,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1661,9 +1661,9 @@
     "admin-sandbox-over-ltv": {
       "loanType": "30Y Fixed",
       "ltv": 86.66666666666667,
-      "dscr": 1.5319564600064004,
+      "dscr": 1.5251444752144052,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1678,12 +1678,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.0200000000000005,
-      "pi": 3466.5603962236187,
+      "finalRate": 7.07,
+      "pi": 3484.0535257530396,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3916.5603962236187,
+      "totalPayment": 3934.0535257530396,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1713,162 +1713,9 @@
     "io-yes": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 2.131438721136767,
-      "fico": "740-759",
-      "baseRate": 6.525,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": 0
-        },
-        {
-          "label": "Interest Only",
-          "value": 0.25
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 7.095000000000001,
-      "pi": 2365.0000000000005,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 2815.0000000000005,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": true,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "io-at-75": {
-      "loanType": "30Y Fixed",
-      "ltv": 74.16666666666667,
-      "dscr": 1.9357310409259247,
-      "fico": "740-759",
-      "baseRate": 6.525,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": 0.05
-        },
-        {
-          "label": "Interest Only",
-          "value": 0.25
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 7.1450000000000005,
-      "pi": 2649.6041666666665,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3099.6041666666665,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 445000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": true,
-      "purpose": "purchase",
-      "propType": "sfr",
-      "origFee": 4450,
-      "buydownFee": 0,
-      "totalFees": 6765,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "cashout": {
-      "loanType": "30Y Fixed",
-      "ltv": 66.66666666666666,
-      "dscr": 1.9461166196005335,
-      "fico": "740-759",
-      "baseRate": 6.525,
-      "adjs": [
-        {
-          "label": "FICO adjustment",
-          "value": 0
-        },
-        {
-          "label": "Cash-Out Refi",
-          "value": 0.05
-        },
-        {
-          "label": "Prepay penalty (321)",
-          "value": 0.05
-        },
-        {
-          "label": "DSCR (1.20+)",
-          "value": -0.05
-        }
-      ],
-      "finalRate": 6.8950000000000005,
-      "pi": 2633.062926224627,
-      "taxes": 300,
-      "ins": 150,
-      "hoa": 0,
-      "totalPayment": 3083.062926224627,
-      "rent": 6000,
-      "borrower": "Golden Fixture",
-      "borrowerEmail": "golden@example.com",
-      "address": "123 Fixture St, Spokane, WA 99208",
-      "loan": 400000,
-      "propVal": 600000,
-      "prepay": "321",
-      "buydown": 0,
-      "isIO": false,
-      "purpose": "refi_co",
-      "propType": "sfr",
-      "origFee": 4000,
-      "buydownFee": 0,
-      "totalFees": 6315,
-      "brokerPts": 0,
-      "brokerFeeDol": 0,
-      "brokerProcFee": 0,
-      "netHiddenTpoPct": 1,
-      "guidelineWarnings": [],
-      "sandbox": false
-    },
-    "cashout-io-combined": {
-      "loanType": "30Y Fixed",
-      "ltv": 66.66666666666666,
       "dscr": 2.1188934667451442,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1877,10 +1724,6 @@
         {
           "label": "Interest Only",
           "value": 0.25
-        },
-        {
-          "label": "Cash-Out Refi",
-          "value": 0.05
         },
         {
           "label": "Prepay penalty (321)",
@@ -1906,6 +1749,163 @@
       "prepay": "321",
       "buydown": 0,
       "isIO": true,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "io-at-75": {
+      "loanType": "30Y Fixed",
+      "ltv": 74.16666666666667,
+      "dscr": 1.9242204568687322,
+      "fico": "740-759",
+      "baseRate": 6.575,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0.05
+        },
+        {
+          "label": "Interest Only",
+          "value": 0.25
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 7.195,
+      "pi": 2668.145833333333,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3118.145833333333,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 445000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": true,
+      "purpose": "purchase",
+      "propType": "sfr",
+      "origFee": 4450,
+      "buydownFee": 0,
+      "totalFees": 6765,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "cashout": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 1.9377020480801297,
+      "fico": "740-759",
+      "baseRate": 6.575,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Cash-Out Refi",
+          "value": 0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 6.945,
+      "pi": 2646.451286690224,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 3096.451286690224,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": false,
+      "purpose": "refi_co",
+      "propType": "sfr",
+      "origFee": 4000,
+      "buydownFee": 0,
+      "totalFees": 6315,
+      "brokerPts": 0,
+      "brokerFeeDol": 0,
+      "brokerProcFee": 0,
+      "netHiddenTpoPct": 1,
+      "guidelineWarnings": [],
+      "sandbox": false
+    },
+    "cashout-io-combined": {
+      "loanType": "30Y Fixed",
+      "ltv": 66.66666666666666,
+      "dscr": 2.106495026331188,
+      "fico": "740-759",
+      "baseRate": 6.575,
+      "adjs": [
+        {
+          "label": "FICO adjustment",
+          "value": 0
+        },
+        {
+          "label": "Interest Only",
+          "value": 0.25
+        },
+        {
+          "label": "Cash-Out Refi",
+          "value": 0.05
+        },
+        {
+          "label": "Prepay penalty (321)",
+          "value": 0.05
+        },
+        {
+          "label": "DSCR (1.20+)",
+          "value": -0.05
+        }
+      ],
+      "finalRate": 7.195,
+      "pi": 2398.333333333333,
+      "taxes": 300,
+      "ins": 150,
+      "hoa": 0,
+      "totalPayment": 2848.333333333333,
+      "rent": 6000,
+      "borrower": "Golden Fixture",
+      "borrowerEmail": "golden@example.com",
+      "address": "123 Fixture St, Spokane, WA 99208",
+      "loan": 400000,
+      "propVal": 600000,
+      "prepay": "321",
+      "buydown": 0,
+      "isIO": true,
       "purpose": "refi_co",
       "propType": "sfr",
       "origFee": 4000,
@@ -1921,9 +1921,9 @@
     "prop-nw-condo": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9293430068078596,
+      "dscr": 1.9210390965132815,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1942,12 +1942,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.995000000000001,
-      "pi": 2659.8669230035625,
+      "finalRate": 7.045000000000001,
+      "pi": 2673.3096769816407,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3109.8669230035625,
+      "totalPayment": 3123.3096769816407,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -1972,9 +1972,9 @@
     "prop-2-4-unit": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 2.4221275601001615,
+      "dscr": 2.4116787585098245,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -1993,12 +1993,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.945000000000001,
-      "pi": 2646.4512866902246,
+      "finalRate": 6.995000000000001,
+      "pi": 2659.8669230035625,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3096.4512866902246,
+      "totalPayment": 3109.8669230035625,
       "rent": 7500,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2023,9 +2023,9 @@
     "prop-portfolio": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 2.0179532749144737,
+      "dscr": 2.0088527526496027,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2048,12 +2048,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.045000000000001,
-      "pi": 4009.9645154724617,
+      "finalRate": 7.095000000000001,
+      "pi": 4030.1690856282685,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 4459.964515472462,
+      "totalPayment": 4480.1690856282685,
       "rent": 9000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2078,9 +2078,9 @@
     "ppp-5y6m": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.989036566614887,
+      "dscr": 1.9803382742192723,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2095,12 +2095,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.6450000000000005,
-      "pi": 2566.5357946190575,
+      "finalRate": 6.695,
+      "pi": 2579.785404902825,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3016.5357946190575,
+      "totalPayment": 3029.785404902825,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2125,9 +2125,9 @@
     "ppp-54321": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9803382742192723,
+      "dscr": 1.9716975429322192,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2142,12 +2142,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.695000000000001,
-      "pi": 2579.785404902825,
+      "finalRate": 6.745000000000001,
+      "pi": 2593.0630811037436,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3029.785404902825,
+      "totalPayment": 3043.0630811037436,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2172,9 +2172,9 @@
     "ppp-320": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9377020480801292,
+      "dscr": 1.9293430068078596,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2189,12 +2189,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.945000000000001,
-      "pi": 2646.4512866902246,
+      "finalRate": 6.995000000000001,
+      "pi": 2659.8669230035625,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3096.4512866902246,
+      "totalPayment": 3109.8669230035625,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2219,9 +2219,9 @@
     "ppp-300": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9210390965132815,
+      "dscr": 1.9127899202368948,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2236,12 +2236,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.045000000000001,
-      "pi": 2673.3096769816407,
+      "finalRate": 7.095000000000001,
+      "pi": 2686.779390418846,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3123.3096769816407,
+      "totalPayment": 3136.779390418846,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2266,9 +2266,9 @@
     "ppp-none": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.880332697182764,
+      "dscr": 1.8723513176996942,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2283,12 +2283,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.295000000000001,
-      "pi": 2740.924674654431,
+      "finalRate": 7.345000000000001,
+      "pi": 2754.5268125062084,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3190.924674654431,
+      "totalPayment": 3204.5268125062084,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2313,9 +2313,9 @@
     "buydown-0.25": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.9622587314278874,
+      "dscr": 1.9537375441871765,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2330,12 +2330,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.800000000000001,
-      "pi": 2607.700752659639,
+      "finalRate": 6.8500000000000005,
+      "pi": 2621.036853364156,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3057.700752659639,
+      "totalPayment": 3071.036853364156,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2360,9 +2360,9 @@
     "buydown-1.00": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.985550315940333,
+      "dscr": 1.9768750974248774,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2377,12 +2377,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.665000000000001,
-      "pi": 2571.8322607243886,
+      "finalRate": 6.715000000000001,
+      "pi": 2585.0931163105533,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3021.8322607243886,
+      "totalPayment": 3035.0931163105533,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2407,9 +2407,9 @@
     "buydown-2.00": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 2.017262738515345,
+      "dscr": 2.0083774637857665,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2424,12 +2424,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.485,
-      "pi": 2524.3274812163786,
+      "finalRate": 6.535,
+      "pi": 2537.48622118577,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 2974.3274812163786,
+      "totalPayment": 2987.48622118577,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2454,9 +2454,9 @@
     "upb-75-99k": {
       "loanType": "30Y Fixed",
       "ltv": 60,
-      "dscr": 5.560781928841257,
+      "dscr": 5.54493482197514,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2475,12 +2475,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.495000000000001,
-      "pi": 628.9849479406337,
+      "finalRate": 7.545000000000001,
+      "pi": 632.0686252652404,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 1078.9849479406337,
+      "totalPayment": 1082.0686252652404,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2510,9 +2510,9 @@
     "upb-100-149k": {
       "loanType": "30Y Fixed",
       "ltv": 60,
-      "dscr": 4.678385839527076,
+      "dscr": 4.66347696438527,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2531,12 +2531,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.420000000000001,
-      "pi": 832.4936219041141,
+      "finalRate": 7.470000000000001,
+      "pi": 836.593682315081,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 1282.4936219041142,
+      "totalPayment": 1286.593682315081,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2561,9 +2561,9 @@
     "upb-150-199k": {
       "loanType": "30Y Fixed",
       "ltv": 64.28571428571429,
-      "dscr": 3.629787441250892,
+      "dscr": 3.616525948903758,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2582,12 +2582,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 7.045000000000001,
-      "pi": 1202.9893546417386,
+      "finalRate": 7.095000000000001,
+      "pi": 1209.0507256884805,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 1652.9893546417386,
+      "totalPayment": 1659.0507256884805,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2612,9 +2612,9 @@
     "upb-600k-plus": {
       "loanType": "30Y Fixed",
       "ltv": 70,
-      "dscr": 1.8957742568495535,
+      "dscr": 1.8869878977169143,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2633,12 +2633,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.795000000000001,
-      "pi": 4561.145164397023,
+      "finalRate": 6.845000000000001,
+      "pi": 4584.478499567563,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 5011.145164397023,
+      "totalPayment": 5034.478499567563,
       "rent": 9500,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2663,9 +2663,9 @@
     "dscr-1.00-1.19": {
       "loanType": "30Y Fixed",
       "ltv": 60,
-      "dscr": 1.1038616835721224,
+      "dscr": 1.0989990693936789,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2680,12 +2680,12 @@
           "value": 0
         }
       ],
-      "finalRate": 6.845000000000001,
-      "pi": 1964.77649981467,
+      "finalRate": 6.8950000000000005,
+      "pi": 1974.7971946684704,
       "taxes": 200,
       "ins": 100,
       "hoa": 0,
-      "totalPayment": 2264.77649981467,
+      "totalPayment": 2274.79719466847,
       "rent": 2500,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2710,9 +2710,9 @@
     "broker-fees": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.954587122946459,
+      "dscr": 1.9461166196005335,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2727,12 +2727,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.845000000000001,
-      "pi": 2619.7019997528932,
+      "finalRate": 6.8950000000000005,
+      "pi": 2633.062926224627,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3069.7019997528932,
+      "totalPayment": 3083.062926224627,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
@@ -2770,16 +2770,16 @@
       "error": "FICO 680-699 is not available at 79.2% LTV. Maximum LTV for FICO 680-699 is 70%. Maximum loan at this property value is $420,000. Reach out to a manager to submit an exception request."
     },
     "err-dscr-below-1": {
-      "error": "DSCR 0.49x is below minimum 1.00x. Reach out to a manager to submit an exception request.",
-      "dscr": 0.4865291549001334,
+      "error": "DSCR 0.48x is below minimum 1.00x. Reach out to a manager to submit an exception request.",
+      "dscr": 0.4844255120200324,
       "dscrBelowMin": true
     },
     "warn-ineligible-state": {
       "loanType": "30Y Fixed",
       "ltv": 66.66666666666666,
-      "dscr": 1.954587122946459,
+      "dscr": 1.9461166196005335,
       "fico": "740-759",
-      "baseRate": 6.525,
+      "baseRate": 6.575,
       "adjs": [
         {
           "label": "FICO adjustment",
@@ -2794,12 +2794,12 @@
           "value": -0.05
         }
       ],
-      "finalRate": 6.845000000000001,
-      "pi": 2619.7019997528932,
+      "finalRate": 6.8950000000000005,
+      "pi": 2633.062926224627,
       "taxes": 300,
       "ins": 150,
       "hoa": 0,
-      "totalPayment": 3069.7019997528932,
+      "totalPayment": 3083.062926224627,
       "rent": 6000,
       "borrower": "Golden Fixture",
       "borrowerEmail": "golden@example.com",
