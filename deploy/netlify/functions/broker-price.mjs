@@ -148,11 +148,15 @@ async function handle(req, context) {
       program,
       inputs:      body.inputs,
       quoteId,
-      summary: {
-        rate:       priced.fee.slaRate,
-        points:     priced.allIn.points,
-        loanAmount: priced.allIn.loanAmount,
-      },
+      // A decline carries no numbers — record it as one so the desk can
+      // show "priced 6 scenarios, 2 didn't fit" rather than zeroes.
+      summary: priced.declined
+        ? { declined: true, reason: priced.reason }
+        : {
+            rate:       priced.fee.slaRate,
+            points:     priced.allIn.points,
+            loanAmount: priced.allIn.loanAmount,
+          },
       ip: clientIp(req, context),
       ua: req.headers && req.headers.get ? req.headers.get('user-agent') : '',
     });
@@ -185,6 +189,10 @@ async function handle(req, context) {
     // absence rather than substitute today's date.
     effectiveDate: priced.effectiveDate,
     pricedAt:      new Date().toISOString(),
+    // A scenario that doesn't fit the program comes back declined:true
+    // with a reason and NO numbers — never a $0 quote.
+    declined:      !!priced.declined,
+    reason:        priced.reason || '',
     result:        priced.result,
     fee:           priced.fee,
     allIn:         priced.allIn,

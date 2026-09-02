@@ -148,6 +148,27 @@ function round2(n) {
 }
 
 /**
+ * Rewrite a decline message for a broker audience.
+ *
+ * The engines append EXCEPTION_HINT — " Reach out to a manager to submit
+ * an exception request." — which is written for an LO talking to their
+ * own manager. A broker has no manager here; they have a loan officer.
+ * Everything BEFORE the hint is the useful part ("LTV 83.3% exceeds the
+ * 80% maximum. Maximum loan at this property value is $480,000.") and is
+ * published guideline material, so it passes through unchanged.
+ */
+const BROKER_HINT = ' Your SLA loan officer can request an exception.';
+
+function brokerDecline(msg) {
+  let s = String(msg || '').trim();
+  for (const eng of [dscrEngine, rtlEngine, mfEngine, gucEngine]) {
+    const hint = eng && eng.EXCEPTION_HINT;
+    if (hint && s.includes(hint.trim())) s = s.replace(hint.trim(), '').trim();
+  }
+  return (s || 'This scenario does not fit the program.') + BROKER_HINT;
+}
+
+/**
  * Price one scenario for a broker.
  *
  * @param {string} programKey    one of PROGRAM_KEYS
@@ -194,6 +215,37 @@ export function priceScenario(programKey, inputs, brokerFeePts) {
     raw = prog.engine[prog.fn](scenario);
   } catch (e) {
     return { ok: false, error: 'Pricing failed: ' + ((e && e.message) || 'unknown') };
+  }
+
+  if (!raw || typeof raw !== 'object') {
+    return { ok: false, error: 'Pricing returned no result' };
+  }
+
+  // ── Declines are a first-class answer, not an empty quote ────────
+  // The engines signal "doesn't fit" in two different shapes: the DSCR
+  // pair return ONLY `{ error }`, the Colchis pair return a normal object
+  // with `rErr` set and rate null. Both have to become an explicit
+  // decline — an earlier version projected the DSCR error shape through
+  // the allowlist, which dropped every field and produced `ok: true` with
+  // an empty result and a broker fee sitting on a $0 loan. A broker page
+  // would have rendered that as a real $0 quote.
+  //
+  // The decline REASON is worth passing on: "Maximum loan at this
+  // property value is $480,000" tells a broker exactly how to fix the
+  // deal, and it's published guideline material, not pricing-book data.
+  const declineMsg = raw.error || raw.rErr;
+  if (declineMsg) {
+    return {
+      ok: true,
+      declined: true,
+      program: programKey,
+      programLabel: prog.label,
+      effectiveDate: effectiveDateFor(programKey),
+      reason: brokerDecline(declineMsg),
+      result: null,
+      fee: null,
+      allIn: null,
+    };
   }
 
   const result = project(raw, prog.shape);

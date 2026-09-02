@@ -19,7 +19,7 @@
  *
  * NOTE ON WHAT THIS DOES NOT COVER: this runs the module under plain
  * Node. The lambda runs it through esbuild, which is where the
- * guc-pricing -> rgl-pricing require() could still be dropped. The
+ * guc-pricing -> rtl-pricing require() could still be dropped. The
  * endpoint's assertEnginesLoaded() covers that at runtime, and the live
  * smoke check after deploy is what proves it.
  */
@@ -50,6 +50,7 @@ const SUITES = [
 ];
 
 let failures = 0;
+let declined = 0;
 let checked = 0;
 
 const broken = assertEnginesLoaded();
@@ -76,6 +77,23 @@ for (const suite of SUITES) {
 
     if (!out.ok) {
       console.log(`FAIL  ${suite.program} "${sc.name || 'scenario'}": ${out.error}`);
+      suiteFail++; failures++;
+      continue;
+    }
+
+    // Some goldens are deliberate declines (over-LTV, sub-minimum FICO).
+    // The engine signals those as `error` / `rErr`; the server path must
+    // agree, and there are no fields left to compare.
+    if (out.declined) {
+      if (!raw.error && !raw.rErr) {
+        console.log(`FAIL  ${suite.program} "${sc.name || 'scenario'}" declined but the engine priced it`);
+        suiteFail++; failures++;
+      }
+      declined++;
+      continue;
+    }
+    if (raw.error) {
+      console.log(`FAIL  ${suite.program} "${sc.name || 'scenario'}" engine declined but the server quoted it`);
       suiteFail++; failures++;
       continue;
     }
@@ -124,10 +142,39 @@ if (Math.abs(withFee.allIn.points - (noFee.allIn.points + 2)) > 0.001) {
 failures += feeFail;
 console.log(`${feeFail ? 'FAIL' : 'ok  '}  broker fee stacks on top without moving SLA's price`);
 
+// 4. A scenario that doesn't fit must come back as an explicit DECLINE with
+//    a reason and no numbers — never ok-with-an-empty-result, which a page
+//    would render as a real $0 quote. (Live testing found exactly that.)
+const DECLINES = [
+  { program: 'dscr', why: 'over max LTV',
+    inputs: Object.assign({}, feeBase, { loanAmt: 500000 }) },
+  { program: 'rtl',  why: 'FICO below program minimum',
+    inputs: { lt: 'bridge', fr: 600, exp: 0, pt: 'sfr', pp: 400000, arv: 0, rb: 0, term: 12, purp: 'purchase', sa: 'other', state: 'WA' } },
+];
+let decFail = 0;
+for (const d of DECLINES) {
+  const out = priceScenario(d.program, d.inputs, 1.5);
+  if (!out.declined) {
+    console.log(`FAIL  ${d.program} (${d.why}) should decline, got a quote`); decFail++; continue;
+  }
+  if (out.result !== null || out.fee !== null || out.allIn !== null) {
+    console.log(`FAIL  ${d.program} (${d.why}) decline still carried numbers`); decFail++;
+  }
+  if (!out.reason || out.reason.length < 10) {
+    console.log(`FAIL  ${d.program} (${d.why}) decline has no usable reason`); decFail++;
+  }
+  // Internal "reach out to a manager" wording must not reach a broker.
+  if (/reach out to a manager/i.test(out.reason || '')) {
+    console.log(`FAIL  ${d.program} (${d.why}) leaked the internal exception hint: ${out.reason}`); decFail++;
+  }
+}
+failures += decFail;
+console.log(`${decFail ? 'FAIL' : 'ok  '}  declines return a reason and no numbers, in broker wording`);
+
 console.log('');
 if (failures) {
   console.log(`${failures} FAILURE(S) across ${checked} scenarios.`);
   process.exit(1);
 }
-console.log(`Parity holds across ${checked} golden scenarios; no withheld field leaked.`);
+console.log(`Parity holds across ${checked} golden scenarios (${declined} declines); no withheld field leaked.`);
 process.exit(0);
