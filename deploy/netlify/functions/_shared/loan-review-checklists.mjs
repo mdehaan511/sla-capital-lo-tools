@@ -136,7 +136,9 @@ export const DSCR_DOCS = [
   { slug: 'revised_loan_terms', label: 'New / Revised Loan Terms', section: 'loan',
     conditions: 'Reflects any changes since the original LOI; both parties agreed.', optional: true },
   { slug: 'loan_application', label: 'Loan Application / Credit Authorization', section: 'loan',
-    conditions: 'All information filled out and accurate; signatures present; credit auth signed by every guarantor.' },
+    conditions: 'All information filled out and accurate; signatures present; credit auth signed by every guarantor. ' +
+      'CRITICAL: check the declarations — if ANY guarantor answered Yes to "Do you intend to occupy the subject property?", ' +
+      'flag this application as a hard stop: SLA makes business-purpose loans only and cannot fund an owner-occupied property.' },
   { slug: 'term_sheet', label: 'Term Sheet', section: 'loan',
     conditions: 'Ensure it is the most up-to-date terms.' },
   { slug: 'outstanding_conditions', label: 'Outstanding Conditions & Documents', section: 'loan',
@@ -266,7 +268,7 @@ export const RTL_DOCS = [
 
   // ── Loan ──────────────────────────────────────────────────────
   { slug: 'loan_application', label: 'Loan Application', section: 'loan',
-    conditions: 'Complete (no missing fields or cut-offs) and signed by every guarantor. Loan amount, rehab budget, and ARV match the term sheet. The transaction is a Purchase or Refinance Fix & Flip; loan amount is between $125,000 and $3,500,000; term is 6–24 months; citizenship confirmed. Aggregate SLA exposure (incl. affiliated/cross-guaranteed entities) is at most $10,000,000 UPB or 4 active transactions. No payment on an existing SLA loan is past its grace period. Any "Yes" declaration answer other than citizenship is escalated. A loan over $3,500,000 or over the exposure cap is Tier 3.' },
+    conditions: 'Complete (no missing fields or cut-offs) and signed by every guarantor. Loan amount, rehab budget, and ARV match the term sheet. The transaction is a Purchase or Refinance Fix & Flip; loan amount is between $125,000 and $3,500,000; term is 6–24 months; citizenship confirmed. Aggregate SLA exposure (incl. affiliated/cross-guaranteed entities) is at most $10,000,000 UPB or 4 active transactions. No payment on an existing SLA loan is past its grace period. Any "Yes" declaration answer other than citizenship is escalated. CRITICAL: if ANY guarantor answered Yes to "Do you intend to occupy the subject property?", flag this application as a hard stop — SLA makes business-purpose loans only and cannot fund an owner-occupied property. A loan over $3,500,000 or over the exposure cap is Tier 3.' },
   { slug: 'term_sheet', label: 'Term Sheet', section: 'loan',
     conditions: 'Loan amount, rehab amount, fees, and borrower name all match the loan application; term is 6–24 months; no escrow account is reflected (SLA does not escrow).' },
 

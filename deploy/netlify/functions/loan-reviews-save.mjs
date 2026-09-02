@@ -268,9 +268,10 @@ async function handle(req, context) {
     // review already exists at signing; a review created afterwards (the
     // common processor flow) got neither doc. save:false — the review is
     // written for the first time just below.
+    let _createAttachedSlugs = [];
     try {
       const { attachSourceDocs } = await import('./_shared/loan-review-auto-attach.mjs');
-      await attachSourceDocs({
+      const _ar = await attachSourceDocs({
         ownerKey: keySafe(review.source.ownerKey),
         clientId: review.source.clientId,
         loanId:   review.source.loanId,
@@ -279,9 +280,13 @@ async function handle(req, context) {
         actorEmail: selfEmail,
         save: false,
       });
+      _createAttachedSlugs = (_ar && _ar.attachedSlugs) || [];
     } catch (e) {
       console.warn('loan-reviews-save: create-time source-doc attach failed (non-fatal):', e && e.message);
     }
+    // Deploy 236.849 — queue the AI review for the docs just attached, AFTER
+    // the review is written below (the background reviewer re-reads it).
+    review._queueAiAfterSave = _createAttachedSlugs;
     // Deploy 236.838 — also pull in any Xactus credit reports / flood certs
     // ordered BEFORE this review existed (they only reached the verifications
     // store; the live-order attach needs a review to attach to). Newest
@@ -336,6 +341,16 @@ async function handle(req, context) {
     }
   }
 
+  // Deploy 236.849 — fire queued AI reviews only after the review is stored
+  // (each background reviewer re-reads it fresh). The stash key never persists.
+  const _aiSlugs = Array.isArray(review._queueAiAfterSave) ? review._queueAiAfterSave : [];
+  delete review._queueAiAfterSave;
   await store.setJSON(keySafe(id), review);
+  if (_aiSlugs.length) {
+    try {
+      const { queueAiReviews } = await import('./_shared/loan-review-auto-attach.mjs');
+      await queueAiReviews(review.id, _aiSlugs);
+    } catch (e) { console.warn('loan-reviews-save: AI queue failed (non-fatal):', e && e.message); }
+  }
   return json(200, { ok: true, review });
 }

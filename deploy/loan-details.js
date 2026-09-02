@@ -2870,6 +2870,7 @@ function render() {
   refreshOwnershipBanner();
   refreshBpoRepriceBanner();   // Deploy 236.767
   refreshFelonyBanner();   // Deploy 236.777
+  refreshOccupancyBanner(); // Deploy 236.849
   // Deploy 236.129 — top-of-page banner when a guarantor has
   // submitted / updated their sub-form (incl. signed Credit Auth).
   // Lets the LO know to re-bundle the main loan app if they want
@@ -3481,6 +3482,7 @@ function saveGuarantorOwnership(input) {
     refreshOwnershipBanner();
     refreshBpoRepriceBanner();   // Deploy 236.767
     refreshFelonyBanner();   // Deploy 236.777
+  refreshOccupancyBanner(); // Deploy 236.849
   }).catch(function(err) {
     if (status) { status.className = 'ow-status err'; status.textContent = 'Save failed'; }
   });
@@ -4271,6 +4273,65 @@ function dismissFelonyBanner(btn) {
   });
 }
 
+// Deploy 236.849 (Mike) — OWNER-OCCUPANCY critical banner. The loan app's
+// declaration "Do you intend to occupy the subject property?" stamps
+// occupancyIntent / occupancyIntentBy onto the loan at sign/save time
+// (borrower-info-sync + guarantor sub-form). SLA makes business-purpose
+// loans only — a YES is a hard stop, same treatment as the felony banner.
+// The ack is keyed to WHO said yes, so a new guarantor answering yes
+// re-raises a previously acknowledged banner.
+function _ldOccupancyKey(l) {
+  return String(l.occupancyIntent || '') + '|' + String(l.occupancyIntentBy || '');
+}
+function refreshOccupancyBanner() {
+  var slot = document.getElementById('ldTopBanners');
+  if (!slot) return;
+  var existing = slot.querySelector('.ld-warning-banner[data-banner="occupancy"]');
+  if (existing) existing.remove();
+
+  var l = _loan;
+  if (!l || !/^y/i.test(String(l.occupancyIntent || '').trim())) return;
+  if (l.occupancyAckAt && String(l.occupancyAckKey || '') === _ldOccupancyKey(l)) return;
+
+  var who = String(l.occupancyIntentBy || '').trim() || 'A guarantor';
+  var banner = document.createElement('div');
+  banner.className = 'ld-warning-banner';
+  banner.setAttribute('data-banner', 'occupancy');
+  banner.style.background  = 'rgba(124,31,31,0.10)';
+  banner.style.borderColor = 'rgba(124,31,31,0.40)';
+  banner.style.color       = 'var(--danger, #7c1f1f)';
+  banner.innerHTML =
+    '<span class="ld-warning-icon">⛔</span>' +
+    '<div style="flex:1">' +
+      '<strong>Borrower intends to occupy the property — this loan cannot proceed</strong> — ' +
+      escH(who) + ' answered YES to "Do you intend to occupy the subject property?" on the loan application. ' +
+      'SLA makes business-purpose loans only and cannot fund an owner-occupied property.' +
+    '</div>' +
+    '<button type="button" onclick="dismissOccupancyBanner(this)" ' +
+      'title="Record that this was resolved (answer corrected or deal restructured). A new YES declaration will bring this back." ' +
+      'style="flex:none;align-self:center;margin-left:10px;font-size:12px;font-weight:600;padding:6px 12px;border:1px solid rgba(124,31,31,0.40);background:#fff;color:var(--danger,#7c1f1f);border-radius:6px;cursor:pointer;font-family:inherit">Resolved</button>';
+  slot.appendChild(banner);
+}
+function dismissOccupancyBanner(btn) {
+  if (!_loan || !_client) return;
+  if (!confirm('Record that the owner-occupancy declaration was resolved for this loan?\n\n' +
+      'Only do this once the borrower has corrected the answer (it was a mistake) or the deal was ' +
+      'restructured so no occupant is a borrower. A new YES declaration will raise this again.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  var fields = {
+    occupancyAckAt:  new Date().toISOString(),
+    occupancyAckKey: _ldOccupancyKey(_loan),
+  };
+  SLA.Loans.saveFields(_clientId, _loanId, fields, _ldOwnerOverride()).then(function () {
+    _ldMergeLoan(fields);
+    refreshOccupancyBanner();
+    showToast('Occupancy alert cleared for this declaration.');
+  }).catch(function (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Resolved'; }
+    showToast('Could not record it: ' + ((err && err.message) || 'unknown'));
+  });
+}
+
 // Deploy 236.775 — the max loan the BPO AIV supports for this loan's
 // program/FICO/experience (aiv × max LTP/LTV, + rehab on rehab products).
 // Mirrors rtl-pricing.js's ltvBasis sizing (236.772). Returns null when
@@ -4316,6 +4377,7 @@ function dismissBpoRepriceBanner(btn) {
     _ldMergeLoan(fields);
     refreshBpoRepriceBanner();
     refreshFelonyBanner();   // Deploy 236.777
+  refreshOccupancyBanner(); // Deploy 236.849
     showToast('BPO reprice notice dismissed for the current BPO values.');
   }).catch(function (err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Dismiss'; }

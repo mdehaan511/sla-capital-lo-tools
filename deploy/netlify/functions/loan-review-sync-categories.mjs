@@ -132,10 +132,74 @@ async function handle(req, context) {
 
   const added = syncMissingCategories(review);
 
-  if (added.length) {
+  // Deploy 236.849 — self-heal the two source-doc trays on page open:
+  // (1) an EMPTY term_sheet tray backfills from the loan's rate-sheet
+  //     envelope (signed/stamped copy preferred — a sheet signed before the
+  //     review existed never attached because the unsigned stash was deleted
+  //     at completion), (2) an EMPTY loan_application tray backfills from
+  //     signed_applications, and (3) an auto-attached doc that never got its
+  //     AI review (pre-236.849 attaches left trays ungraded forever) gets it
+  //     queued now. Idempotent: only empty trays attach, and the AI queue is
+  //     gated on "auto-attached + never graded + not already running".
+  const healQueue = [];
+  let healed = 0;
+  try {
+    const src = review.source || {};
+    if (src.ownerKey && src.loanId) {
+      const { readSignedApp, findLatestRateSheetPdf, attachToSlug, markAiQueued } =
+        await import('./_shared/loan-review-auto-attach.mjs');
+      const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
+      const street = String(review.address || '').split(',')[0].trim() || 'loan';
+      const heals = [];
+      const la = review.docs.loan_application;
+      if (la && !la.currentDocId) {
+        const app = await readSignedApp({ ownerKey: keySafe(src.ownerKey), clientId: src.clientId, loanId: src.loanId });
+        if (app && app.bytes) heals.push({ slug: 'loan_application', bytes: app.bytes,
+          filename: 'Signed Loan Application - ' + street + '.pdf', note: 'auto-attached on page open (signed_applications)' });
+      }
+      const ts = review.docs.term_sheet;
+      if (ts && !ts.currentDocId) {
+        const rs = await findLatestRateSheetPdf({ ownerKey: keySafe(src.ownerKey), clientId: src.clientId, loanId: src.loanId });
+        if (rs && rs.bytes) heals.push({ slug: 'term_sheet', bytes: rs.bytes,
+          filename: (rs.signed ? 'Signed Rate Sheet - ' : 'Rate Sheet - ') + street + '.pdf',
+          note: 'auto-attached on page open (envelope ' + (rs.envelopeId || '?') + ')' });
+      }
+      for (const h of heals) {
+        attachToSlug({ review, slug: h.slug, bytes: h.bytes, filename: h.filename,
+          mimeType: 'application/pdf', sourceNote: h.note, actorEmail: user.email });
+        await docsStore.set(keySafe(review.id) + '/' + review.docs[h.slug].currentDocId, h.bytes, {
+          metadata: { reviewId: review.id, slug: h.slug, filename: h.filename, mimeType: 'application/pdf',
+            uploadedAt: new Date().toISOString(), uploadedBy: 'auto:sync-heal', source: h.note },
+        });
+        markAiQueued(review, h.slug);
+        healQueue.push(h.slug);
+        healed++;
+      }
+      // (3) auto-attached but never AI-graded → queue now.
+      for (const slug of ['loan_application', 'term_sheet']) {
+        if (healQueue.includes(slug)) continue;
+        const ds = review.docs[slug];
+        if (!ds || !ds.currentDocId || ds.aiReviewing) continue;
+        if (ds.verdict !== 'pending' || ds.aiVerdict || ds.aiError) continue;
+        if (!/^auto-attached/i.test(String(ds.processorNotes || ''))) continue;
+        markAiQueued(review, slug);
+        healQueue.push(slug);
+      }
+    }
+  } catch (e) {
+    console.warn('sync-categories: source-doc heal failed (non-fatal):', e && e.message);
+  }
+
+  if (added.length || healed || healQueue.length) {
     review.updatedAt = new Date().toISOString();
     await reviewStore.setJSON(keySafe(review.id), review);
   }
+  if (healQueue.length) {
+    try {
+      const { queueAiReviews } = await import('./_shared/loan-review-auto-attach.mjs');
+      await queueAiReviews(review.id, healQueue);
+    } catch (e) { console.warn('sync-categories: AI queue failed (non-fatal):', e && e.message); }
+  }
 
-  return json(200, { ok: true, review, added });
+  return json(200, { ok: true, review, added, healed, aiQueued: healQueue });
 }

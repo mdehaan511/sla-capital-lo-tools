@@ -253,10 +253,48 @@ async function handle(req) {
   // Deploy 236.847 — flip the servicing-row chip to executed + loan note.
   await syncExtensionMarker(envelope, 'completed', _extensionDoneNote(envelope));
 
+  // Deploy 236.849 (Mike) — a fully signed RATE SHEET files itself into the
+  // loan's Doc Review Term Sheet tray (stamped copy) and gets its AI review
+  // queued. Before this, the review-create attach read the unsigned stash
+  // that the cleanup below deletes, so signed sheets never mapped.
+  await _attachSignedRateSheet(envelope, stampedPdfs);
+
   return json(200, {
     ok: true, signedAt, status: 'completed',
     emailedCount,
   });
+}
+
+// Best-effort: attach each completed rate-sheet doc to the review's term_sheet
+// tray. Zero-throw — a failure here must not break the signing response.
+async function _attachSignedRateSheet(envelope, stampedPdfs) {
+  try {
+    if (!envelope.clientId || !envelope.loanId) return;
+    const hasRateSheet = (envelope.docs || []).some((d) => d && d.kind === 'rate_sheet');
+    if (!hasRateSheet) return;
+    const { attachPdfToReviewSlug, queueAiReviews } = await import('./_shared/loan-review-auto-attach.mjs');
+    for (const sp of stampedPdfs || []) {
+      const doc = (envelope.docs || [])[sp.idx];
+      if (!doc || doc.kind !== 'rate_sheet') continue;
+      const street = String(envelope.propertyAddress || '').split(',')[0].trim() || 'loan';
+      const res = await attachPdfToReviewSlug({
+        ownerKey: envelope.ownerKey,
+        clientId: envelope.clientId,
+        loanId: envelope.loanId,
+        address: envelope.propertyAddress || '',
+        slug: 'term_sheet',
+        bytes: Buffer.from(sp.b64, 'base64'),
+        filename: 'Signed Rate Sheet - ' + street + '.pdf',
+        sourceNote: 'auto-attached on eSign completion (envelope ' + envelope.id + ')',
+        actorEmail: 'auto:esign-complete',
+      });
+      if (res && res.attached && res.reviewId) {
+        await queueAiReviews(res.reviewId, ['term_sheet']);
+      }
+    }
+  } catch (e) {
+    console.warn('envelope-sign: signed rate-sheet attach failed (non-fatal):', e && e.message);
+  }
 }
 
 // ── Loan extension status mirror (Deploy 236.847) ──────────────────

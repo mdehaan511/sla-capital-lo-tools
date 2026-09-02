@@ -270,6 +270,17 @@ async function handle(req) {
         if (ln) {
           ln._guarantorDocsUpdatedAt = now;
           ln._guarantorDocsUpdatedBy = guarantor.id;
+          // Deploy 236.849 (Mike) — owner-occupancy declared on the sub-form
+          // raises the same CRITICAL loan flag as the long app (SLA cannot
+          // fund owner-occupied). Upgrade-only here: this guarantor's answer
+          // can't clear a YES someone else gave on the main application.
+          const _decl = guarantor.declarations || {};
+          if (_decl.intendToOccupy === 'yes') {
+            const _nm = (((guarantor.firstName || '') + ' ' + (guarantor.lastName || '')).trim()) || 'Guarantor';
+            ln.occupancyIntent = 'yes';
+            const _by = String(ln.occupancyIntentBy || '');
+            if (_by.indexOf(_nm) < 0) ln.occupancyIntentBy = _by ? _by + ', ' + _nm : _nm;
+          }
           ln.updatedAt = now;
           primary.updatedAt = now;
           // Deploy 236.402 (C2 slice 2): PG-first via shared writeClient

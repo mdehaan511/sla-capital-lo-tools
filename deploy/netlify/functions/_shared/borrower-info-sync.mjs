@@ -87,11 +87,39 @@ function aggrNorm(s) {
   return x.trim();
 }
 
+// Deploy 236.849 (Mike) — owner-occupancy is a CRITICAL flag: SLA makes
+// business-purpose loans only and cannot fund an owner-occupied property.
+// Scans every guarantor's declaration ("Do you intend to occupy the subject
+// property?") on the application record and returns the loan-field updates:
+// occupancyIntent 'yes' + who said so, 'no' once someone has answered, or
+// null when nobody has answered yet (never downgrade on missing data).
+// Loan Details raises a red banner off these fields (felony-banner pattern).
+export function occupancyIntentUpdates(data) {
+  const gs = Array.isArray(data && data.guarantors) ? data.guarantors : [];
+  const hits = [];
+  let answered = false;
+  gs.forEach((g, i) => {
+    if (!g) return;
+    const v = String(g.intendToOccupy || '').trim().toLowerCase();
+    if (v === 'yes' || v === 'no') answered = true;
+    if (v === 'yes') {
+      const nm = (((g.firstName || '') + ' ' + (g.lastName || '')).trim());
+      hits.push(nm || ('Guarantor ' + (i + 1)));
+    }
+  });
+  if (hits.length) return { occupancyIntent: 'yes', occupancyIntentBy: hits.join(', ') };
+  if (answered)    return { occupancyIntent: 'no',  occupancyIntentBy: '' };
+  return null;
+}
+
 export async function syncPropertyFieldsToLoan(record) {
   if (!record.ownerKey || !record.clientId) return;
   const data = record.data || {};
 
   const loanUpdates = {};
+  // Deploy 236.849 — owner-occupancy declaration → critical loan flag.
+  const _occ = occupancyIntentUpdates(data);
+  if (_occ) Object.assign(loanUpdates, _occ);
   if (data.bedrooms)        loanUpdates.bedrooms       = String(data.bedrooms);
   if (data.bathrooms)       loanUpdates.bathrooms      = String(data.bathrooms);
   if (data.sqft)            loanUpdates.sqft           = String(data.sqft);

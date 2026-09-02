@@ -59,6 +59,7 @@ export async function autoAttachOnApproval({ ownerKey, client, loan, actorEmail 
 export async function attachSourceDocs({ ownerKey, clientId, loanId, address, review, actorEmail, save }) {
   try {
     let attached = 0;
+    const attachedSlugs = [];
     const docsStore   = getStore({ name: 'loan-review-docs', consistency: 'strong' });
     const reviewStore = getStore({ name: 'loan_reviews',     consistency: 'strong' });
     const loan = { id: loanId, address };
@@ -87,6 +88,7 @@ export async function attachSourceDocs({ ownerKey, clientId, loanId, address, re
           },
         });
         attached++;
+        attachedSlugs.push(LOAN_APP_SLUG);
       } catch (e) {
         console.warn('[auto-attach] doc-blob write failed for ' + LOAN_APP_SLUG + ':', e && e.message);
       }
@@ -115,10 +117,17 @@ export async function attachSourceDocs({ ownerKey, clientId, loanId, address, re
           },
         });
         attached++;
+        attachedSlugs.push(RATE_SHEET_SLUG);
       } catch (e) {
         console.warn('[auto-attach] doc-blob write failed for ' + RATE_SHEET_SLUG + ':', e && e.message);
       }
     }
+
+    // Deploy 236.849 — auto-attached docs get their AI review queued instead
+    // of sitting ungraded until a human clicks. Mark first (spinner shows on
+    // page load), fire after the review is persisted. With save:false the
+    // CALLER persists then must call queueAiReviews(reviewId, attachedSlugs).
+    attachedSlugs.forEach((s) => markAiQueued(review, s));
 
     if (attached > 0 && save !== false) {
       review.updatedAt = new Date().toISOString();
@@ -126,9 +135,10 @@ export async function attachSourceDocs({ ownerKey, clientId, loanId, address, re
       review.lastEditedAt = review.updatedAt;
       try { await reviewStore.setJSON(keySafe(review.id), review); }
       catch (e) { console.warn('[auto-attach] review save failed:', e && e.message); }
+      await queueAiReviews(review.id, attachedSlugs);
     }
     console.log('[auto-attach] loan ' + loan.id + ' → review ' + review.id + ' attached=' + attached);
-    return { ok: true, attached, reviewId: review.id };
+    return { ok: true, attached, attachedSlugs, reviewId: review.id };
   } catch (e) {
     console.error('[auto-attach] unexpected error:', e && e.message);
     return { ok: false, error: (e && e.message) || 'unknown' };
@@ -178,6 +188,9 @@ export async function attachPdfToReviewSlug({ ownerKey, clientId, loanId, addres
 // (loan-review-refresh-background.mjs) so it can reuse the same review
 // lookup / signed-app read / attach mechanics.
 export { _findReviewForLoan as findReviewForLoan, _readSignedApp as readSignedApp, _attachToSlug as attachToSlug };
+// Deploy 236.849 — exported for the sync-categories self-heal (backfills the
+// signed rate sheet onto reviews whose term_sheet tray is still empty).
+export { _findLatestRateSheetPdf as findLatestRateSheetPdf };
 
 // Deploy 236.838 — backfill EXISTING Xactus verifications (credit reports +
 // flood certs) into a review's trays. The live orders auto-attach at pull
@@ -278,10 +291,14 @@ async function _readSignedApp({ ownerKey, clientId, loanId }) {
 }
 
 async function _findLatestRateSheetPdf({ ownerKey, clientId, loanId }) {
-  // The Send-for-Signature flow stashes the rate-sheet PDF bytes in
-  // `envelope-pdfs` keyed by `<ownerKey>/<envelopeId>`. We pick the
-  // most recently-created envelope on this loan whose first doc is
-  // kind='rate_sheet' and pull its stashed PDF.
+  // Pick the most recently-created rate-sheet envelope on this loan and pull
+  // its PDF. Deploy 236.849 — a COMPLETED envelope's original is DELETED from
+  // `envelope-pdfs` (envelope-sign keeps only the stamped copy in
+  // `envelope-final-pdfs`), so a rate sheet that was signed before the review
+  // existed always came back empty here (Chance's Jimmy St loan). Read the
+  // stamped final first — it's also the better document (signatures on it) —
+  // then fall back to the unsigned stash (both key shapes: with and without
+  // the /<docIdx> suffix; older stashes used the bare envelope id).
   try {
     const envelopes = getStore({ name: 'envelopes', consistency: 'strong' });
     const { blobs } = await envelopes.list({ prefix: ownerKey + '/' });
@@ -297,14 +314,60 @@ async function _findLatestRateSheetPdf({ ownerKey, clientId, loanId }) {
       }
     }
     if (!latest) return null;
-    const pdfsStore = getStore({ name: 'envelope-pdfs', consistency: 'strong' });
-    const buf = await pdfsStore.get(ownerKey + '/' + latest.id, { type: 'arrayBuffer' });
-    if (!buf) return null;
-    return { bytes: Buffer.from(buf), envelopeId: latest.id };
+    const finalStore = getStore({ name: 'envelope-final-pdfs', consistency: 'strong' });
+    const pdfsStore  = getStore({ name: 'envelope-pdfs',       consistency: 'strong' });
+    const tries = [
+      { store: finalStore, key: ownerKey + '/' + latest.id + '/0', signed: true },
+      { store: pdfsStore,  key: ownerKey + '/' + latest.id + '/0', signed: false },
+      { store: pdfsStore,  key: ownerKey + '/' + latest.id,        signed: false },
+    ];
+    for (const t of tries) {
+      const buf = await t.store.get(t.key, { type: 'arrayBuffer' }).catch(() => null);
+      if (buf && buf.byteLength) return { bytes: Buffer.from(buf), envelopeId: latest.id, signed: t.signed };
+    }
+    return null;
   } catch (e) {
     console.warn('[auto-attach] rate sheet lookup failed:', e && e.message);
   }
   return null;
+}
+
+// Deploy 236.849 — queue background AI reviews for freshly auto-attached docs.
+// Auto-attached trays used to sit "Awaiting Review" with NO AI grade until a
+// human clicked (Mike: Jimmy St loan application "couldn't be reviewed by AI"
+// — it was never run). Fired with the internal HMAC so borrower-triggered
+// flows (signing) can queue reviews without a staff JWT. Call AFTER the
+// review has been persisted — each background reviewer re-reads it fresh.
+export async function queueAiReviews(reviewId, slugs) {
+  if (!reviewId || !slugs || !slugs.length) return 0;
+  const base = process.env.URL || process.env.DEPLOY_PRIME_URL || 'https://portal.slacapital.ai';
+  let fired = 0;
+  for (const slug of slugs) {
+    try {
+      const { internalBgSig } = await import('./review-truth.mjs');
+      const r = await fetch(base + '/.netlify/functions/loan-review-ai-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-sla-internal': internalBgSig(reviewId, slug) },
+        body: JSON.stringify({ reviewId, slug }),
+      });
+      if (r.status === 202 || r.ok) fired++;
+      else console.warn('[auto-attach] AI queue for ' + slug + ' got ' + r.status);
+    } catch (e) {
+      console.warn('[auto-attach] AI queue failed for ' + slug + ':', e && e.message);
+    }
+  }
+  return fired;
+}
+
+// Mark a tray as queued-for-AI so the page shows the spinner immediately
+// (loan-review-ai-background clears aiReviewing on every outcome).
+export function markAiQueued(review, slug) {
+  const ds = review && review.docs && review.docs[slug];
+  if (!ds || !ds.currentDocId) return false;
+  ds.aiReviewing = true;
+  ds.aiNotes = 'AI review queued (auto-attached document).';
+  ds.aiError = '';
+  return true;
 }
 
 // Mutate the review in place to point a slug at a newly-attached doc.
