@@ -63,3 +63,49 @@ export function applyLoanPrefill(pf, loan) {
   pf.loan.annualHOA       = annualize(loan.hoa);
   return pf;
 }
+
+// ── Deploy 236.851 — is the loan-holding CLIENT record the broker? ─────────
+// The long-app prefill must not mirror a BROKER's contact info into the
+// borrower / Guarantor #1 fields (Deploy ~229 bug class). The old test was
+// "the loan is broker-originated" — but loan.brokerId lives forever, while
+// the loan can MOVE onto the real borrower's client record (guarantor swap /
+// make-primary: the Locust Ave loan). Then the stale flag blanked Guarantor
+// #1 on a re-sent application even though the client IS the borrower.
+// Decision order (first hit wins):
+//   1. not broker-originated                          → NOT broker
+//   2. client tagged _isBroker                        → broker
+//   3. client's email IS the loan's brokerEmail       → broker (broker shell)
+//   4. client has no email at all                     → broker (can't verify — legacy caution)
+//   5. the form's recipient IS the client             → NOT broker (they fill their own form)
+//   6. otherwise: distinct person with their own email → NOT broker
+export function clientActsAsBroker(client, loan, recipientEmail) {
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  const brokerOriginated = !!(loan && (loan._isBrokerLoan || loan.brokerId));
+  if (!brokerOriginated) return false;
+  if (client && client._isBroker === true) return true;
+  const cEmail = norm(client && client.email);
+  if (!cEmail) return true;
+  if (norm(loan && loan.brokerEmail) && norm(loan.brokerEmail) === cEmail) return true;
+  if (norm(recipientEmail) && norm(recipientEmail) === cEmail) return false;
+  return false;
+}
+
+// The borrower half of the prefill, from a client record that IS the borrower.
+// Shared so borrower-info-load can rebuild it live when a stale broker flag is
+// detected on an already-sent link (same shape as borrower-info-request's).
+export function buildBorrowerPrefill(client) {
+  client = client || {};
+  return {
+    firstName: client.firstName || '',
+    lastName:  client.lastName || '',
+    email:     client.email || '',
+    phone:     client.phone || '',
+    usCitizen: client.usCitizen || '',
+    dob:       client.dob || '',
+    maritalStatus: client.maritalStatus || '',
+    homeAddress: client.homeAddress || null,
+    fico:      client.fico || '',
+    flips:     client.flips || '',
+    rentals:   client.rentals || '',
+  };
+}

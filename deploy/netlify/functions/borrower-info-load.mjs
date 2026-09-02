@@ -17,7 +17,7 @@ import { checkRateLimit } from './_shared/rate-limit.mjs';
 // every load. The invite-time snapshot missed prefill improvements shipped
 // after the link was sent (e.g. GUC ownLand, 236.740) and any LO edits to
 // the loan made while the application was in flight.
-import { applyLoanPrefill } from './_shared/borrower-prefill.mjs';
+import { applyLoanPrefill, clientActsAsBroker, buildBorrowerPrefill } from './_shared/borrower-prefill.mjs';
 
 export default async (req, context) => {
   try {
@@ -64,6 +64,24 @@ async function handle(req) {
       if (loan) {
         prefill = JSON.parse(JSON.stringify(prefill));
         applyLoanPrefill(prefill, loan);
+        // Deploy 236.851 — repair a STALE broker flag on already-sent links:
+        // an invite built while loan.brokerId still classified the client as
+        // the broker carries an emptied pf.borrower + isBrokerLoan:true, which
+        // makes the form skip the Guarantor #1 mirror entirely (Locust Ave —
+        // David Starkweather's re-sent app opened with a blank Guarantor 1).
+        // When the client record is NOT actually the broker, rebuild the
+        // borrower half from the live client + let the mirror run. (No
+        // recipient email is known at load time — classification relies on
+        // the _isBroker tag / brokerEmail match / shell checks.)
+        if (prefill.loan && prefill.loan.isBrokerLoan && client &&
+            !clientActsAsBroker(client, loan, '')) {
+          prefill.borrower = buildBorrowerPrefill(client);
+          prefill.loan.isBrokerLoan = false;
+          if (!(Array.isArray(prefill.companies) && prefill.companies.length) &&
+              Array.isArray(client.companies)) {
+            prefill.companies = client.companies;
+          }
+        }
       }
     }
   } catch (e) {

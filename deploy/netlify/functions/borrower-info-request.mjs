@@ -43,7 +43,9 @@ import { appendNoteEntry } from './_shared/notes-log.mjs';
 // PG-first writeClient helper.
 import { writeClient } from './_shared/client-write.mjs';
 // Deploy 236.741 — shared loan/property prefill (also used live by -load).
-import { applyLoanPrefill } from './_shared/borrower-prefill.mjs';
+// 236.851 — clientActsAsBroker replaces the raw brokerId test: a loan that
+// moved onto the real borrower's client record must prefill normally.
+import { applyLoanPrefill, clientActsAsBroker, buildBorrowerPrefill } from './_shared/borrower-prefill.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -134,8 +136,13 @@ async function handle(req, context) {
     (!existing.expiresAt || new Date(existing.expiresAt) > new Date()));
   const token = tokenReusable ? existing.token : generateToken();
 
-  // Pre-fill from what we already know about the client + loan
-  const prefill = buildPrefill(client, loan, { loName, loEmail: owner });
+  // Pre-fill from what we already know about the client + loan.
+  // 236.851 — pass the actual recipient so the broker classification can see
+  // "the client is receiving their own form" (same priority as sendTo below).
+  const prefill = buildPrefill(client, loan, {
+    loName, loEmail: owner,
+    recipientEmail: bodyEmail || client.email || brokerEmail || '',
+  });
 
   const record = {
     clientId: body.clientId,
@@ -280,7 +287,10 @@ function buildPrefill(client, loan, loInfo) {
   // own guarantor. Fix: for broker loans, source borrower fields from
   // loan.formData if captured; leave blank otherwise so the borrower
   // fills in their own info + guarantor from scratch.
-  const isBrokerLoan = !!(loan && (loan._isBrokerLoan || loan.brokerId));
+  // 236.851 — was `loan._isBrokerLoan || loan.brokerId`, which stayed true
+  // forever even after the loan moved onto the real borrower's client record
+  // (guarantor swap / make-primary) and blanked Guarantor #1 on re-sends.
+  const isBrokerLoan = clientActsAsBroker(client, loan, loInfo.recipientEmail);
   const fd = (loan && loan.formData) || {};
   let borrowerSrc;
   if (isBrokerLoan) {
@@ -304,19 +314,8 @@ function buildPrefill(client, loan, loInfo) {
       rentals:   '',
     };
   } else {
-    borrowerSrc = {
-      firstName: client.firstName || '',
-      lastName:  client.lastName || '',
-      email:     client.email || '',
-      phone:     client.phone || '',
-      usCitizen: client.usCitizen || '',
-      dob:       client.dob || '',
-      maritalStatus: client.maritalStatus || '',
-      homeAddress: client.homeAddress || null,
-      fico:      client.fico || '',
-      flips:     client.flips || '',
-      rentals:   client.rentals || '',
-    };
+    // 236.851 — shared with borrower-info-load's stale-broker-flag repair.
+    borrowerSrc = buildBorrowerPrefill(client);
   }
 
   const pf = {
