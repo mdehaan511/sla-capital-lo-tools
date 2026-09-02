@@ -896,15 +896,17 @@ function openExtensionModal(clientId, loanId, ownerKey){
   if (!it) return;
   _svcTarget=it; _svcMode='extension'; _dispPending=null;
   var l=it.loan, c=it.client;
-  // New maturity default = current maturity + 90 days (falls back to today+90).
+  // Deploy 236.844 — new maturity default = the 1ST of the month three months
+  // after the current maturity (Mike; was maturity+90 days). E.g. maturity
+  // 9/15 → 12/1. Falls back to today's month when no maturity is on file.
   var baseD = parseLocalDate(l.maturityDate) || new Date();
-  var nm = new Date(baseD.getTime() + 90*86400000);
-  var nmStr = nm.getFullYear()+'-'+('0'+(nm.getMonth()+1)).slice(-2)+'-'+('0'+nm.getDate()).slice(-2);
+  var nm = new Date(baseD.getFullYear(), baseD.getMonth() + 3, 1);
+  var nmStr = nm.getFullYear()+'-'+('0'+(nm.getMonth()+1)).slice(-2)+'-01';
   var origAmt = num(l.finalLoanAmount)||num(l.loanAmt);
   var fee = Math.round(origAmt*0.01*100)/100;
   var bName = c.entityName || clientName(c);
   document.getElementById('svcTitle').textContent='Send Loan Extension Agreement';
-  document.getElementById('svcSub').textContent=(l.address||'')+'  ·  90-day extension · you sign first, then the borrower is invited';
+  document.getElementById('svcSub').textContent=(l.address||'')+'  ·  extends to the 1st, 3 months out · you sign first, then the borrower is invited';
   var st=document.getElementById('svcStatus'); st.textContent=''; st.className='svc-status';
   document.getElementById('svcGrid').innerHTML =
     '<div class="svc-fld"><label>New Maturity Date <span class="req">*</span></label><input type="date" id="ext_newMaturityDate" value="'+escAttr(nmStr)+'" /></div>'+
