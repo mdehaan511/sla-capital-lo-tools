@@ -45,7 +45,7 @@ import { writeClient } from './_shared/client-write.mjs';
 // Deploy 236.741 — shared loan/property prefill (also used live by -load).
 // 236.851 — clientActsAsBroker replaces the raw brokerId test: a loan that
 // moved onto the real borrower's client record must prefill normally.
-import { applyLoanPrefill, clientActsAsBroker, buildBorrowerPrefill } from './_shared/borrower-prefill.mjs';
+import { applyLoanPrefill, clientActsAsBroker, buildBorrowerPrefill, seedGuarantorSSNsFromProfiles } from './_shared/borrower-prefill.mjs';
 
 const TOKEN_EXPIRY_DAYS = 14;
 
@@ -163,6 +163,19 @@ async function handle(req, context) {
     // for edits without wiping borrower's previous answers)
     data: (existing && existing.data) || {},
   };
+
+  // Deploy 236.853 (Mike) — auto-fill SSNs the platform already has: copy the
+  // ENCRYPTED value from client profiles into the application record. The
+  // borrower sees only the ***-**-1234 mask and doesn't retype it. Safe here:
+  // this record is (re)issued as status 'pending' — nothing signed over it yet.
+  try {
+    await seedGuarantorSSNsFromProfiles({
+      data: record.data, client, loan, ownerKey, clientsStore,
+      recipientEmail: bodyEmail || client.email || brokerEmail || '',
+    });
+  } catch (e) {
+    console.warn('borrower-info-request: SSN seed failed (non-fatal):', e && e.message);
+  }
 
   try {
     await store.setJSON(recordKey, record);

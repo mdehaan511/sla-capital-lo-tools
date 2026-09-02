@@ -17,7 +17,8 @@ import { checkRateLimit } from './_shared/rate-limit.mjs';
 // every load. The invite-time snapshot missed prefill improvements shipped
 // after the link was sent (e.g. GUC ownLand, 236.740) and any LO edits to
 // the loan made while the application was in flight.
-import { applyLoanPrefill, clientActsAsBroker, buildBorrowerPrefill } from './_shared/borrower-prefill.mjs';
+import { applyLoanPrefill, clientActsAsBroker, buildBorrowerPrefill, seedGuarantorSSNsFromProfiles } from './_shared/borrower-prefill.mjs';
+import { saveRecord } from './_shared/borrower-info-keys.mjs';
 
 export default async (req, context) => {
   try {
@@ -46,6 +47,43 @@ async function handle(req) {
     return json(410, { error: 'This link has expired. Please contact your loan officer for a new link.' });
   }
 
+  // Deploy 236.853 — load the client + loan ONCE (the prefill refresh below
+  // and the SSN seed both need them).
+  let client = null;
+  let loan = null;
+  try {
+    if (record.ownerKey && record.clientId && record.loanId) {
+      const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
+      client = await clientsStore.get(record.ownerKey + '/' + keySafe(record.clientId), { type: 'json' });
+      loan = (client && Array.isArray(client.loans))
+        ? client.loans.find((l) => l && l.id === record.loanId)
+        : null;
+
+      // Deploy 236.853 (Mike) — auto-fill SSNs already stored on client
+      // profiles into ALREADY-SENT applications, persisted so signing renders
+      // them. ONLY on an unsigned record: adding fields to signed data would
+      // break the signature's dataHash attestation. The mask step below then
+      // returns ***-**-1234 to the browser, never the real value.
+      const _signedish = !!(record.signedAt || record.b1SignedAt || record.completedAt ||
+        record.signedAuditKey || record.status === 'complete');
+      if (client && loan && !_signedish) {
+        record.data = record.data || {};
+        const _seeded = await seedGuarantorSSNsFromProfiles({
+          data: record.data, client, loan,
+          ownerKey: record.ownerKey, clientsStore, recipientEmail: '',
+        });
+        if (_seeded) {
+          record.updatedAt = new Date().toISOString();
+          const biStore = getStore({ name: 'borrower_info', consistency: 'strong' });
+          try { await saveRecord(biStore, record.ownerKey, record.clientId, record.loanId, record); }
+          catch (e) { console.warn('borrower-info-load: SSN seed save failed (non-fatal):', e && e.message); }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('borrower-info-load: client/loan load failed (non-fatal):', e && e.message);
+  }
+
   // Mask SSN fields in the returned data so even the borrower form only
   // shows a masked version when resuming. They can re-enter the full SSN
   // to update.
@@ -55,12 +93,7 @@ async function handle(req) {
   // live loan record (best-effort; the stored snapshot is the fallback).
   let prefill = record.prefill || {};
   try {
-    if (record.ownerKey && record.clientId && record.loanId) {
-      const clientsStore = getStore({ name: 'clients', consistency: 'strong' });
-      const client = await clientsStore.get(record.ownerKey + '/' + keySafe(record.clientId), { type: 'json' });
-      const loan = (client && Array.isArray(client.loans))
-        ? client.loans.find((l) => l && l.id === record.loanId)
-        : null;
+    {
       if (loan) {
         prefill = JSON.parse(JSON.stringify(prefill));
         applyLoanPrefill(prefill, loan);

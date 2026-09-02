@@ -90,6 +90,54 @@ export function clientActsAsBroker(client, loan, recipientEmail) {
   return false;
 }
 
+// ── Deploy 236.853 (Mike) — seed guarantor SSNs from client profiles ───────
+// The long app forced retyping SSNs the platform already stores encrypted on
+// client records (client.ssn_enc — accumulated from prior signed applications
+// and guarantor sub-forms). This copies the ENCRYPTED value into the
+// application record SERVER-SIDE; the browser only ever sees the ***-**-1234
+// mask (borrower-info-load masks ssn_enc → ssn_masked, the form's 236.411
+// mask round-trip preserves the stored value on save, and the signed PDF
+// decrypts server-side). Never overwrites an SSN already on the application.
+// G1 seeds from the primary client — skipped when that record is the broker
+// (their SSN must never land on a borrower's application). G2+ seed from the
+// loan's linked guarantor client records, matched into existing entries by
+// email. Mutates data in place; returns true when anything was added.
+// CALLERS: only run against an UNSIGNED record — adding fields to signed
+// data would break the signature's dataHash attestation.
+export async function seedGuarantorSSNsFromProfiles({ data, client, loan, ownerKey, clientsStore, recipientEmail }) {
+  let changed = false;
+  if (!data || !client || !ownerKey) return false;
+  const norm = (s) => String(s || '').trim().toLowerCase();
+
+  if (client.ssn_enc && !clientActsAsBroker(client, loan, recipientEmail)) {
+    if (!Array.isArray(data.guarantors)) data.guarantors = [];
+    if (!data.guarantors[0]) data.guarantors[0] = {};
+    if (!data.guarantors[0].ssn_enc) {
+      data.guarantors[0].ssn_enc = client.ssn_enc;
+      changed = true;
+    }
+  }
+
+  const gids = (loan && Array.isArray(loan.guarantorClientIds)) ? loan.guarantorClientIds : [];
+  if (gids.length && clientsStore && Array.isArray(data.guarantors) && data.guarantors.length > 1) {
+    for (const gid of gids) {
+      try {
+        const gKey = ownerKey + '/' + String(gid == null ? '' : gid).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const gc = await clientsStore.get(gKey, { type: 'json' });
+        if (!gc || !gc.ssn_enc || !norm(gc.email)) continue;
+        for (let i = 1; i < data.guarantors.length; i++) {
+          const g = data.guarantors[i];
+          if (g && !g.ssn_enc && norm(g.email) === norm(gc.email)) {
+            g.ssn_enc = gc.ssn_enc;
+            changed = true;
+          }
+        }
+      } catch (_) { /* per-guarantor best-effort */ }
+    }
+  }
+  return changed;
+}
+
 // The borrower half of the prefill, from a client record that IS the borrower.
 // Shared so borrower-info-load can rebuild it live when a stale broker flag is
 // detected on an already-sent link (same shape as borrower-info-request's).
