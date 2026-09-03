@@ -275,7 +275,7 @@ async function handle(req, context) {
     via:          'loan_assign_lo',
   });
 
-  // ── Deploy 236.864 (Mike, Jesse Sells / 2030 Elm Ave) — move the PROSPECT
+  // ── Deploy 236.866 (Mike, Jesse Sells / 2030 Elm Ave) — move the PROSPECT
   // with the loan. Pipeline's New Application column hides a prospect only
   // when the SAME owner holds its priced/quoted loan (_workedProspectIds is
   // keyed per owner), so leaving the prospect under the old LO stranded a
@@ -458,7 +458,7 @@ async function handle(req, context) {
     movedSignedApp,
     movedQuotes,
     movedReviews,
-    prospectMoved, // Deploy 236.864
+    prospectMoved, // Deploy 236.866
 
     linkUpdated,
     reminderCreated,
