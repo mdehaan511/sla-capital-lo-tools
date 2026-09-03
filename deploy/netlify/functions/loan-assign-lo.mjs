@@ -275,6 +275,46 @@ async function handle(req, context) {
     via:          'loan_assign_lo',
   });
 
+  // ── Deploy 236.864 (Mike, Jesse Sells / 2030 Elm Ave) — move the PROSPECT
+  // with the loan. Pipeline's New Application column hides a prospect only
+  // when the SAME owner holds its priced/quoted loan (_workedProspectIds is
+  // keyed per owner), so leaving the prospect under the old LO stranded a
+  // permanent "New Application" duplicate after every dropdown reassign.
+  // Match by loan.prospectId, falling back to a fromApplication address
+  // match for pre-236.22 loans that were never stamped. Best-effort.
+  let prospectMoved = false;
+  try {
+    const pStore = getStore({ name: 'prospects', consistency: 'strong' });
+    const { prospectsIndex } = await import('./_shared/prospects-index.mjs');
+    const normA = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const { blobs } = await pStore.list({ prefix: oldOwnerKey + '/' });
+    for (const b of blobs || []) {
+      const p = await pStore.get(b.key, { type: 'json' }).catch(() => null);
+      if (!p) continue;
+      const idMatch = !!(loan.prospectId && p.id === loan.prospectId);
+      const addrMatch = !idMatch && !!(loan.fromApplication && p.propAddress &&
+        normA(p.propAddress) === normA(loan.address));
+      if (!idMatch && !addrMatch) continue;
+      p.loSlug = newOwnerEmail;
+      p.loEmail = newOwnerEmail;
+      p.clientId = destClientId;
+      p.loanId = loan.id;
+      p.updatedAt = new Date().toISOString();
+      const newPKey = newOwnerKey + '/' + keySafe(p.id);
+      await pStore.setJSON(newPKey, p);
+      if (b.key !== newPKey) {
+        try { await pStore.delete(b.key); } catch (_) {}
+      }
+      try {
+        await prospectsIndex.upsertRecord(newOwnerKey, p);
+        await prospectsIndex.removeRecord(oldOwnerKey, p.id);
+      } catch (e) { console.warn('loan-assign-lo: prospect index sync failed (non-fatal):', e && e.message); }
+      prospectMoved = true;
+    }
+  } catch (e) {
+    console.warn('loan-assign-lo: prospect move failed (non-fatal):', e && e.message);
+  }
+
   // ── Notify the new LO: in-app reminder + email ───────────────
   // Deploy 236.351 — dropdown-reassign UX shipped; the new LO
   // needs to know a loan just landed on their desk without the
@@ -418,6 +458,8 @@ async function handle(req, context) {
     movedSignedApp,
     movedQuotes,
     movedReviews,
+    prospectMoved, // Deploy 236.864
+
     linkUpdated,
     reminderCreated,
     emailedAt,
