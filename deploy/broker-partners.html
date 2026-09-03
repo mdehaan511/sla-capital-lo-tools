@@ -122,6 +122,11 @@
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <input type="text" class="search-box" id="searchBox" placeholder="Search name, company, email…" oninput="render()" />
+        <!-- Deploy 236.867 — open the broker-facing sizer as an admin. No
+             partner record needed: broker-me hands admins a preview
+             context with every program and no fee cap. -->
+        <a class="act" href="/broker-sizer.html" target="_blank" rel="noopener"
+           style="text-decoration:none;padding:8px 14px">Preview Sizer</a>
         <button class="add-btn" onclick="openEdit(null)">+ Add Partner</button>
       </div>
     </div>
@@ -355,6 +360,10 @@ function partnerRow(p) {
     '<td>' + (p.feeCapPoints == null ? '<span class="sub">none</span>' : escH(p.feeCapPoints) + ' pts') + '</td>' +
     '<td>' + act + '</td>' +
     '<td style="text-align:right;white-space:nowrap">' + toggle +
+      // Deploy 236.867 — see the sizer exactly as this partner does:
+      // their programs, their fee cap. Catches "why can't they price X?"
+      // without having to log in as them.
+      '<a class="act" href="/broker-sizer.html?as=' + encodeURIComponent(p.email) + '" target="_blank" rel="noopener" style="text-decoration:none">View as</a>' +
       '<button class="act" onclick="invite(\'' + escAttr(p.email) + '\')">Invite</button>' +
       '<button class="act" onclick="openEdit(\'' + escAttr(p.email) + '\')">Edit</button>' +
     '</td>' +

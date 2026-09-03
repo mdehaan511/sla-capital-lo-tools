@@ -39,6 +39,11 @@ import {
   PROGRAMS, PROGRAM_KEYS, priceScenario, assertEnginesLoaded,
 } from './_shared/broker-pricing.mjs';
 import { recordPricing } from './_shared/broker-activity.mjs';
+// Deploy 236.867 (Phase 2) — the partner record decides who may price,
+// which programs, and up to what fee. isBrokerRole is the cheap
+// pre-check; checkPartnerAccess is the authority.
+import { isBrokerRole } from './_shared/access.mjs';
+import { checkPartnerAccess } from './_shared/broker-partners.mjs';
 
 // Anti-enumeration layer 3. A broker genuinely working deals prices
 // 10-30 scenarios a day; sustained traffic above this is a signal, not a
@@ -66,14 +71,24 @@ async function handle(req, context) {
   const user = await requireAuth(context, req);
   if (!user) return json(401, { error: 'Not authenticated' });
 
-  // ── ROLE GATE ──────────────────────────────────────────────────
-  // Phase 0: admins only, so nothing here can affect an LO or a
-  // borrower. Phase 1 replaces this with an approved-broker check
-  // (role 'broker' + an active partner record); admins keep access for
-  // support. Everything below this line is already written for the
-  // wider audience.
-  if (!isAdmin(user)) {
-    return json(403, { error: 'Broker pricing is not open yet.' });
+  // ── ACCESS GATE ────────────────────────────────────────────────
+  // Deploy 236.867 (Phase 2) — the partner record is now the authority.
+  // An admin still gets through for support and for previewing the broker
+  // surface; anyone else needs an APPROVED partner record, and their
+  // record decides which programs they may price and how much they may
+  // charge. Until a broker can actually claim a login, "anyone else" is
+  // an empty set — so this widens the gate without opening the door.
+  const admin = isAdmin(user);
+  const actorEmail = normalizeEmail(user.email || '');
+  let partner = null;
+
+  if (!admin) {
+    if (!isBrokerRole(user)) {
+      return json(403, { error: 'Broker pricing is not open to this account.' });
+    }
+    const access = await checkPartnerAccess(actorEmail);
+    if (!access.ok) return json(403, { error: access.reason, code: 'partner_not_approved' });
+    partner = access.partner;
   }
 
   // A bundling change that detached an engine must be loud, not a
@@ -98,8 +113,28 @@ async function handle(req, context) {
 
   // Whose activity is this? Admins may price AS a named broker so the
   // session + limit machinery can be exercised before the role exists.
-  const actor = normalizeEmail(user.email || '');
-  const asBroker = body.brokerEmail ? normalizeEmail(body.brokerEmail) : actor;
+  // A real partner is always themselves — brokerEmail is ignored for
+  // them, or one partner could bill their scenarios to another.
+  const asBroker = (admin && body.brokerEmail) ? normalizeEmail(body.brokerEmail) : actorEmail;
+
+  // ── Per-partner program access (Phase 1 stored it, Phase 2 enforces) ──
+  // Admins bypass so they can preview any program from the desk. When an
+  // admin prices AS a partner, that partner's own restrictions apply —
+  // otherwise a preview would show something the broker can't actually do.
+  let effectivePartner = partner;
+  if (admin && body.brokerEmail) {
+    const asAccess = await checkPartnerAccess(asBroker);
+    if (asAccess.ok) effectivePartner = asAccess.partner;
+  }
+  if (effectivePartner) {
+    const progs = Array.isArray(effectivePartner.programs) ? effectivePartner.programs : [];
+    if (!progs.includes(program)) {
+      return json(403, {
+        code: 'program_not_approved',
+        error: 'This program is not enabled on your partner account. Your SLA loan officer can turn it on.',
+      });
+    }
+  }
 
   // ── Rate limits, keyed to the BROKER, not the IP ────────────────
   // IP keying would punish two brokers behind one office NAT and hand
@@ -132,7 +167,22 @@ async function handle(req, context) {
   delete inputs.brokerFee;
   delete inputs.brokerProcFee;
 
-  const priced = priceScenario(program, inputs, body.brokerFee);
+  // Deploy 236.867 — the fee cap on the partner record is enforced HERE,
+  // the single channel, rather than trusted to the form. Refused rather
+  // than silently clamped: a broker who typed 3 and got quoted 2 would
+  // send their borrower a sheet that doesn't match what they promised.
+  const wantFee = Math.max(0, Number(body.brokerFee) || 0);
+  const cap = effectivePartner && effectivePartner.feeCapPoints;
+  if (cap != null && wantFee > cap) {
+    return json(422, {
+      code: 'fee_over_cap',
+      error: 'Your fee is capped at ' + cap + ' point' + (cap === 1 ? '' : 's') +
+             ' on this account. Enter ' + cap + ' or less, or ask your SLA loan officer.',
+      feeCapPoints: cap,
+    });
+  }
+
+  const priced = priceScenario(program, inputs, wantFee);
   if (!priced.ok) return json(422, { error: priced.error });
 
   const quoteId = genQuoteId();

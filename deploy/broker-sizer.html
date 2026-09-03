@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Price a Deal — SLA Capital Preferred Partners</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+  <script src="/sla-api.js?v=236867"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* Deploy 236.867 — the broker-facing sizer.
+       NOTE: this page loads NO *-pricing.js. Every number comes from
+       /api/broker-price, which runs the same engines server-side and
+       returns the answer without the arithmetic. Shipping a pricing
+       module here would hand over the whole matrix — see the allowlist
+       in _shared/broker-pricing.mjs before adding any script tag. */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold:#C8813A; --gold-mid:#b5712d; --gold-light:rgba(200,129,58,0.10);
+      --gold-border:rgba(200,129,58,0.28); --dark:#261a36; --bg:#f0ece5;
+      --surface:#fff; --text:#1a1520; --muted:#7a7488; --border:#ddd8d0;
+      --success:#166534; --danger:#7c1f1f; --warn:#7a5218; --r:12px;
+    }
+    body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+    #auth-gate { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .gate-msg { text-align:center; color:var(--muted); font-size:14px; max-width:440px; line-height:1.65; }
+    .gate-msg strong { display:block; color:var(--text); font-size:17px; margin-bottom:8px; font-family:'Lora',serif; }
+
+    .top { background:var(--dark); border-bottom:3px solid var(--gold); padding:20px 24px; }
+    .top-in { max-width:1120px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+    .brand { font-family:'Lora',serif; font-size:20px; font-weight:600; color:#f2ede6; }
+    .brand span { display:block; font-family:'DM Mono',monospace; font-size:10.5px; letter-spacing:.16em;
+      text-transform:uppercase; color:var(--gold); margin-bottom:3px; }
+    .whoami { font-size:12.5px; color:rgba(242,237,230,.62); text-align:right; }
+    .whoami b { color:#f2ede6; font-weight:500; }
+    .preview-chip { display:inline-block; background:var(--gold-light); border:1px solid var(--gold-border);
+      color:var(--gold); border-radius:20px; padding:2px 10px; font-size:11px; font-weight:600; margin-top:4px; }
+
+    .page { max-width:1120px; margin:0 auto; padding:24px 24px 80px; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+    .tab { padding:8px 16px; border:1px solid var(--border); background:#fff; border-radius:20px;
+      font-family:inherit; font-size:13px; cursor:pointer; color:var(--muted); }
+    .tab.on { background:var(--dark); border-color:var(--dark); color:#f2ede6; font-weight:600; }
+
+    .cols { display:grid; grid-template-columns:1fr 400px; gap:20px; align-items:start; }
+    @media (max-width:900px){ .cols { grid-template-columns:1fr; } }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); overflow:hidden; }
+    .card-head { padding:13px 18px; border-bottom:1px solid var(--border); display:flex;
+      justify-content:space-between; align-items:baseline; gap:12px; }
+    .card-head h2 { font-family:'Lora',serif; font-size:16px; font-weight:600; color:var(--dark); }
+    .card-head .eff { font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); }
+    .card-body { padding:18px; }
+
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; }
+    .f { display:flex; flex-direction:column; }
+    .f.full { grid-column:1 / -1; }
+    .f label { font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+      font-weight:600; margin-bottom:5px; }
+    .f input, .f select { padding:9px 11px; border:1px solid var(--border); border-radius:8px;
+      font-family:inherit; font-size:14px; background:#fff; color:var(--text); width:100%; }
+    .f input:focus, .f select:focus { outline:2px solid var(--gold-border); outline-offset:-1px; border-color:var(--gold); }
+    .f .hint { font-size:11.5px; color:var(--muted); margin-top:4px; }
+    .req { color:var(--danger); }
+
+    .feebox { margin-top:16px; padding:14px 16px; border:1px solid var(--gold-border);
+      background:var(--gold-light); border-radius:10px; }
+    .feebox h3 { font-size:13px; font-weight:600; color:var(--gold-mid); margin-bottom:4px; }
+    .feebox p { font-size:12.5px; color:var(--muted); line-height:1.55; margin-bottom:10px; }
+
+    .go { margin-top:18px; width:100%; padding:12px; border-radius:10px; border:1px solid var(--dark);
+      background:var(--dark); color:#f2ede6; font-family:inherit; font-size:15px; font-weight:600; cursor:pointer; }
+    .go:disabled { opacity:.5; cursor:default; }
+
+    .res-empty { padding:40px 20px; text-align:center; color:var(--muted); font-size:13.5px; line-height:1.6; }
+    .headline { background:var(--dark); color:#f2ede6; padding:18px; }
+    .headline .lbl { font-family:'DM Mono',monospace; font-size:10.5px; letter-spacing:.14em;
+      text-transform:uppercase; color:var(--gold); margin-bottom:4px; }
+    .headline .big { font-family:'Lora',serif; font-size:34px; font-weight:600; line-height:1; font-variant-numeric:tabular-nums; }
+    .headline .sub { font-size:12.5px; color:rgba(242,237,230,.62); margin-top:6px; }
+
+    .rows { padding:4px 18px 14px; }
+    .row { display:flex; justify-content:space-between; gap:14px; padding:9px 0; border-bottom:1px solid #efeae2; font-size:13.5px; }
+    .row:last-child { border-bottom:none; }
+    .row .k { color:var(--muted); }
+    .row .v { font-weight:600; font-variant-numeric:tabular-nums; }
+    .row.total { border-top:2px solid var(--border); margin-top:4px; padding-top:12px; font-size:15px; }
+    .row.total .k { color:var(--text); font-weight:600; }
+    .row.total .v { color:var(--gold-mid); }
+    .split { padding:12px 18px; background:#faf8f3; border-top:1px solid var(--border);
+      font-size:12.5px; color:var(--muted); line-height:1.6; }
+    .split b { color:var(--text); }
+
+    .decline { padding:18px; }
+    .decline .t { font-family:'Lora',serif; font-size:16px; color:var(--warn); margin-bottom:8px; }
+    .decline p { font-size:13.5px; line-height:1.6; color:var(--text); }
+
+    .err { margin-top:14px; padding:11px 14px; border:1px solid rgba(124,31,31,.35);
+      background:rgba(124,31,31,.06); border-radius:8px; color:var(--danger); font-size:13px; line-height:1.55; display:none; }
+    .err.show { display:block; }
+
+    .foot { margin-top:14px; font-size:11.5px; color:var(--muted); line-height:1.6; }
+    .foot code { font-family:'DM Mono',monospace; font-size:11px; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"><div class="gate-msg"><strong>Loading…</strong>Checking your access.</div></div>
+
+  <div id="app" style="display:none">
+    <div class="top">
+      <div class="top-in">
+        <div class="brand"><span>SLA Capital · Preferred Partners</span>Price a Deal</div>
+        <div class="whoami" id="whoami"></div>
+      </div>
+    </div>
+
+    <div class="page">
+      <div class="tabs" id="tabs"></div>
+      <div class="cols">
+        <div class="card">
+          <div class="card-head"><h2 id="formTitle">Scenario</h2><span class="eff" id="effDate"></span></div>
+          <div class="card-body">
+            <div class="grid" id="fields"></div>
+
+            <div class="feebox">
+              <h3>Your fee</h3>
+              <p id="feeHint">Added on top of SLA's pricing. Our rate and our points don't change — this is your compensation, shown separately on the sheet.</p>
+              <div class="f"><label>Broker Points</label>
+                <input type="number" id="brokerFee" min="0" step="0.25" value="0" />
+              </div>
+            </div>
+
+            <button class="go" id="goBtn" onclick="price()">Get Pricing</button>
+            <div class="err" id="err"></div>
+          </div>
+        </div>
+
+        <div class="card" id="resCard">
+          <div class="card-head"><h2>Pricing</h2></div>
+          <div class="res-empty" id="resBody">Fill in the scenario and choose <strong>Get Pricing</strong>.<br>Every quote is indicative until your loan officer confirms it.</div>
+        </div>
+      </div>
+      <div class="foot" id="foot"></div>
+    </div>
+  </div>
+
+<script>
+var ME = null, PROGRAM = null, LAST = null;
+
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function money(n){ var v=Number(n); return isFinite(v) ? '$'+Math.round(v).toLocaleString() : '—'; }
+function pct(n, d){ var v=Number(n); return isFinite(v) ? v.toFixed(d==null?3:d)+'%' : '—'; }
+
+var STATES = ['WA','OR','ID','MT','CA','AZ','NV','UT','CO','TX','FL','GA','NC','SC','TN','OH','IN','MI','PA','NJ','NY','CT','MA','MD','VA','AL','MO','KS','OK','AR','KY','WI','MN','IA','NE','NM','LA','MS','DE','RI','NH','ME','WV','SD','ND','WY','AK','HI'];
+function stateOpts(){ return STATES.map(function(s){ return [s,s]; }); }
+
+// ── Field config, one place ──────────────────────────────────────
+// Keys are the ENGINE's own input names — broker-price passes this
+// object straight through, so a rename here without a rename in the
+// engine silently drops the field.
+var FICO_DSCR = [['780+','780+'],['760-779','760–779'],['740-759','740–759'],['720-739','720–739'],
+  ['700-719','700–719'],['680-699','680–699'],['660-679','660–679'],['640-659','640–659'],['620-639','620–639']];
+var FICO_RTL = [['740','740+'],['720','720–739'],['700','700–719'],['680','680–699'],['660','660–679'],['640','640–659']];
+
+var DSCR_FIELDS = [
+  { k:'loanAmt',     l:'Loan Amount',        t:'money', def:'400000' },
+  { k:'propValue',   l:'Property Value',     t:'money', def:'600000' },
+  { k:'loanType',    l:'Product',            t:'sel',   o:[['30Y Fixed','30-Year Fixed'],['10/6 ARM','10/6 ARM'],['7/6 ARM','7/6 ARM'],['5/6 ARM','5/6 ARM']] },
+  { k:'fico',        l:'FICO',               t:'sel',   o:FICO_DSCR, def:'740-759' },
+  { k:'loanPurpose', l:'Purpose',            t:'sel',   o:[['purchase','Purchase'],['refi_rt','Rate/Term Refi'],['refi_co','Cash-Out Refi']] },
+  { k:'propType',    l:'Property Type',      t:'sel',   o:[['sfr','SFR (1 Unit)'],['2-4','2–4 Unit'],['nw_condo','Non-Warrantable Condo']] },
+  { k:'isIO',        l:'Interest Only',      t:'sel',   o:[['no','No'],['yes','Yes']] },
+  { k:'prepay',      l:'Prepay',             t:'sel',   o:[['5y6m','5yr (6mo int)'],['54321','5-4-3-2-1'],['321','3-2-1'],['320','3-2-0'],['300','3-0-0'],['none','None']], def:'321' },
+  { k:'rent',        l:'Monthly Rent',       t:'money', def:'6000' },
+  { k:'taxes',       l:'Monthly Taxes',      t:'money', def:'300' },
+  { k:'insurance',   l:'Monthly Insurance',  t:'money', def:'150' },
+  { k:'hoa',         l:'Monthly HOA',        t:'money', def:'0' }
+];
+
+var RTL_FIELDS = [
+  { k:'lt',    l:'Loan Type',        t:'sel',   o:[['bridge','Bridge (no rehab)'],['light','Light Rehab'],['heavy','Heavy Rehab']] },
+  { k:'purp',  l:'Purpose',          t:'sel',   o:[['purchase','Purchase'],['rateterm','Rate/Term Refi'],['cashout','Cash-Out Refi']] },
+  { k:'pp',    l:'Purchase Price',   t:'money', def:'400000' },
+  { k:'rb',    l:'Rehab Budget',     t:'money', def:'0' },
+  { k:'arv',   l:'After-Repair Value', t:'money', def:'0' },
+  { k:'fr',    l:'FICO',             t:'sel',   o:FICO_RTL, def:'740' },
+  { k:'exp',   l:'Experience',       t:'sel',   o:[['8','8+ projects'],['5','4–7 projects'],['1','0–3 projects']] },
+  { k:'pt',    l:'Property Type',    t:'sel',   o:[['sfr','SFR / 1–4 Units'],['mfr','Multi-Family 5–20 Units']] },
+  { k:'term',  l:'Term',             t:'sel',   o:[['12','12 months'],['13','13–18 months'],['19','19–24 months']] },
+  { k:'state', l:'State',            t:'sel',   o:stateOpts(), def:'WA' }
+];
+
+var GUC_FIELDS = [
+  { k:'landValue', l:'Land Value / Purchase', t:'money', def:'300000' },
+  { k:'buildCost', l:'Build Cost',            t:'money', def:'250000' },
+  { k:'arv',       l:'Completed Value',       t:'money', def:'900000' },
+  { k:'fr',        l:'FICO',                  t:'sel',   o:FICO_RTL, def:'740' },
+  { k:'exp',       l:'Experience',            t:'sel',   o:[['8','8+ projects'],['5','4–7 projects'],['1','0–3 projects']] },
+  { k:'pt',        l:'Property Type',         t:'sel',   o:[['sfr','SFR / 1–4 Units'],['mfr','Multi-Family 5–20 Units']] },
+  { k:'term',      l:'Term',                  t:'sel',   o:[['12','12 months'],['13','13–18 months'],['19','19–24 months']] },
+  { k:'ownLand',   l:'Owns the Land',         t:'sel',   o:[['no','No'],['yes','Yes']] },
+  { k:'landDebt',  l:'Existing Land Debt',    t:'money', def:'0' },
+  { k:'state',     l:'State',                 t:'sel',   o:stateOpts(), def:'WA' }
+];
+
+var PROGRAMS = {
+  dscr: { label:'DSCR 1–4 Unit', shape:'dscr', fields:DSCR_FIELDS },
+  mf:   { label:'DSCR 5+ Unit',  shape:'dscr', fields:DSCR_FIELDS.map(function(f){
+            return f.k === 'propType' ? { k:'propType', l:'Property Type', t:'sel', o:[['multi','Multifamily 5+']] } : f; }) },
+  rtl:  { label:'Bridge / Rehab', shape:'rtl', fields:RTL_FIELDS },
+  guc:  { label:'Ground-Up',      shape:'rtl', fields:GUC_FIELDS }
+};
+
+// ── Boot ─────────────────────────────────────────────────────────
+(function init(){
+  if (!(window.SLA && SLA.getCurrentUser)) { setTimeout(init, 120); return; }
+  SLA.getCurrentUser().then(function(user){
+    if (!user) { window.location.replace('/'); return; }
+    // ?as=<email> — admin only, server-enforced. Renders the sizer with
+    // that partner's programs and fee cap so an LO can see exactly what
+    // their broker sees without logging in as them.
+    var as = '';
+    try { as = new URLSearchParams(window.location.search).get('as') || ''; } catch (_) {}
+    return SLA.api('GET','/api/broker-me' + (as ? '?as=' + encodeURIComponent(as) : '')).then(function(me){
+      ME = me;
+      document.getElementById('auth-gate').style.display='none';
+      document.getElementById('app').style.display='block';
+      renderWho();
+      renderTabs();
+      selectProgram(ME.programs[0]);
+    });
+  }).catch(function(e){
+    document.getElementById('auth-gate').innerHTML =
+      '<div class="gate-msg"><strong>Not available</strong>' +
+      escH((e && e.message) || 'This account is not set up for partner pricing.') +
+      '<br><br><a href="/">Back</a></div>';
+  });
+})();
+
+function renderWho(){
+  var bits = [];
+  if (ME.company) bits.push('<b>'+escH(ME.company)+'</b>');
+  bits.push(escH(ME.email));
+  var extra = ME.mode === 'admin-preview'
+    ? '<div class="preview-chip">Admin preview — this is the broker view</div>' : '';
+  if (ME.feeCapPoints != null) bits.push('fee cap ' + ME.feeCapPoints + ' pts');
+  document.getElementById('whoami').innerHTML = bits.join(' · ') + extra;
+  var cap = ME.feeCapPoints;
+  if (cap != null) {
+    var el = document.getElementById('brokerFee'); el.max = cap;
+    document.getElementById('feeHint').textContent =
+      'Added on top of SLA’s pricing — our rate and points don’t change. Your account is capped at ' + cap + ' points.';
+  }
+}
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML = ME.programs.map(function(k){
+    if (!PROGRAMS[k]) return '';
+    return '<button type="button" class="tab" id="tab_'+k+'" onclick="selectProgram(\''+k+'\')">'+escH(PROGRAMS[k].label)+'</button>';
+  }).join('');
+}
+
+function selectProgram(k){
+  if (!PROGRAMS[k]) return;
+  PROGRAM = k;
+  ME.programs.forEach(function(p){
+    var t=document.getElementById('tab_'+p); if(t) t.classList.toggle('on', p===k);
+  });
+  document.getElementById('formTitle').textContent = PROGRAMS[k].label + ' — Scenario';
+  renderFields();
+  resetResult();
+}
+
+function renderFields(){
+  var cfg = PROGRAMS[PROGRAM];
+  // Property address is REQUIRED on every program. It anchors the quote to
+  // a real deal, and abstract scenarios with no property are what a
+  // pricing sweep looks like.
+  var html =
+    '<div class="f full"><label>Property Address <span class="req">*</span></label>' +
+      '<input type="text" id="fld_address" placeholder="123 Main St, Spokane, WA 99208" />' +
+      '<div class="hint">The full address this quote is for.</div></div>';
+  cfg.fields.forEach(function(f){
+    html += '<div class="f"><label>'+escH(f.l)+'</label>';
+    if (f.t === 'sel') {
+      html += '<select id="fld_'+f.k+'">' + f.o.map(function(o){
+        return '<option value="'+escH(o[0])+'"'+(f.def===o[0]?' selected':'')+'>'+escH(o[1])+'</option>';
+      }).join('') + '</select>';
+    } else {
+      html += '<input type="number" id="fld_'+f.k+'" value="'+escH(f.def||'')+'" />';
+    }
+    html += '</div>';
+  });
+  document.getElementById('fields').innerHTML = html;
+}
+
+function resetResult(){
+  LAST = null;
+  document.getElementById('resBody').className = 'res-empty';
+  document.getElementById('resBody').innerHTML =
+    'Fill in the scenario and choose <strong>Get Pricing</strong>.<br>Every quote is indicative until your loan officer confirms it.';
+  document.getElementById('effDate').textContent = '';
+  document.getElementById('foot').innerHTML = '';
+  showErr('');
+}
+
+function showErr(m){
+  var e = document.getElementById('err');
+  e.textContent = m || ''; e.classList.toggle('show', !!m);
+}
+
+function price(){
+  showErr('');
+  var addr = String(document.getElementById('fld_address').value || '').trim();
+  if (addr.length < 8) { showErr('Enter the property address for this quote.'); return; }
+
+  var cfg = PROGRAMS[PROGRAM];
+  var inputs = {};
+  cfg.fields.forEach(function(f){
+    var el = document.getElementById('fld_'+f.k);
+    if (!el) return;
+    inputs[f.k] = (f.t === 'money') ? (parseFloat(el.value) || 0) : el.value;
+  });
+  // The Colchis engines want numbers for FICO/experience/term; the DSCR
+  // engines want the bucket string. Coerce only where the engine expects it.
+  if (cfg.shape === 'rtl') {
+    ['fr','exp','term','landDebt'].forEach(function(k){
+      if (inputs[k] !== undefined) inputs[k] = parseFloat(inputs[k]) || 0;
+    });
+    inputs.sa = 'other';
+  }
+
+  var fee = parseFloat(document.getElementById('brokerFee').value) || 0;
+  if (ME.feeCapPoints != null && fee > ME.feeCapPoints) {
+    showErr('Your fee is capped at ' + ME.feeCapPoints + ' points on this account.'); return;
+  }
+
+  var btn = document.getElementById('goBtn');
+  btn.disabled = true; btn.textContent = 'Pricing…';
+  var payload = { program: PROGRAM, inputs: inputs, brokerFee: fee, address: addr };
+  // Previewing as a partner prices AS them, so their program access, fee
+  // cap, rate limits and activity session all behave exactly as they will
+  // for the broker. Ignored by the server for non-admins.
+  if (ME.previewOf) payload.brokerEmail = ME.previewOf;
+  SLA.api('POST','/api/broker-price', payload).then(function(r){
+    btn.disabled = false; btn.textContent = 'Get Pricing';
+    LAST = r;
+    renderResult(r);
+  }).catch(function(e){
+    btn.disabled = false; btn.textContent = 'Get Pricing';
+    showErr((e && e.message) || 'Could not get pricing. Try again, or call your loan officer.');
+  });
+}
+
+function renderResult(r){
+  var box = document.getElementById('resBody');
+  box.className = '';
+  document.getElementById('effDate').textContent =
+    r.effectiveDate ? 'Pricing effective ' + r.effectiveDate : '';
+
+  if (r.declined) {
+    box.innerHTML = '<div class="decline"><div class="t">This scenario doesn’t fit</div><p>' +
+      escH(r.reason) + '</p></div>';
+    document.getElementById('foot').innerHTML = footNote(r);
+    return;
+  }
+
+  var res = r.result || {}, fee = r.fee || {}, all = r.allIn || {};
+  var isDscr = PROGRAMS[PROGRAM].shape === 'dscr';
+  var rows = '';
+  function row(k,v,cls){ rows += '<div class="row'+(cls?' '+cls:'')+'"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>'; }
+
+  if (isDscr) {
+    row('Loan Amount', money(res.loan));
+    row('LTV', pct(res.ltv,1));
+    row('DSCR', (Number(res.dscr)||0).toFixed(2) + 'x');
+    row('Principal &amp; Interest', money(res.pi) + '/mo');
+    row('Total Payment (PITIA)', money(res.totalPayment) + '/mo');
+    row('SLA Origination', money(res.origFee));
+  } else {
+    row('Maximum Loan', money(res.bMax));
+    if (res.bLabel) row('Limited By', escH(res.bLabel));
+    row('Down Payment', money(res.dp));
+    if (res.initAdv) row('Initial Advance', money(res.initAdv));
+    row('Monthly Interest', money(res.mo) + '/mo');
+    row('SLA Origination', money(fee.slaPoints/100 * (all.loanAmount||0)));
+  }
+  row('Your Fee (' + (fee.brokerPoints||0) + ' pts)', money(fee.brokerDollars));
+  row('All-In Points', (all.points||0).toFixed(2) + ' pts', 'total');
+
+  box.innerHTML =
+    '<div class="headline"><div class="lbl">Note Rate</div>' +
+      '<div class="big">' + pct(fee.slaRate) + '</div>' +
+      '<div class="sub">' + escH(PROGRAMS[PROGRAM].label) + ' &middot; ' + (fee.slaPoints||0).toFixed(2) + ' SLA points</div></div>' +
+    '<div class="rows">' + rows + '</div>' +
+    '<div class="split">Your fee sits <b>on top</b> of SLA’s pricing. The note rate and SLA’s ' +
+      (fee.slaPoints||0).toFixed(2) + ' points are unchanged by it.</div>';
+
+  document.getElementById('foot').innerHTML = footNote(r);
+}
+
+function footNote(r){
+  // The quote id is what lets a loan officer reproduce EXACTLY what the
+  // broker saw, months later. Always show it.
+  return 'Quote <code>' + escH(r.quoteId) + '</code>' +
+    (r.effectiveDate ? ' &middot; priced from the ' + escH(r.effectiveDate) + ' rate sheet' : '') +
+    '.<br>Indicative only and subject to underwriting, appraisal and final approval. ' +
+    'Your SLA loan officer confirms every quote before it can be signed.' +
+    (r.limits ? '<br>' + r.limits.hourlyRemaining + ' scenarios left this hour.' : '');
+}
+</script>
+</body>
+</html>

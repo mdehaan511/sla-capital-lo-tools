@@ -171,6 +171,28 @@ for (const d of DECLINES) {
 failures += decFail;
 console.log(`${decFail ? 'FAIL' : 'ok  '}  declines return a reason and no numbers, in broker wording`);
 
+// 5. No broker-facing page may ship a pricing module. This is
+//    anti-enumeration layer 6, and it is exactly the kind of thing a
+//    copied <script> tag reintroduces silently — so it's a gate, not a
+//    comment. Checks real script tags only; the warning comment in
+//    broker-sizer.html mentions *-pricing.js on purpose.
+const BROKER_PAGES = ['deploy/broker-sizer.html', 'deploy/broker-signup.html', 'deploy/broker-partners.html'];
+let leakFail = 0;
+for (const page of BROKER_PAGES) {
+  let html;
+  try { html = readFileSync(join(root, page), 'utf8'); }
+  catch (_) { continue; } // page not built yet
+  const tags = html.match(/<script[^>]*\ssrc=["'][^"']+["']/gi) || [];
+  for (const t of tags) {
+    if (/-pricing\.js/i.test(t)) {
+      console.log(`FAIL  ${page} ships a pricing module: ${t}`);
+      leakFail++;
+    }
+  }
+}
+failures += leakFail;
+console.log(`${leakFail ? 'FAIL' : 'ok  '}  no broker page ships a pricing engine`);
+
 console.log('');
 if (failures) {
   console.log(`${failures} FAILURE(S) across ${checked} scenarios.`);

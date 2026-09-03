@@ -1021,6 +1021,14 @@
   to = "/.netlify/functions/broker-partner-save"
   status = 200
   force = true
+# Deploy 236.867 — Phase 2. "Who am I and what may I price?" for the
+# broker sizer; admins get a preview context, or ?as=<email> to see it
+# exactly as one partner does.
+[[redirects]]
+  from = "/api/broker-me"
+  to = "/.netlify/functions/broker-me"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/brokers"
   to = "/.netlify/functions/brokers-list"
