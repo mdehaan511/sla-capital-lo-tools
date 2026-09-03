@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="sla-api.js"></script>
+  <script src="sla-api.js?v=236864"></script>
   <script src="sla-nav.js"></script>
 <script src="/sla-search.js"></script>
   <script src="sla-sizer-assign-lo.js"></script>
@@ -2500,14 +2500,14 @@ function _generateRateSheetPDF(opts) {
 
   doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
   doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
-  doc.text('DSCR Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) + (window.SLARateSheet ? SLARateSheet.effectiveDateSuffix(window.SLA_DSCR) : ''), W/2, y, {align:'center'});
+  doc.text('DSCR Loan Rate Estimate  \u00B7  Prepared '+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) + (window.SLARateSheet && SLARateSheet.effectiveDateSuffix ? SLARateSheet.effectiveDateSuffix(window.SLA_DSCR) : ''), W/2, y, {align:'center'});
   y += 14;
   // Deploy 236.846 (Mike) - a rate sheet whose loan has no real
   // borrower/guarantor on file (or whose only contact is the broker)
   // cannot be signed, so it prints marked PRELIMINARY. The rule lives in
   // SLARateSheet (sla-api.js); Loan Details passes its own verdict as
   // ?prelim=0|1 because only it can resolve guarantorClientIds.
-  if (window.SLARateSheet && window.SLARateSheet.isPreliminary()) {
+  if (window.SLARateSheet && window.SLARateSheet.isPreliminary && window.SLARateSheet.isPreliminary()) {
     y = window.SLARateSheet.stampPreliminary(doc, W, lm, cw, y);
   }
 
