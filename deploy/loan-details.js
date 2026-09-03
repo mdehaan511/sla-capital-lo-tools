@@ -10575,9 +10575,16 @@ function refreshEnvelopes() {
   // 'on' as of Deploy 185 (native eSign is production). Setting to
   // 'off' globally hides the panel and skips the list call.
   if (!eSignVisible()) return;
-  var panel = document.getElementById('envelopesPanel');
+  // Deploy 236.861 (Mike, Locust Ave) — relocateEnvelopes() (236.102) moves
+  // this panel's children into the sidebar section and REMOVES the
+  // #envelopesPanel wrapper, so the old `if (!panel)` guard made this whole
+  // function a silent no-op after every render: envelope cards never drew and
+  // _signedRateSheet never got set, leaving the Download button on the
+  // unsigned regenerate path ("unable to download the signed rate sheet").
+  // Only the LIST element is actually required; empty-state hides just the
+  // list (the section also hosts the Signature Confirmations pane).
   var listEl = document.getElementById('envelopesList');
-  if (!panel || !listEl) return;
+  if (!listEl) return;
   var opts = { clientId: _clientId, loanId: _loanId };
   // Cross-owner: admin viewing another LO's loan → ask for that owner's envelopes
   if (_loEmail && _user && _loEmail !== _user.email) opts.owner = _loEmail;
@@ -10599,10 +10606,11 @@ function refreshEnvelopes() {
     _signedRateSheet = _findSignedRateSheet(envs);
     _applyRateSheetBtn();
     if (!envs.length) {
-      panel.style.display = 'none';
+      listEl.style.display = 'none';
+      listEl.innerHTML = '';
       return;
     }
-    panel.style.display = '';
+    listEl.style.display = '';
     listEl.innerHTML = envs.map(renderEnvelopeCard).join('');
   }).catch(function(err) {
     // Quiet failure — don't pollute the loan-details page with envelope errors

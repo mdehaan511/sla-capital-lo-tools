@@ -74,13 +74,19 @@ function _serializeForCompare(value, type) {
   }
   return value == null ? '' : String(value);
 }
-function _renderForNote(value, type) {
+// Deploy 236.861 — nameMap ({ clientId: displayName }) turns object-map keys
+// into people. The guarantorOwnership audit/note lines used to print raw
+// client-id prefixes ("c_1787355617:81") — meaningless to a human reader.
+function _renderForNote(value, type, nameMap) {
   if (type === 'array')  return Array.isArray(value) ? value.map((v) => typeof v === 'string' ? v : (v && (v.name || JSON.stringify(v)) || '')).join(', ') || '(empty)' : '(empty)';
   if (type === 'object') {
     if (!value || typeof value !== 'object') return '(empty)';
     const keys = Object.keys(value);
     if (!keys.length) return '(empty)';
-    return keys.map((k) => k.slice(0, 12) + ':' + value[k]).join(', ');
+    return keys.map((k) => {
+      const who = (nameMap && nameMap[k]) || (k.slice(0, 12) + '…');
+      return who + ' ' + value[k] + '%';
+    }).join(', ');
   }
   return value == null || value === '' ? '(blank)' : String(value);
 }
@@ -137,6 +143,26 @@ async function handle(req, context) {
   const meta = (user && user.user_metadata) || {};
   const author = meta.full_name || meta.fullName || user.email || '';
 
+  // Deploy 236.861 — resolve guarantorOwnership map keys (client ids) to
+  // NAMES for the note + audit-log rendering. Ids covered: every key in the
+  // incoming and stored maps. The primary client is already in hand; linked
+  // guarantors are one read each. Unresolvable ids fall back to a short id.
+  const _ownNameMap = {};
+  const _fieldsOwn = (fields.guarantorOwnership && typeof fields.guarantorOwnership === 'object') ? fields.guarantorOwnership : null;
+  const _loanOwn   = (loan.guarantorOwnership && typeof loan.guarantorOwnership === 'object') ? loan.guarantorOwnership : null;
+  if (_fieldsOwn || _loanOwn) {
+    const _nameOf = (c) => ((((c.firstName || '') + ' ' + (c.lastName || '')).trim()) || c.entityName || c.email || '');
+    const _ids = new Set([...Object.keys(_fieldsOwn || {}), ...Object.keys(_loanOwn || {})]);
+    for (const _id of _ids) {
+      if (_id === client.id) { _ownNameMap[_id] = _nameOf(client) || _id.slice(0, 12); continue; }
+      try {
+        const gc = await clientsStore.get(ownerKey + '/' + keySafe(_id), { type: 'json' });
+        if (gc) _ownNameMap[_id] = _nameOf(gc);
+      } catch (_) {}
+      if (!_ownNameMap[_id]) _ownNameMap[_id] = _id.slice(0, 12) + '…';
+    }
+  }
+
   Object.keys(fields).forEach((rawKey) => {
     const key = String(rawKey || '').trim();
     const spec = _specFor(key);
@@ -151,12 +177,13 @@ async function handle(req, context) {
     if (newCmp === oldCmp) return;
 
     loan[key] = newVal;
+    const _nm = key === 'guarantorOwnership' ? _ownNameMap : null;
     applied.push({
       key,
       label:  spec.label,
       type:   spec.type,
-      from:   _renderForNote(oldVal, spec.type),
-      to:     _renderForNote(newVal, spec.type),
+      from:   _renderForNote(oldVal, spec.type, _nm),
+      to:     _renderForNote(newVal, spec.type, _nm),
     });
   });
 

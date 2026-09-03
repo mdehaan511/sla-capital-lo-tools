@@ -137,6 +137,14 @@ export function diffLoan(before, after) {
 function keyFor(ownerKey, clientId, loanId) {
   return keySafe(ownerKey) + '/' + keySafe(clientId) + '/' + keySafe(loanId);
 }
+// Deploy 236.861 — canonical key is the LOAN id alone. Loan ids are unique and
+// immutable, while ownerKey/clientId change on reassign / make-primary / LO
+// moves — the triple key STRANDED history at every hop (the Locust Ave loan
+// showed one entry after a month of changes). New writes land here; reads
+// merge this with every legacy triple-key record for the loan.
+function loanKey(loanId) {
+  return 'byloan/' + keySafe(loanId);
+}
 
 /**
  * Append one entry. Best-effort: never throws into the caller's save path.
@@ -150,7 +158,7 @@ export async function recordLoanChanges(opts) {
     if (!o.ownerKey || !o.clientId || !o.loanId) return 0;
 
     const store = getStore({ name: STORE_NAME, consistency: 'strong' });
-    const key = keyFor(o.ownerKey, o.clientId, o.loanId);
+    const key = loanKey(o.loanId); // 236.861 — was keyFor(owner, client, loan)
     let rec = null;
     try { rec = await store.get(key, { type: 'json' }); } catch (e) { rec = null; }
     if (!rec || !Array.isArray(rec.entries)) rec = { entries: [] };
@@ -174,12 +182,32 @@ export async function recordLoanChanges(opts) {
   }
 }
 
-/** Read the full log for one loan, newest entry first. */
+/** Read the full log for one loan, newest entry first.
+ * 236.861 — merges the canonical loan-keyed record with EVERY legacy
+ * triple-keyed record for this loan id, regardless of which owner/client the
+ * loan lived under when the entry was written. The store only holds loans
+ * edited since the 236.771 rollout, so the full listing stays cheap. */
 export async function readLoanChangeLog(ownerKey, clientId, loanId) {
   const store = getStore({ name: STORE_NAME, consistency: 'strong' });
-  let rec = null;
-  try { rec = await store.get(keyFor(ownerKey, clientId, loanId), { type: 'json' }); } catch (e) { rec = null; }
-  const entries = (rec && Array.isArray(rec.entries)) ? rec.entries.slice() : [];
+  const entries = [];
+  const tryRead = async (key) => {
+    try {
+      const rec = await store.get(key, { type: 'json' });
+      if (rec && Array.isArray(rec.entries)) entries.push(...rec.entries);
+    } catch (_) {}
+  };
+  await tryRead(loanKey(loanId));
+  try {
+    const { blobs } = await store.list();
+    const suffix = '/' + keySafe(loanId);
+    for (const b of blobs || []) {
+      if (!b || !b.key || b.key === loanKey(loanId)) continue;
+      if (b.key.endsWith(suffix)) await tryRead(b.key);
+    }
+  } catch (e) {
+    console.warn('[loan-change-log] legacy sweep failed (non-fatal):', e && e.message);
+  }
+  entries.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
   entries.reverse();
   return entries;
 }
