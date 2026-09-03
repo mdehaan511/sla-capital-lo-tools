@@ -17,6 +17,16 @@
  * Idempotent — only ADDS slugs not already on the review (never touches
  * existing trays, hidden flags, docs, or verdicts). Writes only when it
  * actually added something. Called on doc-review page open.
+ *
+ * Deploy 236.849-863 — ALSO the self-heal for APP-GENERATED documents
+ * (Mike's rule): anything the platform generates — signed loan application,
+ * signed rate sheet, credit report, flood cert, and whatever comes next —
+ * files into its tray as the MOST RECENT item, even over an occupied tray
+ * (the previous doc moves to tray history). Every heal is guarded by a
+ * newer-than-current check so repeat page opens are no-ops. When adding a
+ * new generated-document type: attach at generation time via
+ * attachPdfToReviewSlug (replace-as-current), and add a guarded backfill
+ * here so docs generated before the review existed still land.
  */
 import { getStore } from '@netlify/blobs';
 import {
@@ -152,10 +162,18 @@ async function handle(req, context) {
       const street = String(review.address || '').split(',')[0].trim() || 'loan';
       const heals = [];
       const la = review.docs.loan_application;
-      if (la && !la.currentDocId) {
+      if (la) {
         const app = await readSignedApp({ ownerKey: keySafe(src.ownerKey), clientId: src.clientId, loanId: src.loanId });
-        if (app && app.bytes) heals.push({ slug: 'loan_application', bytes: app.bytes,
-          filename: 'Signed Loan Application - ' + street + '.pdf', note: 'auto-attached on page open (signed_applications)' });
+        // 236.863 (Mike) — the CURRENT signed application always files as the
+        // tray's most recent item, even over an occupied tray (a re-signed
+        // app supersedes whatever sits there; the old copy goes to history).
+        // Byte-length equality is the attach fingerprint (same convention as
+        // the truth-refresh reattach), so repeat page opens are no-ops.
+        if (app && app.bytes &&
+            (!la.currentDocId || Number(la.currentSize || 0) !== app.bytes.length)) {
+          heals.push({ slug: 'loan_application', bytes: app.bytes,
+            filename: 'Signed Loan Application - ' + street + '.pdf', note: 'auto-attached on page open (signed_applications)' });
+        }
       }
       const ts = review.docs.term_sheet;
       if (ts) {

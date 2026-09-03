@@ -203,17 +203,22 @@ export async function attachExistingVerifications({ ownerKey, loanId, review, ac
   let attached = 0;
   try {
     if (!ownerKey || !loanId || !review || !review.docs) return { ok: true, attached: 0 };
-    // Deploy 236.862 — only backfill trays that were EMPTY when this ran.
-    // Originally this only ran at review-create (trays always empty); now the
-    // sync-categories page-open heal calls it too, and re-attaching the same
-    // reports over an occupied tray would pile duplicate history entries on
-    // every page open. A tray filled during THIS run keeps layering (oldest
-    // first, so the newest report stays current — the original behavior).
-    const _wasEmpty = {
-      credit_report:     !(review.docs.credit_report && review.docs.credit_report.currentDocId),
-      flood_certificate: !(review.docs.flood_certificate && review.docs.flood_certificate.currentDocId),
+    // Deploy 236.863 (Mike) — app-generated docs always file as the MOST
+    // RECENT tray item, even over an occupied tray. The guard is a frozen
+    // per-slug cutoff (the tray's currentUploadedAt at run start): only
+    // verifications ORDERED after that attach, so repeat page opens are
+    // no-ops (an attached report's orderedAt predates its own attach time),
+    // while a newer pull supersedes whatever sits in the tray — the old doc
+    // moves to tray history, never lost. Empty tray = no cutoff = everything
+    // attaches oldest-first (the original create-time behavior).
+    const _cutoffFor = (slug) => {
+      const ds = review.docs[slug];
+      return (ds && ds.currentDocId) ? String(ds.currentUploadedAt || '') : '';
     };
-    if (!_wasEmpty.credit_report && !_wasEmpty.flood_certificate) return { ok: true, attached: 0 };
+    const _cutoff = {
+      credit_report:     _cutoffFor('credit_report'),
+      flood_certificate: _cutoffFor('flood_certificate'),
+    };
     const vStore = getStore({ name: 'verifications', consistency: 'strong' });
     const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
     const vDocs = getStore({ name: 'verification-docs', consistency: 'strong' });
@@ -230,7 +235,7 @@ export async function attachExistingVerifications({ ownerKey, loanId, review, ac
     hits.sort((a, b) => String(a.orderedAt || '').localeCompare(String(b.orderedAt || '')));
     for (const v of hits) {
       const slug = v.kind === 'credit' ? 'credit_report' : 'flood_certificate';
-      if (!_wasEmpty[slug]) continue;
+      if (_cutoff[slug] && String(v.orderedAt || '') <= _cutoff[slug]) continue;
       const ds = review.docs[slug];
       if (!ds) continue; // checklist without this tray
       const buf = await vDocs.get(ownerKey + '/' + v.id, { type: 'arrayBuffer' }).catch(() => null);
