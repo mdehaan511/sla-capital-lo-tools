@@ -384,7 +384,9 @@ function renderResult(r){
     row('Down Payment', money(res.dp));
     if (res.initAdv) row('Initial Advance', money(res.initAdv));
     row('Monthly Interest', money(res.mo) + '/mo');
-    row('SLA Origination', money(fee.slaPoints/100 * (all.loanAmount||0)));
+    // The engine already computed the origination dollars (pDol); prefer it
+    // over re-deriving from points so the sheet can't disagree with itself.
+    row('SLA Origination', money(res.pDol != null ? res.pDol : (fee.slaPoints/100 * (all.loanAmount||0))));
   }
   row('Your Fee (' + (fee.brokerPoints||0) + ' pts)', money(fee.brokerDollars));
   row('All-In Points', (all.points||0).toFixed(2) + ' pts', 'total');

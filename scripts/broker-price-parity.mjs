@@ -171,6 +171,36 @@ for (const d of DECLINES) {
 failures += decFail;
 console.log(`${decFail ? 'FAIL' : 'ok  '}  declines return a reason and no numbers, in broker wording`);
 
+// 4b. fee.slaRate must be a PERCENT for every program.
+//     The two engine families disagree: DIYA returns 6.895 (a percentage),
+//     Colchis returns 0.10125 (a decimal fraction). Passing that through
+//     rendered a 10.125% bridge loan as "0.100%" on the broker sizer —
+//     wrong by 100x, with the .125 already lost to rounding. Any real
+//     lending rate is between 3% and 30%, so the band catches both a
+//     missed x100 and a double one.
+const RATE_CASES = [
+  { program: 'dscr', inputs: feeBase },
+  { program: 'rtl',  inputs: { lt: 'bridge', fr: 740, exp: 8, pt: 'sfr', pp: 400000, arv: 0, rb: 0, term: 12, purp: 'purchase', sa: 'other', state: 'WA' } },
+  { program: 'guc',  inputs: { fr: 740, exp: 6, pt: 'sfr', landValue: 300000, buildCost: 250000, arv: 900000, term: 12, sa: 'other', state: 'WA', ownLand: 'no', landDebt: 0 } },
+];
+let rateFail = 0;
+for (const c of RATE_CASES) {
+  const out = priceScenario(c.program, c.inputs, 0);
+  if (!out.ok || out.declined) { console.log(`FAIL  ${c.program} rate-unit case did not price`); rateFail++; continue; }
+  const r = out.fee.slaRate;
+  if (!(r >= 3 && r <= 30)) {
+    console.log(`FAIL  ${c.program} fee.slaRate = ${r} — not a percentage in the 3-30 band`);
+    rateFail++;
+  }
+  // And three decimals must survive: 10.125 must not become 10.13.
+  if (Math.abs(r - Math.round(r * 1000) / 1000) > 1e-9) {
+    console.log(`FAIL  ${c.program} fee.slaRate lost precision: ${r}`);
+    rateFail++;
+  }
+}
+failures += rateFail;
+console.log(`${rateFail ? 'FAIL' : 'ok  '}  fee.slaRate is a percentage on every program`);
+
 // 5. No broker-facing page may ship a pricing module. This is
 //    anti-enumeration layer 6, and it is exactly the kind of thing a
 //    copied <script> tag reintroduces silently — so it's a gate, not a

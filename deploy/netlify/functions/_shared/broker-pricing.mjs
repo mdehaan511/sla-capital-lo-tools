@@ -146,6 +146,32 @@ export function assertEnginesLoaded() {
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
+// Rates need three decimals — 10.125% is a real Colchis rate, and
+// round2 would report it as 10.13%.
+function round3(n) {
+  return Math.round((Number(n) || 0) * 1000) / 1000;
+}
+
+/**
+ * THE TWO ENGINE FAMILIES REPORT RATE IN DIFFERENT UNITS.
+ *
+ *   DIYA (dscr, mf):     finalRate = 6.895   → already a percentage
+ *   Colchis (rtl, guc):  rate      = 0.10125 → a decimal fraction
+ *
+ * Deploy 236.868 — this bit, and hard. `fee.slaRate` was passing the raw
+ * value through round2(), so an RTL quote reported 0.1 and the broker
+ * sizer rendered "0.100%" for what is a 10.125% loan — wrong by 100x, and
+ * the rounding had already destroyed the .125 before display.
+ *
+ * `fee.slaRate` is now normalized to PERCENT for every program and is the
+ * display value. `result.rate` / `result.finalRate` stay exactly as the
+ * engine produced them, because the parity harness asserts the projection
+ * is faithful — so read `fee.slaRate` to show a rate, and treat
+ * `result.*` as the engine's own units.
+ */
+function ratePercent(raw, shape) {
+  return shape === 'dscr' ? Number(raw.finalRate || 0) : Number(raw.rate || 0) * 100;
+}
 
 /**
  * Rewrite a decline message for a broker audience.
@@ -256,7 +282,7 @@ export function priceScenario(programKey, inputs, brokerFeePts) {
   const slaPts    = prog.shape === 'dscr'
     ? (loanAmt > 0 ? (Number(raw.origFee || 0) / loanAmt) * 100 : 0)
     : Number(raw.p || 0);
-  const slaRate   = prog.shape === 'dscr' ? Number(raw.finalRate || 0) : Number(raw.rate || 0);
+  const slaRate   = ratePercent(raw, prog.shape);
 
   const feeDollars = prog.shape === 'dscr'
     ? Number(raw.brokerFeeDol || 0)      // engine already computed it
@@ -275,7 +301,8 @@ export function priceScenario(programKey, inputs, brokerFeePts) {
     result,
     // The split, stated explicitly so no caller has to infer it.
     fee: {
-      slaRate:    round2(slaRate),
+      // Percent, every program. See ratePercent() above.
+      slaRate:    round3(slaRate),
       slaPoints:  round2(slaPts),
       brokerPoints:  round2(feePts),
       brokerDollars: round2(feeDollars),
