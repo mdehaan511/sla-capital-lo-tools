@@ -8505,12 +8505,36 @@ function _postCreditOrder(body, wrap, btn, btnLabel) {
 
 function openCreditPullModal() {
   if (!_client || !_loanId) { showToast('Loan not loaded'); return; }
+  // Deploy 236.860 (Mike) — the WHO list was hardcoded to "Guarantor 2/3
+  // (from loan application)" no matter who is actually on the loan. Build it
+  // from the application record instead: the credit order reads
+  // data.guarantors[gIndex], so offer exactly the guarantors ON FILE, by
+  // name (option value = their array index). No application or no extra
+  // guarantors → primary only. Status fetch failure degrades the same way.
+  var _statusOpts = { loanId: _loanId };
+  if (_loEmail && _user && _loEmail !== _user.email) _statusOpts._owner = _loEmail;
+  var _primaryName = ((_client.firstName || '') + ' ' + (_client.lastName || '')).trim();
+  SLA.BorrowerInfo.status(_client.id, _statusOpts).catch(function () { return null; }).then(function (st) {
+    var gs = (st && st.exists && st.data && Array.isArray(st.data.guarantors)) ? st.data.guarantors : [];
+    var g0 = gs[0] || {};
+    var g0Name = (((g0.firstName || '') + ' ' + (g0.lastName || '')).trim()) || _primaryName || '—';
+    var whoOpts = '<option value="0">Primary Borrower — ' + escH(g0Name) + '</option>';
+    for (var gi = 1; gi < gs.length; gi++) {
+      var g = gs[gi];
+      // A real guarantor slot has SOME identity; skip empty padding entries.
+      if (!g || !(g.firstName || g.lastName || g.email || g.ssn_enc || g.ssn_masked)) continue;
+      var gName = (((g.firstName || '') + ' ' + (g.lastName || '')).trim()) || ('(no name on application)');
+      whoOpts += '<option value="' + gi + '">Guarantor ' + (gi + 1) + ' — ' + escH(gName) + '</option>';
+    }
+    _openCreditPullModalWith(whoOpts);
+  });
+}
+
+function _openCreditPullModalWith(whoOpts) {
   _xactusModal('creditPullModal', 'Pull Credit Report',
     '<div style="margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:4px">Who</label>' +
       '<select id="xc-who" style="width:100%;padding:8px 10px;border:1.5px solid var(--border,#E4DFD4);border-radius:6px;font-family:inherit;font-size:13px">' +
-        '<option value="0">Primary Borrower — ' + escH(((_client.firstName || '') + ' ' + (_client.lastName || '')).trim()) + '</option>' +
-        '<option value="1">Guarantor 2 (from loan application)</option>' +
-        '<option value="2">Guarantor 3 (from loan application)</option>' +
+        whoOpts +
       '</select></div>' +
     // Deploy 236.780 — Soft Pull is the DEFAULT (Mike); tri-merge is the
     // deliberate opt-in since it's a hard inquiry.
