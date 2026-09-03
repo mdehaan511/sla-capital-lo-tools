@@ -8394,8 +8394,13 @@ function renderVerificationsList(list) {
     el.innerHTML = '<span style="font-style:italic">No credit pulls or flood certs ordered yet for this loan.</span>';
     return;
   }
+  // Deploy 236.862 (Mike) — remember records by id so the PDF link can name
+  // the download properly ("[Name] - Credit Report - Soft - [date].pdf")
+  // instead of "verification-v_....pdf".
+  window._verifById = {};
   var h = '';
   list.forEach(function (v) {
+    if (v && v.id) window._verifById[v.id] = v;
     var when = v.orderedAt ? new Date(v.orderedAt).toLocaleDateString() : '—';
     var line, badge = '';
     if (v.kind === 'credit') {
@@ -8426,6 +8431,23 @@ function renderVerificationsList(list) {
   el.innerHTML = h;
 }
 
+// Deploy 236.862 (Mike) — human filenames for Verification downloads:
+//   credit: "[Borrower Name] - Credit Report - Soft|Hard - [YYYY-MM-DD].pdf"
+//   flood:  "[Street] - Flood Cert - [YYYY-MM-DD].pdf"
+function _verificationFilename(v) {
+  var d = v && v.orderedAt ? new Date(v.orderedAt) : new Date();
+  var ds = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  var name;
+  if (v && v.kind === 'credit') {
+    var who = (v.subject && v.subject.name) || 'Borrower';
+    name = who + ' - Credit Report - ' + (v.reportType === 'SoftCheck' ? 'Soft' : 'Hard') + ' - ' + ds;
+  } else {
+    var street = String((v && v.address) || '').split(',')[0].trim() || 'Property';
+    name = street + ' - Flood Cert - ' + ds;
+  }
+  return name.replace(/[\\/:*?"<>|]/g, '_') + '.pdf';
+}
+
 function downloadVerificationDoc(id) {
   var url = '/api/xactus-verification-doc?id=' + encodeURIComponent(id) +
     (_loEmail ? '&owner=' + encodeURIComponent(_loEmail) : '');
@@ -8437,7 +8459,8 @@ function downloadVerificationDoc(id) {
   }).then(function (b) {
     var u = URL.createObjectURL(b);
     var a = document.createElement('a');
-    a.href = u; a.download = 'verification-' + id + '.pdf';
+    var v = (window._verifById || {})[id];
+    a.href = u; a.download = v ? _verificationFilename(v) : ('verification-' + id + '.pdf');
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
   }).catch(function (e) {

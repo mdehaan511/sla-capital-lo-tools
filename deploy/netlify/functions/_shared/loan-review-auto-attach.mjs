@@ -203,6 +203,17 @@ export async function attachExistingVerifications({ ownerKey, loanId, review, ac
   let attached = 0;
   try {
     if (!ownerKey || !loanId || !review || !review.docs) return { ok: true, attached: 0 };
+    // Deploy 236.862 — only backfill trays that were EMPTY when this ran.
+    // Originally this only ran at review-create (trays always empty); now the
+    // sync-categories page-open heal calls it too, and re-attaching the same
+    // reports over an occupied tray would pile duplicate history entries on
+    // every page open. A tray filled during THIS run keeps layering (oldest
+    // first, so the newest report stays current — the original behavior).
+    const _wasEmpty = {
+      credit_report:     !(review.docs.credit_report && review.docs.credit_report.currentDocId),
+      flood_certificate: !(review.docs.flood_certificate && review.docs.flood_certificate.currentDocId),
+    };
+    if (!_wasEmpty.credit_report && !_wasEmpty.flood_certificate) return { ok: true, attached: 0 };
     const vStore = getStore({ name: 'verifications', consistency: 'strong' });
     const docsStore = getStore({ name: 'loan-review-docs', consistency: 'strong' });
     const vDocs = getStore({ name: 'verification-docs', consistency: 'strong' });
@@ -219,14 +230,19 @@ export async function attachExistingVerifications({ ownerKey, loanId, review, ac
     hits.sort((a, b) => String(a.orderedAt || '').localeCompare(String(b.orderedAt || '')));
     for (const v of hits) {
       const slug = v.kind === 'credit' ? 'credit_report' : 'flood_certificate';
+      if (!_wasEmpty[slug]) continue;
       const ds = review.docs[slug];
       if (!ds) continue; // checklist without this tray
       const buf = await vDocs.get(ownerKey + '/' + v.id, { type: 'arrayBuffer' }).catch(() => null);
       if (!buf) continue;
       const bytes = Buffer.from(buf);
       const subjectName = (v.subject && v.subject.name) || '';
-      const filename = (v.kind === 'credit' ? 'Credit Report - ' : 'Flood Cert - ') +
-        (subjectName || _streetOf(v.address)) + ' - ' + String(v.orderedAt || '').slice(0, 10) + '.pdf';
+      // 236.862 — "[Name] - Credit Report - Soft|Hard - [date]" (Mike's
+      // convention; flood mirrors it with the street).
+      const _vDate = String(v.orderedAt || '').slice(0, 10);
+      const filename = v.kind === 'credit'
+        ? (subjectName || 'Borrower') + ' - Credit Report - ' + (v.reportType === 'SoftCheck' ? 'Soft' : 'Hard') + ' - ' + _vDate + '.pdf'
+        : (_streetOf(v.address)) + ' - Flood Cert - ' + _vDate + '.pdf';
       _attachToSlug({
         review, slug, bytes, filename, mimeType: 'application/pdf',
         sourceNote: 'backfilled from verifications (' + (v.xactusReportId || v.certId || v.id) + ')',

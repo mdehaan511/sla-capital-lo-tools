@@ -189,6 +189,22 @@ async function handle(req, context) {
         healQueue.push(h.slug);
         healed++;
       }
+      // (2b) Deploy 236.862 (Mike) — credit reports / flood certs that only
+      // reached the verifications store (pull before the review existed, or
+      // a missed pull-time attach) backfill into their trays on page open.
+      // attachExistingVerifications is empty-tray-guarded, so an occupied
+      // tray is never touched and repeat opens are no-ops.
+      try {
+        const { attachExistingVerifications } = await import('./_shared/loan-review-auto-attach.mjs');
+        const vr = await attachExistingVerifications({
+          ownerKey: keySafe(src.ownerKey), loanId: src.loanId, review,
+          actorEmail: user.email,
+        });
+        if (vr && vr.attached) healed += vr.attached;
+      } catch (e) {
+        console.warn('sync-categories: verification backfill failed (non-fatal):', e && e.message);
+      }
+
       // (3) auto-attached but never AI-graded → queue now.
       for (const slug of ['loan_application', 'term_sheet']) {
         if (healQueue.includes(slug)) continue;

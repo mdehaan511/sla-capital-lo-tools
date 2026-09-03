@@ -111,13 +111,14 @@ async function handle(req, context) {
     try {
       const dStore = getStore({ name: 'verification-docs', consistency: 'strong' });
       await dStore.set(ownerKey + '/' + vId, Buffer.from(parsed.pdfBase64, 'base64'), {
-        metadata: { kind: 'flood', filename: 'Flood Cert - ' + addr.street + '.pdf', mimeType: 'application/pdf' },
+        metadata: { kind: 'flood', filename: addr.street + ' - Flood Cert - ' + nowIso.slice(0, 10) + '.pdf', mimeType: 'application/pdf' },
       });
     } catch (e) { console.warn('xactus-flood-order: pdf store failed:', e && e.message); }
     const r = await attachPdfToReviewSlug({
       ownerKey, clientId: body.clientId, loanId: body.loanId, address: loan.address,
       slug: 'flood_certificate', bytes: Buffer.from(parsed.pdfBase64, 'base64'),
-      filename: 'Flood Certificate - ' + addr.street + ' - ' + nowIso.slice(0, 10) + '.pdf',
+      // Deploy 236.862 (Mike) — matches the credit-report naming convention.
+      filename: addr.street + ' - Flood Cert - ' + nowIso.slice(0, 10) + '.pdf',
       sourceNote: 'xactus:flood:' + (parsed.certId || parsed.requestId), actorEmail: selfEmail,
       documentDate: parsed.certDate || nowIso.slice(0, 10),
     });

@@ -181,7 +181,7 @@ async function handle(req, context) {
     try {
       const dStore = getStore({ name: 'verification-docs', consistency: 'strong' });
       await dStore.set(ownerKey + '/' + vId, Buffer.from(parsed.pdfBase64, 'base64'), {
-        metadata: { kind: 'credit', filename: 'Credit Report - ' + subjectName + '.pdf', mimeType: 'application/pdf' },
+        metadata: { kind: 'credit', filename: subjectName + ' - Credit Report - ' + (reportType === 'SoftCheck' ? 'Soft' : 'Hard') + ' - ' + nowIso.slice(0, 10) + '.pdf', mimeType: 'application/pdf' },
       });
     } catch (e) { console.warn('xactus-credit-order: pdf store failed:', e && e.message); }
   }
@@ -194,7 +194,8 @@ async function handle(req, context) {
       const r = await attachPdfToReviewSlug({
         ownerKey, clientId: body.clientId, loanId: body.loanId, address: loan.address,
         slug: 'credit_report', bytes: Buffer.from(parsed.pdfBase64, 'base64'),
-        filename: 'Credit Report - ' + subjectName + ' - ' + nowIso.slice(0, 10) + '.pdf',
+        // Deploy 236.862 (Mike) — "[Name] - Credit Report - Soft|Hard - [date]".
+        filename: subjectName + ' - Credit Report - ' + (reportType === 'SoftCheck' ? 'Soft' : 'Hard') + ' - ' + nowIso.slice(0, 10) + '.pdf',
         sourceNote: 'xactus:' + parsed.reportId, actorEmail: selfEmail,
         documentDate: nowIso.slice(0, 10), staleByDate: expiresIso.slice(0, 10),
       });
