@@ -692,7 +692,7 @@ body.sizer-has-notes .page { grid-template-columns: minmax(0,1.5fr) minmax(0,1.0
           <label>Property Type <span class="req">*</span></label>
           <select id="propType" onchange="autoCalc()">
             <option value="sfr">SFR / 1–4 Units</option>
-            <option value="mfr">Multi-Family 5–10 Units</option>
+            <option value="mfr">Multi-Family 5–20 Units</option>
           </select>
         </div>
       </div>
@@ -3761,7 +3761,7 @@ function normalizeRtlPurpose(v, currentLoanAmt) {
 // Deploy 236.841 — same silent-no-op class for PROPERTY TYPE (Mike: short-app
 // RTLs submitted as "5+ Unit Multifamily" opened in the sizer as 1-4 unit).
 // The short app stores 'multi' (also '2-4'/'sfh'/'portfolio'/'other'); this
-// select only knows 'sfr' (SFR / 1-4 Units) and 'mfr' (Multi-Family 5-10
+// select only knows 'sfr' (SFR / 1-4 Units) and 'mfr' (Multi-Family 5-20
 // Units), so any foreign value left the select on its default. Map every
 // multifamily vocabulary onto 'mfr'; every 1-4-unit/other vocabulary onto
 // 'sfr'; unknown/empty leaves the select alone.
@@ -5327,7 +5327,7 @@ function _generateRTLRateSheetPDF(opts) {
   var LABELS={bridge:'Bridge',light:'Light Rehab',heavy:'Heavy Rehab' };
   var progLabel=(LABELS[lt]||lt);
   var expLabel=exp>=8?'Tier 1 (8+ projects)':exp>=4?'Tier 2 (4–7 projects)':'Tier 3 (0–3 projects)';
-  var ptLabel={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–10 Units'};
+  var ptLabel={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–20 Units'};
   var termLabel={12:'12 months',13:'13–18 months',19:'19–24 months'};
   var purpLabel={purchase:'Purchase',cashout:'Cash-Out Refinance',rateterm:'Rate/Term Refinance'};
 
@@ -5427,7 +5427,7 @@ function _generateRTLRateSheetPDF(opts) {
 
   // Loan details grid — Property Address now lives in the dark hero band
   // above (full width, no truncation), so it's removed from this grid.
-  var ptLabelMap={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–10 Units'};
+  var ptLabelMap={sfr:'SFR / 1–4 Units',mfr:'Multi-Family 5–20 Units'};
   var details=[
     // Deploy 236.86 \u2014 relabeled per Mike. See note on the
     // transactional rate sheet's summaryRows.
