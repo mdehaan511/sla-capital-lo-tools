@@ -170,6 +170,36 @@ export async function recordPricing(ev) {
 }
 
 /**
+ * Delete every session and archive for one broker. Deploy 236.869.
+ *
+ * Two uses: clearing test rows off the desk, and offboarding — when a
+ * partner record is deleted outright, leaving their pricing history
+ * orphaned on the desk is just noise nobody can act on. Suspension does
+ * NOT purge: a suspended partner's history is exactly what you want to
+ * look at.
+ *
+ * Returns the number of blobs removed.
+ */
+export async function purgeActivity(brokerEmail) {
+  const k = keySafe(String(brokerEmail || '').toLowerCase());
+  if (!k) return 0;
+  let removed = 0;
+  try {
+    const store = _store();
+    for (const prefix of ['sessions/' + k + '/', 'archive/' + k + '/']) {
+      const { blobs } = await store.list({ prefix });
+      for (const { key } of blobs) {
+        await store.delete(key);
+        removed++;
+      }
+    }
+  } catch (e) {
+    console.warn('[broker-activity] purge failed:', e && e.message);
+  }
+  return removed;
+}
+
+/**
  * Open sessions, newest first. Phase 3's Broker Desk reads this; exported
  * now so the shape is settled before anything renders it.
  */

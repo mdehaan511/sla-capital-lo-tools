@@ -11,7 +11,10 @@
  *          'approve' status -> approved, and grant the broker role
  *          'suspend' status -> suspended, and revoke the broker role
  *          'invite'  mint an invite token and return the claim link
- *          'delete'  remove the record entirely (mistakes only)
+ *          'delete'  remove the record entirely (mistakes only), and
+ *                    its pricing history with it
+ *          'purge-activity'  clear a partner's pricing sessions, keeping
+ *                    the record — for clearing test rows off the desk
  *
  * Fields: clientId, ownerKey, company, firstName, lastName, phone, nmls,
  *         programs[], feeCapPoints, notes, status
@@ -34,6 +37,7 @@ import {
 import {
   getPartner, savePartner, mintInvite, deletePartner, ALL_PROGRAMS,
 } from './_shared/broker-partners.mjs';
+import { purgeActivity } from './_shared/broker-activity.mjs';
 import { syncRoleTable } from './_shared/sla-roles.mjs';
 
 export default async (req, context) => {
@@ -63,10 +67,21 @@ async function handle(req, context) {
   if (action === 'delete') {
     // Offboarding is `suspend` — it keeps the history and is one click to
     // undo. Delete is for a record created by mistake, so it also drops
-    // the role rather than leaving a login pointing at nothing.
+    // the role rather than leaving a login pointing at nothing, and takes
+    // the pricing history with it: activity for a partner who no longer
+    // exists is noise on the desk that nobody can act on.
     await deletePartner(email);
     await syncRoleTable(email, []);
-    return json(200, { ok: true, deleted: email });
+    const purged = await purgeActivity(email);
+    return json(200, { ok: true, deleted: email, activityPurged: purged });
+  }
+
+  // ── purge activity, keeping the partner ─────────────────────────
+  // Separate from delete so test rows can be cleared off the desk without
+  // touching a real partner record.
+  if (action === 'purge-activity') {
+    const purged = await purgeActivity(email);
+    return json(200, { ok: true, activityPurged: purged });
   }
 
   // ── invite ──────────────────────────────────────────────────────
