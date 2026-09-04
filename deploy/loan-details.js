@@ -8277,7 +8277,10 @@ function _renderRateLockCard() {
   // y as the tabs' underline (measured live: tab row bottom = strip
   // top + 43px).
   strip.style.cssText = 'min-height:41px;display:flex;align-items:center;gap:8px;font-size:13.5px;color:' + col + ';padding:0 2px';
-  strip.innerHTML = '<span style="font-size:16px">🔒</span><span style="line-height:1.35">' + line + '</span>';
+  // Deploy 236.879 — second line names WHICH rate sheet the lock holds
+  // (historical pricing, 236.878). Filled async once the pricing module loads.
+  strip.innerHTML = '<span style="font-size:16px">🔒</span><span style="line-height:1.35">' + line +
+    '<span id="rateLockSheetLine" style="display:none;font-size:11.5px;color:var(--muted,#7a7488);line-height:1.3"></span></span>';
   var divider = document.createElement('div');
   divider.id = 'rateLockDivider';
   divider.style.cssText = 'border-bottom:2px solid ' + (rl.days <= 10 ? 'rgba(124,31,31,0.45)' : 'var(--border, #ddd8d0)') + ';margin-bottom:20px';
@@ -8293,6 +8296,50 @@ function _renderRateLockCard() {
       if (delta > 0 && delta < 30) strip.style.minHeight = (41 + delta) + 'px';
     }
   } catch (_) {}
+  try { _renderRateLockSheetLine(rl); } catch (_) {}
+}
+
+// Deploy 236.879 (Mike) — name the rate sheet the lock holds, on EXISTING
+// loans: derived live from rateLockStart + the pricing module's
+// PRICING_HISTORY (236.878), so no loan-record backfill is needed. The right
+// module loads on demand (mf-pricing for MF 5+ loans, dscr-pricing
+// otherwise — they share the SLA_DSCR global and are never both loaded).
+// Daily cache-buster instead of a third version pin to keep in sync: a rate
+// sheet lands ~monthly, so a worst-case one-day-stale history list only
+// briefly mislabels the newest sheet — and the sizer (the authority when
+// repricing) always carries the pinned current module.
+var _lockSheetModLoading = false;
+function _renderRateLockSheetLine(rl) {
+  var slot = document.getElementById('rateLockSheetLine');
+  if (!slot || !rl) return;
+  if (!(window.SLA_DSCR && SLA_DSCR.PRICING_HISTORY)) {
+    if (_lockSheetModLoading) return;
+    _lockSheetModLoading = true;
+    var s = document.createElement('script');
+    var mod = (_loan && _loan.mfProgram) ? 'mf-pricing.js' : 'dscr-pricing.js';
+    s.src = '/' + mod + '?v=day' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    s.onload = function () { try { _renderRateLockSheetLine(_rateLockInfo(_loan)); } catch (_) {} };
+    document.head.appendChild(s);
+    return;
+  }
+  var d = String(rl.start || '').slice(0, 10);
+  var H = SLA_DSCR.PRICING_HISTORY || [];
+  if (!H.length) return;
+  var sheet = null;
+  for (var i = 0; i < H.length; i++) { if (H[i].effective <= d) { sheet = H[i]; break; } }
+  if (!sheet) sheet = H[H.length - 1];
+  var txt;
+  if (rl.days > 0) {
+    txt = 'Locked pricing: <strong>' + escH(sheet.label) + '</strong> rate sheet' +
+      (sheet === H[0] ? '' : ' — reprices on this sheet, not the current one');
+  } else {
+    txt = 'Lock expired — reprices at <strong>current</strong> rates (locked sheet was ' + escH(sheet.label) + ')';
+  }
+  if (_loan && _loan.pricedWithSheet) {
+    slot.title = 'Last sizer save priced on the ' + _loan.pricedWithSheet + ' sheet';
+  }
+  slot.innerHTML = '<br>' + txt;
+  slot.style.display = 'inline';
 }
 
 // Deploy 236.770 — Yes/No confirm before removing a denied/cancelled tag.
