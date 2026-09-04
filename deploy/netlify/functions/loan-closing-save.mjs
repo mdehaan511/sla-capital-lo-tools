@@ -31,7 +31,14 @@ import { writeClient } from './_shared/client-write.mjs';
 // Milestone keys the closing panel tracks, in flow order. Whitelisted so a
 // bad/renamed key can't write junk into the closing object. Labels live in
 // the frontend (loan-details.js renderClosingPanel).
-const CLOSING_STEPS  = ['cd_sent', 'docs_signed', 'wire_sent', 'funded', 'recorded'];
+// Deploy 236.884 (Mike) — the pc_* keys are the POST CLOSE TASKS checklist
+// (own panel below Closing Coordination, shown once the loan closes; RTL and
+// RTL-not-Bridge items filtered in the frontend). Same {done, at, by} shape,
+// same steps map, same one-small-write-per-toggle endpoint.
+const CLOSING_STEPS  = ['cd_sent', 'docs_signed', 'wire_sent', 'funded', 'recorded',
+  'pc_ins_agent', 'pc_final_eoi', 'pc_signed_docs', 'pc_assignment', 'pc_w9_ach',
+  'pc_final_hud', 'pc_borrower_docs', 'pc_match_docs',
+  'pc_reno_draws', 'pc_wire_tracer', 'pc_sitewire'];
 // Free-text coordination fields.
 const CLOSING_FIELDS = ['titleCompany', 'titleContact', 'wireAmount', 'scheduledFundingDate', 'notes'];
 

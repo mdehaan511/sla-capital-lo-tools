@@ -2020,6 +2020,9 @@ function render() {
   // already been started). Sits right below Funding Plan — same closing
   // workflow neighborhood. See renderClosingPanel() for the gating logic.
   html += renderClosingPanel(l);
+  // Deploy 236.884 (Mike) — Post Close Tasks checklist directly below
+  // Closing Coordination; renders only once the loan has closed.
+  html += renderPostClosePanel(l);
 
   // ── Deploy 236.779 — Verifications (Xactus credit pulls + flood certs) ──
   // Staff-only panel: order tri-merge/soft credit per borrower/guarantor
@@ -2794,12 +2797,17 @@ function render() {
     // drop both sections entirely (they must not leak into the Loan view).
     var fpSect      = document.getElementById('fundingPlanSection');
     var closingSect = document.getElementById('closingSection');
+    // Deploy 236.884 — Post Close Tasks rides into the Closing tab right
+    // below Closing Coordination (or drops with it on pre-processing loans).
+    var postCloseSect = document.getElementById('postCloseSection');
     if (paneClosing) {
-      if (fpSect)      paneClosing.appendChild(fpSect);
-      if (closingSect) paneClosing.appendChild(closingSect);
+      if (fpSect)        paneClosing.appendChild(fpSect);
+      if (closingSect)   paneClosing.appendChild(closingSect);
+      if (postCloseSect) paneClosing.appendChild(postCloseSect);
     } else {
-      if (fpSect)      fpSect.remove();
-      if (closingSect) closingSect.remove();
+      if (fpSect)        fpSect.remove();
+      if (closingSect)   closingSect.remove();
+      if (postCloseSect) postCloseSect.remove();
     }
     // Deploy 236.618 — the Servicing Info section (built inside the Loan two-col)
     // moves into its own Servicing tab. Same gate as the tab, so paneServicing
@@ -7954,6 +7962,96 @@ function refreshClosingPanel() {
   var next = renderClosingPanel(_loan);
   if (!next) { el.remove(); return; }
   el.outerHTML = next;
+}
+
+// ── Deploy 236.884 (Mike) — POST CLOSE TASKS ─────────────────────────
+// Checklist below Closing Coordination, shown once the loan has CLOSED.
+// Same storage + endpoint as the closing milestones (loan.closing.steps,
+// loan-closing-save — pc_* keys whitelisted there; keep the two lists in
+// sync). cond: 'rtl' items show on RTL loans only; 'rtl_not_bridge' shows
+// on RTL loans that aren't Bridge (Sitewire tracks reno draws — a bridge
+// has none).
+var POST_CLOSE_TASK_DEFS = [
+  ['pc_ins_agent',     'Email Insurance Agent to confirm payment'],
+  ['pc_final_eoi',     'Get final Evidence of Insurance'],
+  ['pc_signed_docs',   'Upload Signed Loan Documents'],
+  ['pc_assignment',    'Upload Assignment and Allonge'],
+  ['pc_w9_ach',        'Verify W9 and ACH Authorization are correct and uploaded'],
+  ['pc_final_hud',     'Upload Final HUD'],
+  ['pc_borrower_docs', 'Confirm All Borrower Docs Uploaded and Names Correctly'],
+  ['pc_match_docs',    'Confirm Loan Details match Loan Docs'],
+  ['pc_reno_draws',    'Send Renovation Draw Process', 'rtl'],
+  ['pc_wire_tracer',   'Add Borrower Wire instructions in the Draw Tracer', 'rtl'],
+  ['pc_sitewire',      'Add Loan to Sitewire', 'rtl_not_bridge'],
+];
+function _postCloseTaskList(l) {
+  var isRtl = String((l && l.toolType) || '').toLowerCase() === 'rtl';
+  var isBridge = String((l && l.loanType) || '').toLowerCase() === 'bridge';
+  var out = [];
+  for (var i = 0; i < POST_CLOSE_TASK_DEFS.length; i++) {
+    var cond = POST_CLOSE_TASK_DEFS[i][2] || '';
+    if (cond === 'rtl' && !isRtl) continue;
+    if (cond === 'rtl_not_bridge' && (!isRtl || isBridge)) continue;
+    out.push(POST_CLOSE_TASK_DEFS[i]);
+  }
+  return out;
+}
+function renderPostClosePanel(l) {
+  if (!l) return '';
+  // "Appears after a loan closes" — closed + still-closed terminal states.
+  var st = String(l.status || '').toLowerCase();
+  if (['closed', 'sold', 'liquidated'].indexOf(st) < 0) return '';
+  var obj   = (l.closing && typeof l.closing === 'object') ? l.closing : {};
+  var steps = (obj.steps && typeof obj.steps === 'object') ? obj.steps : {};
+  var defs = _postCloseTaskList(l);
+  var done = 0, rows = '';
+  for (var i = 0; i < defs.length; i++) {
+    var key = defs[i][0], label = defs[i][1];
+    var s = steps[key] || {};
+    var isDone = !!s.done;
+    if (isDone) done++;
+    var stamp = (isDone && s.at)
+      ? '<span style="font-size:11px;color:var(--muted);margin-left:8px">' + escH(fmtDateTime(s.at)) + (s.by ? ' · ' + escH(s.by) : '') + '</span>'
+      : '';
+    rows +=
+      '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border,#eee);cursor:pointer">' +
+        '<input type="checkbox" ' + (isDone ? 'checked ' : '') + 'onchange="togglePostCloseTask(\'' + key + '\', this)" style="width:16px;height:16px;flex:none" />' +
+        '<span style="flex:1;' + (isDone ? 'text-decoration:line-through;color:var(--muted)' : '') + '">' + escH(label) + '</span>' +
+        stamp +
+      '</label>';
+  }
+  var pct = defs.length ? Math.round((done / defs.length) * 100) : 0;
+  return '<div class="section" id="postCloseSection">' +
+    '<div class="section-head"><h2>Post Close Tasks</h2><span class="section-tag ' + (done === defs.length ? 'tag-readonly' : 'tag-editable') + '">' + done + '/' + defs.length + '</span></div>' +
+    '<div class="section-body">' +
+      '<div style="height:6px;background:var(--border,#eee);border-radius:3px;overflow:hidden;margin-bottom:14px">' +
+        '<div style="height:100%;width:' + pct + '%;background:var(--success,#166534);transition:width .2s"></div>' +
+      '</div>' +
+      rows +
+    '</div>' +
+  '</div>';
+}
+function refreshPostClosePanel() {
+  var el = document.getElementById('postCloseSection');
+  if (!el || !_loan) return;
+  var next = renderPostClosePanel(_loan);
+  if (!next) { el.remove(); return; }
+  el.outerHTML = next;
+}
+function togglePostCloseTask(step, el) {
+  if (!_loan || !_client) return;
+  var done = !!(el && el.checked);
+  var body = { clientId: _client.id, loanId: _loanId, step: step, done: done };
+  var owner = _closingOwner(); if (owner) body.owner = owner;
+  if (el) el.disabled = true;
+  SLA.api('POST', '/api/loan-closing-save', body).then(function(r) {
+    if (r && r.closing) _loan.closing = r.closing;
+    refreshPostClosePanel();
+    showToast(done ? 'Marked complete' : 'Marked incomplete');
+  }).catch(function(err) {
+    if (el) { el.disabled = false; el.checked = !done; }
+    showToast('Post-close update failed: ' + (err && err.message || 'unknown'));
+  });
 }
 
 // Owner param for cross-LO admin edits (matches saveFundingPlan's guard).
