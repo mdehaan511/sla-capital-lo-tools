@@ -1048,6 +1048,13 @@
   to = "/.netlify/functions/broker-rate-sheet"
   status = 200
   force = true
+# Deploy 236.873 — the invite claim. The ONE unauthenticated endpoint in
+# the broker portal: the invite token is the credential.
+[[redirects]]
+  from = "/api/broker-claim"
+  to = "/.netlify/functions/broker-claim"
+  status = 200
+  force = true
 [[redirects]]
   from = "/api/brokers"
   to = "/.netlify/functions/brokers-list"

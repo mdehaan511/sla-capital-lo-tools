@@ -32,6 +32,7 @@
  */
 import { getStore } from '@netlify/blobs';
 import { keySafe, normalizeEmail } from './auth.mjs';
+import { randomBytes } from 'node:crypto';
 
 const STORE = 'broker_partners';
 
@@ -53,12 +54,15 @@ export function partnerKey(email) {
 }
 
 function _token() {
-  // 32 hex chars of randomness. Only used to claim an invite, and only
-  // valid while the record says pending, so it is a one-shot claim check
-  // rather than a bearer credential.
-  let s = '';
-  for (let i = 0; i < 4; i++) s += Math.random().toString(16).slice(2, 10);
-  return s.slice(0, 32);
+  // 32 bytes from the CSPRNG — 256 bits, hex-encoded.
+  //
+  // Deploy 236.873 raised the stakes on this: when the token was written
+  // (236.859) it only marked a record as invited, and the comment here
+  // said as much. It is now the sole credential that creates a login on
+  // /api/broker-claim, which makes it a bearer secret. Math.random() is
+  // not a CSPRNG — its output is predictable from prior draws — so it has
+  // no business minting one.
+  return randomBytes(32).toString('hex');
 }
 
 /** One partner, or null. Never throws. */
@@ -166,6 +170,41 @@ export async function mintInvite(email, actorEmail) {
   rec.inviteCreatedAt = now;
   rec.inviteCreatedBy = actorEmail || '';
   rec.inviteAcceptedAt = null;
+  rec.updatedAt = now;
+  await _store().setJSON(partnerKey(email), rec);
+  return rec;
+}
+
+/**
+ * Find the partner an invite token belongs to. Deploy 236.873.
+ *
+ * The token is the ONLY credential a broker has before they have a login,
+ * so this is the one place an unauthenticated caller can reach a partner
+ * record — and it reaches exactly one. A token that matches nothing
+ * returns null and the caller says "this link isn't valid", never
+ * anything about which emails do or don't exist.
+ *
+ * Linear scan: the partner list is in the low hundreds, this runs once
+ * per signup, and an index would be a second thing to keep in sync.
+ */
+export async function findByInviteToken(token) {
+  const t = String(token || '').trim();
+  if (t.length < 16) return null; // too short to be one of ours
+  const all = await listPartners();
+  for (const p of all) {
+    if (p && p.inviteToken && p.inviteToken === t) return p;
+  }
+  return null;
+}
+
+/** Mark an invite consumed. The token is single-use: once a login exists,
+ *  the link that created it stops working. */
+export async function consumeInvite(email) {
+  const rec = await getPartner(email);
+  if (!rec) return null;
+  const now = new Date().toISOString();
+  rec.inviteAcceptedAt = now;
+  rec.inviteToken = '';
   rec.updatedAt = now;
   await _store().setJSON(partnerKey(email), rec);
   return rec;

@@ -3,68 +3,202 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Preferred Partner Access — SLA Capital</title>
+  <title>Preferred Partner Sign-Up — SLA Capital</title>
   <meta name="robots" content="noindex, nofollow" />
-  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
   <style>
-    /* Deploy 236.859 — the page an invite link lands on.
-       Phase 1 ships the partner RECORD and the approval workflow; the
-       sign-in + pricing surface is Phase 2. This page exists so a link an
-       admin copies today isn't a 404 tomorrow, and so the invite token has
-       somewhere real to arrive. It reads the token but does nothing with
-       it — no auth, no data, no endpoint. */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* Deploy 236.873 — the page an invite link lands on. The ONLY
+       unauthenticated surface in the broker portal: the invite token is
+       the credential, and /api/broker-claim treats it as one. */
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
     :root {
-      --gold: #C8813A; --gold-mid: #b5712d; --gold-light: rgba(200,129,58,0.10);
-      --gold-border: rgba(200,129,58,0.28); --dark: #261a36; --bg: #f0ece5;
-      --surface: #fff; --text: #1a1520; --muted: #7a7488; --border: #ddd8d0;
+      --gold:#C8813A; --gold-mid:#b5712d; --gold-light:rgba(200,129,58,0.10);
+      --gold-border:rgba(200,129,58,0.28); --dark:#261a36; --bg:#f0ece5;
+      --surface:#fff; --text:#1a1520; --muted:#7a7488; --border:#ddd8d0;
+      --danger:#7c1f1f; --success:#166534;
     }
-    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text);
-      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-      max-width: 520px; width: 100%; overflow: hidden; }
-    .top { background: var(--dark); padding: 26px 30px; border-bottom: 3px solid var(--gold); }
-    .top .eyebrow { font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
-      color: var(--gold); margin-bottom: 10px; }
-    .top h1 { font-family: 'Lora', serif; font-size: 25px; font-weight: 600; color: #f2ede6; line-height: 1.2; }
-    .body { padding: 26px 30px 30px; }
-    .body p { font-size: 14.5px; line-height: 1.65; color: var(--text); margin-bottom: 14px; }
-    .body p.muted { color: var(--muted); font-size: 13.5px; }
-    .body p:last-child { margin-bottom: 0; }
-    .badge { display: inline-block; background: var(--gold-light); border: 1px solid var(--gold-border);
-      color: var(--gold-mid); border-radius: 20px; padding: 4px 12px; font-size: 12px;
-      font-weight: 600; margin-bottom: 16px; }
-    a { color: var(--gold-mid); }
+    body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text);
+      min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:40px 24px 60px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      max-width:560px; width:100%; overflow:hidden; }
+    .top { background:var(--dark); padding:26px 30px; border-bottom:3px solid var(--gold); }
+    .top .eyebrow { font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--gold); margin-bottom:10px; }
+    .top h1 { font-family:'Lora',serif; font-size:25px; font-weight:600; color:#f2ede6; line-height:1.2; }
+    .body { padding:26px 30px 30px; }
+    .lead { font-size:14.5px; line-height:1.65; color:var(--muted); margin-bottom:20px; }
+    .lead b { color:var(--text); }
+
+    .f { margin-bottom:14px; }
+    .f label { display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.06em;
+      color:var(--muted); font-weight:600; margin-bottom:5px; }
+    .f input, .f select { width:100%; padding:10px 12px; border:1px solid var(--border);
+      border-radius:8px; font-family:inherit; font-size:14.5px; background:#fff; color:var(--text); }
+    .f input:disabled { background:#faf8f3; color:var(--muted); }
+    .f .hint { font-size:11.5px; color:var(--muted); margin-top:4px; }
+    .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .req { color:var(--danger); }
+
+    .btn { width:100%; margin-top:8px; padding:12px; border-radius:10px; border:1px solid var(--dark);
+      background:var(--dark); color:#f2ede6; font-family:inherit; font-size:15px; font-weight:600; cursor:pointer; }
+    .btn:disabled { opacity:.5; cursor:default; }
+    .msg { margin-top:14px; padding:11px 14px; border-radius:8px; font-size:13.5px; line-height:1.55; display:none; }
+    .msg.show { display:block; }
+    .msg.err { border:1px solid rgba(124,31,31,.35); background:rgba(124,31,31,.06); color:var(--danger); }
+    .msg.ok  { border:1px solid rgba(22,101,52,.30); background:rgba(22,101,52,.07); color:var(--success); }
+    .center { text-align:center; padding:20px 0; color:var(--muted); font-size:14px; }
+    a { color:var(--gold-mid); }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="top">
-      <div class="eyebrow">SLA Capital</div>
-      <h1>Preferred Partner access</h1>
+      <div class="eyebrow">SLA Capital · Preferred Partners</div>
+      <h1 id="hdr">Set up your account</h1>
     </div>
     <div class="body">
-      <span class="badge" id="state">Checking your invitation…</span>
-      <p id="lead">One moment.</p>
-      <p class="muted">Questions in the meantime? Reply to the person who sent you this link — your SLA loan officer can answer anything about pricing or a deal in progress.</p>
+      <div id="loading" class="center">Checking your invitation…</div>
+
+      <div id="form" style="display:none">
+        <p class="lead" id="lead"></p>
+
+        <div class="f"><label>Email</label>
+          <input type="email" id="email" disabled />
+          <div class="hint">This is the address your invitation was sent to, and the one you'll sign in with.</div>
+        </div>
+
+        <div class="row2">
+          <div class="f"><label>First Name <span class="req">*</span></label><input type="text" id="firstName" /></div>
+          <div class="f"><label>Last Name <span class="req">*</span></label><input type="text" id="lastName" /></div>
+        </div>
+
+        <div class="row2">
+          <div class="f"><label>Company <span class="req">*</span></label><input type="text" id="company" /></div>
+          <div class="f"><label>Phone</label><input type="tel" id="phone" /></div>
+        </div>
+
+        <!-- Invitation-only programme: we ask who sent them, and that
+             person becomes their rep and gets their deals. -->
+        <div class="f"><label>Who at SLA invited you? <span class="req">*</span></label>
+          <select id="repId"><option value="">Select…</option></select>
+          <div class="hint">They'll be your point of contact and will work the deals you send in.</div>
+        </div>
+
+        <div class="f"><label>Create a Password <span class="req">*</span></label>
+          <input type="password" id="password" autocomplete="new-password" />
+          <div class="hint" id="pwHint">At least 10 characters.</div>
+        </div>
+
+        <button type="button" class="btn" id="go" onclick="submitClaim()">Create My Account</button>
+        <div class="msg" id="msg"></div>
+      </div>
+
+      <div id="done" style="display:none"></div>
     </div>
   </div>
+
 <script>
-(function () {
-  var t = '';
-  try { t = new URLSearchParams(window.location.search).get('t') || ''; } catch (e) { t = ''; }
-  var state = document.getElementById('state');
-  var lead  = document.getElementById('lead');
-  if (!t) {
-    state.textContent = 'No invitation found';
-    lead.textContent = 'This page is for brokers we have invited to the SLA Capital Preferred Partner program. ' +
-      'If you were sent a link, please open it directly — it carries your invitation.';
+var TOKEN = '';
+try { TOKEN = new URLSearchParams(window.location.search).get('t') || ''; } catch (e) { TOKEN = ''; }
+
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function el(id){ return document.getElementById(id); }
+function say(kind, text){
+  var m = el('msg');
+  m.className = 'msg show ' + kind;
+  m.innerHTML = text;
+}
+
+function fail(text){
+  el('loading').style.display = 'none';
+  el('form').style.display = 'none';
+  el('hdr').textContent = 'Invitation not valid';
+  el('done').style.display = 'block';
+  el('done').innerHTML = '<p class="lead">' + escH(text) + '</p>' +
+    '<p class="lead">Already have an account? <a href="/">Sign in</a>.</p>';
+}
+
+// ── Load the invitation ──────────────────────────────────────────
+(function load(){
+  if (!TOKEN) {
+    fail('This page is for brokers we have invited to the Preferred Partner program. Please open the link from your invitation email.');
     return;
   }
-  state.textContent = 'Invitation received';
-  lead.textContent = 'Thanks — your Preferred Partner access is being set up. We will email you the moment ' +
-    'the pricing portal is open, and this link will take you straight in.';
+  fetch('/api/broker-claim?t=' + encodeURIComponent(TOKEN))
+    .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+    .then(function(res){
+      if (!res.ok) { fail((res.j && res.j.error) || 'This invitation link is not valid.'); return; }
+      var d = res.j;
+      el('loading').style.display = 'none';
+      el('form').style.display = 'block';
+      el('email').value = d.email || '';
+      el('firstName').value = d.firstName || '';
+      el('lastName').value  = d.lastName || '';
+      el('company').value   = d.company || '';
+      el('phone').value     = d.phone || '';
+      el('pwHint').textContent = 'At least ' + (d.minPassword || 10) + ' characters.';
+      el('lead').innerHTML =
+        'You\'ve been invited to price your own deals against SLA Capital\'s live rate sheets. ' +
+        'Set up your sign-in below — it takes a minute.';
+
+      var sel = el('repId');
+      var reps = d.reps || [];
+      sel.innerHTML = '<option value="">Select…</option>' + reps.map(function(r){
+        return '<option value="' + escH(r.id) + '">' + escH(r.name) + '</option>';
+      }).join('');
+      // If an admin already recorded who owns the relationship, preselect
+      // it rather than asking a question we know the answer to.
+      if (d.knownRep && d.knownRep.id) sel.value = d.knownRep.id;
+    })
+    .catch(function(){ fail('We could not check that invitation. Please try again in a moment.'); });
 })();
+
+// ── Create the account ───────────────────────────────────────────
+function submitClaim(){
+  var btn = el('go');
+  el('msg').className = 'msg';
+  var payload = {
+    t: TOKEN,
+    firstName: el('firstName').value.trim(),
+    lastName:  el('lastName').value.trim(),
+    company:   el('company').value.trim(),
+    phone:     el('phone').value.trim(),
+    repId:     el('repId').value,
+    password:  el('password').value,
+  };
+  if (!payload.firstName || !payload.lastName) { say('err', 'Please enter your first and last name.'); return; }
+  if (!payload.company) { say('err', 'Please enter your company name.'); return; }
+  if (!payload.repId)   { say('err', 'Please choose who at SLA invited you.'); return; }
+  if ((payload.password || '').length < 10) { say('err', 'Please choose a password of at least 10 characters.'); return; }
+
+  btn.disabled = true; btn.textContent = 'Creating your account…';
+  fetch('/api/broker-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+    .then(function(res){
+      btn.disabled = false; btn.textContent = 'Create My Account';
+      if (!res.ok) { say('err', (res.j && res.j.error) || 'Could not create your account.'); return; }
+      var d = res.j;
+      el('form').style.display = 'none';
+      el('hdr').textContent = 'You\'re all set';
+      el('done').style.display = 'block';
+      var repLine = d.rep && d.rep.name
+        ? '<p class="lead">Your SLA rep is <b>' + escH(d.rep.name) + '</b>. They\'ll be in touch and will work the deals you send in.</p>'
+        : '';
+      el('done').innerHTML =
+        '<p class="lead">Your account is ready. Sign in with <b>' + escH(d.email) + '</b> and the password you just chose.</p>' +
+        repLine +
+        (d.canPriceNow
+          ? '<p class="lead">You can start pricing right away.</p>'
+          : '<p class="lead">Your access is pending final approval — we\'ll email you the moment it\'s open.</p>') +
+        '<a class="btn" href="/" style="display:block;text-align:center;text-decoration:none;line-height:1.4">Go to sign in</a>';
+    })
+    .catch(function(){
+      btn.disabled = false; btn.textContent = 'Create My Account';
+      say('err', 'Something went wrong. Please try again, or contact your SLA representative.');
+    });
+}
 </script>
 </body>
 </html>
