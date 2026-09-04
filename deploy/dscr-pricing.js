@@ -598,6 +598,71 @@ function priceDSCR(raw) {
   };
 }
 
+// ── Deploy 236.877 — HISTORICAL PRICING for rate-lock repricing (Mike) ─────
+// A DSCR loan locked on an older sheet must REPRICE on that sheet, even after
+// newer sheets land (appraisal comes back two weeks into the lock). Each
+// entry stores ONLY the DIYA keys that differ from the NEXT NEWER sheet, with
+// the values AS OF that sheet (deltas verified against git history — every
+// rate update is a commit). setPricingAsOf(date) rebuilds DIYA in place for
+// the sheet in force on that date; the DIYA object reference never changes,
+// so the sizer's `var DIYA = SLA_DSCR.DIYA` aliases stay live. No call (or a
+// blank/late date) = the current sheet — golden tests are untouched.
+//
+// TO ADD A NEW SHEET: update DIYA as always, then push a new entry at the TOP
+// of PRICING_HISTORY whose overrides hold the PREVIOUS sheet's values for
+// every key the new sheet changed.
+var PRICING_HISTORY = [
+  { effective: '2026-09-02', label: 'September 2, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-01', label: 'September 1, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.525, "10/6 ARM": 6.525, "7/6 ARM": 6.425, "5/6 ARM": 6.425 },
+  } },
+  { effective: '2026-08-12', label: 'August 12, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.45, "10/6 ARM": 6.45, "7/6 ARM": 6.35, "5/6 ARM": 6.35 },
+  } },
+  { effective: '2026-08-04', label: 'August 4, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.375, "10/6 ARM": 6.375, "7/6 ARM": 6.275, "5/6 ARM": 6.275 },
+  } },
+  { effective: '2026-07-22', label: 'July 22, 2026', overrides: {
+    portfolio: [0.200, 0.200, 0.200, 0.200, 0.200, 0.200, 0.200],
+    dscr: {
+      "1.00-1.19": [0,0,0,0,0,0,0],
+      "1.20+":     [-0.050,-0.050,-0.050,-0.050,-0.075,-0.100,-0.125],
+    },
+  } },
+];
+// Pristine copies of the current values for every key any override touches
+// (captured at load, before any setPricingAsOf mutation).
+var _CURRENT_TABLES = (function () {
+  var keys = { effectiveDate: 1 };
+  PRICING_HISTORY.forEach(function (e) { Object.keys(e.overrides).forEach(function (k) { keys[k] = 1; }); });
+  var out = {};
+  Object.keys(keys).forEach(function (k) { out[k] = JSON.parse(JSON.stringify(DIYA[k])); });
+  return out;
+})();
+var _activePricing = { effective: PRICING_HISTORY[0].effective, label: PRICING_HISTORY[0].label, isCurrent: true };
+function setPricingAsOf(dateStr) {
+  var d = String(dateStr || '').slice(0, 10);
+  var targetIdx = 0;
+  if (d) {
+    targetIdx = -1;
+    for (var i = 0; i < PRICING_HISTORY.length; i++) {
+      if (PRICING_HISTORY[i].effective <= d) { targetIdx = i; break; }
+    }
+    if (targetIdx < 0) targetIdx = PRICING_HISTORY.length - 1; // older than oldest sheet
+  }
+  // Reset to current, then walk newest→target applying each sheet's values.
+  Object.keys(_CURRENT_TABLES).forEach(function (k) { DIYA[k] = JSON.parse(JSON.stringify(_CURRENT_TABLES[k])); });
+  for (var j = 1; j <= targetIdx; j++) {
+    var ov = PRICING_HISTORY[j].overrides;
+    Object.keys(ov).forEach(function (k) { DIYA[k] = JSON.parse(JSON.stringify(ov[k])); });
+  }
+  var t = PRICING_HISTORY[targetIdx];
+  DIYA.effectiveDate = t.label;
+  _activePricing = { effective: t.effective, label: t.label, isCurrent: targetIdx === 0 };
+  return _activePricing;
+}
+function activePricing() { return _activePricing; }
+
 // ── Export root: browser global + CommonJS for the test runner ─────
 var _SLA_DSCR_API = {
   DIYA: DIYA, FEES: FEES, GUIDELINES: GUIDELINES,
@@ -605,6 +670,9 @@ var _SLA_DSCR_API = {
   validateGuidelines: validateGuidelines, getFICOMin: getFICOMin,
   EXCEPTION_HINT: EXCEPTION_HINT,
   priceDSCR: priceDSCR,
+  // Deploy 236.877 — historical pricing (rate-lock repricing).
+  setPricingAsOf: setPricingAsOf, activePricing: activePricing,
+  PRICING_HISTORY: PRICING_HISTORY,
 };
 if (typeof window !== 'undefined') window.SLA_DSCR = _SLA_DSCR_API;
 if (typeof module !== 'undefined' && module.exports) module.exports = _SLA_DSCR_API;

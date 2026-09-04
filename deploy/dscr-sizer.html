@@ -471,7 +471,7 @@
   effectiveDate), run `node scripts/pricing-test.mjs` (golden tests —
   only intended diffs may appear), re-baseline the goldens, redeploy.
 ════════════════════════════════════════════════════════ -->
-<script src="dscr-pricing.js?v=236842"></script>
+<script src="dscr-pricing.js?v=236877"></script>
 <script>
 // Deploy 236.406 (Hardening G1) — pricing engine extracted to
 // dscr-pricing.js so scripts/pricing-test.mjs can golden-test it
@@ -937,6 +937,73 @@ function fmtD(n) {
 function fmtX(n) { return n!=null?n.toFixed(2)+'x':'&mdash;'; }
 var calcPI = SLA_DSCR.calcPI;
 var EXCEPTION_HINT = SLA_DSCR.EXCEPTION_HINT;
+
+// ── Deploy 236.877 — rate-lock historical pricing (Mike) ──────────────
+// A loan with an ACTIVE 45-day rate lock reprices on the sheet in force on
+// its lock date, even when newer sheets have landed since. Expired lock →
+// current pricing (Mike's rule). Switching a locked loan to a different
+// sheet requires Admin Mode.
+var _lockPricing = { lockStart: '', days: 0, expired: false, mode: '', active: null, lockSheet: null };
+function _lockSheetFor(d) {
+  var H = (window.SLA_DSCR && SLA_DSCR.PRICING_HISTORY) || [];
+  for (var i = 0; i < H.length; i++) { if (H[i].effective <= d) return H[i]; }
+  return H.length ? H[H.length - 1] : null;
+}
+function applyLockPricing(loan) {
+  if (!window.SLA_DSCR || !SLA_DSCR.setPricingAsOf) return;
+  var start = String((loan && (loan.rateLockStart || loan.borrowerInfoCompletedAt)) || '').slice(0, 10);
+  _lockPricing = { lockStart: start, days: 0, expired: false, mode: '', active: null, lockSheet: null };
+  if (!start) { _lockPricing.active = SLA_DSCR.setPricingAsOf(''); renderLockPricingBanner(); return; }
+  _lockPricing.days = Math.floor((Date.now() - new Date(start + 'T00:00:00').getTime()) / 86400000);
+  _lockPricing.expired = _lockPricing.days > 45;
+  _lockPricing.lockSheet = _lockSheetFor(start);
+  _lockPricing.mode = _lockPricing.expired ? 'current' : 'lock';
+  _lockPricing.active = SLA_DSCR.setPricingAsOf(_lockPricing.mode === 'lock' ? start : '');
+  renderLockPricingBanner();
+}
+function toggleLockPricing() {
+  var t = document.getElementById('adminModeToggle');
+  if (!(t && t.checked)) { showToast('Admin Mode is required to reprice a locked loan on a different sheet.'); return; }
+  _lockPricing.mode = _lockPricing.mode === 'lock' ? 'current' : 'lock';
+  _lockPricing.active = SLA_DSCR.setPricingAsOf(_lockPricing.mode === 'lock' ? _lockPricing.lockStart : '');
+  renderLockPricingBanner();
+  try { calculate(); } catch (_) {}
+}
+function renderLockPricingBanner() {
+  var el = document.getElementById('lockPricingBanner');
+  if (!el) {
+    var res = document.getElementById('results');
+    if (!res || !res.parentNode) return;
+    el = document.createElement('div');
+    el.id = 'lockPricingBanner';
+    res.parentNode.insertBefore(el, res);
+  }
+  var lp = _lockPricing;
+  if (!lp.lockStart || !lp.active) { el.style.display = 'none'; return; }
+  // Lock date maps to the current sheet anyway — nothing to switch, no banner noise.
+  var sameSheet = lp.lockSheet && lp.active.isCurrent && lp.lockSheet.effective === lp.active.effective;
+  var msg, bord, bg, col;
+  if (lp.expired) {
+    msg = '🔓 <strong>Rate lock expired</strong> (locked ' + escH(lp.lockStart) + ', day ' + lp.days + ' of 45) — pricing at ' +
+      (lp.mode === 'current' ? '<strong>current rates (' + escH(lp.active.label) + ' sheet)</strong>' : '<strong>the locked sheet (' + escH(lp.active.label) + ')</strong>') + '.';
+    bg = 'rgba(124,31,31,0.08)'; bord = 'rgba(124,31,31,0.35)'; col = '#7c1f1f';
+  } else if (sameSheet) {
+    el.style.display = 'none'; return;
+  } else {
+    msg = '🔒 <strong>Rate locked ' + escH(lp.lockStart) + '</strong> (day ' + Math.max(0, lp.days) + ' of 45) — priced on the <strong>' +
+      escH(lp.active.label) + '</strong> rate sheet' + (lp.active.isCurrent ? '' : ', not the current sheet') + '.';
+    bg = 'rgba(37,105,64,0.08)'; bord = 'rgba(37,105,64,0.35)'; col = '#166534';
+  }
+  var btn = '';
+  if (lp.lockSheet && (!lp.lockSheet.effective || lp.lockSheet.effective !== ((SLA_DSCR.PRICING_HISTORY[0] || {}).effective))) {
+    btn = ' <button type="button" onclick="toggleLockPricing()" ' +
+      'title="Admin Mode required — switches this pricing session between the locked sheet and current rates" ' +
+      'style="margin-left:10px;font-size:11.5px;font-weight:600;padding:4px 10px;border:1px solid ' + bord + ';background:#fff;color:' + col + ';border-radius:6px;cursor:pointer;font-family:inherit">' +
+      (lp.mode === 'lock' ? 'Use current pricing' : 'Price on the locked sheet (' + escH((lp.lockSheet && lp.lockSheet.label) || '') + ')') + '</button>';
+  }
+  el.innerHTML = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:10px 14px;margin-bottom:12px;border:1px solid ' + bord + ';background:' + bg + ';color:' + col + ';border-radius:8px;font-size:13px;line-height:1.5">' + msg + btn + '</div>';
+  el.style.display = '';
+}
 
 // Deploy 236.406 (G1) — calculate() is now a thin DOM gatherer; all
 // pricing math is SLA_DSCR.priceDSCR (golden-locked, byte-identical
@@ -3636,6 +3703,12 @@ function saveCurrentQuote() {
   // no-op'ing while showing the LO the "Saved" toast.
   if (window.ClientBook) {
     var loanRecord = ClientBook.buildLoanFromSizer('dscr', formData.address, formData, 'active');
+    // Deploy 236.877 — record WHICH rate sheet priced this save (rate-lock
+    // historical pricing). Shows in the audit log; drift checks can verify a
+    // locked loan against the sheet that actually priced it.
+    if (window.SLA_DSCR && SLA_DSCR.activePricing) {
+      loanRecord.pricedWithSheet = SLA_DSCR.activePricing().effective || '';
+    }
     // Deploy 236.257 — attach the raw formData so the backend can
     // snapshot it verbatim into loan.sizerHistory[] and the History
     // panel's "restore" action can rehydrate every input the LO
@@ -4832,6 +4905,9 @@ netlifyIdentity.on('init', function(user) {
           // empty-state hint). Runs BEFORE loadQuoteIntoForm so the
           // panel is visible from first paint.
           try { paintSizerHistory(found.sizerHistory || []); } catch (_) {}
+          // Deploy 236.877 — swap in the rate sheet in force on this loan's
+          // lock date BEFORE the form loads and calculates.
+          try { applyLockPricing(found); } catch (_) {}
           loadQuoteIntoForm(fd);
           tryAutoDownload(); trySignatureHandoff();
           return true;

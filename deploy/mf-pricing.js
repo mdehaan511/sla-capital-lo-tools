@@ -655,6 +655,49 @@ function priceDSCR(raw) {
   };
 }
 
+// ── Deploy 236.877 — HISTORICAL PRICING for rate-lock repricing (Mike) ─────
+// Same machinery as dscr-pricing.js (see the comment there). MF 5+ sheets so
+// far only ever moved base rates; deltas verified against git history. The
+// MF sizer launched on the 8-7-26 matrix, so no MF lock can predate it.
+var PRICING_HISTORY = [
+  { effective: '2026-09-02', label: 'September 2, 2026', overrides: {} }, // current DIYA
+  { effective: '2026-09-01', label: 'September 1, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.525, "10/6 ARM": 6.525, "7/6 ARM": 6.425, "5/6 ARM": 6.425 },
+  } },
+  { effective: '2026-08-07', label: 'August 7, 2026', overrides: {
+    baseRate: { "30Y Fixed": 6.45, "10/6 ARM": 6.45, "7/6 ARM": 6.35, "5/6 ARM": 6.35 },
+  } },
+];
+var _CURRENT_TABLES = (function () {
+  var keys = { effectiveDate: 1 };
+  PRICING_HISTORY.forEach(function (e) { Object.keys(e.overrides).forEach(function (k) { keys[k] = 1; }); });
+  var out = {};
+  Object.keys(keys).forEach(function (k) { out[k] = JSON.parse(JSON.stringify(DIYA[k])); });
+  return out;
+})();
+var _activePricing = { effective: PRICING_HISTORY[0].effective, label: PRICING_HISTORY[0].label, isCurrent: true };
+function setPricingAsOf(dateStr) {
+  var d = String(dateStr || '').slice(0, 10);
+  var targetIdx = 0;
+  if (d) {
+    targetIdx = -1;
+    for (var i = 0; i < PRICING_HISTORY.length; i++) {
+      if (PRICING_HISTORY[i].effective <= d) { targetIdx = i; break; }
+    }
+    if (targetIdx < 0) targetIdx = PRICING_HISTORY.length - 1;
+  }
+  Object.keys(_CURRENT_TABLES).forEach(function (k) { DIYA[k] = JSON.parse(JSON.stringify(_CURRENT_TABLES[k])); });
+  for (var j = 1; j <= targetIdx; j++) {
+    var ov = PRICING_HISTORY[j].overrides;
+    Object.keys(ov).forEach(function (k) { DIYA[k] = JSON.parse(JSON.stringify(ov[k])); });
+  }
+  var t = PRICING_HISTORY[targetIdx];
+  DIYA.effectiveDate = t.label;
+  _activePricing = { effective: t.effective, label: t.label, isCurrent: targetIdx === 0 };
+  return _activePricing;
+}
+function activePricing() { return _activePricing; }
+
 // ── Export root: browser global + CommonJS for the test runner ─────
 var _SLA_DSCR_API = {
   DIYA: DIYA, FEES: FEES, GUIDELINES: GUIDELINES,
@@ -663,6 +706,9 @@ var _SLA_DSCR_API = {
   EXCEPTION_HINT: EXCEPTION_HINT,
   priceDSCR: priceDSCR,
   OPEX_FIELDS: OPEX_FIELDS, // Deploy 236.750
+  // Deploy 236.877 — historical pricing (rate-lock repricing).
+  setPricingAsOf: setPricingAsOf, activePricing: activePricing,
+  PRICING_HISTORY: PRICING_HISTORY,
 };
 if (typeof window !== 'undefined') window.SLA_DSCR = _SLA_DSCR_API;
 if (typeof module !== 'undefined' && module.exports) module.exports = _SLA_DSCR_API;
