@@ -37,7 +37,7 @@ async function handle(req, context) {
   if (!isProcessor(user)) return json(403, { error: 'Processor or admin role required' });
 
   const loans = await db.select('loans', {
-    select: 'id,status,loan_amount,extra',
+    select: 'id,status,loan_amt,extra',
     in: { status: ['cancelled', 'denied'] },
   }) || [];
 
@@ -58,7 +58,7 @@ async function handle(req, context) {
     const extra = (l.extra && typeof l.extra === 'object') ? l.extra : {};
     const code = String(extra.endReasonCode || '').trim() || '_none';
     const b = bucketFor(code);
-    const amt = parseFloat(String(l.loan_amount || '').replace(/[$,]/g, '')) || 0;
+    const amt = parseFloat(String(l.loan_amt || '').replace(/[$,]/g, '')) || 0;
     if (l.status === 'cancelled') { b.cancelled++; totals.cancelled++; }
     else { b.declined++; totals.declined++; }
     b.total++; totals.total++;
